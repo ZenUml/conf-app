@@ -1,8 +1,8 @@
 <template>
   <svg
     xmlns="http://www.w3.org/2000/svg"
-    :width="props.width || 24"
-    :height="props.height || 24"
+    :width="width || 24"
+    :height="height || 24"
     viewBox="0 0 24 24"
     stroke-width="2"
     stroke="currentColor"
@@ -19,23 +19,11 @@
   </svg>
 </template>
 
-<script>
-import { defineComponent } from "vue";
+<script setup lang="ts">
+import { defineProps } from "vue";
 
-export default defineComponent({
-  name: "IconEdit",
-  props: {
-    width: {
-      type: String,
-      default: "24"
-    },
-    height: {
-      type: String,
-      default: "24"
-    },
-  },
-  setup(props) {
-    return {props};
-  }
-});
+defineProps<{
+  width: string;
+  height: string;
+}>();
 </script>

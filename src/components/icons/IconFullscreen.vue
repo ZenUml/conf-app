@@ -4,18 +4,17 @@
     :width="width || 24"
     :height="height || 24"
     viewBox="0 0 24 24"
-    stroke-width="2"
-    stroke="currentColor"
     fill="none"
+    stroke="currentColor"
+    stroke-width="2"
     stroke-linecap="round"
     stroke-linejoin="round"
   >
     <path stroke="none" d="M0 0h24v24H0z" fill="none" />
-    <path d="M7 7h-1a2 2 0 0 0 -2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2 -2v-1" />
-    <path
-      d="M20.385 6.585a2.1 2.1 0 0 0 -2.97 -2.97l-8.415 8.385v3h3l8.385 -8.415z"
-    />
-    <path d="M16 5l3 3" />
+    <path d="M4 8v-2a2 2 0 0 1 2 -2h2" />
+    <path d="M4 16v2a2 2 0 0 0 2 2h2" />
+    <path d="M16 4h2a2 2 0 0 1 2 2v2" />
+    <path d="M16 20h2a2 2 0 0 0 2 -2v-2" />
   </svg>
 </template>
 

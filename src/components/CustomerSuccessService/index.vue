@@ -6,7 +6,7 @@
     >
       <div class="max-w-sm p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
         <a href="#">
-          <h5 class="mb-2 text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Dear User,</h5>
+          <h5 class="mb-2 text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Dear {{currentUser}},</h5>
         </a>
         <p class="mb-3 font-normal text-gray-700 dark:text-gray-400">
           As one of the most frequent customers using ZenUML🌟, we want to offer you <strong>180 days</strong> of FREE, Top-Prioritized customer success services!✅
@@ -14,7 +14,7 @@
         <p class="mb-3 font-normal text-gray-700 dark:text-gray-400">
           Click the BUTTON below ⬇️ to schedule a meeting with our Customer Success Manager!
         </p>
-        <a href="/typeform-link" target="_blank"
+        <a :href="dialogLink" target="_blank"
            class="text-white justify-center flex items-center bg-blue-700 hover:bg-blue-800 w-full focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 mb-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">
           <svg class="w-3.5 h-3.5 me-2.5" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20">
             <path d="M18 2h-2V1a1 1 0 0 0-2 0v1h-3V1a1 1 0 0 0-2 0v1H6V1a1 1 0 0 0-2 0v1H2a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2ZM2 18V7h6.7l.4-.409A4.309 4.309 0 0 1 15.753 7H18v11H2Z"/>
@@ -40,14 +40,20 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import getFeatureFlags from "@/apis/featureFlags";
+import AP from "@/model/AP";
 
 const showDialog = ref(false);
+const currentUser = ref('ZenUML User');
+const dialogLink = ref('#');
 const dialogDataKey = 'customer-success-service-dialog-data';
+const instanceId = Math.random().toString(36).substr(2, 9); // Unique identifier for this instance
 
 function initializeDialogData() {
   const initialData = {
     dialogShownCounter: 0,
     lastDialogTimestamp: new Date().toISOString(),
+    instanceId, // Store the instanceId that last updated the dialog data
   };
   localStorage.setItem(dialogDataKey, JSON.stringify(initialData));
 }
@@ -57,37 +63,64 @@ function getDialogData() {
   return data ? JSON.parse(data) : null;
 }
 
-function showDialogLogic() {
-  const data = getDialogData();
-
-  if (!data) {
-    initializeDialogData();
-    showDialog.value = true;
+async function showDialogLogic() {
+  const customerSuccessService = await getFeatureFlags(['CUSTOMER_SUCCESS_SERVICE']);
+  // @ts-ignore
+  if(!customerSuccessService.CUSTOMER_SUCCESS_SERVICE) {
     return;
   }
+  // @ts-ignore
+  const popup = customerSuccessService.CUSTOMER_SUCCESS_SERVICE;
+  dialogLink.value = popup.navigateLink;
 
-  if (data.dialogShownCounter >= 7) {
-    return; // Stop showing the dialog after 7 times
+  const data = getDialogData();
+
+  if (!data || data.dialogShownCounter >= 7) {
+    return; // Either no data or we've shown the dialog enough times
   }
 
-  const lastShown = new Date(data.lastDialogTimestamp).getTime(); // Convert to timestamp
-  const today = new Date().getTime(); // Convert to timestamp
-  const diffDays = Math.floor((today - lastShown) / (1000 * 60 * 60 * 24));
+  // Update Local Storage preemptively with this instance's ID and timestamp
+  localStorage.setItem(dialogDataKey, JSON.stringify({ ...data, instanceId, lastDialogTimestamp: new Date().toISOString() }));
 
-  if (diffDays >= 1) {
-    showDialog.value = true;
-  }
+  setTimeout(() => {
+    const currentData = getDialogData();
+    // Check if this instance's ID is still the last one that wrote to Local Storage
+    if (currentData && currentData.instanceId === instanceId) {
+      showDialog.value = true;
+    }
+  }, 5000); // Delay showing the dialog for 5 seconds
 }
 
 function updateDialogData() {
   const data = getDialogData() || { dialogShownCounter: 0, lastDialogTimestamp: new Date().toISOString() };
   data.dialogShownCounter += 1;
-  data.lastDialogTimestamp = new Date().toISOString();
   localStorage.setItem(dialogDataKey, JSON.stringify(data));
   showDialog.value = false;
 }
 
+// Listen for Local Storage changes to synchronize dialog visibility across instances
+window.addEventListener('storage', (event) => {
+  if (event.key === dialogDataKey) {
+    const updatedData = getDialogData();
+    if (updatedData && updatedData.instanceId !== instanceId) {
+      // Another instance has updated the data; don't show the dialog here
+      showDialog.value = false;
+    }
+  }
+});
+
 onMounted(() => {
+  AP.request({
+    url: `/rest/api/user/current`,
+    type: 'GET',
+    contentType: 'Application/json',
+    success: function (data: any) {
+      console.log('User data:', data);
+      currentUser.value = JSON.parse(data).publicName;
+    },
+    error: console.error
+  });
   showDialogLogic();
 });
+
 </script>

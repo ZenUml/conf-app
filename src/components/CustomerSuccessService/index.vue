@@ -50,9 +50,12 @@ const dialogDataKey = 'customer-success-service-dialog-data';
 const instanceId = Math.random().toString(36).substr(2, 9); // Unique identifier for this instance
 
 function initializeDialogData() {
+  const lastYear = new Date();
+  lastYear.setFullYear(lastYear.getFullYear() - 1); // Set to the same date last year
+
   const initialData = {
     dialogShownCounter: 0,
-    lastDialogTimestamp: new Date().toISOString(),
+    lastDialogTimestamp: lastYear.toISOString(),
     instanceId, // Store the instanceId that last updated the dialog data
   };
   localStorage.setItem(dialogDataKey, JSON.stringify(initialData));
@@ -73,22 +76,31 @@ async function showDialogLogic() {
   const popup = customerSuccessService.CUSTOMER_SUCCESS_SERVICE;
   dialogLink.value = popup.navigateLink;
 
-  const data = getDialogData();
-
-  if (!data || data.dialogShownCounter >= 7) {
-    return; // Either no data or we've shown the dialog enough times
+  let data = getDialogData();
+  if (!data) {
+    initializeDialogData(); // Initialize if data doesn't exist
+    data = getDialogData(); // Fetch the newly initialized data
   }
 
-  // Update Local Storage preemptively with this instance's ID and timestamp
-  localStorage.setItem(dialogDataKey, JSON.stringify({ ...data, instanceId, lastDialogTimestamp: new Date().toISOString() }));
+  if (data.dialogShownCounter >= 7) {
+    return; // Dialog has been shown enough times
+  }
 
-  setTimeout(() => {
-    const currentData = getDialogData();
-    // Check if this instance's ID is still the last one that wrote to Local Storage
-    if (currentData && currentData.instanceId === instanceId) {
+  const lastShown = new Date(data.lastDialogTimestamp).getTime(); // Get the timestamp of the last dialog show
+  const today = new Date().getTime(); // Get the current timestamp
+  const diffDays = Math.floor((today - lastShown) / (1000 * 60 * 60 * 24));
+
+  if (diffDays >= 1) {
+    // If at least one day has passed since the dialog was last shown
+
+    // Preemptively update Local Storage with the current instance's intention
+    localStorage.setItem(dialogDataKey, JSON.stringify({ ...data, instanceId, lastDialogTimestamp: new Date().toISOString() }));
+
+    setTimeout(() => {
+      // After a 5-second delay, show the dialog
       showDialog.value = true;
-    }
-  }, 5000); // Delay showing the dialog for 5 seconds
+    }, 5000); // Delay showing the dialog for 5 seconds
+  }
 }
 
 function updateDialogData() {

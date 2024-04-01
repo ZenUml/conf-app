@@ -14,7 +14,7 @@
         <p class="mb-3 font-normal text-gray-700 dark:text-gray-400">
           Click the BUTTON below ⬇️ to schedule a meeting with our Customer Success Manager!
         </p>
-        <a :href="dialogLink" target="_blank"
+        <a :href="dialogLink" target="_blank" @click="scheduleMeeting"
            class="text-white justify-center flex items-center bg-blue-700 hover:bg-blue-800 w-full focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 mb-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">
           <svg class="w-3.5 h-3.5 me-2.5" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20">
             <path d="M18 2h-2V1a1 1 0 0 0-2 0v1h-3V1a1 1 0 0 0-2 0v1H6V1a1 1 0 0 0-2 0v1H2a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2ZM2 18V7h6.7l.4-.409A4.309 4.309 0 0 1 15.753 7H18v11H2Z"/>
@@ -31,7 +31,7 @@
               <path d="m117.414,140.581l-15.218,9.775c-13.306,8.914-21.292,23.876-21.292,39.892h76.511c0-16.016-7.986-30.978-21.292-39.892l-15.218-9.775c-1.074-0.644-2.416-0.644-3.491,0z"/>
             </g>
           </svg>
-          Ask Me Tomorrow({{ 7 - (getDialogData()?.dialogShownCounter || 0) }})
+          {{getDialogData()?.dialogShownCounter === 7 ? "No, thanks": `Ask Me Tomorrow(${ 7 - (getDialogData()?.dialogShownCounter || 0) })`}}
         </button>
       </div>
     </div>
@@ -87,7 +87,7 @@ async function showDialogLogic() {
     data = getDialogData(); // Fetch the newly initialized data
   }
 
-  if (data.dialogShownCounter >= 7) {
+  if (data.dialogShownCounter > 7) {
     trackEvent(`${instanceId}: ${data.dialogShownCounter}`, 'dialog-silenced', 'customer-success-service')
     return; // Dialog has been shown enough times
   }
@@ -115,7 +115,15 @@ function updateDialogData() {
   data.dialogShownCounter += 1;
   localStorage.setItem(dialogDataKey, JSON.stringify(data));
   showDialog.value = false;
-  trackEvent(`${instanceId}`, 'dialog-close-dialog', 'customer-success-service')
+  trackEvent(`${instanceId}`, 'close-dialog', 'customer-success-service')
+}
+
+function scheduleMeeting() {
+  const data = getDialogData() || { dialogShownCounter: 0, instanceId, lastDialogTimestamp: new Date().toISOString() };
+  data.dialogShownCounter = 999;
+  localStorage.setItem(dialogDataKey, JSON.stringify(data));
+  showDialog.value = false;
+  trackEvent(`${instanceId}`, 'schedule-meeting', 'customer-success-service')
 }
 
 // Listen for Local Storage changes to synchronize dialog visibility across instances

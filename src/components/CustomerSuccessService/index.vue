@@ -42,6 +42,7 @@
 import { onMounted, ref } from 'vue';
 import getFeatureFlags from "@/apis/featureFlags";
 import AP from "@/model/AP";
+import {trackEvent} from "@/utils/window";
 
 const showDialog = ref(false);
 const currentUser = ref('ZenUML User');
@@ -50,6 +51,7 @@ const dialogDataKey = 'customer-success-service-dialog-data';
 const instanceId = Math.random().toString(36).substr(2, 9); // Unique identifier for this instance
 
 function initializeDialogData() {
+  trackEvent(`${instanceId}`, 'initialize-dialog-data', 'customer-success-service')
   const lastYear = new Date();
   lastYear.setFullYear(lastYear.getFullYear() - 1); // Set to the same date last year
 
@@ -67,9 +69,12 @@ function getDialogData() {
 }
 
 async function showDialogLogic() {
+  trackEvent(`${instanceId}`, 'get-feature-flags', 'customer-success-service')
+
   const customerSuccessService = await getFeatureFlags(['CUSTOMER_SUCCESS_SERVICE']);
   // @ts-ignore
   if(!customerSuccessService.CUSTOMER_SUCCESS_SERVICE) {
+    trackEvent(`${instanceId}`, 'hold', 'customer-success-service')
     return;
   }
   // @ts-ignore
@@ -83,38 +88,44 @@ async function showDialogLogic() {
   }
 
   if (data.dialogShownCounter >= 7) {
+    trackEvent(`${instanceId}: ${data.dialogShownCounter}`, 'dialog-silenced', 'customer-success-service')
     return; // Dialog has been shown enough times
   }
 
   const lastShown = new Date(data.lastDialogTimestamp).getTime(); // Get the timestamp of the last dialog show
   const today = new Date().getTime(); // Get the current timestamp
   const diffDays = Math.floor((today - lastShown) / (1000 * 60 * 60 * 24));
+  trackEvent(`${instanceId}: diff - ${diffDays}`, 'dialog', 'customer-success-service')
 
   if (diffDays >= 1) {
-    // If at least one day has passed since the dialog was last shown
-
     // Preemptively update Local Storage with the current instance's intention
     localStorage.setItem(dialogDataKey, JSON.stringify({ ...data, instanceId, lastDialogTimestamp: new Date().toISOString() }));
+    trackEvent(`${instanceId}`, 'ls-updated', 'customer-success-service')
 
     setTimeout(() => {
       // After a 5-second delay, show the dialog
       showDialog.value = true;
+      trackEvent(`${instanceId}`, 'show-dialog', 'customer-success-service')
     }, 5000); // Delay showing the dialog for 5 seconds
   }
 }
 
 function updateDialogData() {
-  const data = getDialogData() || { dialogShownCounter: 0, lastDialogTimestamp: new Date().toISOString() };
+  const data = getDialogData() || { dialogShownCounter: 0, instanceId, lastDialogTimestamp: new Date().toISOString() };
   data.dialogShownCounter += 1;
   localStorage.setItem(dialogDataKey, JSON.stringify(data));
   showDialog.value = false;
+  trackEvent(`${instanceId}`, 'dialog-close-dialog', 'customer-success-service')
 }
 
 // Listen for Local Storage changes to synchronize dialog visibility across instances
 window.addEventListener('storage', (event) => {
   if (event.key === dialogDataKey) {
+    trackEvent(`${instanceId}`, 'on-ls-updated', 'customer-success-service')
+
     const updatedData = getDialogData();
     if (updatedData && updatedData.instanceId !== instanceId) {
+      trackEvent(`${instanceId}, ${updatedData.instanceId}`, 'hide-dialog', 'customer-success-service')
       // Another instance has updated the data; don't show the dialog here
       showDialog.value = false;
     }
@@ -122,13 +133,14 @@ window.addEventListener('storage', (event) => {
 });
 
 onMounted(() => {
+  trackEvent(`${instanceId}`, 'mounted', 'customer-success-service')
   AP.request({
     url: `/rest/api/user/current`,
     type: 'GET',
     contentType: 'Application/json',
     success: function (data: any) {
-      console.log('User data:', data);
       currentUser.value = JSON.parse(data).publicName;
+      trackEvent(`${instanceId}`, 'get-current-user', 'customer-success-service')
     },
     error: console.error
   });

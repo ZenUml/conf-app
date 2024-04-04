@@ -110,15 +110,15 @@
       <div class="flex-1 flex overflow-hidden">
         <main v-if="viewStyle == 'table'" class="tableViewList flex flex-1">
           <div
-            class="flex flex-col w-full max-w-md flex-grow border-l border-r"
+            class="flex flex-col w-full max-w-md flex-grow border-r"
           >
             <div
               id="tableScrollContainer"
-              class="flex-1 px-4 overflow-y-auto"
+              class="flex-1 overflow-y-auto"
               @scroll="handleScroll"
             >
               <div
-                class="flex flex-shrink-0 items-center py-4 justify-between text-gray-500 font-bold text-xs"
+                class="flex flex-shrink-0 items-center py-4 justify-between text-gray-500 font-bold text-xs px-4"
               >
                 RECENT DIAGRAMS AND API SPECS
               </div>
@@ -129,7 +129,7 @@
                 <a
                   @click="picked = customContentItem"
                   href="#"
-                  class="relative block p-4 hover:bg-gray-50 rounded-md border-gray-200 border-[1px] border-solid mb-4"
+                  class="relative block p-4 hover:bg-gray-50 border-gray-200 border-[1px] border-solid border-b-0 border-l-0"
                   :class="{
                     'bg-gray-100 hover:bg-gray-100':
                       customContentItem.id === (picked && picked.id),

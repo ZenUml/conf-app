@@ -10,6 +10,14 @@ import EventBus from "@/EventBus";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { trackEvent } from "@/utils/window";
 let zenuml;
+const getThemeStorageKey = (id) => {
+  if (id === "global") {
+    return `${location.hostname}-zenuml-conf-theme`;
+  }
+  return id
+    ? `${location.hostname}-${id}-zenuml-conf-theme`
+    : `${location.hostname}-preserve-zenuml-conf-theme`;
+};
 export default {
   name: "Sequence",
   computed: {
@@ -32,31 +40,32 @@ export default {
   },
   methods: {
     async render() {
-      const theme = this.$store.state.diagram.id
-        ? localStorage.getItem(
-            `${location.hostname}-${this.$store.state.diagram.id}-zenuml-theme`
-          )
-        : sessionStorage.getItem(`${location.hostname}-preserve-zenuml-theme`);
+      const id = this.$store.state.diagram.id;
+      const globalTheme = localStorage.getItem(getThemeStorageKey("global"));
+      const scopeTheme = id
+        ? localStorage.getItem(getThemeStorageKey(id))
+        : sessionStorage.getItem(getThemeStorageKey());
       await zenuml.render(this.$store.state.diagram.code, {
         // stickyOffset is used only at view mode or edit when the iframe scroll out of the viewport
         // In fullscreen viewer or editor mode, the iFrame element is not scrollable, so we don't need to offset.
         // Note when the iframe is not scrollable, the stickyOffset does not have any effect.
-        theme: theme || "theme-default",
+        theme: scopeTheme || globalTheme || "theme-default",
+        enableScopedTheming: Boolean(scopeTheme),
         stickyOffset: 56,
         onContentChange: this.updateCode,
-        onThemeChange: (theme) => {
-          trackEvent('set_theme', 'click', 'sequence')
+        onThemeChange: ({ theme, scoped }) => {
+          if (!scoped) {
+            trackEvent("set_theme_global", "click", "sequence");
+            localStorage.setItem(getThemeStorageKey("global"), theme);
+            localStorage.setItem(getThemeStorageKey(id), "");
+            return;
+          }
+          trackEvent("set_theme_scoped", "click", "sequence");
           // there will not be an id when the diagram is just created
-          if (this.$store.state.diagram.id) {
-            localStorage.setItem(
-              `${location.hostname}-${this.$store.state.diagram.id}-zenuml-theme`,
-              theme
-            );
+          if (id) {
+            localStorage.setItem(getThemeStorageKey(id), theme);
           } else {
-            sessionStorage.setItem(
-              `${location.hostname}-preserve-zenuml-theme`,
-              theme
-            );
+            sessionStorage.setItem(getThemeStorageKey(), theme);
           }
         },
       });
@@ -78,8 +87,8 @@ export default {
 </script>
 
 <style>
-  #headlessui-portal-root {
-    position: relative;
-    z-index: 11;
-  }
+#headlessui-portal-root {
+  position: relative;
+  z-index: 11;
+}
 </style>

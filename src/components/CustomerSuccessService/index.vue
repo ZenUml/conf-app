@@ -9,10 +9,10 @@
           <h5 class="mb-2 text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Dear {{currentUser}},</h5>
         </a>
         <p class="mb-3 font-normal text-gray-700 dark:text-gray-400">
-          As one of the most frequent customers using ZenUML🌟, we want to offer you <strong>180 days</strong> of FREE, Top-Prioritized customer success services!✅
+          As one of the most frequent customers using ZenUML, we want to offer you <strong>180 days</strong> of FREE, Top-Prioritized customer success services!
         </p>
         <p class="mb-3 font-normal text-gray-700 dark:text-gray-400">
-          Click the BUTTON below ⬇️ to schedule a meeting with our Customer Success Manager!
+          Additionally, we're delighted to present you with a complimentary ZenUML Desktop Lifetime License, valued at <strong>$29.99</strong> 💰, as a token of our appreciation.
         </p>
         <a :href="dialogLink" target="_blank" @click="scheduleMeeting"
            class="text-white justify-center flex items-center bg-blue-700 hover:bg-blue-800 w-full focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 mb-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">

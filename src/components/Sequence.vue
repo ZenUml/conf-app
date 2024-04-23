@@ -42,7 +42,7 @@ export default {
         // In fullscreen viewer or editor mode, the iFrame element is not scrollable, so we don't need to offset.
         // Note when the iframe is not scrollable, the stickyOffset does not have any effect.
         theme: theme || "theme-default",
-        stickyOffset: 56,
+        stickyOffset: 82,
         onContentChange: this.updateCode,
         onThemeChange: (theme) => {
           trackEvent('set_theme', 'click', 'sequence')

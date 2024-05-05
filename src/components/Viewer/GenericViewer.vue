@@ -81,7 +81,6 @@
     </div>
   </div>
   </error-boundary>
-  <CustomerSuccessService />
 </div>
 </template>
 
@@ -99,7 +98,6 @@ import {getUrlParam} from '@/utils/window';
 import SendFeedback from "@/components/SendFeedback.vue";
 import * as htmlToImage from "html-to-image";
 import getFeatureFlags from '@/apis/featureFlags'
-import CustomerSuccessService from '@/components/CustomerSuccessService/index.vue'
 
 
 export default {
@@ -117,7 +115,6 @@ export default {
     SendFeedback,
     Debug,
     ErrorBoundary,
-    CustomerSuccessService
   },
   computed: {
     // We use {} instead of [] to get type checking

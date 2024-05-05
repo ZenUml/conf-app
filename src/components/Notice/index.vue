@@ -8,7 +8,7 @@
         <div>
           <p class="font-bold">Notice: We’re soon introducing a limit on the number of macros clients on the free tier can create and modify.</p>
           <p class="">
-            Your organization has already created over 1,000 macros!
+            Your organization has already created over {{ numberOfMacros }} macros!
             <a class="font-medium text-blue-600 dark:text-blue-500 hover:underline" href="https://zenuml.com/upgrade/" target="_blank">Upgrade for unlimited creation and modification</a>, or
             <a class="font-medium text-blue-600 dark:text-blue-500 hover:underline" href="https://zenuml.com/docs/about/contact-us#contact-us" target="_blank">contact us for support</a>.
           </p>
@@ -25,6 +25,7 @@ import {trackEvent} from "@/utils/window";
 import globals from "@/model/globals";
 
 const showNotice = ref(false);
+const numberOfMacros = ref('200');
 onMounted(async() => {
   const isLite = globals.apWrapper.isLite();
   const macroData = await globals.apWrapper.getMacroData();
@@ -41,6 +42,8 @@ onMounted(async() => {
   } else {
     trackEvent(macroData?.uuid, 'show-notice', 'upgrade-notice')
     showNotice.value = true;
+    // @ts-ignore
+    numberOfMacros.value = customerSuccessService.CUSTOMER_SUCCESS_SERVICE.numberOfMacros;
   }
 });
 

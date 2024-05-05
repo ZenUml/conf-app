@@ -26,7 +26,12 @@ import globals from "@/model/globals";
 
 const showNotice = ref(false);
 onMounted(async() => {
+  const isLite = globals.apWrapper.isLite();
   const macroData = await globals.apWrapper.getMacroData();
+  if (!isLite) {
+    trackEvent(macroData?.uuid, 'skip', 'upgrade-notice')
+    return;
+  }
 
   trackEvent(macroData?.uuid, 'get-feature-flags', 'upgrade-notice')
   const customerSuccessService = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE']);

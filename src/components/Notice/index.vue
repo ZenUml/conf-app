@@ -28,13 +28,13 @@ const showNotice = ref(false);
 onMounted(async() => {
   const macroData = await globals.apWrapper.getMacroData();
 
-  trackEvent(macroData?.uuid, 'get-feature-flags', 'customer-success-service')
+  trackEvent(macroData?.uuid, 'get-feature-flags', 'upgrade-notice')
   const customerSuccessService = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE']);
   // @ts-ignore
   if (!customerSuccessService.CUSTOMER_SUCCESS_SERVICE) {
-    trackEvent(macroData?.uuid, 'hold', 'customer-success-service')
+    trackEvent(macroData?.uuid, 'hold', 'upgrade-notice')
   } else {
-    trackEvent(macroData?.uuid, 'show-notice', 'customer-success-service')
+    trackEvent(macroData?.uuid, 'show-notice', 'upgrade-notice')
     showNotice.value = true;
   }
 });

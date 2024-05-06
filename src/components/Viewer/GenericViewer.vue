@@ -5,8 +5,8 @@
   <error-boundary>
 
   <div :class="{'w-full': wide, 'w-fit': !wide, 'mx-auto': true}">
-    <div class="frame relative pb-8 m-1" :class="{'w-full': wide, 'min-w-[300px]': !wide}">
-      <div class="header flex" :class="{flex: isDisplayMode, hidden: !isDisplayMode}">
+    <div class="frame relative" :class="{'w-full': wide, 'min-w-[300px]': !wide}">
+      <div class="header flex px-1" :class="{flex: isDisplayMode, hidden: !isDisplayMode}">
         <div class="left">
           <div class="actions flex" :class="{flex: isDisplayMode, hidden: !isDisplayMode}">
             <div v-show="isLite" class="flex justify-center items-center">
@@ -185,7 +185,5 @@ export default {
 }
 .header {
   border-bottom: #E6E6E6 1px solid;
-  margin-bottom: 4px;
-  padding: 4px;
 }
 </style>

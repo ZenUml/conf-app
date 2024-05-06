@@ -9,8 +9,8 @@
           <p class="font-bold">Notice: We’re soon introducing a limit on the number of macros clients on the free tier can create and modify.</p>
           <p class="">
             Your organization has already created over {{ numberOfMacros }} macros!
-            <a class="font-medium text-blue-600 dark:text-blue-500 hover:underline" href="https://zenuml.com/upgrade/" target="_blank">Upgrade for unlimited creation and modification</a>, or
-            <a class="font-medium text-blue-600 dark:text-blue-500 hover:underline" href="https://zenuml.com/docs/about/contact-us#contact-us" target="_blank">contact us for support</a>.
+            <a @click="onUpgradeLinkClicked" class="font-medium text-blue-600 dark:text-blue-500 hover:underline" href="https://zenuml.com/upgrade/" target="_blank">Upgrade for unlimited creation and modification</a>, or
+            <a @click="onContactLinkClicked" class="font-medium text-blue-600 dark:text-blue-500 hover:underline" href="https://zenuml.com/docs/about/contact-us#contact-us" target="_blank">contact us for support</a>.
           </p>
         </div>
       </div>
@@ -26,6 +26,15 @@ import globals from "@/model/globals";
 
 const showNotice = ref(false);
 const numberOfMacros = ref('200');
+
+function onUpgradeLinkClicked() {
+  trackEvent('upgrade-link', 'click', 'upgrade-notice')
+}
+
+function onContactLinkClicked() {
+  trackEvent('contact-link', 'click', 'upgrade-notice')
+}
+
 onMounted(async() => {
   const isLite = globals.apWrapper.isLite();
   const macroData = await globals.apWrapper.getMacroData();

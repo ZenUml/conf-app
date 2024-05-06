@@ -7,21 +7,26 @@ const pageUrl = (id) => `${baseUrl}/pages/${id}`;
 const isLite = process.env.IS_LITE === 'true';
 const existingPageId = process.env.PAGE_ID;
 
+const username = process.env.ZENUML_STAGE_USERNAME;
+if(!username) {
+  throw 'Error: Missing username';
+}
+const password = process.env.ZENUML_STAGE_PASSWORD;
+if(!password) {
+  throw 'Error: Missing password';
+}
+
 (async () => {
   const browser = await puppeteer.launch({headless: process.env.CI === "true",
     args: ['--disable-web-security', '--disable-features=IsolateOrigins,site-per-process']});
   const page = await browser.newPage();
   await page.goto(existingPageId ? pageUrl(existingPageId) : `${baseUrl}/overview`);
   await page.waitForSelector('input[name=username]');
-  const username = process.env.ZENUML_STAGE_USERNAME;
+
   await page.click('input[name=username]');
   await page.keyboard.type(username);
   await page.click("#login-submit");
-
-  const password = process.env.ZENUML_STAGE_PASSWORD;
-  if(!password) {
-    throw 'Error: Missing password';
-  }
+  await page.waitForSelector('input[name=password]', {visible: true});
   await page.click('input[name=password]');
   await page.waitForTimeout(500);  // Waits for 500 milliseconds, otherwise we are not able to type in.
   await page.keyboard.type(password);

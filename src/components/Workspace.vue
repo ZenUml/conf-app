@@ -1,5 +1,6 @@
 <template>
   <div class="content h-screen flex flex-col">
+    <Notice />
     <Header class="flex-shrink-0"/>
     <div class="workspace flex-grow split">
       <div id="workspace-left" class="editor overflow-auto">
@@ -19,6 +20,7 @@
   import Header from "@/components/Header/Header.vue";
   import DiagramPortal from "@/components/DiagramPortal.vue";
   import CSAT from '@/components/CSAT/index.vue'
+  import Notice from '@/components/Notice/index.vue'
   export default {
     name: 'Workspace',
     props: {
@@ -33,7 +35,8 @@
       DiagramPortal,
       Header,
       Editor,
-      CSAT
+      CSAT,
+      Notice
     }
   }
 </script>

@@ -58,7 +58,7 @@
         >
           <div class="flex items-center gap-6">
             <button
-              v-show="!isMigrationEnabled"
+              v-show="isMigrationEnabled"
               :disabled="isMigrationInProgress"
               @click="migrate"
               class="flex items-center bg-[#004EEB] px-3 py-2 text-white text-sm font-semibold rounded whitespace-nowrap hover:brightness-90"

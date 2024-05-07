@@ -3,10 +3,12 @@ import {defineConfig, splitVendorChunkPlugin} from 'vite';
 import createVuePlugin from '@vitejs/plugin-vue';
 import {execSync} from "child_process";
 import fs from 'fs'
-import { createFilter } from '@rollup/pluginutils';
+import {createFilter} from '@rollup/pluginutils';
+import copy from 'rollup-plugin-copy'
+
 
 const filter = createFilter(['./drawio/**/*']);
-
+console.log(process.env.NODE_ENV)
 process.env.VITE_APP_GIT_HASH = execSync('git rev-parse --short HEAD').toString().trim()
 process.env.VITE_APP_GIT_BRANCH = execSync('git branch --show-current').toString().trim()
 // https://stackoverflow.com/a/45993185/529187
@@ -84,6 +86,12 @@ export default defineConfig({
         },
       },
     }),
+    copy({
+      targets: [
+        {src: 'node_modules/@zenuml/core/dist/fonts', dest: 'dist'}
+      ],
+      hook: process.env.NODE_ENV === 'development' ? 'buildStart' : 'writeBundle'
+    })
   ],
   test: {
     environment: 'jsdom',

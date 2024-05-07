@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@vue/compat": "^3.1.0",
-    "@zenuml/core": "^3.19.3",
+    "@zenuml/core": "^3.21.2",
     "file-saver": "^2.0.5",
     "html-to-image": "^1.9.0",
     "js-yaml": "^4.1.0",
@@ -76,6 +76,7 @@
     "jsdom": "^23.1.0",
     "longjohn": "^0.2.12",
     "postcss": "8.4.31",
+    "rollup-plugin-copy": "^3.5.0",
     "speed-measure-webpack-plugin": "^1.5.0",
     "tailwind-scrollbar": "^3.0.5",
     "tailwindcss": "^3.4.1",

@@ -1,4 +1,13 @@
 const puppeteer = require("puppeteer");
+const fs = require('fs');
+const path = require('path');
+
+// Define the path for the new directory
+const dirPath = path.join(__dirname, './screenshots');
+// Create the new directory if it doesn't exist
+if (!fs.existsSync(dirPath)) {
+  fs.mkdirSync(dirPath);
+}
 
 const testDomain = process.env.ZENUML_DOMAIN || 'zenuml-stg.atlassian.net';
 const spaceKey = process.env.ZENUML_SPACE || 'ZS';
@@ -28,7 +37,7 @@ if(!password) {
   await page.click("#login-submit");
   await page.waitForSelector('input[name=password]', {visible: true});
   await page.click('input[name=password]');
-  await page.waitForTimeout(500);  // Waits for 500 milliseconds, otherwise we are not able to type in.
+  await page.waitForTimeout(3000);  // Waits for 500 milliseconds, otherwise we are not able to type in.
   await page.keyboard.type(password);
 
   await page.waitForXPath('//span[text() = "Log in"]');
@@ -124,9 +133,13 @@ if(!password) {
       await page.goto(url);
       console.log(`Navigated to ${url}`)
       await page.waitForSelector('#title-text');
-
       return await callback(createResult);
     } finally {
+      await page.screenshot({
+        "type": "png", // can also be "jpeg" or "webp" (recommended)
+        "path": `${dirPath}/screenshot-${Date.now()}.png`,  // where to save it
+        "fullPage": true,  // will scroll down to capture everything if true
+      });
       await page.evaluate(inBrowserFunction, {action: 'deletePage', pageId: createResult.id, options});
       console.log(`Deleted page with id: ${createResult.id}`);
     }

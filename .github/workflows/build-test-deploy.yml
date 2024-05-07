@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build and Test
+    name: Build and Unit Test
     runs-on: ubuntu-latest
 
     steps:
@@ -24,7 +24,7 @@ jobs:
       - run: yarn test:unit
   staging-lite:
     needs: build
-    name: Deploy to staging lite
+    name: L/Push(CF)&Install(Conf)
     environment:
       name: staging-lite
     runs-on: ubuntu-latest
@@ -38,15 +38,6 @@ jobs:
           cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           license: lite
           project: conf-stg-lite
-
-  staging-lite-test:
-    needs: staging-lite
-    name: Test staging lite
-    environment:
-      name: staging-lite
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
@@ -54,8 +45,16 @@ jobs:
         run: pip3 install PyYAML==5.3.1
       - name: Install pluploader
         run: pip3 install pluploader
-
       - run: pluploader --base-url https://zenuml-stg.atlassian.net/wiki --user ${{ secrets.ZENUML_STAGE_UPM_USER }} --password ${{ secrets.ZENUML_STAGE_UPM_PASSWORD }} install --cloud --plugin-uri https://conf-stg-lite.zenuml.com/descriptor
+
+  staging-lite-test:
+    needs: staging-lite
+    name: Lite - E2E Test on Staging
+    environment:
+      name: staging-lite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20.x'
@@ -67,10 +66,16 @@ jobs:
           IS_LITE: true
           ZENUML_STAGE_USERNAME: ${{ secrets.ZENUML_STAGE_USERNAME }}
           ZENUML_STAGE_PASSWORD: ${{ secrets.ZENUML_STAGE_PASSWORD }}
+      - name: Upload artifacts # Find artifacts under actions/jobs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshots-lite
+          path: ./tests/e2e/screenshots/
 
   staging-full:
     needs: build
-    name: Deploy to staging full
+    name: F/Push(CF)&Install(Conf)
     environment:
       name: staging-full
     runs-on: ubuntu-latest
@@ -84,15 +89,6 @@ jobs:
           cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           license: full
           project: conf-stg-full
-
-  staging-full-test:
-    needs: staging-full
-    name: Test staging full
-    environment:
-      name: staging-full
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
@@ -100,8 +96,16 @@ jobs:
         run: pip3 install PyYAML==5.3.1
       - name: Install pluploader
         run: pip3 install pluploader
-
       - run: pluploader --base-url https://zenuml-stg.atlassian.net/wiki --user ${{ secrets.ZENUML_STAGE_UPM_USER }} --password ${{ secrets.ZENUML_STAGE_UPM_PASSWORD }} install --cloud --plugin-uri https://conf-stg-full.zenuml.com/descriptor
+
+  staging-full-test:
+    needs: staging-full
+    name: Full - E2E Test on Staging
+    environment:
+      name: staging-full
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20.x'
@@ -112,6 +116,12 @@ jobs:
           CI: true
           ZENUML_STAGE_USERNAME: ${{ secrets.ZENUML_STAGE_USERNAME }}
           ZENUML_STAGE_PASSWORD: ${{ secrets.ZENUML_STAGE_PASSWORD }}
+      - name: Upload artifacts # Find artifacts under actions/jobs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshots-full
+          path: ./tests/e2e/screenshots/
 
   draft-release-lite:
     name: Draft release for the Lite version

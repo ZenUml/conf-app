@@ -239,7 +239,7 @@ export default {
   },
   data() {
     return {
-      helpUrl: "https://zenuml.atlassian.net/wiki/spaces/Doc/overview",
+      helpUrl: "https://zenuml.com/docs?utm_source=confluence-plugin&utm_medium=help-button&utm_campaign=confluence-plugin",
       seqTitle: "",
       mermaidTitle: "",
       titleError: false,

@@ -75,6 +75,9 @@ export default {
   watch: {
     diagramType(){
       cmEditor.setValue(this.code)
+    },
+    code () {
+      cmEditor.setValue(this.code)
     }
   },
   async created() {

@@ -130,6 +130,10 @@ jobs:
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
     needs: [staging-lite-test]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      repository-projects: write
     steps:
       # Check out current repository
       - name: Fetch Sources
@@ -162,6 +166,10 @@ jobs:
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
     needs: [staging-full-test]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      repository-projects: write
     steps:
       # Check out current repository
       - name: Fetch Sources

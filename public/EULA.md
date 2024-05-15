@@ -44,15 +44,23 @@ to the amount actually paid by you for your services or software, which amount c
 upon this clause. You hereby release P&D Vision Pty Ltd from any and all obligations, liabilities and 
 claims in excess of this limitation.
 
-# 6. Notices and Consents
+# 6. Use of Names and Logos
+
+By using our services, you grant P&D Vision Pty Ltd the right to use your name and logo in our marketing
+and promotional materials, including but not limited to our website, social media, and print materials. 
+This right is granted unless you explicitly request in writing that we cease such use. If you wish to 
+withdraw this permission, please contact us at support@zenuml.com and we will promptly comply with 
+your request.
+
+# 7. Notices and Consents
 Any notice, request or other communication to either party by the other under this Agreement shall be 
 given by email, fax or conventional mail.
 
-# 7. Assignment of Rights
+# 8. Assignment of Rights
 You shall not assign this Agreement or any benefits or interests arising under this Agreement without 
 P&D Vision Pty Ltd’s prior written permission, such not to be unreasonably withheld.
 
-# 8. Ownership
+# 9. Ownership
 P&D Vision Pty Ltd reserves the right to use in any way it wishes any programming tools, skills, content, 
 methodologies, strategies and techniques acquired or used in performing its duties under this Agreement. 
 The ownership of any data content created using the software shall remain with the author of that content. 
@@ -61,18 +69,18 @@ owns to be combined with the representation that the author has created and for 
 persisted in either vector and/or raster format. You may use such graphically persisted representation that 
 you create for any purpose that does not interfere with the business operations of P&D Vision Pty Ltd.
 
-# 9. General Terms and Law
+# 10. General Terms and Law
 This EULA agreement, and any dispute arising out of or in connection with this EULA agreement, shall be 
 governed by and construed in accordance with the laws of Australia.
 
 
-# 10. Severability
+# 11. Severability
 If any of the provisions of this Agreement is judged to be illegal or unenforceable, the remainder shall 
 continuation in full force and the effect of the remainder of them will be not be deemed to be prejudiced 
 (unless the substantive purpose of this Agreement is then frustrated, in which case either party may terminate 
 this Agreement forthwith on written notice).
 
-# 11. Entire Agreement
+# 12. Entire Agreement
 This Agreement constitutes the entire agreement between P&D Vision Pty Ltd and you with respect to your use of 
 services, software and/or goods provided by P&D Vision Pty Ltd, and it supersedes all prior or contemporaneous 
 communications and proposals, whether oral or written, between P&D Vision Pty Ltd and you with respect thereto. 

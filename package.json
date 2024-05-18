@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@vue/compat": "^3.1.0",
-    "@zenuml/core": "^3.21.2",
+    "@zenuml/core": "^3.23.3",
     "file-saver": "^2.0.5",
     "html-to-image": "^1.9.0",
     "js-yaml": "^4.1.0",

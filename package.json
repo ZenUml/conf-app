@@ -28,10 +28,7 @@
     "@codemirror/lang-javascript": "^6.2.2",
     "@codemirror/language": "^6.10.1",
     "@codemirror/state": "^6.4.1",
-    "@codemirror/theme-one-dark": "^6.1.2",
     "@codemirror/view": "^6.26.3",
-    "@uiw/codemirror-theme-monokai": "^4.22.1",
-    "@uiw/codemirror-theme-okaidia": "^4.22.1",
     "@vue/compat": "^3.1.0",
     "@zenuml/core": "^3.21.2",
     "file-saver": "^2.0.5",
@@ -47,9 +44,9 @@
     "react-dom": "=17.0.2",
     "split.js": "^1.6.5",
     "swagger-editor": "^4.4.0",
+    "thememirror": "^2.0.1",
     "tiny-emitter": "^2.1.0",
     "vue": "^3.1.0",
-    "vue-codemirror": "^4.0.6",
     "vuex": "^4.1.0"
   },
   "devDependencies": {

@@ -9,7 +9,6 @@
 </template>
 
 <script setup>
-import 'codemirror/keymap/sublime'
 import {EditorView, keymap, lineNumbers, placeholder} from '@codemirror/view'
 import globals from "@/model/globals";
 import {DiagramType} from "@/model/Diagram/Diagram";
@@ -17,17 +16,18 @@ import {EditorState} from '@codemirror/state';
 import {defaultKeymap, history, indentWithTab, redo, undo,} from '@codemirror/commands';
 import {javascript} from '@codemirror/lang-javascript';
 import {bracketMatching, syntaxHighlighting, defaultHighlightStyle, foldGutter} from "@codemirror/language";
-import {okaidia} from '@uiw/codemirror-theme-okaidia';
-import {computed, onMounted, ref, watch, onBeforeMount, onUnmounted} from "vue";
-
+import {computed, onMounted, ref, watch, onBeforeUnmount, onBeforeMount} from "vue";
+import {dracula} from 'thememirror';
 import {useStore} from "vuex";
 
-const store = useStore()
+const store = useStore();
 const rootElement = ref();
-const cmView = ref()
+const cmView = ref();
+const canUserEdit = ref();
 
 const diagramType = computed(() => store.state.diagram.diagramType)
-const code = computed(() => diagramType === DiagramType.Mermaid ? store.state.diagram.mermaidCode : store.state.diagram.code)
+
+const code = computed(() => diagramType.value === DiagramType.Mermaid ? store.state.diagram.mermaidCode : store.state.diagram.code)
 
 const onEditorCodeChange = (newCode) => {
   const isMermaid = diagramType.value === 'mermaid';
@@ -63,19 +63,18 @@ watch(diagramType, () => {
 })
 
 onBeforeMount(async () => {
-  this.canUserEdit = await globals.apWrapper.canUserEdit();
+  canUserEdit.value = await globals.apWrapper.canUserEdit();
 })
 
 onMounted(() => {
-
   cmView.value = new EditorView({
     state: EditorState.create({
       doc: code.value,
       extensions: [
-        okaidia,
-        foldGutter(),
+        dracula,
         javascript(),
         lineNumbers(),
+        foldGutter(),
         bracketMatching(),
         history(),
         syntaxHighlighting(defaultHighlightStyle),
@@ -126,7 +125,7 @@ onMounted(() => {
   }, 500))*/
 })
 
-onUnmounted(() => {
+onBeforeUnmount(() => {
   cmView.value.destroy();
 })
 </script>

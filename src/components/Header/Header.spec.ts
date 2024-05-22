@@ -4,7 +4,7 @@ import {DiagramType} from "@/model/Diagram/Diagram";
 import store from "@/model/store2/";
 
 describe('Header', () => {
-  it('should render correctly', async (done) => {
+  it('should render correctly', async () => {
     store.commit('updateDiagramType', DiagramType.Sequence);
     const headerWrapper = mount(Header, {
       global: {
@@ -26,8 +26,11 @@ describe('Header', () => {
     // @ts-ignore
     expect(headerWrapper.vm.$store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
 
-    setTimeout(() => {
-      expect(mermaidButton.classes('bg-white')).toBeTruthy()
-    }, 500)
+    await new Promise(resolve =>
+      setTimeout(() => {
+        expect(mermaidButton.classes("bg-white")).toBeTruthy();
+        resolve(true);
+      }, 500)
+    );
   })
 })

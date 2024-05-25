@@ -25,12 +25,6 @@ describe('Header', () => {
 
     // @ts-ignore
     expect(headerWrapper.vm.$store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
-
-    await new Promise(resolve =>
-      setTimeout(() => {
-        expect(mermaidButton.classes("bg-white")).toBeTruthy();
-        resolve(true);
-      }, 500)
-    );
+    expect(mermaidButton.classes("bg-white")).toBeTruthy();
   })
 })

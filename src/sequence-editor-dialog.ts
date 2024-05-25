@@ -3,7 +3,7 @@ import defaultContentProvider from "@/model/ContentProvider/CompositeContentProv
 import globals from "@/model/globals";
 
 import Workspace from './components/Workspace.vue'
-import {mountRoot} from "@/mount-root";
+import { mountRoot } from "@/mount-root";
 
 import store from './model/store2'
 import EventBus from './EventBus'
@@ -11,12 +11,12 @@ import AP from "@/model/AP";
 import './utils/IgnoreEsc.ts'
 
 import './assets/tailwind.css'
-import {saveToPlatform} from "@/model/ContentProvider/Persistence";
+import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 
 async function main() {
   await globals.apWrapper.initializeContext();
   const compositeContentProvider = defaultContentProvider(globals.apWrapper as ApWrapper2);
-  let {doc} = await compositeContentProvider.load();
+  let { doc } = await compositeContentProvider.load();
   mountRoot(doc, Workspace);
 }
 
@@ -27,7 +27,7 @@ EventBus.$on('save', async () => {
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
   const id = await saveToPlatform(store.state.diagram);
   const preservedTheme = sessionStorage.getItem(`${location.hostname}-preserve-zenuml-conf-theme`);
-  if(isNewSequence && preservedTheme) {
+  if (isNewSequence && preservedTheme) {
     sessionStorage.removeItem(`${location.hostname}-preserve-zenuml-conf-theme`);
     localStorage.setItem(`${location.hostname}-${id}-zenuml-conf-theme`, preservedTheme);
   }
@@ -36,5 +36,15 @@ EventBus.$on('save', async () => {
 });
 
 EventBus.$on('exit', async () => {
-  AP.dialog.close();
+  AP.dialog.create({
+    key: 'zenuml-close-without-saving-dialog',
+    width: 500,
+    height: 300,
+    chrome: false,
+  }).on('close', (data: any) => {
+    // close the editor dialog if the user clicks on the discard button
+    if (data.action === 'discard') {
+      AP.dialog.close();
+    }
+  });
 });

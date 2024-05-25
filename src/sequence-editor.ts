@@ -56,3 +56,12 @@ EventBus.$on('save', async () => {
     AP.dialog.close();
   }, 500);
 });
+
+EventBus.$on('exit', async () => {
+  // Give some time for track event to be sent out. We are not using a more reliable way to track event because
+  // we don't want to block dialog close for too long.
+  setTimeout(() => {
+    // @ts-ignore
+    AP.dialog.close();
+  }, 500);
+});

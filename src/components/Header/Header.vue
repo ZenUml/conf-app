@@ -171,11 +171,12 @@
         </button>
       </a>
       <div class="inline-block ml-2 relative group/save">
-        <save-and-go-back-button
+        <publish-button
           class="ml-2"
           :saveAndExit="saveAndExit"
           :disabled="titleError"
         />
+        <close-button class="ml-2" :exit="exit" />
         <div
           class="absolute top-full right-0 pt-1 hidden"
           :class="titleError ? 'group-hover/save:block' : ''"
@@ -207,7 +208,8 @@
 
 <script>
 import { mapState, mapMutations } from "vuex";
-import SaveAndGoBackButton from "@/components/SaveAndGoBackButton.vue";
+import PublishButton from "@/components/PublishButton.vue";
+import CloseButton from "@/components/CloseButton.vue";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import EventBus from "@/EventBus";
 import { trackEvent } from "@/utils/window";
@@ -235,7 +237,8 @@ function getMermaidType(dsl) {
 export default {
   name: "Header",
   components: {
-    SaveAndGoBackButton,
+    PublishButton,
+    CloseButton,
     Modal,
   },
   data() {
@@ -269,6 +272,11 @@ export default {
           return (this.titleError = true);
         }
         EventBus.$emit("save");
+      };
+    },
+    exit: function () {
+      return () => {
+        EventBus.$emit("exit");
       };
     },
     isAiTitleEnabled: function () {

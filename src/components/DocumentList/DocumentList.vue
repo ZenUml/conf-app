@@ -13,7 +13,8 @@
         </div>
         <div class="w-80 flex-shrink-0 px-4 py-3 bg-white">
           <button class="flex items-center float-right h-8 text-white text-sm font-medium">
-            <save-and-go-back-button :save-and-exit="saveAndExit" />
+            <publish-button :save-and-exit="saveAndExit" />
+            <close-button :exit="exit" />
           </button>
         </div>
 
@@ -62,7 +63,8 @@
 </template>
 
 <script>
-  import SaveAndGoBackButton from "@/components/SaveAndGoBackButton.vue";
+  import PublishButton from "@/components/PublishButton.vue";
+  import CloseButton from "@/components/Close.vue";
   import {DiagramType, getDiagramData} from "@/model/Diagram/Diagram";
   import EventBus from "@/EventBus";
   import {AtlasPage} from "@/model/page/AtlasPage";
@@ -139,6 +141,11 @@
           window.picked = that.picked;
           EventBus.$emit('save')
         }
+      },
+      exit: function () {
+        return function () {
+          EventBus.$emit('exit')
+        }
       }
     },
     async created() {
@@ -171,7 +178,8 @@
       }
     },
     components: {
-      SaveAndGoBackButton,
+      PublishButton,
+      CloseButton,
     }
   }
 </script>

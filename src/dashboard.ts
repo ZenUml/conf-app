@@ -35,3 +35,7 @@ EventBus.$on('save', async () => {
   // @ts-ignore
   AP.dialog.close();
 });
+
+EventBus.$on('exit', async () => {
+  AP.dialog.close();
+});

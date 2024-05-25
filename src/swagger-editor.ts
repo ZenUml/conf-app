@@ -36,6 +36,10 @@ async function saveOpenApiAndExit () {
   AP.dialog.close();
 }
 
+async function exit() {
+  AP.dialog.close();
+}
+
 
 async function initializeMacro() {
   const apWrapper = globals.apWrapper;
@@ -54,7 +58,7 @@ async function initializeMacro() {
   console.log('-------------- updateSpec with:', doc?.code)
 
   ReactDOM.render(
-    React.createElement(Header as any, { saveAndExit: saveOpenApiAndExit }),
+    React.createElement(Header as any, { saveAndExit: saveOpenApiAndExit, exit: exit }),
     document.getElementById('header')
   );
 

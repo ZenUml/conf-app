@@ -3102,10 +3102,10 @@
   resolved "https://registry.yarnpkg.com/@yarnpkg/lockfile/-/lockfile-1.1.0.tgz#e77a97fbd345b76d83245edcd17d393b1b41fb31"
   integrity sha512-GpSwvyXOcOOlV70vbnzjj4fW5xW/FdUF6nQEt1ENy7m4ZCczi1+/buVUPAqmGfqznsORNFzUMjctTIp8a9tuCQ==
 
-"@zenuml/core@^3.21.2":
-  version "3.23.3"
-  resolved "https://registry.yarnpkg.com/@zenuml/core/-/core-3.23.3.tgz#16dcaeb1fe100dbd5a6a48bcda4c5a8843bfb265"
-  integrity sha512-HDUlMQuRxs2v7QgFvm+bbvNNvVLSLJ5PXkBbDjaSZZNn1Dsupn6bzlZGantbJpLYBiype65rDFqXysvVCzb0/g==
+"@zenuml/core@^3.23.8":
+  version "3.23.8"
+  resolved "https://registry.yarnpkg.com/@zenuml/core/-/core-3.23.8.tgz#ea5c10925d4b97bc996699b2e4c1f320f53f4ddc"
+  integrity sha512-eLKKvFNt1V3PmzX1Vl784YcLLhR+4C/EiiL46gi6avwFf6AgDx4CkwKWN0pxaNstb9HkBRlI/Eh5MTjYkRr29A==
   dependencies:
     "@headlessui-float/vue" "^0.11.3"
     "@headlessui/tailwindcss" "^0.2.0"

@@ -1,10 +1,10 @@
-import { mount } from '@vue/test-utils'
+import {mount} from '@vue/test-utils'
 import Header from '@/components/Header/Header.vue'
 import {DiagramType} from "@/model/Diagram/Diagram";
 import store from "@/model/store2/";
 
 describe('Header', () => {
-  it('should render correctly', (done) => {
+  it('should render correctly', async () => {
     store.commit('updateDiagramType', DiagramType.Sequence);
     const headerWrapper = mount(Header, {
       global: {
@@ -12,19 +12,17 @@ describe('Header', () => {
       }
     })
     // pre-condition
-    const sequenceButton = headerWrapper.find({ref: 'btn-sequence'});
+    const sequenceButton = headerWrapper.find('#btn-sequence');
     expect(sequenceButton.classes('bg-white')).toBeTruthy();
-    const mermaidButton = headerWrapper.find({ref: 'btn-mermaid'});
+    const mermaidButton = headerWrapper.find('#btn-mermaid');
     expect(mermaidButton.classes('bg-white')).toBeFalsy();
 
     // click to switch to mermaid
-    // @ts-ignore
-    expect(headerWrapper.vm.$store.state.diagram.diagramType).toBe(DiagramType.Sequence);
-    mermaidButton.trigger('click');
-    // @ts-ignore
-    expect(headerWrapper.vm.$store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
-    headerWrapper.vm.$nextTick(() => {
-      expect(mermaidButton.classes('bg-white')).toBeTruthy();
-    })
+    expect(store.state.diagram.diagramType).toBe(DiagramType.Sequence);
+    await mermaidButton.trigger('click');
+    await headerWrapper.vm.$nextTick()
+
+    expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    expect(mermaidButton.classes("bg-white")).toBeTruthy();
   })
 })

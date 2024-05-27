@@ -18,13 +18,11 @@ describe('Header', () => {
     expect(mermaidButton.classes('bg-white')).toBeFalsy();
 
     // click to switch to mermaid
-    // @ts-ignore
-    expect(headerWrapper.vm.$store.state.diagram.diagramType).toBe(DiagramType.Sequence);
+    expect(store.state.diagram.diagramType).toBe(DiagramType.Sequence);
     await mermaidButton.trigger('click');
     await headerWrapper.vm.$nextTick()
 
-    // @ts-ignore
-    expect(headerWrapper.vm.$store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
     expect(mermaidButton.classes("bg-white")).toBeTruthy();
   })
 })

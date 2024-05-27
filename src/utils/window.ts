@@ -65,7 +65,8 @@ export function trackEvent(
 
     try {
       // Track an event. It can be anything, but in this example, we're tracking a Sign Up event.
-      mixpanel.track(action, eventDetails);
+      // Clone eventDetails to prevent mixpanel's pollution(will add 'token' property)
+      mixpanel.track(action, Object.assign({}, eventDetails));
     } catch (e) {
       console.error("Error in calling mixpanel", e);
     }

@@ -6,7 +6,8 @@
       <div class="group ml-2 p-0.5 rounded flex bg-gray-100 hover:bg-gray-200">
         <button
           type="button"
-          ref="btn-sequence"
+
+          id="btn-sequence"
           class="flex focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 rounded focus:outline-none focus-visible:ring-offset-gray-100"
           :class="
             diagramType === 'sequence'
@@ -37,7 +38,7 @@
         </button>
         <button
           type="button"
-          ref="btn-mermaid"
+          id="btn-mermaid"
           class="ml-0.5 p-1 lg:pl-2.5 lg:pr-3.5 rounded flex items-center text-sm text-gray-600 font-medium focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 focus:outline-none focus-visible:ring-offset-gray-100"
           :class="
             diagramType === 'mermaid'

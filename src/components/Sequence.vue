@@ -68,12 +68,18 @@ export default {
             sessionStorage.setItem(getThemeStorageKey(), theme);
           }
         },
+        onEventEmit: (event,data) =>{
+          console.debug("onEventEmit",event,data);
+          if(event == 'trackEvent'){
+            trackEvent(data.label, data.action, data.category);
+          }
+        }
       });
     },
     updateCode(newCode) {
       this.$store.dispatch("updateCode2", newCode);
       EventBus.$emit("updateContent", this.$store.state.diagram);
-    },
+    }
   },
   watch: {
     // watch in general is not a good idea, but it seems that this is the only native way to trigger reactivity.

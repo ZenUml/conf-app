@@ -26,10 +26,10 @@ export default main();
 EventBus.$on('save', async () => {
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
   const id = await saveToPlatform(store.state.diagram);
-  const preservedTheme = sessionStorage.getItem(`${location.hostname}-preserve-zenuml-theme`);
+  const preservedTheme = sessionStorage.getItem(`${location.hostname}-preserve-zenuml-conf-theme`);
   if(isNewSequence && preservedTheme) {
-    sessionStorage.removeItem(`${location.hostname}-preserve-zenuml-theme`);
-    localStorage.setItem(`${location.hostname}-${id}-zenuml-theme`, preservedTheme);
+    sessionStorage.removeItem(`${location.hostname}-preserve-zenuml-conf-theme`);
+    localStorage.setItem(`${location.hostname}-${id}-zenuml-conf-theme`, preservedTheme);
   }
   // @ts-ignore
   AP.dialog.close();

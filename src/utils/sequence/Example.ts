@@ -24,7 +24,11 @@ OrderController.post(payload) {
   }
 }`;
 
-const Mermaid = 'graph TD; A-->B;';
+const Mermaid = `sequenceDiagram
+    Alice->>John: Hello John, how are you?
+    John-->>Alice: Great!
+    Alice-)John: See you later!
+`;
 
 export default {
     Sequence,

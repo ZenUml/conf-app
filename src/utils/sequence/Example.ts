@@ -9,7 +9,7 @@ group BusinessService {
 
 @Starter(Double_Click_Me)
 // \`POST /orders\`
-OrderController.post(payload13) {
+OrderController.post(payload) {
   // [bold, red] double click the method below
   OrderService.create(payload) {
     order = new Order(payload)

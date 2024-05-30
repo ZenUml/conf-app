@@ -10,6 +10,7 @@
 
 <script setup>
 import {EditorView, keymap, lineNumbers, placeholder} from '@codemirror/view'
+import { closeBrackets } from "@codemirror/autocomplete";
 import globals from "@/model/globals";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import {EditorState} from '@codemirror/state';
@@ -73,6 +74,7 @@ onMounted(() => {
       extensions: [
         dracula,
         javascript(),
+        closeBrackets(),
         lineNumbers(),
         foldGutter(),
         bracketMatching(),

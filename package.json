@@ -23,6 +23,7 @@
     "install:stg:lite": "pluploader --base-url https://zenuml-stg.atlassian.net/wiki install --cloud --plugin-uri https://air.zenuml.com/descriptor?lite"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.16.1",
     "@codemirror/commands": "^6.5.0",
     "@codemirror/fold": "^0.19.4",
     "@codemirror/lang-javascript": "^6.2.2",
@@ -30,7 +31,7 @@
     "@codemirror/state": "^6.4.1",
     "@codemirror/view": "^6.26.3",
     "@vue/compat": "^3.1.0",
-    "@zenuml/core": "^3.23.8",
+    "@zenuml/core": "^3.23.13",
     "file-saver": "^2.0.5",
     "html-to-image": "^1.9.0",
     "js-yaml": "^4.1.0",

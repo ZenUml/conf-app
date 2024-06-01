@@ -240,13 +240,6 @@ export default {
         const codeChanged = this.diagramType === "sequence"
           ? this.seqCode !== this.originalSeqCode
           : this.mermaidCode !== this.originalMermaidCode;
-        console.log({
-          codeChanged,
-          seqCode: this.seqCode,
-          originalSeqCode: this.originalSeqCode,
-          mermaidCode: this.mermaidCode,
-          originalMermaidCode: this.originalMermaidCode,
-        });
         EventBus.$emit("exit", codeChanged);
       };
     },

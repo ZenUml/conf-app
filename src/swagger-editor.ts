@@ -37,17 +37,22 @@ async function saveOpenApiAndExit() {
 }
 
 async function exit() {
-  AP.dialog.create({
-    key: 'zenuml-close-without-saving-dialog',
-    width: 500,
-    height: 300,
-    chrome: false,
-  }).on('close', (data: any) => {
-    // close the editor dialog if the user clicks on the discard button
-    if (data.action === 'discard') {
-      AP.dialog.close();
-    }
-  });
+  const codeChanged = window.diagram?.code !== window.specContent;
+  if (codeChanged) {
+    AP.dialog.create({
+      key: 'zenuml-close-without-saving-dialog',
+      width: 500,
+      height: 300,
+      chrome: false,
+    }).on('close', (data: any) => {
+      // close the editor dialog if the user clicks on the discard button
+      if (data.action === 'discard') {
+        AP.dialog.close();
+      }
+    });
+  } else {
+    AP.dialog.close();
+  }
 }
 
 

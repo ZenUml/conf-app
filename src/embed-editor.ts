@@ -41,17 +41,21 @@ EventBus.$on('save', async () => {
   AP.dialog.close();
 });
 
-EventBus.$on('exit', async () => {
-  AP.dialog.create({
-    key: 'zenuml-close-without-saving-dialog',
-    width: 500,
-    height: 300,
-    chrome: false,
-  }).on('close', (data: any) => {
-    // close the editor dialog if the user clicks on the discard button
-    if (data.action === 'discard') {
-      AP.dialog.close();
-    }
-  });
+EventBus.$on('exit', async (showWarning: boolean) => {
+  if (showWarning) {
+    AP.dialog.create({
+      key: 'zenuml-close-without-saving-dialog',
+      width: 500,
+      height: 300,
+      chrome: false,
+    }).on('close', (data: any) => {
+      // close the editor dialog if the user clicks on the discard button
+      if (data.action === 'discard') {
+        AP.dialog.close();
+      }
+    });
+  } else {
+    AP.dialog.close();
+  }
 });
 

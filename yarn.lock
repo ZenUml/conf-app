@@ -3013,7 +3013,7 @@
     "@vue/babel-plugin-transform-vue-jsx" "^1.4.0"
     camelcase "^5.0.0"
 
-"@vue/compat@^3.1.0", "@vue/compat@^3.2.45":
+"@vue/compat@^3.1.0", "@vue/compat@^3.4.27":
   version "3.4.27"
   resolved "https://registry.yarnpkg.com/@vue/compat/-/compat-3.4.27.tgz#5322a830c0704a1dc4592bbff15b0fb6683a4387"
   integrity sha512-H2W93cPe9WXXkHiYEeX7f2Z8/znElm44fxgj8uBhgC6cxvjDUOLIcIJySs+FZvv6JM+Re/SBUnlcr4LJMaQZzw==
@@ -3132,17 +3132,17 @@
   resolved "https://registry.yarnpkg.com/@yarnpkg/lockfile/-/lockfile-1.1.0.tgz#e77a97fbd345b76d83245edcd17d393b1b41fb31"
   integrity sha512-GpSwvyXOcOOlV70vbnzjj4fW5xW/FdUF6nQEt1ENy7m4ZCczi1+/buVUPAqmGfqznsORNFzUMjctTIp8a9tuCQ==
 
-"@zenuml/core@^3.23.14":
-  version "3.23.14"
-  resolved "https://registry.yarnpkg.com/@zenuml/core/-/core-3.23.14.tgz#9af4e70ba9dcaf52e5dbf11bc53774f2a81d9305"
-  integrity sha512-U3zWJIyBNMkegk8lKAjTPa62Bfosafm1BYS9aEOK7MdB8CVng0Jc4qRrQH2aDktw1DDGM4l1RiYMPGfl/J8xkw==
+"@zenuml/core@^3.23.21":
+  version "3.23.21"
+  resolved "https://registry.yarnpkg.com/@zenuml/core/-/core-3.23.21.tgz#21197df0527aa7718c8671b9def0a1e6bd2fbb12"
+  integrity sha512-tT6LeTKrvwP/6Su+RO9rcfSV/2OkvTNYgdxgtuGn3eRB0kQs4/69M/iV+gT9oZSRQRTslM8QQIRlLAB15JQKWg==
   dependencies:
     "@headlessui-float/vue" "^0.11.4"
     "@headlessui/tailwindcss" "^0.2.0"
     "@headlessui/vue" "^1.7.16"
     "@types/assert" "^1.5.6"
     "@types/ramda" "^0.28.20"
-    "@vue/compat" "^3.2.45"
+    "@vue/compat" "^3.4.27"
     antlr4 "~4.11.0"
     color-string "^1.5.5"
     dom-to-image-more "^2.13.0"
@@ -3155,7 +3155,7 @@
     postcss "^8.4.31"
     ramda "^0.28.0"
     tailwindcss "^3.2.4"
-    vue "^3.2.45"
+    vue "^3.4.27"
     vuex "^4.1.0"
 
 abbrev@^1.0.0:
@@ -9573,7 +9573,7 @@ vue-eslint-parser@^7.0.0, vue-eslint-parser@^7.10.0:
     lodash "^4.17.21"
     semver "^6.3.0"
 
-vue@^3.1.0, vue@^3.2.45:
+vue@^3.1.0, vue@^3.4.27:
   version "3.4.27"
   resolved "https://registry.yarnpkg.com/vue/-/vue-3.4.27.tgz#40b7d929d3e53f427f7f5945386234d2854cc2a1"
   integrity sha512-8s/56uK6r01r1icG/aEOHqyMVxd1bkYcSe9j8HcKtr/xTOFWvnzIVTehNW+5Yt89f+DLBe4A569pnZLS5HzAMA==

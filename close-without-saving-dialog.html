@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Close Without Saving</title>
+  <script src="https://connect-cdn.atl-paas.net/all.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+    }
+
+    .modal-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding-top: 30px;
+      padding-bottom: 30px;
+      border-radius: 4px;
+      background-color: #fefefe;
+    }
+
+    /* Buttons */
+    .modal-button {
+      margin: 10px;
+      padding: 6px 14px;
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 5px;
+      border: 1px solid transparent;
+    }
+
+    #discard-button {
+      background-color: #f5f5f5;
+      color: #333;
+      border-color: #ccc;
+    }
+
+    #cancel-button {
+      background-color: #007bff;
+      color: white;
+      border-color: #007bff;
+    }
+
+    /* Hover effects */
+    #discard-button:hover {
+      background-color: #e6e6e6;
+    }
+
+    #cancel-button:hover {
+      background-color: #0056b3;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="modal-content">
+    <p>All changes will be lost!</p>
+    <div>
+      <button id="discard-button"
+        class="modal-button"
+        id="discard-changes">Discard Changes</button>
+      <button id="cancel-button"
+        class="modal-button"
+        id="cancel">Cancel</button>
+    </div>
+  </div>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      document.getElementById('discard-button').addEventListener('click', function () {
+        AP.dialog.close({ action: 'discard' });
+      });
+      document.getElementById('cancel-button').addEventListener('click', function () {
+        AP.dialog.close({ action: 'cancel' });
+      });
+    });
+  </script>
+</body>
+
+</html>

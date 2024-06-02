@@ -3,27 +3,27 @@ import defaultContentProvider from "@/model/ContentProvider/CompositeContentProv
 import globals from "@/model/globals";
 
 import Workspace from './components/Workspace.vue'
-import {mountRoot} from "@/mount-root";
+import { mountRoot } from "@/mount-root";
 
 import store from './model/store2'
 import EventBus from './EventBus'
 import AP from "@/model/AP";
 
-import {saveToPlatform} from "@/model/ContentProvider/Persistence";
+import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import './utils/IgnoreEsc.ts'
 
 import './assets/tailwind.css'
-import {DiagramType, NULL_DIAGRAM} from "@/model/Diagram/Diagram";
+import { DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import Example from "@/utils/sequence/Example";
-import {trackEvent} from "@/utils/window";
+import { trackEvent } from "@/utils/window";
 import MacroUtil from "@/model/MacroUtil";
 
 async function main() {
   await globals.apWrapper.initializeContext();
   const compositeContentProvider = defaultContentProvider(globals.apWrapper as ApWrapper2);
-  let {doc} = await compositeContentProvider.load();
+  let { doc } = await compositeContentProvider.load();
   console.log('loaded document', doc);
-  if(doc === NULL_DIAGRAM) {
+  if (doc === NULL_DIAGRAM) {
     console.log('document is null, loading example');
     doc = {
       diagramType: DiagramType.Sequence,
@@ -33,7 +33,7 @@ async function main() {
   }
   mountRoot(doc, Workspace);
 
-  if(await MacroUtil.isCreateNew()) {
+  if (await MacroUtil.isCreateNew()) {
     trackEvent('', 'create_macro_begin', 'sequence');
   }
 }
@@ -45,7 +45,7 @@ EventBus.$on('save', async () => {
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
   const id = await saveToPlatform(store.state.diagram);
   const preservedTheme = sessionStorage.getItem(`${location.hostname}-preserve-zenuml-conf-theme`);
-  if(isNewSequence && preservedTheme) {
+  if (isNewSequence && preservedTheme) {
     sessionStorage.removeItem(`${location.hostname}-preserve-zenuml-conf-theme`);
     localStorage.setItem(`${location.hostname}-${id}-zenuml-conf-theme`, preservedTheme);
   }
@@ -55,4 +55,23 @@ EventBus.$on('save', async () => {
     // @ts-ignore
     AP.dialog.close();
   }, 500);
+});
+
+EventBus.$on('exit', async (showWarning: boolean) => {
+  console.log('exit', showWarning);
+  if (showWarning) {
+    AP.dialog.create({
+      key: 'zenuml-close-without-saving-dialog',
+      width: 500,
+      height: 300,
+      chrome: false,
+    }).on('close', (data: any) => {
+      // close the editor dialog if the user clicks on the discard button
+      if (data.action === 'discard') {
+        AP.dialog.close();
+      }
+    });
+  } else {
+    AP.dialog.close();
+  }
 });

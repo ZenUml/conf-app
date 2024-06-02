@@ -1,12 +1,14 @@
 import React, { FormEventHandler, useEffect, useState } from "react";
 import { trackEvent } from "@/utils/window";
-import { SaveAndGoBackButton } from "./SaveAndGoBackButton";
+import { PublishButton } from "./PublishButton";
+import { CloseButton } from "./CloseButton";
 import yaml from "js-yaml";
 
 interface Props {
   saveAndExit: VoidFunction;
+  exit: VoidFunction;
 }
-const Component = ({ saveAndExit }: Props) => {
+const Component = ({ saveAndExit, exit }: Props) => {
   const [title, setTitle] = useState("");
 
   const helpClick = () => {
@@ -94,7 +96,8 @@ const Component = ({ saveAndExit }: Props) => {
           </button>
         </a>
         <div className="inline-block ml-2">
-          <SaveAndGoBackButton saveAndExit={saveAndExit} disabled={!title} />
+          <PublishButton saveAndExit={saveAndExit} disabled={!title} />
+          <CloseButton exit={exit} />
         </div>
       </div>
     </header>

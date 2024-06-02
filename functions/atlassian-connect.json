@@ -394,6 +394,14 @@
         }
       },
       {
+        "key": "zenuml-close-without-saving-dialog",
+        "location": "none",
+        "url": "/close-without-saving-dialog.html??version=__VERSION__&spaceKey={space.key}&addonKey=__ADDON_KEY__&contentKey=__CONTENT_KEY__",
+        "name": {
+          "value": "Close Without Saving Dialog"
+        }
+      },
+      {
         "key": "zenuml-content-dashboard",
         "location": "none",
         "url": "/dashboard.html?version=__VERSION__&spaceKey={space.key}&addonKey=__ADDON_KEY__&postInstallPageKey=__POST_INSTALL_KEY__",

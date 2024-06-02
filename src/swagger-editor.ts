@@ -12,14 +12,14 @@ import OpenApiExample from '@/model/OpenApi/OpenApiExample'
 import globals from '@/model/globals';
 import AP from "@/model/AP";
 import './utils/IgnoreEsc'
-import {DataSource, DiagramType} from "@/model/Diagram/Diagram";
+import { DataSource, DiagramType } from "@/model/Diagram/Diagram";
 import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
-import {saveToPlatform} from "@/model/ContentProvider/Persistence";
+import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import ApWrapper2 from "@/model/ApWrapper2";
 import MacroUtil from "@/model/MacroUtil";
-import {trackEvent} from '@/utils/window';
+import { trackEvent } from '@/utils/window';
 
-async function saveOpenApiAndExit () {
+async function saveOpenApiAndExit() {
   const code = window.specContent;
   const diagram = {
     ...window.diagram,
@@ -36,13 +36,32 @@ async function saveOpenApiAndExit () {
   AP.dialog.close();
 }
 
+async function exit() {
+  const codeChanged = window.diagram?.code !== window.specContent;
+  if (codeChanged) {
+    AP.dialog.create({
+      key: 'zenuml-close-without-saving-dialog',
+      width: 500,
+      height: 300,
+      chrome: false,
+    }).on('close', (data: any) => {
+      // close the editor dialog if the user clicks on the discard button
+      if (data.action === 'discard') {
+        AP.dialog.close();
+      }
+    });
+  } else {
+    AP.dialog.close();
+  }
+}
+
 
 async function initializeMacro() {
   const apWrapper = globals.apWrapper;
   await apWrapper.initializeContext();
 
   const compositeContentProvider = defaultContentProvider(new ApWrapper2(AP));
-  const {doc} = await compositeContentProvider.load();
+  const { doc } = await compositeContentProvider.load();
 
   // @ts-ignore
   window.diagram = doc;
@@ -54,11 +73,11 @@ async function initializeMacro() {
   console.log('-------------- updateSpec with:', doc?.code)
 
   ReactDOM.render(
-    React.createElement(Header as any, { saveAndExit: saveOpenApiAndExit }),
+    React.createElement(Header as any, { saveAndExit: saveOpenApiAndExit, exit: exit }),
     document.getElementById('header')
   );
 
-  if(await MacroUtil.isCreateNew()) {
+  if (await MacroUtil.isCreateNew()) {
     trackEvent('', 'create_macro_begin', 'openapi');
   }
 }

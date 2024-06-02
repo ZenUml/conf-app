@@ -103,7 +103,8 @@
           <button
             class="flex items-center float-right h-8 text-white text-sm font-medium"
           >
-            <save-and-go-back-button :save-and-exit="saveAndExit" />
+            <publish-button :save-and-exit="saveAndExit" />
+            <close-button :exit="exit" />
           </button>
         </div>
       </header>
@@ -289,7 +290,8 @@
 </template>
 
 <script>
-import SaveAndGoBackButton from "@/components/SaveAndGoBackButton.vue";
+import PublishButton from "@/components/PublishButton.vue";
+import CloseButton from '@/components/CloseButton.vue';
 import { DiagramType } from "@/model/Diagram/Diagram";
 import EventBus from "@/EventBus";
 import AP from "@/model/AP";
@@ -402,6 +404,12 @@ export default {
       return function () {
         window.picked = that.picked;
         EventBus.$emit("save");
+      };
+    },
+    exit: function () {
+      return () => {
+        this.fullScreen = false;
+        this.$emit("exit");
       };
     },
     migrateButtonText: function () {
@@ -693,7 +701,8 @@ export default {
     },
   },
   components: {
-    SaveAndGoBackButton,
+    PublishButton,
+    CloseButton,
     Button,
     IconList,
     IconGrid,

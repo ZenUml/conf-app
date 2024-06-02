@@ -12,7 +12,7 @@
     "build:full": "PRODUCT_TYPE=full vite build --mode production",
     "build:full:watch": "PRODUCT_TYPE=full vite build --watch",
     "build:lite": "PRODUCT_TYPE=lite vite build",
-    "wrangler:serve": "wrangler pages dev dist",
+    "wrangler:serve": "wrangler pages dev dist --compatibility-date=2024-05-12",
     "wrangler:publish:stg": "wrangler pages publish dist --project-name conf-stg-full --branch=production",
     "lint:vue": "vue-cli-service lint",
     "git:branch:clean:gone": "git fetch -p && git branch -vv | awk '/: gone]/{print $1}' | xargs git branch -d",

@@ -24,7 +24,7 @@
       {
         "key": "zenuml-sequence-macro",
         "name": {
-          "value": "ZenUML Diagram"
+          "value": "Diagram (ZenUML & Mermaid)"
         },
         "renderModes": {
           "default": {
@@ -33,7 +33,7 @@
         },
         "url": "/sequence-viewer.html?version=__VERSION__&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&outputType={output.type}&addonKey=__ADDON_KEY__&contentKey=__CONTENT_KEY__",
         "description": {
-          "value": "Create a ZenUML Sequence Diagram"
+          "value": "Create a ZenUML or Mermaid Diagram. Developed by the ZenUML team."
         },
         "outputType": "block",
         "bodyType": "plain-text",
@@ -72,7 +72,7 @@
       {
         "key": "zenuml-graph-macro",
         "name": {
-          "value": "ZenUML Graph"
+          "value": "Graph (DrawIO)"
         },
         "renderModes": {
           "default": {
@@ -81,7 +81,7 @@
         },
         "url": "/drawio/viewer.html?version=__VERSION__&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&outputType={output.type}&addonKey=__ADDON_KEY__&contentKey=__CONTENT_KEY__",
         "description": {
-          "value": "Create a ZenUML Graph"
+          "value": "Create a Graph powered by DrawIO. Developed by the ZenUML team."
         },
         "outputType": "block",
         "bodyType": "none",
@@ -126,7 +126,7 @@
       {
         "key": "zenuml-openapi-macro",
         "name": {
-          "value": "ZenUML OpenAPI"
+          "value": "OpenAPI / Swagger"
         },
         "renderModes": {
           "default": {
@@ -135,7 +135,7 @@
         },
         "url": "/swagger-ui.html?version=__VERSION__&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&outputType={output.type}&addonKey=__ADDON_KEY__&contentKey=__CONTENT_KEY__",
         "description": {
-          "value": "Create a ZenUML OpenAPI"
+          "value": "Create an OpenAPI / Swagger Spec. Developed by the ZenUML team."
         },
         "outputType": "block",
         "bodyType": "none",
@@ -180,7 +180,7 @@
       {
         "key": "zenuml-embed-macro",
         "name": {
-          "value": "Embed a ZenUML Diagram or API Spec (Beta)"
+          "value": "Embed a Diagram, Graph or API Spec"
         },
         "renderModes": {
           "default": {
@@ -189,7 +189,7 @@
         },
         "url": "/embed-viewer.html?version=__VERSION__&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&outputType={output.type}&addonKey=__ADDON_KEY__",
         "description": {
-          "value": "Embed ZenUML Diagram"
+          "value": "Embed an existing Diagram, Graph or API Spec. Developed by the ZenUML team."
         },
         "outputType": "block",
         "bodyType": "none",
@@ -208,7 +208,7 @@
         "icon": {
           "width": 16,
           "height": 16,
-          "url": "image/zenuml_logo.png"
+          "url": "image/diagram_macro_icon.png"
         },
         "documentation": {
           "url": "https://zenuml.atlassian.net/wiki/spaces/Doc/overview"

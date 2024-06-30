@@ -29,7 +29,6 @@ export default {
     },
   },
   async mounted() {
-    console.debug("SequenceCanvas - mounted");
     zenuml = new ZenUml(this.$refs["zenuml"]);
     await this.render();
     EventBus.$emit(
@@ -69,8 +68,7 @@ export default {
           }
         },
         onEventEmit: (event,data) =>{
-          console.debug("onEventEmit",event,data);
-          if(event == 'trackEvent'){
+          if(event === 'trackEvent'){
             trackEvent(data.label, data.action, data.category);
           }
         }

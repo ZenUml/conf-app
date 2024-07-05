@@ -42,12 +42,28 @@ if(!password) {
 
   await page.waitForXPath('//span[text() = "Log in"]');
   await page.click("#login-submit");
-  await page.waitForTimeout(3000);  // Waits for 500 milliseconds, otherwise we are not able to type in.
   await page.screenshot({
     "type": "png", // can also be "jpeg" or "webp" (recommended)
     "path": `${dirPath}/screenshot-${Date.now()}.png`,  // where to save it
     "fullPage": true,  // will scroll down to capture everything if true
   });
+// Wait for either navigation or timeout to occur first
+  const timeout = 3000; // Adjust the timeout as needed
+  const navigationPromise = page.waitForNavigation({ waitUntil: 'networkidle0' });
+  const timeoutPromise = page.waitForTimeout(timeout);
+
+  const result = await Promise.race([navigationPromise, timeoutPromise]);
+
+  if (result === timeoutPromise) {
+    // If timeout occurred first, check for the button and click it if it exists
+    const mfaButton = await page.$('#mfa-promote-dismiss');
+    if (mfaButton) {
+      await mfaButton.click();
+    }
+  } else {
+    // Handle navigation if needed
+    console.log('Page navigated away.');
+  }
   await page.waitForSelector('#title-text');
 
   console.log(await page.title());

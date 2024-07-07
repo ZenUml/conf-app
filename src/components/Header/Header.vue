@@ -220,7 +220,7 @@ export default {
       mermaidCode: (state) => state.diagram.mermaidCode,
       templateUrl: (state) =>
         state.diagram.diagramType === "sequence"
-          ? `https://github.com/ZenUml/confluence-plugin-cloud/discussions/489`
+          ? `https://zenuml.com/docs/category/examples/`
           : "https://mermaid.js.org/ecosystem/tutorials.html",
       title: (state) => state.diagram.title,
     }),

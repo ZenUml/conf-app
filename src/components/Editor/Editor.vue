@@ -16,7 +16,7 @@ import {DiagramType} from "@/model/Diagram/Diagram";
 import {EditorState} from '@codemirror/state';
 import {defaultKeymap, history, indentWithTab, redo, undo,} from '@codemirror/commands';
 import {javascript} from '@codemirror/lang-javascript';
-import {bracketMatching, syntaxHighlighting, defaultHighlightStyle, foldGutter} from "@codemirror/language";
+import {indentOnInput, bracketMatching, syntaxHighlighting, defaultHighlightStyle, foldGutter} from "@codemirror/language";
 import {computed, onMounted, ref, watch, onBeforeUnmount, onBeforeMount} from "vue";
 import {dracula} from 'thememirror';
 import {useStore} from "vuex";
@@ -93,14 +93,15 @@ onMounted(() => {
         history(),
         syntaxHighlighting(defaultHighlightStyle),
         placeholder('Write you code here'),
-        EditorView.lineWrapping,
         EditorState.tabSize.of(2),
+        indentOnInput(),
         keymap.of([
           ...defaultKeymap,
           indentWithTab,
           {key: "Mod-z", run: undo, preventDefault: true},
           {key: "Mod-Shift-z", run: redo, preventDefault: true},
         ]),
+        EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             const updatedCode = update.state.doc.toString();

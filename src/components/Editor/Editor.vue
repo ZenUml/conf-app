@@ -10,7 +10,7 @@
 
 <script setup>
 import {EditorView, keymap, lineNumbers, placeholder} from '@codemirror/view'
-import { closeBrackets } from "@codemirror/autocomplete";
+import {closeBrackets, autocompletion} from "@codemirror/autocomplete";
 import globals from "@/model/globals";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import {EditorState} from '@codemirror/state';
@@ -20,11 +20,23 @@ import {bracketMatching, syntaxHighlighting, defaultHighlightStyle, foldGutter} 
 import {computed, onMounted, ref, watch, onBeforeUnmount, onBeforeMount} from "vue";
 import {dracula} from 'thememirror';
 import {useStore} from "vuex";
+import participantCompletionOptions from "@/constant/participantCompletionOptions";
 
 const store = useStore();
 const rootElement = ref();
 const cmView = ref();
 const canUserEdit = ref();
+
+function participantCompletions(context) {
+  let word = context.matchBefore(/(@\w*)/)
+  console.log(word)
+  if (!word)
+    return null
+  return {
+    from: word.from,
+    options: participantCompletionOptions
+  }
+}
 
 const diagramType = computed(() => store.state.diagram.diagramType)
 
@@ -94,6 +106,10 @@ onMounted(() => {
             const updatedCode = update.state.doc.toString();
             onEditorCodeChange(updatedCode)
           }
+        }),
+        autocompletion({
+          override: [participantCompletions],
+          activateOnTyping: true
         }),
       ]
     }),

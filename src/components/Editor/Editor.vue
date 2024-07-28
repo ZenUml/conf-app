@@ -16,7 +16,13 @@ import {DiagramType} from "@/model/Diagram/Diagram";
 import {EditorState} from '@codemirror/state';
 import {defaultKeymap, history, indentWithTab, redo, undo,} from '@codemirror/commands';
 import {javascript} from '@codemirror/lang-javascript';
-import {bracketMatching, syntaxHighlighting, defaultHighlightStyle, foldGutter} from "@codemirror/language";
+import {
+  bracketMatching,
+  syntaxHighlighting,
+  defaultHighlightStyle,
+  foldGutter,
+  indentService
+} from "@codemirror/language";
 import {computed, onMounted, ref, watch, onBeforeUnmount, onBeforeMount} from "vue";
 import {dracula} from 'thememirror';
 import {useStore} from "vuex";
@@ -29,7 +35,7 @@ const canUserEdit = ref();
 
 function participantCompletions(context) {
   let word = context.matchBefore(/(@\w*)/)
-  console.log(word)
+
   if (!word)
     return null
   return {
@@ -41,6 +47,45 @@ function participantCompletions(context) {
 const diagramType = computed(() => store.state.diagram.diagramType)
 
 const code = computed(() => diagramType.value === DiagramType.Mermaid ? store.state.diagram.mermaidCode : store.state.diagram.code)
+
+function customIndent(context, pos) {
+  let line = context.lineAt(pos);
+  let prevLine = pos > 0 ? context.lineAt(pos - 1) : null;
+
+  // arrow pattern
+  const arrowPattern = /^[a-z0-9]+->[a-z0-9]+([.:]\w+)?$/i;
+
+  // method definition pattern
+  const methodPattern = /^[a-z0-9.]+\w+\s*{$/i;
+
+  // Check if the current line is inside braces
+  if (prevLine) {
+    const prevLineText = prevLine.text.trim();
+    if (prevLineText.endsWith("{")) {
+      return context.lineIndent(prevLine.from) + context.unit;
+    }
+  }
+
+  // Check if the current line matches the arrow pattern
+  if (arrowPattern.test(line.text.trim())) {
+    return context.lineIndent(line.from);
+  }
+
+  // Check if the previous line matches the arrow pattern
+  if (prevLine && arrowPattern.test(prevLine.text.trim())) {
+    return context.lineIndent(prevLine.from);
+  }
+
+  // Check if the previous line is a method definition
+  if (prevLine && methodPattern.test(prevLine.text.trim())) {
+    return context.lineIndent(prevLine.from) + context.unit;
+  }
+
+
+  return null;
+}
+
+const customIndentExtension = indentService.of((context, pos) => customIndent(context, pos));
 
 const onEditorCodeChange = (newCode) => {
   const isMermaid = diagramType.value === 'mermaid';
@@ -93,14 +138,15 @@ onMounted(() => {
         history(),
         syntaxHighlighting(defaultHighlightStyle),
         placeholder('Write you code here'),
-        EditorView.lineWrapping,
         EditorState.tabSize.of(2),
+        customIndentExtension,
         keymap.of([
           ...defaultKeymap,
           indentWithTab,
           {key: "Mod-z", run: undo, preventDefault: true},
           {key: "Mod-Shift-z", run: redo, preventDefault: true},
         ]),
+        EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             const updatedCode = update.state.doc.toString();

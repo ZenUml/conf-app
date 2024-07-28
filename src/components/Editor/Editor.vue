@@ -16,7 +16,13 @@ import {DiagramType} from "@/model/Diagram/Diagram";
 import {EditorState} from '@codemirror/state';
 import {defaultKeymap, history, indentWithTab, redo, undo,} from '@codemirror/commands';
 import {javascript} from '@codemirror/lang-javascript';
-import {indentOnInput, bracketMatching, syntaxHighlighting, defaultHighlightStyle, foldGutter} from "@codemirror/language";
+import {
+  bracketMatching,
+  syntaxHighlighting,
+  defaultHighlightStyle,
+  foldGutter,
+  indentService
+} from "@codemirror/language";
 import {computed, onMounted, ref, watch, onBeforeUnmount, onBeforeMount} from "vue";
 import {dracula} from 'thememirror';
 import {useStore} from "vuex";
@@ -29,7 +35,7 @@ const canUserEdit = ref();
 
 function participantCompletions(context) {
   let word = context.matchBefore(/(@\w*)/)
-  console.log(word)
+
   if (!word)
     return null
   return {
@@ -41,6 +47,25 @@ function participantCompletions(context) {
 const diagramType = computed(() => store.state.diagram.diagramType)
 
 const code = computed(() => diagramType.value === DiagramType.Mermaid ? store.state.diagram.mermaidCode : store.state.diagram.code)
+
+function customIndent(context, pos) {
+  let line = context.lineAt(pos);
+  let prevLine = pos > 0 ? context.lineAt(pos - 1) : null;
+
+  const arrowPattern = /^[a-z0-9]+->[a-z0-9]+([.:]\w+)?$/i;
+
+  if (arrowPattern.test(line.text.trim())) {
+    return context.lineIndent(line.from);
+  }
+
+  if (prevLine && arrowPattern.test(prevLine.text.trim())) {
+    return context.lineIndent(prevLine.from);
+  }
+
+  return null;
+}
+
+const customIndentExtension = indentService.of((context, pos) => customIndent(context, pos));
 
 const onEditorCodeChange = (newCode) => {
   const isMermaid = diagramType.value === 'mermaid';
@@ -94,7 +119,7 @@ onMounted(() => {
         syntaxHighlighting(defaultHighlightStyle),
         placeholder('Write you code here'),
         EditorState.tabSize.of(2),
-        indentOnInput(),
+        customIndentExtension,
         keymap.of([
           ...defaultKeymap,
           indentWithTab,

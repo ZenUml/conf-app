@@ -52,15 +52,35 @@ function customIndent(context, pos) {
   let line = context.lineAt(pos);
   let prevLine = pos > 0 ? context.lineAt(pos - 1) : null;
 
+  // arrow pattern
   const arrowPattern = /^[a-z0-9]+->[a-z0-9]+([.:]\w+)?$/i;
 
+  // method definition pattern
+  const methodPattern = /^[a-z0-9.]+\w+\s*{$/i;
+
+  // Check if the current line is inside braces
+  if (prevLine) {
+    const prevLineText = prevLine.text.trim();
+    if (prevLineText.endsWith("{")) {
+      return context.lineIndent(prevLine.from) + context.unit;
+    }
+  }
+
+  // Check if the current line matches the arrow pattern
   if (arrowPattern.test(line.text.trim())) {
     return context.lineIndent(line.from);
   }
 
+  // Check if the previous line matches the arrow pattern
   if (prevLine && arrowPattern.test(prevLine.text.trim())) {
     return context.lineIndent(prevLine.from);
   }
+
+  // Check if the previous line is a method definition
+  if (prevLine && methodPattern.test(prevLine.text.trim())) {
+    return context.lineIndent(prevLine.from) + context.unit;
+  }
+
 
   return null;
 }

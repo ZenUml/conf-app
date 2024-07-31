@@ -54,4 +54,5 @@ export default [
   {label: "@SecurityScanner", type: "text"},
   {label: "@StackDriver", type: "text"},
   {label: "@VisionAPI", type: "text"},
+  {label: '@return', type: 'keyword'}
 ]

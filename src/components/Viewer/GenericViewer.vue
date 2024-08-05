@@ -10,7 +10,7 @@
         <div class="left">
           <div class="actions flex" :class="{flex: isDisplayMode, hidden: !isDisplayMode}">
             <div v-show="isLite" class="flex justify-center items-center">
-              <span class="p-1 text-xs font-bold leading-none text-gray-300 bg-gray-100 rounded">Lite</span>
+              <upgrade/>
             </div>
             <div v-show="isEmbedded" class="flex justify-center items-center">
               <span class="p-1 text-xs font-bold leading-none text-gray-300 bg-gray-100 rounded cursor-help" title="content is embedded from another page">Embedded</span>
@@ -96,9 +96,9 @@ import globals from '@/model/globals';
 import {DataSource} from "@/model/Diagram/Diagram";
 import {getUrlParam} from '@/utils/window';
 import SendFeedback from "@/components/SendFeedback.vue";
+import Upgrade from "@/components/Upgrade.vue";
 import * as htmlToImage from "html-to-image";
 import getFeatureFlags from '@/apis/featureFlags'
-
 
 export default {
   name: "GenericViewer",
@@ -113,6 +113,7 @@ export default {
   },
   components: {
     SendFeedback,
+    Upgrade,
     Debug,
     ErrorBoundary,
   },

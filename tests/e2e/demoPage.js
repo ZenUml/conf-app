@@ -64,6 +64,9 @@ if(!password) {
     // Handle navigation if needed
     console.log('Page navigated away.');
   }
+
+  //TODO: Handle 2FA reminder (happens every 1-2 months), can manually click "Continue without 2FA" button to workaround it
+
   await page.waitForSelector('#title-text');
 
   console.log(await page.title());

@@ -4,6 +4,7 @@ import { getUrlParam, trackEvent } from "@/utils/window";
 //content properties
 
 const UPGRADE_INCLUDE_DOMAINS = ['whimet4', 'whimet6', 'zenuml-dashboard-full-test'];
+const EXPORT_INCLUDE_DOMAINS = ['whimet6', 'zenuml-dashboard-full-test', 'zenuml-stg'];
 
 async function request(url: string, data: any = undefined, method: string | undefined = undefined): Promise<any> {
   const type = data ? method || 'POST' : 'GET';
@@ -171,12 +172,12 @@ const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph']
 
 const getCustomContentTypePrefix = (isLite: boolean) => `ac:${addonKey()}${isLite ? (addonKey()?.includes('lite') ? '' : '-lite') : ''}`;
 
-async function searchCustomContent(isLite: boolean, spaceKey: string | undefined = undefined, customContentFilter: any = undefined) {
+async function searchCustomContent(isLite: boolean, spaceKey: string | undefined = undefined, customContentFilter: any = undefined, includeBody: boolean = false) {
   spaceKey = spaceKey || (await getCurrentSpace());
   const customContentType = (t: string) => `${getCustomContentTypePrefix(isLite)}:${t}`;
   const typeClause = (t: string) => `type="${customContentType(t)}"`;
   const typesClause = (a: Array<string>) => a.map(typeClause).join(' or ');
-  const searchUrl = `/rest/api/content/search?cql=space="${spaceKey}" and (${typesClause(CUSTOM_CONTENT_TYPES)}) order by lastmodified desc&expand=container,space`;
+  const searchUrl = `/rest/api/content/search?cql=space="${spaceKey}" and (${typesClause(CUSTOM_CONTENT_TYPES)}) order by lastmodified desc&expand=container,space${includeBody ? ',body.raw,version.number' : ''}`;
 
   //search custom content whose container is page and return the page id
   const searchOnce = async (url: string) => {
@@ -234,6 +235,13 @@ async function upgradeAllSpaces(userId: string, report: any) {
   console.log(`Upgrade - migrated ${report.migratedMacros} macro(s) on ${report.totalPages} page(s) in all spaces. ${report.uneditablePages} page(s) skipped(no edit permission). Total macro(s): ${report.totalMacros}.`)
 
   showPopup(`Migrated ${report.migratedMacros} macro(s) on ${report.totalPages} page(s). ${report.uneditablePages > 0 ? report.uneditablePages + ' page(s) are skipped as the current user does not have edit permission.' : ''}`);
+}
+
+async function exportAllSpaces(isLite: boolean) {
+  const spaces = await getAllSpaces();
+  //https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-search/#api-wiki-rest-api-search-get
+  const contents = await Promise.all(spaces.map((s: any) => searchCustomContent(isLite, s.key, null, true)));
+  return contents.flatMap(i => i).map(i => ({id: i.id, title: i.title, content: i.body?.raw?.value, createdAt: i.version?.when, author: {id: i.version?.by?.accountId, name: i.version?.by?.publicName, profilePicture: i.version?.by?.profilePicture}, page: {id: i.container?.id, title: i.container?.title, _links: {webui: i.container?._links?.webui}}, space: {id: i.space?.id, key: i.space?.key, name: i.space?.name, _links: {self: i.space?._links?.self}}}));
 }
 
 async function upgradeSpace(userId: string, spaceKey: string, report: any) {
@@ -298,9 +306,14 @@ function getAtlassianDomain(): string {
 function isUpgradeEnabled(): boolean {
   return UPGRADE_INCLUDE_DOMAINS.includes(getAtlassianDomain());
 }
+function isExportEnabled(): boolean {
+  //@ts-ignore
+  return !!localStorage.zenumlExport || EXPORT_INCLUDE_DOMAINS.includes(getAtlassianDomain());
+}
 
 export default {
   isEnabled: isUpgradeEnabled,
+  isExportEnabled: isExportEnabled,
   run(progressReporter: any) {
     if(isUpgradeEnabled()) {
       console.log('Upgrade - atlassian domain allowed, kicking off..');
@@ -309,5 +322,12 @@ export default {
       //@ts-ignore
       AP.user.getCurrentUser(async (u) => await upgradeAllSpaces(u.atlassianAccountId, progressReporter));
     }
+  },
+  async exportContents(isLite: boolean) {
+    console.log('Export - atlassian domain allowed, kicking off..');
+    showPopup('Started to export ZenUML contents in all spaces');
+
+    //@ts-ignore
+    return await exportAllSpaces(isLite);
   }
 };

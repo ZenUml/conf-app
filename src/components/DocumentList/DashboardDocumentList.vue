@@ -58,6 +58,14 @@
         >
           <div class="flex items-center gap-6">
             <button
+              v-show="isExportEnabled"
+              :disabled="isExportInProgress"
+              @click="exportContents"
+              class="flex items-center bg-[#004EEB] px-3 py-2 text-white text-sm font-semibold rounded whitespace-nowrap hover:brightness-90"
+            >
+              {{ isExportInProgress ? 'Exporting...' : 'Export' }}
+            </button>
+            <button
               v-show="isMigrationEnabled"
               :disabled="isMigrationInProgress"
               @click="migrate"
@@ -334,6 +342,9 @@ export default {
       isMigrationInProgress: false,
       migratedCount: 0,
       migrationTotal: 0,
+      isExportEnabled: false,
+      isExportInProgress: false,
+      isLite: false,
     };
   },
   watch: {
@@ -434,8 +445,9 @@ export default {
     this.initTheRightSideContent();
 
     const hasFull = await apWrapper.hasFullAddon();
-    this.isMigrationEnabled =
-      apWrapper.isLite() && hasFull && upgrade.isEnabled();
+    this.isMigrationEnabled = apWrapper.isLite() && hasFull && upgrade.isEnabled();
+    this.isExportEnabled = upgrade.isExportEnabled();
+    this.isLite = apWrapper.isLite();
   },
   methods: {
     checkIfHasData() {
@@ -698,6 +710,27 @@ export default {
         this.migratedCount = migrated;
         this.migrationTotal = total;
       });
+    },
+    async exportContents() {
+      this.isExportInProgress = true;
+      try {
+        const contents = await upgrade.exportContents(this.isLite);
+        console.log('Zenuml contents:', contents);
+        
+        const data = JSON.stringify(contents);
+        const blob = new Blob([data], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "ZenUML_Contents.json";
+        document.body.appendChild(link);
+        link.click();
+        // Clean up by revoking the object URL and removing the link
+        URL.revokeObjectURL(url);
+        document.body.removeChild(link);
+      } finally {
+        this.isExportInProgress = false;
+      }
     },
   },
   components: {

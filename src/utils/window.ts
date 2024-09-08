@@ -5,7 +5,7 @@ import {
 } from "@/utils/ContextParameters/ContextParameters";
 import mixpanel from "mixpanel-browser";
 
-mixpanel.init("0c62cea9ed2247f4824bf196f6817941", {
+mixpanel.init("78617e65fdba543d752fb7f6483d55f4", {
   debug: true,
   track_pageview: true,
   persistence: "localStorage",

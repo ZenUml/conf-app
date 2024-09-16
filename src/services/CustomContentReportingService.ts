@@ -4,16 +4,20 @@ import { trackEvent } from "@/utils/window";
 const yesterday = () => new Date(Date.now() - 86400000);
 
 export async function reportCustomContent() {
-  const customContentReport = await globals.apWrapper.getAppProperty('CustomContentReport');
-  
-  if(!customContentReport || new Date(customContentReport.lastUpdated) < yesterday() ) {
-    console.debug('start another reporting since the last CustomContentReport:', customContentReport);
+  try {
+    const customContentReport = await globals.apWrapper.getAppProperty('CustomContentReport');
     
-    const result = await searchCustomContent();
-    console.debug(`reportCustomContent - total count of custom content:`, result);
-    trackEvent(`${JSON.stringify(result)}`, 'reportCustomContent', 'info');
+    if(!customContentReport || new Date(customContentReport.lastUpdated) < yesterday() ) {
+      console.debug('start another reporting since the last CustomContentReport:', customContentReport);
+      
+      const result = await searchCustomContent();
+      console.debug(`reportCustomContent - total count of custom content:`, result);
+      trackEvent(`${JSON.stringify(result)}`, 'reportCustomContent', 'info');
 
-    await globals.apWrapper.setAppProperty('CustomContentReport', {lastUpdated: new Date().toISOString()})
+      await globals.apWrapper.setAppProperty('CustomContentReport', {lastUpdated: new Date().toISOString()})
+    }
+  } catch(e) {
+    console.error('Error on reportCustomContent', e);
   }
 }
 

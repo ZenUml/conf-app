@@ -13,6 +13,7 @@ import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 
 import './assets/tailwind.css'
 import { saveToPlatform } from "./model/ContentProvider/Persistence";
+import { reportCustomContent } from '@/services/CustomContentReportingService';
 
 async function main() {
   await globals.apWrapper.initializeContext();
@@ -22,6 +23,8 @@ async function main() {
   const compositeContentProvider = defaultContentProvider(globals.apWrapper as ApWrapper2);
   let {doc} = await compositeContentProvider.load();
   mountRoot(doc, DiagramPortal);
+
+  reportCustomContent();
 }
 
 export default main()

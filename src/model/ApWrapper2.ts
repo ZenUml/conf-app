@@ -379,7 +379,7 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async searchCustomContent(maxItems: number=SEARCH_CUSTOM_CONTENT_LIMIT): Promise<Array<ICustomContent>> {
-    const searchUrl =await this.buildSearchCustomConentUrl();
+    const searchUrl = await this.buildSearchCustomConentUrl();
     const searchAll = async (): Promise<Array<ICustomContent>> => {
       let url = searchUrl, data;
       let results: Array<ICustomContent> = [];
@@ -739,8 +739,24 @@ export default class ApWrapper2 implements IApWrapper {
     return getUrlParam('addonKey')?.includes('lite');
   }
 
-  async request(url: string, method: string = 'GET'): Promise<any> {
-    const response = await this._requestFn({type: method, url});
+  async request(url: string, type: string = 'GET', data: any = undefined): Promise<any> {
+    const response = await this._requestFn(data ? {type, url, data: JSON.stringify(data), contentType: 'application/json'} : {type, url});
     return Object.assign({}, response && response.body && JSON.parse(response.body), {xhr: response.xhr});
+  }
+
+  appPropertyUrl = (key: string) => `/rest/atlassian-connect/1/addons/${addonKey()}/properties/${key}`;
+
+  async getAppProperty(propertyKey: string = ''): Promise<any> {
+    const url = this.appPropertyUrl(propertyKey);
+    try {
+      return (await this.request(url)).value;
+    } catch(e) {
+      console.error(`getAppProperty ${propertyKey} error`, e);
+    }
+  }
+
+  async setAppProperty(propertyKey: string = '', value: any = undefined): Promise<any> {
+    const url = this.appPropertyUrl(propertyKey);
+    return (await this.request(url, 'PUT', value));
   }
 }

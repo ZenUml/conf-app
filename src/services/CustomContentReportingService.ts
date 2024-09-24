@@ -24,22 +24,18 @@ export async function reportCustomContent() {
 async function searchCustomContent() {
   let total = 0, sequence = 0, graph = 0;
   const typesFilter = globals.apWrapper.buildTypesClauseFilter();
+  //TODO: Is there a limit of the items in the `in` clause?
   const spacesFilter = `space in (${(await getAllSpaces()).map((s: any) => '"' + s.key + '"').join(',')})`;
   const searchUrl = `/rest/api/content/search?cql=${spacesFilter} and (${typesFilter})`;
 
-  const searchAll = async () => {
-    let url = searchUrl, data;
-    do {
-      data = await globals.apWrapper.request(url);
-      total += data?.results?.length;
-      sequence += data?.results?.filter((c: any) => c.type.endsWith('zenuml-content-sequence')).length;
-      graph += data?.results?.filter((c: any) => c.type.endsWith('zenuml-content-graph')).length;
-      url = data?._links?.next || '';
-    } while(url);
+  const consumer = (data: any) => {
+    total += data?.results?.length;
+    sequence += data?.results?.filter((c: any) => c.type.endsWith('zenuml-content-sequence')).length;
+    graph += data?.results?.filter((c: any) => c.type.endsWith('zenuml-content-graph')).length;
   };
 
   try {
-    await searchAll();
+    await globals.apWrapper.requestAllPages(searchUrl, consumer);
     return {total, 'zenuml-content-sequence': sequence, 'zenuml-content-graph': graph};
   } catch (e) {
     console.error('searchCustomContent', e);
@@ -47,5 +43,8 @@ async function searchCustomContent() {
 }
 
 async function getAllSpaces() {
-  return (await globals.apWrapper.request(`/api/v2/spaces`)).results;
+  let spaces = [];
+  const consumer = (data: any) => spaces = spaces.concat(data?.results || []);
+  await globals.apWrapper.requestAllPages(`/api/v2/spaces?limit=2`, consumer);
+  return spaces;
 }

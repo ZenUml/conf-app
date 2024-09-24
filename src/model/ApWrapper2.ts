@@ -744,7 +744,7 @@ export default class ApWrapper2 implements IApWrapper {
     return Object.assign({}, response && response.body && JSON.parse(response.body), {xhr: response.xhr});
   }
 
-  async requestAllPages(initialUrl: string, consumer: (data: any) => void) {
+  async requestAllPaginatedData(initialUrl: string, consumer: (data: any) => void) {
     let data, url = initialUrl;
     do {
       data = await this.request(url);

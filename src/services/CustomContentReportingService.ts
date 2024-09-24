@@ -6,10 +6,10 @@ const yesterday = () => new Date(Date.now() - 86400000);
 export async function reportCustomContent() {
   try {
     const customContentReport = await globals.apWrapper.getAppProperty('CustomContentReport');
-    
+
     if(!customContentReport || new Date(customContentReport.lastUpdated) < yesterday() ) {
       console.debug('start another reporting since the last CustomContentReport:', customContentReport);
-      
+
       const result = await searchCustomContent();
       console.debug(`reportCustomContent - total count of custom content:`, result);
       trackEvent(`${JSON.stringify(result)}`, 'reportCustomContent', 'info');
@@ -35,7 +35,7 @@ async function searchCustomContent() {
   };
 
   try {
-    await globals.apWrapper.requestAllPages(searchUrl, consumer);
+    await globals.apWrapper.requestAllPaginatedData(searchUrl, consumer);
     return {total, 'zenuml-content-sequence': sequence, 'zenuml-content-graph': graph};
   } catch (e) {
     console.error('searchCustomContent', e);
@@ -45,6 +45,6 @@ async function searchCustomContent() {
 async function getAllSpaces() {
   let spaces = [];
   const consumer = (data: any) => spaces = spaces.concat(data?.results || []);
-  await globals.apWrapper.requestAllPages(`/api/v2/spaces?limit=2`, consumer);
+  await globals.apWrapper.requestAllPaginatedData(`/api/v2/spaces?limit=2`, consumer);
   return spaces;
 }

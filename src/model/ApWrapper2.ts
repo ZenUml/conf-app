@@ -744,6 +744,20 @@ export default class ApWrapper2 implements IApWrapper {
     return Object.assign({}, response && response.body && JSON.parse(response.body), {xhr: response.xhr});
   }
 
+  async requestAllPaginatedData(initialUrl: string, consumer: (data: any) => void) {
+    let data, url = initialUrl;
+    do {
+      data = await this.request(url);
+      consumer(data);
+      url = data?._links?.next || '';
+
+      const prefix = '/wiki';
+      if(url.startsWith(prefix)) {
+        url = url.substring(prefix.length); //V2 API has the '/wiki' prefix that needs to be removed to use the 'request' JavaScript API
+      }
+    } while(url);
+  };
+
   appPropertyUrl = (key: string) => `/rest/atlassian-connect/1/addons/${addonKey()}/properties/${key}`;
 
   async getAppProperty(propertyKey: string = ''): Promise<any> {

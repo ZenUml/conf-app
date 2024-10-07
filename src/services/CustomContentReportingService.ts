@@ -1,3 +1,4 @@
+import { DiagramType } from "@/model/Diagram/Diagram";
 import globals from "@/model/globals";
 import { trackEvent } from "@/utils/window";
 
@@ -11,7 +12,7 @@ export async function reportCustomContent() {
       console.debug('start another reporting since the last CustomContentReport:', customContentReport);
 
       const result = await searchCustomContent();
-      console.debug(`reportCustomContent - total count of custom content:`, result);
+      console.debug(`reportCustomContent - statistics of custom content:`, result);
       trackEvent(`${JSON.stringify(result)}`, 'reportCustomContent', 'info');
 
       await globals.apWrapper.setAppProperty('CustomContentReport', {lastUpdated: new Date().toISOString()})
@@ -22,29 +23,34 @@ export async function reportCustomContent() {
 }
 
 async function searchCustomContent() {
-  let total = 0, sequence = 0, graph = 0;
+  let total = 0, sequence = 0, graph = 0, openapi = 0, mermaid = 0, unknown = 0;
+  const space = (await globals.apWrapper._getCurrentSpace()).key;
   const typesFilter = globals.apWrapper.buildTypesClauseFilter();
-  //TODO: Is there a limit of the items in the `in` clause?
-  const spacesFilter = `space in (${(await getAllSpaces()).map((s: any) => '"' + s.key + '"').join(',')})`;
-  const searchUrl = `/rest/api/content/search?cql=${spacesFilter} and (${typesFilter})`;
+  const spacesFilter = `space in (${space})`;
+  const searchUrl = `/rest/api/content/search?expand=body.raw&cql=${spacesFilter} and (${typesFilter})`;
 
   const consumer = (data: any) => {
     total += data?.results?.length;
-    sequence += data?.results?.filter((c: any) => c.type.endsWith('zenuml-content-sequence')).length;
-    graph += data?.results?.filter((c: any) => c.type.endsWith('zenuml-content-graph')).length;
+    data?.results?.forEach((c: any) => {
+      try {
+        const o = c.body?.raw?.value && JSON.parse(c.body?.raw?.value);
+        if(o) {
+          o.diagramType === DiagramType.Sequence && sequence++;
+          o.diagramType === DiagramType.Graph && graph++;
+          o.diagramType === DiagramType.OpenApi && openapi++;
+          o.diagramType === DiagramType.Mermaid && mermaid++;
+          o.diagramType === DiagramType.Unknown && unknown++;
+        }
+      } catch(e) {
+        unknown++;
+      }
+    });
   };
 
   try {
     await globals.apWrapper.requestAllPaginatedData(searchUrl, consumer);
-    return {total, 'zenuml-content-sequence': sequence, 'zenuml-content-graph': graph};
+    return {space, total, sequence, graph, openapi, mermaid, unknown};
   } catch (e) {
     console.error('searchCustomContent', e);
   }
-}
-
-async function getAllSpaces() {
-  let spaces = [];
-  const consumer = (data: any) => spaces = spaces.concat(data?.results || []);
-  await globals.apWrapper.requestAllPaginatedData(`/api/v2/spaces?limit=2`, consumer);
-  return spaces;
 }

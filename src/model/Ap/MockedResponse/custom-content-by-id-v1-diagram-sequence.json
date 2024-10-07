@@ -99,7 +99,7 @@
   "macroRenderedOutput": {},
   "body": {
     "raw": {
-      "value": "{\"title\":\"Order Service (Demonstration only)\",\"code\":\"title Order Service (Demonstration only)\\n@Actor Client\\n@Boundary OrderController\\n@EC2 <<BFF>> OrderService\\ngroup BusinessService {\\n  @Lambda PurchaseService\\n  @AzureFunction InvoiceService\\n}\\n\\n@Starter(Client)\\n//`POST /orders`\\nOrderController.post(payload) {\\n  OrderService.create(payload) {\\n    order = new Order(payload)\\n    if(order != null) {\\n      par {\\n        PurchaseService.createPO(order)\\n        InvoiceService.createInvoice(order)      \\n      }      \\n    }\\n  }\\n}\",\"mermaidCode\":\"graph TD; A-->BX;\",\"diagramType\":\"sequence\",\"source\":\"custom-content\"}",
+      "value": "{\"title\":\"20241006 Order Service (Demonstration only)\",\"code\":\"title Order Service (Demonstration only1)\\n@Actor Client\\n@Boundary OrderController\\n@EC2 <<BFF>> OrderService\\ngroup BusinessService {\\n  @Lambda PurchaseService\\n  @AzureFunction InvoiceService\\n}\\n\\n@Starter(Client)\\n//`POST /orders`\\nOrderController.post(payload) {\\n  OrderService.create(payload) {\\n    order = new Order(payload)\\n    ref(\\\"see page xxx\\\", PurchaseService)\\n    if(order != null) {\\n      par {\\n        PurchaseService.createPO(order)\\n        InvoiceService.createInvoice(order)      \\n      }      \\n    }\\n  }\\n}\",\"mermaidCode\":\"graph TD; A-->BX;\",\"diagramType\":\"sequence\",\"source\":\"custom-content\"}",
       "representation": "raw",
       "embeddedContent": [],
       "_expandable": {

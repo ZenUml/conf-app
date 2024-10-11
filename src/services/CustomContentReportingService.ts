@@ -59,7 +59,7 @@ async function searchCustomContent(space: string) {
 
   try {
     await globals.apWrapper.requestAllPaginatedData(searchUrl, consumer);
-    return {space, total, sequence, graph, openapi, mermaid, unknown};
+    return {space, total, sequence, graph, openapi, mermaid, unknown, isLite: globals.apWrapper.isLite()};
   } catch (e) {
     console.error('Error on searchCustomContent', e);
     trackError(e);

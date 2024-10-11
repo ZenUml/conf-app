@@ -33,7 +33,7 @@ async function updateAppProperty(property: any, space: string) {
 async function searchCustomContent(space: string) {
   let total = 0, sequence = 0, graph = 0, openapi = 0, mermaid = 0, unknown = 0;
   const typesFilter = globals.apWrapper.buildTypesClauseFilter();
-  const spacesFilter = `space in (${space})`;
+  const spacesFilter = `space in ("${space}")`;
   const searchUrl = `/rest/api/content/search?expand=body.raw&cql=${spacesFilter} and (${typesFilter})`;
 
   const consumer = (data: any) => {
@@ -46,7 +46,8 @@ async function searchCustomContent(space: string) {
           o.diagramType === DiagramType.Graph && graph++;
           o.diagramType === DiagramType.OpenApi && openapi++;
           o.diagramType === DiagramType.Mermaid && mermaid++;
-          o.diagramType === DiagramType.Unknown && unknown++;
+          
+          (!o.diagramType || o.diagramType === DiagramType.Unknown) && unknown++;
         }
       } catch(e) {
         unknown++;

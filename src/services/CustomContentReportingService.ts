@@ -20,6 +20,7 @@ export async function reportCustomContent() {
     }
   } catch(e) {
     console.error('Error on reportCustomContent', e);
+    trackError(e);
   }
 }
 
@@ -51,6 +52,7 @@ async function searchCustomContent(space: string) {
         }
       } catch(e) {
         unknown++;
+        trackError(e);
       }
     });
   };
@@ -60,5 +62,10 @@ async function searchCustomContent(space: string) {
     return {space, total, sequence, graph, openapi, mermaid, unknown};
   } catch (e) {
     console.error('Error on searchCustomContent', e);
+    trackError(e);
   }
+}
+
+function trackError(e: any) {
+  trackEvent(JSON.stringify(e), 'reportCustomContent', 'error');
 }

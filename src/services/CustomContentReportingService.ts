@@ -9,7 +9,7 @@ export async function reportCustomContent() {
     const space = (await globals.apWrapper._getCurrentSpace()).key;
     let property = await globals.apWrapper.getAppProperty('CustomContentReport');
 
-    if(!property || !property[space] || new Date(property[space].lastUpdated) < yesterday() ) {
+    if(!property || !property[space] || new Date(property[space]) < yesterday() ) {
       console.debug(`start another reporting since the last CustomContentReport in space ${space}:`, property);
 
       const result = await searchCustomContent(space);
@@ -47,7 +47,7 @@ async function searchCustomContent(space: string) {
           o.diagramType === DiagramType.Graph && graph++;
           o.diagramType === DiagramType.OpenApi && openapi++;
           o.diagramType === DiagramType.Mermaid && mermaid++;
-          
+
           (!o.diagramType || o.diagramType === DiagramType.Unknown) && unknown++;
         }
       } catch(e) {

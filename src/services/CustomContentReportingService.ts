@@ -9,7 +9,8 @@ export async function reportCustomContent() {
     const space = (await globals.apWrapper._getCurrentSpace()).key;
     let property = await globals.apWrapper.getAppProperty('CustomContentReport');
 
-    if(!property || !property[space] || new Date(property[space].lastUpdated) < yesterday() ) {
+    //`property[space]` was set to the lastUpdated time directly and is changed to {lastUpdated: ...} later
+    if(!property || !property[space] || new Date(property[space].lastUpdated || property[space]) < yesterday() ) {
       console.debug(`start another reporting since the last CustomContentReport in space ${space}:`, property);
 
       const result = await searchCustomContent(space);
@@ -27,7 +28,7 @@ export async function reportCustomContent() {
 async function updateAppProperty(property: any, space: string) {
   const p = Object.assign({}, property);
   p.lastUpdated = new Date().toISOString();
-  p[space] = p.lastUpdated;
+  p[space] = {lastUpdated: p.lastUpdated};
   await globals.apWrapper.setAppProperty('CustomContentReport', p);
 }
 

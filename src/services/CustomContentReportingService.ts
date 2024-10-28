@@ -48,7 +48,7 @@ async function searchCustomContent(space: string) {
           o.diagramType === DiagramType.Graph && graph++;
           o.diagramType === DiagramType.OpenApi && openapi++;
           o.diagramType === DiagramType.Mermaid && mermaid++;
-          
+
           (!o.diagramType || o.diagramType === DiagramType.Unknown) && unknown++;
         }
       } catch(e) {

@@ -3247,10 +3247,10 @@
   resolved "https://registry.yarnpkg.com/@yarnpkg/lockfile/-/lockfile-1.1.0.tgz#e77a97fbd345b76d83245edcd17d393b1b41fb31"
   integrity sha512-GpSwvyXOcOOlV70vbnzjj4fW5xW/FdUF6nQEt1ENy7m4ZCczi1+/buVUPAqmGfqznsORNFzUMjctTIp8a9tuCQ==
 
-"@zenuml/core@^3.24.12":
-  version "3.24.12"
-  resolved "https://registry.yarnpkg.com/@zenuml/core/-/core-3.24.12.tgz#5f2992b3344e32d9f80ebd9acedb71c7eba99ca7"
-  integrity sha512-SM9TYgyWl1Bm7oWc4lZLq0q9ejT6RdqxBYav8a4BhVvWkFgND088YCL9xlvo9vPJenwIuVNK+xukgqL1nwfztw==
+"@zenuml/core@^3.24.28":
+  version "3.24.28"
+  resolved "https://registry.yarnpkg.com/@zenuml/core/-/core-3.24.28.tgz#4dd5db9ffea7d2a9e5751353e06276f18ce2ec15"
+  integrity sha512-oRJGOxSsCzXeANSNEcAs1xAzmh7nP9U/2/aDk6RuMiiBt+m8VTBaP/Vh07OWo0GyU/y1wIWNoKuONoiFgdX7yA==
   dependencies:
     "@headlessui-float/vue" "^0.14.0"
     "@headlessui/tailwindcss" "^0.2.0"
@@ -3272,6 +3272,7 @@
     ramda "^0.28.0"
     tailwindcss "^3.2.4"
     vue "^3.2.45"
+    vue-property-decorator "^9.1.2"
     vuex "^4.1.0"
 
 abbrev@^1.0.0:
@@ -9693,6 +9694,11 @@ vue-eslint-parser@^7.0.0, vue-eslint-parser@^7.10.0:
     esquery "^1.4.0"
     lodash "^4.17.21"
     semver "^6.3.0"
+
+vue-property-decorator@^9.1.2:
+  version "9.1.2"
+  resolved "https://registry.yarnpkg.com/vue-property-decorator/-/vue-property-decorator-9.1.2.tgz#266a2eac61ba6527e2e68a6933cfb98fddab5457"
+  integrity sha512-xYA8MkZynPBGd/w5QFJ2d/NM0z/YeegMqYTphy7NJQXbZcuU6FC6AOdUAcy4SXP+YnkerC6AfH+ldg7PDk9ESQ==
 
 vue@^3.1.0:
   version "3.4.27"

@@ -31,7 +31,7 @@
     "@codemirror/state": "^6.4.1",
     "@codemirror/view": "^6.26.3",
     "@vue/compat": "^3.1.0",
-    "@zenuml/core": "^3.24.12",
+    "@zenuml/core": "^3.24.28",
     "file-saver": "^2.0.5",
     "html-to-image": "^1.9.0",
     "js-yaml": "^4.1.0",

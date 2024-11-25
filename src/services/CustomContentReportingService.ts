@@ -36,7 +36,7 @@ class CustomContentReportingService {
 
   static async reportCustomContent(): Promise<void> {
     try {
-      const space = (await globals.apWrapper._getCurrentSpace()).key;
+      const space = (await globals.apWrapper.getCurrentSpace()).key;
       const propertyKey = CustomContentReportingService.getPropertyKey(space);
       const property = await globals.apWrapper.getAppProperty(propertyKey);
 

@@ -31,7 +31,7 @@ describe('CustomContentReportingService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Default mock implementations
-    vi.mocked(globals.apWrapper._getCurrentSpace).mockResolvedValue({ key: mockSpace });
+    vi.mocked(globals.apWrapper.getCurrentSpace).mockResolvedValue({ key: mockSpace });
     vi.mocked(globals.apWrapper.buildTypesClauseFilter).mockReturnValue('type=page');
     vi.mocked(globals.apWrapper.isLite).mockReturnValue(false);
   });
@@ -81,7 +81,7 @@ describe('CustomContentReportingService', () => {
     describe('error handling', () => {
       it('should handle and track errors during reporting', async () => {
         const error = new Error('Test error');
-        vi.mocked(globals.apWrapper._getCurrentSpace).mockRejectedValue(error);
+        vi.mocked(globals.apWrapper.getCurrentSpace).mockRejectedValue(error);
 
         await reportCustomContent();
 

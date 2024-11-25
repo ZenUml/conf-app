@@ -49,7 +49,7 @@ export default class ApWrapper2 implements IApWrapper {
     console.log('initializeContext starts');
     try {
       this.currentUser = await this._getCurrentUser();
-      this.currentSpace = await this._getCurrentSpace();
+      this.currentSpace = await this.getCurrentSpace();
       this.currentPageUrl = await this._getCurrentPageUrl();
       this.baseUrl = await this._getBaseUrl();
       this.locationTarget = await this._getLocationTarget();
@@ -157,7 +157,7 @@ export default class ApWrapper2 implements IApWrapper {
       "type": type,
       "title": content.title || `Untitled ${new Date().toISOString()}`,
       "space": {
-        "key": (await this._getCurrentSpace()).key
+        "key": (await this.getCurrentSpace()).key
       },
       "body": {
         "raw": {
@@ -365,7 +365,7 @@ export default class ApWrapper2 implements IApWrapper {
 
    async buildSearchCustomConentUrl(keyword:string='',onlyMine:boolean=false,docType:string='',limit?:number): Promise<string>{
     const typesClauseFilter=this.buildTypesClauseFilter();
-    const spaceKeyFilter = (await this._getCurrentSpace()).key;
+    const spaceKeyFilter = (await this.getCurrentSpace()).key;
     let keywordFilter='',onlyMineFilter='',docTypeFilter='',limitFilter='';
     if(keyword!=''){
       const formatKeyword=keyword.replace(/[-:]/g, " ");
@@ -539,7 +539,7 @@ export default class ApWrapper2 implements IApWrapper {
 
   async getCustomContentByType(type: string): Promise<Array<ICustomContent>> {
     try {
-      const space = await this._getCurrentSpace();
+      const space = await this.getCurrentSpace();
       const spaceId = space.id;
       const url = `/api/v2/spaces/${spaceId}/custom-content?type=${this.customContentType(type)}&body-format=raw`;
       const response: {results: Array<any>} = await this.request(url);
@@ -676,7 +676,7 @@ export default class ApWrapper2 implements IApWrapper {
     return new Promise(resolv => this._user.getCurrentUser((user: IUser) => resolv(user)));
   }
 
-  async _getCurrentSpace(): Promise<ISpace> {
+  async getCurrentSpace(): Promise<ISpace> {
     return this.currentSpace
             || (this.currentSpace = await this._page.getSpace())
       || (this.currentSpace = {key: await this._page.getSpaceKey()});

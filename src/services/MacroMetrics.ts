@@ -22,7 +22,7 @@ interface ContentResult {
   };
 }
 
-class CustomContentReportingService {
+class MacroMetrics {
   private static readonly ONE_DAY_MS = 86400000;
   private static readonly PROPERTY_PREFIX = 'CustomContentReport_';
 
@@ -37,21 +37,21 @@ class CustomContentReportingService {
   static async reportCustomContent(): Promise<void> {
     try {
       const space = (await globals.apWrapper.getCurrentSpace()).key;
-      const propertyKey = CustomContentReportingService.getPropertyKey(space);
+      const propertyKey = MacroMetrics.getPropertyKey(space);
       const property = await globals.apWrapper.getAppProperty(propertyKey);
 
-      if (!property || new Date(property.lastUpdated) < CustomContentReportingService.yesterday()) {
+      if (!property || new Date(property.lastUpdated) < MacroMetrics.yesterday()) {
         console.debug(`Starting new report for space ${space}:`, property);
 
         const result = await this.searchCustomContent(space);
         console.debug(`Report statistics for space ${space}:`, result);
         trackEvent(`${JSON.stringify(result)}`, 'reportCustomContent', 'info');
 
-        await CustomContentReportingService.updateAppProperty(space, result);
+        await MacroMetrics.updateAppProperty(space, result);
       }
     } catch (e) {
       console.error('Error on reportCustomContent', e);
-      CustomContentReportingService.trackError(e);
+      MacroMetrics.trackError(e);
     }
   }
 
@@ -79,11 +79,11 @@ class CustomContentReportingService {
       if (!data?.results?.length) return;
 
       stats.total += data.results.length;
-      data.results.forEach(CustomContentReportingService.processContentResult.bind(this, stats));
+      data.results.forEach(MacroMetrics.processContentResult.bind(this, stats));
     };
 
     try {
-      const searchUrl = CustomContentReportingService.buildSearchUrl(space);
+      const searchUrl = MacroMetrics.buildSearchUrl(space);
       await globals.apWrapper.requestAllPaginatedData(searchUrl, consumer);
 
       return {
@@ -93,7 +93,7 @@ class CustomContentReportingService {
       };
     } catch (e) {
       console.error('Error on searchCustomContent', e);
-      CustomContentReportingService.trackError(e);
+      MacroMetrics.trackError(e);
     }
   }
 
@@ -129,7 +129,7 @@ class CustomContentReportingService {
       }
     } catch (e) {
       stats.unknown!++;
-      CustomContentReportingService.trackError(e);
+      MacroMetrics.trackError(e);
     }
   }
 
@@ -144,4 +144,4 @@ class CustomContentReportingService {
   }
 }
 
-export const { reportCustomContent, searchCustomContent } = CustomContentReportingService;
+export const { reportCustomContent, searchCustomContent } = MacroMetrics;

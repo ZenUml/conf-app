@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { reportCustomContent, searchCustomContent } from './CustomContentReportingService';
+import { reportCustomContent, searchCustomContent } from './MacroMetrics';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import { trackEvent } from '@/utils/window';
 
@@ -162,7 +162,7 @@ describe('CustomContentReportingService', () => {
 
         const result = await searchCustomContent(mockSpace);
 
-        expect(result.unknown).toBe(1);
+        expect(result?.unknown).toBe(1);
         expect(trackEvent).toHaveBeenCalledWith(
           expect.any(String),
           'reportCustomContent',

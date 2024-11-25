@@ -39,7 +39,7 @@ describe('MacroMetrics', () => {
           lastUpdated: today.toISOString()
         });
 
-        await macroMetrics.reportCustomContent();
+        await macroMetrics.reportMacroMetrics();
 
         expect(mockApWrapper.setAppProperty).not.toHaveBeenCalled();
         expect(mockApWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
@@ -52,7 +52,7 @@ describe('MacroMetrics', () => {
         });
         mockApWrapper.requestAllPaginatedData.mockResolvedValue({});
 
-        await macroMetrics.reportCustomContent();
+        await macroMetrics.reportMacroMetrics();
 
         expect(mockApWrapper.setAppProperty).toHaveBeenCalledWith(
           propertyKey,
@@ -67,7 +67,7 @@ describe('MacroMetrics', () => {
         mockApWrapper.getAppProperty.mockResolvedValue(null);
         mockApWrapper.requestAllPaginatedData.mockResolvedValue({});
 
-        await macroMetrics.reportCustomContent();
+        await macroMetrics.reportMacroMetrics();
 
         expect(mockApWrapper.setAppProperty).toHaveBeenCalled();
       });
@@ -78,7 +78,7 @@ describe('MacroMetrics', () => {
         const error = new Error('Test error');
         mockApWrapper.getCurrentSpace.mockRejectedValue(error);
 
-        await macroMetrics.reportCustomContent();
+        await macroMetrics.reportMacroMetrics();
 
         expect(mockEventTracker).toHaveBeenCalledWith(
           JSON.stringify(error),
@@ -107,7 +107,7 @@ describe('MacroMetrics', () => {
           return Promise.resolve({});
         });
 
-        const result = await macroMetrics.searchCustomContent(mockSpace);
+        const result = await macroMetrics.getMacroMetrics(mockSpace);
 
         expect(result).toEqual({
           space: mockSpace,
@@ -127,7 +127,7 @@ describe('MacroMetrics', () => {
           return Promise.resolve({});
         });
 
-        const result = await macroMetrics.searchCustomContent(mockSpace);
+        const result = await macroMetrics.getMacroMetrics(mockSpace);
 
         expect(result).toEqual({
           space: mockSpace,
@@ -155,7 +155,7 @@ describe('MacroMetrics', () => {
           return Promise.resolve({});
         });
 
-        const result = await macroMetrics.searchCustomContent(mockSpace);
+        const result = await macroMetrics.getMacroMetrics(mockSpace);
 
         expect(result?.unknown).toBe(1);
         expect(mockEventTracker).toHaveBeenCalledWith(
@@ -179,7 +179,7 @@ describe('MacroMetrics', () => {
           return Promise.resolve({});
         });
 
-        const result = await macroMetrics.searchCustomContent(mockSpace);
+        const result = await macroMetrics.getMacroMetrics(mockSpace);
 
         expect(result?.unknown).toBe(3);
         expect(result?.total).toBe(3);
@@ -191,7 +191,7 @@ describe('MacroMetrics', () => {
         mockApWrapper.buildTypesClauseFilter.mockReturnValue('type=customContent');
         mockApWrapper.requestAllPaginatedData.mockResolvedValue({});
 
-        await macroMetrics.searchCustomContent(mockSpace);
+        await macroMetrics.getMacroMetrics(mockSpace);
 
         expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalledWith(
           `/rest/api/content/search?expand=body.raw&cql=space in ("${mockSpace}") and (type=customContent)`,

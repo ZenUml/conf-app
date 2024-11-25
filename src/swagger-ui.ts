@@ -82,7 +82,7 @@ async function initializeMacro() {
 
   await loadDiagram();
 
-  await macroMetrics.reportCustomContent();
+  await macroMetrics.reportMacroMetrics();
 }
 
 export default initializeMacro();

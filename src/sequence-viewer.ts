@@ -24,7 +24,7 @@ async function main() {
   let {doc} = await compositeContentProvider.load();
   mountRoot(doc, DiagramPortal);
 
-  await macroMetrics.reportCustomContent();
+  await macroMetrics.reportMacroMetrics();
 }
 
 export default main()

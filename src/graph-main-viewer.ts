@@ -77,7 +77,7 @@ async function loadDiagram() {
 
   await loadDiagram();
 
-  await macroMetrics.reportCustomContent();
+  await macroMetrics.reportMacroMetrics();
 })()
 
 EventBus.$on('edit', () => {

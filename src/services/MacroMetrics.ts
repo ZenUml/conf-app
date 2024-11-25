@@ -3,7 +3,7 @@ import globals from "@/model/globals";
 import { trackEvent } from "@/utils/window";
 import ApWrapper2 from "@/model/ApWrapper2";
 
-interface ContentReport {
+interface IMacroMetrics {
   space: string;
   total: number;
   sequence: number;
@@ -40,18 +40,20 @@ export class MacroMetrics {
     return `${this.PROPERTY_PREFIX}${space}`;
   }
 
-  async reportCustomContent(): Promise<void> {
+  async reportMacroMetrics(): Promise<void> {
     try {
       const space = (await this.apWrapper.getCurrentSpace()).key;
       const propertyKey = this.getPropertyKey(space);
       const property = await this.apWrapper.getAppProperty(propertyKey);
 
-      if (!property || !property.lastUpdated || new Date(property.lastUpdated) < this.getYesterday()) {
+      let noValidRecord = !property || !property.lastUpdated;
+      let recordExpired = new Date(property.lastUpdated) < this.getYesterday();
+      if (noValidRecord || recordExpired) {
         console.debug(`Starting new report for space ${space}:`, property);
 
-        const result = await this.searchCustomContent(space);
-        console.debug(`Report statistics for space ${space}:`, result);
-        this.eventTracker(`${JSON.stringify(result)}`, 'reportCustomContent', 'info');
+        const result = await this.getMacroMetrics(space);
+        console.debug(`Report macro metrics for space ${space}:`, result);
+        this.eventTracker(`${JSON.stringify(result)}`, 'report_macro_metrics', 'info');
 
         await this.updateAppProperty(space, result);
       }
@@ -61,7 +63,7 @@ export class MacroMetrics {
     }
   }
 
-  private async updateAppProperty(space: string, result: ContentReport | undefined): Promise<void> {
+  private async updateAppProperty(space: string, result: IMacroMetrics | undefined): Promise<void> {
     await this.apWrapper.setAppProperty(
       this.getPropertyKey(space),
       {
@@ -71,7 +73,7 @@ export class MacroMetrics {
     );
   }
 
-  async searchCustomContent(space: string): Promise<ContentReport | undefined> {
+  async getMacroMetrics(space: string): Promise<IMacroMetrics | undefined> {
     const stats = this.createInitialStats();
 
     const consumer = (data: { results?: ContentResult[] }) => {
@@ -96,7 +98,7 @@ export class MacroMetrics {
     }
   }
 
-  private createInitialStats(): Omit<ContentReport, 'space' | 'isLite' | 'lastUpdated'> {
+  private createInitialStats(): Omit<IMacroMetrics, 'space' | 'isLite' | 'lastUpdated'> {
     return {
       total: 0,
       sequence: 0,
@@ -107,7 +109,7 @@ export class MacroMetrics {
     };
   }
 
-  private processContentResult(stats: Partial<ContentReport>, content: ContentResult): void {
+  private processContentResult(stats: Partial<IMacroMetrics>, content: ContentResult): void {
     try {
       const rawValue = content.body?.raw?.value;
       if (!rawValue) {
@@ -128,7 +130,7 @@ export class MacroMetrics {
     }
   }
 
-  private updateDiagramStats(stats: Partial<ContentReport>, diagramType: DiagramType): void {
+  private updateDiagramStats(stats: Partial<IMacroMetrics>, diagramType: DiagramType): void {
     switch (diagramType) {
       case DiagramType.Sequence:
         stats.sequence!++;

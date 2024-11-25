@@ -7,7 +7,7 @@ import { trackEvent } from '@/utils/window';
 vi.mock('@/model/globals', () => ({
   default: {
     apWrapper: {
-      _getCurrentSpace: vi.fn(),
+      getCurrentSpace: vi.fn(),
       getAppProperty: vi.fn(),
       setAppProperty: vi.fn(),
       buildTypesClauseFilter: vi.fn(),

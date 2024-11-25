@@ -1,6 +1,7 @@
 import { DiagramType } from "@/model/Diagram/Diagram";
 import globals from "@/model/globals";
 import { trackEvent } from "@/utils/window";
+import ApWrapper2 from "@/model/ApWrapper2";
 
 interface ContentReport {
   space: string;
@@ -22,41 +23,46 @@ interface ContentResult {
   };
 }
 
-class MacroMetrics {
-  private static readonly ONE_DAY_MS = 86400000;
-  private static readonly PROPERTY_PREFIX = 'CustomContentReport_';
+export class MacroMetrics {
+  private readonly ONE_DAY_MS = 86400000;
+  private readonly PROPERTY_PREFIX = 'CustomContentReport_';
 
-  private static yesterday(): Date {
+  constructor(
+    private readonly apWrapper: ApWrapper2 = globals.apWrapper,
+    private readonly eventTracker = trackEvent
+  ) {}
+
+  private getYesterday(): Date {
     return new Date(Date.now() - this.ONE_DAY_MS);
   }
 
-  private static getPropertyKey(space: string): string {
+  private getPropertyKey(space: string): string {
     return `${this.PROPERTY_PREFIX}${space}`;
   }
 
-  static async reportCustomContent(): Promise<void> {
+  async reportCustomContent(): Promise<void> {
     try {
-      const space = (await globals.apWrapper.getCurrentSpace()).key;
-      const propertyKey = MacroMetrics.getPropertyKey(space);
-      const property = await globals.apWrapper.getAppProperty(propertyKey);
+      const space = (await this.apWrapper.getCurrentSpace()).key;
+      const propertyKey = this.getPropertyKey(space);
+      const property = await this.apWrapper.getAppProperty(propertyKey);
 
-      if (!property || new Date(property.lastUpdated) < MacroMetrics.yesterday()) {
+      if (!property || new Date(property.lastUpdated) < this.getYesterday()) {
         console.debug(`Starting new report for space ${space}:`, property);
 
         const result = await this.searchCustomContent(space);
         console.debug(`Report statistics for space ${space}:`, result);
-        trackEvent(`${JSON.stringify(result)}`, 'reportCustomContent', 'info');
+        this.eventTracker(`${JSON.stringify(result)}`, 'reportCustomContent', 'info');
 
-        await MacroMetrics.updateAppProperty(space, result);
+        await this.updateAppProperty(space, result);
       }
     } catch (e) {
       console.error('Error on reportCustomContent', e);
-      MacroMetrics.trackError(e);
+      this.trackError(e);
     }
   }
 
-  private static async updateAppProperty(space: string, result: ContentReport | undefined): Promise<void> {
-    await globals.apWrapper.setAppProperty(
+  private async updateAppProperty(space: string, result: ContentReport | undefined): Promise<void> {
+    await this.apWrapper.setAppProperty(
       this.getPropertyKey(space),
       {
         ...result,
@@ -65,8 +71,33 @@ class MacroMetrics {
     );
   }
 
-  static async searchCustomContent(space: string): Promise<ContentReport | undefined> {
-    const stats = {
+  async searchCustomContent(space: string): Promise<ContentReport | undefined> {
+    const stats = this.createInitialStats();
+
+    const consumer = (data: { results?: ContentResult[] }) => {
+      if (!data?.results?.length) return;
+
+      stats.total += data.results.length;
+      data.results.forEach((content) => this.processContentResult(stats, content));
+    };
+
+    try {
+      const searchUrl = this.buildSearchUrl(space);
+      await this.apWrapper.requestAllPaginatedData(searchUrl, consumer);
+
+      return {
+        space,
+        ...stats,
+        isLite: this.apWrapper.isLite()
+      };
+    } catch (e) {
+      console.error('Error on searchCustomContent', e);
+      this.trackError(e);
+    }
+  }
+
+  private createInitialStats(): Omit<ContentReport, 'space' | 'isLite' | 'lastUpdated'> {
+    return {
       total: 0,
       sequence: 0,
       graph: 0,
@@ -74,30 +105,9 @@ class MacroMetrics {
       mermaid: 0,
       unknown: 0
     };
-
-    const consumer = (data: { results?: ContentResult[] }) => {
-      if (!data?.results?.length) return;
-
-      stats.total += data.results.length;
-      data.results.forEach(MacroMetrics.processContentResult.bind(this, stats));
-    };
-
-    try {
-      const searchUrl = MacroMetrics.buildSearchUrl(space);
-      await globals.apWrapper.requestAllPaginatedData(searchUrl, consumer);
-
-      return {
-        space,
-        ...stats,
-        isLite: globals.apWrapper.isLite()
-      };
-    } catch (e) {
-      console.error('Error on searchCustomContent', e);
-      MacroMetrics.trackError(e);
-    }
   }
 
-  private static processContentResult(stats: Partial<ContentReport>, content: ContentResult): void {
+  private processContentResult(stats: Partial<ContentReport>, content: ContentResult): void {
     try {
       const rawValue = content.body?.raw?.value;
       if (!rawValue) {
@@ -111,37 +121,45 @@ class MacroMetrics {
         return;
       }
 
-      switch (parsedContent.diagramType) {
-        case DiagramType.Sequence:
-          stats.sequence!++;
-          break;
-        case DiagramType.Graph:
-          stats.graph!++;
-          break;
-        case DiagramType.OpenApi:
-          stats.openapi!++;
-          break;
-        case DiagramType.Mermaid:
-          stats.mermaid!++;
-          break;
-        default:
-          stats.unknown!++;
-      }
+      this.updateDiagramStats(stats, parsedContent.diagramType);
     } catch (e) {
       stats.unknown!++;
-      MacroMetrics.trackError(e);
+      this.trackError(e);
     }
   }
 
-  private static buildSearchUrl(space: string): string {
-    const typesFilter = globals.apWrapper.buildTypesClauseFilter();
+  private updateDiagramStats(stats: Partial<ContentReport>, diagramType: DiagramType): void {
+    switch (diagramType) {
+      case DiagramType.Sequence:
+        stats.sequence!++;
+        break;
+      case DiagramType.Graph:
+        stats.graph!++;
+        break;
+      case DiagramType.OpenApi:
+        stats.openapi!++;
+        break;
+      case DiagramType.Mermaid:
+        stats.mermaid!++;
+        break;
+      default:
+        stats.unknown!++;
+    }
+  }
+
+  private buildSearchUrl(space: string): string {
+    const typesFilter = this.apWrapper.buildTypesClauseFilter();
     const spacesFilter = `space in ("${space}")`;
     return `/rest/api/content/search?expand=body.raw&cql=${spacesFilter} and (${typesFilter})`;
   }
 
-  private static trackError(e: unknown): void {
-    trackEvent(JSON.stringify(e), 'reportCustomContent', 'error');
+  private trackError(e: unknown): void {
+    this.eventTracker(JSON.stringify(e), 'reportCustomContent', 'error');
   }
 }
 
-export const { reportCustomContent, searchCustomContent } = MacroMetrics;
+// Factory function for creating instances
+export const createMacroMetrics = () => new MacroMetrics();
+
+// Maintain backward compatibility with existing code
+export default  createMacroMetrics();

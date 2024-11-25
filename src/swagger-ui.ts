@@ -13,7 +13,7 @@ import ApWrapper2 from "@/model/ApWrapper2";
 import OpenApiViewer from "@/components/Viewer/OpenApiViewer.vue";
 import EventBus from './EventBus'
 import {mountRoot} from "@/mount-root";
-import { reportCustomContent } from '@/services/CustomContentReportingService';
+import macroMetrics from "@/services/MacroMetrics";
 
 // @ts-ignore
 window.SwaggerUIBundle = SwaggerUIBundle;
@@ -82,7 +82,7 @@ async function initializeMacro() {
 
   await loadDiagram();
 
-  reportCustomContent();
+  await macroMetrics.reportCustomContent();
 }
 
 export default initializeMacro();

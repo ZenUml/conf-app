@@ -1,65 +1,60 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { reportCustomContent, searchCustomContent } from './MacroMetrics';
+import { MacroMetrics } from './MacroMetrics';
 import { DiagramType } from '@/model/Diagram/Diagram';
-import { trackEvent } from '@/utils/window';
 
-// Mock dependencies
-vi.mock('@/model/globals', () => ({
-  default: {
-    apWrapper: {
-      getCurrentSpace: vi.fn(),
-      getAppProperty: vi.fn(),
-      setAppProperty: vi.fn(),
-      buildTypesClauseFilter: vi.fn(),
-      requestAllPaginatedData: vi.fn(),
-      isLite: vi.fn()
-    }
-  }
-}));
-
-vi.mock('@/utils/window', () => ({
-  trackEvent: vi.fn()
-}));
-
-// Import mocks after they're defined
-import globals from '@/model/globals';
-
-describe('CustomContentReportingService', () => {
+describe('MacroMetrics', () => {
   const mockSpace = 'TEST-SPACE';
   const propertyKey = 'CustomContentReport_TEST-SPACE';
 
+  // Mock dependencies
+  const mockApWrapper = {
+    getCurrentSpace: vi.fn(),
+    getAppProperty: vi.fn(),
+    setAppProperty: vi.fn(),
+    buildTypesClauseFilter: vi.fn(),
+    requestAllPaginatedData: vi.fn(),
+    isLite: vi.fn()
+  };
+
+  const mockEventTracker = vi.fn();
+  let macroMetrics: MacroMetrics;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    // Create new instance with mocked dependencies
+    // @ts-ignore
+    macroMetrics = new MacroMetrics(mockApWrapper, mockEventTracker);
+
     // Default mock implementations
-    vi.mocked(globals.apWrapper.getCurrentSpace).mockResolvedValue({ key: mockSpace });
-    vi.mocked(globals.apWrapper.buildTypesClauseFilter).mockReturnValue('type=page');
-    vi.mocked(globals.apWrapper.isLite).mockReturnValue(false);
+    mockApWrapper.getCurrentSpace.mockResolvedValue({ key: mockSpace });
+    mockApWrapper.buildTypesClauseFilter.mockReturnValue('type=page');
+    mockApWrapper.isLite.mockReturnValue(false);
   });
 
   describe('reportCustomContent', () => {
     describe('report timing', () => {
       it('should not report if last report was within 24 hours', async () => {
         const today = new Date();
-        vi.mocked(globals.apWrapper.getAppProperty).mockResolvedValue({
+        mockApWrapper.getAppProperty.mockResolvedValue({
           lastUpdated: today.toISOString()
         });
 
-        await reportCustomContent();
+        await macroMetrics.reportCustomContent();
 
-        expect(globals.apWrapper.setAppProperty).not.toHaveBeenCalled();
-        expect(globals.apWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
+        expect(mockApWrapper.setAppProperty).not.toHaveBeenCalled();
+        expect(mockApWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
       });
 
       it('should report if last report was older than 24 hours', async () => {
         const oldDate = new Date(Date.now() - 90000000); // > 24 hours
-        vi.mocked(globals.apWrapper.getAppProperty).mockResolvedValue({
+        mockApWrapper.getAppProperty.mockResolvedValue({
           lastUpdated: oldDate.toISOString()
         });
-        vi.mocked(globals.apWrapper.requestAllPaginatedData).mockResolvedValue({});
+        mockApWrapper.requestAllPaginatedData.mockResolvedValue({});
 
-        await reportCustomContent();
+        await macroMetrics.reportCustomContent();
 
-        expect(globals.apWrapper.setAppProperty).toHaveBeenCalledWith(
+        expect(mockApWrapper.setAppProperty).toHaveBeenCalledWith(
           propertyKey,
           expect.objectContaining({
             space: mockSpace,
@@ -69,23 +64,23 @@ describe('CustomContentReportingService', () => {
       });
 
       it('should report if no previous report exists', async () => {
-        vi.mocked(globals.apWrapper.getAppProperty).mockResolvedValue(null);
-        vi.mocked(globals.apWrapper.requestAllPaginatedData).mockResolvedValue({});
+        mockApWrapper.getAppProperty.mockResolvedValue(null);
+        mockApWrapper.requestAllPaginatedData.mockResolvedValue({});
 
-        await reportCustomContent();
+        await macroMetrics.reportCustomContent();
 
-        expect(globals.apWrapper.setAppProperty).toHaveBeenCalled();
+        expect(mockApWrapper.setAppProperty).toHaveBeenCalled();
       });
     });
 
     describe('error handling', () => {
       it('should handle and track errors during reporting', async () => {
         const error = new Error('Test error');
-        vi.mocked(globals.apWrapper.getCurrentSpace).mockRejectedValue(error);
+        mockApWrapper.getCurrentSpace.mockRejectedValue(error);
 
-        await reportCustomContent();
+        await macroMetrics.reportCustomContent();
 
-        expect(trackEvent).toHaveBeenCalledWith(
+        expect(mockEventTracker).toHaveBeenCalledWith(
           JSON.stringify(error),
           'reportCustomContent',
           'error'
@@ -107,12 +102,12 @@ describe('CustomContentReportingService', () => {
           ]
         };
 
-        vi.mocked(globals.apWrapper.requestAllPaginatedData).mockImplementation((url, consumer) => {
+        mockApWrapper.requestAllPaginatedData.mockImplementation((url, consumer) => {
           consumer(mockResults);
           return Promise.resolve({});
         });
 
-        const result = await searchCustomContent(mockSpace);
+        const result = await macroMetrics.searchCustomContent(mockSpace);
 
         expect(result).toEqual({
           space: mockSpace,
@@ -127,12 +122,12 @@ describe('CustomContentReportingService', () => {
       });
 
       it('should handle empty results', async () => {
-        vi.mocked(globals.apWrapper.requestAllPaginatedData).mockImplementation((url, consumer) => {
+        mockApWrapper.requestAllPaginatedData.mockImplementation((url, consumer) => {
           consumer({ results: [] });
           return Promise.resolve({});
         });
 
-        const result = await searchCustomContent(mockSpace);
+        const result = await macroMetrics.searchCustomContent(mockSpace);
 
         expect(result).toEqual({
           space: mockSpace,
@@ -155,15 +150,15 @@ describe('CustomContentReportingService', () => {
           ]
         };
 
-        vi.mocked(globals.apWrapper.requestAllPaginatedData).mockImplementation((url, consumer) => {
+        mockApWrapper.requestAllPaginatedData.mockImplementation((url, consumer) => {
           consumer(mockResults);
           return Promise.resolve({});
         });
 
-        const result = await searchCustomContent(mockSpace);
+        const result = await macroMetrics.searchCustomContent(mockSpace);
 
         expect(result?.unknown).toBe(1);
-        expect(trackEvent).toHaveBeenCalledWith(
+        expect(mockEventTracker).toHaveBeenCalledWith(
           expect.any(String),
           'reportCustomContent',
           'error'
@@ -179,13 +174,13 @@ describe('CustomContentReportingService', () => {
           ]
         };
 
-        vi.mocked(globals.apWrapper.requestAllPaginatedData).mockImplementation((url: string, consumer: (data: any) => void) => {
+        mockApWrapper.requestAllPaginatedData.mockImplementation((url, consumer) => {
           consumer(mockResults);
           return Promise.resolve({});
         });
 
-        const result = await searchCustomContent(mockSpace);
-        expect(result).toBeDefined();
+        const result = await macroMetrics.searchCustomContent(mockSpace);
+
         expect(result?.unknown).toBe(3);
         expect(result?.total).toBe(3);
       });
@@ -193,12 +188,12 @@ describe('CustomContentReportingService', () => {
 
     describe('URL building', () => {
       it('should build correct search URL', async () => {
-        vi.mocked(globals.apWrapper.buildTypesClauseFilter).mockReturnValue('type=customContent');
-        vi.mocked(globals.apWrapper.requestAllPaginatedData).mockResolvedValue({});
+        mockApWrapper.buildTypesClauseFilter.mockReturnValue('type=customContent');
+        mockApWrapper.requestAllPaginatedData.mockResolvedValue({});
 
-        await searchCustomContent(mockSpace);
+        await macroMetrics.searchCustomContent(mockSpace);
 
-        expect(globals.apWrapper.requestAllPaginatedData).toHaveBeenCalledWith(
+        expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalledWith(
           `/rest/api/content/search?expand=body.raw&cql=space in ("${mockSpace}") and (type=customContent)`,
           expect.any(Function)
         );

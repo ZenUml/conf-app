@@ -46,7 +46,7 @@ export class MacroMetrics {
       const propertyKey = this.getPropertyKey(space);
       const property = await this.apWrapper.getAppProperty(propertyKey);
 
-      if (!property || new Date(property.lastUpdated) < this.getYesterday()) {
+      if (!property || !property.lastUpdated || new Date(property.lastUpdated) < this.getYesterday()) {
         console.debug(`Starting new report for space ${space}:`, property);
 
         const result = await this.searchCustomContent(space);

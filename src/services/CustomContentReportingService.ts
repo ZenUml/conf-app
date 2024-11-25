@@ -2,68 +2,146 @@ import { DiagramType } from "@/model/Diagram/Diagram";
 import globals from "@/model/globals";
 import { trackEvent } from "@/utils/window";
 
-const yesterday = () => new Date(Date.now() - 86400000);
-
-export async function reportCustomContent() {
-  try {
-    const space = (await globals.apWrapper._getCurrentSpace()).key;
-    let property = await globals.apWrapper.getAppProperty(`CustomContentReport_${space}`);
-
-    //`property[space]` was set to the lastUpdated time directly and is changed to {lastUpdated: ...} later
-    if(!property || new Date(property.lastUpdated) < yesterday() ) {
-      console.debug(`start another reporting since the last CustomContentReport in space ${space}:`, property);
-
-      const result = await searchCustomContent(space);
-      console.debug(`reportCustomContent - statistics of custom content in space ${space}:`, result);
-      trackEvent(`${JSON.stringify(result)}`, 'reportCustomContent', 'info');
-
-      await updateAppProperty(space, result);
-    }
-  } catch(e) {
-    console.error('Error on reportCustomContent', e);
-    trackError(e);
-  }
+interface ContentReport {
+  space: string;
+  total: number;
+  sequence: number;
+  graph: number;
+  openapi: number;
+  mermaid: number;
+  unknown: number;
+  isLite: boolean;
+  lastUpdated?: string;
 }
 
-async function updateAppProperty(space: string, result: any) {
-  await globals.apWrapper.setAppProperty(`CustomContentReport_${space}`, {...result, lastUpdated: new Date().toISOString()});
-}
-
-export async function searchCustomContent(space: string) {
-  let total = 0, sequence = 0, graph = 0, openapi = 0, mermaid = 0, unknown = 0;
-  const typesFilter = globals.apWrapper.buildTypesClauseFilter();
-  const spacesFilter = `space in ("${space}")`;
-  const searchUrl = `/rest/api/content/search?expand=body.raw&cql=${spacesFilter} and (${typesFilter})`;
-
-  const consumer = (data: any) => {
-    total += data?.results?.length;
-    data?.results?.forEach((c: any) => {
-      try {
-        const o = c.body?.raw?.value && JSON.parse(c.body?.raw?.value);
-        if(o) {
-          o.diagramType === DiagramType.Sequence && sequence++;
-          o.diagramType === DiagramType.Graph && graph++;
-          o.diagramType === DiagramType.OpenApi && openapi++;
-          o.diagramType === DiagramType.Mermaid && mermaid++;
-
-          (!o.diagramType || o.diagramType === DiagramType.Unknown) && unknown++;
-        }
-      } catch(e) {
-        unknown++;
-        trackError(e);
-      }
-    });
+interface ContentResult {
+  body?: {
+    raw?: {
+      value?: string;
+    };
   };
+}
 
-  try {
-    await globals.apWrapper.requestAllPaginatedData(searchUrl, consumer);
-    return {space, total, sequence, graph, openapi, mermaid, unknown, isLite: globals.apWrapper.isLite()};
-  } catch (e) {
-    console.error('Error on searchCustomContent', e);
-    trackError(e);
+class CustomContentReportingService {
+  private static readonly ONE_DAY_MS = 86400000;
+  private static readonly PROPERTY_PREFIX = 'CustomContentReport_';
+
+  private static yesterday(): Date {
+    return new Date(Date.now() - this.ONE_DAY_MS);
+  }
+
+  private static getPropertyKey(space: string): string {
+    return `${this.PROPERTY_PREFIX}${space}`;
+  }
+
+  static async reportCustomContent(): Promise<void> {
+    try {
+      const space = (await globals.apWrapper._getCurrentSpace()).key;
+      const propertyKey = CustomContentReportingService.getPropertyKey(space);
+      const property = await globals.apWrapper.getAppProperty(propertyKey);
+
+      if (!property || new Date(property.lastUpdated) < CustomContentReportingService.yesterday()) {
+        console.debug(`Starting new report for space ${space}:`, property);
+
+        const result = await this.searchCustomContent(space);
+        console.debug(`Report statistics for space ${space}:`, result);
+        trackEvent(`${JSON.stringify(result)}`, 'reportCustomContent', 'info');
+
+        await CustomContentReportingService.updateAppProperty(space, result);
+      }
+    } catch (e) {
+      console.error('Error on reportCustomContent', e);
+      CustomContentReportingService.trackError(e);
+    }
+  }
+
+  private static async updateAppProperty(space: string, result: ContentReport | undefined): Promise<void> {
+    await globals.apWrapper.setAppProperty(
+      this.getPropertyKey(space),
+      {
+        ...result,
+        lastUpdated: new Date().toISOString()
+      }
+    );
+  }
+
+  static async searchCustomContent(space: string): Promise<ContentReport | undefined> {
+    const stats = {
+      total: 0,
+      sequence: 0,
+      graph: 0,
+      openapi: 0,
+      mermaid: 0,
+      unknown: 0
+    };
+
+    const consumer = (data: { results?: ContentResult[] }) => {
+      if (!data?.results?.length) return;
+
+      stats.total += data.results.length;
+      data.results.forEach(CustomContentReportingService.processContentResult.bind(this, stats));
+    };
+
+    try {
+      const searchUrl = CustomContentReportingService.buildSearchUrl(space);
+      await globals.apWrapper.requestAllPaginatedData(searchUrl, consumer);
+
+      return {
+        space,
+        ...stats,
+        isLite: globals.apWrapper.isLite()
+      };
+    } catch (e) {
+      console.error('Error on searchCustomContent', e);
+      CustomContentReportingService.trackError(e);
+    }
+  }
+
+  private static processContentResult(stats: Partial<ContentReport>, content: ContentResult): void {
+    try {
+      const rawValue = content.body?.raw?.value;
+      if (!rawValue) {
+        stats.unknown!++;
+        return;
+      }
+
+      const parsedContent = JSON.parse(rawValue);
+      if (!parsedContent) {
+        stats.unknown!++;
+        return;
+      }
+
+      switch (parsedContent.diagramType) {
+        case DiagramType.Sequence:
+          stats.sequence!++;
+          break;
+        case DiagramType.Graph:
+          stats.graph!++;
+          break;
+        case DiagramType.OpenApi:
+          stats.openapi!++;
+          break;
+        case DiagramType.Mermaid:
+          stats.mermaid!++;
+          break;
+        default:
+          stats.unknown!++;
+      }
+    } catch (e) {
+      stats.unknown!++;
+      CustomContentReportingService.trackError(e);
+    }
+  }
+
+  private static buildSearchUrl(space: string): string {
+    const typesFilter = globals.apWrapper.buildTypesClauseFilter();
+    const spacesFilter = `space in ("${space}")`;
+    return `/rest/api/content/search?expand=body.raw&cql=${spacesFilter} and (${typesFilter})`;
+  }
+
+  private static trackError(e: unknown): void {
+    trackEvent(JSON.stringify(e), 'reportCustomContent', 'error');
   }
 }
 
-function trackError(e: any) {
-  trackEvent(JSON.stringify(e), 'reportCustomContent', 'error');
-}
+export const { reportCustomContent, searchCustomContent } = CustomContentReportingService;

@@ -2,7 +2,7 @@
   <a
     :class="[
       'inline-flex items-center gap-1 p-1 rounded-md transition-colors duration-200 leading-[1em]',
-      shouldShowTooltip ? 'bg-gray-800 hover:bg-gray-900' : 'bg-blue-500 hover:bg-blue-600'
+      shouldShowTooltip ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-blue-500 hover:bg-blue-600'
     ]"
     :href="upgradeUrl"
     target="_blank"

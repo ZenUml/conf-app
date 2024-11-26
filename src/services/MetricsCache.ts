@@ -5,6 +5,17 @@ interface CacheEntry<T> {
   lastUpdated: string;
 }
 
+/**
+ * A simple cache for metrics data. Imaging there is a cache infrastructure for each given cachePrefix (e.g. MacroMetrics).
+ * This cache infrastructure accept a space key and store the metrics data for that space.
+ *
+ * Example:
+ * MacroMetrics_SPACE1 -> { data: { ... }, lastUpdated: '2021-09-01T00:00:00.000Z' }
+ * get('SPACE1') -> { ... } <- it does not return the lastUpdated field
+ *
+ * Using ${cachePrefix}_${space} as the app property key is an implementation detail. Space is the cache key.
+ */
+
 export class MetricsCache<T> {
   private readonly ONE_DAY_MS = 86400000;
   private cachedEntry: CacheEntry<T> | null = null;

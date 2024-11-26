@@ -82,7 +82,7 @@ describe('MacroMetrics', () => {
 
         expect(mockEventTracker).toHaveBeenCalledWith(
           JSON.stringify(error),
-          'reportCustomContent',
+          'report_macro_metrics',
           'error'
         );
       });
@@ -94,6 +94,7 @@ describe('MacroMetrics', () => {
       it('should correctly count different diagram types', async () => {
         const mockResults = {
           results: [
+            { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Sequence }) } } },
             { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Sequence }) } } },
             { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Graph }) } } },
             { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.OpenApi }) } } },
@@ -111,8 +112,8 @@ describe('MacroMetrics', () => {
 
         expect(result).toEqual({
           space: mockSpace,
-          total: 5,
-          sequence: 1,
+          total: 6,
+          sequence: 2,
           graph: 1,
           openapi: 1,
           mermaid: 1,
@@ -160,7 +161,7 @@ describe('MacroMetrics', () => {
         expect(result?.unknown).toBe(1);
         expect(mockEventTracker).toHaveBeenCalledWith(
           expect.any(String),
-          'reportCustomContent',
+          'report_macro_metrics',
           'error'
         );
       });

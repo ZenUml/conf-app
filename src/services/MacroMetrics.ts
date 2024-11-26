@@ -32,14 +32,6 @@ export class MacroMetrics {
     private readonly eventTracker = trackEvent
   ) {}
 
-  private getYesterday(): Date {
-    return new Date(Date.now() - this.ONE_DAY_MS);
-  }
-
-  private getPropertyKey(space: string): string {
-    return `${this.PROPERTY_PREFIX}${space}`;
-  }
-
   async reportMacroMetrics(): Promise<void> {
     try {
       const space = (await this.apWrapper.getCurrentSpace()).key;
@@ -47,7 +39,7 @@ export class MacroMetrics {
       const property = await this.apWrapper.getAppProperty(propertyKey);
 
       let noValidRecord = !property || !property.lastUpdated;
-      let recordExpired = new Date(property.lastUpdated) < this.getYesterday();
+      let recordExpired = property?.lastUpdated && (new Date(property.lastUpdated) < this.getYesterday());
       if (noValidRecord || recordExpired) {
         console.debug(`Starting new report for space ${space}:`, property);
 
@@ -58,9 +50,17 @@ export class MacroMetrics {
         await this.updateAppProperty(space, result);
       }
     } catch (e) {
-      console.error('Error on reportCustomContent', e);
+      console.error('Error on reportMacroMetrics', e);
       this.trackError(e);
     }
+  }
+
+  private getYesterday(): Date {
+    return new Date(Date.now() - this.ONE_DAY_MS);
+  }
+
+  private getPropertyKey(space: string): string {
+    return `${this.PROPERTY_PREFIX}${space}`;
   }
 
   private async updateAppProperty(space: string, result: IMacroMetrics | undefined): Promise<void> {
@@ -93,7 +93,7 @@ export class MacroMetrics {
         isLite: this.apWrapper.isLite()
       };
     } catch (e) {
-      console.error('Error on searchCustomContent', e);
+      console.error('Error on getMacroMetrics', e);
       this.trackError(e);
     }
   }
@@ -156,7 +156,7 @@ export class MacroMetrics {
   }
 
   private trackError(e: unknown): void {
-    this.eventTracker(JSON.stringify(e), 'reportCustomContent', 'error');
+    this.eventTracker(JSON.stringify(e), 'report_macro_metrics', 'error');
   }
 }
 

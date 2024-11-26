@@ -1,12 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { MacroMetrics } from './MacroMetrics';
+import { MacroMetrics, IMacroMetrics } from './MacroMetrics';
 import { DiagramType } from '@/model/Diagram/Diagram';
 
 describe('MacroMetrics', () => {
   const mockSpace = 'TEST-SPACE';
-  const cacheKey = 'MetricsCache_TEST-SPACE';
-
-  // Mock dependencies
+  const cacheKey = 'MacroMetrics_TEST-SPACE';
+// Mock dependencies
   const mockApWrapper = {
     getCurrentSpace: vi.fn(),
     getAppProperty: vi.fn(),
@@ -22,7 +21,7 @@ describe('MacroMetrics', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Create new instance with mocked dependencies
-    // @ts-ignore
+    // @ts-ignore - partial mock implementation
     macroMetrics = new MacroMetrics(mockApWrapper, mockEventTracker);
 
     // Default mock implementations
@@ -33,46 +32,50 @@ describe('MacroMetrics', () => {
 
   describe('getMacroMetrics', () => {
     describe('caching behavior', () => {
+      it('should use correct cache key prefix', async () => {
+        mockApWrapper.getAppProperty.mockResolvedValue(null);
+        mockApWrapper.requestAllPaginatedData.mockImplementation((url, consumer) => {
+          consumer({ results: [] });
+          return Promise.resolve({});
+        });
+
+        await macroMetrics.getMacroMetrics(mockSpace);
+
+        expect(mockApWrapper.setAppProperty).toHaveBeenCalledWith(
+          cacheKey,
+          expect.any(Object)
+        );
+      });
+
       it('should return cached metrics if not expired', async () => {
-        const cachedMetrics = {
-          metrics: {
-            space: mockSpace,
-            total: 5,
-            sequence: 2,
-            graph: 1,
-            openapi: 1,
-            mermaid: 1,
-            unknown: 0,
-            isLite: false
-          },
-          lastUpdated: new Date().toISOString()
+        const cachedMetrics: IMacroMetrics = {
+          space: mockSpace,
+          total: 5,
+          sequence: 2,
+          graph: 1,
+          openapi: 1,
+          mermaid: 1,
+          unknown: 0,
+          isLite: false
         };
 
-        mockApWrapper.getAppProperty.mockResolvedValue(cachedMetrics);
+        mockApWrapper.getAppProperty.mockResolvedValue({
+          data: cachedMetrics,
+          lastUpdated: new Date().toISOString()
+        });
 
         const result = await macroMetrics.getMacroMetrics(mockSpace);
 
-        expect(result).toEqual(cachedMetrics.metrics);
+        expect(result).toEqual(cachedMetrics);
         expect(mockApWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
       });
 
       it('should collect new metrics if cache is expired', async () => {
         const oldDate = new Date(Date.now() - 90000000); // > 24 hours
-        const cachedMetrics = {
-          metrics: {
-            space: mockSpace,
-            total: 5,
-            sequence: 2,
-            graph: 1,
-            openapi: 1,
-            mermaid: 1,
-            unknown: 0,
-            isLite: false
-          },
+        mockApWrapper.getAppProperty.mockResolvedValue({
+          data: { space: mockSpace } as IMacroMetrics,
           lastUpdated: oldDate.toISOString()
-        };
-
-        mockApWrapper.getAppProperty.mockResolvedValue(cachedMetrics);
+        });
         mockApWrapper.requestAllPaginatedData.mockImplementation((url, consumer) => {
           consumer({ results: [] });
           return Promise.resolve({});
@@ -84,7 +87,7 @@ describe('MacroMetrics', () => {
         expect(mockApWrapper.setAppProperty).toHaveBeenCalledWith(
           cacheKey,
           expect.objectContaining({
-            metrics: expect.any(Object),
+            data: expect.any(Object),
             lastUpdated: expect.any(String)
           })
         );
@@ -208,7 +211,7 @@ describe('MacroMetrics', () => {
 
   describe('reportMacroMetrics', () => {
     it('should report metrics and track event', async () => {
-      const mockMetrics = {
+      const mockMetrics: IMacroMetrics = {
         space: mockSpace,
         total: 5,
         sequence: 2,
@@ -219,9 +222,8 @@ describe('MacroMetrics', () => {
         isLite: false
       };
 
-      // Mock getMacroMetrics to return our test metrics
       mockApWrapper.getAppProperty.mockResolvedValue({
-        metrics: mockMetrics,
+        data: mockMetrics,
         lastUpdated: new Date().toISOString()
       });
 

@@ -2,8 +2,9 @@ import { DiagramType } from "@/model/Diagram/Diagram";
 import globals from "@/model/globals";
 import { trackEvent } from "@/utils/window";
 import ApWrapper2 from "@/model/ApWrapper2";
+import { MetricsCache } from "./MetricsCache";
 
-interface IMacroMetrics {
+export interface IMacroMetrics {
   space: string;
   total: number;
   sequence: number;
@@ -12,6 +13,7 @@ interface IMacroMetrics {
   mermaid: number;
   unknown: number;
   isLite: boolean;
+  lastUpdated?: string;
 }
 
 interface ContentResult {
@@ -22,50 +24,17 @@ interface ContentResult {
   };
 }
 
-interface CacheEntry {
-  metrics: IMacroMetrics;
-  lastUpdated: string;
-}
-
-export class MetricsCache {
-  private readonly ONE_DAY_MS = 86400000;
-  private readonly CACHE_PREFIX = 'MetricsCache_';
-
-  constructor(private readonly apWrapper: ApWrapper2) {}
-
-  async get(space: string): Promise<CacheEntry | null> {
-    const key = this.getCacheKey(space);
-    const cache = await this.apWrapper.getAppProperty(key);
-    return cache as CacheEntry | null;
-  }
-
-  async set(space: string, metrics: IMacroMetrics): Promise<void> {
-    const key = this.getCacheKey(space);
-    const cache: CacheEntry = {
-      metrics,
-      lastUpdated: new Date().toISOString()
-    };
-    await this.apWrapper.setAppProperty(key, cache);
-  }
-
-  private getCacheKey(space: string): string {
-    return `${this.CACHE_PREFIX}${space}`;
-  }
-
-  isExpired(timestamp: string): boolean {
-    return new Date(timestamp).getTime() + this.ONE_DAY_MS < Date.now();
-  }
-}
-
 export class MacroMetrics {
-  private readonly cache: MetricsCache;
+  private static readonly CACHE_PREFIX = 'MacroMetrics';
+  private readonly cache: MetricsCache<IMacroMetrics>;
 
   constructor(
     private readonly apWrapper: ApWrapper2 = globals.apWrapper,
     private readonly eventTracker = trackEvent
   ) {
-    this.cache = new MetricsCache(apWrapper);
+    this.cache = new MetricsCache(apWrapper, MacroMetrics.CACHE_PREFIX);
   }
+
 
   async reportMacroMetrics(): Promise<void> {
     try {
@@ -81,15 +50,13 @@ export class MacroMetrics {
       this.trackError(e);
     }
   }
-
   async getMacroMetrics(space: string): Promise<IMacroMetrics | undefined> {
     try {
-      const cacheEntry = await this.cache.get(space);
+      const cachedMetrics = await this.cache.get(space);
 
-      // Return cached metrics if they're not expired
-      if (cacheEntry && !this.cache.isExpired(cacheEntry.lastUpdated)) {
+      if (cachedMetrics) {
         console.debug(`Using cached metrics for space ${space}`);
-        return cacheEntry.metrics;
+        return cachedMetrics;
       }
 
       // Collect and cache new metrics if needed

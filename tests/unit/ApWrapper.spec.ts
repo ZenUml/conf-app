@@ -104,7 +104,7 @@ describe('ApWrapper', () => {
     const _getCurrentSpace = vi.fn().mockImplementation(async () => {
       throw new Error("IGNORE ME");
     });
-    apWrapper2._getCurrentSpace = _getCurrentSpace.bind(apWrapper2);
+    apWrapper2.getCurrentSpace = _getCurrentSpace.bind(apWrapper2);
     await apWrapper2.initializeContext();
     expect(await apWrapper2.currentUser).toStrictEqual({"atlassianAccountId": "fake:user-account-id"});
     expect(await apWrapper2.currentSpace).toBeUndefined();

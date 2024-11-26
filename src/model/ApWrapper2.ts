@@ -9,11 +9,15 @@ import {IConfluence} from "@/model/IConfluence";
 import {ILicense} from "@/model/ILicense";
 import {IAp} from "@/model/IAp";
 import {DataSource, Diagram} from "@/model/Diagram/Diagram";
-import {AccountUser, ICustomContentResponseBody, ICustomContentResponseBodyV2} from "@/model/ICustomContentResponseBody";
+import {
+  AccountUser,
+  ICustomContentResponseBody,
+  ICustomContentResponseBodyV2
+} from "@/model/ICustomContentResponseBody";
 import {AtlasPage} from "@/model/page/AtlasPage";
 import CheckPermission, {PermissionCheckRequestFunc} from "@/model/page/CheckPermission";
-import { ISpace, LocationTarget } from './ILocationContext';
-import { Attachment } from './ConfluenceTypes';
+import {ISpace, LocationTarget} from './ILocationContext';
+import {Attachment} from './ConfluenceTypes';
 
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
 const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
@@ -35,6 +39,7 @@ export default class ApWrapper2 implements IApWrapper {
   baseUrl: string | undefined;
   locationTarget: LocationTarget | undefined;
   license: ILicense | undefined;
+
   constructor(ap: IAp) {
     this.versionType = this.isLite() ? VersionType.Lite : VersionType.Full;
     this._confluence = ap.confluence;
@@ -49,19 +54,25 @@ export default class ApWrapper2 implements IApWrapper {
     console.log('initializeContext starts');
     try {
       this.currentUser = await this._getCurrentUser();
-      this.currentSpace = await this._getCurrentSpace();
+      this.currentSpace = await this.getCurrentSpace();
       this.currentPageUrl = await this._getCurrentPageUrl();
       this.baseUrl = await this._getBaseUrl();
       this.locationTarget = await this._getLocationTarget();
       this.currentPageId = await this._page.getPageId();
-      if(this.versionType === VersionType.Full){
+      if (this.versionType === VersionType.Full) {
         this.license = await this._getLicense();
       }
-      console.log('initializeContext', this.currentUser, this.currentSpace, this.currentPageUrl, this.locationTarget, this.currentPageId,this.license);
+      console.log('initializeContext', this.currentUser, this.currentSpace, this.currentPageUrl, this.locationTarget, this.currentPageId, this.license);
 
-      if(window) {
+      if (window) {
         //@ts-ignore
-        window.initialContext = {currentUser: this.currentUser, currentSpace: this.currentSpace, currentPageUrl: this.currentPageUrl, currentPageId: this.currentPageId, locationTarget: this.locationTarget};
+        window.initialContext = {
+          currentUser: this.currentUser,
+          currentSpace: this.currentSpace,
+          currentPageUrl: this.currentPageUrl,
+          currentPageId: this.currentPageId,
+          locationTarget: this.locationTarget
+        };
       }
     } catch (e: any) {
       console.error(e);
@@ -102,7 +113,7 @@ export default class ApWrapper2 implements IApWrapper {
     })
   }
 
-  getContentProperty(key: any): Promise<IContentProperty|undefined> {
+  getContentProperty(key: any): Promise<IContentProperty | undefined> {
     return new Promise(resolve => {
       try {
         this._confluence.getContentProperty(key, (cp) => {
@@ -157,7 +168,7 @@ export default class ApWrapper2 implements IApWrapper {
       "type": type,
       "title": content.title || `Untitled ${new Date().toISOString()}`,
       "space": {
-        "key": (await this._getCurrentSpace()).key
+        "key": (await this.getCurrentSpace()).key
       },
       "body": {
         "raw": {
@@ -167,7 +178,7 @@ export default class ApWrapper2 implements IApWrapper {
       }
     };
     const container = {id: await this._page.getPageId(), type: await this._page.getContentType()};
-    if(container.id) {
+    if (container.id) {
       bodyData.container = container;
     }
 
@@ -283,10 +294,10 @@ export default class ApWrapper2 implements IApWrapper {
     if (isCrossPageCopy || count > 1) {
       diagram.isCopy = true;
       console.warn('Detected copied macro');
-      if(isCrossPageCopy) {
+      if (isCrossPageCopy) {
         trackEvent('cross_page', 'duplication_detect', 'warning');
       }
-      if(count > 1) {
+      if (count > 1) {
         trackEvent('same_page', 'duplication_detect', 'warning');
       }
     } else {
@@ -315,10 +326,10 @@ export default class ApWrapper2 implements IApWrapper {
     if (isCrossPageCopy || count > 1) {
       diagram.isCopy = true;
       console.warn('Detected copied macro');
-      if(isCrossPageCopy) {
+      if (isCrossPageCopy) {
         trackEvent('cross_page', 'duplication_detect', 'warning');
       }
-      if(count > 1) {
+      if (count > 1) {
         trackEvent('same_page', 'duplication_detect', 'warning');
       }
     } else {
@@ -357,28 +368,28 @@ export default class ApWrapper2 implements IApWrapper {
     }
   }
 
-   buildTypesClauseFilter(): string{
+  buildTypesClauseFilter(): string {
     const typeClause = (t: string) => `type="${this.customContentType(t)}"`;
     const typesClause = (a: Array<string>) => a.map(typeClause).join(' or ');
     return typesClause(CUSTOM_CONTENT_TYPES);
-   }
+  }
 
-   async buildSearchCustomConentUrl(keyword:string='',onlyMine:boolean=false,docType:string='',limit?:number): Promise<string>{
-    const typesClauseFilter=this.buildTypesClauseFilter();
-    const spaceKeyFilter = (await this._getCurrentSpace()).key;
-    let keywordFilter='',onlyMineFilter='',docTypeFilter='',limitFilter='';
-    if(keyword!=''){
-      const formatKeyword=keyword.replace(/[-:]/g, " ");
-      keywordFilter=` and (title ~ "${formatKeyword}*" or title ~ "*${formatKeyword}*" or title ~ "${formatKeyword}")`;
+  async buildSearchCustomConentUrl(keyword: string = '', onlyMine: boolean = false, docType: string = '', limit?: number): Promise<string> {
+    const typesClauseFilter = this.buildTypesClauseFilter();
+    const spaceKeyFilter = (await this.getCurrentSpace()).key;
+    let keywordFilter = '', onlyMineFilter = '', docTypeFilter = '', limitFilter = '';
+    if (keyword != '') {
+      const formatKeyword = keyword.replace(/[-:]/g, " ");
+      keywordFilter = ` and (title ~ "${formatKeyword}*" or title ~ "*${formatKeyword}*" or title ~ "${formatKeyword}")`;
     }
-    if(onlyMine)onlyMineFilter=` and contributor = "${this.currentUser?.atlassianAccountId}"`;
-    if(docType!='')docTypeFilter=``;
-    if(limit!=undefined)limitFilter=`&limit=${limit}`;
-    const searchUrl= `/rest/api/content/search?cql=space="${spaceKeyFilter}" and (${typesClauseFilter}) ${keywordFilter} ${onlyMineFilter} ${docTypeFilter}order by lastmodified desc${limitFilter}&expand=body.raw,version.number,container,space,body.storage,history.contributors.publishers.users`;
+    if (onlyMine) onlyMineFilter = ` and contributor = "${this.currentUser?.atlassianAccountId}"`;
+    if (docType != '') docTypeFilter = ``;
+    if (limit != undefined) limitFilter = `&limit=${limit}`;
+    const searchUrl = `/rest/api/content/search?cql=space="${spaceKeyFilter}" and (${typesClauseFilter}) ${keywordFilter} ${onlyMineFilter} ${docTypeFilter}order by lastmodified desc${limitFilter}&expand=body.raw,version.number,container,space,body.storage,history.contributors.publishers.users`;
     return searchUrl;
   }
 
-  async searchCustomContent(maxItems: number=SEARCH_CUSTOM_CONTENT_LIMIT): Promise<Array<ICustomContent>> {
+  async searchCustomContent(maxItems: number = SEARCH_CUSTOM_CONTENT_LIMIT): Promise<Array<ICustomContent>> {
     const searchUrl = await this.buildSearchCustomConentUrl();
     const searchAll = async (): Promise<Array<ICustomContent>> => {
       let url = searchUrl, data;
@@ -387,13 +398,13 @@ export default class ApWrapper2 implements IApWrapper {
         data = await this.searchOnce(url);
         results = results.concat(data?.results);
         url = data?._links?.next || '';
-      } while(url && results.length < maxItems);
+      } while (url && results.length < maxItems);
       return results;
     };
 
     const searchAllWithFallback = async (): Promise<Array<ICustomContent>> => {
       const results = await searchAll();
-      if(results.length) {
+      if (results.length) {
         return results;
       }
 
@@ -413,8 +424,8 @@ export default class ApWrapper2 implements IApWrapper {
     }
   }
 
-  async searchPagedCustomContent(pageSize: number=25,keyword: string='',onlyMine: boolean=false,docType: string=''): Promise<SearchResults> {
-    const searchUrl =await this.buildSearchCustomConentUrl(keyword,onlyMine,docType,pageSize);
+  async searchPagedCustomContent(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = ''): Promise<SearchResults> {
+    const searchUrl = await this.buildSearchCustomConentUrl(keyword, onlyMine, docType, pageSize);
     return await this.searchPagedCustomContentByUrl(searchUrl);
   }
 
@@ -424,12 +435,12 @@ export default class ApWrapper2 implements IApWrapper {
       const results = data?.results || [];
       const size = results.length;
       const _links = data?._links;
-      const r= {
+      const r = {
         size,
         results,
         _links
       };
-      console.debug({actiion:'searchPagedCustomContentByUrl',searchResult:r});
+      console.debug({actiion: 'searchPagedCustomContentByUrl', searchResult: r});
       return r;
     };
     try {
@@ -439,30 +450,30 @@ export default class ApWrapper2 implements IApWrapper {
     } catch (e) {
       console.error('searchPagedCustomContentByUrl', e);
       trackEvent(JSON.stringify(e), 'searchPagedCustomContentByUrl', 'error');
-      return  {
+      return {
         size: 0,
         results: []
       };
     }
-   }
+  }
 
   searchOnce = async (url: string): Promise<SearchResults> => {
     console.debug(`Searching content with ${url}`);
     const data = await this.request(url);
     console.debug(`${data?.size} results returned, has next? ${data?._links?.next != null}`);
-    data.results = data?.results.map(this.parseCustomContent).filter((c: ICustomContent) => c.value&&c.value.diagramType);
-    console.debug({action:'searchOnce',data:data});
+    data.results = data?.results.map(this.parseCustomContent).filter((c: ICustomContent) => c.value && c.value.diagramType);
+    console.debug({action: 'searchOnce', data: data});
     return data;
   };
 
-  buildUrl=(sourceUrl: string,newPath: string): string =>{
+  buildUrl = (sourceUrl: string, newPath: string): string => {
     if (newPath && newPath.startsWith("/")) {
       newPath = newPath.substring(1);
     }
     return `${this.extractDomainFromURL(sourceUrl)}/${newPath}`;
   }
 
-  extractDomainFromURL=(url: string): string =>{
+  extractDomainFromURL = (url: string): string => {
     try {
       const parsedUrl = new URL(url);
       return parsedUrl.origin;
@@ -475,45 +486,44 @@ export default class ApWrapper2 implements IApWrapper {
   parseCustomContent = (customContent: ICustomContentResponseBody): ICustomContent => {
     const result = <unknown>Object.assign({}, customContent, {
       value: this.parseCustomContentDiagram(customContent),
-      container:  Object.assign({}, customContent.container, this.parseCustomContentContainer(customContent)),
-      author:  this.parseUser(customContent?.history?.createdBy),
+      container: Object.assign({}, customContent.container, this.parseCustomContentContainer(customContent)),
+      author: this.parseUser(customContent?.history?.createdBy),
       contributors: this.parseCustomContentContributors(customContent)
     });
     console.debug(`converted result: `, result);
     return result as ICustomContent;
   };
 
-  parseUser=(accountUser:AccountUser|undefined): User|undefined=>{
-    if(accountUser==undefined)return undefined
-    let accountId=accountUser.accountId||'';
-    let selfLink=accountUser._links?.self||'';
+  parseUser = (accountUser: AccountUser | undefined): User | undefined => {
+    if (accountUser == undefined) return undefined
+    let accountId = accountUser.accountId || '';
+    let selfLink = accountUser._links?.self || '';
     let user: User = {
       id: accountId,
-      name: accountUser.displayName||'',
-      avatar:  this.buildUrl(selfLink,accountUser.profilePicture?.path||''),
-      link: this.buildUrl(selfLink,'wiki/display/~'+accountId),
+      name: accountUser.displayName || '',
+      avatar: this.buildUrl(selfLink, accountUser.profilePicture?.path || ''),
+      link: this.buildUrl(selfLink, 'wiki/display/~' + accountId),
     };
     return user;
   }
 
   parseCustomContentContributors = (customContent: ICustomContentResponseBody): Array<User> => {
-    let contributors: Array<User>=[];
-    const accountUsers=customContent?.history?.contributors?.publishers?.users||new Array<AccountUser>;
-    for(let i=0;i<accountUsers.length;i++)
-    {
-      let user=this.parseUser(accountUsers[i]);
-      if(user==undefined)continue;
+    let contributors: Array<User> = [];
+    const accountUsers = customContent?.history?.contributors?.publishers?.users || new Array<AccountUser>;
+    for (let i = 0; i < accountUsers.length; i++) {
+      let user = this.parseUser(accountUsers[i]);
+      if (user == undefined) continue;
       contributors.push(user);
     }
     return contributors;
   };
 
   parseCustomContentContainer = (customContent: ICustomContentResponseBody): any => {
-    let container: { link: string | undefined } = { link: undefined };
+    let container: { link: string | undefined } = {link: undefined};
     try {
-      let webui = customContent?.container?._links?.webui||'';
-      let selfUrl = customContent?.container?._links?.self||'';
-      container.link = this.buildUrl(selfUrl,'wiki'+webui);
+      let webui = customContent?.container?._links?.webui || '';
+      let selfUrl = customContent?.container?._links?.self || '';
+      container.link = this.buildUrl(selfUrl, 'wiki' + webui);
     } catch (e) {
       console.error('parseCustomContentContainer error: ', e);
       trackEvent(JSON.stringify(e), 'parseCustomContentContainer', 'error');
@@ -524,12 +534,12 @@ export default class ApWrapper2 implements IApWrapper {
   parseCustomContentDiagram = (customContent: ICustomContentResponseBody): any => {
     let diagram: any;
     const rawValue = customContent?.body?.raw?.value;
-    if(rawValue) {
+    if (rawValue) {
       try {
         diagram = JSON.parse(rawValue);
-        if(diagram.diagramType==undefined)return null;
+        if (diagram.diagramType == undefined) return null;
         diagram.source = DataSource.CustomContent;
-      } catch(e) {
+      } catch (e) {
         console.error(`parseCustomContentDiagram error: `, e, `raw value: ${rawValue}`);
         trackEvent(JSON.stringify(e), 'parseCustomContentDiagram', 'error');
       }
@@ -539,19 +549,19 @@ export default class ApWrapper2 implements IApWrapper {
 
   async getCustomContentByType(type: string): Promise<Array<ICustomContent>> {
     try {
-      const space = await this._getCurrentSpace();
+      const space = await this.getCurrentSpace();
       const spaceId = space.id;
       const url = `/api/v2/spaces/${spaceId}/custom-content?type=${this.customContentType(type)}&body-format=raw`;
-      const response: {results: Array<any>} = await this.request(url);
+      const response: { results: Array<any> } = await this.request(url);
 
       const parseCustomContentBodyV2 = (customContent: ICustomContentResponseBodyV2): ICustomContent => {
         let diagram: any;
         const rawValue = customContent?.body?.raw?.value;
-        if(rawValue) {
+        if (rawValue) {
           try {
             diagram = JSON.parse(rawValue);
             diagram.source = DataSource.CustomContent;
-          } catch(e) {
+          } catch (e) {
             console.error(`parseCustomContentBodyV2 error: `, e, `raw value: ${rawValue}`);
             trackEvent(JSON.stringify(e), 'parseCustomContentBodyV2', 'error');
           }
@@ -568,6 +578,7 @@ export default class ApWrapper2 implements IApWrapper {
       return [];
     }
   }
+
   async getCustomContentByTypes(types: Array<string>): Promise<Array<ICustomContent>> {
     const [r1, r2] = await Promise.all(types.map(t => this.getCustomContentByType(t)));
     return r1?.concat(r2);
@@ -588,7 +599,7 @@ export default class ApWrapper2 implements IApWrapper {
     if (existing && (!pageId || (String(pageId) === String(existing?.container?.id) && count === 1))) {
       result = await this.updateCustomContent(existing, value);
     } else {
-      if(count > 1) {
+      if (count > 1) {
         console.warn(`Detected copied macro on the same page ${pageId}.`);
       }
       if (String(pageId) !== String(existing?.container?.id)) {
@@ -614,7 +625,7 @@ export default class ApWrapper2 implements IApWrapper {
     if (existing && (!pageId || (String(pageId) === String(existing?.pageId) && count === 1))) {
       result = await this.updateCustomContentV2(existing, value);
     } else {
-      if(count > 1) {
+      if (count > 1) {
         console.warn(`Detected copied macro on the same page ${pageId}.`);
       }
       if (String(pageId) !== String(existing?.pageId)) {
@@ -632,7 +643,7 @@ export default class ApWrapper2 implements IApWrapper {
         dialog.getCustomData((data: unknown) => {
           resolv(data);
         });
-      } catch(e) {
+      } catch (e) {
         // eslint-disable-next-line
         console.error('error getting custom data:', e);
         resolv();
@@ -646,7 +657,7 @@ export default class ApWrapper2 implements IApWrapper {
 
   async getCustomContent(): Promise<ICustomContent | undefined> {
     const macroData = await this.getMacroData();
-    if(macroData && macroData.customContentId) {
+    if (macroData && macroData.customContentId) {
       return this.getCustomContentById(macroData.customContentId);
     }
     return undefined;
@@ -658,7 +669,12 @@ export default class ApWrapper2 implements IApWrapper {
     const param = Object.keys(queryParameters).reduce((acc, i) => `${acc}${acc ? '&' : ''}${i}=${queryParameters[i]}`, '');
     const response = await this.request(`/api/v2/pages/${pageId}/attachments${param ? `?${param}` : ''}`);
     const base = await this._getBaseUrl();
-    return response?.results && response?.results.map((a: any) => Object.assign(a, {_links: {base, download: a.downloadLink}})) || [];
+    return response?.results && response?.results.map((a: any) => Object.assign(a, {
+      _links: {
+        base,
+        download: a.downloadLink
+      }
+    })) || [];
   }
 
   async getAttachments(pageId?: string, queryParameters?: any): Promise<Array<Attachment>> {
@@ -669,16 +685,19 @@ export default class ApWrapper2 implements IApWrapper {
     console.debug(`found attachments in page ${pageId} with params ${queryParameters}:`, response);
     const baseLinks = {base: response._links.base, context: response._links.context};
     //set 'comment' as top level field to be consistent with V2 API response
-    return response?.results.map((a: any) => Object.assign(a, {comment: a.metadata?.comment, _links: Object.assign(a._links, baseLinks)})) || [];
+    return response?.results.map((a: any) => Object.assign(a, {
+      comment: a.metadata?.comment,
+      _links: Object.assign(a._links, baseLinks)
+    })) || [];
   }
 
   _getCurrentUser(): Promise<IUser> {
     return new Promise(resolv => this._user.getCurrentUser((user: IUser) => resolv(user)));
   }
 
-  async _getCurrentSpace(): Promise<ISpace> {
+  async getCurrentSpace(): Promise<ISpace> {
     return this.currentSpace
-            || (this.currentSpace = await this._page.getSpace())
+      || (this.currentSpace = await this._page.getSpace())
       || (this.currentSpace = {key: await this._page.getSpaceKey()});
   }
 
@@ -700,15 +719,15 @@ export default class ApWrapper2 implements IApWrapper {
     return this.baseUrl || (this.baseUrl = baseOf(await this._getCurrentPageUrl()));
   }
 
-  async _getLicense(_addonKey: string = ''): Promise<ILicense|undefined> {
+  async _getLicense(_addonKey: string = ''): Promise<ILicense | undefined> {
     const url = `/rest/atlassian-connect/1/addons/${_addonKey || addonKey()}`;
     try {
       const license: ILicense = await this.request(url);
-      console.debug("getLicense",url,license);
+      console.debug("getLicense", url, license);
       trackEvent(JSON.stringify(license), 'getLicense', 'info');
       return license;
     } catch (e) {
-      console.error('getLicense',e);
+      console.error('getLicense', e);
       trackEvent(JSON.stringify(e), 'getLicense', 'error');
       return undefined;
     }
@@ -734,17 +753,22 @@ export default class ApWrapper2 implements IApWrapper {
     return await CheckPermission(pageId, this.currentUser?.atlassianAccountId || '', this._requestFn as PermissionCheckRequestFunc)
   }
 
-   isLite(): boolean {
+  isLite(): boolean {
     // @ts-ignore
     return getUrlParam('addonKey')?.includes('lite');
   }
 
   async request(url: string, type: string = 'GET', data: any = undefined): Promise<any> {
-    const response = await this._requestFn(data ? {type, url, data: JSON.stringify(data), contentType: 'application/json'} : {type, url});
+    const response = await this._requestFn(data ? {
+      type,
+      url,
+      data: JSON.stringify(data),
+      contentType: 'application/json'
+    } : {type, url});
     return Object.assign({}, response && response.body && JSON.parse(response.body), {xhr: response.xhr});
   }
 
-  async requestAllPaginatedData(initialUrl: string, consumer: (data: any) => void) {
+  async requestAllPaginatedData(initialUrl: string, consumer: (data: any) => void): Promise<any> {
     let data, url = initialUrl;
     do {
       data = await this.request(url);
@@ -752,10 +776,10 @@ export default class ApWrapper2 implements IApWrapper {
       url = data?._links?.next || '';
 
       const prefix = '/wiki';
-      if(url.startsWith(prefix)) {
+      if (url.startsWith(prefix)) {
         url = url.substring(prefix.length); //V2 API has the '/wiki' prefix that needs to be removed to use the 'request' JavaScript API
       }
-    } while(url);
+    } while (url);
   };
 
   appPropertyUrl = (key: string) => `/rest/atlassian-connect/1/addons/${addonKey()}/properties/${key}`;
@@ -764,7 +788,7 @@ export default class ApWrapper2 implements IApWrapper {
     const url = this.appPropertyUrl(propertyKey);
     try {
       return (await this.request(url)).value;
-    } catch(e) {
+    } catch (e) {
       console.error(`getAppProperty ${propertyKey} error`, e);
     }
   }

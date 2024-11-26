@@ -13,7 +13,7 @@ import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 
 import './assets/tailwind.css'
 import { saveToPlatform } from "./model/ContentProvider/Persistence";
-import { reportCustomContent } from '@/services/CustomContentReportingService';
+import macroMetrics from "@/services/MacroMetrics";
 
 async function main() {
   await globals.apWrapper.initializeContext();
@@ -24,7 +24,7 @@ async function main() {
   let {doc} = await compositeContentProvider.load();
   mountRoot(doc, DiagramPortal);
 
-  reportCustomContent();
+  await macroMetrics.reportMacroMetrics();
 }
 
 export default main()

@@ -9,7 +9,7 @@ import ApWrapper2 from "@/model/ApWrapper2";
 import GraphViewer from "@/components/Viewer/GraphViewer.vue";
 import EventBus from './EventBus'
 import {mountRoot} from "@/mount-root";
-import { reportCustomContent } from '@/services/CustomContentReportingService';
+import macroMetrics from '@/services/MacroMetrics';
 
 EventBus.$on('diagramLoaded', () => {
   console.debug('Resize macro');
@@ -77,7 +77,7 @@ async function loadDiagram() {
 
   await loadDiagram();
 
-  reportCustomContent();
+  await macroMetrics.reportMacroMetrics();
 })()
 
 EventBus.$on('edit', () => {

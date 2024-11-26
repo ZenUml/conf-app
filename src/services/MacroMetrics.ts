@@ -2,8 +2,9 @@ import { DiagramType } from "@/model/Diagram/Diagram";
 import globals from "@/model/globals";
 import { trackEvent } from "@/utils/window";
 import ApWrapper2 from "@/model/ApWrapper2";
+import { MetricsCache } from "./MetricsCache";
 
-interface IMacroMetrics {
+export interface IMacroMetrics {
   space: string;
   total: number;
   sequence: number;
@@ -24,56 +25,54 @@ interface ContentResult {
 }
 
 export class MacroMetrics {
-  private readonly ONE_DAY_MS = 86400000;
-  private readonly PROPERTY_PREFIX = 'CustomContentReport_';
+  private static readonly CACHE_PREFIX = 'MacroMetrics';
+  private readonly cache: MetricsCache<IMacroMetrics>;
 
   constructor(
     private readonly apWrapper: ApWrapper2 = globals.apWrapper,
     private readonly eventTracker = trackEvent
-  ) {}
+  ) {
+    this.cache = new MetricsCache(apWrapper, MacroMetrics.CACHE_PREFIX);
+  }
+
 
   async reportMacroMetrics(): Promise<void> {
     try {
       const space = (await this.apWrapper.getCurrentSpace()).key;
-      const propertyKey = this.getPropertyKey(space);
-      const property = await this.apWrapper.getAppProperty(propertyKey);
+      const metrics = await this.getMacroMetrics(space);
 
-      let noValidRecord = !property || !property.lastUpdated;
-      let recordExpired = property?.lastUpdated && (new Date(property.lastUpdated) < this.getYesterday());
-      if (noValidRecord || recordExpired) {
-        console.debug(`Starting new report for space ${space}:`, property);
-
-        const result = await this.getMacroMetrics(space);
-        console.debug(`Report macro metrics for space ${space}:`, result);
-        this.eventTracker(`${JSON.stringify(result)}`, 'report_macro_metrics', 'info');
-
-        await this.updateAppProperty(space, result);
+      if (metrics) {
+        console.debug(`Report macro metrics for space ${space}:`, metrics);
+        this.eventTracker(`${JSON.stringify(metrics)}`, 'report_macro_metrics', 'info');
       }
     } catch (e) {
       console.error('Error on reportMacroMetrics', e);
       this.trackError(e);
     }
   }
-
-  private getYesterday(): Date {
-    return new Date(Date.now() - this.ONE_DAY_MS);
-  }
-
-  private getPropertyKey(space: string): string {
-    return `${this.PROPERTY_PREFIX}${space}`;
-  }
-
-  private async updateAppProperty(space: string, result: IMacroMetrics | undefined): Promise<void> {
-    await this.apWrapper.setAppProperty(
-      this.getPropertyKey(space),
-      {
-        ...result,
-        lastUpdated: new Date().toISOString()
-      }
-    );
-  }
-
   async getMacroMetrics(space: string): Promise<IMacroMetrics | undefined> {
+    try {
+      const cachedMetrics = await this.cache.get(space);
+
+      if (cachedMetrics) {
+        console.debug(`Using cached metrics for space ${space}`);
+        return cachedMetrics;
+      }
+
+      // Collect and cache new metrics if needed
+      const metrics = await this.collectMetrics(space);
+      if (metrics) {
+        await this.cache.set(space, metrics);
+      }
+      return metrics;
+    } catch (e) {
+      console.error('Error on getMacroMetrics', e);
+      this.trackError(e);
+      return undefined;
+    }
+  }
+
+  private async collectMetrics(space: string): Promise<IMacroMetrics | undefined> {
     const stats = this.createInitialStats();
 
     const consumer = (data: { results?: ContentResult[] }) => {
@@ -93,7 +92,7 @@ export class MacroMetrics {
         isLite: this.apWrapper.isLite()
       };
     } catch (e) {
-      console.error('Error on getMacroMetrics', e);
+      console.error('Error on collectMetrics', e);
       this.trackError(e);
     }
   }
@@ -164,4 +163,4 @@ export class MacroMetrics {
 export const createMacroMetrics = () => new MacroMetrics();
 
 // Maintain backward compatibility with existing code
-export default  createMacroMetrics();
+export default createMacroMetrics();

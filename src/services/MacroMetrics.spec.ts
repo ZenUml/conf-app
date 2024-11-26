@@ -4,7 +4,7 @@ import { DiagramType } from '@/model/Diagram/Diagram';
 
 describe('MacroMetrics', () => {
   const mockSpace = 'TEST-SPACE';
-  const propertyKey = 'CustomContentReport_TEST-SPACE';
+  const cacheKey = 'MetricsCache_TEST-SPACE';
 
   // Mock dependencies
   const mockApWrapper = {
@@ -31,67 +31,82 @@ describe('MacroMetrics', () => {
     mockApWrapper.isLite.mockReturnValue(false);
   });
 
-  describe('reportCustomContent', () => {
-    describe('report timing', () => {
-      it('should not report if last report was within 24 hours', async () => {
-        const today = new Date();
-        mockApWrapper.getAppProperty.mockResolvedValue({
-          lastUpdated: today.toISOString()
-        });
+  describe('getMacroMetrics', () => {
+    describe('caching behavior', () => {
+      it('should return cached metrics if not expired', async () => {
+        const cachedMetrics = {
+          metrics: {
+            space: mockSpace,
+            total: 5,
+            sequence: 2,
+            graph: 1,
+            openapi: 1,
+            mermaid: 1,
+            unknown: 0,
+            isLite: false
+          },
+          lastUpdated: new Date().toISOString()
+        };
 
-        await macroMetrics.reportMacroMetrics();
+        mockApWrapper.getAppProperty.mockResolvedValue(cachedMetrics);
 
-        expect(mockApWrapper.setAppProperty).not.toHaveBeenCalled();
+        const result = await macroMetrics.getMacroMetrics(mockSpace);
+
+        expect(result).toEqual(cachedMetrics.metrics);
         expect(mockApWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
       });
 
-      it('should report if last report was older than 24 hours', async () => {
+      it('should collect new metrics if cache is expired', async () => {
         const oldDate = new Date(Date.now() - 90000000); // > 24 hours
-        mockApWrapper.getAppProperty.mockResolvedValue({
-          lastUpdated: oldDate.toISOString()
-        });
-        mockApWrapper.requestAllPaginatedData.mockResolvedValue({});
-
-        await macroMetrics.reportMacroMetrics();
-
-        expect(mockApWrapper.setAppProperty).toHaveBeenCalledWith(
-          propertyKey,
-          expect.objectContaining({
+        const cachedMetrics = {
+          metrics: {
             space: mockSpace,
+            total: 5,
+            sequence: 2,
+            graph: 1,
+            openapi: 1,
+            mermaid: 1,
+            unknown: 0,
+            isLite: false
+          },
+          lastUpdated: oldDate.toISOString()
+        };
+
+        mockApWrapper.getAppProperty.mockResolvedValue(cachedMetrics);
+        mockApWrapper.requestAllPaginatedData.mockImplementation((url, consumer) => {
+          consumer({ results: [] });
+          return Promise.resolve({});
+        });
+
+        await macroMetrics.getMacroMetrics(mockSpace);
+
+        expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalled();
+        expect(mockApWrapper.setAppProperty).toHaveBeenCalledWith(
+          cacheKey,
+          expect.objectContaining({
+            metrics: expect.any(Object),
             lastUpdated: expect.any(String)
           })
         );
       });
 
-      it('should report if no previous report exists', async () => {
+      it('should collect new metrics if no cache exists', async () => {
         mockApWrapper.getAppProperty.mockResolvedValue(null);
-        mockApWrapper.requestAllPaginatedData.mockResolvedValue({});
+        mockApWrapper.requestAllPaginatedData.mockImplementation((url, consumer) => {
+          consumer({ results: [] });
+          return Promise.resolve({});
+        });
 
-        await macroMetrics.reportMacroMetrics();
+        await macroMetrics.getMacroMetrics(mockSpace);
 
+        expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalled();
         expect(mockApWrapper.setAppProperty).toHaveBeenCalled();
       });
     });
 
-    describe('error handling', () => {
-      it('should handle and track errors during reporting', async () => {
-        const error = new Error('Test error');
-        mockApWrapper.getCurrentSpace.mockRejectedValue(error);
-
-        await macroMetrics.reportMacroMetrics();
-
-        expect(mockEventTracker).toHaveBeenCalledWith(
-          JSON.stringify(error),
-          'report_macro_metrics',
-          'error'
-        );
-      });
-    });
-  });
-
-  describe('searchCustomContent', () => {
     describe('content counting', () => {
       it('should correctly count different diagram types', async () => {
+        mockApWrapper.getAppProperty.mockResolvedValue(null); // Force new collection
         const mockResults = {
           results: [
             { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Sequence }) } } },
@@ -123,6 +138,7 @@ describe('MacroMetrics', () => {
       });
 
       it('should handle empty results', async () => {
+        mockApWrapper.getAppProperty.mockResolvedValue(null); // Force new collection
         mockApWrapper.requestAllPaginatedData.mockImplementation((url, consumer) => {
           consumer({ results: [] });
           return Promise.resolve({});
@@ -145,6 +161,7 @@ describe('MacroMetrics', () => {
 
     describe('error handling', () => {
       it('should handle invalid JSON in content', async () => {
+        mockApWrapper.getAppProperty.mockResolvedValue(null); // Force new collection
         const mockResults = {
           results: [
             { body: { raw: { value: 'invalid json' } } }
@@ -167,6 +184,7 @@ describe('MacroMetrics', () => {
       });
 
       it('should handle missing content values', async () => {
+        mockApWrapper.getAppProperty.mockResolvedValue(null); // Force new collection
         const mockResults = {
           results: [
             { body: {} },  // missing raw
@@ -186,19 +204,62 @@ describe('MacroMetrics', () => {
         expect(result?.total).toBe(3);
       });
     });
+  });
 
-    describe('URL building', () => {
-      it('should build correct search URL', async () => {
-        mockApWrapper.buildTypesClauseFilter.mockReturnValue('type=customContent');
-        mockApWrapper.requestAllPaginatedData.mockResolvedValue({});
+  describe('reportMacroMetrics', () => {
+    it('should report metrics and track event', async () => {
+      const mockMetrics = {
+        space: mockSpace,
+        total: 5,
+        sequence: 2,
+        graph: 1,
+        openapi: 1,
+        mermaid: 1,
+        unknown: 0,
+        isLite: false
+      };
 
-        await macroMetrics.getMacroMetrics(mockSpace);
-
-        expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalledWith(
-          `/rest/api/content/search?expand=body.raw&cql=space in ("${mockSpace}") and (type=customContent)`,
-          expect.any(Function)
-        );
+      // Mock getMacroMetrics to return our test metrics
+      mockApWrapper.getAppProperty.mockResolvedValue({
+        metrics: mockMetrics,
+        lastUpdated: new Date().toISOString()
       });
+
+      await macroMetrics.reportMacroMetrics();
+
+      expect(mockEventTracker).toHaveBeenCalledWith(
+        JSON.stringify(mockMetrics),
+        'report_macro_metrics',
+        'info'
+      );
+    });
+
+    it('should handle errors during reporting', async () => {
+      const error = new Error('Test error');
+      mockApWrapper.getCurrentSpace.mockRejectedValue(error);
+
+      await macroMetrics.reportMacroMetrics();
+
+      expect(mockEventTracker).toHaveBeenCalledWith(
+        JSON.stringify(error),
+        'report_macro_metrics',
+        'error'
+      );
+    });
+  });
+
+  describe('URL building', () => {
+    it('should build correct search URL', async () => {
+      mockApWrapper.getAppProperty.mockResolvedValue(null); // Force new collection
+      mockApWrapper.buildTypesClauseFilter.mockReturnValue('type=customContent');
+      mockApWrapper.requestAllPaginatedData.mockResolvedValue({});
+
+      await macroMetrics.getMacroMetrics(mockSpace);
+
+      expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalledWith(
+        `/rest/api/content/search?expand=body.raw&cql=space in ("${mockSpace}") and (type=customContent)`,
+        expect.any(Function)
+      );
     });
   });
 });

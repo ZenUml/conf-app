@@ -30,6 +30,7 @@
     "@codemirror/language": "^6.10.1",
     "@codemirror/state": "^6.4.1",
     "@codemirror/view": "^6.26.3",
+    "@vitest/coverage-v8": "^2.1.5",
     "@vue/compat": "^3.1.0",
     "@zenuml/core": "^3.24.28",
     "file-saver": "^2.0.5",
@@ -47,6 +48,7 @@
     "swagger-editor": "^4.4.0",
     "thememirror": "^2.0.1",
     "tiny-emitter": "^2.1.0",
+    "vitest": "^2.1.5",
     "vue": "^3.1.0",
     "vuex": "^4.1.0"
   },

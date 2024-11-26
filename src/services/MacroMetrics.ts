@@ -12,7 +12,6 @@ interface IMacroMetrics {
   mermaid: number;
   unknown: number;
   isLite: boolean;
-  lastUpdated?: string;
 }
 
 interface ContentResult {
@@ -23,31 +22,59 @@ interface ContentResult {
   };
 }
 
-export class MacroMetrics {
+interface CacheEntry {
+  metrics: IMacroMetrics;
+  lastUpdated: string;
+}
+
+export class MetricsCache {
   private readonly ONE_DAY_MS = 86400000;
-  private readonly PROPERTY_PREFIX = 'CustomContentReport_';
+  private readonly CACHE_PREFIX = 'MetricsCache_';
+
+  constructor(private readonly apWrapper: ApWrapper2) {}
+
+  async get(space: string): Promise<CacheEntry | null> {
+    const key = this.getCacheKey(space);
+    const cache = await this.apWrapper.getAppProperty(key);
+    return cache as CacheEntry | null;
+  }
+
+  async set(space: string, metrics: IMacroMetrics): Promise<void> {
+    const key = this.getCacheKey(space);
+    const cache: CacheEntry = {
+      metrics,
+      lastUpdated: new Date().toISOString()
+    };
+    await this.apWrapper.setAppProperty(key, cache);
+  }
+
+  private getCacheKey(space: string): string {
+    return `${this.CACHE_PREFIX}${space}`;
+  }
+
+  isExpired(timestamp: string): boolean {
+    return new Date(timestamp).getTime() + this.ONE_DAY_MS < Date.now();
+  }
+}
+
+export class MacroMetrics {
+  private readonly cache: MetricsCache;
 
   constructor(
     private readonly apWrapper: ApWrapper2 = globals.apWrapper,
     private readonly eventTracker = trackEvent
-  ) {}
+  ) {
+    this.cache = new MetricsCache(apWrapper);
+  }
 
   async reportMacroMetrics(): Promise<void> {
     try {
       const space = (await this.apWrapper.getCurrentSpace()).key;
-      const propertyKey = this.getPropertyKey(space);
-      const property = await this.apWrapper.getAppProperty(propertyKey);
+      const metrics = await this.getMacroMetrics(space);
 
-      let noValidRecord = !property || !property.lastUpdated;
-      let recordExpired = property?.lastUpdated && (new Date(property.lastUpdated) < this.getYesterday());
-      if (noValidRecord || recordExpired) {
-        console.debug(`Starting new report for space ${space}:`, property);
-
-        const result = await this.getMacroMetrics(space);
-        console.debug(`Report macro metrics for space ${space}:`, result);
-        this.eventTracker(`${JSON.stringify(result)}`, 'report_macro_metrics', 'info');
-
-        await this.updateAppProperty(space, result);
+      if (metrics) {
+        console.debug(`Report macro metrics for space ${space}:`, metrics);
+        this.eventTracker(`${JSON.stringify(metrics)}`, 'report_macro_metrics', 'info');
       }
     } catch (e) {
       console.error('Error on reportMacroMetrics', e);
@@ -55,25 +82,30 @@ export class MacroMetrics {
     }
   }
 
-  private getYesterday(): Date {
-    return new Date(Date.now() - this.ONE_DAY_MS);
-  }
-
-  private getPropertyKey(space: string): string {
-    return `${this.PROPERTY_PREFIX}${space}`;
-  }
-
-  private async updateAppProperty(space: string, result: IMacroMetrics | undefined): Promise<void> {
-    await this.apWrapper.setAppProperty(
-      this.getPropertyKey(space),
-      {
-        ...result,
-        lastUpdated: new Date().toISOString()
-      }
-    );
-  }
-
   async getMacroMetrics(space: string): Promise<IMacroMetrics | undefined> {
+    try {
+      const cacheEntry = await this.cache.get(space);
+
+      // Return cached metrics if they're not expired
+      if (cacheEntry && !this.cache.isExpired(cacheEntry.lastUpdated)) {
+        console.debug(`Using cached metrics for space ${space}`);
+        return cacheEntry.metrics;
+      }
+
+      // Collect and cache new metrics if needed
+      const metrics = await this.collectMetrics(space);
+      if (metrics) {
+        await this.cache.set(space, metrics);
+      }
+      return metrics;
+    } catch (e) {
+      console.error('Error on getMacroMetrics', e);
+      this.trackError(e);
+      return undefined;
+    }
+  }
+
+  private async collectMetrics(space: string): Promise<IMacroMetrics | undefined> {
     const stats = this.createInitialStats();
 
     const consumer = (data: { results?: ContentResult[] }) => {
@@ -93,7 +125,7 @@ export class MacroMetrics {
         isLite: this.apWrapper.isLite()
       };
     } catch (e) {
-      console.error('Error on getMacroMetrics', e);
+      console.error('Error on collectMetrics', e);
       this.trackError(e);
     }
   }
@@ -164,4 +196,4 @@ export class MacroMetrics {
 export const createMacroMetrics = () => new MacroMetrics();
 
 // Maintain backward compatibility with existing code
-export default  createMacroMetrics();
+export default createMacroMetrics();

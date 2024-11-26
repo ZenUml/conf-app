@@ -39,7 +39,7 @@ describe('MacroMetrics', () => {
           return Promise.resolve({});
         });
 
-        await macroMetrics.getMacroMetrics(mockSpace);
+        await macroMetrics.getMacroMetrics();
 
         expect(mockApWrapper.setAppProperty).toHaveBeenCalledWith(
           cacheKey,
@@ -64,7 +64,7 @@ describe('MacroMetrics', () => {
           lastUpdated: new Date().toISOString()
         });
 
-        const result = await macroMetrics.getMacroMetrics(mockSpace);
+        const result = await macroMetrics.getMacroMetrics();
 
         expect(result).toEqual(cachedMetrics);
         expect(mockApWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
@@ -81,7 +81,7 @@ describe('MacroMetrics', () => {
           return Promise.resolve({});
         });
 
-        await macroMetrics.getMacroMetrics(mockSpace);
+        await macroMetrics.getMacroMetrics();
 
         expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalled();
         expect(mockApWrapper.setAppProperty).toHaveBeenCalledWith(
@@ -100,7 +100,7 @@ describe('MacroMetrics', () => {
           return Promise.resolve({});
         });
 
-        await macroMetrics.getMacroMetrics(mockSpace);
+        await macroMetrics.getMacroMetrics();
 
         expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalled();
         expect(mockApWrapper.setAppProperty).toHaveBeenCalled();
@@ -126,7 +126,7 @@ describe('MacroMetrics', () => {
           return Promise.resolve({});
         });
 
-        const result = await macroMetrics.getMacroMetrics(mockSpace);
+        const result = await macroMetrics.getMacroMetrics();
 
         expect(result).toEqual({
           space: mockSpace,
@@ -147,7 +147,7 @@ describe('MacroMetrics', () => {
           return Promise.resolve({});
         });
 
-        const result = await macroMetrics.getMacroMetrics(mockSpace);
+        const result = await macroMetrics.getMacroMetrics();
 
         expect(result).toEqual({
           space: mockSpace,
@@ -176,7 +176,7 @@ describe('MacroMetrics', () => {
           return Promise.resolve({});
         });
 
-        const result = await macroMetrics.getMacroMetrics(mockSpace);
+        const result = await macroMetrics.getMacroMetrics();
 
         expect(result?.unknown).toBe(1);
         expect(mockEventTracker).toHaveBeenCalledWith(
@@ -201,7 +201,7 @@ describe('MacroMetrics', () => {
           return Promise.resolve({});
         });
 
-        const result = await macroMetrics.getMacroMetrics(mockSpace);
+        const result = await macroMetrics.getMacroMetrics();
 
         expect(result?.unknown).toBe(3);
         expect(result?.total).toBe(3);
@@ -256,7 +256,7 @@ describe('MacroMetrics', () => {
       mockApWrapper.buildTypesClauseFilter.mockReturnValue('type=customContent');
       mockApWrapper.requestAllPaginatedData.mockResolvedValue({});
 
-      await macroMetrics.getMacroMetrics(mockSpace);
+      await macroMetrics.getMacroMetrics();
 
       expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalledWith(
         `/rest/api/content/search?expand=body.raw&cql=space in ("${mockSpace}") and (type=customContent)`,

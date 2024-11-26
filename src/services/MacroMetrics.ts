@@ -35,14 +35,13 @@ export class MacroMetrics {
     this.cache = new MetricsCache(apWrapper, MacroMetrics.CACHE_PREFIX);
   }
 
-
+  // Report Macro Metrics for the Current Space.
   async reportMacroMetrics(): Promise<void> {
     try {
-      const space = (await this.apWrapper.getCurrentSpace()).key;
-      const metrics = await this.getMacroMetrics(space);
+      const metrics = await this.getMacroMetrics();
 
       if (metrics) {
-        console.debug(`Report macro metrics for space ${space}:`, metrics);
+        console.debug(`Report macro metrics for space ${metrics.space}:`, metrics);
         this.eventTracker(`${JSON.stringify(metrics)}`, 'report_macro_metrics', 'info');
       }
     } catch (e) {
@@ -50,8 +49,11 @@ export class MacroMetrics {
       this.trackError(e);
     }
   }
-  async getMacroMetrics(space: string): Promise<IMacroMetrics | undefined> {
+
+  // Get Macro Metrics for the Current Space.
+  async getMacroMetrics(): Promise<IMacroMetrics | undefined> {
     try {
+      const space = (await this.apWrapper.getCurrentSpace()).key;
       const cachedMetrics = await this.cache.get(space);
 
       if (cachedMetrics) {

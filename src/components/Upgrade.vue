@@ -13,6 +13,12 @@
     <div class="relative group">
       <span class="text-sm font-medium text-white">
         Upgrade
+        <span v-if="shouldShowTooltip">
+          (<span>{{ macrosCreated }}</span>
+          <span>/</span>
+          <span>{{ macrosLimit }}
+          </span>)
+        </span>
       </span>
 
       <div

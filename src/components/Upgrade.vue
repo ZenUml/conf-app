@@ -23,7 +23,7 @@
         <UpgradeTooltip
           v-if="actionRequired"
           :macros-created="macrosCreated"
-          :macros-limit="macrosLimit"
+          :macros-limit="MACROS_LIMIT"
           :upgrade-url="upgradeUrl"
           @click="trackClickEvent"
         />
@@ -37,45 +37,15 @@
 </template>
 
 <script setup lang="ts">
-import {computed, ref} from 'vue'
-import {trackEvent} from "@/utils/window"
-import macroMetrics from "@/services/MacroMetrics"
-import getFeatureFlagsForCurrentDomain from "@/apis/featureFlags"
+import {trackEvent} from "@/utils/window";
+import { useCustomerSuccessService, MACROS_LIMIT } from '@/composables/useCustomerSuccessService'
 // @ts-ignore
 import UpgradeTooltip from './UpgradeTooltip.vue'
 
-// Constants
 const upgradeUrl = 'https://zenuml.com/upgrade/'
-const macrosLimit = 100
-const WARNING_THRESHOLD = 85
 
-// State
-const macrosCreated = ref<number>(0)
-const customerSuccessServiceEnabled = ref<boolean>(false)
+const { macrosCreated, actionRequired, initialize } = useCustomerSuccessService()
 
-// Computed
-const actionRequired = computed(() => {
-  return macrosCreated.value >= WARNING_THRESHOLD && customerSuccessServiceEnabled.value
-})
-
-const ariaLabel = computed(() => 'Upgrade account - Macro limit exceeded')
-
-// Feature flag handling
-const loadCustomerSuccessServiceFlag = async () => {
-  const customerSuccessService: any = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE'])
-  customerSuccessServiceEnabled.value = !!customerSuccessService.CUSTOMER_SUCCESS_SERVICE
-  trackEvent('', customerSuccessServiceEnabled.value ? 'css-enabled' : 'css-disabled', 'conversion')
-}
-
-// Metrics loading
-const loadMacroMetrics = async () => {
-  const metrics = await macroMetrics.getMacroMetrics()
-  if (metrics?.total) {
-    macrosCreated.value = metrics.total
-  }
-}
-
-// Event tracking
 const trackClickEvent = () => {
   trackEvent('upgrade', 'click', 'conversion')
 }
@@ -84,7 +54,5 @@ const trackHoverEvent = () => {
   trackEvent('upgrade', 'hover', 'conversion')
 }
 
-// Initialize
-loadMacroMetrics()
-loadCustomerSuccessServiceFlag()
+initialize()
 </script>

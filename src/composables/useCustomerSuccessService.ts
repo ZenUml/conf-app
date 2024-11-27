@@ -1,0 +1,41 @@
+import { ref, computed } from 'vue'
+import getFeatureFlagsForCurrentDomain from "@/apis/featureFlags"
+import { trackEvent } from "@/utils/window"
+import macroMetrics from "@/services/MacroMetrics"
+
+// Constants that both components use
+export const MACROS_LIMIT = 100
+const WARNING_THRESHOLD = 85
+
+export function useCustomerSuccessService() {
+  const macrosCreated = ref<number>(0)
+  const customerSuccessServiceEnabled = ref<boolean>(false)
+
+  const actionRequired = computed(() => {
+    return macrosCreated.value >= WARNING_THRESHOLD && customerSuccessServiceEnabled.value
+  })
+
+  async function loadMacroMetrics(): Promise<void> {
+    const metrics = await macroMetrics.getMacroMetrics()
+    if (metrics?.total) {
+      macrosCreated.value = metrics.total
+    }
+  }
+
+  async function loadCSSFeatureFlag(): Promise<void> {
+    const customerSuccessService: any = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE'])
+    customerSuccessServiceEnabled.value = !!customerSuccessService.CUSTOMER_SUCCESS_SERVICE
+    trackEvent('', customerSuccessServiceEnabled.value ? 'css-enabled' : 'css-disabled', 'conversion')
+  }
+
+  const initialize = async () => {
+    await loadMacroMetrics();
+    await loadCSSFeatureFlag();
+  }
+
+  return {
+    macrosCreated,
+    actionRequired,
+    initialize
+  }
+}

@@ -15,6 +15,7 @@ import {trackEvent} from "@/utils/window";
 import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
 
 const {actionRequired, initialize } = useCustomerSuccessService()
+const upgradeUrl = 'https://zenuml.com/upgrade/'
 
 // Event tracking
 const trackClickEvent = () => {

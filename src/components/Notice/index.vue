@@ -21,6 +21,7 @@ import {trackEvent} from "@/utils/window";
 import { useCustomerSuccessService, MACROS_LIMIT } from '@/composables/useCustomerSuccessService'
 
 const { macrosCreated, actionRequired, initialize } = useCustomerSuccessService()
+const upgradeUrl = 'https://zenuml.com/upgrade/'
 
 // Event tracking
 const trackClickEvent = () => {

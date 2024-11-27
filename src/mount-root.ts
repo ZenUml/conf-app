@@ -1,6 +1,8 @@
-import { createApp, Component, h } from "vue";
+import { createApp, Component } from "vue";
 import {Diagram} from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
+
+let currentApp: any = null; // Keep track of mounted app
 
 export function mountRoot(doc: Diagram, component: Component) {
   console.debug('Mounting root', doc);
@@ -12,9 +14,18 @@ export function mountRoot(doc: Diagram, component: Component) {
     }
   }
   store.state.diagram = doc;
-  if (document.getElementById('app')) {
 
+  const appElement = document.getElementById('app');
+  if (appElement) {
+    // Unmount existing app if it exists
+    if (currentApp) {
+      currentApp.unmount();
+      console.debug('Unmounted existing app');
+    }
+
+    // Create and mount new app
     const app = createApp(component);
-    app.use(store).mount('#app')
+    app.use(store).mount('#app');
+    currentApp = app;
   }
 }

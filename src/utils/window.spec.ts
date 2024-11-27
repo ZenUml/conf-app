@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import mixpanel from 'mixpanel-browser'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
-import { trackEvent, getUrlParam, getLocalStorageKey, getLocalState, setLocalState } from './window';
+import { _awaitableTrackEvent, getUrlParam, getLocalStorageKey, getLocalState, setLocalState } from './window';
 
 // Mock dependencies
 vi.mock('mixpanel-browser', () => ({
@@ -23,7 +23,7 @@ const mockGlobals = {
     currentUser: {
       atlassianAccountId: 'test-user-123'
     },
-    getMacroData: vi.fn().mockReturnValue({ uuid: 'test-macro-123' }),
+    getMacroData: vi.fn().mockResolvedValue({ uuid: 'test-macro-123' }),
     isLite: vi.fn().mockReturnValue(false)
   }
 }
@@ -77,7 +77,7 @@ describe('window utils', async () => {
     it('should send tracking data to r2Track endpoint', async () => {
       const fetchSpy = vi.mocked(global.fetch)
 
-      await trackEvent('test-label', 'test-action', 'test-category')
+      await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
 
       expect(fetchSpy).toHaveBeenCalledWith('/track', {
         method: 'POST',
@@ -105,7 +105,7 @@ describe('window utils', async () => {
       const consoleLogSpy = vi.spyOn(console, 'log')
       vi.mocked(global.fetch).mockRejectedValueOnce(new Error('Network error'))
 
-      await trackEvent('test-label', 'test-action', 'test-category')
+      await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
 
       expect(consoleLogSpy).toHaveBeenCalledWith(
         'Error in calling /track',
@@ -117,7 +117,7 @@ describe('window utils', async () => {
       window.location.search = '?addonKey=test-addon&version=1.0.0'
       const fetchSpy = vi.mocked(global.fetch)
 
-      await trackEvent('test-label', 'test-action', 'test-category')
+      await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
 
       const body = JSON.parse(fetchSpy.mock.calls[0][1]!.body as string)
       expect(body).toMatchObject({
@@ -127,14 +127,15 @@ describe('window utils', async () => {
     })
 
     it('should identify user on first track', async () => {
+      // reset identified variable
       vi.resetModules()
-      const { trackEvent } = await import('./window')
-      await trackEvent('test-label', 'test-action', 'test-category')
+      const { _awaitableTrackEvent } = await import('./window')
+      await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
       expect(mixpanel.identify).toHaveBeenCalledWith('test-user-123')
     })
 
     it('should track event with correct parameters', async () => {
-      await trackEvent('test-label', 'test-action', 'test-category')
+      await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
       expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
         event_category: 'test-category',
         event_label: 'test-label',
@@ -149,7 +150,7 @@ describe('window utils', async () => {
     it('should handle missing user ID', async () => {
       // @ts-ignore
       window.globals.apWrapper.currentUser = null
-      await trackEvent('test-label', 'test-action', 'test-category')
+      await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
       expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
         user_account_id: 'unknown_user_account_id'
       }))
@@ -157,7 +158,7 @@ describe('window utils', async () => {
 
     it('should include custom event details', async () => {
       const customDetails = { custom_field: 'custom_value' }
-      await trackEvent('test-label', 'test-action', 'test-category', customDetails)
+      await _awaitableTrackEvent('test-label', 'test-action', 'test-category', customDetails)
       expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
         custom_field: 'custom_value'
       }))
@@ -168,7 +169,7 @@ describe('window utils', async () => {
       // @ts-ignore
       window.gtag = () => { throw new Error('Gtag error') }
 
-      await trackEvent('test-label', 'test-action', 'test-category')
+      await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
 
       expect(consoleLogSpy).toHaveBeenCalledWith(
         'Error in calling gtag',

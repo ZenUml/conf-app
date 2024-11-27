@@ -39,7 +39,25 @@ interface EventDetails {
   [key: string]: string | boolean | undefined;
 }
 
-export async function trackEvent(
+/**
+ * trackEvent is an async function but not awaitable on purpose.
+ * 1. Main process will not wait for the tracking to finish.
+ * 2. If there is an error in tracking, it will not affect the main process.
+ * @param label
+ * @param action
+ * @param category
+ * @param resetEventDetails
+ */
+export function trackEvent(
+  label: DiagramType | string | undefined,
+  action: string,
+  category: string,
+  resetEventDetails = {}) {
+  void _awaitableTrackEvent(label, action, category, resetEventDetails);
+}
+
+// awaitable function for testing
+export async function _awaitableTrackEvent(
   label: DiagramType | string | undefined,
   action: string,
   category: string,

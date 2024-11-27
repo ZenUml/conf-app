@@ -19,8 +19,8 @@ function getDiagramType(diagram: Diagram | undefined): string {
   return '_unknown';
 }
 
-async function trackDiagramEvent(diagram: Diagram | undefined, event: string, category: string) {
-  await trackEvent(diagram?.diagramType || getDiagramType(diagram), event, category);
+function trackDiagramEvent(diagram: Diagram | undefined, event: string, category: string) {
+  trackEvent(diagram?.diagramType || getDiagramType(diagram), event, category);
 }
 
 export class ContentPropertyStorageProvider implements StorageProvider {
@@ -79,11 +79,11 @@ export class ContentPropertyStorageProvider implements StorageProvider {
         source: DataSource.ContentPropertyOld,
         code: property.value
       }
-      await trackDiagramEvent(contentProperty.value, 'load_macro', 'content_property_old');
+      trackDiagramEvent(contentProperty.value, 'load_macro', 'content_property_old');
     } else {
       contentProperty.value.source = DataSource.ContentProperty;
       contentProperty.value.diagramType = contentProperty.value.diagramType || DiagramType.Sequence;
-      await trackDiagramEvent(contentProperty.value, 'load_macro', 'content_property');
+      trackDiagramEvent(contentProperty.value, 'load_macro', 'content_property');
     }
     contentProperty.value.id = key;
     return contentProperty;

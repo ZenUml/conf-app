@@ -47,6 +47,8 @@ describe('ContentPropertyStorageProvider', () => {
         event_label: 'sequence',
         client_domain: 'unknown_atlassian_domain',
         user_account_id: 'unknown_user_account_id',
+        isLite: false,
+        macro_uuid: "unknown_macro_uuid",
         confluence_space: 'unknown_space'
       }],
     ])
@@ -73,6 +75,8 @@ describe('ContentPropertyStorageProvider', () => {
         event_label: 'sequence',
         client_domain: 'unknown_atlassian_domain',
         user_account_id: 'unknown_user_account_id',
+        isLite: false,
+        macro_uuid: "unknown_macro_uuid",
         confluence_space: 'unknown_space'
       }],
     ])

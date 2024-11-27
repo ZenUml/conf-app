@@ -104,9 +104,9 @@ function getCurrentUserAccountId(): string {
 
 async function getMacroUuid(): Promise<string> {
   // @ts-ignore
-  const macroData = await window.globals.apWrapper.getMacroData();
+  const macroData = await window.globals?.apWrapper.getMacroData();
 
-  return macroData.uuid || "unknown_macro_uuid";
+  return macroData?.uuid || "unknown_macro_uuid";
 }
 
 function isLite(): boolean {

@@ -3,7 +3,7 @@
     <a
       :class="[
         'inline-flex items-center gap-1 p-1 rounded-md transition-colors duration-200 leading-[1em]',
-        shouldShowTooltip ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-blue-500 hover:bg-blue-600'
+        actionRequired ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-blue-500 hover:bg-blue-600'
       ]"
       :href="upgradeUrl"
       target="_blank"
@@ -14,14 +14,14 @@
     >
       <div class="relative group inline-flex">
         <span class="text-sm font-medium text-white">
-          Upgrade
-          <span v-if="shouldShowTooltip">
-            (<span>{{ macrosCreated }}</span><span>/</span><span>{{ macrosLimit }}</span>)
+          {{ actionRequired ? 'Action Required' : 'Upgrade' }}
+          <span v-if="actionRequired">
+            ({{ macrosCreated }}/{{ macrosLimit }})
           </span>
         </span>
 
         <UpgradeTooltip
-          v-if="shouldShowTooltip"
+          v-if="actionRequired"
           :macros-created="macrosCreated"
           :macros-limit="macrosLimit"
           :upgrade-url="upgradeUrl"
@@ -29,7 +29,7 @@
         />
       </div>
     </a>
-    <span v-if="shouldShowTooltip" class="flex absolute h-3 w-3 top-0 right-0 -mt-1 -mr-1">
+    <span v-if="actionRequired" class="flex absolute h-3 w-3 top-0 right-0 -mt-1 -mr-1">
       <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
       <span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
     </span>
@@ -37,8 +37,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { trackEvent } from "@/utils/window"
+import {computed, ref} from 'vue'
+import {trackEvent} from "@/utils/window"
 import macroMetrics from "@/services/MacroMetrics"
 import getFeatureFlagsForCurrentDomain from "@/apis/featureFlags"
 // @ts-ignore
@@ -54,25 +54,17 @@ const macrosCreated = ref<number>(0)
 const customerSuccessServiceEnabled = ref<boolean>(false)
 
 // Computed
-const shouldShowTooltip = computed(() => {
-  const showTooltip = macrosCreated.value >= WARNING_THRESHOLD && customerSuccessServiceEnabled.value
-  console.debug('shouldShowTooltip', showTooltip)
-  return showTooltip
+const actionRequired = computed(() => {
+  return macrosCreated.value >= WARNING_THRESHOLD && customerSuccessServiceEnabled.value
 })
 
 const ariaLabel = computed(() => 'Upgrade account - Macro limit exceeded')
 
 // Feature flag handling
-const handleCustomerSuccessService = async (metrics: any) => {
-  const customerSuccessService = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE'])
-  // @ts-ignore
-  if (!customerSuccessService.CUSTOMER_SUCCESS_SERVICE) {
-    trackEvent('', 'hold', 'conversion')
-    return false
-  }
-
-  trackEvent('', 'enhance-upgrade-button', 'conversion', { metrics })
-  return true
+const loadCustomerSuccessServiceFlag = async () => {
+  const customerSuccessService: any = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE'])
+  customerSuccessServiceEnabled.value = !!customerSuccessService.CUSTOMER_SUCCESS_SERVICE
+  trackEvent('', customerSuccessServiceEnabled.value ? 'css-enabled' : 'css-disabled', 'conversion')
 }
 
 // Metrics loading
@@ -81,8 +73,6 @@ const loadMacroMetrics = async () => {
   if (metrics?.total) {
     macrosCreated.value = metrics.total
   }
-
-  customerSuccessServiceEnabled.value = await handleCustomerSuccessService(metrics)
 }
 
 // Event tracking
@@ -96,4 +86,5 @@ const trackHoverEvent = () => {
 
 // Initialize
 loadMacroMetrics()
+loadCustomerSuccessServiceFlag()
 </script>

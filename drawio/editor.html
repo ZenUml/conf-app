@@ -48,6 +48,10 @@
 
 		//interaction protocol with embeded Drawio frame
 		addEventListener('message', async ({data}) => {
+      if(!data) {
+        console.warn('Empty message sent to drawio editor.');
+        return;
+      }
 			const payload = (typeof data === 'string') && JSON.parse(data);
 
 			if(payload.event === 'init') {

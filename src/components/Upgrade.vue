@@ -19,7 +19,7 @@
             (<span>{{ macrosCreated }}</span><span>/</span><span>{{ macrosLimit }}</span>)
           </span>
         </span>
-        
+
         <UpgradeTooltip
           v-if="shouldShowTooltip"
           :macros-created="macrosCreated"
@@ -41,6 +41,7 @@ import { ref, computed } from 'vue'
 import { trackEvent } from "@/utils/window"
 import macroMetrics from "@/services/MacroMetrics"
 import getFeatureFlagsForCurrentDomain from "@/apis/featureFlags"
+// @ts-ignore
 import UpgradeTooltip from './UpgradeTooltip.vue'
 
 // Constants

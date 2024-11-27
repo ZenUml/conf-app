@@ -201,4 +201,8 @@ onBeforeUnmount(() => {
   height: 100% !important;
   width: 100%;
 }
+
+.ͼ5 {
+  color: #819fff
+}
 </style>

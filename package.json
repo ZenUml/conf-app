@@ -39,7 +39,7 @@
     "lodash": "^4.17.21",
     "lzutf8": "^0.5.6",
     "md5": "^2.3.0",
-    "mermaid": "^10.6.0",
+    "mermaid": "^11.4.0",
     "mixpanel-browser": "^2.47.0",
     "puppeteer": "^17.1.3",
     "react": "=17.0.2",
@@ -48,7 +48,6 @@
     "swagger-editor": "^4.4.0",
     "thememirror": "^2.0.1",
     "tiny-emitter": "^2.1.0",
-    "vitest": "^2.1.5",
     "vue": "^3.1.0",
     "vuex": "^4.1.0"
   },
@@ -91,8 +90,8 @@
     "tailwindcss": "^3.4.3",
     "toucan-js": "^2.6.1",
     "typescript": "^4.7.4",
-    "vite": "^5.0.13",
-    "vitest": "^1.1.3",
+    "vite": "5.4.6",
+    "vitest": "^2.1.5",
     "wrangler": "^3.22.1"
   },
   "resolutions": {

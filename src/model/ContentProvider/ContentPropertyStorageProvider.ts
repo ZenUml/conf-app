@@ -19,8 +19,8 @@ function getDiagramType(diagram: Diagram | undefined): string {
   return '_unknown';
 }
 
-function trackDiagramEvent(diagram: Diagram | undefined, event: string, category: string) {
-  trackEvent(diagram?.diagramType || getDiagramType(diagram), event, category);
+async function trackDiagramEvent(diagram: Diagram | undefined, event: string, category: string) {
+  await trackEvent(diagram?.diagramType || getDiagramType(diagram), event, category);
 }
 
 export class ContentPropertyStorageProvider implements StorageProvider {
@@ -66,12 +66,12 @@ export class ContentPropertyStorageProvider implements StorageProvider {
       console.warn('property is not found with key:' + key);
       return NULL_DIAGRAM;
     }
-    const contentProperty = ContentPropertyStorageProvider._normaliseContentProperty(property, key);
+    const contentProperty = await ContentPropertyStorageProvider._normaliseContentProperty(property, key);
 
     return contentProperty.value;
   }
 
-  private static _normaliseContentProperty(property: IContentProperty, key: string) {
+  private static async _normaliseContentProperty(property: IContentProperty, key: string) {
     const contentProperty = Object.assign({}, property) as IContentPropertyNormalised;
     if (typeof property.value === "string") {
       contentProperty.value = {
@@ -79,11 +79,11 @@ export class ContentPropertyStorageProvider implements StorageProvider {
         source: DataSource.ContentPropertyOld,
         code: property.value
       }
-      trackDiagramEvent(contentProperty.value, 'load_macro', 'content_property_old');
+      await trackDiagramEvent(contentProperty.value, 'load_macro', 'content_property_old');
     } else {
       contentProperty.value.source = DataSource.ContentProperty;
       contentProperty.value.diagramType = contentProperty.value.diagramType || DiagramType.Sequence;
-      trackDiagramEvent(contentProperty.value, 'load_macro', 'content_property');
+      await trackDiagramEvent(contentProperty.value, 'load_macro', 'content_property');
     }
     contentProperty.value.id = key;
     return contentProperty;

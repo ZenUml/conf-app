@@ -1,0 +1,214 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import mixpanel from 'mixpanel-browser'
+import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
+import { trackEvent, getUrlParam, getLocalStorageKey, getLocalState, setLocalState } from './window';
+
+// Mock dependencies
+vi.mock('mixpanel-browser', () => ({
+  default: {
+    init: vi.fn(),
+    identify: vi.fn(),
+    track: vi.fn()
+  }
+}))
+
+vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
+  getClientDomain: vi.fn(),
+  getSpaceKey: vi.fn()
+}))
+
+// Mock globals
+const mockGlobals = {
+  apWrapper: {
+    currentUser: {
+      atlassianAccountId: 'test-user-123'
+    },
+    getMacroData: vi.fn().mockReturnValue({ uuid: 'test-macro-123' }),
+    isLite: vi.fn().mockReturnValue(false)
+  }
+}
+
+describe('window utils', async () => {
+  beforeEach(async () => {
+    vi.clearAllMocks()
+
+    // Reset window.location
+    window.location = new URL('https://example.com') as any
+    // Reset window.globals
+    // @ts-ignore
+    window.globals = mockGlobals
+    // Reset localStorage
+    localStorage.clear()
+    // Mock context parameters
+    vi.mocked(getClientDomain).mockReturnValue('test-domain')
+    vi.mocked(getSpaceKey).mockReturnValue('TEST')
+    // Mock fetch
+    global.fetch = vi.fn().mockResolvedValue({} as Response)
+  })
+
+  describe('getUrlParam', () => {
+    it('should return undefined for non-existent parameter', () => {
+      window.location.search = ''
+      expect(getUrlParam('test')).toBeUndefined()
+    })
+
+    it('should return parameter value when it exists', () => {
+      window.location.search = '?test=value'
+      expect(getUrlParam('test')).toBe('value')
+    })
+
+    it('should handle URL encoded values', () => {
+      window.location.search = '?test=hello%20world'
+      expect(getUrlParam('test')).toBe('hello world')
+    })
+
+    it('should handle multiple parameters', () => {
+      window.location.search = '?first=1&test=value&last=3'
+      expect(getUrlParam('test')).toBe('value')
+    })
+
+    it('should return undefined on invalid URL', () => {
+      window.location.search = '?test=%invalid'
+      expect(getUrlParam('test')).toBeUndefined()
+    })
+  })
+
+  describe('trackEvent', () => {
+    it('should send tracking data to r2Track endpoint', async () => {
+      const fetchSpy = vi.mocked(global.fetch)
+
+      await trackEvent('test-label', 'test-action', 'test-category')
+
+      expect(fetchSpy).toHaveBeenCalledWith('/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: expect.any(String)
+      })
+
+      const body = JSON.parse(fetchSpy.mock.calls[0][1]!.body as string)
+      expect(body).toMatchObject({
+        event_source: 'example.com',
+        addon_key: 'unknown_addon',
+        version: 'unknown_version',
+        action: 'test-action',
+        event_category: 'test-category',
+        event_label: 'test-label',
+        user_account_id: 'test-user-123',
+        client_domain: 'test-domain',
+        confluence_space: 'TEST',
+        macro_uuid: 'test-macro-123',
+        isLite: false
+      })
+    })
+
+    it('should handle fetch errors gracefully', async () => {
+      const consoleLogSpy = vi.spyOn(console, 'log')
+      vi.mocked(global.fetch).mockRejectedValueOnce(new Error('Network error'))
+
+      await trackEvent('test-label', 'test-action', 'test-category')
+
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        'Error in calling /track',
+        expect.any(Error)
+      )
+    })
+
+    it('should include addonKey and version from URL params', async () => {
+      window.location.search = '?addonKey=test-addon&version=1.0.0'
+      const fetchSpy = vi.mocked(global.fetch)
+
+      await trackEvent('test-label', 'test-action', 'test-category')
+
+      const body = JSON.parse(fetchSpy.mock.calls[0][1]!.body as string)
+      expect(body).toMatchObject({
+        addon_key: 'test-addon',
+        version: '1.0.0'
+      })
+    })
+
+    it('should identify user on first track', async () => {
+      vi.resetModules()
+      const { trackEvent } = await import('./window')
+      await trackEvent('test-label', 'test-action', 'test-category')
+      expect(mixpanel.identify).toHaveBeenCalledWith('test-user-123')
+    })
+
+    it('should track event with correct parameters', async () => {
+      await trackEvent('test-label', 'test-action', 'test-category')
+      expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
+        event_category: 'test-category',
+        event_label: 'test-label',
+        user_account_id: 'test-user-123',
+        client_domain: 'test-domain',
+        confluence_space: 'TEST',
+        macro_uuid: 'test-macro-123',
+        isLite: false
+      }))
+    })
+
+    it('should handle missing user ID', async () => {
+      // @ts-ignore
+      window.globals.apWrapper.currentUser = null
+      await trackEvent('test-label', 'test-action', 'test-category')
+      expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
+        user_account_id: 'unknown_user_account_id'
+      }))
+    })
+
+    it('should include custom event details', async () => {
+      const customDetails = { custom_field: 'custom_value' }
+      await trackEvent('test-label', 'test-action', 'test-category', customDetails)
+      expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
+        custom_field: 'custom_value'
+      }))
+    })
+
+    it('should handle gtag errors gracefully', async () => {
+      const consoleLogSpy = vi.spyOn(console, 'log')
+      // @ts-ignore
+      window.gtag = () => { throw new Error('Gtag error') }
+
+      await trackEvent('test-label', 'test-action', 'test-category')
+
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        'Error in calling gtag',
+        expect.any(Error)
+      )
+    })
+  })
+
+  describe('localStorage utils', () => {
+    describe('getLocalStorageKey', () => {
+      it('should generate key with domain', () => {
+        expect(getLocalStorageKey('test')).toBe('test-test-domain')
+      })
+    })
+
+    describe('getLocalState', () => {
+      it('should return default state when no stored value exists', () => {
+        const DEFAULT_STATE = { test: true }
+        expect(getLocalState('test', DEFAULT_STATE)).toEqual(DEFAULT_STATE)
+      })
+
+      it('should return stored state when it exists', () => {
+        const storedState = { test: false }
+        localStorage.setItem('test-test-domain', JSON.stringify(storedState))
+        expect(getLocalState('test', { test: true })).toEqual(storedState)
+      })
+
+      it('should return default state on invalid JSON', () => {
+        const DEFAULT_STATE = { test: true }
+        localStorage.setItem('test-test-domain', 'invalid json')
+        expect(getLocalState('test', DEFAULT_STATE)).toEqual(DEFAULT_STATE)
+      })
+    })
+
+    describe('setLocalState', () => {
+      it('should store state in localStorage', () => {
+        const state = { test: true }
+        setLocalState('test', state)
+        expect(JSON.parse(localStorage.getItem('test-test-domain') || '')).toEqual(state)
+      })
+    })
+  })
+})

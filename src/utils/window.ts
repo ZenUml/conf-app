@@ -26,15 +26,20 @@ export function getUrlParam(param: string): string | undefined {
 }
 
 interface EventDetails {
+  // user
+  user_account_id: string;
+  // confluence and macro
+  client_domain: string;
+  confluence_space: string;
+  macro_uuid?: string;
+  isLite?: boolean;
+  // event
   event_category: string;
   event_label: string;
-  client_domain: string;
-  user_account_id: string;
-  confluence_space: string;
-  [key: string]: string | number;
+  [key: string]: string | boolean | undefined;
 }
 
-export function trackEvent(
+export async function trackEvent(
   label: DiagramType | string | undefined,
   action: string,
   category: string,
@@ -55,9 +60,11 @@ export function trackEvent(
     try {
       eventDetails = {
         ...eventDetails,
-        client_domain: getClientDomain() || "unknown_atlassian_domain",
         user_account_id: userAccountId,
+        client_domain: getClientDomain() || "unknown_atlassian_domain",
         confluence_space: getSpaceKey() || "unknown_space",
+        macro_uuid: await getMacroUuid(),
+        isLite: isLite(),
       };
     } catch (e) {
       console.error(e);
@@ -78,7 +85,7 @@ export function trackEvent(
       console.log("Error in calling gtag", e);
     }
 
-    r2Track(action, eventDetails);
+    await r2Track(action, eventDetails);
   } catch (e) {
     console.error(
       "Error in trackingEvent. Please report to our helpdesk: https://zenuml.atlassian.net/servicedesk/customer/portals",
@@ -95,6 +102,18 @@ function getCurrentUserAccountId(): string {
   );
 }
 
+async function getMacroUuid(): Promise<string> {
+  // @ts-ignore
+  const macroData = await window.globals.apWrapper.getMacroData();
+
+  return macroData.uuid || "unknown_macro_uuid";
+}
+
+function isLite(): boolean {
+  // @ts-ignore
+  return window.globals?.apWrapper?.isLite() || false;
+}
+
 export function addonKey() {
   return getUrlParam("addonKey") || "unknown_addon";
 }
@@ -103,9 +122,9 @@ function version() {
   return getUrlParam("version") || "unknown_version";
 }
 
-function r2Track(action: string, eventDetails: any) {
+async function r2Track(action: string, eventDetails: any) {
   try {
-    fetch("/track", {
+    await fetch("/track", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(

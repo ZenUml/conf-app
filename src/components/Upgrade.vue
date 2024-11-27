@@ -55,30 +55,37 @@ const customerSuccessServiceEnabled = ref<boolean>(false)
 
 // Computed
 const shouldShowTooltip = computed(() => {
-  let showTooltip = macrosCreated.value >= WARNING_THRESHOLD && customerSuccessServiceEnabled.value;
-  console.debug('shouldShowTooltip', showTooltip);
-  return showTooltip;
+  const showTooltip = macrosCreated.value >= WARNING_THRESHOLD && customerSuccessServiceEnabled.value
+  console.debug('shouldShowTooltip', showTooltip)
+  return showTooltip
 })
+
 const ariaLabel = computed(() => 'Upgrade account - Macro limit exceeded')
 
-// Load initial data
+// Feature flag handling
+const handleCustomerSuccessService = async (metrics: any) => {
+  const customerSuccessService = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE'])
+  // @ts-ignore
+  if (!customerSuccessService.CUSTOMER_SUCCESS_SERVICE) {
+    trackEvent('', 'hold', 'conversion')
+    return false
+  }
+
+  trackEvent('', 'enhance-upgrade-button', 'conversion', { metrics })
+  return true
+}
+
+// Metrics loading
 const loadMacroMetrics = async () => {
   const metrics = await macroMetrics.getMacroMetrics()
   if (metrics?.total) {
     macrosCreated.value = metrics.total
   }
-  const customerSuccessService = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE']);
-  // @ts-ignore
-  if (!customerSuccessService.CUSTOMER_SUCCESS_SERVICE) {
-    trackEvent('', 'hold', 'conversion')
-  } else {
-    customerSuccessServiceEnabled.value = true;
-    trackEvent('', 'enhance-upgrade-button', 'conversion', {metrics});
-  }
-}
-loadMacroMetrics()
 
-// Methods
+  customerSuccessServiceEnabled.value = await handleCustomerSuccessService(metrics)
+}
+
+// Event tracking
 const trackClickEvent = () => {
   trackEvent('upgrade', 'click', 'conversion')
 }
@@ -86,4 +93,7 @@ const trackClickEvent = () => {
 const trackHoverEvent = () => {
   trackEvent('upgrade', 'hover', 'conversion')
 }
+
+// Initialize
+loadMacroMetrics()
 </script>

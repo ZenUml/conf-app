@@ -16,7 +16,7 @@
         <span class="text-sm font-medium text-white">
           {{ actionRequired ? 'Action Required' : 'Upgrade' }}
           <span v-if="actionRequired">
-            ({{ macrosCreated }}/{{ macrosLimit }})
+            ({{ macrosCreated }}/{{ MACROS_LIMIT }})
           </span>
         </span>
 

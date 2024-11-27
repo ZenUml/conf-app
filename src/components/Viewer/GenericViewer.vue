@@ -3,7 +3,6 @@
 <div class="generic viewer mx-1 pr-2">
   <Debug />
   <error-boundary>
-
   <div :class="{'w-full': wide, 'w-fit': !wide, 'mx-auto': true}">
     <div class="frame relative" :class="{'w-full': wide, 'min-w-[300px]': !wide}">
       <div class="header flex p-1.5" :class="{flex: isDisplayMode, hidden: !isDisplayMode}">
@@ -73,6 +72,7 @@
           <slot name="title"></slot>
         </div>
       </div>
+      <Notice />
       <div class="flex justify-center screen-capture-content">
         <div :class="{'w-full': wide, 'mr-8': !wide}">
           <slot></slot>
@@ -97,6 +97,7 @@ import {DataSource} from "@/model/Diagram/Diagram";
 import {getUrlParam} from '@/utils/window';
 import SendFeedback from "@/components/SendFeedback.vue";
 import Upgrade from "@/components/Upgrade.vue";
+import Notice from "@/components/Viewer/Notice/index.vue"
 import * as htmlToImage from "html-to-image";
 import getFeatureFlags from '@/apis/featureFlags'
 
@@ -116,6 +117,7 @@ export default {
     Upgrade,
     Debug,
     ErrorBoundary,
+    Notice
   },
   computed: {
     // We use {} instead of [] to get type checking

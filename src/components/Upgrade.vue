@@ -96,7 +96,6 @@ import {ref, computed} from 'vue'
 import {trackEvent} from "@/utils/window"
 import macroMetrics from "@/services/MacroMetrics"
 import getFeatureFlagsForCurrentDomain from "@/apis/featureFlags";
-import globals from "@/model/globals";
 
 // Constants
 const upgradeUrl = 'https://zenuml.com/upgrade/'
@@ -120,15 +119,13 @@ const loadMacroMetrics = async () => {
   if (metrics?.total) {
     macrosCreated.value = metrics.total
   }
-
-  const macroData = await globals.apWrapper.getMacroData();
   const customerSuccessService = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE']);
   // @ts-ignore
   if (!customerSuccessService.CUSTOMER_SUCCESS_SERVICE) {
-    trackEvent(macroData?.uuid, 'hold', 'conversion')
+    trackEvent('', 'hold', 'conversion')
   } else {
     customerSuccessServiceEnabled.value = true;
-    trackEvent(macroData?.uuid, 'enhance-upgrade-button', 'conversion', {metrics});
+    trackEvent('', 'enhance-upgrade-button', 'conversion', {metrics});
   }
 }
 loadMacroMetrics()

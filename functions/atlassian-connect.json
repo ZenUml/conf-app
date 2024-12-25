@@ -306,6 +306,14 @@
     ],
     "generalPages": [
       {
+        "key": "zenuml-page-to-diagram-survey",
+        "location": "none",
+        "url": "/page-to-diagram-survey.html?version=__VERSION__&addonKey=__ADDON_KEY__&contentKey=__CONTENT_KEY__",
+        "name": {
+          "value": "Page to Diagram Survey"
+        }
+      },
+      {
         "key": "zenuml-content-sequence-viewer-dialog",
         "location": "none",
         "url": "/sequence-viewer-dialog.html?version=__VERSION__&addonKey=__ADDON_KEY__&contentKey=__CONTENT_KEY__",

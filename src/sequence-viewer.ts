@@ -52,6 +52,22 @@ async function createAttachment(code: string, diagramType: DiagramType) {
 EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => {
   setTimeout(async () => {
     await createAttachment(code, diagramType);
+    
+    // Show survey if user hasn't seen it before
+    const hasTakenSurvey = localStorage.getItem('zenuml-page-to-diagram-survey-taken');
+    if (!hasTakenSurvey && diagramType === DiagramType.Sequence) {
+      setTimeout(() => {
+        AP.dialog.create({
+          key: 'zenuml-page-to-diagram-survey',
+          chrome: false,
+          width: '100%',
+          height: '100%'
+        }).on('close', () => {
+          // Mark survey as taken
+          localStorage.setItem('zenuml-page-to-diagram-survey-taken', 'true');
+        });
+      }, 2000); // Show survey after diagram is fully loaded and visible
+    }
   }, 1500);
 });
 

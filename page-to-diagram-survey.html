@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Page to Diagram ShapeUp Survey</title>
+    <script src="https://connect-cdn.atl-paas.net/all.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #survey-container {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="survey-container">
+        <div
+            data-heyform-id="0L8eWdQS"
+            data-heyform-type="fullpage"
+            data-heyform-custom-url="https://hey2.diagramly.ai/form/"
+            data-heyform-transparent-background="false"
+        ></div>
+    </div>
+    <script src="https://www.unpkg.com/@heyform-inc/embed@latest/dist/index.umd.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Listen for messages from the HeyForm iframe
+            window.addEventListener('message', function(event) {
+                // You may want to verify the origin of the message
+                if (event.data.type === 'heyform_submit') {
+                    // Close the dialog when the form is submitted
+                    AP.dialog.close({
+                        action: 'submit',
+                        data: event.data
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

@@ -293,7 +293,7 @@ export default class ApWrapper2 implements IApWrapper {
     let isCrossPageCopy = pageId && String(pageId) !== String(customContent?.container?.id);
     if (isCrossPageCopy || count > 1) {
       diagram.isCopy = true;
-      console.warn('Detected copied macro');
+      console.warn(`Detected copied macro - ID: ${id}, Cross-page copy: ${isCrossPageCopy}, Instances on page: ${count}, Source page: ${customContent?.container?.id}, Current page: ${pageId}`);
       if (isCrossPageCopy) {
         trackEvent('cross_page', 'duplication_detect', 'warning');
       }
@@ -325,7 +325,7 @@ export default class ApWrapper2 implements IApWrapper {
     let isCrossPageCopy = pageId && pageId !== String(customContent?.pageId);
     if (isCrossPageCopy || count > 1) {
       diagram.isCopy = true;
-      console.warn('Detected copied macro');
+      console.warn(`Detected copied macro - ID: ${id}, Cross-page copy: ${isCrossPageCopy}, Instances on page: ${count}, Source page: ${customContent?.pageId}, Current page: ${pageId}`);
       if (isCrossPageCopy) {
         trackEvent('cross_page', 'duplication_detect', 'warning');
       }

@@ -140,13 +140,13 @@ export default {
     try {
       this.canUserEdit = await globals.apWrapper.canUserEdit();
       let featureFlagsLocked = await getFeatureFlags(['LITE_PNG_EXPORT_LOCKED']);
-      this.exportPngLocked = featureFlagsLocked.LITE_PNG_EXPORT_LOCKED.enabled;
+      this.exportPngLocked = featureFlagsLocked.LITE_PNG_EXPORT_LOCKED?.enabled;
       let featureFlagsTrial = await getFeatureFlags(['LITE_PNG_EXPORT_TRIAL']);
-      this.exportPngTrial = featureFlagsTrial.LITE_PNG_EXPORT_TRIAL.enabled;
+      this.exportPngTrial = featureFlagsTrial.LITE_PNG_EXPORT_TRIAL?.enabled;
       let featureFlagsEnabled = await getFeatureFlags(['LITE_PNG_EXPORT_ENABLED']);
-      this.exportPngEnabled = featureFlagsEnabled.LITE_PNG_EXPORT_ENABLED.enabled;
+      this.exportPngEnabled = featureFlagsEnabled.LITE_PNG_EXPORT_ENABLED?.enabled;
     } catch (e) {
-      console.warn('canUserEdit', this.canUserEdit);
+      console.error('Error getting feature flags', e);
     }
   },
   methods: {

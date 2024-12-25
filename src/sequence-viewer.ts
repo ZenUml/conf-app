@@ -60,15 +60,21 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
 
     if (surveyTargetUuid && surveyTargetUuid === macroData?.uuid && !hasTakenSurvey && diagramType === DiagramType.Sequence) {
       setTimeout(() => {
+        // Track survey shown
+        trackEvent(macroData?.uuid, 'survey_shown', 'sequence');
+
         AP.dialog.create({
           key: 'zenuml-page-to-diagram-survey',
           chrome: true,
           width: '100%',
           height: '100%'
-        }).on('close', () => {
+        }).on('close', (data: any) => {
           // Mark survey as taken and clear the show flag
           localStorage.setItem('zenuml-page-to-diagram-survey-taken', 'true');
           localStorage.removeItem('zenuml-show-survey');
+
+          // Track survey completion or closure
+          trackEvent(macroData?.uuid, 'survey_closed', 'sequence', data);
         });
       }, 2000); // Show survey after diagram is fully loaded and visible
     }

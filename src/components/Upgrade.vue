@@ -39,12 +39,20 @@
 <script setup lang="ts">
 import {trackEvent} from "@/utils/window";
 import { useCustomerSuccessService, MACROS_LIMIT } from '@/composables/useCustomerSuccessService'
+import { computed } from 'vue'
 // @ts-ignore
 import UpgradeTooltip from './UpgradeTooltip.vue'
 
 const upgradeUrl = 'https://zenuml.com/upgrade/'
 
 const { macrosCreated, actionRequired, initialize } = useCustomerSuccessService()
+
+const ariaLabel = computed(() => {
+  if (actionRequired) {
+    return `Action Required - ${macrosCreated} of ${MACROS_LIMIT} macros created`
+  }
+  return 'Upgrade to ZenUML Pro'
+})
 
 const trackClickEvent = () => {
   trackEvent('upgrade', 'click', 'conversion')

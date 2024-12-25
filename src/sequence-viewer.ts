@@ -57,25 +57,31 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
     const surveyTargetId = localStorage.getItem('zenuml-show-survey');
     const hasTakenSurvey = localStorage.getItem('zenuml-page-to-diagram-survey-taken') === 'true';
     const macroData = await globals.apWrapper.getMacroData();
+    const version = new URLSearchParams(window.location.search).get('version');
 
     if (surveyTargetId && surveyTargetId === macroData?.customContentId && !hasTakenSurvey && diagramType === DiagramType.Sequence) {
       setTimeout(() => {
         // Track survey shown
         trackEvent(macroData.customContentId, 'survey_shown', 'sequence');
 
-        AP.dialog.create({
-          key: 'zenuml-page-to-diagram-survey',
-          chrome: true,
-          width: '100%',
-          height: '100%'
-        }).on('close', (data: any) => {
-          // Mark survey as taken and clear the show flag
-          localStorage.setItem('zenuml-page-to-diagram-survey-taken', 'true');
-          localStorage.removeItem('zenuml-show-survey');
+        if (version === '2024.12') {
+          AP.dialog.create({
+            key: 'zenuml-page-to-diagram-survey',
+            chrome: true,
+            width: '100%',
+            height: '100%'
+          }).on('close', (data: any) => {
+            // Mark survey as taken and clear the show flag
+            localStorage.setItem('zenuml-page-to-diagram-survey-taken', 'true');
+            localStorage.removeItem('zenuml-show-survey');
 
-          // Track survey completion or closure
-          trackEvent(macroData.customContentId, 'survey_closed', 'sequence', data);
-        });
+            // Track survey completion or closure
+            trackEvent(macroData.customContentId, 'survey_closed', 'sequence', data);
+          });
+        } else {
+          console.warn(`Survey skipped - descriptor version ${version} does not match required version 2024.12`);
+          trackEvent(macroData.customContentId, 'survey_skipped', 'sequence', { reason: 'version_mismatch', version });
+        }
       }, 2000); // Show survey after diagram is fully loaded and visible
     }
   }, 1500);

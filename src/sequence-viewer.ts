@@ -53,9 +53,11 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
   setTimeout(async () => {
     await createAttachment(code, diagramType);
     
-    // Show survey if user hasn't seen it before
-    const hasTakenSurvey = localStorage.getItem('zenuml-page-to-diagram-survey-taken');
-    if (!hasTakenSurvey && diagramType === DiagramType.Sequence) {
+    // Check if we should show the survey
+    const shouldShowSurvey = localStorage.getItem('zenuml-show-survey') === 'true';
+    const hasTakenSurvey = localStorage.getItem('zenuml-page-to-diagram-survey-taken') === 'true';
+    
+    if (shouldShowSurvey && !hasTakenSurvey && diagramType === DiagramType.Sequence) {
       setTimeout(() => {
         AP.dialog.create({
           key: 'zenuml-page-to-diagram-survey',
@@ -63,8 +65,9 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
           width: '100%',
           height: '100%'
         }).on('close', () => {
-          // Mark survey as taken
+          // Mark survey as taken and clear the show flag
           localStorage.setItem('zenuml-page-to-diagram-survey-taken', 'true');
+          localStorage.removeItem('zenuml-show-survey');
         });
       }, 2000); // Show survey after diagram is fully loaded and visible
     }

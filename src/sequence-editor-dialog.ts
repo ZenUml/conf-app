@@ -31,8 +31,14 @@ EventBus.$on('save', async () => {
     sessionStorage.removeItem(`${location.hostname}-preserve-zenuml-conf-theme`);
     localStorage.setItem(`${location.hostname}-${id}-zenuml-conf-theme`, preservedTheme);
   }
-  // @ts-ignore
-  AP.dialog.close();
+  // Set flag for new diagram saved
+  localStorage.setItem('zenuml-show-survey', 'true');
+  // Give some time for track event to be sent out. We are not using a more reliable way to track event because
+  // we don't want to block dialog close for too long.
+  setTimeout(() => {
+    // @ts-ignore
+    AP.dialog.close();
+  }, 500);
 });
 
 EventBus.$on('exit', async (showWarning: boolean) => {

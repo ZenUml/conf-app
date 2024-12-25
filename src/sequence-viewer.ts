@@ -52,16 +52,17 @@ async function createAttachment(code: string, diagramType: DiagramType) {
 EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => {
   setTimeout(async () => {
     await createAttachment(code, diagramType);
-    
+
     // Check if we should show the survey
-    const shouldShowSurvey = localStorage.getItem('zenuml-show-survey') === 'true';
+    const surveyTargetUuid = localStorage.getItem('zenuml-show-survey');
     const hasTakenSurvey = localStorage.getItem('zenuml-page-to-diagram-survey-taken') === 'true';
-    
-    if (shouldShowSurvey && !hasTakenSurvey && diagramType === DiagramType.Sequence) {
+    const macroData = await globals.apWrapper.getMacroData();
+
+    if (surveyTargetUuid && surveyTargetUuid === macroData?.uuid && !hasTakenSurvey && diagramType === DiagramType.Sequence) {
       setTimeout(() => {
         AP.dialog.create({
           key: 'zenuml-page-to-diagram-survey',
-          chrome: false,
+          chrome: true,
           width: '100%',
           height: '100%'
         }).on('close', () => {

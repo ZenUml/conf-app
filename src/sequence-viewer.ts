@@ -52,6 +52,32 @@ async function createAttachment(code: string, diagramType: DiagramType) {
 EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => {
   setTimeout(async () => {
     await createAttachment(code, diagramType);
+
+    // Check if we should show the survey
+    const surveyTargetUuid = localStorage.getItem('zenuml-show-survey');
+    const hasTakenSurvey = localStorage.getItem('zenuml-page-to-diagram-survey-taken') === 'true';
+    const macroData = await globals.apWrapper.getMacroData();
+
+    if (surveyTargetUuid && surveyTargetUuid === macroData?.uuid && !hasTakenSurvey && diagramType === DiagramType.Sequence) {
+      setTimeout(() => {
+        // Track survey shown
+        trackEvent(macroData?.uuid, 'survey_shown', 'sequence');
+
+        AP.dialog.create({
+          key: 'zenuml-page-to-diagram-survey',
+          chrome: true,
+          width: '100%',
+          height: '100%'
+        }).on('close', (data: any) => {
+          // Mark survey as taken and clear the show flag
+          localStorage.setItem('zenuml-page-to-diagram-survey-taken', 'true');
+          localStorage.removeItem('zenuml-show-survey');
+
+          // Track survey completion or closure
+          trackEvent(macroData?.uuid, 'survey_closed', 'sequence', data);
+        });
+      }, 2000); // Show survey after diagram is fully loaded and visible
+    }
   }, 1500);
 });
 

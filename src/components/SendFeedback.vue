@@ -14,7 +14,7 @@ const openSurvey = (e: Event) => {
   e.preventDefault();
   trackEvent('comment_on_diagram', 'survey_shown', 'survey');
 
-  AP.dialog.create({
+  AP.dialog?.create({
     key: 'zenuml-content-dashboard',
     chrome: true,
     width: "100%",

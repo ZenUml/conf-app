@@ -12,16 +12,16 @@ import AP from "@/model/AP";
 
 const openSurvey = (e: Event) => {
   e.preventDefault();
-  trackEvent('feedback', 'click', 'survey');
+  trackEvent('comment_on_diagram', 'survey_shown', 'survey');
 
   AP.dialog.create({
     key: 'zenuml-content-dashboard',
     chrome: true,
     width: "100%",
     height: "100%",
-    customData: {type: 'survey'}
+    customData: {type: 'comment_on_diagram_survey'}
   }).on('close', () => {
-    trackEvent('feedback', 'dialog_closed', 'survey');
+    trackEvent('comment_on_diagram', 'survey_closed', 'survey');
   });
 }
 </script>

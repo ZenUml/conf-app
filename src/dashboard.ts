@@ -20,7 +20,7 @@ if(document.getElementById('app')) {
     // Check if we should show survey
     const customData = await globals.apWrapper.getDialogCustomData();
     console.log('customData', customData);
-    if (customData?.type === 'survey') {
+    if (customData?.type === 'comment_on_diagram_survey') {
       // Create survey container
       const surveyContainer = document.createElement('div');
       surveyContainer.innerHTML = `
@@ -41,8 +41,6 @@ if(document.getElementById('app')) {
       const script = document.createElement('script');
       script.src = 'https://www.unpkg.com/@heyform-inc/embed@latest/dist/index.umd.js';
       document.body.appendChild(script);
-
-      trackEvent('survey', 'embedded', 'dashboard');
     } else {
       // Mount DashboardDocumentList for non-survey cases
       const app = createApp(DashboardDocumentList);

@@ -16,6 +16,6 @@ describe('SendFeedback.vue', () => {
   it('emits a trackClickEvent method when clicked', async () => {
     const wrapper = shallowMount(SendFeedback)
     await wrapper.find('.discussion').trigger('click')
-    expect(trackEvent).toHaveBeenCalledWith('discussion', 'click', 'help')
+    expect(trackEvent).toHaveBeenCalledWith('comment_on_diagram', 'survey_shown', 'survey')
   })
 })

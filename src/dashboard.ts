@@ -13,39 +13,11 @@ import globals from '@/model/globals';
 const apWrapper = new ApWrapper2(AP);
 
 if(document.getElementById('app')) {
+  const app = createApp(DashboardDocumentList);
+  app.mount('#app');
   (async () => {
     await globals.apWrapper.initializeContext();
     trackEvent('', 'load_dashboard', 'pageview');
-
-    // Check if we should show survey
-    const customData = await globals.apWrapper.getDialogCustomData();
-    console.log('customData', customData);
-    if (customData?.type === 'comment_on_diagram_survey') {
-      // Create survey container
-      const surveyContainer = document.createElement('div');
-      surveyContainer.innerHTML = `
-        <div
-          data-heyform-id="EOwPINVG"
-          data-heyform-type="standard"
-          data-heyform-custom-url="https://hey2.diagramly.ai/form/"
-          data-heyform-width-type="%"
-          data-heyform-width="100"
-          data-heyform-height-type="px"
-          data-heyform-height="500"
-          data-heyform-auto-resize-height="true"
-        ></div>
-      `;
-      document.body.appendChild(surveyContainer);
-
-      // Load HeyForm script
-      const script = document.createElement('script');
-      script.src = 'https://www.unpkg.com/@heyform-inc/embed@latest/dist/index.umd.js';
-      document.body.appendChild(script);
-    } else {
-      // Mount DashboardDocumentList for non-survey cases
-      const app = createApp(DashboardDocumentList);
-      app.mount('#app');
-    }
   })();
 }
 

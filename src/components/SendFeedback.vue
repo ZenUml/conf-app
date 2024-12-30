@@ -8,20 +8,15 @@
 
 <script setup lang="ts">
 import { trackEvent } from '@/utils/window'
-import AP from "@/model/AP";
+import { toast } from '@/utils/toast'
 
 const openSurvey = (e: Event) => {
   e.preventDefault();
   trackEvent('comment_on_diagram', 'survey_shown', 'survey');
-
-  AP.dialog?.create({
-    key: 'zenuml-content-dashboard',
-    chrome: true,
-    width: "100%",
-    height: "100%",
-    customData: {type: 'comment_on_diagram_survey'}
-  }).on('close', () => {
-    trackEvent('comment_on_diagram', 'survey_closed', 'survey');
+  
+  toast({
+    message: 'This feature is under development. Stay tuned!',
+    duration: 3000
   });
 }
 </script>

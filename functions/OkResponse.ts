@@ -7,3 +7,7 @@ export function OkResponse() {
       }
     });
 }
+
+export function response(status, body) {
+  return new Response(body || '', { status });
+}

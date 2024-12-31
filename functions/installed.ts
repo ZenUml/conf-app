@@ -1,8 +1,9 @@
 import {captureError, captureInstalledMessage} from "./ConfigToucan";
 import {OkResponse} from "./OkResponse";
-import {postData} from "./utils/zaraz";
-import {RequestBody} from "./RequestBody";
+import {postData as postZarazData} from "./utils/zaraz";
+import type {RequestBody} from "./RequestBody";
 import {saveToBucket} from "./utils/R2Bucket";
+import { KVEnv } from "./utils/KVEnv";
 
 export const onRequest: PagesFunction = async ({ request, env }) => {
   try {
@@ -23,10 +24,16 @@ export const onRequest: PagesFunction = async ({ request, env }) => {
 
     // extract domain from baseUrl above
     const domain = new URL(body.baseUrl).hostname;
-    await postData(body.eventType, body.key, body.clientKey, domain);
-    // @ts-ignore
-    await saveToBucket(env.EVENT_BUCKET, domain, body);
-  } catch (e: any) {
+    const isLite = body.key.includes('-lite');
+
+    await Promise.all([
+      postZarazData(body.eventType, body.key, body.clientKey, domain),
+
+      saveToBucket(env[KVEnv.EVENT_BUCKET], domain, body),
+
+      env[KVEnv.CLIENT_INSTALLATION_KV].put(`${isLite ? 'lite' : 'full'}/${domain}`, JSON.stringify({...body, timestamp: new Date()}))
+    ]);
+  } catch (e) {
     console.log(`Error: ${e}`);
     captureError(e)
   }

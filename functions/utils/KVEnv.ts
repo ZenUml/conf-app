@@ -1,3 +1,5 @@
-export interface Env {
-	FEATURES: KVNamespace;
+export enum KVEnv {
+	EVENT_BUCKET = 'EVENT_BUCKET',
+	FEATURES = 'FEATURES',
+	CLIENT_INSTALLATION_KV = 'CLIENT_INSTALLATION_KV'
 }

@@ -1,8 +1,9 @@
 import {trackEvent} from "./utils/zaraz";
-import {Env} from "./utils/KVEnv";
+import {KVEnv} from "./utils/KVEnv";
 import {checkWhiteList} from "./utils/white-list";
 import { isLite } from './descriptor.js';
-export const onRequestGet: PagesFunction<Env> = async (params: any) => {
+
+export const onRequestGet: PagesFunction = async (params) => {
   const {searchParams} = new URL(params.request.url);
  
   const uuid = searchParams.get('uuid') || '';
@@ -15,7 +16,7 @@ export const onRequestGet: PagesFunction<Env> = async (params: any) => {
   // @ts-ignore
   const subDomain = hostName.split('.')[0] || 'unknown_domain';
 
-  const needUpgradeDesc = (isLite(appKey) && await checkWhiteList(params.env.FEATURES,"WHITE_LIST_PDF",subDomain));
+  const needUpgradeDesc = (isLite(appKey) && await checkWhiteList(params.env[KVEnv.FEATURES],"WHITE_LIST_PDF",subDomain));
   const upgradeDesc = needUpgradeDesc ? `<p style="color:#97a0af;font-style:italic;">Elevate your ZenUML experience by upgrading to our Paid Version. For detailed instructions and benefits, visit https://zenuml.com/upgrade.</p>` : "";
   
   try {

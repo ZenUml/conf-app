@@ -23,12 +23,37 @@ async function main() {
   const compositeContentProvider = defaultContentProvider(globals.apWrapper as ApWrapper2);
   let { doc } = await compositeContentProvider.load();
   console.log('loaded document', doc);
+
   if (doc === NULL_DIAGRAM) {
-    console.log('document is null, loading example');
-    doc = {
-      diagramType: DiagramType.Sequence,
-      code: Example.Sequence,
-      mermaidCode: Example.Mermaid
+    const page = await globals.apWrapper.getCurrentPage();
+    if(page?.body?.view?.value) {
+      console.log('document is null, generating from page content');
+      const response = await fetch('/diagramly', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          accountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
+          title: page.title,
+          content: page.body.view.value
+        })
+      });
+      const result: {dsl: string, diagramId: string} = await response.json();
+      console.log('Generation response', result);
+
+      doc = {
+        diagramType: DiagramType.Sequence,
+        code: result.dsl,
+        mermaidCode: Example.Mermaid
+      }
+    } else {
+      console.log('document is null, loading example');
+      doc = {
+        diagramType: DiagramType.Sequence,
+        code: Example.Sequence,
+        mermaidCode: Example.Mermaid
+      }
     }
   }
   mountRoot(doc, Workspace);

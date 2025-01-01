@@ -797,4 +797,9 @@ export default class ApWrapper2 implements IApWrapper {
     const url = this.appPropertyUrl(propertyKey);
     return (await this.request(url, 'PUT', value));
   }
+
+  async getCurrentPage(): Promise<{title: string, body: {view: {value: string}}} | undefined> {
+    const pageId = await this._getCurrentPageId();
+    return await this.request(`/api/v2/pages/${pageId}?body-format=view`);
+  }
 }

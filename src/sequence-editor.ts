@@ -49,9 +49,6 @@ EventBus.$on('save', async () => {
     sessionStorage.removeItem(`${location.hostname}-preserve-zenuml-conf-theme`);
     localStorage.setItem(`${location.hostname}-${id}-zenuml-conf-theme`, preservedTheme);
   }
-  // Set flag for diagram saved with content id
-  localStorage.setItem('zenuml-show-survey', id);
-  
   // Give some time for track event to be sent out. We are not using a more reliable way to track event because
   // we don't want to block dialog close for too long.
   setTimeout(() => {

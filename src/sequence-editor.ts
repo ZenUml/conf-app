@@ -27,26 +27,14 @@ async function main() {
   if (doc === NULL_DIAGRAM) {
     const page = await globals.apWrapper.getCurrentPage();
     if(page?.body?.view?.value) {
-      console.log('document is null, generating from page content');
-      const response = await fetch('/diagramly', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          accountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
-          title: page.title,
-          content: page.body.view.value
-        })
-      });
-      const result: {dsl: string, diagramId: string} = await response.json();
-      console.log('Generation response', result);
-
       doc = {
         diagramType: DiagramType.Sequence,
-        code: result.dsl,
+        code: '',
         mermaidCode: Example.Mermaid
       }
+
+      console.log('document is null, generating from page content');
+      generateDiagram(page.title, page.body.view.value);
     } else {
       console.log('document is null, loading example');
       doc = {
@@ -61,6 +49,27 @@ async function main() {
   if (await MacroUtil.isCreateNew()) {
     trackEvent('', 'create_macro_begin', 'sequence');
   }
+}
+
+async function generateDiagram(title: string, content: string) {
+  store.dispatch('updateGenerating', true);
+
+  const response = await fetch('/diagramly', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      accountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
+      title,
+      content
+    })
+  });
+  const result: {dsl: string, diagramId: string} = await response.json();
+  console.log('Generation response', result);
+  store.dispatch('updateGenerating', false);
+  store.dispatch('updateCode2', result.dsl);
+  return result;
 }
 
 // We do not have to export main(), but otherwise IDE shows a warning

@@ -1,4 +1,8 @@
 <template>
+  <div class="absolute top-0 left-0" style="z-index: 999">
+    <GenerationPrompt :onConfirm="handleConfirm"/>
+  </div>
+
   <div class="content h-screen flex flex-col">
     <Notice />
     <Header class="flex-shrink-0"/>
@@ -21,6 +25,9 @@
   import DiagramPortal from "@/components/DiagramPortal.vue";
   import CSAT from '@/components/CSAT/index.vue'
   import Notice from '@/components/Notice/index.vue'
+  import GenerationPrompt from "@/components/Editor/GenerationPrompt.vue";
+  import {generateDiagramFromPage} from "@/services/GenerateService";
+
   export default {
     name: 'Workspace',
     props: {
@@ -31,12 +38,21 @@
         Split(['#workspace-left', '#workspace-right'])
       }
     },
+    methods: {
+      async handleConfirm(value) {
+        if(value) {
+          console.log('Generate')
+          await generateDiagramFromPage();
+        }
+      }
+    },
     components: {
       DiagramPortal,
       Header,
       Editor,
       CSAT,
-      Notice
+      Notice,
+      GenerationPrompt
     }
   }
 </script>

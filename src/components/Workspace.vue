@@ -1,6 +1,6 @@
 <template>
   <div class="absolute top-0 left-0" style="z-index: 999">
-    <GenerationPrompt :onConfirm="handleConfirm"/>
+    <GenerationPrompt :onConfirm="handleGenerate"/>
   </div>
 
   <div class="content h-screen flex flex-col">
@@ -27,6 +27,8 @@
   import Notice from '@/components/Notice/index.vue'
   import GenerationPrompt from "@/components/Editor/GenerationPrompt.vue";
   import {generateDiagramFromPage} from "@/services/GenerateService";
+  import Example from "@/utils/sequence/Example";
+  import store from '@/model/store2'
 
   export default {
     name: 'Workspace',
@@ -39,10 +41,12 @@
       }
     },
     methods: {
-      async handleConfirm(value) {
+      async handleGenerate(value) {
         if(value) {
           console.log('Generate')
           await generateDiagramFromPage();
+        } else {
+          store.dispatch('updateCode2', Example.Sequence);
         }
       }
     },

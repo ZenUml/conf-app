@@ -14,9 +14,9 @@
           Use AI to generate a diagram based on the content of the current page?
         </div>
       </div>
-      <div class="flex justify-between flex-row-reverse mt-6">
+      <div class="flex justify-end mt-6">
+        <Button class="mr-6" @click="() => handleConfirm(false)" >Cancel</Button >
         <Button type="primary" @click="() => handleConfirm(true)" >Generate</Button >
-        <Button @click="() => handleConfirm(false)" >Create from scratch</Button >
       </div>
     </div>
   </div>

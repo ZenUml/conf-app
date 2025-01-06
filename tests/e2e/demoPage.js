@@ -26,8 +26,15 @@ if(!password) {
 }
 
 (async () => {
-  const browser = await puppeteer.launch({headless: process.env.CI === "true",
-    args: ['--disable-web-security', '--disable-features=IsolateOrigins,site-per-process']});
+  const browser = await puppeteer.launch({
+    headless: process.env.CI === "true",
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-web-security',
+      '--disable-features=IsolateOrigins,site-per-process'
+    ]
+  });
   const page = await browser.newPage();
   await page.goto(existingPageId ? pageUrl(existingPageId) : `${baseUrl}/overview`);
   await page.waitForSelector('input[name=username]');
@@ -76,7 +83,7 @@ if(!password) {
     await withNewPage(async () => {
 
       await assertFrame({frameSelector: `//iframe[contains(@id, "zenuml-sequence-macro${getModuleKeySuffix()}")]`,
-        contentXpath: '//*[contains(text(), "Order Service (Demonstration only)")]'});
+        contentXpath: '//*[contains(text(), "Order Service (Demonstration only)")]'});//
 
       await assertFrame({frameSelector: `//iframe[contains(@id, "zenuml-graph-macro${getModuleKeySuffix()}")]`,
         contentXpath: '//*[contains(text(), "Lamp doesn\'t work")]'});
@@ -85,7 +92,7 @@ if(!password) {
         contentXpath: '//span[text()="/users"]'});
 
       await assertFrame({frameSelector: `//iframe[contains(@id, "zenuml-embed-macro${getModuleKeySuffix()}")]`,
-      contentXpath: '//*[contains(text(), "Order Service (Demonstration only)")]'});
+      contentXpath: '//*[contains(text(), "Order Service (Demonstration only)")]'});//
 
     }, {sequence: true, graph: true, openapi: true, embed: true});
 
@@ -122,7 +129,7 @@ if(!password) {
       //TODO: This line fails frequently with "Error: waitForFunction failed: frame got detached.", e.g. https://github.com/ZenUml/confluence-plugin-cloud/actions/runs/8231486472/job/22507232527
       //wait for macro viewer is loaded
       // await assertFrame({frameSelector: `//iframe[contains(@id, "zenuml-sequence-macro${getModuleKeySuffix()}")]`,
-        // contentXpath: '//*[contains(text(), "Order Service (Demonstration only)")]'});
+        // contentXpath: '//*[contains(text(), "Order Service (Demonstration only)")]'});//
 
       await page.$eval('button[data-testid=publish-modal-update-button]', e => e.click());
       await page.waitForNavigation();
@@ -132,7 +139,7 @@ if(!password) {
     await withNewPage(async () => {
 
       await assertFrame({frameSelector: `//iframe[contains(@id, "zenuml-sequence-macro${getModuleKeySuffix()}")]`,
-        contentXpath: '//*[contains(text(), "Order Service (Demonstration only)")]'});
+        contentXpath: '//*[contains(text(), "Order Service (Demonstration only)")]'});//
 
     }, {sequence: {bodyOnly: true}});
   } finally {
@@ -574,7 +581,7 @@ if(!password) {
   }
 
   async function waitForSelectorInFrame(frameSelector, elementInFrameSelector, options) {
-    const iframe = await waitForSelector(page, frameSelector, options);
+    const iframe = await waitForSelector(page, frameSelector);
     console.log(`Found frame "${frameSelector}"`);
 
     const frame = await iframe.contentFrame();

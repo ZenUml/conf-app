@@ -14,17 +14,19 @@
           Use AI to generate a diagram based on the content of the current page?
         </div>
       </div>
-      <div class="flex justify-end mt-6">
-        <Button class="mr-6" @click="() => handleConfirm(false)" >Cancel</Button >
-        <Button type="primary" @click="() => handleConfirm(true)" >Generate</Button >
+      <div class="flex justify-between mt-6">
+        <Button class="mr-6" @click="() => handleConfirm(undefined)" >Use Example</Button >
+        <Button type="primary" @click="() => handleConfirm('sequence')" >Generate Sequence</Button >
+        <Button type="primary" @click="() => handleConfirm('mermaid')" >Generate Mermaid</Button >
       </div>
     </div>
   </div>
 </template>
 
 <script lang="ts">
-import { defineComponent, ref } from "vue";
+import { defineComponent } from "vue";
 import Button from "@/components/AUI/Button.vue";
+import { DiagramType } from "@/model/Diagram/Diagram";
 
 export default defineComponent({
   props: {
@@ -37,7 +39,7 @@ export default defineComponent({
     visible: true
   }),
   methods: {
-    handleConfirm(value: boolean) {
+    handleConfirm(value: string | undefined) {
       if (this.$props.onConfirm) {
         this.$props.onConfirm(value);
       }

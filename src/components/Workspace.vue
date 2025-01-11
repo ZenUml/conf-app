@@ -44,7 +44,7 @@
       async handleGenerate(value) {
         if(value) {
           console.log('Generate')
-          await generateDiagramFromPage();
+          await generateDiagramFromPage(value);
         } else {
           store.dispatch('updateCode2', Example.Sequence);
         }

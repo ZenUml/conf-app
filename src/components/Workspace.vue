@@ -1,5 +1,5 @@
 <template>
-  <div class="absolute top-0 left-0" style="z-index: 999">
+  <div class="absolute top-0 left-0" style="z-index: 999" v-show="isNewDiagram">
     <GenerationPrompt :onConfirm="handleGenerate"/>
   </div>
 
@@ -38,6 +38,11 @@
     mounted () {
       if (window.split) {
         Split(['#workspace-left', '#workspace-right'])
+      }
+    },
+    computed: {
+      isNewDiagram() {
+        return !store.state.diagram.code;
       }
     },
     methods: {

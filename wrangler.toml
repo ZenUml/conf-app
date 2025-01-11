@@ -1,0 +1,2 @@
+[vars]
+DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"

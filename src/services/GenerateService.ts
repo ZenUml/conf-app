@@ -1,5 +1,6 @@
 import store from '@/model/store2';
 import globals from '@/model/globals';
+import {DiagramType} from "@/model/Diagram/Diagram";
 
 export async function generateDiagramFromPage() {
   store.dispatch('updateGenerating', true);
@@ -24,6 +25,7 @@ export async function generateDiagramFromPage() {
       console.log('Generation response', result);
       
       store.dispatch('updateGenerating', false);
+      store.dispatch('updateDiagramType', DiagramType.Sequence);
       store.dispatch('updateCode2', result.dsl);
     }
   } finally {

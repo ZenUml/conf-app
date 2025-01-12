@@ -1,6 +1,8 @@
 <template>
   <div class="absolute top-0 left-0" style="z-index: 999" v-show="isNewDiagram">
-    <GenerationPrompt :onConfirm="handleGenerate"/>
+    <div>
+      <GenerationPrompt :onConfirm="handleGenerate"/>
+    </div>
   </div>
 
   <div class="content h-screen flex flex-col">
@@ -18,7 +20,7 @@
   </div>
 </template>
 
-<script>
+<script lang="ts">
   import Editor from '@/components/Editor/Editor.vue'
   import Split from 'split.js'
   import Header from "@/components/Header/Header.vue";
@@ -29,6 +31,7 @@
   import {generateDiagramFromPage} from "@/services/GenerateService";
   import Example from "@/utils/sequence/Example";
   import store from '@/model/store2'
+  import {DiagramType} from "@/model/Diagram/Diagram";
 
   export default {
     name: 'Workspace',
@@ -36,6 +39,7 @@
       msg: String
     },
     mounted () {
+      // @ts-ignore
       if (window.split) {
         Split(['#workspace-left', '#workspace-right'])
       }
@@ -46,14 +50,14 @@
       }
     },
     methods: {
-      async handleGenerate(value) {
-        if(value) {
+      async handleGenerate(diagramType: DiagramType, userPrompt: string) {
+        if(diagramType) {
           console.log('Generate')
-          await generateDiagramFromPage(value);
+          await generateDiagramFromPage(diagramType, userPrompt);
         } else {
           store.dispatch('updateCode2', Example.Sequence);
         }
-      }
+      },
     },
     components: {
       DiagramPortal,

@@ -4,14 +4,9 @@ const typeMap = {
   'flow': 'mermaid',
 }
 
-export async function generateDsl(context, title, content, diagramId, diagramType = 'sequence') {
+export async function generateDsl(context, title, content, userPrompt, diagramId, diagramType = 'sequence') {
   const baseUrl = context.env.DIAGRAMLY_BACKEND_API_BASE_URL;
   console.log('Diagram API base URL:', baseUrl, ', api key:', context.env.DIAGRAMLY_API_KEY, ', diagramId:', diagramId);
-
-  const diagramCommandMap = {
-    'sequence': `Draw a sequence diagram for this Confluence page whose title is "${title}", and content is:\n\n${content}`,
-    'mermaid': `Draw a Mermaid flow chart for this Confluence page whose title is "${title}", and content is:\n\n${content}`,
-  };
 
   const diagramData = {
     0: {
@@ -20,7 +15,7 @@ export async function generateDsl(context, title, content, diagramId, diagramTyp
         imageName: "",
         diagramType: typeMap[diagramType],
         diagramId,
-        command: diagramCommandMap[diagramType],
+        command: getPrompt(diagramType, content, userPrompt),
         overridePrompt: false,
       },
     },
@@ -115,4 +110,114 @@ export async function getDiagram(context, diagramId) {
   } catch (error) {
     console.error('Error calling diagram API:', error);
   }
+}
+
+const getPrompt = (diagramType, document, userPrompt) => {
+  const para1 = document
+  const para2 = userPrompt || 'the full document';
+
+  const diagramCommandMap = {
+    'sequence': `
+      ZenUML is a code to diagram language with a DSL defined for creating sequence diagrams.
+
+      Rule and syntax with example below:
+
+      \`\`\`zenuml
+      // Define participants, no spaces in the name
+      @Type1 "Name1"
+      @Type2 "Name2"
+
+      // Async Message from Name1 to Name2
+      "Name1" -> "Name2":messageText
+
+
+
+      // Sync Message from Name1 to Name2, no Spaces in messageText
+      "Name1" -> "Name2"."messageText"(){
+        // interactions between Sync Messages with activation bar
+      }
+
+      // Return Message use @return keyword, from Name2 to Name1
+      @return "Name2"->"Name1": messageText
+
+      // If, use if("condition") with {}, optional use else {}
+      if("condition"){
+        // scope of a activation bar
+        // any interactions between
+      }
+
+      // Loop, for repeated tasks, use loop(condition) keyword with {}
+      loop("condition") {
+        // in scope interactions
+      }
+      // optional
+      else {
+        // in scope else interactions
+      }
+
+      // Optional use opt keyword with {}, no ("conditon") here
+      opt{
+        // in scope interactions
+      }
+
+      // parallel interactions, use par keyword with {}
+      par{
+        // in scope interactions
+      }
+
+      // coloring, add (StandardCSSColorName) in comment line before any message
+      e.g:
+      // (red) some comment
+      "Name1" -> "Name2":messageText
+      \`\`\`
+
+      Please you read the full documentation, find the key workflow and interactions, model the process and create the sequence diagram in it with ZenUML language follow below rules:
+
+      - a solid line with a [solid arrowhead] means Sync Message
+      - a solid line with a [lined arrowhead] means Sync Message
+      - [a dashed line with a lined arrowhead] means Return Message, use @return
+      - read very carefully regarding the differences between types of messages, this is the key of diagraming
+      - if unknown scope keyword, always use opt
+      - replace all [-->] or [->>] or [<-] with [->]
+      - No spaces in any message names
+
+
+      Documentation as:
+
+      \`\`\`
+      [${para1}]
+      \`\`\`
+
+      Key section or topic for the sequence diagram is [${para2}], ignore irrelevant content. 
+
+      Now create your diagram output in below json format:
+
+      \`\`\`json
+      {
+        diagram_title: "",
+        diagram_content: "ZenUML DSL" 
+      }
+      \`\`\`
+    `,
+    'mermaid': `
+      Please you read the full documentation, find the key workflow and interactions, model the process and create the flow chart in it with Mermaid language:
+
+        Documentation as:
+        \`\`\`
+        [${para1}]
+        \`\`\`
+
+        Key section or topic for the flow chart is [${para2}], ignore irrelevant content. 
+
+        Now create your diagram output in below json format:
+
+        \`\`\`json
+        {
+          diagram_title: "",
+          diagram_content: "ZenUML DSL" 
+        }
+        \`\`\`
+      `,
+  };
+  return diagramCommandMap[diagramType];
 }

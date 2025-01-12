@@ -2,7 +2,7 @@ import store from '@/model/store2';
 import globals from '@/model/globals';
 import {DiagramType} from "@/model/Diagram/Diagram";
 
-export async function generateDiagramFromPage(diagramType: DiagramType) {
+export async function generateDiagramFromPage(diagramType: DiagramType, userPrompt: string) {
   store.dispatch('updateGenerating', true);
   try {
     const page = await globals.apWrapper.getCurrentPage();
@@ -18,6 +18,7 @@ export async function generateDiagramFromPage(diagramType: DiagramType) {
           accountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
           title: page.title,
           content: page.body.view.value,
+          userPrompt,
           diagramType
         })
       });

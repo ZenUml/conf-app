@@ -64,8 +64,8 @@ jobs:
         env:
           CI: true
           IS_LITE: true
-          ZENUML_STAGE_USERNAME: ${{ secrets.ZENUML_STAGE_USERNAME }}
-          ZENUML_STAGE_PASSWORD: ${{ secrets.ZENUML_STAGE_PASSWORD }}
+          ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_STAGE_USERNAME }}
+          ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_STAGE_PASSWORD }}
       - name: Upload artifacts # Find artifacts under actions/jobs
         if: always()
         uses: actions/upload-artifact@v4
@@ -114,8 +114,8 @@ jobs:
       - run: yarn test:e2e
         env:
           CI: true
-          ZENUML_STAGE_USERNAME: ${{ secrets.ZENUML_STAGE_USERNAME }}
-          ZENUML_STAGE_PASSWORD: ${{ secrets.ZENUML_STAGE_PASSWORD }}
+          ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_STAGE_USERNAME }}
+          ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_STAGE_PASSWORD }}
       - name: Upload artifacts # Find artifacts under actions/jobs
         if: always()
         uses: actions/upload-artifact@v4

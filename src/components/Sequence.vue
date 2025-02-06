@@ -29,6 +29,7 @@ export default {
     },
   },
   async mounted() {
+    console.log("ZenUML Core version: ", ZenUml.version);
     zenuml = new ZenUml(this.$refs["zenuml"]);
     await this.render();
     EventBus.$emit(

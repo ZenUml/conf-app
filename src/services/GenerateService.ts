@@ -28,9 +28,33 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
       
       store.dispatch('updateGenerating', false);
       store.dispatch('updateDiagramType', diagramType);
-      store.dispatch('updateCode2', result.dsl);
+      store.dispatch('updateCode2', formatDsl(result.dsl));
     }
   } finally {
     store.dispatch('updateGenerating', false);
   }
+}
+
+function formatDsl(dsl: string) {
+  const titleKey = 'diagram_title';
+  const contentKey = 'diagram_content';
+
+  // Remove newlines and extra spaces for easier processing
+  const cleanString = dsl.trim();
+
+  const titlePattern = new RegExp(`"${titleKey}":\\s*"([^"]+)"`);
+  const contentPattern = new RegExp(`"${contentKey}":\\s*\`([^\`]+)\``);
+
+  const titleMatch = cleanString.match(titlePattern);
+  const contentMatch = cleanString.match(contentPattern);
+
+  const title = titleMatch ? titleMatch[1].trim() : '';
+  const content = contentMatch ? contentMatch[1].trim() : '';
+
+  if (!title || !content) {
+    console.error('Invalid Diagram DSL', dsl);
+    return `Sorry, failed to generate diagram. Please try again.`;
+  }
+  
+  return `title ${title}\n\n${content}`;
 }

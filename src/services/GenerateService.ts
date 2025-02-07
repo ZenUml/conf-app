@@ -28,14 +28,14 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
       
       store.dispatch('updateGenerating', false);
       store.dispatch('updateDiagramType', diagramType);
-      store.dispatch('updateCode2', formatDsl(result.dsl));
+      store.dispatch('updateCode2', parseDsl(result.dsl));
     }
   } finally {
     store.dispatch('updateGenerating', false);
   }
 }
 
-function formatDsl(dsl: string) {
+function parseDsl(dsl: string) {
   const titleKey = 'diagram_title';
   const contentKey = 'diagram_content';
 

@@ -16,7 +16,7 @@ export async function generateDsl(context, title, content, userPrompt, diagramId
         diagramType: typeMap[diagramType],
         diagramId,
         command: getPrompt(diagramType, content, userPrompt),
-        overridePrompt: false,
+        overridePrompt: true,
       },
     },
   };
@@ -200,7 +200,7 @@ const getPrompt = (diagramType, document, userPrompt) => {
       \`\`\`
     `,
     'mermaid': `
-      Please you read the full documentation, find the key workflow and interactions, model the process and create the flow chart in it with Mermaid language:
+      Please read the full documentation, find the key workflow and interactions, model the process and create the flow chart in it with Mermaid language:
 
         Documentation as:
         \`\`\`

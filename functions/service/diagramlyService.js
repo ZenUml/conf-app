@@ -195,7 +195,7 @@ const getPrompt = (diagramType, document, userPrompt) => {
       \`\`\`json
       {
         diagram_title: "",
-        diagram_content: "ZenUML DSL" 
+        diagram_content: \`ZenUML DSL\`
       }
       \`\`\`
     `,

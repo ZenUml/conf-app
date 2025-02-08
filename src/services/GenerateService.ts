@@ -43,7 +43,7 @@ function parseDsl(dsl: string) {
   const cleanString = dsl.trim();
 
   const titlePattern = new RegExp(`"${titleKey}":\\s*"([^"]+)"`);
-  const contentPattern = new RegExp(`"${contentKey}":\\s*"([^"]+)"|"${contentKey}":\\s*\`([^\`]+)\``);
+  const contentPattern = new RegExp(`"${contentKey}":\\s*\`([^\`]+)\``);
 
   const titleMatch = cleanString.match(titlePattern);
   const contentMatch = cleanString.match(contentPattern);

@@ -28,14 +28,22 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
       
       store.dispatch('updateGenerating', false);
       store.dispatch('updateDiagramType', diagramType);
-      store.dispatch('updateCode2', parseDsl(result.dsl));
+
+      const data = parseDsl(result.dsl);
+      if(diagramType === 'sequence') {
+        store.dispatch('updateCode2', `title ${data.title}\n\n${data.content}`);
+      } else {
+        store.dispatch('updateMermaidCode', data.content);
+        store.dispatch('updateTitle', data.title);
+      }
+      
     }
   } finally {
     store.dispatch('updateGenerating', false);
   }
 }
 
-function parseDsl(dsl: string) {
+function parseDsl(dsl: string): {title: string, content: string} {
   const titleKey = 'diagram_title';
   const contentKey = 'diagram_content';
 
@@ -56,5 +64,5 @@ function parseDsl(dsl: string) {
     return `Sorry, failed to generate diagram. Please try again.`;
   }
   
-  return `title ${title}\n\n${content}`;
+  return {title, content};
 }

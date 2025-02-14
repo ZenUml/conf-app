@@ -45,7 +45,7 @@ export async function generateDsl(context, title, content, userPrompt, diagramId
     }
 
     const diagramResult = await diagramResponse.json();
-    // console.log('Diagram API response:', JSON.stringify(diagramResult));
+    console.log('Diagram API response:', JSON.stringify(diagramResult));
 
     if (diagramResult &&
         diagramResult[0]?.result?.data?.json?.gptResponse) {
@@ -209,12 +209,12 @@ const getPrompt = (diagramType, document, userPrompt) => {
 
         Key section or topic for the flow chart is [${para2}], ignore irrelevant content. 
 
-        Now create your diagram output in below json format:
+        Now create your diagram output in below json format. Make sure to use the \`\` quotes for the diagram_content:
 
         \`\`\`json
         {
           diagram_title: "",
-          diagram_content: "ZenUML DSL" 
+          diagram_content: \`Mermaid DSL\` 
         }
         \`\`\`
       `,

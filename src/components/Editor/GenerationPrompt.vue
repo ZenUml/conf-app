@@ -33,8 +33,12 @@
       </div>
       <div class="flex justify-between mt-6">
         <Button class="mr-6" @click="() => handleConfirm(undefined)" >Use Example</Button >
-        <Button type="primary" @click="() => handleConfirm('sequence')" >Generate Sequence</Button >
-        <Button type="primary" @click="() => handleConfirm('mermaid')" >Generate Mermaid</Button >
+        <Button type="primary" @click="() => handleConfirm('sequence')">
+          <svg v-if="sequenceLoading" style="display: inline-block; margin-right: 3px;" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-loader-2 animate-spin"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>
+          Generate Sequence</Button >
+        <Button type="primary" @click="() => handleConfirm('mermaid')">
+          <svg v-if="mermaidLoading" style="display: inline-block; margin-right: 3px;" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-loader-2 animate-spin"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>
+          Generate Mermaid</Button >
       </div>
     </div>
   </div>
@@ -53,13 +57,18 @@ export default defineComponent({
   },
   data: () => ({
     visible: true,
+    sequenceLoading: false,
+    mermaidLoading: false,
     propmtOpen: false,
     userPrompt: ''
   }),
   methods: {
-    handleConfirm(value: string | undefined) {
+    async handleConfirm(value: string | undefined) {
       if (this.$props.onConfirm) {
-        this.$props.onConfirm(value, this.userPrompt);
+        if(value === 'mermaid') this.mermaidLoading = true;
+        if(value === 'sequence') this.sequenceLoading = true;
+        
+        await this.$props.onConfirm(value, this.userPrompt);
       }
       this.visible = false;
     },

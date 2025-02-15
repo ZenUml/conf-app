@@ -249,10 +249,10 @@ export default {
   },
   watch: {
     diagramType: function (newVal) {
-      this.$store.dispatch(
-        "updateTitle",
-        newVal === "mermaid" ? this.mermaidTitle : this.seqTitle
-      );
+      const title = newVal === "mermaid" ? this.mermaidTitle : this.seqTitle;
+      if(title) {
+        this.$store.dispatch("updateTitle", title);
+      }
     },
     title: function (newVal) {
       if (this.diagramType === "mermaid") {

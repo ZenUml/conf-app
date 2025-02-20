@@ -1,5 +1,5 @@
 <template>
-  <div class="absolute top-0 left-0" style="z-index: 999" v-show="isNewDiagram">
+  <div class="absolute top-0 left-0" style="z-index: 999" v-show="isNewDiagram && isAiTitleFeatureEnabled">
     <div>
       <GenerationPrompt :onConfirm="handleGenerate"/>
     </div>
@@ -32,21 +32,32 @@
   import Example from "@/utils/sequence/Example";
   import store from '@/model/store2'
   import {DiagramType} from "@/model/Diagram/Diagram";
+  import getFeatureFlags from '@/apis/featureFlags';
 
   export default {
     name: 'Workspace',
     props: {
       msg: String
     },
-    mounted () {
+    data() {
+      return {
+        aiTitleFeatureEnabled: false
+      };
+    },
+    async mounted () {
       // @ts-ignore
       if (window.split) {
         Split(['#workspace-left', '#workspace-right'])
       }
+
+      this.aiTitleFeatureEnabled = await getFeatureFlags(['AI_TITLE']).then((res: any) => res.AI_TITLE.enabled);
     },
     computed: {
       isNewDiagram() {
-        return !store.state.diagram.code;
+        return this.$store.state.diagram.isNew;
+      },
+      isAiTitleFeatureEnabled() {
+        return this.aiTitleFeatureEnabled;
       }
     },
     methods: {

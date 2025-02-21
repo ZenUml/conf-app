@@ -1,5 +1,5 @@
 <template>
-  <div class="absolute top-0 left-0" style="z-index: 999" v-show="isNewDiagram && isAiTitleFeatureEnabled">
+  <div class="absolute top-0 left-0" style="z-index: 999" v-show="isNewDiagram && isAiTitleFeatureEnabled && isLite">
     <div>
       <GenerationPrompt :onConfirm="handleGenerate"/>
     </div>
@@ -33,6 +33,7 @@
   import store from '@/model/store2'
   import {DiagramType} from "@/model/Diagram/Diagram";
   import getFeatureFlags from '@/apis/featureFlags';
+  import globals from "@/model/globals";
 
   export default {
     name: 'Workspace',
@@ -41,7 +42,8 @@
     },
     data() {
       return {
-        aiTitleFeatureEnabled: false
+        aiTitleFeatureEnabled: false,
+        isLite: false
       };
     },
     async mounted () {
@@ -51,6 +53,7 @@
       }
 
       this.aiTitleFeatureEnabled = await getFeatureFlags(['AI_TITLE']).then((res: any) => res.AI_TITLE.enabled);
+      this.isLite = globals.apWrapper.isLite();
     },
     computed: {
       isNewDiagram() {

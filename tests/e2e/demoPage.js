@@ -69,6 +69,7 @@ if(!password) {
   }
 
   //TODO: Handle 2FA reminder (happens every 1-2 months), can manually click "Continue without 2FA" button to workaround it
+  //TODO: Handle "We've emailed you a code" login challenge
 
   try {
     await page.waitForSelector('#title-text');

@@ -12,7 +12,8 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
       const response = await fetch('/diagramly', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await globals.apWrapper.getToken()}`
         },
         body: JSON.stringify({
           accountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,

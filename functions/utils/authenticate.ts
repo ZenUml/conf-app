@@ -1,9 +1,9 @@
-import {decode} from "./utils/atlassian";
-import {OkResponse, response} from "./OkResponse";
-import {captureError} from "./ConfigToucan";
-import { KVEnv } from "./utils/KVEnv";
+import {decode} from "./atlassian";
+import {OkResponse, response} from "../OkResponse";
+import {captureError} from "../ConfigToucan";
+import { KVEnv } from "./KVEnv";
 
-export const onRequest: PagesFunction = async ({ request, env }) => {
+export default async function authenticate({ request, env }) {
   try {
     const {searchParams} = new URL(request.url);
     
@@ -11,7 +11,15 @@ export const onRequest: PagesFunction = async ({ request, env }) => {
     const domain = baseURL ? new URL(baseURL).hostname : '';
     const appKey = searchParams.get('addonKey') || '';
     const isLite = appKey.includes('-lite');
-    const jwt = searchParams.get('jwt') || '';
+    
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader) {
+      return response(401, 'Unauthorized');
+    }
+    const jwt = authHeader.split(' ')[1];
+    if (!jwt) {
+      return response(401, 'Unauthorized');
+    }
 
     const data = await env[KVEnv.CLIENT_INSTALLATION_KV].get(`${isLite ? 'lite' : 'full'}/${domain}`);
     if (!data) {
@@ -21,7 +29,7 @@ export const onRequest: PagesFunction = async ({ request, env }) => {
     try {
       decode(jwt, JSON.parse(data).sharedSecret);
     } catch (e) {
-      console.log(`Error: ${e}`);
+      console.log(`Decode JWT error: ${e}`);
       captureError(e);
       return response(401, 'Unauthorized');
     }

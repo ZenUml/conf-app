@@ -1,6 +1,8 @@
 import store from '@/model/store2';
 import globals from '@/model/globals';
 import {DiagramType} from "@/model/Diagram/Diagram";
+import { getBaseUrl } from "@/utils/ContextParameters/ContextParameters";
+import {addonKey} from '@/utils/window';
 
 export async function generateDiagramFromPage(diagramType: DiagramType, userPrompt: string) {
   store.dispatch('updateGenerating', true);
@@ -9,7 +11,7 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
     if (page?.body?.view?.value) {
       console.log('generating from page content');
 
-      const response = await fetch('/diagramly', {
+      const response = await fetch(`/diagramly?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

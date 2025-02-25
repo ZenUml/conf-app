@@ -1,5 +1,5 @@
 <template>
-  <div class="absolute top-0 left-0" style="z-index: 999" v-show="isNewDiagram && isAiTitleFeatureEnabled && isLite">
+  <div class="absolute top-0 left-0" style="z-index: 999">
     <div>
       <GenerationPrompt :onConfirm="handleGenerate"/>
     </div>

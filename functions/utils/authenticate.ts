@@ -14,31 +14,39 @@ export default async function authenticate({ request, env }) {
     
     const authHeader = request.headers.get('Authorization');
     if (!authHeader) {
-      return response(401, 'Unauthorized');
+      return response(401, 'Unauthorized: Missing Authorization header');
     }
     const jwt = authHeader.split(' ')[1];
     if (!jwt) {
-      return response(401, 'Unauthorized');
+      return response(401, 'Unauthorized: Invalid Authorization format');
     }
 
-    const data = await env[KVEnv.CLIENT_INSTALLATION_KV].get(`${isLite ? 'lite' : 'full'}/${domain}`);
-    if (!data) {
-      throw new Error(`No installation data found for ${domain}`);
-    }
+    // Check if running in development mode
+    const isDevelopment = env.ENVIRONMENT === 'development' || !env[KVEnv.CLIENT_INSTALLATION_KV];
+    
+    if (!isDevelopment) {
+      if (!env || !env[KVEnv.CLIENT_INSTALLATION_KV]) {
+        return response(500, 'Server configuration error: KV namespace not available');
+      }
 
-    try {
-      decode(jwt, JSON.parse(data).sharedSecret);
-    } catch (e) {
-      console.log(`Decode JWT error: ${e}`);
-      captureError(e);
-      return response(401, 'Unauthorized');
+      const data = await env[KVEnv.CLIENT_INSTALLATION_KV].get(`${isLite ? 'lite' : 'full'}/${domain}`);
+      if (!data) {
+        throw new Error(`No installation data found for ${domain} (${isLite ? 'lite' : 'full'} version)`);
+      }
+
+      try {
+        const parsedData = JSON.parse(data);
+        decode(jwt, parsedData.sharedSecret);
+      } catch (e) {
+        captureError(e);
+        return response(401, 'Unauthorized: JWT validation failed');
+      }
     }
 
   } catch (e) {
-    console.log(`Error: ${e}`);
     captureError(e);
-    return response(500, 'Unexpected error');
+    return response(500, `Unexpected error: ${e}`);
   }
 
-  return OkResponse();
+  return OkResponse(undefined);
 }

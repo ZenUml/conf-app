@@ -17,6 +17,7 @@
       </div>
     </div>
     <CSAT />
+    <AIFeedback />
   </div>
 </template>
 
@@ -26,12 +27,13 @@
   import Header from "@/components/Header/Header.vue";
   import DiagramPortal from "@/components/DiagramPortal.vue";
   import CSAT from '@/components/CSAT/index.vue'
+  import AIFeedback from '@/components/AIFeedback/index.vue'
   import Notice from '@/components/Notice/index.vue'
   import GenerationPrompt from "@/components/Editor/GenerationPrompt.vue";
   import {generateDiagramFromPage} from "@/services/GenerateService";
   import Example from "@/utils/sequence/Example";
   import store from '@/model/store2'
-  import {DiagramType} from "@/model/Diagram/Diagram";
+  import type {DiagramType} from "@/model/Diagram/Diagram";
   import getFeatureFlags from '@/apis/featureFlags';
   import globals from "@/model/globals";
 
@@ -79,7 +81,8 @@
       Editor,
       CSAT,
       Notice,
-      GenerationPrompt
+      GenerationPrompt,
+      AIFeedback
     }
   }
 </script>

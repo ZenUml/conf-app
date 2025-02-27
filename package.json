@@ -91,7 +91,7 @@
     "tailwindcss": "^3.4.3",
     "toucan-js": "^2.6.1",
     "typescript": "^4.7.4",
-    "vite": "5.4.6",
+    "vite": "6.0.9",
     "vitest": "^2.1.5",
     "wrangler": "^3.22.1"
   },

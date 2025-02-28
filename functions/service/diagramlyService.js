@@ -15,7 +15,7 @@ export async function generateDsl(context, title, content, userPrompt, diagramId
         imageName: "",
         diagramType: typeMap[diagramType],
         diagramId,
-        command: getPrompt(diagramType, content, userPrompt),
+        command: getPrompt(diagramType, title, content, userPrompt),
         overridePrompt: true,
       },
     },
@@ -112,8 +112,8 @@ export async function getDiagram(context, diagramId) {
   }
 }
 
-const getPrompt = (diagramType, document, userPrompt) => {
-  const para1 = document
+const getPrompt = (diagramType, title, content, userPrompt) => {
+  const para1 = content
   const para2 = userPrompt || 'the full document';
 
   const diagramCommandMap = {
@@ -184,6 +184,9 @@ const getPrompt = (diagramType, document, userPrompt) => {
 
       Documentation as:
 
+      Title: \`${title}\`
+
+      Content:
       \`\`\`
       [${para1}]
       \`\`\`
@@ -203,6 +206,10 @@ const getPrompt = (diagramType, document, userPrompt) => {
       Please read the full documentation, find the key workflow and interactions, model the process and create the flow chart in it with Mermaid language:
 
         Documentation as:
+
+        Title: \`${title}\`
+
+        Content:
         \`\`\`
         [${para1}]
         \`\`\`

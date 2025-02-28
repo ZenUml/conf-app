@@ -5,10 +5,13 @@ import { getBaseUrl } from "@/utils/ContextParameters/ContextParameters";
 import {addonKey} from '@/utils/window';
 
 export async function generateDiagramFromPage(diagramType: DiagramType, userPrompt: string) {
+  store.dispatch('updateDiagramType', diagramType);
   store.dispatch('updateGenerating', true);
+
   try {
     const page = await globals.apWrapper.getCurrentPage();
-    if (page?.body?.view?.value) {
+
+    if (page?.body?.view?.value || page?.title) {
       console.log('generating from page content');
 
       const response = await fetch(`/diagramly?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, {
@@ -30,8 +33,7 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
       console.log('Generation response', result);
       
       store.dispatch('updateGenerating', false);
-      store.dispatch('updateDiagramType', diagramType);
-
+      
       const data = parseDsl(result.dsl);
 
       if(diagramType === 'sequence') {

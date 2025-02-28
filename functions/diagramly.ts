@@ -18,9 +18,6 @@ export const onRequest = async ({ request, env }) => {
     if (!body.title) {
       return response(400, "Missing title");
     }
-    if (!body.content) {
-      return response(400, "Missing content");
-    }
 
     const result = await generateDsl(
       { accountId: body.accountId, teamId: body.teamId, env },

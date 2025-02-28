@@ -68,7 +68,6 @@
     methods: {
       async handleGenerate(diagramType: DiagramType, userPrompt: string) {
         if(diagramType) {
-          console.log('Generate')
           await generateDiagramFromPage(diagramType, userPrompt);
         } else {
           store.dispatch('updateCode2', Example.Sequence);

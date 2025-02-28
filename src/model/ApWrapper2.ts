@@ -802,7 +802,7 @@ export default class ApWrapper2 implements IApWrapper {
 
   async getCurrentPage(): Promise<{title: string, body: {view: {value: string}}} | undefined> {
     const pageId = await this._getCurrentPageId();
-    return await this.request(`/api/v2/pages/${pageId}?body-format=view`);
+    return await this.request(`/api/v2/pages/${pageId}?body-format=view&get-draft=true`);
   }
 
   async getToken(): Promise<string> {

@@ -36,6 +36,7 @@
   import type {DiagramType} from "@/model/Diagram/Diagram";
   import getFeatureFlags from '@/apis/featureFlags';
   import globals from "@/model/globals";
+  import {trackEvent} from '@/utils/window';
 
   export default {
     name: 'Workspace',
@@ -69,8 +70,11 @@
       async handleGenerate(diagramType: DiagramType, userPrompt: string) {
         if(diagramType) {
           await generateDiagramFromPage(diagramType, userPrompt);
+          
+          trackEvent('generate_diagram_from_page', 'click_generate_button', diagramType, {userPromptLength: userPrompt.length});
         } else {
           store.dispatch('updateCode2', Example.Sequence);
+          trackEvent('generate_diagram_from_page', 'click_open_editor_button', '');
         }
       },
     },

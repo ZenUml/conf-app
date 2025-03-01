@@ -1,6 +1,6 @@
 <template>
   <div class="workspace-container">
-    <div class="absolute top-0 left-0" style="z-index: 999" v-if="isNewDiagram">
+    <div class="absolute top-0 left-0" style="z-index: 999" v-show="isNewDiagram && isAiTitleFeatureEnabled && isLite">
       <div>
         <GenerationPrompt :onConfirm="handleGenerate"/>
       </div>

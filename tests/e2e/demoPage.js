@@ -49,11 +49,7 @@ if(!password) {
 
   await page.waitForXPath('//span[text() = "Log in"]');
   await page.click("#login-submit");
-  await page.screenshot({
-    "type": "png", // can also be "jpeg" or "webp" (recommended)
-    "path": `${dirPath}/screenshot-${Date.now()}.png`,  // where to save it
-    "fullPage": true,  // will scroll down to capture everything if true
-  });
+  await screenshot(page);
 // Wait for either navigation or timeout to occur first
   const timeout = 3000; // Adjust the timeout as needed
   const navigationPromise = page.waitForNavigation({ waitUntil: 'networkidle0' });
@@ -73,8 +69,14 @@ if(!password) {
   }
 
   //TODO: Handle 2FA reminder (happens every 1-2 months), can manually click "Continue without 2FA" button to workaround it
+  //TODO: Handle "We've emailed you a code" login challenge
 
-  await page.waitForSelector('#title-text');
+  try {
+    await page.waitForSelector('#title-text');
+  } catch(e) {
+    await screenshot(page);
+    throw e;
+  }
 
   console.log(await page.title());
 
@@ -620,6 +622,14 @@ if(!password) {
 
   function log(title, ...args) {
     console.log(`===== ${title} =====\n`, ...args);
+  }
+
+  function screenshot(page) {
+    return page.screenshot({
+      "type": "png", // can also be "jpeg" or "webp" (recommended)
+      "path": `${dirPath}/screenshot-${Date.now()}.png`,  // where to save it
+      "fullPage": true,  // will scroll down to capture everything if true
+    });
   }
 
 })();

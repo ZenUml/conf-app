@@ -28,6 +28,11 @@ const ExtendedStore: StoreOptions<RootState> = {
       } else {
         state.diagram.code = `title ${payload.trim()} \n` + state.diagram.code
       }
+    },
+    updateGenerating(state: any, payload: boolean) {
+      state.generating = payload;
+      // Set lastDiagramWasAI when generation completes
+      state.lastDiagramWasAI = !payload;
     }
   },
   actions: {
@@ -42,6 +47,9 @@ const ExtendedStore: StoreOptions<RootState> = {
     },
     updateTitle({commit}: any, payload: any) {
       commit('updateTitle', payload)
+    },
+    updateGenerating({commit}: any, payload: boolean) {
+      commit('updateGenerating', payload)
     }
   },
   getters: {
@@ -50,9 +58,11 @@ const ExtendedStore: StoreOptions<RootState> = {
   state: {
     diagram: NULL_DIAGRAM,
     error: null,
+    generating: false,
+    lastDiagramWasAI: false,
     onElementClick: (codeRange: any) => {
       EventBus.$emit('highlight', codeRange)
-    }
+    },
   }
 }
 

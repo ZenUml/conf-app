@@ -5,7 +5,7 @@ interface EventBody {
   user_account_id: string;
 }
 
-const ALLOWED_REFERER_DOMAINS = ['zenuml.com', 'confluence-plugin.pages.dev']
+const ALLOWED_REFERER_DOMAINS = ['zenuml.com', 'confluence-plugin.pages.dev', 'peng-new-8080.diagramly.ai']
 
 const validateReferer = (referer: string) => {
   const refererDomain = new URL(referer).hostname;
@@ -44,5 +44,5 @@ export const onRequest = async (event) => {
   }
   event.waitUntil(saveToBucket(event.env.EVENT_BUCKET, body)); //async handling
 
-  return new Response('', { status: 204 });
+  return new Response(null, { status: 204 });
 }

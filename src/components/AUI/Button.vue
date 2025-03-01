@@ -28,7 +28,7 @@ export default defineComponent({
     bgColor(): string {
       const colors: Record<string, string> = {
         default: "#091e4224",
-        primary: "#0C66E4",
+        primary: "#0052CC",
         warning: "#E2B203",
         danger: "#CA3521",
         disabled: "#091E4208"

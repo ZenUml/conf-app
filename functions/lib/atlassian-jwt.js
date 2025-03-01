@@ -1,7 +1,6 @@
 "use strict";
 
 import * as crypto_1 from 'node:crypto';
-import * as url from 'node:url';
 
 /*
  * Based off jwt-simple:
@@ -96,7 +95,7 @@ function fromExpressRequest(eReq) {
     // (https://expressjs.com/en/4x/api.html#req.originalUrl)
     // However, since some people depend on this lib without using real req object but rather mock them, we need this
     // fallback for it to not break.
-    var pathname = eReq.originalUrl ? url.parse(eReq.originalUrl).pathname : eReq.path;
+    var pathname = eReq.originalUrl ? new URL(eReq.originalUrl).pathname : eReq.path;
     return {
         method: eReq.method,
         pathname: pathname,
@@ -106,19 +105,18 @@ function fromExpressRequest(eReq) {
 }
 exports.fromExpressRequest = fromExpressRequest;
 function fromMethodAndUrl(method, rawUrl) {
-    var parsedUrl = url.parse(rawUrl, true);
+    var parsedUrl = new URL(rawUrl);
     return {
         method: method,
         pathname: parsedUrl.pathname,
-        query: parsedUrl.query
+        query: parsedUrl.searchParams.toString()
     };
 }
 exports.fromMethodAndUrl = fromMethodAndUrl;
 function fromMethodAndPathAndBody(method, rawUrl, body) {
-    var parsedUrl = url.parse(rawUrl, false);
     return {
         method: method,
-        pathname: parsedUrl.pathname,
+        pathname: new URL(rawUrl).pathname,
         body: body
     };
 }

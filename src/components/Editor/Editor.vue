@@ -1,8 +1,8 @@
 <template>
   <div class="flex flex-col h-full overflow-y-scroll">
     <div class="flex flex-col h-full justify-between">
-      <div class="dsl-editor flex flex-1" ref="rootElement">
-      </div>
+      <div v-show="!store.state.generating" class="dsl-editor flex flex-1" ref="rootElement"> </div>
+      <div v-if="store.state.generating" style="margin-top: 2px;"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block" class="tabler-icon tabler-icon-loader-2 h-5 w-5 animate-spin text-primary"><path d="M12 3a9 9 0 1 0 9 9"></path></svg> Generating diagram code ...</div>
     </div>
   </div>
 
@@ -44,7 +44,7 @@ function participantCompletions(context) {
   }
 }
 
-const diagramType = computed(() => store.state.diagram.diagramType)
+const diagramType = computed(() => store.state.diagram.diagramType);
 
 const code = computed(() => diagramType.value === DiagramType.Mermaid ? store.state.diagram.mermaidCode : store.state.diagram.code)
 

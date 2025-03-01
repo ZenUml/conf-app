@@ -1,5 +1,5 @@
-export function OkResponse() {
-  return new Response(JSON.stringify('OK'),
+export function OkResponse(data: object | undefined) {
+  return new Response(JSON.stringify(data || 'OK'),
     {
       status: 200,
       headers: {

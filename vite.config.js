@@ -107,11 +107,27 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 8080,
     proxy: {
+      '/authenticate': {
+        target: 'http://127.0.0.1:8788/',
+        changeOrigin: true
+      },
+      '/attachment': {
+        target: 'http://127.0.0.1:8788/',
+        changeOrigin: true
+      },
+      '/atlassian-connect-lite.json': {
+        target: 'http://127.0.0.1:8788/',
+        changeOrigin: true
+      },
       '/descriptor': {
         target: 'http://127.0.0.1:8788/',
         changeOrigin: false,
       },
-      '/atlassian-connect-lite.json': {
+      '/track': {
+        target: 'http://127.0.0.1:8788/',
+        changeOrigin: true,
+      },
+      '/diagramly': {
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true
       },
@@ -122,11 +138,8 @@ export default defineConfig({
       '/uninstalled': {
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true
-      },
-      '/attachment': {
-        target: 'http://127.0.0.1:8788/',
-        changeOrigin: true
       }
-    }
+    },
+    allowedHosts: ['yanhui8080.zenuml.com', 'peng-new-8080.diagramly.ai'],
   }
 });

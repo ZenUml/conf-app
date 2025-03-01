@@ -29,6 +29,7 @@ export default class ApWrapper2 implements IApWrapper {
     (req: IApRequest): any
   };
   _navigator: any;
+  _context: any;
   _dialog: any;
   _user: any;
   _page: AtlasPage;
@@ -45,6 +46,7 @@ export default class ApWrapper2 implements IApWrapper {
     this._confluence = ap.confluence;
     this._requestFn = ap.request;
     this._navigator = ap.navigator;
+    this._context = ap.context;
     this._dialog = ap.dialog;
     this._user = ap.user;
     this._page = new AtlasPage(ap);
@@ -796,5 +798,14 @@ export default class ApWrapper2 implements IApWrapper {
   async setAppProperty(propertyKey: string = '', value: any = undefined): Promise<any> {
     const url = this.appPropertyUrl(propertyKey);
     return (await this.request(url, 'PUT', value));
+  }
+
+  async getCurrentPage(): Promise<{title: string, body: {export_view: {value: string}}} | undefined> {
+    const pageId = await this._getCurrentPageId();
+    return await this.request(`/api/v2/pages/${pageId}?body-format=export_view&get-draft=true`);
+  }
+
+  async getToken(): Promise<string> {
+    return this._context.getToken();
   }
 }

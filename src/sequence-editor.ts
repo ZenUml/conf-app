@@ -23,14 +23,17 @@ async function main() {
   const compositeContentProvider = defaultContentProvider(globals.apWrapper as ApWrapper2);
   let { doc } = await compositeContentProvider.load();
   console.log('loaded document', doc);
+
   if (doc === NULL_DIAGRAM) {
     console.log('document is null, loading example');
     doc = {
       diagramType: DiagramType.Sequence,
       code: Example.Sequence,
-      mermaidCode: Example.Mermaid
+      mermaidCode: Example.Mermaid,
+      isNew: true
     }
   }
+
   mountRoot(doc, Workspace);
 
   if (await MacroUtil.isCreateNew()) {
@@ -43,6 +46,7 @@ export default main();
 
 EventBus.$on('save', async () => {
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
+  store.state.diagram.isNew = false;
   const id = await saveToPlatform(store.state.diagram);
   const preservedTheme = sessionStorage.getItem(`${location.hostname}-preserve-zenuml-conf-theme`);
   if (isNewSequence && preservedTheme) {

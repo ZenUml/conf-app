@@ -48,6 +48,7 @@ export class Diagram {
    */
   compressed?: boolean = undefined;
   source?: DataSource = DataSource.Unknown;
+  isNew?: boolean = undefined; // whether it is a new diagram
 
   public getCoreData?(): string {
     return getDiagramData(this);

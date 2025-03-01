@@ -76,11 +76,13 @@
 import {onMounted, onUnmounted, ref} from "vue";
 import useCSATState from "@/hooks/useCSATState";
 import {trackEvent} from "@/utils/window";
+import { useStore } from 'vuex';
 
 const score = ['\u{1F620}', '\u{1F612}', '\u{1F610}', '\u{1F60A}', '\u{1F60D}'];
 const hasFeedback = ref(false);
 const open = ref(false);
 const csatVal = ref<null | number>(null);
+const store = useStore();
 
 const {checkStateOfCSAT, updateStateOfCSAT} = useCSATState();
 
@@ -88,7 +90,7 @@ let timer: number;
 
 onMounted(async () => {
   const isPopped = await checkStateOfCSAT();
-  if (!isPopped) {
+  if (!isPopped && !store.state.lastDiagramWasAI) {
     timer = setTimeout(() => {
       open.value = true;
     }, 1000 * 60)

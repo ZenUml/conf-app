@@ -46,6 +46,7 @@ export default main();
 
 EventBus.$on('save', async () => {
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
+  store.state.diagram.isNew = false;
   const id = await saveToPlatform(store.state.diagram);
   const preservedTheme = sessionStorage.getItem(`${location.hostname}-preserve-zenuml-conf-theme`);
   if (isNewSequence && preservedTheme) {

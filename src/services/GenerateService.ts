@@ -11,7 +11,7 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
   try {
     const page = await globals.apWrapper.getCurrentPage();
 
-    if (page?.body?.view?.value || page?.title) {
+    if (page?.body?.export_view?.value || page?.title) {
       console.log('generating from page content');
 
       const response = await fetch(`/diagramly?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, {

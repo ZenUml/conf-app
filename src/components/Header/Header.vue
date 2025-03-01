@@ -332,7 +332,8 @@ export default {
       this.originalSeqCode = this.seqCode;
     }
 
-    this.aiTitleFeatureEnabled = await getFeatureFlags(['AI_TITLE']).then(res => res.AI_TITLE.enabled);
+    // this.aiTitleFeatureEnabled = await getFeatureFlags(['AI_TITLE']).then(res => res.AI_TITLE.enabled);
+    this.aiTitleFeatureEnabled = false; // Disable the AI title feature as it is not ready
   },
 };
 </script>

@@ -23,7 +23,7 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
         body: JSON.stringify({
           accountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
           title: page.title,
-          content: page.body.view.value,
+          content: page.body.export_view.value,
           userPrompt,
           diagramType
         })
@@ -31,9 +31,9 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
 
       const result: { dsl: string, diagramId: string } = await response.json();
       console.log('Generation response', result);
-      
+
       store.dispatch('updateGenerating', false);
-      
+
       const data = parseDsl(result.dsl);
 
       if(diagramType === 'sequence') {
@@ -42,7 +42,7 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
         store.dispatch('updateMermaidCode', data.content);
         store.dispatch('updateTitle', data.title);
       }
-      
+
     }
   } finally {
     store.dispatch('updateGenerating', false);
@@ -69,6 +69,6 @@ function parseDsl(dsl: string): {title: string, content: string} {
     console.error('Invalid Diagram DSL', dsl);
     return `Sorry, failed to generate diagram. Please try again.`;
   }
-  
+
   return {title, content};
 }

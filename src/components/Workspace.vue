@@ -1,23 +1,25 @@
 <template>
-  <div class="absolute top-0 left-0" style="z-index: 999">
-    <div>
-      <GenerationPrompt :onConfirm="handleGenerate"/>
+  <div class="workspace-container">
+    <div class="absolute top-0 left-0" style="z-index: 999" v-if="isNewDiagram">
+      <div>
+        <GenerationPrompt :onConfirm="handleGenerate"/>
+      </div>
     </div>
-  </div>
 
-  <div class="content h-screen flex flex-col">
-    <Notice />
-    <Header class="flex-shrink-0"/>
-    <div class="workspace flex-grow split">
-      <div id="workspace-left" class="editor overflow-auto">
-        <editor/>
+    <div class="content h-screen flex flex-col">
+      <Notice />
+      <Header class="flex-shrink-0"/>
+      <div class="workspace flex-grow split">
+        <div id="workspace-left" class="editor overflow-auto">
+          <editor/>
+        </div>
+        <div id="workspace-right" class="diagram overflow-auto">
+          <DiagramPortal />
+        </div>
       </div>
-      <div id="workspace-right" class="diagram overflow-auto">
-        <DiagramPortal />
-      </div>
+      <CSAT />
+      <AIFeedback />
     </div>
-    <CSAT />
-    <AIFeedback />
   </div>
 </template>
 
@@ -70,7 +72,7 @@
       async handleGenerate(diagramType: DiagramType, userPrompt: string) {
         if(diagramType) {
           await generateDiagramFromPage(diagramType, userPrompt);
-          
+
           trackEvent('generate_diagram_from_page', 'click_generate_button', diagramType, {userPromptLength: userPrompt.length});
         } else {
           store.dispatch('updateCode2', Example.Sequence);

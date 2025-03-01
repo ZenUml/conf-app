@@ -140,6 +140,6 @@ export default defineConfig({
         changeOrigin: true
       }
     },
-    allowedHosts: ['yanhui8080.zenuml.com'],
+    allowedHosts: ['yanhui8080.zenuml.com', 'peng-new-8080.diagramly.ai'],
   }
 });

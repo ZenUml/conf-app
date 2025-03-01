@@ -134,6 +134,7 @@ import Button from "@/components/AUI/Button.vue";
 import IconSpark from "@/components/icons/IconSpark.vue";
 import IconChevron from "@/components/icons/IconChevron.vue";
 import IconInfo from "@/components/icons/IconInfo.vue";
+import {trackEvent} from "@/utils/window";
 
 export default defineComponent({
   props: {
@@ -156,6 +157,7 @@ export default defineComponent({
         await this.$props.onConfirm(value, this.userPrompt);
       }
       this.visible = false;
+      trackEvent("", "Generate", "AI", { diagramType: value})
     },
     toggleUserPrompt() {
       this.promptOpen = !this.promptOpen;

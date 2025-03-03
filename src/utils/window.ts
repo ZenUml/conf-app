@@ -77,7 +77,7 @@ export async function _awaitableTrackEvent(
     }
     let eventDetails = {
       event_category: category || "unknown",
-      event_label: label || "label_not_set",
+      event_label: label || "",
       ...resetEventDetails,
     } as EventDetails;
     // make sure event is still sent out even if there are errors in setting up the event details

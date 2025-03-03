@@ -170,10 +170,18 @@ describe('window utils', async () => {
     it('should handle missing user ID', async () => {
       // @ts-ignore
       window.globals.apWrapper.currentUser = null
-      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
+      await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
       expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
         user_account_id: 'unknown_user_account_id'
       }))
+    })
+
+    it('should handle empty label gracefully', async () => {
+      await _awaitableTrackEvent('', 'action', 'analytics');
+
+      expect(mixpanel.track).toHaveBeenCalledWith('action', expect.objectContaining({
+        event_label: ''
+      }));
     })
 
     it('should include custom event details', async () => {
@@ -222,7 +230,7 @@ describe('window utils', async () => {
         throw new Error('Mixpanel error');
       });
 
-      await _awaitableTrackEvent('test-label', 'test-action', 'analytics');
+      await _awaitableTrackEvent('test-label', 'test-action', 'test-category');
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         'Error in calling mixpanel',
@@ -231,6 +239,23 @@ describe('window utils', async () => {
 
       // r2Track should still be called even if mixpanel fails
       expect(global.fetch).toHaveBeenCalled();
+    })
+
+    it('should continue execution even when all tracking services fail', async () => {
+      // Make everything fail
+      vi.mocked(mixpanel.track).mockImplementationOnce(() => {
+        throw new Error('Mixpanel error');
+      });
+
+      // @ts-ignore
+      window.gtag = () => { throw new Error('Gtag error') };
+
+      vi.mocked(global.fetch).mockRejectedValueOnce(new Error('Network error'));
+
+      // This should not throw
+      await expect(
+        _awaitableTrackEvent('label', 'critical_error', 'error')
+      ).resolves.not.toThrow();
     })
   })
 

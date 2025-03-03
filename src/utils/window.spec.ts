@@ -97,7 +97,7 @@ describe('window utils', async () => {
     it('should send tracking data to r2Track endpoint', async () => {
       const fetchSpy = vi.mocked(global.fetch)
 
-      await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
+      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
 
       expect(fetchSpy).toHaveBeenCalledWith('/track', {
         method: 'POST',
@@ -195,6 +195,23 @@ describe('window utils', async () => {
         'Error in calling gtag',
         expect.any(Error)
       )
+    })
+
+    it('should handle mixpanel errors gracefully', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error');
+      vi.mocked(mixpanel.track).mockImplementationOnce(() => {
+        throw new Error('Mixpanel error');
+      });
+
+      await _awaitableTrackEvent('test-label', 'test-action', 'test-category');
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Error in calling mixpanel',
+        expect.any(Error)
+      );
+
+      // r2Track should still be called even if mixpanel fails
+      expect(global.fetch).toHaveBeenCalled();
     })
   })
 

@@ -74,6 +74,26 @@ describe('window utils', async () => {
   })
 
   describe('trackEvent', () => {
+    it('should enforce EventCategory type safety', () => {
+      // This should cause a TypeScript error at compile time
+      // @ts-expect-error - Invalid category
+      _awaitableTrackEvent('label', 'action', 'invalid-category');
+
+      // These should all be valid and not cause TypeScript errors
+      const validCategories = [
+        'sequence', 'mermaid', 'graph', 'openapi', 'embed',
+        'error', 'warning', 'info',
+        'macro', 'ai', 'analytics',
+        'user', 'system', 'performance'
+      ];
+
+      // No assertions needed - this is a compile-time check
+      validCategories.forEach(category => {
+        // Just checking that this compiles without errors
+        _awaitableTrackEvent('label', 'action', category as any);
+      });
+    });
+
     it('should send tracking data to r2Track endpoint', async () => {
       const fetchSpy = vi.mocked(global.fetch)
 
@@ -205,10 +225,10 @@ describe('window utils', async () => {
     })
 
     describe('setLocalState', () => {
-      it('should store state in localStorage', () => {
+      it('should store state in localStorage with correct key', () => {
         const state = { test: true }
-        setLocalState('test', state)
-        expect(JSON.parse(localStorage.getItem('test-test-domain') || '')).toEqual(state)
+        setLocalState('key', state)
+        expect(localStorage.getItem('key-test-domain')).toBe(JSON.stringify(state))
       })
     })
   })

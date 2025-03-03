@@ -76,7 +76,7 @@ export async function _awaitableTrackEvent(
       identified = userAccountId !== unknownUserAccountId;
     }
     let eventDetails = {
-      event_category: category || "category_not_set",
+      event_category: category || "unknown",
       event_label: label || "label_not_set",
       ...resetEventDetails,
     } as EventDetails;
@@ -95,7 +95,6 @@ export async function _awaitableTrackEvent(
     }
 
     try {
-      // Track an event. It can be anything, but in this example, we're tracking a Sign Up event.
       // Clone eventDetails to prevent mixpanel's pollution(will add 'token' property)
       mixpanel.track(action, Object.assign({}, eventDetails));
     } catch (e) {

@@ -8,12 +8,11 @@
     >
       <div class="mb-1 text-xl font-semibold">ZenUML diagram</div>
       <div class="mb-4 text-sm">
-        We are now providing two ways to help you create your diagram.
+        Transform your ideas into visual clarity with two powerful creation options.
       </div>
       <div class="font-semibold text-sm">Manual Mode</div>
       <div class="text-xs text-gray-500 mb-4">
-        Opens our classic editor where you can manually craft and customize your
-        diagram.
+        The classic experience where you have complete control to craft and customize every detail of your diagram.
       </div>
       <Button
         class="px-4 py-1.5 !bg-gray-100 !text-slate-600 !font-medium !text-sm"
@@ -24,20 +23,14 @@
       <div class="border-b border-gray-200 my-4" />
       <div class="flex items-center gap-1 leading-none mb-1">
         <IconSpark />
-        <div class="font-semibold">AI-assisted mode</div>
-        <div
-          class="bg-[#EAE6FF] text-[#403294] h-4 px-1 text-xs font-semibold rounded"
-        >
-          BETA
-        </div>
+        <div class="font-semibold">AI-powered creation</div>
       </div>
       <div class="text-xs text-gray-500 mb-5">
-        We’ll use AI to summarize and organize your page content, then transform
-        it <br />
-        into a diagram.
+        Let AI do the heavy lifting! We'll analyze your content, identify key relationships,
+        and automatically generate a professional diagram in seconds.
       </div>
       <div>
-        <div class="text-xs font-semibold text-gray-500">Select Your Diagram Style:</div>
+        <div class="text-xs font-semibold text-gray-500">Select Your Visualization Style:</div>
         <div class="p-1">
           <div
             class="flex items-center gap-2 mb-1 cursor-pointer"
@@ -53,7 +46,7 @@
               }"
               @click="diagramType = 'sequence'"
             />
-            <div class="text-center text-sm">Sequence Diagram</div>
+            <div class="text-center text-sm">ZenUML (Sequence Diagram)</div>
           </div>
           <div
             class="flex items-center gap-2 cursor-pointer"
@@ -69,7 +62,7 @@
               }"
               @click="diagramType = 'mermaid'"
             />
-            <div class="text-center text-sm">Mermaid Diagram</div>
+            <div class="text-center text-sm">Mermaid (Flowchart)</div>
           </div>
         </div>
       </div>
@@ -81,18 +74,17 @@
         <span :class="`${promptOpen ? '' : 'rotate-180'}`">
           <IconChevron width="14" height="14" />
         </span>
-        <span> Extra prompt input </span>
+        <span> 🔍 Fine-tune your results </span>
       </Button>
       <div v-if="promptOpen">
         <textarea
           v-model="userPrompt"
           class="w-full h-32 mt-4 p-2 border-[1px] border-solid border-slate-400 focus:outline-[#0C66E4] text-sm rounded"
-          placeholder="Describe your requirements here..."
+          placeholder="Add specific instructions to customize your diagram's focus, depth, or style..."
         ></textarea>
       </div>
       <div class="text-xs mb-6 mt-2">
-        Extra prompt (optional) may make your diagram even more concise or
-        adjust the focus.
+        Help the AI understand exactly what matters most to you.
       </div>
       <div class="flex justify-end">
         <Button type="primary" class="!text-sm" @click="() => handleConfirm(diagramType)">
@@ -112,12 +104,12 @@
           >
             <path d="M12 3a9 9 0 1 0 9 9"></path>
           </svg>
-          Generate now
+          Create my diagram in &lt;10 seconds →
         </Button>
       </div>
       <div class="flex justify-end items-center text-xs gap-1 mt-2">
         <IconInfo width="16" height="16" />
-        <div>Content quality may vary</div>
+        <div>As with any AI-powered tool, results will improve with clearer inputs</div>
       </div>
       <div
         class="text-end text-xs py-3 px-6 border-t border-gray-200 -mx-6 -mb-6 mt-6"

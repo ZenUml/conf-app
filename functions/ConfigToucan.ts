@@ -29,5 +29,6 @@ export function captureUninstalledMessage(appKey: any, clientKey: any, baseUrl: 
 }
 
 export function captureError(err: any) {
+  console.error(err);
   sentry.captureException(err);
 }

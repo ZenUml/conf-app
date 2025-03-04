@@ -25,11 +25,6 @@
       <div class="flex items-center gap-1 leading-none mb-1">
         <IconSpark />
         <div class="font-semibold">AI-assisted mode</div>
-        <div
-          class="bg-[#EAE6FF] text-[#403294] h-4 px-1 text-xs font-semibold rounded"
-        >
-          BETA
-        </div>
       </div>
       <div class="text-xs text-gray-500 mb-5">
         We’ll use AI to summarize and organize your page content, then transform

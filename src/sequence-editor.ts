@@ -18,6 +18,9 @@ import Example from "@/utils/sequence/Example";
 import { trackEvent } from "@/utils/window";
 import MacroUtil from "@/model/MacroUtil";
 
+// Track editor session start time
+const editorStartTime = Date.now();
+
 async function main() {
   await globals.apWrapper.initializeContext();
   const compositeContentProvider = defaultContentProvider(globals.apWrapper as ApWrapper2);
@@ -63,6 +66,18 @@ EventBus.$on('save', async () => {
 
 EventBus.$on('exit', async (showWarning: boolean) => {
   console.log('exit', showWarning);
+  
+  // Track exit event with context
+  const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence";
+  const elapsedTimeMs = Date.now() - editorStartTime;
+  
+  trackEvent('', 'create_macro_exit', 'sequence', {
+    had_changes: showWarning,
+    macro_stage: isNewSequence ? 'creation' : 'editing',
+    elapsed_time_ms: elapsedTimeMs,
+    code_length: store.state.diagram.code?.length || 0
+  });
+  
   if (showWarning) {
     AP.dialog.create({
       key: 'zenuml-close-without-saving-dialog',

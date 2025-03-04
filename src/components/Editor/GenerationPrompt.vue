@@ -26,7 +26,7 @@
         <div class="font-semibold">AI-powered creation</div>
       </div>
       <div class="text-xs text-gray-500 mb-5">
-        Let AI do the heavy lifting! We'll analyze your content, identify key relationships, 
+        Let AI do the heavy lifting! We'll analyze your content, identify key relationships,
         and automatically generate a professional diagram in seconds.
       </div>
       <div>
@@ -46,7 +46,7 @@
               }"
               @click="diagramType = 'sequence'"
             />
-            <div class="text-center text-sm">Sequence Diagram</div>
+            <div class="text-center text-sm">ZenUML (Sequence Diagram)</div>
           </div>
           <div
             class="flex items-center gap-2 cursor-pointer"
@@ -62,7 +62,7 @@
               }"
               @click="diagramType = 'mermaid'"
             />
-            <div class="text-center text-sm">Mermaid Diagram</div>
+            <div class="text-center text-sm">Mermaid (Flowchart)</div>
           </div>
         </div>
       </div>

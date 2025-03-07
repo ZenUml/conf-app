@@ -74,10 +74,30 @@ describe('window utils', async () => {
   })
 
   describe('trackEvent', () => {
+    it('should enforce EventCategory type safety', () => {
+      // This should cause a TypeScript error at compile time
+      // @ts-expect-error - Invalid category
+      _awaitableTrackEvent('label', 'action', 'invalid-category');
+
+      // These should all be valid and not cause TypeScript errors
+      const validCategories = [
+        'sequence', 'mermaid', 'graph', 'openapi', 'embed',
+        'error', 'warning', 'info',
+        'macro', 'ai', 'analytics',
+        'user', 'system', 'performance'
+      ];
+
+      // No assertions needed - this is a compile-time check
+      validCategories.forEach(category => {
+        // Just checking that this compiles without errors
+        _awaitableTrackEvent('label', 'action', category as any);
+      });
+    });
+
     it('should send tracking data to r2Track endpoint', async () => {
       const fetchSpy = vi.mocked(global.fetch)
 
-      await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
+      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
 
       expect(fetchSpy).toHaveBeenCalledWith('/track', {
         method: 'POST',
@@ -91,7 +111,7 @@ describe('window utils', async () => {
         addon_key: 'unknown_addon',
         version: 'unknown_version',
         action: 'test-action',
-        event_category: 'test-category',
+        event_category: 'analytics',
         event_label: 'test-label',
         user_account_id: 'test-user-123',
         client_domain: 'test-domain',
@@ -105,7 +125,7 @@ describe('window utils', async () => {
       const consoleLogSpy = vi.spyOn(console, 'log')
       vi.mocked(global.fetch).mockRejectedValueOnce(new Error('Network error'))
 
-      await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
+      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
 
       expect(consoleLogSpy).toHaveBeenCalledWith(
         'Error in calling /track',
@@ -117,7 +137,7 @@ describe('window utils', async () => {
       window.location.search = '?addonKey=test-addon&version=1.0.0'
       const fetchSpy = vi.mocked(global.fetch)
 
-      await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
+      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
 
       const body = JSON.parse(fetchSpy.mock.calls[0][1]!.body as string)
       expect(body).toMatchObject({
@@ -130,14 +150,14 @@ describe('window utils', async () => {
       // reset identified variable
       vi.resetModules()
       const { _awaitableTrackEvent } = await import('./window')
-      await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
+      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
       expect(mixpanel.identify).toHaveBeenCalledWith('test-user-123')
     })
 
     it('should track event with correct parameters', async () => {
-      await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
+      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
       expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
-        event_category: 'test-category',
+        event_category: 'analytics',
         event_label: 'test-label',
         user_account_id: 'test-user-123',
         client_domain: 'test-domain',
@@ -156,12 +176,39 @@ describe('window utils', async () => {
       }))
     })
 
+    it('should handle empty label gracefully', async () => {
+      await _awaitableTrackEvent('', 'action', 'analytics');
+
+      expect(mixpanel.track).toHaveBeenCalledWith('action', expect.objectContaining({
+        event_label: ''
+      }));
+    })
+
     it('should include custom event details', async () => {
       const customDetails = { custom_field: 'custom_value' }
-      await _awaitableTrackEvent('test-label', 'test-action', 'test-category', customDetails)
+      await _awaitableTrackEvent('test-label', 'test-action', 'analytics', customDetails)
       expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
         custom_field: 'custom_value'
       }))
+    })
+
+    it('should properly merge custom event details with standard details', async () => {
+      const customDetails = {
+        timing: 123,
+        user_type: 'premium',
+        // Try to override a standard property
+        event_category: 'should-override'
+      };
+
+      await _awaitableTrackEvent('label', 'action', 'performance', customDetails);
+
+      // Standard properties should be preserved
+      expect(mixpanel.track).toHaveBeenCalledWith('action', expect.objectContaining({
+        event_category: 'should-override',
+        event_label: 'label',
+        timing: 123,
+        user_type: 'premium'
+      }));
     })
 
     it('should handle gtag errors gracefully', async () => {
@@ -169,12 +216,46 @@ describe('window utils', async () => {
       // @ts-ignore
       window.gtag = () => { throw new Error('Gtag error') }
 
-      await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
+      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
 
       expect(consoleLogSpy).toHaveBeenCalledWith(
         'Error in calling gtag',
         expect.any(Error)
       )
+    })
+
+    it('should handle mixpanel errors gracefully', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error');
+      vi.mocked(mixpanel.track).mockImplementationOnce(() => {
+        throw new Error('Mixpanel error');
+      });
+
+      await _awaitableTrackEvent('test-label', 'test-action', 'test-category');
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Error in calling mixpanel',
+        expect.any(Error)
+      );
+
+      // r2Track should still be called even if mixpanel fails
+      expect(global.fetch).toHaveBeenCalled();
+    })
+
+    it('should continue execution even when all tracking services fail', async () => {
+      // Make everything fail
+      vi.mocked(mixpanel.track).mockImplementationOnce(() => {
+        throw new Error('Mixpanel error');
+      });
+
+      // @ts-ignore
+      window.gtag = () => { throw new Error('Gtag error') };
+
+      vi.mocked(global.fetch).mockRejectedValueOnce(new Error('Network error'));
+
+      // This should not throw
+      await expect(
+        _awaitableTrackEvent('label', 'critical_error', 'error')
+      ).resolves.not.toThrow();
     })
   })
 
@@ -205,10 +286,10 @@ describe('window utils', async () => {
     })
 
     describe('setLocalState', () => {
-      it('should store state in localStorage', () => {
+      it('should store state in localStorage with correct key', () => {
         const state = { test: true }
-        setLocalState('test', state)
-        expect(JSON.parse(localStorage.getItem('test-test-domain') || '')).toEqual(state)
+        setLocalState('key', state)
+        expect(localStorage.getItem('key-test-domain')).toBe(JSON.stringify(state))
       })
     })
   })

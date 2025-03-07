@@ -108,12 +108,14 @@ import { MacroIdProvider } from "@/model/ContentProvider/MacroIdProvider";
 import { CustomContentStorageProvider } from "@/model/ContentProvider/CustomContentStorageProvider";
 import ApWrapper2 from "@/model/ApWrapper2";
 import _ from 'lodash';
+import { trackEvent } from "@/utils/window";
 
 export default {
-  name: 'DocumentList',
+  name: 'DocumentList', // for embed-editor
   data() {
     return {
       customContentList: [],
+      pageList: [],
       picked: '',
       docTypeFilter: '',
       baseUrl: '',
@@ -179,6 +181,14 @@ export default {
     },
     exit: function () {
       return function () {
+        // Track exit from document list with context
+        const that = this;
+        trackEvent("exit", "document_list", DiagramType.Embed, {
+          selected_document: that.picked?.id || null,
+          doc_type_filter: that.docTypeFilter,
+          source: "document_list_exit"
+        });
+
         EventBus.$emit('exit')
       }
     }

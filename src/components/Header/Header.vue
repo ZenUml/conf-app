@@ -175,7 +175,6 @@ import { trackEvent } from "@/utils/window";
 import Modal from "@/components/Modal/Modal.vue";
 import { toast } from "@/utils/toast";
 import aiGenerateTitle from "@/apis/aiGenerateTitle";
-import getFeatureFlags from '@/apis/featureFlags';
 
 function getMermaidType(dsl) {
   let type = dsl.trim().split("\n")[0].split(" ")[0];
@@ -240,6 +239,14 @@ export default {
         const codeChanged = this.diagramType === "sequence"
           ? this.seqCode !== this.originalSeqCode
           : this.mermaidCode !== this.originalMermaidCode;
+
+        // Track exit button click with more context
+        trackEvent("exit_button", "click", this.diagramType, {
+          had_changes: codeChanged,
+          title_provided: this.diagramType === "sequence" ? !!this.seqTitle : !!this.mermaidTitle,
+          source: "header_exit_button"
+        });
+
         EventBus.$emit("exit", codeChanged);
       };
     },

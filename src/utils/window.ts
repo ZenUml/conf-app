@@ -1,9 +1,9 @@
-import { DiagramType } from "@/model/Diagram/Diagram";
 import {
   getClientDomain,
   getSpaceKey,
 } from "@/utils/ContextParameters/ContextParameters";
 import mixpanel from "mixpanel-browser";
+import {DiagramType} from "@/model/Diagram/Diagram";
 
 mixpanel.init("78617e65fdba543d752fb7f6483d55f4", {
   debug: true,
@@ -39,6 +39,11 @@ interface EventDetails {
   [key: string]: string | boolean | undefined;
 }
 
+export type EventCategory = DiagramType
+  | 'error' | 'warning' | 'info'
+  | 'macro' | 'ai' | 'analytics'
+  | 'user' | 'system' | 'performance';
+
 /**
  * trackEvent is an async function but not awaitable on purpose.
  * 1. Main process will not wait for the tracking to finish.
@@ -49,29 +54,30 @@ interface EventDetails {
  * @param resetEventDetails
  */
 export function trackEvent(
-  label: DiagramType | string | undefined,
+  label: string,
   action: string,
-  category: string,
-  resetEventDetails = {}) {
+  category: EventCategory,
+  resetEventDetails: Record<string, any> = {}
+) {
   void _awaitableTrackEvent(label, action, category, resetEventDetails);
 }
 
 // awaitable function for testing
 export async function _awaitableTrackEvent(
-  label: DiagramType | string | undefined,
+  label: string,
   action: string,
-  category: string,
-  resetEventDetails = {}
+  category: EventCategory,
+  resetEventDetails: Record<string, any> = {}
 ) {
   try {
     const userAccountId = getCurrentUserAccountId();
     if (!identified) {
       mixpanel.identify(userAccountId);
-      identified = userAccountId != unknownUserAccountId;
+      identified = userAccountId !== unknownUserAccountId;
     }
     let eventDetails = {
-      event_category: category || "category_not_set",
-      event_label: label || "label_not_set",
+      event_category: category || "unknown",
+      event_label: label || "",
       ...resetEventDetails,
     } as EventDetails;
     // make sure event is still sent out even if there are errors in setting up the event details
@@ -89,7 +95,6 @@ export async function _awaitableTrackEvent(
     }
 
     try {
-      // Track an event. It can be anything, but in this example, we're tracking a Sign Up event.
       // Clone eventDetails to prevent mixpanel's pollution(will add 'token' property)
       mixpanel.track(action, Object.assign({}, eventDetails));
     } catch (e) {

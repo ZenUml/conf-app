@@ -1,0 +1,2 @@
+-- Migration number: 0001 	 2025-03-10T02:28:55.566Z
+CREATE TABLE IF NOT EXISTS DiagramLikes (likeId INTEGER PRIMARY KEY, userAccountId TEXT NOT NULL, diagramCustomContentId TEXT NOT NULL, createdAt TEXT NOT NULL DEFAULT current_timestamp);

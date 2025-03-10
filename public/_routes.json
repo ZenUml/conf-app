@@ -1,5 +1,5 @@
 {
   "version": 1,
-  "include": ["/attachment", "/descriptor", "/installed", "/uninstalled", "/track", "/diagramly"],
+  "include": ["/attachment", "/descriptor", "/installed", "/uninstalled", "/track", "/diagramly", "/diagram-likes"],
   "exclude": []
 }

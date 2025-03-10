@@ -3,9 +3,24 @@ compatibility_date = "2024-11-11"
 
 logpush = true
 
+name = "confluence-plugin"
+pages_build_output_dir = "dist"
+
 [vars]
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
 ENVIRONMENT = "development"  # Set to "development" for local development
 
 [env.production]
 ENVIRONMENT = "production"
+
+[[ env.production.d1_databases ]]
+binding = "DB"
+database_name = "confluence-plugin"
+database_id = "78530089-656d-482f-b38b-60f4f6765cc6"
+migrations_dir = "functions/migrations"
+
+[[ d1_databases ]]
+binding = "DB"
+database_name = "confluence-plugin"
+database_id = "78530089-656d-482f-b38b-60f4f6765cc6"
+migrations_dir = "functions/migrations"

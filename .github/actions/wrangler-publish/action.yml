@@ -30,6 +30,8 @@ runs:
       run: yarn install
     - name: yarn build
       shell: bash
+      env:
+        NODE_OPTIONS: "--max-old-space-size=8192"
       run: yarn build:${{ inputs.license }}
     - name: Publish
       uses: cloudflare/wrangler-action@2.0.0

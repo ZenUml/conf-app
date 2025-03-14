@@ -1,6 +1,6 @@
-import {captureError, captureUninstalledMessage} from "./ConfigToucan";
+import {captureError, captureUninstalledMessage} from "./utils/sentry";
 import {OkResponse} from "./OkResponse";
-import {RequestBody} from "./RequestBody";
+import type {RequestBody} from "./RequestBody";
 import {postData} from "./utils/zaraz";
 import {saveToBucket} from "./utils/R2Bucket";
 
@@ -26,9 +26,9 @@ export const onRequest: PagesFunction = async ({ request, env }) => {
     await postData(body.eventType, body.key, body.clientKey, domain);
     // @ts-ignore
     await saveToBucket(env.EVENT_BUCKET, domain, body);
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.log(`Error: ${e}`);
     captureError(e)
   }
-  return OkResponse();
+  return OkResponse(undefined);
 };

@@ -1,6 +1,6 @@
 import {decode} from "./atlassian";
 import {OkResponse, response} from "../OkResponse";
-import {captureError} from "../ConfigToucan";
+import {captureError} from "./sentry";
 import { KVEnv } from "./KVEnv";
 
 export default async function authenticate({ request, env }) {

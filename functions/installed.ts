@@ -1,4 +1,4 @@
-import {captureError, captureInstalledMessage} from "./ConfigToucan";
+import { captureError, captureInstalledMessage } from "./utils/sentry";
 import {OkResponse} from "./OkResponse";
 import {postData as postZarazData} from "./utils/zaraz";
 import type {RequestBody} from "./RequestBody";
@@ -37,5 +37,5 @@ export const onRequest: PagesFunction = async ({ request, env }) => {
     console.log(`Error: ${e}`);
     captureError(e)
   }
-  return OkResponse();
+  return OkResponse(undefined);
 }

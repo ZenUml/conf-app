@@ -25,7 +25,17 @@ const getKey = (body: EventBody) => {
 }
 
 const saveToBucket = async (bucket: any, body: EventBody) => {
-  return await bucket.put(getKey(body), JSON.stringify(body));
+  if (!bucket) {
+    console.error('Error: Bucket is null or undefined');
+    return;
+  }
+  
+  try {
+    return await bucket.put(getKey(body), JSON.stringify(body));
+  } catch (error) {
+    console.error(`Error saving to bucket: ${error}`);
+    // Continue execution after logging the error
+  }
 }
 
 export const onRequest = async (event) => {

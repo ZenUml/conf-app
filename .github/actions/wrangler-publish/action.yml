@@ -33,9 +33,12 @@ runs:
       env:
         NODE_OPTIONS: "--max-old-space-size=8192"
       run: yarn build:${{ inputs.license }}
+    - name: Install Wrangler
+      shell: bash
+      run: npm install -g wrangler
     - name: Publish
-      uses: cloudflare/wrangler-action@2.0.0
-      with:
-        apiToken: ${{ inputs.cloudflare-api-token }}
-        accountId: ${{ inputs.cloudflare-account-id }}
-        command: pages deploy dist --branch production --project-name=${{ inputs.project }}
+      shell: bash
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+      run: wrangler pages deploy dist --branch production --project-name=${{ inputs.project }}

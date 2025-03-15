@@ -1,8 +1,11 @@
-import store from '@/model/store2';
 import globals from '@/model/globals';
 import {DiagramType} from "@/model/Diagram/Diagram";
 import { getBaseUrl } from "@/utils/ContextParameters/ContextParameters";
 import {addonKey, trackEvent} from '@/utils/window';
+import {
+  getClientDomain,
+  getSpaceKey,
+} from "@/utils/ContextParameters/ContextParameters";
 
 export async function createDiagramLike(diagramId: string, diagramType: DiagramType) {
   try {
@@ -15,6 +18,11 @@ export async function createDiagramLike(diagramId: string, diagramType: DiagramT
         body: JSON.stringify({
           userAccountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
           diagramCustomContentId: diagramId,
+          clientDomain: getClientDomain(),
+          confluenceSpace: getSpaceKey(),
+          confluencePageId: (await globals.apWrapper._getCurrentPageId()),
+          macroId: (await globals.apWrapper.getMacroData())?.uuid,
+          diagramType: diagramType
         })
       });
 

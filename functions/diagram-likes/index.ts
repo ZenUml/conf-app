@@ -12,8 +12,8 @@ export const onRequest = async ({ request, env }) => {
     const body: any = await request.json();
     console.log('req body:', body);
 
-    const result = await env.DB.prepare( "insert into DiagramLikes (userAccountId, diagramCustomContentId) VALUES (?1, ?2)" )
-      .bind(body.userAccountId, body.diagramCustomContentId)
+    const result = await env.DB.prepare( "insert into DiagramLikes (userAccountId, diagramCustomContentId, clientDomain, confluenceSpace, confluencePageId, macroId) VALUES (?1, ?2, ?3, ?4, ?5, ?6)" )
+      .bind(body.userAccountId, body.diagramCustomContentId, body.clientDomain, body.confluenceSpace, body.confluencePageId, body.macroId)
       .run();
     console.log('run result:', JSON.stringify(result));
     return new Response("Record created");

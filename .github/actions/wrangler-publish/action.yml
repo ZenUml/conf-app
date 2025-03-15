@@ -41,4 +41,10 @@ runs:
       env:
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
-      run: wrangler pages deploy dist --branch production --project-name=${{ inputs.project }}
+        CONFIG_FILE: wrangler.toml
+      run: |
+        temp_file=$(mktemp)
+        echo "name=\"${{ inputs.project }}\"" > "$temp_file"
+        cat "$CONFIG_FILE" >> "$temp_file"
+        mv "$temp_file" "$CONFIG_FILE"
+        wrangler pages deploy dist --branch production --project-name=${{ inputs.project }}

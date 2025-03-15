@@ -1,7 +1,6 @@
 compatibility_flags = [ "nodejs_compat" ]
 compatibility_date = "2024-11-11"
 
-name = "conf-stg-lite"
 pages_build_output_dir = "dist"
 
 [vars]
@@ -10,21 +9,3 @@ ENVIRONMENT = "development"  # Set to "development" for local development
 
 [env.production]
 ENVIRONMENT = "production"
-
-[[ env.preview.d1_databases ]]
-binding = "DB"
-database_name = "conf-stg-lite"
-database_id = "789f7a84-7b7a-4e03-9983-b5fa50c172f9"
-migrations_dir = "functions/migrations"
-
-[[ env.production.d1_databases ]]
-binding = "DB"
-database_name = "conf-stg-lite"
-database_id = "789f7a84-7b7a-4e03-9983-b5fa50c172f9"
-migrations_dir = "functions/migrations"
-
-[[ d1_databases ]]
-binding = "DB"
-database_name = "conf-stg-lite"
-database_id = "789f7a84-7b7a-4e03-9983-b5fa50c172f9"
-migrations_dir = "functions/migrations"

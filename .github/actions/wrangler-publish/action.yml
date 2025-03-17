@@ -39,9 +39,3 @@ runs:
         apiToken: ${{ inputs.cloudflare-api-token }}
         accountId: ${{ inputs.cloudflare-account-id }}
         command: pages deploy dist --branch production --project-name=${{ inputs.project }}
-        preCommands: |
-          echo "Adding name field to wrangler.toml"
-          temp_file=$(mktemp)
-          echo "name = \"${{ inputs.project }}\"" > "$temp_file"
-          cat wrangler.toml >> "$temp_file"
-          mv "$temp_file" wrangler.toml

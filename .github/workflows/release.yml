@@ -44,9 +44,3 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist --branch production --project-name=conf-${{ steps.properties.outputs.license }}
-          preCommands: |
-            echo "Adding name field to wrangler.toml"
-            temp_file=$(mktemp)
-            echo "name = \"conf-${{ steps.properties.outputs.license }}\"" > "$temp_file"
-            cat wrangler.toml >> "$temp_file"
-            mv "$temp_file" wrangler.toml

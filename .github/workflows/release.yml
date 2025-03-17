@@ -35,6 +35,8 @@ jobs:
         run: yarn install
       - name: yarn build
         shell: bash
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
         run: yarn build:${{ steps.properties.outputs.license }}
       - name: Publish
         uses: cloudflare/wrangler-action@2.0.0
@@ -42,5 +44,3 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages publish dist --branch production --project-name=conf-${{ steps.properties.outputs.license }}
-
-

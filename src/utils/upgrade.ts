@@ -1,10 +1,12 @@
 import { getUrlParam, trackEvent } from "@/utils/window";
+import { loadAllPaginatedData } from '@/utils/requestUtil';
+
 //old/lite custom content: migrated: true, destCustomContentId: xxx (needed by embedded macro migration)
 //new/full custom content: migrated: true, sourceCustomContentId: xxx (needed by downgrade)
 //content properties
 
 const UPGRADE_INCLUDE_DOMAINS = ['whimet4', 'whimet6', 'zenuml-dashboard-full-test'];
-const EXPORT_INCLUDE_DOMAINS = ['whimet6', 'zenuml-dashboard-full-test', 'zenuml-stg'];
+const EXPORT_INCLUDE_DOMAINS = ['whimet4', 'zenuml-dashboard-full-test', 'zenuml-stg'];
 
 async function request(url: string, data: any = undefined, method: string | undefined = undefined): Promise<any> {
   const type = data ? method || 'POST' : 'GET';
@@ -49,7 +51,9 @@ async function updateContent(id: string, data: any) {
 }
 
 async function getAllSpaces() {
-  return (await request(`/api/v2/spaces`)).results;
+  const results: any = [];
+  await loadAllPaginatedData(request, '/api/v2/spaces', (data: any) => results.push(...data.results));
+  return results;
 }
 
 async function cloneAsFull(customContentId: string) {

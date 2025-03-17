@@ -18,6 +18,7 @@ import {AtlasPage} from "@/model/page/AtlasPage";
 import CheckPermission, {PermissionCheckRequestFunc} from "@/model/page/CheckPermission";
 import {ISpace, LocationTarget} from './ILocationContext';
 import {Attachment} from './ConfluenceTypes';
+import { loadAllPaginatedData } from '@/utils/requestUtil';
 
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
 const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
@@ -771,17 +772,7 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async requestAllPaginatedData(initialUrl: string, consumer: (data: any) => void): Promise<any> {
-    let data, url = initialUrl;
-    do {
-      data = await this.request(url);
-      consumer(data);
-      url = data?._links?.next || '';
-
-      const prefix = '/wiki';
-      if (url.startsWith(prefix)) {
-        url = url.substring(prefix.length); //V2 API has the '/wiki' prefix that needs to be removed to use the 'request' JavaScript API
-      }
-    } while (url);
+    return loadAllPaginatedData(this.request, initialUrl, consumer);
   };
 
   appPropertyUrl = (key: string) => `/rest/atlassian-connect/1/addons/${addonKey()}/properties/${key}`;

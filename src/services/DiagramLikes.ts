@@ -21,7 +21,7 @@ export async function createDiagramLike(diagramId: string, diagramType: DiagramT
           clientDomain: getClientDomain(),
           confluenceSpace: getSpaceKey(),
           confluencePageId: (await globals.apWrapper._getCurrentPageId()),
-          macroId: (await globals.apWrapper.getMacroData())?.uuid,
+          macroUuid: (await globals.apWrapper.getMacroData())?.uuid,
           diagramType: diagramType
         })
       });

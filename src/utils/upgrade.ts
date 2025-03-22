@@ -74,8 +74,9 @@ async function canEdit(pageId: string, userId: string) {
   return data.hasPermission;
 }
 
-async function upgradePage(pageId: string, migratedCallback: any, spaceKey: string) {
+async function getPageMacros(pageId: string, isLite: boolean = true) {
   const page = await getPage(pageId);
+  
   const traversal = (array: any, result: Array<any>): any => {
     result.push(...array);
     array.forEach((c: any) => {
@@ -84,14 +85,24 @@ async function upgradePage(pageId: string, migratedCallback: any, spaceKey: stri
       }
     })
   };
+  
   const content = JSON.parse(page.body.atlas_doc_format.value).content;
   const allContents: Array<any> = [];
   traversal(content, allContents);
 
-  const check = (c: any) => c.type === 'extension' && c.attrs.extensionType === 'com.atlassian.confluence.macro.core' && /zenuml-(sequence|graph|openapi|embed)-macro-lite/.test(c.attrs.extensionKey);
+  const keyRegex = isLite ? /zenuml-(sequence|graph|openapi|embed)-macro-lite/ : /zenuml-(sequence|graph|openapi|embed)-macro/;
+
+  const check = (c: any) => c.type === 'extension' && c.attrs.extensionType === 'com.atlassian.confluence.macro.core' && keyRegex.test(c.attrs.extensionKey);
 
   const macros = allContents.filter(check);
-  const contentIds = macros.map((c: any) => c.attrs?.parameters?.macroParams?.customContentId?.value).filter((i: any) => i);
+
+  const fromMacroParam = (p: any) => ({customContentId: p.customContentId?.value, macroUuid: p.uuid?.value, pageId});
+  return macros.map((c: any) => c.attrs?.parameters?.macroParams).map(fromMacroParam).filter((i: any) => i.customContentId);
+}
+
+async function upgradePage(pageId: string, migratedCallback: any, spaceKey: string) {
+  const macros = await getPageMacros(pageId);
+  const contentIds = macros.map((m: any) => m.customContentId);
 
   if(contentIds.length) {
     const clones = await Promise.all(contentIds.map((i: any) => cloneAsFull(i).then(d => ({source: i, dest: d.id}))));
@@ -162,6 +173,18 @@ function unique(array: Array<any>) {
   return Array.from(new Set(array));
 }
 
+function partition(array: Array<any>, size: number) {
+  return array.reduce((acc: Array<Array<any>>, i) => {
+    if(acc.length === 0 || acc[acc.length - 1].length === size) { acc.push([]); }
+    acc[acc.length - 1].push(i);
+    return acc;
+  }, []);
+}
+
+async function processInParallel(array: Array<any>, action: any, partitionSize: number = 100): Promise<Array<any>> {
+  const results = await Promise.all(partition(array, partitionSize).map((chunk) => Promise.all(chunk.map(action))));
+  return results.flat();
+}
 
 function addonKey() {
   return getUrlParam('addonKey');
@@ -207,7 +230,7 @@ async function searchCustomContent(isLite: boolean, spaceKey: string | undefined
 
   try {
     return await time(searchAll, (duration: number, results: Array<any>) => {
-      trackEvent(`Upgrade - found ${results?.length} content, took ${duration} ms`, 'searchAll', 'info');
+      trackEvent(`Upgrade - searchCustomContent - found ${results?.length} content, took ${duration} ms`, 'searchAll', 'info');
     });
   } catch (e) {
     console.error('searchCustomContent', e);
@@ -242,10 +265,27 @@ async function upgradeAllSpaces(userId: string, report: any) {
 }
 
 async function exportAllSpaces(isLite: boolean) {
-  const spaces = await getAllSpaces();
+  const spaces = !localStorage.zenumlDebug ? await getAllSpaces() : [{key: await getCurrentSpace()}];
+
   //https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-search/#api-wiki-rest-api-search-get
-  const contents = await Promise.all(spaces.map((s: any) => searchCustomContent(isLite, s.key, null, true)));
-  return contents.flatMap(i => i).map(i => ({id: i.id, title: i.title, content: i.body?.raw?.value, createdAt: i.version?.when, author: {id: i.version?.by?.accountId, name: i.version?.by?.publicName, profilePicture: i.version?.by?.profilePicture}, page: {id: i.container?.id, title: i.container?.title, _links: {webui: i.container?._links?.webui}}, space: {id: i.space?.id, key: i.space?.key, name: i.space?.name, _links: {self: i.space?._links?.self}}}));
+  const contents = (await processInParallel(spaces, (s: any) => searchCustomContent(isLite, s.key, null, true))).flat();
+  const contentMap = contents.reduce((acc: any, i) => {acc[i.id] = i; return acc}, {});
+
+  const pageIds = unique(contents.map(i => i.container.id));
+
+  const processPage = async (pageId: string) => {
+    const macros = await getPageMacros(pageId, isLite);
+    macros.forEach(m => {
+      const content = contentMap[m.customContentId];
+      if(content) {
+        content.macroUuid = m.macroUuid;
+      }
+    });
+  };
+  //partition pageIds into chunks of 100 and process them in parallel
+  await processInParallel(pageIds, processPage);
+
+  return contents.map(i => ({id: i.id, title: i.title, macroUuid: i.macroUuid, content: i.body?.raw?.value, createdAt: i.version?.when, author: {id: i.version?.by?.accountId, name: i.version?.by?.publicName, profilePicture: i.version?.by?.profilePicture}, page: {id: i.container?.id, title: i.container?.title, _links: {webui: i.container?._links?.webui}}, space: {id: i.space?.id, key: i.space?.key, name: i.space?.name, _links: {self: i.space?._links?.self}}}));
 }
 
 async function upgradeSpace(userId: string, spaceKey: string, report: any) {

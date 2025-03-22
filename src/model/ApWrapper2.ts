@@ -772,7 +772,7 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async requestAllPaginatedData(initialUrl: string, consumer: (data: any) => void): Promise<any> {
-    return loadAllPaginatedData(this.request, initialUrl, consumer);
+    return loadAllPaginatedData(this.request.bind(this), initialUrl, consumer);
   };
 
   appPropertyUrl = (key: string) => `/rest/atlassian-connect/1/addons/${addonKey()}/properties/${key}`;

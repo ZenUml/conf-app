@@ -140,6 +140,7 @@ if(!password) {
         // contentXpath: '//*[contains(text(), "Order Service (Demonstration only)")]'});//
 
       await page.$eval('button[data-testid=publish-modal-update-button]', e => e.click());
+
       await page.waitForNavigation();
     }, {sequence: true});
 
@@ -592,8 +593,14 @@ if(!password) {
     const iframe = await waitForSelector(page, frameSelector);
     console.log(`Found frame "${frameSelector}"`);
 
+    console.log('About to call contentFrame()');
     const frame = await iframe.contentFrame();
+    console.log('contentFrame() completed successfully');
+    
+    console.log('About to call waitForNavigation()');
     await frame.waitForNavigation();
+    console.log('waitForNavigation() completed successfully');
+    
     const e = await waitForSelector(frame, elementInFrameSelector, options);
     console.log(`Found "${elementInFrameSelector}" in frame`);
     return e;

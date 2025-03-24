@@ -56,23 +56,29 @@ if(!password) {
   const timeoutPromise = page.waitForTimeout(timeout);
 
   const result = await Promise.race([navigationPromise, timeoutPromise]);
-
-  if (result === timeoutPromise) {
-    // If timeout occurred first, check for the button and click it if it exists
+  const dismissMFAIfPresent = async () => {
     const mfaButton = await page.$('#mfa-promote-dismiss');
     if (mfaButton) {
       await mfaButton.click();
+      console.log('Clicked "Continue without 2FA" button');
     }
+  };
+
+  if (result === timeoutPromise) {
+    // If timeout occurred first, check for the button and click it if it exists
+    await dismissMFAIfPresent();
   } else {
     // Handle navigation if needed
     console.log('Page navigated away.');
   }
 
-  //TODO: Handle 2FA reminder (happens every 1-2 months), can manually click "Continue without 2FA" button to workaround it
   //TODO: Handle "We've emailed you a code" login challenge
 
   try {
-    await page.waitForSelector('#title-text');
+    const titlePromise = page.waitForSelector('#title-text');
+    const dismissMFAAndThenTitlePromise = page.waitForSelector('#mfa-promote-dismiss').then(dismissMFAIfPresent).then(() => titlePromise);
+
+    await Promise.race([titlePromise, dismissMFAAndThenTitlePromise]);
   } catch(e) {
     await screenshot(page);
     throw e;

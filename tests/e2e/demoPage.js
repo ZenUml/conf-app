@@ -601,9 +601,14 @@ if(!password) {
     const frame = await iframe.contentFrame();
     console.log('contentFrame() completed successfully');
     
-    console.log('About to call waitForNavigation()');
-    await frame.waitForNavigation();
-    console.log('waitForNavigation() completed successfully');
+    try {
+      console.log('About to call waitForNavigation()');
+      await frame.waitForNavigation({timeout: 30000});
+      console.log('waitForNavigation() completed successfully');
+    } catch(error) {
+      console.log('Navigation timeout or error occurred, continuing anyway:', error.message);
+      // Just continue with the test - the frame might already be loaded
+    }
     
     const e = await waitForSelector(frame, elementInFrameSelector, options);
     console.log(`Found "${elementInFrameSelector}" in frame`);

@@ -25,9 +25,11 @@ runs:
       with:
         node-version: ${{ inputs.node-version }}
         cache: 'yarn'
-    - name: yarn install
+    - name: Install dependencies
       shell: bash
-      run: yarn install
+      run: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true yarn install --frozen-lockfile
+      env:
+        NODE_OPTIONS: "--max-old-space-size=8192"
     - name: yarn build
       shell: bash
       env:
@@ -39,3 +41,5 @@ runs:
         apiToken: ${{ inputs.cloudflare-api-token }}
         accountId: ${{ inputs.cloudflare-account-id }}
         command: pages deploy dist --branch production --project-name=${{ inputs.project }}
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"

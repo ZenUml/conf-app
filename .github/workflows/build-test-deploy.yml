@@ -20,7 +20,10 @@ jobs:
         with:
           node-version: "20"
           cache: yarn
-      - run: yarn install
+      - name: Install dependencies
+        run: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true yarn install --frozen-lockfile
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
       - run: yarn test:unit
   staging-lite:
     needs: build
@@ -59,11 +62,17 @@ jobs:
         with:
           node-version: '20.x'
           cache: 'yarn'
-      - run: yarn install
+      - name: Install dependencies
+        run: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true yarn install --frozen-lockfile
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Install Chromium for E2E tests
+        run: npx puppeteer browsers install chrome
       - run: yarn test:e2e
         env:
           CI: true
           IS_LITE: true
+          NODE_OPTIONS: "--max-old-space-size=8192"
           ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_STAGE_USERNAME }}
           ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_STAGE_PASSWORD }}
       - name: Upload artifacts # Find artifacts under actions/jobs
@@ -110,10 +119,16 @@ jobs:
         with:
           node-version: '20.x'
           cache: 'yarn'
-      - run: yarn install
+      - name: Install dependencies
+        run: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true yarn install --frozen-lockfile
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Install Chromium for E2E tests
+        run: npx puppeteer browsers install chrome
       - run: yarn test:e2e
         env:
           CI: true
+          NODE_OPTIONS: "--max-old-space-size=8192"
           ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_STAGE_USERNAME }}
           ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_STAGE_PASSWORD }}
       - name: Upload artifacts # Find artifacts under actions/jobs
@@ -194,4 +209,3 @@ jobs:
           name: v${{ env.version }}-full
           body: 'This is a draft release for the Full version of the plugin.'
           draft: true
-

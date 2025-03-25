@@ -36,6 +36,9 @@ if(!password) {
     ]
   });
   const page = await browser.newPage();
+  // Set longer timeouts for CI environments
+  page.setDefaultNavigationTimeout(60000);  // 60s for navigation operations
+  page.setDefaultTimeout(60000);  // 60s for all other operations like waitForSelector
   await page.goto(existingPageId ? pageUrl(existingPageId) : `${baseUrl}/overview`);
   await page.waitForSelector('input[name=username]');
 

@@ -141,7 +141,9 @@ if(!password) {
 
       await page.$eval('button[data-testid=publish-modal-update-button]', e => e.click());
 
-      await page.waitForNavigation();
+      const navigationPromise = page.waitForNavigation();
+      await page.$eval('button[data-testid=publish-modal-update-button]', e => e.click());
+      await navigationPromise;
     }, {sequence: true});
 
     console.log('Case - view macro body only sequence');

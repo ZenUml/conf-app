@@ -21,7 +21,7 @@ jobs:
           node-version: "20"
           cache: yarn
       - name: Install dependencies
-        run: yarn install --frozen-lockfile --ignore-optional
+        run: yarn install --frozen-lockfile
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
           PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"

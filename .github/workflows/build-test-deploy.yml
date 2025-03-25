@@ -63,11 +63,9 @@ jobs:
           node-version: '20.x'
           cache: 'yarn'
       - name: Install dependencies
-        run: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true yarn install --frozen-lockfile
+        run: yarn install
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
-      - name: Install Chromium for E2E tests
-        run: npx puppeteer browsers install chrome
       - run: yarn test:e2e
         env:
           CI: true
@@ -120,11 +118,9 @@ jobs:
           node-version: '20.x'
           cache: 'yarn'
       - name: Install dependencies
-        run: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true yarn install --frozen-lockfile
+        run: yarn install
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
-      - name: Install Chromium for E2E tests
-        run: npx puppeteer browsers install chrome
       - run: yarn test:e2e
         env:
           CI: true

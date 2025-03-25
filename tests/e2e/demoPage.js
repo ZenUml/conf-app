@@ -139,11 +139,10 @@ if(!password) {
       // await assertFrame({frameSelector: `//iframe[contains(@id, "zenuml-sequence-macro${getModuleKeySuffix()}")]`,
         // contentXpath: '//*[contains(text(), "Order Service (Demonstration only)")]'});//
 
-      await page.$eval('button[data-testid=publish-modal-update-button]', e => e.click());
-
       const navigationPromise = page.waitForNavigation();
       await page.$eval('button[data-testid=publish-modal-update-button]', e => e.click());
       await navigationPromise;
+
     }, {sequence: true});
 
     console.log('Case - view macro body only sequence');

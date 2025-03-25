@@ -132,15 +132,39 @@ if(!password) {
       });
 
       const editMacroFrame = '//iframe[contains(@src, "sequence-editor.html")]';
-      const saveMacroButton = await waitForSelectorInFrame(editMacroFrame, 'div.save-and-exit button');
-      await saveMacroButton.click();
+      console.log('Looking for edit macro iframe...');
+      const iframe = await waitForSelector(page, editMacroFrame);
+      console.log('Found edit macro iframe');
+
+      const frame = await iframe.contentFrame();
+      console.log('Got content frame');
+
+      // Wait a moment to ensure frame is fully loaded
+      await page.waitForTimeout(500);
+
+      const saveMacroButton = await waitForSelector(frame, 'div.save-and-exit button');
+      console.log('Found save button');
+
+      // Check if button is visible using bounding box
+      const boundingBox = await saveMacroButton.boundingBox();
+      console.log('Save button bounding box:', boundingBox);
+
+      // Add a small delay before clicking
+      await page.waitForTimeout(500);
+
+      // Click the button
+      await saveMacroButton.click({delay: 100});
       console.log('Clicked save macro button');
-      await waitForSelector(page, editMacroFrame, {hidden: true})
+
+      // Wait a moment after clicking
+      await page.waitForTimeout(500);
+
+      console.log('Found edit macro frame after save', editMacroFrame);
 
       //TODO: This line fails frequently with "Error: waitForFunction failed: frame got detached.", e.g. https://github.com/ZenUml/confluence-plugin-cloud/actions/runs/8231486472/job/22507232527
       //wait for macro viewer is loaded
-      // await assertFrame({frameSelector: `//iframe[contains(@id, "zenuml-sequence-macro${getModuleKeySuffix()}")]`,
-        // contentXpath: '//*[contains(text(), "Order Service (Demonstration only)")]'});//
+      await assertFrame({frameSelector: `//iframe[contains(@id, "zenuml-sequence-macro${getModuleKeySuffix()}")]`,
+        contentXpath: '//*[contains(text(), "Order Service (Demonstration only)")]'});//
 
       const navigationPromise = page.waitForNavigation();
       await page.$eval('button[data-testid=publish-modal-update-button]', e => e.click());
@@ -180,13 +204,13 @@ if(!password) {
       await page.waitForSelector('#title-text');
       return await callback(createResult);
     } finally {
-      await page.screenshot({
-        "type": "png", // can also be "jpeg" or "webp" (recommended)
-        "path": `${dirPath}/screenshot-${Date.now()}.png`,  // where to save it
-        "fullPage": true,  // will scroll down to capture everything if true
-      });
-      await page.evaluate(inBrowserFunction, {action: 'deletePage', pageId: createResult.id, options});
-      console.log(`Deleted page with id: ${createResult.id}`);
+      // await page.screenshot({
+      //   "type": "png", // can also be "jpeg" or "webp" (recommended)
+      //   "path": `${dirPath}/screenshot-${Date.now()}.png`,  // where to save it
+      //   "fullPage": true,  // will scroll down to capture everything if true
+      // });
+      // await page.evaluate(inBrowserFunction, {action: 'deletePage', pageId: createResult.id, options});
+      // console.log(`Deleted page with id: ${createResult.id}`);
     }
   }
 
@@ -600,7 +624,7 @@ if(!password) {
     console.log('About to call contentFrame()');
     const frame = await iframe.contentFrame();
     console.log('contentFrame() completed successfully');
-    
+
     try {
       console.log('About to call waitForNavigation()');
       await frame.waitForNavigation({timeout: 30000});
@@ -609,7 +633,7 @@ if(!password) {
       console.log('Navigation timeout or error occurred, continuing anyway:', error.message);
       // Just continue with the test - the frame might already be loaded
     }
-    
+
     const e = await waitForSelector(frame, elementInFrameSelector, options);
     console.log(`Found "${elementInFrameSelector}" in frame`);
     return e;

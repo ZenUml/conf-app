@@ -159,8 +159,6 @@ if(!password) {
       // Wait a moment after clicking
       await page.waitForTimeout(500);
 
-      console.log('Found edit macro frame after save', editMacroFrame);
-
       //TODO: This line fails frequently with "Error: waitForFunction failed: frame got detached.", e.g. https://github.com/ZenUml/confluence-plugin-cloud/actions/runs/8231486472/job/22507232527
       //wait for macro viewer is loaded
       await assertFrame({frameSelector: `//iframe[contains(@id, "zenuml-sequence-macro${getModuleKeySuffix()}")]`,

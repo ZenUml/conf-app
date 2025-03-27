@@ -27,7 +27,7 @@ runs:
         cache: 'yarn'
     - name: Install dependencies
       shell: bash
-      run: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true yarn install --frozen-lockfile --ignore-scripts
+      run: yarn install --frozen-lockfile --ignore-scripts
       env:
         NODE_OPTIONS: "--max-old-space-size=8192"
     - name: yarn build

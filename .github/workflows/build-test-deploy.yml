@@ -15,15 +15,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9.x
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: pnpm
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9.x
       - name: Install dependencies (skip post-install scripts)
         run: pnpm install --frozen-lockfile --ignore-scripts
         env:
@@ -64,14 +64,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20.x'
-          cache: 'pnpm'
       - name: Setup pnpm
         uses: pnpm/action-setup@v3
         with:
           version: 9.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'pnpm'
       # Install main dependencies without Puppeteer
       - name: Install main dependencies (skip post-install scripts)
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -132,14 +132,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20.x'
-          cache: 'pnpm'
       - name: Setup pnpm
         uses: pnpm/action-setup@v3
         with:
           version: 9.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'pnpm'
       # Install main dependencies without Puppeteer
       - name: Install main dependencies (skip post-install scripts)
         run: pnpm install --frozen-lockfile --ignore-scripts

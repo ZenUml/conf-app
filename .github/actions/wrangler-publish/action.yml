@@ -23,7 +23,6 @@ runs:
     - uses: actions/checkout@v4
     - name: Setup pnpm
       uses: pnpm/action-setup@v3
-      shell: bash
       with:
         version: 9.x
     - uses: actions/setup-node@v4
@@ -31,15 +30,15 @@ runs:
         node-version: ${{ inputs.node-version }}
         cache: 'pnpm'
     - name: Install dependencies
-      shell: bash
       run: pnpm install --frozen-lockfile --ignore-scripts
+      shell: bash
       env:
         NODE_OPTIONS: "--max-old-space-size=8192"
     - name: pnpm build
+      run: pnpm build:${{ inputs.license }}
       shell: bash
       env:
         NODE_OPTIONS: "--max-old-space-size=8192"
-      run: pnpm build:${{ inputs.license }}
     - name: Publish
       uses: cloudflare/wrangler-action@v3
       with:

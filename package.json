@@ -44,7 +44,7 @@
     "react": "=17.0.2",
     "react-dom": "=17.0.2",
     "split.js": "^1.6.5",
-    "swagger-editor": "^4.4.0",
+    "swagger-editor": "=4.4.0",
     "swagger-ui": "4.19.0",
     "thememirror": "^2.0.1",
     "tiny-emitter": "^2.1.0",
@@ -96,7 +96,9 @@
   },
   "resolutions": {
     "wrap-ansi": "7.0.0",
-    "string-width": "4.1.0"
+    "string-width": "4.1.0",
+    "@typescript-eslint/eslint-plugin": "^8.28.0",
+    "@typescript-eslint/parser": "^8.28.0"
   },
   "eslintConfig": {
     "root": true,

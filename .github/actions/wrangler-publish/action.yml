@@ -24,17 +24,22 @@ runs:
     - uses: actions/setup-node@v4
       with:
         node-version: ${{ inputs.node-version }}
-        cache: 'yarn'
+        cache: 'pnpm'
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v3
+      shell: bash
+      with:
+        version: 9.x
     - name: Install dependencies
       shell: bash
-      run: yarn install --frozen-lockfile --ignore-scripts
+      run: pnpm install --frozen-lockfile --ignore-scripts
       env:
         NODE_OPTIONS: "--max-old-space-size=8192"
-    - name: yarn build
+    - name: pnpm build
       shell: bash
       env:
         NODE_OPTIONS: "--max-old-space-size=8192"
-      run: yarn build:${{ inputs.license }}
+      run: pnpm build:${{ inputs.license }}
     - name: Publish
       uses: cloudflare/wrangler-action@v3
       with:

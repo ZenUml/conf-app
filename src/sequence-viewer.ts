@@ -1,30 +1,90 @@
 import ApWrapper2 from "@/model/ApWrapper2";
-import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
 import globals from '@/model/globals';
-
-import DiagramPortal from "@/components/DiagramPortal.vue";
-import {mountRoot} from "@/mount-root";
 
 import AP from "@/model/AP";
 import EventBus from './EventBus'
 import {trackEvent} from "@/utils/window";
-import createAttachmentIfContentChanged from "@/model/Attachment";
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 
 import './assets/tailwind.css'
 import { saveToPlatform } from "./model/ContentProvider/Persistence";
 import macroMetrics from "@/services/MacroMetrics";
 
+// Initialize critical path rendering first
+async function initializeCriticalPath() {
+  // Hide skeleton loader after critical content is loaded
+  const hideSkeletonLoader = () => {
+    const skeletonLoader = document.getElementById('skeleton-loader');
+    if (skeletonLoader) {
+      skeletonLoader.style.display = 'none';
+    }
+  };
+
+  try {
+    // Initialize context and get macro data (lightweight operations)
+    await globals.apWrapper.initializeContext();
+    const macroData = await globals.apWrapper.getMacroData();
+    trackEvent(macroData?.uuid, 'view_macro', 'sequence');
+    
+    // Report metrics (can run in parallel with heavy content loading)
+    macroMetrics.reportMacroMetrics().catch(e => console.error('Error reporting metrics:', e));
+    
+    // Return the macro data for use in the second phase
+    return { macroData };
+  } catch (error) {
+    console.error('Error in critical path initialization:', error);
+    hideSkeletonLoader(); // Hide skeleton even on error
+    throw error;
+  }
+}
+
+// Load heavy components asynchronously
+async function loadHeavyComponents(criticalData: { macroData: any }) {
+  try {
+    // Dynamically import heavy dependencies
+    const [
+      { default: defaultContentProvider },
+      { mountRoot }
+    ] = await Promise.all([
+      import("@/model/ContentProvider/CompositeContentProvider"),
+      import("@/mount-root")
+    ]);
+    
+    // Initialize content provider
+    const compositeContentProvider = defaultContentProvider(globals.apWrapper as ApWrapper2);
+    let {doc} = await compositeContentProvider.load();
+    
+    // Hide skeleton loader before mounting the actual content
+    const skeletonLoader = document.getElementById('skeleton-loader');
+    if (skeletonLoader) {
+      skeletonLoader.style.display = 'none';
+    }
+    
+    // Dynamically import DiagramPortal component
+    const DiagramPortal = (await import("@/components/DiagramPortal.vue")).default;
+    
+    // Mount the root component
+    mountRoot(doc, DiagramPortal);
+  } catch (error) {
+    console.error('Error loading heavy components:', error);
+    // Hide skeleton loader even on error
+    const skeletonLoader = document.getElementById('skeleton-loader');
+    if (skeletonLoader) {
+      skeletonLoader.style.display = 'none';
+    }
+    throw error;
+  }
+}
+
+// Main function to orchestrate the two-phase loading
 async function main() {
-  await globals.apWrapper.initializeContext();
-  const macroData = await globals.apWrapper.getMacroData();
-  trackEvent(macroData?.uuid, 'view_macro', 'sequence');
-
-  const compositeContentProvider = defaultContentProvider(globals.apWrapper as ApWrapper2);
-  let {doc} = await compositeContentProvider.load();
-  mountRoot(doc, DiagramPortal);
-
-  await macroMetrics.reportMacroMetrics();
+  // Phase 1: Critical path rendering
+  const criticalData = await initializeCriticalPath();
+  
+  // Phase 2: Load heavy components
+  loadHeavyComponents(criticalData).catch(e => 
+    console.error('Failed to load heavy components:', e)
+  );
 }
 
 export default main()
@@ -35,9 +95,15 @@ EventBus.$on('diagramLoaded', () => {
   setTimeout(window.AP?.resize, 1500)
 });
 
+// Dynamically import createAttachmentIfContentChanged only when needed
+const createAttachmentIfContentChangedPromise = import("@/model/Attachment").then(
+  module => module.default
+);
+
 async function createAttachment(code: string, diagramType: DiagramType) {
   try {
     if (globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
+      const createAttachmentIfContentChanged = await createAttachmentIfContentChangedPromise;
       await createAttachmentIfContentChanged(code);
     } else {
       console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");

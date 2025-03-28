@@ -1,4 +1,3 @@
-import fetch from 'node-fetch';
 
 const HTTP_API_ENDPOINT = 'https://zenuml.com/zaraz/api';
 

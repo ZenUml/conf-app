@@ -202,13 +202,13 @@ if(!password) {
       await page.waitForSelector('#title-text');
       return await callback(createResult);
     } finally {
-      // await page.screenshot({
-      //   "type": "png", // can also be "jpeg" or "webp" (recommended)
-      //   "path": `${dirPath}/screenshot-${Date.now()}.png`,  // where to save it
-      //   "fullPage": true,  // will scroll down to capture everything if true
-      // });
-      // await page.evaluate(inBrowserFunction, {action: 'deletePage', pageId: createResult.id, options});
-      // console.log(`Deleted page with id: ${createResult.id}`);
+      await page.screenshot({
+        "type": "png", // can also be "jpeg" or "webp" (recommended)
+        "path": `${dirPath}/screenshot-${Date.now()}.png`,  // where to save it
+        "fullPage": true,  // will scroll down to capture everything if true
+      });
+      await page.evaluate(inBrowserFunction, {action: 'deletePage', pageId: createResult.id, options});
+      console.log(`Deleted page with id: ${createResult.id}`);
     }
   }
 

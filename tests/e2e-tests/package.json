@@ -1,0 +1,20 @@
+{
+  "name": "confluence-plugin-e2e-tests",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node demoPage.js",
+    "test:peng": "ZENUML_STAGE_USERNAME=eagle.xiao@gmail.com node demoPage.js",
+    "test:yanhui": "ZENUML_STAGE_USERNAME=robot1.yanhui@gmail.com ZENUML_DOMAIN=whimet4.atlassian.net ZENUML_SPACE=WHIMET4 node demoPage.js",
+    "test:yanhui:existing": "ZENUML_STAGE_USERNAME=robot1.yanhui@gmail.com ZENUML_DOMAIN=whimet4.atlassian.net PAGE_ID=458653717 ZENUML_SPACE=WHIMET4 node demoPage.js"
+  },
+  "dependencies": {
+    "puppeteer": "^17.1.3"
+  },
+  "devDependencies": {
+    "jest-puppeteer": "^9.0.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

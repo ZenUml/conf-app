@@ -5,10 +5,15 @@
 </template>
 
 <script>
-import ZenUml from "@zenuml/core";
+// Import ZenUml dynamically instead of statically
+// import ZenUml from "@zenuml/core";
 import EventBus from "@/EventBus";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { trackEvent } from "@/utils/window";
+
+// Create a promise to load ZenUml only when needed
+const loadZenUml = () => import("@zenuml/core").then(module => module.default);
+
 let zenuml;
 const getThemeStorageKey = (id) => {
   if (id === "global") {
@@ -29,17 +34,28 @@ export default {
     },
   },
   async mounted() {
-    console.log("ZenUML Core version: ", ZenUml.version);
-    zenuml = new ZenUml(this.$refs["zenuml"]);
-    await this.render();
-    EventBus.$emit(
-      "diagramLoaded",
-      this.$store.state.diagram.code,
-      this.$store.state.diagram.diagramType
-    );
+    try {
+      // Load ZenUml dynamically
+      const ZenUml = await loadZenUml();
+      console.log("ZenUML Core version: ", ZenUml.version);
+      zenuml = new ZenUml(this.$refs["zenuml"]);
+      await this.render();
+      EventBus.$emit(
+        "diagramLoaded",
+        this.$store.state.diagram.code,
+        this.$store.state.diagram.diagramType
+      );
+    } catch (error) {
+      console.error("Error loading ZenUML Core:", error);
+    }
   },
   methods: {
     async render() {
+      if (!zenuml) {
+        console.warn("ZenUML instance not initialized yet");
+        return;
+      }
+      
       const id = this.$store.state.diagram.id;
       const globalTheme = localStorage.getItem(getThemeStorageKey("global"));
       const scopeTheme = id

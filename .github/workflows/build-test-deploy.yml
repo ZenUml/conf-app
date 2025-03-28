@@ -15,17 +15,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9.x
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: yarn
+          cache: pnpm
       - name: Install dependencies (skip post-install scripts)
-        run: yarn install --frozen-lockfile --ignore-scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
-          PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
-      - run: yarn test:unit
+      - run: pnpm test:unit
   
   staging-lite:
     needs: build
@@ -60,24 +63,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9.x
       - uses: actions/setup-node@v4
         with:
           node-version: '20.x'
-          cache: 'yarn'
+          cache: 'pnpm'
       # Install main dependencies without Puppeteer
       - name: Install main dependencies (skip post-install scripts)
-        run: yarn install --frozen-lockfile --ignore-scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
-          PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
       # Install E2E test dependencies separately
       - name: Install E2E test dependencies
-        run: cd tests/e2e-tests && yarn install
+        run: cd tests/e2e-tests && pnpm install
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
       # Run E2E tests
       - name: Run E2E tests
-        run: cd tests/e2e-tests && yarn test
+        run: cd tests/e2e-tests && pnpm test
         env:
           CI: true
           IS_LITE: true
@@ -124,24 +130,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9.x
       - uses: actions/setup-node@v4
         with:
           node-version: '20.x'
-          cache: 'yarn'
+          cache: 'pnpm'
       # Install main dependencies without Puppeteer
       - name: Install main dependencies (skip post-install scripts)
-        run: yarn install --frozen-lockfile --ignore-scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
-          PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
       # Install E2E test dependencies separately
       - name: Install E2E test dependencies
-        run: cd tests/e2e-tests && yarn install
+        run: cd tests/e2e-tests && pnpm install
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
       # Run E2E tests
       - name: Run E2E tests
-        run: cd tests/e2e-tests && yarn test
+        run: cd tests/e2e-tests && pnpm test
         env:
           CI: true
           NODE_OPTIONS: "--max-old-space-size=8192"

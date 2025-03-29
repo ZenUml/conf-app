@@ -22,6 +22,63 @@
 > We need two commands `start:local` and `start:sit` because hot-reload works 
 > only on one domain.
 
+## Setup Cloudflare Pages project for development
+
+* Install [Wrangler](https://developers.cloudflare.com/workers/wrangler/install-and-update/) command line tool
+* Create project
+   ```
+   wrangler pages project create zenuml-for-confluence
+   # Enter the production branch name: … master
+   ```
+* Create D1 database
+   ```
+   wrangler d1 create zenuml-for-confluence
+   ```
+   Example output:
+   ```
+   [[d1_databases]]
+   binding = "DB"
+   database_name = "zenuml-for-confluence"
+   database_id = "c11ca41f-4670-4640-9991-3aceb7fd114a"
+   ```
+* Copy the output to your `wrangler.toml`
+* Add `migrations_dir = "functions/migrations"` config under `d1_database` section
+Example file:
+   ```
+   compatibility_flags = [ "nodejs_compat" ]
+   compatibility_date = "2024-11-11"
+   name = "zenuml-for-confluence"
+   pages_build_output_dir = "dist"
+
+   [vars]
+   DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
+   ENVIRONMENT = "development"  # Set to "development" for local development
+
+   [env.production]
+   ENVIRONMENT = "production"
+
+   [[d1_databases]]
+   binding = "DB"
+   database_name = "zenuml-for-confluence"
+   database_id = "c11ca41f-4670-4640-9991-3aceb7fd114a"
+   migrations_dir = "functions/migrations"
+   ```
+* Run DB migration scripts
+   ```
+   wrangler d1 migrations apply zenuml-for-confluence --remote
+   ```
+* Run build: `yarn build:full`
+* Deploy:
+   ```
+   wrangler pages deploy dist
+   ```
+   Example output:
+   ```
+   ✨ Deployment complete! Take a peek over at https://ca7b4ae9.zenuml-for-confluence-5v2.pages.dev
+   ✨ Deployment alias URL: https://diagram-likes.zenuml-for-confluence-5v2.pages.dev
+   ```
+* Install the app to your Confluence using the descriptor URL, e.g. https://diagram-likes.zenuml-for-confluence-5v2.pages.dev/descriptor for the Full app, or https://diagram-likes.zenuml-for-confluence-5v2.pages.dev/descriptor?lite for the Lite app
+
 # Errors
 ## Addon not registered; no compatible hosts detected
 Check the sub code.

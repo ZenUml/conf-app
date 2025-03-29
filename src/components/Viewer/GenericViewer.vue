@@ -153,7 +153,7 @@ export default {
     },
     likesForDisplay() {
       return this.likesCount > 0 ? this.likesCount : '';
-    }
+    },
   },
   async mounted() {
     try {
@@ -167,7 +167,7 @@ export default {
       this.showLikeButton = await isFeatureEnabled(FeatureSwitch.DIAGRAM_LIKE);
 
       if (this.showLikeButton) {
-        this.likesCount = (await getDiagramLikes(this.diagram.id)).length;
+        await this.getLikes();
       }
     } catch (e) {
       console.error('Error getting feature flags', e);
@@ -200,11 +200,23 @@ export default {
       const png = await htmlToImage.toBlob(node, {backgroundColor: 'white'});
       saveAs(png, 'zenuml-for-confluence.png');
     },
+    async getLikes() {
+      const {atlassianAccountId: userAccountId} = await globals.apWrapper._getCurrentUser();
+      const likes = await getDiagramLikes(this.diagram.id)
+      this.likesCount = likes.length;
+      this.userLiked = likes.some(like => like.userAccountId === userAccountId);
+    },
     async clickLikeButton() {
       trackEvent('like_diagram', 'click', 'viewing');
       console.log('clickLikeButton', store.state.diagram.id);
-      const likes = await toggleDiagramLike(store.state.diagram.id);
-      this.likesCount = likes?.length || 0;
+      try {
+        this.userLiked = !this.userLiked;
+        this.likesCount += this.userLiked ? 1 : -1;
+        const likes = await toggleDiagramLike(store.state.diagram.id);
+        this.likesCount = likes?.length || 0;
+      } catch (error) {
+        await this.getLikes();
+      }
     },
   },
 }

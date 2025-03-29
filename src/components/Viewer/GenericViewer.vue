@@ -70,7 +70,7 @@
             <button v-show="showLikeButton" @click="clickLikeButton" class="flex justify-center items-center px-2 rounded hover:bg-gray-300" style="" title="Like this diagram">
               <IconLikeFilled v-if="userLiked" :width="20" style="color: #1868DB"/>
               <IconLike v-else :width="20" style="color: #475467"/>
-              {{ likesForDisplay }}123
+              {{ likesForDisplay }}
             </button>
           </div>
         </div>

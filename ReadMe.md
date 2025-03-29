@@ -79,6 +79,31 @@ Example file:
    ```
 * Install the app to your Confluence using the descriptor URL, e.g. https://diagram-likes.zenuml-for-confluence-5v2.pages.dev/descriptor for the Full app, or https://diagram-likes.zenuml-for-confluence-5v2.pages.dev/descriptor?lite for the Lite app
 
+## Development with Docker Wrangler
+
+### Setup run-docker-wrangler.sh
+1. Make it executable:
+```bash
+chmod +x run-docker-wrangler.sh
+```
+
+2. Authentication
+```bash
+./run-docker-wrangler.sh login
+```
+
+3. Operations Samples
+```bash
+# Apply migrations to local database
+./run-docker-wrangler.sh d1 migrations apply [database-name] --local
+
+# Execute SQL command
+./run-docker-wrangler.sh d1 execute [database-name]  --local --command "SELECT * FROM your_table;"
+
+# Deploy
+./run-docker-wrangler.sh pages deploy ./dist
+```
+
 # Errors
 ## Addon not registered; no compatible hosts detected
 Check the sub code.

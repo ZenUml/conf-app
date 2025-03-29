@@ -92,7 +92,7 @@
     "vite": "^6.2.3",
     "vitest": "^2.1.9",
     "vue-tsc": "^1.8.27",
-    "wrangler": "^3.114.3"
+    "wrangler": "^4.6.0"
   },
   "resolutions": {
     "wrap-ansi": "7.0.0",

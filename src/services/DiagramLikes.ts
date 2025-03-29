@@ -7,9 +7,9 @@ import {
   getSpaceKey,
 } from "@/utils/ContextParameters/ContextParameters";
 
-export async function createDiagramLike(diagramId: string, diagramType: DiagramType) {
+export async function toggleDiagramLike(diagramId: string, diagramType: DiagramType) {
   try {
-    const response = await fetch(`/diagram-likes?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, {
+    const response = await fetch(`/diagram-likes/toggle?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

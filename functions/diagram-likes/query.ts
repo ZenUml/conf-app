@@ -8,9 +8,13 @@ export const onRequest = async ({ request, env }) => {
     const body: any = await request.json();
     console.log('req body:', body);
 
-    const { results } = await env.DB.prepare( "SELECT * FROM DiagramLikes WHERE userAccountId=?1 AND diagramCustomContentId=?2 AND clientDomain=?3 AND confluenceSpace=?4 AND confluencePageId=?5" ).bind(body.userAccountId, body.diagramCustomContentId, body.clientDomain, body.confluenceSpace, body.confluencePageId).all();
-    return Response.json(results);
+    return await queryLikesFromAllUsers(env, body);
   }
 
   return OkResponse();
 };
+
+export async function queryLikesFromAllUsers(env, body) {
+  const { results } = await env.DB.prepare( "SELECT * FROM DiagramLikes WHERE diagramCustomContentId=?1 AND clientDomain=?2 AND confluenceSpace=?3 AND confluencePageId=?4 AND macroUuid=?5" ).bind(body.diagramCustomContentId, body.clientDomain, body.confluenceSpace, body.confluencePageId, body.macroUuid).all();
+  return Response.json(results);
+}

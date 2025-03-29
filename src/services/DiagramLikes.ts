@@ -28,7 +28,7 @@ export async function toggleDiagramLike(diagramId: string, diagramType: DiagramT
 
     const result = await response.json();
     console.log('Diagram-likes response', result);
-
+    return result;
   } catch (e) {
     console.error('Error when liking diagram', e);
     trackEvent(JSON.stringify(e), 'like_diagram', 'error');
@@ -44,11 +44,11 @@ export async function getDiagramLikes(diagramId: string) {
         'Authorization': `Bearer ${await globals.apWrapper.getToken()}`
       },
       body: JSON.stringify({
-        userAccountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
         diagramCustomContentId: diagramId,
         clientDomain: getClientDomain(),
         confluenceSpace: getSpaceKey(),
         confluencePageId: (await globals.apWrapper._getCurrentPageId()),
+        macroUuid: (await globals.apWrapper.getMacroData())?.uuid,
       })
     });
 

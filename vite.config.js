@@ -146,6 +146,6 @@ export default defineConfig({
         changeOrigin: true
       }
     },
-    allowedHosts: ['yanhui8080.zenuml.com', 'peng-new-8080.diagramly.ai'],
+    allowedHosts: ['yanhui8080.zenuml.com', 'peng-new-8080.diagramly.ai', 'precise-oriented-mink.ngrok-free.app'],
   }
 });

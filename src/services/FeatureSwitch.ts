@@ -2,7 +2,7 @@ import {
   getClientDomain,
 } from "@/utils/ContextParameters/ContextParameters";
 
-const InteeralDomains = ['whimet4', 'zenuml-stg', 'dyon'];
+const InteeralDomains = ['whimet4', 'zenuml-stg', 'dyon', 'danshuitaihejie'];
 
 export const enum FeatureSwitch {
   DIAGRAM_LIKE = 'diagram-like',

@@ -70,7 +70,7 @@
               @click="exportContents"
               class="flex items-center bg-[#004EEB] px-3 py-2 text-white text-sm font-semibold rounded whitespace-nowrap hover:brightness-90"
             >
-              {{ isExportInProgress ? 'Exporting...' : 'Export' }}
+              {{ isExportInProgress ? "Exporting..." : "Export" }}
             </button>
             <button
               v-show="isMigrationEnabled"
@@ -125,9 +125,7 @@
       </header>
       <div class="flex-1 flex overflow-hidden">
         <main v-if="viewStyle == 'table'" class="tableViewList flex flex-1">
-          <div
-            class="flex flex-col w-full max-w-md flex-grow border-r"
-          >
+          <div class="flex flex-col w-full max-w-md flex-grow border-r">
             <div
               id="tableScrollContainer"
               class="flex-1 overflow-y-auto"
@@ -306,7 +304,7 @@
 
 <script>
 import PublishButton from "@/components/PublishButton.vue";
-import CloseButton from '@/components/CloseButton.vue';
+import CloseButton from "@/components/CloseButton.vue";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import EventBus from "@/EventBus";
 import AP from "@/model/AP";
@@ -324,6 +322,11 @@ import IconFullscreenOff from "@/components/icons/IconFullscreenOff.vue";
 import IconPencil from "@/components/icons/IconPencil.vue";
 import DocType from "./components/DocType.vue";
 import Contributors from "./components/Contributors.vue";
+import {
+  getBaseUrl,
+  getClientDomain,
+} from "@/utils/ContextParameters/ContextParameters";
+import { addonKey } from "@/utils/window";
 
 export default {
   name: "DashboardDocumentList",
@@ -353,6 +356,7 @@ export default {
       isExportEnabled: false,
       isExportInProgress: false,
       isLite: false,
+      likedDiagramIds: [],
     };
   },
   watch: {
@@ -369,6 +373,9 @@ export default {
     },
     async filterOnlyLiked(newValue, oldValue) {
       console.log("filterOnlyLiked changed:", newValue, oldValue);
+      if (newValue) {
+        this.likedDiagramIds = await this.getUserLikedDiagramIds();
+      }
       await this.search();
     },
     async customContentList(newValue, oldValue) {
@@ -379,7 +386,15 @@ export default {
   computed: {
     filteredCustomContentList() {
       const results = this.customContentList.filter((item) => {
+        console.log('item', item);
         if (!item?.id) {
+          return false;
+        }
+        if (
+          this.filterOnlyLiked &&
+          !this.likedDiagramIds.includes(item?.id)
+        ) {
+          console.log('not liked', item?.id);
           return false;
         }
         if (
@@ -457,11 +472,36 @@ export default {
     this.initTheRightSideContent();
 
     const hasFull = await apWrapper.hasFullAddon();
-    this.isMigrationEnabled = apWrapper.isLite() && hasFull && upgrade.isEnabled();
+    this.isMigrationEnabled =
+      apWrapper.isLite() && hasFull && upgrade.isEnabled();
     this.isExportEnabled = upgrade.isExportEnabled();
     this.isLite = apWrapper.isLite();
   },
   methods: {
+    async getUserLikedDiagramIds() {
+      try {
+        const response = await fetch(
+          `/diagram-likes/user-likes?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${await globals.apWrapper.getToken()}`,
+            },
+            body: JSON.stringify({
+              userAccountId: (
+                await globals.apWrapper._getCurrentUser()
+              ).atlassianAccountId,
+              clientDomain: getClientDomain(),
+            }),
+          }
+        );
+        const result = await response.json();
+        return (result || []).map(item => item.diagramCustomContentId);
+      } catch (e) {
+        return [];
+      }
+    },
     checkIfHasData() {
       if (this.fullScreen == false && this.customContentList.length > 0) {
         this.hasData = true;
@@ -613,6 +653,7 @@ export default {
           macro
         );
         const uuid = macro?.attrs?.parameters?.macroParams?.uuid?.value;
+        c.uuid = uuid;
         if (uuid) {
           const link = await getAttachmentDownloadLink(c.container.id, uuid);
           console.debug(
@@ -729,8 +770,8 @@ export default {
       this.isExportInProgress = true;
       try {
         const contents = await upgrade.exportContents(this.isLite);
-        console.log('Zenuml contents:', contents);
-        
+        console.log("Zenuml contents:", contents);
+
         const data = JSON.stringify(contents);
         const blob = new Blob([data], { type: "text/plain" });
         const url = URL.createObjectURL(blob);

@@ -375,6 +375,7 @@ export default {
       console.log("filterOnlyLiked changed:", newValue, oldValue);
       if (newValue) {
         this.likedDiagramIds = await this.getUserLikedDiagramIds();
+        console.log('likedDiagramIds', this.likedDiagramIds);
       }
       await this.search();
     },
@@ -386,7 +387,7 @@ export default {
   computed: {
     filteredCustomContentList() {
       const results = this.customContentList.filter((item) => {
-        console.log('item', item);
+        console.log('item id', item.id, this.likedDiagramIds);
         if (!item?.id) {
           return false;
         }
@@ -653,7 +654,6 @@ export default {
           macro
         );
         const uuid = macro?.attrs?.parameters?.macroParams?.uuid?.value;
-        c.uuid = uuid;
         if (uuid) {
           const link = await getAttachmentDownloadLink(c.container.id, uuid);
           console.debug(

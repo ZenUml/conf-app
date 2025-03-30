@@ -46,6 +46,13 @@
             />
             <label id="mineOnlyLbl" for="mineOnly">My Diagrams</label>
             <input
+              v-model="filterOnlyLiked"
+              type="checkbox"
+              id="likedOnly"
+              class="block ml-3 border-[1px] border-solid border-[#CACBD1] outline-none w-[14px] h-[14px] flex-shrink-0"
+            />
+            <label id="likedOnlyLbl" for="likedOnly">I Liked</label>
+            <input
               v-model="filterKeyword"
               type="search"
               placeholder="search in title and content"
@@ -330,6 +337,7 @@ export default {
       baseUrl: "",
       filterKeyword: "",
       filterOnlyMine: false,
+      filterOnlyLiked: false,
       viewStyle: "table",
       customContentStorageProvider: null,
       filterTimeout: null,
@@ -357,6 +365,10 @@ export default {
     },
     async filterOnlyMine(newValue, oldValue) {
       console.log("filterOnlyMine changed:", newValue, oldValue);
+      await this.search();
+    },
+    async filterOnlyLiked(newValue, oldValue) {
+      console.log("filterOnlyLiked changed:", newValue, oldValue);
       await this.search();
     },
     async customContentList(newValue, oldValue) {
@@ -469,6 +481,7 @@ export default {
         docTypeFilter: this.docTypeFilter,
         filterKeyword: this.filterKeyword,
         filterOnlyMine: this.filterOnlyMine,
+        filterOnlyLiked: this.filterOnlyLiked,
         viewStyle: this.viewStyle,
         hasData: this.hasData,
       };
@@ -631,7 +644,8 @@ export default {
             this.pageSize,
             this.filterKeyword,
             this.filterOnlyMine,
-            this.docTypeFilter
+            this.docTypeFilter,
+            this.filterOnlyLiked
           );
         console.debug({ actiion: "search", searchResult: searchResult });
         let searchedCustomContentList = searchResult.results;

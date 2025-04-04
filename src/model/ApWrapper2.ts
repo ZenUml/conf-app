@@ -254,11 +254,11 @@ export default class ApWrapper2 implements IApWrapper {
     if (content.version?.number) {
       newVersionNumber += content.version?.number
     }
+    // Must provide at most one of [spaceId, pageId, blogPostId, or customContentId]
     const data = {
       "id": content.id,
       "type": content.type,
       "status": content.status,
-      "spaceId": content.spaceId,
       "pageId": content.pageId,
       "title": newBody.title || content.title,
       "body": {
@@ -270,13 +270,19 @@ export default class ApWrapper2 implements IApWrapper {
       }
     };
 
-    const response = await this._requestFn({
-      url: `/api/v2/custom-content/${content.id}`,
-      type: 'PUT',
-      contentType: 'application/json',
-      data: JSON.stringify(data)
-    });
-    return this.parseCustomContentResponseV2(response);
+    try {
+      const response = await this._requestFn({
+        url: `/api/v2/custom-content/${content.id}`,
+        type: 'PUT',
+        contentType: 'application/json',
+        data: JSON.stringify(data)
+      });
+      trackEvent(JSON.stringify(content.id), 'update_custom_content', 'info');
+      return this.parseCustomContentResponseV2(response);
+    } catch (error) {
+      trackEvent(JSON.stringify(error), 'update_custom_content_error', 'error');
+      throw error;
+    }
   }
 
   async getCustomContentById(id: string): Promise<ICustomContent | undefined> {
@@ -626,7 +632,12 @@ export default class ApWrapper2 implements IApWrapper {
     // Make sure we don't update custom content on a different page
     // and there is only one macro linked to the custom content on the current page.
     if (existing && (!pageId || (String(pageId) === String(existing?.pageId) && count === 1))) {
-      result = await this.updateCustomContentV2(existing, value);
+      try {
+        result = await this.updateCustomContentV2(existing, value);
+      } catch (error) {
+        trackEvent('update_custom_content_error', { error: error?.message });
+        throw error;
+      }
     } else {
       if (count > 1) {
         console.warn(`Detected copied macro on the same page ${pageId}.`);

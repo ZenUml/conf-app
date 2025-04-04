@@ -376,8 +376,10 @@ export default {
       console.log("filterOnlyLiked changed:", newValue, oldValue);
       if (newValue) {
         this.likedDiagramIds = await this.getUserLikedDiagramIds();
-        console.log("likedDiagramIds", this.likedDiagramIds);
+      }else{
+        this.likedDiagramIds=[];
       }
+      console.log("likedDiagramIds", this.likedDiagramIds);
       await this.search();
     },
     async customContentList(newValue, oldValue) {
@@ -676,7 +678,12 @@ export default {
       );
     },
     async search() {
+
       this.resetNextPageScorll();
+      //likedDiagramIds may be too long and could cause HttpGET to exceed the maximum length, so maxLikedIdsCQL is used to limit it.
+      const ids=this.likedDiagramIds.length <= this.maxLikedIdsCQL
+        ? this.likedDiagramIds
+        : [];
       try {
         let searchResult =
           await this.customContentStorageProvider.searchPagedCustomContent(
@@ -684,10 +691,7 @@ export default {
             this.filterKeyword,
             this.filterOnlyMine,
             this.docTypeFilter,
-            //likedDiagramIds may be too long and could cause HttpGET to exceed the maximum length, so maxLikedIdsCQL is used to limit it.
-            this.likedDiagramIds.length <= this.maxLikedIdsCQL
-              ? this.likedDiagramIds
-              : []
+            ids
           );
         console.debug({ actiion: "search", searchResult: searchResult });
         let searchedCustomContentList = searchResult.results;

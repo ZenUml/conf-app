@@ -23,8 +23,8 @@ export class CustomContentStorageProvider implements StorageProvider {
     return await this.apWrapper.searchCustomContent(maxItems);
   }
 
-  async searchPagedCustomContent(pageSize?: number,keyword: string='',onlyMine: boolean=false,docType: string='',): Promise<SearchResults> {
-    return await this.apWrapper.searchPagedCustomContent(pageSize,keyword,onlyMine,docType);
+  async searchPagedCustomContent(pageSize?: number,keyword: string='',onlyMine: boolean=false,docType: string='', ids: number[] = []): Promise<SearchResults> {
+    return await this.apWrapper.searchPagedCustomContent(pageSize,keyword,onlyMine,docType,ids);
   }
   async searchNextPageCustomContent(nextPageUrl: string): Promise<SearchResults> {
     return await this.apWrapper.searchPagedCustomContentByUrl(nextPageUrl);

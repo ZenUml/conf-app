@@ -357,6 +357,7 @@ export default {
       isExportInProgress: false,
       isLite: false,
       likedDiagramIds: [],
+      maxLikedIdsCQL: 100,
     };
   },
   watch: {
@@ -375,7 +376,7 @@ export default {
       console.log("filterOnlyLiked changed:", newValue, oldValue);
       if (newValue) {
         this.likedDiagramIds = await this.getUserLikedDiagramIds();
-        console.log('likedDiagramIds', this.likedDiagramIds);
+        console.log("likedDiagramIds", this.likedDiagramIds);
       }
       await this.search();
     },
@@ -387,15 +388,12 @@ export default {
   computed: {
     filteredCustomContentList() {
       const results = this.customContentList.filter((item) => {
-        console.log('item id', item.id, this.likedDiagramIds);
+        console.log("item id", item.id, this.likedDiagramIds);
         if (!item?.id) {
           return false;
         }
-        if (
-          this.filterOnlyLiked &&
-          !this.likedDiagramIds.includes(item?.id)
-        ) {
-          console.log('not liked', item?.id);
+        if (this.filterOnlyLiked && !this.likedDiagramIds.includes(item?.id)) {
+          console.log("not liked", item?.id);
           return false;
         }
         if (
@@ -498,7 +496,7 @@ export default {
           }
         );
         const result = await response.json();
-        return (result || []).map(item => item.diagramCustomContentId);
+        return (result || []).map((item) => item.diagramCustomContentId);
       } catch (e) {
         return [];
       }
@@ -686,7 +684,10 @@ export default {
             this.filterKeyword,
             this.filterOnlyMine,
             this.docTypeFilter,
-            this.filterOnlyLiked
+            //likedDiagramIds may be too long and could cause HttpGET to exceed the maximum length, so maxLikedIdsCQL is used to limit it.
+            this.likedDiagramIds.length <= this.maxLikedIdsCQL
+              ? this.likedDiagramIds
+              : []
           );
         console.debug({ actiion: "search", searchResult: searchResult });
         let searchedCustomContentList = searchResult.results;

@@ -38,8 +38,8 @@ jobs:
           CI: true
           IS_LITE: true
           NODE_OPTIONS: "--max-old-space-size=8192"
-          ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_STAGE_USERNAME }}
-          ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_STAGE_PASSWORD }}
+          ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_PROD_USERNAME }}
+          ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_PROD_PASSWORD }}
       - name: Upload artifacts # Find artifacts under actions/jobs
         if: always()
         uses: actions/upload-artifact@v4

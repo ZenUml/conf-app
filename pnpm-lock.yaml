@@ -58,8 +58,8 @@ importers:
         specifier: ^3.1.0
         version: 3.4.31(vue@3.4.31(typescript@5.8.2))
       '@zenuml/core':
-        specifier: ^3.29.5
-        version: 3.29.5(typescript@5.8.2)
+        specifier: ^3.29.6
+        version: 3.29.6(typescript@5.8.2)
       file-saver:
         specifier: ^2.0.5
         version: 2.0.5
@@ -2840,8 +2840,8 @@ packages:
   '@yarnpkg/lockfile@1.1.0':
     resolution: {integrity: sha512-GpSwvyXOcOOlV70vbnzjj4fW5xW/FdUF6nQEt1ENy7m4ZCczi1+/buVUPAqmGfqznsORNFzUMjctTIp8a9tuCQ==}
 
-  '@zenuml/core@3.29.5':
-    resolution: {integrity: sha512-dIXIg4pwDBlLdOGMdn8Bl4Y+AprmDsZxZ9XjWisSbtGpo8J+XUUMBX8xwQC2Z5/pPw/gSDAbGxXwlC+OKJ6mEQ==}
+  '@zenuml/core@3.29.6':
+    resolution: {integrity: sha512-vPYIdfWtDDIxeDxr9cdDgOykATHyWjVGeVGLb4lCBv34ZQ/TOdcOVFFE3sY6w4YwVQED1HnhwhUKyv1JdRq+2g==}
     engines: {node: '>=12.0.0'}
 
   abbrev@1.1.1:
@@ -9790,7 +9790,7 @@ snapshots:
 
   '@yarnpkg/lockfile@1.1.0': {}
 
-  '@zenuml/core@3.29.5(typescript@5.8.2)':
+  '@zenuml/core@3.29.6(typescript@5.8.2)':
     dependencies:
       '@headlessui-float/vue': 0.14.0(@headlessui/vue@1.7.22(vue@3.4.31(typescript@5.8.2)))(vue@3.4.31(typescript@5.8.2))
       '@headlessui/tailwindcss': 0.2.0(tailwindcss@3.4.17)

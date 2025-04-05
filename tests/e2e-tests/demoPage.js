@@ -40,7 +40,9 @@ if(!password) {
   page.setDefaultNavigationTimeout(60000);  // 60s for navigation operations
   page.setDefaultTimeout(60000);  // 60s for all other operations like waitForSelector
   await page.goto(existingPageId ? pageUrl(existingPageId) : `${baseUrl}/overview`);
-  await page.waitForSelector('input[name=username]');
+
+  //some instance doesn't automatically redirect to login
+  await Promise.race([page.waitForSelector('input[name=username]'), page.waitForSelector('span[aria-label="Sign In"]').then(e => e.click()).then(() => page.waitForSelector('input[name=username]'))]);
 
   await page.click('input[name=username]');
   await page.keyboard.type(username);
@@ -90,7 +92,7 @@ if(!password) {
   console.log(await page.title());
 
   try {
-    console.log('Case - view sequence/graph/openapi/embed macros');
+    console.log('\nCase - view sequence/graph/openapi/embed macros');
     await withNewPage(async () => {
 
       await assertFrame({frameSelector: `//iframe[contains(@id, "zenuml-sequence-macro${getModuleKeySuffix()}")]`,
@@ -107,7 +109,7 @@ if(!password) {
 
     }, {sequence: true, graph: true, openapi: true, embed: true});
 
-    console.log('Case - view mermaid macro');
+    console.log('\nCase - view mermaid macro');
     await withNewPage(async () => {
 
       await assertFrame({frameSelector: `//iframe[contains(@id, "zenuml-sequence-macro${getModuleKeySuffix()}")]`,
@@ -115,7 +117,7 @@ if(!password) {
 
     }, {mermaid: true});
 
-    console.log('Case - edit sequence macro');
+    console.log('\nCase - edit sequence macro');
     await withNewPage(async () => {
 
       await page.$eval('#editPageLink', e => {
@@ -133,6 +135,9 @@ if(!password) {
 
       const editMacroFrame = '//iframe[contains(@src, "sequence-editor.html")]';
       console.log('Looking for edit macro iframe...');
+
+      //TODO: sometimes Confluence shows its native editor with title: h1:contains("Edit ‘Diagram (ZenUML & Mermaid)’ Macro")
+
       const iframe = await waitForSelector(page, editMacroFrame);
       console.log('Found edit macro iframe');
 
@@ -170,7 +175,7 @@ if(!password) {
 
     }, {sequence: true});
 
-    console.log('Case - view macro body only sequence');
+    console.log('\nCase - view macro body only sequence');
     await withNewPage(async () => {
 
       await assertFrame({frameSelector: `//iframe[contains(@id, "zenuml-sequence-macro${getModuleKeySuffix()}")]`,
@@ -587,7 +592,7 @@ if(!password) {
   async function assertFrame({frameSelector, contentSelector, expectedContentText, contentXpath}) {
     let result;
     const iframe = await waitForSelector(page, frameSelector);
-    console.log(`Found "${frameSelector}"`);
+    console.log(`Found frame "${frameSelector}"`);
 
     const frame = await iframe.contentFrame();
     if(!frame) {
@@ -597,7 +602,7 @@ if(!password) {
 
     if(contentSelector) {
       result = await waitForSelector(frame, contentSelector);
-      console.log(`Found ${contentSelector}`);
+      console.log(`Found content ${contentSelector}`);
 
       if(expectedContentText) {
         result = await frame.$eval(contentSelector, e => e.innerText);
@@ -637,24 +642,39 @@ if(!password) {
     return e;
   }
 
-  async function waitForSelector(container, selector, options) {
+  async function waitForSelector(page, selector, options) {
     const isXpath = selector.indexOf('/') === 0;
     try {
-      return await (isXpath ? container.waitForXPath(selector, options) : container.waitForSelector(selector, options));
+      return await (isXpath ? page.waitForXPath(selector, options) : page.waitForSelector(selector, options));
     } catch(e) {
-      console.log(`Error on waiting for ${selector} in ${container}`);
-      if(!options || !options.hidden) {
-        await printDebugInfo(container, selector);
+      console.log(`Error on waiting for ${selector}, now evaluating page...`);
+
+      const element = await page.$eval('html', (e, isXpath, selector) => isXpath 
+        ? document.evaluate(selector, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null) 
+        : document.querySelector(selector), isXpath, selector);
+
+      if(element) {
+        console.log(`Found element ${selector} in page`);
+        return element;
       }
-      throw e;
+      else {
+        console.log(`Element still not found`);
+
+        if(!options || !options.hidden) {
+          await printDebugInfo(page, selector);
+        }
+        throw e;
+      }
     }
   }
 
   async function printDebugInfo(page, selector) {
     try {
       const html = await page.$eval('html', e => e.innerHTML);
-      const url = await page.$eval('html', e => window.location.href);
-      console.log(`Selector "${selector}" not found in ${url}:\n`, html);
+
+      const file = `${dirPath}/debug-${Date.now()}.html`;
+      writeFile(file, html);
+      console.log(`Selector "${selector}" not found in page, see ${file}`);
     } catch(e) {
       console.log(`Failed to collect page info`, e);
     }
@@ -673,6 +693,15 @@ if(!password) {
       "type": "png", // can also be "jpeg" or "webp" (recommended)
       "path": `${dirPath}/screenshot-${Date.now()}.png`,  // where to save it
       "fullPage": true,  // will scroll down to capture everything if true
+    });
+  }
+
+  function writeFile(path, content) {
+    fs.writeFile(path, content, 'utf8', (err) => {
+      if (err) {
+        console.error('Error writing file:', err);
+        return;
+      }
     });
   }
 

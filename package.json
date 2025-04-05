@@ -5,6 +5,7 @@
   "scripts": {
     "test:unit": "vitest",
     "test:e2e": "cd tests/e2e-tests && pnpm test",
+    "test:e2e:prod": "cd tests/e2e-tests && pnpm test:prod",
     "test:e2e:peng": "cd tests/e2e-tests && pnpm test:peng",
     "test:e2e:yanhui": "cd tests/e2e-tests && pnpm test:yanhui",
     "test:e2e:yanhui:existing": "cd tests/e2e-tests && pnpm test:yanhui:existing",

@@ -67,7 +67,7 @@ Example file:
    ```
    wrangler d1 migrations apply zenuml-for-confluence --remote
    ```
-* Run build: `yarn build:full`
+* Run build: `pnpm build:full`
 * Deploy:
    ```
    wrangler pages deploy dist

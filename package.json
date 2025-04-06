@@ -15,6 +15,7 @@
     "wrangler:publish:stg": "CLOUDFLARE_ACCOUNT_ID=8d5fc7ce04adc5096f52485cce7d7b3d wrangler pages publish dist --project-name conf-stg-full --branch=production",
     "wrangler:publish:stg:lite": "CLOUDFLARE_ACCOUNT_ID=8d5fc7ce04adc5096f52485cce7d7b3d wrangler pages publish dist --project-name conf-stg-lite --branch=production",
     "wrangler:publish:yanhui": "cp ./scripts/dev-config/wrangler-yanhui.toml ./wrangler.toml && CLOUDFLARE_ACCOUNT_ID=5c797c13512deae1354dee87c8766e75 wrangler pages publish --branch=production",
+    "wrangler:publish:peng": "cp ./scripts/dev-config/wrangler-yanhui.toml ./wrangler.toml && CLOUDFLARE_ACCOUNT_ID=5c797c13512deae1354dee87c8766e75 wrangler pages publish --branch=production",
     "lint:vue": "vue-cli-service lint",
     "git:branch:clean:gone": "git fetch -p && git branch -vv | awk '/: gone]/{print $1}' | xargs git branch -d",
     "git:branch:clean:merged": "git branch --merged|egrep -v \"(\\*|master|main|dev|skip_branch_name)\" | xargs git branch -d",

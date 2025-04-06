@@ -44,4 +44,4 @@ runs:
       with:
         apiToken: ${{ inputs.cloudflare-api-token }}
         accountId: ${{ inputs.cloudflare-account-id }}
-        command: pages deploy dist --branch production --project-name=${{ inputs.project }}
+        command: pages deploy dist --config wrangler-stg.toml --branch production --project-name=${{ inputs.project }}

@@ -2,7 +2,7 @@ import {
   getClientDomain,
 } from "@/utils/ContextParameters/ContextParameters";
 
-const InteeralDomains = ['whimet4', 'zenuml-stg', 'dyon', 'danshuitaihejie'];
+const InteeralDomains = ['whimet4', 'zenuml-stg', 'dyon', 'danshuitaihejie', 'diagramly'];
 
 export const enum FeatureSwitch {
   DIAGRAM_LIKE = 'diagram-like',
@@ -17,3 +17,4 @@ export async function isFeatureEnabled(featureName: FeatureSwitch): Promise<bool
   //TODO: Check feature switch from KV store
   return false;
 }
+

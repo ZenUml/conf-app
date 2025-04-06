@@ -46,6 +46,7 @@ jobs:
           cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           license: lite
           project: conf-stg-lite
+          environment: stg
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
@@ -113,6 +114,7 @@ jobs:
           cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           license: full
           project: conf-stg-full
+          environment: stg
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'

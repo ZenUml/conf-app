@@ -17,6 +17,10 @@ inputs:
   project:
     description: 'Project name of cloudflare pages'
     required: true
+  environment:
+    description: 'Environment (stg or prod)'
+    required: true
+    default: 'stg'
 runs:
   using: 'composite'
   steps:
@@ -41,8 +45,17 @@ runs:
         NODE_OPTIONS: "--max-old-space-size=8192"
     - name: Prepare wrangler config
       run: |
+        # Select the appropriate config file based on environment
+        CONFIG_FILE="wrangler-${{ inputs.environment }}.toml"
+        
+        # Check if the config file exists
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "Error: Configuration file $CONFIG_FILE not found!"
+          exit 1
+        fi
+        
         # Create wrangler.toml with the project name replaced
-        sed "s/name=\"conf-stg\"/name=\"${{ inputs.project }}\"/" wrangler-stg.toml > wrangler.toml
+        sed "s/name=\"conf-${{ inputs.environment }}\"/name=\"${{ inputs.project }}\"/" "$CONFIG_FILE" > wrangler.toml
         cat wrangler.toml
       shell: bash
     - name: Run D1 Migrations

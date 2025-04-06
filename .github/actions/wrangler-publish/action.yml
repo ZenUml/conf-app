@@ -39,9 +39,19 @@ runs:
       shell: bash
       env:
         NODE_OPTIONS: "--max-old-space-size=8192"
+    - name: Prepare wrangler config
+      run: |
+        # Create wrangler.toml with the project name replaced
+        sed "s/name=\"conf-stg-lite\"/name=\"${{ inputs.project }}\"/" wrangler-stg.toml > wrangler.toml
+        cat wrangler.toml
+      shell: bash
     - name: Publish
       uses: cloudflare/wrangler-action@v3
       with:
         apiToken: ${{ inputs.cloudflare-api-token }}
         accountId: ${{ inputs.cloudflare-account-id }}
-        command: pages deploy dist --config wrangler-stg.toml --branch production --project-name=${{ inputs.project }}
+        command: pages deploy dist --branch production --project-name=${{ inputs.project }}
+    - name: Cleanup
+      if: always()
+      run: rm -f wrangler.toml
+      shell: bash

@@ -50,7 +50,7 @@ runs:
       with:
         apiToken: ${{ inputs.cloudflare-api-token }}
         accountId: ${{ inputs.cloudflare-account-id }}
-        command: d1 migrations apply DB --env production
+        command: d1 migrations apply DB --remote --env production
     - name: Publish
       uses: cloudflare/wrangler-action@v3
       with:

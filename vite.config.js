@@ -133,6 +133,10 @@ export default defineConfig({
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true
       },
+      '/diagram-likes': {
+        target: 'http://127.0.0.1:8788/',
+        changeOrigin: true
+      },
       '/installed': {
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true
@@ -142,6 +146,6 @@ export default defineConfig({
         changeOrigin: true
       }
     },
-    allowedHosts: ['yanhui8080.zenuml.com', 'peng-new-8080.diagramly.ai'],
+    allowedHosts: ['yanhui8080.zenuml.com', 'peng-new-8080.diagramly.ai', 'precise-oriented-mink.ngrok-free.app', 'special-lemming-radically.ngrok-free.app'],
   }
 });

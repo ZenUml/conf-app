@@ -46,6 +46,13 @@
             />
             <label id="mineOnlyLbl" for="mineOnly">My Diagrams</label>
             <input
+              v-model="filterOnlyLiked"
+              type="checkbox"
+              id="likedOnly"
+              class="block ml-3 border-[1px] border-solid border-[#CACBD1] outline-none w-[14px] h-[14px] flex-shrink-0"
+            />
+            <label id="likedOnlyLbl" for="likedOnly">I Liked</label>
+            <input
               v-model="filterKeyword"
               type="search"
               placeholder="search in title and content"
@@ -63,7 +70,7 @@
               @click="exportContents"
               class="flex items-center bg-[#004EEB] px-3 py-2 text-white text-sm font-semibold rounded whitespace-nowrap hover:brightness-90"
             >
-              {{ isExportInProgress ? 'Exporting...' : 'Export' }}
+              {{ isExportInProgress ? "Exporting..." : "Export" }}
             </button>
             <button
               v-show="isMigrationEnabled"
@@ -118,9 +125,7 @@
       </header>
       <div class="flex-1 flex overflow-hidden">
         <main v-if="viewStyle == 'table'" class="tableViewList flex flex-1">
-          <div
-            class="flex flex-col w-full max-w-md flex-grow border-r"
-          >
+          <div class="flex flex-col w-full max-w-md flex-grow border-r">
             <div
               id="tableScrollContainer"
               class="flex-1 overflow-y-auto"
@@ -299,7 +304,7 @@
 
 <script>
 import PublishButton from "@/components/PublishButton.vue";
-import CloseButton from '@/components/CloseButton.vue';
+import CloseButton from "@/components/CloseButton.vue";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import EventBus from "@/EventBus";
 import AP from "@/model/AP";
@@ -317,6 +322,11 @@ import IconFullscreenOff from "@/components/icons/IconFullscreenOff.vue";
 import IconPencil from "@/components/icons/IconPencil.vue";
 import DocType from "./components/DocType.vue";
 import Contributors from "./components/Contributors.vue";
+import {
+  getBaseUrl,
+  getClientDomain,
+} from "@/utils/ContextParameters/ContextParameters";
+import { addonKey } from "@/utils/window";
 
 export default {
   name: "DashboardDocumentList",
@@ -330,6 +340,7 @@ export default {
       baseUrl: "",
       filterKeyword: "",
       filterOnlyMine: false,
+      filterOnlyLiked: false,
       viewStyle: "table",
       customContentStorageProvider: null,
       filterTimeout: null,
@@ -345,6 +356,8 @@ export default {
       isExportEnabled: false,
       isExportInProgress: false,
       isLite: false,
+      likedDiagramIds: [],
+      maxLikedIdsCQL: 100,
     };
   },
   watch: {
@@ -359,6 +372,16 @@ export default {
       console.log("filterOnlyMine changed:", newValue, oldValue);
       await this.search();
     },
+    async filterOnlyLiked(newValue, oldValue) {
+      console.log("filterOnlyLiked changed:", newValue, oldValue);
+      if (newValue) {
+        this.likedDiagramIds = await this.getUserLikedDiagramIds();
+      }else{
+        this.likedDiagramIds=[];
+      }
+      console.log("likedDiagramIds", this.likedDiagramIds);
+      await this.search();
+    },
     async customContentList(newValue, oldValue) {
       console.log("customContentList changed:", newValue, oldValue);
       if (this.filteredCustomContentList.length > 0) this.hasData = true;
@@ -367,7 +390,12 @@ export default {
   computed: {
     filteredCustomContentList() {
       const results = this.customContentList.filter((item) => {
+        console.log("item id", item.id, this.likedDiagramIds);
         if (!item?.id) {
+          return false;
+        }
+        if (this.filterOnlyLiked && !this.likedDiagramIds.includes(item?.id)) {
+          console.log("not liked", item?.id);
           return false;
         }
         if (
@@ -445,11 +473,36 @@ export default {
     this.initTheRightSideContent();
 
     const hasFull = await apWrapper.hasFullAddon();
-    this.isMigrationEnabled = apWrapper.isLite() && hasFull && upgrade.isEnabled();
+    this.isMigrationEnabled =
+      apWrapper.isLite() && hasFull && upgrade.isEnabled();
     this.isExportEnabled = upgrade.isExportEnabled();
     this.isLite = apWrapper.isLite();
   },
   methods: {
+    async getUserLikedDiagramIds() {
+      try {
+        const response = await fetch(
+          `/diagram-likes/user-likes?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${await globals.apWrapper.getToken()}`,
+            },
+            body: JSON.stringify({
+              userAccountId: (
+                await globals.apWrapper._getCurrentUser()
+              ).atlassianAccountId,
+              clientDomain: getClientDomain(),
+            }),
+          }
+        );
+        const result = await response.json();
+        return (result || []).map((item) => item.diagramCustomContentId);
+      } catch (e) {
+        return [];
+      }
+    },
     checkIfHasData() {
       if (this.fullScreen == false && this.customContentList.length > 0) {
         this.hasData = true;
@@ -469,6 +522,7 @@ export default {
         docTypeFilter: this.docTypeFilter,
         filterKeyword: this.filterKeyword,
         filterOnlyMine: this.filterOnlyMine,
+        filterOnlyLiked: this.filterOnlyLiked,
         viewStyle: this.viewStyle,
         hasData: this.hasData,
       };
@@ -624,14 +678,20 @@ export default {
       );
     },
     async search() {
+
       this.resetNextPageScorll();
+      //likedDiagramIds may be too long and could cause HttpGET to exceed the maximum length, so maxLikedIdsCQL is used to limit it.
+      const ids=this.likedDiagramIds.length <= this.maxLikedIdsCQL
+        ? this.likedDiagramIds
+        : [];
       try {
         let searchResult =
           await this.customContentStorageProvider.searchPagedCustomContent(
             this.pageSize,
             this.filterKeyword,
             this.filterOnlyMine,
-            this.docTypeFilter
+            this.docTypeFilter,
+            ids
           );
         console.debug({ actiion: "search", searchResult: searchResult });
         let searchedCustomContentList = searchResult.results;
@@ -715,8 +775,8 @@ export default {
       this.isExportInProgress = true;
       try {
         const contents = await upgrade.exportContents(this.isLite);
-        console.log('Zenuml contents:', contents);
-        
+        console.log("Zenuml contents:", contents);
+
         const data = JSON.stringify(contents);
         const blob = new Blob([data], { type: "text/plain" });
         const url = URL.createObjectURL(blob);

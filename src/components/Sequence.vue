@@ -55,7 +55,7 @@ export default {
         console.warn("ZenUML instance not initialized yet");
         return;
       }
-      
+
       const id = this.$store.state.diagram.id;
       const globalTheme = localStorage.getItem(getThemeStorageKey("global"));
       const scopeTheme = id
@@ -67,7 +67,7 @@ export default {
         // Note when the iframe is not scrollable, the stickyOffset does not have any effect.
         theme: scopeTheme || globalTheme || "theme-default",
         enableScopedTheming: Boolean(scopeTheme),
-        stickyOffset: 82,
+        stickyOffset: 120,
         onContentChange: this.updateCode,
         onThemeChange: ({ theme, scoped }) => {
           if (!scoped) {

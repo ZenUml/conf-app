@@ -383,18 +383,22 @@ export default class ApWrapper2 implements IApWrapper {
     return typesClause(CUSTOM_CONTENT_TYPES);
   }
 
-  async buildSearchCustomConentUrl(keyword: string = '', onlyMine: boolean = false, docType: string = '', limit?: number): Promise<string> {
+  async buildSearchCustomConentUrl(keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = [], limit?: number): Promise<string> {
     const typesClauseFilter = this.buildTypesClauseFilter();
     const spaceKeyFilter = (await this.getCurrentSpace()).key;
-    let keywordFilter = '', onlyMineFilter = '', docTypeFilter = '', limitFilter = '';
+    let keywordFilter = '', onlyMineFilter = '', docTypeFilter = '', limitFilter = '' , idFilter = '';
     if (keyword != '') {
       const formatKeyword = keyword.replace(/[-:]/g, " ");
       keywordFilter = ` and (title ~ "${formatKeyword}*" or title ~ "*${formatKeyword}*" or title ~ "${formatKeyword}")`;
     }
+    if (ids.length > 0) {
+      const idList = ids.join(', ');
+      idFilter = ` and id in (${idList})`;
+  }
     if (onlyMine) onlyMineFilter = ` and contributor = "${this.currentUser?.atlassianAccountId}"`;
     if (docType != '') docTypeFilter = ``;
     if (limit != undefined) limitFilter = `&limit=${limit}`;
-    const searchUrl = `/rest/api/content/search?cql=space="${spaceKeyFilter}" and (${typesClauseFilter}) ${keywordFilter} ${onlyMineFilter} ${docTypeFilter}order by lastmodified desc${limitFilter}&expand=body.raw,version.number,container,space,body.storage,history.contributors.publishers.users`;
+    const searchUrl = `/rest/api/content/search?cql=space="${spaceKeyFilter}" and (${typesClauseFilter}) ${keywordFilter} ${onlyMineFilter} ${docTypeFilter} ${idFilter} order by lastmodified desc${limitFilter}&expand=body.raw,version.number,container,space,body.storage,history.contributors.publishers.users`;
     return searchUrl;
   }
 
@@ -433,8 +437,8 @@ export default class ApWrapper2 implements IApWrapper {
     }
   }
 
-  async searchPagedCustomContent(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = ''): Promise<SearchResults> {
-    const searchUrl = await this.buildSearchCustomConentUrl(keyword, onlyMine, docType, pageSize);
+  async searchPagedCustomContent(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
+    const searchUrl = await this.buildSearchCustomConentUrl(keyword, onlyMine, docType, ids, pageSize);
     return await this.searchPagedCustomContentByUrl(searchUrl);
   }
 

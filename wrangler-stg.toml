@@ -1,0 +1,27 @@
+compatibility_flags = [ "nodejs_compat" ]
+compatibility_date = "2024-11-11"
+
+# To be replaced with conf-stg-lite or conf-stg-full in action.yml
+name="conf-stg"
+pages_build_output_dir = "dist"
+
+[vars]
+DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
+
+[env.production]
+ENVIRONMENT = "production"
+
+[[ env.production.d1_databases ]]
+binding = "DB"
+database_name = "conf-zenuml-stg"
+database_id = "5894387c-08be-43d7-b8dc-0b7b8eb7c264"
+migrations_dir = "functions/migrations"
+
+[[ env.production.kv_namespaces ]]
+binding = "CLIENT_INSTALLATION_KV"
+id = "a1252fa9b51f4b87a462413bd4fd2f27"
+
+[[ env.production.r2_buckets ]]
+binding = "EVENT_BUCKET"
+bucket_name = "atlassian-events"
+

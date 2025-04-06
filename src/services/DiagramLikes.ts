@@ -1,0 +1,62 @@
+import globals from '@/model/globals';
+import { DiagramType } from "@/model/Diagram/Diagram";
+import { getBaseUrl } from "@/utils/ContextParameters/ContextParameters";
+import { addonKey, trackEvent } from '@/utils/window';
+import {
+  getClientDomain,
+  getSpaceKey,
+} from "@/utils/ContextParameters/ContextParameters";
+
+export async function toggleDiagramLike(diagramId: string, diagramType: DiagramType) {
+  try {
+    const response = await fetch(`/diagram-likes/toggle?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${await globals.apWrapper.getToken()}`
+      },
+      body: JSON.stringify({
+        userAccountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
+        diagramCustomContentId: diagramId,
+        clientDomain: getClientDomain(),
+        confluenceSpace: getSpaceKey(),
+        confluencePageId: (await globals.apWrapper._getCurrentPageId()),
+        macroUuid: (await globals.apWrapper.getMacroData())?.uuid,
+        diagramType: diagramType
+      })
+    });
+
+    const result = await response.json();
+    console.log('Diagram-likes response', result);
+    return result;
+  } catch (e) {
+    console.error('Error when liking diagram', e);
+    trackEvent(JSON.stringify(e), 'like_diagram', 'error');
+  }
+}
+
+export async function getDiagramLikes(diagramId: string) {
+  try {
+    const response = await fetch(`/diagram-likes/query?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${await globals.apWrapper.getToken()}`
+      },
+      body: JSON.stringify({
+        diagramCustomContentId: diagramId,
+        clientDomain: getClientDomain(),
+        confluenceSpace: getSpaceKey(),
+        confluencePageId: (await globals.apWrapper._getCurrentPageId()),
+        macroUuid: (await globals.apWrapper.getMacroData())?.uuid,
+      })
+    });
+
+    const result = await response.json();
+    console.log('Diagram-likes response', result);
+    return result;
+  } catch (e) {
+    console.error('Error when getting diagram likes', e);
+    trackEvent(JSON.stringify(e), 'like_diagram', 'error');
+  }
+}

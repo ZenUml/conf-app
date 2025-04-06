@@ -66,6 +66,12 @@
               <span class="bg-yellow-100 text-yellow-800 text-xs font-bold ms-0.5 px-1 py-0.5 rounded dark:bg-yellow-800/30 dark:text-yellow-500">Unlock</span>
             </a>
             <send-feedback/>
+
+            <button v-show="showLikeButton" @click="clickLikeButton" class="flex justify-center items-center px-2 rounded hover:bg-gray-300" style="" title="Like this diagram">
+              <IconLikeFilled v-if="userLiked" :width="20" style="color: #1868DB"/>
+              <IconLike v-else :width="20" style="color: #475467"/>
+              {{ likesForDisplay }}
+            </button>
           </div>
         </div>
         <div class="right">
@@ -100,6 +106,11 @@ import Upgrade from "@/components/Upgrade.vue";
 import Notice from "@/components/Viewer/Notice/index.vue"
 import * as htmlToImage from "html-to-image";
 import getFeatureFlags from '@/apis/featureFlags'
+import { isFeatureEnabled, FeatureSwitch } from "@/services/FeatureSwitch";
+import { toggleDiagramLike, getDiagramLikes } from "@/services/DiagramLikes";
+import store from "@/model/store2";
+import IconLike from "../icons/IconLike.vue";
+import IconLikeFilled from "../icons/IconLikeFilled.vue";
 
 export default {
   name: "GenericViewer",
@@ -109,7 +120,10 @@ export default {
       canUserEdit: true,
       exportPngLocked: false,
       exportPngEnabled: false,
-      exportPngTrial: false
+      exportPngTrial: false,
+      showLikeButton: false,
+      userLiked: false, // TODO: check if user liked the diagram
+      likesCount: 0,
     }
   },
   components: {
@@ -117,7 +131,9 @@ export default {
     Upgrade,
     Debug,
     ErrorBoundary,
-    Notice
+    Notice,
+    IconLike,
+    IconLikeFilled,
   },
   computed: {
     // We use {} instead of [] to get type checking
@@ -134,7 +150,10 @@ export default {
       let isNotCopy = !this.diagram.isCopy;
       console.debug('showEdit', this.canUserEdit, isCustomContent, isNotCopy);
       return this.canUserEdit && isCustomContent && isNotCopy;
-    }
+    },
+    likesForDisplay() {
+      return this.likesCount > 0 ? this.likesCount : '';
+    },
   },
   async mounted() {
     try {
@@ -145,6 +164,11 @@ export default {
       this.exportPngTrial = featureFlagsTrial.LITE_PNG_EXPORT_TRIAL?.enabled;
       let featureFlagsEnabled = await getFeatureFlags(['LITE_PNG_EXPORT_ENABLED']);
       this.exportPngEnabled = featureFlagsEnabled.LITE_PNG_EXPORT_ENABLED?.enabled;
+      this.showLikeButton = await isFeatureEnabled(FeatureSwitch.DIAGRAM_LIKE);
+
+      if (this.showLikeButton) {
+        await this.getLikes();
+      }
     } catch (e) {
       console.error('Error getting feature flags', e);
     }
@@ -175,6 +199,24 @@ export default {
       }
       const png = await htmlToImage.toBlob(node, {backgroundColor: 'white'});
       saveAs(png, 'zenuml-for-confluence.png');
+    },
+    async getLikes() {
+      const {atlassianAccountId: userAccountId} = await globals.apWrapper._getCurrentUser();
+      const likes = await getDiagramLikes(this.diagram.id)
+      this.likesCount = likes.length;
+      this.userLiked = likes.some(like => like.userAccountId === userAccountId);
+    },
+    async clickLikeButton() {
+      trackEvent('like_diagram', 'click', 'viewing');
+      console.log('clickLikeButton', store.state.diagram.id);
+      try {
+        this.userLiked = !this.userLiked;
+        this.likesCount += this.userLiked ? 1 : -1;
+        const likes = await toggleDiagramLike(store.state.diagram.id);
+        this.likesCount = likes?.length || 0;
+      } catch (error) {
+        await this.getLikes();
+      }
     },
   },
 }

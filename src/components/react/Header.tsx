@@ -10,6 +10,7 @@ interface Props {
 }
 const Component = ({ saveAndExit, exit }: Props) => {
   const [title, setTitle] = useState("");
+  const [parseError, setParseError] = useState<Error | null>(null);
 
   const helpClick = () => {
     trackEvent("help", "click", "open-api");
@@ -25,26 +26,54 @@ const Component = ({ saveAndExit, exit }: Props) => {
   const changeTitle: FormEventHandler<HTMLInputElement> = e => {
     setTitleWithSideEffect(e.currentTarget.value);
     if (window.diagram) {
-      yaml.loadAll(window.specContent || '', function (data) {
-        const doc: Record<string, any> = data as any;
-        doc.info.title = e.currentTarget.value;
-        window.editor.specActions.updateSpec(yaml.dump(doc));
-      });
+      try {
+        yaml.loadAll(window.specContent || '', function (data) {
+          if (!data) return;
+          const doc: Record<string, any> = data as any;
+          if (doc && doc.info) {
+            doc.info.title = e.currentTarget.value;
+            window.editor.specActions.updateSpec(yaml.dump(doc));
+          }
+        });
+        setParseError(null);
+      } catch (error) {
+        console.error("Error parsing YAML:", error);
+        setParseError(error instanceof Error ? error : new Error(String(error)));
+        // Still update the title in the UI even if YAML parsing fails
+      }
     }
   };
+  
   useEffect(() => {
     if (window.diagram) {
-      yaml.loadAll(window.diagram.code || '', function (data) {
-        const doc: Record<string, any> = data as any;
-        if (doc?.info?.title) setTitleWithSideEffect(doc.info.title);
-      });
+      try {
+        yaml.loadAll(window.diagram.code || '', function (data) {
+          if (!data) return;
+          const doc: Record<string, any> = data as any;
+          if (doc?.info?.title) setTitleWithSideEffect(doc.info.title);
+        });
+        setParseError(null);
+      } catch (error) {
+        console.error("Error parsing YAML in useEffect:", error);
+        setParseError(error instanceof Error ? error : new Error(String(error)));
+      }
     }
+    
     const handleEditorChange = (spec: string) => {
-      yaml.loadAll(spec, function (data) {
-        const doc: Record<string, any> = data as any;
-        setTitleWithSideEffect(doc?.info?.title || '');
-      });
+      try {
+        yaml.loadAll(spec, function (data) {
+          if (!data) return;
+          const doc: Record<string, any> = data as any;
+          setTitleWithSideEffect(doc?.info?.title || '');
+        });
+        setParseError(null);
+      } catch (error) {
+        console.error("Error parsing YAML in editor change:", error);
+        setParseError(error instanceof Error ? error : new Error(String(error)));
+        // Keep the existing title if parsing fails
+      }
     };
+    
     if (!window.specListeners) window.specListeners = [];
     window.specListeners.push(handleEditorChange);
     return () => {
@@ -57,7 +86,7 @@ const Component = ({ saveAndExit, exit }: Props) => {
 
   return (
     <header className="toolbar header border-b border-gray-800 p-2 flex items-center justify-between w-full">
-      <div className="flex">
+      <div className="flex flex-col">
         <input
           className="px-1 border-2 border-solid border-[#091e4224] rounded-[3px] focus:border-[#388bff] hover:border-[#388bff] outline-none transition-[border-color] leading-7"
           type="text"
@@ -65,6 +94,11 @@ const Component = ({ saveAndExit, exit }: Props) => {
           value={title}
           onInput={changeTitle}
         />
+        {parseError && (
+          <div className="text-red-500 text-xs mt-1">
+            Note: YAML parsing error detected. Title changes may not be saved to the specification.
+          </div>
+        )}
       </div>
       <div className="flex items-center">
         <a
@@ -103,7 +137,5 @@ const Component = ({ saveAndExit, exit }: Props) => {
     </header>
   );
 };
-
-
 
 export default Component;

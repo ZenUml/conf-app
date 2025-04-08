@@ -878,22 +878,20 @@ export default class ApWrapper2 implements IApWrapper {
               version: version.number,
               created: new Date(version.createdAt).toLocaleString(),
               title: diagramData.title || 'Untitled',
-              type: DiagramType[diagramData.diagramType] || 'Unknown',
               codeLength: code ? code.length : 0
             });
 
             console.log(`%c║ Title: ${diagramData.title || 'Untitled'}`, 'color: #1F2937; padding-left: 10px; font-weight: bold;');
-            console.log(`%c║ Diagram Type: ${DiagramType[diagramData.diagramType] || 'Unknown'}`, 'color: #4B5563; padding-left: 10px;');
 
             // Style code differently based on diagram type
             if(diagramData.diagramType === DiagramType.Mermaid) {
               console.log(`%c║ Code (select and copy): `, 'color: #4B5563; padding-left: 10px;');
-              console.log(`%c${code || 'Empty'}`, 'color: #0D9488; background-color: #F0FDFA; padding: 5px; margin-left: 15px; font-family: monospace; border-left: 3px solid #0D9488; white-space: pre-wrap;');
+              console.log(`${code || 'Empty'}`);
 
               // Create a copy button
             } else {
               console.log(`%c║ Code (select and copy): `, 'color: #4B5563; padding-left: 10px;');
-              console.log(`%c${code || 'Empty'}`, 'color: #0369A1; background-color: #F0F9FF; padding: 5px; margin-left: 15px; font-family: monospace; border-left: 3px solid #0369A1; white-space: pre-wrap;');
+              console.log(`${code || 'Empty'}`);
 
               // Create a copy button
             }

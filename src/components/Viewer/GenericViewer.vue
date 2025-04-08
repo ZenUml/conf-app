@@ -65,6 +65,21 @@
               <span class="ms-0.5 px-1 py-0.5 text-gray-500">Export PNG</span>
               <span class="bg-yellow-100 text-yellow-800 text-xs font-bold ms-0.5 px-1 py-0.5 rounded dark:bg-yellow-800/30 dark:text-yellow-500">Unlock</span>
             </a>
+            <!-- Content Versions Button -->
+            <div class="relative">
+              <button v-show="isCustomContent" @click="showContentVersions" class="flex justify-center items-center px-2 rounded hover:bg-gray-300" title="View version history in developer console (F12)">
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M14.25 6.75L9 2.25L3.75 6.75" stroke="#475467" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M3.75 11.25L9 15.75L14.25 11.25" stroke="#475467" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="px-1 py-0.5 text-gray-500">Versions</span>
+              </button>
+              <!-- Quick popup tooltip that shows on click -->
+              <div v-if="showVersionsTooltip" class="absolute z-10 bg-gray-700 text-white text-xs rounded py-1 px-2 left-1/2 transform -translate-x-1/2 mt-1 whitespace-nowrap shadow-md">
+                Version history shown in developer console (F12)
+                <div class="absolute w-2 h-2 bg-gray-700 transform rotate-45 -top-1 left-1/2 -translate-x-1/2"></div>
+              </div>
+            </div>
             <send-feedback/>
 
             <button v-show="showLikeButton" @click="clickLikeButton" class="flex justify-center items-center px-2 rounded hover:bg-gray-300" style="" title="Like this diagram">
@@ -72,6 +87,7 @@
               <IconLike v-else :width="20" style="color: #475467"/>
               {{ likesForDisplay }}
             </button>
+
           </div>
         </div>
         <div class="right">
@@ -124,6 +140,8 @@ export default {
       showLikeButton: false,
       userLiked: false, // TODO: check if user liked the diagram
       likesCount: 0,
+      showVersionsTooltip: false,
+      versionsTooltipTimer: null,
     }
   },
   components: {
@@ -144,6 +162,9 @@ export default {
     },
     isEmbedded() {
       return getUrlParam('xdm_c')?.includes('channel-com.zenuml.confluence-addon__zenuml-embed');
+    },
+    isCustomContent() {
+      return this.diagram.source === DataSource.CustomContent;
     },
     showEdit() {
       let isCustomContent = this.diagram.source === DataSource.CustomContent;
@@ -216,6 +237,32 @@ export default {
         this.likesCount = likes?.length || 0;
       } catch (error) {
         await this.getLikes();
+      }
+    },
+    showContentVersions() {
+      trackEvent('show_content_versions', 'click', 'viewing');
+      // Show quick tooltip
+      this.showVersionsTooltip = true;
+      // Clear any existing timer
+      if (this.versionsTooltipTimer) {
+        clearTimeout(this.versionsTooltipTimer);
+      }
+      // Auto-hide tooltip after 2 seconds
+      this.versionsTooltipTimer = setTimeout(() => {
+        this.showVersionsTooltip = false;
+      }, 2000);
+      
+      if (this.diagram.id) {
+        console.log(`Getting versions for content ID: ${this.diagram.id}`);
+        globals.apWrapper.getAndPrintContentVersions(this.diagram.id)
+          .then(versions => {
+            console.log(`Retrieved ${versions.length} versions`);
+          })
+          .catch(error => {
+            console.error('Error retrieving content versions:', error);
+          });
+      } else {
+        console.warn('No content ID available to show versions');
       }
     },
   },

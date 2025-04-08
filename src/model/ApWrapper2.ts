@@ -8,7 +8,7 @@ import {IUser} from "@/model/IUser";
 import {IConfluence} from "@/model/IConfluence";
 import {ILicense} from "@/model/ILicense";
 import {IAp} from "@/model/IAp";
-import {DataSource, Diagram} from "@/model/Diagram/Diagram";
+import {DataSource, Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import {
   AccountUser,
   ICustomContentResponseBody,
@@ -813,5 +813,110 @@ export default class ApWrapper2 implements IApWrapper {
 
   async getToken(): Promise<string> {
     return this._context.getToken();
+  }
+
+  /**
+   * Gets all versions of a custom content item and prints them to the console
+   * @param contentId The ID of the custom content item
+   * @returns Array of version objects
+   */
+  async getAndPrintContentVersions(contentId: string): Promise<any[]> {
+    try {
+      // Using the V2 API as specified in the documentation
+      // https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-custom-content/#api-custom-content-id-get
+      const url = `/api/v2/custom-content/${contentId}/versions?body-format=raw&limit=100`;
+      const response = await this._requestFn({
+        type: 'GET',
+        url
+      });
+
+      const data = JSON.parse(response.body);
+      const versions = data.results || [];
+
+      console.log(`%cFound ${versions.length} versions for content ID: ${contentId}`, 'color: #4B5563; font-size: 14px; font-weight: bold;');
+
+      // Create an array to store version data for table display
+      const tableData = [];
+
+      // Create a textarea for copying
+      const textarea = document.createElement('textarea');
+      textarea.style.position = 'fixed';
+      textarea.style.top = '10px';
+      textarea.style.right = '10px';
+      textarea.style.width = '1px';
+      textarea.style.height = '1px';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+
+      // Print each version details
+      for (let i = 0; i < versions.length; i++) {
+        const version = versions[i];
+
+        // Style for version header
+        console.log(`%c╔══ Version ${version.number} ══╗`, 'color: #1E40AF; background-color: #DBEAFE; font-size: 14px; font-weight: bold; padding: 5px; border-radius: 3px;');
+        console.log(`%c║ Created: ${new Date(version.createdAt).toLocaleString()}`, 'color: #4B5563; padding-left: 10px;');
+
+        // Fetch the specific version content
+        try {
+          const versionContentUrl = `/api/v2/custom-content/${contentId}?version=${version.number}&body-format=raw`;
+          const versionResponse = await this._requestFn({
+            type: 'GET',
+            url: versionContentUrl
+          });
+
+          const versionData = JSON.parse(versionResponse.body);
+          if (versionData.body?.raw?.value) {
+            const diagramData = JSON.parse(versionData.body.raw.value);
+
+            // Extract code based on diagram type
+            const code = diagramData.diagramType === DiagramType.Mermaid ?
+              (diagramData.mermaidCode || '') :
+              (diagramData.code || '');
+
+            // Add data to table array
+            tableData.push({
+              version: version.number,
+              created: new Date(version.createdAt).toLocaleString(),
+              title: diagramData.title || 'Untitled',
+              codeLength: code ? code.length : 0
+            });
+
+            console.log(`%c║ Title: ${diagramData.title || 'Untitled'}`, 'color: #1F2937; padding-left: 10px; font-weight: bold;');
+
+            // Style code differently based on diagram type
+            if(diagramData.diagramType === DiagramType.Mermaid) {
+              console.log(`%c║ Code (select and copy): `, 'color: #4B5563; padding-left: 10px;');
+              console.log(`${code || 'Empty'}`);
+
+              // Create a copy button
+            } else {
+              console.log(`%c║ Code (select and copy): `, 'color: #4B5563; padding-left: 10px;');
+              console.log(`${code || 'Empty'}`);
+
+              // Create a copy button
+            }
+          }
+        } catch (e) {
+          console.log(`%c║ Could not fetch or parse version content`, 'color: #B91C1C; padding-left: 10px;');
+          console.error(e);
+        }
+        console.log(`%c╚════════════════╝`, 'color: #1E40AF; background-color: #DBEAFE; font-size: 14px; font-weight: bold; padding: 5px; border-radius: 3px;');
+      }
+
+      // Display a formatted table of all versions
+      if (tableData.length > 0) {
+        console.log('%cVersion Summary Table:', 'color: #1E40AF; font-size: 16px; font-weight: bold;');
+        console.table(tableData, ['version', 'created', 'title', 'type', 'codeLength']);
+      }
+
+      // Clean up
+      document.body.removeChild(textarea);
+
+      return versions;
+    } catch (e) {
+      console.error('Error getting content versions:', e);
+      trackEvent(JSON.stringify(e), 'get_content_versions', 'error');
+      return [];
+    }
   }
 }

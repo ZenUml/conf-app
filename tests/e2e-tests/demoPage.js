@@ -1,6 +1,7 @@
 const puppeteer = require("puppeteer");
 const fs = require('fs');
 const path = require('path');
+const { generateOtp } = require('./otp.js');
 
 // Define the path for the new directory
 const dirPath = path.join(__dirname, './screenshots');
@@ -77,13 +78,18 @@ if(!password) {
     console.log('Page navigated away.');
   }
 
-  //TODO: Handle "We've emailed you a code" login challenge
+  const fillOtp = async (otpInput) => {
+    const otp = await generateOtp();
+    otpInput.type(otp);
+    await page.click('#two-step-verification-submit');
+  }
 
   try {
     const titlePromise = page.waitForSelector('#title-text');
     const dismissMFAAndThenTitlePromise = page.waitForSelector('#mfa-promote-dismiss').then(dismissMFAIfPresent).then(() => titlePromise);
+    const otpPromise  = page.waitForSelector('#two-step-verification-otp-code-input').then(fillOtp).then(() => titlePromise);
 
-    await Promise.race([titlePromise, dismissMFAAndThenTitlePromise]);
+    await Promise.race([otpPromise, titlePromise, dismissMFAAndThenTitlePromise]);
   } catch(e) {
     await screenshot(page);
     throw e;

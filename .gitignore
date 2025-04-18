@@ -29,3 +29,5 @@ yarn-error.log*
 coverage
 # Sentry Config File
 .env.sentry-build-plugin
+
+wrangler.toml

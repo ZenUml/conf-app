@@ -137,6 +137,10 @@ export default defineConfig({
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true
       },
+      '/custom-content': {
+        target: 'http://127.0.0.1:8788/',
+        changeOrigin: true
+      },
       '/installed': {
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true

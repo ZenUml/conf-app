@@ -2,6 +2,7 @@ import ApWrapper2 from "@/model/ApWrapper2";
 import {StorageProvider} from "@/model/ContentProvider/StorageProvider";
 import {Diagram, NULL_DIAGRAM} from "@/model/Diagram/Diagram";
 import { SearchResults } from "../ICustomContent";
+import { ICustomContentResponseBodyV2 } from "../ICustomContentResponseBody";
 
 export class CustomContentStorageProvider implements StorageProvider {
   private apWrapper: ApWrapper2;
@@ -30,13 +31,13 @@ export class CustomContentStorageProvider implements StorageProvider {
     return await this.apWrapper.searchPagedCustomContentByUrl(nextPageUrl);
   }
 
-  async save(diagram: Diagram): Promise<string> {
-    let customContent;
+  async save(diagram: Diagram): Promise<ICustomContentResponseBodyV2 | any> {
+    console.debug('CustomContentStorageProvider save', diagram);
+    
     if (diagram?.source === 'custom-content' && diagram?.id && !diagram?.isCopy) {
-      customContent = await this.apWrapper.saveCustomContentV2(diagram.id, diagram);
-    } else {
-      customContent = await this.apWrapper.createCustomContent(diagram);
+      return await this.apWrapper.saveCustomContentV2(diagram.id, diagram);
     }
-    return String(customContent.id);
+
+    return await this.apWrapper.createCustomContent(diagram);
   }
 }

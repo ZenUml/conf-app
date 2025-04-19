@@ -9,6 +9,7 @@ firebase-debug.log
 dist
 .cache
 .wrangler
+wrangler.toml
 log.txt
 
 # Log files

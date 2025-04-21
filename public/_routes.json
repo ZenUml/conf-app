@@ -1,5 +1,18 @@
 {
   "version": 1,
-  "include": ["/attachment", "/descriptor", "/installed", "/uninstalled", "/track", "/diagramly", "/diagram-likes", "/diagram-likes/query", "/diagram-likes/toggle", "/diagram-likes/user-likes"],
+  "include": [
+    "/attachment",
+    "/descriptor",
+    "/installed",
+    "/uninstalled",
+    "/track",
+    "/diagramly",
+    "/diagram-likes",
+    "/diagram-likes/query",
+    "/diagram-likes/toggle",
+    "/diagram-likes/user-likes",
+    "/api/features",
+    "/api/metrics/evaluation"
+  ],
   "exclude": []
 }

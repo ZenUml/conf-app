@@ -113,6 +113,14 @@ export default defineConfig({
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true
       },
+      '/api/metrics/evaluation': {
+        target: 'http://127.0.0.1:8788/',
+        changeOrigin: true
+      },
+      '/api/features': {
+        target: 'http://127.0.0.1:8788/',
+        changeOrigin: true
+      },
       '/attachment': {
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true

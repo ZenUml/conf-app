@@ -23,3 +23,7 @@ id = "ae1a9199a02e4f75b1cad07f0016aae0"
 [[ env.production.r2_buckets ]]
 binding = "EVENT_BUCKET"
 bucket_name = "atlassian-events"
+
+[[env.production.kv_namespaces]]
+binding = "confluence_plugin_features"
+id = "9531a58d3f5b47a6af77750240c09548"

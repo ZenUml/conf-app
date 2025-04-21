@@ -43,7 +43,7 @@ bucket_name = "atlassian-events"
 binding = "confluence_plugin_features"
 id = "86916df556884c049e5d2040136b6bd0"
 
-[[ env.production.kv_namespaces ]]
+[[env.production.kv_namespaces]]
 binding = "confluence_plugin_features"
-id = "b3bdb7be32a94119a87cf43baeca908c"
+id = "9531a58d3f5b47a6af77750240c09548"
 

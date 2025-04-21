@@ -56,7 +56,7 @@ export type EventCategory = DiagramType
 export function trackEvent(
   label: string,
   action: string,
-  category: EventCategory,
+  category: EventCategory | string,
   resetEventDetails: Record<string, any> = {}
 ) {
   void _awaitableTrackEvent(label, action, category, resetEventDetails);
@@ -66,7 +66,7 @@ export function trackEvent(
 export async function _awaitableTrackEvent(
   label: string,
   action: string,
-  category: EventCategory,
+  category: EventCategory | string,
   resetEventDetails: Record<string, any> = {}
 ) {
   try {

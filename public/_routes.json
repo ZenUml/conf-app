@@ -11,6 +11,7 @@
     "/diagram-likes/query",
     "/diagram-likes/toggle",
     "/diagram-likes/user-likes",
+    "/custom-content"
     "/api/features",
     "/api/metrics/evaluation"
   ],

@@ -1,4 +1,4 @@
-export function OkResponse(data: object | undefined) {
+export function OkResponse(data?: object | undefined) {
   return new Response(JSON.stringify(data || 'OK'),
     {
       status: 200,

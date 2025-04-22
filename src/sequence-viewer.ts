@@ -111,7 +111,35 @@ async function createAttachment(code: string, diagramType: DiagramType) {
   } catch (e) {
     // Do not re-throw the error
     console.error("Error when creating attachment", e);
-    trackEvent(JSON.stringify(e), 'create_attachment' + diagramType, 'error');
+    
+    // Improved error tracking with more detailed information
+    let errorDetails: any = { message: e.message };
+    
+    // Extract XHR details if available
+    if (e.xhr) {
+      errorDetails.xhr = {
+        status: e.xhr.status,
+        statusText: e.xhr.statusText
+      };
+      
+      // Try to extract the full response text
+      try {
+        // For HTML responses, extract text content to avoid HTML tags
+        if (e.xhr.responseText && e.xhr.responseText.includes('<!doctype html>')) {
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = e.xhr.responseText;
+          errorDetails.xhr.responseDetails = tempDiv.textContent?.substring(0, 500) || 'HTML response (extracted text)';
+        } else {
+          // For other responses, include the raw text
+          errorDetails.xhr.responseDetails = e.xhr.responseText?.substring(0, 500) || 'No response text';
+        }
+      } catch (parseError) {
+        errorDetails.xhr.responseDetails = 'Error parsing response: ' + parseError.message;
+      }
+    }
+    
+    // Track the error with enhanced details
+    trackEvent(JSON.stringify(errorDetails), 'create_attachment' + diagramType, 'error');
   }
 }
 

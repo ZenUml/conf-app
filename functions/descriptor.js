@@ -1,7 +1,7 @@
 const descriptor = require('./atlassian-connect.json');
 const liteKeySuffix = '-lite';
 const liteNameSuffix = ' Lite';
-const VERSION = '2024.12';
+const VERSION = '2025.04';
 export const onRequestGet = async (params) => {
   const req = params.request;
   let host = req.headers.get('x-forwarded-host');

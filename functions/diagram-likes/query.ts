@@ -17,8 +17,8 @@ export const onRequest = async ({ request, env }) => {
 export async function queryLikesFromAllUsers(env, body) {
   try {
     // For new diagrams with no macroUuid, return empty results immediately
-    if (!body.macroUuid || !body.diagramCustomContentId) {
-      console.log('New diagram detected (missing macroUuid or diagramCustomContentId). Returning empty likes array.');
+    if (!body.macroUuid) {
+      console.log('New diagram detected (missing macroUuid). Returning empty likes array.');
       return Response.json([]);
     }
 

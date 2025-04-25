@@ -9,83 +9,25 @@
 </template>
 
 <script setup>
-import {EditorView, keymap, lineNumbers, placeholder} from '@codemirror/view'
-import {closeBrackets, autocompletion} from "@codemirror/autocomplete";
+import {EditorView} from '@codemirror/view'
 import globals from "@/model/globals";
 import {DiagramType} from "@/model/Diagram/Diagram";
-import {EditorState} from '@codemirror/state';
-import {defaultKeymap, history, indentWithTab, redo, undo,} from '@codemirror/commands';
-import {javascript} from '@codemirror/lang-javascript';
-import {
-  bracketMatching,
-  syntaxHighlighting,
-  defaultHighlightStyle,
-  foldGutter,
-  indentService
-} from "@codemirror/language";
+import {EditorState, Compartment} from '@codemirror/state';
+import {baseExtensionsFactory, mermaidExtensions, zenumlExtensions} from "./extensions";
 import {computed, onMounted, ref, watch, onBeforeUnmount, onBeforeMount} from "vue";
-import {dracula} from 'thememirror';
 import {useStore} from "vuex";
-import participantCompletionOptions from "@/constant/participantCompletionOptions";
 
 const store = useStore();
 const rootElement = ref();
 const cmView = ref();
 const canUserEdit = ref();
 
-function participantCompletions(context) {
-  let word = context.matchBefore(/(@\w*)/)
-
-  if (!word)
-    return null
-  return {
-    from: word.from,
-    options: participantCompletionOptions
-  }
-}
+// Create a compartment for diagram-specific extensions
+let diagramCompartment = new Compartment()
 
 const diagramType = computed(() => store.state.diagram.diagramType);
 
 const code = computed(() => diagramType.value === DiagramType.Mermaid ? store.state.diagram.mermaidCode : store.state.diagram.code)
-
-function customIndent(context, pos) {
-  let line = context.lineAt(pos);
-  let prevLine = pos > 0 ? context.lineAt(pos - 1) : null;
-
-  // arrow pattern
-  const arrowPattern = /^[a-z0-9]+->[a-z0-9]+([.:]\w+)?$/i;
-
-  // method definition pattern
-  const methodPattern = /^[a-z0-9.]+\w+\s*{$/i;
-
-  // Check if the current line is inside braces
-  if (prevLine) {
-    const prevLineText = prevLine.text.trim();
-    if (prevLineText.endsWith("{")) {
-      return context.lineIndent(prevLine.from) + context.unit;
-    }
-  }
-
-  // Check if the current line matches the arrow pattern
-  if (arrowPattern.test(line.text.trim())) {
-    return context.lineIndent(line.from);
-  }
-
-  // Check if the previous line matches the arrow pattern
-  if (prevLine && arrowPattern.test(prevLine.text.trim())) {
-    return context.lineIndent(prevLine.from);
-  }
-
-  // Check if the previous line is a method definition
-  if (prevLine && methodPattern.test(prevLine.text.trim())) {
-    return context.lineIndent(prevLine.from) + context.unit;
-  }
-
-
-  return null;
-}
-
-const customIndentExtension = indentService.of((context, pos) => customIndent(context, pos));
 
 const onEditorCodeChange = (newCode) => {
   const isMermaid = diagramType.value === 'mermaid';
@@ -97,6 +39,10 @@ const onEditorCodeChange = (newCode) => {
     store.dispatch('updateCode2', newCode);
   }
 }
+
+const diagramSpecificExtensions = computed(() => 
+  diagramType.value === DiagramType.Mermaid ? mermaidExtensions : zenumlExtensions
+);
 
 watch(code, (newVal) => {
   if (newVal === cmView.value.state.doc.toString()) return
@@ -110,14 +56,21 @@ watch(code, (newVal) => {
   })
 })
 
+const baseExtensions = computed(() => baseExtensionsFactory(onEditorCodeChange));
+
 watch(diagramType, () => {
   cmView.value.dispatch({
     changes: {
       from: 0,
-      to: code.value.length,
+      to: cmView.value.state.doc.length,
       insert: code.value
     }
-  })
+  });
+
+  // Reconfigure only the diagram-specific extensions via the compartment
+  cmView.value.dispatch({
+    effects: diagramCompartment.reconfigure(diagramSpecificExtensions.value)
+  });
 })
 
 onBeforeMount(async () => {
@@ -128,65 +81,14 @@ onMounted(() => {
   cmView.value = new EditorView({
     state: EditorState.create({
       doc: code.value,
+      // Initialize with base extensions and the compartment holding the initial diagram extensions
       extensions: [
-        dracula,
-        javascript(),
-        closeBrackets(),
-        lineNumbers(),
-        foldGutter(),
-        bracketMatching(),
-        history(),
-        syntaxHighlighting(defaultHighlightStyle),
-        placeholder('Write you code here'),
-        EditorState.tabSize.of(2),
-        customIndentExtension,
-        keymap.of([
-          ...defaultKeymap,
-          indentWithTab,
-          {key: "Mod-z", run: undo, preventDefault: true},
-          {key: "Mod-Shift-z", run: redo, preventDefault: true},
-        ]),
-        EditorView.lineWrapping,
-        EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
-            const updatedCode = update.state.doc.toString();
-            onEditorCodeChange(updatedCode)
-          }
-        }),
-        autocompletion({
-          override: [participantCompletions],
-          activateOnTyping: true
-        }),
+        ...baseExtensions.value,
+        diagramCompartment.of(diagramSpecificExtensions.value)
       ]
     }),
     parent: rootElement.value,
   })
-
-  // NOTE: the highlight was broken due to unknown reason, need to be fixed in the future.
-
-  /*EventBus.$on('highlight', (codeRange) => {
-    if(that.mark) {
-      that.mark.clear()
-    }
-    that.mark = cmEditor.markText({
-      line: codeRange.start.line-1, ch: codeRange.start.col
-    }, {
-      line: codeRange.stop.line-1, ch: codeRange.stop.col
-    }, {css: 'background: gray'})
-  })
-  cmEditor?.on('cursorActivity',_.debounce(() => {
-    if (this.mark) {
-      this.mark.clear()
-    }
-    const cursor = cmEditor.getCursor();
-    const line = cursor.line;
-    let pos = cursor.ch;
-
-    for (let i = 0; i < line; i++) {
-      pos += cmEditor.getLine(i).length + 1
-    }
-    that.$store.state.cursor = pos
-  }, 500))*/
 })
 
 onBeforeUnmount(() => {

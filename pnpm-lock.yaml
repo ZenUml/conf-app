@@ -57,9 +57,15 @@ importers:
       '@vue/compat':
         specifier: ^3.1.0
         version: 3.4.31(vue@3.4.31(typescript@5.8.2))
+      '@zenuml/codemirror-extensions':
+        specifier: ^0.1.0
+        version: 0.1.0(@codemirror/autocomplete@6.17.0(@codemirror/language@6.10.1)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)(@lezer/common@1.2.1))(@codemirror/commands@6.5.0)(@codemirror/language@6.10.1)(@codemirror/lint@6.7.1)(@codemirror/search@6.5.10)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)(codemirror@6.0.1(@lezer/common@1.2.1))
       '@zenuml/core':
         specifier: ^3.29.6
         version: 3.29.6(typescript@5.8.2)
+      codemirror-lang-mermaid:
+        specifier: ^0.5.0
+        version: 0.5.0
       file-saver:
         specifier: ^2.0.5
         version: 2.0.5
@@ -929,6 +935,9 @@ packages:
 
   '@codemirror/lint@6.7.1':
     resolution: {integrity: sha512-rELba6QJD20/bNXWP/cKTGLrwVEcpa2ViwULCV03ONcY1Je85++7sczVRUlnE4TJMjatx3IJTz6HX4NXi+moXw==}
+
+  '@codemirror/search@6.5.10':
+    resolution: {integrity: sha512-RMdPdmsrUf53pb2VwflKGHEe1XVM07hI7vV2ntgw1dmqhimpatSJKva4VA9h4TLUDOD4EIF02201oZurpnEFsg==}
 
   '@codemirror/state@6.4.1':
     resolution: {integrity: sha512-QkEyUiLhsJoZkbumGZlswmAhA7CBU02Wrz7zvH4SrcifbsqwlXShVXg65f3v/ts57W3dqyamEriMhij1Z3Zz4A==}
@@ -2840,6 +2849,19 @@ packages:
   '@yarnpkg/lockfile@1.1.0':
     resolution: {integrity: sha512-GpSwvyXOcOOlV70vbnzjj4fW5xW/FdUF6nQEt1ENy7m4ZCczi1+/buVUPAqmGfqznsORNFzUMjctTIp8a9tuCQ==}
 
+  '@zenuml/codemirror-extensions@0.1.0':
+    resolution: {integrity: sha512-0NBauH7vkwolpoqpHP7eEXPP0/RokBPNluj0ePjh13eRAs6ljUILMzpZPikXdbd8yax9K+egrH666fKNrTqGMA==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@codemirror/autocomplete': ^6.13.0
+      '@codemirror/commands': ^6.3.3
+      '@codemirror/language': ^6.10.1
+      '@codemirror/lint': ^6.8.5
+      '@codemirror/search': ^6.5.5
+      '@codemirror/state': ^6.4.1
+      '@codemirror/view': ^6.24.1
+      codemirror: ^6.0.1
+
   '@zenuml/core@3.29.6':
     resolution: {integrity: sha512-vPYIdfWtDDIxeDxr9cdDgOykATHyWjVGeVGLb4lCBv34ZQ/TOdcOVFFE3sY6w4YwVQED1HnhwhUKyv1JdRq+2g==}
     engines: {node: '>=12.0.0'}
@@ -3278,6 +3300,12 @@ packages:
   cliui@8.0.1:
     resolution: {integrity: sha512-BSeNnyus75C4//NQ9gQt1/csTXyo/8Sb+afLAkzAptFuMsod9HFokGNudZpi/oQV73hnVK+sR+5PVRMd+Dr7YQ==}
     engines: {node: '>=12'}
+
+  codemirror-lang-mermaid@0.5.0:
+    resolution: {integrity: sha512-Taw/2gPCyNArQJCxIP/HSUif+3zrvD+6Ugt7KJZ2dUKou/8r3ZhcfG8krNTZfV2iu8AuGnymKuo7bLPFyqsh/A==}
+
+  codemirror@6.0.1:
+    resolution: {integrity: sha512-J8j+nZ+CdWmIeFIGXEFbFPtpiYacFMDR8GlHK3IyHQJMCaVRfGx9NT+Hxivv1ckLWPvNdZqndbr/7lVhrf/Svg==}
 
   color-convert@1.9.3:
     resolution: {integrity: sha512-QfAUtd+vFdAtFQcC8CCyYt1fYWxSqAiK2cSD6zDB8N3cpsEBAvRxp9zOGg6G/SHHJYAT88/az/IuDGALsNVbGg==}
@@ -7405,6 +7433,12 @@ snapshots:
       '@codemirror/view': 6.26.3
       crelt: 1.0.6
 
+  '@codemirror/search@6.5.10':
+    dependencies:
+      '@codemirror/state': 6.4.1
+      '@codemirror/view': 6.26.3
+      crelt: 1.0.6
+
   '@codemirror/state@6.4.1': {}
 
   '@codemirror/view@6.26.3':
@@ -9790,6 +9824,21 @@ snapshots:
 
   '@yarnpkg/lockfile@1.1.0': {}
 
+  '@zenuml/codemirror-extensions@0.1.0(@codemirror/autocomplete@6.17.0(@codemirror/language@6.10.1)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)(@lezer/common@1.2.1))(@codemirror/commands@6.5.0)(@codemirror/language@6.10.1)(@codemirror/lint@6.7.1)(@codemirror/search@6.5.10)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)(codemirror@6.0.1(@lezer/common@1.2.1))':
+    dependencies:
+      '@codemirror/autocomplete': 6.17.0(@codemirror/language@6.10.1)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)(@lezer/common@1.2.1)
+      '@codemirror/commands': 6.5.0
+      '@codemirror/language': 6.10.1
+      '@codemirror/lint': 6.7.1
+      '@codemirror/search': 6.5.10
+      '@codemirror/state': 6.4.1
+      '@codemirror/view': 6.26.3
+      '@lezer/common': 1.2.1
+      '@lezer/highlight': 1.2.0
+      '@lezer/lr': 1.4.0
+      codemirror: 6.0.1(@lezer/common@1.2.1)
+      thememirror: 2.0.1(@codemirror/language@6.10.1)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)
+
   '@zenuml/core@3.29.6(typescript@5.8.2)':
     dependencies:
       '@headlessui-float/vue': 0.14.0(@headlessui/vue@1.7.22(vue@3.4.31(typescript@5.8.2)))(vue@3.4.31(typescript@5.8.2))
@@ -10304,6 +10353,24 @@ snapshots:
       string-width: 4.1.0
       strip-ansi: 6.0.1
       wrap-ansi: 7.0.0
+
+  codemirror-lang-mermaid@0.5.0:
+    dependencies:
+      '@codemirror/language': 6.10.1
+      '@lezer/highlight': 1.2.0
+      '@lezer/lr': 1.4.0
+
+  codemirror@6.0.1(@lezer/common@1.2.1):
+    dependencies:
+      '@codemirror/autocomplete': 6.17.0(@codemirror/language@6.10.1)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)(@lezer/common@1.2.1)
+      '@codemirror/commands': 6.5.0
+      '@codemirror/language': 6.10.1
+      '@codemirror/lint': 6.7.1
+      '@codemirror/search': 6.5.10
+      '@codemirror/state': 6.4.1
+      '@codemirror/view': 6.26.3
+    transitivePeerDependencies:
+      - '@lezer/common'
 
   color-convert@1.9.3:
     dependencies:

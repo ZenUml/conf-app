@@ -58,8 +58,8 @@ importers:
         specifier: ^3.1.0
         version: 3.4.31(vue@3.4.31(typescript@5.8.2))
       '@zenuml/codemirror-extensions':
-        specifier: ^0.1.0
-        version: 0.1.0(@codemirror/autocomplete@6.17.0(@codemirror/language@6.10.1)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)(@lezer/common@1.2.1))(@codemirror/commands@6.5.0)(@codemirror/language@6.10.1)(@codemirror/lint@6.7.1)(@codemirror/search@6.5.10)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)(codemirror@6.0.1(@lezer/common@1.2.1))
+        specifier: ^0.1.1
+        version: 0.1.1(@codemirror/autocomplete@6.17.0(@codemirror/language@6.10.1)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)(@lezer/common@1.2.1))(@codemirror/commands@6.5.0)(@codemirror/language@6.10.1)(@codemirror/lint@6.7.1)(@codemirror/search@6.5.10)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)(codemirror@6.0.1(@lezer/common@1.2.1))
       '@zenuml/core':
         specifier: ^3.29.6
         version: 3.29.6(typescript@5.8.2)
@@ -104,7 +104,7 @@ importers:
         version: 4.14.5(@types/react-dom@17.0.2)(@types/react@17.0.2)
       swagger-ui:
         specifier: 4.19.0
-        version: 4.19.0(@types/react-dom@17.0.2)(@types/react@17.0.2)(ramda@0.30.0)
+        version: 4.19.0(@types/react-dom@17.0.2)(@types/react@17.0.2)(ramda@0.30.1)
       thememirror:
         specifier: ^2.0.1
         version: 2.0.1(@codemirror/language@6.10.1)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)
@@ -2849,8 +2849,8 @@ packages:
   '@yarnpkg/lockfile@1.1.0':
     resolution: {integrity: sha512-GpSwvyXOcOOlV70vbnzjj4fW5xW/FdUF6nQEt1ENy7m4ZCczi1+/buVUPAqmGfqznsORNFzUMjctTIp8a9tuCQ==}
 
-  '@zenuml/codemirror-extensions@0.1.0':
-    resolution: {integrity: sha512-0NBauH7vkwolpoqpHP7eEXPP0/RokBPNluj0ePjh13eRAs6ljUILMzpZPikXdbd8yax9K+egrH666fKNrTqGMA==}
+  '@zenuml/codemirror-extensions@0.1.1':
+    resolution: {integrity: sha512-4GjCDhaEh5wucY5mioo/7cmcykiI/yo+DPEix+hACZCVn7OIUrCzFcjysGA1tWHNkJQIgxILy9PWDe/IhYc7GQ==}
     engines: {node: '>=20'}
     peerDependencies:
       '@codemirror/autocomplete': ^6.13.0
@@ -9824,7 +9824,7 @@ snapshots:
 
   '@yarnpkg/lockfile@1.1.0': {}
 
-  '@zenuml/codemirror-extensions@0.1.0(@codemirror/autocomplete@6.17.0(@codemirror/language@6.10.1)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)(@lezer/common@1.2.1))(@codemirror/commands@6.5.0)(@codemirror/language@6.10.1)(@codemirror/lint@6.7.1)(@codemirror/search@6.5.10)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)(codemirror@6.0.1(@lezer/common@1.2.1))':
+  '@zenuml/codemirror-extensions@0.1.1(@codemirror/autocomplete@6.17.0(@codemirror/language@6.10.1)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)(@lezer/common@1.2.1))(@codemirror/commands@6.5.0)(@codemirror/language@6.10.1)(@codemirror/lint@6.7.1)(@codemirror/search@6.5.10)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)(codemirror@6.0.1(@lezer/common@1.2.1))':
     dependencies:
       '@codemirror/autocomplete': 6.17.0(@codemirror/language@6.10.1)(@codemirror/state@6.4.1)(@codemirror/view@6.26.3)(@lezer/common@1.2.1)
       '@codemirror/commands': 6.5.0
@@ -12611,6 +12611,10 @@ snapshots:
     dependencies:
       ramda: 0.30.0
 
+  ramda-adjunct@5.0.0(ramda@0.30.1):
+    dependencies:
+      ramda: 0.30.1
+
   ramda-adjunct@5.1.0(ramda@0.30.1):
     dependencies:
       ramda: 0.30.1
@@ -13294,7 +13298,7 @@ snapshots:
 
   supports-preserve-symlinks-flag@1.0.0: {}
 
-  swagger-client@3.28.0(ramda@0.30.0):
+  swagger-client@3.28.0(ramda@0.30.1):
     dependencies:
       '@babel/runtime-corejs3': 7.24.5
       '@swagger-api/apidom-core': 1.0.0-alpha.1
@@ -13311,7 +13315,7 @@ snapshots:
       node-fetch-commonjs: 3.3.2
       openapi-path-templating: 1.5.1
       qs: 6.12.1
-      ramda-adjunct: 5.0.0(ramda@0.30.0)
+      ramda-adjunct: 5.0.0(ramda@0.30.1)
       traverse: 0.6.8
     transitivePeerDependencies:
       - debug
@@ -13385,7 +13389,7 @@ snapshots:
       - react-native
       - supports-color
 
-  swagger-ui@4.19.0(@types/react-dom@17.0.2)(@types/react@17.0.2)(ramda@0.30.0):
+  swagger-ui@4.19.0(@types/react-dom@17.0.2)(@types/react@17.0.2)(ramda@0.30.1):
     dependencies:
       '@babel/runtime-corejs3': 7.24.5
       '@braintree/sanitize-url': 6.0.2
@@ -13418,7 +13422,7 @@ snapshots:
       reselect: 4.1.8
       serialize-error: 8.1.0
       sha.js: 2.4.11
-      swagger-client: 3.28.0(ramda@0.30.0)
+      swagger-client: 3.28.0(ramda@0.30.1)
       url-parse: 1.5.10
       xml: 1.0.1
       xml-but-prettier: 1.0.1

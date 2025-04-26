@@ -37,7 +37,7 @@
     "@sentry/node": "^9.5.0",
     "@vue/compat": "^3.1.0",
     "@zenuml/core": "^3.29.6",
-    "@zenuml/codemirror-extensions": "^0.1.0",
+    "@zenuml/codemirror-extensions": "^0.1.1",
     "codemirror-lang-mermaid": "^0.5.0",
     "file-saver": "^2.0.5",
     "html-to-image": "^1.9.0",

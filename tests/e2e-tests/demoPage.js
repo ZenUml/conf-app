@@ -147,6 +147,10 @@ if(!password) {
       const iframe = await waitForSelector(page, editMacroFrame);
       console.log('Found edit macro iframe');
 
+      if(!iframe.contentFrame) {
+        savePageHtml(iframe, 'edit-macro-iframe');
+      }
+
       const frame = await iframe.contentFrame();
       console.log('Got content frame');
 
@@ -155,6 +159,10 @@ if(!password) {
 
       const saveMacroButton = await waitForSelector(frame, 'div.save-and-exit button');
       console.log('Found save button');
+
+      if(!saveMacroButton.boundingBox) {
+        savePageHtml(frame, 'edit-macro-iframe-content');
+      }
 
       // Check if button is visible using bounding box
       const boundingBox = await saveMacroButton.boundingBox();
@@ -213,13 +221,12 @@ if(!password) {
       await page.waitForSelector('#title-text');
       return await callback(createResult);
     } finally {
-      await page.screenshot({
-        "type": "png", // can also be "jpeg" or "webp" (recommended)
-        "path": `${dirPath}/screenshot-${Date.now()}.png`,  // where to save it
-        "fullPage": true,  // will scroll down to capture everything if true
-      });
-      await page.evaluate(inBrowserFunction, {action: 'deletePage', pageId: createResult.id, options});
-      console.log(`Deleted page with id: ${createResult.id}`);
+      try {
+        await screenshot(page);
+      } finally {
+        await page.evaluate(inBrowserFunction, {action: 'deletePage', pageId: createResult.id, options});
+        console.log(`Deleted page with id: ${createResult.id}`);
+      }
     }
   }
 
@@ -667,20 +674,20 @@ if(!password) {
         console.log(`Element still not found`);
 
         if(!options || !options.hidden) {
-          await printDebugInfo(page, selector);
+          const file = await savePageHtml(page);
+          console.log(`Selector "${selector}" not found in page, see ${file}`);
         }
         throw e;
       }
     }
   }
 
-  async function printDebugInfo(page, selector) {
+  async function savePageHtml(page, suffix = Date.now()) {
     try {
       const html = await page.$eval('html', e => e.innerHTML);
-
-      const file = `${dirPath}/debug-${Date.now()}.html`;
+      const file = `${dirPath}/debug-${suffix}.html`;
       writeFile(file, html);
-      console.log(`Selector "${selector}" not found in page, see ${file}`);
+      return file;
     } catch(e) {
       console.log(`Failed to collect page info`, e);
     }
@@ -694,12 +701,14 @@ if(!password) {
     console.log(`===== ${title} =====\n`, ...args);
   }
 
-  function screenshot(page) {
-    return page.screenshot({
+  function screenshot(page, suffix = Date.now()) {
+    const screenshotPromise = page.screenshot({
       "type": "png", // can also be "jpeg" or "webp" (recommended)
-      "path": `${dirPath}/screenshot-${Date.now()}.png`,  // where to save it
+      "path": `${dirPath}/screenshot-${suffix}.png`,
       "fullPage": true,  // will scroll down to capture everything if true
     });
+
+    return Promise.all([screenshotPromise, savePageHtml(page, suffix)]);
   }
 
   function writeFile(path, content) {

@@ -38,15 +38,15 @@ export class MacroMetrics {
   // Report Macro Metrics for the Current Space.
   async reportMacroMetrics(): Promise<void> {
     try {
-      // Simply trigger the getMacroMetrics function.
-      // The tracking logic is now handled within getMacroMetrics when fresh data is fetched.
-      await this.getMacroMetrics();
+      const metrics = await this.getMacroMetrics();
+
+      if (metrics) {
+        console.debug(`Report macro metrics for space ${metrics.space}:`, metrics);
+        this.eventTracker(`${JSON.stringify(metrics)}`, 'report_macro_metrics', 'info');
+      }
     } catch (e) {
-      // Error logging still happens here if getMacroMetrics itself throws, 
-      // although getMacroMetrics also has internal error handling/tracking.
-      // Consider if this outer catch is still necessary.
-      console.error('Error during reportMacroMetrics invocation', e);
-      // this.trackError(e); // Possibly redundant if getMacroMetrics tracks its own errors
+      console.error('Error on reportMacroMetrics', e);
+      this.trackError(e);
     }
   }
 
@@ -58,25 +58,18 @@ export class MacroMetrics {
 
       if (cachedMetrics) {
         console.debug(`Using cached metrics for space ${space}`);
-        // Return cached metrics
         return cachedMetrics;
       }
 
       // Collect and cache new metrics if needed
-      console.debug(`Collecting fresh metrics for space ${space}`);
       const metrics = await this.collectMetrics(space);
       if (metrics) {
         await this.cache.set(space, metrics);
-        // Track the event here, only when fresh metrics are collected and cached
-        console.debug(`Report macro metrics (freshly collected) for space ${metrics.space}:`, metrics);
-        this.eventTracker(`${JSON.stringify(metrics)}`, 'report_macro_metrics', 'info');
       }
-      // Return fresh metrics
       return metrics;
     } catch (e) {
       console.error('Error on getMacroMetrics', e);
       this.trackError(e);
-      // Indicate error by returning undefined metrics
       return undefined;
     }
   }

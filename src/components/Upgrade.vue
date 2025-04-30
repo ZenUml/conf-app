@@ -43,9 +43,7 @@ import { computed } from 'vue'
 // @ts-ignore
 import UpgradeTooltip from './UpgradeTooltip.vue'
 
-const upgradeUrl = 'https://zenuml.com/upgrade/'
-
-const { macrosCreated, actionRequired, initialize } = useCustomerSuccessService()
+const { macrosCreated, actionRequired, upgradeUrl, initialize } = useCustomerSuccessService()
 
 const ariaLabel = computed(() => {
   if (actionRequired) {

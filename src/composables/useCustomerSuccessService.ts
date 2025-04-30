@@ -2,10 +2,12 @@ import { ref, computed } from 'vue'
 import getFeatureFlagsForCurrentDomain from "@/apis/featureFlags"
 import { trackEvent } from "@/utils/window"
 import macroMetrics from "@/services/MacroMetrics"
+import { getClientDomain } from "@/utils/ContextParameters/ContextParameters"
 
 // Constants that both components use
 export const MACROS_LIMIT = 100
 const WARNING_THRESHOLD = 85
+const BASE_UPGRADE_URL = 'https://zenuml.com/upgrade/'
 
 export function useCustomerSuccessService() {
   const macrosCreated = ref<number>(0)
@@ -13,6 +15,11 @@ export function useCustomerSuccessService() {
 
   const actionRequired = computed(() => {
     return macrosCreated.value >= WARNING_THRESHOLD && customerSuccessServiceEnabled.value
+  })
+
+  const upgradeUrl = computed(() => {
+    const domain = getClientDomain()
+    return `${BASE_UPGRADE_URL}?domain=${domain}`
   })
 
   async function loadMacroMetrics(): Promise<void> {
@@ -36,6 +43,7 @@ export function useCustomerSuccessService() {
   return {
     macrosCreated,
     actionRequired,
+    upgradeUrl,
     initialize
   }
 }

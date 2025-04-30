@@ -7,6 +7,9 @@ import macroMetrics from "@/services/MacroMetrics"
 export const MACROS_LIMIT = 100
 const WARNING_THRESHOLD = 85
 
+// Promise to ensure CSS feature flag is loaded and tracked only once
+let loadCssFlagPromise: Promise<void> | null = null;
+
 export function useCustomerSuccessService() {
   const macrosCreated = ref<number>(0)
   const customerSuccessServiceEnabled = ref<boolean>(false)
@@ -23,9 +26,25 @@ export function useCustomerSuccessService() {
   }
 
   async function loadCSSFeatureFlag(): Promise<void> {
-    const customerSuccessService: any = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE'])
-    customerSuccessServiceEnabled.value = !!customerSuccessService.CUSTOMER_SUCCESS_SERVICE
-    trackEvent('', customerSuccessServiceEnabled.value ? 'css-enabled' : 'css-disabled', 'conversion')
+    // If the promise already exists, return it to prevent re-execution
+    if (loadCssFlagPromise) {
+      return loadCssFlagPromise;
+    }
+
+    // Create the promise to fetch the flag and track the event
+    loadCssFlagPromise = (async () => {
+      try {
+        const customerSuccessService: any = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE'])
+        customerSuccessServiceEnabled.value = !!customerSuccessService.CUSTOMER_SUCCESS_SERVICE
+        trackEvent('', customerSuccessServiceEnabled.value ? 'css-enabled' : 'css-disabled', 'conversion')
+      } catch (error) {
+        console.error("Error loading CSS feature flag:", error);
+        // Optionally reset the promise on error so it can be retried?
+        // loadCssFlagPromise = null;
+      }
+    })();
+
+    return loadCssFlagPromise;
   }
 
   const initialize = async () => {

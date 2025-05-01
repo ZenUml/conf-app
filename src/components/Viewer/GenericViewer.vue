@@ -82,7 +82,7 @@
             </div>
             <send-feedback/>
 
-            <button v-show="showLikeButton" @click="clickLikeButton" class="flex justify-center items-center px-2 rounded hover:bg-gray-300" style="" title="Like this diagram">
+            <button @click="clickLikeButton" class="flex justify-center items-center px-2 rounded hover:bg-gray-300" style="" title="Like this diagram">
               <IconLikeFilled v-if="userLiked" :width="20" style="color: #1868DB"/>
               <IconLike v-else :width="20" style="color: #475467"/>
               {{ likesForDisplay }}
@@ -122,7 +122,6 @@ import Upgrade from "@/components/Upgrade.vue";
 import Notice from "@/components/Viewer/Notice/index.vue"
 import * as htmlToImage from "html-to-image";
 import getFeatureFlags from '@/apis/featureFlags'
-import { isFeatureEnabled, FeatureSwitch } from "@/services/FeatureSwitch";
 import { toggleDiagramLike, getDiagramLikes } from "@/services/DiagramLikes";
 import store from "@/model/store2";
 import IconLike from "../icons/IconLike.vue";
@@ -137,7 +136,6 @@ export default {
       exportPngLocked: false,
       exportPngEnabled: false,
       exportPngTrial: false,
-      showLikeButton: false,
       userLiked: false, // TODO: check if user liked the diagram
       likesCount: 0,
       showVersionsTooltip: false,
@@ -185,11 +183,8 @@ export default {
       this.exportPngTrial = featureFlagsTrial.LITE_PNG_EXPORT_TRIAL?.enabled;
       let featureFlagsEnabled = await getFeatureFlags(['LITE_PNG_EXPORT_ENABLED']);
       this.exportPngEnabled = featureFlagsEnabled.LITE_PNG_EXPORT_ENABLED?.enabled;
-      this.showLikeButton = await isFeatureEnabled(FeatureSwitch.DIAGRAM_LIKE);
 
-      if (this.showLikeButton) {
-        await this.getLikes();
-      }
+      await this.getLikes();
     } catch (e) {
       console.error('Error getting feature flags', e);
     }
@@ -251,7 +246,7 @@ export default {
       this.versionsTooltipTimer = setTimeout(() => {
         this.showVersionsTooltip = false;
       }, 2000);
-      
+
       if (this.diagram.id) {
         console.log(`Getting versions for content ID: ${this.diagram.id}`);
         globals.apWrapper.getAndPrintContentVersions(this.diagram.id)

@@ -1,24 +1,13 @@
 <template>
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    :width="width || 24"
-    :height="height || 24"
-    viewBox="0 0 24 24"
-    fill="currentColor"
-    class="icon icon-tabler icons-tabler-filled icon-tabler-thumb-up"
-  >
-    <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+  <svg width="24px" height="24px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
     <path
-      d="M13 3a3 3 0 0 1 2.995 2.824l.005 .176v4h2a3 3 0 0 1 2.98 2.65l.015 .174l.005 .176l-.02 .196l-1.006 5.032c-.381 1.626 -1.502 2.796 -2.81 2.78l-.164 -.008h-8a1 1 0 0 1 -.993 -.883l-.007 -.117l.001 -9.536a1 1 0 0 1 .5 -.865a2.998 2.998 0 0 0 1.492 -2.397l.007 -.202v-1a3 3 0 0 1 3 -3z"
-    />
-    <path
-      d="M5 10a1 1 0 0 1 .993 .883l.007 .117v9a1 1 0 0 1 -.883 .993l-.117 .007h-1a2 2 0 0 1 -1.995 -1.85l-.005 -.15v-7a2 2 0 0 1 1.85 -1.995l.15 -.005h1z"
-    />
+        d="M10.5 10.5L11.5 11.5L14 9M8.25 5H15.75C16.4404 5 17 5.58763 17 6.3125V19L12 15.5L7 19V6.3125C7 5.58763 7.55964 5 8.25 5Z"
+        stroke="#464455" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>
 </template>
 
 <script setup lang="ts">
-import { defineProps } from "vue";
+import {defineProps} from "vue";
 
 defineProps<{
   width: string;

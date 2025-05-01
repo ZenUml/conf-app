@@ -24,7 +24,6 @@ async function initializeCriticalPath() {
     // Initialize context and get macro data (lightweight operations)
     await globals.apWrapper.initializeContext();
     const macroData = await globals.apWrapper.getMacroData();
-    trackEvent(macroData?.uuid, 'view_macro', 'sequence');
     
     // Report metrics (can run in parallel with heavy content loading)
     macroMetrics.reportMacroMetrics().catch(e => console.error('Error reporting metrics:', e));

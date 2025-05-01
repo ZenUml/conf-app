@@ -10,6 +10,7 @@
 import EventBus from "@/EventBus";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { trackEvent } from "@/utils/window";
+import globals from "@/model/globals";
 
 // Create a promise to load ZenUml only when needed
 const loadZenUml = () => import("@zenuml/core").then(module => module.default);
@@ -40,6 +41,9 @@ export default {
       console.log("ZenUML Core version: ", ZenUml.version);
       zenuml = new ZenUml(this.$refs["zenuml"]);
       await this.render();
+      // Track the view event here, after the diagram is rendered
+      const macroData = await globals.apWrapper.getMacroData();
+      trackEvent(macroData?.uuid, 'view_macro', 'sequence');
       EventBus.$emit(
         "diagramLoaded",
         this.$store.state.diagram.code,

@@ -5,6 +5,7 @@ ui-debug.log
 node_modules
 .firebase
 firebase-debug.log
+tests/e2e-tests/screenshots
 
 dist
 .cache

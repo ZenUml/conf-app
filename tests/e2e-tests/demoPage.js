@@ -131,20 +131,21 @@ if(!password) {
         e.click();
       });
 
-      const editMacro = 'button[data-testid=extension-toolbar-edit-button]';
-      await page.waitForSelector(editMacro);
+      const clickEditMacroBtton = async () => {
+        const editMacro = 'button[data-testid=extension-toolbar-edit-button]';
+        await page.waitForSelector(editMacro);
+        await page.$eval(editMacro, e => e.click() );
+      };
 
-      await page.$eval(editMacro, e => {
-        console.log(e);
-        e.click();
-      });
+      await clickEditMacroBtton();
 
       const editMacroFrame = '//iframe[contains(@src, "sequence-editor.html")]';
       console.log('Looking for edit macro iframe...');
 
-      //TODO: sometimes Confluence shows its native editor with title: h1:contains("Edit ‘Diagram (ZenUML & Mermaid)’ Macro")
+      //sometimes Confluence shows its native editor with title: h1:contains("Edit ‘Diagram (ZenUML & Mermaid)’ Macro")
+      const closeNativeEditor = () => page.waitForSelector('#macro-details-page-title').then(() => page.click('a.button-panel-cancel-link').then(clickEditMacroBtton)).then(() => waitForSelector(page, editMacroFrame));
 
-      const iframe = await waitForSelector(page, editMacroFrame);
+      const iframe = await Promise.race([waitForSelector(page, editMacroFrame), closeNativeEditor()]);
       console.log('Found edit macro iframe');
 
       if(!iframe.contentFrame) {
@@ -165,7 +166,8 @@ if(!password) {
       }
 
       // Check if button is visible using bounding box
-      const boundingBox = await saveMacroButton.boundingBox();
+      // sometimes it fails with TypeError: saveMacroButton.boundingBox is not a function
+      const boundingBox = saveMacroButton.boundingBox && (await saveMacroButton.boundingBox());
       console.log('Save button bounding box:', boundingBox);
 
       // Add a small delay before clicking

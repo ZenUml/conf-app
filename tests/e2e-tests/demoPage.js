@@ -131,10 +131,12 @@ if(!password) {
         e.click();
       });
 
+      const clickInPage = (selector) => page.$eval(selector, e => e.click() );
+
       const clickEditMacroBtton = async () => {
         const editMacro = 'button[data-testid=extension-toolbar-edit-button]';
         await page.waitForSelector(editMacro);
-        await page.$eval(editMacro, e => e.click() );
+        await clickInPage(editMacro);
       };
 
       await clickEditMacroBtton();
@@ -143,7 +145,7 @@ if(!password) {
       console.log('Looking for edit macro iframe...');
 
       //sometimes Confluence shows its native editor with title: h1:contains("Edit ‘Diagram (ZenUML & Mermaid)’ Macro")
-      const closeNativeEditor = () => page.waitForSelector('#macro-details-page-title').then(() => page.click('a.button-panel-cancel-link').then(clickEditMacroBtton)).then(() => waitForSelector(page, editMacroFrame));
+      const closeNativeEditor = () => page.waitForSelector('#macro-details-page-title').then(() => clickInPage('a.button-panel-cancel-link').then(clickEditMacroBtton)).then(() => waitForSelector(page, editMacroFrame));
 
       const iframe = await Promise.race([waitForSelector(page, editMacroFrame), closeNativeEditor()]);
       console.log('Found edit macro iframe');

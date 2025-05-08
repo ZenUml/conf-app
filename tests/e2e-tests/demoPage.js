@@ -50,18 +50,14 @@ if(!password) {
   await page.click("#login-submit");
   await page.waitForSelector('input[name=password]', {visible: true});
   await page.click('input[name=password]');
-  await page.waitForTimeout(3000);  // Waits for 500 milliseconds, otherwise we are not able to type in.
   await page.keyboard.type(password);
 
-  await page.waitForXPath('//span[text() = "Log in"]');
+  await page.waitForSelector('xpath///span[text() = "Log in"]');
   await page.click("#login-submit");
   await screenshot(page);
-// Wait for either navigation or timeout to occur first
-  const timeout = 3000; // Adjust the timeout as needed
-  const navigationPromise = page.waitForNavigation({ waitUntil: 'networkidle0' });
-  const timeoutPromise = page.waitForTimeout(timeout);
+  await page.waitForNavigation({ waitUntil: 'networkidle0' });
+  console.log('Page navigated away.');
 
-  const result = await Promise.race([navigationPromise, timeoutPromise]);
   const dismissMFAIfPresent = async () => {
     const mfaButton = await page.$('#mfa-promote-dismiss');
     if (mfaButton) {
@@ -69,14 +65,6 @@ if(!password) {
       console.log('Clicked "Continue without 2FA" button');
     }
   };
-
-  if (result === timeoutPromise) {
-    // If timeout occurred first, check for the button and click it if it exists
-    await dismissMFAIfPresent();
-  } else {
-    // Handle navigation if needed
-    console.log('Page navigated away.');
-  }
 
   const fillOtp = async (otpInput) => {
     const otp = await generateOtp();
@@ -157,9 +145,6 @@ if(!password) {
       const frame = await iframe.contentFrame();
       console.log('Got content frame');
 
-      // Wait a moment to ensure frame is fully loaded
-      await page.waitForTimeout(500);
-
       const saveMacroButton = await waitForSelector(frame, 'div.save-and-exit button');
       console.log('Found save button');
 
@@ -172,15 +157,10 @@ if(!password) {
       const boundingBox = saveMacroButton.boundingBox && (await saveMacroButton.boundingBox());
       console.log('Save button bounding box:', boundingBox);
 
-      // Add a small delay before clicking
-      await page.waitForTimeout(500);
-
       // Click the button
       await saveMacroButton.click({delay: 100});
       console.log('Clicked save macro button');
 
-      // Wait a moment after clicking
-      await page.waitForTimeout(500);
 
       //TODO: This line fails frequently with "Error: waitForFunction failed: frame got detached.", e.g. https://github.com/ZenUml/confluence-plugin-cloud/actions/runs/8231486472/job/22507232527
       //wait for macro viewer is loaded
@@ -662,7 +642,7 @@ if(!password) {
   async function waitForSelector(page, selector, options) {
     const isXpath = selector.indexOf('/') === 0;
     try {
-      return await (isXpath ? page.waitForXPath(selector, options) : page.waitForSelector(selector, options));
+      return await (isXpath ? page.waitForSelector(`xpath/${selector}`, options) : page.waitForSelector(selector, options));
     } catch(e) {
       console.log(`Error on waiting for ${selector}, now evaluating page...`);
 

@@ -1,8 +1,13 @@
+import { mixpanelTrack } from "./service/mixpanelService";
 import uuidv4 from "./utils/uuid";
-interface EventBody {
+
+export interface EventBody {
   addon_key: string;
   client_domain: string;
   user_account_id: string;
+  action: string;
+  event_source: string;
+  version: string;
 }
 
 const ALLOWED_REFERER_DOMAINS = ['zenuml.com', 'confluence-plugin.pages.dev', 'peng-new-8080.diagramly.ai']
@@ -52,7 +57,8 @@ export const onRequest = async (event) => {
     console.log(error);
     return new Response(error, { status: 400 });
   }
-  event.waitUntil(saveToBucket(event.env.EVENT_BUCKET, body)); //async handling
+
+  event.waitUntil(Promise.all([mixpanelTrack(body), saveToBucket(event.env.EVENT_BUCKET, body)])); //async handling
 
   return new Response(null, { status: 204 });
 }

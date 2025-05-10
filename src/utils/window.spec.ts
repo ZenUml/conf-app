@@ -37,6 +37,8 @@ describe('window utils', async () => {
     // Reset window.globals
     // @ts-ignore
     window.globals = mockGlobals
+    // @ts-ignore
+    window.gtag = vi.fn()
     // Reset localStorage
     localStorage.clear()
     // Mock context parameters
@@ -146,17 +148,10 @@ describe('window utils', async () => {
       })
     })
 
-    it('should identify user on first track', async () => {
-      // reset identified variable
-      vi.resetModules()
-      const { _awaitableTrackEvent } = await import('./window')
-      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
-      expect(mixpanel.identify).toHaveBeenCalledWith('test-user-123')
-    })
-
     it('should track event with correct parameters', async () => {
       await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
-      expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
+      // @ts-ignore
+      expect(window.gtag).toHaveBeenCalledWith('event', 'test-action', expect.objectContaining({
         event_category: 'analytics',
         event_label: 'test-label',
         user_account_id: 'test-user-123',
@@ -171,7 +166,8 @@ describe('window utils', async () => {
       // @ts-ignore
       window.globals.apWrapper.currentUser = null
       await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
-      expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
+      // @ts-ignore
+      expect(window.gtag).toHaveBeenCalledWith('event', 'test-action', expect.objectContaining({
         user_account_id: 'unknown_user_account_id'
       }))
     })
@@ -179,7 +175,8 @@ describe('window utils', async () => {
     it('should handle empty label gracefully', async () => {
       await _awaitableTrackEvent('', 'action', 'analytics');
 
-      expect(mixpanel.track).toHaveBeenCalledWith('action', expect.objectContaining({
+      // @ts-ignore
+      expect(window.gtag).toHaveBeenCalledWith('event', 'action', expect.objectContaining({
         event_label: ''
       }));
     })
@@ -187,7 +184,8 @@ describe('window utils', async () => {
     it('should include custom event details', async () => {
       const customDetails = { custom_field: 'custom_value' }
       await _awaitableTrackEvent('test-label', 'test-action', 'analytics', customDetails)
-      expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
+      // @ts-ignore
+      expect(window.gtag).toHaveBeenCalledWith('event', 'test-action', expect.objectContaining({
         custom_field: 'custom_value'
       }))
     })
@@ -203,7 +201,8 @@ describe('window utils', async () => {
       await _awaitableTrackEvent('label', 'action', 'performance', customDetails);
 
       // Standard properties should be preserved
-      expect(mixpanel.track).toHaveBeenCalledWith('action', expect.objectContaining({
+      // @ts-ignore
+      expect(window.gtag).toHaveBeenCalledWith('event', 'action', expect.objectContaining({
         event_category: 'should-override',
         event_label: 'label',
         timing: 123,
@@ -224,28 +223,8 @@ describe('window utils', async () => {
       )
     })
 
-    it('should handle mixpanel errors gracefully', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error');
-      vi.mocked(mixpanel.track).mockImplementationOnce(() => {
-        throw new Error('Mixpanel error');
-      });
-
-      await _awaitableTrackEvent('test-label', 'test-action', 'test-category');
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Error in calling mixpanel',
-        expect.any(Error)
-      );
-
-      // r2Track should still be called even if mixpanel fails
-      expect(global.fetch).toHaveBeenCalled();
-    })
-
     it('should continue execution even when all tracking services fail', async () => {
       // Make everything fail
-      vi.mocked(mixpanel.track).mockImplementationOnce(() => {
-        throw new Error('Mixpanel error');
-      });
 
       // @ts-ignore
       window.gtag = () => { throw new Error('Gtag error') };

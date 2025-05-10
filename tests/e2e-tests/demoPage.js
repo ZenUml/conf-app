@@ -43,7 +43,8 @@ if(!password) {
   await page.goto(existingPageId ? pageUrl(existingPageId) : `${baseUrl}/overview`);
 
   //some instance doesn't automatically redirect to login
-  await Promise.race([page.waitForSelector('input[name=username]'), page.waitForSelector('span[aria-label="Sign In"]').then(e => e.click()).then(() => page.waitForSelector('input[name=username]'))]);
+  await Promise.race([page.waitForSelector('input[name=username]'), 
+    page.waitForSelector('xpath///a[contains(@href, "/wiki/login.action")]').then(e => e.click()).then(() => page.waitForSelector('input[name=username]'))]);
 
   await page.click('input[name=username]');
   await page.keyboard.type(username);

@@ -3,7 +3,7 @@ import {
   zenumlLinter,
   zenumlCompletions,
   zenumlCompletionKeyMaps,
-  zenumlCompletionListener,
+  zenumlParticipantStateField,
 } from '@zenuml/codemirror-extensions';
 import {
   bracketMatching,
@@ -163,6 +163,7 @@ const mermaidExtensions = [
 ]
 
 const zenumlExtensions = [
+  zenumlParticipantStateField,
   zenumlHighlighter('dark'),
   zenumlLinter(),
   autocompletion({
@@ -173,7 +174,6 @@ const zenumlExtensions = [
     selectOnOpen: true,
   }),
   keymap.of(zenumlCompletionKeyMaps),
-  EditorView.updateListener.of(zenumlCompletionListener)
 ]
 
 export { baseExtensionsFactory, mermaidExtensions, zenumlExtensions };

@@ -587,14 +587,28 @@ if(!password) {
     }
   }
 
+  function delay(time) {
+    return new Promise(function(resolve) { 
+        setTimeout(resolve, time)
+    });
+ }
+
   async function assertFrame({frameSelector, contentSelector, expectedContentText, contentXpath}) {
     let result;
-    const iframe = await waitForSelector(page, frameSelector);
+    let iframe = await waitForSelector(page, frameSelector);
     console.log(`Found frame "${frameSelector}"`);
 
-    const frame = await iframe.contentFrame();
+    let frame = await iframe.contentFrame();
     if(!frame) {
-      throw `Failed to get content frame of "${frameSelector}"`
+      console.log(`Failed to get content frame of "${frameSelector}", retrying...`);
+      await delay(500);
+      iframe = await waitForSelector(page, frameSelector);
+      frame = await iframe.contentFrame();
+      if(!frame) {
+        const frames = await page.frames();
+        console.log('Available frames:', frames.map(f => f.url()));
+        throw `Failed to get content frame of "${frameSelector}"`
+      }
     }
     result = frame;
 

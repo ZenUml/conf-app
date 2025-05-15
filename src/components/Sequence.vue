@@ -116,4 +116,8 @@ export default {
   position: relative;
   z-index: 11;
 }
+
+.zenuml {
+  overflow: hidden;
+}
 </style>

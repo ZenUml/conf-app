@@ -14,7 +14,8 @@ describe('CustomContentStorageProvider', () => {
   })
 
   test('custom content', async () => {
-    const mockAp = new MockAp('abcd');
+    const mockAp = new MockAp('456');
+    mockAp.setPage({status: 'current'});
     mockAp.setCustomContent(123, {
       source: 'custom-content',
       code: 'A.method',

@@ -349,6 +349,34 @@ export default class ApWrapper2 implements IApWrapper {
     return <ICustomContentV2>assign;
   }
 
+  async getCustomContentVersionBeforeDate(id: string, date: string): Promise<ICustomContentV2 | undefined> {
+    const customContent = await this.getCustomContentRawV2(id, 'include-versions=true');
+    const descendingVersions = customContent?.versions?.results.sort((a, b) => b.number - a.number);
+    const version = descendingVersions?.find(v => new Date(v.createdAt) < new Date(date)) || descendingVersions?.[descendingVersions.length - 1];
+    console.log(`Found version ${version?.number} created at ${version?.createdAt} before date ${date}`);
+
+    const customContentVersion = await this.getCustomContentRawV2(id, `version=${version?.number}&body-format=raw`);
+    let diagram = JSON.parse(customContentVersion?.body?.raw?.value || '{}');
+    diagram.source = DataSource.CustomContent;
+    diagram.id = id;
+    let assign = <unknown>Object.assign({}, customContent, {value: diagram});
+    return <ICustomContentV2>assign;
+  }
+
+  async getCustomContentForCurrentPage(customContentId: string): Promise<ICustomContentV2 | undefined> {
+    const pageId = await this._getCurrentPageId();
+    const page = await this.request(`/api/v2/pages/${pageId}`);
+
+    if(page.status === 'historical') {
+      const pageVersionCreatedAt = page.version.createdAt;
+      trackEvent(`page created at ${pageVersionCreatedAt}`, 'view_historical_page', 'macro');
+      
+      return await this.getCustomContentVersionBeforeDate(customContentId, pageVersionCreatedAt);
+    }
+
+    return await this.getCustomContentByIdV2(customContentId);
+  }
+
   private async getCustomContentRaw(id: string): Promise<ICustomContentResponseBody | undefined> {
     const url = `/rest/api/content/${id}?expand=body.raw,version.number,container,space`;
     try {
@@ -363,8 +391,8 @@ export default class ApWrapper2 implements IApWrapper {
     }
   }
 
-  private async getCustomContentRawV2(id: string): Promise<ICustomContentResponseBodyV2 | undefined> {
-    const url = `/api/v2/custom-content/${id}?body-format=raw`;
+  private async getCustomContentRawV2(id: string, query: string = 'body-format=raw'): Promise<ICustomContentResponseBodyV2 | undefined> {
+    const url = `/api/v2/custom-content/${id}?${query}`;
     try {
       const response = await this._requestFn({type: 'GET', url});
       const customContent = this.parseCustomContentResponseV2(response);

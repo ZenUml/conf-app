@@ -57,7 +57,7 @@ export class AtlasPage {
   }
 
   async getSpace() {
-    //Caution: there is no context in macro editor
+    //context is also available in macro editor as checked on 15 May 2025
     return (await this._getContext()).confluence?.space;
   }
 

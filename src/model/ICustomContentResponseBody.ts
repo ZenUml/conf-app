@@ -50,4 +50,5 @@ export interface ICustomContentResponseBodyV2 {
   authorId: string;
   createdAt: string;
   version: {number: number, createdAt: string, authorId: string};
+  versions?: {results: Array<{number: number, createdAt: string, authorId: string}>};
 }

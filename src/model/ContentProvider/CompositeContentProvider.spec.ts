@@ -41,9 +41,10 @@ describe('CompositeContentProvider', () => {
 
     test('should use url based content id if rendered.for==custom-content-native', async () => {
       TestHelper.setUpUrlParam('rendered.for=custom-content-native&content.id=123');
-      const mockAp = new MockAp('contentId');
+      const mockAp = new MockAp('456');
       // body will not be used
       mockAp.confluence.saveMacro({}, 'body');
+      mockAp.setPage({status: 'current'});
       mockAp.setCustomContent(123, {
         source: 'custom-content',
         code: 'A.method',

@@ -15,7 +15,7 @@ export class CustomContentStorageProvider implements StorageProvider {
     if (!id) {
       return NULL_DIAGRAM;
     }
-    const customContent = await this.apWrapper.getCustomContentByIdV2(id);
+    const customContent = await this.apWrapper.getCustomContentForCurrentPage(id);
     // @ts-ignore
     return customContent?.value;
   }

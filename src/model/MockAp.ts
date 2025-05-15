@@ -6,6 +6,7 @@ import customContentByIdV1DiagramSequence from "@/model/Ap/MockedResponse/custom
 import customContentByIdV1DiagramMermaid from "@/model/Ap/MockedResponse/custom-content-by-id-v1-diagram-mermaid.json";
 
 const CONTRACT: any = {
+  page: {method: 'get', URL: /\/api\/v2\/pages\/(\d+)/},
   customContent: {method: 'get', URL: /\/rest\/api\/content\/(\d+)/},
   customContentV2: {method: 'get', URL: /\/api\/v2\/custom-content\/(\d+)/},
   createCustomContentV2: { method: 'post', URL: /\/api\/v2\/custom-content/},
@@ -106,6 +107,15 @@ export default class MockAp implements IAp {
         const result = matchContract(r, 'createCustomContent');
         return !!result;
       }, handle: r => ({body: JSON.stringify({id: 1234, body: {raw: {value: JSON.stringify('content')}}})})});
+  }
+
+  setPage(content: any) {
+    this.requestHandlers.push({match: r => {
+      const result = matchContract(r, 'page');
+      if(result && result.length > 1) {
+        return result[1] == String(this.contentId);
+      }
+    }, handle: r => ({body: JSON.stringify(content)})} as RequestHandler);
   }
 
   setCustomContent(customContentId: any, content: any) {

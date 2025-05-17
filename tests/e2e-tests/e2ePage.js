@@ -115,12 +115,10 @@ if(!password) {
     console.log('\nCase - edit sequence macro');
     await withNewPage(async () => {
 
-      await page.$eval('#editPageLink', e => {
-        console.log(e);
-        e.click();
-      });
+      await page.$eval('#editPageLink', e => e.click());
+      console.log('Clicked edit page link');
 
-      const clickInPage = (selector) => page.$eval(selector, e => e.click() );
+      const clickInPage = (selector) => page.$eval(selector, e => e.click()).then(() => console.log(`Clicked ${selector}`));
 
       const clickEditMacroBtton = async () => {
         const editMacro = 'button[data-testid=extension-toolbar-edit-button]';
@@ -128,19 +126,27 @@ if(!password) {
         await clickInPage(editMacro);
       };
 
-      await clickEditMacroBtton();
+      const showMacroWidgets = async () => {
+        const dragHandle = 'button[data-testid=block-ctrl-drag-handle]';
+        await page.waitForSelector(dragHandle);
+        await clickInPage(dragHandle);
+      };
 
-      const editMacroFrame = '//iframe[contains(@src, "sequence-editor.html")]';
-      console.log('Looking for edit macro iframe...');
+      //sometimes the "edit macro button" is absent before forcing it to show by clicking the macro drag handle
+      await Promise.race([showMacroWidgets().then(clickEditMacroBtton), clickEditMacroBtton()]);
+
+      const macroEditorFrame = '//iframe[contains(@src, "sequence-editor.html")]';
 
       //sometimes Confluence shows its native editor with title: h1:contains("Edit ‘Diagram (ZenUML & Mermaid)’ Macro")
-      const closeNativeEditor = () => page.waitForSelector('#macro-details-page-title').then(() => clickInPage('a.button-panel-cancel-link').then(clickEditMacroBtton)).then(() => waitForSelector(page, editMacroFrame));
+      const closeNativeEditor = () => page.waitForSelector('#macro-details-page-title').then(() => clickInPage('a.button-panel-cancel-link').then(clickEditMacroBtton)).then(() => waitForSelector(page, macroEditorFrame));
 
-      const iframe = await Promise.race([waitForSelector(page, editMacroFrame), closeNativeEditor()]);
-      console.log('Found edit macro iframe');
+      const iframe = await Promise.race([waitForSelector(page, macroEditorFrame), closeNativeEditor()]);
+      console.log('Found macro editor iframe');
 
       if(!iframe.contentFrame) {
+        console.log('iframe.contentFrame is not a function, saving page html', iframe);
         savePageHtml(iframe, 'edit-macro-iframe');
+        throw new Error('Unexpected iframe contentFrame error');
       }
 
       const frame = await iframe.contentFrame();
@@ -656,18 +662,20 @@ if(!password) {
 
   async function waitForSelector(page, selector, options) {
     const isXpath = selector.indexOf('/') === 0;
+    const waitFor = () => isXpath ? page.waitForSelector(`xpath/${selector}`, options) : page.waitForSelector(selector, options);
+
     try {
-      return await (isXpath ? page.waitForSelector(`xpath/${selector}`, options) : page.waitForSelector(selector, options));
+      return await waitFor();
     } catch(e) {
-      console.log(`Error on waiting for ${selector}, now evaluating page...`);
+      console.log(`Error on waiting for ${selector}, now evaluating in page...`);
 
       const element = await page.$eval('html', (e, isXpath, selector) => isXpath 
         ? document.evaluate(selector, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null) 
         : document.querySelector(selector), isXpath, selector);
 
       if(element) {
-        console.log(`Found element ${selector} in page`);
-        return element;
+        console.log(`Found element ${selector} in page, now waiting for it by Puppeeteer interface...`);
+        return await waitFor();
       }
       else {
         console.log(`Element still not found`);

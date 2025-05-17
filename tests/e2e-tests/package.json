@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "test": "node demoPage.js",
-    "test:prod": "ZENUML_STAGE_USERNAME=robot1yanhui@aol.com ZENUML_DOMAIN=zenuml.atlassian.net ZENUML_SPACE=SmokeTest node demoPage.js",
-    "test:peng": "ZENUML_STAGE_USERNAME=eagle.xiao@gmail.com node demoPage.js",
-    "test:yanhui": "ZENUML_STAGE_USERNAME=robot1.yanhui@gmail.com ZENUML_DOMAIN=whimet4.atlassian.net ZENUML_SPACE=WHIMET4 node demoPage.js",
-    "test:yanhui:existing": "ZENUML_STAGE_USERNAME=robot1.yanhui@gmail.com ZENUML_DOMAIN=whimet4.atlassian.net PAGE_ID=458653717 ZENUML_SPACE=WHIMET4 node demoPage.js"
+    "test": "node e2ePage.js",
+    "test:prod": "ZENUML_STAGE_USERNAME=robot1yanhui@aol.com ZENUML_DOMAIN=zenuml.atlassian.net ZENUML_SPACE=SmokeTest node e2ePage.js",
+    "test:peng": "ZENUML_STAGE_USERNAME=eagle.xiao@gmail.com node e2ePage.js",
+    "test:yanhui": "ZENUML_STAGE_USERNAME=robot1.yanhui@gmail.com ZENUML_DOMAIN=whimet4.atlassian.net ZENUML_SPACE=WHIMET4 node e2ePage.js",
+    "test:yanhui:existing": "ZENUML_STAGE_USERNAME=robot1.yanhui@gmail.com ZENUML_DOMAIN=whimet4.atlassian.net PAGE_ID=458653717 ZENUML_SPACE=WHIMET4 node e2ePage.js"
   },
   "dependencies": {
     "otpauth": "^9.4.0",

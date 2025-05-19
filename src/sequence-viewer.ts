@@ -88,18 +88,6 @@ async function main() {
 
 export default main()
 
-EventBus.$on('diagramLoaded', () => {
-  // @ts-ignore
-  setTimeout(() => {
-    const height = Math.max(
-      document.body.offsetHeight,
-      document.documentElement.offsetHeight
-    );
-    AP.resize('100%', `${height + 1}px`);
-    console.debug(`Resize macro ${height + 1}px`);
-  }, 1500)
-});
-
 // Dynamically import createAttachmentIfContentChanged only when needed
 const createAttachmentIfContentChangedPromise = import("@/model/Attachment").then(
   module => module.default

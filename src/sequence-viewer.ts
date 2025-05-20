@@ -24,10 +24,10 @@ async function initializeCriticalPath() {
     // Initialize context and get macro data (lightweight operations)
     await globals.apWrapper.initializeContext();
     const macroData = await globals.apWrapper.getMacroData();
-    
+
     // Report metrics (can run in parallel with heavy content loading)
     macroMetrics.reportMacroMetrics().catch(e => console.error('Error reporting metrics:', e));
-    
+
     // Return the macro data for use in the second phase
     return { macroData };
   } catch (error) {
@@ -48,20 +48,20 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       import("@/model/ContentProvider/CompositeContentProvider"),
       import("@/mount-root")
     ]);
-    
+
     // Initialize content provider
     const compositeContentProvider = defaultContentProvider(globals.apWrapper as ApWrapper2);
     let {doc} = await compositeContentProvider.load();
-    
+
     // Hide skeleton loader before mounting the actual content
     const skeletonLoader = document.getElementById('skeleton-loader');
     if (skeletonLoader) {
       skeletonLoader.style.display = 'none';
     }
-    
+
     // Dynamically import DiagramPortal component
     const DiagramPortal = (await import("@/components/DiagramPortal.vue")).default;
-    
+
     // Mount the root component
     mountRoot(doc, DiagramPortal);
   } catch (error) {
@@ -79,9 +79,9 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 async function main() {
   // Phase 1: Critical path rendering
   const criticalData = await initializeCriticalPath();
-  
+
   // Phase 2: Load heavy components
-  loadHeavyComponents(criticalData).catch(e => 
+  loadHeavyComponents(criticalData).catch(e =>
     console.error('Failed to load heavy components:', e)
   );
 }
@@ -89,9 +89,12 @@ async function main() {
 export default main()
 
 EventBus.$on('diagramLoaded', () => {
-  console.debug('Resize macro');
-  // @ts-ignore
-  setTimeout(window.AP?.resize, 1500)
+  const resizeAfterDelay = () => {
+    console.log('Resizing viewport after diagram loaded');
+    // @ts-ignore
+    window.AP?.resize();
+  };
+  setTimeout(resizeAfterDelay, 1500);
 });
 
 // Dynamically import createAttachmentIfContentChanged only when needed
@@ -110,17 +113,17 @@ async function createAttachment(code: string, diagramType: DiagramType) {
   } catch (e) {
     // Do not re-throw the error
     console.error("Error when creating attachment", e);
-    
+
     // Improved error tracking with more detailed information
     let errorDetails: any = { message: e.message };
-    
+
     // Extract XHR details if available
     if (e.xhr) {
       errorDetails.xhr = {
         status: e.xhr.status,
         statusText: e.xhr.statusText
       };
-      
+
       // Try to extract the full response text
       try {
         // For HTML responses, extract text content to avoid HTML tags
@@ -136,7 +139,7 @@ async function createAttachment(code: string, diagramType: DiagramType) {
         errorDetails.xhr.responseDetails = 'Error parsing response: ' + parseError.message;
       }
     }
-    
+
     // Track the error with enhanced details
     trackEvent(JSON.stringify(errorDetails), 'create_attachment' + diagramType, 'error');
   }

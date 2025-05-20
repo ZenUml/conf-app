@@ -28,72 +28,12 @@
     *::-webkit-scrollbar-track {
       background-color: #fff;
     }
-
-    /* Loading skeleton styles */
-    .skeleton-loader {
-      width: 100%;
-      height: 400px;
-      background: #f6f7f9;
-      position: relative;
-      overflow: hidden;
-      border-radius: 4px;
-    }
-
-    .skeleton-loader::after {
-      content: "";
-      display: block;
-      position: absolute;
-      top: 0;
-      width: 100%;
-      height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
-      animation: loading 1.5s infinite;
-    }
-
-    .skeleton-header {
-      height: 40px;
-      margin-bottom: 20px;
-      background: #e9ecef;
-      border-radius: 4px;
-    }
-
-    .skeleton-line {
-      height: 20px;
-      margin-bottom: 10px;
-      background: #e9ecef;
-      border-radius: 4px;
-      width: 80%;
-    }
-
-    .skeleton-line:nth-child(2) {
-      width: 90%;
-    }
-
-    .skeleton-line:nth-child(3) {
-      width: 70%;
-    }
-
-    @keyframes loading {
-      0% {
-        transform: translateX(-100%);
-      }
-      100% {
-        transform: translateX(100%);
-      }
-    }
   </style>
 </head>
-<body>
+<!--overflow: clip to avoid gaps at the bottom created by zenuml-intersection-detector in rare cases-->
+<body style="overflow: clip">
 <div class="mx-auto" style="width: 100%">
-  <div id="app">
-    <!-- Skeleton loader will be shown until the app is fully loaded -->
-    <div id="skeleton-loader" class="skeleton-loader">
-      <div class="skeleton-header"></div>
-      <div class="skeleton-line"></div>
-      <div class="skeleton-line"></div>
-      <div class="skeleton-line"></div>
-    </div>
-  </div>
+  <div id="app"></div>
 </div>
 </body>
 <script type="module" src="src/sequence-viewer.ts"></script>

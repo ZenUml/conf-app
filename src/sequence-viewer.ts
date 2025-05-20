@@ -88,6 +88,15 @@ async function main() {
 
 export default main()
 
+EventBus.$on('diagramLoaded', () => {
+  const resizeAfterDelay = () => {
+    console.log('Resizing viewport after diagram loaded');
+    // @ts-ignore
+    window.AP?.resize();
+  };
+  setTimeout(resizeAfterDelay, 1500);
+});
+
 // Dynamically import createAttachmentIfContentChanged only when needed
 const createAttachmentIfContentChangedPromise = import("@/model/Attachment").then(
   module => module.default

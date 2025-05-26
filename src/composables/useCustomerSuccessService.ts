@@ -8,6 +8,7 @@ import { getClientDomain } from "@/utils/ContextParameters/ContextParameters"
 export const MACROS_LIMIT = 100
 const WARNING_THRESHOLD = 85
 const BASE_UPGRADE_URL = 'https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram'
+const BASE_LEARN_MORE_URL = 'https://zenuml.com/upgrade'
 
 // Shared reactive state across all component instances
 const macrosCreated = ref<number>(0)
@@ -25,6 +26,11 @@ export function useCustomerSuccessService() {
   const upgradeUrl = computed(() => {
     const domain = getClientDomain()
     return `${BASE_UPGRADE_URL}?domain=${domain}`
+  })
+
+  const learnMoreUrl = computed(() => {
+    const domain = getClientDomain()
+    return `${BASE_LEARN_MORE_URL}?domain=${domain}`
   })
 
   async function loadMacroMetrics(): Promise<void> {
@@ -67,6 +73,7 @@ export function useCustomerSuccessService() {
     macrosCreated,
     actionRequired,
     upgradeUrl,
+    learnMoreUrl,
     initialize
   }
 }

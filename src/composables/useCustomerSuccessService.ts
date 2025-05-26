@@ -7,15 +7,17 @@ import { getClientDomain } from "@/utils/ContextParameters/ContextParameters"
 // Constants that both components use
 export const MACROS_LIMIT = 100
 const WARNING_THRESHOLD = 85
-const BASE_UPGRADE_URL = 'https://zenuml.com/upgrade/'
+const BASE_UPGRADE_URL = 'https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram'
 
-// Promise to ensure CSS feature flag is loaded and tracked only once
-let loadCssFlagPromise: Promise<void> | null = null;
+// Shared reactive state across all component instances
+const macrosCreated = ref<number>(0)
+const customerSuccessServiceEnabled = ref<boolean>(false)
+
+// Cache flags to track if data has been loaded
+let macroMetricsLoaded = false;
+let cssFlagLoaded = false;
 
 export function useCustomerSuccessService() {
-  const macrosCreated = ref<number>(0)
-  const customerSuccessServiceEnabled = ref<boolean>(false)
-
   const actionRequired = computed(() => {
     return macrosCreated.value >= WARNING_THRESHOLD && customerSuccessServiceEnabled.value
   })
@@ -26,32 +28,34 @@ export function useCustomerSuccessService() {
   })
 
   async function loadMacroMetrics(): Promise<void> {
-    const metrics = await macroMetrics.getMacroMetrics()
-    if (metrics?.total) {
-      macrosCreated.value = metrics.total
+    if (macroMetricsLoaded) {
+      return;
+    }
+
+    try {
+      const metrics = await macroMetrics.getMacroMetrics()
+      if (metrics?.total) {
+        macrosCreated.value = metrics.total
+      }
+      macroMetricsLoaded = true;
+    } catch (error) {
+      console.error('Error loading macro metrics:', error)
     }
   }
 
   async function loadCSSFeatureFlag(): Promise<void> {
-    // If the promise already exists, return it to prevent re-execution
-    if (loadCssFlagPromise) {
-      return loadCssFlagPromise;
+    if (cssFlagLoaded) {
+      return;
     }
 
-    // Create the promise to fetch the flag and track the event
-    loadCssFlagPromise = (async () => {
-      try {
-        const customerSuccessService: any = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE'])
-        customerSuccessServiceEnabled.value = !!customerSuccessService.CUSTOMER_SUCCESS_SERVICE
-        trackEvent('', customerSuccessServiceEnabled.value ? 'css-enabled' : 'css-disabled', 'conversion')
-      } catch (error) {
-        console.error("Error loading CSS feature flag:", error);
-        // Optionally reset the promise on error so it can be retried?
-        // loadCssFlagPromise = null;
-      }
-    })();
-
-    return loadCssFlagPromise;
+    try {
+      const customerSuccessService: any = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE'])
+      customerSuccessServiceEnabled.value = !!customerSuccessService.CUSTOMER_SUCCESS_SERVICE
+      trackEvent('', customerSuccessServiceEnabled.value ? 'css-enabled' : 'css-disabled', 'conversion')
+      cssFlagLoaded = true;
+    } catch (error) {
+      console.error("Error loading CSS feature flag:", error);
+    }
   }
 
   const initialize = async () => {

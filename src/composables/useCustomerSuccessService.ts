@@ -7,7 +7,7 @@ import { getClientDomain } from "@/utils/ContextParameters/ContextParameters"
 // Constants that both components use
 export const MACROS_LIMIT = 100
 const WARNING_THRESHOLD = 85
-const BASE_UPGRADE_URL = 'https://zenuml.com/upgrade/'
+const BASE_UPGRADE_URL = 'https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram'
 
 // Shared reactive state across all component instances
 const macrosCreated = ref<number>(0)

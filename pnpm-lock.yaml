@@ -157,6 +157,9 @@ importers:
       '@types/react-dom':
         specifier: '=17.0.2'
         version: 17.0.2
+      '@types/webpack-env':
+        specifier: ^1.18.8
+        version: 1.18.8
       '@typescript-eslint/eslint-plugin':
         specifier: ^8.28.0
         version: 8.28.0(@typescript-eslint/parser@8.28.0(eslint@9.4.0)(typescript@5.8.2))(eslint@9.4.0)(typescript@5.8.2)
@@ -2611,6 +2614,9 @@ packages:
 
   '@types/use-sync-external-store@0.0.3':
     resolution: {integrity: sha512-EwmlvuaxPNej9+T4v5AuBPJa2x2UOJVdjCtDHgcDqitUeOtjnJKJ+apYjVcAoBEMjKW1VVFGZLUb5+qqa09XFA==}
+
+  '@types/webpack-env@1.18.8':
+    resolution: {integrity: sha512-G9eAoJRMLjcvN4I08wB5I7YofOb/kaJNd5uoCMX+LbKXTPCF+ZIHuqTnFaK9Jz1rgs035f9JUPUhNFtqgucy/A==}
 
   '@types/yargs-parser@21.0.3':
     resolution: {integrity: sha512-I4q9QU9MQv4oEOz4tAHJtNz1cwuLxn2F3xcc2iV5WdqLPpUnj30aUuxt1mAxYTG+oe8CZMV/+6rU4S4gRDzqtQ==}
@@ -9465,6 +9471,8 @@ snapshots:
   '@types/unist@2.0.10': {}
 
   '@types/use-sync-external-store@0.0.3': {}
+
+  '@types/webpack-env@1.18.8': {}
 
   '@types/yargs-parser@21.0.3': {}
 

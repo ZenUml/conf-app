@@ -1,5 +1,10 @@
+environment:
+  variables:
+    - APP_ID
+    - BASE_URL
+
 app:
-  id: ari:cloud:ecosystem::app/d9e4002b-120b-426b-834b-402a4a5adce7
+  id: ari:cloud:ecosystem::app/${APP_ID}
   connect:
     key: com.zenuml.confluence-addon
     remote: connect
@@ -10,7 +15,7 @@ app:
     enabled: true
 remotes:
   - key: connect
-    baseUrl: https://confluence-plugin.pages.dev/
+    baseUrl: ${BASE_URL}
 connectModules:
   confluence:lifecycle:
     - key: lifecycle-events
@@ -325,10 +330,9 @@ permissions:
   external:
     fetch:
       backend:
-        - confluence-plugin.pages.dev
         - https://*.zenuml.com
-        - https://*.pages.dev
+        - ${BASE_URL}
     images:
-      - https://*.pages.dev/api/features
-      - https://*.pages.dev/api/metrics/evaluation
-      - https://*.pages.dev/track
+      - ${BASE_URL}/api/features
+      - ${BASE_URL}/api/metrics/evaluation
+      - ${BASE_URL}/track

@@ -327,6 +327,12 @@ permissions:
   scopes:
     - read:connect-confluence
     - write:connect-confluence
+    - read:confluence-content.summary
+    - write:confluence-content
+    - read:confluence-content.all
+    - write:confluence-file
+    - read:confluence-content.permission
+    - search:confluence
   external:
     fetch:
       backend:
@@ -336,3 +342,18 @@ permissions:
       - ${BASE_URL}/api/features
       - ${BASE_URL}/api/metrics/evaluation
       - ${BASE_URL}/track
+    frames:
+      - https://yanhui8080.zenuml.com/sequence-editor
+
+modules:
+  macro:
+    - key: zenuml-forge-sequence-macro
+      title: ZenUML Forge Sequence Diagram
+      description: Create and view ZenUML or Mermaid diagrams.
+      resource: main
+
+resources:
+  - key: main
+    path: src/custom-ui/dist/
+    tunnel:
+      port: 5174

@@ -112,35 +112,23 @@ if(!password) {
 
     }, {mermaid: true});
 
-    console.log('\nCase - edit sequence macro');
+    console.log('\nCase - edit sequence macro on viewer');
     await withNewPage(async () => {
-
-      await page.$eval('#editPageLink', e => e.click());
-      console.log('Clicked edit page link');
-
       const clickInPage = (selector) => page.$eval(selector, e => e.click()).then(() => console.log(`Clicked ${selector}`));
 
       const clickEditMacroBtton = async () => {
-        const editMacro = 'button[data-testid=extension-toolbar-edit-button]';
-        await page.waitForSelector(editMacro);
-        await clickInPage(editMacro);
+        // const editMacro = 'button[data-testid=extension-toolbar-edit-button]';
+        const editMacro = '.viewer .header .actions button';
+        const button = await waitForSelectorInFrame(`//iframe[contains(@id, "zenuml-sequence-macro${getModuleKeySuffix()}")]`, editMacro);
+        await button.click();
+        console.log('Clicked edit macro button');
       };
 
-      const showMacroWidgets = async () => {
-        const dragHandle = 'button[data-testid=block-ctrl-drag-handle]';
-        await page.waitForSelector(dragHandle);
-        await clickInPage(dragHandle);
-      };
+      await clickEditMacroBtton();
 
-      //sometimes the "edit macro button" is absent before forcing it to show by clicking the macro drag handle
-      await Promise.race([showMacroWidgets().then(clickEditMacroBtton), clickEditMacroBtton()]);
+      const macroEditorFrame = '//iframe[contains(@src, "sequence-editor-dialog.html")]';
 
-      const macroEditorFrame = '//iframe[contains(@src, "sequence-editor.html")]';
-
-      //sometimes Confluence shows its native editor with title: h1:contains("Edit ‘Diagram (ZenUML & Mermaid)’ Macro")
-      const closeNativeEditor = () => page.waitForSelector('#macro-details-page-title').then(() => clickInPage('a.button-panel-cancel-link').then(clickEditMacroBtton)).then(() => waitForSelector(page, macroEditorFrame));
-
-      const iframe = await Promise.race([waitForSelector(page, macroEditorFrame), closeNativeEditor()]);
+      const iframe = await waitForSelector(page, macroEditorFrame);
       console.log('Found macro editor iframe');
 
       if(!iframe.contentFrame) {
@@ -168,15 +156,10 @@ if(!password) {
       await saveMacroButton.click({delay: 100});
       console.log('Clicked save macro button');
 
-
       //TODO: This line fails frequently with "Error: waitForFunction failed: frame got detached.", e.g. https://github.com/ZenUml/confluence-plugin-cloud/actions/runs/8231486472/job/22507232527
       //wait for macro viewer is loaded
       await assertFrame({frameSelector: `//iframe[contains(@id, "zenuml-sequence-macro${getModuleKeySuffix()}")]`,
         contentXpath: '//*[contains(text(), "Order Service (Demonstration only)")]'});//
-
-      const navigationPromise = page.waitForNavigation();
-      await page.$eval('button[data-testid=publish-modal-update-button]', e => e.click());
-      await navigationPromise;
 
     }, {sequence: true});
 

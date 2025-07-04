@@ -702,7 +702,7 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   isDisplayMode() {
-    return getUrlParam('outputType') === 'display';
+    return getUrlParam('outputType') === 'display' || this.isForge;
   }
 
   async getCustomContent(): Promise<ICustomContent | undefined> {
@@ -799,6 +799,10 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async canUserEdit(): Promise<boolean> {
+    if(this.isForge) {
+      return true;
+    }
+    
     const pageId = await this._page.getPageId();
     return await CheckPermission(pageId, this.currentUser?.atlassianAccountId || '', this._requestFn as PermissionCheckRequestFunc)
   }

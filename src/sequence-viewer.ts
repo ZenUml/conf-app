@@ -9,6 +9,7 @@ import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import './assets/tailwind.css'
 import { saveToPlatform } from "./model/ContentProvider/Persistence";
 import macroMetrics from "@/services/MacroMetrics";
+import { view, requestConfluence, invoke } from "@forge/bridge";
 
 // Initialize critical path rendering first
 async function initializeCriticalPath() {
@@ -42,16 +43,21 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
   try {
     // Dynamically import heavy dependencies
     const [
-      { default: defaultContentProvider },
       { mountRoot }
     ] = await Promise.all([
-      import("@/model/ContentProvider/CompositeContentProvider"),
       import("@/mount-root")
     ]);
 
-    // Initialize content provider
-    const compositeContentProvider = defaultContentProvider(globals.apWrapper as ApWrapper2);
-    let {doc} = await compositeContentProvider.load();
+    const context = await view.getContext();
+    (globals.apWrapper as ApWrapper2).isForge = !!context;
+
+    const { accountId, cloudId, moduleKey, extension: {config: {customContentId, updatedAt, uuid}, content: {id}} } = context;
+    console.log('sequence-editor - context', context);
+
+    const customContent2 = await globals.apWrapper.getCustomContentByIdV2(customContentId);
+    console.log('Custom content2:', customContent2);
+
+    let doc = customContent2?.value;
 
     // Hide skeleton loader before mounting the actual content
     const skeletonLoader = document.getElementById('skeleton-loader');

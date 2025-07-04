@@ -19,6 +19,7 @@ import CheckPermission, {PermissionCheckRequestFunc} from "@/model/page/CheckPer
 import {ISpace, LocationTarget} from './ILocationContext';
 import {Attachment} from './ConfluenceTypes';
 import { loadAllPaginatedData } from '@/utils/requestUtil';
+import { view, requestConfluence, invoke } from "@forge/bridge";
 
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
 const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
@@ -41,6 +42,7 @@ export default class ApWrapper2 implements IApWrapper {
   baseUrl: string | undefined;
   locationTarget: LocationTarget | undefined;
   license: ILicense | undefined;
+  isForge: boolean = false;
 
   constructor(ap: IAp) {
     this.versionType = this.isLite() ? VersionType.Lite : VersionType.Full;
@@ -318,10 +320,12 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async getCustomContentByIdV2(id: string): Promise<ICustomContentV2 | undefined> {
-    const customContent = await this.getCustomContentRawV2(id);
+    const customContent = this.isForge ? await (await requestConfluence(`/wiki/api/v2/custom-content/${id}?body-format=raw`)).json() : await this.getCustomContentRawV2(id);
+    console.log('custom Content in ApWrapper2', customContent);
     if (!customContent) {
       throw Error(`Failed to load custom content by id ${id}`);
     }
+    //@ts-ignore
     let diagram = JSON.parse(customContent.body.raw.value);
     diagram.source = DataSource.CustomContent;
     const count = (await this._page.countMacros((m) => {

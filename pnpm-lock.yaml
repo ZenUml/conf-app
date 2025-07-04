@@ -51,9 +51,15 @@ importers:
       '@codemirror/view':
         specifier: ^6.26.3
         version: 6.26.3
+      '@forge/api':
+        specifier: ^6.0.0
+        version: 6.0.0
       '@forge/bridge':
         specifier: ^5.0.0
         version: 5.0.0(@types/react@17.0.2)(react@17.0.2)
+      '@forge/resolver':
+        specifier: ^1.6.13
+        version: 1.6.13
       '@sentry/cloudflare':
         specifier: ^9.5.0
         version: 9.5.0(@cloudflare/workers-types@4.20250327.0)
@@ -127,6 +133,9 @@ importers:
       '@babel/core':
         specifier: ^7.20.12
         version: 7.26.9
+      '@babel/plugin-proposal-optional-chaining':
+        specifier: ^7.21.0
+        version: 7.21.0(@babel/core@7.26.9)
       '@babel/preset-env':
         specifier: ^7.13.5
         version: 7.24.5(@babel/core@7.26.9)
@@ -1196,6 +1205,13 @@ packages:
     engines: {node: '>=6.9.0'}
     peerDependencies:
       '@babel/core': ^7.0.0
+
+  '@babel/plugin-proposal-optional-chaining@7.21.0':
+    resolution: {integrity: sha512-p4zeefM72gpmEe2fkUr/OnOXpWEf8nAgk7ZYVqqfFiyIG7oFfVZcCrU64hWn5xp4tQ9LkV4bTIa5rD0KANpKNA==}
+    engines: {node: '>=6.9.0'}
+    deprecated: This proposal has been merged to the ECMAScript standard and thus this plugin is no longer maintained. Please use @babel/plugin-transform-optional-chaining instead.
+    peerDependencies:
+      '@babel/core': ^7.0.0-0
 
   '@babel/plugin-proposal-private-property-in-object@7.21.0-placeholder-for-preset-env.2':
     resolution: {integrity: sha512-SOSkfJDddaM7mak6cPEpswyTRnuRltl429hMraQEglW+OkovnCzsiszTmsrlY//qLFjCpQDFRvjdm2wA5pPm9w==}
@@ -2518,11 +2534,29 @@ packages:
   '@floating-ui/vue@1.1.1':
     resolution: {integrity: sha512-cyawjk9etPZPl/RVtMRnWrwtAhWbPVSrRVYARgOzhLIqxr0k2up1APrrFjqP9QwRQ0AwjKSvbWg4YC6jESutow==}
 
+  '@forge/api@6.0.0':
+    resolution: {integrity: sha512-9ZPGqIqMglMXjBXf1Pi/Jg5WUIKXbEI4R0/AQZ+D7cv7wCiKMxjiM84JU699yV2CpLS78Sn98pcLZDi+8ObStg==}
+
+  '@forge/auth@0.0.8':
+    resolution: {integrity: sha512-nsI81rMYJz9qXSWrKiK6/ph0QIjwEUrBlUa6P/2+s8Gwwur/U82SDux3A25o4rbsqLdqWdpOTi/iRSKL1zUZfQ==}
+
   '@forge/bridge@5.0.0':
     resolution: {integrity: sha512-v3c2YJtfxoqJ340LEUAbdBr2nsDR6bD0RQF+hXs/0EK9CHlPMA/ejdcXROV0bJ3JtTzHN3A6qBXSkB+Y04HC7A==}
 
+  '@forge/egress@2.0.0':
+    resolution: {integrity: sha512-PaNleNXpvlcxWC6r7cSpJ/0GmgqqNPE+gojnf67UVwQA0XCYrOZkgFqXu80CF3GHMn9kJxP4tmRNHMsYXcxLhQ==}
+
   '@forge/i18n@0.0.6':
     resolution: {integrity: sha512-iIK0SxWwMUHp8ThYiBU+Cq/ty1Ng1dGEr+apWbh6SwbxaXWR8MGRr91AFj3BLLAiC6FXYprIBclgI8tRf0DxmA==}
+
+  '@forge/resolver@1.6.13':
+    resolution: {integrity: sha512-NqxZRGjfsb2xCunoqXbAUxDtlLwrZGcYQuvoKJuoKNsoEYbl05W0F7U9mHLlU7ime6ym2e50OlBT6mbDuyV2gQ==}
+
+  '@forge/storage@2.0.0':
+    resolution: {integrity: sha512-orj6wrKISiOVLmxHwaqTbdaGBANrpGD3ckK0VKqrFY+D3ZzeLK+VF1Ppu7u4Wynxy35RnneOLXdjKR8U8Eadvg==}
+
+  '@forge/util@1.4.9':
+    resolution: {integrity: sha512-ZLSXBRnIo/KRk3PKz7tb1YSywSHZCTY2JvG9OoU+qx1zU/rDPSP1K+72iBU7lK0x99eAraA5qEpZwPWaUIbBTw==}
 
   '@formatjs/ecma402-abstract@1.11.4':
     resolution: {integrity: sha512-EBikYFp2JCdIfGEb5G9dyCkTGDmC57KSHhRQOC3aYxoPWVZvfWCDjZwkGYHN7Lis/fmuWl906bnNTJifDQ3sXw==}
@@ -5477,6 +5511,9 @@ packages:
   he@1.2.0:
     resolution: {integrity: sha512-F/1DnUGPopORZi0ni+CvrCgHQ5FyEAHRLSApuYWMmrbSwoN2Mn/7k+Gl38gJnR7yyDZk6WLXwiGod1JOWNDKGw==}
     hasBin: true
+
+  headers-utils@3.0.2:
+    resolution: {integrity: sha512-xAxZkM1dRyGV2Ou5bzMxBPNLoRCjcX+ya7KSWybQD2KwLphxsapUVK6x/02o7f4VU6GPSXch9vNY2+gkU8tYWQ==}
 
   hexoid@1.0.0:
     resolution: {integrity: sha512-QFLV0taWQOZtvIRIAdBChesmogZrtuXvVWsFHZTk2SU+anspqZ2vMnoLg7IE1+Uk16N19APic1BuF8bC8c2m5g==}
@@ -10863,7 +10900,7 @@ snapshots:
       '@atlaskit/platform-feature-flags': 1.1.1(react@17.0.2)
       '@babel/runtime': 7.24.5
       '@babel/traverse': 7.26.9
-      '@babel/types': 7.26.9
+      '@babel/types': 7.27.6
       bind-event-listener: 3.0.0
       react: 17.0.2
     transitivePeerDependencies:
@@ -11075,7 +11112,7 @@ snapshots:
     dependencies:
       '@babel/core': 7.26.9
       '@babel/helper-compilation-targets': 7.26.5
-      '@babel/helper-plugin-utils': 7.24.5
+      '@babel/helper-plugin-utils': 7.27.1
       debug: 4.4.0
       lodash.debounce: 4.0.8
       resolve: 1.22.8
@@ -11157,7 +11194,7 @@ snapshots:
 
   '@babel/helper-skip-transparent-expression-wrappers@7.22.5':
     dependencies:
-      '@babel/types': 7.26.9
+      '@babel/types': 7.27.6
 
   '@babel/helper-split-export-declaration@7.24.5':
     dependencies:
@@ -11223,6 +11260,13 @@ snapshots:
       '@babel/helper-environment-visitor': 7.22.20
       '@babel/helper-plugin-utils': 7.24.5
 
+  '@babel/plugin-proposal-optional-chaining@7.21.0(@babel/core@7.26.9)':
+    dependencies:
+      '@babel/core': 7.26.9
+      '@babel/helper-plugin-utils': 7.27.1
+      '@babel/helper-skip-transparent-expression-wrappers': 7.22.5
+      '@babel/plugin-syntax-optional-chaining': 7.8.3(@babel/core@7.26.9)
+
   '@babel/plugin-proposal-private-property-in-object@7.21.0-placeholder-for-preset-env.2(@babel/core@7.26.9)':
     dependencies:
       '@babel/core': 7.26.9
@@ -11235,7 +11279,7 @@ snapshots:
   '@babel/plugin-syntax-bigint@7.8.3(@babel/core@7.26.9)':
     dependencies:
       '@babel/core': 7.26.9
-      '@babel/helper-plugin-utils': 7.24.5
+      '@babel/helper-plugin-utils': 7.27.1
 
   '@babel/plugin-syntax-class-properties@7.12.13(@babel/core@7.26.9)':
     dependencies:
@@ -12572,6 +12616,19 @@ snapshots:
       - '@vue/composition-api'
       - vue
 
+  '@forge/api@6.0.0':
+    dependencies:
+      '@forge/auth': 0.0.8
+      '@forge/egress': 2.0.0
+      '@forge/i18n': 0.0.6
+      '@forge/storage': 2.0.0
+      '@forge/util': 1.4.9
+      headers-utils: 3.0.2
+
+  '@forge/auth@0.0.8':
+    dependencies:
+      tslib: 2.6.2
+
   '@forge/bridge@5.0.0(@types/react@17.0.2)(react@17.0.2)':
     dependencies:
       '@atlaskit/tokens': 1.61.0(@types/react@17.0.2)(react@17.0.2)
@@ -12582,9 +12639,21 @@ snapshots:
       - react
       - supports-color
 
+  '@forge/egress@2.0.0':
+    dependencies:
+      minimatch: 9.0.5
+
   '@forge/i18n@0.0.6':
     dependencies:
       lodash: 4.17.21
+
+  '@forge/resolver@1.6.13':
+    dependencies:
+      '@forge/api': 6.0.0
+
+  '@forge/storage@2.0.0': {}
+
+  '@forge/util@1.4.9': {}
 
   '@formatjs/ecma402-abstract@1.11.4':
     dependencies:
@@ -16610,6 +16679,8 @@ snapshots:
       space-separated-tokens: 1.1.5
 
   he@1.2.0: {}
+
+  headers-utils@3.0.2: {}
 
   hexoid@1.0.0: {}
 

@@ -17,14 +17,25 @@ import { DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import Example from "@/utils/sequence/Example";
 import { trackEvent } from "@/utils/window";
 import MacroUtil from "@/model/MacroUtil";
+import { view, requestConfluence, invoke } from "@forge/bridge";
 
 // Track editor session start time
 const editorStartTime = Date.now();
 
 async function main() {
+  console.log('sequence-editor - main');
+
+  const context = await view.getContext();
+  (globals.apWrapper as ApWrapper2).isForge = !!context;
+
+  const { accountId, cloudId, moduleKey, extension: {config: {customContentId, updatedAt, uuid}, content: {id}} } = context;
+  console.log('sequence-editor - context', context);
+
+  const customContent2 = await globals.apWrapper.getCustomContentByIdV2(customContentId);
+  console.log('Custom content2:', customContent2);
+
   await globals.apWrapper.initializeContext();
-  const compositeContentProvider = defaultContentProvider(globals.apWrapper as ApWrapper2);
-  let { doc } = await compositeContentProvider.load();
+  let doc = customContent2?.value;
   console.log('loaded document', doc);
 
   if (doc === NULL_DIAGRAM) {

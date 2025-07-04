@@ -22,43 +22,43 @@ connectModules:
       installed: /installed?version=2025.04
       uninstalled: /uninstalled?version=2025.04
   confluence:dynamicContentMacros:
-    - key: zenuml-sequence-macro
-      name:
-        value: Diagram (ZenUML & Mermaid)
-      renderModes:
-        default:
-          url: >-
-            /attachment?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence
-      url: >-
-        /sequence-viewer.html?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&outputType={output.type}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence
-      description:
-        value: Create a ZenUML or Mermaid Diagram. Developed by the ZenUML team.
-      outputType: block
-      bodyType: plain-text
-      editor:
-        url: >-
-          /sequence-editor.html?version=2025.04&update=202103291207&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence
-        width: 100%
-        height: 100%
-        cacheable: true
-      icon:
-        width: 16
-        height: 16
-        url: image/diagram_macro_icon.png
-      documentation:
-        url: https://zenuml.atlassian.net/wiki/spaces/Doc/overview
-      categories:
-        - visuals
-      featured: true
-      parameters:
-        - identifier: diagramName
-          name:
-            value: Diagram name (do not change)
-            i18n: diagramName
-          type: string
-          required: true
-          multiple: false
-          defaultValue: None
+    # - key: zenuml-sequence-macro
+    #   name:
+    #     value: Diagram (ZenUML & Mermaid)
+    #   renderModes:
+    #     default:
+    #       url: >-
+    #         /attachment?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence
+    #   url: >-
+    #     /sequence-viewer.html?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&outputType={output.type}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence
+    #   description:
+    #     value: Create a ZenUML or Mermaid Diagram. Developed by the ZenUML team.
+    #   outputType: block
+    #   bodyType: plain-text
+    #   editor:
+    #     url: >-
+    #       /sequence-editor.html?version=2025.04&update=202103291207&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence
+    #     width: 100%
+    #     height: 100%
+    #     cacheable: true
+    #   icon:
+    #     width: 16
+    #     height: 16
+    #     url: image/diagram_macro_icon.png
+    #   documentation:
+    #     url: https://zenuml.atlassian.net/wiki/spaces/Doc/overview
+    #   categories:
+    #     - visuals
+    #   featured: true
+    #   parameters:
+    #     - identifier: diagramName
+    #       name:
+    #         value: Diagram name (do not change)
+    #         i18n: diagramName
+    #       type: string
+    #       required: true
+    #       multiple: false
+    #       defaultValue: None
     - key: zenuml-graph-macro
       name:
         value: Graph (DrawIO)
@@ -333,27 +333,33 @@ permissions:
     - write:confluence-file
     - read:confluence-content.permission
     - search:confluence
+    - read:page:confluence
+    - read:space:confluence
+    - read:custom-content:confluence
   external:
     fetch:
       backend:
         - https://*.zenuml.com
-        - ${BASE_URL}
+        - https://confluence-plugin.pages.dev
     images:
-      - ${BASE_URL}/api/features
-      - ${BASE_URL}/api/metrics/evaluation
-      - ${BASE_URL}/track
+      - https://confluence-plugin.pages.dev/api/features
+      - https://confluence-plugin.pages.dev/api/metrics/evaluation
+      - https://confluence-plugin.pages.dev/track
     frames:
       - https://yanhui8080.zenuml.com/sequence-editor
+  content:
+    styles:
+      - unsafe-inline
 
 modules:
   macro:
-    - key: zenuml-forge-sequence-macro
+    - key: zenuml-sequence-macro
       title: ZenUML Forge Sequence Diagram
       description: Create and view ZenUML or Mermaid diagrams.
       resource: main
 
 resources:
   - key: main
-    path: src/custom-ui/dist/
+    path: dist/
     tunnel:
-      port: 5174
+      port: 8080

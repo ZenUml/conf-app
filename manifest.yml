@@ -341,6 +341,9 @@ permissions:
       backend:
         - https://*.zenuml.com
         - https://confluence-plugin.pages.dev
+      client:
+        - https://*.zenuml.com
+        - https://confluence-plugin.pages.dev
     images:
       - https://confluence-plugin.pages.dev/api/features
       - https://confluence-plugin.pages.dev/api/metrics/evaluation

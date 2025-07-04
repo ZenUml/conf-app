@@ -9,7 +9,7 @@ import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import './assets/tailwind.css'
 import { saveToPlatform } from "./model/ContentProvider/Persistence";
 import macroMetrics from "@/services/MacroMetrics";
-import { view, requestConfluence, invoke } from "@forge/bridge";
+import { view, requestConfluence, invoke, Modal } from "@forge/bridge";
 
 // Initialize critical path rendering first
 async function initializeCriticalPath() {
@@ -52,7 +52,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     (globals.apWrapper as ApWrapper2).isForge = !!context;
 
     const { accountId, cloudId, moduleKey, extension: {config: {customContentId, updatedAt, uuid}, content: {id}} } = context;
-    console.log('sequence-editor - context', context);
+    console.log('sequence-viewer - context', context);
 
     const customContent2 = await globals.apWrapper.getCustomContentByIdV2(customContentId);
     console.log('Custom content2:', customContent2);
@@ -158,14 +158,18 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
 });
 
 EventBus.$on('edit', () => {
-  AP.dialog.create({
-    key: 'zenuml-content-sequence-editor-dialog',
-      chrome: false,
-      width: "100%",
-      height: "100%",
-  }).on('close', async () => {
-    location.reload();
+  const modal = new Modal({
+    resource: 'main',
+    onClose: (payload) => {
+      console.log('onClose called with', payload);
+    },
+    size: 'max',
+    context: {
+      customKey: 'custom-value',
+    },
   });
+
+  modal.open();
 });
 
 EventBus.$on('fullscreen', () => {

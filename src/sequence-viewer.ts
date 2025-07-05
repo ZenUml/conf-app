@@ -164,6 +164,7 @@ EventBus.$on('edit', () => {
     resource: 'main',
     onClose: (payload) => {
       console.log('onClose called with', payload);
+      location.reload();
     },
     size: 'max',
     context: {
@@ -177,7 +178,7 @@ EventBus.$on('edit', () => {
 
 EventBus.$on('save', async () => {
   console.log('save', store.state.diagram);
-  
+
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
   store.state.diagram.isNew = false;
   const id = await saveToPlatform(store.state.diagram);

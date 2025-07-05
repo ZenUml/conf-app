@@ -65,11 +65,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       skeletonLoader.style.display = 'none';
     }
 
-    // Dynamically import DiagramPortal component
-    const DiagramPortal = (await import("@/components/DiagramPortal.vue")).default;
+    const component = context.extension.modal?.macroMode === 'editor' ? 
+      (await import("@/components/Workspace.vue")).default : (await import("@/components/DiagramPortal.vue")).default;
+    
+    //@ts-ignore
+    mountRoot(doc, component);
 
-    // Mount the root component
-    mountRoot(doc, DiagramPortal);
   } catch (error) {
     console.error('Error loading heavy components:', error);
     // Hide skeleton loader even on error
@@ -165,7 +166,7 @@ EventBus.$on('edit', () => {
     },
     size: 'max',
     context: {
-      customKey: 'custom-value',
+      macroMode: 'editor',
     },
   });
 

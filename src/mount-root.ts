@@ -4,7 +4,7 @@ import store from "@/model/store2";
 
 let currentApp: any = null; // Keep track of mounted app
 
-export function mountRoot(doc: Diagram, component: Component, onMounted?: () => void) {
+export function mountRoot(doc: Diagram, component: Component) {
   console.debug('Mounting root', doc);
   // extract title from diagram code
   if (!doc.title && doc.diagramType === 'sequence') {
@@ -27,9 +27,5 @@ export function mountRoot(doc: Diagram, component: Component, onMounted?: () => 
     const app = createApp(component);
     app.use(store).mount('#app');
     currentApp = app;
-
-    if (onMounted) {
-      onMounted();
-    }
   }
 }

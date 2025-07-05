@@ -48,24 +48,8 @@ async function main() {
     }
   }
 
-  mountRoot(doc, Workspace, () => {
-    // @ts-ignore
-    if(AP?.sizeToParent) {
-      AP.sizeToParent(true);
-    }
-
-    const resize = () => {
-      const desiredHeight = document.body.scrollHeight;
-      window.parent.postMessage({
-        type: 'resize',
-        height: desiredHeight
-      }, '*');
-      console.log('postMessage', desiredHeight);
-    };
-
-    setTimeout(resize, 1000);
-    setTimeout(resize, 3000);
-  });
+  //@ts-ignore
+  mountRoot(doc, Workspace);
 
   if (await MacroUtil.isCreateNew()) {
     trackEvent('', 'create_macro_begin', 'sequence');

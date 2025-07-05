@@ -11,6 +11,7 @@ import { saveToPlatform } from "./model/ContentProvider/Persistence";
 import macroMetrics from "@/services/MacroMetrics";
 import store from './model/store2'
 import { view, requestConfluence, invoke, Modal } from "@forge/bridge";
+import Example from "./utils/sequence/Example";
 
 // Initialize critical path rendering first
 async function initializeCriticalPath() {
@@ -52,13 +53,21 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const context = await view.getContext();
     (globals.apWrapper as ApWrapper2).isForge = !!context;
 
-    const { accountId, cloudId, moduleKey, extension: {config: {customContentId, updatedAt, uuid}, content: {id}} } = context;
     console.log('sequence-viewer - context', context);
 
-    const customContent2 = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-    console.log('Custom content2:', customContent2);
-
-    let doc = customContent2?.value;
+    let doc;
+    if(!context.extension?.config?.customContentId) {
+      doc = {
+        diagramType: DiagramType.Sequence,
+        code: Example.Sequence,
+        mermaidCode: Example.Mermaid,
+        isNew: true
+      }
+    } else {
+      const customContent2 = await globals.apWrapper.getCustomContentByIdV2(context.extension.config.customContentId);
+      console.log('Custom content2:', customContent2);
+      doc = customContent2?.value;
+    }
 
     // Hide skeleton loader before mounting the actual content
     const skeletonLoader = document.getElementById('skeleton-loader');

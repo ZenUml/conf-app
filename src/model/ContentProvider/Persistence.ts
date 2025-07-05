@@ -5,8 +5,9 @@ import {trackEvent} from "@/utils/window";
 import ApWrapper2 from "@/model/ApWrapper2";
 import uuidv4 from "@/utils/uuid";
 import { syncCustomContent } from "@/services/CustomContent";
+import globals from '@/model/globals';
 
-export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = new ApWrapper2(AP)): Promise<string> {
+export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = globals.apWrapper): Promise<string> {
   const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
   const customContent = await customContentStorageProvider.save(diagram);
   const macroData = await apWrapper.getMacroData();
@@ -26,7 +27,9 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = n
   }
   trackEvent(uuid || '', 'save_macro', diagram.diagramType);
 
-  await syncCustomContent(customContent, diagram.diagramType, uuid || '');
+  if(!apWrapper.isForge) {
+    await syncCustomContent(customContent, diagram.diagramType, uuid || '');
+  }
   
   return String(customContent.id);
 }

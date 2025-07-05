@@ -208,7 +208,13 @@ export default class ApWrapper2 implements IApWrapper {
       }
     };
 
-    const response = await this._requestFn({
+    const response = this.isForge ? await (await requestConfluence(`/wiki/api/v2/custom-content`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })).json() : await this._requestFn({
       url: '/api/v2/custom-content',
       type: 'POST',
       contentType: 'application/json',
@@ -273,14 +279,20 @@ export default class ApWrapper2 implements IApWrapper {
     };
 
     try {
-      const response = await this._requestFn({
+      const response = this.isForge ? await (await requestConfluence(`/wiki/api/v2/custom-content/${content.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })).json() : this.parseCustomContentResponseV2(await this._requestFn({
         url: `/api/v2/custom-content/${content.id}`,
         type: 'PUT',
         contentType: 'application/json',
         data: JSON.stringify(data)
-      });
+      }));
       trackEvent(JSON.stringify(content.id), 'update_custom_content', 'info');
-      return this.parseCustomContentResponseV2(response);
+      return response as ICustomContentResponseBodyV2;
     } catch (error) {
       trackEvent(JSON.stringify(error), 'update_custom_content_error', 'error');
       throw error;

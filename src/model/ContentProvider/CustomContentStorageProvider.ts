@@ -38,6 +38,6 @@ export class CustomContentStorageProvider implements StorageProvider {
       return await this.apWrapper.saveCustomContentV2(diagram.id, diagram);
     }
 
-    return await this.apWrapper.createCustomContent(diagram);
+    return await this.apWrapper.createCustomContentV2(diagram);
   }
 }

@@ -336,6 +336,7 @@ permissions:
     - read:page:confluence
     - read:space:confluence
     - read:custom-content:confluence
+    - write:custom-content:confluence
   external:
     fetch:
       backend:

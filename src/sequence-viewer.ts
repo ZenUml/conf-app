@@ -9,6 +9,7 @@ import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import './assets/tailwind.css'
 import { saveToPlatform } from "./model/ContentProvider/Persistence";
 import macroMetrics from "@/services/MacroMetrics";
+import store from './model/store2'
 import { view, requestConfluence, invoke, Modal } from "@forge/bridge";
 
 // Initialize critical path rendering first
@@ -171,6 +172,30 @@ EventBus.$on('edit', () => {
   });
 
   modal.open();
+});
+
+
+EventBus.$on('save', async () => {
+  console.log('save', store.state.diagram);
+  
+  const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
+  store.state.diagram.isNew = false;
+  const id = await saveToPlatform(store.state.diagram);
+  const preservedTheme = sessionStorage.getItem(`${location.hostname}-preserve-zenuml-conf-theme`);
+  if (isNewSequence && preservedTheme) {
+    sessionStorage.removeItem(`${location.hostname}-preserve-zenuml-conf-theme`);
+    localStorage.setItem(`${location.hostname}-${id}-zenuml-conf-theme`, preservedTheme);
+  }
+  // Give some time for track event to be sent out. We are not using a more reliable way to track event because
+  // we don't want to block dialog close for too long.
+  setTimeout(() => {
+    // @ts-ignore
+    view.close();
+  }, 500);
+});
+
+EventBus.$on('exit', () => {
+  view.close();
 });
 
 EventBus.$on('fullscreen', () => {

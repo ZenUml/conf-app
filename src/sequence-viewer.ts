@@ -11,6 +11,7 @@ import { saveToPlatform } from "./model/ContentProvider/Persistence";
 import macroMetrics from "@/services/MacroMetrics";
 import store from './model/store2'
 import { view, requestConfluence, invoke, Modal } from "@forge/bridge";
+
 import Example from "./utils/sequence/Example";
 
 // Initialize critical path rendering first
@@ -24,6 +25,12 @@ async function initializeCriticalPath() {
   };
 
   try {
+    const context = await view.getContext();
+    (globals.apWrapper as ApWrapper2).isForge = !!context;
+    (globals.apWrapper as ApWrapper2).forgeContext = context;
+
+    console.log('sequence-viewer - context', context);
+
     // Initialize context and get macro data (lightweight operations)
     await globals.apWrapper.initializeContext();
     const macroData = await globals.apWrapper.getMacroData();
@@ -51,9 +58,6 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     ]);
 
     const context = await view.getContext();
-    (globals.apWrapper as ApWrapper2).isForge = !!context;
-
-    console.log('sequence-viewer - context', context);
 
     let doc;
     if(!context.extension?.config?.customContentId) {
@@ -75,8 +79,8 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       skeletonLoader.style.display = 'none';
     }
 
-    const component = context.extension.modal?.macroMode === 'editor' ? 
-      (await import("@/components/Workspace.vue")).default : (await import("@/components/DiagramPortal.vue")).default;
+    const component = context.extension.modal?.macroMode === 'editor' || context.extension.isEditing
+      ? (await import("@/components/Workspace.vue")).default : (await import("@/components/DiagramPortal.vue")).default;
     
     //@ts-ignore
     mountRoot(doc, component);
@@ -199,8 +203,11 @@ EventBus.$on('save', async () => {
   // Give some time for track event to be sent out. We are not using a more reliable way to track event because
   // we don't want to block dialog close for too long.
   setTimeout(() => {
-    // @ts-ignore
-    view.close();
+    if((globals.apWrapper as ApWrapper2).forgeContext?.extension?.macro?.isInserting) {
+      view.submit({config: {customContentId: store.state.diagram.id}});
+    } else {
+      view.close();
+    }
   }, 500);
 });
 

@@ -43,6 +43,7 @@ export default class ApWrapper2 implements IApWrapper {
   locationTarget: LocationTarget | undefined;
   license: ILicense | undefined;
   isForge: boolean = false;
+  forgeContext: any;
 
   constructor(ap: IAp) {
     this.versionType = this.isLite() ? VersionType.Lite : VersionType.Full;
@@ -63,7 +64,7 @@ export default class ApWrapper2 implements IApWrapper {
       this.currentPageUrl = await this._getCurrentPageUrl();
       this.baseUrl = await this._getBaseUrl();
       this.locationTarget = await this._getLocationTarget();
-      this.currentPageId = await this._page.getPageId();
+      this.currentPageId = this.isForge ? this.forgeContext.extension.content.id : await this._page.getPageId();
       if (this.versionType === VersionType.Full) {
         this.license = await this._getLicense();
       }
@@ -144,7 +145,7 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   getCustomContentTypePrefix() {
-    return `ac:${getUrlParam('addonKey')}`;
+    return `ac:${getUrlParam('addonKey') || 'com.zenuml.confluence-addon'}`; //TODO: remove this hardcoded addon key
   }
 
   getCustomContentType() {
@@ -214,13 +215,13 @@ export default class ApWrapper2 implements IApWrapper {
       headers: {
         'Content-Type': 'application/json'
       }
-    })).json() : await this._requestFn({
+    })).json() : this.parseCustomContentResponseV2(await this._requestFn({
       url: '/api/v2/custom-content',
       type: 'POST',
       contentType: 'application/json',
       data: JSON.stringify(data)
-    });
-    return this.parseCustomContentResponseV2(response);
+    }));
+    return response as ICustomContentResponseBodyV2;
   }
 
   async updateCustomContent(contentObj: ICustomContent, newBody: Diagram) {

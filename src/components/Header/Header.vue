@@ -275,6 +275,8 @@ export default {
       this.updateDiagramType(
         tab === "sequence" ? DiagramType.Sequence : DiagramType.Mermaid
       );
+      // Save user's tab preference to localStorage
+      localStorage.setItem('zenuml-preferred-diagram-type', tab);
     },
     templateClick() {
       trackEvent("template", "click", this.diagramType);
@@ -326,6 +328,15 @@ export default {
     },
   },
   async mounted() {
+    // Load user's preferred diagram type from localStorage for new diagrams
+    const isNewDiagram = this.$store.state.diagram.isNew;
+    if (isNewDiagram) {
+      const savedDiagramType = localStorage.getItem('zenuml-preferred-diagram-type');
+      if (savedDiagramType && (savedDiagramType === 'sequence' || savedDiagramType === 'mermaid')) {
+        this.setActiveTab(savedDiagramType);
+      }
+    }
+
     if (this.diagramType === "mermaid") {
       this.mermaidTitle = this.title;
       this.originalMermaidCode = this.mermaidCode;

@@ -53,7 +53,7 @@ export default class ApWrapper2 implements IApWrapper {
     this._context = ap.context;
     this._dialog = ap.dialog;
     this._user = ap.user;
-    this._page = new AtlasPage(ap);
+    this._page = new AtlasPage(ap, this);
   }
 
   async initializeContext(): Promise<void> {
@@ -674,7 +674,7 @@ export default class ApWrapper2 implements IApWrapper {
     const existing = await this.getCustomContentByIdV2(customContentId);
     const pageId = await this._getCurrentPageId();
     const count = (await this._page.countMacros((m) => {
-      return m?.customContentId?.value === customContentId;
+      return this.isForge ? m?.customContentId === customContentId : m?.customContentId?.value === customContentId;
     }));
 
     // pageId is absent when editing in custom content list page;

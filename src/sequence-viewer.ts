@@ -202,11 +202,11 @@ EventBus.$on('save', async () => {
   }
   // Give some time for track event to be sent out. We are not using a more reliable way to track event because
   // we don't want to block dialog close for too long.
-  setTimeout(() => {
+  setTimeout(async () => {
     if((globals.apWrapper as ApWrapper2).forgeContext?.extension?.macro?.isInserting) {
-      view.submit({config: {customContentId: store.state.diagram.id}});
+      await view.submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
     } else {
-      view.close();
+      await view.close();
     }
   }, 500);
 });

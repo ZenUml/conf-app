@@ -334,6 +334,8 @@ permissions:
     - read:confluence-content.permission
     - search:confluence
     - read:page:confluence
+    - read:content:confluence
+    - read:content-details:confluence
     - read:space:confluence
     - read:custom-content:confluence
     - write:custom-content:confluence

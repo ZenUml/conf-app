@@ -19,7 +19,6 @@ import CheckPermission, {PermissionCheckRequestFunc} from "@/model/page/CheckPer
 import {ISpace, LocationTarget} from './ILocationContext';
 import {Attachment} from './ConfluenceTypes';
 import { loadAllPaginatedData } from '@/utils/requestUtil';
-import { view, requestConfluence, invoke } from "@forge/bridge";
 
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
 const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
@@ -209,13 +208,7 @@ export default class ApWrapper2 implements IApWrapper {
       }
     };
 
-    const response = this.isForge ? await (await requestConfluence(`/wiki/api/v2/custom-content`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })).json() : this.parseCustomContentResponseV2(await this._requestFn({
+    const response = this.isForge ? await this.forgeRequest(`/wiki/api/v2/custom-content`, 'POST', data) : this.parseCustomContentResponseV2(await this._requestFn({
       url: '/api/v2/custom-content',
       type: 'POST',
       contentType: 'application/json',
@@ -280,13 +273,7 @@ export default class ApWrapper2 implements IApWrapper {
     };
 
     try {
-      const response = this.isForge ? await (await requestConfluence(`/wiki/api/v2/custom-content/${content.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      })).json() : this.parseCustomContentResponseV2(await this._requestFn({
+      const response = this.isForge ? await this.forgeRequest(`/wiki/api/v2/custom-content/${content.id}`, 'PUT', data) : this.parseCustomContentResponseV2(await this._requestFn({
         url: `/api/v2/custom-content/${content.id}`,
         type: 'PUT',
         contentType: 'application/json',
@@ -332,8 +319,19 @@ export default class ApWrapper2 implements IApWrapper {
     return <ICustomContent>assign;
   }
 
+  async forgeRequest(url: string, method: string = 'GET', data: any = undefined): Promise<any> {
+    const { requestConfluence } = await import("@forge/bridge");
+    return (await requestConfluence(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: data && JSON.stringify(data)
+    })).json();
+  }
+
   async getCustomContentByIdV2(id: string): Promise<ICustomContentV2 | undefined> {
-    const customContent = this.isForge ? await (await requestConfluence(`/wiki/api/v2/custom-content/${id}?body-format=raw`)).json() : await this.getCustomContentRawV2(id);
+    const customContent = this.isForge ? await this.forgeRequest(`/wiki/api/v2/custom-content/${id}?body-format=raw`) : await this.getCustomContentRawV2(id);
     console.log('custom Content in ApWrapper2', customContent);
     if (!customContent) {
       throw Error(`Failed to load custom content by id ${id}`);

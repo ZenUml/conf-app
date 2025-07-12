@@ -3,7 +3,6 @@ import ApWrapper2 from "@/model/ApWrapper2";
 import {ILocationContext, IContext} from "@/model/ILocationContext";
 import {AtlasDocFormat, AtlasDocElement, MacroParams, AtlasDocExtensionType, ForgeGuestParams} from "@/model/page/AtlasDocFormat";
 import {trackEvent} from "@/utils/window";
-import { requestConfluence } from "@forge/bridge";
 
 export class AtlasPage {
   _requestFn?: (req: IApRequest) => any;
@@ -95,12 +94,7 @@ export class AtlasPage {
         return [];
       }
 
-      const response = this._apWrapper.isForge ? await (await requestConfluence(`/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format&get-draft=true`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      })).json() : (JSON.parse(await this._requestFn?.({
+      const response = this._apWrapper.isForge ? await this._apWrapper.forgeRequest(`/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format&get-draft=true`) : (JSON.parse(await this._requestFn?.({
         url: `/rest/api/v2/pages/${pageId}?body-format=atlas_doc_format&get-draft=true`,
         type: 'GET',
         contentType: 'application/json'

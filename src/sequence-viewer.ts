@@ -9,10 +9,6 @@ import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import './assets/tailwind.css'
 import { saveToPlatform } from "./model/ContentProvider/Persistence";
 import macroMetrics from "@/services/MacroMetrics";
-import store from './model/store2'
-import { view, requestConfluence, invoke, Modal } from "@forge/bridge";
-
-import Example from "./utils/sequence/Example";
 
 // Initialize critical path rendering first
 async function initializeCriticalPath() {
@@ -25,12 +21,6 @@ async function initializeCriticalPath() {
   };
 
   try {
-    const context = await view.getContext();
-    (globals.apWrapper as ApWrapper2).isForge = !!context;
-    (globals.apWrapper as ApWrapper2).forgeContext = context;
-
-    console.log('sequence-viewer - context', context);
-
     // Initialize context and get macro data (lightweight operations)
     await globals.apWrapper.initializeContext();
     const macroData = await globals.apWrapper.getMacroData();
@@ -52,26 +42,16 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
   try {
     // Dynamically import heavy dependencies
     const [
+      { default: defaultContentProvider },
       { mountRoot }
     ] = await Promise.all([
+      import("@/model/ContentProvider/CompositeContentProvider"),
       import("@/mount-root")
     ]);
 
-    const context = await view.getContext();
-
-    let doc;
-    if(!context.extension?.config?.customContentId) {
-      doc = {
-        diagramType: DiagramType.Sequence,
-        code: Example.Sequence,
-        mermaidCode: Example.Mermaid,
-        isNew: true
-      }
-    } else {
-      const customContent2 = await globals.apWrapper.getCustomContentByIdV2(context.extension.config.customContentId);
-      console.log('Custom content2:', customContent2);
-      doc = customContent2?.value;
-    }
+    // Initialize content provider
+    const compositeContentProvider = defaultContentProvider(globals.apWrapper as ApWrapper2);
+    let {doc} = await compositeContentProvider.load();
 
     // Hide skeleton loader before mounting the actual content
     const skeletonLoader = document.getElementById('skeleton-loader');
@@ -79,12 +59,11 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       skeletonLoader.style.display = 'none';
     }
 
-    const component = context.extension.modal?.macroMode === 'editor' || context.extension?.macro?.isConfiguring
-      ? (await import("@/components/Workspace.vue")).default : (await import("@/components/DiagramPortal.vue")).default;
-    
-    //@ts-ignore
-    mountRoot(doc, component);
+    // Dynamically import DiagramPortal component
+    const DiagramPortal = (await import("@/components/DiagramPortal.vue")).default;
 
+    // Mount the root component
+    mountRoot(doc, DiagramPortal);
   } catch (error) {
     console.error('Error loading heavy components:', error);
     // Hide skeleton loader even on error
@@ -173,46 +152,14 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
 });
 
 EventBus.$on('edit', () => {
-  const modal = new Modal({
-    resource: 'main',
-    onClose: (payload) => {
-      console.log('onClose called with', payload);
-      location.reload();
-    },
-    size: 'max',
-    context: {
-      macroMode: 'editor',
-    },
+  AP.dialog.create({
+    key: 'zenuml-content-sequence-editor-dialog',
+      chrome: false,
+      width: "100%",
+      height: "100%",
+  }).on('close', async () => {
+    location.reload();
   });
-
-  modal.open();
-});
-
-
-EventBus.$on('save', async () => {
-  console.log('save', store.state.diagram);
-
-  const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
-  store.state.diagram.isNew = false;
-  const id = await saveToPlatform(store.state.diagram);
-  const preservedTheme = sessionStorage.getItem(`${location.hostname}-preserve-zenuml-conf-theme`);
-  if (isNewSequence && preservedTheme) {
-    sessionStorage.removeItem(`${location.hostname}-preserve-zenuml-conf-theme`);
-    localStorage.setItem(`${location.hostname}-${id}-zenuml-conf-theme`, preservedTheme);
-  }
-  // Give some time for track event to be sent out. We are not using a more reliable way to track event because
-  // we don't want to block dialog close for too long.
-  setTimeout(async () => {
-    if((globals.apWrapper as ApWrapper2).forgeContext?.extension?.macro?.isInserting) {
-      await view.submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
-    } else {
-      await view.close();
-    }
-  }, 500);
-});
-
-EventBus.$on('exit', () => {
-  view.close();
 });
 
 EventBus.$on('fullscreen', () => {

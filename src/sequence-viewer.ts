@@ -79,7 +79,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       skeletonLoader.style.display = 'none';
     }
 
-    const component = context.extension.modal?.macroMode === 'editor' || context.extension.isEditing
+    const component = context.extension.modal?.macroMode === 'editor' || context.extension?.macro?.isConfiguring
       ? (await import("@/components/Workspace.vue")).default : (await import("@/components/DiagramPortal.vue")).default;
     
     //@ts-ignore

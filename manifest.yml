@@ -363,6 +363,9 @@ modules:
       title: ZenUML Forge Sequence Diagram
       description: Create and view ZenUML or Mermaid diagrams.
       resource: main
+      config:
+        resource: main
+        viewportSize: max
 
 resources:
   - key: main

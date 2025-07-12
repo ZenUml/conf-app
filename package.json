@@ -9,7 +9,6 @@
     "test:e2e:peng": "cd tests/e2e-tests && pnpm test:peng",
     "test:e2e:yanhui": "cd tests/e2e-tests && pnpm test:yanhui",
     "test:e2e:yanhui:existing": "cd tests/e2e-tests && pnpm test:yanhui:existing",
-    "build:custom-ui": "cd src/custom-ui && vite build",
     "build:full": "PRODUCT_TYPE=full vite build --mode production",
     "build:full:watch": "PRODUCT_TYPE=full vite build --watch",
     "build:lite": "PRODUCT_TYPE=lite vite build",

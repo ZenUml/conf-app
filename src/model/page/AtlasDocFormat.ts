@@ -1,21 +1,18 @@
-import ApWrapper2 from "@/model/ApWrapper2";
-import globals from "../globals";
+import forgeGlobal from '@/model/globals/forgeGlobal';
 
 export class AtlasDocFormat {
   private value: any;  
-  private apWrapper: ApWrapper2;
 
-  constructor(content: string, apWrapper: ApWrapper2 = globals.apWrapper) {
+  constructor(content: string) {
     this.value = JSON.parse(content);
-    this.apWrapper = apWrapper;
   }
 
   getMacros(macroKey?: string): Array<AtlasDocElement> {
     const result = [] as Array<AtlasDocElement>;
     const traverse = (node: any) => {
       if(node.type === AtlasDocElementType.Extension
-          && ((!this.apWrapper.isForge && node.attrs.extensionType === AtlasDocExtensionType.Macro) || (this.apWrapper.isForge && node.attrs.extensionType === AtlasDocExtensionType.ForgeMacro))
-          && (!macroKey || (this.apWrapper.isForge && node.attrs.extensionKey.includes(macroKey)) || (!this.apWrapper.isForge && node.attrs.extensionKey === macroKey))) {
+          && ((!forgeGlobal.isForge && node.attrs.extensionType === AtlasDocExtensionType.Macro) || (forgeGlobal.isForge && node.attrs.extensionType === AtlasDocExtensionType.ForgeMacro))
+          && (!macroKey || (forgeGlobal.isForge && node.attrs.extensionKey.includes(macroKey)) || (!forgeGlobal.isForge && node.attrs.extensionKey === macroKey))) {
         result.push(node);
       } else if(node.content) {
         node.content.forEach(traverse);

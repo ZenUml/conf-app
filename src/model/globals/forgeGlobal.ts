@@ -1,0 +1,1 @@
+export default {isForge: false, forgeContext: undefined} as any;

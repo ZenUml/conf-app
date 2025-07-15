@@ -1,6 +1,6 @@
 import ApWrapper2 from "@/model/ApWrapper2";
 import globals from '@/model/globals';
-
+import forgeGlobal from '@/model/globals/forgeGlobal';
 import AP from "@/model/AP";
 import EventBus from './EventBus'
 import {trackEvent} from "@/utils/window";
@@ -28,6 +28,8 @@ async function initializeCriticalPath() {
     const context = await view.getContext();
     (globals.apWrapper as ApWrapper2).isForge = !!context;
     (globals.apWrapper as ApWrapper2).forgeContext = context;
+    forgeGlobal.isForge = !!context;
+    forgeGlobal.forgeContext = context;
 
     console.log('sequence-viewer - context', context);
 

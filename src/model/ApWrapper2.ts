@@ -52,7 +52,7 @@ export default class ApWrapper2 implements IApWrapper {
     this._context = ap.context;
     this._dialog = ap.dialog;
     this._user = ap.user;
-    this._page = new AtlasPage(ap, this);
+    this._page = new AtlasPage(ap);
   }
 
   async initializeContext(): Promise<void> {

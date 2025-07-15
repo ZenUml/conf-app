@@ -94,11 +94,7 @@ export class AtlasPage {
         return [];
       }
 
-      const response = this._apWrapper.isForge ? await this._apWrapper.forgeRequest(`/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format&get-draft=true`) : (JSON.parse(await this._requestFn?.({
-        url: `/rest/api/v2/pages/${pageId}?body-format=atlas_doc_format&get-draft=true`,
-        type: 'GET',
-        contentType: 'application/json'
-      }))).body;
+      const response = this._apWrapper.isForge ? await this._apWrapper.forgeRequest(`/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format&get-draft=true`) : await this._apWrapper.request(`/api/v2/pages/${pageId}?body-format=atlas_doc_format&get-draft=true`);
       console.log('response', response);
       responseStatus = response?.xhr?.status || '';
       if (!response || !response.body) {

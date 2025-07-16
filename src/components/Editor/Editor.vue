@@ -30,7 +30,7 @@ const diagramType = computed(() => store.state.diagram.diagramType);
 const code = computed(() => diagramType.value === DiagramType.Mermaid ? store.state.diagram.mermaidCode : store.state.diagram.code)
 
 const onEditorCodeChange = (newCode) => {
-  const isMermaid = diagramType.value === 'mermaid';
+  const isMermaid = diagramType.value === DiagramType.Mermaid;
 
   if (isMermaid) {
     store.dispatch('updateMermaidCode', newCode);

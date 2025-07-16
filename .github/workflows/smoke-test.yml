@@ -31,6 +31,9 @@ jobs:
         run: cd tests/e2e-tests && pnpm install
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
+      # Install Playwright browsers
+      - name: Install Playwright browsers
+        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
       # Run E2E tests
       - name: Run E2E tests
         run: cd tests/e2e-tests && pnpm test:prod
@@ -41,11 +44,17 @@ jobs:
           ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_PROD_USERNAME }}
           ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_PROD_PASSWORD }}
           ATLASSIAN_OTP: ${{ vars.ATLASSIAN_OTP }}
-      - name: Upload artifacts # Find artifacts under actions/jobs
+      - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: snapshots-lite
+          name: playwright-report-prod-lite
+          path: ./tests/e2e-tests/playwright-report/
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-prod-lite
           path: ./tests/e2e-tests/screenshots/
   prod-full-test:
     name: Full - E2E Test on Prod
@@ -72,6 +81,9 @@ jobs:
         run: cd tests/e2e-tests && pnpm install
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
+      # Install Playwright browsers
+      - name: Install Playwright browsers
+        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
       # Run E2E tests
       - name: Run E2E tests
         run: cd tests/e2e-tests && pnpm test:prod
@@ -82,9 +94,15 @@ jobs:
           ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_PROD_USERNAME }}
           ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_PROD_PASSWORD }}
           ATLASSIAN_OTP: ${{ vars.ATLASSIAN_OTP }}
-      - name: Upload artifacts # Find artifacts under actions/jobs
+      - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: snapshots-full
+          name: playwright-report-prod-full
+          path: ./tests/e2e-tests/playwright-report/
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-prod-full
           path: ./tests/e2e-tests/screenshots/

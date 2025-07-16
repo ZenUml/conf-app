@@ -44,7 +44,7 @@ if(!password) {
 
   //some instance doesn't automatically redirect to login
   await Promise.race([page.waitForSelector('input[name=username]'), 
-    page.waitForSelector('xpath///a[contains(@href, "/wiki/login.action")]').then(e => e.click()).then(() => page.waitForSelector('input[name=username]'))]);
+    page.waitForSelector('xpath///button[descendant::span[text()="Log in"]]').then(e => e.click()).then(() => page.waitForSelector('input[name=username]'))]);
 
   await page.click('input[name=username]');
   await page.keyboard.type(username);

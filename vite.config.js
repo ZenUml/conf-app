@@ -104,6 +104,14 @@ export default defineConfig({
     deps: {
       inline: ['@vue/test-utils'],
     },
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/cypress/**',
+      '**/.{idea,git,cache,output,temp}/**',
+      '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build}.config.*',
+      '**/tests/e2e-tests/**',
+    ],
   },
   server: {
     host: '0.0.0.0',

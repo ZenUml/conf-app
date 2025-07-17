@@ -197,4 +197,62 @@ test.describe('View Macros', () => {
 
     }, { sequence: true });
   });
+
+  test('should edit embed macro on viewer', async ({ page }: { page: Page }) => {
+    console.log('\nCase - edit embed macro on viewer');
+    await withNewPage(page, async () => {
+
+      const frameSelector = `xpath=//iframe[contains(@id, "zenuml-embed-macro${getModuleKeySuffix()}")]`;
+      const iframe = await waitForSelector(page, frameSelector);
+      console.log(`Found frame "${frameSelector}"`);
+
+      const frame = await iframe.contentFrame();
+      if (!frame) {
+        throw new Error('Could not get content frame for embed macro');
+      }
+      
+      await frame.waitForLoadState('networkidle');
+
+      const editButton = await frame.waitForSelector('.viewer .header .actions button');
+      console.log('Found edit button in embed macro frame');
+      await editButton.click();
+      console.log('Clicked edit macro button');
+
+      // Wait for the sequence editor dialog to open
+      const macroEditorFrame = 'xpath=//iframe[contains(@src, "sequence-editor-dialog")]';
+      
+      try {
+        const editorIframe = await waitForSelector(page, macroEditorFrame);
+        console.log('Found macro editor iframe');
+
+        const editorFrame = await editorIframe.contentFrame();
+        if (!editorFrame) {
+          throw new Error('Could not get editor content frame');
+        }
+        console.log('Got editor content frame');
+
+        const saveMacroButton = await editorFrame.waitForSelector('div.save-and-exit button');
+        console.log('Found save button');
+
+        await saveMacroButton.click();
+        console.log('Clicked save macro button');
+
+        // Wait for the original embed macro frame to reload
+        await waitForSelector(page, frameSelector);
+        console.log('Embed macro edit test completed successfully');
+        
+      } catch (error) {
+        console.log('Error finding editor dialog iframe:', error);
+        
+        // Debug: log all iframe URLs
+        const allIframes = await page.evaluate(() => {
+          return Array.from(document.querySelectorAll('iframe')).map(iframe => iframe.src);
+        });
+        console.log('All iframe URLs:', allIframes);
+        
+        throw error;
+      }
+
+    }, { embed: true });
+  });
 });

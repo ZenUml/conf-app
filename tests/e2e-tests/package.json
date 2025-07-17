@@ -11,7 +11,6 @@
     "test:peng": "ZENUML_STAGE_USERNAME=eagle.xiao@gmail.com npx playwright test",
     "test:yanhui": "ZENUML_STAGE_USERNAME=robot1.yanhui@gmail.com ZENUML_DOMAIN=whimet4.atlassian.net ZENUML_SPACE=WHIMET4 npx playwright test",
     "test:yanhui:existing": "ZENUML_STAGE_USERNAME=robot1.yanhui@gmail.com ZENUML_DOMAIN=whimet4.atlassian.net PAGE_ID=458653717 ZENUML_SPACE=WHIMET4 npx playwright test",
-    "test:legacy": "node e2ePage.js",
     "test:headed": "npx playwright test --headed",
     "test:debug": "npx playwright test --debug",
     "test:ui": "npx playwright test --ui",
@@ -21,9 +20,7 @@
     "otpauth": "^9.4.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.40.0",
-    "puppeteer": "^24.8.2",
-    "jest-puppeteer": "^9.0.2"
+    "@playwright/test": "^1.40.0"
   },
   "engines": {
     "node": ">=20"

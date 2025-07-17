@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "test": "npx playwright test",
+    "test:trace": "npx playwright test --trace on",
+    "test:login": "npx playwright test tests/e2e.login.spec.ts",
     "test:prod": "ZENUML_STAGE_USERNAME=robot1yanhui@aol.com ZENUML_DOMAIN=zenuml.atlassian.net ZENUML_SPACE=SmokeTest npx playwright test",
     "test:peng": "ZENUML_STAGE_USERNAME=eagle.xiao@gmail.com npx playwright test",
     "test:yanhui": "ZENUML_STAGE_USERNAME=robot1.yanhui@gmail.com ZENUML_DOMAIN=whimet4.atlassian.net ZENUML_SPACE=WHIMET4 npx playwright test",

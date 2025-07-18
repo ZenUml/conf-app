@@ -33,9 +33,9 @@ export class ContentPropertyStorageProvider implements StorageProvider {
     let contentKey = getUrlParam('contentKey');
     if (!contentKey) {
       console.warn('contentKey URL parameter is not provided. It can be `sequence` or `graph`. Falling back to `sequence`');
-      contentKey = 'sequence';
+      contentKey = DiagramType.Sequence;
     }
-    if (contentKey?.includes('sequence')) {
+    if (contentKey?.includes(DiagramType.Sequence)) {
       macroIdentifier = MacroIdentifier.Sequence;
     } else if (contentKey?.includes('graph')) {
       macroIdentifier = MacroIdentifier.Graph

@@ -14,26 +14,26 @@
                 All
               </Button>
               <Button
-                :active="this.docTypeFilter === 'sequence'"
-                @click="setFilter('sequence')"
+                :active="this.docTypeFilter === DiagramType.Sequence"
+                @click="setFilter(DiagramType.Sequence)"
               >
                 Sequence
               </Button>
               <Button
-                :active="this.docTypeFilter === 'mermaid'"
-                @click="setFilter('mermaid')"
+                :active="this.docTypeFilter === DiagramType.Mermaid"
+                @click="setFilter(DiagramType.Mermaid)"
               >
                 Mermaid
               </Button>
               <Button
-                :active="this.docTypeFilter === 'graph'"
-                @click="setFilter('graph')"
+                :active="this.docTypeFilter === DiagramType.Graph"
+                @click="setFilter(DiagramType.Graph)"
               >
                 Graph
               </Button>
               <Button
-                :active="this.docTypeFilter === 'OpenApi'"
-                @click="setFilter('OpenApi')"
+                :active="this.docTypeFilter === DiagramType.OpenApi"
+                @click="setFilter(DiagramType.OpenApi)"
               >
                 Open API
               </Button>
@@ -388,6 +388,9 @@ export default {
     },
   },
   computed: {
+    DiagramType() {
+      return DiagramType;
+    },
     filteredCustomContentList() {
       const results = this.customContentList.filter((item) => {
         console.log("item id", item.id, this.likedDiagramIds);

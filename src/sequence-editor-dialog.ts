@@ -12,6 +12,7 @@ import './utils/IgnoreEsc.ts'
 
 import './assets/tailwind.css'
 import { saveToPlatform } from "@/model/ContentProvider/Persistence";
+import { DiagramType } from "@/model/Diagram/Diagram";
 
 async function main() {
   await globals.apWrapper.initializeContext();
@@ -24,7 +25,7 @@ async function main() {
 export default main();
 
 EventBus.$on('save', async () => {
-  const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
+  const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.Sequence
   const id = await saveToPlatform(store.state.diagram);
   const preservedTheme = sessionStorage.getItem(`${location.hostname}-preserve-zenuml-conf-theme`);
   if (isNewSequence && preservedTheme) {

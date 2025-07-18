@@ -104,6 +104,14 @@ export default defineConfig({
     deps: {
       inline: ['@vue/test-utils'],
     },
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/cypress/**',
+      '**/.{idea,git,cache,output,temp}/**',
+      '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build}.config.*',
+      '**/tests/e2e-tests/**',
+    ],
   },
   server: {
     host: '0.0.0.0',
@@ -158,6 +166,6 @@ export default defineConfig({
         changeOrigin: true
       }
     },
-    allowedHosts: ['yanhui8080.zenuml.com', 'peng-new-8080.diagramly.ai', 'precise-oriented-mink.ngrok-free.app', 'special-lemming-radically.ngrok-free.app'],
+    allowedHosts: ['yanhui8080.zenuml.com', '8080.diagramly.net', 'precise-oriented-mink.ngrok-free.app', 'special-lemming-radically.ngrok-free.app'],
   }
 });

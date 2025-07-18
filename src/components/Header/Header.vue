@@ -5,19 +5,19 @@
         <button type="button"
           id="btn-sequence"
           class="flex focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 rounded focus:outline-none focus-visible:ring-offset-gray-100"
-          :class="diagramType === 'sequence'
+          :class="diagramType === DiagramType.Sequence
             ? 'bg-white shadow-sm ring-1 ring-black ring-opacity-5'
             : ''
             "
-          @click="setActiveTab('sequence')"
-          :tabindex="diagramType === 'sequence' ? '0' : '-1'">
+          @click="setActiveTab(DiagramType.Sequence)"
+          :tabindex="diagramType === DiagramType.Sequence ? '0' : '-1'">
           <span class="p-1 lg:pl-2.5 lg:pr-3.5 rounded flex items-center text-sm font-medium"
-            :class="diagramType === 'sequence'
+            :class="diagramType === DiagramType.Sequence
               ? 'bg-white shadow-sm ring-1 ring-black ring-opacity-5'
               : ''
               ">
             <span class="sr-only lg:not-sr-only text-gray-600 group-hover:text-gray-900"
-              :class="diagramType === 'sequence'
+              :class="diagramType === DiagramType.Sequence
                 ? 'text-gray-900'
                 : 'text-gray-600 group-hover:text-gray-900'
                 ">Sequence</span>
@@ -26,13 +26,13 @@
         <button type="button"
           id="btn-mermaid"
           class="ml-0.5 p-1 lg:pl-2.5 lg:pr-3.5 rounded flex items-center text-sm text-gray-600 font-medium focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 focus:outline-none focus-visible:ring-offset-gray-100"
-          :class="diagramType === 'mermaid'
+          :class="diagramType === DiagramType.Mermaid
             ? 'bg-white shadow-sm ring-1 ring-black ring-opacity-5'
             : ''
             "
-          @click="setActiveTab('mermaid')">
+          @click="setActiveTab(DiagramType.Mermaid)">
           <span class="sr-only lg:not-sr-only text-gray-900"
-            :class="diagramType === 'mermaid'
+            :class="diagramType === DiagramType.Mermaid
               ? 'text-gray-900'
               : 'text-gray-600 group-hover:text-gray-900'
               ">Mermaid</span>
@@ -58,14 +58,14 @@
           <span>Examples</span>
         </button>
       </a>
-      <input v-if="diagramType === 'sequence'"
+      <input v-if="diagramType === DiagramType.Sequence"
         type="text"
         placeholder="Title"
         :value="seqTitle"
         @input="handleTitleChange"
         class="px-1 border-2 border-solid border-[#091e4224] rounded-[3px] focus:border-[#388bff] hover:border-[#388bff] outline-none transition-[border-color] h-8"
         :class="{ 'border-[#c9372c]': titleError, 'pr-8': isAiTitleEnabled }" />
-      <input v-if="diagramType === 'mermaid'"
+      <input v-if="diagramType === DiagramType.Mermaid"
         type="text"
         placeholder="Title"
         :value="mermaidTitle"
@@ -213,22 +213,25 @@ export default {
     };
   },
   computed: {
+    DiagramType() {
+      return DiagramType;
+    },
     ...mapState({
       diagramType: (state) => state.diagram.diagramType,
       seqCode: (state) => state.diagram.code,
       mermaidCode: (state) => state.diagram.mermaidCode,
       templateUrl: (state) =>
-        state.diagram.diagramType === "sequence"
+        state.diagram.diagramType === DiagramType.Sequence
           ? `https://zenuml.com/docs/category/examples/`
           : "https://mermaid.js.org/ecosystem/tutorials.html",
       title: (state) => state.diagram.title,
     }),
     saveAndExit: function () {
       return () => {
-        if (this.diagramType === "sequence" && !this.seqTitle) {
+        if (this.diagramType === DiagramType.Sequence && !this.seqTitle) {
           return (this.titleError = true);
         }
-        if (this.diagramType === "mermaid" && !this.mermaidTitle) {
+        if (this.diagramType === DiagramType.Mermaid && !this.mermaidTitle) {
           return (this.titleError = true);
         }
         EventBus.$emit("save");
@@ -236,14 +239,14 @@ export default {
     },
     exit: function () {
       return () => {
-        const codeChanged = this.diagramType === "sequence"
+        const codeChanged = this.diagramType === DiagramType.Sequence
           ? this.seqCode !== this.originalSeqCode
           : this.mermaidCode !== this.originalMermaidCode;
 
         // Track exit button click with more context
         trackEvent("exit_button", "click", this.diagramType, {
           had_changes: codeChanged,
-          title_provided: this.diagramType === "sequence" ? !!this.seqTitle : !!this.mermaidTitle,
+          title_provided: this.diagramType === DiagramType.Sequence ? !!this.seqTitle : !!this.mermaidTitle,
           source: "header_exit_button"
         });
 
@@ -256,13 +259,13 @@ export default {
   },
   watch: {
     diagramType: function (newVal) {
-      const title = newVal === "mermaid" ? this.mermaidTitle : this.seqTitle;
+      const title = newVal === DiagramType.Mermaid ? this.mermaidTitle : this.seqTitle;
       if(title) {
         this.$store.dispatch("updateTitle", title);
       }
     },
     title: function (newVal) {
-      if (this.diagramType === "mermaid") {
+      if (this.diagramType === DiagramType.Mermaid) {
         this.mermaidTitle = newVal;
       } else {
         this.seqTitle = newVal;
@@ -273,8 +276,10 @@ export default {
     ...mapMutations(["updateDiagramType"]),
     setActiveTab(tab) {
       this.updateDiagramType(
-        tab === "sequence" ? DiagramType.Sequence : DiagramType.Mermaid
+        tab === DiagramType.Sequence ? DiagramType.Sequence : DiagramType.Mermaid
       );
+      // Save user's tab preference to localStorage
+      localStorage.setItem('zenuml-preferred-diagram-type', tab);
     },
     templateClick() {
       trackEvent("template", "click", this.diagramType);
@@ -286,7 +291,7 @@ export default {
       if (value) {
         this.titleError = false;
       }
-      if (this.diagramType === "mermaid") {
+      if (this.diagramType === DiagramType.Mermaid) {
         this.mermaidTitle = value.target.value;
       } else {
         this.seqTitle = value.target.value;
@@ -303,11 +308,11 @@ export default {
       this.noticeModalVisible = false;
       this.titleLoading = true;
       const res = await aiGenerateTitle({
-        dsl: this.diagramType === "mermaid" ? this.mermaidCode : this.seqCode,
+        dsl: this.diagramType === DiagramType.Mermaid ? this.mermaidCode : this.seqCode,
         type:
-          this.diagramType === "mermaid"
+          this.diagramType === DiagramType.Mermaid
             ? getMermaidType(this.mermaidCode)
-            : "sequence",
+            : DiagramType.Sequence,
       }).catch((e) => {
         this.titleLoading = false;
         toast({ message: e.message, duration: 3000 });
@@ -318,7 +323,7 @@ export default {
         return;
       }
       this.titleLoading = false;
-      if (this.diagramType === "mermaid") {
+      if (this.diagramType === DiagramType.Mermaid) {
         this.mermaidTitle = await res.text();
       } else {
         this.seqTitle = await res.text();
@@ -326,7 +331,16 @@ export default {
     },
   },
   async mounted() {
-    if (this.diagramType === "mermaid") {
+    // Load user's preferred diagram type from localStorage for new diagrams
+    const isNewDiagram = this.$store.state.diagram.isNew;
+    if (isNewDiagram) {
+      const savedDiagramType = localStorage.getItem('zenuml-preferred-diagram-type');
+      if (savedDiagramType && (savedDiagramType === DiagramType.Sequence || savedDiagramType === DiagramType.Mermaid)) {
+        this.setActiveTab(savedDiagramType);
+      }
+    }
+
+    if (this.diagramType === DiagramType.Mermaid) {
       this.mermaidTitle = this.title;
       this.originalMermaidCode = this.mermaidCode;
 

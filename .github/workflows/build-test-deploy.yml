@@ -82,8 +82,17 @@ jobs:
         run: cd tests/e2e-tests && pnpm install
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
+      # Cache Playwright browsers
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
       # Install Playwright browsers
       - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
       # Run E2E tests
       - name: Run E2E tests
@@ -160,8 +169,17 @@ jobs:
         run: cd tests/e2e-tests && pnpm install
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
+      # Cache Playwright browsers
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
       # Install Playwright browsers
       - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
       # Run E2E tests
       - name: Run E2E tests

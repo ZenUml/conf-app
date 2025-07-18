@@ -21,7 +21,8 @@
     "otpauth": "^9.4.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.40.0"
+    "@playwright/test": "^1.40.0",
+    "dotenv": "^16.0.0"
   },
   "engines": {
     "node": ">=20"

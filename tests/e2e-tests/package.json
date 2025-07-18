@@ -14,6 +14,7 @@
     "test:headed": "npx playwright test --headed",
     "test:debug": "npx playwright test --debug",
     "test:ui": "npx playwright test --ui",
+    "test:prod:ui": "ZENUML_STAGE_USERNAME=robot1yanhui@aol.com ZENUML_DOMAIN=zenuml.atlassian.net ZENUML_SPACE=SmokeTest npx playwright test --ui",
     "install:browsers": "npx playwright install"
   },
   "dependencies": {

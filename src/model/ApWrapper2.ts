@@ -321,7 +321,6 @@ export default class ApWrapper2 implements IApWrapper {
 
   async getCustomContentByIdV2(id: string): Promise<ICustomContentV2 | undefined> {
     const customContent = forgeGlobal.isForge ? await forgeRequest(`/wiki/api/v2/custom-content/${id}?body-format=raw`) : await this.getCustomContentRawV2(id);
-    console.log('custom Content in ApWrapper2', customContent);
     if (!customContent) {
       throw Error(`Failed to load custom content by id ${id}`);
     }

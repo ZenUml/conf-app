@@ -14,7 +14,7 @@ import EventBus from "@/EventBus";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { trackEvent } from "@/utils/window";
 import globals from "@/model/globals";
-import ViewResizer from "./ViewResizer.vue";
+import ViewResizer from "./Viewer/ViewResizer.vue";
 
 // Create a promise to load ZenUml only when needed
 const loadZenUml = () => import("@zenuml/core").then(module => module.default);

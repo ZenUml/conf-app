@@ -34,33 +34,33 @@
         <div class="p-1">
           <div
             class="flex items-center gap-2 mb-1 cursor-pointer"
-            @click="diagramType = 'sequence'"
+            @click="diagramType = DiagramType.Sequence"
           >
             <div
               :class="{
                 'h-4 w-4 rounded-full': true,
                 'border-[6px] border-solid border-primary':
-                  diagramType === 'sequence',
+                  diagramType === DiagramType.Sequence,
                 'border-2 border-solid border-gray-200':
-                  diagramType !== 'sequence',
+                  diagramType !== DiagramType.Sequence,
               }"
-              @click="diagramType = 'sequence'"
+              @click="diagramType = DiagramType.Sequence"
             />
             <div class="text-center text-sm">ZenUML (Sequence Diagram)</div>
           </div>
           <div
             class="flex items-center gap-2 cursor-pointer"
-            @click="diagramType = 'mermaid'"
+            @click="diagramType = DiagramType.Mermaid"
           >
             <div
               :class="{
                 'h-4 w-4 rounded-full': true,
                 'border-[6px] border-solid border-primary':
-                  diagramType === 'mermaid',
+                  diagramType === DiagramType.Mermaid,
                 'border-2 border-solid border-gray-200':
-                  diagramType !== 'mermaid',
+                  diagramType !== DiagramType.Mermaid,
               }"
-              @click="diagramType = 'mermaid'"
+              @click="diagramType = DiagramType.Mermaid"
             />
             <div class="text-center text-sm">Mermaid (Flowchart)</div>
           </div>
@@ -127,6 +127,7 @@ import IconSpark from "@/components/icons/IconSpark.vue";
 import IconChevron from "@/components/icons/IconChevron.vue";
 import IconInfo from "@/components/icons/IconInfo.vue";
 import {trackEvent} from "@/utils/window";
+import { DiagramType } from "@/model/Diagram/Diagram";
 
 export default defineComponent({
   props: {
@@ -140,8 +141,13 @@ export default defineComponent({
     loading: false,
     promptOpen: false,
     userPrompt: "",
-    diagramType: "sequence",
+    diagramType: DiagramType.Sequence,
   }),
+  computed: {
+    DiagramType() {
+      return DiagramType;
+    },
+  },
   methods: {
     async handleConfirm(value: string | undefined) {
       if (this.$props.onConfirm) {

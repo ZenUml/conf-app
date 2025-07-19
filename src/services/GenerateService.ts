@@ -36,7 +36,7 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
 
       const data = parseDsl(result.dsl);
 
-      if(diagramType === 'sequence') {
+      if(diagramType === DiagramType.Sequence) {
         store.dispatch('updateCode2', `title ${data.title}\n\n${data.content}`);
       } else {
         store.dispatch('updateMermaidCode', data.content);

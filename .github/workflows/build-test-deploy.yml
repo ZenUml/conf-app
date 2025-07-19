@@ -82,6 +82,18 @@ jobs:
         run: cd tests/e2e-tests && pnpm install
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
+      # Cache Playwright browsers
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
+      # Install Playwright browsers
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
       # Run E2E tests
       - name: Run E2E tests
         run: cd tests/e2e-tests && pnpm test
@@ -92,11 +104,17 @@ jobs:
           ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_STAGE_USERNAME }}
           ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_STAGE_PASSWORD }}
           ATLASSIAN_OTP: ${{ vars.ATLASSIAN_OTP }}
-      - name: Upload artifacts # Find artifacts under actions/jobs
+      - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: snapshots-lite
+          name: playwright-report-lite
+          path: ./tests/e2e-tests/playwright-report/
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-lite
           path: ./tests/e2e-tests/screenshots/
 
   staging-full:
@@ -151,6 +169,18 @@ jobs:
         run: cd tests/e2e-tests && pnpm install
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
+      # Cache Playwright browsers
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
+      # Install Playwright browsers
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
       # Run E2E tests
       - name: Run E2E tests
         run: cd tests/e2e-tests && pnpm test
@@ -160,11 +190,17 @@ jobs:
           ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_STAGE_USERNAME }}
           ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_STAGE_PASSWORD }}
           ATLASSIAN_OTP: ${{ vars.ATLASSIAN_OTP }}
-      - name: Upload artifacts # Find artifacts under actions/jobs
+      - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: snapshots-full
+          name: playwright-report-full
+          path: ./tests/e2e-tests/playwright-report/
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-full
           path: ./tests/e2e-tests/screenshots/
 
   draft-release-lite:

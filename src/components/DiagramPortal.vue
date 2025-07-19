@@ -1,13 +1,14 @@
 <template>
-  <generic-viewer :wide="useViewResizer===true || diagramType==='mermaid'">
-    <mermaid v-if="diagramType==='mermaid'"></mermaid>
-    <sequence v-if="diagramType==='sequence'" :useViewResizer="useViewResizer"></sequence>
+  <generic-viewer :wide="diagramType===DiagramType.Mermaid">
+    <mermaid v-if="diagramType===DiagramType.Mermaid"></mermaid>
+    <sequence v-if="diagramType===DiagramType.Sequence"></sequence>
   </generic-viewer>
 </template>
 <script>
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import Sequence from "@/components/Sequence.vue";
 import Mermaid from "@/components/Mermaid.vue";
+import { DiagramType } from "@/model/Diagram/Diagram";
 
 export default {
   name: "DiagramPortal",
@@ -19,6 +20,9 @@ export default {
     }
   },
   computed: {
+    DiagramType() {
+      return DiagramType;
+    },
     diagramType() {
       return this.$store.state.diagram.diagramType;
     }

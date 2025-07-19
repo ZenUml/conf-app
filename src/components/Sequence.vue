@@ -54,7 +54,7 @@ export default {
       await this.render();
       // Track the view event here, after the diagram is rendered
       const macroData = await globals.apWrapper.getMacroData();
-      trackEvent(macroData?.uuid, 'view_macro', 'sequence');
+      trackEvent(macroData?.uuid, 'view_macro', DiagramType.Sequence);
       EventBus.$emit(
         "diagramLoaded",
         this.$store.state.diagram.code,
@@ -86,12 +86,12 @@ export default {
         onContentChange: this.updateCode,
         onThemeChange: ({ theme, scoped }) => {
           if (!scoped) {
-            trackEvent("set_theme_global", "click", "sequence");
+            trackEvent("set_theme_global", "click", DiagramType.Sequence);
             localStorage.setItem(getThemeStorageKey("global"), theme);
             localStorage.setItem(getThemeStorageKey(id), "");
             return;
           }
-          trackEvent("set_theme_scoped", "click", "sequence");
+          trackEvent("set_theme_scoped", "click", DiagramType.Sequence);
           // there will not be an id when the diagram is just created
           if (id) {
             localStorage.setItem(getThemeStorageKey(id), theme);

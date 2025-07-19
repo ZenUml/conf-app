@@ -33,3 +33,4 @@ coverage
 .env.sentry-build-plugin
 
 wrangler.toml
+/.mcp.json

@@ -33,7 +33,7 @@ export default {
     EventBus.$emit('diagramLoaded', this.mermaidCode, this.$store.state.diagram.diagramType);
     await globals.apWrapper.initializeContext();
     const macroData = await globals.apWrapper.getMacroData();
-    trackEvent(macroData?.uuid, 'view_macro', 'mermaid');
+    trackEvent(macroData?.uuid, 'view_macro', DiagramType.Mermaid);
   },
   updated() {
     // Don't use updated() to render, because it will cause infinite loop.

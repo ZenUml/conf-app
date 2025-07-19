@@ -10,20 +10,20 @@
               @click="setFilter('')">All</a>
             <a href="#"
               class="inline-block ml-2 px-3 py-2 hover:bg-gray-200 rounded-lg"
-              :class="{ 'bg-gray-200': this.docTypeFilter === 'sequence' }"
-              @click="setFilter('sequence')">Sequence</a>
+              :class="{ 'bg-gray-200': this.docTypeFilter === DiagramType.Sequence }"
+              @click="setFilter(DiagramType.Sequence)">Sequence</a>
             <a href="#"
               class="inline-block ml-2 px-3 py-2 hover:bg-gray-200 rounded-lg"
-              :class="{ 'bg-gray-200': this.docTypeFilter === 'mermaid' }"
-              @click="setFilter('mermaid')">Mermaid</a>
+              :class="{ 'bg-gray-200': this.docTypeFilter === DiagramType.Mermaid }"
+              @click="setFilter(DiagramType.Mermaid)">Mermaid</a>
             <a href="#"
               class="inline-block ml-2 px-3 py-2 hover:bg-gray-200 rounded-lg"
-              :class="{ 'bg-gray-200': this.docTypeFilter === 'graph' }"
-              @click="setFilter('graph')">Graph</a>
+              :class="{ 'bg-gray-200': this.docTypeFilter === DiagramType.Graph }"
+              @click="setFilter(DiagramType.Graph)">Graph</a>
             <a href="#"
               class="inline-block ml-2 px-3 py-2 hover:bg-gray-200 rounded-lg"
-              :class="{ 'bg-gray-200': this.docTypeFilter === 'OpenApi' }"
-              @click="setFilter('OpenApi')">Open API</a>
+              :class="{ 'bg-gray-200': this.docTypeFilter === DiagramType.OpenApi }"
+              @click="setFilter(DiagramType.OpenApi)">Open API</a>
           </nav>
         </div>
         <div class="w-80 flex-shrink-0 px-4 py-3 bg-white">
@@ -123,6 +123,9 @@ export default {
     };
   },
   computed: {
+    DiagramType() {
+      return DiagramType;
+    },
     filteredCustomContentList() {
       console.debug(`current filterKeyword: ${this.filterKeyword}`);
 

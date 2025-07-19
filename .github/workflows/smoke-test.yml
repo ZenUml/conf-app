@@ -31,6 +31,18 @@ jobs:
         run: cd tests/e2e-tests && pnpm install
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
+      # Cache Playwright browsers
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
+      # Install Playwright browsers
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
       # Run E2E tests
       - name: Run E2E tests
         run: cd tests/e2e-tests && pnpm test:prod
@@ -41,9 +53,74 @@ jobs:
           ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_PROD_USERNAME }}
           ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_PROD_PASSWORD }}
           ATLASSIAN_OTP: ${{ vars.ATLASSIAN_OTP }}
-      - name: Upload artifacts # Find artifacts under actions/jobs
+      - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: snapshots-lite
+          name: playwright-report-prod-lite
+          path: ./tests/e2e-tests/playwright-report/
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-prod-lite
+          path: ./tests/e2e-tests/screenshots/
+  prod-full-test:
+    name: Full - E2E Test on Prod
+    environment:
+      name: prod-full
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'pnpm'
+      # Install main dependencies without Puppeteer
+      - name: Install main dependencies (skip post-install scripts)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      # Install E2E test dependencies separately
+      - name: Install E2E test dependencies
+        run: cd tests/e2e-tests && pnpm install
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      # Cache Playwright browsers
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
+      # Install Playwright browsers
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
+      # Run E2E tests
+      - name: Run E2E tests
+        run: cd tests/e2e-tests && pnpm test:prod
+        env:
+          CI: true
+          IS_LITE: false
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_PROD_USERNAME }}
+          ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_PROD_PASSWORD }}
+          ATLASSIAN_OTP: ${{ vars.ATLASSIAN_OTP }}
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-prod-full
+          path: ./tests/e2e-tests/playwright-report/
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-prod-full
           path: ./tests/e2e-tests/screenshots/

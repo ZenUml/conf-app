@@ -40,7 +40,7 @@ async function main() {
   mountRoot(doc, Workspace);
 
   if (await MacroUtil.isCreateNew()) {
-    trackEvent('', 'create_macro_begin', 'sequence');
+    trackEvent('', 'create_macro_begin', DiagramType.Sequence);
   }
 }
 
@@ -48,7 +48,7 @@ async function main() {
 export default main();
 
 EventBus.$on('save', async () => {
-  const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
+  const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.Sequence
   store.state.diagram.isNew = false;
   const id = await saveToPlatform(store.state.diagram);
   const preservedTheme = sessionStorage.getItem(`${location.hostname}-preserve-zenuml-conf-theme`);
@@ -68,10 +68,10 @@ EventBus.$on('exit', async (showWarning: boolean) => {
   console.log('exit', showWarning);
   
   // Track exit event with context
-  const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence";
+  const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.Sequence;
   const elapsedTimeMs = Date.now() - editorStartTime;
   
-  trackEvent('', 'create_macro_exit', 'sequence', {
+  trackEvent('', 'create_macro_exit', DiagramType.Sequence, {
     had_changes: showWarning,
     macro_stage: isNewSequence ? 'creation' : 'editing',
     elapsed_time_ms: elapsedTimeMs,

@@ -1,4 +1,3 @@
-import ApWrapper2 from "@/model/ApWrapper2";
 import globals from '@/model/globals';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import AP from "@/model/AP";
@@ -10,9 +9,13 @@ import './assets/tailwind.css'
 import { saveToPlatform } from "./model/ContentProvider/Persistence";
 import macroMetrics from "@/services/MacroMetrics";
 import store from './model/store2'
-import { view, requestConfluence, invoke, Modal } from "@forge/bridge";
 
 import Example from "./utils/sequence/Example";
+
+async function getView() {
+  const { view } = await import("@forge/bridge");
+  return view;
+}
 
 // Initialize critical path rendering first
 async function initializeCriticalPath() {
@@ -25,7 +28,7 @@ async function initializeCriticalPath() {
   };
 
   try {
-    const context = await view.getContext();
+    const context = (await getView()).getContext();
     forgeGlobal.isForge = !!context;
     forgeGlobal.forgeContext = context;
 
@@ -57,7 +60,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       import("@/mount-root")
     ]);
 
-    const context = await view.getContext();
+    const context = (await getView()).getContext();
 
     let doc;
     const customContentId = context.extension?.config?.customContentId;
@@ -172,7 +175,8 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
   }, 1500);
 });
 
-EventBus.$on('edit', () => {
+EventBus.$on('edit', async() => {
+  const { Modal } = await import("@forge/bridge");
   const modal = new Modal({
     resource: 'main',
     onClose: (payload) => {
@@ -204,15 +208,15 @@ EventBus.$on('save', async () => {
   // we don't want to block dialog close for too long.
   setTimeout(async () => {
     if(forgeGlobal.forgeContext?.extension?.macro?.isInserting) {
-      await view.submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
+      await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
     } else {
-      await view.close();
+      await (await getView()).close();
     }
   }, 500);
 });
 
-EventBus.$on('exit', () => {
-  view.close();
+EventBus.$on('exit', async () => {
+  (await getView()).close();
 });
 
 EventBus.$on('fullscreen', () => {

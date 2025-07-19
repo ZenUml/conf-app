@@ -63,7 +63,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const DiagramPortal = (await import("@/components/DiagramPortal.vue")).default;
 
     // Mount the root component
-    mountRoot(doc, DiagramPortal);
+    mountRoot(doc, DiagramPortal, { useViewResizer: true });
   } catch (error) {
     console.error('Error loading heavy components:', error);
     // Hide skeleton loader even on error

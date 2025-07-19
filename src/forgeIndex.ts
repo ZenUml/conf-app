@@ -81,11 +81,11 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       skeletonLoader.style.display = 'none';
     }
 
-    const component = context.extension.modal?.macroMode === 'editor' || context.extension?.macro?.isConfiguring
-      ? (await import("@/components/Workspace.vue")).default : (await import("@/components/DiagramPortal.vue")).default;
+    const editable = context.extension.modal?.macroMode === 'editor' || context.extension?.macro?.isConfiguring;
+    const component = editable ? (await import("@/components/Workspace.vue")).default : (await import("@/components/DiagramPortal.vue")).default;
     
     //@ts-ignore
-    mountRoot(doc, component);
+    mountRoot(doc, component, { useViewResizer: !editable });
 
   } catch (error) {
     console.error('Error loading heavy components:', error);

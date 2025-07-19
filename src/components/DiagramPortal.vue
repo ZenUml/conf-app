@@ -1,7 +1,7 @@
 <template>
-  <generic-viewer :wide="diagramType===DiagramType.Mermaid">
+  <generic-viewer :wide="useViewResizer===true || diagramType===DiagramType.Mermaid">
     <mermaid v-if="diagramType===DiagramType.Mermaid"></mermaid>
-    <sequence v-if="diagramType===DiagramType.Sequence"></sequence>
+    <sequence v-if="diagramType===DiagramType.Sequence" :useViewResizer="useViewResizer"></sequence>
   </generic-viewer>
 </template>
 <script>

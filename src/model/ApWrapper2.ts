@@ -19,6 +19,8 @@ import CheckPermission, {PermissionCheckRequestFunc} from "@/model/page/CheckPer
 import {ISpace, LocationTarget} from './ILocationContext';
 import {Attachment} from './ConfluenceTypes';
 import { loadAllPaginatedData } from '@/utils/requestUtil';
+import forgeGlobal from '@/model/globals/forgeGlobal';
+import {forgeRequest, connectRequest} from '@/utils/requestUtil';
 
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
 const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
@@ -41,8 +43,6 @@ export default class ApWrapper2 implements IApWrapper {
   baseUrl: string | undefined;
   locationTarget: LocationTarget | undefined;
   license: ILicense | undefined;
-  isForge: boolean = false;
-  forgeContext: any;
 
   constructor(ap: IAp) {
     this.versionType = this.isLite() ? VersionType.Lite : VersionType.Full;
@@ -63,7 +63,7 @@ export default class ApWrapper2 implements IApWrapper {
       this.currentPageUrl = await this._getCurrentPageUrl();
       this.baseUrl = await this._getBaseUrl();
       this.locationTarget = await this._getLocationTarget();
-      this.currentPageId = this.isForge ? this.forgeContext.extension.content.id : await this._page.getPageId();
+      this.currentPageId = forgeGlobal.isForge ? forgeGlobal.forgeContext.extension.content.id : await this._page.getPageId();
       if (this.versionType === VersionType.Full) {
         this.license = await this._getLicense();
       }
@@ -208,7 +208,7 @@ export default class ApWrapper2 implements IApWrapper {
       }
     };
 
-    const response = this.isForge ? await this.forgeRequest(`/wiki/api/v2/custom-content`, 'POST', data) : this.parseCustomContentResponseV2(await this._requestFn({
+    const response = forgeGlobal.isForge ? await forgeRequest(`/wiki/api/v2/custom-content`, 'POST', data) : this.parseCustomContentResponseV2(await this._requestFn({
       url: '/api/v2/custom-content',
       type: 'POST',
       contentType: 'application/json',
@@ -273,7 +273,7 @@ export default class ApWrapper2 implements IApWrapper {
     };
 
     try {
-      const response = this.isForge ? await this.forgeRequest(`/wiki/api/v2/custom-content/${content.id}`, 'PUT', data) : this.parseCustomContentResponseV2(await this._requestFn({
+      const response = forgeGlobal.isForge ? await forgeRequest(`/wiki/api/v2/custom-content/${content.id}`, 'PUT', data) : this.parseCustomContentResponseV2(await this._requestFn({
         url: `/api/v2/custom-content/${content.id}`,
         type: 'PUT',
         contentType: 'application/json',
@@ -319,19 +319,8 @@ export default class ApWrapper2 implements IApWrapper {
     return <ICustomContent>assign;
   }
 
-  async forgeRequest(url: string, method: string = 'GET', data: any = undefined): Promise<any> {
-    const { requestConfluence } = await import("@forge/bridge");
-    return (await requestConfluence(url, {
-      method,
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: data && JSON.stringify(data)
-    })).json();
-  }
-
   async getCustomContentByIdV2(id: string): Promise<ICustomContentV2 | undefined> {
-    const customContent = this.isForge ? await this.forgeRequest(`/wiki/api/v2/custom-content/${id}?body-format=raw`) : await this.getCustomContentRawV2(id);
+    const customContent = forgeGlobal.isForge ? await forgeRequest(`/wiki/api/v2/custom-content/${id}?body-format=raw`) : await this.getCustomContentRawV2(id);
     console.log('custom Content in ApWrapper2', customContent);
     if (!customContent) {
       throw Error(`Failed to load custom content by id ${id}`);
@@ -672,7 +661,7 @@ export default class ApWrapper2 implements IApWrapper {
     const existing = await this.getCustomContentByIdV2(customContentId);
     const pageId = await this._getCurrentPageId();
     const count = (await this._page.countMacros((m) => {
-      return this.isForge ? m?.customContentId === customContentId : m?.customContentId?.value === customContentId;
+      return forgeGlobal.isForge ? m?.customContentId === customContentId : m?.customContentId?.value === customContentId;
     }));
 
     // pageId is absent when editing in custom content list page;
@@ -713,7 +702,7 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   isDisplayMode() {
-    return getUrlParam('outputType') === 'display' || this.isForge;
+    return getUrlParam('outputType') === 'display' || forgeGlobal.isForge;
   }
 
   async getCustomContent(): Promise<ICustomContent | undefined> {
@@ -810,7 +799,8 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async canUserEdit(): Promise<boolean> {
-    if(this.isForge) {
+    if(forgeGlobal.isForge) {
+      //TODO: check if the user has edit permission
       return true;
     }
     

@@ -26,12 +26,10 @@ async function initializeCriticalPath() {
 
   try {
     const context = await view.getContext();
-    (globals.apWrapper as ApWrapper2).isForge = !!context;
-    (globals.apWrapper as ApWrapper2).forgeContext = context;
     forgeGlobal.isForge = !!context;
     forgeGlobal.forgeContext = context;
 
-    console.log('sequence-viewer - context', context);
+    console.log('forgeIndex - context', context);
 
     // Initialize context and get macro data (lightweight operations)
     await globals.apWrapper.initializeContext();
@@ -62,7 +60,8 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const context = await view.getContext();
 
     let doc;
-    if(!context.extension?.config?.customContentId) {
+    const customContentId = context.extension?.config?.customContentId;
+    if(!customContentId) {
       doc = {
         diagramType: DiagramType.Sequence,
         code: Example.Sequence,
@@ -70,9 +69,8 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         isNew: true
       }
     } else {
-      const customContent2 = await globals.apWrapper.getCustomContentByIdV2(context.extension.config.customContentId);
-      console.log('Custom content2:', customContent2);
-      doc = customContent2?.value;
+      const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
+      doc = customContent?.value;
     }
 
     // Hide skeleton loader before mounting the actual content
@@ -205,7 +203,7 @@ EventBus.$on('save', async () => {
   // Give some time for track event to be sent out. We are not using a more reliable way to track event because
   // we don't want to block dialog close for too long.
   setTimeout(async () => {
-    if((globals.apWrapper as ApWrapper2).forgeContext?.extension?.macro?.isInserting) {
+    if(forgeGlobal.forgeContext?.extension?.macro?.isInserting) {
       await view.submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
     } else {
       await view.close();

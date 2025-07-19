@@ -1,6 +1,5 @@
-import ApWrapper2 from "@/model/ApWrapper2";
 import globals from '@/model/globals';
-
+import forgeGlobal from '@/model/globals/forgeGlobal';
 import AP from "@/model/AP";
 import EventBus from './EventBus'
 import {trackEvent} from "@/utils/window";
@@ -9,6 +8,14 @@ import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import './assets/tailwind.css'
 import { saveToPlatform } from "./model/ContentProvider/Persistence";
 import macroMetrics from "@/services/MacroMetrics";
+import store from './model/store2'
+
+import Example from "./utils/sequence/Example";
+
+async function getView() {
+  const { view } = await import("@forge/bridge");
+  return view;
+}
 
 // Initialize critical path rendering first
 async function initializeCriticalPath() {
@@ -21,6 +28,12 @@ async function initializeCriticalPath() {
   };
 
   try {
+    const context = (await getView()).getContext();
+    forgeGlobal.isForge = !!context;
+    forgeGlobal.forgeContext = context;
+
+    console.log('forgeIndex - context', context);
+
     // Initialize context and get macro data (lightweight operations)
     await globals.apWrapper.initializeContext();
     const macroData = await globals.apWrapper.getMacroData();
@@ -42,16 +55,26 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
   try {
     // Dynamically import heavy dependencies
     const [
-      { default: defaultContentProvider },
       { mountRoot }
     ] = await Promise.all([
-      import("@/model/ContentProvider/CompositeContentProvider"),
       import("@/mount-root")
     ]);
 
-    // Initialize content provider
-    const compositeContentProvider = defaultContentProvider(globals.apWrapper as ApWrapper2);
-    let {doc} = await compositeContentProvider.load();
+    const context = (await getView()).getContext();
+
+    let doc;
+    const customContentId = context.extension?.config?.customContentId;
+    if(!customContentId) {
+      doc = {
+        diagramType: DiagramType.Sequence,
+        code: Example.Sequence,
+        mermaidCode: Example.Mermaid,
+        isNew: true
+      }
+    } else {
+      const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
+      doc = customContent?.value;
+    }
 
     // Hide skeleton loader before mounting the actual content
     const skeletonLoader = document.getElementById('skeleton-loader');
@@ -59,11 +82,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       skeletonLoader.style.display = 'none';
     }
 
-    // Dynamically import DiagramPortal component
-    const DiagramPortal = (await import("@/components/DiagramPortal.vue")).default;
+    const editable = context.extension.modal?.macroMode === 'editor' || context.extension?.macro?.isConfiguring;
+    const component = editable ? (await import("@/components/Workspace.vue")).default : (await import("@/components/DiagramPortal.vue")).default;
+    
+    //@ts-ignore
+    mountRoot(doc, component, { autoResize: !editable });
 
-    // Mount the root component
-    mountRoot(doc, DiagramPortal, { autoResize: true });
   } catch (error) {
     console.error('Error loading heavy components:', error);
     // Hide skeleton loader even on error
@@ -151,15 +175,48 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
   }, 1500);
 });
 
-EventBus.$on('edit', () => {
-  AP.dialog.create({
-    key: 'zenuml-content-sequence-editor-dialog',
-      chrome: false,
-      width: "100%",
-      height: "100%",
-  }).on('close', async () => {
-    location.reload();
+EventBus.$on('edit', async() => {
+  const { Modal } = await import("@forge/bridge");
+  const modal = new Modal({
+    resource: 'main',
+    onClose: (payload) => {
+      console.log('onClose called with', payload);
+      location.reload();
+    },
+    size: 'max',
+    context: {
+      macroMode: 'editor',
+    },
   });
+
+  modal.open();
+});
+
+
+EventBus.$on('save', async () => {
+  console.log('save', store.state.diagram);
+
+  const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
+  store.state.diagram.isNew = false;
+  const id = await saveToPlatform(store.state.diagram);
+  const preservedTheme = sessionStorage.getItem(`${location.hostname}-preserve-zenuml-conf-theme`);
+  if (isNewSequence && preservedTheme) {
+    sessionStorage.removeItem(`${location.hostname}-preserve-zenuml-conf-theme`);
+    localStorage.setItem(`${location.hostname}-${id}-zenuml-conf-theme`, preservedTheme);
+  }
+  // Give some time for track event to be sent out. We are not using a more reliable way to track event because
+  // we don't want to block dialog close for too long.
+  setTimeout(async () => {
+    if(forgeGlobal.forgeContext?.extension?.macro?.isInserting) {
+      await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
+    } else {
+      await (await getView()).close();
+    }
+  }, 500);
+});
+
+EventBus.$on('exit', async () => {
+  (await getView()).close();
 });
 
 EventBus.$on('fullscreen', () => {

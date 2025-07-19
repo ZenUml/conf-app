@@ -1,7 +1,7 @@
 <template>
-  <generic-viewer :wide="diagramType===DiagramType.Mermaid">
+  <generic-viewer :wide="autoResize===true || diagramType===DiagramType.Mermaid">
     <mermaid v-if="diagramType===DiagramType.Mermaid"></mermaid>
-    <sequence v-if="diagramType===DiagramType.Sequence"></sequence>
+    <sequence v-if="diagramType===DiagramType.Sequence" :autoResize="autoResize"></sequence>
   </generic-viewer>
 </template>
 <script>
@@ -13,6 +13,12 @@ import { DiagramType } from "@/model/Diagram/Diagram";
 export default {
   name: "DiagramPortal",
   components: {Mermaid, Sequence, GenericViewer},
+  props: {
+    autoResize: {
+      type: Boolean,
+      default: false
+    }
+  },
   computed: {
     DiagramType() {
       return DiagramType;

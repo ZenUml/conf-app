@@ -147,7 +147,7 @@ function version() {
 
 async function r2Track(action: string, eventDetails: any) {
   try {
-    await fetch("/track", {
+    await fetch(`${window.location.origin}/track`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(

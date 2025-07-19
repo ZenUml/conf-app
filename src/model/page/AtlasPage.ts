@@ -1,7 +1,9 @@
 import {IAp} from "@/model/IAp";
 import {ILocationContext, IContext} from "@/model/ILocationContext";
-import {AtlasDocFormat, AtlasDocElement, MacroParams} from "@/model/page/AtlasDocFormat";
+import {AtlasDocFormat, AtlasDocElement, MacroParams, AtlasDocExtensionType, ForgeGuestParams} from "@/model/page/AtlasDocFormat";
 import {trackEvent} from "@/utils/window";
+import forgeGlobal from '@/model/globals/forgeGlobal';
+import { forgeRequest, connectRequest } from "@/utils/requestUtil";
 
 export class AtlasPage {
   _requestFn?: (req: IApRequest) => any;
@@ -9,6 +11,7 @@ export class AtlasPage {
   private _apContext?: IContext;
   private readonly _navigator: any;
   private readonly _context: any;
+
   constructor(ap?: IAp) {
     // TODO: why? Assigning _ap causes DOMException:
     // Blocked a frame with origin "xxx" from accessing a cross-origin frame.
@@ -48,7 +51,7 @@ export class AtlasPage {
   }
 
   async getPageId() {
-    return (await this._getLocationContext()).contentId;
+    return forgeGlobal.isForge ? forgeGlobal.forgeContext.extension.content.id : (await this._getLocationContext()).contentId;
   }
 
   async getSpaceKey() {
@@ -79,7 +82,7 @@ export class AtlasPage {
   // It seems reliable enough for us to use, as we only need to know the macros
   // when we edit the newly added macro.
   private async macros(): Promise<AtlasDocElement[]> {
-    if (!this._requestFn) {
+    if (!this._requestFn && !forgeGlobal.isForge) {
       return [];
     }
     let responseStatus = '';
@@ -90,17 +93,14 @@ export class AtlasPage {
         return [];
       }
 
-      const response = await this._requestFn({
-        url: `/rest/api/content/${pageId}?expand=body.atlas_doc_format&status=draft`,
-        type: 'GET',
-        contentType: 'application/json'
-      });
+      const response = forgeGlobal.isForge ? await forgeRequest(`/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format&get-draft=true`) : await connectRequest(this._requestFn,`/api/v2/pages/${pageId}?body-format=atlas_doc_format&get-draft=true`);
+      console.log('response', response);
       responseStatus = response?.xhr?.status || '';
       if (!response || !response.body) {
         return [];
       }
       responseBody = response.body;
-      const {body: {atlas_doc_format: {value}}} = JSON.parse(response.body);
+      const {body: {atlas_doc_format: {value}}} = response;
       const doc = new AtlasDocFormat(value);
       return doc.getMacros();
     } catch (e: any) {
@@ -117,10 +117,10 @@ export class AtlasPage {
     }
   }
 
-  async countMacros(matcher: (mps: MacroParams) => boolean) {
+  async countMacros(matcher: (mps: MacroParams | ForgeGuestParams) => boolean) {
     return (await this.macros())
-      .map(c => c.attrs.parameters.macroParams)
-      .filter(matcher)
+      .map(c => c.attrs.extensionType === AtlasDocExtensionType.ForgeMacro ? c.attrs.parameters.guestParams : c.attrs.parameters.macroParams)
+      .filter(mps => mps && matcher(mps))
       .length;
   }
 }

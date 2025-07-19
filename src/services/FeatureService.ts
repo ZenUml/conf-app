@@ -61,7 +61,7 @@ export class FeatureService {
 
   private async loadFlags(): Promise<void> {
     try {
-      const response = await fetch('/api/features');
+      const response = await fetch(`${window.location.origin}/api/features`);
       if (!response.ok) {
         throw new Error(`Failed to load feature flags: ${response.statusText}`);
       }
@@ -86,7 +86,7 @@ export class FeatureService {
     result: FeatureEvaluationResult
   ): Promise<void> {
     try {
-      await fetch('/api/metrics/evaluation', {
+      await fetch(`${window.location.origin}/api/metrics/evaluation`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

@@ -7,7 +7,6 @@ import fs from 'fs'
 import {createFilter} from '@rollup/pluginutils';
 import copy from 'rollup-plugin-copy'
 
-
 const filter = createFilter(['./drawio/**/*']);
 console.log(process.env.NODE_ENV)
 process.env.VITE_APP_GIT_HASH = execSync('git rev-parse --short HEAD').toString().trim()
@@ -32,6 +31,7 @@ function getHtmlFiles(dir) {
 }
 
 export default defineConfig({
+  base: './',
   build: {
     rollupOptions: {
       input: getHtmlFiles('./').concat(getHtmlFiles('./drawio')),

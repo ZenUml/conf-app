@@ -1,7 +1,10 @@
 <template>
-  <div>
-    <div ref="zenuml"></div>
-  </div>
+  <ViewResizer v-if="autoResize">
+    <template>
+      <div ref="zenuml" class="resize-target"></div>
+    </template>
+  </ViewResizer>
+  <div v-else ref="zenuml"></div>
 </template>
 
 <script>
@@ -11,6 +14,7 @@ import EventBus from "@/EventBus";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { trackEvent } from "@/utils/window";
 import globals from "@/model/globals";
+import ViewResizer from "./ViewResizer.vue";
 
 // Create a promise to load ZenUml only when needed
 const loadZenUml = () => import("@zenuml/core").then(module => module.default);
@@ -26,6 +30,13 @@ const getThemeStorageKey = (id) => {
 };
 export default {
   name: "Sequence",
+  components: { ViewResizer },
+  props: {
+    autoResize: {
+      type: Boolean,
+      default: false
+    }
+  },
   computed: {
     code() {
       return (

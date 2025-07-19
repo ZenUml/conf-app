@@ -1,5 +1,7 @@
+import forgeGlobal from '@/model/globals/forgeGlobal';
+
 export class AtlasDocFormat {
-  private value: any;
+  private value: any;  
 
   constructor(content: string) {
     this.value = JSON.parse(content);
@@ -9,8 +11,8 @@ export class AtlasDocFormat {
     const result = [] as Array<AtlasDocElement>;
     const traverse = (node: any) => {
       if(node.type === AtlasDocElementType.Extension
-          && node.attrs.extensionType === AtlasDocExtensionType.Macro
-          && (!macroKey || node.attrs.extensionKey === macroKey)) {
+          && ((!forgeGlobal.isForge && node.attrs.extensionType === AtlasDocExtensionType.Macro) || (forgeGlobal.isForge && node.attrs.extensionType === AtlasDocExtensionType.ForgeMacro))
+          && (!macroKey || (forgeGlobal.isForge && node.attrs.extensionKey.includes(macroKey)) || (!forgeGlobal.isForge && node.attrs.extensionKey === macroKey))) {
         result.push(node);
       } else if(node.content) {
         node.content.forEach(traverse);
@@ -24,15 +26,20 @@ export class AtlasDocFormat {
 enum AtlasDocElementType {
   Extension = 'extension',
 }
-enum AtlasDocExtensionType {
+
+export enum AtlasDocExtensionType {
   Macro = 'com.atlassian.confluence.macro.core',
+  ForgeMacro = 'com.atlassian.ecosystem',
 }
 
 export interface AtlasDocElement {
   type: AtlasDocElementType;
   attrs: {
+    extensionType: AtlasDocExtensionType;
+    extensionKey: string;
     parameters: {
-      macroParams: MacroParams;
+      macroParams?: MacroParams;
+      guestParams?: ForgeGuestParams;
     }
   };
 }
@@ -44,4 +51,11 @@ export interface MacroParams {
   customContentId?: {
     value: string;
   }
+}
+export interface ForgeGuestParams {
+  uuid?: {
+    value: string;
+  },
+  customContentId?:string;
+  updatedAt?:string;
 }

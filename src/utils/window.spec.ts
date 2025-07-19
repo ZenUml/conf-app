@@ -101,7 +101,7 @@ describe('window utils', async () => {
 
       await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
 
-      expect(fetchSpy).toHaveBeenCalledWith('/track', {
+      expect(fetchSpy).toHaveBeenCalledWith('https://example.com/track', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: expect.any(String)

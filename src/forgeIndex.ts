@@ -28,7 +28,7 @@ async function initializeCriticalPath() {
   };
 
   try {
-    const context = (await getView()).getContext();
+    const context = await (await getView()).getContext();
     forgeGlobal.isForge = !!context;
     forgeGlobal.forgeContext = context;
 
@@ -60,7 +60,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       import("@/mount-root")
     ]);
 
-    const context = (await getView()).getContext();
+    const context = await (await getView()).getContext();
 
     let doc;
     const customContentId = context.extension?.config?.customContentId;

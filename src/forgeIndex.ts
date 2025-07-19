@@ -83,7 +83,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const component = editable ? (await import("@/components/Workspace.vue")).default : (await import("@/components/DiagramPortal.vue")).default;
     
     //@ts-ignore
-    mountRoot(doc, component, { useViewResizer: !editable });
+    mountRoot(doc, component, { autoResize: !editable });
 
   } catch (error) {
     console.error('Error loading heavy components:', error);

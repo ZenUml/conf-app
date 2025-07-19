@@ -1,5 +1,5 @@
 <template>
-  <ViewResizer v-if="useViewResizer">
+  <ViewResizer v-if="autoResize">
     <template>
       <div ref="zenuml" class="resize-target"></div>
     </template>
@@ -32,7 +32,7 @@ export default {
   name: "Sequence",
   components: { ViewResizer },
   props: {
-    useViewResizer: {
+    autoResize: {
       type: Boolean,
       default: false
     }

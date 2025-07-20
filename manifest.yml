@@ -100,47 +100,47 @@ connectModules:
           required: true
           multiple: false
           defaultValue: None
-    - key: zenuml-openapi-macro
-      name:
-        value: OpenAPI / Swagger
-      renderModes:
-        default:
-          url: >-
-            /attachment?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-      url: >-
-        /swagger-ui.html?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&outputType={output.type}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-      description:
-        value: Create an OpenAPI / Swagger Spec. Developed by the ZenUML team.
-      outputType: block
-      bodyType: none
-      editor:
-        url: >-
-          /swagger-editor.html?version=2025.04&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-        editTitle:
-          value: Edit ZenUML OpenAPI
-        insertTitle:
-          value: Create ZenUML OpenAPI
-        width: 100%
-        height: 100%
-        cacheable: true
-      icon:
-        width: 16
-        height: 16
-        url: image/openapi_macro_icon.png
-      documentation:
-        url: https://zenuml.atlassian.net/wiki/spaces/Doc/overview
-      categories:
-        - visuals
-      featured: true
-      parameters:
-        - identifier: diagramName
-          name:
-            value: Diagram name (do not change)
-            i18n: diagramName
-          type: string
-          required: true
-          multiple: false
-          defaultValue: None
+    # - key: zenuml-openapi-macro
+    #   name:
+    #     value: OpenAPI / Swagger
+    #   renderModes:
+    #     default:
+    #       url: >-
+    #         /attachment?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+    #   url: >-
+    #     /swagger-ui.html?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&outputType={output.type}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+    #   description:
+    #     value: Create an OpenAPI / Swagger Spec. Developed by the ZenUML team.
+    #   outputType: block
+    #   bodyType: none
+    #   editor:
+    #     url: >-
+    #       /swagger-editor.html?version=2025.04&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+    #     editTitle:
+    #       value: Edit ZenUML OpenAPI
+    #     insertTitle:
+    #       value: Create ZenUML OpenAPI
+    #     width: 100%
+    #     height: 100%
+    #     cacheable: true
+    #   icon:
+    #     width: 16
+    #     height: 16
+    #     url: image/openapi_macro_icon.png
+    #   documentation:
+    #     url: https://zenuml.atlassian.net/wiki/spaces/Doc/overview
+    #   categories:
+    #     - visuals
+    #   featured: true
+    #   parameters:
+    #     - identifier: diagramName
+    #       name:
+    #         value: Diagram name (do not change)
+    #         i18n: diagramName
+    #       type: string
+    #       required: true
+    #       multiple: false
+    #       defaultValue: None
     - key: zenuml-embed-macro
       name:
         value: Embed a Diagram, Graph or API Spec
@@ -362,6 +362,13 @@ modules:
     - key: zenuml-sequence-macro
       title: ZenUML Forge Sequence Diagram
       description: Create and view ZenUML or Mermaid diagrams.
+      resource: main
+      config:
+        resource: main
+        viewportSize: max
+    - key: zenuml-openapi-macro
+      title: ZenUML Forge OpenAPI Diagram
+      description: Create and view OpenAPI / Swagger diagrams.
       resource: main
       config:
         resource: main

@@ -63,7 +63,7 @@ export default {
           resizeTarget.style.transformOrigin = 'top left';
         }
         this.containerRef.style.height = `${scaledHeight}px`;
-        window.AP?.size?.({ height: scaledHeight });
+        window.AP?.resize?.("100%", scaledHeight);
       });
     }
   }

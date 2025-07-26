@@ -16,7 +16,7 @@ import { DataSource, DiagramType } from "@/model/Diagram/Diagram";
 import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from '@/utils/window';
-import { getView, getContext as initForgeContext, isInserting } from './model/globals/forgeGlobal';
+import { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
 import store from "@/model/store2";
 
 async function saveOpenApiAndExit() {

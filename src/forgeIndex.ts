@@ -74,6 +74,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     }
 
     const isSequence = context.moduleKey === 'zenuml-sequence-macro';
+    const isGraph = context.moduleKey === 'zenuml-graph-macro';
 
     const editable = await isEditorMode();
     if(isSequence) {
@@ -83,6 +84,8 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       
       //@ts-ignore
       mountRoot(doc, component, { autoResize: !editable });
+    } else if(isGraph) {
+      await import(editable ? "@/forge-graph-editor" : "@/forge-graph-viewer");
     } else {
       await import(editable ? "@/forge-swagger-editor" : "@/forge-swagger-ui");
     }

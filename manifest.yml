@@ -59,47 +59,47 @@ connectModules:
     #       required: true
     #       multiple: false
     #       defaultValue: None
-    - key: zenuml-graph-macro
-      name:
-        value: Graph (DrawIO)
-      renderModes:
-        default:
-          url: >-
-            /attachment?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-      url: >-
-        /drawio/viewer.html?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&outputType={output.type}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-      description:
-        value: Create a Graph powered by DrawIO. Developed by the ZenUML team.
-      outputType: block
-      bodyType: none
-      editor:
-        url: >-
-          /drawio/editor.html?version=2025.04&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-        editTitle:
-          value: Edit ZenUML Graph
-        insertTitle:
-          value: Create ZenUML Graph
-        width: 100%
-        height: 100%
-        cacheable: true
-      icon:
-        width: 16
-        height: 16
-        url: image/graph_macro_icon.png
-      documentation:
-        url: https://zenuml.atlassian.net/wiki/spaces/Doc/overview
-      categories:
-        - visuals
-      featured: true
-      parameters:
-        - identifier: diagramName
-          name:
-            value: Diagram name (do not change)
-            i18n: diagramName
-          type: string
-          required: true
-          multiple: false
-          defaultValue: None
+    # - key: zenuml-graph-macro
+    #   name:
+    #     value: Graph (DrawIO)
+    #   renderModes:
+    #     default:
+    #       url: >-
+    #         /attachment?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+    #   url: >-
+    #     /drawio/viewer.html?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&outputType={output.type}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+    #   description:
+    #     value: Create a Graph powered by DrawIO. Developed by the ZenUML team.
+    #   outputType: block
+    #   bodyType: none
+    #   editor:
+    #     url: >-
+    #       /drawio/editor.html?version=2025.04&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+    #     editTitle:
+    #       value: Edit ZenUML Graph
+    #     insertTitle:
+    #       value: Create ZenUML Graph
+    #     width: 100%
+    #     height: 100%
+    #     cacheable: true
+    #   icon:
+    #     width: 16
+    #     height: 16
+    #     url: image/graph_macro_icon.png
+    #   documentation:
+    #     url: https://zenuml.atlassian.net/wiki/spaces/Doc/overview
+    #   categories:
+    #     - visuals
+    #   featured: true
+    #   parameters:
+    #     - identifier: diagramName
+    #       name:
+    #         value: Diagram name (do not change)
+    #         i18n: diagramName
+    #       type: string
+    #       required: true
+    #       multiple: false
+    #       defaultValue: None
     # - key: zenuml-openapi-macro
     #   name:
     #     value: OpenAPI / Swagger
@@ -352,7 +352,7 @@ permissions:
       - https://confluence-plugin.pages.dev/api/metrics/evaluation
       - https://confluence-plugin.pages.dev/track
     frames:
-      - https://yanhui8080.zenuml.com/sequence-editor
+      - https://confluence-plugin.pages.dev/drawio/index.html
   content:
     styles:
       - unsafe-inline
@@ -369,6 +369,13 @@ modules:
     - key: zenuml-openapi-macro
       title: ZenUML Forge OpenAPI Diagram
       description: Create and view OpenAPI / Swagger diagrams.
+      resource: main
+      config:
+        resource: main
+        viewportSize: max
+    - key: zenuml-graph-macro
+      title: ZenUML Forge Graph Diagram
+      description: Create and view DrawIO-powered graph diagrams.
       resource: main
       config:
         resource: main

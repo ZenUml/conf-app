@@ -15,6 +15,17 @@ import DrawIoExtension from "@/components/DrawIoExtension/DrawIoExtension.vue";
 import "@/components/DrawIoExtension/graphEditor.css";
 import { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
 
+const EMPTY_GRAPH = `<mxfile>
+  <diagram name="Page-1">
+    <mxGraphModel dx="1434" dy="540" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>`;
+
 export default {
   name: "ForgeGraphEditor",
   components: {
@@ -63,12 +74,12 @@ export default {
 			const payload = (typeof data === 'string') && JSON.parse(data);
 
 			if(payload.event === 'init') {
-				window.graphXml = window.graphXml || EMPTY_GRAPH;
-				loadGraph(window.graphXml);
+				const initialGraphXml = this.graphXml || EMPTY_GRAPH;
+				loadGraph(initialGraphXml);
 			}
 			else if(payload.event === 'save') {
 				window.graphXml = toGraphModel(payload.xml);
-				await window.saveAndExit(window.graphXml);
+				await this.saveGraphAndExit(window.graphXml);
 			}
 			else if(payload.event === 'exit') {
 				if(!payload.modified || !confirm('Diagram modified, close without save?')) {

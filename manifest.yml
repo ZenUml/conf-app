@@ -352,7 +352,13 @@ permissions:
       - https://confluence-plugin.pages.dev/api/metrics/evaluation
       - https://confluence-plugin.pages.dev/track
     frames:
-      - https://confluence-plugin.pages.dev/drawio/index.html
+      - https://confluence-plugin.pages.dev/drawio/index.html    
+    scripts:
+      - https://confluence-plugin.pages.dev/drawio/js/sanitizer/purify.min.js
+      - https://confluence-plugin.pages.dev/drawio/mxgraph/mxClient.js
+      - https://confluence-plugin.pages.dev/drawio/js/grapheditor/Init.js
+      - https://confluence-plugin.pages.dev/drawio/js/grapheditor/Graph.js
+      - https://confluence-plugin.pages.dev/drawio/js/grapheditor/Shapes.js
   content:
     styles:
       - unsafe-inline

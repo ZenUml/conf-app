@@ -1,12 +1,18 @@
 <template>
   <div id="forge-graph-viewer">
-    <div ref="graphContainer" style="width:100%;height:100%;"></div>
+    <generic-viewer>
+      <div ref="graphContainer" style="width:100%;height:100%;"></div>
+    </generic-viewer>
   </div>
 </template>
 
 <script>
+import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 export default {
   name: "ForgeGraphViewer",
+  components: {
+    GenericViewer
+  },
   props: {
     graphXml: String
   },
@@ -25,7 +31,7 @@ export default {
 		}
 
     // Assume mxClient.js and related scripts are globally available
-    if (setGraphStyle && setGraphXml && this.$refs.graphContainer && this.graphXml) {
+    if (this.$refs.graphContainer && this.graphXml) {
       // @ts-ignore
       const graph = new window.Graph(this.$refs.graphContainer);
       graph.resizeContainer = true;

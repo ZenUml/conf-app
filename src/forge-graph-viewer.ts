@@ -1,8 +1,42 @@
-import "https://confluence-plugin.pages.dev/drawio/js/sanitizer/purify.min.js";
-import "https://confluence-plugin.pages.dev/drawio/mxgraph/mxClient.js";
-import "https://confluence-plugin.pages.dev/drawio/js/grapheditor/Init.js";
-import "https://confluence-plugin.pages.dev/drawio/js/grapheditor/Graph.js";
-import "https://confluence-plugin.pages.dev/drawio/js/grapheditor/Shapes.js";
+
+// Load external DrawIO scripts dynamically
+function loadDrawIOScripts(): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const scripts = [
+      'https://confluence-plugin.pages.dev/drawio/js/sanitizer/purify.min.js',
+      'https://confluence-plugin.pages.dev/drawio/mxgraph/mxClient.js',
+      'https://confluence-plugin.pages.dev/drawio/js/grapheditor/Init.js',
+      'https://confluence-plugin.pages.dev/drawio/js/grapheditor/Graph.js',
+      'https://confluence-plugin.pages.dev/drawio/js/grapheditor/Shapes.js'
+    ];
+    
+    let loadedCount = 0;
+    
+    scripts.forEach((src, index) => {
+      const script = document.createElement('script');
+      script.src = src;
+      script.onload = () => {
+        loadedCount++;
+        if (loadedCount === scripts.length) {
+          // Wait for window.Graph to be available
+          const checkGraph = () => {
+            if (window.Graph) {
+              console.log('window.Graph is available:', window.Graph);
+              resolve();
+            } else {
+              console.log('Waiting for window.Graph...');
+              setTimeout(checkGraph, 100);
+            }
+          };
+          checkGraph();
+        }
+      };
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  });
+}
+
 import AP from "@/model/AP";
 import createAttachmentIfContentChanged from "@/model/Attachment";
 import {trackEvent} from "@/utils/window";
@@ -29,27 +63,6 @@ declare global {
   }
 }
 
-function initGraphViewer() {
-  const elementId = 'graph';
-  const element = document.getElementById(elementId);
-  if(element && element.innerHTML.trim()) {
-    element.innerHTML = '';
-  }
-
-  // Initialize DrawIO viewer logic here
-  // This would be similar to how initSwaggerUi() works
-  // @ts-ignore
-  const graph = new Graph(element);
-  graph.resizeContainer = true;
-  graph.setEnabled(false);
-
-  // @ts-ignore
-  setGraphStyle && setGraphStyle('styles/default.xml', graph);
-  
-  // @ts-ignore
-  window.graph = graph;
-}
-
 async function loadDiagram() {
   const context = await initForgeContext();
 
@@ -64,6 +77,10 @@ async function loadDiagram() {
   store.state.diagram = doc || {};
   window.diagram = doc || {};
   console.log('loadDiagram - window.diagram', window.diagram);
+
+  mountRoot(doc, ForgeGraphViewer, {
+    graphXml: doc?.graphXml
+  });
 
   let graphXml = doc?.graphXml;
   if (doc?.compressed) {
@@ -95,19 +112,15 @@ async function loadDiagram() {
 }
 
 async function initializeMacro() {
-  await globals.apWrapper.initializeContext();
-  const macroData = await globals.apWrapper.getMacroData();
-  trackEvent(macroData?.uuid, 'view_macro', 'graph');
-
-  const compositeContentProvider = defaultContentProvider(new ApWrapper2(AP));
-  const {doc} = await compositeContentProvider.load();
-  mountRoot(doc, ForgeGraphViewer);
-  initGraphViewer();
-
-  await loadDiagram();
-
-  await macroMetrics.reportMacroMetrics();
+  try {
+    // Load DrawIO scripts first
+    // await loadDrawIOScripts();
+    await loadDiagram();
+  } catch (e) {
+    console.error('Error loading graph viewer', e);
+  }
 }
+
 
 export default initializeMacro();
 

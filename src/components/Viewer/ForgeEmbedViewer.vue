@@ -7,12 +7,15 @@
       {{ error }}
     </div>
     <div v-else class="embed-container">
-      <iframe 
-        v-if="viewerUrl" 
-        :src="viewerUrl" 
-        style="width:100%;height:100%;border:0;"
-        @load="onIframeLoad"
-      ></iframe>
+      <!-- Dynamic component will be rendered here -->
+      <component 
+        v-if="viewerComponent" 
+        :is="viewerComponent" 
+        :doc="doc"
+        :graphXml="doc?.graphXml"
+        :code="doc?.code"
+        :mermaidCode="doc?.mermaidCode"
+      />
     </div>
   </div>
 </template>
@@ -21,46 +24,56 @@
 export default {
   name: "ForgeEmbedViewer",
   props: {
-    diagramType: String
+    diagramType: String,
+    doc: Object
   },
   data() {
     return {
       loading: true,
       error: null,
-      viewerUrl: null
+      viewerComponent: null
     }
   },
-  mounted() {
-    this.initializeViewer();
+  async mounted() {
+    await this.initializeViewer();
   },
   methods: {
-    getViewerUrl(diagramType) {
-      if(diagramType === 'sequence' || diagramType === 'mermaid') {
-        return '/sequence-viewer.html';
+    async loadViewerComponent(diagramType) {
+      try {
+        if(diagramType === 'sequence' || diagramType === 'mermaid') {
+          // Import sequence viewer components
+          const { default: DiagramPortal } = await import('@/components/DiagramPortal.vue');
+          return DiagramPortal;
+        }
+        if(diagramType === 'graph') {
+          // Import graph viewer component
+          const { default: ForgeGraphViewer } = await import('@/components/Viewer/ForgeGraphViewer.vue');
+          return ForgeGraphViewer;
+        }
+        if(diagramType === 'OpenAPI') {
+          // Import OpenAPI viewer component
+          const { default: OpenApiViewer } = await import('@/components/Viewer/OpenApiViewer.vue');
+          return OpenApiViewer;
+        }
+        return null;
+      } catch (e) {
+        console.error('Failed to load viewer component for type:', diagramType, e);
+        return null;
       }
-      if(diagramType === 'graph') {
-        return '/drawio/viewer.html';
-      }
-      if(diagramType === 'OpenAPI') {
-        return '/swagger-ui.html';
-      }
-      return null;
     },
-    initializeViewer() {
+    async initializeViewer() {
       if (this.diagramType) {
-        const url = this.getViewerUrl(this.diagramType);
-        if (url) {
-          this.viewerUrl = `${url}${window.location.search}`;
+        this.viewerComponent = await this.loadViewerComponent(this.diagramType);
+        if (this.viewerComponent) {
+          this.loading = false;
         } else {
           this.error = `Unknown diagram type: ${this.diagramType}`;
+          this.loading = false;
         }
       } else {
         this.error = 'No diagram type specified';
+        this.loading = false;
       }
-      this.loading = false;
-    },
-    onIframeLoad() {
-      this.loading = false;
     }
   }
 }

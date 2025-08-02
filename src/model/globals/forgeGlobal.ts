@@ -37,4 +37,7 @@ export async function isInserting() {
   return context.extension?.macro?.isInserting;
 }
 
+// @ts-ignore
+window.forgeGlobal = global;
+
 export default global;

@@ -86,10 +86,28 @@
           </div>
           <div id="workspace-right"
             class="flex-grow h-full bg-white border-t">
-            <iframe id='embedded-viewer'
+            <!-- Dynamic preview component for Forge mode -->
+            <component 
+              v-if="previewComponent && picked"
+              :is="previewComponent"
+              :doc="picked"
+              :graphXml="picked?.value?.graphXml"
+              :code="picked?.value?.code"
+              :mermaidCode="picked?.value?.mermaidCode"
+              class="w-full h-full"
+            />
+            <!-- Fallback iframe for Connect mode -->
+            <iframe 
+              v-else-if="previewSrc"
+              id='embedded-viewer'
               :src='previewSrc'
               width='100%'
-              height='100%'></iframe>
+              height='100%'>
+            </iframe>
+            <!-- Loading state -->
+            <div v-else class="flex items-center justify-center h-full text-gray-500">
+              Select a document to preview
+            </div>
           </div>
         </main>
       </div>
@@ -119,7 +137,8 @@ export default {
       picked: '',
       docTypeFilter: '',
       baseUrl: '',
-      filterKeyword: ''
+      filterKeyword: '',
+      previewComponentCache: {} // Cache for loaded components
     };
   },
   computed: {
@@ -173,7 +192,17 @@ export default {
         console.warn(`Unknown diagramType: ${diagramType}`);
       }
       return `${getViewerUrl(this.picked.value.diagramType)}${window.location.search || '?'}&rendered.for=custom-content-native&content.id=${this.picked.id}&embedded=true`;
-
+    },
+    previewComponent() {
+      if (!this.picked || !this.picked.value?.diagramType) return null;
+      
+      // Check if we're in Forge mode
+      if (window.forgeGlobal?.isForge) {
+        // Return cached component if available
+        return this.previewComponentCache[this.picked.value.diagramType] || null;
+      }
+      
+      return null;
     },
     saveAndExit: function () {
       const that = this;
@@ -194,6 +223,17 @@ export default {
 
         EventBus.$emit('exit')
       }
+    }
+  },
+  watch: {
+    picked: {
+      async handler(newPicked) {
+        if (newPicked && newPicked.value?.diagramType && window.forgeGlobal?.isForge) {
+          // Load the preview component when picked item changes
+          await this.getPreviewComponentForForge(newPicked.value.diagramType);
+        }
+      },
+      immediate: true
     }
   },
   async created() {
@@ -223,6 +263,41 @@ export default {
   methods: {
     setFilter(docType) {
       this.docTypeFilter = docType;
+    },
+    async getPreviewComponentForForge(diagramType) {
+      console.log('getPreviewComponentForForge', diagramType);
+      // Return cached component if available
+      if (this.previewComponentCache[diagramType]) {
+        return this.previewComponentCache[diagramType];
+      }
+
+      try {
+        let component = null;
+        
+        if (diagramType === DiagramType.Sequence || diagramType === DiagramType.Mermaid) {
+          // Import sequence viewer components
+          const { default: DiagramPortal } = await import('@/components/DiagramPortal.vue');
+          component = DiagramPortal;
+        } else if (diagramType === DiagramType.Graph) {
+          // Import graph viewer component
+          const { default: ForgeGraphViewer } = await import('@/components/Viewer/ForgeGraphViewer.vue');
+          component = ForgeGraphViewer;
+        } else if (diagramType === DiagramType.OpenApi) {
+          // Import OpenAPI viewer component
+          const { default: OpenApiViewer } = await import('@/components/Viewer/OpenApiViewer.vue');
+          component = OpenApiViewer;
+        }
+
+        // Cache the component for future use
+        if (component) {
+          this.previewComponentCache[diagramType] = component;
+        }
+
+        return component;
+      } catch (e) {
+        console.error('Failed to load preview component for type:', diagramType, e);
+        return null;
+      }
     }
   },
   components: {

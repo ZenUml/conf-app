@@ -20,20 +20,6 @@ declare global {
   }
 }
 
-function getViewerUrl(diagramType: DiagramType) {
-  if(diagramType == DiagramType.Sequence || diagramType == DiagramType.Mermaid) {
-    return '/sequence-viewer.html';
-  }
-  if(diagramType == DiagramType.Graph) {
-    return '/drawio/viewer.html';
-  }
-  if(diagramType == DiagramType.OpenApi) {
-    return '/swagger-ui.html';
-  }
-
-  console.warn(`Unknown diagramType: ${diagramType}`);
-}
-
 async function loadDiagram() {
   const context = await initForgeContext();
 
@@ -50,18 +36,9 @@ async function loadDiagram() {
   console.log('loadDiagram - window.diagram', window.diagram);
 
   mountRoot(doc, ForgeEmbedViewer, {
-    diagramType: doc?.diagramType
+    diagramType: doc?.diagramType,
+    doc: doc
   });
-
-  // Redirect to the appropriate viewer based on diagram type
-  if (doc?.diagramType) {
-    const viewerUrl = getViewerUrl(doc.diagramType);
-    if (viewerUrl) {
-      const url = `${viewerUrl}${window.location.search}`;
-      // Load the viewer in an iframe or redirect
-      loadViewer(url);
-    }
-  }
 
   setTimeout(async function () {
     AP.resize();
@@ -80,13 +57,7 @@ async function loadDiagram() {
   }, 1500);
 }
 
-function loadViewer(url: string) {
-  const e = document.createElement('meta');
-  e.setAttribute('http-equiv', 'refresh');
-  e.setAttribute('content', `0;URL='${url}'`);
-  const h = document.getElementsByTagName('head')[0];
-  h && h.appendChild(e);
-}
+
 
 async function initializeMacro() {
   try {

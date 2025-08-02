@@ -434,6 +434,12 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async searchCustomContent(maxItems: number = SEARCH_CUSTOM_CONTENT_LIMIT): Promise<Array<ICustomContent>> {
+    if (forgeGlobal.isForge) {
+      // Forge mode: use the new API
+      return await this.searchCustomContentForge(250);
+    }
+
+    // Connect mode: use the old API
     const searchUrl = await this.buildSearchCustomConentUrl();
     const searchAll = async (): Promise<Array<ICustomContent>> => {
       let url = searchUrl, data;
@@ -468,9 +474,113 @@ export default class ApWrapper2 implements IApWrapper {
     }
   }
 
+  async searchCustomContentForge(maxItems: number = 250): Promise<Array<ICustomContent>> {
+    try {
+      // Use the new Forge API to search custom content
+      const searchUrl = `/wiki/api/v2/custom-content?limit=${maxItems}&body-format=raw`;
+      const response = await forgeRequest(searchUrl);
+      
+      if (!response || !response.results) {
+        console.warn('No search results from Forge API');
+        return [];
+      }
+
+      // Parse the results similar to how getCustomContentByIdV2 works
+      const results = response.results.map((customContent: any) => {
+        let diagram;
+        try {
+          diagram = JSON.parse(customContent.body.raw.value);
+        } catch (e) {
+          console.warn('Failed to parse custom content body', e);
+          return null;
+        }
+        
+        diagram.source = DataSource.CustomContent;
+        diagram.id = customContent.id;
+        
+        const assign = Object.assign({}, customContent, { value: diagram });
+        return assign as ICustomContent;
+      }).filter((item: ICustomContent) => item && item.value && item.value.diagramType);
+
+      trackEvent(`found ${results.length} content in Forge mode`, 'searchCustomContentForge', 'info');
+      return results;
+    } catch (e) {
+      console.error('searchCustomContentForge', e);
+      trackEvent(JSON.stringify(e), 'searchCustomContentForge', 'error');
+      return [] as Array<ICustomContent>;
+    }
+  }
+
   async searchPagedCustomContent(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
+    if (forgeGlobal.isForge) {
+      // Forge mode: use the new API
+      return await this.searchPagedCustomContentForge(pageSize, keyword, onlyMine, docType, ids);
+    }
+
+    // Connect mode: use the old API
     const searchUrl = await this.buildSearchCustomConentUrl(keyword, onlyMine, docType, ids, pageSize);
     return await this.searchPagedCustomContentByUrl(searchUrl);
+  }
+
+  async searchPagedCustomContentForge(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
+    try {
+      // Build query parameters for Forge API
+      const params = new URLSearchParams();
+      params.append('limit', pageSize.toString());
+      params.append('body-format', 'raw');
+      
+      if (keyword) {
+        params.append('title', keyword);
+      }
+      
+      if (onlyMine && this.currentUser?.atlassianAccountId) {
+        params.append('contributor', this.currentUser.atlassianAccountId);
+      }
+
+      const searchUrl = `/wiki/api/v2/custom-content?${params.toString()}`;
+      const response = await forgeRequest(searchUrl);
+      
+      if (!response || !response.results) {
+        console.warn('No search results from Forge API');
+        return {
+          size: 0,
+          results: []
+        };
+      }
+
+      // Parse the results similar to how getCustomContentByIdV2 works
+      const results = response.results.map((customContent: any) => {
+        let diagram;
+        try {
+          diagram = JSON.parse(customContent.body.raw.value);
+        } catch (e) {
+          console.warn('Failed to parse custom content body', e);
+          return null;
+        }
+        
+        diagram.source = DataSource.CustomContent;
+        diagram.id = customContent.id;
+        
+        const assign = Object.assign({}, customContent, { value: diagram });
+        return assign as ICustomContent;
+      }).filter((item: ICustomContent) => item && item.value && item.value.diagramType);
+
+      const searchResults: SearchResults = {
+        size: results.length,
+        results: results,
+        _links: response._links
+      };
+
+      trackEvent(`found ${results.length} content in Forge mode`, 'searchPagedCustomContentForge', 'info');
+      return searchResults;
+    } catch (e) {
+      console.error('searchPagedCustomContentForge', e);
+      trackEvent(JSON.stringify(e), 'searchPagedCustomContentForge', 'error');
+      return {
+        size: 0,
+        results: []
+      };
+    }
   }
 
   async searchPagedCustomContentByUrl(searchUrl: string): Promise<SearchResults> {

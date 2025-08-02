@@ -37,6 +37,11 @@ export async function isInserting() {
   return context.extension?.macro?.isInserting;
 }
 
+export async function isConfiguring() {
+  const context = await getContext();
+  return context.extension?.macro?.isConfiguring;
+}
+
 // @ts-ignore
 window.forgeGlobal = global;
 

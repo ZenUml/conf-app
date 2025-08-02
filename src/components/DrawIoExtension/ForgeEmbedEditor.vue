@@ -19,7 +19,8 @@ export default {
   },
   mounted() {
     // Set up event listeners for the DocumentList component
-    this.$root.$on('save', async (selectedContent) => {
+    this.$root.$on('save-embed', async (selectedContent) => {
+      console.log('embed editor - save', selectedContent);
       if (this.saveEmbedAndExit && selectedContent?.id) {
         await this.saveEmbedAndExit(selectedContent.id);
       }

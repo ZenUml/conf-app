@@ -1,5 +1,5 @@
 import globals from "@/model/globals";
-import { getView, getContext as initForgeContext, isInserting } from './model/globals/forgeGlobal';
+import { getView, getContext as initForgeContext, isConfiguring, isInserting } from './model/globals/forgeGlobal';
 import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from "@/utils/window";
@@ -8,6 +8,7 @@ import ForgeEmbedEditor from "@/components/DrawIoExtension/ForgeEmbedEditor.vue"
 import { DiagramType, DataSource } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
 import uuidv4 from "@/utils/uuid";
+import EventBus from "./EventBus";
 
 // Type declarations for global window properties
 declare global {
@@ -80,5 +81,19 @@ async function initializeMacro() {
     trackEvent("", "create_macro_begin", "embed");
   }
 }
+
+
+EventBus.$on('save-embed', async (customContent: any) => {
+  console.log('forge-embed-editor - save', customContent);
+  // Give some time for track event to be sent out. We are not using a more reliable way to track event because
+  // we don't want to block dialog close for too long.
+  setTimeout(async () => {
+    if(await isConfiguring() || await isInserting()) {
+      await (await getView()).submit({config: {customContentId: customContent.id, updatedAt: new Date().toISOString()}});
+    } else {
+      await (await getView()).close();
+    }
+  }, 500);
+});
 
 export default initializeMacro(); 

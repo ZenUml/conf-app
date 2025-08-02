@@ -208,7 +208,7 @@ export default {
       const that = this;
       return function () {
         window.picked = that.picked;
-        EventBus.$emit('save')
+        EventBus.$emit(window.forgeGlobal?.isForge ? 'save-embed' : 'save', that.picked);
       }
     },
     exit: function () {

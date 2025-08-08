@@ -347,9 +347,9 @@ export default {
           const { default: ForgeGraphViewer } = await import('@/components/Viewer/ForgeGraphViewer.vue');
           component = ForgeGraphViewer;
         } else if (diagramType === DiagramType.OpenApi) {
-          // Import OpenAPI viewer component
-          const { default: OpenApiViewer } = await import('@/components/Viewer/OpenApiViewer.vue');
-          component = OpenApiViewer;
+          // Import Forge-specific OpenAPI viewer component
+          const { default: ForgeOpenApiViewer } = await import('@/components/Viewer/ForgeOpenApiViewer.vue');
+          component = ForgeOpenApiViewer;
         }
 
         // Cache the component for future use

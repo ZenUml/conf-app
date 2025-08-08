@@ -51,9 +51,9 @@ export default {
           return ForgeGraphViewer;
         }
         if(diagramType === 'OpenAPI') {
-          // Import OpenAPI viewer component
-          const { default: OpenApiViewer } = await import('@/components/Viewer/OpenApiViewer.vue');
-          return OpenApiViewer;
+          // Import Forge-specific OpenAPI viewer component
+          const { default: ForgeOpenApiViewer } = await import('@/components/Viewer/ForgeOpenApiViewer.vue');
+          return ForgeOpenApiViewer;
         }
         return null;
       } catch (e) {

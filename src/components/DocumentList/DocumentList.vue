@@ -70,7 +70,7 @@
                   </a>
                 </div>
 
-                <a @click="picked = customContentItem"
+                <a @click="selectDocument(customContentItem)"
                   href="#"
                   v-for="customContentItem in containerPage.customContents"
                   :key="customContentItem.id"
@@ -228,6 +228,7 @@ export default {
   watch: {
     picked: {
       async handler(newPicked) {
+        console.log('DocumentList - picked', newPicked);
         if (newPicked && newPicked.value?.diagramType && window.forgeGlobal?.isForge) {
           // Load the preview component when picked item changes
           await this.getPreviewComponentForForge(newPicked.value.diagramType);
@@ -245,6 +246,11 @@ export default {
     this.customContentList = await customContentStorageProvider.getCustomContentList();
     this.picked = this.customContentList.filter(customContentItem => customContentItem?.id === customContentId)[0];
     console.debug(`picked custom content:`, this.picked);
+    
+    // Update store state with initial selection for Forge mode
+    if (this.picked && window.forgeGlobal?.isForge && this.$store) {
+      this.selectDocument(this.picked);
+    }
 
     try {
       const atlasPage = new AtlasPage(AP);
@@ -263,6 +269,34 @@ export default {
   methods: {
     setFilter(docType) {
       this.docTypeFilter = docType;
+    },
+    selectDocument(customContentItem) {
+      // Update the picked document
+      this.picked = customContentItem;
+      
+      // Update the store state for Forge mode
+      if (window.forgeGlobal?.isForge && this.$store) {
+        // Convert the custom content item to diagram format and update store
+        const diagram = {
+          id: customContentItem.id,
+          title: customContentItem.title,
+          diagramType: customContentItem.value.diagramType,
+          code: customContentItem.value.code,
+          mermaidCode: customContentItem.value.mermaidCode,
+          graphXml: customContentItem.value.graphXml,
+          isNew: false,
+          // Add any other properties that might be needed
+          ...customContentItem.value
+        };
+        
+        // Update the store state
+        this.$store.state.diagram = diagram;
+        
+        // Also update window.diagram for compatibility
+        window.diagram = diagram;
+        
+        console.log('DocumentList: Updated store with selected document', diagram);
+      }
     },
     async getPreviewComponentForForge(diagramType) {
       console.log('getPreviewComponentForForge', diagramType);

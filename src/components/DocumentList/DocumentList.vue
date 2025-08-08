@@ -127,6 +127,7 @@ import { CustomContentStorageProvider } from "@/model/ContentProvider/CustomCont
 import ApWrapper2 from "@/model/ApWrapper2";
 import _ from 'lodash';
 import { trackEvent } from "@/utils/window";
+import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 
 export default {
   name: 'DocumentList', // for embed-editor
@@ -238,18 +239,12 @@ export default {
     }
   },
   async created() {
-    const apWrapper = new ApWrapper2(AP);
-    const idProvider = new MacroIdProvider(apWrapper);
-    const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
-    const customContentId = await idProvider.getId();
-    console.debug(`picked custom content id: ${customContentId}`);
-    this.customContentList = await customContentStorageProvider.getCustomContentList();
-    this.picked = this.customContentList.filter(customContentItem => customContentItem?.id === customContentId)[0];
-    console.debug(`picked custom content:`, this.picked);
-    
-    // Update store state with initial selection for Forge mode
-    if (this.picked && window.forgeGlobal?.isForge && this.$store) {
-      this.selectDocument(this.picked);
+    if (window.forgeGlobal?.isForge) {
+      // Forge mode: Use Forge context and API
+      await this.initializeForForge();
+    } else {
+      // Connect mode: Use Connect providers
+      await this.initializeForConnect();
     }
 
     try {
@@ -267,6 +262,41 @@ export default {
     }
   },
   methods: {
+    async initializeForForge() {
+      // Forge mode: Get custom content ID from context and load content
+      const context = await initForgeContext();
+      const customContentId = context.extension?.config?.customContentId;
+      
+      console.debug(`Forge mode - custom content id: ${customContentId}`);
+      
+      if (customContentId) {
+        // Load the specific custom content
+        const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
+        console.debug(`Forge mode - loaded custom content:`, customContent);
+        
+        if (customContent) {
+          this.picked = customContent;
+          this.selectDocument(customContent);
+        }
+      }
+      
+      // Load all custom content for the list
+      this.customContentList = await globals.apWrapper.searchCustomContentForge();
+      console.debug(`Forge mode - loaded custom content list:`, this.customContentList);
+    },
+    
+    async initializeForConnect() {
+      // Connect mode: Use Connect providers
+      const apWrapper = new ApWrapper2(AP);
+      const idProvider = new MacroIdProvider(apWrapper);
+      const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
+      const customContentId = await idProvider.getId();
+      console.debug(`Connect mode - picked custom content id: ${customContentId}`);
+      this.customContentList = await customContentStorageProvider.getCustomContentList();
+      this.picked = this.customContentList.filter(customContentItem => customContentItem?.id === customContentId)[0];
+      console.debug(`Connect mode - picked custom content:`, this.picked);
+    },
+    
     setFilter(docType) {
       this.docTypeFilter = docType;
     },

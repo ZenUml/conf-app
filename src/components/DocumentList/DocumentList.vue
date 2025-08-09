@@ -27,10 +27,10 @@
           </nav>
         </div>
         <div class="w-80 flex-shrink-0 px-4 py-3 bg-white">
-          <button class="flex items-center float-right h-8 text-white text-sm font-medium">
+          <div class="flex items-center justify-end space-x-2">
             <publish-button :save-and-exit="saveAndExit" />
             <close-button :exit="exit" />
-          </button>
+          </div>
         </div>
 
       </header>

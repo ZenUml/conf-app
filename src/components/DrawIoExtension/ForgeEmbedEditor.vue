@@ -29,18 +29,10 @@ export default {
     this.$root.$on('exit', async (showWarning) => {
       if (this.exit) {
         if (showWarning) {
-          // Show warning dialog
-          // @ts-ignore
-          AP.dialog.create({
-            key: 'zenuml-close-without-saving-dialog',
-            width: 500,
-            height: 300,
-            chrome: false,
-          }).on('close', (data) => {
-            if (data.action === 'discard') {
-              this.exit();
-            }
-          });
+          // Show warning dialog - in Forge mode, we'll just call exit directly
+          // since AP.dialog is not available
+          console.warn('Warning: User is trying to exit without saving');
+          await this.exit();
         } else {
           await this.exit();
         }

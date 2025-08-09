@@ -1,15 +1,12 @@
 import SwaggerUIBundle from 'swagger-ui'
 import "swagger-ui/dist/swagger-ui.css";
 import SpecListener from './utils/spec-listener'
-import AP from "@/model/AP";
 import './assets/tailwind.css'
 
 import OpenApiExample from '@/model/OpenApi/OpenApiExample'
 import createAttachmentIfContentChanged from "@/model/Attachment";
 import {trackEvent} from "@/utils/window";
 import globals from '@/model/globals';
-import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
-import ApWrapper2 from "@/model/ApWrapper2";
 import OpenApiViewer from "@/components/Viewer/OpenApiViewer.vue";
 import EventBus from './EventBus'
 import {mountRoot} from "@/mount-root";
@@ -68,7 +65,6 @@ async function loadDiagram() {
   window.updateSpec(doc?.code || OpenApiExample);
 
   setTimeout(async function () {
-    AP.resize();
     try {
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
         await createAttachmentIfContentChanged(doc?.code);
@@ -89,8 +85,8 @@ async function initializeMacro() {
   const macroData = await globals.apWrapper.getMacroData();
   trackEvent(macroData?.uuid, 'view_macro', 'openapi');
 
-  const compositeContentProvider = defaultContentProvider(new ApWrapper2(AP));
-  const {doc} = await compositeContentProvider.load();
+  // Initialize with empty doc, will be loaded in loadDiagram
+  const doc = {};
   mountRoot(doc, OpenApiViewer);
   initSwaggerUi();
 
@@ -115,13 +111,16 @@ EventBus.$on('edit', async () => {
   });
 });
 
-EventBus.$on('fullscreen', () => {
-  // @ts-ignore
-  AP.dialog.create(
-    {
-      key: 'zenuml-content-openapi-viewer-dialog',
-      chrome: true,
-      width: "100%",
-      height: "100%",
-    });
+EventBus.$on('fullscreen', async () => {
+  await openModal({
+    resource: 'main',
+    onClose: (payload: any) => {
+      console.log('onClose called with', payload);
+      location.reload();
+    },
+    size: 'max',
+    context: {
+      macroMode: 'viewer',
+    },
+  });
 });

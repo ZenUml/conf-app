@@ -1,17 +1,12 @@
-import AP from "@/model/AP";
 import createAttachmentIfContentChanged from "@/model/Attachment";
 import {trackEvent} from "@/utils/window";
 import globals from '@/model/globals';
-import {decompress} from '@/utils/compress';
-import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
-import ApWrapper2 from "@/model/ApWrapper2";
 import ForgeEmbedViewer from "@/components/Viewer/ForgeEmbedViewer.vue";
 import EventBus from './EventBus'
 import {mountRoot} from "@/mount-root";
 import macroMetrics from '@/services/MacroMetrics';
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import store from "@/model/store2";
-import { DiagramType } from "@/model/Diagram/Diagram";
 
 // Type declarations for global window properties
 declare global {
@@ -41,7 +36,6 @@ async function loadDiagram() {
   });
 
   setTimeout(async function () {
-    AP.resize();
     try {
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
         await createAttachmentIfContentChanged(doc?.code || doc?.graphXml || doc?.mermaidCode);
@@ -65,9 +59,8 @@ async function initializeMacro() {
     const macroData = await globals.apWrapper.getMacroData();
     trackEvent(macroData?.uuid, 'view_macro', 'embed');
 
-    const compositeContentProvider = defaultContentProvider(new ApWrapper2(AP));
-    const {doc} = await compositeContentProvider.load();
-    
+    // Initialize with empty doc, will be loaded in loadDiagram
+    const doc = {};
     mountRoot(doc, ForgeEmbedViewer);
     await loadDiagram();
     await macroMetrics.reportMacroMetrics();
@@ -92,13 +85,16 @@ EventBus.$on('edit', async () => {
   });
 });
 
-EventBus.$on('fullscreen', () => {
-  // @ts-ignore
-  AP.dialog.create(
-    {
-      key: 'zenuml-content-embed-viewer-dialog',
-      chrome: true,
-      width: "100%",
-      height: "100%",
-    });
+EventBus.$on('fullscreen', async () => {
+  await openModal({
+    resource: 'main',
+    onClose: (payload: any) => {
+      console.log('onClose called with', payload);
+      location.reload();
+    },
+    size: 'max',
+    context: {
+      macroMode: 'viewer',
+    },
+  });
 }); 

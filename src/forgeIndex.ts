@@ -1,6 +1,5 @@
 import globals from '@/model/globals';
 import { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting } from '@/model/globals/forgeGlobal';
-import AP from "@/model/AP";
 import EventBus from './EventBus'
 import {trackEvent} from "@/utils/window";
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
@@ -221,14 +220,17 @@ EventBus.$on('exit', async () => {
   (await getView()).close();
 });
 
-EventBus.$on('fullscreen', () => {
-  AP.dialog.create({
-    key: 'zenuml-content-sequence-viewer-dialog',
-    chrome: true,
-    width: "100%",
-    height: "100%",
-  }).on('close', async () => {
-    location.reload();
+EventBus.$on('fullscreen', async () => {
+  await openModal({
+    resource: 'main',
+    onClose: (payload: any) => {
+      console.log('onClose called with', payload);
+      location.reload();
+    },
+    size: 'max',
+    context: {
+      macroMode: 'viewer',
+    },
   });
 });
 
@@ -236,6 +238,6 @@ EventBus.$on('updateContent', async (diagram: Diagram) => {
   if (await globals.apWrapper.canUserEdit()) {
     saveToPlatform(diagram)
   } else {
-    AP.messages.info('Your changes cannot be persistent as you are not authorized to edit.');
+    console.info('Your changes cannot be persistent as you are not authorized to edit.');
   }
 });

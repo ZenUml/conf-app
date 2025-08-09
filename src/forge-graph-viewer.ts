@@ -37,7 +37,6 @@ function loadDrawIOScripts(): Promise<void> {
   });
 }
 
-import AP from "@/model/AP";
 import createAttachmentIfContentChanged from "@/model/Attachment";
 import {trackEvent} from "@/utils/window";
 import globals from '@/model/globals';
@@ -95,7 +94,6 @@ async function loadDiagram() {
   window.updateGraph && window.updateGraph(graphXml || GraphExample.graphXml);
 
   setTimeout(async function () {
-    AP.resize();
     try {
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
         await createAttachmentIfContentChanged(graphXml);
@@ -138,13 +136,16 @@ EventBus.$on('edit', async () => {
   });
 });
 
-EventBus.$on('fullscreen', () => {
-  // @ts-ignore
-  AP.dialog.create(
-    {
-      key: 'zenuml-content-graph-viewer-dialog',
-      chrome: true,
-      width: "100%",
-      height: "100%",
-    });
+EventBus.$on('fullscreen', async () => {
+  await openModal({
+    resource: 'main',
+    onClose: (payload: any) => {
+      console.log('onClose called with', payload);
+      location.reload();
+    },
+    size: 'max',
+    context: {
+      macroMode: 'viewer',
+    },
+  });
 }); 

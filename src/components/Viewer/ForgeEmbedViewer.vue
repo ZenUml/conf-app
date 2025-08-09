@@ -46,9 +46,9 @@ export default {
           return DiagramPortal;
         }
         if(diagramType === 'graph') {
-          // Import graph viewer component
-          const { default: ForgeGraphViewer } = await import('@/components/Viewer/ForgeGraphViewer.vue');
-          return ForgeGraphViewer;
+          // Import Forge-specific graph viewer component for embed
+          const { default: ForgeGraphViewerEmbed } = await import('@/components/Viewer/ForgeGraphViewerEmbed.vue');
+          return ForgeGraphViewerEmbed;
         }
         if(diagramType === 'OpenAPI') {
           // Import Forge-specific OpenAPI viewer component

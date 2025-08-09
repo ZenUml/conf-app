@@ -343,9 +343,9 @@ export default {
           const { default: DiagramPortal } = await import('@/components/DiagramPortal.vue');
           component = DiagramPortal;
         } else if (diagramType === DiagramType.Graph) {
-          // Import graph viewer component
-          const { default: ForgeGraphViewer } = await import('@/components/Viewer/ForgeGraphViewer.vue');
-          component = ForgeGraphViewer;
+          // Import Forge-specific graph viewer component for embed
+          const { default: ForgeGraphViewerEmbed } = await import('@/components/Viewer/ForgeGraphViewerEmbed.vue');
+          component = ForgeGraphViewerEmbed;
         } else if (diagramType === DiagramType.OpenApi) {
           // Import Forge-specific OpenAPI viewer component
           const { default: ForgeOpenApiViewer } = await import('@/components/Viewer/ForgeOpenApiViewer.vue');

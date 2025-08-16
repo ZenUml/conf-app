@@ -1,6 +1,5 @@
 import globals from '@/model/globals';
-import forgeGlobal from '@/model/globals/forgeGlobal';
-import AP from "@/model/AP";
+import { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
 import {trackEvent} from "@/utils/window";
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
@@ -11,11 +10,6 @@ import macroMetrics from "@/services/MacroMetrics";
 import store from './model/store2'
 
 import Example from "./utils/sequence/Example";
-
-async function getView() {
-  const { view } = await import("@forge/bridge");
-  return view;
-}
 
 // Initialize critical path rendering first
 async function initializeCriticalPath() {
@@ -28,11 +22,7 @@ async function initializeCriticalPath() {
   };
 
   try {
-    const context = await (await getView()).getContext();
-    forgeGlobal.isForge = !!context;
-    forgeGlobal.forgeContext = context;
-
-    console.log('forgeIndex - context', context);
+    await initForgeContext();
 
     // Initialize context and get macro data (lightweight operations)
     await globals.apWrapper.initializeContext();
@@ -60,7 +50,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       import("@/mount-root")
     ]);
 
-    const context = await (await getView()).getContext();
+    const context = await initForgeContext();
 
     let doc;
     const customContentId = context.extension?.config?.customContentId;
@@ -82,11 +72,25 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       skeletonLoader.style.display = 'none';
     }
 
-    const editable = context.extension.modal?.macroMode === 'editor' || context.extension?.macro?.isConfiguring;
-    const component = editable ? (await import("@/components/Workspace.vue")).default : (await import("@/components/DiagramPortal.vue")).default;
-    
-    //@ts-ignore
-    mountRoot(doc, component, { autoResize: !editable });
+    const isSequence = context.moduleKey === 'zenuml-sequence-macro';
+    const isGraph = context.moduleKey === 'zenuml-graph-macro';
+    const isEmbed = context.moduleKey === 'zenuml-embed-macro';
+
+    const editable = await isEditorMode();
+    if(isSequence) {
+      const component = editable 
+      ? (await import("@/components/Workspace.vue")).default
+      : (await import("@/components/DiagramPortal.vue")).default;
+      
+      //@ts-ignore
+      mountRoot(doc, component, { autoResize: !editable });
+    } else if(isGraph) {
+      await import(editable ? "@/forge-graph-editor" : "@/forge-graph-viewer");
+    } else if(isEmbed) {
+      await import(editable ? "@/forge-embed-editor" : "@/forge-embed-viewer");
+    } else {
+      await import(editable ? "@/forge-swagger-editor" : "@/forge-swagger-ui");
+    }
 
   } catch (error) {
     console.error('Error loading heavy components:', error);
@@ -176,10 +180,9 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
 });
 
 EventBus.$on('edit', async() => {
-  const { Modal } = await import("@forge/bridge");
-  const modal = new Modal({
+  await openModal({
     resource: 'main',
-    onClose: (payload) => {
+    onClose: (payload: any) => {
       console.log('onClose called with', payload);
       location.reload();
     },
@@ -188,8 +191,6 @@ EventBus.$on('edit', async() => {
       macroMode: 'editor',
     },
   });
-
-  modal.open();
 });
 
 
@@ -207,7 +208,7 @@ EventBus.$on('save', async () => {
   // Give some time for track event to be sent out. We are not using a more reliable way to track event because
   // we don't want to block dialog close for too long.
   setTimeout(async () => {
-    if(forgeGlobal.forgeContext?.extension?.macro?.isInserting) {
+    if(await isInserting()) {
       await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
     } else {
       await (await getView()).close();
@@ -219,14 +220,17 @@ EventBus.$on('exit', async () => {
   (await getView()).close();
 });
 
-EventBus.$on('fullscreen', () => {
-  AP.dialog.create({
-    key: 'zenuml-content-sequence-viewer-dialog',
-    chrome: true,
-    width: "100%",
-    height: "100%",
-  }).on('close', async () => {
-    location.reload();
+EventBus.$on('fullscreen', async () => {
+  await openModal({
+    resource: 'main',
+    onClose: (payload: any) => {
+      console.log('onClose called with', payload);
+      location.reload();
+    },
+    size: 'max',
+    context: {
+      macroMode: 'viewer',
+    },
   });
 });
 
@@ -234,6 +238,6 @@ EventBus.$on('updateContent', async (diagram: Diagram) => {
   if (await globals.apWrapper.canUserEdit()) {
     saveToPlatform(diagram)
   } else {
-    AP.messages.info('Your changes cannot be persistent as you are not authorized to edit.');
+    console.info('Your changes cannot be persistent as you are not authorized to edit.');
   }
 });

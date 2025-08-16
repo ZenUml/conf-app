@@ -21,7 +21,7 @@ connectModules:
     - key: lifecycle-events
       installed: /installed?version=2025.04
       uninstalled: /uninstalled?version=2025.04
-  confluence:dynamicContentMacros:
+  # confluence:dynamicContentMacros:
     # - key: zenuml-sequence-macro
     #   name:
     #     value: Diagram (ZenUML & Mermaid)
@@ -59,131 +59,131 @@ connectModules:
     #       required: true
     #       multiple: false
     #       defaultValue: None
-    - key: zenuml-graph-macro
-      name:
-        value: Graph (DrawIO)
-      renderModes:
-        default:
-          url: >-
-            /attachment?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-      url: >-
-        /drawio/viewer.html?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&outputType={output.type}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-      description:
-        value: Create a Graph powered by DrawIO. Developed by the ZenUML team.
-      outputType: block
-      bodyType: none
-      editor:
-        url: >-
-          /drawio/editor.html?version=2025.04&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-        editTitle:
-          value: Edit ZenUML Graph
-        insertTitle:
-          value: Create ZenUML Graph
-        width: 100%
-        height: 100%
-        cacheable: true
-      icon:
-        width: 16
-        height: 16
-        url: image/graph_macro_icon.png
-      documentation:
-        url: https://zenuml.atlassian.net/wiki/spaces/Doc/overview
-      categories:
-        - visuals
-      featured: true
-      parameters:
-        - identifier: diagramName
-          name:
-            value: Diagram name (do not change)
-            i18n: diagramName
-          type: string
-          required: true
-          multiple: false
-          defaultValue: None
-    - key: zenuml-openapi-macro
-      name:
-        value: OpenAPI / Swagger
-      renderModes:
-        default:
-          url: >-
-            /attachment?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-      url: >-
-        /swagger-ui.html?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&outputType={output.type}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-      description:
-        value: Create an OpenAPI / Swagger Spec. Developed by the ZenUML team.
-      outputType: block
-      bodyType: none
-      editor:
-        url: >-
-          /swagger-editor.html?version=2025.04&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-        editTitle:
-          value: Edit ZenUML OpenAPI
-        insertTitle:
-          value: Create ZenUML OpenAPI
-        width: 100%
-        height: 100%
-        cacheable: true
-      icon:
-        width: 16
-        height: 16
-        url: image/openapi_macro_icon.png
-      documentation:
-        url: https://zenuml.atlassian.net/wiki/spaces/Doc/overview
-      categories:
-        - visuals
-      featured: true
-      parameters:
-        - identifier: diagramName
-          name:
-            value: Diagram name (do not change)
-            i18n: diagramName
-          type: string
-          required: true
-          multiple: false
-          defaultValue: None
-    - key: zenuml-embed-macro
-      name:
-        value: Embed a Diagram, Graph or API Spec
-      renderModes:
-        default:
-          url: >-
-            /attachment?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&addonKey=com.zenuml.confluence-addon
-      url: >-
-        /embed-viewer.html?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&outputType={output.type}&addonKey=com.zenuml.confluence-addon
-      description:
-        value: >-
-          Embed an existing Diagram, Graph or API Spec. Developed by the ZenUML
-          team.
-      outputType: block
-      bodyType: none
-      editor:
-        url: >-
-          /embed-editor.html?version=2025.04&addonKey=com.zenuml.confluence-addon
-        editTitle:
-          value: Edit Embedded ZenUML Diagram
-        insertTitle:
-          value: Embed ZenUML Diagram
-        width: 100%
-        height: 100%
-        cacheable: true
-      icon:
-        width: 16
-        height: 16
-        url: image/diagram_macro_icon.png
-      documentation:
-        url: https://zenuml.atlassian.net/wiki/spaces/Doc/overview
-      categories:
-        - visuals
-      featured: true
-      parameters:
-        - identifier: diagramName
-          name:
-            value: Diagram name (do not change)
-            i18n: diagramName
-          type: string
-          required: true
-          multiple: false
-          defaultValue: None
+    # - key: zenuml-graph-macro
+    #   name:
+    #     value: Graph (DrawIO)
+    #   renderModes:
+    #     default:
+    #       url: >-
+    #         /attachment?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+    #   url: >-
+    #     /drawio/viewer.html?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&outputType={output.type}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+    #   description:
+    #     value: Create a Graph powered by DrawIO. Developed by the ZenUML team.
+    #   outputType: block
+    #   bodyType: none
+    #   editor:
+    #     url: >-
+    #       /drawio/editor.html?version=2025.04&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+    #     editTitle:
+    #       value: Edit ZenUML Graph
+    #     insertTitle:
+    #       value: Create ZenUML Graph
+    #     width: 100%
+    #     height: 100%
+    #     cacheable: true
+    #   icon:
+    #     width: 16
+    #     height: 16
+    #     url: image/graph_macro_icon.png
+    #   documentation:
+    #     url: https://zenuml.atlassian.net/wiki/spaces/Doc/overview
+    #   categories:
+    #     - visuals
+    #   featured: true
+    #   parameters:
+    #     - identifier: diagramName
+    #       name:
+    #         value: Diagram name (do not change)
+    #         i18n: diagramName
+    #       type: string
+    #       required: true
+    #       multiple: false
+    #       defaultValue: None
+    # - key: zenuml-openapi-macro
+    #   name:
+    #     value: OpenAPI / Swagger
+    #   renderModes:
+    #     default:
+    #       url: >-
+    #         /attachment?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+    #   url: >-
+    #     /swagger-ui.html?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&outputType={output.type}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+    #   description:
+    #     value: Create an OpenAPI / Swagger Spec. Developed by the ZenUML team.
+    #   outputType: block
+    #   bodyType: none
+    #   editor:
+    #     url: >-
+    #       /swagger-editor.html?version=2025.04&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+    #     editTitle:
+    #       value: Edit ZenUML OpenAPI
+    #     insertTitle:
+    #       value: Create ZenUML OpenAPI
+    #     width: 100%
+    #     height: 100%
+    #     cacheable: true
+    #   icon:
+    #     width: 16
+    #     height: 16
+    #     url: image/openapi_macro_icon.png
+    #   documentation:
+    #     url: https://zenuml.atlassian.net/wiki/spaces/Doc/overview
+    #   categories:
+    #     - visuals
+    #   featured: true
+    #   parameters:
+    #     - identifier: diagramName
+    #       name:
+    #         value: Diagram name (do not change)
+    #         i18n: diagramName
+    #       type: string
+    #       required: true
+    #       multiple: false
+    #       defaultValue: None
+    # - key: zenuml-embed-macro
+    #   name:
+    #     value: Embed a Diagram, Graph or API Spec
+    #   renderModes:
+    #     default:
+    #       url: >-
+    #         /attachment?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&addonKey=com.zenuml.confluence-addon
+    #   url: >-
+    #     /embed-viewer.html?version=2025.04&spaceKey={space.key}&pageId={page.id}&pageVersion={page.version}&macroId={macro.id}&uuid={uuid}&outputType={output.type}&addonKey=com.zenuml.confluence-addon
+    #   description:
+    #     value: >-
+    #       Embed an existing Diagram, Graph or API Spec. Developed by the ZenUML
+    #       team.
+    #   outputType: block
+    #   bodyType: none
+    #   editor:
+    #     url: >-
+    #       /embed-editor.html?version=2025.04&addonKey=com.zenuml.confluence-addon
+    #     editTitle:
+    #       value: Edit Embedded ZenUML Diagram
+    #     insertTitle:
+    #       value: Embed ZenUML Diagram
+    #     width: 100%
+    #     height: 100%
+    #     cacheable: true
+    #   icon:
+    #     width: 16
+    #     height: 16
+    #     url: image/diagram_macro_icon.png
+    #   documentation:
+    #     url: https://zenuml.atlassian.net/wiki/spaces/Doc/overview
+    #   categories:
+    #     - visuals
+    #   featured: true
+    #   parameters:
+    #     - identifier: diagramName
+    #       name:
+    #         value: Diagram name (do not change)
+    #         i18n: diagramName
+    #       type: string
+    #       required: true
+    #       multiple: false
+    #       defaultValue: None
   confluence:customContent:
     - uiSupport:
         contentViewComponent:
@@ -233,96 +233,96 @@ connectModules:
         value: ZenUML Graph
       key: zenuml-content-graph
   confluence:generalPages:
-    - key: zenuml-page-to-diagram-survey
-      location: none
-      url: >-
-        /page-to-diagram-survey.html?version=2025.04&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-      name:
-        value: Page to Diagram Survey
-    - key: zenuml-content-sequence-viewer-dialog
-      location: none
-      url: >-
-        /sequence-viewer-dialog.html?version=2025.04&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence
-      name:
-        value: ZenUML Sequence Viewer Dialog
+  #   - key: zenuml-page-to-diagram-survey
+  #     location: none
+  #     url: >-
+  #       /page-to-diagram-survey.html?version=2025.04&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+  #     name:
+  #       value: Page to Diagram Survey
+  #   - key: zenuml-content-sequence-viewer-dialog
+  #     location: none
+  #     url: >-
+  #       /sequence-viewer-dialog.html?version=2025.04&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence
+  #     name:
+  #       value: ZenUML Sequence Viewer Dialog
     - key: zenuml-content-sequence-viewer
       location: none
       url: >-
         /sequence-viewer.html?version=2025.04&rendered.for=custom-content-native&spaceKey={space.key}&content.id={content.id}&content.version={content.version}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence
       name:
         value: ZenUML Sequence Viewer
-    - key: zenuml-content-sequence-editor-dialog
-      location: none
-      url: >-
-        /sequence-editor-dialog.html?version=2025.04&spaceKey={space.key}&content.id={content.id}&content.version={content.version}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence
-      name:
-        value: ZenUML Sequence Editor
-    - key: zenuml-content-dashboard-sequence-editor-dialog
-      location: none
-      url: >-
-        /sequence-editor-dialog.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence&rendered.for=custom-content-native&contentId={contentId}
-      name:
-        value: ZenUML Dashboard Sequence Editor Dialog
+  #   - key: zenuml-content-sequence-editor-dialog
+  #     location: none
+  #     url: >-
+  #       /sequence-editor-dialog.html?version=2025.04&spaceKey={space.key}&content.id={content.id}&content.version={content.version}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence
+  #     name:
+  #       value: ZenUML Sequence Editor
+  #   - key: zenuml-content-dashboard-sequence-editor-dialog
+  #     location: none
+  #     url: >-
+  #       /sequence-editor-dialog.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence&rendered.for=custom-content-native&contentId={contentId}
+  #     name:
+  #       value: ZenUML Dashboard Sequence Editor Dialog
     - key: zenuml-content-graph-viewer
       location: none
       url: >-
         /drawio/viewer.html?version=2025.04&rendered.for=custom-content-native&spaceKey={space.key}&content.id={content.id}&content.version={content.version}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
       name:
         value: ZenUML Graph Viewer
-    - key: zenuml-content-graph-viewer-dialog
-      location: none
-      url: >-
-        /drawio/viewer.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-      name:
-        value: ZenUML Graph Viewer Dialog
-    - key: zenuml-content-graph-editor-dialog
-      location: none
-      url: >-
-        /drawio/editor.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-      name:
-        value: ZenUML Graph Editor Dialog
-    - key: zenuml-content-dashboard-graph-editor-dialog
-      location: none
-      url: >-
-        /drawio/editor.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph&rendered.for=custom-content-native&contentId={contentId}
-      name:
-        value: ZenUML Dashboard Graph Editor Dialog
-    - key: zenuml-content-openapi-viewer-dialog
-      location: none
-      url: >-
-        /swagger-ui.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-      name:
-        value: ZenUML OpenAPI Viewer Dialog
-    - key: zenuml-content-openapi-editor-dialog
-      location: none
-      url: >-
-        /swagger-editor.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-      name:
-        value: ZenUML OpenAPI Editor Dialog
-    - key: zenuml-content-dashboard-openapi-editor-dialog
-      location: none
-      url: >-
-        /swagger-editor.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph&rendered.for=custom-content-native&contentId={contentId}
-      name:
-        value: ZenUML Dashboard OpenAPI Editor Dialog
-    - key: zenuml-close-without-saving-dialog
-      location: none
-      url: >-
-        /close-without-saving-dialog.html??version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-      name:
-        value: Close Without Saving Dialog
-    - key: zenuml-content-dashboard
-      location: none
-      url: >-
-        /dashboard.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&postInstallPageKey=onboarding-page
-      name:
-        value: ZenUML Dashboard
-  confluence:postInstallPage:
-    - key: onboarding-page
-      name:
-        value: Get Started
-      url: /get-started.html?version=2025.04
-  confluence:webPanels: []
+  #   - key: zenuml-content-graph-viewer-dialog
+  #     location: none
+  #     url: >-
+  #       /drawio/viewer.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+  #     name:
+  #       value: ZenUML Graph Viewer Dialog
+  #   - key: zenuml-content-graph-editor-dialog
+  #     location: none
+  #     url: >-
+  #       /drawio/editor.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+  #     name:
+  #       value: ZenUML Graph Editor Dialog
+  #   - key: zenuml-content-dashboard-graph-editor-dialog
+  #     location: none
+  #     url: >-
+  #       /drawio/editor.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph&rendered.for=custom-content-native&contentId={contentId}
+  #     name:
+  #       value: ZenUML Dashboard Graph Editor Dialog
+  #   - key: zenuml-content-openapi-viewer-dialog
+  #     location: none
+  #     url: >-
+  #       /swagger-ui.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+  #     name:
+  #       value: ZenUML OpenAPI Viewer Dialog
+  #   - key: zenuml-content-openapi-editor-dialog
+  #     location: none
+  #     url: >-
+  #       /swagger-editor.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+  #     name:
+  #       value: ZenUML OpenAPI Editor Dialog
+  #   - key: zenuml-content-dashboard-openapi-editor-dialog
+  #     location: none
+  #     url: >-
+  #       /swagger-editor.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph&rendered.for=custom-content-native&contentId={contentId}
+  #     name:
+  #       value: ZenUML Dashboard OpenAPI Editor Dialog
+  #   - key: zenuml-close-without-saving-dialog
+  #     location: none
+  #     url: >-
+  #       /close-without-saving-dialog.html??version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+  #     name:
+  #       value: Close Without Saving Dialog
+  #   - key: zenuml-content-dashboard
+  #     location: none
+  #     url: >-
+  #       /dashboard.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&postInstallPageKey=onboarding-page
+  #     name:
+  #       value: ZenUML Dashboard
+  # confluence:postInstallPage:
+  #   - key: onboarding-page
+  #     name:
+  #       value: Get Started
+  #     url: /get-started.html?version=2025.04
+  # confluence:webPanels: []
 permissions:
   scopes:
     - read:connect-confluence
@@ -352,7 +352,13 @@ permissions:
       - https://confluence-plugin.pages.dev/api/metrics/evaluation
       - https://confluence-plugin.pages.dev/track
     frames:
-      - https://yanhui8080.zenuml.com/sequence-editor
+      - https://confluence-plugin.pages.dev/drawio/index.html    
+    scripts:
+      - https://confluence-plugin.pages.dev/drawio/js/sanitizer/purify.min.js
+      - https://confluence-plugin.pages.dev/drawio/mxgraph/mxClient.js
+      - https://confluence-plugin.pages.dev/drawio/js/grapheditor/Init.js
+      - https://confluence-plugin.pages.dev/drawio/js/grapheditor/Graph.js
+      - https://confluence-plugin.pages.dev/drawio/js/grapheditor/Shapes.js
   content:
     styles:
       - unsafe-inline
@@ -366,6 +372,44 @@ modules:
       config:
         resource: main
         viewportSize: max
+    - key: zenuml-openapi-macro
+      title: ZenUML Forge OpenAPI Diagram
+      description: Create and view OpenAPI / Swagger diagrams.
+      resource: main
+      config:
+        resource: main
+        viewportSize: max
+    - key: zenuml-graph-macro
+      title: ZenUML Forge Graph Diagram
+      description: Create and view DrawIO-powered graph diagrams.
+      resource: main
+      config:
+        resource: main
+        viewportSize: max
+    - key: zenuml-embed-macro
+      title: ZenUML Forge Embed Diagram
+      description: Embed an existing Diagram, Graph or API Spec.
+      resource: main
+      config:
+        resource: main
+        viewportSize: max
+  # confluence:globalPage:
+  #   - key: zenuml-content-sequence-viewer
+  #     title: ZenUML Sequence Viewer
+  #     resource: main
+  #     route: zenuml-content-sequence-viewer
+  # confluence:customContent:
+  #   - key: zenuml-content-sequence
+  #     supportedContainerTypes:
+  #       - space
+  #       - page
+  #       - blogpost
+  #     supportedChildTypes:
+  #       - attachment
+  #       - comment
+  #     title: ZenUML Content
+  #     resource: main
+  #     migratedFromConnect: true
 
 resources:
   - key: main

@@ -27,10 +27,10 @@
           </nav>
         </div>
         <div class="w-80 flex-shrink-0 px-4 py-3 bg-white">
-          <button class="flex items-center float-right h-8 text-white text-sm font-medium">
+          <div class="flex items-center justify-end space-x-2">
             <publish-button :save-and-exit="saveAndExit" />
             <close-button :exit="exit" />
-          </button>
+          </div>
         </div>
 
       </header>
@@ -70,7 +70,7 @@
                   </a>
                 </div>
 
-                <a @click="picked = customContentItem"
+                <a @click="selectDocument(customContentItem)"
                   href="#"
                   v-for="customContentItem in containerPage.customContents"
                   :key="customContentItem.id"
@@ -86,10 +86,28 @@
           </div>
           <div id="workspace-right"
             class="flex-grow h-full bg-white border-t">
-            <iframe id='embedded-viewer'
+            <!-- Dynamic preview component for Forge mode -->
+            <component 
+              v-if="previewComponent && picked"
+              :is="previewComponent"
+              :doc="picked"
+              :graphXml="picked?.value?.graphXml"
+              :code="picked?.value?.code"
+              :mermaidCode="picked?.value?.mermaidCode"
+              class="w-full h-full"
+            />
+            <!-- Fallback iframe for Connect mode -->
+            <iframe 
+              v-else-if="previewSrc"
+              id='embedded-viewer'
               :src='previewSrc'
               width='100%'
-              height='100%'></iframe>
+              height='100%'>
+            </iframe>
+            <!-- Loading state -->
+            <div v-else class="flex items-center justify-center h-full text-gray-500">
+              Select a document to preview
+            </div>
           </div>
         </main>
       </div>
@@ -109,6 +127,7 @@ import { CustomContentStorageProvider } from "@/model/ContentProvider/CustomCont
 import ApWrapper2 from "@/model/ApWrapper2";
 import _ from 'lodash';
 import { trackEvent } from "@/utils/window";
+import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 
 export default {
   name: 'DocumentList', // for embed-editor
@@ -119,7 +138,8 @@ export default {
       picked: '',
       docTypeFilter: '',
       baseUrl: '',
-      filterKeyword: ''
+      filterKeyword: '',
+      previewComponentCache: {} // Cache for loaded components
     };
   },
   computed: {
@@ -173,13 +193,23 @@ export default {
         console.warn(`Unknown diagramType: ${diagramType}`);
       }
       return `${getViewerUrl(this.picked.value.diagramType)}${window.location.search || '?'}&rendered.for=custom-content-native&content.id=${this.picked.id}&embedded=true`;
-
+    },
+    previewComponent() {
+      if (!this.picked || !this.picked.value?.diagramType) return null;
+      
+      // Check if we're in Forge mode
+      if (window.forgeGlobal?.isForge) {
+        // Return cached component if available
+        return this.previewComponentCache[this.picked.value.diagramType] || null;
+      }
+      
+      return null;
     },
     saveAndExit: function () {
       const that = this;
       return function () {
         window.picked = that.picked;
-        EventBus.$emit('save')
+        EventBus.$emit(window.forgeGlobal?.isForge ? 'save-embed' : 'save', that.picked);
       }
     },
     exit: function () {
@@ -196,15 +226,26 @@ export default {
       }
     }
   },
+  watch: {
+    picked: {
+      async handler(newPicked) {
+        console.log('DocumentList - picked', newPicked);
+        if (newPicked && newPicked.value?.diagramType && window.forgeGlobal?.isForge) {
+          // Load the preview component when picked item changes
+          await this.getPreviewComponentForForge(newPicked.value.diagramType);
+        }
+      },
+      immediate: true
+    }
+  },
   async created() {
-    const apWrapper = new ApWrapper2(AP);
-    const idProvider = new MacroIdProvider(apWrapper);
-    const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
-    const customContentId = await idProvider.getId();
-    console.debug(`picked custom content id: ${customContentId}`);
-    this.customContentList = await customContentStorageProvider.getCustomContentList();
-    this.picked = this.customContentList.filter(customContentItem => customContentItem?.id === customContentId)[0];
-    console.debug(`picked custom content:`, this.picked);
+    if (window.forgeGlobal?.isForge) {
+      // Forge mode: Use Forge context and API
+      await this.initializeForForge();
+    } else {
+      // Connect mode: Use Connect providers
+      await this.initializeForConnect();
+    }
 
     try {
       const atlasPage = new AtlasPage(AP);
@@ -221,8 +262,106 @@ export default {
     }
   },
   methods: {
+    async initializeForForge() {
+      // Forge mode: Get custom content ID from context and load content
+      const context = await initForgeContext();
+      const customContentId = context.extension?.config?.customContentId;
+      
+      console.debug(`Forge mode - custom content id: ${customContentId}`);
+      
+      if (customContentId) {
+        // Load the specific custom content
+        const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
+        console.debug(`Forge mode - loaded custom content:`, customContent);
+        
+        if (customContent) {
+          this.picked = customContent;
+          this.selectDocument(customContent);
+        }
+      }
+      
+      // Load all custom content for the list
+      this.customContentList = await globals.apWrapper.searchCustomContentForge();
+      console.debug(`Forge mode - loaded custom content list:`, this.customContentList);
+    },
+    
+    async initializeForConnect() {
+      // Connect mode: Use Connect providers
+      const apWrapper = new ApWrapper2(AP);
+      const idProvider = new MacroIdProvider(apWrapper);
+      const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
+      const customContentId = await idProvider.getId();
+      console.debug(`Connect mode - picked custom content id: ${customContentId}`);
+      this.customContentList = await customContentStorageProvider.getCustomContentList();
+      this.picked = this.customContentList.filter(customContentItem => customContentItem?.id === customContentId)[0];
+      console.debug(`Connect mode - picked custom content:`, this.picked);
+    },
+    
     setFilter(docType) {
       this.docTypeFilter = docType;
+    },
+    selectDocument(customContentItem) {
+      // Update the picked document
+      this.picked = customContentItem;
+      
+      // Update the store state for Forge mode
+      if (window.forgeGlobal?.isForge && this.$store) {
+        // Convert the custom content item to diagram format and update store
+        const diagram = {
+          id: customContentItem.id,
+          title: customContentItem.title,
+          diagramType: customContentItem.value.diagramType,
+          code: customContentItem.value.code,
+          mermaidCode: customContentItem.value.mermaidCode,
+          graphXml: customContentItem.value.graphXml,
+          isNew: false,
+          // Add any other properties that might be needed
+          ...customContentItem.value
+        };
+        
+        // Update the store state
+        this.$store.state.diagram = diagram;
+        
+        // Also update window.diagram for compatibility
+        window.diagram = diagram;
+        
+        console.log('DocumentList: Updated store with selected document', diagram);
+      }
+    },
+    async getPreviewComponentForForge(diagramType) {
+      console.log('getPreviewComponentForForge', diagramType);
+      // Return cached component if available
+      if (this.previewComponentCache[diagramType]) {
+        return this.previewComponentCache[diagramType];
+      }
+
+      try {
+        let component = null;
+        
+        if (diagramType === DiagramType.Sequence || diagramType === DiagramType.Mermaid) {
+          // Import sequence viewer components
+          const { default: DiagramPortal } = await import('@/components/DiagramPortal.vue');
+          component = DiagramPortal;
+        } else if (diagramType === DiagramType.Graph) {
+          // Import Forge-specific graph viewer component for embed
+          const { default: ForgeGraphViewerEmbed } = await import('@/components/Viewer/ForgeGraphViewerEmbed.vue');
+          component = ForgeGraphViewerEmbed;
+        } else if (diagramType === DiagramType.OpenApi) {
+          // Import Forge-specific OpenAPI viewer component
+          const { default: ForgeOpenApiViewer } = await import('@/components/Viewer/ForgeOpenApiViewer.vue');
+          component = ForgeOpenApiViewer;
+        }
+
+        // Cache the component for future use
+        if (component) {
+          this.previewComponentCache[diagramType] = component;
+        }
+
+        return component;
+      } catch (e) {
+        console.error('Failed to load preview component for type:', diagramType, e);
+        return null;
+      }
     }
   },
   components: {

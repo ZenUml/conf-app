@@ -185,31 +185,31 @@ connectModules:
     #       multiple: false
     #       defaultValue: None
   confluence:customContent:
-    # - uiSupport:
-    #     contentViewComponent:
-    #       moduleKey: zenuml-content-sequence-viewer
-    #     listViewComponent:
-    #       moduleKey: zenuml-content-dashboard
-    #     icons:
-    #       item:
-    #         width: 16
-    #         height: 16
-    #         url: image/zenuml_logo.png
-    #   apiSupport:
-    #     bodyType: raw
-    #     supportedContainerTypes:
-    #       - space
-    #       - page
-    #       - blogpost
-    #       - comment
-    #     supportedChildTypes:
-    #       - attachment
-    #       - comment
-    #     indexing:
-    #       enabled: true
-    #   name:
-    #     value: ZenUML
-    #   key: zenuml-content-sequence
+    - uiSupport:
+        contentViewComponent:
+          moduleKey: zenuml-content-sequence-viewer
+        listViewComponent:
+          moduleKey: zenuml-content-dashboard
+        icons:
+          item:
+            width: 16
+            height: 16
+            url: image/zenuml_logo.png
+      apiSupport:
+        bodyType: raw
+        supportedContainerTypes:
+          - space
+          - page
+          - blogpost
+          - comment
+        supportedChildTypes:
+          - attachment
+          - comment
+        indexing:
+          enabled: true
+      name:
+        value: ZenUML
+      key: zenuml-content-sequence
     - uiSupport:
         contentViewComponent:
           moduleKey: zenuml-content-graph-viewer
@@ -398,18 +398,18 @@ modules:
   #     title: ZenUML Sequence Viewer
   #     resource: main
   #     route: zenuml-content-sequence-viewer
-  confluence:customContent:
-    - key: zenuml-content-sequence
-      supportedContainerTypes:
-        - space
-        - page
-        - blogpost
-      supportedChildTypes:
-        - attachment
-        - comment
-      title: ZenUML Content
-      resource: main
-      migratedFromConnect: true
+  # confluence:customContent:
+  #   - key: zenuml-content-sequence
+  #     supportedContainerTypes:
+  #       - space
+  #       - page
+  #       - blogpost
+  #     supportedChildTypes:
+  #       - attachment
+  #       - comment
+  #     title: ZenUML Content
+  #     resource: main
+  #     migratedFromConnect: true
 
 resources:
   - key: main

@@ -368,13 +368,17 @@ export default class ApWrapper2 implements IApWrapper {
 
   async getCustomContentForCurrentPage(customContentId: string): Promise<ICustomContentV2 | undefined> {
     const pageId = await this._getCurrentPageId();
-    const page = await this.request(`/api/v2/pages/${pageId}`);
+    
+    //No pageId in the dashboard page
+    if(pageId) {
+      const page = await this.request(`/api/v2/pages/${pageId}`);
 
-    if(page.status === 'historical') {
-      const pageVersionCreatedAt = page.version.createdAt;
-      trackEvent(`page created at ${pageVersionCreatedAt}`, 'view_historical_page', 'macro');
-      
-      return await this.getCustomContentVersionBeforeDate(customContentId, pageVersionCreatedAt);
+      if(page.status === 'historical') {
+        const pageVersionCreatedAt = page.version.createdAt;
+        trackEvent(`page created at ${pageVersionCreatedAt}`, 'view_historical_page', 'macro');
+        
+        return await this.getCustomContentVersionBeforeDate(customContentId, pageVersionCreatedAt);
+      }
     }
 
     return await this.getCustomContentByIdV2(customContentId);

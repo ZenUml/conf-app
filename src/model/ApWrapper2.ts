@@ -815,6 +815,11 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   isDisplayMode() {
+    // Check if we're in a Forge modal with macroMode: 'viewer' - hide header in this case
+    if (forgeGlobal.isForge && forgeGlobal.forgeContext?.extension?.modal?.macroMode === 'viewer') {
+      return false;
+    }
+    // Check for display mode in URL or regular Forge mode
     return getUrlParam('outputType') === 'display' || forgeGlobal.isForge;
   }
 

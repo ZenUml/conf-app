@@ -1,5 +1,5 @@
 <template>
-  <generic-viewer :wide="autoResize===true || diagramType===DiagramType.Mermaid">
+  <generic-viewer :wide="autoResize===true || diagramType===DiagramType.Mermaid" :hideHeader="hideHeader">
     <mermaid v-if="diagramType===DiagramType.Mermaid"></mermaid>
     <sequence v-if="diagramType===DiagramType.Sequence" :autoResize="autoResize"></sequence>
   </generic-viewer>
@@ -15,6 +15,10 @@ export default {
   components: {Mermaid, Sequence, GenericViewer},
   props: {
     autoResize: {
+      type: Boolean,
+      default: false
+    },
+    hideHeader: {
       type: Boolean,
       default: false
     }

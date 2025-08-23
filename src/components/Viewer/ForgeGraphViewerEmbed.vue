@@ -1,6 +1,6 @@
 <template>
   <div id="forge-graph-viewer-embed">
-    <generic-viewer>
+    <generic-viewer :hideHeader="hideHeader">
       <div ref="graphContainer" style="width:100%;height:100%;"></div>
     </generic-viewer>
   </div>
@@ -59,7 +59,11 @@ export default {
       type: Object,
       required: true
     },
-    graphXml: String
+    graphXml: String,
+    hideHeader: {
+      type: Boolean,
+      default: false
+    }
   },
   data() {
     return {

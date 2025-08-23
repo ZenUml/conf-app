@@ -1,5 +1,5 @@
 <template>
-  <generic-viewer>
+  <generic-viewer :hideHeader="hideHeader">
     <div id="swagger-ui-embed"></div>
   </generic-viewer>
 </template>
@@ -20,6 +20,10 @@ export default {
     doc: {
       type: Object,
       required: true
+    },
+    hideHeader: {
+      type: Boolean,
+      default: false
     }
   },
   mounted() {

@@ -94,6 +94,7 @@
               :graphXml="picked?.value?.graphXml"
               :code="picked?.value?.code"
               :mermaidCode="picked?.value?.mermaidCode"
+              :hideHeader="true"
               class="w-full h-full"
             />
             <!-- Fallback iframe for Connect mode -->

@@ -184,7 +184,7 @@ connectModules:
     #       required: true
     #       multiple: false
     #       defaultValue: None
-  confluence:customContent:
+  # confluence:customContent:
     # - uiSupport:
     #     contentViewComponent:
     #       moduleKey: zenuml-content-sequence-viewer
@@ -210,29 +210,29 @@ connectModules:
     #   name:
     #     value: ZenUML
     #   key: zenuml-content-sequence
-    - uiSupport:
-        contentViewComponent:
-          moduleKey: zenuml-content-graph-viewer
-        icons:
-          item:
-            width: 16
-            height: 16
-            url: image/zenuml_logo.png
-      apiSupport:
-        bodyType: raw
-        supportedContainerTypes:
-          - page
-          - blogpost
-          - comment
-        supportedChildTypes:
-          - attachment
-          - comment
-        indexing:
-          enabled: true
-      name:
-        value: ZenUML Graph
-      key: zenuml-content-graph
-  confluence:generalPages:
+    # - uiSupport:
+    #     contentViewComponent:
+    #       moduleKey: zenuml-content-graph-viewer
+    #     icons:
+    #       item:
+    #         width: 16
+    #         height: 16
+    #         url: image/zenuml_logo.png
+    #   apiSupport:
+    #     bodyType: raw
+    #     supportedContainerTypes:
+    #       - page
+    #       - blogpost
+    #       - comment
+    #     supportedChildTypes:
+    #       - attachment
+    #       - comment
+    #     indexing:
+    #       enabled: true
+    #   name:
+    #     value: ZenUML Graph
+    #   key: zenuml-content-graph
+  # confluence:generalPages:
   #   - key: zenuml-page-to-diagram-survey
   #     location: none
   #     url: >-
@@ -245,12 +245,12 @@ connectModules:
   #       /sequence-viewer-dialog.html?version=2025.04&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence
   #     name:
   #       value: ZenUML Sequence Viewer Dialog
-    - key: zenuml-content-sequence-viewer
-      location: none
-      url: >-
-        /sequence-viewer.html?version=2025.04&rendered.for=custom-content-native&spaceKey={space.key}&content.id={content.id}&content.version={content.version}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence
-      name:
-        value: ZenUML Sequence Viewer
+    # - key: zenuml-content-sequence-viewer
+    #   location: none
+    #   url: >-
+    #     /sequence-viewer.html?version=2025.04&rendered.for=custom-content-native&spaceKey={space.key}&content.id={content.id}&content.version={content.version}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence
+    #   name:
+    #     value: ZenUML Sequence Viewer
   #   - key: zenuml-content-sequence-editor-dialog
   #     location: none
   #     url: >-
@@ -263,12 +263,12 @@ connectModules:
   #       /sequence-editor-dialog.html?version=2025.04&spaceKey={space.key}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-sequence&rendered.for=custom-content-native&contentId={contentId}
   #     name:
   #       value: ZenUML Dashboard Sequence Editor Dialog
-    - key: zenuml-content-graph-viewer
-      location: none
-      url: >-
-        /drawio/viewer.html?version=2025.04&rendered.for=custom-content-native&spaceKey={space.key}&content.id={content.id}&content.version={content.version}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
-      name:
-        value: ZenUML Graph Viewer
+    # - key: zenuml-content-graph-viewer
+    #   location: none
+    #   url: >-
+    #     /drawio/viewer.html?version=2025.04&rendered.for=custom-content-native&spaceKey={space.key}&content.id={content.id}&content.version={content.version}&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph
+    #   name:
+    #     value: ZenUML Graph Viewer
   #   - key: zenuml-content-graph-viewer-dialog
   #     location: none
   #     url: >-
@@ -411,6 +411,21 @@ modules:
       resource: main
       bodyType: raw
       migratedFromConnect: true
+    - key: zenuml-content-graph
+      supportedContainerTypes:
+        - space
+        - page
+        - blogpost
+      supportedChildTypes:
+        - attachment
+        - comment
+      title: ZenUML Content Graph
+      resource: main
+      bodyType: raw
+      migratedFromConnect: true
+  # confluence:fullPage:
+  #   - key: hello-full-page-app
+  #     resource: main
 
 resources:
   - key: main

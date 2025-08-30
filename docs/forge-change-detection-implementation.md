@@ -1,45 +1,42 @@
-# Forge Sequence Macro Change Detection Implementation
+# Forge Macro Change Detection Implementation
 
 ## Overview
 
-This document describes the implementation of change detection functionality in the Forge sequence macro, following the same pattern used in the Connect sequence macro.
+This document describes the implementation of change detection functionality in all Forge macros (sequence, graph, OpenAPI, and embed), following the same pattern used in the Connect sequence macro.
 
 ## Implementation Details
 
-### 1. Change Tracking in Header Component
+### 1. Change Detection by Macro Type
 
-The change detection logic is implemented entirely in the `Header.vue` component, following the same pattern as the Connect version:
+Each Forge macro implements change detection based on its specific content type:
 
-- **Original Code Storage**: The Header component stores original code values in its data properties:
-  ```javascript
-  data() {
-    return {
-      // ... other data properties
-      originalSeqCode: "",
-      originalMermaidCode: "",
-    };
-  }
-  ```
+#### Sequence Macro
+- **Change Tracking**: Implemented in the `Header.vue` component
+- **Original Code Storage**: Stores original code values in component data properties
+- **Change Detection**: Compares current code with original code
 
-- **Initialization**: Original code is captured in the `mounted` lifecycle:
-  ```javascript
-  async mounted() {
-    if (this.diagramType === DiagramType.Mermaid) {
-      this.originalMermaidCode = this.mermaidCode;
-    } else {
-      this.originalSeqCode = this.seqCode;
-    }
-  }
-  ```
+#### Graph Macro
+- **Change Tracking**: Implemented in `src/forge-graph-editor.ts`
+- **Original Code Storage**: Stores original `graphXml` in `window.diagram`
+- **Change Detection**: Compares current `window.graphXml` with original `window.diagram.graphXml`
 
-### 2. Enhanced Exit Event Handler
+#### OpenAPI Macro
+- **Change Tracking**: Implemented in `src/forge-swagger-editor.ts`
+- **Original Code Storage**: Stores original `code` in `window.diagram`
+- **Change Detection**: Compares current `window.specContent` with original `window.diagram.code`
 
-The `exit` event handler in `forgeIndex.ts` now supports change detection with a custom modal dialog:
+#### Embed Macro
+- **Change Tracking**: Implemented in `src/forge-embed-editor.ts`
+- **Original Code Storage**: Stores original picked document ID
+- **Change Detection**: Compares current `window.picked.id` with original picked document ID
 
+### 2. Enhanced Exit Event Handlers
+
+Each Forge macro has its own exit event handler that supports change detection with a custom modal dialog:
+
+#### Sequence Macro (`forgeIndex.ts`)
 ```typescript
 EventBus.$on('exit', async (showWarning: boolean) => {
-  console.log('exit', showWarning);
-  
   // Track exit event with context
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.Sequence;
   const elapsedTimeMs = Date.now() - editorStartTime;
@@ -52,7 +49,6 @@ EventBus.$on('exit', async (showWarning: boolean) => {
   });
   
   if (showWarning) {
-    // Show custom modal dialog for Forge (similar to Connect)
     const result = await showCloseWithoutSavingDialog();
     if (result === 'discard') {
       await (await getView()).close();
@@ -61,6 +57,89 @@ EventBus.$on('exit', async (showWarning: boolean) => {
     await (await getView()).close();
   }
 });
+```
+
+#### Graph Macro (`forge-graph-editor.ts`)
+```typescript
+async function exit() {
+  const codeChanged = window.diagram?.graphXml !== window.graphXml;
+  
+  // Track exit event with context
+  const isNewGraph = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.Graph;
+  const elapsedTimeMs = Date.now() - editorStartTime;
+  
+  trackEvent('', 'create_macro_exit', DiagramType.Graph, {
+    had_changes: codeChanged,
+    macro_stage: isNewGraph ? 'creation' : 'editing',
+    elapsed_time_ms: elapsedTimeMs,
+    code_length: store.state.diagram.graphXml?.length || 0
+  });
+  
+  if (codeChanged) {
+    const result = await showCloseWithoutSavingDialog();
+    if (result === 'discard') {
+      await (await getView()).close();
+    }
+  } else {
+    await (await getView()).close();
+  }
+}
+```
+
+#### OpenAPI Macro (`forge-swagger-editor.ts`)
+```typescript
+async function exit() {
+  const codeChanged = window.diagram?.code !== window.specContent;
+  
+  // Track exit event with context
+  const isNewOpenApi = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.OpenApi;
+  const elapsedTimeMs = Date.now() - editorStartTime;
+  
+  trackEvent('', 'create_macro_exit', DiagramType.OpenApi, {
+    had_changes: codeChanged,
+    macro_stage: isNewOpenApi ? 'creation' : 'editing',
+    elapsed_time_ms: elapsedTimeMs,
+    code_length: store.state.diagram.code?.length || 0
+  });
+  
+  if (codeChanged) {
+    const result = await showCloseWithoutSavingDialog();
+    if (result === 'discard') {
+      await (await getView()).close();
+    }
+  } else {
+    await (await getView()).close();
+  }
+}
+```
+
+#### Embed Macro (`forge-embed-editor.ts`)
+```typescript
+async function exit() {
+  // For embed editor, changes are detected by comparing current picked document with original
+  const currentPickedId = window.picked?.id || null;
+  const hasChanges = currentPickedId !== originalPickedId;
+  
+  // Track exit event with context
+  const isNewEmbed = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.Embed;
+  const elapsedTimeMs = Date.now() - editorStartTime;
+  
+  trackEvent('', 'create_macro_exit', DiagramType.Embed, {
+    had_changes: hasChanges,
+    macro_stage: isNewEmbed ? 'creation' : 'editing',
+    elapsed_time_ms: elapsedTimeMs,
+    selected_document: currentPickedId
+  });
+  
+  if (hasChanges) {
+    const result = await showCloseWithoutSavingDialog();
+    if (result === 'discard') {
+      await (await getView()).close();
+    }
+  } else {
+    await (await getView()).close();
+  }
+}
 ```
 
 ### 3. Custom Modal Dialog
@@ -82,9 +161,9 @@ The modal dialog features:
 - Click outside to cancel functionality
 - Proper event cleanup
 
-### 4. Header Component Integration
+### 3. Header Component Integration (Sequence Macro Only)
 
-The `Header.vue` component has been updated to work with both Connect and Forge modes:
+The `Header.vue` component has been updated to work with both Connect and Forge modes for the sequence macro:
 
 ```javascript
 exit: function () {
@@ -124,11 +203,17 @@ async mounted() {
 
 ## Key Features
 
-1. **Automatic Change Detection**: Tracks changes to both sequence and Mermaid code
+1. **Automatic Change Detection**: Each macro type has its own change detection logic:
+   - **Sequence**: Tracks changes to sequence and Mermaid code
+   - **Graph**: Tracks changes to graph XML content
+   - **OpenAPI**: Tracks changes to API specification content
+   - **Embed**: Tracks changes to selected document
+
 2. **Confirmation Dialog**: Shows a confirmation dialog when exiting with unsaved changes
-3. **Analytics Tracking**: Logs exit events with change detection context
+3. **Analytics Tracking**: Logs exit events with change detection context for each macro type
 4. **Backward Compatibility**: Works with both Connect and Forge modes
-5. **Session Timing**: Tracks how long the user spent in the editor
+5. **Session Timing**: Tracks how long the user spent in each editor
+6. **Consistent UX**: Same confirmation dialog across all macro types
 
 ## Testing
 
@@ -140,11 +225,13 @@ A test suite has been created in `tests/unit/ChangeDetection.spec.ts` to verify:
 
 ## Usage
 
-When a user makes changes to the diagram and tries to close the editor:
+When a user makes changes in any macro editor and tries to close:
 
-1. The system detects if changes have been made
+1. The system detects if changes have been made based on the macro type
 2. If changes are detected, a confirmation dialog appears
-3. User can choose to discard changes or cancel
+3. User can choose to:
+   - Click "Discard Changes" to discard changes and close
+   - Click "Cancel" to stay in the editor
 4. If no changes are detected, the editor closes immediately
 
-This provides the same user experience as the Connect sequence macro, ensuring consistency across both platforms.
+This provides the same user experience across all Forge macros, ensuring consistency with the Connect app.

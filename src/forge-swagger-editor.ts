@@ -18,6 +18,10 @@ import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from '@/utils/window';
 import { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
 import store from "@/model/store2";
+import { showCloseWithoutSavingDialog } from './utils/modalService';
+
+// Track editor session start time
+const editorStartTime = Date.now();
 
 async function saveOpenApiAndExit() {
   const code = window.specContent;
@@ -47,8 +51,24 @@ async function saveOpenApiAndExit() {
 
 async function exit() {
   const codeChanged = window.diagram?.code !== window.specContent;
+  
+  // Track exit event with context
+  const isNewOpenApi = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.OpenApi;
+  const elapsedTimeMs = Date.now() - editorStartTime;
+  
+  trackEvent('', 'create_macro_exit', DiagramType.OpenApi, {
+    had_changes: codeChanged,
+    macro_stage: isNewOpenApi ? 'creation' : 'editing',
+    elapsed_time_ms: elapsedTimeMs,
+    code_length: store.state.diagram.code?.length || 0
+  });
+  
   if (codeChanged) {
-    alert('codeChanged');
+    // Show custom modal dialog for Forge (similar to Connect)
+    const result = await showCloseWithoutSavingDialog();
+    if (result === 'discard') {
+      await (await getView()).close();
+    }
   } else {
     await (await getView()).close();
   }

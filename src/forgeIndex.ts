@@ -10,6 +10,7 @@ import macroMetrics from "@/services/MacroMetrics";
 import store from './model/store2'
 
 import Example from "./utils/sequence/Example";
+import { showCloseWithoutSavingDialog } from './utils/modalService';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -238,15 +239,17 @@ EventBus.$on('exit', async (showWarning: boolean) => {
   });
   
   if (showWarning) {
-    // Show confirmation dialog for Forge
-    const confirmed = confirm('All changes will be lost! Do you want to discard changes?');
-    if (confirmed) {
+    // Show custom modal dialog for Forge (similar to Connect)
+    const result = await showCloseWithoutSavingDialog();
+    if (result === 'discard') {
       await (await getView()).close();
     }
   } else {
     await (await getView()).close();
   }
 });
+
+
 
 EventBus.$on('fullscreen', async () => {
   await openModal({

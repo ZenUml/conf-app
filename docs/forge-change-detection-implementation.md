@@ -34,7 +34,7 @@ The change detection logic is implemented entirely in the `Header.vue` component
 
 ### 2. Enhanced Exit Event Handler
 
-The `exit` event handler in `forgeIndex.ts` now supports change detection:
+The `exit` event handler in `forgeIndex.ts` now supports change detection with a custom modal dialog:
 
 ```typescript
 EventBus.$on('exit', async (showWarning: boolean) => {
@@ -52,9 +52,9 @@ EventBus.$on('exit', async (showWarning: boolean) => {
   });
   
   if (showWarning) {
-    // Show confirmation dialog for Forge
-    const confirmed = confirm('All changes will be lost! Do you want to discard changes?');
-    if (confirmed) {
+    // Show custom modal dialog for Forge (similar to Connect)
+    const result = await showCloseWithoutSavingDialog();
+    if (result === 'discard') {
       await (await getView()).close();
     }
   } else {
@@ -63,7 +63,26 @@ EventBus.$on('exit', async (showWarning: boolean) => {
 });
 ```
 
-### 3. Header Component Integration
+### 3. Custom Modal Dialog
+
+A custom modal dialog service has been implemented in `src/utils/modalService.ts` that replicates the Connect app's confirmation dialog:
+
+```typescript
+export function showCloseWithoutSavingDialog(): Promise<string> {
+  return new Promise((resolve) => {
+    // Creates a modal overlay with the same styling as Connect
+    // Returns 'discard' or 'cancel' based on user action
+  });
+}
+```
+
+The modal dialog features:
+- Same visual design as the Connect app
+- "Discard Changes" and "Cancel" buttons
+- Click outside to cancel functionality
+- Proper event cleanup
+
+### 4. Header Component Integration
 
 The `Header.vue` component has been updated to work with both Connect and Forge modes:
 

@@ -393,11 +393,11 @@ modules:
       config:
         resource: main
         viewportSize: max
-  # confluence:globalPage:
-  #   - key: zenuml-content-sequence-viewer
-  #     title: ZenUML Sequence Viewer
-  #     resource: main
-  #     route: zenuml-content-sequence-viewer
+  confluence:globalSettings:
+    - key: zenuml-get-started-settings
+      title: ZenUML Get Started
+      resource: main
+      useAsGetStarted: true
   confluence:customContent:
     - key: zenuml-content-sequence
       supportedContainerTypes:

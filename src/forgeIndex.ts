@@ -11,6 +11,7 @@ import store from './model/store2'
 
 import Example from "./utils/sequence/Example";
 import { showCloseWithoutSavingDialog } from './utils/modalService';
+import { handleGetStartedRoute } from './routes/getStarted';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -29,6 +30,13 @@ async function initializeCriticalPath() {
 
   try {
     await initForgeContext();
+
+    // Check if this is a global settings route (get started page)
+    const context = await initForgeContext();
+    if (context.extension?.type === 'confluence:globalSettings') {
+      await handleGetStartedRoute();
+      return { macroData: null };
+    }
 
     // Initialize context and get macro data (lightweight operations)
     await globals.apWrapper.initializeContext();
@@ -57,6 +65,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     ]);
 
     const context = await initForgeContext();
+
+    // Skip loading heavy components if this is a global settings context
+    if (context.extension?.type === 'confluence:globalSettings') {
+      console.log('Skipping heavy components load for global settings context');
+      return;
+    }
 
     let doc;
     const customContentId = context.extension?.config?.customContentId;

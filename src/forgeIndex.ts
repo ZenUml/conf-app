@@ -11,6 +11,11 @@ import store from './model/store2'
 
 import Example from "./utils/sequence/Example";
 
+// Track editor session start time
+const editorStartTime = Date.now();
+
+
+
 // Initialize critical path rendering first
 async function initializeCriticalPath() {
   // Hide skeleton loader after critical content is loaded
@@ -65,6 +70,8 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
       doc = customContent?.value;
     }
+
+
 
     // Hide skeleton loader before mounting the actual content
     const skeletonLoader = document.getElementById('skeleton-loader');
@@ -216,8 +223,29 @@ EventBus.$on('save', async () => {
   }, 500);
 });
 
-EventBus.$on('exit', async () => {
-  (await getView()).close();
+EventBus.$on('exit', async (showWarning: boolean) => {
+  console.log('exit', showWarning);
+  
+  // Track exit event with context
+  const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.Sequence;
+  const elapsedTimeMs = Date.now() - editorStartTime;
+  
+  trackEvent('', 'create_macro_exit', DiagramType.Sequence, {
+    had_changes: showWarning,
+    macro_stage: isNewSequence ? 'creation' : 'editing',
+    elapsed_time_ms: elapsedTimeMs,
+    code_length: store.state.diagram.code?.length || 0
+  });
+  
+  if (showWarning) {
+    // Show confirmation dialog for Forge
+    const confirmed = confirm('All changes will be lost! Do you want to discard changes?');
+    if (confirmed) {
+      await (await getView()).close();
+    }
+  } else {
+    await (await getView()).close();
+  }
 });
 
 EventBus.$on('fullscreen', async () => {
@@ -241,3 +269,5 @@ EventBus.$on('updateContent', async (diagram: Diagram) => {
     console.info('Your changes cannot be persistent as you are not authorized to edit.');
   }
 });
+
+

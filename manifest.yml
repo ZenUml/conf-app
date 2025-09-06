@@ -333,6 +333,13 @@ permissions:
     - write:confluence-file
     - read:confluence-content.permission
     - search:confluence
+    - manage:confluence-configuration
+    - read:confluence-groups
+    - read:confluence-props
+    - read:confluence-space.summary
+    - read:confluence-user
+    - readonly:content.attachment:confluence
+    - write:confluence-props
     - read:page:confluence
     - read:content:confluence
     - read:content-details:confluence

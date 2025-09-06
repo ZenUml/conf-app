@@ -3,8 +3,18 @@ import md5 from 'md5';
 import {getUrlParam, trackEvent} from '@/utils/window.ts';
 import AP from "@/model/AP";
 import global from '@/model/globals';
-import forgeGlobal from '@/model/globals/forgeGlobal';
+import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import {forgeRequest, connectRequest} from '@/utils/requestUtil';
+
+// Helper function to get the identifier (uuid in Connect mode, customContentId in Forge mode)
+async function getIdentifier() {
+  if (forgeGlobal.isForge) {
+    const context = await initForgeContext();
+    return context.extension?.config?.customContentId;
+  } else {
+    return getUrlParam("uuid");
+  }
+}
 
 // Helper function to make requests in both Forge and Connect modes
 async function makeRequest(requestConfig) {
@@ -143,7 +153,8 @@ export async function getAttachmentDownloadLink(pageId, macroUuid) {
 
 async function tryGetAttachment() {
   const pageId = await global.apWrapper._getCurrentPageId();
-  const attachmentName = 'zenuml-' + getUrlParam("uuid") + '.png';
+  const identifier = await getIdentifier();
+  const attachmentName = 'zenuml-' + identifier + '.png';
   const attachments = await global.apWrapper.getAttachmentsV2(pageId, {filename: attachmentName});
   const descending = attachments.sort((a, b) => b.version?.number - a.version?.number);
   return descending.length && descending[0];
@@ -151,7 +162,8 @@ async function tryGetAttachment() {
 
 async function uploadAttachment2(hash, fnGetUri) {
   const pageId = await global.apWrapper._getCurrentPageId();
-  const attachmentName = attachmentNameByUuid(getUrlParam("uuid"));
+  const identifier = await getIdentifier();
+  const attachmentName = attachmentNameByUuid(identifier);
   const uri = fnGetUri(pageId);
   return await uploadAttachment(attachmentName, uri, hash);
 }

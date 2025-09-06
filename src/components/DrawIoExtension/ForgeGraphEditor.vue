@@ -2,7 +2,7 @@
   <div id="forge-graph-editor">
     <iframe
       ref="drawioFrame"
-      src="https://confluence-plugin.pages.dev/drawio/index.html?embed=1&spin=1&proto=json&noSaveBtn=1&publishClose=1&libraries=1&offline=1"
+      src="https://conf-full.zenuml.com/drawio/index.html?embed=1&spin=1&proto=json&noSaveBtn=1&publishClose=1&libraries=1&offline=1"
       style="width:100%;height:100%;border:0;"
       @load="onFrameLoad"
     ></iframe>

@@ -37,7 +37,7 @@ export default {
       graph.resizeContainer = true;
       graph.setEnabled(false);
       // @ts-ignore
-      setGraphStyle('https://confluence-plugin.pages.dev/drawio/styles/default.xml', graph);
+      setGraphStyle('https://conf-full.zenuml.com/drawio/styles/default.xml', graph);
       // @ts-ignore
       setGraphXml(this.graphXml, graph);
     }

@@ -10,7 +10,7 @@ export interface EventBody {
   version: string;
 }
 
-const ALLOWED_REFERER_DOMAINS = ['zenuml.com', 'confluence-plugin.pages.dev', 'peng-new-8080.diagramly.ai']
+const ALLOWED_REFERER_DOMAINS = ['zenuml.com', 'conf-full.zenuml.com', 'peng-new-8080.diagramly.ai']
 
 const validateReferer = (referer: string) => {
   const refererDomain = new URL(referer).hostname;

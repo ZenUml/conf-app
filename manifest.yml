@@ -126,36 +126,36 @@ permissions:
 modules:
   macro:
     - key: zenuml-sequence-macro
-      title: ZenUML Forge Sequence Diagram
-      description: Create and view ZenUML or Mermaid diagrams.
+      title: Diagram (ZenUML & Mermaid)
+      description: Create a ZenUML or Mermaid Diagram. Developed by the ZenUML team.
       resource: main
       config:
         resource: main
         viewportSize: max
     - key: zenuml-openapi-macro
-      title: ZenUML Forge OpenAPI Diagram
-      description: Create and view OpenAPI / Swagger diagrams.
+      title: OpenAPI / Swagger
+      description: Create an OpenAPI / Swagger Spec. Developed by the ZenUML team.
       resource: main
       config:
         resource: main
         viewportSize: max
     - key: zenuml-graph-macro
-      title: ZenUML Forge Graph Diagram
-      description: Create and view DrawIO-powered graph diagrams.
+      title: Graph (DrawIO)
+      description: Create a Graph powered by DrawIO. Developed by the ZenUML team.
       resource: main
       config:
         resource: main
         viewportSize: max
     - key: zenuml-embed-macro
-      title: ZenUML Forge Embed Diagram
-      description: Embed an existing Diagram, Graph or API Spec.
+      title: Embed a Diagram, Graph or API Spec
+      description: Embed an existing Diagram, Graph or API Spec. Developed by the ZenUML team.
       resource: main
       config:
         resource: main
         viewportSize: max
   confluence:globalSettings:
     - key: zenuml-get-started-settings
-      title: ZenUML Get Started
+      title: Get Started
       resource: main
       useAsGetStarted: true
   confluence:customContent:
@@ -167,7 +167,7 @@ modules:
       supportedChildTypes:
         - attachment
         - comment
-      title: ZenUML Content
+      title: ZenUML
       resource: main
       bodyType: raw
       migratedFromConnect: true
@@ -179,7 +179,7 @@ modules:
       supportedChildTypes:
         - attachment
         - comment
-      title: ZenUML Content Graph
+      title: ZenUML Graph
       resource: main
       bodyType: raw
       migratedFromConnect: true

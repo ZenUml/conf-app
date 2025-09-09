@@ -132,6 +132,8 @@ modules:
       config:
         resource: main
         viewportSize: max
+      adfExport:
+        function: exportMacro
     - key: zenuml-openapi-macro
       title: OpenAPI / Swagger
       description: Create an OpenAPI / Swagger Spec. Developed by the ZenUML team.
@@ -139,6 +141,8 @@ modules:
       config:
         resource: main
         viewportSize: max
+      adfExport:
+        function: exportMacro
     - key: zenuml-graph-macro
       title: Graph (DrawIO)
       description: Create a Graph powered by DrawIO. Developed by the ZenUML team.
@@ -146,6 +150,8 @@ modules:
       config:
         resource: main
         viewportSize: max
+      adfExport:
+        function: exportMacro
     - key: zenuml-embed-macro
       title: Embed a Diagram, Graph or API Spec
       description: Embed an existing Diagram, Graph or API Spec. Developed by the ZenUML team.
@@ -153,6 +159,8 @@ modules:
       config:
         resource: main
         viewportSize: max
+      adfExport:
+        function: exportMacro
   confluence:globalSettings:
     - key: zenuml-get-started-settings
       title: Get Started
@@ -183,9 +191,9 @@ modules:
       resource: main
       bodyType: raw
       migratedFromConnect: true
-  # confluence:fullPage:
-  #   - key: hello-full-page-app
-  #     resource: main
+  function:
+    - key: exportMacro
+      handler: export.handler
 
 resources:
   - key: main

@@ -40,7 +40,7 @@ export const handler = async (payload) => {
 
     // Get the first matching attachment (should be only one)
     const attachment = attachmentsData.results[0];
-    const downloadLink = attachment.downloadLink;
+    const downloadLink = `${attachmentsData._links.base}${attachment.downloadLink}`;
     
     console.log('Found attachment:', { attachmentName, downloadLink });
 

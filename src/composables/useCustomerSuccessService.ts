@@ -57,7 +57,9 @@ export function useCustomerSuccessService() {
     try {
       const customerSuccessService: any = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE'])
       customerSuccessServiceEnabled.value = !!customerSuccessService.CUSTOMER_SUCCESS_SERVICE
-      trackEvent('', customerSuccessServiceEnabled.value ? 'css-enabled' : 'css-disabled', 'conversion')
+      if (customerSuccessServiceEnabled.value) {
+        trackEvent('', 'css-enabled', 'conversion')
+      }
       cssFlagLoaded = true;
     } catch (error) {
       console.error("Error loading CSS feature flag:", error);

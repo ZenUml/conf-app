@@ -119,6 +119,9 @@ permissions:
       - https://conf-full.zenuml.com/drawio/js/grapheditor/Init.js
       - https://conf-full.zenuml.com/drawio/js/grapheditor/Graph.js
       - https://conf-full.zenuml.com/drawio/js/grapheditor/Shapes.js
+      - https://www.googletagmanager.com/gtag/js
+      - https://www.google-analytics.com/analytics.js
+      - https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js
   content:
     styles:
       - unsafe-inline

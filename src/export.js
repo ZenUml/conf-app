@@ -7,7 +7,9 @@ export const handler = async (payload) => {
 
   try {
     // Get the custom content ID from the macro context
-    const customContentId = payload.context.config?.customContentId;
+    // The "extensionPayload" field is observed since 2025-09-20
+    const customContentId = payload.context.config?.customContentId 
+      || payload.extensionPayload?.config?.customContentId;
     
     if (!customContentId) {
       console.log('No customContentId found in context');

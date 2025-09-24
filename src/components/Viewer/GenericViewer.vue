@@ -5,9 +5,9 @@
   <error-boundary>
   <div :class="{'w-full': wide, 'w-fit': !wide, 'mx-auto': true}">
     <div class="frame relative" :class="{'w-full': wide, 'min-w-[300px]': !wide}">
-      <div class="header flex p-1.5" :class="{flex: isDisplayMode, hidden: !isDisplayMode}">
+      <div class="header flex p-1.5" :class="{flex: isDisplayMode && !hideHeader, hidden: !isDisplayMode || hideHeader}">
         <div class="left">
-          <div class="actions flex" :class="{flex: isDisplayMode, hidden: !isDisplayMode}">
+          <div class="actions flex" :class="{flex: isDisplayMode && !hideHeader, hidden: !isDisplayMode || hideHeader}">
             <div v-show="isLite" class="flex justify-center items-center">
               <upgrade/>
             </div>
@@ -104,7 +104,7 @@ import IconLikeFilled from "../icons/IconLikeFilled.vue";
 
 export default {
   name: "GenericViewer",
-  props: ['wide'],
+  props: ['wide', 'hideHeader'],
   data: () => {
     return {
       canUserEdit: true,

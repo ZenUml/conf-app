@@ -10,6 +10,11 @@ import { mountRoot } from "@/mount-root";
 import ForgeGraphEditor from "@/components/DrawIoExtension/ForgeGraphEditor.vue";
 import { DiagramType, DataSource } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
+import { showCloseWithoutSavingDialog } from './utils/modalService';
+import EventBus from "./EventBus";
+
+// Track editor session start time
+const editorStartTime = Date.now();
 
 // Type declarations for global window properties
 declare global {
@@ -51,8 +56,24 @@ async function saveGraphAndExit(graphXml: string) {
 
 async function exit() {
   const codeChanged = window.diagram?.graphXml !== window.graphXml;
+  
+  // Track exit event with context
+  const isNewGraph = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.Graph;
+  const elapsedTimeMs = Date.now() - editorStartTime;
+  
+  trackEvent('', 'create_macro_exit', DiagramType.Graph, {
+    had_changes: codeChanged,
+    macro_stage: isNewGraph ? 'creation' : 'editing',
+    elapsed_time_ms: elapsedTimeMs,
+    code_length: store.state.diagram.graphXml?.length || 0
+  });
+  
   if (codeChanged) {
-    alert('Changes detected. Close without saving?');
+    // Show custom modal dialog for Forge (similar to Connect)
+    const result = await showCloseWithoutSavingDialog();
+    if (result === 'discard') {
+      await (await getView()).close();
+    }
   } else {
     await (await getView()).close();
   }

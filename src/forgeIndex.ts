@@ -10,6 +10,13 @@ import macroMetrics from "@/services/MacroMetrics";
 import store from './model/store2'
 
 import Example from "./utils/sequence/Example";
+import { showCloseWithoutSavingDialog } from './utils/modalService';
+import { handleGetStartedRoute } from './routes/getStarted';
+
+// Track editor session start time
+const editorStartTime = Date.now();
+
+
 
 // Initialize critical path rendering first
 async function initializeCriticalPath() {
@@ -23,6 +30,13 @@ async function initializeCriticalPath() {
 
   try {
     await initForgeContext();
+
+    // Check if this is a global settings route (get started page)
+    const context = await initForgeContext();
+    if (context.extension?.type === 'confluence:globalSettings') {
+      await handleGetStartedRoute();
+      return { macroData: null };
+    }
 
     // Initialize context and get macro data (lightweight operations)
     await globals.apWrapper.initializeContext();
@@ -52,6 +66,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 
     const context = await initForgeContext();
 
+    // Skip loading heavy components if this is a global settings context
+    if (context.extension?.type === 'confluence:globalSettings') {
+      console.log('Skipping heavy components load for global settings context');
+      return;
+    }
+
     let doc;
     const customContentId = context.extension?.config?.customContentId;
     if(!customContentId) {
@@ -65,6 +85,8 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
       doc = customContent?.value;
     }
+
+
 
     // Hide skeleton loader before mounting the actual content
     const skeletonLoader = document.getElementById('skeleton-loader');
@@ -216,9 +238,32 @@ EventBus.$on('save', async () => {
   }, 500);
 });
 
-EventBus.$on('exit', async () => {
-  (await getView()).close();
+EventBus.$on('exit', async (showWarning: boolean) => {
+  console.log('exit', showWarning);
+  
+  // Track exit event with context
+  const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.Sequence;
+  const elapsedTimeMs = Date.now() - editorStartTime;
+  
+  trackEvent('', 'create_macro_exit', DiagramType.Sequence, {
+    had_changes: showWarning,
+    macro_stage: isNewSequence ? 'creation' : 'editing',
+    elapsed_time_ms: elapsedTimeMs,
+    code_length: store.state.diagram.code?.length || 0
+  });
+  
+  if (showWarning) {
+    // Show custom modal dialog for Forge (similar to Connect)
+    const result = await showCloseWithoutSavingDialog();
+    if (result === 'discard') {
+      await (await getView()).close();
+    }
+  } else {
+    await (await getView()).close();
+  }
 });
+
+
 
 EventBus.$on('fullscreen', async () => {
   await openModal({
@@ -241,3 +286,5 @@ EventBus.$on('updateContent', async (diagram: Diagram) => {
     console.info('Your changes cannot be persistent as you are not authorized to edit.');
   }
 });
+
+

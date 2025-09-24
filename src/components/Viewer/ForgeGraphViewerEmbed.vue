@@ -1,6 +1,6 @@
 <template>
   <div id="forge-graph-viewer-embed">
-    <generic-viewer>
+    <generic-viewer :hideHeader="hideHeader">
       <div ref="graphContainer" style="width:100%;height:100%;"></div>
     </generic-viewer>
   </div>
@@ -15,11 +15,11 @@ import { trackEvent } from '@/utils/window';
 function loadDrawIOScripts() {
   return new Promise((resolve, reject) => {
     const scripts = [
-      'https://confluence-plugin.pages.dev/drawio/js/sanitizer/purify.min.js',
-      'https://confluence-plugin.pages.dev/drawio/mxgraph/mxClient.js',
-      'https://confluence-plugin.pages.dev/drawio/js/grapheditor/Init.js',
-      'https://confluence-plugin.pages.dev/drawio/js/grapheditor/Graph.js',
-      'https://confluence-plugin.pages.dev/drawio/js/grapheditor/Shapes.js'
+      'https://conf-full.zenuml.com/drawio/js/sanitizer/purify.min.js',
+      'https://conf-full.zenuml.com/drawio/mxgraph/mxClient.js',
+      'https://conf-full.zenuml.com/drawio/js/grapheditor/Init.js',
+      'https://conf-full.zenuml.com/drawio/js/grapheditor/Graph.js',
+      'https://conf-full.zenuml.com/drawio/js/grapheditor/Shapes.js'
     ];
     
     let loadedCount = 0;
@@ -59,7 +59,11 @@ export default {
       type: Object,
       required: true
     },
-    graphXml: String
+    graphXml: String,
+    hideHeader: {
+      type: Boolean,
+      default: false
+    }
   },
   data() {
     return {
@@ -120,7 +124,7 @@ export default {
           graph.resizeContainer = true;
           graph.setEnabled(false);
           // @ts-ignore
-          setGraphStyle('https://confluence-plugin.pages.dev/drawio/styles/default.xml', graph);
+          setGraphStyle('https://conf-full.zenuml.com/drawio/styles/default.xml', graph);
           // @ts-ignore
           setGraphXml(graphXml, graph);
           

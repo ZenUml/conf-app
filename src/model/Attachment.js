@@ -3,6 +3,57 @@ import md5 from 'md5';
 import {getUrlParam, trackEvent} from '@/utils/window.ts';
 import AP from "@/model/AP";
 import global from '@/model/globals';
+import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
+import {forgeRequest, connectRequest} from '@/utils/requestUtil';
+
+// Helper function to get the identifier (uuid in Connect mode, customContentId in Forge mode)
+async function getIdentifier() {
+  if (forgeGlobal.isForge) {
+    const context = await initForgeContext();
+    return context.extension?.config?.customContentId;
+  } else {
+    return getUrlParam("uuid");
+  }
+}
+
+// Helper function to make requests in both Forge and Connect modes
+async function makeRequest(requestConfig) {
+  if (forgeGlobal.isForge) {
+    // For Forge mode, we need to handle multipart/form-data differently
+    if (requestConfig.contentType === 'multipart/form-data') {
+      // For file uploads in Forge, we need to use FormData
+      const formData = new FormData();
+      Object.keys(requestConfig.data).forEach(key => {
+        formData.append(key, requestConfig.data[key]);
+      });
+      
+      const { requestConfluence } = await import("@forge/bridge");
+      const response = await requestConfluence(`/wiki${requestConfig.url}`, {
+        method: requestConfig.type,
+        body: formData
+      });
+      return { body: await response.text() };
+    } else {
+      // For JSON requests in Forge
+      return await forgeRequest(`/wiki${requestConfig.url}`, requestConfig.type, requestConfig.data);
+    }
+  } else {
+    // For Connect mode, handle multipart/form-data properly
+    if (requestConfig.contentType === 'multipart/form-data') {
+      // For file uploads in Connect, pass data as-is without JSON.stringify
+      const response = await AP.request({
+        type: requestConfig.type,
+        url: requestConfig.url,
+        data: requestConfig.data,
+        contentType: requestConfig.contentType
+      });
+      return response;
+    } else {
+      // For JSON requests in Connect, use connectRequest
+      return await connectRequest(AP.request, requestConfig.url, requestConfig.type, requestConfig.data);
+    }
+  }
+}
 
 function iframeToPng(iframe) {
   return new Promise((resolv) => {
@@ -69,7 +120,7 @@ async function uploadAttachment(attachmentName, uri, hash) {
   const blob = await toPng();
   const file = new File([blob], attachmentName, {type: 'image/png'});
   console.debug('Uploading attachment to', uri);
-  return await AP.request(buildPostRequestToUploadAttachment(uri, hash, file));
+  return await makeRequest(buildPostRequestToUploadAttachment(uri, hash, file));
 }
 
 function buildPutRequestToUpdateAttachmentProperties(pageId, attachmentId, versionNumber, hash) {
@@ -77,13 +128,13 @@ function buildPutRequestToUpdateAttachmentProperties(pageId, attachmentId, versi
     url: buildAttachmentBasePath(pageId) + '/' + attachmentId,
     type: 'PUT',
     contentType: 'application/json',
-    data: JSON.stringify({
+    data: {
       minorEdit: true,
       id: attachmentId,
       type: 'attachment',
       version: {number: versionNumber},
       metadata: {comment: hash}
-    })
+    }
   };
 }
 
@@ -101,16 +152,18 @@ export async function getAttachmentDownloadLink(pageId, macroUuid) {
 }
 
 async function tryGetAttachment() {
-  const pageId = getUrlParam("pageId");
-  const attachmentName = 'zenuml-' + getUrlParam("uuid") + '.png';
+  const pageId = await global.apWrapper._getCurrentPageId();
+  const identifier = await getIdentifier();
+  const attachmentName = 'zenuml-' + identifier + '.png';
   const attachments = await global.apWrapper.getAttachmentsV2(pageId, {filename: attachmentName});
   const descending = attachments.sort((a, b) => b.version?.number - a.version?.number);
   return descending.length && descending[0];
 }
 
 async function uploadAttachment2(hash, fnGetUri) {
-  const pageId = getUrlParam("pageId");
-  const attachmentName = attachmentNameByUuid(getUrlParam("uuid"));
+  const pageId = await global.apWrapper._getCurrentPageId();
+  const identifier = await getIdentifier();
+  const attachmentName = attachmentNameByUuid(identifier);
   const uri = fnGetUri(pageId);
   return await uploadAttachment(attachmentName, uri, hash);
 }
@@ -139,7 +192,8 @@ function uploadNewAttachment(hash) {
 }
 
 async function updateAttachmentProperties(attachmentMeta) {
-  await AP.request(buildPutRequestToUpdateAttachmentProperties(getUrlParam("pageId"),
+  const pageId = await global.apWrapper._getCurrentPageId();
+  await makeRequest(buildPutRequestToUpdateAttachmentProperties(pageId,
     attachmentMeta.attachmentId, attachmentMeta.versionNumber, attachmentMeta.hash));
 }
 

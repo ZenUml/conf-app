@@ -5,23 +5,30 @@ import { addonKey, trackEvent } from '@/utils/window';
 import {
   getClientDomain,
 } from "@/utils/ContextParameters/ContextParameters";
+import forgeGlobal from '@/model/globals/forgeGlobal';
+import { forgeCallRemote } from '@/utils/requestUtil';
 
 export async function syncCustomContent(customContent: any, diagramType: DiagramType, macroUuid: string) {
   try {
-    const response = await fetch(`/custom-content?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${await globals.apWrapper.getToken()}`
-      },
-      body: JSON.stringify({
-        clientDomain: getClientDomain(),
-        addonKey: addonKey(),
-        contentId: customContent.id,
-        diagramType: diagramType,
-        macroUuid: macroUuid
-      })
-    });
+    const backendBaseUrl = forgeGlobal.isForge ? forgeGlobal.zenumlRemoteBaseUrl : '';
+    const url = `${backendBaseUrl}/custom-content?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`;
+    const data = {
+      clientDomain: getClientDomain(),
+      addonKey: addonKey(),
+      contentId: customContent.id,
+      diagramType: diagramType,
+      macroUuid: macroUuid
+    };
+
+    const response = forgeGlobal.isForge ? await forgeCallRemote(url, 'POST', data) 
+      : await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await globals.apWrapper.getToken()}`
+        },
+        body: JSON.stringify(data)
+      });
 
     const result = await response.json();
     trackEvent('', 'sync_custom_content', 'success');

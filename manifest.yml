@@ -101,6 +101,8 @@ permissions:
     - read:user:confluence
     - read:watcher:confluence
     - read:whiteboard:confluence
+    - read:app-user-token
+    - read:app-system-token
   external:
   # "Modifying content permissions CSP options, external permissions CSP options and URLs, or
   # fetch permissions options and URLs" does not require admin approval.
@@ -111,6 +113,7 @@ permissions:
       client:
         - https://zenuml.com
         - https://*.zenuml.com
+        - https://www.google-analytics.com
     frames:
       - https://conf-full.zenuml.com/drawio/index.html
     scripts:
@@ -137,6 +140,8 @@ modules:
         viewportSize: max
       adfExport:
         function: exportMacro
+      resolver:
+        endpoint: remote-connect
     - key: zenuml-openapi-macro
       title: OpenAPI / Swagger
       description: Create an OpenAPI / Swagger Spec. Developed by the ZenUML team.
@@ -146,6 +151,8 @@ modules:
         viewportSize: max
       adfExport:
         function: exportMacro
+      resolver:
+        endpoint: remote-connect
     - key: zenuml-graph-macro
       title: Graph (DrawIO)
       description: Create a Graph powered by DrawIO. Developed by the ZenUML team.
@@ -155,6 +162,8 @@ modules:
         viewportSize: max
       adfExport:
         function: exportMacro
+      resolver:
+        endpoint: remote-connect
     - key: zenuml-embed-macro
       title: Embed a Diagram, Graph or API Spec
       description: Embed an existing Diagram, Graph or API Spec. Developed by the ZenUML team.
@@ -164,6 +173,16 @@ modules:
         viewportSize: max
       adfExport:
         function: exportMacro
+      resolver:
+        endpoint: remote-connect
+  endpoint:
+    - key: remote-connect
+      remote: connect
+      auth:
+        appUserToken:
+          enabled: true
+        appSystemToken:
+          enabled: true 
   confluence:globalSettings:
     - key: zenuml-get-started-settings
       title: Get Started

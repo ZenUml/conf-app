@@ -15,16 +15,16 @@ ENVIRONMENT = "production"
 binding = "DB"
 database_name = "confluence-plugin"
 database_id = "78530089-656d-482f-b38b-60f4f6765cc6"
-migrations_dir = "functions/migrations"
+migrations_dir = "../../functions/migrations"
 
 [[ env.production.d1_databases ]]
 binding = "DB"
 database_name = "confluence-plugin"
 database_id = "78530089-656d-482f-b38b-60f4f6765cc6"
-migrations_dir = "functions/migrations"
+migrations_dir = "../../functions/migrations"
 
 [[ d1_databases ]]
 binding = "DB"
 database_name = "confluence-plugin"
 database_id = "78530089-656d-482f-b38b-60f4f6765cc6"
-migrations_dir = "functions/migrations"
+migrations_dir = "../../functions/migrations"

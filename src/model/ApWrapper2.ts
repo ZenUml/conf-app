@@ -65,7 +65,7 @@ export default class ApWrapper2 implements IApWrapper {
       this.locationTarget = await this._getLocationTarget();
       this.currentPageId = forgeGlobal.isForge ? forgeGlobal.forgeContext.extension.content.id : await this._page.getPageId();
       if (this.versionType === VersionType.Full) {
-        this.license = await this._getLicense();
+        this.license = forgeGlobal.isForge ? forgeGlobal.forgeContext.license : await this._getLicense();
       }
       console.log('initializeContext', this.currentUser, this.currentSpace, this.currentPageUrl, this.locationTarget, this.currentPageId, this.license);
 
@@ -862,21 +862,21 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   _getCurrentUser(): Promise<IUser> {
-    return new Promise(resolv => this._user.getCurrentUser((user: IUser) => resolv(user)));
+    return new Promise(resolv => forgeGlobal.isForge ? resolv({atlassianAccountId: forgeGlobal.forgeContext.accountId}) : this._user.getCurrentUser((user: IUser) => resolv(user)));
   }
 
   async getCurrentSpace(): Promise<ISpace> {
-    return this.currentSpace
-      || (this.currentSpace = await this._page.getSpace())
-      || (this.currentSpace = {key: await this._page.getSpaceKey()});
+    return this.currentSpace || (this.currentSpace = forgeGlobal.isForge 
+        ? forgeGlobal.forgeContext.extension.space 
+        : (await this._page.getSpace() || {key: await this._page.getSpaceKey()}));
   }
 
   async _getCurrentPageId(): Promise<string> {
-    return this.currentPageId || (this.currentPageId = await this._page.getPageId());
+    return this.currentPageId || (this.currentPageId = forgeGlobal.isForge ? forgeGlobal.forgeContext.extension.content.id : await this._page.getPageId());
   }
 
   async _getCurrentPageUrl(): Promise<string> {
-    return this.currentPageUrl || (this.currentPageUrl = await this._page.getHref());
+    return this.currentPageUrl || (this.currentPageUrl = forgeGlobal.isForge ? forgeGlobal.forgeContext.extension.location : await this._page.getHref());
   }
 
   async _getBaseUrl(): Promise<string> {

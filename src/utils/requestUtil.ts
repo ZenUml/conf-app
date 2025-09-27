@@ -23,6 +23,17 @@ export async function forgeRequest(url: string, method: string = 'GET', data: an
   })).json();
 }
 
+export async function forgeCallRemote(url: string, method: string = 'GET', data: any = undefined): Promise<any> {
+  const { invokeRemote } = await import("@forge/bridge");
+  return await invokeRemote({
+    path: url, 
+    method: method,
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: data
+  });
+}
 
 export async function connectRequest(requestFn: any, url: string, type: string = 'GET', data: any = undefined): Promise<any> {
   const response = await requestFn(data ? {

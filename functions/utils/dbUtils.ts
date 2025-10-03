@@ -1,4 +1,5 @@
 import { D1Database } from '@cloudflare/workers-types';
+import { ForgeAppRequestBody } from '../RequestBody';
 
 export async function upsertClientInstallation(db: D1Database, body: any) {
   const clientDomain = new URL(body.baseUrl).hostname.split('.')[0];
@@ -35,4 +36,56 @@ export async function upsertClientInstallation(db: D1Database, body: any) {
   ).run();
 
   console.log('DB Upsert Result:', result);
+}
+
+async function upsertForgeApp(db: D1Database, body: ForgeAppRequestBody) {
+  const result = await db.prepare(
+    `INSERT INTO ForgeApp (
+      appId, name, ownerAccountId, version, createdAt
+    ) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(appId) DO UPDATE SET
+      appId = excluded.appId,
+      name = excluded.name,
+      ownerAccountId = excluded.ownerAccountId,
+      version = excluded.version,
+      createdAt = excluded.createdAt`
+  ).bind(
+    body.app.id,
+    body.app.name,
+    body.app.ownerAccountId,
+    body.app.version,
+    new Date().toISOString()
+  ) .run();
+
+  console.log('DB ForgeApp Upsert Result:', result);
+}
+
+export async function upsertForgeInstallation(db: D1Database, body: ForgeAppRequestBody) {
+  await upsertForgeApp(db, body);
+
+  const result = await db.prepare(
+    `INSERT INTO ForgeInstallation (
+      installationId, context, installerAccountId, eventType, appId, environmentId, permissions, createdAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(installationId) DO UPDATE SET
+      installationId = excluded.installationId,
+      context = excluded.context,
+      installerAccountId = excluded.installerAccountId,
+      eventType = excluded.eventType,
+      appId = excluded.appId,
+      environmentId = excluded.environmentId,
+      permissions = excluded.permissions,
+      createdAt = excluded.createdAt`
+  ).bind(
+    body.id,
+    body.context,
+    body.installerAccountId,
+    body.eventType,
+    body.app.id,
+    body.environment.id,
+    JSON.stringify(body.permissions),
+    new Date().toISOString()
+  ) .run();
+
+  console.log('DB ForgeInstallation Upsert Result:', result);
 }

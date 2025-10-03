@@ -13,7 +13,8 @@
     "/diagram-likes/user-likes",
     "/custom-content",
     "/api/features",
-    "/api/metrics/evaluation"
+    "/api/metrics/evaluation",
+    "/forge-installed"
   ],
   "exclude": []
 }

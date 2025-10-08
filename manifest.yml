@@ -19,6 +19,11 @@ remotes:
     baseUrl: ${BASE_URL}
     operations:
         - compute
+    auth:
+      appSystemToken:
+        enabled: true
+      appUserToken:
+        enabled: true
 # connectModules:
 #   confluence:lifecycle:
 #     - key: lifecycle-events

@@ -10,14 +10,18 @@ import { forgeCallRemote } from '@/utils/requestUtil';
 
 export async function syncCustomContent(customContent: any, diagramType: DiagramType, macroUuid: string) {
   try {
-    const backendBaseUrl = forgeGlobal.isForge ? forgeGlobal.zenumlRemoteBaseUrl : '';
-    const url = `${backendBaseUrl}/custom-content?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`;
+    const url = forgeGlobal.isForge 
+      ? `${forgeGlobal.zenumlRemoteBaseUrl}/forge-custom-content?xdm_e=https://api.atlassian.com/ex/confluence/${forgeGlobal.forgeContext.cloudId}&forgeCloudId=${forgeGlobal.forgeContext.cloudId}` 
+      : `/custom-content?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`;
+    
     const data = {
       clientDomain: getClientDomain(),
       addonKey: addonKey(),
       contentId: customContent.id,
+      customContentId: customContent.id,
       diagramType: diagramType,
-      macroUuid: macroUuid
+      macroUuid: macroUuid,
+      forgeCloudId: forgeGlobal.forgeContext.cloudId
     };
 
     const response = forgeGlobal.isForge ? await forgeCallRemote(url, 'POST', data) 

@@ -9,8 +9,21 @@ export const validateContextToken = async (invocationToken, appId) => {
   const jwksUrl = 'https://forge.cdn.prod.atlassian-dev.net/.well-known/jwks.json';
   const JWKS = jose.createRemoteJWKSet(new URL(jwksUrl));
 
-  const payload = await jose.jwtVerify(invocationToken, JWKS, {audience: appId});
-  return payload;
+  try {
+    const fullAppId = `ari:cloud:ecosystem::app/${appId}`;
+    const payload = await jose.jwtVerify(invocationToken, JWKS, {audience: fullAppId});
+    return payload;
+  } catch (error) {
+    // Log the decoded token when jwtVerify fails
+    try {
+      const decodedToken = jose.decodeJwt(invocationToken);
+      console.log('jwtVerify failed - decoded token:', decodedToken);
+    } catch (decodeError) {
+      console.log('jwtVerify failed - could not decode token:', decodeError.message);
+    }
+    console.log('jwtVerify failed - error:', error.message);
+    throw error;
+  }
 }
 
 export default async function authenticate({ request, env }) {

@@ -27,6 +27,10 @@ export const onRequest = async ({ request, env }) => {
       return response({ error: validationResult.error }, validationResult.status);
     }
 
+    // Extract apiBaseUrl from validation result
+    const apiBaseUrl = validationResult.apiBaseUrl;
+    console.log('Using apiBaseUrl from token:', apiBaseUrl);
+
     // Get the x-forge-oauth-user header
     const forgeOAuthUser = request.headers.get('x-forge-oauth-user');
     console.log('forge-custom-content forgeOAuthUser:', forgeOAuthUser);
@@ -36,7 +40,7 @@ export const onRequest = async ({ request, env }) => {
     console.log('forge-custom-content req body.context:', body.context);
 
     const installationData = await getInstallationData(env, request, body.forgeCloudId);
-    const customContent = await getCustomContentFromConfluence(installationData, body.contentId, forgeOAuthUser);
+    const customContent = await getCustomContentFromConfluence(installationData, body.contentId, forgeOAuthUser, apiBaseUrl);
     console.log('forge-custom-content customContent:', customContent);
 
     const appId = (installationData as any).appId;
@@ -66,12 +70,12 @@ async function validateForgeRequest(request: Request, forgeAppId: string): Promi
 
   try {
     // Validate the context token using Forge's JWKS with the configured app ID
-    const payload = await validateContextToken(jwt, forgeAppId);
-    console.log('forge-custom-content validated context token:', payload);
+    const token = await validateContextToken(jwt, forgeAppId);
+    console.log('forge-custom-content validated context token:', token);
 
     // forgeOAuthUser header is present and will be used as-is without validation
     console.log('forge-custom-content forgeOAuthUser header present:', !!forgeOAuthUser);
-    return {}; // No error, validation passed
+    return { apiBaseUrl: token.payload.apiBaseUrl }; // Return the apiBaseUrl for use in the main function
 
   } catch (error) {
     console.error('Forge request validation error:', error);

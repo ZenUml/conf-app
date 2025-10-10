@@ -12,7 +12,14 @@ export const validateContextToken = async (invocationToken, appId) => {
   try {
     const fullAppId = `ari:cloud:ecosystem::app/${appId}`;
     const payload = await jose.jwtVerify(invocationToken, JWKS, {audience: fullAppId});
-    return payload;
+    
+    // Extract apiBaseUrl from the token payload
+    const apiBaseUrl = payload.payload?.app?.apiBaseUrl || payload.payload?.app?.installation?.contexts?.[0]?.apiBaseUrl;
+    
+    return {
+      ...payload,
+      apiBaseUrl
+    };
   } catch (error) {
     // Log the decoded token when jwtVerify fails
     try {

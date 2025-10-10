@@ -1,11 +1,16 @@
 import { makeAuthenticatedRequest } from "../lib/confluence-auth.cjs";
 const fetch = require('node-fetch');
 
-export async function getCustomContentFromConfluence(installationData, contentId, forgeOAuthUser) {
+export async function getCustomContentFromConfluence(installationData, contentId, forgeOAuthUser, apiBaseUrl) {
   const path = `/api/v2/custom-content/${contentId}`;
   const queryParams = { 'body-format': 'raw' };
   const queryString = new URLSearchParams(queryParams).toString();
-  const fullUrl = `${installationData.baseUrl}${path}${queryString ? '?' + queryString : ''}`;
+  
+  // Use apiBaseUrl from token if provided, otherwise fall back to installationData.baseUrl
+  const baseUrl = apiBaseUrl || installationData.baseUrl;
+  const fullUrl = `${baseUrl}${path}${queryString ? '?' + queryString : ''}`;
+  
+  console.log('Using baseUrl for Confluence API:', baseUrl);
 
   // Use OAuth function if OAuth header is present, otherwise use regular JWT authentication
   if (forgeOAuthUser) {

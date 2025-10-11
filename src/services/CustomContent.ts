@@ -11,7 +11,7 @@ import { forgeCallRemote } from '@/utils/requestUtil';
 export async function syncCustomContent(customContent: any, diagramType: DiagramType, macroUuid: string) {
   try {
     const url = forgeGlobal.isForge 
-      ? `${forgeGlobal.zenumlRemoteBaseUrl}/forge-custom-content?xdm_e=https://api.atlassian.com/ex/confluence/${forgeGlobal.forgeContext.cloudId}&forgeCloudId=${forgeGlobal.forgeContext.cloudId}` 
+      ? `${forgeGlobal.zenumlRemoteBaseUrl}/forge-custom-content` 
       : `/custom-content?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`;
     
     const data = {
@@ -21,7 +21,6 @@ export async function syncCustomContent(customContent: any, diagramType: Diagram
       customContentId: customContent.id,
       diagramType: diagramType,
       macroUuid: macroUuid,
-      forgeCloudId: forgeGlobal.forgeContext.cloudId
     };
 
     const response = forgeGlobal.isForge ? await forgeCallRemote(url, 'POST', data) 
@@ -34,10 +33,8 @@ export async function syncCustomContent(customContent: any, diagramType: Diagram
         body: JSON.stringify(data)
       });
 
-    const result = await response.json();
     trackEvent('', 'sync_custom_content', 'success');
-
-    return result;
+    
   } catch (e) {
     console.error('Error when syncing custom content', e);
     trackEvent(JSON.stringify(e), 'sync_custom_content', 'error');

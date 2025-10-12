@@ -38,8 +38,8 @@
 </template>
 
 <script setup lang="ts">
-import {trackEvent} from "@/utils/window";
-import { useCustomerSuccessService, MACROS_LIMIT } from '@/composables/useCustomerSuccessService'
+import { trackUpgradeEvent, UpgradeEventName, ProductOption, UIComponent } from '@/utils/upgradeTracking'
+import { useCustomerSuccessService, getUpgradeContext, MACROS_LIMIT } from '@/composables/useCustomerSuccessService'
 import { computed } from 'vue'
 // @ts-ignore
 import UpgradeTooltip from './UpgradeTooltip.vue'
@@ -54,11 +54,19 @@ const ariaLabel = computed(() => {
 })
 
 const trackClickEvent = () => {
-  trackEvent('upgrade', 'click', 'conversion')
+  // Header badge links directly to Marketplace
+  trackUpgradeEvent(UpgradeEventName.CTA_CLICKED, {
+    product_option: ProductOption.MARKETPLACE,
+    ui_component: UIComponent.HEADER_BADGE,
+    ...getUpgradeContext(),
+  })
 }
 
 const trackHoverEvent = () => {
-  trackEvent('upgrade', 'hover', 'conversion')
+  trackUpgradeEvent(UpgradeEventName.PROMPT_HOVERED, {
+    ui_component: UIComponent.HEADER_BADGE,
+    ...getUpgradeContext(),
+  })
 }
 
 initialize()

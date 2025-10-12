@@ -34,21 +34,25 @@
 </template>
 
 <script setup lang="ts">
-import {trackEvent} from "@/utils/window";
-import { useCustomerSuccessService, MACROS_LIMIT } from '@/composables/useCustomerSuccessService'
+import { trackUpgradeEvent, UpgradeEventName, ProductOption, UIComponent } from '@/utils/upgradeTracking'
+import { useCustomerSuccessService, getUpgradeContext, MACROS_LIMIT } from '@/composables/useCustomerSuccessService'
 
 const { macrosCreated, actionRequired, upgradeUrl, enterpriseBundleUrl, initialize } = useCustomerSuccessService()
 
 // Event tracking
 const trackMarketplaceClick = () => {
-  trackEvent('upgrade_marketplace', 'click', 'conversion', {
-    source: 'notice_banner'
+  trackUpgradeEvent(UpgradeEventName.CTA_CLICKED, {
+    product_option: ProductOption.MARKETPLACE,
+    ui_component: UIComponent.BANNER,
+    ...getUpgradeContext(),
   })
 }
 
 const trackEnterpriseBundleClick = () => {
-  trackEvent('upgrade_enterprise_bundle', 'click', 'conversion', {
-    source: 'notice_banner'
+  trackUpgradeEvent(UpgradeEventName.CTA_CLICKED, {
+    product_option: ProductOption.ENTERPRISE_BUNDLE,
+    ui_component: UIComponent.BANNER,
+    ...getUpgradeContext(),
   })
 }
 

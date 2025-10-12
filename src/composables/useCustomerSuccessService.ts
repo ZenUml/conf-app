@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 import getFeatureFlagsForCurrentDomain from "@/apis/featureFlags"
-import { trackEvent } from "@/utils/window"
+import { trackUpgradeEvent, UpgradeEventName } from "@/utils/upgradeTracking"
 import macroMetrics from "@/services/MacroMetrics"
 import { getClientDomain } from "@/utils/ContextParameters/ContextParameters"
 
@@ -62,7 +62,9 @@ export function useCustomerSuccessService() {
       const customerSuccessService: any = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE'])
       customerSuccessServiceEnabled.value = !!customerSuccessService.CUSTOMER_SUCCESS_SERVICE
       if (customerSuccessServiceEnabled.value) {
-        trackEvent('', 'css-enabled', 'conversion')
+        trackUpgradeEvent(UpgradeEventName.FEATURE_ENABLED, {
+          feature_name: 'customer_success_service',
+        })
       }
       cssFlagLoaded = true;
     } catch (error) {
@@ -83,4 +85,16 @@ export function useCustomerSuccessService() {
     learnMoreUrl,
     initialize
   }
+}
+
+/**
+ * Get upgrade context data to include in tracking events
+ * Returns current macro usage information
+ */
+export function getUpgradeContext() {
+  return {
+    macro_count: macrosCreated.value,
+    macro_limit: MACROS_LIMIT,
+    macro_usage_pct: Math.round((macrosCreated.value / MACROS_LIMIT) * 100),
+  };
 }

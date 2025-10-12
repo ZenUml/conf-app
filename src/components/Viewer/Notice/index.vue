@@ -11,14 +11,18 @@
 </template>
 
 <script setup lang="ts">
-import {trackEvent} from "@/utils/window";
-import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
+import { trackUpgradeEvent, UpgradeEventName, ProductOption, UIComponent } from '@/utils/upgradeTracking'
+import { useCustomerSuccessService, getUpgradeContext } from '@/composables/useCustomerSuccessService'
 
 const {actionRequired, learnMoreUrl, initialize } = useCustomerSuccessService()
 
 // Event tracking
 const trackClickEvent = () => {
-  trackEvent('upgrade', 'click', 'conversion')
+  trackUpgradeEvent(UpgradeEventName.CTA_CLICKED, {
+    product_option: ProductOption.UNKNOWN,
+    ui_component: UIComponent.VIEWER_NOTICE,
+    ...getUpgradeContext(),
+  })
 }
 
 initialize()

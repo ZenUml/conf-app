@@ -25,6 +25,7 @@
           :macros-created="macrosCreated"
           :macros-limit="MACROS_LIMIT"
           :upgrade-url="upgradeUrl"
+          :enterprise-bundle-url="enterpriseBundleUrl"
           @click="trackClickEvent"
         />
       </div>
@@ -43,7 +44,7 @@ import { computed } from 'vue'
 // @ts-ignore
 import UpgradeTooltip from './UpgradeTooltip.vue'
 
-const { macrosCreated, actionRequired, upgradeUrl, initialize } = useCustomerSuccessService()
+const { macrosCreated, actionRequired, upgradeUrl, enterpriseBundleUrl, initialize } = useCustomerSuccessService()
 
 const ariaLabel = computed(() => {
   if (actionRequired) {

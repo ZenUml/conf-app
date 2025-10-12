@@ -28,6 +28,10 @@ export function useCustomerSuccessService() {
     return `${BASE_UPGRADE_URL}?domain=${domain}`
   })
 
+  const enterpriseBundleUrl = computed(() => {
+    return 'https://buy.stripe.com/fZucN67SlgS933i9zd7IY03'
+  })
+
   const learnMoreUrl = computed(() => {
     const domain = getClientDomain()
     return `${BASE_LEARN_MORE_URL}?domain=${domain}`
@@ -75,6 +79,7 @@ export function useCustomerSuccessService() {
     macrosCreated,
     actionRequired,
     upgradeUrl,
+    enterpriseBundleUrl,
     learnMoreUrl,
     initialize
   }

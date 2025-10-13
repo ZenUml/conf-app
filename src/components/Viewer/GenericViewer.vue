@@ -70,7 +70,7 @@
           <slot name="title"></slot>
         </div>
       </div>
-      <Notice />
+      <UpgradeNotice v-if="isLite" />
       <div class="flex justify-center screen-capture-content">
         <div :class="{'w-full': wide, 'mr-8': !wide}">
           <slot></slot>
@@ -95,7 +95,7 @@ import {DataSource} from "@/model/Diagram/Diagram";
 import {getUrlParam} from '@/utils/window';
 import SendFeedback from "@/components/SendFeedback.vue";
 import Upgrade from "@/components/Upgrade.vue";
-import Notice from "@/components/Viewer/Notice/index.vue"
+import UpgradeNotice from "@/components/Viewer/UpgradeNotice/index.vue"
 import * as htmlToImage from "html-to-image";
 import { toggleDiagramLike, getDiagramLikes } from "@/services/DiagramLikes";
 import store from "@/model/store2";
@@ -119,7 +119,7 @@ export default {
     Upgrade,
     Debug,
     ErrorBoundary,
-    Notice,
+    UpgradeNotice,
     IconLike,
     IconLikeFilled,
   },

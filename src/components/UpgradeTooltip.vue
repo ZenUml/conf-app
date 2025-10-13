@@ -129,7 +129,8 @@
 </template>
 
 <script setup lang="ts">
-import { trackEvent } from '@/utils/window'
+import { trackUpgradeEvent, UpgradeEventName, ProductOption, UIComponent } from '@/utils/upgradeTracking'
+import { getUpgradeContext } from '@/composables/useCustomerSuccessService'
 
 defineProps<{
   macrosCreated: number
@@ -143,17 +144,21 @@ const emit = defineEmits<{
 }>()
 
 const trackMarketplaceClick = () => {
-  trackEvent('upgrade_marketplace', 'click', 'conversion', {
-    source: 'tooltip',
-    position: 'primary'
+  trackUpgradeEvent(UpgradeEventName.CTA_CLICKED, {
+    product_option: ProductOption.MARKETPLACE,
+    ui_component: UIComponent.TOOLTIP,
+    cta_position: 'primary',
+    ...getUpgradeContext(),
   })
   emit('click')
 }
 
 const trackEnterpriseBundleClick = () => {
-  trackEvent('upgrade_enterprise_bundle', 'click', 'conversion', {
-    source: 'tooltip',
-    position: 'secondary'
+  trackUpgradeEvent(UpgradeEventName.CTA_CLICKED, {
+    product_option: ProductOption.ENTERPRISE_BUNDLE,
+    ui_component: UIComponent.TOOLTIP,
+    cta_position: 'secondary',
+    ...getUpgradeContext(),
   })
   emit('click')
 }

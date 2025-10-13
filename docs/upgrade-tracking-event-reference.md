@@ -8,7 +8,8 @@
 | Header Badge Hover | `upgrade_prompt_hovered` | `hover` | - | `header_badge` | - |
 | Banner → Marketplace | `upgrade_cta_clicked` | `click` | `marketplace` | `banner` | - |
 | Banner → Enterprise | `upgrade_cta_clicked` | `click` | `enterprise_bundle` | `banner` | - |
-| Viewer Notice (Lite only) | `upgrade_cta_clicked` | `click` | `unknown` | `viewer_notice` | - |
+| Viewer Notice → Marketplace (Lite only) | `upgrade_cta_clicked` | `click` | `marketplace` | `viewer_notice` | - |
+| Viewer Notice → Enterprise (Lite only) | `upgrade_cta_clicked` | `click` | `enterprise_bundle` | `viewer_notice` | - |
 | Feature Enabled | `upgrade_feature_enabled` | `system` | - | - | - |
 
 ---

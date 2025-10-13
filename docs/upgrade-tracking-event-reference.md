@@ -8,7 +8,7 @@
 | Header Badge Hover | `upgrade_prompt_hovered` | `hover` | - | `header_badge` | - |
 | Banner → Marketplace | `upgrade_cta_clicked` | `click` | `marketplace` | `banner` | - |
 | Banner → Enterprise | `upgrade_cta_clicked` | `click` | `enterprise_bundle` | `banner` | - |
-| Viewer Notice | `upgrade_cta_clicked` | `click` | `unknown` | `viewer_notice` | - |
+| Viewer Notice (Lite only) | `upgrade_cta_clicked` | `click` | `unknown` | `viewer_notice` | - |
 | Feature Enabled | `upgrade_feature_enabled` | `system` | - | - | - |
 
 ---
@@ -24,7 +24,7 @@
 - `header_badge` - Header "Upgrade" or "Action Required" badge
 - `tooltip` - Hover tooltip on Action Required badge
 - `banner` - Warning banner in editor
-- `viewer_notice` - Notice in viewer for non-admins
+- `viewer_notice` - Notice in viewer for non-admins (Lite version only)
 
 ### `cta_position`
 - `primary` - Primary/recommended option (left column, blue)

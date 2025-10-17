@@ -1,5 +1,5 @@
 <template>
-  <div v-show="actionRequired">
+  <div v-show="actionRequired" class="absolute top-[50px] left-0 right-0 z-10 opacity-80 hover:opacity-100 transition-opacity duration-200 ease-in-out">
     <div class="bg-orange-50 border-t-4 border-orange-500 rounded-b text-orange-700 px-4 py-3 shadow-md" role="alert">
       <div class="flex items-start gap-3">
         <div class="flex-shrink-0 mt-0.5">

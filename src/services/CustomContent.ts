@@ -1,19 +1,13 @@
 import globals from '@/model/globals';
 import { DiagramType } from "@/model/Diagram/Diagram";
-import { getBaseUrl } from "@/utils/ContextParameters/ContextParameters";
-import { addonKey, trackEvent } from '@/utils/window';
+import { trackEvent, addonKey } from '@/utils/window';
 import {
   getClientDomain,
 } from "@/utils/ContextParameters/ContextParameters";
-import forgeGlobal from '@/model/globals/forgeGlobal';
-import { forgeCallRemote } from '@/utils/requestUtil';
+import { makeExternalRequest2 } from '@/utils/requestUtil';
 
 export async function syncCustomContent(customContent: any, diagramType: DiagramType, macroUuid: string) {
   try {
-    const url = forgeGlobal.isForge 
-      ? `${forgeGlobal.zenumlRemoteBaseUrl}/forge-custom-content` 
-      : `/custom-content?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`;
-    
     const data = {
       clientDomain: getClientDomain(),
       addonKey: addonKey(),
@@ -23,16 +17,7 @@ export async function syncCustomContent(customContent: any, diagramType: Diagram
       macroUuid: macroUuid,
     };
 
-    const response = forgeGlobal.isForge ? await forgeCallRemote(url, 'POST', data) 
-      : await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await globals.apWrapper.getToken()}`
-        },
-        body: JSON.stringify(data)
-      });
-
+    await makeExternalRequest2('/forge-custom-content', '/custom-content', 'POST', data);
     trackEvent('', 'sync_custom_content', 'success');
     
   } catch (e) {

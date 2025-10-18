@@ -51,3 +51,51 @@ export async function connectRequest(requestFn: any, url: string, type: string =
   } : {type, url});
   return Object.assign({}, response && response.body && JSON.parse(response.body), {xhr: response.xhr});
 }
+
+export async function makeExternalRequest(
+  endpoint: string, 
+  method: string = 'GET', 
+  data: any = undefined
+): Promise<any> {
+  return await makeExternalRequest2(endpoint, endpoint, method, data);
+}
+
+export async function makeExternalRequest2(
+  forgeEndpoint: string, 
+  connectEndpoint: string, 
+  method: string = 'GET', 
+  data: any = undefined
+): Promise<any> {
+  const forgeGlobal = await import('@/model/globals/forgeGlobal');
+  const { getBaseUrl } = await import('@/utils/ContextParameters/ContextParameters');
+  const { addonKey } = await import('@/utils/window');
+  const globals = await import('@/model/globals');
+  
+  const url = forgeGlobal.default.isForge 
+    ? `${forgeGlobal.default.zenumlRemoteBaseUrl}${forgeEndpoint}` 
+    : `${connectEndpoint}?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`;
+  
+  if (forgeGlobal.default.isForge) {
+    const response = await forgeCallRemote(url, method, data);
+    if (response.status !== 200 && response.status !== 201) {
+      throw new Error(`HTTP ${response.status}: ${response.body || 'No body'}`);
+    }
+
+    return response.body;
+  }
+
+  const response = await fetch(url, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${await globals.default.apWrapper.getToken()}`
+    },
+    body: data ? JSON.stringify(data) : undefined
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+  }
+
+  return await response.json();
+}

@@ -42,7 +42,7 @@ export default {
   methods: {
     handleResize() {
       this.$nextTick(() => {
-        const resizeTarget = this.containerRef.querySelector('.resize-target');
+        const resizeTarget = this.containerRef.querySelector('.resize-target>.zenuml>div');
         if (resizeTarget && resizeTarget.firstChild) {
           const width = resizeTarget.scrollWidth;
           const height = resizeTarget.scrollHeight;
@@ -59,11 +59,14 @@ export default {
         this.scale = scale;
         this.scaledHeight = scaledHeight;
         if (resizeTarget) {
-          resizeTarget.style.transform = `scale(${scale})`;
-          resizeTarget.style.transformOrigin = 'top left';
+          // We need this setTimeout because the ZenUML renderer moves creation participant in $nextTick
+          setTimeout(() => {
+            resizeTarget.style.transform = `scale(${scale})`;
+            resizeTarget.style.transformOrigin = 'top left';
+            this.containerRef.style.height = `${scaledHeight}px`;
+            window.AP?.resize?.("100%", scaledHeight + 50); // 50 is for the header
+          }, 10);
         }
-        this.containerRef.style.height = `${scaledHeight}px`;
-        window.AP?.resize?.("100%", scaledHeight);
       });
     }
   }

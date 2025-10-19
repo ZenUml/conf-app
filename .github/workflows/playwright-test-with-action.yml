@@ -11,7 +11,7 @@ on:
       model:
         description: 'Claude model to use'
         required: false
-        default: 'claude-sonnet-4-5-20250514'
+        default: 'claude-sonnet-4-5-20250929'
         type: string
   # Note: push events are not supported by claude-code-action
   # Use workflow_dispatch for manual runs or schedule for automated tests
@@ -137,7 +137,7 @@ jobs:
 
           # Claude Code CLI arguments
           claude_args: |
-            --model "${{ github.event.inputs.model || 'claude-sonnet-4-5-20250514' }}"
+            --model "${{ github.event.inputs.model || 'claude-sonnet-4-5-20250929' }}"
             --mcp-config /tmp/playwright-mcp.json
             --allowed-tools "mcp__playwright-extension__*,Bash(node:*),Bash(npx:*),Bash(date:*),Read,Write"
             --debug

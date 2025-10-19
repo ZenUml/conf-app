@@ -122,10 +122,12 @@ jobs:
                - Waiting for the page to load
                - Taking a screenshot as proof
 
-            3. Environment variables available:
-               - ZENUML_STAGE_USERNAME: ${{ secrets.ZENUML_STAGE_USERNAME }}
-               - ZENUML_STAGE_PASSWORD: ${{ secrets.ZENUML_STAGE_PASSWORD }}
-               - ATLASSIAN_OTP: ${{ secrets.ATLASSIAN_OTP }}
+            3. Authentication credentials (available as environment variables):
+               - Username: Check process.env.ZENUML_STAGE_USERNAME
+               - Password: Check process.env.ZENUML_STAGE_PASSWORD
+               - OTP Secret: Check process.env.ATLASSIAN_OTP
+               - Domain: Check process.env.ZENUML_DOMAIN (default: zenuml-stg.atlassian.net)
+               - Space: Check process.env.ZENUML_SPACE (default: ZS)
 
             4. Report the test result:
                - PASS/FAIL status
@@ -140,6 +142,7 @@ jobs:
             --model "${{ github.event.inputs.model || 'claude-sonnet-4-5-20250929' }}"
             --mcp-config /tmp/playwright-mcp.json
             --allowed-tools "mcp__playwright-extension__*,Bash(node:*),Bash(npx:*),Bash(date:*),Read,Write"
+            --dangerous-disable-permission-requests
             --debug
 
       - name: Generate Test Summary

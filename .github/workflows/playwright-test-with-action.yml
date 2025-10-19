@@ -37,6 +37,13 @@ jobs:
         with:
           node-version: '20.x'
 
+      - name: Install dependencies
+        run: |
+          npm install -g pnpm
+          cd tests/e2e-tests
+          pnpm install
+          echo "✅ E2E test dependencies installed"
+
       - name: Install Playwright browsers
         run: |
           echo "Installing Playwright Chromium browser and dependencies..."

@@ -93,6 +93,14 @@ jobs:
           # Authentication - using Claude Code OAuth token
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
+          # Pass environment variables to Claude Code CLI
+          claude_env: |
+            ZENUML_STAGE_USERNAME=${{ secrets.ZENUML_STAGE_USERNAME }}
+            ZENUML_STAGE_PASSWORD=${{ secrets.ZENUML_STAGE_PASSWORD }}
+            ATLASSIAN_OTP=${{ secrets.ATLASSIAN_OTP }}
+            ZENUML_DOMAIN=${{ secrets.ZENUML_DOMAIN }}
+            ZENUML_SPACE=${{ secrets.ZENUML_SPACE }}
+
           # Test execution prompt
           prompt: |
             TEST FILE: ${{ github.event.inputs.markdown_test_file || 'tests/e2e-tests/markdown/login-authentication.md' }}

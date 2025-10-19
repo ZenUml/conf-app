@@ -92,45 +92,33 @@ jobs:
             REPOSITORY: ${{ github.repository }}
             RUN ID: ${{ github.run_id }}
 
-            Execute the end-to-end test defined in the markdown file above.
+            CRITICAL: DO NOT write documentation. DO NOT create markdown files. EXECUTE THE ACTUAL BROWSER TEST.
 
-            ## Test Execution Instructions
+            ## Your Task
 
-            1. **Read the test file**: Use the Read tool to load the markdown test specification
+            1. Read the test specification file: ${{ github.event.inputs.markdown_test_file || 'tests/e2e-tests/markdown/login-authentication.md' }}
 
-            2. **Execute each test step**: Follow the instructions in the markdown file sequentially
+            2. USE THE PLAYWRIGHT MCP TOOLS to actually perform the test by:
+               - Navigating to the Confluence URL in a real browser
+               - Filling in the username field and submitting
+               - Filling in the password field and submitting
+               - Generating an OTP code using tests/e2e-tests/otp.js
+               - Filling in the OTP field and submitting
+               - Waiting for the page to load
+               - Taking a screenshot as proof
 
-            3. **Authentication**: The following environment variables are available:
-               - ZENUML_STAGE_USERNAME: Confluence username
-               - ZENUML_STAGE_PASSWORD: Confluence password
-               - ATLASSIAN_OTP: OTP secret for MFA
+            3. Environment variables available:
+               - ZENUML_STAGE_USERNAME: ${{ secrets.ZENUML_STAGE_USERNAME }}
+               - ZENUML_STAGE_PASSWORD: ${{ secrets.ZENUML_STAGE_PASSWORD }}
+               - ATLASSIAN_OTP: ${{ secrets.ATLASSIAN_OTP }}
 
-            4. **OTP Generation**: Use the otp.js module at `tests/e2e-tests/otp.js` to generate TOTP codes
+            4. Report the test result:
+               - PASS/FAIL status
+               - Screenshot path
+               - Any errors encountered
+               - Total execution time
 
-            5. **Browser automation**: Use the Playwright MCP server tools for all browser interactions
-
-            6. **Artifacts**: Save all screenshots and videos to the test-output/ directory
-
-            7. **Reporting**: Provide detailed test results with:
-               - Timestamp for each step (use `date -u +%Y-%m-%dT%H:%M:%S.%3NZ`)
-               - Pass/fail status for each step
-               - Screenshots of key states
-               - Any errors encountered with full details
-
-            ## Expected Outcome
-
-            The test should successfully:
-            - Navigate to the Confluence page
-            - Complete the login flow with username, password, and OTP
-            - Verify the page loaded correctly
-            - Capture screenshots as evidence
-
-            ## Important Notes
-
-            - The Playwright browser is running in headless mode
-            - All browser interactions are traced and recorded
-            - If any step fails, capture a screenshot and provide debugging details
-            - Report the total test execution time
+            DO NOT CREATE DOCUMENTATION. RUN THE ACTUAL PLAYWRIGHT BROWSER TEST.
 
           # Claude Code CLI arguments
           claude_args: |

@@ -498,7 +498,9 @@ export default class ApWrapper2 implements IApWrapper {
     try {
       // Build query parameters for Forge API
       const params = new URLSearchParams();
-      params.append('type', this.customContentType(CUSTOM_CONTENT_TYPES[0]));
+      CUSTOM_CONTENT_TYPES.forEach(type => {
+        params.append('type', this.customContentType(type));
+      });
       params.append('limit', pageSize.toString());
       params.append('body-format', 'raw');
       
@@ -521,8 +523,12 @@ export default class ApWrapper2 implements IApWrapper {
         };
       }
 
-      // Parse the results similar to how getCustomContentByIdV2 works
-      const results = response.results.map((customContent: any) => {
+      const parseAndFilterResponse = (r: any) => r.results.map((customContent: any) => {
+        if(customContent.body.raw.value.length === 0) {
+          console.warn('Empty custom content body for id', customContent.id);
+          return null;
+        }
+
         let diagram;
         try {
           diagram = JSON.parse(customContent.body.raw.value);
@@ -538,6 +544,20 @@ export default class ApWrapper2 implements IApWrapper {
         return assign as ICustomContent;
       }).filter((item: ICustomContent) => item && item.value && item.value.diagramType);
 
+      let results = parseAndFilterResponse(response);
+
+      while(results.length < pageSize && response._links?.next) {
+        const nextResponse = await forgeRequest(response._links.next);
+        if (!nextResponse || !nextResponse.results) {
+          break;
+        }
+        const nextResults = parseAndFilterResponse(nextResponse);
+        results = results.concat(nextResults);
+        response._links.next = nextResponse._links?.next;
+      }
+
+      console.log(`searchPagedCustomContentForge fetched ${results.length} items`, results);
+
       const searchResults: SearchResults = {
         size: results.length,
         results: results,
@@ -545,6 +565,7 @@ export default class ApWrapper2 implements IApWrapper {
       };
 
       trackEvent(`found ${results.length} content in Forge mode`, 'searchPagedCustomContentForge', 'info');
+      console.log('searchPagedCustomContentForge results:', searchResults);
       return searchResults;
     } catch (e) {
       console.error('searchPagedCustomContentForge', e);

@@ -485,34 +485,35 @@ export default class ApWrapper2 implements IApWrapper {
 
   async searchPagedCustomContent(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
     if (forgeGlobal.isForge) {
-      // Forge mode: use the new API
       return await this.searchPagedCustomContentForge(pageSize, keyword, onlyMine, docType, ids);
     }
 
-    // Connect mode: use the old API
     const searchUrl = await this.buildSearchCustomConentUrl(keyword, onlyMine, docType, ids, pageSize);
     return await this.searchPagedCustomContentByUrl(searchUrl);
   }
 
   async searchPagedCustomContentForge(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
-    try {
-      // Build query parameters for Forge API
-      const params = new URLSearchParams();
-      CUSTOM_CONTENT_TYPES.forEach(type => {
-        params.append('type', this.customContentType(type));
-      });
-      params.append('limit', pageSize.toString());
-      params.append('body-format', 'raw');
-      
-      if (keyword) {
-        params.append('title', keyword);
-      }
-      
-      if (onlyMine && this.currentUser?.atlassianAccountId) {
-        params.append('contributor', this.currentUser.atlassianAccountId);
-      }
+    const params = new URLSearchParams();
+    CUSTOM_CONTENT_TYPES.forEach(type => {
+      params.append('type', this.customContentType(type));
+    });
+    params.append('limit', pageSize.toString());
+    params.append('body-format', 'raw');
+    
+    if (keyword) {
+      params.append('title', keyword);
+    }
+    
+    if (onlyMine && this.currentUser?.atlassianAccountId) {
+      params.append('contributor', this.currentUser.atlassianAccountId);
+    }
 
-      const searchUrl = `/wiki/api/v2/custom-content?${params.toString()}`;
+    const searchUrl = `/wiki/api/v2/custom-content?${params.toString()}`;
+    return await this.searchPagedCustomContentForgeByUrl(searchUrl);
+  }
+
+  async searchPagedCustomContentForgeByUrl(searchUrl: string, pageSize: number = 25): Promise<SearchResults> {
+    try {
       const response = await forgeRequest(searchUrl);
       
       if (!response || !response.results) {
@@ -556,20 +557,18 @@ export default class ApWrapper2 implements IApWrapper {
         response._links.next = nextResponse._links?.next;
       }
 
-      console.log(`searchPagedCustomContentForge fetched ${results.length} items`, results);
-
       const searchResults: SearchResults = {
         size: results.length,
         results: results,
         _links: response._links
       };
 
-      trackEvent(`found ${results.length} content in Forge mode`, 'searchPagedCustomContentForge', 'info');
-      console.log('searchPagedCustomContentForge results:', searchResults);
+      trackEvent(`found ${results.length} content in Forge mode`, 'searchPagedCustomContentForgeByUrl', 'info');
+      console.log('searchPagedCustomContentForgeByUrl results:', searchResults);
       return searchResults;
     } catch (e) {
-      console.error('searchPagedCustomContentForge', e);
-      trackEvent(JSON.stringify(e), 'searchPagedCustomContentForge', 'error');
+      console.error('searchPagedCustomContentForgeByUrl', e);
+      trackEvent(JSON.stringify(e), 'searchPagedCustomContentForgeByUrl', 'error');
       return {
         size: 0,
         results: []
@@ -578,6 +577,10 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async searchPagedCustomContentByUrl(searchUrl: string): Promise<SearchResults> {
+    if (forgeGlobal.isForge) {
+      return await this.searchPagedCustomContentForgeByUrl(searchUrl);
+    }
+
     const searchCustomContent = async (): Promise<SearchResults> => {
       const data = await this.searchOnce(searchUrl);
       const results = data?.results || [];

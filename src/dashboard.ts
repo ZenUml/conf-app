@@ -9,12 +9,13 @@ import ApWrapper2 from "@/model/ApWrapper2";
 import uuidv4 from "@/utils/uuid";
 import {trackEvent} from '@/utils/window';
 import globals from '@/model/globals';
+import store from "@/model/store2";
 
 const apWrapper = new ApWrapper2(AP);
 
 if(document.getElementById('app')) {
   const app = createApp(DashboardDocumentList);
-  app.mount('#app');
+  app.use(store).mount('#app');
   (async () => {
     await globals.apWrapper.initializeContext();
     trackEvent('', 'load_dashboard', 'pageview');

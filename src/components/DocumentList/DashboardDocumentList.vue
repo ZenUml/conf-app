@@ -732,11 +732,12 @@ export default {
       const customData = {
         "content.id": customContentId,
         contentId: customContentId,
+        customContentId
       };
       
       if (window.forgeGlobal?.isForge) {
-        EventBus.$emit('edit-diagram', {
-          type,
+        EventBus.$emit('edit', {
+          diagramType: type,
           customData
         });
       } else {

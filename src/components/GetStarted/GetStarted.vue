@@ -2,7 +2,7 @@
   <div class="get-started-page">
     <div class="hero-section">
       <div class="hero-content">
-        <h1>Welcome to ZenUML Forge! <span class="forge-badge">FORGE</span></h1>
+        <h1>Welcome to ZenUML Diagrams! <span class="forge-badge">FORGE</span></h1>
         <p class="hero-description">
           Your team is now ready to create and edit standard-compliant UML Diagrams with the power of Atlassian Forge.
         </p>
@@ -104,28 +104,28 @@
         <div class="resource-card">
           <h4>📚 Documentation</h4>
           <p>Comprehensive guides and API reference</p>
-          <a href="https://zenuml.atlassian.net/wiki/spaces/Doc/overview" target="_blank" class="resource-link">
+          <a href="#" @click="viewDocumentation()" target="_blank" class="resource-link">
             View Documentation →
           </a>
         </div>
         <div class="resource-card">
           <h4>🎥 Video Tutorials</h4>
           <p>Step-by-step video guides</p>
-          <a href="https://www.youtube.com/channel/UCexample" target="_blank" class="resource-link">
+          <a href="#" @click="openUrl('https://www.youtube.com/embed/cqQLyOwAZ0A?autoplay=1&mute=1')" target="_blank" class="resource-link">
             Watch Videos →
           </a>
         </div>
         <div class="resource-card">
           <h4>💬 Community</h4>
           <p>Get help from the community</p>
-          <a href="https://community.atlassian.com" target="_blank" class="resource-link">
+          <a href="#" @click="openUrl('https://community.atlassian.com')" target="_blank" class="resource-link">
             Join Community →
           </a>
         </div>
         <div class="resource-card">
           <h4>🐛 Report Issues</h4>
           <p>Found a bug? Let us know</p>
-          <a href="https://zenuml.atlassian.net/servicedesk" target="_blank" class="resource-link">
+          <a href="#" @click="openUrl('https://zenuml.atlassian.net/servicedesk')" target="_blank" class="resource-link">
             Report Issue →
           </a>
         </div>
@@ -188,9 +188,13 @@ export default {
       this.showMessage('Navigate to any Confluence page and insert a ZenUML Embed Diagram macro!');
     },
 
-    viewDocumentation() {
+    async viewDocumentation() {
       trackEvent('', 'get_started_view_docs', 'forge_get_started');
-      window.open('https://zenuml.atlassian.net/wiki/spaces/Doc/overview', '_blank');
+      await this.openUrl('https://zenuml.atlassian.net/wiki/spaces/Doc/overview');
+    },
+    async openUrl(url) {
+      const { router } = await import("@forge/bridge");
+      router.open(url);
     },
 
     showMessage(message) {

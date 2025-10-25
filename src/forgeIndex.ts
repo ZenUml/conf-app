@@ -38,6 +38,12 @@ async function initializeCriticalPath() {
       return { macroData: null };
     }
 
+    // Check if this is a global page route (dashboard)
+    if (context.extension?.type === 'confluence:globalPage') {
+      await import('./dashboard');
+      return { macroData: null };
+    }
+
     // Initialize context and get macro data (lightweight operations)
     await globals.apWrapper.initializeContext();
     const macroData = await globals.apWrapper.getMacroData();
@@ -66,9 +72,9 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 
     const context = await initForgeContext();
 
-    // Skip loading heavy components if this is a global settings context
-    if (context.extension?.type === 'confluence:globalSettings') {
-      console.log('Skipping heavy components load for global settings context');
+    // Skip loading heavy components if this is a global settings or global page context
+    if (context.extension?.type === 'confluence:globalSettings' || context.extension?.type === 'confluence:globalPage') {
+      console.log('Skipping heavy components load for global context');
       return;
     }
 

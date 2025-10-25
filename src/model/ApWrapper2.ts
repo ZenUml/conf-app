@@ -63,7 +63,7 @@ export default class ApWrapper2 implements IApWrapper {
       this.currentPageUrl = await this._getCurrentPageUrl();
       this.baseUrl = await this._getBaseUrl();
       this.locationTarget = await this._getLocationTarget();
-      this.currentPageId = forgeGlobal.isForge ? forgeGlobal.forgeContext.extension.content.id : await this._page.getPageId();
+      this.currentPageId = forgeGlobal.isForge ? forgeGlobal.forgeContext.extension.content?.id : await this._page.getPageId();
       if (this.versionType === VersionType.Full) {
         this.license = forgeGlobal.isForge ? forgeGlobal.forgeContext.license : await this._getLicense();
       }
@@ -498,6 +498,7 @@ export default class ApWrapper2 implements IApWrapper {
     try {
       // Build query parameters for Forge API
       const params = new URLSearchParams();
+      params.append('type', this.customContentType(CUSTOM_CONTENT_TYPES[0]));
       params.append('limit', pageSize.toString());
       params.append('body-format', 'raw');
       
@@ -768,6 +769,9 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   getDialogCustomData() {
+    if(forgeGlobal.isForge) {
+      return Promise.resolve(undefined);
+    }
     const dialog = this._dialog;
     return new Promise((resolv: Function) => {
       try {
@@ -840,7 +844,7 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async _getCurrentPageId(): Promise<string> {
-    return this.currentPageId || (this.currentPageId = forgeGlobal.isForge ? forgeGlobal.forgeContext.extension.content.id : await this._page.getPageId());
+    return this.currentPageId || (this.currentPageId = forgeGlobal.isForge ? forgeGlobal.forgeContext.extension.content?.id : await this._page.getPageId());
   }
 
   async _getCurrentPageUrl(): Promise<string> {

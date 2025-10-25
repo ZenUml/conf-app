@@ -208,6 +208,11 @@ modules:
       title: Get Started
       resource: main
       useAsGetStarted: true
+  confluence:globalPage:
+    - key: zenuml-dashboard-page
+      resource: main
+      title: ZenUML
+      route: zenuml-dashboard
   confluence:customContent:
     - key: zenuml-content-sequence
       supportedContainerTypes:

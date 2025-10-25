@@ -1,4 +1,5 @@
 <template>
+  <h1>Zenuml Dashboard</h1>
   <div class="content">
     <div class="workspace h-screen flex flex-col overflow-x-auto">
       <header class="flex flex-shrink-0 border-b h-[72px]">
@@ -180,10 +181,10 @@
                       />
                     </div>
                     <a
-                      :href="customContentItem.container.link"
+                      :href="customContentItem.container?.link"
                       target="_blank"
                       class="text-gray-500 hover:text-[#004EEB] hover:underline"
-                      >{{ customContentItem.container.title }}</a
+                      >{{ customContentItem.container?.title }}</a
                     >
                   </div>
                   <div class="flex items-center justify-between">
@@ -194,6 +195,7 @@
                     <Contributors
                       class="flex-shrink-0"
                       :contributors="customContentItem.contributors"
+                      v-if="customContentItem.contributors"
                     />
                   </div>
                 </a>

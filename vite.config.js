@@ -1,4 +1,3 @@
-import { sentryVitePlugin } from "@sentry/vite-plugin";
 import path, {resolve} from 'path';
 import {defineConfig, splitVendorChunkPlugin} from 'vite';
 import createVuePlugin from '@vitejs/plugin-vue';
@@ -70,7 +69,9 @@ export default defineConfig({
     },
 
     emptyOutDir: true,
-    sourcemap: true
+    sourcemap: false,
+    reportCompressedSize: false,
+    minify: 'esbuild',
   },
   resolve: {
     alias: {
@@ -91,9 +92,6 @@ export default defineConfig({
       {src: 'node_modules/@zenuml/core/dist/fonts', dest: 'dist'}
     ],
     hook: process.env.NODE_ENV === 'development' ? 'buildStart' : 'writeBundle'
-  }), sentryVitePlugin({
-    org: "zenuml",
-    project: "nodejs"
   })],
   test: {
     environment: 'jsdom',

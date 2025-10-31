@@ -54,7 +54,18 @@ jobs:
         run: pip3 install PyYAML==5.3.1
       - name: Install pluploader
         run: pip3 install pluploader
-      - run: pluploader --base-url https://zenuml-stg.atlassian.net/wiki --user ${{ secrets.ZENUML_STAGE_UPM_USER }} --password ${{ secrets.ZENUML_STAGE_UPM_PASSWORD }} install --cloud --plugin-uri https://conf-stg-lite.zenuml.com/descriptor
+      - name: Install plugin to Confluence
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_wait_seconds: 10
+          command: |
+            pluploader --base-url https://zenuml-stg.atlassian.net/wiki \
+              --user ${{ secrets.ZENUML_STAGE_UPM_USER }} \
+              --password ${{ secrets.ZENUML_STAGE_UPM_PASSWORD }} \
+              install --cloud \
+              --plugin-uri https://conf-stg-lite.zenuml.com/descriptor
 
   staging-lite-test:
     needs: staging-lite
@@ -141,7 +152,18 @@ jobs:
         run: pip3 install PyYAML==5.3.1
       - name: Install pluploader
         run: pip3 install pluploader
-      - run: pluploader --base-url https://zenuml-stg.atlassian.net/wiki --user ${{ secrets.ZENUML_STAGE_UPM_USER }} --password ${{ secrets.ZENUML_STAGE_UPM_PASSWORD }} install --cloud --plugin-uri https://conf-stg-full.zenuml.com/descriptor
+      - name: Install plugin to Confluence
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_wait_seconds: 10
+          command: |
+            pluploader --base-url https://zenuml-stg.atlassian.net/wiki \
+              --user ${{ secrets.ZENUML_STAGE_UPM_USER }} \
+              --password ${{ secrets.ZENUML_STAGE_UPM_PASSWORD }} \
+              install --cloud \
+              --plugin-uri https://conf-stg-full.zenuml.com/descriptor
 
   staging-full-test:
     needs: staging-full

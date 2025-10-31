@@ -2,19 +2,21 @@
 
 This directory contains end-to-end tests for the ZenUML Confluence Cloud Add-on using Playwright.
 
-## Migration from Puppeteer to Playwright
+## Architecture
 
-The tests have been migrated from Puppeteer to Playwright for better reliability, debugging capabilities, and modern testing features.
+The test suite uses Playwright's dependency project pattern for efficient authentication:
 
-### Key Changes:
+1. **Setup Project** (`tests/auth.setup.ts`): Authenticates once and saves state to `auth-state.json`
+2. **Test Projects**: Load the saved authentication state to skip login for each test
 
-1. **Test Framework**: Moved from custom Puppeteer scripts to Playwright Test
-2. **Configuration**: Added `playwright.config.js` for test configuration
-3. **Selectors**: Updated XPath selectors to use Playwright's `xpath=` prefix
-4. **Frame Handling**: Improved iframe handling with `contentFrame()` method
-5. **Error Handling**: Better error handling and debugging capabilities
-6. **Screenshots**: Automatic screenshots on failure
-7. **Trace Viewer**: Added trace collection for debugging failed tests
+### Key Features
+
+- **One-Time Authentication**: Login with OTP happens once before all tests
+- **Page Object Model**: Organized page interactions in `pages/MacroPage.ts`
+- **Test Helpers**: Reusable test utilities in `utils/test-helpers.ts`
+- **Automatic Cleanup**: Test pages are created and deleted automatically
+- **Screenshot & Video**: Captured on test failures
+- **Trace Viewer**: Step-by-step debugging for failed tests
 
 ## Setup
 
@@ -60,93 +62,76 @@ npm run test:debug
 # Run tests with Playwright UI mode
 npm run test:ui
 
-# Run with specific environment (examples)
-npm run test:prod
-npm run test:peng
-npm run test:yanhui
-npm run test:yanhui:existing
-
-# Run legacy Puppeteer tests (backup)
-npm run test:legacy
+# Run tests with trace collection
+npm run test:trace
 ```
 
 ## Test Structure
 
-The main test file is `tests/e2e.spec.js` which contains:
+### Directory Layout
+
+```
+tests/e2e-tests/
+├── config/
+│   └── test-config.ts       # Centralized test configuration
+├── pages/
+│   └── MacroPage.ts          # Page Object Model for macro interactions
+├── tests/
+│   ├── auth.setup.ts         # Authentication setup project
+│   └── e2e.view-macros.spec.ts  # Main macro functionality tests
+├── utils/
+│   ├── ConfluenceLogin.ts    # Login and OTP handling
+│   ├── page-creator.ts       # Test page creation/deletion
+│   └── test-helpers.ts       # Reusable test utilities
+└── playwright.config.js      # Playwright configuration
+
+```
 
 ### Test Cases
 
-1. **View Macros Test**: Tests viewing different macro types
-   - Sequence diagrams (ZenUML & Mermaid)
-   - Graph diagrams (DrawIO)
-   - OpenAPI specifications
-   - Embed macros
+**tests/e2e.view-macros.spec.ts**:
 
-2. **Edit Sequence Macro Test**: Tests editing sequence diagrams
-   - Opens sequence macro viewer
-   - Clicks edit button
-   - Waits for editor dialog
-   - Saves changes
-   - Verifies updated content
-
-3. **Embed Macros Test**: Tests embedded diagram functionality
-
-### Key Features
-
-- **Automatic Login**: Handles Atlassian login with 2FA support
-- **Page Management**: Creates and cleans up test pages automatically
-- **Frame Handling**: Properly handles nested iframes for macro content
-- **Error Handling**: Comprehensive error handling with debugging info
-- **Screenshots**: Automatic screenshot capture on failures
-- **Flexible Selectors**: Updated selectors to handle dynamic content
+1. **Display All Macro Types**: Verifies rendering of sequence, graph, OpenAPI, and embed macros
+2. **Display Mermaid Diagrams**: Tests Mermaid diagram rendering
+3. **Handle Body-Only Sequence Macros**: Tests sequence macros without custom content
+4. **Edit Sequence Macro**: Tests editing and saving sequence diagrams
+5. **Edit Embed Macro**: Tests editing and saving embedded diagrams
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Iframe Not Found**: The test now uses more flexible selectors for iframe detection
-2. **Timeout Issues**: Increased timeouts for CI environments
-3. **Login Problems**: Added support for 2FA and MFA dismissal
-4. **Frame Loading**: Better handling of iframe content loading
+1. **Authentication Fails**:
+   - Verify `ZENUML_STAGE_USERNAME` and `ZENUML_STAGE_PASSWORD` are set
+   - Check that MFA secret is correctly configured for OTP generation
+   - Delete `auth-state.json` to force re-authentication
 
-### Debug Information
+2. **Space Not Found**:
+   - Ensure `ZENUML_SPACE` environment variable matches an existing space
+   - Default is "ZS" - update if your space has a different key
 
-When tests fail, check:
-- `screenshots/` directory for failure screenshots
-- `test-results/` directory for detailed test reports
-- Console logs for detailed error information
-- Playwright trace viewer for step-by-step debugging
+3. **Timeout Issues**:
+   - Increase timeouts in `playwright.config.js` if needed
+   - Check network connectivity to Confluence instance
 
-### Selector Updates
+4. **Frame Loading Failures**:
+   - Verify macro is properly installed in Confluence
+   - Check for JavaScript errors in browser console
+   - Use `--headed` mode to visually debug
 
-The most important fix for the failing iframe selector:
+### Debug Tools
 
-```javascript
-// Old (Puppeteer):
-const macroEditorFrame = '//iframe[contains(@src, "sequence-editor-dialog.html")]';
-
-// New (Playwright):
-const macroEditorFrame = 'xpath=//iframe[contains(@src, "sequence-editor-dialog")]';
-```
-
-This change makes the selector more flexible to handle query parameters and different URL structures in the Atlassian Connect environment.
+When tests fail:
+- **Screenshots**: Check `test-results/` directory
+- **Videos**: Retained on failure in `test-results/`
+- **Traces**: Run with `npm run test:trace`, then view with `npx playwright show-trace trace.zip`
+- **Console Logs**: Enable with `DEBUG=pw:api npm test`
 
 ## Configuration
 
-The `playwright.config.js` file includes:
-- Multi-browser testing (Chromium, Firefox, WebKit)
-- Automatic screenshots on failure
-- Video recording on failure
-- Trace collection for debugging
-- Configurable timeouts and retries
-- HTML reporting
-
-## Legacy Support
-
-The original Puppeteer test (`e2ePage.js`) is preserved and can be run with:
-
-```bash
-npm run test:legacy
-```
-
-This provides a fallback option during the migration period.
+Key `playwright.config.js` settings:
+- **Setup Project**: Runs once before all tests to authenticate
+- **Dependency Pattern**: Main tests depend on setup completion
+- **Storage State**: Saved to `auth-state.json` and reused
+- **Timeouts**: 60s action/navigation, 120s for OTP entry
+- **Retries**: 2 retries on CI, 0 locally

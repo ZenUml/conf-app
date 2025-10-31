@@ -2,3 +2,5 @@ playwright-report/
 test-results/
 screenshots/
 auth-state.json
+.api-lock
+test-pages.json

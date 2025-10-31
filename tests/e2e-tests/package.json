@@ -5,23 +5,16 @@
   "scripts": {
     "test": "playwright test",
     "test:trace": "playwright test --trace on",
-    "test:login": "playwright test tests/e2e.login.spec.ts",
-    "test:view-macros": "playwright test tests/e2e.view-macros.spec.ts --trace on",
-    "test:prod": "ZENUML_STAGE_USERNAME=robot1yanhui@aol.com ZENUML_DOMAIN=zenuml.atlassian.net ZENUML_SPACE=SmokeTest playwright test",
-    "test:peng": "ZENUML_STAGE_USERNAME=eagle.xiao@gmail.com playwright test",
-    "test:yanhui": "ZENUML_STAGE_USERNAME=robot1.yanhui@gmail.com ZENUML_DOMAIN=whimet4.atlassian.net ZENUML_SPACE=WHIMET4 playwright test",
-    "test:yanhui:existing": "ZENUML_STAGE_USERNAME=robot1.yanhui@gmail.com ZENUML_DOMAIN=whimet4.atlassian.net PAGE_ID=458653717 ZENUML_SPACE=WHIMET4 playwright test",
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",
     "test:ui": "playwright test --ui",
-    "test:prod:ui": "ZENUML_STAGE_USERNAME=robot1yanhui@aol.com ZENUML_DOMAIN=zenuml.atlassian.net ZENUML_SPACE=SmokeTest playwright test --ui",
     "install:browsers": "playwright install"
   },
   "dependencies": {
     "otpauth": "^9.4.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.40.0",
+    "@playwright/test": "^1.54.1",
     "dotenv": "^16.0.0"
   },
   "engines": {

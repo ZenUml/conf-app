@@ -1,5 +1,6 @@
 import { Page } from '@playwright/test';
 import { testConfig } from '../config/test-config.js';
+import { withLock } from './api-lock.js';
 
 interface MacroOptions {
   sequence?: boolean | { bodyOnly?: boolean };
@@ -25,14 +26,23 @@ export class PageCreator {
 
   async createTestPage(options: MacroOptions): Promise<string> {
     const title = `E2E test page at ${new Date()} - ${this.generateUUID()}`;
-    
-    // Get space information
-    const space = await this.getSpace(testConfig.spaceKey);
-    console.log('Current space:', space);
 
-    // Create draft page
-    const draftPage = await this.createDraft(space.id, title);
-    console.log('Created draft:', draftPage);
+    // Serialize entire page creation to prevent overwhelming Confluence
+    return await withLock(async () => {
+
+      // Get space information
+      const space = await this.getSpace(testConfig.spaceKey);
+      console.log('Current space:', space);
+
+      // Create draft page
+      const draftPage = await this.createDraft(space.id, title);
+      console.log('Created draft:', draftPage);
+
+      return await this.createPageContent(draftPage, options, title, space.id);
+    });
+  }
+
+  private async createPageContent(draftPage: any, options: MacroOptions, title: string, spaceId: string): Promise<string> {
 
     try {
       // Create custom content for each macro type
@@ -60,7 +70,7 @@ export class PageCreator {
         id: draftPage.id,
         status: 'current',
         title,
-        spaceId: space.id,
+        spaceId,
         body: { value: body, representation: 'atlas_doc_format' },
         version: { number: draftPage.version.number }
       };
@@ -75,12 +85,20 @@ export class PageCreator {
   }
 
   async deletePage(pageId: string): Promise<void> {
-    await this.page.request.delete(`https://${testConfig.domain}/wiki/api/v2/pages/${pageId}`);
+    try {
+      await this.page.request.delete(`https://${testConfig.domain}/wiki/api/v2/pages/${pageId}`);
+    } catch (error) {
+      console.log('deletePage error', error);
+    }
   }
 
   private async getSpace(spaceKey: string): Promise<any> {
-    const response = await this.page.request.get(`https://${testConfig.domain}/wiki/api/v2/spaces?keys=${spaceKey}`);
+    const url = `https://${testConfig.domain}/wiki/api/v2/spaces?keys=${spaceKey}`;
+    console.log('Fetching space from:', url);
+    const response = await this.page.request.get(url);
+    console.log('Space API response status:', response.status());
     const data = await response.json();
+    console.log('Space API response data:', JSON.stringify(data, null, 2));
     return data.results?.[0];
   }
 

@@ -1,0 +1,196 @@
+name: Playwright E2E Tests (Claude Code Action)
+
+on:
+  workflow_dispatch:
+    inputs:
+      markdown_test_file:
+        description: 'Markdown test file path'
+        required: false
+        default: 'tests/e2e-tests/markdown/login-authentication.md'
+        type: string
+      model:
+        description: 'Claude model to use'
+        required: false
+        default: 'claude-sonnet-4-5-20250929'
+        type: string
+  # Note: push events are not supported by claude-code-action
+  # Use workflow_dispatch for manual runs or schedule for automated tests
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  playwright-e2e-test:
+    name: Run E2E Tests with Claude Code
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write  # Required for OIDC if using Bedrock/Vertex
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+
+      - name: Install dependencies
+        run: |
+          npm install -g pnpm
+          cd tests/e2e-tests
+          pnpm install
+          echo "✅ E2E test dependencies installed"
+
+      - name: Install Playwright browsers
+        run: |
+          echo "Installing Playwright Chromium browser and dependencies..."
+          npx playwright install chromium
+          npx playwright install-deps chromium
+          echo "✅ Playwright installation complete"
+
+      - name: Create test output directory
+        run: |
+          mkdir -p test-output
+          echo "Created test-output directory for artifacts"
+
+      - name: Create Playwright MCP Configuration
+        run: |
+          echo "Creating Playwright MCP server configuration..."
+          cat > /tmp/playwright-mcp.json << 'EOF'
+          {
+            "mcpServers": {
+              "playwright": {
+                "command": "npx",
+                "args": [
+                  "@playwright/mcp@latest",
+                  "--browser", "chromium",
+                  "--headless",
+                  "--save-trace",
+                  "--save-video", "800x600",
+                  "--output-dir", "${{ github.workspace }}/test-output"
+                ]
+              }
+            }
+          }
+          EOF
+          echo "MCP Configuration created:"
+          cat /tmp/playwright-mcp.json
+
+      - name: Execute Playwright Test
+        id: test-execution
+        uses: anthropics/claude-code-action@v1
+        env:
+          # Authentication credentials for Confluence
+          ZENUML_STAGE_USERNAME: ${{ secrets.ZENUML_STAGE_USERNAME }}
+          ZENUML_STAGE_PASSWORD: ${{ secrets.ZENUML_STAGE_PASSWORD }}
+          ATLASSIAN_OTP: ${{ secrets.ATLASSIAN_OTP }}
+          ZENUML_DOMAIN: ${{ secrets.ZENUML_DOMAIN }}
+          ZENUML_SPACE: ${{ secrets.ZENUML_SPACE }}
+        with:
+          # Authentication - using Claude Code OAuth token
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # Pass environment variables to Claude Code CLI
+          claude_env: |
+            ZENUML_STAGE_USERNAME=${{ secrets.ZENUML_STAGE_USERNAME }}
+            ZENUML_STAGE_PASSWORD=${{ secrets.ZENUML_STAGE_PASSWORD }}
+            ATLASSIAN_OTP=${{ secrets.ATLASSIAN_OTP }}
+            ZENUML_DOMAIN=${{ secrets.ZENUML_DOMAIN }}
+            ZENUML_SPACE=${{ secrets.ZENUML_SPACE }}
+
+          # Test execution prompt
+          prompt: |
+            TEST FILE: ${{ github.event.inputs.markdown_test_file || 'tests/e2e-tests/markdown/login-authentication.md' }}
+            REPOSITORY: ${{ github.repository }}
+            RUN ID: ${{ github.run_id }}
+
+            CRITICAL: DO NOT write documentation. DO NOT create markdown files. EXECUTE THE ACTUAL BROWSER TEST.
+
+            ## Your Task
+
+            1. Read the test specification file: ${{ github.event.inputs.markdown_test_file || 'tests/e2e-tests/markdown/login-authentication.md' }}
+
+            2. USE THE PLAYWRIGHT MCP TOOLS to actually perform the test by:
+               - Navigating to the Confluence URL in a real browser
+               - Filling in the username field and submitting
+               - Filling in the password field and submitting
+               - Generating an OTP code using tests/e2e-tests/otp.js
+               - Filling in the OTP field and submitting
+               - Waiting for the page to load
+               - Taking a screenshot as proof
+
+            3. Authentication credentials (available as environment variables):
+               - Username: Check process.env.ZENUML_STAGE_USERNAME
+               - Password: Check process.env.ZENUML_STAGE_PASSWORD
+               - OTP Secret: Check process.env.ATLASSIAN_OTP
+               - Domain: Check process.env.ZENUML_DOMAIN (default: zenuml-stg.atlassian.net)
+               - Space: Check process.env.ZENUML_SPACE (default: ZS)
+
+            4. Report the test result:
+               - PASS/FAIL status
+               - Screenshot path
+               - Any errors encountered
+               - Total execution time
+
+            DO NOT CREATE DOCUMENTATION. RUN THE ACTUAL PLAYWRIGHT BROWSER TEST.
+
+          # Claude Code CLI arguments
+          claude_args: |
+            --model "${{ github.event.inputs.model || 'claude-sonnet-4-5-20250929' }}"
+            --mcp-config /tmp/playwright-mcp.json
+            --allowed-tools "mcp__playwright-extension__*,Bash(node:*),Bash(npx:*),Bash(date:*),Read,Write"
+            --dangerously-skip-permissions
+            --debug
+
+      - name: Generate Test Summary
+        if: always()
+        run: |
+          echo "## 🧪 Playwright E2E Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Test File:** \`${{ github.event.inputs.markdown_test_file || 'tests/e2e-tests/markdown/login-authentication.md' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Model:** \`${{ github.event.inputs.model || 'claude-haiku-4-5-20251001' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.test-execution.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.test-execution.outcome }}" == "success" ]; then
+            echo "✅ **Test execution completed successfully**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Test execution failed**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Screenshots: Check the uploaded artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Playwright trace: Available in test-output/trace.zip" >> $GITHUB_STEP_SUMMARY
+          echo "- Video recording: Available if test ran long enough" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Test Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ github.run_number }}
+          path: |
+            test-output/
+            *.png
+            *.jpg
+            trace.zip
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Display Completion Message
+        if: always()
+        run: |
+          echo "=================================================="
+          echo "✅ Playwright E2E Test Workflow Complete"
+          echo "=================================================="
+          echo ""
+          echo "Test execution status: ${{ steps.test-execution.outcome }}"
+          echo "Artifacts uploaded: test-results-${{ github.run_number }}"
+          echo ""
+          echo "View the test report in the Actions summary tab"
+          echo "Download artifacts to inspect screenshots and traces"
+          echo "=================================================="

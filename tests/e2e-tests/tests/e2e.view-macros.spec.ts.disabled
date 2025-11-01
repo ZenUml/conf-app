@@ -1,0 +1,95 @@
+import { test, expect } from '@playwright/test';
+import { withTestPage } from '../utils/test-helpers.js';
+
+test.describe('Macro Functionality Tests', () => {
+  test('should display all macro types correctly', async ({ page }) => {
+    await withTestPage(page, async (macroPage) => {
+      // Test sequence macro with specific content assertion
+      await macroPage.assertMacroContent(
+        macroPage.getSequenceMacroFrame(),
+        'Order Service (Demonstration only)'
+      );
+
+      // Test graph macro
+      await macroPage.assertMacroContent(
+        macroPage.getGraphMacroFrame(),
+        "Lamp doesn't work"
+      );
+
+      // Test OpenAPI macro
+      await expect(macroPage.getOpenApiMacroFrame().locator('body')).toBeVisible({ timeout: 15000 });
+      await expect(
+        macroPage.getOpenApiMacroFrame().getByText('/users', { exact: false })
+      ).toBeVisible({ timeout: 15000 });
+
+      // Test embed macro
+      await macroPage.assertMacroContent(
+        macroPage.getEmbedMacroFrame(),
+        'Order Service (Demonstration only)'
+      );
+    }, { 
+      sequence: true, 
+      graph: true, 
+      openapi: true, 
+      embed: true 
+    });
+  });
+
+  test('should display mermaid diagrams', async ({ page }) => {
+    await withTestPage(page, async (macroPage) => {
+      await macroPage.assertMacroContent(
+        macroPage.getSequenceMacroFrame(),
+        'A Gantt Diagram'
+      );
+    }, { 
+      mermaid: true 
+    });
+  });
+
+  test('should handle body-only sequence macros', async ({ page }) => {
+    await withTestPage(page, async (macroPage) => {
+      await macroPage.assertMacroContent(
+        macroPage.getSequenceMacroFrame(),
+        'Order Service (Demonstration only)'
+      );
+    }, { 
+      sequence: { bodyOnly: true } 
+    });
+  });
+
+  test('should edit sequence macro successfully', async ({ page }) => {
+    await withTestPage(page, async (macroPage) => {
+      const sequenceFrame = macroPage.getSequenceMacroFrame();
+      
+      // Verify macro is loaded
+      await macroPage.assertMacroContent(sequenceFrame, 'Order Service (Demonstration only)');
+      
+      // Edit the macro
+      await macroPage.editMacro(sequenceFrame);
+      await macroPage.saveInEditor();
+      
+      // Verify macro reloaded after edit
+      await macroPage.assertMacroContent(sequenceFrame, 'Order Service (Demonstration only)');
+    }, { 
+      sequence: true 
+    });
+  });
+
+  test('should edit embed macro successfully', async ({ page }) => {
+    await withTestPage(page, async (macroPage) => {
+      const embedFrame = macroPage.getEmbedMacroFrame();
+      
+      // Verify embed macro is loaded
+      await macroPage.assertMacroContent(embedFrame, 'Order Service (Demonstration only)');
+      
+      // Edit the embed macro
+      await macroPage.editMacro(embedFrame);
+      await macroPage.saveInEditor();
+      
+      // Verify macro reloaded after edit
+      await macroPage.assertMacroContent(embedFrame, 'Order Service (Demonstration only)');
+    }, { 
+      embed: true 
+    });
+  });
+});

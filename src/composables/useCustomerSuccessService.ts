@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 import getFeatureFlagsForCurrentDomain from "@/apis/featureFlags"
-import { trackEvent } from "@/utils/window"
+import { trackUpgradeEvent, UpgradeEventName } from "@/utils/upgradeTracking"
 import macroMetrics from "@/services/MacroMetrics"
 import { getClientDomain } from "@/utils/ContextParameters/ContextParameters"
 
@@ -23,9 +23,19 @@ export function useCustomerSuccessService() {
     return macrosCreated.value >= WARNING_THRESHOLD && customerSuccessServiceEnabled.value
   })
 
+  const severity = computed(() => {
+    if (macrosCreated.value >= MACROS_LIMIT) return 'critical'
+    if (macrosCreated.value >= WARNING_THRESHOLD) return 'warning'
+    return 'normal'
+  })
+
   const upgradeUrl = computed(() => {
     const domain = getClientDomain()
     return `${BASE_UPGRADE_URL}?domain=${domain}`
+  })
+
+  const enterpriseBundleUrl = computed(() => {
+    return 'https://buy.stripe.com/fZucN67SlgS933i9zd7IY03'
   })
 
   const learnMoreUrl = computed(() => {
@@ -39,6 +49,18 @@ export function useCustomerSuccessService() {
     }
 
     try {
+      // Check for mock override (for testing)
+      if (localStorage.mockMacroCount) {
+        const mockCount = parseInt(localStorage.mockMacroCount)
+        if (!isNaN(mockCount) && mockCount >= 0) {
+          macrosCreated.value = mockCount
+          console.log('🧪 Using mock macro count:', macrosCreated.value)
+          macroMetricsLoaded = true;
+          return;
+        }
+      }
+      
+      // Normal platform data
       const metrics = await macroMetrics.getMacroMetrics()
       if (metrics?.total) {
         macrosCreated.value = metrics.total
@@ -58,7 +80,9 @@ export function useCustomerSuccessService() {
       const customerSuccessService: any = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE'])
       customerSuccessServiceEnabled.value = !!customerSuccessService.CUSTOMER_SUCCESS_SERVICE
       if (customerSuccessServiceEnabled.value) {
-        trackEvent('', 'css-enabled', 'conversion')
+        trackUpgradeEvent(UpgradeEventName.FEATURE_ENABLED, {
+          feature_name: 'customer_success_service',
+        })
       }
       cssFlagLoaded = true;
     } catch (error) {
@@ -74,8 +98,22 @@ export function useCustomerSuccessService() {
   return {
     macrosCreated,
     actionRequired,
+    severity,
     upgradeUrl,
+    enterpriseBundleUrl,
     learnMoreUrl,
     initialize
   }
+}
+
+/**
+ * Get upgrade context data to include in tracking events
+ * Returns current macro usage information
+ */
+export function getUpgradeContext() {
+  return {
+    macro_count: macrosCreated.value,
+    macro_limit: MACROS_LIMIT,
+    macro_usage_pct: Math.round((macrosCreated.value / MACROS_LIMIT) * 100),
+  };
 }

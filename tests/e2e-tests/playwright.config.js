@@ -1,17 +1,17 @@
 require('dotenv').config();
 const { defineConfig, devices } = require('@playwright/test');
+const path = require('path');
 
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
 module.exports = defineConfig({
   testDir: './tests',
-  testMatch: ['**/*.spec.{js,ts}'],
-  /* Global setup and teardown */
-  globalSetup: require.resolve('./global-setup'),
-  globalTeardown: require.resolve('./global-teardown'),
+  timeout: 120000, // 2 minutes for OTP entry
+  testMatch: '**/e2e.*.spec.{js,ts}',
+  testIgnore: ['**/node_modules/**', '../../**'],
   /* Run tests in files in parallel */
-  fullyParallel: true,
+  fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
@@ -22,13 +22,10 @@ module.exports = defineConfig({
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
-    /* Base URL to use in actions like `await page.goto('/')`. */
-    // baseURL: 'http://127.0.0.1:3000',
-
     /* Use saved authentication state */
-    storageState: 'auth-state.json',
+    storageState: path.join(__dirname, 'auth-state.json'),
 
-    /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
+    /* Collect trace. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
 
     /* Screenshots on failure */
@@ -40,50 +37,46 @@ module.exports = defineConfig({
     /* Timeout settings */
     actionTimeout: 60000,
     navigationTimeout: 60000,
+
+    /* Enable service workers for better caching */
+    serviceWorkers: 'allow',
+
+    /* Launch options for better caching */
+    launchOptions: {
+      args: ['--disable-blink-features=AutomationControlled'],
+    },
   },
 
   /* Configure projects for major browsers */
   projects: [
+    // Setup project - authenticates once before all tests
     {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      name: 'setup',
+      testMatch: /.*auth\.setup\.ts$/,
+      use: {
+        ...devices['Desktop Chrome'],
+        // Setup should NOT use storageState - it creates it
+        storageState: { cookies: [], origins: [] },
+      },
+      timeout: 120000, // 2 minutes for OTP entry
     },
 
-    // {
-    //   name: 'firefox',
-    //   use: { ...devices['Desktop Firefox'] },
-    // },
-    //
-    // {
-    //   name: 'webkit',
-    //   use: { ...devices['Desktop Safari'] },
-    // },
+    // Pages setup - creates test pages for diagram tests
+    {
+      name: 'pages-setup',
+      testMatch: /.*pages\.setup\.ts$/,
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['setup'],
+      timeout: 180000, // Allow time for creating 5 pages
+    },
 
-    /* Test against mobile viewports. */
-    // {
-    //   name: 'Mobile Chrome',
-    //   use: { ...devices['Pixel 5'] },
-    // },
-    // {
-    //   name: 'Mobile Safari',
-    //   use: { ...devices['iPhone 12'] },
-    // },
-
-    /* Test against branded browsers. */
-    // {
-    //   name: 'Microsoft Edge',
-    //   use: { ...devices['Desktop Edge'], channel: 'msedge' },
-    // },
-    // {
-    //   name: 'Google Chrome',
-    //   use: { ...devices['Desktop Chrome'], channel: 'chrome' },
-    // },
+    // Diagram tests - sequential execution to avoid Confluence overload
+    {
+      name: 'chromium',
+      testMatch: '**/e2e.*-diagram.spec.{js,ts}',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['pages-setup'],
+      fullyParallel: false, // Sequential to prevent overwhelming Confluence
+    },
   ],
-
-  /* Run your local dev server before starting the tests */
-  // webServer: {
-  //   command: 'npm run start',
-  //   url: 'http://127.0.0.1:3000',
-  //   reuseExistingServer: !process.env.CI,
-  // },
 });

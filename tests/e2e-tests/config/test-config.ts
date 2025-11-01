@@ -12,6 +12,12 @@ interface TestConfig {
   validate(): void;
 }
 
+export const TIMEOUTS = {
+  FRAME_LOAD: 60000,
+  BUTTON_VISIBLE: 60000,
+  MODAL_DISMISS: 60000,
+} as const;
+
 export const testConfig: TestConfig = {
   domain: process.env.ZENUML_DOMAIN || 'zenuml-stg.atlassian.net',
   spaceKey: process.env.ZENUML_SPACE || 'ZS',

@@ -34,3 +34,4 @@ coverage
 
 wrangler.toml
 /.mcp.json
+.playwright-mcp/

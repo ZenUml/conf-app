@@ -47,11 +47,8 @@ export class MacroPage {
     // Wait for frame to fully load
     await expect(macroFrame.locator('body')).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
 
-    // Use Playwright's .or() locator combinator for robust button selection
-    // This will find whichever button appears first
-    const editButton = macroFrame
-      .getByRole('button', { name: /edit/i })
-      .or(macroFrame.locator('.viewer .header .actions button').first());
+    // Use aria-label to find the Edit button
+    const editButton = macroFrame.getByRole('button', { name: 'Edit' });
 
     await expect(editButton).toBeVisible({ timeout: TIMEOUTS.BUTTON_VISIBLE });
     await editButton.click();

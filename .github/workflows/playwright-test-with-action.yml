@@ -142,7 +142,7 @@ jobs:
             --model "${{ github.event.inputs.model || 'claude-sonnet-4-5-20250929' }}"
             --mcp-config /tmp/playwright-mcp.json
             --allowed-tools "mcp__playwright-extension__*,Bash(node:*),Bash(npx:*),Bash(date:*),Read,Write"
-            --dangerous-disable-permission-requests
+            --dangerously-skip-permissions
             --debug
 
       - name: Generate Test Summary

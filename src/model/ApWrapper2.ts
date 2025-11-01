@@ -861,8 +861,27 @@ export default class ApWrapper2 implements IApWrapper {
     })) || [];
   }
 
-  _getCurrentUser(): Promise<IUser> {
-    return new Promise(resolv => this._user.getCurrentUser((user: IUser) => resolv(user)));
+  async _getCurrentUser(): Promise<IUser> {
+    try {
+      const response = await this._requestFn({
+        url: '/rest/api/user/current',
+        type: 'GET',
+        contentType: 'application/json'
+      });
+
+      const userData = response.body ? JSON.parse(response.body) : response;
+      return {
+        atlassianAccountId: userData.accountId,
+        displayName: userData.displayName,
+        publicName: userData.publicName,
+        email: userData.email,
+        accountType: userData.accountType
+      };
+    } catch (error) {
+      console.error('Error fetching current user via REST API:', error);
+      // Fallback to JavaScript API if REST fails
+      return new Promise(resolv => this._user.getCurrentUser((user: IUser) => resolv(user)));
+    }
   }
 
   async getCurrentSpace(): Promise<ISpace> {

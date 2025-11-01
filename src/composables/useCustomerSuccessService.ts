@@ -23,6 +23,12 @@ export function useCustomerSuccessService() {
     return macrosCreated.value >= WARNING_THRESHOLD && customerSuccessServiceEnabled.value
   })
 
+  const severity = computed(() => {
+    if (macrosCreated.value >= MACROS_LIMIT) return 'critical'
+    if (macrosCreated.value >= WARNING_THRESHOLD) return 'warning'
+    return 'normal'
+  })
+
   const upgradeUrl = computed(() => {
     const domain = getClientDomain()
     return `${BASE_UPGRADE_URL}?domain=${domain}`
@@ -43,6 +49,18 @@ export function useCustomerSuccessService() {
     }
 
     try {
+      // Check for mock override (for testing)
+      if (localStorage.mockMacroCount) {
+        const mockCount = parseInt(localStorage.mockMacroCount)
+        if (!isNaN(mockCount) && mockCount >= 0) {
+          macrosCreated.value = mockCount
+          console.log('🧪 Using mock macro count:', macrosCreated.value)
+          macroMetricsLoaded = true;
+          return;
+        }
+      }
+      
+      // Normal platform data
       const metrics = await macroMetrics.getMacroMetrics()
       if (metrics?.total) {
         macrosCreated.value = metrics.total
@@ -80,6 +98,7 @@ export function useCustomerSuccessService() {
   return {
     macrosCreated,
     actionRequired,
+    severity,
     upgradeUrl,
     enterpriseBundleUrl,
     learnMoreUrl,

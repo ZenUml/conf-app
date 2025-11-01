@@ -7,7 +7,7 @@
           Your team is now ready to create and edit standard-compliant UML Diagrams with the power of ZenUML Diagrams.
         </p>
         <div class="hero-actions">
-          <p class="hero-instruction">Navigate to any Confluence page and use the "+" button to insert a ZenUML macro!</p>
+          <p class="hero-instruction">Navigate to any Confluence page and use the "+" button to insert a ZenUML macro</p>
         </div>
       </div>
     </div>
@@ -100,7 +100,7 @@
       <div class="resources-grid">
         <div class="resource-card">
           <h4>📚 Documentation</h4>
-          <p>Comprehensive guides and API reference</p>
+          <p>Guides and language reference</p>
           <a href="#" @click="viewDocumentation()" target="_blank" class="resource-link">
             View Documentation →
           </a>

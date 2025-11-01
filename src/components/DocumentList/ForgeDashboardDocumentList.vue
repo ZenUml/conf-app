@@ -1,4 +1,5 @@
 <template>
+  <h1>Zenuml Dashboard</h1>
   <div class="content">
     <div class="workspace h-screen flex flex-col overflow-x-auto">
       <header class="flex flex-shrink-0 border-b h-[72px]">
@@ -141,7 +142,7 @@
                 :key="customContentItem.id"
               >
                 <a
-                  @click="picked = customContentItem"
+                  @click="selectDocument(customContentItem)"
                   href="#"
                   class="relative block p-4 hover:bg-gray-50 border-gray-200 border-[1px] border-solid border-b-0 border-l-0"
                   :class="{
@@ -180,10 +181,10 @@
                       />
                     </div>
                     <a
-                      :href="customContentItem.container.link"
+                      :href="customContentItem.container?.link"
                       target="_blank"
                       class="text-gray-500 hover:text-[#004EEB] hover:underline"
-                      >{{ customContentItem.container.title }}</a
+                      >{{ customContentItem.container?.title }}</a
                     >
                   </div>
                   <div class="flex items-center justify-between">
@@ -194,6 +195,7 @@
                     <Contributors
                       class="flex-shrink-0"
                       :contributors="customContentItem.contributors"
+                      v-if="customContentItem.contributors"
                     />
                   </div>
                 </a>
@@ -201,7 +203,20 @@
             </div>
           </div>
           <div id="workspace-right" class="flex-grow h-full bg-white border-t">
+            <!-- Dynamic preview component for Forge mode -->
+            <component 
+              v-if="previewComponent && picked"
+              :is="previewComponent"
+              :doc="picked"
+              :graphXml="picked?.value?.graphXml"
+              :code="picked?.value?.code"
+              :mermaidCode="picked?.value?.mermaidCode"
+              :hideHeader="true"
+              class="w-full h-full"
+            />
+            <!-- Fallback iframe for Connect mode -->
             <iframe
+              v-else-if="previewSrc"
               id="embedded-viewer"
               :src="previewSrc"
               width="100%"
@@ -341,6 +356,7 @@ export default {
       filterKeyword: "",
       filterOnlyMine: false,
       filterOnlyLiked: false,
+      previewComponentCache: {}, // Cache for loaded components
       viewStyle: "table",
       customContentStorageProvider: null,
       filterTimeout: null,
@@ -361,6 +377,16 @@ export default {
     };
   },
   watch: {
+    picked: {
+      async handler(newPicked) {
+        console.log('DashboardDocumentList - picked', newPicked);
+        if (newPicked && newPicked.value?.diagramType && window.forgeGlobal?.isForge) {
+          // Load the preview component when picked item changes
+          await this.getPreviewComponentForForge(newPicked.value.diagramType);
+        }
+      },
+      immediate: true
+    },
     async filterKeyword(newValue, oldValue) {
       console.log("filterKeyword changed:", newValue, oldValue);
       if (this.filterTimeout) clearTimeout(this.filterTimeout);
@@ -390,6 +416,17 @@ export default {
   computed: {
     DiagramType() {
       return DiagramType;
+    },
+    previewComponent() {
+      if (!this.picked || !this.picked.value?.diagramType) return null;
+      
+      // Check if we're in Forge mode
+      if (window.forgeGlobal?.isForge) {
+        // Return cached component if available
+        return this.previewComponentCache[this.picked.value.diagramType] || null;
+      }
+      
+      return null;
     },
     filteredCustomContentList() {
       const results = this.customContentList.filter((item) => {
@@ -445,12 +482,21 @@ export default {
       const that = this;
       return function () {
         window.picked = that.picked;
-        EventBus.$emit("save");
+        if (window.forgeGlobal?.isForge) {
+          EventBus.$emit('save-embed', that.picked);
+        } else {
+          EventBus.$emit('save', that.picked);
+        }
       };
     },
     exit: function () {
       return () => {
         this.fullScreen = false;
+        if (window.forgeGlobal?.isForge) {
+          EventBus.$emit('exit');
+        } else {
+          EventBus.$emit('exit');
+        }
         this.$emit("exit");
       };
     },
@@ -482,6 +528,37 @@ export default {
     this.isLite = apWrapper.isLite();
   },
   methods: {
+    async getPreviewComponentForForge(diagramType) {
+      console.log('getPreviewComponentForForge', diagramType);
+      // Return cached component if available
+      if (this.previewComponentCache[diagramType]) {
+        return this.previewComponentCache[diagramType];
+      }
+
+      try {
+        let component = null;
+        
+        if (diagramType === DiagramType.Sequence || diagramType === DiagramType.Mermaid) {
+          const { default: DiagramPortal } = await import('@/components/DiagramPortal.vue');
+          component = DiagramPortal;
+        } else if (diagramType === DiagramType.Graph) {
+          const { default: ForgeGraphViewerEmbed } = await import('@/components/Viewer/ForgeGraphViewerEmbed.vue');
+          component = ForgeGraphViewerEmbed;
+        } else if (diagramType === DiagramType.OpenApi) {
+          const { default: ForgeOpenApiViewer } = await import('@/components/Viewer/ForgeOpenApiViewer.vue');
+          component = ForgeOpenApiViewer;
+        }
+
+        if (component) {
+          this.previewComponentCache[diagramType] = component;
+        }
+
+        return component;
+      } catch (e) {
+        console.error('Failed to load preview component for type:', diagramType, e);
+        return null;
+      }
+    },
     async getUserLikedDiagramIds() {
       try {
         const response = await fetch(
@@ -532,22 +609,28 @@ export default {
     },
     enterFullScreen() {
       this.fullScreen = true;
-      AP.dialog
-        .create({
-          key: `zenuml-content-dashboard`,
-          chrome: false,
-          width: "100%",
-          height: "100%",
-          customData: this.buildInitCustomData(),
-        })
-        .on("close", async (customData) => {
-          console.debug({
-            action: "enterFullScreen on close",
-            customData: customData,
-          });
-          this.loadInitCustomData(customData);
-          await this.search();
+      if (window.forgeGlobal?.isForge) {
+        EventBus.$emit('enter-fullscreen', {
+          customData: this.buildInitCustomData()
         });
+      } else {
+        AP.dialog
+          .create({
+            key: `zenuml-content-dashboard`,
+            chrome: false,
+            width: "100%",
+            height: "100%",
+            customData: this.buildInitCustomData(),
+          })
+          .on("close", async (customData) => {
+            console.debug({
+              action: "enterFullScreen on close",
+              customData: customData,
+            });
+            this.loadInitCustomData(customData);
+            await this.search();
+          });
+      }
       this.trackFullScreenEvent("enter");
     },
     tryRefreshEmbeddedViewer() {
@@ -556,7 +639,13 @@ export default {
     },
     exitFullScreen() {
       this.fullScreen = false;
-      AP.dialog.close(this.buildInitCustomData());
+      if (window.forgeGlobal?.isForge) {
+        EventBus.$emit('exit-fullscreen', {
+          customData: this.buildInitCustomData()
+        });
+      } else {
+        AP.dialog.close(this.buildInitCustomData());
+      }
       this.trackFullScreenEvent("exit");
     },
     trackFullScreenEvent(category) {
@@ -564,6 +653,34 @@ export default {
     },
     setFilter(docType) {
       this.docTypeFilter = docType;
+    },
+    selectDocument(customContentItem) {
+      // Update the picked document
+      this.picked = customContentItem;
+      
+      // Update the store state for Forge mode
+      if (window.forgeGlobal?.isForge) {
+        // Convert the custom content item to diagram format and update store
+        const diagram = {
+          id: customContentItem.id,
+          title: customContentItem.title,
+          diagramType: customContentItem.value.diagramType,
+          code: customContentItem.value.code,
+          mermaidCode: customContentItem.value.mermaidCode,
+          graphXml: customContentItem.value.graphXml,
+          isNew: false,
+          // Add any other properties that might be needed
+          ...customContentItem.value
+        };
+        
+        // Update the store state
+        this.$store.state.diagram = diagram;
+        
+        // Also update window.diagram for compatibility
+        window.diagram = diagram;
+        
+        console.log('DashboardDocumentList: Updated store with selected document', diagram);
+      }
     },
     gotoPage(pageId) {
       AP.navigator.go("contentview", { contentId: pageId });
@@ -582,6 +699,8 @@ export default {
     initTheRightSideContent() {
       //init the right side content
       const iframe = document.getElementById("embedded-viewer");
+      if (!iframe) return;
+
       const iframeDocument =
         iframe.contentDocument || iframe.contentWindow.document;
       const initContentClassName = "init-content";
@@ -610,20 +729,30 @@ export default {
       const type = (
         diagramType === DiagramType.Mermaid ? DiagramType.Sequence : diagramType
       ).toLowerCase();
-      AP.dialog
-        .create({
-          key: `zenuml-content-dashboard-${type}-editor-dialog`,
-          chrome: false,
-          width: "100%",
-          height: "100%",
-          customData: {
-            "content.id": customContentId,
-            contentId: customContentId,
-          },
-        })
-        .on("close", async () => {
-          this.tryRefreshEmbeddedViewer();
+      const customData = {
+        "content.id": customContentId,
+        contentId: customContentId,
+        customContentId
+      };
+      
+      if (window.forgeGlobal?.isForge) {
+        EventBus.$emit('edit', {
+          diagramType: type,
+          customData
         });
+      } else {
+        AP.dialog
+          .create({
+            key: `zenuml-content-dashboard-${type}-editor-dialog`,
+            chrome: false,
+            width: "100%",
+            height: "100%",
+            customData,
+          })
+          .on("close", async () => {
+            this.tryRefreshEmbeddedViewer();
+          });
+      }
     },
     async handleScroll(event) {
       const scrollContainer = event.target;

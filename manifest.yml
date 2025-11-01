@@ -24,11 +24,6 @@ remotes:
         enabled: true
       appUserToken:
         enabled: true
-# connectModules:
-#   confluence:lifecycle:
-#     - key: lifecycle-events
-#       installed: /installed?version=2025.04
-#       uninstalled: /uninstalled?version=2025.04
 permissions:
   scopes:
   # "Addition of Forge-specific OAuth 2.0 scopes that inherit permissions already granted by a Connect scope the customer has already accepted" doesn't require admin approval only the first time, see https://developer.atlassian.com/platform/adopting-forge-from-connect/connect-forge-updates-preview/. To avoid admin approval in future, all the scopes that are already granted by Connect Read and Write scopes are added here.

@@ -1,13 +1,19 @@
 import { KVEnv } from "./KVEnv";
 import { getClientKeyFromRequest } from "./requestUtils";
 
-async function getInstallationDataFromD1(db: D1Database, clientKey: string) {
+async function getInstallationDataFromD1(db: D1Database, clientKey?: string | null, forgeCloudId?: string) {
+  if (forgeCloudId) {
+    return await db.prepare(
+      `SELECT * FROM ForgeInstallation WHERE context like '%' || ?`
+    ).bind(forgeCloudId).first();
+  }
+
   return await db.prepare(
     `SELECT * FROM ClientInstallation WHERE clientKey = ?`
   ).bind(clientKey).first();
 }
 
-export async function getInstallationData(env: any, request: Request) {
+export async function getInstallationData(env: any, request: Request, forgeCloudId?: string) {
   const {searchParams} = new URL(request.url);
     
   const baseURL = searchParams.get('xdm_e') || '';
@@ -15,12 +21,16 @@ export async function getInstallationData(env: any, request: Request) {
   const appKey = searchParams.get('addonKey') || '';
   const isLite = appKey.includes('-lite');
 
-  const clientKey = getClientKeyFromRequest(request);
-  if (!clientKey) {
-    throw new Error('Missing or invalid clientKey in request');
+  let clientKey;
+  if (!forgeCloudId) {
+    clientKey = getClientKeyFromRequest(request);
   }
 
-  let installationData = await getInstallationDataFromD1(env.DB, clientKey);
+  if (!forgeCloudId && !clientKey) {
+    throw new Error('Missing or invalid clientKey or missing forgeCloudId in request');
+  }
+
+  let installationData = await getInstallationDataFromD1(env.DB, clientKey, forgeCloudId);
 
   // Fallback to KV if installation data is not found in D1
   if (!installationData) {
@@ -30,6 +40,8 @@ export async function getInstallationData(env: any, request: Request) {
     }
     installationData = JSON.parse(kvData);
   }
+
+  (installationData as any).baseUrl = `${baseURL}/wiki`;
 
   return installationData;
 }

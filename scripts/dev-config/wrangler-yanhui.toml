@@ -7,24 +7,27 @@ pages_build_output_dir = "dist"
 [vars]
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
 ENVIRONMENT = "development"  # Set to "development" for local development
+FORGE_APP_ID = "d9e4002b-120b-426b-834b-402a4a5adce7"
 
-[env.production]
+[env.production.vars]
+DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
 ENVIRONMENT = "production"
+FORGE_APP_ID = "d9e4002b-120b-426b-834b-402a4a5adce7"
 
 [[ env.preview.d1_databases ]]
 binding = "DB"
 database_name = "confluence-plugin"
 database_id = "78530089-656d-482f-b38b-60f4f6765cc6"
-migrations_dir = "functions/migrations"
+migrations_dir = "../../functions/migrations"
 
 [[ env.production.d1_databases ]]
 binding = "DB"
 database_name = "confluence-plugin"
 database_id = "78530089-656d-482f-b38b-60f4f6765cc6"
-migrations_dir = "functions/migrations"
+migrations_dir = "../../functions/migrations"
 
 [[ d1_databases ]]
 binding = "DB"
 database_name = "confluence-plugin"
 database_id = "78530089-656d-482f-b38b-60f4f6765cc6"
-migrations_dir = "functions/migrations"
+migrations_dir = "../../functions/migrations"

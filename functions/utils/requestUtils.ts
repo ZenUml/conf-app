@@ -16,7 +16,7 @@ export function getClientKeyFromRequest(request: Request): string | null {
 
   try {
     const decodedToken = decode(jwt);
-    return decodedToken.iss || null;
+    return decodedToken.iss || null; //TODO: use .aud in forge app, e.g. "aud": "ari:cloud:ecosystem::app/d9e4002b-120b-426b-834b-402a4a5adce7"
   } catch (e) {
     console.error('Error decoding JWT:', e);
     return null;

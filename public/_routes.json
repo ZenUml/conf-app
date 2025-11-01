@@ -12,8 +12,10 @@
     "/diagram-likes/toggle",
     "/diagram-likes/user-likes",
     "/custom-content",
+    "/forge-custom-content",
     "/api/features",
-    "/api/metrics/evaluation"
+    "/api/metrics/evaluation",
+    "/forge-installed"
   ],
   "exclude": []
 }

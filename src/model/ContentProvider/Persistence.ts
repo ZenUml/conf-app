@@ -4,7 +4,6 @@ import {trackEvent} from "@/utils/window";
 import ApWrapper2 from "@/model/ApWrapper2";
 import uuidv4 from "@/utils/uuid";
 import { syncCustomContent } from "@/services/CustomContent";
-import forgeGlobal from '@/model/globals/forgeGlobal';
 import globals from '@/model/globals';
 
 export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = globals.apWrapper): Promise<string> {
@@ -27,9 +26,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   }
   trackEvent(uuid || '', 'save_macro', diagram.diagramType);
 
-  if(!forgeGlobal.isForge) {
-    await syncCustomContent(customContent, diagram.diagramType, uuid || '');
-  }
+  await syncCustomContent(customContent, diagram.diagramType, uuid || '');
   
   return String(customContent.id);
 }

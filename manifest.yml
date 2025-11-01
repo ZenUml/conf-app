@@ -8,7 +8,7 @@ app:
   connect:
     key: com.zenuml.confluence-addon
     remote: connect
-    authentication: jwt
+    # authentication: jwt
   runtime:
     name: nodejs20.x
   licensing:
@@ -17,11 +17,13 @@ remotes:
 # Addition of one or more new remotes, see https://developer.atlassian.com/platform/adopting-forge-from-connect/connect-forge-updates-preview/
   - key: connect
     baseUrl: ${BASE_URL}
-connectModules:
-  confluence:lifecycle:
-    - key: lifecycle-events
-      installed: /installed?version=2025.04
-      uninstalled: /uninstalled?version=2025.04
+    operations:
+        - compute
+    auth:
+      appSystemToken:
+        enabled: true
+      appUserToken:
+        enabled: true
 permissions:
   scopes:
   # "Addition of Forge-specific OAuth 2.0 scopes that inherit permissions already granted by a Connect scope the customer has already accepted" doesn't require admin approval only the first time, see https://developer.atlassian.com/platform/adopting-forge-from-connect/connect-forge-updates-preview/. To avoid admin approval in future, all the scopes that are already granted by Connect Read and Write scopes are added here.
@@ -101,6 +103,8 @@ permissions:
     - read:user:confluence
     - read:watcher:confluence
     - read:whiteboard:confluence
+    - read:app-user-token
+    - read:app-system-token
   external:
   # "Modifying content permissions CSP options, external permissions CSP options and URLs, or
   # fetch permissions options and URLs" does not require admin approval.
@@ -111,6 +115,7 @@ permissions:
       client:
         - https://zenuml.com
         - https://*.zenuml.com
+        - https://www.google-analytics.com
     frames:
       - https://conf-full.zenuml.com/drawio/index.html
     scripts:
@@ -137,6 +142,8 @@ modules:
         viewportSize: max
       adfExport:
         function: exportMacro
+      resolver:
+        endpoint: remote-connect
     - key: zenuml-openapi-macro
       title: OpenAPI / Swagger
       description: Create an OpenAPI / Swagger Spec. Developed by the ZenUML team.
@@ -146,6 +153,8 @@ modules:
         viewportSize: max
       adfExport:
         function: exportMacro
+      resolver:
+        endpoint: remote-connect
     - key: zenuml-graph-macro
       title: Graph (DrawIO)
       description: Create a Graph powered by DrawIO. Developed by the ZenUML team.
@@ -155,6 +164,8 @@ modules:
         viewportSize: max
       adfExport:
         function: exportMacro
+      resolver:
+        endpoint: remote-connect
     - key: zenuml-embed-macro
       title: Embed a Diagram, Graph or API Spec
       description: Embed an existing Diagram, Graph or API Spec. Developed by the ZenUML team.
@@ -164,11 +175,39 @@ modules:
         viewportSize: max
       adfExport:
         function: exportMacro
+      resolver:
+        endpoint: remote-connect
+  trigger:
+    - key: remote-installed-trigger
+      endpoint: remote-installed-endpoint
+      events:
+        - avi:forge:installed:app
+        - avi:forge:upgraded:app
+  endpoint:
+    - key: remote-connect
+      remote: connect
+      auth:
+        appUserToken:
+          enabled: true
+        appSystemToken:
+          enabled: true 
+    - key: remote-installed-endpoint
+      remote: connect
+      route:
+        path: /forge-installed
+      auth:
+        appSystemToken:
+          enabled: true
   confluence:globalSettings:
     - key: zenuml-get-started-settings
       title: Get Started
       resource: main
       useAsGetStarted: true
+  confluence:globalPage:
+    - key: zenuml-dashboard-page
+      resource: main
+      title: ZenUML
+      route: zenuml-dashboard
   confluence:customContent:
     - key: zenuml-content-sequence
       supportedContainerTypes:

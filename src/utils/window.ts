@@ -4,6 +4,7 @@ import {
 } from "@/utils/ContextParameters/ContextParameters";
 // import mixpanel from "mixpanel-browser";
 import {DiagramType} from "@/model/Diagram/Diagram";
+import forgeGlobal from "@/model/globals/forgeGlobal";
 
 // mixpanel.init("78617e65fdba543d752fb7f6483d55f4", {
 //   debug: true,
@@ -108,7 +109,9 @@ export async function _awaitableTrackEvent(
       console.log("Error in calling gtag", e);
     }
 
-    await r2Track(action, eventDetails);
+    if(!forgeGlobal.isForge) {
+      await r2Track(action, eventDetails);
+    }
   } catch (e) {
     console.error(
       "Error in trackingEvent. Please report to our helpdesk: https://zenuml.atlassian.net/servicedesk/customer/portals",

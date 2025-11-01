@@ -2,6 +2,7 @@ const global = {
   isForge: false,
   forgeContext: undefined,
   view: undefined,
+  zenumlRemoteBaseUrl: undefined,
 } as any;
 
 export async function getView() {
@@ -9,14 +10,17 @@ export async function getView() {
     const { view } = await import("@forge/bridge");
     global.view = view;
     global.isForge = true;
+    global.forgeContext = await view.getContext();
+    global.zenumlRemoteBaseUrl = global.forgeContext.environmentType== "DEVELOPMENT" ? 'https://confluence-plugin.pages.dev': 'https://conf-full.zenuml.com';
+
+    console.log('forgeGlobal - context', global.forgeContext);
   }
   return global.view;
 }
 
 export async function getContext() {
   if(!global.forgeContext) {
-    global.forgeContext = await (await getView()).getContext();
-    console.log('forgeGlobal - context', global.forgeContext);
+    await getView();
   }
   return global.forgeContext;
 }

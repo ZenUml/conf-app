@@ -1,32 +1,25 @@
 import globals from '@/model/globals';
 import { DiagramType } from "@/model/Diagram/Diagram";
-import { getBaseUrl } from "@/utils/ContextParameters/ContextParameters";
-import { addonKey, trackEvent } from '@/utils/window';
+import { trackEvent, addonKey } from '@/utils/window';
 import {
   getClientDomain,
 } from "@/utils/ContextParameters/ContextParameters";
+import { makeExternalRequest2 } from '@/utils/requestUtil';
 
 export async function syncCustomContent(customContent: any, diagramType: DiagramType, macroUuid: string) {
   try {
-    const response = await fetch(`/custom-content?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${await globals.apWrapper.getToken()}`
-      },
-      body: JSON.stringify({
-        clientDomain: getClientDomain(),
-        addonKey: addonKey(),
-        contentId: customContent.id,
-        diagramType: diagramType,
-        macroUuid: macroUuid
-      })
-    });
+    const data = {
+      clientDomain: getClientDomain(),
+      addonKey: addonKey(),
+      contentId: customContent.id,
+      customContentId: customContent.id,
+      diagramType: diagramType,
+      macroUuid: macroUuid,
+    };
 
-    const result = await response.json();
+    await makeExternalRequest2('/forge-custom-content', '/custom-content', 'POST', data);
     trackEvent('', 'sync_custom_content', 'success');
-
-    return result;
+    
   } catch (e) {
     console.error('Error when syncing custom content', e);
     trackEvent(JSON.stringify(e), 'sync_custom_content', 'error');

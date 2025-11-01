@@ -63,9 +63,9 @@ export default class ApWrapper2 implements IApWrapper {
       this.currentPageUrl = await this._getCurrentPageUrl();
       this.baseUrl = await this._getBaseUrl();
       this.locationTarget = await this._getLocationTarget();
-      this.currentPageId = forgeGlobal.isForge ? forgeGlobal.forgeContext.extension.content.id : await this._page.getPageId();
+      this.currentPageId = forgeGlobal.isForge ? forgeGlobal.forgeContext.extension.content?.id : await this._page.getPageId();
       if (this.versionType === VersionType.Full) {
-        this.license = await this._getLicense();
+        this.license = forgeGlobal.isForge ? forgeGlobal.forgeContext.license : await this._getLicense();
       }
       console.log('initializeContext', this.currentUser, this.currentSpace, this.currentPageUrl, this.locationTarget, this.currentPageId, this.license);
 
@@ -155,18 +155,6 @@ export default class ApWrapper2 implements IApWrapper {
     return `${this.getCustomContentTypePrefix()}:${type}`;
   }
 
-  parseCustomContentResponse(response: { body: string; }): ICustomContentResponseBody {
-    return response && response.body && JSON.parse(response.body);
-  }
-
-  parseCustomContentResponseV2(response: { body: string; }): ICustomContentResponseBodyV2 {
-    return response && response.body && JSON.parse(response.body);
-  }
-
-  parseCustomContentListResponse(response: { body: string; }): Array<ICustomContentResponseBody> {
-    return response && response.body && JSON.parse(response.body)?.results;
-  }
-
   async createCustomContent(content: Diagram) {
     const type = this.getCustomContentType();
     const bodyData: any = {
@@ -187,13 +175,8 @@ export default class ApWrapper2 implements IApWrapper {
       bodyData.container = container;
     }
 
-    const response = await this._requestFn({
-      url: '/rest/api/content',
-      type: 'POST',
-      contentType: 'application/json',
-      data: JSON.stringify(bodyData)
-    });
-    return this.parseCustomContentResponse(response);
+    const response = await this.makeRequest('/rest/api/content', 'POST', bodyData);
+    return response as ICustomContentResponseBody;
   }
 
   async createCustomContentV2(content: Diagram): Promise<ICustomContentResponseBodyV2> {
@@ -208,12 +191,7 @@ export default class ApWrapper2 implements IApWrapper {
       }
     };
 
-    const response = forgeGlobal.isForge ? await forgeRequest(`/wiki/api/v2/custom-content`, 'POST', data) : this.parseCustomContentResponseV2(await this._requestFn({
-      url: '/api/v2/custom-content',
-      type: 'POST',
-      contentType: 'application/json',
-      data: JSON.stringify(data)
-    }));
+    const response = await this.makeRequest('/api/v2/custom-content', 'POST', data);
     return response as ICustomContentResponseBodyV2;
   }
 
@@ -241,13 +219,8 @@ export default class ApWrapper2 implements IApWrapper {
       }
     };
 
-    const response = await this._requestFn({
-      url: `/rest/api/content/${contentObj.id}`,
-      type: 'PUT',
-      contentType: 'application/json',
-      data: JSON.stringify(bodyData)
-    });
-    return this.parseCustomContentResponse(response);
+    const response = await this.makeRequest(`/rest/api/content/${contentObj.id}`, 'PUT', bodyData);
+    return response as ICustomContentResponseBody;
   }
 
   async updateCustomContentV2(content: ICustomContentV2, newBody: Diagram): Promise<ICustomContentResponseBodyV2> {
@@ -273,12 +246,7 @@ export default class ApWrapper2 implements IApWrapper {
     };
 
     try {
-      const response = forgeGlobal.isForge ? await forgeRequest(`/wiki/api/v2/custom-content/${content.id}`, 'PUT', data) : this.parseCustomContentResponseV2(await this._requestFn({
-        url: `/api/v2/custom-content/${content.id}`,
-        type: 'PUT',
-        contentType: 'application/json',
-        data: JSON.stringify(data)
-      }));
+      const response = await this.makeRequest(`/api/v2/custom-content/${content.id}`, 'PUT', data);
       trackEvent(JSON.stringify(content.id), 'update_custom_content', 'info');
       return response as ICustomContentResponseBodyV2;
     } catch (error) {
@@ -320,7 +288,7 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async getCustomContentByIdV2(id: string): Promise<ICustomContentV2 | undefined> {
-    const customContent = forgeGlobal.isForge ? await forgeRequest(`/wiki/api/v2/custom-content/${id}?body-format=raw`) : await this.getCustomContentRawV2(id);
+    const customContent = await this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`);
     if (!customContent) {
       throw Error(`Failed to load custom content by id ${id}`);
     }
@@ -387,8 +355,8 @@ export default class ApWrapper2 implements IApWrapper {
   private async getCustomContentRaw(id: string): Promise<ICustomContentResponseBody | undefined> {
     const url = `/rest/api/content/${id}?expand=body.raw,version.number,container,space`;
     try {
-      const response = await this._requestFn({type: 'GET', url});
-      const customContent = this.parseCustomContentResponse(response);
+      const response = await this.makeRequest(url);
+      const customContent = response as ICustomContentResponseBody;
       console.debug(`Loaded custom content by id ${id}.`);
       return customContent;
     } catch (e) {
@@ -401,8 +369,8 @@ export default class ApWrapper2 implements IApWrapper {
   private async getCustomContentRawV2(id: string, query: string = 'body-format=raw'): Promise<ICustomContentResponseBodyV2 | undefined> {
     const url = `/api/v2/custom-content/${id}?${query}`;
     try {
-      const response = await this._requestFn({type: 'GET', url});
-      const customContent = this.parseCustomContentResponseV2(response);
+      const response = await this.makeRequest(url);
+      const customContent = response as ICustomContentResponseBodyV2;
       console.debug(`Loaded custom content by id ${id}.`);
       return customContent;
     } catch (e) {
@@ -517,31 +485,35 @@ export default class ApWrapper2 implements IApWrapper {
 
   async searchPagedCustomContent(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
     if (forgeGlobal.isForge) {
-      // Forge mode: use the new API
       return await this.searchPagedCustomContentForge(pageSize, keyword, onlyMine, docType, ids);
     }
 
-    // Connect mode: use the old API
     const searchUrl = await this.buildSearchCustomConentUrl(keyword, onlyMine, docType, ids, pageSize);
     return await this.searchPagedCustomContentByUrl(searchUrl);
   }
 
   async searchPagedCustomContentForge(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
-    try {
-      // Build query parameters for Forge API
-      const params = new URLSearchParams();
-      params.append('limit', pageSize.toString());
-      params.append('body-format', 'raw');
-      
-      if (keyword) {
-        params.append('title', keyword);
-      }
-      
-      if (onlyMine && this.currentUser?.atlassianAccountId) {
-        params.append('contributor', this.currentUser.atlassianAccountId);
-      }
+    const params = new URLSearchParams();
+    CUSTOM_CONTENT_TYPES.forEach(type => {
+      params.append('type', this.customContentType(type));
+    });
+    params.append('limit', pageSize.toString());
+    params.append('body-format', 'raw');
+    
+    if (keyword) {
+      params.append('title', keyword);
+    }
+    
+    if (onlyMine && this.currentUser?.atlassianAccountId) {
+      params.append('contributor', this.currentUser.atlassianAccountId);
+    }
 
-      const searchUrl = `/wiki/api/v2/custom-content?${params.toString()}`;
+    const searchUrl = `/wiki/api/v2/custom-content?${params.toString()}`;
+    return await this.searchPagedCustomContentForgeByUrl(searchUrl);
+  }
+
+  async searchPagedCustomContentForgeByUrl(searchUrl: string, pageSize: number = 25): Promise<SearchResults> {
+    try {
       const response = await forgeRequest(searchUrl);
       
       if (!response || !response.results) {
@@ -552,8 +524,12 @@ export default class ApWrapper2 implements IApWrapper {
         };
       }
 
-      // Parse the results similar to how getCustomContentByIdV2 works
-      const results = response.results.map((customContent: any) => {
+      const parseAndFilterResponse = (r: any) => r.results.map((customContent: any) => {
+        if(customContent.body.raw.value.length === 0) {
+          console.warn('Empty custom content body for id', customContent.id);
+          return null;
+        }
+
         let diagram;
         try {
           diagram = JSON.parse(customContent.body.raw.value);
@@ -569,17 +545,30 @@ export default class ApWrapper2 implements IApWrapper {
         return assign as ICustomContent;
       }).filter((item: ICustomContent) => item && item.value && item.value.diagramType);
 
+      let results = parseAndFilterResponse(response);
+
+      while(results.length < pageSize && response._links?.next) {
+        const nextResponse = await forgeRequest(response._links.next);
+        if (!nextResponse || !nextResponse.results) {
+          break;
+        }
+        const nextResults = parseAndFilterResponse(nextResponse);
+        results = results.concat(nextResults);
+        response._links.next = nextResponse._links?.next;
+      }
+
       const searchResults: SearchResults = {
         size: results.length,
         results: results,
         _links: response._links
       };
 
-      trackEvent(`found ${results.length} content in Forge mode`, 'searchPagedCustomContentForge', 'info');
+      trackEvent(`found ${results.length} content in Forge mode`, 'searchPagedCustomContentForgeByUrl', 'info');
+      console.log('searchPagedCustomContentForgeByUrl results:', searchResults);
       return searchResults;
     } catch (e) {
-      console.error('searchPagedCustomContentForge', e);
-      trackEvent(JSON.stringify(e), 'searchPagedCustomContentForge', 'error');
+      console.error('searchPagedCustomContentForgeByUrl', e);
+      trackEvent(JSON.stringify(e), 'searchPagedCustomContentForgeByUrl', 'error');
       return {
         size: 0,
         results: []
@@ -588,6 +577,10 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async searchPagedCustomContentByUrl(searchUrl: string): Promise<SearchResults> {
+    if (forgeGlobal.isForge) {
+      return await this.searchPagedCustomContentForgeByUrl(searchUrl);
+    }
+
     const searchCustomContent = async (): Promise<SearchResults> => {
       const data = await this.searchOnce(searchUrl);
       const results = data?.results || [];
@@ -800,6 +793,9 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   getDialogCustomData() {
+    if(forgeGlobal.isForge) {
+      return Promise.resolve(undefined);
+    }
     const dialog = this._dialog;
     return new Promise((resolv: Function) => {
       try {
@@ -836,7 +832,7 @@ export default class ApWrapper2 implements IApWrapper {
     queryParameters = queryParameters || {};
     const param = Object.keys(queryParameters).reduce((acc, i) => `${acc}${acc ? '&' : ''}${i}=${queryParameters[i]}`, '');
     const url = `/api/v2/pages/${pageId}/attachments${param ? `?${param}` : ''}`;
-    const response = forgeGlobal.isForge ? await forgeRequest(`/wiki${url}`) : await this.request(url);
+    const response = await this.makeRequest(url);
     const base = await this._getBaseUrl();
     return response?.results && response?.results.map((a: any) => Object.assign(a, {
       _links: {
@@ -851,7 +847,7 @@ export default class ApWrapper2 implements IApWrapper {
     queryParameters = queryParameters || {};
     const param = Object.keys(queryParameters).reduce((acc, i) => `${acc}${acc ? '&' : ''}${i}=${queryParameters[i]}`, '');
     const url = `/rest/api/content/${pageId}/child/attachment${param ? `?expand=version&${param}` : ''}`;
-    const response = forgeGlobal.isForge ? await forgeRequest(`/wiki${url}`) : await this.request(url);
+    const response = await this.makeRequest(url);
     console.debug(`found attachments in page ${pageId} with params ${queryParameters}:`, response);
     const baseLinks = {base: response._links.base, context: response._links.context};
     //set 'comment' as top level field to be consistent with V2 API response
@@ -862,6 +858,10 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async _getCurrentUser(): Promise<IUser> {
+    if(forgeGlobal.isForge) {
+      return {atlassianAccountId: forgeGlobal.forgeContext.accountId};
+    }
+
     try {
       const response = await this._requestFn({
         url: '/rest/api/user/current',
@@ -885,17 +885,17 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async getCurrentSpace(): Promise<ISpace> {
-    return this.currentSpace
-      || (this.currentSpace = await this._page.getSpace())
-      || (this.currentSpace = {key: await this._page.getSpaceKey()});
+    return this.currentSpace || (this.currentSpace = forgeGlobal.isForge 
+        ? forgeGlobal.forgeContext.extension.space 
+        : (await this._page.getSpace() || {key: await this._page.getSpaceKey()}));
   }
 
   async _getCurrentPageId(): Promise<string> {
-    return this.currentPageId || (this.currentPageId = await this._page.getPageId());
+    return this.currentPageId || (this.currentPageId = forgeGlobal.isForge ? forgeGlobal.forgeContext.extension.content?.id : await this._page.getPageId());
   }
 
   async _getCurrentPageUrl(): Promise<string> {
-    return this.currentPageUrl || (this.currentPageUrl = await this._page.getHref());
+    return this.currentPageUrl || (this.currentPageUrl = forgeGlobal.isForge ? forgeGlobal.forgeContext.extension.location : await this._page.getHref());
   }
 
   async _getBaseUrl(): Promise<string> {
@@ -952,14 +952,35 @@ export default class ApWrapper2 implements IApWrapper {
     return getUrlParam('addonKey')?.includes('lite');
   }
 
+  /**
+   * Common request method that handles both forge and connect modes
+   * @param url The API endpoint URL (without /wiki prefix)
+   * @param method HTTP method (GET, POST, PUT, etc.)
+   * @param data Request body data (optional)
+   * @param parseFunction Optional custom parsing function for connect mode
+   * @returns Parsed response data
+   */
+  private async makeRequest(url: string, method: string = 'GET', data: any = undefined, parseFunction?: (response: any) => any): Promise<any> {
+    if (forgeGlobal.isForge) {
+      return await forgeRequest(`/wiki${url}`, method, data);
+    } else {
+      const response = await this._requestFn(data ? {
+        type: method,
+        url,
+        data: JSON.stringify(data),
+        contentType: 'application/json'
+      } : {type: method, url});
+      
+      if (parseFunction) {
+        return parseFunction(response);
+      }
+      // Default parsing: forge mode returns response as-is, connect mode parses JSON
+      return forgeGlobal.isForge ? response : response && response.body && JSON.parse(response.body);
+    }
+  }
+
   async request(url: string, type: string = 'GET', data: any = undefined): Promise<any> {
-    const response = await this._requestFn(data ? {
-      type,
-      url,
-      data: JSON.stringify(data),
-      contentType: 'application/json'
-    } : {type, url});
-    return Object.assign({}, response && response.body && JSON.parse(response.body), {xhr: response.xhr});
+    return this.makeRequest(url, type, data);
   }
 
   async requestAllPaginatedData(initialUrl: string, consumer: (data: any) => void): Promise<any> {
@@ -969,6 +990,10 @@ export default class ApWrapper2 implements IApWrapper {
   appPropertyUrl = (key: string) => `/rest/atlassian-connect/1/addons/${addonKey()}/properties/${key}`;
 
   async getAppProperty(propertyKey: string = ''): Promise<any> {
+    if(forgeGlobal.isForge) {
+      //TODO: Migrate the usage of AppProperty to Forge API
+      return;
+    }
     const url = this.appPropertyUrl(propertyKey);
     try {
       return (await this.request(url)).value;
@@ -978,6 +1003,9 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async setAppProperty(propertyKey: string = '', value: any = undefined): Promise<any> {
+    if(forgeGlobal.isForge) {
+      return;
+    }
     const url = this.appPropertyUrl(propertyKey);
     return (await this.request(url, 'PUT', value));
   }
@@ -1001,12 +1029,7 @@ export default class ApWrapper2 implements IApWrapper {
       // Using the V2 API as specified in the documentation
       // https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-custom-content/#api-custom-content-id-get
       const url = `/api/v2/custom-content/${contentId}/versions?body-format=raw&limit=100`;
-      const response = await this._requestFn({
-        type: 'GET',
-        url
-      });
-
-      const data = JSON.parse(response.body);
+      const data = await this.makeRequest(url);
       const versions = data.results || [];
 
       console.log(`%cFound ${versions.length} versions for content ID: ${contentId}`, 'color: #4B5563; font-size: 14px; font-weight: bold;');
@@ -1035,12 +1058,7 @@ export default class ApWrapper2 implements IApWrapper {
         // Fetch the specific version content
         try {
           const versionContentUrl = `/api/v2/custom-content/${contentId}?version=${version.number}&body-format=raw`;
-          const versionResponse = await this._requestFn({
-            type: 'GET',
-            url: versionContentUrl
-          });
-
-          const versionData = JSON.parse(versionResponse.body);
+          const versionData = await this.makeRequest(versionContentUrl);
           if (versionData.body?.raw?.value) {
             const diagramData = JSON.parse(versionData.body.raw.value);
 

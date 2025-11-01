@@ -38,6 +38,13 @@ async function initializeCriticalPath() {
       return { macroData: null };
     }
 
+    // Check if this is a global page route (dashboard)
+    if (context.extension?.type === 'confluence:globalPage') {
+      await handleGetStartedRoute();
+      // await import('./dashboard');
+      return { macroData: null };
+    }
+
     // Initialize context and get macro data (lightweight operations)
     await globals.apWrapper.initializeContext();
     const macroData = await globals.apWrapper.getMacroData();
@@ -66,14 +73,14 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 
     const context = await initForgeContext();
 
-    // Skip loading heavy components if this is a global settings context
-    if (context.extension?.type === 'confluence:globalSettings') {
-      console.log('Skipping heavy components load for global settings context');
+    // Skip loading heavy components if this is a global settings or global page context
+    if (context.extension?.type === 'confluence:globalSettings' || context.extension?.type === 'confluence:globalPage') {
+      console.log('Skipping heavy components load for global context');
       return;
     }
 
     let doc;
-    const customContentId = context.extension?.config?.customContentId;
+    const customContentId = context.extension?.config?.customContentId || context.extension.modal?.customContentId;
     if(!customContentId) {
       doc = {
         diagramType: DiagramType.Sequence,
@@ -94,7 +101,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       skeletonLoader.style.display = 'none';
     }
 
-    const isSequence = context.moduleKey === 'zenuml-sequence-macro';
+    const isSequence = context.moduleKey === 'zenuml-sequence-macro' || context.extension.modal?.diagramType === 'sequence';
     const isGraph = context.moduleKey === 'zenuml-graph-macro';
     const isEmbed = context.moduleKey === 'zenuml-embed-macro';
 
@@ -201,7 +208,7 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
   }, 1500);
 });
 
-EventBus.$on('edit', async() => {
+EventBus.$on('edit', async(params: any) => {
   await openModal({
     resource: 'main',
     onClose: (payload: any) => {
@@ -211,6 +218,7 @@ EventBus.$on('edit', async() => {
     size: 'max',
     context: {
       macroMode: 'editor',
+      ...params
     },
   });
 });

@@ -2,23 +2,24 @@ environment:
   variables:
     - APP_ID
     - BASE_URL
+    - LITE_KEY_SUFFIX
+    - LITE_TITLE_SUFFIX
 
 app:
   id: ari:cloud:ecosystem::app/${APP_ID}
   connect:
-    key: com.zenuml.confluence-addon
+    key: com.zenuml.confluence-addon${LITE_KEY_SUFFIX}
     remote: connect
-    # authentication: jwt
   runtime:
     name: nodejs20.x
   licensing:
     enabled: true
 remotes:
-# Addition of one or more new remotes, see https://developer.atlassian.com/platform/adopting-forge-from-connect/connect-forge-updates-preview/
+  # Addition of one or more new remotes, see https://developer.atlassian.com/platform/adopting-forge-from-connect/connect-forge-updates-preview/
   - key: connect
     baseUrl: ${BASE_URL}
     operations:
-        - compute
+      - compute
     auth:
       appSystemToken:
         enabled: true
@@ -26,7 +27,7 @@ remotes:
         enabled: true
 permissions:
   scopes:
-  # "Addition of Forge-specific OAuth 2.0 scopes that inherit permissions already granted by a Connect scope the customer has already accepted" doesn't require admin approval only the first time, see https://developer.atlassian.com/platform/adopting-forge-from-connect/connect-forge-updates-preview/. To avoid admin approval in future, all the scopes that are already granted by Connect Read and Write scopes are added here.
+    # "Addition of Forge-specific OAuth 2.0 scopes that inherit permissions already granted by a Connect scope the customer has already accepted" doesn't require admin approval only the first time, see https://developer.atlassian.com/platform/adopting-forge-from-connect/connect-forge-updates-preview/. To avoid admin approval in future, all the scopes that are already granted by Connect Read and Write scopes are added here.
     - read:connect-confluence
     - write:connect-confluence
     - read:confluence-content.summary
@@ -106,8 +107,8 @@ permissions:
     - read:app-user-token
     - read:app-system-token
   external:
-  # "Modifying content permissions CSP options, external permissions CSP options and URLs, or
-  # fetch permissions options and URLs" does not require admin approval.
+    # "Modifying content permissions CSP options, external permissions CSP options and URLs, or
+    # fetch permissions options and URLs" does not require admin approval.
     fetch:
       backend:
         - https://zenuml.com
@@ -116,6 +117,7 @@ permissions:
         - https://zenuml.com
         - https://*.zenuml.com
         - https://www.google-analytics.com
+        - https://api.mixpanel.com
     frames:
       - https://conf-full.zenuml.com/drawio/index.html
     scripts:
@@ -133,7 +135,7 @@ permissions:
 
 modules:
   macro:
-    - key: zenuml-sequence-macro
+    - key: zenuml-sequence-macro${LITE_KEY_SUFFIX}
       title: Diagram (ZenUML & Mermaid)
       description: Create a ZenUML or Mermaid Diagram. Developed by the ZenUML team.
       resource: main
@@ -144,7 +146,7 @@ modules:
         function: exportMacro
       resolver:
         endpoint: remote-connect
-    - key: zenuml-openapi-macro
+    - key: zenuml-openapi-macro${LITE_KEY_SUFFIX}
       title: OpenAPI / Swagger
       description: Create an OpenAPI / Swagger Spec. Developed by the ZenUML team.
       resource: main
@@ -155,7 +157,7 @@ modules:
         function: exportMacro
       resolver:
         endpoint: remote-connect
-    - key: zenuml-graph-macro
+    - key: zenuml-graph-macro${LITE_KEY_SUFFIX}
       title: Graph (DrawIO)
       description: Create a Graph powered by DrawIO. Developed by the ZenUML team.
       resource: main
@@ -166,7 +168,7 @@ modules:
         function: exportMacro
       resolver:
         endpoint: remote-connect
-    - key: zenuml-embed-macro
+    - key: zenuml-embed-macro${LITE_KEY_SUFFIX}
       title: Embed a Diagram, Graph or API Spec
       description: Embed an existing Diagram, Graph or API Spec. Developed by the ZenUML team.
       resource: main
@@ -190,7 +192,7 @@ modules:
         appUserToken:
           enabled: true
         appSystemToken:
-          enabled: true 
+          enabled: true
     - key: remote-installed-endpoint
       remote: connect
       route:
@@ -206,7 +208,7 @@ modules:
   confluence:globalPage:
     - key: zenuml-dashboard-page
       resource: main
-      title: ZenUML
+      title: ZenUML${LITE_TITLE_SUFFIX}
       route: zenuml-dashboard
   confluence:customContent:
     - key: zenuml-content-sequence

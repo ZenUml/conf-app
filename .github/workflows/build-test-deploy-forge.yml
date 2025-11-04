@@ -1,0 +1,36 @@
+name: Build, Test and Deploy Forge Confluence App
+
+on:
+  push:
+    tags-ignore:
+      - '**' # do not run on tags
+    branches:
+      - 'forge'
+
+jobs:
+  build:
+    name: Build, Test, Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9.x
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - name: Install dependencies (skip post-install scripts)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - run: pnpm build:full
+      - run: rm -rf dist/drawio
+      - run: pnpm forge:deploy:lite:yanhui
+      - run: pnpm forge:install:lite:yanhui
+  
+  

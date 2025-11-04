@@ -3,6 +3,7 @@ import globals from "@/model/globals";
 import { trackEvent } from "@/utils/window";
 import ApWrapper2 from "@/model/ApWrapper2";
 import { MetricsCache } from "./MetricsCache";
+import forgeGlobal from '@/model/globals/forgeGlobal';
 
 export interface IMacroMetrics {
   space: string;
@@ -37,6 +38,10 @@ export class MacroMetrics {
 
   // Report Macro Metrics for the Current Space.
   async reportMacroMetrics(): Promise<void> {
+    if(forgeGlobal.isForge) {
+      //TODO: implement Forge metrics reporting
+      return;
+    }
     try {
       const metrics = await this.getMacroMetrics();
 

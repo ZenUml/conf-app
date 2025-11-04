@@ -36,6 +36,9 @@ jobs:
     environment:
       name: staging-lite
     runs-on: ubuntu-latest
+    env:
+      FORGE_EMAIL: "${{ vars.FORGE_EMAIL }}"
+      FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN }}"
     steps:
       - uses: actions/checkout@v4
       - name: Build and publish
@@ -47,25 +50,10 @@ jobs:
           license: lite
           project: conf-stg-lite
           environment: stg
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-      - name: Install PyYAML
-        run: pip3 install PyYAML==5.3.1
-      - name: Install pluploader
-        run: pip3 install pluploader
-      - name: Install plugin to Confluence
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 5
-          max_attempts: 3
-          retry_wait_seconds: 10
-          command: |
-            pluploader --base-url https://zenuml-stg.atlassian.net/wiki \
-              --user ${{ secrets.ZENUML_STAGE_UPM_USER }} \
-              --password ${{ secrets.ZENUML_STAGE_UPM_PASSWORD }} \
-              install --cloud \
-              --plugin-uri https://conf-stg-lite.zenuml.com/descriptor
+      - run: rm -rf dist/drawio
+      - run: pnpm forge:deploy:enable-analytics
+      - run: pnpm forge:deploy:lite:staging
+      - run: pnpm forge:install:lite:staging
 
   staging-lite-test:
     needs: staging-lite

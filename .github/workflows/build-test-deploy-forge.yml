@@ -7,6 +7,10 @@ on:
     branches:
       - 'forge'
 
+env:
+  FORGE_EMAIL: "${{ vars.FORGE_EMAIL }}"
+  FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN }}"
+
 jobs:
   build:
     name: Build, Test, Deploy

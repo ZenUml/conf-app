@@ -1,4 +1,4 @@
-name: Build, Test and Deploy Forge
+name: Build and Deploy Forge(Yanhui)
 
 on:
   push:
@@ -9,11 +9,11 @@ on:
 
 jobs:
   build:
-    name: Build, Test, Deploy
+    name: Build, Deploy
     runs-on: ubuntu-latest
     env:
-      FORGE_EMAIL: "${{ vars.FORGE_EMAIL }}"
-      FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN }}"
+      FORGE_EMAIL: "${{ vars.FORGE_EMAIL_YANHUI }}"
+      FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN_YANHUI }}"
 
     steps:
       - name: Checkout

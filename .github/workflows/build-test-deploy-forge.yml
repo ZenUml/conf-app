@@ -30,6 +30,7 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=8192"
       - run: pnpm build:lite
       - run: rm -rf dist/drawio
+      - run: pnpm forge:deploy:enable-analytics
       - run: pnpm forge:deploy:lite:yanhui
       - run: pnpm forge:install:lite:yanhui
   

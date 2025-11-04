@@ -31,7 +31,7 @@
     "forge:deploy:lite:yanhui": "APP_ID=8ad26115-211f-4216-971b-0540f606303d LITE_KEY_SUFFIX=-lite LITE_TITLE_SUFFIX=\" Lite\" BASE_URL=https://confluence-plugin.pages.dev forge deploy -e development --non-interactive --verbose",
     "forge:install:lite:yanhui": "APP_ID=8ad26115-211f-4216-971b-0540f606303d LITE_KEY_SUFFIX=-lite LITE_TITLE_SUFFIX=\" Lite\" BASE_URL=https://confluence-plugin.pages.dev forge install --upgrade --site whimet4.atlassian.net --product confluence -e development --non-interactive",
     "forge:deploy:lite:staging": "APP_ID=8ad26115-211f-4216-971b-0540f606303d LITE_KEY_SUFFIX=-lite LITE_TITLE_SUFFIX=\" Lite\" BASE_URL=https://conf-stg-lite.zenuml.com forge deploy -e staging --non-interactive --verbose",
-    "forge:install:lite:staging": "APP_ID=8ad26115-211f-4216-971b-0540f606303d LITE_KEY_SUFFIX=-lite LITE_TITLE_SUFFIX=\" Lite\" BASE_URL=https://conf-stg-lite.zenuml.com forge install --site zenuml-stg.atlassian.net --product confluence --non-interactive -e staging"
+    "forge:install:lite:staging": "APP_ID=8ad26115-211f-4216-971b-0540f606303d LITE_KEY_SUFFIX=-lite LITE_TITLE_SUFFIX=\" Lite\" BASE_URL=https://conf-stg-lite.zenuml.com forge install --upgrade --site zenuml-stg.atlassian.net --product confluence --non-interactive -e staging"
   },
   "dependencies": {
     "@atlaskit/renderer": "^118.6.14",

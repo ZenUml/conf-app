@@ -5,15 +5,27 @@ const global = {
   zenumlRemoteBaseUrl: undefined,
 } as any;
 
+const REMOTE_BASE_URL_MAP = {
+  DEVELOPMENT_LITE: 'https://confluence-plugin.pages.dev',
+  STAGING_LITE: 'https://conf-stg-lite.zenuml.com',
+  PRODUCTION_LITE: 'https://conf-lite.zenuml.com',
+  DEVELOPMENT_FULL: 'https://confluence-plugin.pages.dev',
+  STAGING_FULL: 'https://conf-stg-full.zenuml.com',
+  PRODUCTION_FULL: 'https://conf-full.zenuml.com',
+};
+
 export async function getView() {
   if(!global.view) {
     const { view } = await import("@forge/bridge");
     global.view = view;
     global.isForge = true;
     global.forgeContext = await view.getContext();
-    global.zenumlRemoteBaseUrl = global.forgeContext.environmentType== "DEVELOPMENT" ? 'https://confluence-plugin.pages.dev': 'https://conf-full.zenuml.com';
+
+    const isLite = global.forgeContext.moduleKey.endsWith("-lite");
+    global.zenumlRemoteBaseUrl = REMOTE_BASE_URL_MAP[`${global.forgeContext.environmentType}_${isLite ? 'LITE' : 'FULL'}`];
 
     console.log('forgeGlobal - context', global.forgeContext);
+    console.log('forgeGlobal - zenumlRemoteBaseUrl', global.zenumlRemoteBaseUrl);
   }
   return global.view;
 }

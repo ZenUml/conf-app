@@ -11,6 +11,7 @@ if(forgeGlobal.isForge) {
     debug: true,
     track_pageview: true,
     persistence: "localStorage",
+    ignore_dnt: true
   });
 }
 

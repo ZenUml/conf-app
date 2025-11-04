@@ -30,6 +30,11 @@ export async function isEditorMode() {
   return context.extension.modal?.macroMode === 'editor' || context.extension?.macro?.isConfiguring;
 }
 
+export async function isFullscreenMode() {
+  const context = await getContext();
+  return context.extension.modal?.macroMode === 'fullscreen';
+}
+
 export async function openModal(options: any) {
   const { Modal } = await import("@forge/bridge");
   const modal = new Modal(options);

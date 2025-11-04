@@ -94,7 +94,7 @@ EventBus.$on('fullscreen', async () => {
     },
     size: 'max',
     context: {
-      macroMode: 'viewer',
+      macroMode: 'fullscreen',
     },
   });
 }); 

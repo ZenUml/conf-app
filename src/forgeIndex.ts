@@ -1,5 +1,5 @@
 import globals from '@/model/globals';
-import { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting } from '@/model/globals/forgeGlobal';
+import { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isFullscreenMode } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
 import {trackEvent} from "@/utils/window";
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
@@ -110,9 +110,11 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       const component = editable 
       ? (await import("@/components/Workspace.vue")).default
       : (await import("@/components/DiagramPortal.vue")).default;
+
+      const fullscreenMode = await isFullscreenMode();
       
       //@ts-ignore
-      mountRoot(doc, component, { autoResize: !editable });
+      mountRoot(doc, component, { autoResize: !editable && !fullscreenMode });
     } else if(isGraph) {
       await import(editable ? "@/forge-graph-editor" : "@/forge-graph-viewer");
     } else if(isEmbed) {
@@ -282,7 +284,7 @@ EventBus.$on('fullscreen', async () => {
     },
     size: 'max',
     context: {
-      macroMode: 'viewer',
+      macroMode: 'fullscreen',
     },
   });
 });

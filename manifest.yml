@@ -117,7 +117,7 @@ permissions:
         - https://zenuml.com
         - https://*.zenuml.com
         - https://www.google-analytics.com
-        - https://api.mixpanel.com
+        - https://*.mixpanel.com
     frames:
       - https://conf-full.zenuml.com/drawio/index.html
     scripts:
@@ -129,6 +129,7 @@ permissions:
       - https://www.googletagmanager.com/gtag/js
       - https://www.google-analytics.com/analytics.js
       - https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js
+      - https://cdn.mxpnl.com/libs/mixpanel-recorder.min.js
   content:
     styles:
       - unsafe-inline
@@ -146,6 +147,7 @@ modules:
         function: exportMacro
       resolver:
         endpoint: remote-connect
+      icon: resource:main;image/diagram_macro_icon.png
     - key: zenuml-openapi-macro${LITE_KEY_SUFFIX}
       title: OpenAPI / Swagger${LITE_TITLE_SUFFIX}
       description: Create an OpenAPI / Swagger Spec. Developed by the ZenUML team.
@@ -157,6 +159,7 @@ modules:
         function: exportMacro
       resolver:
         endpoint: remote-connect
+      icon: resource:main;image/openapi_macro_icon.png
     - key: zenuml-graph-macro${LITE_KEY_SUFFIX}
       title: Graph (DrawIO)${LITE_TITLE_SUFFIX}
       description: Create a Graph powered by DrawIO. Developed by the ZenUML team.
@@ -168,6 +171,7 @@ modules:
         function: exportMacro
       resolver:
         endpoint: remote-connect
+      icon: resource:main;image/graph_macro_icon.png
     - key: zenuml-embed-macro${LITE_KEY_SUFFIX}
       title: Embed a Diagram, Graph or API Spec${LITE_TITLE_SUFFIX}
       description: Embed an existing Diagram, Graph or API Spec. Developed by the ZenUML team.
@@ -179,6 +183,7 @@ modules:
         function: exportMacro
       resolver:
         endpoint: remote-connect
+      icon: resource:main;image/diagram_macro_icon.png
   trigger:
     - key: remote-installed-trigger
       endpoint: remote-installed-endpoint

@@ -28,9 +28,9 @@
     "install:stg:lite": "pluploader --base-url https://zenuml-stg.atlassian.net/wiki install --cloud --plugin-uri https://air.zenuml.com/descriptor?lite",
     "forge:deploy:full:yanhui": "APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 LITE_KEY_SUFFIX= LITE_TITLE_SUFFIX= BASE_URL=https://confluence-plugin.pages.dev forge deploy",
     "forge:deploy:enable-analytics": "forge settings set usage-analytics true",
-    "forge:deploy:lite:yanhui": "APP_ID=8ad26115-211f-4216-971b-0540f606303d LITE_KEY_SUFFIX=-lite LITE_TITLE_SUFFIX=\" Lite\" BASE_URL=https://confluence-plugin.pages.dev forge deploy",
+    "forge:deploy:lite:yanhui": "APP_ID=8ad26115-211f-4216-971b-0540f606303d LITE_KEY_SUFFIX=-lite LITE_TITLE_SUFFIX=\" Lite\" BASE_URL=https://confluence-plugin.pages.dev forge deploy --non-interactive",
     "forge:install:lite:yanhui": "APP_ID=8ad26115-211f-4216-971b-0540f606303d LITE_KEY_SUFFIX=-lite LITE_TITLE_SUFFIX=\" Lite\" BASE_URL=https://confluence-plugin.pages.dev forge install --upgrade --site whimet4.atlassian.net --product confluence --non-interactive",
-    "forge:deploy:lite:staging": "APP_ID=8ad26115-211f-4216-971b-0540f606303d LITE_KEY_SUFFIX=-lite LITE_TITLE_SUFFIX=\" Lite\" BASE_URL=https://conf-stg-lite.zenuml.com forge deploy -e staging",
+    "forge:deploy:lite:staging": "APP_ID=8ad26115-211f-4216-971b-0540f606303d LITE_KEY_SUFFIX=-lite LITE_TITLE_SUFFIX=\" Lite\" BASE_URL=https://conf-stg-lite.zenuml.com forge deploy -e staging --non-interactive",
     "forge:install:lite:staging": "APP_ID=8ad26115-211f-4216-971b-0540f606303d LITE_KEY_SUFFIX=-lite LITE_TITLE_SUFFIX=\" Lite\" BASE_URL=https://conf-stg-lite.zenuml.com forge install --upgrade --site zenuml-stg.atlassian.net --product confluence --non-interactive -e staging"
   },
   "dependencies": {

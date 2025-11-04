@@ -767,7 +767,8 @@ export default class ApWrapper2 implements IApWrapper {
     const existing = await this.getCustomContentByIdV2(customContentId);
     const pageId = await this._getCurrentPageId();
     const count = (await this._page.countMacros((m) => {
-      return forgeGlobal.isForge ? m?.customContentId === customContentId : m?.customContentId?.value === customContentId;
+      return m?.customContentId === customContentId //new forge custom content
+        || m?.customContentId?.value === customContentId;
     }));
 
     // pageId is absent when editing in custom content list page;

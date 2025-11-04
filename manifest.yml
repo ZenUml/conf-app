@@ -136,7 +136,7 @@ permissions:
 modules:
   macro:
     - key: zenuml-sequence-macro${LITE_KEY_SUFFIX}
-      title: Diagram (ZenUML & Mermaid)
+      title: Diagram (ZenUML & Mermaid)${LITE_TITLE_SUFFIX}
       description: Create a ZenUML or Mermaid Diagram. Developed by the ZenUML team.
       resource: main
       config:
@@ -147,7 +147,7 @@ modules:
       resolver:
         endpoint: remote-connect
     - key: zenuml-openapi-macro${LITE_KEY_SUFFIX}
-      title: OpenAPI / Swagger
+      title: OpenAPI / Swagger${LITE_TITLE_SUFFIX}
       description: Create an OpenAPI / Swagger Spec. Developed by the ZenUML team.
       resource: main
       config:
@@ -158,7 +158,7 @@ modules:
       resolver:
         endpoint: remote-connect
     - key: zenuml-graph-macro${LITE_KEY_SUFFIX}
-      title: Graph (DrawIO)
+      title: Graph (DrawIO)${LITE_TITLE_SUFFIX}
       description: Create a Graph powered by DrawIO. Developed by the ZenUML team.
       resource: main
       config:
@@ -169,7 +169,7 @@ modules:
       resolver:
         endpoint: remote-connect
     - key: zenuml-embed-macro${LITE_KEY_SUFFIX}
-      title: Embed a Diagram, Graph or API Spec
+      title: Embed a Diagram, Graph or API Spec${LITE_TITLE_SUFFIX}
       description: Embed an existing Diagram, Graph or API Spec. Developed by the ZenUML team.
       resource: main
       config:

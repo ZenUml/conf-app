@@ -101,9 +101,9 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       skeletonLoader.style.display = 'none';
     }
 
-    const isSequence = context.moduleKey === 'zenuml-sequence-macro' || context.extension.modal?.diagramType === 'sequence';
-    const isGraph = context.moduleKey === 'zenuml-graph-macro';
-    const isEmbed = context.moduleKey === 'zenuml-embed-macro';
+    const isSequence = context.moduleKey.startsWith('zenuml-sequence-macro') || context.extension.modal?.diagramType === 'sequence';
+    const isGraph = context.moduleKey.startsWith('zenuml-graph-macro');
+    const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
 
     const editable = await isEditorMode();
     if(isSequence) {

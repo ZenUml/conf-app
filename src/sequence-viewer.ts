@@ -90,7 +90,7 @@ export default main()
 
 EventBus.$on('diagramLoaded', () => {
   const resizeAfterDelay = () => {
-    console.log('Resizing viewport after diagram loaded');
+    console.debug('Resizing viewport after diagram loaded');
     // @ts-ignore
     window.AP?.resize();
   };

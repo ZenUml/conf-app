@@ -94,7 +94,7 @@ export class AtlasPage {
       }
 
       const response = forgeGlobal.isForge ? await forgeRequest(`/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format&get-draft=true`) : await connectRequest(this._requestFn,`/api/v2/pages/${pageId}?body-format=atlas_doc_format&get-draft=true`);
-      console.log('response', response);
+      console.debug('AtlasPage - page response', response);
       responseStatus = response?.xhr?.status || '';
       if (!response || !response.body) {
         return [];

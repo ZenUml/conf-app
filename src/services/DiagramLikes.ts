@@ -20,7 +20,7 @@ export async function toggleDiagramLike(diagramId: string, diagramType: DiagramT
     };
 
     const result = await makeExternalRequest('/diagram-likes/toggle', 'POST', data);
-    console.log('Diagram-likes response', result);
+    console.debug('Diagram-likes response', result);
     return result;
   } catch (e) {
     console.error('Error when liking diagram', e);
@@ -46,7 +46,7 @@ export async function getDiagramLikes(diagramId: string) {
     };
 
     const result = await makeExternalRequest('/diagram-likes/query', 'POST', data);
-    console.log('Diagram-likes response', result);
+    console.debug('Diagram-likes response', result);
     return result;
   } catch (e) {
     console.error('Error when getting diagram likes', e);

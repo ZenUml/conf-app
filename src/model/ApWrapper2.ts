@@ -56,7 +56,6 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async initializeContext(): Promise<void> {
-    console.log('initializeContext starts');
     try {
       this.currentUser = await this._getCurrentUser();
       this.currentSpace = await this.getCurrentSpace();
@@ -144,7 +143,9 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   getCustomContentTypePrefix() {
-    return `ac:${getUrlParam('addonKey') || 'com.zenuml.confluence-addon'}`; //TODO: remove this hardcoded addon key
+    const addonKey = forgeGlobal.isForge ? `com.zenuml.confluence-addon${forgeGlobal.isLite ? '-lite' : ''}` : getUrlParam('addonKey');
+    console.log('getCustomContentTypePrefix', addonKey);
+    return `ac:${addonKey}`;
   }
 
   getCustomContentType() {
@@ -446,7 +447,7 @@ export default class ApWrapper2 implements IApWrapper {
     }
   }
 
-  async searchCustomContentForge(maxItems: number = 250): Promise<Array<ICustomContent>> {
+  async searchCustomContentForge(maxItems: number = 2): Promise<Array<ICustomContent>> {
     try {
       // Use the new Forge API to search custom content
       const searchUrl = `/wiki/api/v2/custom-content?limit=${maxItems}&body-format=raw`;
@@ -492,7 +493,7 @@ export default class ApWrapper2 implements IApWrapper {
     return await this.searchPagedCustomContentByUrl(searchUrl);
   }
 
-  async searchPagedCustomContentForge(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
+  async searchPagedCustomContentForge(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = [], followNext: boolean = false): Promise<SearchResults> {
     const params = new URLSearchParams();
     CUSTOM_CONTENT_TYPES.forEach(type => {
       params.append('type', this.customContentType(type));
@@ -509,10 +510,10 @@ export default class ApWrapper2 implements IApWrapper {
     }
 
     const searchUrl = `/wiki/api/v2/custom-content?${params.toString()}`;
-    return await this.searchPagedCustomContentForgeByUrl(searchUrl);
+    return await this.searchPagedCustomContentForgeByUrl(searchUrl, pageSize, followNext);
   }
 
-  async searchPagedCustomContentForgeByUrl(searchUrl: string, pageSize: number = 25): Promise<SearchResults> {
+  async searchPagedCustomContentForgeByUrl(searchUrl: string, pageSize: number = 25, followNext: boolean = false): Promise<SearchResults> {
     try {
       const response = await forgeRequest(searchUrl);
       
@@ -547,7 +548,7 @@ export default class ApWrapper2 implements IApWrapper {
 
       let results = parseAndFilterResponse(response);
 
-      while(results.length < pageSize && response._links?.next) {
+      while((results.length < pageSize || followNext) && response._links?.next) {
         const nextResponse = await forgeRequest(response._links.next);
         if (!nextResponse || !nextResponse.results) {
           break;

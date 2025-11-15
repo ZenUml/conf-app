@@ -227,6 +227,7 @@ modules:
       title: ZenUML
       resource: main
       bodyType: raw
+      indexing: true
       migratedFromConnect: true
     - key: zenuml-content-graph
       supportedContainerTypes:
@@ -239,6 +240,7 @@ modules:
       title: ZenUML Graph
       resource: main
       bodyType: raw
+      indexing: true
       migratedFromConnect: true
   function:
     - key: exportMacro

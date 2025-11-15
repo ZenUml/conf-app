@@ -3,6 +3,7 @@ const global = {
   forgeContext: undefined,
   view: undefined,
   zenumlRemoteBaseUrl: undefined,
+  isLite: undefined,
 } as any;
 
 const REMOTE_BASE_URL_MAP = {
@@ -21,8 +22,8 @@ export async function getView() {
     global.isForge = true;
     global.forgeContext = await view.getContext();
 
-    const isLite = global.forgeContext.moduleKey.endsWith("-lite");
-    global.zenumlRemoteBaseUrl = REMOTE_BASE_URL_MAP[`${global.forgeContext.environmentType}_${isLite ? 'LITE' : 'FULL'}`];
+    global.isLite = global.forgeContext.moduleKey.endsWith("-lite");
+    global.zenumlRemoteBaseUrl = REMOTE_BASE_URL_MAP[`${global.forgeContext.environmentType}_${global.isLite ? 'LITE' : 'FULL'}`];
 
     console.log('forgeGlobal - context', global.forgeContext);
     console.log('forgeGlobal - zenumlRemoteBaseUrl', global.zenumlRemoteBaseUrl);

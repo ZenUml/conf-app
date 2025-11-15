@@ -25,7 +25,7 @@ export async function forgeRequest(url: string, method: string = 'GET', data: an
 
 export async function forgeCallRemote(url: string, method: string = 'GET', data: any = undefined): Promise<any> {
   const { invokeRemote } = await import("@forge/bridge");
-  console.log('forgeCallRemote - url:', url, 'method:', method, 'data:', data);
+  console.debug('forgeCallRemote - url:', url, 'method:', method, 'data:', data);
   return await invokeRemote({
     path: url, 
     method: method as any,

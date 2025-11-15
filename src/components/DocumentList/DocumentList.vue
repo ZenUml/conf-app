@@ -282,7 +282,7 @@ export default {
       }
       
       // Load all custom content for the list
-      this.customContentList = await globals.apWrapper.searchCustomContentForge();
+      this.customContentList = (await globals.apWrapper.searchPagedCustomContentForge(250, '', false, '', [], true)).results;
       console.debug(`Forge mode - loaded custom content list:`, this.customContentList);
     },
     

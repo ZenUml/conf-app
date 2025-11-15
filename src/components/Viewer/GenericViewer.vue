@@ -8,7 +8,8 @@
       <div class="header flex p-1.5" :class="{flex: isDisplayMode && !hideHeader, hidden: !isDisplayMode || hideHeader}">
         <div class="left">
           <div class="actions flex" :class="{flex: isDisplayMode && !hideHeader, hidden: !isDisplayMode || hideHeader}">
-            <div v-show="isLite" class="flex justify-center items-center">
+            <!-- TODO: Disable upgrade button in forge app before marketplace listing approval -->
+            <div v-show="isLite && !isForge" class="flex justify-center items-center">
               <upgrade @showUpgradePrompt="showUpgradeModal = true"/>
             </div>
             <div v-show="isEmbedded" class="flex justify-center items-center">
@@ -112,6 +113,7 @@ import store from "@/model/store2";
 import IconLike from "../icons/IconLike.vue";
 import IconLikeFilled from "../icons/IconLikeFilled.vue";
 import { useCustomerSuccessService, MACROS_LIMIT } from '@/composables/useCustomerSuccessService'
+import forgeGlobal from '@/model/globals/forgeGlobal';
 
 export default {
   name: "GenericViewer",
@@ -129,7 +131,8 @@ export default {
       severity,
       upgradeUrl,
       enterpriseBundleUrl,
-      MACROS_LIMIT
+      MACROS_LIMIT,
+      isForge: forgeGlobal.isForge,
     }
   },
   components: {
@@ -169,6 +172,7 @@ export default {
     try {
       this.canUserEdit = await globals.apWrapper.canUserEdit();
       await this.getLikes();
+      this.isForge = forgeGlobal.isForge;
       
       // Listen to Upgrade badge click
       EventBus.$on('showUpgradePrompt', () => {
@@ -183,7 +187,7 @@ console.error('Error getting feature flags', e);
       trackEvent('edit', 'click', 'editing');
       
       // Block if critical (100+ macros)
-      if (this.severity === 'critical') {
+      if (!this.isForge && this.severity === 'critical') {
         this.showUpgradeModal = true
         trackEvent('edit_blocked', 'blocked', 'critical_limit', {
           macro_count: this.macrosCreated,
@@ -199,7 +203,7 @@ console.error('Error getting feature flags', e);
       trackEvent('fullscreen', 'click', 'viewing');
       
       // Block if critical (100+ macros)
-      if (this.severity === 'critical') {
+      if (!this.isForge && this.severity === 'critical') {
         this.showUpgradeModal = true
         trackEvent('fullscreen_blocked', 'blocked', 'critical_limit', {
           macro_count: this.macrosCreated,

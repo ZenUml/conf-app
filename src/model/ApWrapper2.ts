@@ -144,7 +144,7 @@ export default class ApWrapper2 implements IApWrapper {
 
   getCustomContentTypePrefix() {
     const addonKey = forgeGlobal.isForge ? `com.zenuml.confluence-addon${forgeGlobal.isLite ? '-lite' : ''}` : getUrlParam('addonKey');
-    console.log('getCustomContentTypePrefix', addonKey);
+    console.debug('getCustomContentTypePrefix', addonKey);
     return `ac:${addonKey}`;
   }
 
@@ -486,14 +486,14 @@ export default class ApWrapper2 implements IApWrapper {
 
   async searchPagedCustomContent(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
     if (forgeGlobal.isForge) {
-      return await this.searchPagedCustomContentForge(pageSize, keyword, onlyMine, docType, ids);
+      return await this.searchPagedCustomContentForge(pageSize);
     }
 
     const searchUrl = await this.buildSearchCustomConentUrl(keyword, onlyMine, docType, ids, pageSize);
     return await this.searchPagedCustomContentByUrl(searchUrl);
   }
 
-  async searchPagedCustomContentForge(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = [], followNext: boolean = false): Promise<SearchResults> {
+  async searchPagedCustomContentForge(pageSize: number = 25, followNext: boolean = false, includeUnknown: boolean = false): Promise<SearchResults> {
     const params = new URLSearchParams();
     CUSTOM_CONTENT_TYPES.forEach(type => {
       params.append('type', this.customContentType(type));
@@ -501,19 +501,16 @@ export default class ApWrapper2 implements IApWrapper {
     params.append('limit', pageSize.toString());
     params.append('body-format', 'raw');
     
-    if (keyword) {
-      params.append('title', keyword);
-    }
-    
-    if (onlyMine && this.currentUser?.atlassianAccountId) {
-      params.append('contributor', this.currentUser.atlassianAccountId);
-    }
 
     const searchUrl = `/wiki/api/v2/custom-content?${params.toString()}`;
-    return await this.searchPagedCustomContentForgeByUrl(searchUrl, pageSize, followNext);
+    return await this.searchPagedCustomContentForgeByUrl(searchUrl, pageSize, followNext, includeUnknown);
   }
 
-  async searchPagedCustomContentForgeByUrl(searchUrl: string, pageSize: number = 25, followNext: boolean = false): Promise<SearchResults> {
+  async searchAllCustomContentForge(includeUnknown: boolean = false): Promise<SearchResults> {
+    return await this.searchPagedCustomContentForge(250, true, includeUnknown);
+  }
+
+  async searchPagedCustomContentForgeByUrl(searchUrl: string, pageSize: number = 25, followNext: boolean = false, includeUnknown: boolean = false): Promise<SearchResults> {
     try {
       const response = await forgeRequest(searchUrl);
       
@@ -544,7 +541,7 @@ export default class ApWrapper2 implements IApWrapper {
         
         const assign = Object.assign({}, customContent, { value: diagram });
         return assign as ICustomContent;
-      }).filter((item: ICustomContent) => item && item.value && item.value.diagramType);
+      }).filter((item: ICustomContent) => includeUnknown || item && item.value && item.value.diagramType);
 
       let results = parseAndFilterResponse(response);
 
@@ -951,7 +948,7 @@ export default class ApWrapper2 implements IApWrapper {
 
   isLite(): boolean {
     // @ts-ignore
-    return getUrlParam('addonKey')?.includes('lite');
+    return forgeGlobal.isForge ? forgeGlobal.isLite : getUrlParam('addonKey')?.includes('lite');
   }
 
   /**

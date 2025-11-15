@@ -38,10 +38,6 @@ export class MacroMetrics {
 
   // Report Macro Metrics for the Current Space.
   async reportMacroMetrics(): Promise<void> {
-    if(forgeGlobal.isForge) {
-      //TODO: implement Forge metrics reporting
-      return;
-    }
     try {
       const metrics = await this.getMacroMetrics();
 
@@ -90,8 +86,20 @@ export class MacroMetrics {
     };
 
     try {
-      const searchUrl = this.buildSearchUrl(space);
-      await this.apWrapper.requestAllPaginatedData(searchUrl, consumer);
+      if(forgeGlobal.isForge) {
+        const searchResults = await this.apWrapper.searchAllCustomContentForge(true);
+        stats.total = searchResults.size;
+        searchResults.results.forEach((content) => {
+          if(!content || !content.value || !content.value.diagramType) {
+            stats.unknown!++;
+            return;
+          }
+          this.updateDiagramStats(stats, content.value.diagramType)
+        });
+      } else {
+        const searchUrl = this.buildSearchUrl(space);
+        await this.apWrapper.requestAllPaginatedData(searchUrl, consumer);
+      }
 
       return {
         space,

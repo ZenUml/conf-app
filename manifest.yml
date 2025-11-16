@@ -84,7 +84,6 @@ permissions:
     - read:content:confluence
     - read:custom-content:confluence
     - read:database:confluence
-    - read:email-address:confluence
     - read:embed:confluence
     - read:folder:confluence
     - read:group:confluence
@@ -106,6 +105,7 @@ permissions:
     - read:whiteboard:confluence
     - read:app-user-token
     - read:app-system-token
+    - storage:app
   external:
     # "Modifying content permissions CSP options, external permissions CSP options and URLs, or
     # fetch permissions options and URLs" does not require admin approval.

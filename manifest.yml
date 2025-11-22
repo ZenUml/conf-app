@@ -1,9 +1,13 @@
 environment:
   variables:
-    - APP_ID
-    - BASE_URL
-    - LITE_KEY_SUFFIX
-    - LITE_TITLE_SUFFIX
+    - key: APP_ID
+      default: 8ad26115-211f-4216-971b-0540f606303d #Lite App ID
+    - key: BASE_URL
+      default: https://conf-stg-lite.zenuml.com
+    - key: LITE_KEY_SUFFIX
+      default: -lite
+    - key: LITE_TITLE_SUFFIX
+      default: " Lite"
 
 app:
   id: ari:cloud:ecosystem::app/${APP_ID}

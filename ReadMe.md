@@ -1,3 +1,56 @@
+# ZenUML for Confluence - Overview
+
+## Project Description
+ZenUML for Confluence is an Atlassian app (hybrid Connect/Forge) that empowers users to create and embed various types of diagrams directly within Confluence pages. It primarily focuses on sequence diagrams using ZenUML DSL but also supports Mermaid, DrawIO, and OpenAPI specifications.
+
+## Key Features
+- **ZenUML Sequence Diagrams**: Create sequence diagrams using a text-based DSL.
+- **Mermaid Diagrams**: Support for Mermaid.js diagrams.
+- **DrawIO Integration**: Create and edit graphs using DrawIO.
+- **OpenAPI/Swagger**: Render OpenAPI specifications.
+- **Embed Diagrams**: Embed existing diagrams, graphs, or API specs.
+- **Lite vs. Full Versions**: The project has "Lite" and "Full" variants, differing in features and licensing.
+
+## Architecture & Tech Stack
+
+### Platform
+- **Atlassian Forge/Connect**: The app uses Atlassian's Forge platform but also maintains Connect compatibility (hybrid app).
+- **Cloudflare Pages**: Used for hosting the frontend assets.
+- **Cloudflare Workers (Functions)**: Handles backend logic and API endpoints.
+- **Cloudflare D1**: SQLite database at the edge for data persistence.
+
+### Frontend
+- **Framework**: Vue.js 3 (primary), React 17 (likely for specific integrations like Swagger UI or legacy components).
+- **Build Tool**: Vite.
+- **Styling**: TailwindCSS.
+- **Diagramming Libraries**:
+    - `@zenuml/core`: Core ZenUML rendering logic.
+    - `mermaid`: Mermaid.js integration.
+    - `swagger-ui`: For OpenAPI rendering.
+    - `mxgraph` (via DrawIO): For graph editing.
+
+### Backend
+- **Runtime**: Node.js (via Cloudflare Workers `nodejs_compat`).
+- **Language**: TypeScript/JavaScript.
+- **Database**: Cloudflare D1 (SQLite).
+
+### Testing
+- **Unit Testing**: Vitest.
+- **E2E Testing**: Playwright (indicated by `tests/e2e-tests` and scripts).
+
+## Project Structure
+- `src/`: Frontend source code (Vue components, logic).
+- `functions/`: Backend Cloudflare Functions.
+- `public/`: Static assets (HTML templates for different editors/viewers).
+- `tests/`: Unit and E2E tests.
+- `scripts/`: Build and deployment scripts.
+- `manifest.yml`: Atlassian Forge manifest defining modules, permissions, and app configuration.
+- `wrangler.toml`: Cloudflare Workers/Pages configuration.
+
+## Deployment
+- **Staging/Production**: Deployed to Cloudflare Pages.
+- **CI/CD**: Scripts available for deploying to different environments (staging, production, developer-specific).
+
 # Pre-release check
 1. https://zenuml-stg.atlassian.net/wiki/spaces/ZS/pages/33152/Testing+Lite+1
    1. All content loads properly except for the second one.

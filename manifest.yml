@@ -12,8 +12,6 @@ app:
     remote: connect
   runtime:
     name: nodejs20.x
-  licensing:
-    enabled: true
 remotes:
   # Addition of one or more new remotes, see https://developer.atlassian.com/platform/adopting-forge-from-connect/connect-forge-updates-preview/
   - key: connect

@@ -76,7 +76,6 @@ permissions:
     - read:analytics.content:confluence
     - read:app-data:confluence
     - read:attachment:confluence
-    - read:audit-log:confluence
     - read:comment:confluence
     - read:configuration:confluence
     - read:content.metadata:confluence

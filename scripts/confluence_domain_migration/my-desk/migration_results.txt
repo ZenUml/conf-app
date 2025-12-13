@@ -1,0 +1,94 @@
+Summary: Fixed 43 diagrams on 19 pages
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/696486/SSO+Single+Sign-On
+{oldId: '2521137153', newId: '734288'}
+{oldId: '2522382339', newId: '734550'}
+{oldId: '2570518556', newId: '736729'}
+{oldId: '2571927567', newId: '737044'}
+{oldId: '2572451861', newId: '737118'}
+{oldId: '2573172755', newId: '737169'}
+{oldId: '2573467649', newId: '737180'}
+{oldId: '2571042821', newId: '736830'}
+{oldId: '2570485766', newId: '736702'}
+{oldId: '2570977322', newId: '736824'}
+{oldId: '2571337735', newId: '736878'}
+{oldId: '2574090262', newId: '737218'}
+{oldId: '2570551300', newId: '736740'}
+{oldId: '2521563217', newId: '734345'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/689441/Synchronization.SN
+{oldId: '2282061901', newId: '761987'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/689939/Business+Central+koppeling
+{oldId: '2721873938', newId: '771710'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/691777/Proces+Support+uren+schrijven+en+factureren
+{oldId: '2314665987', newId: '764090'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/696053/Request+responses
+{oldId: '2592964615', newId: '770908'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/701205/Afspraak+koppelen+met+AI
+{oldId: '3289743363', newId: '776036'}
+{oldId: '3288563713', newId: '776014'}
+{oldId: '3287711753', newId: '776010'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/691744/Proces+Controle+van+openstaande+facturen
+{oldId: '2314404037', newId: '764008'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/697097/Optie+2
+{oldId: '2579988490', newId: '737325'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/697810/Authenticatie
+{oldId: '2678816773', newId: '771626'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/692650/Licentie+en+facturatie+wijzigingen
+{oldId: '2347204644', newId: '765714'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/691694/Proces+Nieuwe+klant+onboarden
+{oldId: '2314436863', newId: '764029'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/698271/AI+in+MyDesk
+{oldId: '2891415560', newId: '772284'}
+{oldId: '2867822595', newId: '772224'}
+{oldId: '2883878915', newId: '772262'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/695507/Bestandenbeheer
+{oldId: '2429124657', newId: '768582'}
+{oldId: '2429288461', newId: '768588'}
+{oldId: '2498134086', newId: '769809'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/696676/Architectuur
+{oldId: '2539520001', newId: '770269'}
+{oldId: '2539192325', newId: '770257'}
+{oldId: '2620784644', newId: '771115'}
+{oldId: '2568290311', newId: '770554'}
+{oldId: '2567995406', newId: '770548'}
+{oldId: '2572288020', newId: '770678'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/692482/Exchange+koppeling
+{oldId: '2807300100', newId: '771957'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/696069/Dagrapport+4
+{oldId: '3625123862', newId: '776433'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/695895/Swagger
+{oldId: '2446819389', newId: '769003'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/691682/Proces+Eenmalige+facturen+maken
+{oldId: '2314567704', newId: '764069'}
+
+https://my-desk.atlassian.net/wiki/spaces/SN/pages/690587/Externe+koppelingen
+{oldId: '2500395009', newId: '769893'}
+
+
+No ZenUML macros found on page 693015
+
+No ZenUML macros found on page 695064
+
+No ZenUML macros found on page 696368
+
+No ZenUML macros found on page 691055
+
+No ZenUML macros found on page 691872
+No ZenUML macros found on page 696176

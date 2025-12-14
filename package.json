@@ -15,7 +15,7 @@
     "wrangler:serve": "wrangler pages dev dist --compatibility-flags=nodejs_compat --compatibility-date=2024-11-11",
     "wrangler:publish:stg": "CLOUDFLARE_ACCOUNT_ID=8d5fc7ce04adc5096f52485cce7d7b3d wrangler pages publish dist --project-name conf-stg-full --branch=production",
     "wrangler:publish:stg:lite": "CLOUDFLARE_ACCOUNT_ID=8d5fc7ce04adc5096f52485cce7d7b3d wrangler pages publish dist --project-name conf-stg-lite --branch=production",
-    "wrangler:publish:yanhui": "cp ./scripts/dev-config/wrangler-yanhui.toml ./wrangler.toml && CLOUDFLARE_ACCOUNT_ID=5c797c13512deae1354dee87c8766e75 wrangler pages publish --branch=production",
+    "wrangler:publish:yanhui": "cp ./scripts/dev-config/wrangler-yanhui.toml ./wrangler.toml && CLOUDFLARE_ACCOUNT_ID=5c797c13512deae1354dee87c8766e75 wrangler pages publish --branch=master",
     "wrangler:dbm:yanhui": "CLOUDFLARE_ACCOUNT_ID=5c797c13512deae1354dee87c8766e75 wrangler -c ./scripts/dev-config/wrangler-yanhui.toml d1 migrations apply confluence-plugin --remote",
     "wrangler:publish:peng": "cp ./scripts/dev-config/wrangler-yanhui.toml ./wrangler.toml && CLOUDFLARE_ACCOUNT_ID=5c797c13512deae1354dee87c8766e75 wrangler pages publish --branch=production",
     "wrangler:link": "ln -sf wrangler-dev.toml wrangler.toml",
@@ -32,7 +32,8 @@
     "forge:install:lite:yanhui": "BASE_URL=https://confluence-plugin.pages.dev forge install --upgrade --site whimet4.atlassian.net --product confluence -e development --non-interactive",
     "forge:deploy:lite:staging": "forge deploy -e staging --non-interactive --verbose",
     "forge:deploy:lite:prod": "APP_ID=8ad26115-211f-4216-971b-0540f606303d LITE_KEY_SUFFIX=-lite LITE_TITLE_SUFFIX=\" Lite\" BASE_URL=https://conf-lite.zenuml.com forge deploy -e production --non-interactive --verbose",
-    "forge:install:lite:staging": "forge install --upgrade --site zenuml-stg.atlassian.net --product confluence --non-interactive -e staging",
+    "forge:install:lite:staging": "forge install --site zenuml-stg.atlassian.net --product confluence --non-interactive -e staging",
+    "forge:upgrade:lite:staging": "forge install --upgrade --site zenuml-stg.atlassian.net --product confluence --non-interactive -e staging",
     "forge:all:lite:yanhui": "pnpm build:lite && rm -rf dist/drawio && pnpm forge:deploy:lite:yanhui && pnpm forge:install:lite:yanhui"
   },
   "dependencies": {

@@ -54,6 +54,9 @@ jobs:
       - run: pnpm forge:deploy:enable-analytics
       - run: pnpm forge:deploy:lite:staging
       - run: pnpm forge:install:lite:staging
+        continue-on-error: true
+      - run: pnpm forge:upgrade:lite:staging
+        continue-on-error: true
 
   staging-lite-test:
     needs: staging-lite

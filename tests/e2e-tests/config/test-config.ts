@@ -3,6 +3,7 @@ interface TestConfig {
   spaceKey: string;
   existingPageId: string | undefined;
   isLite: boolean;
+  isForge: boolean;
   credentials: {
     username: string;
     password: string;
@@ -23,6 +24,7 @@ export const testConfig: TestConfig = {
   spaceKey: process.env.ZENUML_SPACE || 'ZS',
   existingPageId: process.env.PAGE_ID,
   isLite: process.env.IS_LITE === 'true',
+  isForge: process.env.IS_FORGE === 'true',
   
   credentials: {
     username: process.env.ZENUML_STAGE_USERNAME || '',

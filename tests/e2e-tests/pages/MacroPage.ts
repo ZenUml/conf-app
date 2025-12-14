@@ -9,23 +9,23 @@ export class MacroPage {
   }
 
   getSequenceMacroFrame(): Locator {
-    return this.page.frameLocator(`iframe[id*="zenuml-sequence-macro${this.getModuleKeySuffix()}"]`);
+    return this.page.frameLocator(testConfig.isForge ? `[data-testid="ForgeExtensionContainer"] [data-testid="hosted-resources-iframe"]` : `iframe[id*="zenuml-sequence-macro${this.getModuleKeySuffix()}"]`);
   }
 
   getGraphMacroFrame(): Locator {
-    return this.page.frameLocator(`iframe[id*="zenuml-graph-macro${this.getModuleKeySuffix()}"]`);
+    return this.page.frameLocator(testConfig.isForge ? `[data-testid="ForgeExtensionContainer"] [data-testid="hosted-resources-iframe"]` : `iframe[id*="zenuml-graph-macro${this.getModuleKeySuffix()}"]`);
   }
 
   getOpenApiMacroFrame(): Locator {
-    return this.page.frameLocator(`iframe[id*="zenuml-openapi-macro${this.getModuleKeySuffix()}"]`);
+    return this.page.frameLocator(testConfig.isForge ? `[data-testid="ForgeExtensionContainer"] [data-testid="hosted-resources-iframe"]` : `iframe[id*="zenuml-openapi-macro${this.getModuleKeySuffix()}"]`);
   }
 
   getEmbedMacroFrame(): Locator {
-    return this.page.frameLocator(`iframe[id*="zenuml-embed-macro${this.getModuleKeySuffix()}"]`);
+    return this.page.frameLocator(testConfig.isForge ? `[data-testid="ForgeExtensionContainer"] [data-testid="hosted-resources-iframe"]` : `iframe[id*="zenuml-embed-macro${this.getModuleKeySuffix()}"]`);
   }
 
   getEditorDialogFrame(): Locator {
-    return this.page.frameLocator('iframe[id*="editor-dialog"]');
+    return this.page.frameLocator(testConfig.isForge ? '[data-testid="custom-ui-modal-dialog"] [data-testid="hosted-resources-iframe"]' : 'iframe[id*="editor-dialog"]');
   }
 
   async dismissSpotlightModal(): Promise<void> {
@@ -56,6 +56,8 @@ export class MacroPage {
 
   async saveInEditor(): Promise<void> {
     const editorFrame = this.getEditorDialogFrame();
+    // await expect(editorFrame).toBeVisible({ timeout: TIMEOUTS.BUTTON_VISIBLE });
+    
     // Use more specific button selection - look for the save/publish button
     const saveButton = editorFrame.getByRole('button', { name: /publish|save/i }).first();
     await expect(saveButton).toBeVisible({ timeout: TIMEOUTS.BUTTON_VISIBLE });

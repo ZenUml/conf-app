@@ -66,6 +66,9 @@ importers:
       '@forge/bridge':
         specifier: ^5.6.0
         version: 5.6.0(@types/react@17.0.2)(react@17.0.2)
+      '@forge/confluence-bridge':
+        specifier: ^3.1.0
+        version: 3.1.0
       '@forge/resolver':
         specifier: ^1.6.13
         version: 1.6.13
@@ -133,8 +136,8 @@ importers:
         specifier: ^11.6.0
         version: 11.6.0
       mixpanel-browser:
-        specifier: ^2.47.0
-        version: 2.50.0
+        specifier: ^2.72.0
+        version: 2.72.0(@mixpanel/rrweb-utils@2.0.0-alpha.18.2)
       postcss:
         specifier: 8.4.31
         version: 8.4.31
@@ -155,7 +158,7 @@ importers:
         version: 4.14.5(@types/react-dom@17.0.2)(@types/react@17.0.2)
       swagger-ui:
         specifier: 4.19.0
-        version: 4.19.0(@types/react-dom@17.0.2)(@types/react@17.0.2)(ramda@0.30.0)
+        version: 4.19.0(@types/react-dom@17.0.2)(@types/react@17.0.2)(ramda@0.30.1)
       tailwindcss:
         specifier: ^3.4.3
         version: 3.4.3
@@ -2477,6 +2480,9 @@ packages:
     engines: {node: '>=20.0.0'}
     hasBin: true
 
+  '@forge/confluence-bridge@3.1.0':
+    resolution: {integrity: sha512-C26/q/4W9MKkv1CTCbN8hJSFy1B+BbiQk0JHiZNXiuQPqi0yFpDtKaS4xJhgWLgpqrTNpqkQYK9R8dGef/fd7w==}
+
   '@forge/csp@5.2.0':
     resolution: {integrity: sha512-9Bg6J4iHoP4EXz3xlglNAs1u6jHwZwrbm96fl8d+FcE6quJzR/AoCVlGOf4qM74gfDV+uvRxuUOjhB3GhpNcPw==}
     peerDependencies:
@@ -2859,6 +2865,27 @@ packages:
 
   '@mermaid-js/parser@0.4.0':
     resolution: {integrity: sha512-wla8XOWvQAwuqy+gxiZqY+c7FokraOTHRWMsbB4AgRx9Sy7zKslNyejy7E+a77qHfey5GXw/ik3IXv/NHMJgaA==}
+
+  '@mixpanel/rrdom@2.0.0-alpha.18.2':
+    resolution: {integrity: sha512-vX/tbnS14ZzzatC7vOyvAm9tOLU8tof0BuppBlphzEx1YHTSw8DQiAmyAc0AmXidchLV0W+cUHV/WsehPLh2hQ==}
+
+  '@mixpanel/rrweb-plugin-console-record@2.0.0-alpha.18.2':
+    resolution: {integrity: sha512-Xkwh2gSdLqHRkWSXv8CPVCPQj5L85KnWc5DZQ0CXNRFgm2hTl5/YP6zfUubVs2JVXZHGcSGU+g7JVO2WcFJyyg==}
+    peerDependencies:
+      '@mixpanel/rrweb': ^2.0.0-alpha.18
+      '@mixpanel/rrweb-utils': ^2.0.0-alpha.18
+
+  '@mixpanel/rrweb-snapshot@2.0.0-alpha.18.2':
+    resolution: {integrity: sha512-2kSnjZZ3QZ9zOz/isOt8s54mXUUDgXk/u0eEi/rE0xBWDeuA0NHrBcqiMc+w4F/yWWUpo5F5zcuPeYpc6ufAsw==}
+
+  '@mixpanel/rrweb-types@2.0.0-alpha.18.2':
+    resolution: {integrity: sha512-ucIYe1mfJ2UksvXW+d3bOySTB2/0yUSqQJlUydvbBz6OO2Bhq3nJHyLXV9ExkgUMZm1ZyDcvvmNUd1+5tAXlpA==}
+
+  '@mixpanel/rrweb-utils@2.0.0-alpha.18.2':
+    resolution: {integrity: sha512-OomKIB6GTx5xvCLJ7iic2khT/t/tnCJUex13aEqsbSqIT/UzUUsqf+LTrgUK5ex+f6odmkCNjre2y5jvpNqn+g==}
+
+  '@mixpanel/rrweb@2.0.0-alpha.18.2':
+    resolution: {integrity: sha512-J3dVTEu6Z4p8di7y9KKvUooNuBjX97DdG6XGWoPEPi07A9512h9M8MEtvlY3mK0PGfuC0Mz5Pv/Ws6gjGYfKQg==}
 
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
@@ -3252,9 +3279,6 @@ packages:
     resolution: {integrity: sha512-U0FaE5O1BCpZSeE6gBl3c5ObhePQSfk9vDRToMmTkbhCOgW4jqvtS5LGyQ76L1fH8sM0keRp4uDTsbjiUyjk0g==}
     cpu: [x64]
     os: [win32]
-
-  '@rrweb/types@2.0.0-alpha.13':
-    resolution: {integrity: sha512-ytq+MeVm/vP2ybw+gTAN3Xvt7HN2yS+wlbfnwHpQMftxrwzq0kEZHdw+Jp5WUvvpONWzXriNAUU9dW0qLGkzNg==}
 
   '@scarf/scarf@1.4.0':
     resolution: {integrity: sha512-xxeapPiUXdZAE3che6f3xogoJPeZgig6omHEy1rIY5WVsB3H2BHNnZH+gHG6x91SCWyQCzWGsuL2Hh3ClO5/qQ==}
@@ -3771,9 +3795,6 @@ packages:
 
   '@types/history@4.7.11':
     resolution: {integrity: sha512-qjDJRrmvBMiTx+jyLxvLfJU7UznFuokDv4f3WRuriHKERccVpFU+8XMQUAbDzoiJCsmexxRExQeMwwCdamSKDA==}
-
-  '@types/hoist-non-react-statics@3.3.6':
-    resolution: {integrity: sha512-lPByRJUer/iN/xa4qpyL0qmL11DqNW81iU/IG1S3uvRUq4oKagz8VCxZjiWkumgt66YT3vOdDgZ0o32sGKtCEw==}
 
   '@types/hoist-non-react-statics@3.3.7':
     resolution: {integrity: sha512-PQTyIulDkIDro8P+IHbKCsw7U2xxBYflVzW/FgWdCAePD9xGSidgA76/GeJ6lBKoblyhf9pBY763gbrN+1dI8g==}
@@ -5773,9 +5794,6 @@ packages:
     resolution: {integrity: sha512-CzbClwlXAuiRQAlUyfqPgvPoNKTckTPGfwZV4ZdAhVcP2lh9KUxJg2b5GkE7XbjKQ3YJnQ9z6D9ntLAlB+tP8g==}
     engines: {node: '>=0.8.0'}
 
-  fflate@0.4.8:
-    resolution: {integrity: sha512-FJqqoDBR00Mdj9ppamLa/Y7vxm+PRmNWA67N846RvsoYVMKB4q3y/de5PA7gUmRMYK/8CMz2GDZQmCRN1wBcWA==}
-
   fflate@0.8.2:
     resolution: {integrity: sha512-cPJU47OaAoCbg0pBvzsgpTPhmhqI5eJjh/JIu8tPj5q+T7iLvW/JAYUqmE7KOB4R1ZyEhzBaIQpQpardBF5z8A==}
 
@@ -7132,8 +7150,8 @@ packages:
   mitt@3.0.1:
     resolution: {integrity: sha512-vKivATfr97l2/QBCYAkXYDbrIWPM2IIKEl7YPhjCvKlG3kE2gm+uBo6nEXK3M5/Ffh/FLpKExzOQ3JJoJGFKBw==}
 
-  mixpanel-browser@2.50.0:
-    resolution: {integrity: sha512-iP4sbSRMemjWbnH+KQZRxZ360bcXtFpoQuUiWjjdw9AsURn0MrR9/2RnPOJ8J8tt1dMm7kTKwOjGV8pkbWbmAA==}
+  mixpanel-browser@2.72.0:
+    resolution: {integrity: sha512-Olc+1ebVBSVBjtR/Pp4t8Pc1wAI9AfA5e668B0MsI/gKJ43QcndzfQ/AT/TiP1Klup8O1C9vwykoWjvPqX+SRA==}
 
   mkdirp-classic@0.5.3:
     resolution: {integrity: sha512-gKLcREMhtuZRwRAfqP3RFW+TK4JqApVBtOIftVgjuABpAtpxhPGaDcfvbhNvD0B8iD1oUr/txX35NjcaY6Ns/A==}
@@ -8356,20 +8374,8 @@ packages:
   roughjs@4.6.6:
     resolution: {integrity: sha512-ZUz/69+SYpFN/g/lUlo2FXcIjRkSu3nDarreVdGGndHEBJ6cXPdKguS8JGxwj5HA5xIbVKSmLgr5b3AWxtRfvQ==}
 
-  rrdom@0.1.7:
-    resolution: {integrity: sha512-ZLd8f14z9pUy2Hk9y636cNv5Y2BMnNEY99wxzW9tD2BLDfe1xFxtLjB4q/xCBYo6HRe0wofzKzjm4JojmpBfFw==}
-
   rrweb-cssom@0.6.0:
     resolution: {integrity: sha512-APM0Gt1KoXBz0iIkkdB/kfvGOwC4UuJFeG/c+yV7wSc7q96cG/kJ0HiYCnzivD9SB53cLV1MlHFNfOuPaadYSw==}
-
-  rrweb-snapshot@2.0.0-alpha.13:
-    resolution: {integrity: sha512-slbhNBCYjxLGCeH95a67ECCy5a22nloXp1F5wF7DCzUNw80FN7tF9Lef1sRGLNo32g3mNqTc2sWLATlKejMxYw==}
-
-  rrweb-snapshot@2.0.0-alpha.4:
-    resolution: {integrity: sha512-KQ2OtPpXO5jLYqg1OnXS/Hf+EzqnZyP5A+XPqBCjYpj3XIje/Od4gdUwjbFo3cVuWq5Cw5Y1d3/xwgIS7/XpQQ==}
-
-  rrweb@2.0.0-alpha.4:
-    resolution: {integrity: sha512-wEHUILbxDPcNwkM3m4qgPgXAiBJyqCbbOHyVoNEVBJzHszWEFYyTbrZqUdeb1EfmTRC2PsumCIkVcomJ/xcOzA==}
 
   run-applescript@7.1.0:
     resolution: {integrity: sha512-DPe5pVFaAsinSaV6QjQ6gdiedWDcRCbUuiQfQa2wmWV7+xC9bGulGI8+TdRmoFkAPaBXk8CrAbnlY2ISniJ47Q==}
@@ -14119,7 +14125,7 @@ snapshots:
 
   '@forge/auth@0.0.8':
     dependencies:
-      tslib: 2.6.2
+      tslib: 2.8.1
 
   '@forge/bridge@5.6.0(@types/react@17.0.2)(react@17.0.2)':
     dependencies:
@@ -14271,6 +14277,8 @@ snapshots:
       - utf-8-validate
       - webpack
       - webpack-cli
+
+  '@forge/confluence-bridge@3.1.0': {}
 
   '@forge/csp@5.2.0(cheerio@1.1.2)':
     dependencies:
@@ -14782,6 +14790,34 @@ snapshots:
     dependencies:
       langium: 3.3.1
 
+  '@mixpanel/rrdom@2.0.0-alpha.18.2':
+    dependencies:
+      '@mixpanel/rrweb-snapshot': 2.0.0-alpha.18.2
+
+  '@mixpanel/rrweb-plugin-console-record@2.0.0-alpha.18.2(@mixpanel/rrweb-utils@2.0.0-alpha.18.2)(@mixpanel/rrweb@2.0.0-alpha.18.2)':
+    dependencies:
+      '@mixpanel/rrweb': 2.0.0-alpha.18.2
+      '@mixpanel/rrweb-utils': 2.0.0-alpha.18.2
+
+  '@mixpanel/rrweb-snapshot@2.0.0-alpha.18.2':
+    dependencies:
+      postcss: 8.5.3
+
+  '@mixpanel/rrweb-types@2.0.0-alpha.18.2': {}
+
+  '@mixpanel/rrweb-utils@2.0.0-alpha.18.2': {}
+
+  '@mixpanel/rrweb@2.0.0-alpha.18.2':
+    dependencies:
+      '@mixpanel/rrdom': 2.0.0-alpha.18.2
+      '@mixpanel/rrweb-snapshot': 2.0.0-alpha.18.2
+      '@mixpanel/rrweb-types': 2.0.0-alpha.18.2
+      '@mixpanel/rrweb-utils': 2.0.0-alpha.18.2
+      '@types/css-font-loading-module': 0.0.7
+      '@xstate/fsm': 1.6.5
+      base64-arraybuffer: 1.0.2
+      mitt: 3.0.1
+
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
       '@nodelib/fs.stat': 2.0.5
@@ -15196,10 +15232,6 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.34.8':
     optional: true
-
-  '@rrweb/types@2.0.0-alpha.13':
-    dependencies:
-      rrweb-snapshot: 2.0.0-alpha.13
 
   '@scarf/scarf@1.4.0': {}
 
@@ -16325,9 +16357,9 @@ snapshots:
 
   '@types/history@4.7.11': {}
 
-  '@types/hoist-non-react-statics@3.3.6':
+  '@types/hoist-non-react-statics@3.3.7(@types/react@17.0.2)':
     dependencies:
-      '@types/react': 18.3.2
+      '@types/react': 17.0.2
       hoist-non-react-statics: 3.3.2
 
   '@types/hoist-non-react-statics@3.3.7(@types/react@18.3.2)':
@@ -18792,8 +18824,6 @@ snapshots:
     dependencies:
       websocket-driver: 0.7.4
 
-  fflate@0.4.8: {}
-
   fflate@0.8.2: {}
 
   figures@2.0.0:
@@ -20217,9 +20247,12 @@ snapshots:
 
   mitt@3.0.1: {}
 
-  mixpanel-browser@2.50.0:
+  mixpanel-browser@2.72.0(@mixpanel/rrweb-utils@2.0.0-alpha.18.2):
     dependencies:
-      rrweb: 2.0.0-alpha.4
+      '@mixpanel/rrweb': 2.0.0-alpha.18.2
+      '@mixpanel/rrweb-plugin-console-record': 2.0.0-alpha.18.2(@mixpanel/rrweb-utils@2.0.0-alpha.18.2)(@mixpanel/rrweb@2.0.0-alpha.18.2)
+    transitivePeerDependencies:
+      - '@mixpanel/rrweb-utils'
 
   mkdirp-classic@0.5.3: {}
 
@@ -20989,6 +21022,10 @@ snapshots:
     dependencies:
       ramda: 0.30.0
 
+  ramda-adjunct@5.0.0(ramda@0.30.1):
+    dependencies:
+      ramda: 0.30.1
+
   ramda-adjunct@5.1.0(ramda@0.30.1):
     dependencies:
       ramda: 0.30.1
@@ -21170,7 +21207,7 @@ snapshots:
   react-redux@8.1.3(@types/react-dom@17.0.2)(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(redux@4.2.1):
     dependencies:
       '@babel/runtime': 7.24.5
-      '@types/hoist-non-react-statics': 3.3.6
+      '@types/hoist-non-react-statics': 3.3.7(@types/react@17.0.2)
       '@types/use-sync-external-store': 0.0.3
       hoist-non-react-statics: 3.3.2
       react: 17.0.2
@@ -21185,7 +21222,7 @@ snapshots:
   react-redux@8.1.3(@types/react-dom@17.0.2)(@types/react@17.0.2)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)(redux@5.0.1):
     dependencies:
       '@babel/runtime': 7.24.5
-      '@types/hoist-non-react-statics': 3.3.6
+      '@types/hoist-non-react-statics': 3.3.7(@types/react@17.0.2)
       '@types/use-sync-external-store': 0.0.3
       hoist-non-react-statics: 3.3.2
       react: 17.0.2
@@ -21533,26 +21570,7 @@ snapshots:
       points-on-curve: 0.2.0
       points-on-path: 0.2.1
 
-  rrdom@0.1.7:
-    dependencies:
-      rrweb-snapshot: 2.0.0-alpha.4
-
   rrweb-cssom@0.6.0: {}
-
-  rrweb-snapshot@2.0.0-alpha.13: {}
-
-  rrweb-snapshot@2.0.0-alpha.4: {}
-
-  rrweb@2.0.0-alpha.4:
-    dependencies:
-      '@rrweb/types': 2.0.0-alpha.13
-      '@types/css-font-loading-module': 0.0.7
-      '@xstate/fsm': 1.6.5
-      base64-arraybuffer: 1.0.2
-      fflate: 0.4.8
-      mitt: 3.0.1
-      rrdom: 0.1.7
-      rrweb-snapshot: 2.0.0-alpha.4
 
   run-applescript@7.1.0: {}
 
@@ -22081,7 +22099,7 @@ snapshots:
 
   supports-preserve-symlinks-flag@1.0.0: {}
 
-  swagger-client@3.28.0(ramda@0.30.0):
+  swagger-client@3.28.0(ramda@0.30.1):
     dependencies:
       '@babel/runtime-corejs3': 7.24.5
       '@swagger-api/apidom-core': 1.0.0-alpha.1
@@ -22098,7 +22116,7 @@ snapshots:
       node-fetch-commonjs: 3.3.2
       openapi-path-templating: 1.5.1
       qs: 6.12.1
-      ramda-adjunct: 5.0.0(ramda@0.30.0)
+      ramda-adjunct: 5.0.0(ramda@0.30.1)
       traverse: 0.6.8
     transitivePeerDependencies:
       - debug
@@ -22172,7 +22190,7 @@ snapshots:
       - react-native
       - supports-color
 
-  swagger-ui@4.19.0(@types/react-dom@17.0.2)(@types/react@17.0.2)(ramda@0.30.0):
+  swagger-ui@4.19.0(@types/react-dom@17.0.2)(@types/react@17.0.2)(ramda@0.30.1):
     dependencies:
       '@babel/runtime-corejs3': 7.24.5
       '@braintree/sanitize-url': 6.0.2
@@ -22205,7 +22223,7 @@ snapshots:
       reselect: 4.1.8
       serialize-error: 8.1.0
       sha.js: 2.4.11
-      swagger-client: 3.28.0(ramda@0.30.0)
+      swagger-client: 3.28.0(ramda@0.30.1)
       url-parse: 1.5.10
       xml: 1.0.1
       xml-but-prettier: 1.0.1

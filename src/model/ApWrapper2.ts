@@ -464,7 +464,7 @@ export default class ApWrapper2 implements IApWrapper {
         try {
           diagram = JSON.parse(customContent.body.raw.value);
         } catch (e) {
-          console.warn('Failed to parse custom content body', e);
+          console.debug('Failed to parse custom content body', e);
           return null;
         }
         
@@ -532,7 +532,7 @@ export default class ApWrapper2 implements IApWrapper {
         try {
           diagram = JSON.parse(customContent.body.raw.value);
         } catch (e) {
-          console.warn('Failed to parse custom content body', e);
+          console.debug('Failed to parse custom content body', e);
           return null;
         }
         
@@ -562,7 +562,7 @@ export default class ApWrapper2 implements IApWrapper {
       };
 
       trackEvent(`found ${results.length} content in Forge mode`, 'searchPagedCustomContentForgeByUrl', 'info');
-      console.log('searchPagedCustomContentForgeByUrl results:', searchResults);
+      console.debug('searchPagedCustomContentForgeByUrl results:', searchResults);
       return searchResults;
     } catch (e) {
       console.error('searchPagedCustomContentForgeByUrl', e);

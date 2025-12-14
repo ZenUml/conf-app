@@ -64,6 +64,11 @@ export async function isConfiguring() {
   return context.extension?.macro?.isConfiguring;
 }
 
+export async function getMacroContent() {
+  const { getMacroContent, updateMacroContent } = await import("@forge/confluence-bridge");
+  return await getMacroContent();
+}
+
 // @ts-ignore
 window.forgeGlobal = global;
 

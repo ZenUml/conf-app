@@ -6,17 +6,34 @@ import mixpanel from "mixpanel-browser";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import forgeGlobal from "@/model/globals/forgeGlobal";
 
-if(forgeGlobal.isForge) {
-  mixpanel.init("78617e65fdba543d752fb7f6483d55f4", {
-    debug: true,
-    track_pageview: true,
-    persistence: "localStorage",
-    ignore_dnt: true
-  });
-}
-
+let initialized = false;
 let identified = false;
 const unknownUserAccountId  = "unknown_user_account_id";
+
+const initMixpanel = () => {
+  if(!initialized && forgeGlobal.isForge) {
+    mixpanel.init("78617e65fdba543d752fb7f6483d55f4", {
+      debug: true,
+      track_pageview: true,
+      persistence: "localStorage",
+      ignore_dnt: true
+    });
+    initialized = true;
+  }
+};
+
+const mixpanelIdentify = () => {
+  if(!identified && forgeGlobal.isForge) {
+    const userAccountId = getCurrentUserAccountId();
+    try {
+      mixpanel.identify(userAccountId);
+
+      identified = userAccountId !== unknownUserAccountId;
+    } catch(e) {
+      console.error("Error in calling mixpanel.identify", e);
+    }
+  }
+};
 
 export function getUrlParam(param: string): string | undefined {
   try {
@@ -74,14 +91,9 @@ export async function _awaitableTrackEvent(
   resetEventDetails: Record<string, any> = {}
 ) {
   try {
-    const userAccountId = getCurrentUserAccountId();
-    if (!identified) {
-      if(forgeGlobal.isForge) {
-        mixpanel.identify(userAccountId);
-      }
-      
-      identified = userAccountId !== unknownUserAccountId;
-    }
+    initMixpanel();
+    mixpanelIdentify();
+
     let eventDetails = {
       event_category: category || "unknown",
       event_label: label || "",
@@ -91,7 +103,7 @@ export async function _awaitableTrackEvent(
     try {
       eventDetails = {
         ...eventDetails,
-        user_account_id: userAccountId,
+        user_account_id: getCurrentUserAccountId(),
         client_domain: getClientDomain() || "unknown_atlassian_domain",
         confluence_space: getSpaceKey() || "unknown_space",
         macro_uuid: await getMacroUuid(),
@@ -106,7 +118,7 @@ export async function _awaitableTrackEvent(
         // Clone eventDetails to prevent mixpanel's pollution(will add 'token' property)
         mixpanel.track(action, Object.assign({}, eventDetails));
       } catch (e) {
-        console.error("Error in calling mixpanel", e);
+        console.error("Error in calling mixpanel.track", e);
       }
     }
 

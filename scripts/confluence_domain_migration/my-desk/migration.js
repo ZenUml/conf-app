@@ -70,6 +70,9 @@ importJS('https://cdnjs.cloudflare.com/ajax/libs/crypto-js/3.1.9-1/md5.js');
 
 newdata = (await (await fetch('/wiki/api/v2/custom-content?type=ac:com.zenuml.confluence-addon:zenuml-content-sequence&type=ac:com.zenuml.confluence-addon:zenuml-content-graph&body-format=raw&limit=250')).json()).results.map(c => ({id: c.id, title: c.title, createdAt: c.createdAt, body: CryptoJS.MD5(c.body.raw.value).toString()}))
 
+Array.from(new Set((await (await fetch("/wiki/rest/api/content/search?limit=250&expand=container&cql=(type=%22ac:com.zenuml.confluence-addon:zenuml-content-sequence%22%20or%20type=%22ac:com.zenuml.confluence-addon:zenuml-content-graph%22)")).json()).results.filter(c => c.container.type == 'page').map(c => c.container.id)))
+//25 pages: ['2464612353', '3287318534', '2868510721', '2311389192', '2334457874', '2280816685', '2674589697', '2536538118', '2462089248', '2389966893', '6160396', '2300018735', '2499313719', '2428993591', '2473984004', '2446950465', '2316632216', '2300018887', '2354479189', '2340192321', '2314567739', '2314174692', '2314207455', '2314436890', '2261712978']
+
 olddata.map(o => Object.assign( {oldId: o.id, oldCreatedAt: o.createdAt}, newdata.find(c => c.body === o.body && c.title === o.title) ) )
 
 const jsonData = JSON.stringify(changes, null, 2); // Stringify the data with 2-space indentation

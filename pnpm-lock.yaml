@@ -66,9 +66,6 @@ importers:
       '@forge/bridge':
         specifier: ^5.6.0
         version: 5.6.0(@types/react@17.0.2)(react@17.0.2)
-      '@forge/confluence-bridge':
-        specifier: ^3.1.0
-        version: 3.1.0
       '@forge/resolver':
         specifier: ^1.6.13
         version: 1.6.13
@@ -2479,9 +2476,6 @@ packages:
     resolution: {integrity: sha512-ihA+H04stxczELxb+tg5a2kkEEwnalIZFT8JwqFa/NtNx056aIm/PamPAwyib2Nb0GVJJlms+jfBSSzI2brwJg==}
     engines: {node: '>=20.0.0'}
     hasBin: true
-
-  '@forge/confluence-bridge@3.1.0':
-    resolution: {integrity: sha512-C26/q/4W9MKkv1CTCbN8hJSFy1B+BbiQk0JHiZNXiuQPqi0yFpDtKaS4xJhgWLgpqrTNpqkQYK9R8dGef/fd7w==}
 
   '@forge/csp@5.2.0':
     resolution: {integrity: sha512-9Bg6J4iHoP4EXz3xlglNAs1u6jHwZwrbm96fl8d+FcE6quJzR/AoCVlGOf4qM74gfDV+uvRxuUOjhB3GhpNcPw==}
@@ -14277,8 +14271,6 @@ snapshots:
       - utf-8-validate
       - webpack
       - webpack-cli
-
-  '@forge/confluence-bridge@3.1.0': {}
 
   '@forge/csp@5.2.0(cheerio@1.1.2)':
     dependencies:

@@ -119,7 +119,8 @@ permissions:
         - https://*.zenuml.com
         - https://www.google-analytics.com
         - https://*.mixpanel.com
-        - https://*.mxpnl.com
+        - https://cdn.mxpnl.com
+        - https://*.cdn.mxpnl.com
     frames:
       - https://conf-full.zenuml.com/drawio/index.html
     scripts:

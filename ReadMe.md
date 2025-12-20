@@ -157,6 +157,75 @@ chmod +x run-docker-wrangler.sh
 ./run-docker-wrangler.sh pages deploy ./dist
 ```
 
+## Development with Atlassian Forge
+
+This section guides you through setting up and developing the app using Atlassian Forge.
+
+### Prerequisites
+
+- Ensure you have the Atlassian Forge CLI installed: `npm install -g @forge/cli`
+- Authenticate with Forge: `forge login`
+
+### Create Personal Development Environment
+
+Create a personal development environment to isolate your changes:
+
+```
+forge environments create -e [YOUR_PERSONAL_ENV_NAME]
+```
+
+Set it as the default environment:
+
+```
+forge settings set default-environment [YOUR_PERSONAL_ENV_NAME]
+```
+
+### Build and Deploy
+
+Build the lite version of the app:
+
+```
+pnpm build:lite
+```
+
+Remove the drawio directory to avoid exceeding the 50MB resource limit:
+
+```
+rm -rf dist/drawio
+```
+
+Deploy to your personal environment:
+
+```
+forge deploy
+```
+
+### Install the App
+
+Install the app on your Confluence instance:
+
+```
+forge install -p Confluence -s [YOUR_ATLASSIAN_INSTANCE] --confirm-scopes
+```
+
+Replace `[YOUR_ATLASSIAN_INSTANCE]` with your Confluence site URL (e.g., `https://yoursite.atlassian.net`).
+
+### Start Local Development Server and Tunnel
+
+Start the local development server:
+
+```
+pnpm start:sit
+```
+
+In a separate terminal, start the tunnel to connect your local server to Atlassian:
+
+```
+forge tunnel
+```
+
+This allows you to test changes in real-time without redeploying.
+
 # Errors
 ## Addon not registered; no compatible hosts detected
 Check the sub code.

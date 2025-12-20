@@ -91,10 +91,17 @@ export default class ApWrapper2 implements IApWrapper {
   getMacroData(): Promise<IMacroData | undefined> {
     return new Promise(((resolve) => {
       try {
-        this._confluence.getMacroData((data) => {
-          console.debug('Loaded macro data', data);
-          resolve(data)
-        })
+        if (forgeGlobal.isForge) {
+          //Migrated macro: extension.config?.uuid, New macro: localId
+          resolve({uuid: forgeGlobal.forgeContext.extension.config?.uuid || forgeGlobal.forgeContext.localId, 
+            customContentId: forgeGlobal.forgeContext.extension.config?.customContentId, 
+            updatedAt: forgeGlobal.forgeContext.extension.config?.updatedAt} as IMacroData);
+        } else {
+          this._confluence.getMacroData((data) => {
+            console.debug('Loaded macro data', data);
+            resolve(data)
+          });
+        }
       } catch (e) {
         // eslint-disable-next-line
         console.error('Failed to retrieve macro data.', e)

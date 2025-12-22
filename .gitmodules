@@ -1,3 +1,0 @@
-[submodule "packages/zenuml-core"]
-	path = packages/zenuml-core
-	url = https://github.com/mermaid-js/zenuml-core

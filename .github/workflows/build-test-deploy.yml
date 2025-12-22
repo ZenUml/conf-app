@@ -232,8 +232,6 @@ jobs:
       # Check out current repository
       - name: Fetch Sources
         uses: actions/checkout@v4
-        with:
-          submodules: true   # not used yet, but soon
 
       - name: Export Properties
         id: properties
@@ -268,8 +266,6 @@ jobs:
       # Check out current repository
       - name: Fetch Sources
         uses: actions/checkout@v4
-        with:
-          submodules: true   # not used yet, but soon
 
       - name: Export Properties
         id: properties

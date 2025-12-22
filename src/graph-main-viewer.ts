@@ -76,8 +76,6 @@ async function loadDiagram() {
   trackEvent(macroData?.uuid, 'view_macro', 'graph');
 
   await loadDiagram();
-
-  await macroMetrics.reportMacroMetrics();
 })()
 
 EventBus.$on('edit', () => {

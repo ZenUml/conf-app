@@ -11,10 +11,13 @@ export enum UpgradeEventName {
   CTA_CLICKED = 'upgrade_cta_clicked',
   PROMPT_HOVERED = 'upgrade_prompt_hovered',
   FEATURE_ENABLED = 'upgrade_feature_enabled',
+  ACTION_BLOCKED = 'upgrade_action_blocked',
+  MODAL_SHOWN = 'upgrade_modal_shown',
+  SLIDER_CHANGED = 'upgrade_slider_changed',
+  MODAL_DISMISSED = 'upgrade_modal_dismissed',
   // Reserved for future expansion
   PROMPT_SHOWN = 'upgrade_prompt_shown',
   TOOLTIP_SHOWN = 'upgrade_tooltip_shown',
-  BANNER_SHOWN = 'upgrade_banner_shown',
 }
 
 export enum ProductOption {
@@ -26,8 +29,8 @@ export enum ProductOption {
 export enum UIComponent {
   HEADER_BADGE = 'header_badge',
   TOOLTIP = 'tooltip',
-  BANNER = 'banner',
   VIEWER_NOTICE = 'viewer_notice',
+  BANNER = 'banner',
 }
 
 interface UpgradeEventParams {
@@ -45,9 +48,12 @@ const EVENT_CONFIG: Record<UpgradeEventName, { action: string; category: string 
   [UpgradeEventName.CTA_CLICKED]: { action: 'click', category: 'conversion' },
   [UpgradeEventName.PROMPT_HOVERED]: { action: 'hover', category: 'conversion' },
   [UpgradeEventName.FEATURE_ENABLED]: { action: 'system', category: 'info' },
+  [UpgradeEventName.ACTION_BLOCKED]: { action: 'blocked', category: 'conversion' },
+  [UpgradeEventName.MODAL_SHOWN]: { action: 'impression', category: 'conversion' },
+  [UpgradeEventName.SLIDER_CHANGED]: { action: 'interaction', category: 'conversion' },
+  [UpgradeEventName.MODAL_DISMISSED]: { action: 'dismiss', category: 'conversion' },
   [UpgradeEventName.PROMPT_SHOWN]: { action: 'impression', category: 'conversion' },
   [UpgradeEventName.TOOLTIP_SHOWN]: { action: 'impression', category: 'conversion' },
-  [UpgradeEventName.BANNER_SHOWN]: { action: 'impression', category: 'conversion' },
 };
 
 /**

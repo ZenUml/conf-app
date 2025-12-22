@@ -18,6 +18,9 @@ import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import ApWrapper2 from "@/model/ApWrapper2";
 import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from '@/utils/window';
+import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
+import { detectEditMode } from '@/utils/editModeDetection';
+import uuidv4 from '@/utils/uuid';
 
 async function saveOpenApiAndExit() {
   const code = window.specContent;
@@ -31,6 +34,11 @@ async function saveOpenApiAndExit() {
   window.diagram = Object.assign(window.diagram || {}, diagram);
   // @ts-ignore
   await saveToPlatform(window.diagram);
+  
+  // End journey on save
+  if (getEditJourneyId()) {
+    endEditJourney('saved');
+  }
 
   /* eslint-disable no-undef */
   AP.dialog.close();
@@ -38,6 +46,12 @@ async function saveOpenApiAndExit() {
 
 async function exit() {
   const codeChanged = window.diagram?.code !== window.specContent;
+  
+  // End journey on exit
+  if (getEditJourneyId()) {
+    endEditJourney(codeChanged ? 'cancelled' : 'window_close');
+  }
+  
   if (codeChanged) {
     AP.dialog.create({
       key: 'zenuml-close-without-saving-dialog',
@@ -59,6 +73,27 @@ async function exit() {
 async function initializeMacro() {
   const apWrapper = globals.apWrapper;
   await apWrapper.initializeContext();
+  
+  // Start journey tracking
+  const macroData = await apWrapper.getMacroData();
+  const macroUuid = macroData?.uuid || uuidv4();
+  
+  // Check if journey was passed from parent
+  const customData: any = await new Promise((resolve) => {
+    AP.dialog.getCustomData((data: any) => resolve(data));
+  });
+  if (customData?.journey_id) {
+    continueEditJourney(customData.journey_id, macroUuid, customData.journey_start_time);
+  } else {
+    // Start new journey
+    const editMode = await detectEditMode(apWrapper);
+    if (editMode.source !== 'inline' && editMode.source !== 'unknown') {
+      startEditJourney(macroUuid, editMode.source);
+    }
+  }
+  
+  // Ensure session is initialized
+  getOrCreateSession();
 
   const compositeContentProvider = defaultContentProvider(new ApWrapper2(AP));
   const { doc } = await compositeContentProvider.load();
@@ -77,9 +112,14 @@ async function initializeMacro() {
     document.getElementById('header')
   );
 
-  if (await MacroUtil.isCreateNew()) {
-    trackEvent('', 'create_macro_begin', 'openapi');
-  }
+  // Track begin event (create or edit)
+  const isNew = await MacroUtil.isCreateNew();
+  const beginEventAction = isNew ? 'create_macro_begin' : 'edit_macro_begin';
+  
+  trackEvent('', beginEventAction, 'openapi', {
+    journey_id: getEditJourneyId(),
+    session_id: getOrCreateSession(),
+  });
 }
 
 

@@ -1,10 +1,16 @@
-import path, {resolve} from 'path';
-import {defineConfig, splitVendorChunkPlugin} from 'vite';
+import path, { resolve, dirname } from 'path';
+import { defineConfig } from 'vite';
 import createVuePlugin from '@vitejs/plugin-vue';
-import {execSync} from "child_process";
+import { execSync } from "child_process";
 import fs from 'fs'
-import {createFilter} from '@rollup/pluginutils';
+import { createFilter } from '@rollup/pluginutils';
 import copy from 'rollup-plugin-copy'
+import { visualizer } from 'rollup-plugin-visualizer'
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 
 const filter = createFilter(['./drawio/**/*']);
 console.log(process.env.NODE_ENV)
@@ -79,7 +85,7 @@ export default defineConfig({
       '@': resolve(__dirname, './src')
     },
   },
-  plugins: [splitVendorChunkPlugin(), createVuePlugin({
+  plugins: [createVuePlugin({
     template: {
       compilerOptions: {
         compatConfig: {
@@ -89,9 +95,14 @@ export default defineConfig({
     },
   }), copy({
     targets: [
-      {src: 'node_modules/@zenuml/core/dist/fonts', dest: 'dist'}
+      { src: 'node_modules/@zenuml/core/dist/fonts', dest: 'dist' }
     ],
     hook: process.env.NODE_ENV === 'development' ? 'buildStart' : 'writeBundle'
+  }), visualizer({
+    filename: 'dist/stats.html',
+    open: false,
+    gzipSize: true,
+    brotliSize: true,
   })],
   test: {
     environment: 'jsdom',
@@ -109,6 +120,7 @@ export default defineConfig({
       '**/.{idea,git,cache,output,temp}/**',
       '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build}.config.*',
       '**/tests/e2e-tests/**',
+      '**/packages/**',
     ],
   },
   server: {

@@ -13,20 +13,20 @@ ENVIRONMENT = "production"
 
 [[ env.preview.d1_databases ]]
 binding = "DB"
-database_name = "confluence-plugin"
-database_id = "801262c3-d7af-4b98-8b21-af7ec47d35dd"
+database_name = "conf-zenuml-dev"
+database_id = "f0587475-61db-42c1-bc23-f665df96d932"
 migrations_dir = "functions/migrations"
 
 [[ env.production.d1_databases ]]
 binding = "DB"
-database_name = "confluence-plugin"
-database_id = "801262c3-d7af-4b98-8b21-af7ec47d35dd"
+database_name = "conf-zenuml-dev"
+database_id = "f0587475-61db-42c1-bc23-f665df96d932"
 migrations_dir = "functions/migrations"
 
 [[ d1_databases ]]
 binding = "DB"
-database_name = "confluence-plugin"
-database_id = "801262c3-d7af-4b98-8b21-af7ec47d35dd"
+database_name = "conf-zenuml-dev"
+database_id = "f0587475-61db-42c1-bc23-f665df96d932"
 migrations_dir = "functions/migrations"
 
 [[ env.production.r2_buckets ]]

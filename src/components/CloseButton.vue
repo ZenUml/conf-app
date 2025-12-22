@@ -1,6 +1,6 @@
 <template>
   <div class="save-and-exit inline-block">
-    <button class="flex items-center bg-blue-700 px-2 py-1 text-white text-sm font-semibold rounded disabled:bg-gray-300"
+    <button class="flex items-center border-2 border-blue-600 px-3 py-2 text-blue-600 text-sm font-medium rounded-md hover:bg-blue-50 transition-colors duration-200"
       @click="exit">
       <span>Close</span>
     </button>

@@ -12,18 +12,18 @@ import MacroUtil from "@/model/MacroUtil";
 
 const apWrapper = new ApWrapper2(AP);
 
-async function trackCreateNewEvent() {
-  if (await MacroUtil.isCreateNew()) {
-    await apWrapper.initializeContext();
-    trackEvent('', 'create_macro_begin', 'embed');
-  }
+async function trackBeginEvent() {
+  await apWrapper.initializeContext();
+  const isNew = await MacroUtil.isCreateNew();
+  const beginEventAction = isNew ? 'create_macro_begin' : 'edit_macro_begin';
+  trackEvent('', beginEventAction, 'embed');
 }
 
 if (document.getElementById('app')) {
   const app = createApp(DocumentList)
   app.mount('#app')
 
-  trackCreateNewEvent();
+  trackBeginEvent();
 }
 
 EventBus.$on('save', async () => {
@@ -33,9 +33,10 @@ EventBus.$on('save', async () => {
   const params = { uuid, customContentId: window.picked.id, updatedAt: new Date() };
   apWrapper.saveMacro(params, '');
 
-  if (!macroData?.uuid) {
-    trackEvent(uuid, 'create_macro_end', 'embed');
-  }
+  // Split into create_macro_end and edit_macro_end
+  const isNew = !macroData?.uuid;
+  const endEventAction = isNew ? 'create_macro_end' : 'edit_macro_end';
+  trackEvent(uuid, endEventAction, 'embed');
 
   // @ts-ignore
   AP.dialog.close();

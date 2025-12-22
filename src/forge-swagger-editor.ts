@@ -19,6 +19,8 @@ import { trackEvent } from '@/utils/window';
 import { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
 import store from "@/model/store2";
 import { showCloseWithoutSavingDialog } from './utils/modalService';
+import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
+import uuidv4 from '@/utils/uuid';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -38,6 +40,11 @@ async function saveOpenApiAndExit() {
   // @ts-ignore
   const id = await saveToPlatform(window.diagram);
   console.log('saveOpenApiAndExit - id', id);
+  
+  // End journey on save
+  if (getEditJourneyId()) {
+    endEditJourney('saved');
+  }
 
   /* eslint-disable no-undef */
   setTimeout(async () => {
@@ -52,30 +59,75 @@ async function saveOpenApiAndExit() {
 async function exit() {
   const codeChanged = window.diagram?.code !== window.specContent;
   
-  // Track exit event with context
+  // Prepare event data
   const isNewOpenApi = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.OpenApi;
   const elapsedTimeMs = Date.now() - editorStartTime;
   
-  trackEvent('', 'create_macro_exit', DiagramType.OpenApi, {
+  const eventProps = {
     had_changes: codeChanged,
-    macro_stage: isNewOpenApi ? 'creation' : 'editing',
+    source: 'swagger_editor',
     elapsed_time_ms: elapsedTimeMs,
-    code_length: store.state.diagram.code?.length || 0
-  });
+    code_length: store.state.diagram.code?.length || 0,
+    journey_id: getEditJourneyId(),
+    session_id: getOrCreateSession(),
+  };
   
   if (codeChanged) {
-    // Show custom modal dialog for Forge (similar to Connect)
+    // Show custom modal dialog for Forge
     const result = await showCloseWithoutSavingDialog();
+    
     if (result === 'discard') {
+      // User confirmed exit - track exit event
+      const exitEventAction = isNewOpenApi ? 'create_macro_exit' : 'edit_macro_exit';
+      trackEvent('', exitEventAction, DiagramType.OpenApi, eventProps);
+      
+      // End journey on exit
+      if (getEditJourneyId()) {
+        endEditJourney('cancelled');
+      }
+      
       await (await getView()).close();
+    } else {
+      // User cancelled exit (chose to keep editing) - track cancelled event
+      const cancelledEventAction = isNewOpenApi ? 'create_macro_exit_cancelled' : 'edit_macro_exit_cancelled';
+      trackEvent('', cancelledEventAction, DiagramType.OpenApi, eventProps);
+      // Do NOT end journey - user continues editing
     }
   } else {
+    // No changes - immediate exit
+    const exitEventAction = isNewOpenApi ? 'create_macro_exit' : 'edit_macro_exit';
+    trackEvent('', exitEventAction, DiagramType.OpenApi, eventProps);
+    
+    // End journey on exit
+    if (getEditJourneyId()) {
+      endEditJourney('window_close');
+    }
+    
     await (await getView()).close();
   }
 }
 
 async function initializeMacro() {
   const context = await initForgeContext();
+  
+  // Start journey tracking
+  const macroUuid = context.extension?.config?.uuid || uuidv4();
+  const isDialog = !!context.extension?.modal;
+  const isMacroConfig = !!context.extension?.macro?.isConfiguring || !!context.extension?.macro?.isInserting;
+  
+  if (isDialog || isMacroConfig) {
+    // Check if journey was passed from parent (for modals opened from viewer)
+    const modalContext = context.extension?.modal;
+    if (isDialog && modalContext?.journey_id) {
+      continueEditJourney(modalContext.journey_id, macroUuid, modalContext.journey_start_time);
+    } else {
+      const source = isMacroConfig ? 'macro' : 'dialog';
+      startEditJourney(macroUuid, source);
+    }
+  }
+  
+  // Ensure session is initialized
+  getOrCreateSession();
 
   let doc;
   const customContentId = context.extension?.config?.customContentId;
@@ -96,9 +148,14 @@ async function initializeMacro() {
   window.updateSpec(doc?.code || OpenApiExample);
   console.log('-------------- updateSpec with:', doc?.code)
 
-  if (await MacroUtil.isCreateNew()) {
-    trackEvent('', 'create_macro_begin', 'openapi');
-  }
+  // Track begin event (create or edit)
+  const isNew = await MacroUtil.isCreateNew();
+  const beginEventAction = isNew ? 'create_macro_begin' : 'edit_macro_begin';
+  
+  trackEvent('', beginEventAction, 'openapi', {
+    journey_id: getEditJourneyId(),
+    session_id: getOrCreateSession(),
+  });
 }
 
 

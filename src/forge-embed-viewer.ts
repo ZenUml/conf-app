@@ -63,7 +63,6 @@ async function initializeMacro() {
     const doc = {};
     mountRoot(doc, ForgeEmbedViewer);
     await loadDiagram();
-    await macroMetrics.reportMacroMetrics();
   } catch (e) {
     console.error('Error loading embed viewer', e);
   }

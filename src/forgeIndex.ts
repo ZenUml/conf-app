@@ -12,6 +12,8 @@ import store from './model/store2'
 import Example from "./utils/sequence/Example";
 import { showCloseWithoutSavingDialog } from './utils/modalService';
 import { handleGetStartedRoute } from './routes/getStarted';
+import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, getEditJourneyStartTime, continueEditJourney } from '@/utils/journeyTracking';
+import uuidv4 from '@/utils/uuid';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -93,7 +95,27 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       doc = customContent?.value;
     }
 
-
+    // Start journey tracking for editor mode
+    const editable = await isEditorMode();
+    if (editable) {
+      const macroUuid = context.extension?.config?.uuid || uuidv4();
+      const isDialog = !!context.extension?.modal;
+      const isMacroConfig = !!context.extension?.macro?.isConfiguring || !!context.extension?.macro?.isInserting;
+      
+      if (isDialog || isMacroConfig) {
+        // Check if journey was passed from parent (for modals opened from viewer)
+        const modalContext = context.extension?.modal;
+        if (isDialog && modalContext?.journey_id) {
+          continueEditJourney(modalContext.journey_id, macroUuid, modalContext.journey_start_time);
+        } else {
+          const source = isMacroConfig ? 'macro' : 'dialog';
+          startEditJourney(macroUuid, source);
+        }
+      }
+      
+      // Ensure session is initialized
+      getOrCreateSession();
+    }
 
     // Hide skeleton loader before mounting the actual content
     const skeletonLoader = document.getElementById('skeleton-loader');
@@ -105,7 +127,6 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const isGraph = context.moduleKey.startsWith('zenuml-graph-macro');
     const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
 
-    const editable = await isEditorMode();
     if(isSequence) {
       const component = editable 
       ? (await import("@/components/Workspace.vue")).default
@@ -149,7 +170,7 @@ export default main()
 
 EventBus.$on('diagramLoaded', () => {
   const resizeAfterDelay = () => {
-    console.debug('Resizing viewport after diagram loaded');
+    console.log('Resizing viewport after diagram loaded');
     // @ts-ignore
     window.AP?.resize();
   };
@@ -211,15 +232,25 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
 });
 
 EventBus.$on('edit', async(params: any) => {
+  const context = await initForgeContext();
+  const macroUuid = context.extension?.config?.uuid || uuidv4();
+  const journeyId = startEditJourney(macroUuid, 'dialog');
+  const journeyStartTime = getEditJourneyStartTime();
+  
   await openModal({
     resource: 'main',
     onClose: (payload: any) => {
       console.log('onClose called with', payload);
+      endEditJourney('cancelled');
       location.reload();
     },
     size: 'max',
     context: {
       macroMode: 'editor',
+      journey_id: journeyId,
+      journey_start_time: journeyStartTime,
+      macro_uuid: macroUuid,
+      session_id: getOrCreateSession(),
       ...params
     },
   });
@@ -237,6 +268,12 @@ EventBus.$on('save', async () => {
     sessionStorage.removeItem(`${location.hostname}-preserve-zenuml-conf-theme`);
     localStorage.setItem(`${location.hostname}-${id}-zenuml-conf-theme`, preservedTheme);
   }
+  
+  // End journey on save
+  if (getEditJourneyId()) {
+    endEditJourney('saved');
+  }
+  
   // Give some time for track event to be sent out. We are not using a more reliable way to track event because
   // we don't want to block dialog close for too long.
   setTimeout(async () => {
@@ -251,24 +288,50 @@ EventBus.$on('save', async () => {
 EventBus.$on('exit', async (showWarning: boolean) => {
   console.log('exit', showWarning);
   
-  // Track exit event with context
+  // Prepare event data
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.Sequence;
   const elapsedTimeMs = Date.now() - editorStartTime;
   
-  trackEvent('', 'create_macro_exit', DiagramType.Sequence, {
+  const eventProps = {
     had_changes: showWarning,
-    macro_stage: isNewSequence ? 'creation' : 'editing',
+    source: 'editor',
     elapsed_time_ms: elapsedTimeMs,
-    code_length: store.state.diagram.code?.length || 0
-  });
+    code_length: store.state.diagram.code?.length || 0,
+    journey_id: getEditJourneyId(),
+    session_id: getOrCreateSession(),
+  };
   
   if (showWarning) {
-    // Show custom modal dialog for Forge (similar to Connect)
+    // Show custom modal dialog for Forge
     const result = await showCloseWithoutSavingDialog();
+    
     if (result === 'discard') {
+      // User confirmed exit - track exit event
+      const exitEventAction = isNewSequence ? 'create_macro_exit' : 'edit_macro_exit';
+      trackEvent('', exitEventAction, DiagramType.Sequence, eventProps);
+      
+      // End journey on exit
+      if (getEditJourneyId()) {
+        endEditJourney('cancelled');
+      }
+      
       await (await getView()).close();
+    } else {
+      // User cancelled exit (chose to keep editing) - track cancelled event
+      const cancelledEventAction = isNewSequence ? 'create_macro_exit_cancelled' : 'edit_macro_exit_cancelled';
+      trackEvent('', cancelledEventAction, DiagramType.Sequence, eventProps);
+      // Do NOT end journey - user continues editing
     }
   } else {
+    // No changes - immediate exit
+    const exitEventAction = isNewSequence ? 'create_macro_exit' : 'edit_macro_exit';
+    trackEvent('', exitEventAction, DiagramType.Sequence, eventProps);
+    
+    // End journey on exit
+    if (getEditJourneyId()) {
+      endEditJourney('window_close');
+    }
+    
     await (await getView()).close();
   }
 });
@@ -276,6 +339,9 @@ EventBus.$on('exit', async (showWarning: boolean) => {
 
 
 EventBus.$on('fullscreen', async () => {
+  const context = await initForgeContext();
+  const macroUuid = context.extension?.config?.uuid || uuidv4();
+  
   await openModal({
     resource: 'main',
     onClose: (payload: any) => {
@@ -285,6 +351,8 @@ EventBus.$on('fullscreen', async () => {
     size: 'max',
     context: {
       macroMode: 'fullscreen',
+      macro_uuid: macroUuid,
+      session_id: getOrCreateSession(),
     },
   });
 });

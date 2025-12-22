@@ -22,8 +22,9 @@
     "lint:vue": "vue-cli-service lint",
     "git:branch:clean:gone": "git fetch -p && git branch -vv | awk '/: gone]/{print $1}' | xargs git branch -d",
     "git:branch:clean:merged": "git branch --merged|egrep -v \"(\\*|master|main|dev|skip_branch_name)\" | xargs git branch -d",
+    "db:migrate:local": "wrangler d1 migrations apply conf-zenuml-dev --local",
     "start:local": "VERSION=latest PRODUCT_TYPE=lite vite dev --port 8080 --host 127.0.0.1",
-    "start:sit": "[ -f wrangler.toml ] || { echo 'Error: wrangler.toml not found!'; exit 1; }; pnpm install && concurrently \"pnpm wrangler:serve\" \"pnpm start:local\" ",
+    "start:sit": "pnpm db:migrate:local && concurrently \"pnpm wrangler:serve\" \"pnpm start:local\" ",
     "install:stg": "pluploader --base-url https://zenuml-stg.atlassian.net/wiki install --cloud --plugin-uri https://air.zenuml.com/descriptor",
     "install:stg:lite": "pluploader --base-url https://zenuml-stg.atlassian.net/wiki install --cloud --plugin-uri https://air.zenuml.com/descriptor?lite",
     "forge:deploy:full:yanhui": "APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 LITE_KEY_SUFFIX= LITE_TITLE_SUFFIX= BASE_URL=https://confluence-plugin.pages.dev forge deploy",
@@ -50,17 +51,18 @@
     "@forge/api": "^6.0.0",
     "@forge/bridge": "^5.6.0",
     "@forge/resolver": "^1.6.13",
+    "@heroicons/vue": "^2.2.0",
     "@rollup/plugin-alias": "^5.1.0",
     "@rollup/pluginutils": "^5.1.0",
     "@sentry/cloudflare": "^9.5.0",
     "@sentry/node": "^9.5.0",
     "@sentry/vite-plugin": "^3.2.2",
-    "@vitejs/plugin-react": "^4.5.2",
-    "@vitejs/plugin-vue": "^5.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "@vitejs/plugin-vue": "^6.0.2",
     "@vue/compat": "^3.1.0",
     "@vue/compiler-sfc": "^3.1.0",
     "@zenuml/codemirror-extensions": "^0.2.0",
-    "@zenuml/core": "^3.41.2",
+    "@zenuml/core": "^3.43.2",
     "autoprefixer": "^10.4.13",
     "codemirror-lang-mermaid": "^0.5.0",
     "file-saver": "^2.0.5",
@@ -83,7 +85,7 @@
     "thememirror": "^2.0.1",
     "tiny-emitter": "^2.1.0",
     "typescript": "^5.2.2",
-    "vite": "^6.2.3",
+    "vite": "^7.2.2",
     "vue": "^3.1.0",
     "vuex": "^4.1.0"
   },
@@ -107,10 +109,11 @@
     "eslint": "^9.4.0",
     "eslint-plugin-vue": "^9.0.0",
     "jsdom": "^23.1.0",
+    "rollup-plugin-visualizer": "^6.0.5",
     "tailwind-scrollbar": "^3.0.5",
     "vitest": "^2.1.9",
     "vue-tsc": "^1.8.27",
-    "wrangler": "^4.12.0"
+    "wrangler": "^4.46.0"
   },
   "resolutions": {
     "wrap-ansi": "7.0.0",
@@ -174,9 +177,9 @@
     "react-dom": "ReactDOM"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "volta": {
-    "node": "20.11.0"
+    "node": "22.11.0"
   }
 }

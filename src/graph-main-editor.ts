@@ -72,9 +72,10 @@ async function initializeMacro() {
   });
   header.mount("#drawioExtension");
 
-  if (await MacroUtil.isCreateNew()) {
-    trackEvent("", "create_macro_begin", "graph");
-  }
+  // Track begin event (create or edit)
+  const isNew = await MacroUtil.isCreateNew();
+  const beginEventAction = isNew ? 'create_macro_begin' : 'edit_macro_begin';
+  trackEvent("", beginEventAction, "graph");
 }
 
 initializeMacro();

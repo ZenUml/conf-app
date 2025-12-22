@@ -8,8 +8,7 @@ export async function upsertClientInstallation(db: D1Database, body: any) {
     `INSERT INTO ClientInstallation (
       key, clientKey, publicKey, sharedSecret, serverVersion, pluginsVersion, baseUrl, clientDomain, productType, description, eventType, timestamp
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(clientKey) DO UPDATE SET
-      key = excluded.key,
+    ON CONFLICT(clientKey, key) DO UPDATE SET
       publicKey = excluded.publicKey,
       sharedSecret = excluded.sharedSecret,
       serverVersion = excluded.serverVersion,

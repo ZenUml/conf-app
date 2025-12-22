@@ -5,73 +5,113 @@
   <error-boundary>
   <div :class="{'w-full': wide, 'w-fit': !wide, 'mx-auto': true}">
     <div class="frame relative" :class="{'w-full': wide, 'min-w-[300px]': !wide}">
-      <div class="header flex p-1.5" :class="{flex: isDisplayMode && !hideHeader, hidden: !isDisplayMode || hideHeader}">
-        <div class="left">
-          <div class="actions flex" :class="{flex: isDisplayMode && !hideHeader, hidden: !isDisplayMode || hideHeader}">
-            <!-- TODO: Disable upgrade button in forge app before marketplace listing approval -->
-            <div v-show="isLite && !isForge" class="flex justify-center items-center">
-              <upgrade @showUpgradePrompt="showUpgradeModal = true"/>
-            </div>
-            <div v-show="isEmbedded" class="flex justify-center items-center">
-              <span class="p-1 text-xs font-bold leading-none text-gray-300 bg-gray-100 rounded cursor-help" title="content is embedded from another page">Embedded</span>
-            </div>
-            <button @click="edit" v-show="showEdit" aria-label="Edit" class="flex justify-center items-center p-1 mx-1 rounded hover:bg-gray-300">
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <g clip-path="url(#clip0_2722_3607)">
-                  <path d="M1.875 16.1243L6.03695 14.5235C6.30316 14.4211 6.43626 14.3699 6.56079 14.3031C6.6714 14.2437 6.77685 14.1752 6.87603 14.0982C6.98769 14.0116 7.08853 13.9107 7.29021 13.709L15.75 5.24925C16.5784 4.42082 16.5784 3.07768 15.75 2.24925C14.9216 1.42082 13.5784 1.42082 12.75 2.24925L4.29021 10.709C4.08853 10.9107 3.98769 11.0116 3.90104 11.1232C3.82408 11.2224 3.75555 11.3279 3.69618 11.4385C3.62933 11.563 3.57814 11.6961 3.47575 11.9623L1.875 16.1243ZM1.875 16.1243L3.41859 12.111C3.52905 11.8238 3.58428 11.6802 3.67901 11.6144C3.76179 11.5569 3.86423 11.5352 3.96322 11.5541C4.0765 11.5757 4.18529 11.6845 4.40286 11.9021L6.09718 13.5964C6.31475 13.814 6.42354 13.9228 6.44517 14.036C6.46408 14.135 6.44234 14.2375 6.38486 14.3203C6.31908 14.415 6.17549 14.4702 5.8883 14.5807L1.875 16.1243Z" stroke="#475467" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                </g>
-                <defs>
-                  <clipPath id="clip0_2722_3607">
-                    <rect width="18" height="18" fill="white"/>
-                  </clipPath>
-                </defs>
-              </svg>
+      <div class="header flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-white" :class="{flex: isDisplayMode && !hideHeader, hidden: !isDisplayMode || hideHeader}">
+        <!-- Left: Primary & Secondary Actions -->
+        <div class="flex items-center gap-2">
+          <!-- Embedded Badge -->
+          <div v-show="isEmbedded" class="flex justify-center items-center">
+            <span class="px-2 py-1 text-xs font-semibold text-gray-500 bg-gray-100 rounded cursor-help" title="content is embedded from another page">Embedded</span>
+          </div>
 
-            </button>
-            <button @click="fullscreen" aria-label="Fullscreen" class="p-1 mx-1 rounded hover:bg-gray-300">
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path fill-rule="evenodd" clip-rule="evenodd" d="M5.82 1.50098L6.00098 1.50098C6.41519 1.50098 6.75098 1.83676 6.75098 2.25098C6.75098 2.66519 6.41519 3.00098 6.00098 3.00098H5.85098C5.20854 3.00098 4.77182 3.00156 4.43426 3.02914C4.10544 3.05601 3.93729 3.1047 3.81999 3.16447C3.53775 3.30828 3.30828 3.53775 3.16447 3.81999C3.1047 3.93729 3.05601 4.10544 3.02914 4.43426C3.00156 4.77182 3.00098 5.20854 3.00098 5.85098V6.00098C3.00098 6.41519 2.66519 6.75098 2.25098 6.75098C1.83676 6.75098 1.50098 6.41519 1.50098 6.00098L1.50098 5.82C1.50097 5.21628 1.50096 4.718 1.53412 4.31211C1.56857 3.89053 1.64249 3.50301 1.82796 3.13901C2.11558 2.57452 2.57452 2.11558 3.13901 1.82796C3.50301 1.64249 3.89053 1.56857 4.31211 1.53412C4.718 1.50096 5.21628 1.50097 5.82 1.50098ZM13.5677 3.02914C13.2301 3.00156 12.7934 3.00098 12.151 3.00098H12.001C11.5868 3.00098 11.251 2.66519 11.251 2.25098C11.251 1.83676 11.5868 1.50098 12.001 1.50098L12.182 1.50098C12.7857 1.50097 13.2839 1.50096 13.6898 1.53412C14.1114 1.56857 14.4989 1.64249 14.8629 1.82796C15.4274 2.11558 15.8864 2.57452 16.174 3.13901C16.3595 3.50301 16.4334 3.89053 16.4678 4.31211C16.501 4.718 16.501 5.21626 16.501 5.81998V6.00098C16.501 6.41519 16.1652 6.75098 15.751 6.75098C15.3368 6.75098 15.001 6.41519 15.001 6.00098V5.85098C15.001 5.20854 15.0004 4.77182 14.9728 4.43426C14.9459 4.10544 14.8973 3.93729 14.8375 3.81999C14.6937 3.53775 14.4642 3.30828 14.182 3.16447C14.0647 3.1047 13.8965 3.05601 13.5677 3.02914ZM2.25098 11.251C2.66519 11.251 3.00098 11.5868 3.00098 12.001V12.151C3.00098 12.7934 3.00156 13.2301 3.02914 13.5677C3.05601 13.8965 3.1047 14.0647 3.16447 14.182C3.30828 14.4642 3.53775 14.6937 3.81999 14.8375C3.93729 14.8973 4.10544 14.9459 4.43426 14.9728C4.77182 15.0004 5.20854 15.001 5.85098 15.001H6.00098C6.41519 15.001 6.75098 15.3368 6.75098 15.751C6.75098 16.1652 6.41519 16.501 6.00098 16.501H5.81998C5.21626 16.501 4.718 16.501 4.31211 16.4678C3.89053 16.4334 3.50301 16.3595 3.13901 16.174C2.57452 15.8864 2.11558 15.4274 1.82796 14.8629C1.64249 14.4989 1.56857 14.1114 1.53412 13.6898C1.50096 13.2839 1.50097 12.7857 1.50098 12.182L1.50098 12.001C1.50098 11.5868 1.83676 11.251 2.25098 11.251ZM15.751 11.251C16.1652 11.251 16.501 11.5868 16.501 12.001V12.182C16.501 12.7857 16.501 13.284 16.4678 13.6898C16.4334 14.1114 16.3595 14.4989 16.174 14.8629C15.8864 15.4274 15.4274 15.8864 14.8629 16.174C14.4989 16.3595 14.1114 16.4334 13.6898 16.4678C13.284 16.501 12.7857 16.501 12.182 16.501H12.001C11.5868 16.501 11.251 16.1652 11.251 15.751C11.251 15.3368 11.5868 15.001 12.001 15.001H12.151C12.7934 15.001 13.2301 15.0004 13.5677 14.9728C13.8965 14.9459 14.0647 14.8973 14.182 14.8375C14.4642 14.6937 14.6937 14.4642 14.8375 14.182C14.8973 14.0647 14.9459 13.8965 14.9728 13.5677C15.0004 13.2301 15.001 12.7934 15.001 12.151V12.001C15.001 11.5868 15.3368 11.251 15.751 11.251Z" fill="#475467"/>
+          <!-- P0: Fullscreen (Most clicked - Blue solid) -->
+          <button @click="fullscreen" aria-label="Fullscreen"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5
+                         bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium
+                         rounded-md transition-colors duration-200">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
               </svg>
+              <span>Fullscreen</span>
             </button>
-            <button @click="downloadPng" aria-label="Download PNG" class="flex justify-center items-center px-2 rounded hover:bg-gray-300" title="Download PNG">
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="0.5625" y="1.62012" width="16.875" height="14.7656" rx="2.10938" fill="#42526E"/>
-                <path d="M2.96934 10.1689V9.30986H4.03366C4.27153 9.30986 4.45654 9.24909 4.5887 9.12756C4.72288 9.00602 4.78997 8.8299 4.78997 8.59918V8.593C4.78997 8.36023 4.72288 8.1841 4.5887 8.06463C4.45654 7.94515 4.27153 7.88541 4.03366 7.88541H2.96934V7.01406H4.30508C4.63241 7.01406 4.91704 7.07998 5.15898 7.21181C5.40092 7.34159 5.58796 7.52493 5.72011 7.76182C5.8543 7.99665 5.92139 8.27371 5.92139 8.593V8.59918C5.92139 8.91641 5.8543 9.19347 5.72011 9.43037C5.58796 9.6652 5.40092 9.8475 5.15898 9.97728C4.91704 10.105 4.63241 10.1689 4.30508 10.1689H2.96934ZM2.4082 11.4728V7.01406H3.52742V11.4728H2.4082Z" fill="#E5E5E5"/>
-                <path d="M6.74479 11.4728V7.01406H7.63834L9.76698 9.92166L8.97408 9.51997H9.52911V7.01406H10.5904V11.4728H9.70294L7.56819 8.54047L8.3611 8.94525H7.80607V11.4728H6.74479Z" fill="#E5E5E5"/>
-                <path d="M13.5912 11.5933C13.1399 11.5933 12.7526 11.4996 12.4293 11.3121C12.1061 11.1226 11.857 10.8528 11.6822 10.5026C11.5093 10.1503 11.4229 9.73009 11.4229 9.24188V9.2357C11.4229 8.75368 11.5093 8.33757 11.6822 7.98738C11.855 7.63719 12.101 7.36734 12.4202 7.17783C12.7414 6.98831 13.1216 6.89355 13.5607 6.89355C13.9206 6.89355 14.2428 6.95947 14.5275 7.09131C14.8121 7.22314 15.0429 7.40545 15.2197 7.63822C15.3987 7.86893 15.5064 8.1357 15.543 8.43851L15.5461 8.46941H14.4421L14.436 8.4416C14.3892 8.25414 14.2866 8.10583 14.128 7.99665C13.9714 7.88747 13.7823 7.83289 13.5607 7.83289C13.3534 7.83289 13.1744 7.88953 13.024 8.00283C12.8756 8.11407 12.7617 8.27371 12.6824 8.48177C12.6031 8.68776 12.5635 8.93495 12.5635 9.22334V9.22952C12.5635 9.52203 12.6062 9.77541 12.6916 9.98964C12.779 10.2018 12.901 10.3656 13.0575 10.4809C13.2161 10.5963 13.4022 10.654 13.6156 10.654C13.7844 10.654 13.9338 10.6231 14.0639 10.5613C14.1961 10.4974 14.2998 10.4088 14.375 10.2955C14.4522 10.1802 14.4949 10.0463 14.5031 9.89385L14.5092 9.81969H13.7071V9.03795H15.5918V9.61576C15.5918 10.0257 15.5115 10.3779 15.3509 10.6725C15.1903 10.9671 14.9605 11.1947 14.6617 11.3554C14.3648 11.514 14.008 11.5933 13.5912 11.5933Z" fill="#E5E5E5"/>
+
+          <!-- P1: Edit (Core function - Blue outline) -->
+          <button @click="edit" v-show="showEdit" aria-label="Edit"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5
+                         border-2 border-blue-600 text-blue-600 hover:bg-blue-50
+                         text-sm font-medium rounded-md transition-colors duration-200">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
               </svg>
-              <span class="px-1 py-0.5 text-gray-500">Export PNG</span>
+              <span>Edit</span>
             </button>
-            <!-- Content Versions Button -->
-            <div class="relative">
-              <button v-show="isCustomContent" @click="showContentVersions" class="flex justify-center items-center px-2 rounded hover:bg-gray-300" title="View version history in developer console (F12)">
-                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M14.25 6.75L9 2.25L3.75 6.75" stroke="#475467" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                  <path d="M3.75 11.25L9 15.75L14.25 11.25" stroke="#475467" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                <span class="px-1 py-0.5 text-gray-500">Versions</span>
-              </button>
-              <!-- Quick popup tooltip that shows on click -->
+
+          <!-- P2: Common Tools (Gray buttons with labels) -->
+          <div class="flex items-center gap-2 ml-2 pl-2 border-l border-gray-200">
+
+            <!-- Heroicons: camera -->
+            <button @click="downloadPng" aria-label="Download PNG"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5
+                           border border-gray-300 text-gray-700 hover:bg-gray-50
+                           text-xs font-medium rounded-md transition-colors duration-200">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
+              </svg>
+              <span>Export</span>
+            </button>
+
+            <!-- Copy Code button -->
+            <button @click="copyCode" aria-label="Copy Code"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5
+                           border border-gray-300 text-gray-700 hover:bg-gray-50
+                           text-xs font-medium rounded-md transition-colors duration-200 whitespace-nowrap">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
+              </svg>
+              <span>Copy Code</span>
+            </button>
+
+            <!-- Heroicons: clock -->
+            <button v-show="isCustomContent" @click="showContentVersions" aria-label="Versions"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5
+                           border border-gray-300 text-gray-700 hover:bg-gray-50
+                           text-xs font-medium rounded-md transition-colors duration-200 relative">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+              </svg>
+              <span>Versions</span>
+              <!-- Quick popup tooltip -->
               <div v-if="showVersionsTooltip" class="absolute z-10 bg-gray-700 text-white text-xs rounded py-1 px-2 left-1/2 transform -translate-x-1/2 mt-1 whitespace-nowrap shadow-md">
                 Version history shown in developer console (F12)
                 <div class="absolute w-2 h-2 bg-gray-700 transform rotate-45 -top-1 left-1/2 -translate-x-1/2"></div>
               </div>
-            </div>
-            <send-feedback/>
-
-            <button @click="clickLikeButton" class="flex justify-center items-center px-2 rounded hover:bg-gray-300" style="" title="Like this diagram">
-              <IconLikeFilled v-if="userLiked" :width="20" style="color: #1868DB"/>
-              <IconLike v-else :width="20" style="color: #475467"/>
-              {{ likesForDisplay }}
             </button>
-
           </div>
         </div>
-        <div class="right">
-          <slot name="title"></slot>
+
+        <!-- Right: Social & Conversion -->
+        <div class="flex items-center gap-2">
+          <!-- P4: Social helpers (Light gray) -->
+          <div class="flex items-center gap-1">
+            <send-feedback/>
+
+            <button @click="clickLikeButton"
+                    class="inline-flex items-center gap-1 px-2 py-1.5 rounded-md hover:bg-gray-50 text-sm transition-colors duration-200"
+                    title="Like this diagram">
+              <IconLikeFilled v-if="userLiked" :width="16" class="text-blue-600"/>
+              <IconLike v-else :width="16" class="text-gray-400"/>
+              <span :class="userLiked ? 'text-blue-600' : 'text-gray-500'">{{ likesForDisplay }}</span>
+            </button>
+          </div>
+
+          <!-- P3: Conversion CTA (Gold gradient - Most eye-catching) - Only for Lite with 50+ macros -->
+          <div v-if="isLite && macrosCreated > 50" class="ml-2 pl-2 border-l border-gray-200">
+            <button @click="openUpgradeModal"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5
+                           bg-gradient-to-r from-amber-500 to-orange-600
+                           hover:from-amber-600 hover:to-orange-700
+                           text-white text-sm font-semibold rounded-md
+                           shadow-md hover:shadow-lg transform hover:scale-105
+                           transition-all duration-200"
+                    title="Upgrade to unlock unlimited diagrams">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
+                <path fill-rule="evenodd" d="M9 4.5a.75.75 0 0 1 .721.544l.813 2.846a3.75 3.75 0 0 0 2.576 2.576l2.846.813a.75.75 0 0 1 0 1.442l-2.846.813a3.75 3.75 0 0 0-2.576 2.576l-.813 2.846a.75.75 0 0 1-1.442 0l-.813-2.846a3.75 3.75 0 0 0-2.576-2.576l-2.846-.813a.75.75 0 0 1 0-1.442l2.846-.813A3.75 3.75 0 0 0 7.466 7.89l.813-2.846A.75.75 0 0 1 9 4.5ZM18 1.5a.75.75 0 0 1 .728.568l.258 1.036c.236.94.97 1.674 1.91 1.91l1.036.258a.75.75 0 0 1 0 1.456l-1.036.258c-.94.236-1.674.97-1.91 1.91l-.258 1.036a.75.75 0 0 1-1.456 0l-.258-1.036a2.625 2.625 0 0 0-1.91-1.91l-1.036-.258a.75.75 0 0 1 0-1.456l1.036-.258a2.625 2.625 0 0 0 1.91-1.91l.258-1.036A.75.75 0 0 1 18 1.5ZM16.5 15a.75.75 0 0 1 .712.513l.394 1.183c.15.447.5.799.948.948l1.183.395a.75.75 0 0 1 0 1.422l-1.183.395c-.447.15-.799.5-.948.948l-.395 1.183a.75.75 0 0 1-1.422 0l-.395-1.183a1.5 1.5 0 0 0-.948-.948l-1.183-.395a.75.75 0 0 1 0-1.422l1.183-.395c.447-.15.799-.5.948-.948l.395-1.183A.75.75 0 0 1 16.5 15Z" clip-rule="evenodd" />
+              </svg>
+              <span>Upgrade</span>
+            </button>
+          </div>
         </div>
       </div>
-      <UpgradeBanner v-if="isLite && !hideUpgradeBanner" variant="viewer" :severity="severity" :macros-created="macrosCreated" :macros-limit="MACROS_LIMIT" />
       <div class="flex justify-center screen-capture-content">
         <div :class="{'w-full': wide, 'mr-8': !wide}">
           <slot></slot>
@@ -103,23 +143,24 @@ import ErrorBoundary from "@/components/ErrorBoundary.vue";
 import globals from '@/model/globals';
 import {DataSource} from "@/model/Diagram/Diagram";
 import {getUrlParam} from '@/utils/window';
+import {getClientDomain} from '@/utils/ContextParameters/ContextParameters';
 import SendFeedback from "@/components/SendFeedback.vue";
-import Upgrade from "@/components/Upgrade.vue";
-import UpgradeBanner from "@/components/UpgradeBanner/index.vue"
-import UpgradePrompt from '@/components/UpgradePrompt/index.vue'
+import UpgradePrompt from '@/components/UpgradePrompt/UpgradePrompt.vue'
 import * as htmlToImage from "html-to-image";
 import { toggleDiagramLike, getDiagramLikes } from "@/services/DiagramLikes";
 import store from "@/model/store2";
 import IconLike from "../icons/IconLike.vue";
 import IconLikeFilled from "../icons/IconLikeFilled.vue";
-import { useCustomerSuccessService, MACROS_LIMIT } from '@/composables/useCustomerSuccessService'
-import forgeGlobal from '@/model/globals/forgeGlobal';
+import { useCustomerSuccessService, MACROS_LIMIT, getUpgradeContext } from '@/composables/useCustomerSuccessService'
+import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking'
+import { toast } from '@/utils/toast'
 
 export default {
   name: "GenericViewer",
-  props: ['wide', 'hideHeader', 'hideUpgradeBanner'],
+  props: ['wide', 'hideHeader'],
   data: () => {
-    const { macrosCreated, severity, upgradeUrl, enterpriseBundleUrl } = useCustomerSuccessService()
+    const { macrosCreated, severity, shouldBlockActions, upgradeUrl, enterpriseBundleUrl, initialize } = useCustomerSuccessService()
+    
     return {
       canUserEdit: true,
       userLiked: false, // TODO: check if user liked the diagram
@@ -129,19 +170,18 @@ export default {
       showUpgradeModal: false,
       macrosCreated,
       severity,
+      shouldBlockActions,
       upgradeUrl,
       enterpriseBundleUrl,
       MACROS_LIMIT,
-      isForge: forgeGlobal.isForge,
+      initializeCustomerSuccess: initialize
     }
   },
   components: {
     SendFeedback,
-    Upgrade,
     Debug,
     ErrorBoundary,
-      UpgradeBanner,
-      UpgradePrompt,
+    UpgradePrompt,
     IconLike,
     IconLikeFilled,
   },
@@ -159,6 +199,13 @@ export default {
       return this.diagram.source === DataSource.CustomContent;
     },
     showEdit() {
+      // Development environment: always show edit button
+      if (import.meta.env.DEV) {
+        console.debug('showEdit (DEV mode): true');
+        return true;
+      }
+
+      // Production: check permissions
       let isCustomContent = this.diagram.source === DataSource.CustomContent;
       let isNotCopy = !this.diagram.isCopy;
       console.debug('showEdit', this.canUserEdit, isCustomContent, isNotCopy);
@@ -167,17 +214,15 @@ export default {
     likesForDisplay() {
       return this.likesCount > 0 ? this.likesCount : '';
     },
+    isMoonactive() {
+      return getClientDomain() === 'moonactive';
+    },
   },
   async mounted() {
     try {
       this.canUserEdit = await globals.apWrapper.canUserEdit();
       await this.getLikes();
-      this.isForge = forgeGlobal.isForge;
-      
-      // Listen to Upgrade badge click
-      EventBus.$on('showUpgradePrompt', () => {
-        this.showUpgradeModal = true
-      })
+      await this.initializeCustomerSuccess();
     } catch (e) {
 console.error('Error getting feature flags', e);
     }
@@ -185,34 +230,36 @@ console.error('Error getting feature flags', e);
   methods: {
     edit() {
       trackEvent('edit', 'click', 'editing');
-      
-      // Block if critical (100+ macros)
-      if (!this.isForge && this.severity === 'critical') {
+
+      // Block if critical (100+ macros) AND feature flag enabled
+      if (this.shouldBlockActions) {
         this.showUpgradeModal = true
-        trackEvent('edit_blocked', 'blocked', 'critical_limit', {
-          macro_count: this.macrosCreated,
-          macro_limit: this.MACROS_LIMIT
+
+        // Track ACTION_BLOCKED event
+        trackUpgradeEvent(UpgradeEventName.ACTION_BLOCKED, {
+          ui_component: UIComponent.VIEWER_NOTICE,
+          action_type: 'edit',
+          ...getUpgradeContext(),
         })
         return  // Block the action
       }
-      
+
       // Allow if under limit
       EventBus.$emit('edit');
     },
+    openUpgradeModal() {
+      // Track header upgrade button click
+      trackUpgradeEvent(UpgradeEventName.CTA_CLICKED, {
+        ui_component: UIComponent.HEADER_BADGE,
+        cta_type: 'button',
+        ...getUpgradeContext()
+      });
+      
+      this.showUpgradeModal = true
+      // MODAL_SHOWN tracking will be handled by the watch in UpgradePrompt component
+    },
     fullscreen() {
       trackEvent('fullscreen', 'click', 'viewing');
-      
-      // Block if critical (100+ macros)
-      if (!this.isForge && this.severity === 'critical') {
-        this.showUpgradeModal = true
-        trackEvent('fullscreen_blocked', 'blocked', 'critical_limit', {
-          macro_count: this.macrosCreated,
-          macro_limit: this.MACROS_LIMIT
-        })
-        return  // Block the action
-      }
-      
-      // Allow if under limit
       EventBus.$emit('fullscreen');
     },
     async downloadPng() {
@@ -272,6 +319,55 @@ console.error('Error getting feature flags', e);
           });
       } else {
         console.warn('No content ID available to show versions');
+      }
+    },
+    async copyCode() {
+      trackEvent("copy_code", "click", this.diagramType);
+      
+      try {
+        const code = this.diagramType === 'mermaid' 
+          ? this.diagram.mermaidCode 
+          : this.diagram.code;
+        
+        if (!code) {
+          toast({ message: 'No code to copy', duration: 2000 });
+          return;
+        }
+        
+        // Try modern Clipboard API first
+        if (navigator.clipboard && window.isSecureContext) {
+          try {
+            await navigator.clipboard.writeText(code);
+            toast({ message: 'Code copied to clipboard', duration: 2000 });
+            return;
+          } catch (clipboardError) {
+            console.log('Clipboard API failed, using fallback:', clipboardError);
+          }
+        }
+        
+        // Fallback for iframe contexts: use textarea + execCommand
+        const textarea = document.createElement('textarea');
+        textarea.value = code;
+        textarea.style.position = 'fixed';
+        textarea.style.top = '-9999px';
+        textarea.style.left = '-9999px';
+        textarea.setAttribute('readonly', '');
+        document.body.appendChild(textarea);
+        
+        textarea.select();
+        textarea.setSelectionRange(0, code.length);
+        
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        
+        if (successful) {
+          toast({ message: 'Code copied to clipboard', duration: 2000 });
+        } else {
+          throw new Error('execCommand copy failed');
+        }
+      } catch (error) {
+        console.error('Failed to copy code:', error);
+        toast({ message: 'Failed to copy code', duration: 3000 });
       }
     },
   },

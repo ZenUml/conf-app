@@ -1,0 +1,92 @@
+<template>
+  <Teleport to="body">
+    <div v-if="visible" class="fixed inset-0 z-50 flex items-center justify-center p-4" @keydown.esc="tracking.handleClose">
+      <!-- Backdrop -->
+      <div class="fixed inset-0 bg-black bg-opacity-50" @click="tracking.handleClose"></div>
+
+      <!-- Modal content - Optimized for 700×600px iframe -->
+      <div class="relative bg-white rounded-lg shadow-xl w-[680px] max-h-[660px] overflow-y-auto">
+        <!-- Achievement Header - Celebratory -->
+        <div class="px-4 py-2 border-b border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50">
+          <div class="flex items-center gap-2">
+            <span class="text-xl shrink-0">🚀</span>
+            <span class="text-sm font-semibold text-blue-900">
+              Awesome progress—{{ macrosCreated }} diagrams already! Unlock unlimited access to keep building.
+            </span>
+          </div>
+        </div>
+
+        <!-- Calculator Heading - Slim -->
+        <div class="px-4 py-2 bg-blue-50 border-b border-blue-100">
+          <h3 class="text-base font-bold text-gray-900">Pick the upgrade that fits your team</h3>
+        </div>
+
+        <!-- Two-column pricing comparison - Compact -->
+        <div class="grid grid-cols-2 gap-0 border-b border-gray-200">
+          <!-- Marketplace Section -->
+          <MarketplacePricingCard
+            :upgrade-url="upgradeUrl"
+            @slider-change="handleSliderChange"
+            @cta-click="tracking.trackMarketplaceClick"
+          />
+
+          <!-- Enterprise Bundle Section -->
+          <EnterpriseBundleCard
+            :bundle-url="enterpriseBundleUrl"
+            @cta-click="tracking.trackEnterpriseBundleClick"
+          />
+        </div>
+
+        <!-- Learn More Link - Compact -->
+        <div class="px-4 py-2 bg-gray-50 text-center">
+          <a
+            href="https://zenuml.com/upgrade/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-xs text-blue-600 hover:text-blue-800 hover:underline"
+          >
+            Why do I need to upgrade? →
+          </a>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+</template>
+
+<script setup lang="ts">
+import { ref } from 'vue'
+import MarketplacePricingCard from './MarketplacePricingCard.vue'
+import EnterpriseBundleCard from './EnterpriseBundleCard.vue'
+import { useUpgradeTracking } from './useUpgradeTracking'
+
+const props = defineProps<{
+  visible: boolean
+  macrosCreated: number
+  macrosLimit: number
+  upgradeUrl: string
+  enterpriseBundleUrl: string
+}>()
+
+const emit = defineEmits<{
+  (e: 'close'): void
+}>()
+
+// Track current pricing values from MarketplacePricingCard
+const currentUserCount = ref(50)
+const currentAnnualCost = ref(0)
+
+// Initialize tracking
+const tracking = useUpgradeTracking(
+  () => props.visible,
+  () => currentUserCount.value,
+  () => currentAnnualCost.value,
+  () => emit('close')
+)
+
+// Handle slider changes with tracking
+const handleSliderChange = (userCount: number, annualCost: number) => {
+  currentUserCount.value = userCount
+  currentAnnualCost.value = annualCost
+  tracking.trackSliderChange()
+}
+</script>

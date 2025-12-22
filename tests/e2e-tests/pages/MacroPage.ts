@@ -56,8 +56,6 @@ export class MacroPage {
 
   async saveInEditor(): Promise<void> {
     const editorFrame = this.getEditorDialogFrame();
-    // await expect(editorFrame).toBeVisible({ timeout: TIMEOUTS.BUTTON_VISIBLE });
-    
     // Use more specific button selection - look for the save/publish button
     const saveButton = editorFrame.getByRole('button', { name: /publish|save/i }).first();
     await expect(saveButton).toBeVisible({ timeout: TIMEOUTS.BUTTON_VISIBLE });

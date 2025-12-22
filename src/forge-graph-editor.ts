@@ -12,6 +12,8 @@ import { DiagramType, DataSource } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
 import { showCloseWithoutSavingDialog } from './utils/modalService';
 import EventBus from "./EventBus";
+import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
+import uuidv4 from '@/utils/uuid';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -45,6 +47,11 @@ async function saveGraphAndExit(graphXml: string) {
   
   const id = await saveToPlatform(diagram);
   
+  // End journey on save
+  if (getEditJourneyId()) {
+    endEditJourney('saved');
+  }
+  
   setTimeout(async () => {
     if(await isInserting()) {
       await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
@@ -57,30 +64,75 @@ async function saveGraphAndExit(graphXml: string) {
 async function exit() {
   const codeChanged = window.diagram?.graphXml !== window.graphXml;
   
-  // Track exit event with context
+  // Prepare event data
   const isNewGraph = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.Graph;
   const elapsedTimeMs = Date.now() - editorStartTime;
   
-  trackEvent('', 'create_macro_exit', DiagramType.Graph, {
+  const eventProps = {
     had_changes: codeChanged,
-    macro_stage: isNewGraph ? 'creation' : 'editing',
+    source: 'graph_editor',
     elapsed_time_ms: elapsedTimeMs,
-    code_length: store.state.diagram.graphXml?.length || 0
-  });
+    code_length: store.state.diagram.graphXml?.length || 0,
+    journey_id: getEditJourneyId(),
+    session_id: getOrCreateSession(),
+  };
   
   if (codeChanged) {
-    // Show custom modal dialog for Forge (similar to Connect)
+    // Show custom modal dialog for Forge
     const result = await showCloseWithoutSavingDialog();
+    
     if (result === 'discard') {
+      // User confirmed exit - track exit event
+      const exitEventAction = isNewGraph ? 'create_macro_exit' : 'edit_macro_exit';
+      trackEvent('', exitEventAction, DiagramType.Graph, eventProps);
+      
+      // End journey on exit
+      if (getEditJourneyId()) {
+        endEditJourney('cancelled');
+      }
+      
       await (await getView()).close();
+    } else {
+      // User cancelled exit (chose to keep editing) - track cancelled event
+      const cancelledEventAction = isNewGraph ? 'create_macro_exit_cancelled' : 'edit_macro_exit_cancelled';
+      trackEvent('', cancelledEventAction, DiagramType.Graph, eventProps);
+      // Do NOT end journey - user continues editing
     }
   } else {
+    // No changes - immediate exit
+    const exitEventAction = isNewGraph ? 'create_macro_exit' : 'edit_macro_exit';
+    trackEvent('', exitEventAction, DiagramType.Graph, eventProps);
+    
+    // End journey on exit
+    if (getEditJourneyId()) {
+      endEditJourney('window_close');
+    }
+    
     await (await getView()).close();
   }
 }
 
 async function initializeMacro() {
   const context = await initForgeContext();
+  
+  // Start journey tracking
+  const macroUuid = context.extension?.config?.uuid || uuidv4();
+  const isDialog = !!context.extension?.modal;
+  const isMacroConfig = !!context.extension?.macro?.isConfiguring || !!context.extension?.macro?.isInserting;
+  
+  if (isDialog || isMacroConfig) {
+    // Check if journey was passed from parent (for modals opened from viewer)
+    const modalContext = context.extension?.modal;
+    if (isDialog && modalContext?.journey_id) {
+      continueEditJourney(modalContext.journey_id, macroUuid, modalContext.journey_start_time);
+    } else {
+      const source = isMacroConfig ? 'macro' : 'dialog';
+      startEditJourney(macroUuid, source);
+    }
+  }
+  
+  // Ensure session is initialized
+  getOrCreateSession();
 
   let doc;
   const customContentId = context.extension?.config?.customContentId;
@@ -120,9 +172,14 @@ async function initializeMacro() {
     doc
   });
 
-  if (await MacroUtil.isCreateNew()) {
-    trackEvent("", "create_macro_begin", "graph");
-  }
+  // Track begin event (create or edit)
+  const isNew = await MacroUtil.isCreateNew();
+  const beginEventAction = isNew ? 'create_macro_begin' : 'edit_macro_begin';
+  
+  trackEvent("", beginEventAction, "graph", {
+    journey_id: getEditJourneyId(),
+    session_id: getOrCreateSession(),
+  });
 }
 
 export default initializeMacro(); 

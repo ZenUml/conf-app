@@ -9,6 +9,8 @@ import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import './assets/tailwind.css'
 import { saveToPlatform } from "./model/ContentProvider/Persistence";
 import macroMetrics from "@/services/MacroMetrics";
+import { startEditJourney, getOrCreateSession, getEditJourneyStartTime } from '@/utils/journeyTracking';
+import uuidv4 from '@/utils/uuid';
 
 // Initialize critical path rendering first
 async function initializeCriticalPath() {
@@ -24,9 +26,6 @@ async function initializeCriticalPath() {
     // Initialize context and get macro data (lightweight operations)
     await globals.apWrapper.initializeContext();
     const macroData = await globals.apWrapper.getMacroData();
-
-    // Report metrics (can run in parallel with heavy content loading)
-    macroMetrics.reportMacroMetrics().catch(e => console.error('Error reporting metrics:', e));
 
     // Return the macro data for use in the second phase
     return { macroData };
@@ -79,6 +78,9 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 async function main() {
   // Phase 1: Critical path rendering
   const criticalData = await initializeCriticalPath();
+  
+  // Initialize session (for inline edit tracking)
+  getOrCreateSession();
 
   // Phase 2: Load heavy components
   loadHeavyComponents(criticalData).catch(e =>
@@ -90,7 +92,7 @@ export default main()
 
 EventBus.$on('diagramLoaded', () => {
   const resizeAfterDelay = () => {
-    console.debug('Resizing viewport after diagram loaded');
+    console.log('Resizing viewport after diagram loaded');
     // @ts-ignore
     window.AP?.resize();
   };
@@ -151,25 +153,67 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
   }, 1500);
 });
 
-EventBus.$on('edit', () => {
+EventBus.$on('edit', async () => {
+  // Import dependencies needed for refresh
+  const [
+    { default: defaultContentProvider },
+    { default: store }
+  ] = await Promise.all([
+    import("@/model/ContentProvider/CompositeContentProvider"),
+    import("@/model/store2")
+  ]);
+  
+  // Start journey for dialog edit
+  const macroData = await globals.apWrapper.getMacroData();
+  const macroUuid = macroData?.uuid || uuidv4();
+  const journeyId = startEditJourney(macroUuid, 'dialog');
+  const journeyStartTime = getEditJourneyStartTime();
+  
+  const customDataToPass = {
+    journey_id: journeyId,
+    journey_start_time: journeyStartTime,
+    macro_uuid: macroUuid,
+    session_id: getOrCreateSession(),
+  };
+
   AP.dialog.create({
     key: 'zenuml-content-sequence-editor-dialog',
       chrome: false,
       width: "100%",
       height: "100%",
+      customData: customDataToPass
   }).on('close', async () => {
-    location.reload();
+    // Refetch only the custom content instead of full page reload
+    const compositeContentProvider = defaultContentProvider(globals.apWrapper as ApWrapper2);
+    const {doc} = await compositeContentProvider.load();
+
+    // Update Vuex store - Vue reactivity will automatically re-render
+    store.state.diagram = doc;
   });
 });
 
-EventBus.$on('fullscreen', () => {
+EventBus.$on('fullscreen', async () => {
+  // Import dependencies needed for refresh
+  const [
+    { default: defaultContentProvider },
+    { default: store }
+  ] = await Promise.all([
+    import("@/model/ContentProvider/CompositeContentProvider"),
+    import("@/model/store2")
+  ]);
+
   AP.dialog.create({
     key: 'zenuml-content-sequence-viewer-dialog',
     chrome: true,
     width: "100%",
     height: "100%",
   }).on('close', async () => {
-    location.reload();
+    // Refetch content - user may have edited styles or diagram content in fullscreen
+    const compositeContentProvider = defaultContentProvider(globals.apWrapper as ApWrapper2);
+    const {doc} = await compositeContentProvider.load();
+
+    // Update Vuex store - Vue reactivity will automatically re-render
+    store.state.diagram = doc;
   });
 });
 

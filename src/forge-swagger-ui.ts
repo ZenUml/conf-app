@@ -91,8 +91,6 @@ async function initializeMacro() {
   initSwaggerUi();
 
   await loadDiagram();
-
-  await macroMetrics.reportMacroMetrics();
 }
 
 export default initializeMacro();

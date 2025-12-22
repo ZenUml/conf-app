@@ -15,7 +15,9 @@
     "/forge-custom-content",
     "/api/features",
     "/api/metrics/evaluation",
-    "/forge-installed"
+    "/forge-installed",
+    "/metrics-cache/query",
+    "/metrics-cache/update"
   ],
   "exclude": []
 }

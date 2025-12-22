@@ -54,7 +54,7 @@ export default {
         }
         if (!this.originalWidth || !this.originalHeight) return;
         const containerWidth = this.containerRef.clientWidth;
-        const scale = Math.max(0.1, Math.min(2, containerWidth / this.originalWidth));
+        const scale = Math.max(0.1, Math.min(1, containerWidth / this.originalWidth));
         const scaledHeight = this.originalHeight * scale;
         this.scale = scale;
         this.scaledHeight = scaledHeight;

@@ -2,8 +2,9 @@ import { DiagramType } from "@/model/Diagram/Diagram";
 import globals from "@/model/globals";
 import { trackEvent } from "@/utils/window";
 import ApWrapper2 from "@/model/ApWrapper2";
-import { MetricsCache } from "./MetricsCache";
 import forgeGlobal from '@/model/globals/forgeGlobal';
+import { getClientDomain } from "@/utils/ContextParameters/ContextParameters";
+import { makeExternalRequest } from "@/utils/requestUtil";
 
 export interface IMacroMetrics {
   space: string;
@@ -26,22 +27,29 @@ interface ContentResult {
 }
 
 export class MacroMetrics {
-  private static readonly CACHE_PREFIX = 'MacroMetrics';
-  private readonly cache: MetricsCache<IMacroMetrics>;
-
   constructor(
     private readonly apWrapper: ApWrapper2 = globals.apWrapper,
     private readonly eventTracker = trackEvent
-  ) {
-    this.cache = new MetricsCache(apWrapper, MacroMetrics.CACHE_PREFIX);
-  }
+  ) {}
 
   // Report Macro Metrics for the Current Space.
   async reportMacroMetrics(): Promise<void> {
+    if(forgeGlobal.isForge) {
+      //TODO: implement Forge metrics reporting
+      return;
+    }
     try {
-      const metrics = await this.getMacroMetrics();
+      const space = (await this.apWrapper.getCurrentSpace()).key;
+      const domain = getClientDomain();
+
+      // Always collect fresh metrics on save
+      const metrics = await this.collectMetrics(space);
 
       if (metrics) {
+        // Write to KV for shared cache
+        await this.writeToKV(domain, space, metrics);
+
+        // Report to analytics
         console.debug(`Report macro metrics for space ${metrics.space}:`, metrics);
         this.eventTracker(`${JSON.stringify(metrics)}`, 'report_macro_metrics', 'info');
       }
@@ -55,17 +63,20 @@ export class MacroMetrics {
   async getMacroMetrics(): Promise<IMacroMetrics | undefined> {
     try {
       const space = (await this.apWrapper.getCurrentSpace()).key;
-      const cachedMetrics = await this.cache.get(space);
+      const domain = getClientDomain();
 
+      // Read from KV cache
+      const cachedMetrics = await this.readFromKV(domain, space);
       if (cachedMetrics) {
         console.debug(`Using cached metrics for space ${space}`);
         return cachedMetrics;
       }
 
-      // Collect and cache new metrics if needed
+      // KV miss, collect fresh metrics
       const metrics = await this.collectMetrics(space);
       if (metrics) {
-        await this.cache.set(space, metrics);
+        // Write to cache for future reads
+        await this.writeToKV(domain, space, metrics);
       }
       return metrics;
     } catch (e) {
@@ -86,20 +97,8 @@ export class MacroMetrics {
     };
 
     try {
-      if(forgeGlobal.isForge) {
-        const searchResults = await this.apWrapper.searchAllCustomContentForge(true);
-        stats.total = searchResults.size;
-        searchResults.results.forEach((content) => {
-          if(!content || !content.value || !content.value.diagramType) {
-            stats.unknown!++;
-            return;
-          }
-          this.updateDiagramStats(stats, content.value.diagramType)
-        });
-      } else {
-        const searchUrl = this.buildSearchUrl(space);
-        await this.apWrapper.requestAllPaginatedData(searchUrl, consumer);
-      }
+      const searchUrl = this.buildSearchUrl(space);
+      await this.apWrapper.requestAllPaginatedData(searchUrl, consumer);
 
       return {
         space,
@@ -167,6 +166,31 @@ export class MacroMetrics {
     const typesFilter = this.apWrapper.buildTypesClauseFilter();
     const spacesFilter = `space in ("${space}")`;
     return `/rest/api/content/search?expand=body.raw&cql=${spacesFilter} and (${typesFilter})`;
+  }
+
+  private async readFromKV(domain: string, space: string): Promise<IMacroMetrics | null> {
+    try {
+      const response = await makeExternalRequest(
+        `/metrics-cache/query?domain=${domain}&space=${space}`,
+        'GET'
+      );
+      return response;
+    } catch (e) {
+      console.debug('KV read failed', e);
+      return null;
+    }
+  }
+
+  private async writeToKV(domain: string, space: string, metrics: IMacroMetrics): Promise<void> {
+    try {
+      await makeExternalRequest(
+        '/metrics-cache/update',
+        'POST',
+        { domain, space, metrics }
+      );
+    } catch (e) {
+      console.debug('KV write failed (non-critical)', e);
+    }
   }
 
   private trackError(e: unknown): void {

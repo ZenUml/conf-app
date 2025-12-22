@@ -1,5 +1,4 @@
 import { mixpanelTrack } from "./service/mixpanelService";
-import uuidv4 from "./utils/uuid";
 
 export interface EventBody {
   addon_key: string;
@@ -17,33 +16,7 @@ const validateReferer = (referer: string) => {
   return ALLOWED_REFERER_DOMAINS.find(d => refererDomain.endsWith(d));
 }
 
-const getKey = (body: EventBody) => {
-  const now = new Date();
-  const year = now.getUTCFullYear();
-  const month = String(now.getUTCMonth() + 1).padStart(2, '0'); // Adding 1 to make it 1-based
-  const day = String(now.getUTCDate()).padStart(2, '0'); // Two-digit day
-  const hours = String(now.getUTCHours()).padStart(2, '0'); // Two-digit hour
-  const minutes = String(now.getUTCMinutes()).padStart(2, '0'); // Two-digit minute
-  const seconds = String(now.getUTCSeconds()).padStart(2, '0'); // Two-digit second
-  const milliseconds = String(now.getUTCMilliseconds()).padStart(3, '0'); // Three-digit millisecond
-  return `events/${body.addon_key}/${year}/${month}/${day}/${body.client_domain}/${body.user_account_id}/${hours}${minutes}${seconds}${milliseconds}_${uuidv4()}.json`;
-}
-
-const saveToBucket = async (bucket: any, body: EventBody) => {
-  if (!bucket) {
-    console.error('Error: Bucket is null or undefined');
-    return;
-  }
-  
-  try {
-    return await bucket.put(getKey(body), JSON.stringify(body));
-  } catch (error) {
-    console.error(`Error saving to bucket: ${error}`);
-    // Continue execution after logging the error
-  }
-}
-
-export const onRequest = async (event) => {
+export const onRequest = async (event: any) => {
   const referer = event.request.headers.get('referer') || '';
   if (!validateReferer(referer)) {
     console.log(`Referer ${referer} not allowed`);
@@ -58,7 +31,7 @@ export const onRequest = async (event) => {
     return new Response(error, { status: 400 });
   }
 
-  event.waitUntil(Promise.all([mixpanelTrack(body), saveToBucket(event.env.EVENT_BUCKET, body)])); //async handling
+  event.waitUntil(mixpanelTrack(body)); //async handling
 
   return new Response(null, { status: 204 });
 }

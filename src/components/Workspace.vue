@@ -7,14 +7,13 @@
     </div>
 
     <div class="content h-screen flex flex-col">
-      <UpgradeBanner v-if="isLite" variant="editor" :severity="severity" :macros-created="macrosCreated" :macros-limit="MACROS_LIMIT" />
       <Header class="flex-shrink-0"/>
       <div class="workspace flex-grow split">
         <div id="workspace-left" class="editor overflow-auto">
           <editor/>
         </div>
         <div id="workspace-right" class="diagram overflow-auto">
-          <DiagramPortal :hideUpgradeBanner="true" />
+          <DiagramPortal />
         </div>
       </div>
       <CSAT />
@@ -30,7 +29,6 @@
   import DiagramPortal from "@/components/DiagramPortal.vue";
   import CSAT from '@/components/CSAT/index.vue'
   import AIFeedback from '@/components/AIFeedback/index.vue'
-  import UpgradeBanner from '@/components/UpgradeBanner/index.vue'
   import GenerationPrompt from "@/components/Editor/GenerationPrompt.vue";
   import {generateDiagramFromPage} from "@/services/GenerateService";
   import Example from "@/utils/sequence/Example";
@@ -39,20 +37,11 @@
   import getFeatureFlags from '@/apis/featureFlags';
 import globals from "@/model/globals";
 import {trackEvent} from '@/utils/window';
-import { useCustomerSuccessService, MACROS_LIMIT } from '@/composables/useCustomerSuccessService'
 
   export default {
     name: 'Workspace',
     props: {
       msg: String
-    },
-    setup() {
-      const { macrosCreated, severity } = useCustomerSuccessService()
-      return {
-        macrosCreated,
-        severity,
-        MACROS_LIMIT
-      }
     },
     data() {
       return {
@@ -94,7 +83,6 @@ import { useCustomerSuccessService, MACROS_LIMIT } from '@/composables/useCustom
       Header,
       Editor,
       CSAT,
-      UpgradeBanner,
       GenerationPrompt,
       AIFeedback
     }

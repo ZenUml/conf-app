@@ -3,6 +3,7 @@ import getFeatureFlagsForCurrentDomain from "@/apis/featureFlags"
 import { trackUpgradeEvent, UpgradeEventName } from "@/utils/upgradeTracking"
 import macroMetrics from "@/services/MacroMetrics"
 import { getClientDomain } from "@/utils/ContextParameters/ContextParameters"
+import globals from '@/model/globals'
 
 // Constants that both components use
 export const MACROS_LIMIT = 100
@@ -23,6 +24,19 @@ export function useCustomerSuccessService() {
     return macrosCreated.value >= WARNING_THRESHOLD && customerSuccessServiceEnabled.value
   })
 
+  const shouldBlockActions = computed(() => {
+    const isLite = globals.apWrapper.isLite()
+    const shouldBlock = macrosCreated.value >= MACROS_LIMIT && customerSuccessServiceEnabled.value && isLite
+    console.log('🚫 shouldBlockActions check:', {
+      macrosCreated: macrosCreated.value,
+      macrosLimit: MACROS_LIMIT,
+      featureFlagEnabled: customerSuccessServiceEnabled.value,
+      isLite,
+      shouldBlock
+    })
+    return shouldBlock
+  })
+
   const severity = computed(() => {
     if (macrosCreated.value >= MACROS_LIMIT) return 'critical'
     if (macrosCreated.value >= WARNING_THRESHOLD) return 'warning'
@@ -35,7 +49,7 @@ export function useCustomerSuccessService() {
   })
 
   const enterpriseBundleUrl = computed(() => {
-    return 'https://buy.stripe.com/fZucN67SlgS933i9zd7IY03'
+    return 'https://buy.stripe.com/cNifZifkN7hzavK12H7IY05'
   })
 
   const learnMoreUrl = computed(() => {
@@ -73,12 +87,26 @@ export function useCustomerSuccessService() {
 
   async function loadCSSFeatureFlag(): Promise<void> {
     if (cssFlagLoaded) {
+      console.log('🏁 Feature flag already loaded, skipping')
       return;
     }
 
     try {
+      // Check for mock override first (for testing)
+      if (localStorage.mockCSSEnabled !== undefined) {
+        customerSuccessServiceEnabled.value = localStorage.mockCSSEnabled === 'true'
+        console.log('🧪 Using mock CSS Feature Flag:', customerSuccessServiceEnabled.value)
+        cssFlagLoaded = true;
+        return;
+      }
+
+      console.log('🔍 Loading CUSTOMER_SUCCESS_SERVICE feature flag...')
       const customerSuccessService: any = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE'])
       customerSuccessServiceEnabled.value = !!customerSuccessService.CUSTOMER_SUCCESS_SERVICE
+      console.log('✅ Feature flag loaded:', {
+        CUSTOMER_SUCCESS_SERVICE: customerSuccessService.CUSTOMER_SUCCESS_SERVICE,
+        enabled: customerSuccessServiceEnabled.value
+      })
       if (customerSuccessServiceEnabled.value) {
         trackUpgradeEvent(UpgradeEventName.FEATURE_ENABLED, {
           feature_name: 'customer_success_service',
@@ -86,7 +114,7 @@ export function useCustomerSuccessService() {
       }
       cssFlagLoaded = true;
     } catch (error) {
-      console.error("Error loading CSS feature flag:", error);
+      console.error("❌ Error loading CSS feature flag:", error);
     }
   }
 
@@ -98,6 +126,7 @@ export function useCustomerSuccessService() {
   return {
     macrosCreated,
     actionRequired,
+    shouldBlockActions,
     severity,
     upgradeUrl,
     enterpriseBundleUrl,

@@ -1,156 +1,66 @@
 <template>
-  <header class="toolbar header border-b border-gray-800 p-2 flex items-center justify-between relative z-10 h-[49px]">
-    <div class="flex shrink-1 min-w-0">
-      <div class="group ml-2 p-0.5 rounded flex bg-gray-100 hover:bg-gray-200">
-        <button type="button"
-          id="btn-sequence"
-          class="flex focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 rounded focus:outline-none focus-visible:ring-offset-gray-100"
-          :class="diagramType === DiagramType.Sequence
-            ? 'bg-white shadow-sm ring-1 ring-black ring-opacity-5'
-            : ''
-            "
-          @click="setActiveTab(DiagramType.Sequence)"
-          :tabindex="diagramType === DiagramType.Sequence ? '0' : '-1'">
-          <span class="p-1 lg:pl-2.5 lg:pr-3.5 rounded flex items-center text-sm font-medium"
-            :class="diagramType === DiagramType.Sequence
-              ? 'bg-white shadow-sm ring-1 ring-black ring-opacity-5'
-              : ''
-              ">
-            <span class="sr-only lg:not-sr-only text-gray-600 group-hover:text-gray-900"
-              :class="diagramType === DiagramType.Sequence
-                ? 'text-gray-900'
-                : 'text-gray-600 group-hover:text-gray-900'
-                ">Sequence</span>
-          </span>
-        </button>
-        <button type="button"
-          id="btn-mermaid"
-          class="ml-0.5 p-1 lg:pl-2.5 lg:pr-3.5 rounded flex items-center text-sm text-gray-600 font-medium focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 focus:outline-none focus-visible:ring-offset-gray-100"
-          :class="diagramType === DiagramType.Mermaid
-            ? 'bg-white shadow-sm ring-1 ring-black ring-opacity-5'
-            : ''
-            "
-          @click="setActiveTab(DiagramType.Mermaid)">
-          <span class="sr-only lg:not-sr-only text-gray-900"
-            :class="diagramType === DiagramType.Mermaid
-              ? 'text-gray-900'
-              : 'text-gray-600 group-hover:text-gray-900'
-              ">Mermaid</span>
-        </button>
+  <header class="toolbar header border-b border-gray-200 px-6 py-3 flex items-center gap-3 relative z-10 h-14">
+    <div class="flex items-center gap-3 flex-1 min-w-0">
+      <TabSwitcher
+        v-model="diagramType"
+        :options="diagramOptions"
+      />
+      <div class="relative flex items-center flex-1 min-w-64">
+        <input
+          type="text"
+          placeholder="Title"
+          :value="currentTitle"
+          @input="handleTitleChange"
+          class="w-full px-3 py-2 border-2 border-gray-200 rounded-md focus:border-blue-500 hover:border-gray-300 outline-none transition-colors duration-200 h-10"
+          :class="{ 'border-red-400 focus:border-red-400 bg-red-50': titleError, 'pr-10': isAiTitleEnabled }" />
+        <div v-if="isAiTitleEnabled"
+          class="absolute right-0 flex items-center">
+          <button class="rounded-md p-1 text-gray-600 hover:bg-gray-200 transition-colors duration-200"
+            :class="{ 'pointer-events-none opacity-50 cursor-not-allowed': titleLoading }"
+            title="Generate title with AI"
+            @click="handleGenerateTitle"
+            :disabled="titleLoading">
+            <SparklesIcon v-if="!titleLoading" class="w-5 h-5" />
+            <ArrowPathIcon v-else class="w-5 h-5 animate-spin" />
+          </button>
+        </div>
       </div>
-      <a class="inline-block help mx-2"
+    </div>
+    <div class="flex items-center gap-3 shrink-0">
+      <a class="inline-block help"
         target="_blank"
         :href="templateUrl">
-        <button class="flex items-center bg-gray-100 px-2 py-1 text-sm font-semibold rounded h-[100%] hover:bg-gray-200"
+        <button class="flex items-center gap-1.5 px-3 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-50 transition-colors duration-200"
           @click="templateClick">
-          <span>
-            <svg xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke-width="1.5"
-              stroke="currentColor"
-              class="w-4 h-4">
-              <path stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" />
-            </svg>
-          </span>
+          <LightBulbIcon class="w-4 h-4" />
           <span>Examples</span>
         </button>
       </a>
-      <input v-if="diagramType === DiagramType.Sequence"
-        type="text"
-        placeholder="Title"
-        :value="seqTitle"
-        @input="handleTitleChange"
-        class="px-1 border-2 border-solid border-[#091e4224] rounded-[3px] focus:border-[#388bff] hover:border-[#388bff] outline-none transition-[border-color] h-8"
-        :class="{ 'border-[#c9372c]': titleError, 'pr-8': isAiTitleEnabled }" />
-      <input v-if="diagramType === DiagramType.Mermaid"
-        type="text"
-        placeholder="Title"
-        :value="mermaidTitle"
-        @input="handleTitleChange"
-        class="px-1 border-2 border-solid border-[#091e4224] rounded-[3px] focus:border-[#388bff] hover:border-[#388bff] outline-none transition-[border-color] h-8"
-        :class="{ 'border-[#c9372c]': titleError, 'pr-8': isAiTitleEnabled }" />
-      <div v-if="isAiTitleEnabled"
-        class="flex ml-[-28px] items-center text-sm">
-        <button class="rounded-sm px-[2px] text-gray-600 hover:bg-gray-200"
-          :class="{ 'pointer-events-none': titleLoading }"
-          title="Generate title with AI"
-          @click="handleGenerateTitle"
-          :disabled="titleLoading">
-          <svg v-if="!titleLoading"
-            xmlns="http://www.w3.org/2000/svg"
-            class="w-5"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            stroke-width="2"
-            stroke="currentColor"
-            fill="none"
-            stroke-linecap="round"
-            stroke-linejoin="round">
-            <path stroke="none"
-              d="M0 0h24v24H0z"
-              fill="none" />
-            <path
-              d="M16 18a2 2 0 0 1 2 2a2 2 0 0 1 2 -2a2 2 0 0 1 -2 -2a2 2 0 0 1 -2 2zm0 -12a2 2 0 0 1 2 2a2 2 0 0 1 2 -2a2 2 0 0 1 -2 -2a2 2 0 0 1 -2 2zm-7 12a6 6 0 0 1 6 -6a6 6 0 0 1 -6 -6a6 6 0 0 1 -6 6a6 6 0 0 1 6 6z" />
-          </svg>
-          <svg v-if="titleLoading"
-            xmlns="http://www.w3.org/2000/svg"
-            class="w-5 animate-spin text-gray-200"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            stroke-width="2"
-            stroke="currentColor"
-            fill="none"
-            stroke-linecap="round"
-            stroke-linejoin="round">
-            <path stroke="none"
-              d="M0 0h24v24H0z"
-              fill="none" />
-            <path d="M12 3a9 9 0 1 0 9 9" />
-          </svg>
-        </button>
-      </div>
-    </div>
-    <div class="flex items-center shrink-0">
-      <a class="inline-block help mx-1 ml-2"
+      <a class="inline-block help"
         target="_blank"
         :href="helpUrl">
-        <button class="flex items-center bg-gray-100 px-2 py-1 text-gray-600 text-sm font-semibold rounded"
+        <button class="flex items-center gap-1.5 px-3 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-50 transition-colors duration-200"
           @click="helpClick">
-          <span>
-            <svg class="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg">
-              <path stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-            </svg>
-          </span>
+          <QuestionMarkCircleIcon class="w-4 h-4" />
           <span>Help</span>
         </button>
       </a>
-      <div class="inline-block ml-2 relative group/save">
-        <publish-button class="ml-2"
+      <div class="h-6 w-px bg-gray-300"></div>
+      <div class="relative group/save">
+        <publish-button
           :saveAndExit="saveAndExit"
-          :disabled="titleError" />
-        <close-button class="ml-2"
-          :exit="exit" />
-        <div class="absolute top-full right-0 pt-1 hidden"
-          :class="titleError ? 'group-hover/save:block' : ''">
-          <div class="shadow-md p-2 bg-white text-gray-700 text-sm rounded-sm ring-1 ring-slate-900/5 w-[420px]">
+          :disabled="isPublishDisabled" />
+        <div class="absolute top-full right-0 pt-2 hidden transition-opacity duration-200"
+          :class="isPublishDisabled ? 'group-hover/save:block' : ''">
+          <div class="shadow-xl p-4 bg-white text-gray-700 text-sm rounded-lg ring-1 ring-gray-900/10 w-96">
             Please provide a clear and descriptive title to improve clarity,
             facilitate navigation and search on the dashboard, and enhance team
             communication.
           </div>
         </div>
       </div>
+      <close-button
+        :exit="exit" />
     </div>
     <Modal :visible="noticeModalVisible"
       :onConfirm="generateTitle"
@@ -169,12 +79,18 @@
 import { mapState, mapMutations } from "vuex";
 import PublishButton from "@/components/PublishButton.vue";
 import CloseButton from "@/components/CloseButton.vue";
+import TabSwitcher from "@/components/TabSwitcher/TabSwitcher.vue";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import EventBus from "@/EventBus";
 import { trackEvent } from "@/utils/window";
+import { getEditJourneyId, getOrCreateSession } from "@/utils/journeyTracking";
 import Modal from "@/components/Modal/Modal.vue";
 import { toast } from "@/utils/toast";
 import aiGenerateTitle from "@/apis/aiGenerateTitle";
+import LightBulbIcon from '@heroicons/vue/24/outline/LightBulbIcon';
+import QuestionMarkCircleIcon from '@heroicons/vue/24/outline/QuestionMarkCircleIcon';
+import SparklesIcon from '@heroicons/vue/24/outline/SparklesIcon';
+import ArrowPathIcon from '@heroicons/vue/24/outline/ArrowPathIcon';
 
 function getMermaidType(dsl) {
   let type = dsl.trim().split("\n")[0].split(" ")[0];
@@ -197,27 +113,43 @@ export default {
   components: {
     PublishButton,
     CloseButton,
+    TabSwitcher,
     Modal,
+    LightBulbIcon: { render: LightBulbIcon },
+    QuestionMarkCircleIcon: { render: QuestionMarkCircleIcon },
+    SparklesIcon: { render: SparklesIcon },
+    ArrowPathIcon: { render: ArrowPathIcon },
   },
   data() {
     return {
       helpUrl: "https://zenuml.com/docs?utm_source=confluence-plugin&utm_medium=help-button&utm_campaign=confluence-plugin",
-      seqTitle: "",
-      mermaidTitle: "",
       titleError: false,
       titleLoading: false,
       noticeModalVisible: false,
       aiTitleFeatureEnabled: false,
       originalSeqCode: "",
       originalMermaidCode: "",
+      diagramOptions: [
+        { value: DiagramType.Sequence, label: 'Sequence' },
+        { value: DiagramType.Mermaid, label: 'Mermaid' }
+      ]
     };
   },
   computed: {
     DiagramType() {
       return DiagramType;
     },
+    diagramType: {
+      get() {
+        return this.$store.state.diagram.diagramType;
+      },
+      set(value) {
+        this.updateDiagramType(value);
+        // Save user's tab preference to localStorage
+        localStorage.setItem('zenuml-preferred-diagram-type', value);
+      }
+    },
     ...mapState({
-      diagramType: (state) => state.diagram.diagramType,
       seqCode: (state) => state.diagram.code,
       mermaidCode: (state) => state.diagram.mermaidCode,
       templateUrl: (state) =>
@@ -228,10 +160,7 @@ export default {
     }),
     saveAndExit: function () {
       return () => {
-        if (this.diagramType === DiagramType.Sequence && !this.seqTitle) {
-          return (this.titleError = true);
-        }
-        if (this.diagramType === DiagramType.Mermaid && !this.mermaidTitle) {
+        if (!this.$store.state.diagram.title) {
           return (this.titleError = true);
         }
         EventBus.$emit("save");
@@ -243,11 +172,23 @@ export default {
           ? this.seqCode !== this.originalSeqCode
           : this.mermaidCode !== this.originalMermaidCode;
 
-        // Track exit button click with more context
-        trackEvent("exit_button", "click", this.diagramType, {
+        // Determine if creating new or editing existing
+        const isNew = !this.$store.state.diagram.id;
+        const eventAction = isNew ? 'before_create_macro_exit' : 'before_edit_macro_exit';
+        
+        // Track exit button click with journey context
+        trackEvent("", eventAction, this.diagramType, {
           had_changes: codeChanged,
-          title_provided: this.diagramType === DiagramType.Sequence ? !!this.seqTitle : !!this.mermaidTitle,
-          source: "header_exit_button"
+          title_provided: !!this.$store.state.diagram.title,
+          source: "header_exit_button",
+          journey_id: getEditJourneyId(),
+          session_id: getOrCreateSession(),
+          initial_code_length: this.diagramType === DiagramType.Sequence 
+            ? (this.originalSeqCode?.length || 0)
+            : (this.originalMermaidCode?.length || 0),
+          current_code_length: this.diagramType === DiagramType.Sequence
+            ? (this.seqCode?.length || 0)
+            : (this.mermaidCode?.length || 0),
         });
 
         EventBus.$emit("exit", codeChanged);
@@ -256,31 +197,21 @@ export default {
     isAiTitleEnabled: function () {
       return this.aiTitleFeatureEnabled;
     },
+    currentTitle: function () {
+      return this.$store.state.diagram.title;
+    },
+    isPublishDisabled: function () {
+      return !this.$store.state.diagram.title || this.titleError;
+    },
   },
   watch: {
-    diagramType: function (newVal) {
-      const title = newVal === DiagramType.Mermaid ? this.mermaidTitle : this.seqTitle;
-      if(title) {
-        this.$store.dispatch("updateTitle", title);
-      }
-    },
-    title: function (newVal) {
-      if (this.diagramType === DiagramType.Mermaid) {
-        this.mermaidTitle = newVal;
-      } else {
-        this.seqTitle = newVal;
-      }
+    diagramType: function () {
+      // Clear title error when switching tabs - let isPublishDisabled compute the correct state
+      this.titleError = false;
     },
   },
   methods: {
     ...mapMutations(["updateDiagramType"]),
-    setActiveTab(tab) {
-      this.updateDiagramType(
-        tab === DiagramType.Sequence ? DiagramType.Sequence : DiagramType.Mermaid
-      );
-      // Save user's tab preference to localStorage
-      localStorage.setItem('zenuml-preferred-diagram-type', tab);
-    },
     templateClick() {
       trackEvent("template", "click", this.diagramType);
     },
@@ -290,11 +221,6 @@ export default {
     handleTitleChange(value) {
       if (value) {
         this.titleError = false;
-      }
-      if (this.diagramType === DiagramType.Mermaid) {
-        this.mermaidTitle = value.target.value;
-      } else {
-        this.seqTitle = value.target.value;
       }
       this.$store.dispatch("updateTitle", value.target.value);
     },
@@ -323,11 +249,8 @@ export default {
         return;
       }
       this.titleLoading = false;
-      if (this.diagramType === DiagramType.Mermaid) {
-        this.mermaidTitle = await res.text();
-      } else {
-        this.seqTitle = await res.text();
-      }
+      const generatedTitle = await res.text();
+      this.$store.dispatch("updateTitle", generatedTitle);
     },
   },
   async mounted() {
@@ -336,20 +259,14 @@ export default {
     if (isNewDiagram) {
       const savedDiagramType = localStorage.getItem('zenuml-preferred-diagram-type');
       if (savedDiagramType && (savedDiagramType === DiagramType.Sequence || savedDiagramType === DiagramType.Mermaid)) {
-        this.setActiveTab(savedDiagramType);
+        this.updateDiagramType(savedDiagramType);
       }
     }
 
+    // Store original code for change detection on exit
     if (this.diagramType === DiagramType.Mermaid) {
-      this.mermaidTitle = this.title;
       this.originalMermaidCode = this.mermaidCode;
-
-      const firstLine = this.seqCode?.split("\n")[0];
-      if (firstLine?.trimStart().startsWith("title ")) {
-        this.seqTitle = firstLine.trimStart().substring(6).trim();
-      }
     } else {
-      this.seqTitle = this.title;
       this.originalSeqCode = this.seqCode;
     }
 

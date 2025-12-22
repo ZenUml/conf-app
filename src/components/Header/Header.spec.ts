@@ -11,11 +11,19 @@ describe('Header', () => {
         plugins: [store]
       }
     })
-    // pre-condition
-    const sequenceButton = headerWrapper.find('#btn-sequence');
-    expect(sequenceButton.classes('bg-white')).toBeTruthy();
-    const mermaidButton = headerWrapper.find('#btn-mermaid');
-    expect(mermaidButton.classes('bg-white')).toBeFalsy();
+
+    // Find tab buttons through TabSwitcher component
+    const tabButtons = headerWrapper.findAll('.tab-switcher button');
+    expect(tabButtons).toHaveLength(2);
+
+    const sequenceButton = tabButtons[0];
+    const mermaidButton = tabButtons[1];
+
+    // pre-condition - sequence tab should be active (secondary style)
+    expect(sequenceButton.classes()).toContain('border-2');
+    expect(sequenceButton.classes()).toContain('border-blue-600');
+    expect(sequenceButton.classes()).toContain('text-blue-600');
+    expect(mermaidButton.classes()).not.toContain('border-blue-600');
 
     // click to switch to mermaid
     expect(store.state.diagram.diagramType).toBe(DiagramType.Sequence);
@@ -23,6 +31,8 @@ describe('Header', () => {
     await headerWrapper.vm.$nextTick()
 
     expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
-    expect(mermaidButton.classes("bg-white")).toBeTruthy();
+    expect(mermaidButton.classes()).toContain('border-2');
+    expect(mermaidButton.classes()).toContain('border-blue-600');
+    expect(mermaidButton.classes()).toContain('text-blue-600');
   })
 })

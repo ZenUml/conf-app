@@ -52,17 +52,8 @@ export async function connectRequest(requestFn: any, url: string, type: string =
   return Object.assign({}, response && response.body && JSON.parse(response.body), {xhr: response.xhr});
 }
 
-export async function makeExternalRequest(
+export async function callRemote(
   endpoint: string, 
-  method: string = 'GET', 
-  data: any = undefined
-): Promise<any> {
-  return await makeExternalRequest2(endpoint, endpoint, method, data);
-}
-
-export async function makeExternalRequest2(
-  forgeEndpoint: string, 
-  connectEndpoint: string, 
   method: string = 'GET', 
   data: any = undefined
 ): Promise<any> {
@@ -72,8 +63,8 @@ export async function makeExternalRequest2(
   const globals = await import('@/model/globals');
   
   const url = forgeGlobal.default.isForge 
-    ? `${forgeGlobal.default.zenumlRemoteBaseUrl}${forgeEndpoint}` 
-    : `${connectEndpoint}?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`;
+    ? `${forgeGlobal.default.zenumlRemoteBaseUrl}${endpoint}` 
+    : `${endpoint}?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`;
   
   if (forgeGlobal.default.isForge) {
     const response = await forgeCallRemote(url, method, data);

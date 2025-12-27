@@ -5,7 +5,7 @@ import {
   getClientDomain,
   getSpaceKey,
 } from "@/utils/ContextParameters/ContextParameters";
-import { makeExternalRequest } from '@/utils/requestUtil';
+import { callRemote } from '@/utils/requestUtil';
 
 export async function toggleDiagramLike(diagramId: string, diagramType: DiagramType) {
   try {
@@ -19,7 +19,7 @@ export async function toggleDiagramLike(diagramId: string, diagramType: DiagramT
       diagramType: diagramType
     };
 
-    const result = await makeExternalRequest('/diagram-likes/toggle', 'POST', data);
+    const result = await callRemote('/diagram-likes/toggle', 'POST', data);
     console.debug('Diagram-likes response', result);
     return result;
   } catch (e) {
@@ -45,7 +45,7 @@ export async function getDiagramLikes(diagramId: string) {
       macroUuid: macroData?.uuid,
     };
 
-    const result = await makeExternalRequest('/diagram-likes/query', 'POST', data);
+    const result = await callRemote('/diagram-likes/query', 'POST', data);
     console.debug('Diagram-likes response', result);
     return result;
   } catch (e) {

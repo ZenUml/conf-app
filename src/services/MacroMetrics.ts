@@ -4,7 +4,7 @@ import { trackEvent } from "@/utils/window";
 import ApWrapper2 from "@/model/ApWrapper2";
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import { getClientDomain } from "@/utils/ContextParameters/ContextParameters";
-import { makeExternalRequest } from "@/utils/requestUtil";
+import { callRemote } from "@/utils/requestUtil";
 
 export interface IMacroMetrics {
   space: string;
@@ -170,7 +170,7 @@ export class MacroMetrics {
 
   private async readFromKV(domain: string, space: string): Promise<IMacroMetrics | null> {
     try {
-      const response = await makeExternalRequest(
+      const response = await callRemote(
         `/metrics-cache/query?domain=${domain}&space=${space}`,
         'GET'
       );
@@ -183,7 +183,7 @@ export class MacroMetrics {
 
   private async writeToKV(domain: string, space: string, metrics: IMacroMetrics): Promise<void> {
     try {
-      await makeExternalRequest(
+      await callRemote(
         '/metrics-cache/update',
         'POST',
         { domain, space, metrics }

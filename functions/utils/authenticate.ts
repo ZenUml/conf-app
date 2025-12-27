@@ -130,6 +130,19 @@ export const validateContextToken = async (invocationToken, appId) => {
   }
 }
 
+async function authenticateForgeRequest(jwt, env) {
+  const forgeAppId = env.FORGE_APP_ID;
+  if (!forgeAppId) {
+    console.error('FORGE_APP_ID environment variable is not set');
+    return response({ error: 'Server configuration error: FORGE_APP_ID not configured' }, 500);
+  }
+  console.log('FORGE_APP_ID:', forgeAppId);
+
+  const payload = await validateContextToken(jwt, forgeAppId);
+  console.log('validateContextToken - payload', payload);
+  env.FORGE_API_BASE_URL = payload.apiBaseUrl;
+}
+
 export default async function authenticate({ request, env }) {
   try {
     const jwt = getAuthorizationHeader(request);
@@ -138,14 +151,10 @@ export default async function authenticate({ request, env }) {
     }
 
     try {
-      if(request.headers.get('x-forge-oauth-user')) {
-        console.log('validateContextToken - jwt', jwt);
-
-        const jwtPayload = jose.decodeJwt(jwt);
-        console.log('validateContextToken - jwtPayload', JSON.stringify(jwtPayload));
-
-        const payload = await validateContextToken(jwt, jwtPayload.app?.id);
-        console.log('validateContextToken - payload', payload);
+      const isForge = request.headers.get('x-forge-oauth-user');
+      if(isForge) {
+        await authenticateForgeRequest(jwt, env);
+        return OkResponse();
       }
 
       const installationData = await getInstallationData(env, request);

@@ -10,7 +10,6 @@ export interface Env {
 
 export const onRequest = async ({ request, env }) => {
   try {
-    // Check if FORGE_APP_ID environment variable is present
     const forgeAppId = env.FORGE_APP_ID;
     if (!forgeAppId) {
       console.error('FORGE_APP_ID environment variable is not set');

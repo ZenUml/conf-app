@@ -3,6 +3,7 @@ import globals from '@/model/globals';
 import {DiagramType} from "@/model/Diagram/Diagram";
 import { getBaseUrl } from "@/utils/ContextParameters/ContextParameters";
 import {addonKey} from '@/utils/window';
+import { callRemote } from '@/utils/requestUtil';
 
 export async function generateDiagramFromPage(diagramType: DiagramType, userPrompt: string) {
   store.dispatch('updateDiagramType', diagramType);
@@ -14,20 +15,13 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
     if (page?.body?.export_view?.value || page?.title) {
       console.log('generating from page content');
 
-      const response = await fetch(`/diagramly?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await globals.apWrapper.getToken()}`
-        },
-        body: JSON.stringify({
+      const response = await callRemote(`/diagramly?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, 'POST', {
           accountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
           title: page.title,
           content: page.body.export_view.value,
           userPrompt,
           diagramType
-        })
-      });
+        });
 
       const result: { dsl: string, diagramId: string } = await response.json();
       console.log('Generation response', result);

@@ -119,71 +119,9 @@ const getPrompt = (diagramType, title, content, userPrompt) => {
 
   const diagramCommandMap = {
     'sequence': `
-      ZenUML is a code to diagram language with a DSL defined for creating sequence diagrams.
+      Please read the given Confluence page content, model the process and create the sequence diagram in ZenUML language. This diagram will be integrated into Confluence pages, so ensure it's clear and professional.
 
-      Rule and syntax with example below:
-
-      \`\`\`zenuml
-      // Define participants, no spaces in the name
-      @Type1 "Name1"
-      @Type2 "Name2"
-
-      // Async Message from Name1 to Name2
-      "Name1" -> "Name2":messageText
-
-
-
-      // Sync Message from Name1 to Name2, no Spaces in messageText
-      "Name1" -> "Name2"."messageText"(){
-        // interactions between Sync Messages with activation bar
-      }
-
-      // Return Message use @return keyword, from Name2 to Name1
-      @return "Name2"->"Name1": messageText
-
-      // If, use if("condition") with {}, optional use else {}
-      if("condition"){
-        // scope of a activation bar
-        // any interactions between
-      }
-
-      // Loop, for repeated tasks, use loop(condition) keyword with {}
-      loop("condition") {
-        // in scope interactions
-      }
-      // optional
-      else {
-        // in scope else interactions
-      }
-
-      // Optional use opt keyword with {}, no ("conditon") here
-      opt{
-        // in scope interactions
-      }
-
-      // parallel interactions, use par keyword with {}
-      par{
-        // in scope interactions
-      }
-
-      // coloring, add (StandardCSSColorName) in comment line before any message
-      e.g:
-      // (red) some comment
-      "Name1" -> "Name2":messageText
-      \`\`\`
-
-      Please you read the full documentation, find the key workflow and interactions, model the process and create the sequence diagram in it with ZenUML language follow below rules:
-
-      - a solid line with a [solid arrowhead] means Sync Message
-      - a solid line with a [lined arrowhead] means Sync Message
-      - [a dashed line with a lined arrowhead] means Return Message, use @return
-      - read very carefully regarding the differences between types of messages, this is the key of diagraming
-      - if unknown scope keyword, always use opt
-      - replace all [-->] or [->>] or [<-] with [->]
-      - No spaces in any message names
-
-
-      Documentation as:
+      Confluence page:
 
       Title: \`${title}\`
 
@@ -194,19 +132,11 @@ const getPrompt = (diagramType, title, content, userPrompt) => {
 
       Key section or topic for the sequence diagram is [${para2}], ignore irrelevant content. 
 
-      Now create your diagram output in below json format:
-
-      \`\`\`json
-      {
-        diagram_title: "",
-        diagram_content: \`ZenUML DSL\`
-      }
-      \`\`\`
     `,
     'mermaid': `
-      Please read the full documentation, find the key workflow and interactions, model the process and create the flow chart in it with Mermaid language:
+      Please read the given Confluence page content, model the process and create the flow chart diagram in Mermaid language. This diagram will be integrated into Confluence pages, so ensure it's clear and professional. Mermaid language:
 
-        Documentation as:
+        Confluence page:
 
         Title: \`${title}\`
 
@@ -217,14 +147,6 @@ const getPrompt = (diagramType, title, content, userPrompt) => {
 
         Key section or topic for the flow chart is [${para2}], ignore irrelevant content. 
 
-        Now create your diagram output in below json format. Make sure to use the \`\` quotes for the diagram_content:
-
-        \`\`\`json
-        {
-          diagram_title: "",
-          diagram_content: \`Mermaid DSL\` 
-        }
-        \`\`\`
       `,
   };
   return diagramCommandMap[diagramType];

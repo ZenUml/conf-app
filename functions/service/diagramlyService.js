@@ -1,7 +1,6 @@
 const typeMap = {
-  'sequence': 'sequence',
-  'mermaid': 'flow',
-  'flow': 'mermaid',
+  'sequence': {diagramType: 'sequence', languageKey: 'LANG_ZENUML'},
+  'mermaid': {diagramType: 'flow', languageKey: 'LANG_MERMAID', subTypeKey: "FLOWCHART"},
 }
 
 export async function generateDsl(context, title, content, userPrompt, diagramId, diagramType = 'sequence') {
@@ -13,7 +12,9 @@ export async function generateDsl(context, title, content, userPrompt, diagramId
       json: {
         imageUrl: "",
         imageName: "",
-        diagramType: typeMap[diagramType],
+        diagramType: typeMap[diagramType].diagramType,
+        languageKey: typeMap[diagramType].languageKey,
+        subTypeKey: typeMap[diagramType].subTypeKey,
         diagramId,
         command: getPrompt(diagramType, title, content, userPrompt),
         overridePrompt: true,

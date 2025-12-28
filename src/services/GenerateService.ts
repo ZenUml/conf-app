@@ -23,7 +23,7 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
           diagramType
         });
 
-      const result: { dsl: string, diagramId: string } = await response.json();
+      const result: { dsl: string, diagramId: string } = await response;
       console.log('Generation response', result);
 
       store.dispatch('updateGenerating', false);

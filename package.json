@@ -15,7 +15,7 @@
     "wrangler:serve": "wrangler pages dev dist --compatibility-flags=nodejs_compat --compatibility-date=2024-11-11",
     "wrangler:publish:stg": "CLOUDFLARE_ACCOUNT_ID=8d5fc7ce04adc5096f52485cce7d7b3d wrangler pages publish dist --project-name conf-stg-full --branch=production",
     "wrangler:publish:stg:lite": "CLOUDFLARE_ACCOUNT_ID=8d5fc7ce04adc5096f52485cce7d7b3d wrangler pages publish dist --project-name conf-stg-lite --branch=production",
-    "wrangler:publish:yanhui": "cp ./scripts/dev-config/wrangler-yanhui.toml ./wrangler.toml && CLOUDFLARE_ACCOUNT_ID=5c797c13512deae1354dee87c8766e75 wrangler pages publish --branch=master",
+    "wrangler:deploy:yanhui": "cp scripts/dev-config/wrangler-yanhui.toml wrangler.toml && CLOUDFLARE_ACCOUNT_ID=5c797c13512deae1354dee87c8766e75 wrangler pages deploy --branch=master && rm wrangler.toml",
     "wrangler:dbm:yanhui": "CLOUDFLARE_ACCOUNT_ID=5c797c13512deae1354dee87c8766e75 wrangler -c ./scripts/dev-config/wrangler-yanhui.toml d1 migrations apply confluence-plugin --remote",
     "wrangler:publish:peng": "cp ./scripts/dev-config/wrangler-yanhui.toml ./wrangler.toml && CLOUDFLARE_ACCOUNT_ID=5c797c13512deae1354dee87c8766e75 wrangler pages publish --branch=production",
     "wrangler:link": "ln -sf wrangler-dev.toml wrangler.toml",

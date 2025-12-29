@@ -10,14 +10,11 @@ export async function generateDsl(context, title, content, userPrompt, diagramId
   const diagramData = {
     0: {
       json: {
-        imageUrl: "",
-        imageName: "",
         diagramType: typeMap[diagramType].diagramType,
         languageKey: typeMap[diagramType].languageKey,
         subTypeKey: typeMap[diagramType].subTypeKey,
         diagramId,
         command: getPrompt(diagramType, title, content, userPrompt),
-        overridePrompt: true,
       },
     },
   };

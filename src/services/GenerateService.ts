@@ -34,6 +34,8 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
         store.dispatch('updateMermaidCode', result.dsl);
       }
 
+      store.dispatch('updateMetadata', { diagramId: result.diagramId });
+
     }
   } finally {
     store.dispatch('updateGenerating', false);

@@ -22,7 +22,10 @@ const ExtendedStore: StoreOptions<RootState> = {
       state.generating = payload;
       // Set lastDiagramWasAI when generation completes
       state.lastDiagramWasAI = !payload;
-    }
+    },
+    updateMetadata(state: any, payload: any) {
+      state.diagram.metadata = payload
+    },
   },
   actions: {
     updateCode2({commit}: any, payload: any) {
@@ -39,6 +42,9 @@ const ExtendedStore: StoreOptions<RootState> = {
     },
     updateGenerating({commit}: any, payload: boolean) {
       commit('updateGenerating', payload)
+    },
+    updateMetadata({commit}: any, payload: any) {
+      commit('updateMetadata', payload)
     }
   },
   getters: {

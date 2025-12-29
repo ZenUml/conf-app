@@ -49,7 +49,8 @@ export async function generateDsl(context, title, content, userPrompt, diagramId
         diagramResult[0]?.result?.data?.json?.gptResponse) {
       const dsl = diagramResult[0].result.data.json.gptResponse;
       const diagramId = diagramResult[0].result.data.json.diagramId;
-      return { dsl, diagramId };
+      const diagramTitle = diagramResult[0].result.data.json.diagramTitle;
+      return { dsl, diagramId, diagramTitle };
     }
 
   } catch (error) {

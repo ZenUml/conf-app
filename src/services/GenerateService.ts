@@ -23,7 +23,7 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
           diagramType
         });
 
-      const result: { dsl: string, diagramId: string } = await response;
+      const result: { dsl: string, diagramId: string, diagramTitle: string } = await response;
       console.log('Generation response', result);
 
       store.dispatch('updateGenerating', false);
@@ -34,6 +34,7 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
         store.dispatch('updateMermaidCode', result.dsl);
       }
 
+      store.dispatch('updateTitle', result.diagramTitle);
       store.dispatch('updateMetadata', { diagramId: result.diagramId });
 
     }

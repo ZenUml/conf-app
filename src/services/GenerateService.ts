@@ -15,7 +15,7 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
     if (page?.body?.export_view?.value || page?.title) {
       console.log('generating from page content');
 
-      const response = await callRemote(`/diagramly?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, 'POST', {
+      const response = await callRemote(`/diagramly/generate?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, 'POST', {
           accountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
           title: page.title,
           content: page.body.export_view.value,

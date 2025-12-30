@@ -1,5 +1,5 @@
-import { response, OkResponse } from "./OkResponse";
-import { generateDsl } from "./service/diagramlyService";
+import { response, OkResponse } from "../OkResponse";
+import { generateDsl } from "../service/diagramlyService";
 
 export const onRequest = async ({ request, env }) => {
   try {

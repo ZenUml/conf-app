@@ -4,9 +4,6 @@ const typeMap = {
 }
 
 export async function generateDsl(context, title, content, userPrompt, diagramId, diagramType = 'sequence') {
-  const baseUrl = context.env.DIAGRAMLY_BACKEND_API_BASE_URL;
-  console.log('Diagram API base URL:', baseUrl, ', api key:', context.env.DIAGRAMLY_API_KEY, ', diagramId:', diagramId);
-
   const diagramData = {
     0: {
       json: {
@@ -19,50 +16,36 @@ export async function generateDsl(context, title, content, userPrompt, diagramId
     },
   };
 
-  try {
-    const userId = context.accountId;
-    const teamId = context.cloudId;
+  const diagramResult = await callDiagramly(context, `/api/version.create?batch=1`, diagramData);
 
-    const diagramlyApiKey = context.env.DIAGRAMLY_API_KEY;
-    const maskedApiKey = `${diagramlyApiKey.slice(0, 2)}...${diagramlyApiKey.slice(-2)}`;
-    const requestInfo = `x-external-id: ${userId}, x-team-id: ${teamId}, x-api-key: ${maskedApiKey}`;
-    console.log(`Diagram API request with ${requestInfo}`, diagramData);
-    const diagramResponse = await fetch(`${baseUrl}/api/version.create?batch=1`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': diagramlyApiKey,
-        'x-external-id': userId,
-        'x-team-id': teamId
-      },
-      body: JSON.stringify(diagramData)
-    });
-    // console.log('Diagram API response:', diagramResponse);
-    if (!diagramResponse.ok) {
-      throw new Error(`Diagram API request failed with status ${diagramResponse.status}, body: ${await diagramResponse.text()}`);
-    }
-
-    const diagramResult = await diagramResponse.json();
-    console.log('Diagram API response:', JSON.stringify(diagramResult));
-
-    if (diagramResult &&
-        diagramResult[0]?.result?.data?.json?.gptResponse) {
-      const dsl = diagramResult[0].result.data.json.gptResponse;
-      const diagramId = diagramResult[0].result.data.json.diagramId;
-      const diagramTitle = diagramResult[0].result.data.json.diagramTitle;
-      return { dsl, diagramId, diagramTitle };
-    }
-
-  } catch (error) {
-    console.error('Error calling diagram API:', error);
+  if (diagramResult &&
+      diagramResult[0]?.result?.data?.json?.gptResponse) {
+    const dsl = diagramResult[0].result.data.json.gptResponse;
+    const diagramId = diagramResult[0].result.data.json.diagramId;
+    const diagramTitle = diagramResult[0].result.data.json.diagramTitle;
+    return { dsl, diagramId, diagramTitle };
   }
+}
 
+export async function modifyDiagram(context, diagramCode, errorMessage, diagramType = 'sequence') {
+  const diagramData = {
+    0: {
+      json: {
+        diagramType: typeMap[diagramType].diagramType,
+        languageKey: typeMap[diagramType].languageKey,
+        subTypeKey: typeMap[diagramType].subTypeKey,
+        diagramCode,
+        errorMessage,
+      },
+    },
+  };
+
+  const diagramResult = await callDiagramly(context, `/api/chat/modify`, diagramData);
+
+  return { updatedCode: diagramResult.updatedCode };
 }
 
 export async function getDiagram(context, diagramId) {
-  const baseUrl = context.env.DIAGRAMLY_BACKEND_API_BASE_URL;
-  console.log('Diagram API base URL:', baseUrl, ', api key:', context.env.DIAGRAMLY_API_KEY);
-
   const input = {
     "0": {
       "json": {
@@ -76,38 +59,57 @@ export async function getDiagram(context, diagramId) {
     }
   };
 
+  const diagramResult = await callDiagramly(context,`/api/version.versionsById?batch=1&input=${JSON.stringify(input)}`);
+  
+  if (diagramResult &&
+      diagramResult[0]?.result?.data?.json?.versions && diagramResult[0]?.result?.data?.json?.versions.length) {
+    const version = diagramResult[0].result.data.json.versions[diagramResult[0]?.result?.data?.json?.versions.length - 1];
+    const draft = diagramResult[0].result.data.json.draft;
+    const dsl = draft && draft.content?.code || version.content?.code;
+    const languageType = diagramResult[0].result.data.json.diagram?.languageType;
+    return { dsl, diagramId, diagramType: typeMap[languageType] };
+  }
+}
+
+async function callDiagramly(context, uri, payload) {
+  const baseUrl = context.env.DIAGRAMLY_BACKEND_API_BASE_URL;
+  const url = `${baseUrl}${uri}`;
+
   try {
     const userId = context.accountId;
     const teamId = context.cloudId;
 
     const diagramlyApiKey = context.env.DIAGRAMLY_API_KEY;
+    if(!diagramlyApiKey) {
+      throw new Error('Diagramly API key is not configured');
+    }
+    
     const maskedApiKey = `${diagramlyApiKey.slice(0, 2)}...${diagramlyApiKey.slice(-2)}`;
-    const requestInfo = `x-external-id: ${userId}, x-team-id: ${teamId}, x-api-key: ${maskedApiKey}, diagramId: ${diagramId}, input: ${JSON.stringify(input)}`;
-    console.log(`Diagram API request with ${requestInfo}`);
-    const diagramResponse = await fetch(`${baseUrl}/api/version.versionsById?batch=1&input=${JSON.stringify(input)}`, {
+    const requestInfo = `x-external-id: ${userId}, x-team-id: ${teamId}, x-api-key: ${maskedApiKey}`;
+    console.log(`calling Diagramly API ${url} with ${requestInfo}`, payload);
+
+    const diagramResponse = await fetch(url, {
+      method: payload ? 'POST' : 'GET',
       headers: {
+        'Content-Type': payload ? 'application/json' : undefined,
         'x-api-key': diagramlyApiKey,
         'x-external-id': userId,
         'x-team-id': teamId
-      }});
-    // console.log('Diagram API response:', diagramResponse);
+      },
+      body: JSON.stringify(payload)
+    });
+
     if (!diagramResponse.ok) {
-      throw new Error(`Diagram API request failed with status ${diagramResponse.status}, body: ${await diagramResponse.text()}`);
+      throw new Error(`Diagramly API request failed with status ${diagramResponse.status}, body: ${await diagramResponse.text()}`);
     }
 
     const diagramResult = await diagramResponse.json();
-    // console.log('Diagram API response:', JSON.stringify(diagramResult));
+    console.log('Diagram API response:', JSON.stringify(diagramResult));
 
-    if (diagramResult &&
-        diagramResult[0]?.result?.data?.json?.versions && diagramResult[0]?.result?.data?.json?.versions.length) {
-      const version = diagramResult[0].result.data.json.versions[diagramResult[0]?.result?.data?.json?.versions.length - 1];
-      const draft = diagramResult[0].result.data.json.draft;
-      const dsl = draft && draft.content?.code || version.content?.code;
-      const languageType = diagramResult[0].result.data.json.diagram?.languageType;
-      return { dsl, diagramId, diagramType: typeMap[languageType] };
-    }
+    return diagramResult;
+
   } catch (error) {
-    console.error('Error calling diagram API:', error);
+    console.error('Error calling Diagramly API:', error);
   }
 }
 

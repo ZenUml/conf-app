@@ -1,16 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MacroMetrics, IMacroMetrics } from './MacroMetrics';
 import { DiagramType } from '@/model/Diagram/Diagram';
-import { makeExternalRequest } from '@/utils/requestUtil';
+import { callRemote } from '@/utils/requestUtil';
 
 // Mock getClientDomain
 vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
   getClientDomain: vi.fn(() => 'test-domain')
 }));
 
-// Mock makeExternalRequest
+// Mock callRemote
 vi.mock('@/utils/requestUtil', () => ({
-  makeExternalRequest: vi.fn()
+  callRemote: vi.fn()
 }));
 
 describe('MacroMetrics', () => {
@@ -55,12 +55,12 @@ describe('MacroMetrics', () => {
           lastUpdated: new Date().toISOString()
         };
 
-        (makeExternalRequest as any).mockResolvedValueOnce(cachedMetrics);
+        (callRemote as any).mockResolvedValueOnce(cachedMetrics);
 
         const result = await macroMetrics.getMacroMetrics();
 
         expect(result).toEqual(cachedMetrics);
-        expect(makeExternalRequest).toHaveBeenCalledWith(
+        expect(callRemote).toHaveBeenCalledWith(
           `/metrics-cache/query?domain=${mockDomain}&space=${mockSpace}`,
           'GET'
         );
@@ -68,7 +68,7 @@ describe('MacroMetrics', () => {
       });
 
       it('should collect new metrics if KV returns null', async () => {
-        (makeExternalRequest as any).mockResolvedValueOnce(null);
+        (callRemote as any).mockResolvedValueOnce(null);
         mockApWrapper.requestAllPaginatedData.mockImplementation((url, consumer) => {
           consumer({ results: [] });
           return Promise.resolve({});
@@ -80,7 +80,7 @@ describe('MacroMetrics', () => {
       });
 
       it('should collect new metrics if KV read fails', async () => {
-        (makeExternalRequest as any).mockRejectedValueOnce(new Error('Network error'));
+        (callRemote as any).mockRejectedValueOnce(new Error('Network error'));
         mockApWrapper.requestAllPaginatedData.mockImplementation((url, consumer) => {
           consumer({ results: [] });
           return Promise.resolve({});
@@ -95,7 +95,7 @@ describe('MacroMetrics', () => {
     describe('content counting', () => {
       it('should correctly count different diagram types', async () => {
         // Mock KV miss to force new collection
-        (makeExternalRequest as any).mockResolvedValueOnce(null);
+        (callRemote as any).mockResolvedValueOnce(null);
 
         const mockResults = {
           results: [
@@ -129,7 +129,7 @@ describe('MacroMetrics', () => {
 
       it('should handle empty results', async () => {
         // Mock KV miss to force new collection
-        (makeExternalRequest as any).mockResolvedValueOnce(null);
+        (callRemote as any).mockResolvedValueOnce(null);
 
         mockApWrapper.requestAllPaginatedData.mockImplementation((url, consumer) => {
           consumer({ results: [] });
@@ -154,7 +154,7 @@ describe('MacroMetrics', () => {
     describe('error handling', () => {
       it('should handle invalid JSON in content', async () => {
         // Mock KV miss to force new collection
-        (makeExternalRequest as any).mockResolvedValueOnce(null);
+        (callRemote as any).mockResolvedValueOnce(null);
 
         const mockResults = {
           results: [
@@ -179,7 +179,7 @@ describe('MacroMetrics', () => {
 
       it('should handle missing content values', async () => {
         // Mock KV miss to force new collection
-        (makeExternalRequest as any).mockResolvedValueOnce(null);
+        (callRemote as any).mockResolvedValueOnce(null);
 
         const mockResults = {
           results: [
@@ -214,7 +214,7 @@ describe('MacroMetrics', () => {
         return Promise.resolve({});
       });
 
-      (makeExternalRequest as any).mockResolvedValueOnce({ success: true });
+      (callRemote as any).mockResolvedValueOnce({ success: true });
 
       await macroMetrics.reportMacroMetrics();
 
@@ -222,7 +222,7 @@ describe('MacroMetrics', () => {
       expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalled();
 
       // Should write to KV
-      expect(makeExternalRequest).toHaveBeenCalledWith(
+      expect(callRemote).toHaveBeenCalledWith(
         '/metrics-cache/update',
         'POST',
         expect.objectContaining({
@@ -261,7 +261,7 @@ describe('MacroMetrics', () => {
   describe('URL building', () => {
     it('should build correct search URL', async () => {
       // Mock KV miss to force new collection
-      (makeExternalRequest as any).mockResolvedValueOnce(null);
+      (callRemote as any).mockResolvedValueOnce(null);
 
       mockApWrapper.buildTypesClauseFilter.mockReturnValue('type=customContent');
       mockApWrapper.requestAllPaginatedData.mockResolvedValue({});

@@ -50,12 +50,15 @@ jobs:
           license: lite
           project: conf-stg-lite
           environment: stg
-      - run: rm -rf dist/drawio
-      - run: pnpm forge:deploy:enable-analytics
-      - run: pnpm forge:deploy:lite:staging
-      - run: pnpm forge:install:lite:staging
-        continue-on-error: true
-      - run: pnpm forge:upgrade:lite:staging
+      - name: Deploy to Forge Staging
+        run: |
+          rm -rf dist/drawio
+          pnpm forge:deploy:enable-analytics
+          pnpm forge:deploy:lite:staging
+      - name: Install to Zenuml Staging
+        run: |
+          pnpm forge:install:lite:staging
+          pnpm forge:upgrade:lite:staging
         continue-on-error: true
 
   staging-lite-test:

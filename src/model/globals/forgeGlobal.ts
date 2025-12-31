@@ -26,7 +26,7 @@ export async function getView() {
     global.zenumlRemoteBaseUrl = REMOTE_BASE_URL_MAP[`${global.forgeContext.environmentType}_${global.isLite ? 'LITE' : 'FULL'}`];
 
     console.log('forgeGlobal - context', global.forgeContext);
-    console.log('forgeGlobal - zenumlRemoteBaseUrl', global.zenumlRemoteBaseUrl);
+    console.debug('forgeGlobal - zenumlRemoteBaseUrl', global.zenumlRemoteBaseUrl);
   }
   return global.view;
 }

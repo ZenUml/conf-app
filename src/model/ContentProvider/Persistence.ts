@@ -10,6 +10,7 @@ import { getEditJourneyId, getEditJourneyDuration, getOrCreateSession, getSessio
 import { detectEditMode } from '@/utils/editModeDetection';
 
 export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = globals.apWrapper): Promise<string> {
+  console.log('Saving diagram to platform content provider', diagram);
   const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
   const customContent = await customContentStorageProvider.save(diagram);
   const macroData = await apWrapper.getMacroData();

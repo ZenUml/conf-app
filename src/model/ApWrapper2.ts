@@ -56,7 +56,6 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async initializeContext(): Promise<void> {
-    console.log('initializeContext starts');
     try {
       this.currentUser = await this._getCurrentUser();
       this.currentSpace = await this.getCurrentSpace();
@@ -67,7 +66,7 @@ export default class ApWrapper2 implements IApWrapper {
       if (this.versionType === VersionType.Full) {
         this.license = forgeGlobal.isForge ? forgeGlobal.forgeContext.license : await this._getLicense();
       }
-      console.log('initializeContext', this.currentUser, this.currentSpace, this.currentPageUrl, this.locationTarget, this.currentPageId, this.license);
+      console.debug('initializeContext', this.currentUser, this.currentSpace, this.currentPageUrl, this.locationTarget, this.currentPageId, this.license);
 
       if (window) {
         //@ts-ignore

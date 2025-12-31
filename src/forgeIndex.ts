@@ -14,11 +14,10 @@ import { showCloseWithoutSavingDialog } from './utils/modalService';
 import { handleGetStartedRoute } from './routes/getStarted';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, getEditJourneyStartTime, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
+import { handleAiAideRoute } from './routes/aiAide';
 
 // Track editor session start time
 const editorStartTime = Date.now();
-
-
 
 // Initialize critical path rendering first
 async function initializeCriticalPath() {
@@ -46,6 +45,13 @@ async function initializeCriticalPath() {
       // await import('./dashboard');
       return { macroData: null };
     }
+
+    // Check if this is a content byine item route (AI Aide)
+    if (context.extension?.type === 'confluence:contentBylineItem') {
+      await handleAiAideRoute();
+      return { macroData: null };
+    }
+
 
     // Initialize context and get macro data (lightweight operations)
     await globals.apWrapper.initializeContext();
@@ -76,7 +82,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const context = await initForgeContext();
 
     // Skip loading heavy components if this is a global settings or global page context
-    if (context.extension?.type === 'confluence:globalSettings' || context.extension?.type === 'confluence:globalPage') {
+    if (['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem'].includes(context.extension?.type)) {
       console.log('Skipping heavy components load for global context');
       return;
     }
@@ -123,7 +129,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       skeletonLoader.style.display = 'none';
     }
 
-    const isSequence = context.moduleKey.startsWith('zenuml-sequence-macro') || context.extension.modal?.diagramType === 'sequence' || context.extension.modal?.diagramType === 'mermaid';
+    const isSequence = context.moduleKey.startsWith('zenuml-sequence-macro') || context.moduleKey.startsWith('gpt-diagram-macro') || context.extension.modal?.diagramType === 'sequence' || context.extension.modal?.diagramType === 'mermaid';
     const isGraph = context.moduleKey.startsWith('zenuml-graph-macro');
     const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
 
@@ -137,7 +143,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       : (await import("@/components/DiagramPortal.vue")).default;
 
       const fullscreenMode = await isFullscreenMode();
-      
+
       //@ts-ignore
       mountRoot(doc, component, { autoResize: !editable && !fullscreenMode });
     } else if(isGraph) {

@@ -43,3 +43,9 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
   }
 }
 
+export async function diagramlyChat(messages: Array<any>) {
+  return await callRemote(`/diagramly/chat?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, 'POST', {
+      accountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
+      messages
+    });
+}

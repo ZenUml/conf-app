@@ -38,6 +38,10 @@ jobs:
           license: ${{ steps.properties.outputs.license }}
           project: conf-${{ steps.properties.outputs.license }}
           environment: prod
+      - name: Update manifest.yml
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"])' -i manifest.yml
       - name: Deploy to Forge Production
         if: ${{ steps.properties.outputs.license == 'lite' }}
         run: |

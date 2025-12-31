@@ -4,15 +4,21 @@ environment:
       default: 8ad26115-211f-4216-971b-0540f606303d #Lite App ID
     - key: BASE_URL
       default: https://conf-stg-lite.zenuml.com
+    - key: CONNECT_KEY
+      default: com.zenuml.confluence-addon-lite
     - key: LITE_KEY_SUFFIX
       default: -lite
     - key: LITE_TITLE_SUFFIX
       default: " Lite"
+    - key: SEQUENCE_MACRO_KEY
+      default: zenuml-sequence-macro-lite
+    - key: CUSTOM_CONTENT_KEY
+      default: zenuml-content-sequence
 
 app:
   id: ari:cloud:ecosystem::app/${APP_ID}
   connect:
-    key: com.zenuml.confluence-addon${LITE_KEY_SUFFIX}
+    key: ${CONNECT_KEY}
     remote: connect
   runtime:
     name: nodejs20.x
@@ -160,7 +166,7 @@ connectModules:
 
 modules:
   macro:
-    - key: zenuml-sequence-macro${LITE_KEY_SUFFIX}
+    - key: ${SEQUENCE_MACRO_KEY}
       title: Diagram (ZenUML & Mermaid)${LITE_TITLE_SUFFIX}
       description: Create a ZenUML or Mermaid Diagram. Developed by the ZenUML team.
       resource: main
@@ -239,8 +245,18 @@ modules:
       resource: main
       title: ZenUML${LITE_TITLE_SUFFIX}
       route: zenuml-dashboard
+      resolver:
+        endpoint: remote-connect
+  confluence:contentBylineItem: #Note: This module is to be removed the deployment process of ZenUML for Confluence
+    - key: zenuml-byline-aiaide
+      resource: main
+      title: AI Aide${LITE_TITLE_SUFFIX}
+      viewportSize: fullscreen
+      viewportContainer: modal
+      resolver:
+        endpoint: remote-connect
   confluence:customContent:
-    - key: zenuml-content-sequence
+    - key: ${CUSTOM_CONTENT_KEY}
       supportedContainerTypes:
         - space
         - page

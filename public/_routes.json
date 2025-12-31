@@ -8,6 +8,7 @@
     "/track",
     "/diagramly/generate",
     "/diagramly/fix-diagram",
+    "/diagramly/chat",
     "/diagram-likes",
     "/diagram-likes/query",
     "/diagram-likes/toggle",

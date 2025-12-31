@@ -45,6 +45,12 @@ export async function modifyDiagram(context, diagramCode, errorMessage, diagramT
   return { updatedCode: diagramResult.updatedCode };
 }
 
+export async function chat(context, messages) {
+  const response = await callDiagramly(context, `/api/chat/messages`, {messages});
+
+  return { messages: response.messages };
+}
+
 export async function getDiagram(context, diagramId) {
   const input = {
     "0": {

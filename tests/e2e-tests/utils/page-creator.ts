@@ -17,11 +17,19 @@ interface CustomContent {
 
 export class PageCreator {
   private page: Page;
-  private addonKey = 'com.zenuml.confluence-addon';
-  private customContentType = `ac:${this.addonKey}:zenuml-content-graph`;
 
   constructor(page: Page) {
     this.page = page;
+  }
+
+  private get addonKey(): string {
+    return testConfig.isLite ? 'com.zenuml.confluence-addon-lite' : 'com.zenuml.confluence-addon';
+  }
+
+  // All document types use the same content key (zenuml-content-sequence)
+  // This matches the behavior in src/model/ApWrapper2.ts getContentKey()
+  private get customContentType(): string {
+    return `ac:${this.addonKey}:zenuml-content-sequence`;
   }
 
   async createTestPage(options: MacroOptions): Promise<string> {
@@ -46,6 +54,7 @@ export class PageCreator {
 
     try {
       // Create custom content for each macro type
+      // All types use zenuml-content-sequence as the content key (see ApWrapper2.getContentKey())
       const [sequence, graph, openapi, embed, mermaid] = await Promise.all([
         options.sequence && this.createCustomContent(`Sequence custom content of page ${title}`, this.getDemoSequenceContent(), draftPage.id),
         options.graph && this.createCustomContent(`Graph custom content of page ${title}`, this.getDemoGraphContent(), draftPage.id),
@@ -116,6 +125,7 @@ export class PageCreator {
   }
 
   private async createCustomContent(title: string, body: any, containerId: string): Promise<CustomContent> {
+    console.log(`Creating custom content with type: ${this.customContentType}`);
     const response = await this.page.request.post(`https://${testConfig.domain}/wiki/api/v2/custom-content`, {
       headers: { 'Content-Type': 'application/json' },
       data: {

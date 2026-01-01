@@ -49,15 +49,12 @@
     </div>
 
     <!-- CTA Button -->
-    <a
-      :href="upgradeUrl"
-      target="_blank"
-      rel="noopener noreferrer"
-      @click="$emit('cta-click')"
-      class="block w-full bg-blue-600 hover:bg-blue-700 text-white text-center font-semibold py-2 px-3 rounded text-sm transition-colors duration-200"
+    <button
+      @click="openUpgradeUrl"
+      class="block w-full bg-blue-600 hover:bg-blue-700 text-white text-center font-semibold py-2 px-3 rounded text-sm transition-colors duration-200 cursor-pointer"
     >
       Upgrade →
-    </a>
+    </button>
   </div>
 </template>
 
@@ -65,7 +62,7 @@
 import PricingSlider from './PricingSlider.vue'
 import { usePricingCalculator } from './usePricingCalculator'
 
-defineProps<{
+const props = defineProps<{
   upgradeUrl: string
 }>()
 
@@ -80,5 +77,11 @@ const handleSliderChange = (newValue: number) => {
   pricing.sliderValue.value = newValue
   pricing.handleSliderChange()
   emit('slider-change', pricing.confluenceUsers.value, pricing.marketplaceAnnualCost.value)
+}
+
+const openUpgradeUrl = async () => {
+  emit('cta-click')
+  const { router } = await import("@forge/bridge")
+  router.open(props.upgradeUrl)
 }
 </script>

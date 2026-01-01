@@ -54,26 +54,29 @@
     </div>
 
     <!-- CTA Button -->
-    <a
-      :href="bundleUrl"
-      target="_blank"
-      rel="noopener noreferrer"
-      @click="$emit('cta-click')"
-      class="block w-full bg-gray-700 hover:bg-gray-800 text-white text-center font-semibold py-2 px-3 rounded text-sm transition-colors duration-200"
+    <button
+      @click="openBundleUrl"
+      class="block w-full bg-gray-700 hover:bg-gray-800 text-white text-center font-semibold py-2 px-3 rounded text-sm transition-colors duration-200 cursor-pointer"
     >
       Get Bundle →
-    </a>
+    </button>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ENTERPRISE_BUNDLE_ANNUAL_COST, ENTERPRISE_BUNDLE_MIN_MACROS } from './upgradePrompt'
 
-defineProps<{
+const props = defineProps<{
   bundleUrl: string
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'cta-click'): void
 }>()
+
+const openBundleUrl = async () => {
+  emit('cta-click')
+  const { router } = await import("@forge/bridge")
+  router.open(props.bundleUrl)
+}
 </script>

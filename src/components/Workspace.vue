@@ -52,7 +52,7 @@ import {trackEvent} from '@/utils/window';
     async mounted () {
       // @ts-ignore
       if (window.split) {
-        Split(['#workspace-left', '#workspace-right'])
+        Split(['#workspace-left', '#workspace-right'], { sizes: [35, 65] })
       }
 
       this.aiTitleFeatureEnabled = await getFeatureFlags(['AI_TITLE']).then((res: any) => res.AI_TITLE.enabled);

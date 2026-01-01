@@ -123,11 +123,15 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       skeletonLoader.style.display = 'none';
     }
 
-    const isSequence = context.moduleKey.startsWith('zenuml-sequence-macro') || context.extension.modal?.diagramType === 'sequence';
+    const isSequence = context.moduleKey.startsWith('zenuml-sequence-macro') || context.extension.modal?.diagramType === 'sequence' || context.extension.modal?.diagramType === 'mermaid';
     const isGraph = context.moduleKey.startsWith('zenuml-graph-macro');
     const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
 
     if(isSequence) {
+      if (editable) {
+        // @ts-ignore - Enable splitbar for editor mode (Workspace.vue checks window.split)
+        window.split = true;
+      }
       const component = editable 
       ? (await import("@/components/Workspace.vue")).default
       : (await import("@/components/DiagramPortal.vue")).default;

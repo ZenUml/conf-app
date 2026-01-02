@@ -81,7 +81,14 @@ const handleSliderChange = (newValue: number) => {
 
 const openUpgradeUrl = async () => {
   emit('cta-click')
-  const { router } = await import("@forge/bridge")
-  router.open(props.upgradeUrl)
+  const forgeGlobal = (await import('@/model/globals/forgeGlobal')).default;
+  if (forgeGlobal.isForge) {
+    // Forge mode: use router.open() from @forge/bridge
+    const { router } = await import("@forge/bridge")
+    router.open(props.upgradeUrl)
+  } else {
+    // Connect mode: use window.open() (equivalent to <a target="_blank">)
+    window.open(props.upgradeUrl, '_blank', 'noopener,noreferrer')
+  }
 }
 </script>

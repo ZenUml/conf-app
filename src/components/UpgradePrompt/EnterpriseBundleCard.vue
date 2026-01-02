@@ -76,7 +76,14 @@ const emit = defineEmits<{
 
 const openBundleUrl = async () => {
   emit('cta-click')
-  const { router } = await import("@forge/bridge")
-  router.open(props.bundleUrl)
+  const forgeGlobal = (await import('@/model/globals/forgeGlobal')).default;
+  if (forgeGlobal.isForge) {
+    // Forge mode: use router.open() from @forge/bridge
+    const { router } = await import("@forge/bridge")
+    router.open(props.bundleUrl)
+  } else {
+    // Connect mode: use window.open() (equivalent to <a target="_blank">)
+    window.open(props.bundleUrl, '_blank', 'noopener,noreferrer')
+  }
 }
 </script>

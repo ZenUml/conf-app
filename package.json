@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "private": true,
   "scripts": {
-    "test:unit": "vitest",
+    "test:unit": "vitest --run",
     "test:e2e": "cd tests/e2e-tests && pnpm test",
     "test:e2e:prod": "cd tests/e2e-tests && pnpm test:prod",
     "test:e2e:peng": "cd tests/e2e-tests && pnpm test:peng",

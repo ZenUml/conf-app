@@ -96,17 +96,6 @@ export function buildAttachmentBasePath(pageId) {
   return '/rest/api/content/' + pageId + '/child/attachment';
 }
 
-export function buildGetRequestForAttachments(pageId) {
-  return {
-    url: buildAttachmentBasePath(pageId) + '?expand=version',
-    type: 'GET'
-  };
-}
-
-export function parseAttachmentsFromResponse(response) {
-  return JSON.parse(response.body).results;
-}
-
 function buildPostRequestToUploadAttachment(uri, hash, file) {
   return {
     url: uri,
@@ -138,12 +127,13 @@ function buildPutRequestToUpdateAttachmentProperties(pageId, attachmentId, versi
   };
 }
 
-function attachmentNameByUuid(uuid) {
-  return `zenuml-${uuid}.png`;
+// uuid in Connect mode, customContentId in Forge mode
+function attachmentNameByIdentifier(id) {
+  return `zenuml-${id}.png`;
 }
 
 export async function getAttachmentDownloadLink(pageId, macroUuid) {
-  const attachmentName = attachmentNameByUuid(macroUuid);
+  const attachmentName = attachmentNameByIdentifier(macroUuid);
   const attachments = await global.apWrapper.getAttachmentsV2(pageId, {filename: attachmentName});
   if(attachments.length > 1) {
     console.warn(`Multiple attachments found with uuid "${macroUuid}" on page ${pageId}:`, attachments);
@@ -154,7 +144,7 @@ export async function getAttachmentDownloadLink(pageId, macroUuid) {
 async function tryGetAttachment() {
   const pageId = await global.apWrapper._getCurrentPageId();
   const identifier = await getIdentifier();
-  const attachmentName = 'zenuml-' + identifier + '.png';
+  const attachmentName = attachmentNameByIdentifier(identifier);
   const attachments = await global.apWrapper.getAttachmentsV2(pageId, {filename: attachmentName});
   const descending = attachments.sort((a, b) => b.version?.number - a.version?.number);
   return descending.length && descending[0];
@@ -163,7 +153,7 @@ async function tryGetAttachment() {
 async function uploadAttachment2(hash, fnGetUri) {
   const pageId = await global.apWrapper._getCurrentPageId();
   const identifier = await getIdentifier();
-  const attachmentName = attachmentNameByUuid(identifier);
+  const attachmentName = attachmentNameByIdentifier(identifier);
   const uri = fnGetUri(pageId);
   return await uploadAttachment(attachmentName, uri, hash);
 }

@@ -330,8 +330,8 @@ describe('Attachment', () => {
 
       // Verify iframe was found and postMessage was called
       expect(document.getElementById('mainFrame')).toBeTruthy();
-      // postMessage is called without second argument in the actual code
-      expect(mockPostMessage).toHaveBeenCalledWith({ action: 'export' });
+      // postMessage is called with '*' as targetOrigin for cross-origin compatibility
+      expect(mockPostMessage).toHaveBeenCalledWith({ action: 'export' }, '*');
     });
 
     it('should convert DOM element to PNG via html-to-image', async () => {
@@ -351,7 +351,7 @@ describe('Attachment', () => {
 
       await createAttachmentIfContentChanged('test content');
 
-      expect(htmlToImage.toBlob).toHaveBeenCalledWith(mockElement, { bgcolor: 'white' });
+      expect(htmlToImage.toBlob).toHaveBeenCalledWith(mockElement, { backgroundColor: 'white' });
     });
 
     it('should handle errors in toPng gracefully', async () => {

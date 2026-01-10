@@ -250,7 +250,9 @@ modules:
   confluence:contentBylineItem: #Note: This module is to be removed the deployment process of ZenUML for Confluence
     - key: zenuml-byline-aiaide
       resource: main
-      title: AI Aide${LITE_TITLE_SUFFIX}
+      title: Aide
+      icon: resource:main;image/ai-aide-logo.png
+      tooltip: AI Aide
       viewportSize: fullscreen
       viewportContainer: modal
       resolver:

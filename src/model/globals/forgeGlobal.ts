@@ -64,6 +64,11 @@ export async function isConfiguring() {
   return context.extension?.macro?.isConfiguring;
 }
 
+export async function openUrl(url: string) {
+  const { router } = await import("@forge/bridge");
+  router.open(url);
+}
+
 // @ts-ignore
 window.forgeGlobal = global;
 

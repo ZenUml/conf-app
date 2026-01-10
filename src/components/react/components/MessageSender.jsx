@@ -6,6 +6,7 @@ import LightbulbFilledIcon from '@atlaskit/icon/glyph/lightbulb-filled';
 import LoadingButton from '@atlaskit/button/loading-button';
 import styled from 'styled-components';
 import TextArea from '@atlaskit/textarea';
+import { openUrl } from '@/model/globals/forgeGlobal';
 
 const ChatSendBox = styled.div`
   position: sticky;
@@ -160,9 +161,17 @@ const MessageSender = ({ onSubmit, placeholder }) => {
       <HelperMessage>
         Go to{' '}
         <a
-          target="_blank"
-          rel="noreferrer"
           href={`https://github.com/ZenGPT/confluence-gpt/wiki/Crafting-Effective-Prompts`}
+          onClick={(e) => {
+            e.preventDefault();
+            // Use forge router when available to open the URL, fallback to window.open
+            try {
+              openUrl(`https://github.com/ZenGPT/confluence-gpt/wiki/Crafting-Effective-Prompts`);
+            } catch (err) {
+              window.open(`https://github.com/ZenGPT/confluence-gpt/wiki/Crafting-Effective-Prompts`, '_blank', 'noopener');
+            }
+          }}
+          rel="noreferrer noopener"
         >
           Crafting Effective Prompts
         </a>{' '}

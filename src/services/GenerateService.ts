@@ -49,3 +49,12 @@ export async function diagramlyChat(messages: Array<any>) {
       messages
     });
 }
+
+export async function fixDiagram() {
+  return await callRemote(`/diagramly/fix-diagram?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, 'POST', {
+      accountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
+      diagramCode: 'A..foo',
+      errorMessage: `line 1:2 mismatched input '.' expecting <EOF>`,
+      diagramType: 'sequence'
+    });
+}

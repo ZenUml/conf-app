@@ -133,11 +133,6 @@ const FormDefaultExample = () => {
     []
   );
 
-  // useEffect(() => {
-  //   // there is a margin on document.body, perhaps added by Confluence since I didn't found related logic in our code, remove it because it causes a unwanted scrollbar
-  //   observeDomChanges(document.body, () => (document.body.style.margin = '0'));
-  // }, []);
-
   return (
     <Page>
       <DebugComponent />

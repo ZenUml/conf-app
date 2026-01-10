@@ -29,15 +29,11 @@ export async function generateDsl(context, title, content, userPrompt, diagramId
 
 export async function modifyDiagram(context, diagramCode, errorMessage, diagramType = 'sequence') {
   const diagramData = {
-    0: {
-      json: {
-        diagramType: typeMap[diagramType].diagramType,
-        languageKey: typeMap[diagramType].languageKey,
-        subTypeKey: typeMap[diagramType].subTypeKey,
-        diagramCode,
-        errorMessage,
-      },
-    },
+    diagramType: typeMap[diagramType].diagramType,
+    languageKey: typeMap[diagramType].languageKey,
+    subTypeKey: typeMap[diagramType].subTypeKey,
+    diagramCode,
+    errorMessage,
   };
 
   const diagramResult = await callDiagramly(context, `/api/chat/modify`, diagramData);

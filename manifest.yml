@@ -153,6 +153,11 @@ permissions:
     styles:
       - unsafe-inline
 
+connectModules:
+  confluence:lifecycle:
+    - key: lifecycle-events
+      uninstalled: /uninstalled?version=2026.01_forge
+
 modules:
   macro:
     - key: zenuml-sequence-macro${LITE_KEY_SUFFIX}

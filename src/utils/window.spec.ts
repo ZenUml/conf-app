@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import mixpanel from 'mixpanel-browser'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 import { _awaitableTrackEvent, getUrlParam, getLocalStorageKey, getLocalState, setLocalState } from './window';
+import forgeGlobal from '@/model/globals/forgeGlobal';
 
 // Mock dependencies
 vi.mock('mixpanel-browser', () => ({
@@ -9,6 +10,13 @@ vi.mock('mixpanel-browser', () => ({
     init: vi.fn(),
     identify: vi.fn(),
     track: vi.fn()
+  }
+}))
+
+vi.mock('@/model/globals/forgeGlobal', () => ({
+  default: {
+    isForge: false,
+    forgeContext: null
   }
 }))
 
@@ -46,6 +54,9 @@ describe('window utils', async () => {
     vi.mocked(getSpaceKey).mockReturnValue('TEST')
     // Mock fetch
     global.fetch = vi.fn().mockResolvedValue({} as Response)
+    // Reset forgeGlobal to non-Forge mode
+    vi.mocked(forgeGlobal).isForge = false
+    vi.mocked(forgeGlobal).forgeContext = null
   })
 
   describe('getUrlParam', () => {
@@ -235,6 +246,31 @@ describe('window utils', async () => {
       await expect(
         _awaitableTrackEvent('label', 'critical_error', 'error')
       ).resolves.not.toThrow();
+    })
+
+    it('should use localId for macro_uuid in Forge mode', async () => {
+      // Set up Forge mode with localId
+      vi.mocked(forgeGlobal).isForge = true
+      vi.mocked(forgeGlobal).forgeContext = { localId: 'forge-local-id-123' } as any
+
+      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
+
+      // @ts-ignore
+      expect(window.gtag).toHaveBeenCalledWith('event', 'test-action', expect.objectContaining({
+        macro_uuid: 'forge-local-id-123'
+      }))
+    })
+
+    it('should fallback to macroData.uuid when not in Forge mode', async () => {
+      // Ensure not in Forge mode (already set in beforeEach, but be explicit)
+      vi.mocked(forgeGlobal).isForge = false
+
+      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
+
+      // @ts-ignore
+      expect(window.gtag).toHaveBeenCalledWith('event', 'test-action', expect.objectContaining({
+        macro_uuid: 'test-macro-123' // From mockGlobals.apWrapper.getMacroData()
+      }))
     })
   })
 

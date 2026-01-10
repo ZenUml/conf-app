@@ -149,9 +149,14 @@ function getCurrentUserAccountId(): string {
 }
 
 async function getMacroUuid(): Promise<string> {
+  // For Forge, use localId from context (stable macro identifier)
+  if (forgeGlobal.isForge && forgeGlobal.forgeContext?.localId) {
+    return forgeGlobal.forgeContext.localId;
+  }
+
+  // Fallback for Connect or when context not ready
   // @ts-ignore
   const macroData = await window.globals?.apWrapper.getMacroData();
-
   return macroData?.uuid || "unknown_macro_uuid";
 }
 

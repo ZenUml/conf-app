@@ -25,7 +25,7 @@ const Conversations = ({ sessions = [] }) => {
   if (sessions.length === 0) {
     return (
       <PlaceholderBox>
-        <img alt="No contents here" src="/image/placeholder.svg" width={200} />
+        <img alt="No contents here" src="./image/placeholder.svg" width={200} />
         No contents here yet...
       </PlaceholderBox>
     );

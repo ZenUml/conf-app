@@ -235,19 +235,19 @@ modules:
       auth:
         appSystemToken:
           enabled: true
-  confluence:globalSettings:
+  confluence:globalSettings: #Note: This module is applicable for "ZenUML for Confluence", not "Diagramly for Confluence"
     - key: zenuml-get-started-settings
       title: Get Started
       resource: main
       useAsGetStarted: true
-  confluence:globalPage:
+  confluence:globalPage: #Note: This module is applicable for "ZenUML for Confluence", not Diagramly for Confluence
     - key: zenuml-dashboard-page
       resource: main
       title: ZenUML${LITE_TITLE_SUFFIX}
       route: zenuml-dashboard
       resolver:
         endpoint: remote-connect
-  confluence:contentBylineItem: #Note: This module is to be removed the deployment process of ZenUML for Confluence
+  confluence:contentBylineItem: #Note: This module is applicable for "Diagramly for Confluence", not "ZenUML for Confluence"
     - key: zenuml-byline-aiaide
       resource: main
       title: Aide

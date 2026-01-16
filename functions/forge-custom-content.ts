@@ -1,36 +1,20 @@
 import { response, OkResponse } from "./OkResponse";
 import { getCustomContentFromConfluenceForForge } from "./utils/confluenceUtils";
-import { validateContextToken } from "./utils/authenticate";
-import { getAuthorizationHeader } from "./utils/requestUtils";
 
 export interface Env {
   DB: D1Database;
-  FORGE_APP_ID: string;
 }
 
 export const onRequest = async ({ request, env }) => {
   try {
-    const forgeAppId = env.FORGE_APP_ID;
-    if (!forgeAppId) {
-      console.error('FORGE_APP_ID environment variable is not set');
-      return response({ error: 'Server configuration error: FORGE_APP_ID not configured' }, 500);
-    }
-    
-    console.log('FORGE_APP_ID:', forgeAppId);
-    
-    // Validate that this is a legitimate Forge request
-    const validationResult = await validateForgeRequest(request, forgeAppId);
-    if (validationResult.error) {
-      console.error('Forge request validation failed:', validationResult.error);
-      return response({ error: validationResult.error }, validationResult.status);
-    }
+    const apiBaseUrl = env.FORGE_CONTEXT.apiBaseUrl;
+    const forgeAppId = env.FORGE_CONTEXT.forgeAppId;
+    console.log('Using apiBaseUrl from forge token:', apiBaseUrl);
 
-    // Extract apiBaseUrl from validation result
-    const apiBaseUrl = validationResult.apiBaseUrl;
-    console.log('Using apiBaseUrl from token:', apiBaseUrl);
-
-    // Get the x-forge-oauth-user header
     const forgeOAuthUser = request.headers.get('x-forge-oauth-user');
+    if (!forgeOAuthUser) {
+      throw 'Missing x-forge-oauth-user header - not a valid Forge request';
+    }
 
     const body: any = await request.json();
 
@@ -47,32 +31,6 @@ export const onRequest = async ({ request, env }) => {
     return response({ error: 'Internal server error' }, 500);
   }
 };
-
-async function validateForgeRequest(request: Request, forgeAppId: string): Promise<{ error?: string; status?: number }> {
-  // Check for required Forge headers
-  const forgeOAuthUser = request.headers.get('x-forge-oauth-user');
-  if (!forgeOAuthUser) {
-    return { error: 'Missing x-forge-oauth-user header - not a valid Forge request', status: 401 };
-  }
-
-  // Validate Authorization header (JWT token)
-  const jwt = getAuthorizationHeader(request);
-  if (!jwt) {
-    return { error: 'Missing Authorization header - not a valid Forge request', status: 401 };
-  }
-
-  try {
-    // Validate the context token using Forge's JWKS with the configured app ID
-    const token = await validateContextToken(jwt, forgeAppId);
-
-    // forgeOAuthUser header is present and will be used as-is without validation
-    return { apiBaseUrl: token.apiBaseUrl }; // Return the apiBaseUrl for use in the main function
-
-  } catch (error) {
-    console.error('Forge request validation error:', error);
-    return { error: 'Forge request validation failed', status: 401 };
-  }
-}
 
 async function createVersion(env, data, appId) {
   // Check if version already exists

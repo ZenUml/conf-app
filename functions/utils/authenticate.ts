@@ -5,13 +5,18 @@ import { getInstallationData } from "./installationUtils";
 import { getAuthorizationHeader } from "./requestUtils";
 import * as jose from 'jose';
 
-export const validateContextToken = async (invocationToken, appId) => {
+export const validateContextToken = async (invocationToken: string, allowedAppIds: string) => {
   const jwksUrl = 'https://forge.cdn.prod.atlassian-dev.net/.well-known/jwks.json';
   const JWKS = jose.createRemoteJWKSet(new URL(jwksUrl));
 
   try {
-    const fullAppId = `ari:cloud:ecosystem::app/${appId}`;
-    const token = await jose.jwtVerify(invocationToken, JWKS, {audience: fullAppId});
+    const token = await jose.jwtVerify(invocationToken, JWKS);
+    
+    // Check that the tokenAppId is allowed
+    const tokenAppId = (token as any).payload.app.id.split('/').pop();
+    if (!allowedAppIds.includes(tokenAppId)) {
+      throw new Error(`App ID mismatch: expected ${tokenAppId} to be contained in ${allowedAppIds}`);
+    }
     /** Example token:
      * {
           "payload": {
@@ -115,7 +120,8 @@ export const validateContextToken = async (invocationToken, appId) => {
     
     return {
       ...token,
-      apiBaseUrl
+      apiBaseUrl,
+      forgeAppId: tokenAppId
     };
   } catch (error) {
     // Log the decoded token when jwtVerify fails
@@ -131,16 +137,16 @@ export const validateContextToken = async (invocationToken, appId) => {
 }
 
 async function authenticateForgeRequest(jwt, env) {
-  const forgeAppId = env.FORGE_APP_ID;
-  if (!forgeAppId) {
-    console.error('FORGE_APP_ID environment variable is not set');
-    return response({ error: 'Server configuration error: FORGE_APP_ID not configured' }, 500);
+  const allowedForgeAppIds = env.ALLOWED_FORGE_APP_IDS;
+  if (!allowedForgeAppIds) {
+    console.error('ALLOWED_FORGE_APP_IDS environment variable is not set');
+    return response({ error: 'Server configuration error: ALLOWED_FORGE_APP_IDS not configured' }, 500);
   }
-  console.log('FORGE_APP_ID:', forgeAppId);
+  console.log('ALLOWED_FORGE_APP_IDS:', allowedForgeAppIds);
 
-  const payload = await validateContextToken(jwt, forgeAppId);
+  const payload = await validateContextToken(jwt, allowedForgeAppIds);
   console.log('validateContextToken - payload', payload);
-  env.FORGE_API_BASE_URL = payload.apiBaseUrl;
+  env.FORGE_CONTEXT = payload;
 }
 
 export default async function authenticate({ request, env }) {

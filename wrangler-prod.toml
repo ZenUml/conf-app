@@ -10,6 +10,7 @@ DIAGRAMLY_BACKEND_API_BASE_URL = "https://diagramly.ai"
 [env.production.vars]
 ENVIRONMENT = "production"
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://diagramly.ai"
+ALLOWED_FORGE_APP_IDS = "d9e4002b-120b-426b-834b-402a4a5adce7,01ede8b1-4e88-451a-b9ef-89eeef93afaf" # ZenUML Full and Diagramly
 
 [[ env.production.d1_databases ]]
 binding = "DB"

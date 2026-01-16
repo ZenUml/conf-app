@@ -2,14 +2,14 @@ import {ServerErrorResponse} from "./ServerErrorResponse";
 import authenticate from "./utils/authenticate";
 import * as Sentry from "@sentry/cloudflare";
 
-const AUTHENTICATED_PATHS = ['/diagramly', '/custom-content', '/metrics-cache'];
+const AUTHENTICATED_PATHS = ['/diagramly', '/custom-content', '/metrics-cache', '/forge-custom-content'];
 
 // Create a middleware function that handles authentication
 const authMiddleware = async ({next, request, env}) => {
   try {
     console.log('Function request url:', request.url);
 
-    if (AUTHENTICATED_PATHS.includes(new URL(request.url).pathname)) {
+    if (AUTHENTICATED_PATHS.some(path => new URL(request.url).pathname.startsWith(path))) {
       const response = await authenticate({request, env});
       if(response.status !== 200) {
         return response;

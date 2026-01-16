@@ -123,12 +123,8 @@ permissions:
       client:
         - https://zenuml.com
         - https://*.zenuml.com
-        - address: https://www.google-analytics.com
-          category: analytics
-          inScopeEUD: false
-        - address: https://*.mixpanel.com
-          category: analytics
-          inScopeEUD: false
+        - https://www.google-analytics.com
+        - https://*.mixpanel.com
     frames:
       - https://conf-full.zenuml.com/drawio/index.html
     scripts:
@@ -137,18 +133,10 @@ permissions:
       - https://conf-full.zenuml.com/drawio/js/grapheditor/Init.js
       - https://conf-full.zenuml.com/drawio/js/grapheditor/Graph.js
       - https://conf-full.zenuml.com/drawio/js/grapheditor/Shapes.js
-      - address: https://www.googletagmanager.com/gtag/js
-        category: analytics
-        inScopeEUD: false
-      - address: https://www.google-analytics.com/analytics.js
-        category: analytics
-        inScopeEUD: false
-      - address: https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js
-        category: analytics
-        inScopeEUD: false
-      - address: https://cdn.mxpnl.com/libs/mixpanel-recorder.min.js
-        category: analytics
-        inScopeEUD: false
+      - https://www.googletagmanager.com/gtag/js
+      - https://www.google-analytics.com/analytics.js
+      - https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js
+      - https://cdn.mxpnl.com/libs/mixpanel-recorder.min.js
   content:
     styles:
       - unsafe-inline

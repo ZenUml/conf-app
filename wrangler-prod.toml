@@ -7,8 +7,9 @@ pages_build_output_dir = "dist"
 [vars]
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://diagramly.ai"
 
-[env.production]
+[env.production.vars]
 ENVIRONMENT = "production"
+DIAGRAMLY_BACKEND_API_BASE_URL = "https://diagramly.ai"
 
 [[ env.production.d1_databases ]]
 binding = "DB"

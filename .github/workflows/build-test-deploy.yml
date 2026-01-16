@@ -53,7 +53,7 @@ jobs:
       - name: Update manifest.yml
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules["confluence:contentBylineItem"])' -i manifest.yml
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"]) | del(.remotes[] | select(.key == "diagramly")) | del(.permissions.external.fetch.backend[] | select(.remote == "diagramly")) | del(.permissions.external.fetch.client[] | select(.remote == "diagramly"))' -i manifest.yml
       - name: Deploy to Forge Staging
         run: |
           rm -rf dist/drawio

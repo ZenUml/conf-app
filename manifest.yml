@@ -14,6 +14,8 @@ environment:
       default: zenuml-sequence-macro-lite
     - key: CUSTOM_CONTENT_KEY
       default: zenuml-content-sequence
+    - key: DIAGRAMLY_BASE_URL
+      default: https://staging.diagramly.ai
 
 app:
   id: ari:cloud:ecosystem::app/${APP_ID}
@@ -26,6 +28,15 @@ remotes:
   # Addition of one or more new remotes, see https://developer.atlassian.com/platform/adopting-forge-from-connect/connect-forge-updates-preview/
   - key: connect
     baseUrl: ${BASE_URL}
+    operations:
+      - compute
+    auth:
+      appSystemToken:
+        enabled: true
+      appUserToken:
+        enabled: true
+  - key: diagramly #Note: This module will be removed for "ZenUML for Confluence Lite"
+    baseUrl: ${DIAGRAMLY_BASE_URL}
     operations:
       - compute
     auth:
@@ -120,6 +131,7 @@ permissions:
       backend:
         - https://zenuml.com
         - https://*.zenuml.com
+        - remote: diagramly
       client:
         - https://zenuml.com
         - https://*.zenuml.com
@@ -129,6 +141,7 @@ permissions:
         - address: https://*.mixpanel.com
           category: analytics
           inScopeEUD: false
+        - remote: diagramly
     frames:
       - https://conf-full.zenuml.com/drawio/index.html
     scripts:

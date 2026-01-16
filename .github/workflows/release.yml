@@ -38,13 +38,24 @@ jobs:
           license: ${{ steps.properties.outputs.license }}
           project: conf-${{ steps.properties.outputs.license }}
           environment: prod
-      - name: Update manifest.yml
+      - name: Remove contentBylineItem in manifest.yml
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules["confluence:contentBylineItem"])' -i manifest.yml
-      - name: Deploy to Forge Production
+      - name: Remove remote in manifest.yml
+        if: ${{ steps.properties.outputs.license == 'lite' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.remotes[] | select(.key == "diagramly")) | del(.permissions.external.fetch.backend[] | select(.remote == "diagramly")) | del(.permissions.external.fetch.client[] | select(.remote == "diagramly"))' -i manifest.yml
+      - name: Deploy "ZenUML for Confluence" to Forge Production
         if: ${{ steps.properties.outputs.license == 'lite' }}
         run: |
           rm -rf dist/drawio
           pnpm forge:deploy:enable-analytics
           pnpm forge:deploy:lite:prod
+      - name: Deploy "Diagramly for Confluence" to Forge Production
+        if: ${{ steps.properties.outputs.license == 'diagramly' }}
+        run: |
+          rm -rf dist/drawio
+          pnpm forge:deploy:enable-analytics
+          pnpm forge:deploy:diagramly:prod

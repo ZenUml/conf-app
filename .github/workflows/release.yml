@@ -42,11 +42,6 @@ jobs:
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules["confluence:contentBylineItem"])' -i manifest.yml
-      - name: Remove remote and egress in manifest.yml
-        if: ${{ steps.properties.outputs.license == 'lite' }}
-        uses: mikefarah/yq@master
-        with:
-          cmd: yq eval 'del(.remotes[] | select(.key == "diagramly")) | del(.permissions.external.fetch.backend[] | select(.remote == "diagramly")) | del(.permissions.external.fetch.client[] | select(.remote == "diagramly")) | del(.permissions.external.fetch.client[] | select(.address == "https://cdn.mxpnl.com")) | del(.permissions.external.fetch.client[] | select(.address == "https://*.cdn.mxpnl.com"))' -i manifest.yml
       - name: Deploy "ZenUML for Confluence" to Forge Production
         if: ${{ steps.properties.outputs.license == 'lite' }}
         run: |

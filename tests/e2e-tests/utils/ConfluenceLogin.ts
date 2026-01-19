@@ -38,8 +38,9 @@ export class ConfluenceLogin {
         console.log(`OTP attempt ${attempt}/${MAX_OTP_RETRIES}`);
 
         await this.page.fill('#two-step-verification-otp-code-input', otp);
+        await this.page.getByRole('button', { name: 'Log in' }).click();
 
-        // Wait for navigation after OTP auto-submit
+        // Wait for navigation after OTP submit
         await this.page.waitForURL(testConfig.baseUrl, { timeout: OTP_NAVIGATION_TIMEOUT_MS }).catch(() => {});
 
         const title = await this.page.title();

@@ -49,10 +49,14 @@ jobs:
           license: lite
           project: conf-stg-lite
           environment: stg
-      - name: Update manifest.yml
+      - name: Update manifest.yml to remove dashboard
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"])' -i manifest.yml
+      - name: Update manifest.yml to remove embed macro
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))' -i manifest.yml
       - name: Deploy to Forge Staging
         run: |
           rm -rf dist/drawio

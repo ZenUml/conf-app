@@ -4,6 +4,7 @@ const global = {
   view: undefined,
   zenumlRemoteBaseUrl: undefined,
   isLite: undefined,
+  isDiagramly: undefined,
 } as any;
 
 const REMOTE_BASE_URL_MAP = {
@@ -22,8 +23,11 @@ export async function getView() {
     global.isForge = true;
     global.forgeContext = await view.getContext();
 
+    global.isDiagramly = global.forgeContext.moduleKey.startsWith('gpt-');
     global.isLite = global.forgeContext.moduleKey.endsWith("-lite");
-    global.zenumlRemoteBaseUrl = REMOTE_BASE_URL_MAP[`${global.forgeContext.environmentType}_${global.isLite ? 'LITE' : 'FULL'}`];
+    // Diagramly uses LITE URLs regardless of isLite flag
+    const urlVariant = (global.isLite || global.isDiagramly) ? 'LITE' : 'FULL';
+    global.zenumlRemoteBaseUrl = REMOTE_BASE_URL_MAP[`${global.forgeContext.environmentType}_${urlVariant}`];
 
     console.log('forgeGlobal - context', global.forgeContext);
     console.debug('forgeGlobal - zenumlRemoteBaseUrl', global.zenumlRemoteBaseUrl);

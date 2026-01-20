@@ -39,9 +39,20 @@ jobs:
           project: conf-${{ steps.properties.outputs.license }}
           environment: prod
       - name: Remove contentBylineItem in manifest.yml
+        if: ${{ steps.properties.outputs.license != 'diagramly' }}
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules["confluence:contentBylineItem"])' -i manifest.yml
+      - name: Remove globalSettings and globalPage for Diagramly
+        if: ${{ steps.properties.outputs.license == 'diagramly' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"])' -i manifest.yml
+      - name: Remove embed macro for Diagramly
+        if: ${{ steps.properties.outputs.license == 'diagramly' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))' -i manifest.yml
       - name: Deploy "ZenUML for Confluence" to Forge Production
         if: ${{ steps.properties.outputs.license == 'lite' }}
         run: |

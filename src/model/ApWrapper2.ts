@@ -139,11 +139,20 @@ export default class ApWrapper2 implements IApWrapper {
   // Old documents that uses the old content key will not be migrated.
   // We may migrate them in the future.
   getContentKey() {
-    return 'zenuml-content-sequence';
+    return forgeGlobal.isDiagramly ? 'gpt-custom-content-key' : 'zenuml-content-sequence';
   }
 
   getCustomContentTypePrefix() {
-    const addonKey = forgeGlobal.isForge ? `com.zenuml.confluence-addon${forgeGlobal.isLite ? '-lite' : ''}` : getUrlParam('addonKey');
+    let addonKey;
+    if (forgeGlobal.isForge) {
+      if (forgeGlobal.isDiagramly) {
+        addonKey = 'gptdock-confluence';
+      } else {
+        addonKey = `com.zenuml.confluence-addon${forgeGlobal.isLite ? '-lite' : ''}`;
+      }
+    } else {
+      addonKey = getUrlParam('addonKey');
+    }
     console.debug('getCustomContentTypePrefix', addonKey);
     return `ac:${addonKey}`;
   }

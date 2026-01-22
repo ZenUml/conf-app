@@ -9,6 +9,15 @@ const sidebarTab = ref<'envvars' | 'deployments' | 'installations'>('envvars')
 const darkMode = ref(false)
 const showLoginBanner = ref(true)
 
+// Filter deployments by current environment
+const filteredDeployments = computed(() => {
+  if (!store.deployments?.deployments) return []
+  if (!store.currentEnvironment) return store.deployments.deployments
+  return store.deployments.deployments.filter(
+    d => d.environment === store.currentEnvironment
+  )
+})
+
 // Filter installations by current environment
 const filteredInstallations = computed(() => {
   if (!store.installations?.installations) return []
@@ -437,7 +446,10 @@ function formatDate(dateStr: string): string {
         <!-- Deployments Tab -->
         <div v-else-if="sidebarTab === 'deployments'" class="flex-1 flex flex-col overflow-hidden">
           <div class="p-3 border-b border-[#f0f2f4] dark:border-[#22303e] flex items-center justify-between shrink-0 bg-gray-50/50 dark:bg-[#1a2632]">
-            <span class="text-xs text-[#617589]">Deployment history</span>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-[#617589]">Deploys for {{ store.currentEnvironment || 'all' }}</span>
+              <span v-if="filteredDeployments.length" class="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-700 rounded px-1.5 py-0.5">"{{ filteredDeployments.length }}"</span>
+            </div>
             <span class="text-[10px] text-gray-400 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded">Read-only</span>
           </div>
 
@@ -446,10 +458,10 @@ function formatDate(dateStr: string): string {
             <span class="material-symbols-outlined animate-spin text-[32px] text-gray-400">progress_activity</span>
           </div>
 
-          <!-- Deployments list -->
-          <div v-else-if="store.deployments?.deployments?.length" class="flex-1 overflow-y-auto">
+          <!-- Deployments list (filtered by current environment) -->
+          <div v-else-if="filteredDeployments.length" class="flex-1 overflow-y-auto">
             <div
-              v-for="(deployment, index) in store.deployments.deployments"
+              v-for="(deployment, index) in filteredDeployments"
               :key="index"
               class="px-4 py-3 border-b border-[#f0f2f4] dark:border-[#22303e] hover:bg-background-light dark:hover:bg-[#101922] transition-colors"
             >
@@ -472,7 +484,7 @@ function formatDate(dateStr: string): string {
           <div v-else class="flex-1 flex items-center justify-center text-gray-400 text-sm">
             <div class="text-center">
               <span class="material-symbols-outlined text-gray-300 dark:text-gray-600" style="font-size: 36px;">rocket_launch</span>
-              <p class="mt-2">No deployments found</p>
+              <p class="mt-2">No deployments for {{ store.currentEnvironment || 'this app' }}</p>
             </div>
           </div>
         </div>

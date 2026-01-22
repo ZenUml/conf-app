@@ -17,6 +17,7 @@ interface DeploymentsData {
 interface InstallationsData {
   appId: string
   installations: Installation[]
+  command?: string
 }
 
 interface EnvironmentInfo {
@@ -45,7 +46,9 @@ export const useConsoleStore = defineStore('console', () => {
     tunnel: false,
     deployments: false,
     installations: false,
-    environments: false
+    environments: false,
+    install: false,
+    uninstall: false
   })
   const error = ref<string | null>(null)
 
@@ -343,6 +346,77 @@ export const useConsoleStore = defineStore('console', () => {
     tunnelLogs.value = []
   }
 
+  async function installApp(site: string): Promise<{ success: boolean; command?: string; output?: string; error?: string }> {
+    if (!currentAppId.value || !currentEnvironment.value) {
+      return { success: false, error: 'No app or environment selected' }
+    }
+
+    loading.value.install = true
+    error.value = null
+
+    try {
+      const response = await fetch(`/api/apps/${currentAppId.value}/install`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          site,
+          environment: currentEnvironment.value
+        })
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        // Refresh installations list
+        fetchInstallations()
+        return { success: true, command: data.data.command, output: data.data.output }
+      } else {
+        error.value = data.error
+        return { success: false, command: data.command, error: data.error }
+      }
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : 'Failed to install app'
+      error.value = errorMsg
+      return { success: false, error: errorMsg }
+    } finally {
+      loading.value.install = false
+    }
+  }
+
+  async function uninstallApp(site: string, environment: string): Promise<{ success: boolean; command?: string; output?: string; error?: string }> {
+    if (!currentAppId.value) {
+      return { success: false, error: 'No app selected' }
+    }
+
+    loading.value.uninstall = true
+    error.value = null
+
+    try {
+      const response = await fetch(`/api/apps/${currentAppId.value}/uninstall`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ site, environment })
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        // Refresh installations list
+        fetchInstallations()
+        return { success: true, command: data.data.command, output: data.data.output }
+      } else {
+        error.value = data.error
+        return { success: false, command: data.command, error: data.error }
+      }
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : 'Failed to uninstall app'
+      error.value = errorMsg
+      return { success: false, error: errorMsg }
+    } finally {
+      loading.value.uninstall = false
+    }
+  }
+
   async function initialize() {
     await Promise.all([
       fetchWhoami(),
@@ -397,6 +471,8 @@ export const useConsoleStore = defineStore('console', () => {
     setEnvironment,
     startTunnel,
     stopTunnel,
+    installApp,
+    uninstallApp,
     clearLogs,
     initialize
   }

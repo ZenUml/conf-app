@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify'
-import { whoami, getDeployments, getInstallations } from '../services/forge-cli.js'
+import { whoami, getDeployments, getInstallations, installApp, uninstallApp } from '../services/forge-cli.js'
 import { getMergedEnvVars } from '../services/env-vars.js'
 
 export async function forgeRoutes(fastify: FastifyInstance) {
@@ -54,12 +54,13 @@ export async function forgeRoutes(fastify: FastifyInstance) {
           success: true,
           data: {
             appId,
-            installations: result.installations || []
+            installations: result.installations || [],
+            command: result.command
           }
         }
       } else {
         reply.code(500)
-        return { success: false, error: result.error }
+        return { success: false, error: result.error, command: result.command }
       }
     } catch (error) {
       reply.code(500)
@@ -69,4 +70,80 @@ export async function forgeRoutes(fastify: FastifyInstance) {
       }
     }
   })
+
+  // Install app to a site
+  fastify.post<{ Params: { appId: string }; Body: { site: string; environment: string } }>(
+    '/api/apps/:appId/install',
+    async (request, reply) => {
+      const { appId } = request.params
+      const { site, environment } = request.body
+
+      if (!site || !environment) {
+        reply.code(400)
+        return { success: false, error: 'Missing site or environment' }
+      }
+
+      try {
+        const merged = getMergedEnvVars(appId, environment)
+        const result = await installApp(merged.variables, site, environment)
+
+        if (result.success) {
+          return {
+            success: true,
+            data: {
+              command: result.command,
+              output: result.output
+            }
+          }
+        } else {
+          reply.code(500)
+          return { success: false, error: result.error, command: result.command }
+        }
+      } catch (error) {
+        reply.code(500)
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }
+      }
+    }
+  )
+
+  // Uninstall app from a site
+  fastify.post<{ Params: { appId: string }; Body: { site: string; environment: string } }>(
+    '/api/apps/:appId/uninstall',
+    async (request, reply) => {
+      const { appId } = request.params
+      const { site, environment } = request.body
+
+      if (!site || !environment) {
+        reply.code(400)
+        return { success: false, error: 'Missing site or environment' }
+      }
+
+      try {
+        const merged = getMergedEnvVars(appId, environment)
+        const result = await uninstallApp(merged.variables, site, environment)
+
+        if (result.success) {
+          return {
+            success: true,
+            data: {
+              command: result.command,
+              output: result.output
+            }
+          }
+        } else {
+          reply.code(500)
+          return { success: false, error: result.error, command: result.command }
+        }
+      } catch (error) {
+        reply.code(500)
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }
+      }
+    }
+  )
 }

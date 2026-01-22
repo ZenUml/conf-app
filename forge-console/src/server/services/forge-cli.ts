@@ -1,6 +1,8 @@
 import { spawn, SpawnOptions } from 'child_process'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import fs from 'fs'
+import os from 'os'
 import type { WhoAmIResponse, Deployment, Installation, ForgeEnvironment } from '../../shared/types.js'
 
 // Get the workspace root (where manifest.yml is located)
@@ -152,14 +154,17 @@ export async function getDeployments(envVars: Record<string, string>): Promise<{
 /**
  * Get installation list
  */
-export async function getInstallations(envVars: Record<string, string>): Promise<{ success: boolean; installations?: Installation[]; error?: string }> {
-  const result = await execCommand(FORGE_PATH, ['install', 'list'], {
+export async function getInstallations(envVars: Record<string, string>): Promise<{ success: boolean; installations?: Installation[]; command?: string; error?: string }> {
+  const args = ['install', 'list']
+  const command = buildCommandString(envVars, args)
+
+  const result = await execCommand(FORGE_PATH, args, {
     env: envVars,
     cwd: WORKSPACE_ROOT
   })
 
   if (result.code !== 0) {
-    return { success: false, error: result.stderr || 'Failed to get installations' }
+    return { success: false, command, error: result.stderr || 'Failed to get installations' }
   }
 
   try {
@@ -190,9 +195,9 @@ export async function getInstallations(envVars: Record<string, string>): Promise
       }
     }
 
-    return { success: true, installations }
+    return { success: true, installations, command }
   } catch (e) {
-    return { success: false, error: `Failed to parse installation list: ${e instanceof Error ? e.message : 'Unknown error'}` }
+    return { success: false, command, error: `Failed to parse installation list: ${e instanceof Error ? e.message : 'Unknown error'}` }
   }
 }
 
@@ -249,5 +254,92 @@ export async function getForgeEnvironments(): Promise<{ success: boolean; enviro
     return { success: true, environments }
   } catch (e) {
     return { success: false, error: `Failed to parse environments list: ${e instanceof Error ? e.message : 'Unknown error'}` }
+  }
+}
+
+/**
+ * Install app to a site
+ */
+export async function installApp(
+  envVars: Record<string, string>,
+  site: string,
+  environment: string
+): Promise<{ success: boolean; command: string; output?: string; error?: string }> {
+  const args = ['install', '--site', site, '--product', 'confluence', '-e', environment, '--non-interactive']
+  const command = buildCommandString(envVars, args)
+
+  const result = await execCommand(FORGE_PATH, args, {
+    env: envVars,
+    cwd: WORKSPACE_ROOT
+  })
+
+  if (result.code !== 0) {
+    return { success: false, command, error: result.stderr || 'Failed to install app' }
+  }
+
+  return { success: true, command, output: result.stdout }
+}
+
+/**
+ * Uninstall app from a site
+ * Note: forge uninstall doesn't support --non-interactive, so we use expect to handle the interactive prompt
+ */
+export async function uninstallApp(
+  envVars: Record<string, string>,
+  site: string,
+  environment: string
+): Promise<{ success: boolean; command: string; output?: string; error?: string }> {
+  const forgeArgs = ['uninstall', '--site', site, '-e', environment]
+  const command = buildCommandString(envVars, forgeArgs)
+
+  // Build the expect script to handle the interactive prompt
+  // Write to a temp file to avoid shell escaping issues
+  const expectScript = `#!/usr/bin/expect -f
+set timeout 60
+spawn ${FORGE_PATH} uninstall --site ${site} -e ${environment}
+expect {
+    "Select where to uninstall" { send "\\r"; exp_continue }
+    "Are you sure" { send "y\\r"; exp_continue }
+    "Uninstalled" { }
+    timeout { exit 1 }
+    eof
+}
+`
+
+  // Write expect script to temp file
+  const tempFile = path.join(os.tmpdir(), `forge-uninstall-${Date.now()}.exp`)
+  fs.writeFileSync(tempFile, expectScript, { mode: 0o755 })
+
+  try {
+    const result = await execCommand('expect', [tempFile], {
+      env: envVars,
+      cwd: WORKSPACE_ROOT
+    })
+
+    // Check if output contains "Uninstalled" to determine success
+    const output = result.stdout + result.stderr
+    if (output.includes('Uninstalled')) {
+      return { success: true, command, output: result.stdout }
+    }
+
+    if (result.code !== 0) {
+      // Filter out the deprecation warning from the error message
+      const cleanError = result.stderr
+        .replace(/\(node:\d+\) \[DEP\d+\] DeprecationWarning:.*\n?/g, '')
+        .replace(/\(Use `node --trace-deprecation.*\n?/g, '')
+        .replace(/Warning: Your version of Forge CLI.*\n?/g, '')
+        .replace(/Run npm install.*\n?/g, '')
+        .trim()
+      return { success: false, command, error: cleanError || 'Failed to uninstall app' }
+    }
+
+    return { success: true, command, output: result.stdout }
+  } finally {
+    // Clean up temp file
+    try {
+      fs.unlinkSync(tempFile)
+    } catch {
+      // Ignore cleanup errors
+    }
   }
 }

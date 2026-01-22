@@ -8,6 +8,8 @@ const autoScroll = ref(true)
 const sidebarTab = ref<'envvars' | 'deployments' | 'installations'>('envvars')
 const darkMode = ref(false)
 const showLoginBanner = ref(true)
+const installSite = ref('')
+const installResult = ref<{ success: boolean; error?: string } | null>(null)
 
 // Filter deployments by current environment
 const filteredDeployments = computed(() => {
@@ -182,6 +184,23 @@ async function handleStartTunnel() {
 // Stop tunnel
 async function handleStopTunnel() {
   await store.stopTunnel()
+}
+
+// Install app to site
+async function handleInstall() {
+  if (!installSite.value.trim()) return
+  installResult.value = null
+  const result = await store.installApp(installSite.value.trim())
+  installResult.value = result
+  if (result.success) {
+    installSite.value = ''
+  }
+}
+
+// Uninstall app from site
+async function handleUninstall(site: string, environment: string) {
+  if (!confirm(`Are you sure you want to uninstall from ${site}?`)) return
+  await store.uninstallApp(site, environment)
 }
 
 // Format date for deployments
@@ -527,6 +546,51 @@ function copyToClipboard(text: string | undefined) {
             <span class="text-[10px] text-gray-400 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded">Read-only</span>
           </div>
 
+          <!-- Command display -->
+          <div v-if="store.installations?.command" class="px-3 py-2 border-b border-[#f0f2f4] dark:border-[#22303e] bg-gray-50 dark:bg-[#0d1620]">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] text-[#617589] uppercase tracking-wide">Command</span>
+              <button
+                @click="copyToClipboard(store.installations.command)"
+                class="text-[10px] text-primary hover:text-primary-dark flex items-center gap-1"
+                title="Copy to clipboard"
+              >
+                <span class="material-symbols-outlined" style="font-size: 14px;">content_copy</span>
+                Copy
+              </button>
+            </div>
+            <code class="text-[10px] font-mono text-[#111418] dark:text-gray-300 break-all block bg-white dark:bg-[#1a2632] p-2 rounded border border-[#e0e4e8] dark:border-[#22303e]">
+              {{ store.installations.command }}
+            </code>
+          </div>
+
+          <!-- Install form -->
+          <div class="px-3 py-2 border-b border-[#f0f2f4] dark:border-[#22303e] bg-gray-50 dark:bg-[#0d1620]">
+            <div class="text-[10px] text-[#617589] uppercase tracking-wide mb-1">Install to Site</div>
+            <div class="flex gap-2">
+              <input
+                v-model="installSite"
+                type="text"
+                placeholder="e.g., your-site.atlassian.net"
+                class="flex-1 text-xs px-2 py-1.5 rounded border border-[#e0e4e8] dark:border-[#22303e] bg-white dark:bg-[#1a2632] text-[#111418] dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-primary"
+                :disabled="store.loading.install || !store.currentEnvironment"
+                @keyup.enter="handleInstall"
+              />
+              <button
+                @click="handleInstall"
+                :disabled="store.loading.install || !installSite.trim() || !store.currentEnvironment"
+                class="px-3 py-1.5 text-xs font-medium rounded bg-primary text-white hover:bg-primary-dark disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                <span v-if="store.loading.install" class="material-symbols-outlined animate-spin text-[14px]">progress_activity</span>
+                <span v-else class="material-symbols-outlined text-[14px]">download</span>
+                Install
+              </button>
+            </div>
+            <div v-if="installResult" class="mt-2 text-[10px] p-2 rounded" :class="installResult.success ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'">
+              {{ installResult.success ? 'Installation successful!' : installResult.error }}
+            </div>
+          </div>
+
           <!-- Loading state -->
           <div v-if="store.loading.installations" class="flex-1 flex items-center justify-center">
             <span class="material-symbols-outlined animate-spin text-[32px] text-gray-400">progress_activity</span>
@@ -539,11 +603,21 @@ function copyToClipboard(text: string | undefined) {
               :key="index"
               class="px-4 py-3 border-b border-[#f0f2f4] dark:border-[#22303e] hover:bg-background-light dark:hover:bg-[#101922] transition-colors"
             >
-              <div class="flex items-center gap-2 mb-1">
-                <span class="material-symbols-outlined text-[14px] text-[#617589]">language</span>
-                <span class="text-xs font-semibold text-[#111418] dark:text-gray-200 truncate" :title="installation.site">
-                  {{ installation.site }}
-                </span>
+              <div class="flex items-center justify-between mb-1">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="material-symbols-outlined text-[14px] text-[#617589]">language</span>
+                  <span class="text-xs font-semibold text-[#111418] dark:text-gray-200 truncate" :title="installation.site">
+                    {{ installation.site }}
+                  </span>
+                </div>
+                <button
+                  @click="handleUninstall(installation.site, installation.environment)"
+                  :disabled="store.loading.uninstall"
+                  class="shrink-0 text-[10px] text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 flex items-center gap-0.5 disabled:opacity-50"
+                  title="Uninstall from this site"
+                >
+                  <span class="material-symbols-outlined text-[14px]">delete</span>
+                </button>
               </div>
               <div class="flex items-center gap-3 text-xs text-[#617589]">
                 <span class="flex items-center gap-1">

@@ -4,6 +4,9 @@ import type { MergedEnvVars } from '../../shared/types.js'
 /**
  * Merge common variables with environment-specific variables
  * Environment-specific variables override common variables
+ *
+ * For environments that exist in Forge but not in config,
+ * we use only the common app variables (no env-specific overrides)
  */
 export function getMergedEnvVars(appId: string, environment: string): MergedEnvVars {
   const config = loadConfig()
@@ -13,10 +16,8 @@ export function getMergedEnvVars(appId: string, environment: string): MergedEnvV
     throw new Error(`App not found: ${appId}`)
   }
 
-  const envConfig = app.environments[environment]
-  if (!envConfig) {
-    throw new Error(`Environment not found: ${environment} for app ${appId}`)
-  }
+  // Environment config may not exist for custom Forge environments
+  const envConfig = app.environments[environment] || {}
 
   // Start with APP_ID (always needed for forge commands)
   const variables: Record<string, string> = {
@@ -26,7 +27,7 @@ export function getMergedEnvVars(appId: string, environment: string): MergedEnvV
   // Merge common variables
   Object.assign(variables, app.variables)
 
-  // Merge environment-specific variables (override common)
+  // Merge environment-specific variables (override common) if they exist
   Object.assign(variables, envConfig)
 
   return {

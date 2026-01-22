@@ -22,7 +22,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: pnpm
       - name: Install dependencies (skip post-install scripts)
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -44,7 +44,7 @@ jobs:
       - name: Build and publish
         uses: ./.github/actions/wrangler-publish
         with:
-          node-version: '20.x'
+          node-version: '22.x'
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           license: lite
@@ -79,7 +79,7 @@ jobs:
           version: 10.x
       - uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: '22.x'
           cache: 'pnpm'
       # Install main dependencies without Puppeteer
       - name: Install main dependencies (skip post-install scripts)
@@ -88,7 +88,7 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=8192"
       # Install E2E test dependencies separately
       - name: Install E2E test dependencies
-        run: cd tests/e2e-tests && pnpm install
+        run: cd tests/e2e-tests && pnpm install --ignore-workspace
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
       # Cache Playwright browsers
@@ -138,7 +138,7 @@ jobs:
       - name: Build and publish
         uses: ./.github/actions/wrangler-publish
         with:
-          node-version: '20.x'
+          node-version: '22.x'
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           license: full
@@ -178,7 +178,7 @@ jobs:
           version: 10.x
       - uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: '22.x'
           cache: 'pnpm'
       # Install main dependencies without Puppeteer
       - name: Install main dependencies (skip post-install scripts)
@@ -187,7 +187,7 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=8192"
       # Install E2E test dependencies separately
       - name: Install E2E test dependencies
-        run: cd tests/e2e-tests && pnpm install
+        run: cd tests/e2e-tests && pnpm install --ignore-workspace
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
       # Cache Playwright browsers

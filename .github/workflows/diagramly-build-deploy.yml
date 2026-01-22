@@ -22,7 +22,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: pnpm
       - name: Install dependencies (skip post-install scripts)
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -43,7 +43,7 @@ jobs:
       - name: Build and publish
         uses: ./.github/actions/wrangler-publish
         with:
-          node-version: '20.x'
+          node-version: '22.x'
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           license: lite
@@ -63,9 +63,7 @@ jobs:
           pnpm forge:deploy:enable-analytics
           pnpm forge:deploy:diagramly:staging
       - name: Install to Zenuml Staging
-        run: |
-          pnpm forge:install:diagramly:staging
-          pnpm forge:upgrade:diagramly:staging
+        run: pnpm forge:install:diagramly:staging || pnpm forge:upgrade:diagramly:staging
         continue-on-error: true
 
   draft-release-diagramly:

@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify'
-import { whoami, getDeployments, getInstallations, installApp, uninstallApp } from '../services/forge-cli.js'
+import { whoami, getDeployments, getInstallations, installApp, uninstallApp, deployApp } from '../services/forge-cli.js'
 import { getMergedEnvVars } from '../services/env-vars.js'
 
 export async function forgeRoutes(fastify: FastifyInstance) {
@@ -39,6 +39,44 @@ export async function forgeRoutes(fastify: FastifyInstance) {
       }
     }
   })
+
+  // Deploy app to an environment
+  fastify.post<{ Params: { appId: string }; Body: { environment: string } }>(
+    '/api/apps/:appId/deploy',
+    async (request, reply) => {
+      const { appId } = request.params
+      const { environment } = request.body
+
+      if (!environment) {
+        reply.code(400)
+        return { success: false, error: 'Missing environment' }
+      }
+
+      try {
+        const merged = getMergedEnvVars(appId, environment)
+        const result = await deployApp(merged.variables, environment)
+
+        if (result.success) {
+          return {
+            success: true,
+            data: {
+              command: result.command,
+              output: result.output
+            }
+          }
+        } else {
+          reply.code(500)
+          return { success: false, error: result.error, command: result.command }
+        }
+      } catch (error) {
+        reply.code(500)
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }
+      }
+    }
+  )
 
   // Get installations for an app
   fastify.get<{ Params: { appId: string } }>('/api/apps/:appId/installations', async (request, reply) => {

@@ -63,9 +63,7 @@ jobs:
           pnpm forge:deploy:enable-analytics
           pnpm forge:deploy:diagramly:staging
       - name: Install to Zenuml Staging
-        run: |
-          pnpm forge:install:diagramly:staging
-          pnpm forge:upgrade:diagramly:staging
+        run: pnpm forge:install:diagramly:staging || pnpm forge:upgrade:diagramly:staging
         continue-on-error: true
 
   draft-release-diagramly:

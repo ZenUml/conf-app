@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { loadConfig, getApps, getApp, getDefaultApp, getConfigPath } from '../services/config.js'
-import { getMergedEnvVars, getAppEnvironments, canTunnel, getTunnelableEnvironments } from '../services/env-vars.js'
+import { getMergedEnvVars } from '../services/env-vars.js'
+import { getForgeEnvironments } from '../services/forge-cli.js'
 
 export async function configRoutes(fastify: FastifyInstance) {
   // Get full config
@@ -63,28 +64,42 @@ export async function configRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // Get environments for an app
+  // Get environments for an app (fetches from Forge CLI)
   fastify.get<{ Params: { appId: string } }>('/api/apps/:appId/environments', async (request, reply) => {
     const { appId } = request.params
 
     try {
-      const environments = getAppEnvironments(appId)
-      const tunnelable = getTunnelableEnvironments(appId)
+      // Verify app exists
+      const app = getApp(appId)
+      if (!app) {
+        reply.code(404)
+        return { success: false, error: `App not found: ${appId}` }
+      }
+
+      // Get environments from Forge CLI
+      const result = await getForgeEnvironments()
+
+      if (!result.success) {
+        reply.code(500)
+        return { success: false, error: result.error }
+      }
+
+      const environments = result.environments || []
+      const tunnelable = environments.filter(e => e.canTunnel).map(e => e.name)
 
       return {
         success: true,
         data: {
           environments: environments.map(env => ({
-            name: env,
-            canTunnel: canTunnel(env)
+            name: env.name,
+            type: env.type,
+            canTunnel: env.canTunnel
           })),
           tunnelable
         }
       }
     } catch (error) {
-      if (error instanceof Error && error.message.includes('not found')) {
-        reply.code(404)
-      }
+      reply.code(500)
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'

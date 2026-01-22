@@ -1,7 +1,7 @@
 import { spawn, SpawnOptions } from 'child_process'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import type { WhoAmIResponse, Deployment, Installation } from '../../shared/types.js'
+import type { WhoAmIResponse, Deployment, Installation, ForgeEnvironment } from '../../shared/types.js'
 
 // Get the workspace root (where manifest.yml is located)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -171,5 +171,61 @@ export async function getInstallations(envVars: Record<string, string>): Promise
     return { success: true, installations }
   } catch (e) {
     return { success: false, error: `Failed to parse installation list: ${e instanceof Error ? e.message : 'Unknown error'}` }
+  }
+}
+
+/**
+ * Get environments list from Forge CLI
+ */
+export async function getForgeEnvironments(): Promise<{ success: boolean; environments?: ForgeEnvironment[]; error?: string }> {
+  const result = await execCommand(FORGE_PATH, ['environments', 'list'], {
+    cwd: WORKSPACE_ROOT
+  })
+
+  if (result.code !== 0) {
+    return { success: false, error: result.stderr || 'Failed to get environments' }
+  }
+
+  try {
+    // Parse table output from forge environments list
+    // Output format: │ Environment ID │ Type │ Name │ Last deployed at │
+    // Strip ANSI color codes
+    const cleanOutput = result.stdout.replace(/\x1b\[[0-9;]*m/g, '')
+    const lines = cleanOutput.split('\n')
+    const environments: ForgeEnvironment[] = []
+
+    for (const line of lines) {
+      // Skip header, separator, and empty lines
+      if (line.includes('Environment ID') || line.includes('───') || !line.includes('│')) {
+        continue
+      }
+
+      // Parse table row: │ Environment ID │ Type │ Name │ Last deployed at │
+      // Don't filter empty strings to preserve column positions
+      const parts = line.split('│').map(p => p.trim())
+      // parts[0] = '' (before first │)
+      // parts[1] = Environment ID
+      // parts[2] = Type (can be empty for custom environments)
+      // parts[3] = Name
+      // parts[4] = Last deployed at
+      if (parts.length >= 4) {
+        const envType = parts[2]
+        const envName = parts[3]
+        if (envName && !envName.includes('Name')) {
+          const type = (envType || '').toLowerCase().trim()
+          // Development environments can tunnel, staging/production cannot
+          const canTunnel = type === 'development' || type === ''
+          environments.push({
+            name: envName,
+            type: type === 'production' ? 'production' : type === 'staging' ? 'staging' : 'development',
+            canTunnel
+          })
+        }
+      }
+    }
+
+    return { success: true, environments }
+  } catch (e) {
+    return { success: false, error: `Failed to parse environments list: ${e instanceof Error ? e.message : 'Unknown error'}` }
   }
 }

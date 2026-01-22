@@ -18,6 +18,12 @@ interface InstallationsData {
   installations: Installation[]
 }
 
+interface EnvironmentInfo {
+  name: string
+  type: string
+  canTunnel: boolean
+}
+
 export const useConsoleStore = defineStore('console', () => {
   // State
   const apps = ref<AppInfo[]>([])
@@ -30,13 +36,15 @@ export const useConsoleStore = defineStore('console', () => {
   const tunnelLogs = ref<LogEntry[]>([])
   const deployments = ref<DeploymentsData | null>(null)
   const installations = ref<InstallationsData | null>(null)
+  const environments = ref<EnvironmentInfo[]>([])
   const loading = ref({
     apps: false,
     envVars: false,
     whoami: false,
     tunnel: false,
     deployments: false,
-    installations: false
+    installations: false,
+    environments: false
   })
   const error = ref<string | null>(null)
 
@@ -49,7 +57,7 @@ export const useConsoleStore = defineStore('console', () => {
   )
 
   const availableEnvironments = computed(() =>
-    currentApp.value?.environments ?? []
+    environments.value.map(e => e.name)
   )
 
   const isLoggedIn = computed(() => whoami.value?.loggedIn ?? false)
@@ -63,8 +71,8 @@ export const useConsoleStore = defineStore('console', () => {
     if (!envVars.value) return false
     if (isTunnelRunning.value) return false
     // Check if environment supports tunnel
-    const env = currentEnvironment.value
-    return env !== 'staging' && env !== 'production'
+    const envInfo = environments.value.find(e => e.name === currentEnvironment.value)
+    return envInfo?.canTunnel ?? false
   })
 
   // Actions
@@ -93,17 +101,6 @@ export const useConsoleStore = defineStore('console', () => {
         if (!currentAppId.value && defaultApp.value) {
           currentAppId.value = defaultApp.value
         }
-
-        // Set default environment
-        if (currentAppId.value && !currentEnvironment.value) {
-          const app = apps.value.find(a => a.id === currentAppId.value)
-          if (app && app.environments.length > 0) {
-            // Prefer 'development' if available
-            currentEnvironment.value = app.environments.includes('development')
-              ? 'development'
-              : app.environments[0]
-          }
-        }
       } else {
         error.value = data.error
       }
@@ -111,6 +108,33 @@ export const useConsoleStore = defineStore('console', () => {
       error.value = 'Failed to load apps'
     } finally {
       loading.value.apps = false
+    }
+  }
+
+  async function fetchEnvironments() {
+    if (!currentAppId.value) {
+      environments.value = []
+      return
+    }
+
+    loading.value.environments = true
+    try {
+      const response = await fetch(`/api/apps/${currentAppId.value}/environments`)
+      const data = await response.json()
+      if (data.success) {
+        environments.value = data.data.environments
+        // Set default environment if not set
+        if (!currentEnvironment.value && environments.value.length > 0) {
+          const devEnv = environments.value.find(e => e.name === 'development')
+          currentEnvironment.value = devEnv ? devEnv.name : environments.value[0].name
+        }
+      } else {
+        environments.value = []
+      }
+    } catch (e) {
+      environments.value = []
+    } finally {
+      loading.value.environments = false
     }
   }
 
@@ -194,17 +218,13 @@ export const useConsoleStore = defineStore('console', () => {
     }
   }
 
-  function setApp(appId: string) {
+  async function setApp(appId: string) {
     currentAppId.value = appId
-    // Reset environment when app changes
-    const app = apps.value.find(a => a.id === appId)
-    if (app && app.environments.length > 0) {
-      currentEnvironment.value = app.environments.includes('development')
-        ? 'development'
-        : app.environments[0]
-    } else {
-      currentEnvironment.value = ''
-    }
+    currentEnvironment.value = ''
+
+    // Fetch environments from Forge CLI for this app
+    await fetchEnvironments()
+
     // Fetch new env vars, deployments, and installations
     fetchEnvVars()
     fetchDeployments()
@@ -328,6 +348,9 @@ export const useConsoleStore = defineStore('console', () => {
       fetchApps(),
       fetchTunnelStatus()
     ])
+
+    // Fetch environments from Forge CLI
+    await fetchEnvironments()
     await fetchEnvVars()
 
     // Fetch deployments and installations in background
@@ -352,6 +375,7 @@ export const useConsoleStore = defineStore('console', () => {
     tunnelLogs,
     deployments,
     installations,
+    environments,
     loading,
     error,
     // Computed
@@ -363,6 +387,7 @@ export const useConsoleStore = defineStore('console', () => {
     // Actions
     fetchWhoami,
     fetchApps,
+    fetchEnvironments,
     fetchEnvVars,
     fetchTunnelStatus,
     fetchDeployments,

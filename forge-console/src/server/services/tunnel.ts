@@ -95,6 +95,13 @@ class TunnelManager extends EventEmitter {
       // Build the forge tunnel command
       const args = ['tunnel', '-e', environment]
 
+      // Log the full command with environment variables
+      const envVarStr = Object.entries(envVars)
+        .map(([key, value]) => `${key}="${value}"`)
+        .join(' \\\n  ')
+      const fullCommand = `cd ${WORKSPACE_ROOT} && \\\n  ${envVarStr} \\\n  ${FORGE_PATH} ${args.join(' ')}`
+      this.addLog('info', `Command:\n${fullCommand}`)
+
       // Spawn the process with environment variables
       // Run from workspace root where manifest.yml is located
       this.process = spawn(FORGE_PATH, args, {

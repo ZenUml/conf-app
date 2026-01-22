@@ -9,6 +9,15 @@ const sidebarTab = ref<'envvars' | 'deployments' | 'installations'>('envvars')
 const darkMode = ref(false)
 const showLoginBanner = ref(true)
 
+// Filter installations by current environment
+const filteredInstallations = computed(() => {
+  if (!store.installations?.installations) return []
+  if (!store.currentEnvironment) return store.installations.installations
+  return store.installations.installations.filter(
+    i => i.environment === store.currentEnvironment
+  )
+})
+
 // LocalStorage keys
 const STORAGE_KEYS = {
   appId: 'forge-console-app-id',
@@ -471,7 +480,10 @@ function formatDate(dateStr: string): string {
         <!-- Installations Tab -->
         <div v-else-if="sidebarTab === 'installations'" class="flex-1 flex flex-col overflow-hidden">
           <div class="p-3 border-b border-[#f0f2f4] dark:border-[#22303e] flex items-center justify-between shrink-0 bg-gray-50/50 dark:bg-[#1a2632]">
-            <span class="text-xs text-[#617589]">Installation sites</span>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-[#617589]">Installs for {{ store.currentEnvironment || 'all' }}</span>
+              <span v-if="filteredInstallations.length" class="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-700 rounded px-1.5 py-0.5">"{{ filteredInstallations.length }}"</span>
+            </div>
             <span class="text-[10px] text-gray-400 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded">Read-only</span>
           </div>
 
@@ -480,10 +492,10 @@ function formatDate(dateStr: string): string {
             <span class="material-symbols-outlined animate-spin text-[32px] text-gray-400">progress_activity</span>
           </div>
 
-          <!-- Installations list -->
-          <div v-else-if="store.installations?.installations?.length" class="flex-1 overflow-y-auto">
+          <!-- Installations list (filtered by current environment) -->
+          <div v-else-if="filteredInstallations.length" class="flex-1 overflow-y-auto">
             <div
-              v-for="(installation, index) in store.installations.installations"
+              v-for="(installation, index) in filteredInstallations"
               :key="index"
               class="px-4 py-3 border-b border-[#f0f2f4] dark:border-[#22303e] hover:bg-background-light dark:hover:bg-[#101922] transition-colors"
             >
@@ -510,7 +522,7 @@ function formatDate(dateStr: string): string {
           <div v-else class="flex-1 flex items-center justify-center text-gray-400 text-sm">
             <div class="text-center">
               <span class="material-symbols-outlined text-gray-300 dark:text-gray-600" style="font-size: 36px;">download</span>
-              <p class="mt-2">No installations found</p>
+              <p class="mt-2">No installations for {{ store.currentEnvironment || 'this app' }}</p>
             </div>
           </div>
         </div>

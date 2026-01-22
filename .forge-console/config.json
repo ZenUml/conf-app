@@ -1,0 +1,65 @@
+
+{
+  "version": "1.0",
+  "defaultApp": "zenuml-lite",
+  "apps": {
+    "zenuml-lite": {
+      "name": "ZenUML Lite",
+      "appId": "8ad26115-211f-4216-971b-0540f606303d",
+      "variables": {
+        "CONNECT_KEY": "com.zenuml.confluence-addon-lite",
+        "SEQUENCE_MACRO_KEY": "zenuml-sequence-macro-lite",
+        "CUSTOM_CONTENT_KEY": "zenuml-content-sequence",
+        "LITE_KEY_SUFFIX": "-lite",
+        "LITE_TITLE_SUFFIX": " Lite"
+      },
+      "environments": {
+        "development": {
+          "BASE_URL": "https://localhost:8080"
+        },
+        "yanhui": {
+          "BASE_URL": "https://confluence-plugin.pages.dev"
+        },
+        "staging": {
+          "BASE_URL": "https://conf-stg-lite.zenuml.com"
+        },
+        "production": {
+          "BASE_URL": "https://conf-lite.zenuml.com"
+        }
+      }
+    },
+    "diagramly": {
+      "name": "Diagramly",
+      "appId": "01ede8b1-4e88-451a-b9ef-89eeef93afaf",
+      "variables": {
+        "CONNECT_KEY": "gptdock-confluence",
+        "SEQUENCE_MACRO_KEY": "gpt-diagram-macro",
+        "CUSTOM_CONTENT_KEY": "gpt-custom-content-key",
+        "LITE_KEY_SUFFIX": "",
+        "LITE_TITLE_SUFFIX": ""
+      },
+      "environments": {
+        "development": {
+          "BASE_URL": "https://localhost:8080",
+          "DIAGRAMLY_BASE_URL": "https://staging.diagramly.ai"
+        },
+        "yanhui": {
+          "BASE_URL": "https://confluence-plugin.pages.dev",
+          "DIAGRAMLY_BASE_URL": "https://staging.diagramly.ai"
+        },
+        "peng-dev": {
+          "BASE_URL": "https://8080.diagramly.net",
+          "DIAGRAMLY_BASE_URL": "https://staging.diagramly.ai"
+        },
+        "staging": {
+          "BASE_URL": "https://conf-stg-lite.zenuml.com",
+          "DIAGRAMLY_BASE_URL": "https://staging.diagramly.ai"
+        },
+        "production": {
+          "BASE_URL": "https://conf-lite.zenuml.com",
+          "DIAGRAMLY_BASE_URL": "https://diagramly.ai"
+        }
+      }
+    }
+  }
+}

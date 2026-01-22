@@ -12,7 +12,7 @@ inputs:
     description: 'Cloudflare account ID'
     required: true
   license:
-    description: 'Full or Lite'
+    description: 'Full, Lite, or Diagramly'
     required: true
   project:
     description: 'Project name of cloudflare pages'

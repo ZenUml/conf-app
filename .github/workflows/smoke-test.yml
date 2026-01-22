@@ -28,7 +28,7 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=8192"
       # Install E2E test dependencies separately
       - name: Install E2E test dependencies
-        run: cd tests/e2e-tests && pnpm install
+        run: cd tests/e2e-tests && pnpm install --ignore-workspace
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
       # Cache Playwright browsers
@@ -88,7 +88,7 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=8192"
       # Install E2E test dependencies separately
       - name: Install E2E test dependencies
-        run: cd tests/e2e-tests && pnpm install
+        run: cd tests/e2e-tests && pnpm install --ignore-workspace
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
       # Cache Playwright browsers

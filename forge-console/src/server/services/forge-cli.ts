@@ -112,12 +112,20 @@ export async function getDeployments(envVars: Record<string, string>): Promise<{
     const jsonMatch = output.match(/\[[\s\S]*\]/)
     if (jsonMatch) {
       const data = JSON.parse(jsonMatch[0])
-      const deployments: Deployment[] = data.map((d: Record<string, unknown>) => ({
-        environment: String(d.environmentKey || d.environment || 'unknown'),
-        version: String(d.majorVersion || d.version || 'unknown'),
-        deployedAt: String(d.createdAt || d.deployedAt || new Date().toISOString()),
-        deployedBy: d.createdBy ? String(d.createdBy) : undefined
-      }))
+      const deployments: Deployment[] = data.map((d: Record<string, unknown>) => {
+        // Map environmentKey to environment name
+        // Forge uses "default" as the key for the development environment
+        let envKey = String(d.environmentKey || d.environment || 'unknown')
+        if (envKey === 'default') {
+          envKey = 'development'
+        }
+        return {
+          environment: envKey,
+          version: String(d.majorVersion || d.version || 'unknown'),
+          deployedAt: String(d.createdAt || d.deployedAt || new Date().toISOString()),
+          deployedBy: d.createdBy ? String(d.createdBy) : undefined
+        }
+      })
       return { success: true, deployments }
     }
 

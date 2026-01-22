@@ -23,8 +23,8 @@ export async function getView() {
     global.isForge = true;
     global.forgeContext = await view.getContext();
 
-    global.isDiagramly = global.forgeContext.moduleKey.startsWith('gpt-');
-    global.isLite = global.forgeContext.moduleKey.endsWith("-lite");
+    global.isDiagramly = import.meta.env.PRODUCT_TYPE === 'diagramly';
+    global.isLite = import.meta.env.PRODUCT_TYPE === 'lite';
     // Diagramly uses LITE URLs regardless of isLite flag
     const urlVariant = (global.isLite || global.isDiagramly) ? 'LITE' : 'FULL';
     global.zenumlRemoteBaseUrl = REMOTE_BASE_URL_MAP[`${global.forgeContext.environmentType}_${urlVariant}`];

@@ -45,8 +45,8 @@
     "forge:all:diagramly:yanhui": "pnpm build:lite && rm -rf dist/drawio && pnpm forge:deploy:diagramly:yanhui && pnpm forge:install:diagramly:yanhui",
     "forge:all:diagramly:peng": "pnpm build:lite && rm -rf dist/drawio && pnpm forge:deploy:diagramly:peng && pnpm forge:install:diagramly:peng",
     "forge:deploy:diagramly:staging": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf CONNECT_KEY=gptdock-confluence SEQUENCE_MACRO_KEY=gpt-diagram-macro CUSTOM_CONTENT_KEY=gpt-custom-content-key LITE_KEY_SUFFIX= LITE_TITLE_SUFFIX= BASE_URL=https://conf-stg-lite.zenuml.com forge deploy -e staging --non-interactive",
-    "forge:install:diagramly:staging": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf CONNECT_KEY=gptdock-confluence SEQUENCE_MACRO_KEY=gpt-diagram-macro CUSTOM_CONTENT_KEY=gpt-custom-content-key LITE_KEY_SUFFIX= LITE_TITLE_SUFFIX= BASE_URL=https://conf-stg-lite.zenuml.com forge install --site zenuml-stg.atlassian.net --product confluence -e staging --non-interactive",
-    "forge:upgrade:diagramly:staging": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf CONNECT_KEY=gptdock-confluence SEQUENCE_MACRO_KEY=gpt-diagram-macro CUSTOM_CONTENT_KEY=gpt-custom-content-key LITE_KEY_SUFFIX= LITE_TITLE_SUFFIX= BASE_URL=https://conf-stg-lite.zenuml.com forge install --upgrade --site zenuml-stg.atlassian.net --product confluence -e staging --non-interactive",
+    "forge:install:diagramly:staging": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf forge install --site zenuml-stg.atlassian.net --product confluence -e staging --non-interactive",
+    "forge:upgrade:diagramly:staging": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf forge install --upgrade --site zenuml-stg.atlassian.net --product confluence -e staging --non-interactive",
     "forge:deploy:diagramly:prod": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf CONNECT_KEY=gptdock-confluence SEQUENCE_MACRO_KEY=gpt-diagram-macro CUSTOM_CONTENT_KEY=gpt-custom-content-key LITE_KEY_SUFFIX= LITE_TITLE_SUFFIX= BASE_URL=https://conf-lite.zenuml.com DIAGRAMLY_BASE_URL=https://diagramly.ai forge deploy -e production --non-interactive"
   },
   "dependencies": {

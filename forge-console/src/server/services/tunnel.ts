@@ -104,13 +104,16 @@ class TunnelManager extends EventEmitter {
 
       // Spawn the process with environment variables
       // Run from workspace root where manifest.yml is located
+      // Use detached: true so the process becomes a process group leader
+      // This allows us to kill the entire process tree later
       this.process = spawn(FORGE_PATH, args, {
         shell: '/bin/zsh',
         env: {
           ...process.env,
           ...envVars
         },
-        cwd: WORKSPACE_ROOT
+        cwd: WORKSPACE_ROOT,
+        detached: true
       })
 
       // Handle stdout
@@ -181,14 +184,21 @@ class TunnelManager extends EventEmitter {
       return { success: true }
     }
 
-    this.addLog('info', 'Stopping tunnel...')
+    const pid = this.process.pid
+    this.addLog('info', `Stopping tunnel (PID: ${pid})...`)
 
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
-        // Force kill if graceful shutdown takes too long
-        if (this.process) {
-          this.addLog('warn', 'Force killing tunnel process...')
-          this.process.kill('SIGKILL')
+        // Force kill the entire process group if graceful shutdown takes too long
+        if (this.process && pid) {
+          this.addLog('warn', 'Force killing tunnel process group...')
+          try {
+            // Kill the entire process group (negative PID)
+            process.kill(-pid, 'SIGKILL')
+          } catch (e) {
+            // Process might already be dead
+            this.process?.kill('SIGKILL')
+          }
         }
       }, 5000)
 
@@ -200,8 +210,18 @@ class TunnelManager extends EventEmitter {
         resolve({ success: true })
       })
 
-      // Try graceful shutdown first
-      this.process?.kill('SIGTERM')
+      // Try graceful shutdown of the entire process group first
+      if (pid) {
+        try {
+          // Send SIGTERM to the entire process group (negative PID)
+          process.kill(-pid, 'SIGTERM')
+        } catch (e) {
+          // Fallback to just the process
+          this.process?.kill('SIGTERM')
+        }
+      } else {
+        this.process?.kill('SIGTERM')
+      }
     })
   }
 

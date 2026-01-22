@@ -23,12 +23,13 @@ export async function forgeRoutes(fastify: FastifyInstance) {
           success: true,
           data: {
             appId,
-            deployments: result.deployments || []
+            deployments: result.deployments || [],
+            command: result.command
           }
         }
       } else {
         reply.code(500)
-        return { success: false, error: result.error }
+        return { success: false, error: result.error, command: result.command }
       }
     } catch (error) {
       reply.code(500)

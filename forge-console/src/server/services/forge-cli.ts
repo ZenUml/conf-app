@@ -88,16 +88,30 @@ export async function whoami(): Promise<WhoAmIResponse> {
 }
 
 /**
+ * Build command string for display purposes
+ */
+function buildCommandString(envVars: Record<string, string>, args: string[]): string {
+  const envVarStr = Object.entries(envVars)
+    .filter(([key]) => key === 'APP_ID') // Only show APP_ID for brevity
+    .map(([key, value]) => `${key}="${value}"`)
+    .join(' ')
+  return `cd ${WORKSPACE_ROOT} && ${envVarStr} ${FORGE_PATH} ${args.join(' ')}`
+}
+
+/**
  * Get deployment list for the current app
  */
-export async function getDeployments(envVars: Record<string, string>): Promise<{ success: boolean; deployments?: Deployment[]; error?: string }> {
-  const result = await execCommand(FORGE_PATH, ['deploy', 'list', '--json'], {
+export async function getDeployments(envVars: Record<string, string>): Promise<{ success: boolean; deployments?: Deployment[]; command?: string; error?: string }> {
+  const args = ['deploy', 'list', '--json']
+  const command = buildCommandString(envVars, args)
+
+  const result = await execCommand(FORGE_PATH, args, {
     env: envVars,
     cwd: WORKSPACE_ROOT
   })
 
   if (result.code !== 0) {
-    return { success: false, error: result.stderr || 'Failed to get deployments' }
+    return { success: false, command, error: result.stderr || 'Failed to get deployments' }
   }
 
   try {
@@ -105,7 +119,7 @@ export async function getDeployments(envVars: Record<string, string>): Promise<{
     // The output format is typically an array of deployment objects
     const output = result.stdout.trim()
     if (!output) {
-      return { success: true, deployments: [] }
+      return { success: true, deployments: [], command }
     }
 
     // Find the JSON array in the output (skip any non-JSON lines)
@@ -126,12 +140,12 @@ export async function getDeployments(envVars: Record<string, string>): Promise<{
           deployedBy: d.createdBy ? String(d.createdBy) : undefined
         }
       })
-      return { success: true, deployments }
+      return { success: true, deployments, command }
     }
 
-    return { success: true, deployments: [] }
+    return { success: true, deployments: [], command }
   } catch (e) {
-    return { success: false, error: `Failed to parse deployment list: ${e instanceof Error ? e.message : 'Unknown error'}` }
+    return { success: false, command, error: `Failed to parse deployment list: ${e instanceof Error ? e.message : 'Unknown error'}` }
   }
 }
 

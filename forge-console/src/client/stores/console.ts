@@ -11,6 +11,7 @@ interface LogEntry {
 interface DeploymentsData {
   appId: string
   deployments: Deployment[]
+  command?: string
 }
 
 interface InstallationsData {

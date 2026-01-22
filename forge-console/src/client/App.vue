@@ -199,6 +199,16 @@ function formatDate(dateStr: string): string {
     return dateStr
   }
 }
+
+// Copy text to clipboard
+function copyToClipboard(text: string | undefined) {
+  if (!text) return
+  navigator.clipboard.writeText(text).then(() => {
+    // Could add a toast notification here
+  }).catch(err => {
+    console.error('Failed to copy:', err)
+  })
+}
 </script>
 
 <template>
@@ -451,6 +461,24 @@ function formatDate(dateStr: string): string {
               <span v-if="filteredDeployments.length" class="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-700 rounded px-1.5 py-0.5">"{{ filteredDeployments.length }}"</span>
             </div>
             <span class="text-[10px] text-gray-400 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded">Read-only</span>
+          </div>
+
+          <!-- Command display -->
+          <div v-if="store.deployments?.command" class="px-3 py-2 border-b border-[#f0f2f4] dark:border-[#22303e] bg-gray-50 dark:bg-[#0d1620]">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] text-[#617589] uppercase tracking-wide">Command</span>
+              <button
+                @click="copyToClipboard(store.deployments.command)"
+                class="text-[10px] text-primary hover:text-primary-dark flex items-center gap-1"
+                title="Copy to clipboard"
+              >
+                <span class="material-symbols-outlined" style="font-size: 14px;">content_copy</span>
+                Copy
+              </button>
+            </div>
+            <code class="text-[10px] font-mono text-[#111418] dark:text-gray-300 break-all block bg-white dark:bg-[#1a2632] p-2 rounded border border-[#e0e4e8] dark:border-[#22303e]">
+              {{ store.deployments.command }}
+            </code>
           </div>
 
           <!-- Loading state -->

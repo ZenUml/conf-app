@@ -142,10 +142,10 @@ permissions:
           category: analytics
           inScopeEUD: false
         - remote: diagramly
-        - address: https://cdn.mxpnl.com #Note: this will be removed for "ZenUML for Confluence Lite"
+        - address: https://cdn.mxpnl.com
           category: analytics
           inScopeEUD: false
-        - address: https://*.cdn.mxpnl.com #Note: this will be removed for "ZenUML for Confluence Lite"
+        - address: https://*.cdn.mxpnl.com
           category: analytics
           inScopeEUD: false
     frames:

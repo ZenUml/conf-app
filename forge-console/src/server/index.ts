@@ -1,8 +1,27 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import { execSync } from 'child_process'
 import { configRoutes } from './routes/config.routes.js'
 import { forgeRoutes } from './routes/forge.routes.js'
 import { tunnelRoutes } from './routes/tunnel.routes.js'
+
+const PORT = 3456
+
+// Kill any process using our port
+function killProcessOnPort(port: number): void {
+  try {
+    const pid = execSync(`lsof -ti:${port}`, { encoding: 'utf8' }).trim()
+    if (pid) {
+      console.log(`Port ${port} is in use by PID ${pid}, killing...`)
+      execSync(`kill -9 ${pid}`)
+      console.log(`Killed process ${pid}`)
+    }
+  } catch {
+    // No process on port, which is fine
+  }
+}
+
+killProcessOnPort(PORT)
 
 const fastify = Fastify({
   logger: true
@@ -26,12 +45,12 @@ fastify.get('/api/health', async () => {
 // Start server
 const start = async () => {
   try {
-    await fastify.listen({ port: 3456, host: '0.0.0.0' })
+    await fastify.listen({ port: PORT, host: '0.0.0.0' })
     console.log('\n')
     console.log('='.repeat(50))
     console.log('  Forge Console Server')
     console.log('='.repeat(50))
-    console.log(`  API:      http://localhost:3456`)
+    console.log(`  API:      http://localhost:${PORT}`)
     console.log(`  Frontend: http://localhost:3457`)
     console.log('='.repeat(50))
     console.log('\n')

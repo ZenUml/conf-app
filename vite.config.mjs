@@ -37,6 +37,9 @@ function getHtmlFiles(dir) {
 
 export default defineConfig({
   base: './',
+  define: {
+    'import.meta.env.PRODUCT_TYPE': JSON.stringify(process.env.PRODUCT_TYPE || 'full'),
+  },
   build: {
     rollupOptions: {
       input: getHtmlFiles('./').concat(getHtmlFiles('./drawio')),

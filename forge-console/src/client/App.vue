@@ -10,6 +10,7 @@ const darkMode = ref(false)
 const showLoginBanner = ref(true)
 const installSite = ref('')
 const installResult = ref<{ success: boolean; error?: string } | null>(null)
+const deployResult = ref<{ success: boolean; error?: string } | null>(null)
 
 // Filter deployments by current environment
 const filteredDeployments = computed(() => {
@@ -203,6 +204,13 @@ async function handleUninstall(site: string, environment: string) {
   await store.uninstallApp(site, environment)
 }
 
+// Deploy app to current environment
+async function handleDeploy() {
+  deployResult.value = null
+  const result = await store.deployApp()
+  deployResult.value = result
+}
+
 // Format date for deployments
 function formatDate(dateStr: string): string {
   try {
@@ -283,6 +291,18 @@ function copyToClipboard(text: string | undefined) {
             <span class="material-symbols-outlined text-[20px]">expand_more</span>
           </div>
         </div>
+
+        <!-- Deploy Button -->
+        <button
+          @click="handleDeploy"
+          :disabled="store.loading.deploy || !store.currentAppId || !store.currentEnvironment || store.isTunnelRunning"
+          class="h-10 bg-blue-600 hover:bg-blue-700 text-white px-4 rounded-lg font-medium shadow-sm transition-all flex items-center gap-2 text-sm whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Deploy to current environment"
+        >
+          <span v-if="store.loading.deploy" class="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
+          <span v-else class="material-symbols-outlined text-[18px]">rocket_launch</span>
+          Deploy
+        </button>
       </div>
 
       <!-- Tunnel Status Badge -->

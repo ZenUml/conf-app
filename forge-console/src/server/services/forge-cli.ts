@@ -258,6 +258,35 @@ export async function getForgeEnvironments(): Promise<{ success: boolean; enviro
 }
 
 /**
+ * Deploy app to an environment
+ */
+export async function deployApp(
+  envVars: Record<string, string>,
+  environment: string
+): Promise<{ success: boolean; command: string; output?: string; error?: string }> {
+  const args = ['deploy', '-e', environment, '--non-interactive']
+  const command = buildCommandString(envVars, args)
+
+  const result = await execCommand(FORGE_PATH, args, {
+    env: envVars,
+    cwd: WORKSPACE_ROOT
+  })
+
+  if (result.code !== 0) {
+    // Filter out common warnings from error
+    const cleanError = result.stderr
+      .replace(/\(node:\d+\) \[DEP\d+\] DeprecationWarning:.*\n?/g, '')
+      .replace(/\(Use `node --trace-deprecation.*\n?/g, '')
+      .replace(/Warning: Your version of Forge CLI.*\n?/g, '')
+      .replace(/Run npm install.*\n?/g, '')
+      .trim()
+    return { success: false, command, error: cleanError || 'Failed to deploy app' }
+  }
+
+  return { success: true, command, output: result.stdout }
+}
+
+/**
  * Install app to a site
  */
 export async function installApp(

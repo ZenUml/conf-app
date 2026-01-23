@@ -148,12 +148,6 @@ permissions:
         - address: https://*.cdn.mxpnl.com #Note: this will be removed for "ZenUML for Confluence Lite"
           category: analytics
           inScopeEUD: false
-        - address: https://cdn.mxpnl.com
-          category: analytics
-          inScopeEUD: false
-        - address: https://*.cdn.mxpnl.com
-          category: analytics
-          inScopeEUD: false
     frames:
       - https://conf-full.zenuml.com/drawio/index.html
     scripts:

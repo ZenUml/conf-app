@@ -24,14 +24,41 @@
       margin: 0px;
       background: white;
       position: relative;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden; /* Prevent body from scrolling */
+    }
+
+    #header {
+      position: sticky;
+      top: 0;
+      z-index: 1001;
+      font-size: 16px;
+      width: 100%;
+      background: white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      flex-shrink: 0; /* Prevent header from shrinking */
     }
 
     #swagger-editor {
       font-size: 1.3em;
-      position: relative;
-      height: calc(100vh - 50px);
-      padding-top: 50px;
+      flex: 1;
+      min-height: 0; /* Allow it to shrink */
+      overflow-y: auto;
+      padding-top: 0;
       font-family: Roboto, sans-serif;
+      height: 0; /* Force flex to determine height */
+    }
+
+    #syntax-error-box {
+      position: sticky;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      background: white;
+      flex-shrink: 0; /* Prevent shrinking */
     }
 
     #editor-wrapper * {
@@ -60,13 +87,6 @@
       z-index: 1000;
       right: 10px;
     }
-
-    #header {
-      position: absolute;
-      z-index: 1;
-      font-size: 16px;
-      width: 100%;
-    }
   </style>
 
 </head>
@@ -74,6 +94,7 @@
 <body>
   <div id="header"></div>
   <div id="swagger-editor"></div>
+  <div id="syntax-error-box"></div>
 </body>
 <script type="module" src="src/swagger-editor.ts"></script>
 

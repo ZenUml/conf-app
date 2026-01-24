@@ -21,6 +21,18 @@ import store from "@/model/store2";
 import { showCloseWithoutSavingDialog } from './utils/modalService';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
+import { createApp } from 'vue';
+import SyntaxErrorBox from "@/components/SyntaxErrorBox.vue";
+import { validateOpenApiSpecForStore } from '@/utils/openapi/validate';
+import { debounce } from 'lodash';
+
+const debouncedValidateOpenApi = debounce(async (spec: string) => {
+  if (!spec) {
+    store.dispatch('updateError', null);
+    return;
+  }
+  await validateOpenApiSpecForStore(spec, store, 'updateError');
+}, 1000);
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -148,6 +160,26 @@ async function initializeMacro() {
   window.updateSpec(doc?.code || OpenApiExample);
   console.log('-------------- updateSpec with:', doc?.code)
 
+  // Initialize spec listeners for validation and store sync
+  window.specListeners = window.specListeners || [];
+  window.specListeners.push((spec: string) => {
+    store.dispatch('updateCode2', spec);
+    debouncedValidateOpenApi(spec);
+  });
+  store.dispatch('updateError', null);
+  store.subscribe((mutation, state) => {
+    if (mutation.type === 'updateCode2' && window.editor && window.specContent !== state.diagram.code) {
+      window.updateSpec(state.diagram.code || '');
+    }
+  });
+
+  // Render the syntax error box using Vue
+  const syntaxErrorBoxContainer = document.getElementById('syntax-error-box');
+  if (syntaxErrorBoxContainer) {
+    syntaxErrorBoxContainer.style.fontSize = '14px'; // Set a consistent base font size
+    createApp(SyntaxErrorBox).use(store).mount(syntaxErrorBoxContainer);
+  }
+
   // Track begin event (create or edit)
   const isNew = await MacroUtil.isCreateNew();
   const beginEventAction = isNew ? 'create_macro_begin' : 'edit_macro_begin';
@@ -156,6 +188,13 @@ async function initializeMacro() {
     journey_id: getEditJourneyId(),
     session_id: getOrCreateSession(),
   });
+
+  // Trigger initial validation after a short delay to ensure everything is set up
+  setTimeout(() => {
+    if (window.specContent) {
+      debouncedValidateOpenApi(window.specContent);
+    }
+  }, 300); // Using 300ms to ensure everything is properly set up
 }
 
 

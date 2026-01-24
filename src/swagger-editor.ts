@@ -21,6 +21,13 @@ import { trackEvent } from '@/utils/window';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
 import { detectEditMode } from '@/utils/editModeDetection';
 import uuidv4 from '@/utils/uuid';
+// Import Vue and store for the SyntaxErrorBox
+import { createApp } from 'vue';
+import SyntaxErrorBox from "@/components/SyntaxErrorBox.vue";
+import store from '@/model/store2';
+// Import validation utilities
+import { validateOpenApiSpecForStore } from '@/utils/openapi/validate';
+import { debounce } from 'lodash';
 
 async function saveOpenApiAndExit() {
   const code = window.specContent;
@@ -69,6 +76,15 @@ async function exit() {
   }
 }
 
+// Create a debounced validation function
+const debouncedValidateOpenApi = debounce(async (spec: string) => {
+  if (!spec) {
+    store.dispatch('updateError', null);
+    return;
+  }
+  await validateOpenApiSpecForStore(spec, store, 'updateError');
+}, 1000);
+
 
 async function initializeMacro() {
   const apWrapper = globals.apWrapper;
@@ -80,7 +96,11 @@ async function initializeMacro() {
   
   // Check if journey was passed from parent
   const customData: any = await new Promise((resolve) => {
-    AP.dialog.getCustomData((data: any) => resolve(data));
+    try {
+      AP.dialog.getCustomData((data: any) => resolve(data));
+    } catch (e) {
+      resolve(undefined); // Intended to avoid breaking local development access
+    }
   });
   if (customData?.journey_id) {
     continueEditJourney(customData.journey_id, macroUuid, customData.journey_start_time);
@@ -107,10 +127,37 @@ async function initializeMacro() {
   window.updateSpec(doc?.code || OpenApiExample);
   console.log('-------------- updateSpec with:', doc?.code)
 
+  // Initialize spec listeners for validation and store sync
+  window.specListeners = window.specListeners || [];
+  window.specListeners.push((spec: string) => {
+    // Update the Vuex store with the current spec content
+    store.dispatch('updateCode2', spec);
+    // Validate the spec
+    debouncedValidateOpenApi(spec);
+  });
+  // Set initial error state to null
+  store.dispatch('updateError', null);
+  // Subscribe to store changes to update the editor when code is changed programmatically
+  // (e.g. when AI repair applies changes)
+  store.subscribe((mutation, state) => {
+    if (mutation.type === 'updateCode2' && window.editor && window.specContent !== state.diagram.code) {
+      // Update the spec in the editor
+      window.updateSpec(state.diagram.code || '');
+    }
+  });
+
   ReactDOM.render(
     React.createElement(Header as any, { saveAndExit: saveOpenApiAndExit, exit: exit }),
     document.getElementById('header')
   );
+
+  // Render the syntax error box using Vue
+  const syntaxErrorBoxContainer = document.getElementById('syntax-error-box');
+  if (syntaxErrorBoxContainer) {
+    // Add consistent font sizing to ensure it matches the rest of the UI
+    syntaxErrorBoxContainer.style.fontSize = '14px'; // Set a consistent base font size
+    createApp(SyntaxErrorBox).use(store).mount(syntaxErrorBoxContainer);
+  }
 
   // Track begin event (create or edit)
   const isNew = await MacroUtil.isCreateNew();
@@ -120,6 +167,13 @@ async function initializeMacro() {
     journey_id: getEditJourneyId(),
     session_id: getOrCreateSession(),
   });
+  
+  // Trigger initial validation after a short delay to ensure everything is set up
+  setTimeout(() => {
+    if (window.specContent) {
+      debouncedValidateOpenApi(window.specContent);
+    }
+  }, 300); // Using 300ms to ensure everything is properly set up
 }
 
 

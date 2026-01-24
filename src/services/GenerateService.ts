@@ -50,11 +50,19 @@ export async function diagramlyChat(messages: Array<any>) {
     });
 }
 
-export async function fixDiagram() {
-  return await callRemote(`/diagramly/fix-diagram?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, 'POST', {
+export async function fixDiagram(diagramCode: string, errorMessage: string, diagramType: DiagramType): Promise<{ updatedCode: string }> {
+  try {
+    const response = await callRemote(`/diagramly/fix-diagram?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, 'POST', {
       accountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
-      diagramCode: 'A..foo',
-      errorMessage: `line 1:2 mismatched input '.' expecting <EOF>`,
-      diagramType: 'sequence'
+      diagramCode,
+      errorMessage,
+      diagramType: diagramType
     });
+    const result: { updatedCode: string } = await response;
+    console.log('Fix diagram response', result);
+    return result;
+  } catch (error) {
+    console.error('Error fixing diagram:', error);
+    throw error;
+  }
 }

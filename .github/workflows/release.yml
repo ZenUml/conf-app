@@ -59,6 +59,16 @@ jobs:
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))' -i manifest.yml
+      - name: Remove licensing for Lite
+        if: ${{ steps.properties.outputs.license == 'lite' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.app.licensing)' -i manifest.yml
+      - name: Upload final manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifest-${{ steps.properties.outputs.license }}-prod
+          path: manifest.yml
       - name: Deploy "ZenUML for Confluence" to Forge Production
         if: ${{ steps.properties.outputs.license == 'lite' }}
         run: |

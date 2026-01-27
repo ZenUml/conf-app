@@ -24,6 +24,10 @@ app:
     remote: connect
   runtime:
     name: nodejs20.x
+  # Licensing: Enabled for Full and Diagramly (paid apps)
+  # CI/CD removes this block for Lite only via: yq eval 'del(.app.licensing)' -i manifest.yml
+  licensing:
+    enabled: true
 remotes:
   # Addition of one or more new remotes, see https://developer.atlassian.com/platform/adopting-forge-from-connect/connect-forge-updates-preview/
   - key: connect

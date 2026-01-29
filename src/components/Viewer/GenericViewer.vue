@@ -5,7 +5,7 @@
   <error-boundary>
   <div :class="{'w-full': wide, 'w-fit': !wide, 'mx-auto': true}">
     <div class="frame relative" :class="{'w-full': wide, 'min-w-[300px]': !wide}">
-      <div class="header flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-white" :class="{flex: isDisplayMode && !hideHeader, hidden: !isDisplayMode || hideHeader}">
+      <div class="header flex items-center justify-between px-4 py-2 border-b border-gray-200" :class="[headerBgClass, {flex: isDisplayMode && !hideHeader, hidden: !isDisplayMode || hideHeader}]">
         <!-- Left: Primary & Secondary Actions -->
         <div class="flex items-center gap-2">
           <!-- Embedded Badge -->
@@ -197,6 +197,15 @@ export default {
     },
     isCustomContent() {
       return this.diagram.source === DataSource.CustomContent;
+    },
+    headerBgClass() {
+      const envType = window.forgeGlobal?.forgeContext?.environmentType;
+      const host = window.location.host;
+
+      if (envType === 'DEVELOPMENT' && host === 'localhost:8080') return 'bg-amber-200';
+      if (envType === 'DEVELOPMENT') return 'bg-emerald-200';
+      if (envType === 'STAGING') return 'bg-violet-200';
+      return 'bg-white';
     },
     showEdit() {
       // Development environment: always show edit button

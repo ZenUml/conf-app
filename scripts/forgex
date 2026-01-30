@@ -1,0 +1,44 @@
+#!/bin/bash
+BASE_DIR="$(dirname "$0")/.."
+ENV_FILE="$BASE_DIR/.env.forge"
+LOCAL_FILE="$BASE_DIR/.env.forge.local"
+
+load_env() {
+  local file=$1
+  echo "Loading: $file"
+  while IFS='=' read -r key value; do
+    [[ -z "$key" || "$key" =~ ^# ]] && continue
+    if [[ ${#value} -gt 20 ]]; then
+      echo "  $key=${value:0:20}..."
+    else
+      echo "  $key=$value"
+    fi
+  done < "$file"
+  set -a
+  source "$file"
+  set +a
+}
+
+if [[ -f "$ENV_FILE" ]]; then
+  load_env "$ENV_FILE"
+else
+  echo "Warning: $ENV_FILE not found"
+fi
+
+if [[ -f "$LOCAL_FILE" ]]; then
+  load_env "$LOCAL_FILE"
+fi
+
+# Substitute {{VAR}} templates with env values
+args=()
+for arg in "$@"; do
+  # Replace {{VAR}} patterns with their values
+  while [[ "$arg" =~ \{\{([A-Za-z_][A-Za-z_0-9]*)\}\} ]]; do
+    var_name="${BASH_REMATCH[1]}"
+    var_value="${!var_name}"
+    arg="${arg//\{\{$var_name\}\}/$var_value}"
+  done
+  args+=("$arg")
+done
+
+exec forge "${args[@]}"

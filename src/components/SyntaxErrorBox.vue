@@ -93,8 +93,7 @@ const handleApplyRepair = (repairedCode) => {
 // Load the AI repair feature flag when component mounts
 onMounted(async () => {
   try {
-    const featureFlags = await getFeatureFlags(['AI_REPAIR']);
-    aiRepairFeatureEnabled.value = featureFlags.AI_REPAIR?.enabled || false;
+    aiRepairFeatureEnabled.value = await getFeatureFlags(['AI_TITLE']).then((res: any) => res.AI_TITLE.enabled);
   } catch (error) {
     console.error('Failed to load AI repair feature flag:', error);
     aiRepairFeatureEnabled.value = false;

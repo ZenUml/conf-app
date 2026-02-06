@@ -5,6 +5,7 @@ import {
   zenumlCompletionKeyMaps,
   zenumlParticipantStateField,
 } from '@zenuml/codemirror-extensions';
+import { mermaidLinter } from '@/utils/mermaid/linter';
 import {
   bracketMatching,
   foldGutter,
@@ -157,6 +158,7 @@ const insertMermaidComment = (view: EditorView): boolean => {
 const mermaidExtensions = [
   mermaid(),
   syntaxHighlighting(mermaidHighlightStyle),
+  mermaidLinter,
   keymap.of([
     { key: 'Mod-/', run: insertMermaidComment, preventDefault: true },
   ]),

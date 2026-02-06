@@ -11,7 +11,7 @@ import {DiagramType} from "@/model/Diagram/Diagram";
 import {trackEvent} from "@/utils/window";
 import globals from '@/model/globals';
 
-mermaid.mermaidAPI.initialize({
+mermaid.initialize({
   startOnLoad:true
 })
 
@@ -19,7 +19,8 @@ export default {
   name: "Mermaid",
   data() {
     return {
-      svg: 'Empty'
+      svg: 'Empty',
+      renderId: null
     }
   },
   computed: {
@@ -49,8 +50,19 @@ export default {
   },
   methods: {
     async render(code) {
-      const { svg  } = await mermaid.mermaidAPI.render('any-id', code)
-      return svg; 
+      // Generate a unique ID to avoid conflicts
+      this.renderId = `mermaid-${crypto.randomUUID()}`;
+      try {
+        // Use the unique ID to render, avoiding creating extra elements in the body
+        const { svg } = await mermaid.render(this.renderId, code);
+        return svg;
+      } catch (error) {
+        console.error('mermaid render error', error);
+        if (this.renderId) {
+          const tempElement = document.getElementById(`d${this.renderId}`);
+          tempElement?.remove();
+        }
+      }
     }
   }
 }

@@ -26,6 +26,9 @@ const ExtendedStore: StoreOptions<RootState> = {
     updateMetadata(state: any, payload: any) {
       state.diagram.metadata = payload
     },
+    updateError(state: any, payload: any) {
+      state.error = payload
+    },
   },
   actions: {
     updateCode2({commit}: any, payload: any) {
@@ -45,6 +48,9 @@ const ExtendedStore: StoreOptions<RootState> = {
     },
     updateMetadata({commit}: any, payload: any) {
       commit('updateMetadata', payload)
+    },
+    updateError({commit}: any, payload: any) {
+      commit('updateError', payload)
     }
   },
   getters: {

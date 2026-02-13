@@ -267,7 +267,7 @@ modules:
   confluence:contentBylineItem: #Note: This module is applicable for "Diagramly for Confluence", not "ZenUML for Confluence"
     - key: zenuml-byline-aiaide
       resource: main
-      title: Aide
+      title: Aide${LITE_TITLE_SUFFIX}
       icon: resource:main;image/ai-aide-logo.png
       tooltip: AI Aide
       viewportSize: fullscreen

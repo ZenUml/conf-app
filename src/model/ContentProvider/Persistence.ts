@@ -5,6 +5,7 @@ import ApWrapper2 from "@/model/ApWrapper2";
 import uuidv4 from "@/utils/uuid";
 import { syncCustomContent } from "@/services/CustomContent";
 import globals from '@/model/globals';
+import forgeGlobal from '@/model/globals/forgeGlobal';
 import macroMetrics from '@/services/MacroMetrics';
 import { getEditJourneyId, getEditJourneyDuration, getOrCreateSession, getSessionAge } from '@/utils/journeyTracking';
 import { detectEditMode } from '@/utils/editModeDetection';
@@ -30,7 +31,13 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   
   // Detect edit mode and build event properties
   const editMode = await detectEditMode(apWrapper);
-  const isNew = !macroData?.uuid;
+  let isNew;
+  // If in Forge mode, set isNew based on diagram.id existence
+  if (forgeGlobal.isForge) {
+    isNew = !diagram.id;
+  } else {
+    isNew = !macroData?.uuid;
+  }
   
   const eventProps: Record<string, any> = {
     // Session tracking (all scenarios)

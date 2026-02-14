@@ -98,6 +98,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       }
     } else {
       const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
+      console.debug('Loaded custom content', customContent);
       doc = customContent?.value;
     }
 

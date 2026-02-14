@@ -33,6 +33,7 @@
     "forge:deploy:enable-analytics": "forge settings set usage-analytics true",
     "forge:deploy:lite:yanhui": "BASE_URL=https://confluence-plugin.pages.dev forge deploy -e yanhui --non-interactive",
     "forge:install:lite:yanhui": "BASE_URL=https://confluence-plugin.pages.dev forge install --upgrade --site whimet4.atlassian.net --product confluence -e yanhui --non-interactive",
+    "forge:tunnel:lite:yanhui": "BASE_URL=https://confluence-plugin.pages.dev forge tunnel -e yanhui",
     "forge:deploy:lite:staging": "forge deploy -e staging --non-interactive --verbose",
     "forge:deploy:lite:prod": "BASE_URL=https://conf-lite.zenuml.com forge deploy -e production --non-interactive --verbose",
     "forge:install:lite:staging": "forge install --site zenuml-stg.atlassian.net --product confluence --non-interactive -e staging --verbose",

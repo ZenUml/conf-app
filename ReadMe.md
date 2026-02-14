@@ -180,6 +180,45 @@ Set it as the default environment:
 forge settings set default-environment [YOUR_PERSONAL_ENV_NAME]
 ```
 
+### Configure Forge Environment
+
+The project uses environment files to manage app-specific and developer-specific configurations.
+
+**App configuration files** (committed):
+- `.env.forge.dia` - Diagramly app
+- `.env.forge.lite` - Lite app
+- `.env.forge.full` - Full app
+
+**Developer configuration** (gitignored):
+- `.env.forge.local` - Your personal settings (FORGE_ENV, ATLASSIAN_SITE)
+
+**Setup:**
+
+1. Copy the example file:
+   ```bash
+   cp .env.forge.local.example .env.forge.local
+   ```
+
+2. Edit `.env.forge.local` with your values:
+   ```bash
+   FORGE_ENV=your-env-name
+   ATLASSIAN_SITE=your-site.atlassian.net
+   ```
+
+3. Switch to the app you're working on:
+   ```bash
+   pnpm forge:use dia   # or lite, or full
+   ```
+
+**Usage:**
+```bash
+pnpm forge:use dia        # Switch to diagramly app
+pnpm forge:deploy:dev     # Deploy using your env settings
+pnpm forge:upgrade:dev    # Upgrade installation
+pnpm forge:tunnel:dev     # Start tunnel for local development
+pnpm forge:all:dev        # Build + deploy + upgrade
+```
+
 ### Build and Deploy
 
 Build the lite version of the app:

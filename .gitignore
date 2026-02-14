@@ -1,4 +1,6 @@
 .env
+.env.forge
+.env.forge.local
 .pluprc
 ui-debug.log
 .DS_Store

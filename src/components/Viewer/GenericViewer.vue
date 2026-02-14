@@ -5,7 +5,7 @@
   <error-boundary>
   <div :class="{'w-full': wide, 'w-fit': !wide, 'mx-auto': true}">
     <div class="frame relative" :class="{'w-full': wide, 'min-w-[300px]': !wide}">
-      <div class="header flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-white" :class="{flex: isDisplayMode && !hideHeader, hidden: !isDisplayMode || hideHeader}">
+      <div class="header flex items-center justify-between px-4 py-2 border-b border-gray-200" :class="[headerBgClass, {'app-indicator': !isProduction, flex: isDisplayMode && !hideHeader, hidden: !isDisplayMode || hideHeader}]" :data-app="appType">
         <!-- Left: Primary & Secondary Actions -->
         <div class="flex items-center gap-2">
           <!-- Embedded Badge -->
@@ -198,6 +198,15 @@ export default {
     isCustomContent() {
       return this.diagram.source === DataSource.CustomContent;
     },
+    headerBgClass() {
+      const envType = window.forgeGlobal?.forgeContext?.environmentType;
+      const host = window.location.host;
+
+      if (envType === 'DEVELOPMENT' && host === 'localhost:8000') return 'bg-amber-200';
+      if (envType === 'DEVELOPMENT') return 'bg-emerald-200';
+      if (envType === 'STAGING') return 'bg-violet-200';
+      return 'bg-white';
+    },
     showEdit() {
       // Development environment: always show edit button
       if (import.meta.env.DEV) {
@@ -216,6 +225,16 @@ export default {
     },
     isMoonactive() {
       return getClientDomain() === 'moonactive';
+    },
+    appType() {
+      const productType = import.meta.env.PRODUCT_TYPE;
+      if (productType === 'diagramly') return 'diagramly';
+      if (productType === 'lite') return 'lite';
+      return 'full';
+    },
+    isProduction() {
+      const envType = window.forgeGlobal?.forgeContext?.environmentType;
+      return !envType || envType === 'PRODUCTION';
     },
   },
   async mounted() {
@@ -382,5 +401,31 @@ console.error('Error getting feature flags', e);
 }
 .header {
   border-bottom: #E6E6E6 1px solid;
+}
+
+/* App type indicator - uses pseudo-element to avoid layout impact */
+.app-indicator {
+  position: relative;
+}
+
+.app-indicator::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+}
+
+.app-indicator[data-app="full"]::before {
+  background-color: #3b82f6; /* blue-500 */
+}
+
+.app-indicator[data-app="lite"]::before {
+  background-color: #f97316; /* orange-500 */
+}
+
+.app-indicator[data-app="diagramly"]::before {
+  background-color: #a855f7; /* purple-500 */
 }
 </style>

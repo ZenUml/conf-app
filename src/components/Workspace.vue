@@ -6,18 +6,27 @@
       </div>
     </div>
 
-    <div class="content h-screen flex flex-col">
-      <Header class="flex-shrink-0"/>
-      <div class="workspace flex-grow split">
-        <div id="workspace-left" class="editor overflow-auto">
-          <editor/>
+    <div class="content h-screen flex flex-col" style="height: 100vh; overflow: hidden;">
+      <div class="flex-shrink-0">
+        <Header />
+      </div>
+      <div class="workspace flex-grow split" style="overflow: hidden; position: relative;">
+        <div id="workspace-left" class="editor flex flex-col flex-grow" style="overflow: hidden;">
+          <div class="flex-grow overflow-auto" style="min-height: 0;">
+            <editor/>
+          </div>
         </div>
-        <div id="workspace-right" class="diagram overflow-auto">
+        <div id="workspace-right" class="diagram overflow-auto" style="overflow: auto;">
           <DiagramPortal />
         </div>
       </div>
-      <CSAT />
-      <AIFeedback />
+      <div id="syntax-error-box" class="sticky bottom-0 left-0 right-0 z-[1000] bg-white flex-shrink-0" style="position: sticky !important;">
+        <SyntaxErrorBox />
+      </div>
+      <div class="feedback-section flex-shrink-0">
+        <CSAT />
+        <AIFeedback />
+      </div>
     </div>
   </div>
 </template>
@@ -35,8 +44,9 @@
   import store from '@/model/store2'
   import type {DiagramType} from "@/model/Diagram/Diagram";
   import getFeatureFlags from '@/apis/featureFlags';
-import globals from "@/model/globals";
-import {trackEvent} from '@/utils/window';
+  import globals from "@/model/globals";
+  import {trackEvent} from '@/utils/window';
+  import SyntaxErrorBox from '@/components/SyntaxErrorBox.vue'
 
   export default {
     name: 'Workspace',
@@ -84,7 +94,8 @@ import {trackEvent} from '@/utils/window';
       Editor,
       CSAT,
       GenerationPrompt,
-      AIFeedback
+      AIFeedback,
+      SyntaxErrorBox
     }
   }
 </script>

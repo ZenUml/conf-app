@@ -33,7 +33,11 @@ async function main() {
   
   // Check if journey was passed from parent (for dialogs opened from viewer)
   const customData: any = await new Promise((resolve) => {
-    AP.dialog.getCustomData((data: any) => resolve(data));
+    try {
+      AP.dialog.getCustomData((data: any) => resolve(data));
+    } catch (e) {
+      resolve(undefined); // Intended to avoid breaking local development access
+    }
   });
   
   if (customData?.journey_id) {

@@ -16,6 +16,9 @@ import {EditorState, Compartment} from '@codemirror/state';
 import {baseExtensionsFactory, mermaidExtensions, zenumlExtensions} from "./extensions";
 import {computed, onMounted, ref, watch, onBeforeUnmount, onBeforeMount} from "vue";
 import {useStore} from "vuex";
+import { validateMermaidSyntaxForStore } from "@/utils/mermaid/validate";
+import { validateSequenceSyntaxForStore } from "@/utils/sequence/validate";
+import { debounce } from 'lodash';
 
 const store = useStore();
 const rootElement = ref();
@@ -39,6 +42,23 @@ const onEditorCodeChange = (newCode) => {
     store.dispatch('updateCode2', newCode);
   }
 }
+
+// Create a unified debounced validation function
+const debouncedValidate = debounce(async (newCode) => {
+  if (!newCode) {
+    store.dispatch('updateError', null);
+    return;
+  }
+  if(diagramType.value===DiagramType.Mermaid){
+    await validateMermaidSyntaxForStore(newCode, store, 'updateError');
+  } else {
+    await validateSequenceSyntaxForStore(newCode, store, 'updateError');
+  }
+}, 1000);
+// Watch for code changes and update error state
+watch(code, (newCode) => {
+  debouncedValidate(newCode);
+}, { immediate: true });
 
 const diagramSpecificExtensions = computed(() => 
   diagramType.value === DiagramType.Mermaid ? mermaidExtensions : zenumlExtensions
@@ -92,7 +112,11 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  // Cancel the debounced validation function to avoid memory leaks
+  debouncedValidate.cancel();
   cmView.value.destroy();
+  // Clear error state when component is unmounted
+  store.dispatch('updateError', null);
 })
 </script>
 

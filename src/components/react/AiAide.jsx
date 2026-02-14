@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+
 import styled from 'styled-components';
 import DebugComponent from './components/DebugComponent';
 import Conversations from './components/Conversations';
@@ -6,6 +7,7 @@ import MessageSender from './components/MessageSender';
 import uuidv4 from '@/utils/uuid';
 import Button from '@atlaskit/button';
 import { diagramlyChat } from '@/services/GenerateService';
+import { CloseButton } from './CloseButton';
 
 const Page = styled.div`
   display: flex;
@@ -37,6 +39,13 @@ const StyledButton = styled(Button)`
   }
   top: 16px;
   right: 16px;
+`;
+
+const CloseContainer = styled.div`
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 9999;
 `;
 
 const FormDefaultExample = () => {
@@ -133,9 +142,44 @@ const FormDefaultExample = () => {
     []
   );
 
+  const handleExit = React.useCallback(() => {
+    try {
+      if (window && (window).AP && (window).AP.dialog && typeof (window).AP.dialog.close === 'function') {
+        (window).AP.dialog.close();
+        return;
+      }
+    } catch (e) {
+      // ignore and fallback
+    }
+    // Try Forge Bridge `view.close()` when available
+    try {
+      import('@forge/bridge').then(({ view }) => {
+        if (view && typeof view.close === 'function') {
+          view.close();
+        }
+      }).catch(() => {
+        // fallback to postMessage
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'zenuml:closeModal' }, '*');
+        }
+      });
+    } catch (e) {
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'zenuml:closeModal' }, '*');
+        }
+      } catch (e2) {
+        console.warn('Unable to close modal programmatically', e2);
+      }
+    }
+  }, []);
+
   return (
     <Page>
       <DebugComponent />
+      <CloseContainer>
+        <CloseButton exit={handleExit} label="X" small={true} />
+      </CloseContainer>
       <Wrapper>
         <Conversations sessions={sessions} />
         <MessageSender onSubmit={handleSubmit} />

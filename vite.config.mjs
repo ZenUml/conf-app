@@ -87,6 +87,14 @@ export default defineConfig({
       'vue': '@vue/compat',
       '@': resolve(__dirname, './src')
     },
+    dedupe: [
+      '@codemirror/state',
+      '@codemirror/view',
+      '@codemirror/language',
+      '@codemirror/autocomplete',
+      '@lezer/lr',
+      '@lezer/highlight',
+    ]
   },
   plugins: [createVuePlugin({
     template: {
@@ -110,6 +118,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    setupFiles: ['./tests/test-setup.ts'],
     coverage: {
       provider: 'v8',
     },

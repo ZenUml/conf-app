@@ -72,7 +72,6 @@ jobs:
       - name: Deploy "ZenUML for Confluence" to Forge Production
         if: ${{ steps.properties.outputs.license == 'lite' }}
         run: |
-          rm -rf dist/drawio
           pnpm forge:deploy:enable-analytics
           pnpm forge:deploy:lite:prod
       - name: Deploy "Diagramly for Confluence" to Forge Production

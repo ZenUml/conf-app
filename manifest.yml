@@ -154,13 +154,17 @@ permissions:
           inScopeEUD: false
     frames:
       - https://conf-full.zenuml.com/drawio/index.html
+    images:
+      - address: https://*.googletagmanager.com
+        category: analytics
+        inScopeEUD: false
     scripts:
       - https://conf-full.zenuml.com/drawio/js/sanitizer/purify.min.js
       - https://conf-full.zenuml.com/drawio/mxgraph/mxClient.js
       - https://conf-full.zenuml.com/drawio/js/grapheditor/Init.js
       - https://conf-full.zenuml.com/drawio/js/grapheditor/Graph.js
       - https://conf-full.zenuml.com/drawio/js/grapheditor/Shapes.js
-      - address: https://www.googletagmanager.com/gtag/js
+      - address: https://*.googletagmanager.com
         category: analytics
         inScopeEUD: false
       - address: https://www.google-analytics.com/analytics.js

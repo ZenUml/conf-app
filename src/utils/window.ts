@@ -54,6 +54,7 @@ interface EventDetails {
   confluence_space: string;
   macro_uuid?: string;
   isLite?: boolean;
+  isForge?: boolean;
   // event
   event_category: string;
   event_label: string;
@@ -108,6 +109,7 @@ export async function _awaitableTrackEvent(
         confluence_space: getSpaceKey() || "unknown_space",
         macro_uuid: await getMacroUuid(),
         isLite: isLite(),
+        isForge: forgeGlobal.isForge,
       };
     } catch (e) {
       console.error(e);
@@ -218,6 +220,7 @@ export function trackEventSync(
       client_domain: getClientDomain() || "unknown_atlassian_domain",
       confluence_space: getSpaceKey() || "unknown_space",
       isLite: isLite(),
+      isForge: forgeGlobal.isForge,
       ...details,
     };
     

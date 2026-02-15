@@ -48,6 +48,7 @@ describe('ContentPropertyStorageProvider', () => {
         client_domain: 'unknown_atlassian_domain',
         user_account_id: 'unknown_user_account_id',
         isLite: false,
+        isForge: false,
         macro_uuid: "unknown_macro_uuid",
         confluence_space: 'unknown_space'
       }],
@@ -76,6 +77,7 @@ describe('ContentPropertyStorageProvider', () => {
         client_domain: 'unknown_atlassian_domain',
         user_account_id: 'unknown_user_account_id',
         isLite: false,
+        isForge: false,
         macro_uuid: "unknown_macro_uuid",
         confluence_space: 'unknown_space'
       }],

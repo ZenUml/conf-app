@@ -53,8 +53,7 @@ export default {
       zenuml = new ZenUml(this.$refs["zenuml"]);
       await this.render();
       // Track the view event here, after the diagram is rendered
-      const macroData = await globals.apWrapper.getMacroData();
-      trackEvent(macroData?.uuid, 'view_macro', DiagramType.Sequence);
+      trackEvent('', 'view_macro', DiagramType.Sequence);
       EventBus.$emit(
         "diagramLoaded",
         this.$store.state.diagram.code,

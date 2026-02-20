@@ -1,4 +1,5 @@
 .env
+.env.mixpanel
 .env.forge
 .env.forge.local
 .pluprc

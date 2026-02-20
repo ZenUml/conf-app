@@ -1,0 +1,16 @@
+---
+description: Use short git branch names to save command-line space
+alwaysApply: true
+---
+
+# Git Branch Naming
+
+When creating git branches, use **short, concise names** to minimize command-line clutter.
+
+- ❌ `feature/add-user-authentication-with-oauth2-support`
+- ✅ `feat/oauth2-auth`
+
+- ❌ `fix/resolve-rendering-issue-in-diagram-viewer-component`
+- ✅ `fix/diagram-render`
+
+Keep branch names brief while still conveying intent.

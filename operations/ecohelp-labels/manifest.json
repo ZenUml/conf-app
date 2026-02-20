@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "ECOHELP Link Labels",
+  "version": "1.0",
+  "description": "Add persistent labels next to ECOHELP links on Atlassian Service Desk",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["https://ecosystem.atlassian.net/servicedesk/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -82,8 +82,7 @@ async function loadDiagram() {
 
 async function initializeMacro() {
   await globals.apWrapper.initializeContext();
-  const macroData = await globals.apWrapper.getMacroData();
-  trackEvent(macroData?.uuid, 'view_macro', 'openapi');
+  trackEvent('', 'view_macro', 'openapi');
 
   // Initialize with empty doc, will be loaded in loadDiagram
   const doc = {};

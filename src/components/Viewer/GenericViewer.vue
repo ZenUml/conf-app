@@ -94,8 +94,8 @@
             </button>
           </div>
 
-          <!-- P3: Conversion CTA (Gold gradient - Most eye-catching) - Only for Lite with 50+ macros -->
-          <div v-if="isLite && macrosCreated > 50" class="ml-2 pl-2 border-l border-gray-200">
+          <!-- P3: Conversion CTA (Gold gradient - Most eye-catching) - Only for Lite with 50+ macros and not paid -->
+          <div v-if="isLite && macrosCreated > 50 && !spacePaid" class="ml-2 pl-2 border-l border-gray-200">
             <button @click="openUpgradeModal"
                     class="inline-flex items-center gap-1.5 px-3 py-1.5
                            bg-gradient-to-r from-amber-500 to-orange-600
@@ -159,8 +159,8 @@ export default {
   name: "GenericViewer",
   props: ['wide', 'hideHeader'],
   data: () => {
-    const { macrosCreated, severity, shouldBlockActions, upgradeUrl, enterpriseBundleUrl, initialize } = useCustomerSuccessService()
-    
+    const { macrosCreated, severity, shouldBlockActions, upgradeUrl, enterpriseBundleUrl, initialize, spacePaid } = useCustomerSuccessService()
+
     return {
       canUserEdit: true,
       userLiked: false, // TODO: check if user liked the diagram
@@ -174,6 +174,7 @@ export default {
       upgradeUrl,
       enterpriseBundleUrl,
       MACROS_LIMIT,
+      spacePaid,
       initializeCustomerSuccess: initialize
     }
   },

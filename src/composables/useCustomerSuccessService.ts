@@ -4,6 +4,8 @@ import { trackUpgradeEvent, UpgradeEventName } from "@/utils/upgradeTracking"
 import macroMetrics from "@/services/MacroMetrics"
 import { getClientDomain } from "@/utils/ContextParameters/ContextParameters"
 import globals from '@/model/globals'
+import { callRemote } from '@/utils/requestUtil'
+import { getUrlParam } from '@/utils/window'
 
 // Constants that both components use
 export const MACROS_LIMIT = 100
@@ -14,17 +16,27 @@ const BASE_LEARN_MORE_URL = 'https://zenuml.com/upgrade'
 // Shared reactive state across all component instances
 const macrosCreated = ref<number>(0)
 const customerSuccessServiceEnabled = ref<boolean>(false)
+const spacePaidStatus = ref<boolean>(false)
 
 // Cache flags to track if data has been loaded
 let macroMetricsLoaded = false;
 let cssFlagLoaded = false;
+let spacePaidStatusLoaded = false;
 
 export function useCustomerSuccessService() {
   const actionRequired = computed(() => {
+    // If space is paid, no action required
+    if (spacePaidStatus.value) return false
     return macrosCreated.value >= WARNING_THRESHOLD && customerSuccessServiceEnabled.value
   })
 
   const shouldBlockActions = computed(() => {
+    // If space is paid, never block actions
+    if (spacePaidStatus.value) {
+      console.log('✅ Space is paid - bypassing all restrictions')
+      return false
+    }
+
     const isLite = globals.apWrapper.isLite()
     const shouldBlock = macrosCreated.value >= MACROS_LIMIT && customerSuccessServiceEnabled.value && isLite
     console.log('🚫 shouldBlockActions check:', {
@@ -32,6 +44,7 @@ export function useCustomerSuccessService() {
       macrosLimit: MACROS_LIMIT,
       featureFlagEnabled: customerSuccessServiceEnabled.value,
       isLite,
+      spacePaid: spacePaidStatus.value,
       shouldBlock
     })
     return shouldBlock
@@ -118,9 +131,60 @@ export function useCustomerSuccessService() {
     }
   }
 
+  async function loadSpacePaidStatus(): Promise<void> {
+    if (spacePaidStatusLoaded) {
+      console.log('💳 Space paid status already loaded, skipping')
+      return;
+    }
+
+    try {
+      // Check for mock override first (for testing)
+      if (localStorage.mockSpacePaid !== undefined) {
+        spacePaidStatus.value = localStorage.mockSpacePaid === 'true'
+        console.log('🧪 Using mock space paid status:', spacePaidStatus.value)
+        spacePaidStatusLoaded = true;
+        return;
+      }
+
+      // Get the lic parameter from the URL (for Connect apps)
+      const licParam = getUrlParam('lic');
+
+      console.log('🔍 Checking space paid status...')
+      const response = await callRemote(`/api/space-status?lic=${licParam || ''}`, 'GET')
+
+      if (response && typeof response.isPaid === 'boolean') {
+        spacePaidStatus.value = response.isPaid
+        console.log('💳 Space paid status:', {
+          isPaid: response.isPaid,
+          source: response.source,
+          licenseStatus: response.licenseStatus,
+          accountType: response.accountType
+        })
+
+        if (response.isPaid) {
+          trackUpgradeEvent(UpgradeEventName.FEATURE_ENABLED, {
+            feature_name: 'paid_space_detected',
+            source: response.source
+          })
+        }
+      }
+
+      spacePaidStatusLoaded = true;
+    } catch (error) {
+      console.error("❌ Error loading space paid status:", error);
+      // Default to false (unpaid) if we can't determine the status
+      spacePaidStatus.value = false;
+      spacePaidStatusLoaded = true;
+    }
+  }
+
   const initialize = async () => {
-    await loadMacroMetrics();
-    await loadCSSFeatureFlag();
+    // Load all data in parallel for better performance
+    await Promise.all([
+      loadMacroMetrics(),
+      loadCSSFeatureFlag(),
+      loadSpacePaidStatus()
+    ]);
   }
 
   return {
@@ -131,6 +195,7 @@ export function useCustomerSuccessService() {
     upgradeUrl,
     enterpriseBundleUrl,
     learnMoreUrl,
+    spacePaid: spacePaidStatus,
     initialize
   }
 }

@@ -25,7 +25,7 @@ let spacePaidStatusLoaded = false;
 
 export function useCustomerSuccessService() {
   const actionRequired = computed(() => {
-    // If space is paid, no action required
+    if (!globals.apWrapper.isLite()) return false
     if (spacePaidStatus.value) return false
     return macrosCreated.value >= WARNING_THRESHOLD && customerSuccessServiceEnabled.value
   })
@@ -134,6 +134,13 @@ export function useCustomerSuccessService() {
   async function loadSpacePaidStatus(): Promise<void> {
     if (spacePaidStatusLoaded) {
       console.log('💳 Space paid status already loaded, skipping')
+      return;
+    }
+
+    if (!globals.apWrapper.isLite()) {
+      spacePaidStatus.value = true;
+      spacePaidStatusLoaded = true;
+      console.log('💳 Full app — skipping space-status check, no restrictions apply')
       return;
     }
 

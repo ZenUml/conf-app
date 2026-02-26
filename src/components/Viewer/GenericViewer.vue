@@ -294,7 +294,7 @@ console.error('Error getting feature flags', e);
       if (!node) {
         node = parent;
       }
-      const png = await htmlToImage.toBlob(node, {backgroundColor: 'white'});
+      const png = await htmlToImage.toBlob(node, {backgroundColor: 'white', skipFonts: true});
       saveAs(png, 'zenuml-for-confluence.png');
     },
     async getLikes() {

@@ -64,7 +64,7 @@ export async function callRemote(
   
   const url = forgeGlobal.default.isForge 
     ? `${forgeGlobal.default.zenumlRemoteBaseUrl}${endpoint}` 
-    : `${endpoint}?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`;
+    : `${endpoint}${endpoint.includes('?') ? '&' : '?'}xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`;
   
   if (forgeGlobal.default.isForge) {
     const response = await forgeCallRemote(url, method, data);

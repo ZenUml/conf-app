@@ -164,3 +164,53 @@ describe('useCustomerSuccessService - Paid Space Detection', () => {
     expect(spacePaid.value).toBe(false)
   })
 })
+
+describe('useCustomerSuccessService - Full App (no restrictions)', () => {
+  beforeEach(async () => {
+    localStorage.clear()
+    vi.resetModules()
+    vi.clearAllMocks()
+
+    const globals = await import('@/model/globals')
+    vi.mocked(globals.default.apWrapper.isLite).mockReturnValue(false)
+  })
+
+  it('should skip space-status API call for Full app', async () => {
+    const { callRemote } = await import('@/utils/requestUtil')
+
+    localStorage.mockMacroCount = '150'
+    localStorage.mockCSSEnabled = 'true'
+
+    const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
+    const { spacePaid, initialize } = useCustomerSuccessService()
+
+    await initialize()
+
+    expect(spacePaid.value).toBe(true)
+    expect(callRemote).not.toHaveBeenCalled()
+  })
+
+  it('should not block actions for Full app regardless of macro count', async () => {
+    localStorage.mockMacroCount = '150'
+    localStorage.mockCSSEnabled = 'true'
+
+    const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
+    const { shouldBlockActions, initialize } = useCustomerSuccessService()
+
+    await initialize()
+
+    expect(shouldBlockActions.value).toBe(false)
+  })
+
+  it('should not require action for Full app regardless of macro count', async () => {
+    localStorage.mockMacroCount = '90'
+    localStorage.mockCSSEnabled = 'true'
+
+    const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
+    const { actionRequired, initialize } = useCustomerSuccessService()
+
+    await initialize()
+
+    expect(actionRequired.value).toBe(false)
+  })
+})

@@ -141,7 +141,7 @@ function iframeToPng(iframe: HTMLIFrameElement): Promise<Blob> {
  * Convert diagram to PNG.
  * Uses iframe postMessage if mainFrame exists, otherwise uses html-to-image.
  */
-function toPng(): Promise<Blob | null> | undefined {
+function toPng(): Promise<Blob | null | undefined> {
   try {
     /*
     There are 3 options:
@@ -155,10 +155,11 @@ function toPng(): Promise<Blob | null> | undefined {
     }
 
     const node = document.getElementsByClassName('screen-capture-content')[0] as HTMLElement;
-    return htmlToImage.toBlob(node, { backgroundColor: 'white' });
+    return htmlToImage.toBlob(node, { backgroundColor: 'white', skipFonts: true });
   } catch (e) {
     console.error('Failed to convert to png', e);
     trackEvent(JSON.stringify(e), 'convert_to_png', 'error');
+    return Promise.resolve(undefined);
   } finally {
     trackEvent('toPng', 'convert_to_png', 'export');
   }

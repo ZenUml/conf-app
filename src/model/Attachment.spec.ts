@@ -351,7 +351,7 @@ describe('Attachment', () => {
 
       await createAttachmentIfContentChanged('test content');
 
-      expect(htmlToImage.toBlob).toHaveBeenCalledWith(mockElement, { backgroundColor: 'white' });
+      expect(htmlToImage.toBlob).toHaveBeenCalledWith(mockElement, { backgroundColor: 'white', skipFonts: true });
     });
 
     it('should handle errors in toPng gracefully', async () => {
@@ -360,28 +360,19 @@ describe('Attachment', () => {
       const mockElement = document.createElement('div');
       mockElement.className = 'screen-capture-content';
       document.body.appendChild(mockElement);
-      
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
       const error = new Error('Conversion failed');
       vi.mocked(htmlToImage.toBlob).mockRejectedValue(error);
 
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
-      // When toPng fails, htmlToImage.toBlob returns a rejected promise
-      // The try-catch in toPng won't catch async rejections, so the error propagates
-      // uploadAttachment will fail when trying to await the rejected promise
-      mockApRequest.mockResolvedValue({
-        body: JSON.stringify({ results: [{ id: 'attachment-123' }] })
-      });
 
-      // The error will propagate because toPng returns a rejected promise
-      // The try-catch in toPng doesn't catch async rejections from promises
+      // toPng is non-async, so the rejection propagates to the caller
       await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow('Conversion failed');
 
-      // Since the error is an async rejection, toPng's try-catch won't catch it
-      // The error propagates up, so console.error won't be called by toPng
-      // However, the finally block will still execute
+      // The finally block in toPng still runs synchronously
       expect(mockTrackEvent).toHaveBeenCalledWith('toPng', 'convert_to_png', 'export');
-      consoleErrorSpy.mockRestore();
+      // The flag should still be reset in createAttachmentIfContentChanged's finally block
+      expect((window as any).createAttachmentInProgress).toBe(false);
     });
   });
 

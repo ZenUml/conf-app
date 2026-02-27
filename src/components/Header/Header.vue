@@ -81,6 +81,7 @@ import PublishButton from "@/components/PublishButton.vue";
 import CloseButton from "@/components/CloseButton.vue";
 import TabSwitcher from "@/components/TabSwitcher/TabSwitcher.vue";
 import { DiagramType } from "@/model/Diagram/Diagram";
+import { getEditorDiagramOptions, getDiagramConfig, getCodeFromDiagram } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
 import { trackEvent } from "@/utils/window";
 import { getEditJourneyId, getOrCreateSession } from "@/utils/journeyTracking";
@@ -127,12 +128,8 @@ export default {
       titleLoading: false,
       noticeModalVisible: false,
       aiTitleFeatureEnabled: false,
-      originalSeqCode: "",
-      originalMermaidCode: "",
-      diagramOptions: [
-        { value: DiagramType.Sequence, label: 'Sequence' },
-        { value: DiagramType.Mermaid, label: 'Mermaid' }
-      ]
+      originalCode: "",
+      diagramOptions: getEditorDiagramOptions()
     };
   },
   computed: {
@@ -150,14 +147,13 @@ export default {
       }
     },
     ...mapState({
-      seqCode: (state) => state.diagram.code,
-      mermaidCode: (state) => state.diagram.mermaidCode,
       templateUrl: (state) =>
-        state.diagram.diagramType === DiagramType.Sequence
-          ? `https://zenuml.com/docs/category/examples/`
-          : "https://mermaid.js.org/ecosystem/tutorials.html",
+        getDiagramConfig(state.diagram.diagramType)?.templateUrl || '',
       title: (state) => state.diagram.title,
     }),
+    currentCode() {
+      return getCodeFromDiagram(this.$store.state.diagram, this.diagramType);
+    },
     saveAndExit: function () {
       return () => {
         if (!this.$store.state.diagram.title) {
@@ -168,14 +164,12 @@ export default {
     },
     exit: function () {
       return () => {
-        const codeChanged = this.diagramType === DiagramType.Sequence
-          ? this.seqCode !== this.originalSeqCode
-          : this.mermaidCode !== this.originalMermaidCode;
+        const codeChanged = this.currentCode !== this.originalCode;
 
         // Determine if creating new or editing existing
         const isNew = !this.$store.state.diagram.id;
         const eventAction = isNew ? 'before_create_macro_exit' : 'before_edit_macro_exit';
-        
+
         // Track exit button click with journey context
         trackEvent("", eventAction, this.diagramType, {
           had_changes: codeChanged,
@@ -183,12 +177,8 @@ export default {
           source: "header_exit_button",
           journey_id: getEditJourneyId(),
           session_id: getOrCreateSession(),
-          initial_code_length: this.diagramType === DiagramType.Sequence 
-            ? (this.originalSeqCode?.length || 0)
-            : (this.originalMermaidCode?.length || 0),
-          current_code_length: this.diagramType === DiagramType.Sequence
-            ? (this.seqCode?.length || 0)
-            : (this.mermaidCode?.length || 0),
+          initial_code_length: this.originalCode?.length || 0,
+          current_code_length: this.currentCode?.length || 0,
         });
 
         EventBus.$emit("exit", codeChanged);
@@ -234,10 +224,10 @@ export default {
       this.noticeModalVisible = false;
       this.titleLoading = true;
       const res = await aiGenerateTitle({
-        dsl: this.diagramType === DiagramType.Mermaid ? this.mermaidCode : this.seqCode,
+        dsl: this.currentCode,
         type:
           this.diagramType === DiagramType.Mermaid
-            ? getMermaidType(this.mermaidCode)
+            ? getMermaidType(this.currentCode)
             : DiagramType.Sequence,
       }).catch((e) => {
         this.titleLoading = false;
@@ -264,11 +254,7 @@ export default {
     }
 
     // Store original code for change detection on exit
-    if (this.diagramType === DiagramType.Mermaid) {
-      this.originalMermaidCode = this.mermaidCode;
-    } else {
-      this.originalSeqCode = this.seqCode;
-    }
+    this.originalCode = this.currentCode;
 
     // this.aiTitleFeatureEnabled = await getFeatureFlags(['AI_TITLE']).then(res => res.AI_TITLE.enabled);
     this.aiTitleFeatureEnabled = false; // Disable the AI title feature as it is not ready

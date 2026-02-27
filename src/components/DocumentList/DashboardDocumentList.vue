@@ -306,6 +306,7 @@
 import PublishButton from "@/components/PublishButton.vue";
 import CloseButton from "@/components/CloseButton.vue";
 import { DiagramType } from "@/model/Diagram/Diagram";
+import { getViewerUrl } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
 import AP from "@/model/AP";
 import { CustomContentStorageProvider } from "@/model/ContentProvider/CustomContentStorageProvider";
@@ -419,22 +420,6 @@ export default {
         return "";
       }
 
-      function getViewerUrl(diagramType) {
-        if (
-          diagramType === DiagramType.Sequence ||
-          diagramType === DiagramType.Mermaid
-        ) {
-          return "/sequence-viewer.html";
-        }
-        if (diagramType === DiagramType.Graph) {
-          return "/drawio/viewer.html";
-        }
-        if (diagramType === DiagramType.OpenApi) {
-          return "/swagger-ui.html";
-        }
-
-        console.warn(`Unknown diagramType: ${diagramType}`);
-      }
       return `${getViewerUrl(this.picked.value.diagramType)}${
         window.location.search || "?"
       }&rendered.for=custom-content-native&content.id=${

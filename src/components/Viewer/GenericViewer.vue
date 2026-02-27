@@ -142,6 +142,7 @@ import Debug from '@/components/Debug/Debug.vue'
 import ErrorBoundary from "@/components/ErrorBoundary.vue";
 import globals from '@/model/globals';
 import {DataSource} from "@/model/Diagram/Diagram";
+import { getCodeFromDiagram } from "@/model/Diagram/DiagramTypeConfig";
 import {getUrlParam} from '@/utils/window';
 import {getClientDomain} from '@/utils/ContextParameters/ContextParameters';
 import SendFeedback from "@/components/SendFeedback.vue";
@@ -345,9 +346,7 @@ console.error('Error getting feature flags', e);
       trackEvent("copy_code", "click", this.diagramType);
       
       try {
-        const code = this.diagramType === 'mermaid' 
-          ? this.diagram.mermaidCode 
-          : this.diagram.code;
+        const code = getCodeFromDiagram(this.diagram, this.diagramType);
         
         if (!code) {
           toast({ message: 'No code to copy', duration: 2000 });

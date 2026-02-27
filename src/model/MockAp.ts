@@ -35,6 +35,15 @@ export default class MockAp implements IAp {
       return 'OK. (req is empty)'
     }
 
+    if (req.url === '/rest/api/user/current') {
+      return {body: JSON.stringify({
+        accountId: 'fake:user-account-id',
+        displayName: 'Local Dev User',
+        publicName: 'Local Dev User',
+        accountType: 'atlassian',
+      })};
+    }
+
     // if request.url start with '/rest/api/content/fake-content-id', return mocked response
     if (req.url.startsWith('/api/v2/custom-content/fake-content-id-diagram-sequence')) {
       return {body: JSON.stringify(customContentByIdV1DiagramSequence)};
@@ -100,7 +109,8 @@ export default class MockAp implements IAp {
       getContext: (cb: any) => cb({
           confluence: { content: {id: this.contentId, type: 'page'}, space: this.CURRENT_SPACE }
         }
-      )
+      ),
+      getToken: () => Promise.resolve('fake-local-dev-token'),
     };
     // @ts-ignore
     this.requestHandlers.push({match: r => {

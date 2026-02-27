@@ -1,6 +1,7 @@
 import store from '@/model/store2';
 import globals from '@/model/globals';
 import {DiagramType} from "@/model/Diagram/Diagram";
+import { getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import { getBaseUrl } from "@/utils/ContextParameters/ContextParameters";
 import {addonKey} from '@/utils/window';
 import { callRemote } from '@/utils/requestUtil';
@@ -28,11 +29,7 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
 
       store.dispatch('updateGenerating', false);
 
-      if(diagramType === DiagramType.Sequence) {
-        store.dispatch('updateCode2', result.dsl);
-      } else {
-        store.dispatch('updateMermaidCode', result.dsl);
-      }
+      store.dispatch(getStoreUpdateAction(diagramType), result.dsl);
 
       store.dispatch('updateTitle', result.diagramTitle);
       store.dispatch('updateMetadata', { diagramId: result.diagramId });

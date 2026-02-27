@@ -1,4 +1,5 @@
 import { DiagramType } from "@/model/Diagram/Diagram";
+import { getDiagramConfig } from "@/model/Diagram/DiagramTypeConfig";
 import globals from "@/model/globals";
 import { trackEvent } from "@/utils/window";
 import ApWrapper2 from "@/model/ApWrapper2";
@@ -144,21 +145,12 @@ export class MacroMetrics {
   }
 
   private updateDiagramStats(stats: Partial<IMacroMetrics>, diagramType: DiagramType): void {
-    switch (diagramType) {
-      case DiagramType.Sequence:
-        stats.sequence!++;
-        break;
-      case DiagramType.Graph:
-        stats.graph!++;
-        break;
-      case DiagramType.OpenApi:
-        stats.openapi!++;
-        break;
-      case DiagramType.Mermaid:
-        stats.mermaid!++;
-        break;
-      default:
-        stats.unknown!++;
+    const config = getDiagramConfig(diagramType);
+    if (config) {
+      const field = config.metricField as keyof IMacroMetrics;
+      (stats[field] as number)++;
+    } else {
+      stats.unknown!++;
     }
   }
 

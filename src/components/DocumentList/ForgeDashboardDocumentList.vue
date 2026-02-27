@@ -321,6 +321,7 @@
 import PublishButton from "@/components/PublishButton.vue";
 import CloseButton from "@/components/CloseButton.vue";
 import { DiagramType } from "@/model/Diagram/Diagram";
+import { getViewerUrl, loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
 import AP from "@/model/AP";
 import { CustomContentStorageProvider } from "@/model/ContentProvider/CustomContentStorageProvider";
@@ -456,22 +457,6 @@ export default {
         return "";
       }
 
-      function getViewerUrl(diagramType) {
-        if (
-          diagramType === DiagramType.Sequence ||
-          diagramType === DiagramType.Mermaid
-        ) {
-          return "/sequence-viewer.html";
-        }
-        if (diagramType === DiagramType.Graph) {
-          return "/drawio/viewer.html";
-        }
-        if (diagramType === DiagramType.OpenApi) {
-          return "/swagger-ui.html";
-        }
-
-        console.warn(`Unknown diagramType: ${diagramType}`);
-      }
       return `${getViewerUrl(this.picked.value.diagramType)}${
         window.location.search || "?"
       }&rendered.for=custom-content-native&content.id=${
@@ -530,34 +515,15 @@ export default {
   methods: {
     async getPreviewComponentForForge(diagramType) {
       console.log('getPreviewComponentForForge', diagramType);
-      // Return cached component if available
       if (this.previewComponentCache[diagramType]) {
         return this.previewComponentCache[diagramType];
       }
 
-      try {
-        let component = null;
-        
-        if (diagramType === DiagramType.Sequence || diagramType === DiagramType.Mermaid) {
-          const { default: DiagramPortal } = await import('@/components/DiagramPortal.vue');
-          component = DiagramPortal;
-        } else if (diagramType === DiagramType.Graph) {
-          const { default: ForgeGraphViewerEmbed } = await import('@/components/Viewer/ForgeGraphViewerEmbed.vue');
-          component = ForgeGraphViewerEmbed;
-        } else if (diagramType === DiagramType.OpenApi) {
-          const { default: ForgeOpenApiViewer } = await import('@/components/Viewer/ForgeOpenApiViewer.vue');
-          component = ForgeOpenApiViewer;
-        }
-
-        if (component) {
-          this.previewComponentCache[diagramType] = component;
-        }
-
-        return component;
-      } catch (e) {
-        console.error('Failed to load preview component for type:', diagramType, e);
-        return null;
+      const component = await loadForgeViewerComponent(diagramType);
+      if (component) {
+        this.previewComponentCache[diagramType] = component;
       }
+      return component;
     },
     async getUserLikedDiagramIds() {
       try {

@@ -61,6 +61,7 @@ import { computed, ref, onMounted } from "vue";
 import { useStore } from "vuex";
 import AIRepair from "@/components/AIRepair.vue";
 import { DiagramType } from "@/model/Diagram/Diagram";
+import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import getFeatureFlags from '@/apis/featureFlags';
 const store = useStore();
 const showAIRepairDialog = ref(false);
@@ -69,10 +70,7 @@ const aiRepairFeatureEnabled = ref(false);
 const error = computed(() => store.state.error);
 // Get the current code from the store
 const code = computed(() => {
-  const diagramType = store.state.diagram.diagramType;
-  return diagramType === DiagramType.Mermaid
-    ? store.state.diagram.mermaidCode
-    : store.state.diagram.code;
+  return getCodeFromDiagram(store.state.diagram, store.state.diagram.diagramType);
 });
 // Get the diagram type
 const diagramType = computed(() => store.state.diagram.diagramType);
@@ -82,12 +80,7 @@ const isAiRepairEnabled = computed(() => {
 });
 // Handle applying the repair
 const handleApplyRepair = (repairedCode) => {
-  const diagramType = store.state.diagram.diagramType;
-  if (diagramType === DiagramType.Mermaid) {
-    store.dispatch("updateMermaidCode", repairedCode);
-  } else {
-    store.dispatch("updateCode2", repairedCode);
-  }
+  store.dispatch(getStoreUpdateAction(store.state.diagram.diagramType), repairedCode);
   showAIRepairDialog.value = false;
 };
 // Load the AI repair feature flag when component mounts

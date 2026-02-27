@@ -21,6 +21,8 @@
 </template>
 
 <script>
+import { loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
+
 export default {
   name: "ForgeEmbedViewer",
   props: {
@@ -38,32 +40,9 @@ export default {
     await this.initializeViewer();
   },
   methods: {
-    async loadViewerComponent(diagramType) {
-      try {
-        if(diagramType === 'sequence' || diagramType === 'mermaid') {
-          // Import sequence viewer components
-          const { default: DiagramPortal } = await import('@/components/DiagramPortal.vue');
-          return DiagramPortal;
-        }
-        if(diagramType === 'graph') {
-          // Import Forge-specific graph viewer component for embed
-          const { default: ForgeGraphViewerEmbed } = await import('@/components/Viewer/ForgeGraphViewerEmbed.vue');
-          return ForgeGraphViewerEmbed;
-        }
-        if(diagramType === 'OpenAPI') {
-          // Import Forge-specific OpenAPI viewer component
-          const { default: ForgeOpenApiViewer } = await import('@/components/Viewer/ForgeOpenApiViewer.vue');
-          return ForgeOpenApiViewer;
-        }
-        return null;
-      } catch (e) {
-        console.error('Failed to load viewer component for type:', diagramType, e);
-        return null;
-      }
-    },
     async initializeViewer() {
       if (this.diagramType) {
-        this.viewerComponent = await this.loadViewerComponent(this.diagramType);
+        this.viewerComponent = await loadForgeViewerComponent(this.diagramType);
         if (this.viewerComponent) {
           this.loading = false;
         } else {

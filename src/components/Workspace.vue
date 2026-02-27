@@ -114,7 +114,32 @@
 }
 
 .gutter.gutter-horizontal {
-  background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAeCAYAAADkftS9AAAAIklEQVQoU2M4c+bMfxAGAgYYmwGrIIiDjrELjpo5aiZeMwF+yNnOs5KSvgAAAABJRU5ErkJggg==');
   cursor: col-resize;
+  background-color: #e5e7eb;
+  transition: background-color 0.15s ease;
+  position: relative;
+  width: 6px !important;
+}
+
+.gutter.gutter-horizontal:hover {
+  background-color: #9ca3af;
+}
+
+/* Handle bar centred in the gutter */
+.gutter.gutter-horizontal::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 32px;
+  border-radius: 2px;
+  background-color: #d1d5db;
+  transition: background-color 0.15s ease;
+}
+
+.gutter.gutter-horizontal:hover::after {
+  background-color: #6b7280;
 }
 </style>

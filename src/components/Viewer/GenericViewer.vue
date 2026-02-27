@@ -401,6 +401,8 @@ console.error('Error getting feature flags', e);
 }
 .header {
   border-bottom: #E6E6E6 1px solid;
+  background-color: #f9fafb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 /* App type indicator - uses pseudo-element to avoid layout impact */

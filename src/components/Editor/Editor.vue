@@ -19,6 +19,7 @@ import {computed, onMounted, ref, watch, onBeforeUnmount, onBeforeMount} from "v
 import {useStore} from "vuex";
 import { validateMermaidSyntaxForStore } from "@/utils/mermaid/validate";
 import { validateSequenceSyntaxForStore } from "@/utils/sequence/validate";
+import { validatePlantUmlSyntaxForStore } from "@/utils/plantuml/validate";
 import { debounce } from 'lodash';
 
 const store = useStore();
@@ -45,6 +46,8 @@ const debouncedValidate = debounce(async (newCode) => {
   }
   if(diagramType.value===DiagramType.Mermaid){
     await validateMermaidSyntaxForStore(newCode, store, 'updateError');
+  } else if(diagramType.value===DiagramType.PlantUml){
+    await validatePlantUmlSyntaxForStore(newCode, store, 'updateError');
   } else {
     await validateSequenceSyntaxForStore(newCode, store, 'updateError');
   }

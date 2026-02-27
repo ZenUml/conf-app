@@ -10,6 +10,7 @@ export enum DataSource {
 export enum DiagramType {
   Sequence = 'sequence',
   Mermaid = 'mermaid',
+  PlantUml = 'plantuml',
   Graph = 'graph',
   OpenApi = 'OpenAPI',
   Embed = 'embed',
@@ -25,6 +26,9 @@ export function getDiagramData(o: any): string{
       break;
     case DiagramType.Mermaid:
       body = o.mermaidCode || '';
+      break;
+    case DiagramType.PlantUml:
+      body = o.plantUmlCode || '';
       break;
     case DiagramType.Graph:
       body = o.graphXml || '';
@@ -42,6 +46,7 @@ export class Diagram {
   title?: string = '';
   styles?: object = {};
   mermaidCode?: string = '';
+  plantUmlCode?: string = '';
   graphXml?: string = '';
   /**
    * No diagrams need to be compressed anymore. This is kept for backward compatibility.
@@ -64,6 +69,7 @@ const NULL_DIAGRAM = {
   title: '',
   styles: {},
   mermaidCode: '',
+  plantUmlCode: '',
   graphXml: '',
   source: DataSource.Unknown,
   payload: undefined,

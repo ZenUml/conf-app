@@ -32,6 +32,16 @@ const CONFIGS: Partial<Record<DiagramType, DiagramTypeConfig>> = {
     metricField: 'mermaid',
     rendersInDiagramPortal: true,
   },
+  [DiagramType.PlantUml]: {
+    dataField: 'plantUmlCode',
+    storeUpdateAction: 'updatePlantUmlCode',
+    wide: true,
+    viewerUrl: '/sequence-viewer.html',
+    templateUrl: 'https://plantuml.com/guide',
+    label: 'PlantUML',
+    metricField: 'plantuml',
+    rendersInDiagramPortal: true,
+  },
   [DiagramType.Graph]: {
     dataField: 'graphXml',
     storeUpdateAction: '', // Graph uses DrawIO editor, not the code editor dispatch path
@@ -78,7 +88,7 @@ export function getStoreUpdateAction(type: DiagramType): string {
 }
 
 export function getEditorDiagramOptions(): Array<{ value: DiagramType; label: string }> {
-  return [DiagramType.Sequence, DiagramType.Mermaid]
+  return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml]
     .filter(type => CONFIGS[type])
     .map(type => ({ value: type, label: CONFIGS[type]!.label }));
 }

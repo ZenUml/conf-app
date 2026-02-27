@@ -14,6 +14,7 @@ export interface IMacroMetrics {
   graph: number;
   openapi: number;
   mermaid: number;
+  plantuml: number;
   unknown: number;
   isLite: boolean;
   lastUpdated?: string;
@@ -119,6 +120,7 @@ export class MacroMetrics {
       graph: 0,
       openapi: 0,
       mermaid: 0,
+      plantuml: 0,
       unknown: 0
     };
   }

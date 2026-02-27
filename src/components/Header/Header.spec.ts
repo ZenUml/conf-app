@@ -14,7 +14,7 @@ describe('Header', () => {
 
     // Find tab buttons through TabSwitcher component
     const tabButtons = headerWrapper.findAll('.tab-switcher button');
-    expect(tabButtons).toHaveLength(2);
+    expect(tabButtons).toHaveLength(3);
 
     const sequenceButton = tabButtons[0];
     const mermaidButton = tabButtons[1];

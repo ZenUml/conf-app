@@ -41,6 +41,15 @@ describe('DiagramTypeConfig', () => {
       expect(config!.viewerUrl).toBe('/swagger-ui.html');
     });
 
+    it('returns config for PlantUml', () => {
+      const config = getDiagramConfig(DiagramType.PlantUml);
+      expect(config).toBeDefined();
+      expect(config!.dataField).toBe('plantUmlCode');
+      expect(config!.storeUpdateAction).toBe('updatePlantUmlCode');
+      expect(config!.wide).toBe(true);
+      expect(config!.rendersInDiagramPortal).toBe(true);
+    });
+
     it('returns undefined for Embed', () => {
       expect(getDiagramConfig(DiagramType.Embed)).toBeUndefined();
     });
@@ -93,6 +102,11 @@ describe('DiagramTypeConfig', () => {
       expect(getCodeFromDiagram(diagram, DiagramType.OpenApi)).toBe('openapi: 3.0');
     });
 
+    it('returns plantUmlCode for PlantUml diagram', () => {
+      const diagram = { plantUmlCode: '@startuml\nA->B\n@enduml' };
+      expect(getCodeFromDiagram(diagram, DiagramType.PlantUml)).toBe('@startuml\nA->B\n@enduml');
+    });
+
     it('returns empty string for unknown type', () => {
       const diagram = { code: 'test' };
       expect(getCodeFromDiagram(diagram, DiagramType.Unknown)).toBe('');
@@ -113,17 +127,22 @@ describe('DiagramTypeConfig', () => {
       expect(getStoreUpdateAction(DiagramType.Mermaid)).toBe('updateMermaidCode');
     });
 
+    it('returns updatePlantUmlCode for PlantUml', () => {
+      expect(getStoreUpdateAction(DiagramType.PlantUml)).toBe('updatePlantUmlCode');
+    });
+
     it('returns fallback for unknown type', () => {
       expect(getStoreUpdateAction(DiagramType.Unknown)).toBe('updateCode2');
     });
   });
 
   describe('getEditorDiagramOptions', () => {
-    it('returns Sequence and Mermaid options', () => {
+    it('returns Sequence, Mermaid, and PlantUML options', () => {
       const options = getEditorDiagramOptions();
-      expect(options).toHaveLength(2);
+      expect(options).toHaveLength(3);
       expect(options[0]).toEqual({ value: DiagramType.Sequence, label: 'Sequence' });
       expect(options[1]).toEqual({ value: DiagramType.Mermaid, label: 'Mermaid' });
+      expect(options[2]).toEqual({ value: DiagramType.PlantUml, label: 'PlantUML' });
     });
   });
 });

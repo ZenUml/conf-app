@@ -68,6 +68,11 @@ async function main() {
     }
   }
 
+  // Backfill default PlantUML DSL for existing diagrams created before PlantUML support
+  if (!doc.plantUmlCode) {
+    doc = { ...doc, plantUmlCode: Example.PlantUml };
+  }
+
   mountRoot(doc, Workspace);
 
   // Track begin event (create or edit)

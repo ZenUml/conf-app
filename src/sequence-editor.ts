@@ -63,6 +63,7 @@ async function main() {
       diagramType: DiagramType.Sequence,
       code: Example.Sequence,
       mermaidCode: Example.Mermaid,
+      plantUmlCode: Example.PlantUml,
       isNew: true
     }
   }

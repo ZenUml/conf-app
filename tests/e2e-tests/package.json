@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "test": "playwright test",
+    "test:prod": "ZENUML_DOMAIN=zenuml.atlassian.net ZENUML_SPACE=ZEN playwright test",
     "test:trace": "playwright test --trace on",
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",

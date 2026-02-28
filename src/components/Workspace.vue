@@ -24,7 +24,7 @@
         <SyntaxErrorBox />
       </div>
       <div class="feedback-section flex-shrink-0">
-        <CSAT />
+        <CSAT variant="bar" />
         <AIFeedback />
       </div>
     </div>

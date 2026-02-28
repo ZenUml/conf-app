@@ -54,11 +54,11 @@ export default {
       if (!isActive) return `${baseClasses} ${inactiveClasses}`.trim()
 
       const activeByType = {
-        sequence: 'bg-amber-50 text-amber-700 border-2 border-amber-400 hover:bg-amber-100 focus-visible:ring-amber-400',
-        mermaid:  'bg-emerald-50 text-emerald-700 border-2 border-emerald-400 hover:bg-emerald-100 focus-visible:ring-emerald-400',
-        plantuml: 'bg-violet-50 text-violet-700 border-2 border-violet-400 hover:bg-violet-100 focus-visible:ring-violet-400',
+        sequence: 'bg-amber-100 text-amber-800 shadow-sm hover:bg-amber-200 focus-visible:ring-amber-400',
+        mermaid:  'bg-emerald-100 text-emerald-800 shadow-sm hover:bg-emerald-200 focus-visible:ring-emerald-400',
+        plantuml: 'bg-violet-100 text-violet-800 shadow-sm hover:bg-violet-200 focus-visible:ring-violet-400',
       }
-      return `${baseClasses} ${activeByType[value] ?? 'border-2 border-blue-600 text-blue-600 hover:bg-blue-50'}`.trim()
+      return `${baseClasses} ${activeByType[value] ?? 'bg-blue-100 text-blue-800 shadow-sm hover:bg-blue-200'}`.trim()
     },
     getDotClass(value) {
       const isActive = this.modelValue === value

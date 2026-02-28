@@ -1,10 +1,5 @@
 <template>
   <div class="flex flex-col h-full overflow-y-scroll">
-    <!-- Context strip: shows current diagram type with its accent colour -->
-    <div class="flex items-center gap-2 px-3 h-8 min-h-8 border-b border-gray-100 bg-gray-50 flex-shrink-0">
-      <span :class="dotClass" aria-hidden="true" class="w-2 h-2 rounded-full flex-shrink-0"></span>
-      <span class="text-xs font-semibold tracking-wide text-gray-400 uppercase select-none">{{ paneLabel }}</span>
-    </div>
     <div class="flex flex-col h-full justify-between">
       <div v-show="!store.state.generating" class="dsl-editor flex flex-1" ref="rootElement"> </div>
       <div v-if="store.state.generating" style="margin-top: 2px;"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block" class="tabler-icon tabler-icon-loader-2 h-5 w-5 animate-spin text-primary"><path d="M12 3a9 9 0 1 0 9 9"></path></svg> Generating diagram code ...</div>
@@ -36,24 +31,6 @@ const canUserEdit = ref();
 let diagramCompartment = new Compartment()
 
 const diagramType = computed(() => store.state.diagram.diagramType);
-
-const paneLabel = computed(() => {
-  const labels = {
-    [DiagramType.Sequence]: 'sequence.zen',
-    [DiagramType.Mermaid]:  'diagram.mmd',
-    [DiagramType.PlantUml]: 'sequence.puml',
-  }
-  return labels[diagramType.value] ?? diagramType.value
-})
-
-const dotClass = computed(() => {
-  const dots = {
-    [DiagramType.Sequence]: 'bg-amber-500',
-    [DiagramType.Mermaid]:  'bg-emerald-500',
-    [DiagramType.PlantUml]: 'bg-violet-500',
-  }
-  return dots[diagramType.value] ?? 'bg-gray-400'
-})
 
 const code = computed(() => getCodeFromDiagram(store.state.diagram, diagramType.value))
 

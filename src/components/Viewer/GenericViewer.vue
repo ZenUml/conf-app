@@ -3,8 +3,7 @@
 <div class="generic viewer mx-1 pr-2">
   <Debug />
   <error-boundary>
-  <div :class="{'w-full': wide, 'w-fit': !wide, 'mx-auto': true}">
-    <div class="frame relative" :class="{'w-full': wide, 'min-w-[300px]': !wide}">
+    <div class="frame relative" :class="{'w-full': wide, 'w-fit mx-auto min-w-[300px]': !wide}">
       <div class="header flex items-center justify-between px-4 py-2 border-b border-gray-200" :class="[headerBgClass, {'app-indicator': !isProduction, flex: isDisplayMode && !hideHeader, hidden: !isDisplayMode || hideHeader}]" :data-app="appType">
         <!-- Left: Primary & Secondary Actions -->
         <div class="flex items-center gap-2">
@@ -112,13 +111,10 @@
           </div>
         </div>
       </div>
-      <div class="flex justify-center screen-capture-content">
-        <div :class="{'w-full': wide, 'mr-8': !wide}">
-          <slot></slot>
-        </div>
+      <div class="screen-capture-content" :class="{'w-full': wide}">
+        <slot></slot>
       </div>
     </div>
-  </div>
   </error-boundary>
   
   <UpgradePrompt 

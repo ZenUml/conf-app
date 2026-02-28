@@ -12,6 +12,9 @@ const ExtendedStore: StoreOptions<RootState> = {
     updateMermaidCode(state: any, payload: any) {
       state.diagram.mermaidCode = payload
     },
+    updatePlantUmlCode(state: any, payload: any) {
+      state.diagram.plantUmlCode = payload
+    },
     updateDiagramType(state: any, payload: any) {
       state.diagram.diagramType = payload
     },
@@ -36,6 +39,9 @@ const ExtendedStore: StoreOptions<RootState> = {
     },
     updateMermaidCode({commit}: any, payload: any) {
       commit('updateMermaidCode', payload)
+    },
+    updatePlantUmlCode({commit}: any, payload: any) {
+      commit('updatePlantUmlCode', payload)
     },
     updateDiagramType({commit}: any, payload: DiagramType) {
       commit('updateDiagramType', payload)

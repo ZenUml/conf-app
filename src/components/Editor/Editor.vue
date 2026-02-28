@@ -12,12 +12,14 @@
 import {EditorView} from '@codemirror/view'
 import globals from "@/model/globals";
 import {DiagramType} from "@/model/Diagram/Diagram";
+import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import {EditorState, Compartment} from '@codemirror/state';
 import {baseExtensionsFactory, mermaidExtensions, zenumlExtensions} from "./extensions";
 import {computed, onMounted, ref, watch, onBeforeUnmount, onBeforeMount} from "vue";
 import {useStore} from "vuex";
 import { validateMermaidSyntaxForStore } from "@/utils/mermaid/validate";
 import { validateSequenceSyntaxForStore } from "@/utils/sequence/validate";
+import { validatePlantUmlSyntaxForStore } from "@/utils/plantuml/validate";
 import { debounce } from 'lodash';
 
 const store = useStore();
@@ -30,17 +32,10 @@ let diagramCompartment = new Compartment()
 
 const diagramType = computed(() => store.state.diagram.diagramType);
 
-const code = computed(() => diagramType.value === DiagramType.Mermaid ? store.state.diagram.mermaidCode : store.state.diagram.code)
+const code = computed(() => getCodeFromDiagram(store.state.diagram, diagramType.value))
 
 const onEditorCodeChange = (newCode) => {
-  const isMermaid = diagramType.value === DiagramType.Mermaid;
-
-  if (isMermaid) {
-    store.dispatch('updateMermaidCode', newCode);
-  } else {
-    // TODO: rename the action updateCode2
-    store.dispatch('updateCode2', newCode);
-  }
+  store.dispatch(getStoreUpdateAction(diagramType.value), newCode);
 }
 
 // Create a unified debounced validation function
@@ -51,6 +46,8 @@ const debouncedValidate = debounce(async (newCode) => {
   }
   if(diagramType.value===DiagramType.Mermaid){
     await validateMermaidSyntaxForStore(newCode, store, 'updateError');
+  } else if(diagramType.value===DiagramType.PlantUml){
+    await validatePlantUmlSyntaxForStore(newCode, store, 'updateError');
   } else {
     await validateSequenceSyntaxForStore(newCode, store, 'updateError');
   }

@@ -122,6 +122,7 @@ describe('MacroMetrics', () => {
           graph: 1,
           openapi: 1,
           mermaid: 1,
+          plantuml: 0,
           unknown: 1,
           isLite: false
         });
@@ -145,6 +146,7 @@ describe('MacroMetrics', () => {
           graph: 0,
           openapi: 0,
           mermaid: 0,
+          plantuml: 0,
           unknown: 0,
           isLite: false
         });

@@ -80,7 +80,7 @@ describe('ApWrapper', () => {
     let mockAp = new MockAp();
     let apWrapper2 = new ApWrapper2(mockAp);
     await apWrapper2.initializeContext();
-    expect(await apWrapper2.currentUser).toStrictEqual({"atlassianAccountId": "fake:user-account-id"});
+    expect(apWrapper2.currentUser).toMatchObject({atlassianAccountId: "fake:user-account-id", displayName: "Local Dev User", publicName: "Local Dev User", accountType: "atlassian"});
     expect(await apWrapper2.currentSpace).toBe(mockAp.CURRENT_SPACE);
   })
 
@@ -106,7 +106,7 @@ describe('ApWrapper', () => {
     });
     apWrapper2.getCurrentSpace = _getCurrentSpace.bind(apWrapper2);
     await apWrapper2.initializeContext();
-    expect(await apWrapper2.currentUser).toStrictEqual({"atlassianAccountId": "fake:user-account-id"});
+    expect(apWrapper2.currentUser).toMatchObject({atlassianAccountId: "fake:user-account-id", displayName: "Local Dev User", publicName: "Local Dev User", accountType: "atlassian"});
     expect(await apWrapper2.currentSpace).toBeUndefined();
   })
 })

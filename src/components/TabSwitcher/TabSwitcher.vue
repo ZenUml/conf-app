@@ -10,7 +10,8 @@
       :class="getButtonClass(option.value)"
       @click="handleSelect(option.value)"
     >
-      <span :class="getTextClass(option.value)">
+      <span :class="getDotClass(option.value)" aria-hidden="true"></span>
+      <span :class="getTextClass()">
         {{ option.label }}
       </span>
     </button>
@@ -47,17 +48,30 @@ export default {
     },
     getButtonClass(value) {
       const isActive = this.modelValue === value
-      const baseClasses = 'px-3 py-1.5 rounded-md flex items-center text-sm font-medium focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus:outline-none transition-colors duration-200'
-      const activeClasses = 'border-2 border-blue-600 text-blue-600 hover:bg-blue-50'
+      const baseClasses = 'px-3 py-1.5 rounded-md flex items-center gap-1.5 text-sm font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus:outline-none transition-colors duration-200'
       const inactiveClasses = 'text-gray-600 hover:text-gray-900 hover:bg-white/60'
 
-      return isActive
-        ? `${baseClasses} ${activeClasses}`.trim()
-        : `${baseClasses} ${inactiveClasses}`.trim()
+      if (!isActive) return `${baseClasses} ${inactiveClasses}`.trim()
+
+      const activeByType = {
+        sequence: 'bg-amber-100 text-amber-800 shadow-sm hover:bg-amber-200 focus-visible:ring-amber-400',
+        mermaid:  'bg-emerald-100 text-emerald-800 shadow-sm hover:bg-emerald-200 focus-visible:ring-emerald-400',
+        plantuml: 'bg-violet-100 text-violet-800 shadow-sm hover:bg-violet-200 focus-visible:ring-violet-400',
+      }
+      return `${baseClasses} ${activeByType[value] ?? 'bg-blue-100 text-blue-800 shadow-sm hover:bg-blue-200'}`.trim()
     },
-    getTextClass(value) {
-      const baseClasses = 'sr-only lg:not-sr-only'
-      return baseClasses
+    getDotClass(value) {
+      const isActive = this.modelValue === value
+      const base = 'w-2 h-2 rounded-full flex-shrink-0'
+      const dotByType = {
+        sequence: isActive ? `${base} bg-amber-500`  : `${base} bg-amber-300`,
+        mermaid:  isActive ? `${base} bg-emerald-500`: `${base} bg-emerald-300`,
+        plantuml: isActive ? `${base} bg-violet-500` : `${base} bg-violet-300`,
+      }
+      return dotByType[value] ?? `${base} bg-gray-400`
+    },
+    getTextClass() {
+      return 'sr-only lg:not-sr-only'
     }
   }
 }

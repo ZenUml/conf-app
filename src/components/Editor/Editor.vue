@@ -14,7 +14,7 @@ import globals from "@/model/globals";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import {EditorState, Compartment} from '@codemirror/state';
-import {baseExtensionsFactory, mermaidExtensions, zenumlExtensions} from "./extensions";
+import {baseExtensionsFactory, mermaidExtensions, zenumlExtensions, plantUmlExtensions} from "./extensions";
 import {computed, onMounted, ref, watch, onBeforeUnmount, onBeforeMount} from "vue";
 import {useStore} from "vuex";
 import { validateMermaidSyntaxForStore } from "@/utils/mermaid/validate";
@@ -57,9 +57,11 @@ watch(code, (newCode) => {
   debouncedValidate(newCode);
 }, { immediate: true });
 
-const diagramSpecificExtensions = computed(() => 
-  diagramType.value === DiagramType.Mermaid ? mermaidExtensions : zenumlExtensions
-);
+const diagramSpecificExtensions = computed(() => {
+  if (diagramType.value === DiagramType.Mermaid) return mermaidExtensions;
+  if (diagramType.value === DiagramType.PlantUml) return plantUmlExtensions;
+  return zenumlExtensions;
+});
 
 watch(code, (newVal) => {
   if (newVal === cmView.value.state.doc.toString()) return
@@ -127,5 +129,11 @@ onBeforeUnmount(() => {
 
 .ͼ5 {
   color: #819fff
+}
+
+.cm-plantuml-readonly {
+  opacity: 0.45;
+  cursor: default;
+  user-select: none;
 }
 </style>

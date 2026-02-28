@@ -1,12 +1,19 @@
 <template>
-  <div>
-    <div v-if="loading" class="flex justify-center items-center py-8">
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 animate-spin text-primary"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>
-      <span class="ml-2">Rendering PlantUML...</span>
-    </div>
-    <div v-else-if="error" class="text-red-600 py-4 px-2 text-sm">{{ error }}</div>
-    <div v-else class="flex justify-center" v-html="svg"></div>
+  <div v-if="loading" class="flex justify-center items-center py-8">
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 animate-spin text-primary"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>
+    <span class="ml-2">Rendering PlantUML...</span>
   </div>
+  <div v-else-if="error" class="text-red-600 py-4 px-2 text-sm">{{ error }}</div>
+  <div v-else-if="!plantUmlCode" class="flex flex-col items-center justify-center py-16 px-8 text-center select-none">
+    <div class="text-4xl mb-3">🌱</div>
+    <div class="text-sm font-semibold text-violet-700 mb-1">Start with PlantUML</div>
+    <div class="text-xs text-gray-400 mb-4">Type or paste PlantUML syntax in the editor</div>
+    <pre class="text-left text-xs font-mono bg-gray-900 text-violet-300 rounded-lg px-5 py-4 leading-relaxed">@startuml
+Alice -&gt; Bob: Hello
+Bob --&gt; Alice: Hi there!
+@enduml</pre>
+  </div>
+  <div v-else class="flex justify-center" v-html="svg"></div>
 </template>
 
 <script>
@@ -23,7 +30,7 @@ export default {
   name: 'PlantUml',
   data() {
     return {
-      svg: 'Empty',
+      svg: null,
       loading: false,
       error: null,
       debouncedRender: null,
@@ -50,7 +57,7 @@ export default {
   watch: {
     plantUmlCode(newVal) {
       if (!newVal) {
-        this.svg = 'Empty';
+        this.svg = null;
         this.error = null;
       } else {
         this.debouncedRender(newVal);

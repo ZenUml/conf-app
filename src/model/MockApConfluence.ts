@@ -17,6 +17,8 @@ export default class MockApConfluence {
         || href.includes('sequence-editor.html') || href.includes('sequence-editor-dialog.html')) {
         if(href.includes('diagram-type=mermaid')) {
           customContentId = 'fake-content-id-diagram-mermaid';
+        } else if(href.includes('diagram-type=plantuml')) {
+          customContentId = 'fake-content-id-diagram-plantuml';
         } else {
           customContentId = 'fake-content-id-diagram-sequence';
         }

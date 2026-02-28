@@ -5,16 +5,18 @@
         v-model="diagramType"
         :options="diagramOptions"
       />
-      <div class="relative flex items-center flex-1 min-w-64">
+      <div class="flex items-center flex-1 min-w-64 border-2 rounded-md transition-colors duration-200 h-10"
+        :class="titleError ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-gray-300 focus-within:border-blue-500'">
+        <span class="pl-3 pr-2 text-xs font-semibold tracking-wide text-gray-400 uppercase select-none flex-shrink-0">Title</span>
+        <div class="w-px h-4 bg-gray-200 flex-shrink-0"></div>
         <input
           type="text"
-          placeholder="Title"
+          placeholder="Name your diagram…"
           :value="currentTitle"
           @input="handleTitleChange"
-          class="w-full px-3 py-2 border-2 border-gray-200 rounded-md focus:border-blue-500 hover:border-gray-300 outline-none transition-colors duration-200 h-10"
-          :class="{ 'border-red-400 focus:border-red-400 bg-red-50': titleError, 'pr-10': isAiTitleEnabled }" />
-        <div v-if="isAiTitleEnabled"
-          class="absolute right-0 flex items-center">
+          class="flex-1 px-2 py-2 bg-transparent outline-none text-sm min-w-0"
+          :class="[titleError ? 'text-red-700 placeholder-red-300' : '', { 'pr-8': isAiTitleEnabled }]" />
+        <div v-if="isAiTitleEnabled" class="pr-1 flex items-center">
           <button class="rounded-md p-1 text-gray-600 hover:bg-gray-200 transition-colors duration-200"
             :class="{ 'pointer-events-none opacity-50 cursor-not-allowed': titleLoading }"
             title="Generate title with AI"
@@ -30,7 +32,7 @@
       <a class="inline-block help"
         target="_blank"
         :href="templateUrl">
-        <button class="flex items-center gap-1.5 px-3 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-50 transition-colors duration-200"
+        <button class="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
           @click="templateClick">
           <LightBulbIcon class="w-4 h-4" />
           <span>Examples</span>
@@ -39,7 +41,7 @@
       <a class="inline-block help"
         target="_blank"
         :href="helpUrl">
-        <button class="flex items-center gap-1.5 px-3 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-50 transition-colors duration-200"
+        <button class="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
           @click="helpClick">
           <QuestionMarkCircleIcon class="w-4 h-4" />
           <span>Help</span>
@@ -50,12 +52,10 @@
         <publish-button
           :saveAndExit="saveAndExit"
           :disabled="isPublishDisabled" />
-        <div class="absolute top-full right-0 pt-2 hidden transition-opacity duration-200"
-          :class="isPublishDisabled ? 'group-hover/save:block' : ''">
-          <div class="shadow-xl p-4 bg-white text-gray-700 text-sm rounded-lg ring-1 ring-gray-900/10 w-96">
-            Please provide a clear and descriptive title to improve clarity,
-            facilitate navigation and search on the dashboard, and enhance team
-            communication.
+        <div class="absolute top-full right-0 pt-2 pointer-events-none opacity-0 transition-opacity duration-150"
+          :class="isPublishDisabled ? 'group-hover/save:opacity-100' : ''">
+          <div class="shadow-lg px-3 py-2 bg-gray-900 text-white text-xs rounded-md whitespace-nowrap">
+            Add a diagram title to publish
           </div>
         </div>
       </div>

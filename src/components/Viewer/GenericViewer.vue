@@ -1,10 +1,9 @@
 <template>
 <!-- screen-capture-content class is used in Attachment.js to select the node. -->
-<div class="generic viewer mx-1 pr-2">
+<div class="generic viewer">
   <Debug />
   <error-boundary>
-  <div :class="{'w-full': wide, 'w-fit': !wide, 'mx-auto': true}">
-    <div class="frame relative" :class="{'w-full': wide, 'min-w-[300px]': !wide}">
+    <div class="frame relative" :class="{'w-full': wide, 'w-fit mx-auto': !wide}">
       <div class="header flex items-center justify-between px-4 py-2 border-b border-gray-200" :class="[headerBgClass, {'app-indicator': !isProduction, flex: isDisplayMode && !hideHeader, hidden: !isDisplayMode || hideHeader}]" :data-app="appType">
         <!-- Left: Primary & Secondary Actions -->
         <div class="flex items-center gap-2">
@@ -112,13 +111,10 @@
           </div>
         </div>
       </div>
-      <div class="flex justify-center screen-capture-content">
-        <div :class="{'w-full': wide, 'mr-8': !wide}">
-          <slot></slot>
-        </div>
+      <div class="screen-capture-content" :class="{'w-full': wide}">
+        <slot></slot>
       </div>
     </div>
-  </div>
   </error-boundary>
   
   <UpgradePrompt 
@@ -395,12 +391,12 @@ console.error('Error getting feature flags', e);
 
 <style scoped>
 .frame {
-  display: inline-block;
-  border: #E6E6E6 1px solid;
-  border-radius: 3px;
+  display: block;
 }
 .header {
   border-bottom: #E6E6E6 1px solid;
+  background-color: #f9fafb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 /* App type indicator - uses pseudo-element to avoid layout impact */

@@ -1,6 +1,14 @@
 <template>
   <div>
-    <div class="flex justify-center" v-html="svg"></div>
+    <div v-if="!mermaidCode" class="flex flex-col items-center justify-center py-16 px-8 text-center select-none">
+      <div class="text-4xl mb-3">🌿</div>
+      <div class="text-sm font-semibold text-emerald-700 mb-1">Start with Mermaid</div>
+      <div class="text-xs text-gray-400 mb-4">Type or paste Mermaid syntax in the editor</div>
+      <pre class="text-left text-xs font-mono bg-gray-900 text-emerald-300 rounded-lg px-5 py-4 leading-relaxed">sequenceDiagram
+    Alice-&gt;&gt;John: Hello John!
+    John--&gt;&gt;Alice: Hi Alice!</pre>
+    </div>
+    <div v-else class="flex justify-center" v-html="svg"></div>
   </div>
 </template>
 
@@ -12,14 +20,15 @@ import {trackEvent} from "@/utils/window";
 import globals from '@/model/globals';
 
 mermaid.initialize({
-  startOnLoad:true
+  startOnLoad: true,
+  theme: 'neutral',
 })
 
 export default {
   name: "Mermaid",
   data() {
     return {
-      svg: 'Empty',
+      svg: null,
       renderId: null
     }
   },
@@ -41,7 +50,7 @@ export default {
   watch: {
     async mermaidCode(newVal) {
       if (!newVal) {
-        this.svg = 'Empty';
+        this.svg = null;
       } else {
         this.svg = await this.render(this.mermaidCode);
       }

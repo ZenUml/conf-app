@@ -3,7 +3,7 @@
 <div class="generic viewer">
   <Debug />
   <error-boundary>
-    <div class="frame relative" :class="{'w-full': wide, 'w-fit mx-auto min-w-[300px]': !wide}">
+    <div class="frame relative" :class="{'w-full': wide, 'w-fit mx-auto': !wide}">
       <div class="header flex items-center justify-between px-4 py-2 border-b border-gray-200" :class="[headerBgClass, {'app-indicator': !isProduction, flex: isDisplayMode && !hideHeader, hidden: !isDisplayMode || hideHeader}]" :data-app="appType">
         <!-- Left: Primary & Secondary Actions -->
         <div class="flex items-center gap-2">
@@ -392,9 +392,6 @@ console.error('Error getting feature flags', e);
 <style scoped>
 .frame {
   display: block;
-  border: #E6E6E6 1px solid;
-  border-radius: 3px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
 }
 .header {
   border-bottom: #E6E6E6 1px solid;

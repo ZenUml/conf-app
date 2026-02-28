@@ -27,8 +27,8 @@ import {
 } from 'codemirror-lang-mermaid';
 import { closeBrackets, acceptCompletion, autocompletion } from '@codemirror/autocomplete';
 import { defaultKeymap, history, indentWithTab, undo, redo } from '@codemirror/commands';
-import { EditorState, EditorSelection } from '@codemirror/state';
-import { lineNumbers, placeholder, keymap, EditorView } from '@codemirror/view';
+import { EditorState, EditorSelection, RangeSetBuilder, Transaction } from '@codemirror/state';
+import { lineNumbers, placeholder, keymap, EditorView, Decoration, DecorationSet, ViewPlugin, ViewUpdate } from '@codemirror/view';
 import { dracula } from 'thememirror';
 
 const mermaidHighlightStyle = HighlightStyle.define([
@@ -178,4 +178,53 @@ const zenumlExtensions = [
   keymap.of(zenumlCompletionKeyMaps),
 ]
 
-export { baseExtensionsFactory, mermaidExtensions, zenumlExtensions };
+// ── PlantUML: make @startuml / @enduml lines non-editable ────────────────────
+
+const readonlyLineMark = Decoration.line({ class: 'cm-plantuml-readonly' });
+
+const plantUmlReadonlyDecoration = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+    constructor(view: EditorView) { this.decorations = this.build(view); }
+    update(u: ViewUpdate) {
+      if (u.docChanged || u.viewportChanged) this.decorations = this.build(u.view);
+    }
+    build(view: EditorView): DecorationSet {
+      const builder = new RangeSetBuilder<Decoration>();
+      const doc = view.state.doc;
+      const first = doc.line(1);
+      builder.add(first.from, first.from, readonlyLineMark);
+      if (doc.lines > 1) {
+        const last = doc.line(doc.lines);
+        builder.add(last.from, last.from, readonlyLineMark);
+      }
+      return builder.finish();
+    }
+  },
+  { decorations: (v) => v.decorations }
+);
+
+const plantUmlReadonlyFilter = EditorState.transactionFilter.of((tr) => {
+  if (!tr.docChanged) return tr;
+  // Allow programmatic changes (tab switching, store updates, AI generation)
+  if (!tr.annotation(Transaction.userEvent)) return tr;
+  const doc = tr.startState.doc;
+  if (doc.lines < 2) return tr;
+  const first = doc.line(1);
+  const last = doc.line(doc.lines);
+  // Protected zones: first line + its trailing newline; newline before last line + last line
+  const firstEnd = first.to + 1;
+  const lastStart = last.from - 1;
+  let blocked = false;
+  tr.changes.iterChangedRanges((fromA, toA) => {
+    if (fromA < firstEnd || toA > lastStart) blocked = true;
+  });
+  return blocked ? [] : tr;
+});
+
+const plantUmlExtensions = [
+  plantUmlReadonlyFilter,
+  plantUmlReadonlyDecoration,
+];
+
+export { baseExtensionsFactory, mermaidExtensions, zenumlExtensions, plantUmlExtensions };

@@ -1,6 +1,5 @@
 <template>
-<div>
-  <div v-show="error" class="px-4 py-3 rounded relative">
+  <div v-if="error" class="px-4 py-3 rounded relative">
     <div class="p-4 mb-4 bg-red-100 rounded-lg dark:bg-red-200">
       <div class="flex items-center">
         <h1 class="font-bold">Error</h1>
@@ -25,10 +24,7 @@
       <li>Is this error happening to one diagram or all diagrams?</li>
     </ol>
   </div>
-  <div v-show="!error">
-    <slot></slot>
-  </div>
-</div>
+  <slot v-else></slot>
 </template>
 
 <script>

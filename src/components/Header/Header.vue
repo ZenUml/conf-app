@@ -52,12 +52,10 @@
         <publish-button
           :saveAndExit="saveAndExit"
           :disabled="isPublishDisabled" />
-        <div class="absolute top-full right-0 pt-2 hidden transition-opacity duration-200"
-          :class="isPublishDisabled ? 'group-hover/save:block' : ''">
-          <div class="shadow-xl p-4 bg-white text-gray-700 text-sm rounded-lg ring-1 ring-gray-900/10 w-96">
-            Please provide a clear and descriptive title to improve clarity,
-            facilitate navigation and search on the dashboard, and enhance team
-            communication.
+        <div class="absolute top-full right-0 pt-2 pointer-events-none opacity-0 transition-opacity duration-150"
+          :class="isPublishDisabled ? 'group-hover/save:opacity-100' : ''">
+          <div class="shadow-lg px-3 py-2 bg-gray-900 text-white text-xs rounded-md whitespace-nowrap">
+            Add a diagram title to publish
           </div>
         </div>
       </div>

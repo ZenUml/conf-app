@@ -1,6 +1,6 @@
 <template>
 <!-- screen-capture-content class is used in Attachment.js to select the node. -->
-<div class="generic viewer mx-1 pr-2">
+<div class="generic viewer p-6">
   <Debug />
   <error-boundary>
     <div class="frame relative" :class="{'w-full': wide, 'w-fit mx-auto min-w-[300px]': !wide}">
@@ -391,7 +391,7 @@ console.error('Error getting feature flags', e);
 
 <style scoped>
 .frame {
-  display: inline-block;
+  display: block;
   border: #E6E6E6 1px solid;
   border-radius: 3px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);

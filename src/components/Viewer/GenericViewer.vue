@@ -1,6 +1,6 @@
 <template>
 <!-- screen-capture-content class is used in Attachment.js to select the node. -->
-<div class="generic viewer p-6">
+<div class="generic viewer">
   <Debug />
   <error-boundary>
     <div class="frame relative" :class="{'w-full': wide, 'w-fit mx-auto min-w-[300px]': !wide}">

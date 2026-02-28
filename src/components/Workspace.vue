@@ -111,6 +111,7 @@
   background-color: #f8f7f4;
   background-image: radial-gradient(circle, #d0cec7 1px, transparent 1px);
   background-size: 20px 20px;
+  padding: 24px;
 }
 
 .gutter {

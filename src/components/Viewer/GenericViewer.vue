@@ -398,6 +398,7 @@ console.error('Error getting feature flags', e);
   display: inline-block;
   border: #E6E6E6 1px solid;
   border-radius: 3px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
 }
 .header {
   border-bottom: #E6E6E6 1px solid;

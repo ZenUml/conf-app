@@ -1,0 +1,13 @@
+{
+  "id": "fake-content-id-diagram-plantuml",
+  "type": "ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence",
+  "status": "current",
+  "title": "Order Service (PlantUML)",
+  "body": {
+    "raw": {
+      "value": "{\"title\":\"Order Service (PlantUML)\",\"code\":\"title Order Service\\n@Actor Client\\n@Boundary OrderController\\nClient->OrderController.post(payload)\",\"mermaidCode\":\"graph TD; A-->B1;\",\"plantUmlCode\":\"Alice -> Bob: Hello Bob, how are you?\\nBob --> Alice: I am fine, thanks!\\nAlice -> Bob: See you later!\",\"diagramType\":\"plantuml\",\"source\":\"custom-content\"}",
+      "representation": "raw",
+      "embeddedContent": []
+    }
+  }
+}

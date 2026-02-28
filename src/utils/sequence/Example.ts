@@ -17,7 +17,14 @@ const Mermaid = `sequenceDiagram
     Alice-)John: See you later!
 `;
 
+const PlantUml = `@startuml
+Alice -> Bob: Hello Bob, how are you?
+Bob --> Alice: I am fine, thanks!
+Alice -> Bob: See you later!
+@enduml`;
+
 export default {
     Sequence,
-    Mermaid
+    Mermaid,
+    PlantUml
 }

@@ -63,8 +63,14 @@ async function main() {
       diagramType: DiagramType.Sequence,
       code: Example.Sequence,
       mermaidCode: Example.Mermaid,
+      plantUmlCode: Example.PlantUml,
       isNew: true
     }
+  }
+
+  // Backfill default PlantUML DSL for existing diagrams created before PlantUML support
+  if (!doc.plantUmlCode) {
+    doc = { ...doc, plantUmlCode: Example.PlantUml };
   }
 
   mountRoot(doc, Workspace);

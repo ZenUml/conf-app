@@ -1,0 +1,84 @@
+name: E2E Test
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        type: string
+        required: true
+        description: 'App profile (e.g., zenuml-lite@stg)'
+      suite:
+        type: string
+        default: 'all'
+        description: 'Test suite: all, smoke, diagram'
+      artifact-suffix:
+        type: string
+        required: true
+      node-version:
+        type: string
+        default: '22.x'
+    secrets:
+      username:
+        required: true
+      password:
+        required: true
+      otp:
+        required: true
+
+jobs:
+  test:
+    name: E2E (${{ inputs.app }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+      - name: Install main dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Install E2E test dependencies
+        run: cd tests/e2e-tests && pnpm install --ignore-workspace
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-pw-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
+      - name: Run tests
+        run: |
+          cd tests/e2e-tests
+          case "${{ inputs.suite }}" in
+            smoke)   pnpm test:smoke ;;
+            diagram) pnpm test:diagram ;;
+            *)       pnpm test ;;
+          esac
+        env:
+          APP: ${{ inputs.app }}
+          CI: true
+          ZENUML_STAGE_USERNAME: ${{ secrets.username }}
+          ZENUML_STAGE_PASSWORD: ${{ secrets.password }}
+          ATLASSIAN_OTP: ${{ secrets.otp }}
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ inputs.artifact-suffix }}
+          path: ./tests/e2e-tests/playwright-report/
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ inputs.artifact-suffix }}
+          path: ./tests/e2e-tests/screenshots/

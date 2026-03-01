@@ -66,6 +66,19 @@ jobs:
         run: pnpm forge:install:diagramly:staging || pnpm forge:upgrade:diagramly:staging
         continue-on-error: true
 
+  staging-diagramly-test:
+    needs: staging-diagramly
+    name: Diagramly - E2E Smoke Test on Staging
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: diagramly@stg
+      suite: smoke
+      artifact-suffix: diagramly-stg
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
   draft-release-diagramly:
     name: Draft release for the Diagramly version
     # don't run on pull requests to avoid creating draft releases for pull requests

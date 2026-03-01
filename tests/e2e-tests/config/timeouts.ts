@@ -1,0 +1,5 @@
+export const TIMEOUTS = {
+  FRAME_LOAD: 60000,
+  BUTTON_VISIBLE: 60000,
+  MODAL_DISMISS: 5000,
+} as const;

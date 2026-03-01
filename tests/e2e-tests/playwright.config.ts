@@ -1,0 +1,60 @@
+import 'dotenv/config';
+import { defineConfig, devices } from '@playwright/test';
+import path from 'path';
+
+export default defineConfig({
+  testDir: './tests',
+  timeout: 120000,
+  testIgnore: ['**/node_modules/**', '../../**'],
+  fullyParallel: false,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: 'html',
+
+  use: {
+    storageState: path.join(__dirname, 'auth-state.json'),
+    trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
+    actionTimeout: 60000,
+    navigationTimeout: 60000,
+    serviceWorkers: 'allow',
+    launchOptions: {
+      args: ['--disable-blink-features=AutomationControlled'],
+    },
+  },
+
+  projects: [
+    {
+      name: 'auth',
+      testMatch: 'setup/auth.setup.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: { cookies: [], origins: [] },
+      },
+      timeout: 120000,
+    },
+    {
+      name: 'pages',
+      testMatch: 'setup/pages.setup.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['auth'],
+      timeout: 180000,
+    },
+    {
+      name: 'diagram',
+      testMatch: 'diagram/**/*.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['pages'],
+      fullyParallel: false,
+    },
+    {
+      name: 'smoke',
+      testMatch: 'smoke/**/*.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['auth'],
+      timeout: 300000,
+    },
+  ],
+});

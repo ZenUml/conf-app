@@ -1,5 +1,5 @@
 import { Page } from '@playwright/test';
-import { generateOtp } from '../otp.js';
+import { generateOtp } from './otp.js';
 import { testConfig } from '../config/test-config.js';
 
 const MAX_OTP_RETRIES = 3;

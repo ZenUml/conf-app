@@ -23,7 +23,7 @@ export class PageCreator {
   }
 
   private get addonKey(): string {
-    return testConfig.isLite ? 'com.zenuml.confluence-addon-lite' : 'com.zenuml.confluence-addon';
+    return testConfig.addonKey;
   }
 
   // All document types use the same content key (zenuml-content-sequence)

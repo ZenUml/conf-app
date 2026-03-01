@@ -4,8 +4,23 @@
   "private": true,
   "scripts": {
     "test": "playwright test",
-    "test:prod": "ZENUML_DOMAIN=zenuml.atlassian.net ZENUML_SPACE=ZEN playwright test",
-    "test:trace": "playwright test --trace on",
+    "test:diagram": "playwright test --project=diagram",
+    "test:smoke": "playwright test --project=smoke",
+
+    "test:lite:stg": "APP=zenuml-lite@stg playwright test",
+    "test:lite:prod": "APP=zenuml-lite@prod playwright test",
+    "test:full:stg": "APP=zenuml-full@stg playwright test",
+    "test:full:prod": "APP=zenuml-full@prod playwright test",
+    "test:diagramly:stg": "APP=diagramly@stg playwright test",
+    "test:diagramly:prod": "APP=diagramly@prod playwright test",
+
+    "test:smoke:lite:stg": "APP=zenuml-lite@stg playwright test --project=smoke",
+    "test:smoke:lite:prod": "APP=zenuml-lite@prod playwright test --project=smoke",
+    "test:smoke:full:stg": "APP=zenuml-full@stg playwright test --project=smoke",
+    "test:smoke:full:prod": "APP=zenuml-full@prod playwright test --project=smoke",
+    "test:smoke:diagramly:stg": "APP=diagramly@stg playwright test --project=smoke",
+    "test:smoke:diagramly:prod": "APP=diagramly@prod playwright test --project=smoke",
+
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",
     "test:ui": "playwright test --ui",

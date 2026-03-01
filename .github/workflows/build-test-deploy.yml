@@ -77,64 +77,14 @@ jobs:
   staging-lite-test:
     needs: staging-lite
     name: Lite - E2E Test on Staging
-    environment:
-      name: staging-lite
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 10.x
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.x'
-          cache: 'pnpm'
-      # Install main dependencies without Puppeteer
-      - name: Install main dependencies (skip post-install scripts)
-        run: pnpm install --frozen-lockfile --ignore-scripts
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-      # Install E2E test dependencies separately
-      - name: Install E2E test dependencies
-        run: cd tests/e2e-tests && pnpm install --ignore-workspace
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-      # Cache Playwright browsers
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        id: playwright-cache
-        with:
-          path: |
-            ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
-      # Install Playwright browsers
-      - name: Install Playwright browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
-      # Run E2E tests
-      - name: Run E2E tests
-        run: cd tests/e2e-tests && pnpm test
-        env:
-          CI: true
-          IS_LITE: true
-          IS_FORGE: true
-          NODE_OPTIONS: "--max-old-space-size=8192"
-          ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_STAGE_USERNAME }}
-          ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_STAGE_PASSWORD }}
-          ATLASSIAN_OTP: ${{ vars.ATLASSIAN_OTP }}
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report-lite
-          path: ./tests/e2e-tests/playwright-report/
-      - name: Upload screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: screenshots-lite
-          path: ./tests/e2e-tests/screenshots/
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: zenuml-lite@stg
+      artifact-suffix: lite-stg
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
 
   staging-full:
     needs: build
@@ -176,62 +126,14 @@ jobs:
   staging-full-test:
     needs: staging-full
     name: Full - E2E Test on Staging
-    environment:
-      name: staging-full
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 10.x
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.x'
-          cache: 'pnpm'
-      # Install main dependencies without Puppeteer
-      - name: Install main dependencies (skip post-install scripts)
-        run: pnpm install --frozen-lockfile --ignore-scripts
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-      # Install E2E test dependencies separately
-      - name: Install E2E test dependencies
-        run: cd tests/e2e-tests && pnpm install --ignore-workspace
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-      # Cache Playwright browsers
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        id: playwright-cache
-        with:
-          path: |
-            ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
-      # Install Playwright browsers
-      - name: Install Playwright browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
-      # Run E2E tests
-      - name: Run E2E tests
-        run: cd tests/e2e-tests && pnpm test
-        env:
-          CI: true
-          NODE_OPTIONS: "--max-old-space-size=8192"
-          ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_STAGE_USERNAME }}
-          ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_STAGE_PASSWORD }}
-          ATLASSIAN_OTP: ${{ vars.ATLASSIAN_OTP }}
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report-full
-          path: ./tests/e2e-tests/playwright-report/
-      - name: Upload screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: screenshots-full
-          path: ./tests/e2e-tests/screenshots/
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: zenuml-full@stg
+      artifact-suffix: full-stg
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
 
   draft-release-lite:
     name: Draft release for the Lite version

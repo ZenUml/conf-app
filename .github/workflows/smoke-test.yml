@@ -2,126 +2,44 @@ name: Smoke Test in Production
 
 on:
   schedule:
-    - cron: '0 2 * * *' # Runs every day at 02:00 UTC
-  workflow_dispatch: # Optional: allows manual trigger
+    - cron: '0 2 * * *'
+  workflow_dispatch:
 
 jobs:
-  prod-lite-test:
-    name: Lite - E2E Test on Prod
-    environment:
-      name: prod-lite
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 10.x
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20.x'
-          cache: 'pnpm'
-      # Install main dependencies without Puppeteer
-      - name: Install main dependencies (skip post-install scripts)
-        run: pnpm install --frozen-lockfile --ignore-scripts
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-      # Install E2E test dependencies separately
-      - name: Install E2E test dependencies
-        run: cd tests/e2e-tests && pnpm install --ignore-workspace
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-      # Cache Playwright browsers
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        id: playwright-cache
-        with:
-          path: |
-            ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
-      # Install Playwright browsers
-      - name: Install Playwright browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
-      # Run E2E tests
-      - name: Run E2E tests
-        run: cd tests/e2e-tests && pnpm test:prod
-        env:
-          CI: true
-          IS_LITE: true
-          NODE_OPTIONS: "--max-old-space-size=8192"
-          ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_PROD_USERNAME }}
-          ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_PROD_PASSWORD }}
-          ATLASSIAN_OTP: ${{ vars.ATLASSIAN_OTP }}
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report-prod-lite
-          path: ./tests/e2e-tests/playwright-report/
-      - name: Upload screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: screenshots-prod-lite
-          path: ./tests/e2e-tests/screenshots/
-  prod-full-test:
-    name: Full - E2E Test on Prod
-    environment:
-      name: prod-full
-    runs-on: ubuntu-latest
-    needs: prod-lite-test
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 10.x
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20.x'
-          cache: 'pnpm'
-      # Install main dependencies without Puppeteer
-      - name: Install main dependencies (skip post-install scripts)
-        run: pnpm install --frozen-lockfile --ignore-scripts
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-      # Install E2E test dependencies separately
-      - name: Install E2E test dependencies
-        run: cd tests/e2e-tests && pnpm install --ignore-workspace
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-      # Cache Playwright browsers
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        id: playwright-cache
-        with:
-          path: |
-            ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
-      # Install Playwright browsers
-      - name: Install Playwright browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
-      # Run E2E tests
-      - name: Run E2E tests
-        run: cd tests/e2e-tests && pnpm test:prod
-        env:
-          CI: true
-          IS_LITE: false
-          NODE_OPTIONS: "--max-old-space-size=8192"
-          ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_PROD_USERNAME }}
-          ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_PROD_PASSWORD }}
-          ATLASSIAN_OTP: ${{ vars.ATLASSIAN_OTP }}
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report-prod-full
-          path: ./tests/e2e-tests/playwright-report/
-      - name: Upload screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: screenshots-prod-full
-          path: ./tests/e2e-tests/screenshots/
+  prod-lite:
+    name: Lite Smoke Test (Prod)
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: zenuml-lite@prod
+      suite: smoke
+      artifact-suffix: lite-prod
+    secrets:
+      username: ${{ vars.ZENUML_PROD_USERNAME }}
+      password: ${{ vars.ZENUML_PROD_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  prod-full:
+    needs: prod-lite
+    name: Full Smoke Test (Prod)
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: zenuml-full@prod
+      suite: smoke
+      artifact-suffix: full-prod
+    secrets:
+      username: ${{ vars.ZENUML_PROD_USERNAME }}
+      password: ${{ vars.ZENUML_PROD_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  prod-diagramly:
+    needs: prod-full
+    name: Diagramly Smoke Test (Prod)
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: diagramly@prod
+      suite: smoke
+      artifact-suffix: diagramly-prod
+    secrets:
+      username: ${{ vars.ZENUML_PROD_USERNAME }}
+      password: ${{ vars.ZENUML_PROD_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}

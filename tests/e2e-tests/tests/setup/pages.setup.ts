@@ -1,6 +1,6 @@
 import { test as setup } from '@playwright/test';
-import { PageCreator } from '../utils/page-creator.js';
-import { testConfig } from '../config/test-config.js';
+import { PageCreator } from '../../utils/page-creator.js';
+import { testConfig } from '../../config/test-config.js';
 import path from 'path';
 import fs from 'fs';
 
@@ -17,7 +17,7 @@ interface TestPages {
   mermaid?: string;
 }
 
-const TEST_PAGES_FILE = path.join(__dirname, '..', 'test-pages.json');
+const TEST_PAGES_FILE = path.join(__dirname, '..', '..', 'test-pages.json');
 let testPages: TestPages = {};
 
 setup('create diagram test pages', async ({ page }) => {

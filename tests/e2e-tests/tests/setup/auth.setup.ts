@@ -1,6 +1,6 @@
 import { test as setup } from '@playwright/test';
-import { ConfluenceLogin } from '../utils/ConfluenceLogin.js';
-import { testConfig } from '../config/test-config.js';
+import { ConfluenceLogin } from '../../utils/login.js';
+import { testConfig } from '../../config/test-config.js';
 import path from 'path';
 import fs from 'fs';
 
@@ -15,7 +15,7 @@ setup('authenticate', async ({ page }) => {
   testConfig.validate();
 
   // Check if auth state already exists
-  const authStatePath = path.join(__dirname, '..', 'auth-state.json');
+  const authStatePath = path.join(__dirname, '..', '..', 'auth-state.json');
   if (fs.existsSync(authStatePath)) {
     console.log('✅ Auth state file already exists, skipping authentication setup');
     console.log(`📁 Using existing auth state from: ${authStatePath}`);

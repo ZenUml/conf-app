@@ -94,12 +94,18 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         diagramType: DiagramType.Sequence,
         code: Example.Sequence,
         mermaidCode: Example.Mermaid,
+        plantUmlCode: Example.PlantUml,
         isNew: true
       }
     } else {
       const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
       console.debug('Loaded custom content', customContent);
       doc = customContent?.value;
+    }
+
+    // Backfill default PlantUML DSL for existing diagrams created before PlantUML support
+    if (!doc.plantUmlCode) {
+      doc = { ...doc, plantUmlCode: Example.PlantUml };
     }
 
     // Start journey tracking for editor mode

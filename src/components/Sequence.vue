@@ -81,7 +81,7 @@ export default {
         // Note when the iframe is not scrollable, the stickyOffset does not have any effect.
         theme: scopeTheme || globalTheme || "theme-default",
         enableScopedTheming: Boolean(scopeTheme),
-        stickyOffset: this.autoResize ? false : 120,
+        stickyOffset: false,  // disable sticky offset, the effect is not optimal
         onContentChange: this.updateCode,
         onThemeChange: ({ theme, scoped }) => {
           if (!scoped) {

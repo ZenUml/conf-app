@@ -79,6 +79,7 @@ export default {
 			}
 			else if(payload.event === 'save') {
 				window.graphXml = toGraphModel(payload.xml);
+				await window.ensureTitle();
 				await this.saveGraphAndExit(window.graphXml);
 			}
 			else if(payload.event === 'exit') {

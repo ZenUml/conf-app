@@ -60,6 +60,7 @@
 			}
 			else if(payload.event === 'save') {
 				window.graphXml = toGraphModel(payload.xml);
+				await window.ensureTitle();
 				await window.saveAndExit(window.graphXml);
 			}
 			else if(payload.event === 'exit') {

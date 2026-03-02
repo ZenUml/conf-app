@@ -1,22 +1,21 @@
 <template>
   <div class="absolute top-0 left-0">
-    <DrawIoHeader :title="title" @editTitle="handleEdit" />
-    <CreateGraph
-      :defaultTitle="doc?.title"
-      :visible="modalVisible"
-      :forEnforceTitle="Boolean(doc?.id)"
-      :onConfirm="handleConfirm"
+    <DrawIoHeader
+      ref="headerRef"
+      :title="title"
+      :error="titleError"
+      @titleChange="handleTitleChange"
+      @titleConfirm="handleTitleConfirm"
     />
   </div>
 </template>
 
 <script lang="ts">
 import { defineComponent, onMounted, ref } from "vue";
-import CreateGraph from "./components/CreateGraph.vue";
 import DrawIoHeader from "./components/DrawIoHeader.vue";
+
 export default defineComponent({
   components: {
-    CreateGraph,
     DrawIoHeader
   },
   props: {
@@ -25,29 +24,55 @@ export default defineComponent({
     }
   },
   setup(props) {
-    const modalVisible = ref(false);
     const title = ref("Untitled");
-    const handleEdit = () => {
-      modalVisible.value = true;
-    };
-    const handleConfirm = (value: string) => {
-      modalVisible.value = false;
+    const titleError = ref(false);
+    const headerRef = ref<InstanceType<typeof DrawIoHeader>>();
+    let pendingResolve: ((value: string) => void) | null = null;
+
+    const handleTitleChange = (value: string) => {
       title.value = value;
       window.diagram.title = value;
+      if (value) {
+        titleError.value = false;
+      }
+      if (value && pendingResolve) {
+        pendingResolve(value);
+        pendingResolve = null;
+      }
     };
+
+    const handleTitleConfirm = () => {
+      if (title.value && pendingResolve) {
+        pendingResolve(title.value);
+        pendingResolve = null;
+      }
+    };
+
+    const ensureTitle = (): Promise<string> => {
+      if (window.diagram?.title) {
+        return Promise.resolve(window.diagram.title);
+      }
+      titleError.value = true;
+      headerRef.value?.focusInput();
+      return new Promise((resolve) => {
+        pendingResolve = resolve;
+      });
+    };
+
     onMounted(() => {
       if (props.doc?.id) {
-        if (!props.doc.title) return
+        if (!props.doc.title) return;
         title.value = props.doc.title;
-      } else {
-        modalVisible.value = true;
       }
+      window.ensureTitle = ensureTitle;
     });
+
     return {
-      modalVisible,
       title,
-      handleEdit,
-      handleConfirm
+      titleError,
+      headerRef,
+      handleTitleChange,
+      handleTitleConfirm
     };
   }
 });

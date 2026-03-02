@@ -274,11 +274,10 @@ export class ConfluenceEditorPage {
     const modal = this.page.getByTestId('custom-ui-modal-dialog');
     const frame = modal.locator('[data-testid="hosted-resources-iframe"]').contentFrame();
 
-    // Step 1: Fill title and click Confirm
+    // Step 1: Fill inline title input
     const titleInput = frame.locator('input[type="text"]').first();
     await titleInput.fill(title);
     await this.page.waitForTimeout(500);
-    await frame.locator('button:has-text("Confirm")').click();
 
     // Step 2: Add a shape to the DrawIO canvas
     await this.addDrawioShape();
@@ -290,12 +289,15 @@ export class ConfluenceEditorPage {
   private async interactWithConnectGraphMacro(title: string): Promise<void> {
     const frame = this.page.locator('[role="dialog"] iframe').contentFrame();
 
+    // Step 1: Fill inline title input
     const titleInput = frame.locator('input[type="text"]').first();
     await titleInput.fill(title);
     await this.page.waitForTimeout(500);
-    await frame.locator('button:has-text("Confirm")').click();
 
+    // Step 2: Add a shape to the DrawIO canvas
     await this.addDrawioShape();
+
+    // Step 3: Click Publish in nested iframe
     await this.clickDrawioPublishConnect();
   }
 

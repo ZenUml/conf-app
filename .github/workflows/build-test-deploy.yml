@@ -33,46 +33,13 @@ jobs:
   staging-lite:
     needs: build
     name: L/Push(CF)&Install(Conf)
-    environment:
-      name: staging-lite
-    runs-on: ubuntu-latest
-    env:
-      FORGE_EMAIL: "${{ vars.FORGE_EMAIL }}"
-      FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN }}"
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build and publish
-        uses: ./.github/actions/wrangler-publish
-        with:
-          node-version: '22.x'
-          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          license: lite
-          project: conf-stg-lite
-          environment: stg
-      - name: Update manifest.yml
-        uses: mikefarah/yq@master
-        with:
-          cmd: yq eval 'del(.modules["confluence:contentBylineItem"])' -i manifest.yml
-      - name: Remove licensing (Lite is free)
-        uses: mikefarah/yq@master
-        with:
-          cmd: yq eval 'del(.app.licensing)' -i manifest.yml
-      - name: Upload final manifest
-        uses: actions/upload-artifact@v4
-        with:
-          name: manifest-lite-staging
-          path: manifest.yml
-      - name: Deploy to Forge Staging
-        run: |
-          rm -rf dist/drawio
-          pnpm forge:deploy:enable-analytics
-          pnpm forge:deploy:lite:staging
-      - name: Install to Zenuml Staging
-        run: |
-          pnpm forge:install:lite:staging
-          pnpm forge:upgrade:lite:staging
-        continue-on-error: true
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      variant: lite
+      license: lite
+      project: conf-stg-lite
+      environment: staging-lite
+    secrets: inherit
 
   staging-lite-test:
     needs: staging-lite
@@ -89,39 +56,13 @@ jobs:
   staging-full:
     needs: build
     name: F/Push(CF)&Install(Conf)
-    environment:
-      name: staging-full
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build and publish
-        uses: ./.github/actions/wrangler-publish
-        with:
-          node-version: '22.x'
-          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          license: full
-          project: conf-stg-full
-          environment: stg
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-      - name: Install PyYAML
-        run: pip3 install PyYAML==5.3.1
-      - name: Install pluploader
-        run: pip3 install pluploader
-      - name: Install plugin to Confluence
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 5
-          max_attempts: 3
-          retry_wait_seconds: 10
-          command: |
-            pluploader --base-url https://zenuml-stg.atlassian.net/wiki \
-              --user ${{ secrets.ZENUML_STAGE_UPM_USER }} \
-              --password ${{ secrets.ZENUML_STAGE_UPM_PASSWORD }} \
-              install --cloud \
-              --plugin-uri https://conf-stg-full.zenuml.com/descriptor
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      variant: full
+      license: full
+      project: conf-stg-full
+      environment: staging-full
+    secrets: inherit
 
   staging-full-test:
     needs: staging-full
@@ -130,6 +71,30 @@ jobs:
     with:
       app: zenuml-full@stg
       artifact-suffix: full-stg
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  staging-diagramly:
+    needs: build
+    name: D/Push(CF)&Install(Conf)
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      variant: diagramly
+      license: diagramly
+      project: conf-stg-lite
+      environment: staging-diagramly
+    secrets: inherit
+
+  staging-diagramly-test:
+    needs: staging-diagramly
+    name: Diagramly - E2E Smoke Test on Staging
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: diagramly@stg
+      suite: smoke
+      artifact-suffix: diagramly-stg
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
@@ -201,4 +166,38 @@ jobs:
           tag: v${{ env.version }}-full
           name: v${{ env.version }}-full
           body: 'This is a draft release for the Full version of the plugin.'
+          draft: true
+
+  draft-release-diagramly:
+    name: Draft release for the Diagramly version
+    # don't run on pull requests to avoid creating draft releases for pull requests
+    # only run on the master branch, to avoid cutting releases from feature branches
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
+    needs: [staging-diagramly-test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      repository-projects: write
+    steps:
+      # Check out current repository
+      - name: Fetch Sources
+        uses: actions/checkout@v4
+
+      - name: Export Properties
+        id: properties
+        shell: bash
+        run: |
+          VERSION="$(echo $(date +'%Y.%m.%d%H%M'))"
+          echo "version=$VERSION" >> $GITHUB_ENV
+
+      # Create new release draft - which is not publicly visible and requires manual acceptance
+      - name: Create Release Draft
+        id: createDraft
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ env.version }}-diagramly
+          name: v${{ env.version }}-diagramly
+          body: 'This is a draft release for the Diagramly version of the plugin.'
           draft: true

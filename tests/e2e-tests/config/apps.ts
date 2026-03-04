@@ -19,6 +19,10 @@ export interface AppProfile {
   macros: MacroType[];
   /** Addon key for custom content type construction */
   addonKey: string;
+  /** Sequence macro extension key (e.g. 'gpt-diagram-macro' or 'zenuml-sequence-macro-lite') */
+  sequenceMacroKey: string;
+  /** Custom content key (e.g. 'gpt-custom-content-key' or 'zenuml-content-sequence') */
+  customContentKey: string;
 }
 
 const ALL_MACROS: MacroType[] = ['sequence', 'graph', 'openapi', 'embed', 'mermaid'];
@@ -35,6 +39,8 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isForge: true,
     macros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon-lite',
+    sequenceMacroKey: 'zenuml-sequence-macro-lite',
+    customContentKey: 'zenuml-content-sequence',
   },
   'zenuml-full@stg': {
     id: 'zenuml-full@stg',
@@ -46,17 +52,21 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isForge: false,
     macros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon',
+    sequenceMacroKey: 'zenuml-sequence-macro',
+    customContentKey: 'zenuml-content-sequence',
   },
   'diagramly@stg': {
     id: 'diagramly@stg',
-    domain: 'zenuml-stg.atlassian.net',
-    spaceKey: 'ZS',
-    parentPageId: '177176629',
-    parentPageName: 'Before release test pages',
+    domain: 'dia-stg.atlassian.net',
+    spaceKey: 'SD',
+    parentPageId: '1736705',
+    parentPageName: 'Test pages',
     isLite: false,
     isForge: true,
     macros: NO_EMBED,
     addonKey: 'gptdock-confluence',
+    sequenceMacroKey: 'gpt-diagram-macro',
+    customContentKey: 'gpt-custom-content-key',
   },
   'zenuml-lite@prod': {
     id: 'zenuml-lite@prod',
@@ -68,6 +78,8 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isForge: true,
     macros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon-lite',
+    sequenceMacroKey: 'zenuml-sequence-macro-lite',
+    customContentKey: 'zenuml-content-sequence',
   },
   'zenuml-full@prod': {
     id: 'zenuml-full@prod',
@@ -79,6 +91,8 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isForge: false,
     macros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon',
+    sequenceMacroKey: 'zenuml-sequence-macro',
+    customContentKey: 'zenuml-content-sequence',
   },
   'diagramly@prod': {
     id: 'diagramly@prod',
@@ -90,6 +104,8 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isForge: true,
     macros: NO_EMBED,
     addonKey: 'gptdock-confluence',
+    sequenceMacroKey: 'gpt-diagram-macro',
+    customContentKey: 'gpt-custom-content-key',
   },
 };
 

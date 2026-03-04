@@ -82,7 +82,7 @@ jobs:
           pnpm forge:install:lite:staging
           pnpm forge:upgrade:lite:staging
         continue-on-error: true
-      - name: Install Diagramly to Zenuml Staging
+      - name: Install Diagramly to dia-stg.atlassian.net
         if: inputs.variant == 'diagramly'
         run: pnpm forge:install:diagramly:staging || pnpm forge:upgrade:diagramly:staging
         continue-on-error: true
@@ -111,3 +111,18 @@ jobs:
               --password ${{ secrets.ZENUML_STAGE_UPM_PASSWORD }} \
               install --cloud \
               --plugin-uri https://${{ inputs.project }}.zenuml.com/descriptor
+
+      - name: Write deployment summary
+        if: always()
+        run: |
+          case "${{ inputs.variant }}" in
+            lite)      SITE="zenuml-stg.atlassian.net"; TYPE="Forge" ;;
+            full)      SITE="zenuml-stg.atlassian.net"; TYPE="Connect" ;;
+            diagramly) SITE="dia-stg.atlassian.net";   TYPE="Forge" ;;
+          esac
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Variant  | ${{ inputs.variant }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| App type | ${TYPE} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Confluence site | ${SITE} |" >> $GITHUB_STEP_SUMMARY

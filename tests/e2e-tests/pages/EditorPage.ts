@@ -48,11 +48,10 @@ export class ConfluenceEditorPage {
     if (testConfig.isLite) {
       name += ' Lite';
     }
-    // Only Forge apps have "(Staging)" in their macro names on staging instances.
-    // Connect macros use the base name from the descriptor without environment suffixes.
-    if ((testConfig.isForge || testConfig.isLite) && testConfig.domain.includes('-stg')) {
-      name += ' (Staging)';
-    }
+    // Note: Forge staging apps show "(Staging)" suffix in the macro browser, but we
+    // don't append it here because Playwright's hasText filter does substring matching.
+    // Searching for "Graph (DrawIO)" matches both "Graph (DrawIO)" and "Graph (DrawIO) (Staging)".
+    // This keeps the search working regardless of whether the app is in staging or production mode.
     return name;
   }
 
@@ -118,24 +117,37 @@ export class ConfluenceEditorPage {
     });
 
     if (clicked) {
-      // Wait for search combobox
-      const combobox = this.page.locator('input[role="combobox"]');
-      if (await combobox.first().isVisible({ timeout: 5000 }).catch(() => false)) {
+      // Wait for the Insert elements combobox specifically (aria-expanded="true").
+      // We MUST NOT use the generic 'input[role="combobox"]' selector because the
+      // Confluence navigation search bar is also input[role="combobox"] and is always
+      // visible. Targeting the expanded one ensures we find the macro browser combobox.
+      const insertCombobox = this.page.locator('input[role="combobox"][aria-expanded="true"]');
+      if (await insertCombobox.first().isVisible({ timeout: 5000 }).catch(() => false)) {
+        console.log('  [debug] clickInsertElements: Strategy 1 (toolbar + button) succeeded');
         return;
       }
+      console.log('  [debug] clickInsertElements: Strategy 1 clicked but no combobox appeared');
+    } else {
+      console.log('  [debug] clickInsertElements: Strategy 1 found no Insert elements button');
     }
 
     // Strategy 2: Click "More elements" quick-insert button at the bottom
     const moreElements = this.page.locator('button:has-text("More elements")');
     if (await moreElements.isVisible({ timeout: 3000 }).catch(() => false)) {
       await moreElements.click();
-      const combobox = this.page.locator('input[role="combobox"]');
-      if (await combobox.first().isVisible({ timeout: 5000 }).catch(() => false)) {
+      const insertCombobox = this.page.locator('input[role="combobox"][aria-expanded="true"]');
+      if (await insertCombobox.first().isVisible({ timeout: 5000 }).catch(() => false)) {
+        console.log('  [debug] clickInsertElements: Strategy 2 (More elements button) succeeded');
         return;
       }
+      console.log('  [debug] clickInsertElements: Strategy 2 clicked but no combobox appeared');
+    } else {
+      console.log('  [debug] clickInsertElements: Strategy 2 no More elements button found');
     }
 
-    // Strategy 3: Type "/" in the editor to trigger inline search
+    // Strategy 3: Type "/" in the editor and search directly (no popup expansion needed)
+    // This works by typing the search term directly after "/", letting Confluence filter inline.
+    console.log('  [debug] clickInsertElements: falling back to Strategy 3 (type /)');
     await editorBody.click().catch(() => {});
     await this.page.keyboard.type('/');
     await this.page.waitForTimeout(1000);
@@ -144,10 +156,12 @@ export class ConfluenceEditorPage {
     const viewMore = this.page.locator('button:has-text("View more"), a:has-text("View more")');
     if (await viewMore.isVisible({ timeout: 3000 }).catch(() => false)) {
       await viewMore.click();
+      console.log('  [debug] clickInsertElements: Strategy 3 clicked View more');
     }
 
-    // Final wait for combobox
-    await this.page.waitForSelector('input[role="combobox"]', { timeout: 10000 });
+    // Final wait for Insert elements combobox
+    await this.page.waitForSelector('input[role="combobox"][aria-expanded="true"]', { timeout: 10000 });
+    console.log('  [debug] clickInsertElements: Strategy 3 combobox ready');
   }
 
   /**
@@ -157,16 +171,37 @@ export class ConfluenceEditorPage {
    * Never append "lite" to the search — it returns no results.
    */
   async searchAndSelectMacro(searchTerm: string, macroName: string): Promise<void> {
-    const combobox = this.page.locator('input[role="combobox"]');
-    // Find the visible combobox (there may be multiple)
-    const count = await combobox.count();
-    for (let i = 0; i < count; i++) {
-      if (await combobox.nth(i).isVisible()) {
-        await combobox.nth(i).fill(searchTerm);
-        break;
-      }
+    // Target the Insert elements combobox specifically using aria-expanded="true".
+    // The Confluence page always has a nav search bar (input[role="combobox"][aria-expanded="false"])
+    // in addition to the Insert elements combobox (aria-expanded="true"). Using the generic
+    // 'input[role="combobox"]' selector would match the nav bar first, causing search to fail.
+    const insertCombobox = this.page.locator('input[role="combobox"][aria-expanded="true"]');
+    const isVisible = await insertCombobox.first().isVisible({ timeout: 3000 }).catch(() => false);
+    if (isVisible) {
+      await insertCombobox.first().fill(searchTerm);
+      console.log(`  [debug] Typed "${searchTerm}" into Insert elements combobox`);
+    } else {
+      console.warn(`  [debug] No expanded Insert elements combobox found for search "${searchTerm}"`);
     }
-    await this.page.waitForTimeout(1500); // Wait for search results to populate
+
+    // Wait for at least one option to appear (up to 8s to handle slow sites).
+    const allOptions = this.page.locator('[role="option"]');
+    await allOptions.first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => null);
+
+    const optionCount = await allOptions.count();
+    const optionTexts: string[] = [];
+    for (let i = 0; i < Math.min(optionCount, 15); i++) {
+      optionTexts.push((await allOptions.nth(i).textContent() || '').trim());
+    }
+    console.log(`  [debug] Options for "${searchTerm}" (${optionCount} total): ${JSON.stringify(optionTexts)}`);
+
+    if (optionCount === 0) {
+      throw new Error(
+        `Macro browser returned 0 options when searching "${searchTerm}" on ${testConfig.domain}. ` +
+        `Expected to find macro "${macroName}".`
+      );
+    }
+
     const option = this.page.locator('[role="option"]').filter({ hasText: macroName });
     await option.first().click();
   }

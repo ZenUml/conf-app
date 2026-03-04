@@ -33,7 +33,6 @@ setup('authenticate', async ({ page }) => {
     // Handle "Log in" button if present
     const loginButton = page.locator('a:has-text("Log in")');
     if (await loginButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      console.log('📝 Clicking "Log in" button...');
       await loginButton.click();
     }
 
@@ -42,9 +41,6 @@ setup('authenticate', async ({ page }) => {
     await confluenceLogin.login(testConfig.credentials.username, testConfig.credentials.password);
 
     console.log('✅ Login successful, saving authentication state...');
-
-    // Save authentication state
-    console.log(`💾 Saving auth state to: ${authStatePath}`);
     await page.context().storageState({ path: authStatePath });
 
     console.log('✅ Authentication setup complete!');

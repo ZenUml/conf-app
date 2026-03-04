@@ -32,7 +32,7 @@ jobs:
   
   staging-lite:
     needs: build
-    name: L/Push(CF)&Install(Conf)
+    name: Lite / Deploy
     uses: ./.github/workflows/staging-deploy.yml
     with:
       variant: lite
@@ -55,7 +55,7 @@ jobs:
 
   staging-full:
     needs: build
-    name: F/Push(CF)&Install(Conf)
+    name: Full / Deploy
     uses: ./.github/workflows/staging-deploy.yml
     with:
       variant: full
@@ -78,7 +78,7 @@ jobs:
 
   staging-diagramly:
     needs: build
-    name: D/Push(CF)&Install(Conf)
+    name: Diagramly / Deploy
     uses: ./.github/workflows/staging-deploy.yml
     with:
       variant: diagramly
@@ -93,7 +93,7 @@ jobs:
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: diagramly@stg
-      suite: smoke
+      suite: insert
       artifact-suffix: diagramly-stg
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}

@@ -26,10 +26,10 @@ export class PageCreator {
     return testConfig.addonKey;
   }
 
-  // All document types use the same content key (zenuml-content-sequence)
+  // Custom content type is derived from profile-specific keys
   // This matches the behavior in src/model/ApWrapper2.ts getContentKey()
   private get customContentType(): string {
-    return `ac:${this.addonKey}:zenuml-content-sequence`;
+    return `ac:${this.addonKey}:${testConfig.customContentKey}`;
   }
 
   async createTestPage(options: MacroOptions): Promise<string> {
@@ -38,13 +38,8 @@ export class PageCreator {
     // Serialize entire page creation to prevent overwhelming Confluence
     return await withLock(async () => {
 
-      // Get space information
       const space = await this.getSpace(testConfig.spaceKey);
-      console.log('Current space:', space);
-
-      // Create draft page
       const draftPage = await this.createDraft(space.id, title);
-      console.log('Created draft:', draftPage);
 
       return await this.createPageContent(draftPage, options, title, space.id);
     });
@@ -72,8 +67,6 @@ export class PageCreator {
         .replaceAll('$$_EMBED_CONTENT_ID', embed?.id || '')
         .replaceAll('$$_MERMAID_CONTENT_ID', mermaid?.id || '');
 
-      console.log('Creating page with body structure');
-
       // Update page with final content
       const updateData = {
         id: draftPage.id,
@@ -87,7 +80,7 @@ export class PageCreator {
       const finalPage = await this.updatePage(draftPage.id, updateData);
       return finalPage.id;
     } catch (error) {
-      console.log('createTestPage error', error);
+      console.error('createTestPage error', error);
       await this.deletePage(draftPage.id);
       throw error;
     }
@@ -97,18 +90,22 @@ export class PageCreator {
     try {
       await this.page.request.delete(`https://${testConfig.domain}/wiki/api/v2/pages/${pageId}`);
     } catch (error) {
-      console.log('deletePage error', error);
+      console.error('deletePage error', error);
     }
   }
 
   private async getSpace(spaceKey: string): Promise<any> {
-    const url = `https://${testConfig.domain}/wiki/api/v2/spaces?keys=${spaceKey}`;
-    console.log('Fetching space from:', url);
-    const response = await this.page.request.get(url);
-    console.log('Space API response status:', response.status());
+    const response = await this.page.request.get(`https://${testConfig.domain}/wiki/api/v2/spaces?keys=${spaceKey}`);
+    if (!response.ok()) {
+      const body = await response.text();
+      throw new Error(`getSpace failed (${response.status()}): ${body}`);
+    }
     const data = await response.json();
-    console.log('Space API response data:', JSON.stringify(data, null, 2));
-    return data.results?.[0];
+    const space = data.results?.[0];
+    if (!space) {
+      throw new Error(`Space "${spaceKey}" not found on ${testConfig.domain}. Response: ${JSON.stringify(data)}`);
+    }
+    return space;
   }
 
   private async createDraft(spaceId: string, title: string): Promise<any> {
@@ -125,7 +122,6 @@ export class PageCreator {
   }
 
   private async createCustomContent(title: string, body: any, containerId: string): Promise<CustomContent> {
-    console.log(`Creating custom content with type: ${this.customContentType}`);
     const response = await this.page.request.post(`https://${testConfig.domain}/wiki/api/v2/custom-content`, {
       headers: { 'Content-Type': 'application/json' },
       data: {
@@ -135,9 +131,7 @@ export class PageCreator {
         body: { value: JSON.stringify(body), representation: 'raw' }
       }
     });
-    const result = await response.json();
-    console.log('Created custom content', result);
-    return result;
+    return response.json();
   }
 
   private async updatePage(id: string, data: any): Promise<any> {
@@ -278,7 +272,7 @@ paths:
       attrs: {
         layout: 'default',
         extensionType: 'com.atlassian.confluence.macro.core',
-        extensionKey: `zenuml-sequence-macro${this.getModuleKeySuffix()}`,
+        extensionKey: testConfig.sequenceMacroKey,
         parameters: {
           macroParams: {
             uuid: { value: this.generateUUID() },
@@ -379,7 +373,7 @@ paths:
       attrs: {
         layout: 'default',
         extensionType: 'com.atlassian.confluence.macro.core',
-        extensionKey: `zenuml-sequence-macro${this.getModuleKeySuffix()}`,
+        extensionKey: testConfig.sequenceMacroKey,
         parameters: {
           macroParams: {
             uuid: { value: this.generateUUID() },

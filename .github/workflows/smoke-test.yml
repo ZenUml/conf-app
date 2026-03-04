@@ -11,7 +11,7 @@ jobs:
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-lite@prod
-      suite: smoke
+      suite: insert
       artifact-suffix: lite-prod
     secrets:
       username: ${{ vars.ZENUML_PROD_USERNAME }}
@@ -24,7 +24,7 @@ jobs:
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-full@prod
-      suite: smoke
+      suite: insert
       artifact-suffix: full-prod
     secrets:
       username: ${{ vars.ZENUML_PROD_USERNAME }}
@@ -37,7 +37,7 @@ jobs:
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: diagramly@prod
-      suite: smoke
+      suite: insert
       artifact-suffix: diagramly-prod
     secrets:
       username: ${{ vars.ZENUML_PROD_USERNAME }}

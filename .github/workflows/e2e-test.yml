@@ -10,7 +10,7 @@ on:
       suite:
         type: string
         default: 'all'
-        description: 'Test suite: all, smoke, diagram'
+        description: 'Test suite: all, insert, render'
       artifact-suffix:
         type: string
         required: true
@@ -60,8 +60,8 @@ jobs:
         run: |
           cd tests/e2e-tests
           case "${{ inputs.suite }}" in
-            smoke)   pnpm test:smoke ;;
-            diagram) pnpm test:diagram ;;
+            insert)  pnpm test:insert ;;
+            render)  pnpm test:render ;;
             *)       pnpm test ;;
           esac
         env:

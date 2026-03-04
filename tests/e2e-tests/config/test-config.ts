@@ -13,6 +13,8 @@ interface TestConfig {
   isForge: boolean;
   macros: MacroType[];
   addonKey: string;
+  sequenceMacroKey: string;
+  customContentKey: string;
   credentials: {
     username: string;
     password: string;
@@ -46,7 +48,9 @@ function resolveProfile(): AppProfile {
     isLite,
     isForge,
     macros: ['sequence', 'graph', 'openapi', 'embed', 'mermaid'],
-    addonKey: isLite ? 'com.zenuml.confluence-addon-lite' : 'com.zenuml.confluence-addon',
+    addonKey: siteProfile?.addonKey ?? (isLite ? 'com.zenuml.confluence-addon-lite' : 'com.zenuml.confluence-addon'),
+    sequenceMacroKey: siteProfile?.sequenceMacroKey ?? (isLite ? 'zenuml-sequence-macro-lite' : 'zenuml-sequence-macro'),
+    customContentKey: siteProfile?.customContentKey ?? 'zenuml-content-sequence',
   };
 }
 
@@ -62,6 +66,8 @@ export const testConfig: TestConfig = {
   isForge: profile.isForge,
   macros: profile.macros,
   addonKey: profile.addonKey,
+  sequenceMacroKey: profile.sequenceMacroKey,
+  customContentKey: profile.customContentKey,
 
   credentials: {
     username: process.env.ZENUML_STAGE_USERNAME || '',

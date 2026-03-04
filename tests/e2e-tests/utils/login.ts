@@ -19,14 +19,11 @@ export class ConfluenceLogin {
   }
 
   private async enterCredentials(username: string, password: string): Promise<void> {
-    console.log('entering credentials');
     await this.page.fill('input[name=username]', username);
     await this.page.click("#login-submit");
 
     await this.page.fill('input[name=password]', password);
     await this.page.click("#login-submit");
-
-    console.log('Credentials submitted');
   }
 
   private async handlePostLoginFlow(): Promise<void> {
@@ -44,7 +41,6 @@ export class ConfluenceLogin {
         await this.page.waitForURL(testConfig.baseUrl, { timeout: OTP_NAVIGATION_TIMEOUT_MS }).catch(() => {});
 
         const title = await this.page.title();
-        console.log('Page title:', title);
         const isSuccess = title.includes('Confluence');
         if (isSuccess) {
           console.log('OTP submitted successfully');

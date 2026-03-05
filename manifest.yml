@@ -189,8 +189,8 @@ connectModules:
 modules:
   macro:
     - key: ${SEQUENCE_MACRO_KEY}
-      title: Diagram (ZenUML & Mermaid)${LITE_TITLE_SUFFIX}
-      description: Create a ZenUML or Mermaid Diagram. Developed by the ZenUML team.
+      title: Diagram (ZenUML, PlantUML & Mermaid)${LITE_TITLE_SUFFIX}
+      description: Create a ZenUML, PlantUML or Mermaid Diagram. Developed by the ZenUML team.
       resource: main
       config:
         resource: main

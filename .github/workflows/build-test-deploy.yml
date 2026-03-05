@@ -31,7 +31,6 @@ jobs:
       - run: pnpm test:unit
   
   staging-lite:
-    needs: build
     name: Lite / Deploy
     uses: ./.github/workflows/staging-deploy.yml
     with:
@@ -42,7 +41,7 @@ jobs:
     secrets: inherit
 
   staging-lite-test:
-    needs: staging-lite
+    needs: [staging-lite, build]
     name: Lite - E2E Test on Staging
     uses: ./.github/workflows/e2e-test.yml
     with:
@@ -54,7 +53,6 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   staging-full:
-    needs: build
     name: Full / Deploy
     uses: ./.github/workflows/staging-deploy.yml
     with:
@@ -65,7 +63,7 @@ jobs:
     secrets: inherit
 
   staging-full-test:
-    needs: staging-full
+    needs: [staging-full, build]
     name: Full - E2E Test on Staging
     uses: ./.github/workflows/e2e-test.yml
     with:
@@ -77,7 +75,6 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   staging-diagramly:
-    needs: build
     name: Diagramly / Deploy
     uses: ./.github/workflows/staging-deploy.yml
     with:
@@ -88,7 +85,7 @@ jobs:
     secrets: inherit
 
   staging-diagramly-test:
-    needs: staging-diagramly
+    needs: [staging-diagramly, build]
     name: Diagramly - E2E Test on Staging
     uses: ./.github/workflows/e2e-test.yml
     with:

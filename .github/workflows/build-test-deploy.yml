@@ -89,11 +89,10 @@ jobs:
 
   staging-diagramly-test:
     needs: staging-diagramly
-    name: Diagramly - E2E Smoke Test on Staging
+    name: Diagramly - E2E Test on Staging
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: diagramly@stg
-      suite: insert
       artifact-suffix: diagramly-stg
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}

@@ -62,10 +62,19 @@ async function upsertForgeApp(db: D1Database, body: ForgeAppRequestBody) {
 export async function upsertForgeInstallation(db: D1Database, body: ForgeAppRequestBody) {
   await upsertForgeApp(db, body);
 
+  // Extract cloudId from context ARI (e.g., ari:cloud:confluence::site/{cloudId})
+  let cloudId: string | null = null;
+  if (body.context) {
+    const match = body.context.match(/ari:cloud:confluence::site\/([a-f0-9-]+)/);
+    if (match) {
+      cloudId = match[1];
+    }
+  }
+
   const result = await db.prepare(
     `INSERT INTO ForgeInstallation (
-      installationId, context, installerAccountId, eventType, appId, environmentId, permissions, createdAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      installationId, context, installerAccountId, eventType, appId, environmentId, permissions, cloudId, createdAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(installationId) DO UPDATE SET
       installationId = excluded.installationId,
       context = excluded.context,
@@ -74,6 +83,7 @@ export async function upsertForgeInstallation(db: D1Database, body: ForgeAppRequ
       appId = excluded.appId,
       environmentId = excluded.environmentId,
       permissions = excluded.permissions,
+      cloudId = excluded.cloudId,
       createdAt = excluded.createdAt`
   ).bind(
     body.id,
@@ -83,6 +93,7 @@ export async function upsertForgeInstallation(db: D1Database, body: ForgeAppRequ
     body.app.id,
     body.environment.id,
     JSON.stringify(body.permissions),
+    cloudId,
     new Date().toISOString()
   ) .run();
 

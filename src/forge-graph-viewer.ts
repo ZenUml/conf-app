@@ -113,6 +113,7 @@ async function initializeMacro() {
   try {
     // Load DrawIO scripts first
     // await loadDrawIOScripts();
+    trackEvent('', 'view_macro', 'graph');
     await loadDiagram();
   } catch (e) {
     console.error('Error loading graph viewer', e);

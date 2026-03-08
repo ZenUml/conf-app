@@ -24,7 +24,12 @@ export const onRequest = async ({ request, env }) => {
     if(versionResult) {
       await createOrUpdateContent(env, customContent, forgeAppId, body.macroUuid, body.diagramType);
     }
-    
+
+    // Update ForgeInstallation with clientDomain if provided
+    if (body.clientDomain) {
+      await updateForgeInstallationClientDomain(env, forgeAppId, apiBaseUrl, body.clientDomain);
+    }
+
     return OkResponse();
   } catch (error) {
     console.error('Error in forge-custom-content:', error);
@@ -70,4 +75,28 @@ async function createOrUpdateContent(env, data, appId, macroUuid, diagramType) {
   .bind(data.id, data.type, data.version.number, JSON.stringify(data.body), data.createdAt, appId, data.spaceId, data.title || '', data.pageId || '', macroUuid || '', diagramType || '', data.status || '')
   .run();
   console.log('create content result:', result);
+}
+
+async function updateForgeInstallationClientDomain(env, appId, apiBaseUrl, clientDomain) {
+  // Extract cloudId from apiBaseUrl (e.g., https://api.atlassian.com/ex/confluence/{cloudId})
+  let cloudId: string | null = null;
+  if (apiBaseUrl) {
+    const match = apiBaseUrl.match(/\/ex\/confluence\/([a-f0-9-]+)/);
+    if (match) {
+      cloudId = match[1];
+    }
+  }
+
+  if (!cloudId) {
+    console.log('Could not extract cloudId from apiBaseUrl:', apiBaseUrl);
+    return;
+  }
+
+  const result = await env.DB.prepare(
+    "UPDATE ForgeInstallation SET clientDomain = ?1 WHERE appId = ?2 AND cloudId = ?3"
+  )
+  .bind(clientDomain, appId, cloudId)
+  .run();
+
+  console.log('Update ForgeInstallation clientDomain result:', result);
 }

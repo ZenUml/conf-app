@@ -242,6 +242,11 @@ modules:
       events:
         - avi:forge:installed:app
         - avi:forge:upgraded:app
+    - key: remote-page-behavior-trigger
+      endpoint: remote-page-behavior-endpoint
+      events:
+        - avi:confluence:viewed:page
+        - avi:confluence:updated:page
   endpoint:
     - key: remote-connect
       remote: connect
@@ -254,6 +259,13 @@ modules:
       remote: connect
       route:
         path: /forge-installed
+      auth:
+        appSystemToken:
+          enabled: true
+    - key: remote-page-behavior-endpoint
+      remote: connect
+      route:
+        path: /forge-user-behavior
       auth:
         appSystemToken:
           enabled: true

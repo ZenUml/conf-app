@@ -218,3 +218,23 @@ This comprehensive tracking system provides valuable insights into how users int
 4. Informing future development decisions
 
 By tracking events at each stage of the macro creation process, the ZenUML team can continuously improve the user experience and ensure the product meets user needs effectively.
+
+## Forge Confluence Page Behavior Events
+
+In addition to in-app macro/editor analytics, the Forge app can also receive Confluence page-level behavior events through Forge triggers.
+
+### V1 event coverage
+
+- `avi:confluence:viewed:page` -> `page_viewed`
+- `avi:confluence:updated:page` -> `page_updated`
+
+These events are routed through Forge Remote to `/forge-user-behavior`, normalized on the backend, and then forwarded to Mixpanel.
+
+### Important distinction
+
+These events describe Confluence page activity, not editor-only interactions inside the app UI.
+
+- **Page activity**: page was viewed or updated in Confluence
+- **In-app activity**: macro creation, editor actions, AI usage, save flows
+
+Keeping them separate makes reporting clearer and avoids mixing page-level behavior with macro-level journeys.

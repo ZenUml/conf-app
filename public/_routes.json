@@ -18,6 +18,7 @@
     "/api/features",
     "/api/metrics/evaluation",
     "/forge-installed",
+    "/forge-user-behavior",
     "/metrics-cache/query",
     "/metrics-cache/update"
   ],

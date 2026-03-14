@@ -1,6 +1,26 @@
 import { D1Database } from '@cloudflare/workers-types';
 import { ForgeAppRequestBody } from '../RequestBody';
 
+export async function getForgeInstallationClientDomain(
+  db: D1Database,
+  appId?: string,
+  cloudId?: string,
+) {
+  if (!appId || !cloudId) {
+    return null;
+  }
+
+  const normalizedAppId = appId.split("/").pop() || appId;
+
+  const result = await db.prepare(
+    "SELECT clientDomain FROM ForgeInstallation WHERE appId = ?1 AND cloudId = ?2"
+  )
+    .bind(normalizedAppId, cloudId)
+    .first<{ clientDomain?: string | null }>();
+
+  return result?.clientDomain || null;
+}
+
 export async function upsertClientInstallation(db: D1Database, body: any) {
   const clientDomain = new URL(body.baseUrl).hostname.split('.')[0];
 

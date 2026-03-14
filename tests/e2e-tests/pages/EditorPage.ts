@@ -4,6 +4,32 @@ import { testConfig, TIMEOUTS } from '../config/test-config.js';
 export class ConfluenceEditorPage {
   constructor(private page: Page) {}
 
+  private insertBrowserCombobox() {
+    return this.page.getByRole('dialog', { name: /Browse/ }).getByRole('combobox').first();
+  }
+
+  private editorBody() {
+    return this.page.getByRole('textbox', {
+      name: /(?:Main content area|Page editing area), start typing to enter text\./,
+    });
+  }
+
+  private async focusEditorBody(): Promise<void> {
+    const editorBody = this.editorBody().first();
+    if (await editorBody.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await editorBody.click();
+      return;
+    }
+
+    const proseMirror = this.page.locator('.ProseMirror [contenteditable="true"], .ProseMirror p').last();
+    if (await proseMirror.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await proseMirror.click();
+      return;
+    }
+
+    throw new Error('Could not focus the Confluence editor body');
+  }
+
   // ── Navigation ──
 
   async navigateToParentPage(): Promise<void> {
@@ -26,7 +52,14 @@ export class ConfluenceEditorPage {
     await this.page.locator('[data-testid="app-navigation-create"]').click();
     // Dropdown items are links, not menuitems. Click the "Page" link.
     // URL pattern: /wiki/create-content/page?... (v2 editor, NOT the legacy /pages/create)
-    await this.page.getByRole('link', { name: 'Page', exact: true }).click();
+    const pageLink = this.page.getByRole('link', { name: 'Page', exact: true });
+    if (await pageLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await pageLink.click();
+    } else {
+      await this.page.goto(
+        `https://${testConfig.domain}/wiki/create-content/page?spaceKey=${testConfig.spaceKey}&parentPageId=${testConfig.parentPageId}`,
+      );
+    }
     // Wait for the v2 editor to load
     await this.page.waitForSelector('[placeholder="Give this page a title"]', { timeout: TIMEOUTS.FRAME_LOAD });
   }
@@ -94,34 +127,28 @@ export class ConfluenceEditorPage {
    * of the editor quick-insert bar.
    */
   async clickInsertElements(): Promise<void> {
+    const insertCombobox = this.insertBrowserCombobox();
+
     // Click the editor body to ensure focus
-    const editorBody = this.page.locator('[role="textbox"][aria-label="Main content area, start typing to enter text."]');
-    if (await editorBody.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await editorBody.click();
-    } else {
-      await this.page.locator('.ProseMirror p').last().click();
-    }
+    await this.focusEditorBody();
     await this.page.waitForTimeout(500);
 
     // Strategy 1: Click the toolbar "+" button
-    const clicked = await this.page.evaluate(() => {
-      const spans = document.querySelectorAll('[aria-label="Insert elements"]');
-      for (const span of spans) {
-        const btn = span.closest('button');
-        if (btn && btn.offsetParent !== null) {
-          btn.click();
-          return true;
-        }
+    const insertButtons = this.page.getByRole('button', { name: /Insert elements/ });
+    let clicked = false;
+    const insertButtonCount = await insertButtons.count();
+    for (let i = 0; i < insertButtonCount; i++) {
+      const button = insertButtons.nth(i);
+      const isVisible = await button.isVisible().catch(() => false);
+      const isEnabled = await button.isEnabled().catch(() => false);
+      if (isVisible && isEnabled) {
+        await button.click();
+        clicked = true;
+        break;
       }
-      return false;
-    });
+    }
 
     if (clicked) {
-      // Wait for the Insert elements combobox specifically (aria-expanded="true").
-      // We MUST NOT use the generic 'input[role="combobox"]' selector because the
-      // Confluence navigation search bar is also input[role="combobox"] and is always
-      // visible. Targeting the expanded one ensures we find the macro browser combobox.
-      const insertCombobox = this.page.locator('input[role="combobox"][aria-expanded="true"]');
       if (await insertCombobox.first().isVisible({ timeout: 5000 }).catch(() => false)) {
         console.log('  [debug] clickInsertElements: Strategy 1 (toolbar + button) succeeded');
         return;
@@ -132,10 +159,10 @@ export class ConfluenceEditorPage {
     }
 
     // Strategy 2: Click "More elements" quick-insert button at the bottom
-    const moreElements = this.page.locator('button:has-text("More elements")');
+    const moreElements = this.page.getByRole('button', { name: /More elements|View more|View all elements/ }).last();
     if (await moreElements.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await moreElements.scrollIntoViewIfNeeded().catch(() => {});
       await moreElements.click();
-      const insertCombobox = this.page.locator('input[role="combobox"][aria-expanded="true"]');
       if (await insertCombobox.first().isVisible({ timeout: 5000 }).catch(() => false)) {
         console.log('  [debug] clickInsertElements: Strategy 2 (More elements button) succeeded');
         return;
@@ -148,19 +175,26 @@ export class ConfluenceEditorPage {
     // Strategy 3: Type "/" in the editor and search directly (no popup expansion needed)
     // This works by typing the search term directly after "/", letting Confluence filter inline.
     console.log('  [debug] clickInsertElements: falling back to Strategy 3 (type /)');
-    await editorBody.click().catch(() => {});
+    await this.focusEditorBody().catch(() => {});
     await this.page.keyboard.type('/');
     await this.page.waitForTimeout(1000);
 
+    const inlineInsert = this.page.getByRole('button', { name: 'Insert' }).last();
+    if (await inlineInsert.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await inlineInsert.click();
+      await this.page.waitForTimeout(500);
+      console.log('  [debug] clickInsertElements: Strategy 3 clicked inline Insert button');
+    }
+
     // The "/" popup shows limited items. Look for a "View more" link
-    const viewMore = this.page.locator('button:has-text("View more"), a:has-text("View more")');
+    const viewMore = this.page.getByRole('button', { name: /View more|View all elements/ }).last();
     if (await viewMore.isVisible({ timeout: 3000 }).catch(() => false)) {
       await viewMore.click();
       console.log('  [debug] clickInsertElements: Strategy 3 clicked View more');
     }
 
     // Final wait for Insert elements combobox
-    await this.page.waitForSelector('input[role="combobox"][aria-expanded="true"]', { timeout: 10000 });
+    await insertCombobox.first().waitFor({ state: 'visible', timeout: 10000 });
     console.log('  [debug] clickInsertElements: Strategy 3 combobox ready');
   }
 
@@ -175,17 +209,18 @@ export class ConfluenceEditorPage {
     // The Confluence page always has a nav search bar (input[role="combobox"][aria-expanded="false"])
     // in addition to the Insert elements combobox (aria-expanded="true"). Using the generic
     // 'input[role="combobox"]' selector would match the nav bar first, causing search to fail.
-    const insertCombobox = this.page.locator('input[role="combobox"][aria-expanded="true"]');
+    const insertCombobox = this.insertBrowserCombobox();
     const isVisible = await insertCombobox.first().isVisible({ timeout: 3000 }).catch(() => false);
     if (isVisible) {
+      await insertCombobox.first().click();
       await insertCombobox.first().fill(searchTerm);
       console.log(`  [debug] Typed "${searchTerm}" into Insert elements combobox`);
     } else {
       console.warn(`  [debug] No expanded Insert elements combobox found for search "${searchTerm}"`);
     }
 
-    // Wait for at least one option to appear (up to 8s to handle slow sites).
-    const allOptions = this.page.locator('[role="option"]');
+    const browseDialog = this.page.getByRole('dialog', { name: /Browse/ });
+    const allOptions = browseDialog.locator('[role="option"], [role="gridcell"] button');
     await allOptions.first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => null);
 
     const optionCount = await allOptions.count();
@@ -202,8 +237,13 @@ export class ConfluenceEditorPage {
       );
     }
 
-    const option = this.page.locator('[role="option"]').filter({ hasText: macroName });
+    const option = browseDialog.locator('[role="option"], [role="gridcell"] button').filter({ hasText: macroName });
     await option.first().click();
+
+    const insertButton = browseDialog.getByRole('button', { name: 'Insert' });
+    if (await insertButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await insertButton.click();
+    }
   }
 
   // ── Cursor Positioning ──

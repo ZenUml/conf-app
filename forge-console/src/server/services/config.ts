@@ -6,7 +6,7 @@ import type { Config, AppInfo } from '../../shared/types.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // Default config path - relative to project root
-const DEFAULT_CONFIG_PATH = resolve(__dirname, '../../../../.forge-console/config.json')
+const DEFAULT_CONFIG_PATH = resolve(__dirname, '../../../config.json')
 
 let cachedConfig: Config | null = null
 let configPath = DEFAULT_CONFIG_PATH

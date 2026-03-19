@@ -17,7 +17,14 @@ const PlaceholderBox = styled.div`
   flex-direction: column;
 `;
 
-const Conversations = ({ sessions = [] }) => {
+interface ChatSession {
+  id: string;
+  loading: boolean;
+  type: string;
+  message: string;
+}
+
+const Conversations = ({ sessions = [] }: { sessions?: ChatSession[] }) => {
   const boxRef = React.createRef();
 
   useScrollToBttom(boxRef);
@@ -33,7 +40,7 @@ const Conversations = ({ sessions = [] }) => {
 
   return (
     <ConversationWrapper ref={boxRef}>
-      {sessions.map((chat, index) => {
+      {sessions.map((chat) => {
         return (
           <MarkdownRenderer
             key={chat.id}

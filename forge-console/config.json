@@ -15,16 +15,16 @@
       },
       "environments": {
         "development": {
-          "BASE_URL": "https://localhost:8080"
+          "BACKEND_API_BASE_URL": "https://localhost:8080"
         },
         "yanhui": {
-          "BASE_URL": "https://confluence-plugin.pages.dev"
+          "BACKEND_API_BASE_URL": "https://confluence-plugin.pages.dev"
         },
         "staging": {
-          "BASE_URL": "https://conf-stg-lite.zenuml.com"
+          "BACKEND_API_BASE_URL": "https://conf-stg-lite.zenuml.com"
         },
         "production": {
-          "BASE_URL": "https://conf-lite.zenuml.com"
+          "BACKEND_API_BASE_URL": "https://conf-lite.zenuml.com"
         }
       }
     },
@@ -40,23 +40,23 @@
       },
       "environments": {
         "development": {
-          "BASE_URL": "https://localhost:8080",
+          "BACKEND_API_BASE_URL": "https://localhost:8080",
           "DIAGRAMLY_BASE_URL": "https://staging.diagramly.ai"
         },
         "yanhui": {
-          "BASE_URL": "https://confluence-plugin.pages.dev",
+          "BACKEND_API_BASE_URL": "https://confluence-plugin.pages.dev",
           "DIAGRAMLY_BASE_URL": "https://staging.diagramly.ai"
         },
         "peng-dev": {
-          "BASE_URL": "https://8080.diagramly.net",
+          "BACKEND_API_BASE_URL": "https://8080.diagramly.net",
           "DIAGRAMLY_BASE_URL": "https://staging.diagramly.ai"
         },
         "staging": {
-          "BASE_URL": "https://conf-stg-lite.zenuml.com",
+          "BACKEND_API_BASE_URL": "https://conf-stg-lite.zenuml.com",
           "DIAGRAMLY_BASE_URL": "https://staging.diagramly.ai"
         },
         "production": {
-          "BASE_URL": "https://conf-lite.zenuml.com",
+          "BACKEND_API_BASE_URL": "https://conf-lite.zenuml.com",
           "DIAGRAMLY_BASE_URL": "https://diagramly.ai"
         }
       }

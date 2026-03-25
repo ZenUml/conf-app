@@ -2,7 +2,7 @@ environment:
   variables:
     - key: APP_ID
       default: 8ad26115-211f-4216-971b-0540f606303d #Lite App ID
-    - key: BASE_URL
+    - key: BACKEND_API_BASE_URL
       default: https://conf-stg-lite.zenuml.com
     - key: CONNECT_KEY
       default: com.zenuml.confluence-addon-lite
@@ -31,7 +31,7 @@ app:
 remotes:
   # Addition of one or more new remotes, see https://developer.atlassian.com/platform/adopting-forge-from-connect/connect-forge-updates-preview/
   - key: connect
-    baseUrl: ${BASE_URL}
+    baseUrl: ${BACKEND_API_BASE_URL}
     operations:
       - compute
     auth:

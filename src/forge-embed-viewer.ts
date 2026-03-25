@@ -7,18 +7,12 @@ import {mountRoot} from "@/mount-root";
 import macroMetrics from '@/services/MacroMetrics';
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import store from "@/model/store2";
-
-// Type declarations for global window properties
-declare global {
-  interface Window {
-    diagram: any;
-  }
-}
+import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 
 async function loadDiagram() {
   const context = await initForgeContext();
 
-  let doc;
+  let doc: Diagram | undefined;
   const customContentId = context.extension?.config?.customContentId;
   if(!customContentId) {
   } else {
@@ -26,11 +20,11 @@ async function loadDiagram() {
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
   }
-  store.state.diagram = doc || {};
-  window.diagram = doc || {};
+  store.state.diagram = doc ?? NULL_DIAGRAM;
+  window.diagram = doc ?? NULL_DIAGRAM;
   console.log('loadDiagram - window.diagram', window.diagram);
 
-  mountRoot(doc, ForgeEmbedViewer, {
+  mountRoot(doc ?? NULL_DIAGRAM, ForgeEmbedViewer, {
     diagramType: doc?.diagramType,
     doc: doc
   });
@@ -38,7 +32,7 @@ async function loadDiagram() {
   setTimeout(async function () {
     try {
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
-        await createAttachmentIfContentChanged(doc?.code || doc?.graphXml || doc?.mermaidCode);
+        await createAttachmentIfContentChanged(doc?.code || doc?.graphXml || doc?.mermaidCode || '');
       } else {
         console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");
       }
@@ -59,8 +53,7 @@ async function initializeMacro() {
     trackEvent('', 'view_macro', 'embed');
 
     // Initialize with empty doc, will be loaded in loadDiagram
-    const doc = {};
-    mountRoot(doc, ForgeEmbedViewer);
+    mountRoot(NULL_DIAGRAM, ForgeEmbedViewer);
     await loadDiagram();
   } catch (e) {
     console.error('Error loading embed viewer', e);

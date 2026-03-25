@@ -8,7 +8,7 @@ import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from "@/utils/window";
 import { mountRoot } from "@/mount-root";
 import ForgeGraphEditor from "@/components/DrawIoExtension/ForgeGraphEditor.vue";
-import { DiagramType, DataSource } from "@/model/Diagram/Diagram";
+import { Diagram, DiagramType, DataSource, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
 import { showCloseWithoutSavingDialog } from './utils/modalService';
 import EventBus from "./EventBus";
@@ -17,14 +17,6 @@ import uuidv4 from '@/utils/uuid';
 
 // Track editor session start time
 const editorStartTime = Date.now();
-
-// Type declarations for global window properties
-declare global {
-  interface Window {
-    diagram: any;
-    graphXml?: string;
-  }
-}
 
 const EMPTY_GRAPH = `<mxfile>
   <diagram name="Page-1">
@@ -134,22 +126,22 @@ async function initializeMacro() {
   // Ensure session is initialized
   getOrCreateSession();
 
-  let doc;
+  let doc: Diagram | undefined;
   const customContentId = context.extension?.config?.customContentId;
   if(!customContentId) {
     doc = {
       diagramType: DiagramType.Graph,
       graphXml: EMPTY_GRAPH,
       isNew: true
-    }
+    } as Diagram;
   } else {
     const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
   }
 
-  store.state.diagram = doc || {};
-  window.diagram = doc || {};
+  store.state.diagram = doc ?? NULL_DIAGRAM;
+  window.diagram = doc ?? NULL_DIAGRAM;
   console.log('loadDiagram - window.diagram', window.diagram);
 
   let graphXml = doc?.graphXml;
@@ -166,7 +158,7 @@ async function initializeMacro() {
     window.graphXml = graphXml;
   }
 
-  mountRoot(doc, ForgeGraphEditor, {
+  mountRoot(doc ?? NULL_DIAGRAM, ForgeGraphEditor, {
     graphXml,
     saveGraphAndExit,
     doc

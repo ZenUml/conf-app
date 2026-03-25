@@ -13,6 +13,7 @@ import {mountRoot} from "@/mount-root";
 import macroMetrics from "@/services/MacroMetrics";
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import store from "@/model/store2";
+import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 
 // @ts-ignore
 window.SwaggerUIBundle = SwaggerUIBundle;
@@ -48,7 +49,7 @@ async function loadDiagram() {
 
   const context = await initForgeContext();
 
-  let doc;
+  let doc: Diagram | undefined;
   const customContentId = context.extension?.config?.customContentId;
   if(!customContentId) {
   } else {
@@ -56,8 +57,8 @@ async function loadDiagram() {
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
   }
-  store.state.diagram = doc;
-  window.diagram = doc;
+  store.state.diagram = doc ?? NULL_DIAGRAM;
+  window.diagram = doc ?? NULL_DIAGRAM;
   console.log('loadDiagram - window.diagram', window.diagram);
 
   // eslint-disable-next-line
@@ -67,7 +68,7 @@ async function loadDiagram() {
   setTimeout(async function () {
     try {
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
-        await createAttachmentIfContentChanged(doc?.code);
+        await createAttachmentIfContentChanged(doc?.code ?? '');
       } else {
         console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");
       }
@@ -85,8 +86,7 @@ async function initializeMacro() {
   trackEvent('', 'view_macro', 'openapi');
 
   // Initialize with empty doc, will be loaded in loadDiagram
-  const doc = {};
-  mountRoot(doc, OpenApiViewer);
+  mountRoot(NULL_DIAGRAM, OpenApiViewer);
   initSwaggerUi();
 
   await loadDiagram();

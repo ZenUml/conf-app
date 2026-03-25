@@ -5,19 +5,11 @@ import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from "@/utils/window";
 import { mountRoot } from "@/mount-root";
 import ForgeEmbedEditor from "@/components/DrawIoExtension/ForgeEmbedEditor.vue";
-import { DiagramType, DataSource } from "@/model/Diagram/Diagram";
+import { Diagram, DiagramType, DataSource, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
 import uuidv4 from "@/utils/uuid";
 import EventBus from "./EventBus";
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
-
-// Type declarations for global window properties
-declare global {
-  interface Window {
-    diagram: any;
-    picked?: any;
-  }
-}
 
 async function saveEmbedAndExit(customContentId: string) {
   const macroData = await globals.apWrapper.getMacroData();
@@ -32,8 +24,7 @@ async function saveEmbedAndExit(customContentId: string) {
   const id = await saveToPlatform({
     diagramType: DiagramType.Embed,
     source: DataSource.CustomContent,
-    customContentId: customContentId
-  });
+  } as Diagram);
   
   // Split into create_macro_end and edit_macro_end
   const isNew = !macroData?.uuid;
@@ -84,24 +75,24 @@ async function initializeMacro() {
   // Ensure session is initialized
   getOrCreateSession();
 
-  let doc;
+  let doc: Diagram | undefined;
   const customContentId = context.extension?.config?.customContentId;
   if(!customContentId) {
     doc = {
       diagramType: DiagramType.Embed,
       isNew: true
-    }
+    } as Diagram;
   } else {
     const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
   }
 
-  store.state.diagram = doc || {};
-  window.diagram = doc || {};
+  store.state.diagram = doc ?? NULL_DIAGRAM;
+  window.diagram = doc ?? NULL_DIAGRAM;
   console.log('loadDiagram - window.diagram', window.diagram);
 
-  mountRoot(doc, ForgeEmbedEditor, {
+  mountRoot(doc ?? NULL_DIAGRAM, ForgeEmbedEditor, {
     saveEmbedAndExit,
     exit,
     doc

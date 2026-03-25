@@ -12,7 +12,7 @@ import './assets/tailwind.css'
 import OpenApiExample from '@/model/OpenApi/OpenApiExample'
 import globals from '@/model/globals';
 import './utils/IgnoreEsc'
-import { DataSource, DiagramType } from "@/model/Diagram/Diagram";
+import { Diagram, DataSource, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from '@/utils/window';
@@ -141,7 +141,7 @@ async function initializeMacro() {
   // Ensure session is initialized
   getOrCreateSession();
 
-  let doc;
+  let doc: Diagram | undefined;
   const customContentId = context.extension?.config?.customContentId;
   if(!customContentId) {
   } else {
@@ -149,7 +149,7 @@ async function initializeMacro() {
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
   }
-  store.state.diagram = doc;
+  store.state.diagram = doc ?? NULL_DIAGRAM;
 
   // @ts-ignore
   window.diagram = doc;

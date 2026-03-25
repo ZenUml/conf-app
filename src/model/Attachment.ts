@@ -11,12 +11,6 @@ import type { Attachment } from '@/model/ConfluenceTypes';
 // Type Definitions
 // ============================================================================
 
-/** Augment Window interface for concurrent execution guard */
-declare global {
-  interface Window {
-    createAttachmentInProgress?: boolean;
-  }
-}
 
 /** HTTP request configuration for Confluence API calls */
 interface RequestConfig {

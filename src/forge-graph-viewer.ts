@@ -50,22 +50,12 @@ import macroMetrics from '@/services/MacroMetrics';
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import store from "@/model/store2";
 import GraphExample from '@/model/Graph/GraphExample';
-
-// Type declarations for global window properties
-declare global {
-  interface Window {
-    diagram: any;
-    graph: any;
-    setGraphStyle?: (styleUrl: string, graph: any) => void;
-    setGraphXml?: (xml: string, graph: any) => void;
-    updateGraph?: (xml: string) => void;
-  }
-}
+import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 
 async function loadDiagram() {
   const context = await initForgeContext();
 
-  let doc;
+  let doc: Diagram | undefined;
   const customContentId = context.extension?.config?.customContentId;
   if(!customContentId) {
   } else {
@@ -73,11 +63,11 @@ async function loadDiagram() {
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
   }
-  store.state.diagram = doc || {};
-  window.diagram = doc || {};
+  store.state.diagram = doc ?? NULL_DIAGRAM;
+  window.diagram = doc ?? NULL_DIAGRAM;
   console.log('loadDiagram - window.diagram', window.diagram);
 
-  mountRoot(doc, ForgeGraphViewer, {
+  mountRoot(doc ?? NULL_DIAGRAM, ForgeGraphViewer, {
     graphXml: doc?.graphXml
   });
 
@@ -96,7 +86,7 @@ async function loadDiagram() {
   setTimeout(async function () {
     try {
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
-        await createAttachmentIfContentChanged(graphXml);
+        await createAttachmentIfContentChanged(graphXml ?? '');
       } else {
         console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");
       }

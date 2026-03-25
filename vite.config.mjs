@@ -122,8 +122,10 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
     },
-    deps: {
-      inline: ['@vue/test-utils'],
+    server: {
+      deps: {
+        inline: ['@vue/test-utils'],
+      },
     },
     exclude: [
       '**/node_modules/**',

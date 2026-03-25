@@ -24,7 +24,7 @@ const MarkdownBox = styled.div`
   }
 `;
 
-// eslint-disable-next-line no-unused-vars,react/no-children-prop
+// eslint-disable-next-line no-unused-vars
 const StyledMarkdown = styled(
   ({ primaryBg, isGPT, children, className, ...restProps }) => (
     <div className={className}>

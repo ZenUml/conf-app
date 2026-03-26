@@ -58,7 +58,7 @@
     "forge:tunnel:diagramly:yanhui": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf CONNECT_KEY=gptdock-confluence SEQUENCE_MACRO_KEY=gpt-diagram-macro CUSTOM_CONTENT_KEY=gpt-custom-content-key LITE_KEY_SUFFIX= LITE_TITLE_SUFFIX=Diagramly BACKEND_API_BASE_URL=https://confluence-plugin.pages.dev forge tunnel -e yanhui",
     "forge:tunnel": "./scripts/forgex tunnel -e {{FORGE_ENV}}",
     "forge:all:diagramly:yanhui": "pnpm build:diagramly && npm forge:deploy:diagramly:yanhui && pnpm forge:install:diagramly:yanhui",
-    "forge:all:dev": "pnpm build:lite && pnpm forge:deploy:dev && pnpm forge:install:dev",
+    "forge:all:dev": "pnpm build:lite && pnpm forge:deploy:dev && pnpm forge:upgrade:dev",
     "forge:deploy:diagramly:staging": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf CONNECT_KEY=gptdock-confluence SEQUENCE_MACRO_KEY=gpt-diagram-macro CUSTOM_CONTENT_KEY=gpt-custom-content-key LITE_KEY_SUFFIX= LITE_TITLE_SUFFIX= BACKEND_API_BASE_URL=https://conf-stg-lite.zenuml.com forge deploy -e staging --non-interactive",
     "forge:install:diagramly:staging": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf forge install --site dia-stg.atlassian.net --product confluence -e staging --non-interactive",
     "forge:upgrade:diagramly:staging": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf forge install --upgrade --site dia-stg.atlassian.net --product confluence -e staging --non-interactive",

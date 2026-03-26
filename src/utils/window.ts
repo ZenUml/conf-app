@@ -15,6 +15,7 @@ const initMixpanel = () => {
     mixpanel.init("78617e65fdba543d752fb7f6483d55f4", {
       debug: true,
       track_pageview: false,
+      autocapture: false,
       persistence: "localStorage",
       ignore_dnt: true
     });

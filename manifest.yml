@@ -14,6 +14,8 @@ environment:
       default: zenuml-sequence-macro-lite
     - key: CUSTOM_CONTENT_KEY
       default: zenuml-content-sequence
+    - key: APP_LABEL
+      default: ZenUML for Confluence Lite
     - key: DIAGRAMLY_BASE_URL
       default: https://staging.diagramly.ai
 
@@ -190,7 +192,7 @@ modules:
   macro:
     - key: ${SEQUENCE_MACRO_KEY}
       title: Diagram (ZenUML, PlantUML & Mermaid)${LITE_TITLE_SUFFIX}
-      description: Create a ZenUML, PlantUML or Mermaid Diagram. Developed by the ZenUML team.
+      description: Create a ZenUML, PlantUML or Mermaid Diagram. ${APP_LABEL}
       resource: main
       config:
         resource: main
@@ -202,7 +204,7 @@ modules:
       icon: resource:main;image/diagram_macro_icon.png
     - key: zenuml-openapi-macro${LITE_KEY_SUFFIX}
       title: OpenAPI / Swagger${LITE_TITLE_SUFFIX}
-      description: Create an OpenAPI / Swagger Spec. Developed by the ZenUML team.
+      description: Create an OpenAPI / Swagger Spec. ${APP_LABEL}
       resource: main
       config:
         resource: main
@@ -214,7 +216,7 @@ modules:
       icon: resource:main;image/openapi_macro_icon.png
     - key: zenuml-graph-macro${LITE_KEY_SUFFIX}
       title: Graph (DrawIO)${LITE_TITLE_SUFFIX}
-      description: Create a Graph powered by DrawIO. Developed by the ZenUML team.
+      description: Create a Graph powered by DrawIO. ${APP_LABEL}
       resource: main
       config:
         resource: main
@@ -226,7 +228,7 @@ modules:
       icon: resource:main;image/graph_macro_icon.png
     - key: zenuml-embed-macro${LITE_KEY_SUFFIX}
       title: Embed a Diagram, Graph or API Spec${LITE_TITLE_SUFFIX}
-      description: Embed an existing Diagram, Graph or API Spec. Developed by the ZenUML team.
+      description: Embed an existing Diagram, Graph or API Spec. ${APP_LABEL}
       resource: main
       config:
         resource: main

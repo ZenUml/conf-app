@@ -267,7 +267,7 @@ export class ConfluenceEditorPage {
   // ── Diagram Macro (Sequence / PlantUML / Mermaid) ──
 
   /**
-   * Interacts with the Diagram (ZenUML & Mermaid) macro editor.
+   * Interacts with the Diagram as Code macro editor.
    * Handles both Forge (Lite) and Connect (Full) variants.
    *
    * @param title - Title to set for the diagram

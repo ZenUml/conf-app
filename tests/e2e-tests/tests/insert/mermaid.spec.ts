@@ -16,7 +16,7 @@ test.describe(`Smoke Test - ${macroType}`, () => {
 
     await test.step('Insert PlantUML macro - PlantUML tab', async () => {
       await editorPage.dismissLearnTheBasicsPanel();
-      const macroName = editorPage.getMacroName('Diagram (ZenUML, PlantUML & Mermaid)');
+      const macroName = editorPage.getMacroName('Diagram as Code');
       console.log(`  → Inserting "${macroName}" (PlantUML tab)`);
       await editorPage.clickInsertElements();
       await editorPage.searchAndSelectMacro('zenuml', macroName);

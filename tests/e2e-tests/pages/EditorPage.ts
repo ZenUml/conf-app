@@ -179,13 +179,6 @@ export class ConfluenceEditorPage {
     await this.page.keyboard.type('/');
     await this.page.waitForTimeout(1000);
 
-    const inlineInsert = this.page.getByRole('button', { name: 'Insert' }).last();
-    if (await inlineInsert.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await inlineInsert.click();
-      await this.page.waitForTimeout(500);
-      console.log('  [debug] clickInsertElements: Strategy 3 clicked inline Insert button');
-    }
-
     // The "/" popup shows limited items. Look for a "View more" link
     const viewMore = this.page.getByRole('button', { name: /View more|View all elements/ }).last();
     if (await viewMore.isVisible({ timeout: 3000 }).catch(() => false)) {

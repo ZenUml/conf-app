@@ -65,6 +65,21 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     customContentKey: 'zenuml-content-sequence',
     appLabel: '',
   },
+  'zenuml-full-forge@stg': {
+    id: 'zenuml-full-forge@stg',
+    domain: 'full-stg.atlassian.net',
+    spaceKey: 'TODO',       // TODO: set after Forge app installed on full-stg
+    parentPageId: 'TODO',   // TODO: set after test page created on full-stg
+    parentPageName: 'Before release test pages',
+    isLite: false,
+    isForge: true,
+    macros: ALL_MACROS,
+    renderMacros: ALL_MACROS,
+    addonKey: 'com.zenuml.confluence-addon',
+    sequenceMacroKey: 'zenuml-sequence-macro',
+    customContentKey: 'zenuml-content-sequence',
+    appLabel: 'ZenUML for Confluence',
+  },
   'diagramly@stg': {
     id: 'diagramly@stg',
     domain: 'zenuml-stg.atlassian.net',

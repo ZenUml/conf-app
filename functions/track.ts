@@ -1,4 +1,4 @@
-import { mixpanelTrack } from "./service/mixpanelService";
+import { mixpanelTrack, MIXPANEL_TOKEN_FRONTEND } from "./service/mixpanelService";
 
 export interface EventBody {
   addon_key: string;
@@ -31,7 +31,7 @@ export const onRequest = async (event: any) => {
     return new Response(error, { status: 400 });
   }
 
-  event.waitUntil(mixpanelTrack(body)); //async handling
+  event.waitUntil(mixpanelTrack(body, MIXPANEL_TOKEN_FRONTEND)); //async handling
 
   return new Response(null, { status: 204 });
 }

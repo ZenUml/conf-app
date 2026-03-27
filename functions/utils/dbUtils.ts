@@ -13,9 +13,16 @@ export async function getForgeInstallationClientDomain(
   const normalizedAppId = appId.split("/").pop() || appId;
 
   const result = await db.prepare(
-    "SELECT clientDomain FROM ForgeInstallation WHERE appId = ?1 AND cloudId = ?2"
+    `SELECT clientDomain
+     FROM ForgeInstallation
+     WHERE appId IN (?1, ?2)
+       AND cloudId = ?3
+       AND clientDomain IS NOT NULL
+       AND clientDomain != ''
+     ORDER BY createdAt DESC
+     LIMIT 1`
   )
-    .bind(normalizedAppId, cloudId)
+    .bind(appId, normalizedAppId, cloudId)
     .first<{ clientDomain?: string | null }>();
 
   return result?.clientDomain || null;
@@ -91,10 +98,16 @@ export async function upsertForgeInstallation(db: D1Database, body: ForgeAppRequ
     }
   }
 
+  const clientDomain = await getForgeInstallationClientDomain(
+    db,
+    body.app.id,
+    cloudId || undefined,
+  );
+
   const result = await db.prepare(
     `INSERT INTO ForgeInstallation (
-      installationId, context, installerAccountId, eventType, appId, environmentId, permissions, cloudId, createdAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      installationId, context, installerAccountId, eventType, appId, environmentId, permissions, cloudId, clientDomain, createdAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(installationId) DO UPDATE SET
       installationId = excluded.installationId,
       context = excluded.context,
@@ -104,6 +117,7 @@ export async function upsertForgeInstallation(db: D1Database, body: ForgeAppRequ
       environmentId = excluded.environmentId,
       permissions = excluded.permissions,
       cloudId = excluded.cloudId,
+      clientDomain = COALESCE(excluded.clientDomain, ForgeInstallation.clientDomain),
       createdAt = excluded.createdAt`
   ).bind(
     body.id,
@@ -114,6 +128,7 @@ export async function upsertForgeInstallation(db: D1Database, body: ForgeAppRequ
     body.environment.id,
     JSON.stringify(body.permissions),
     cloudId,
+    clientDomain,
     new Date().toISOString()
   ) .run();
 

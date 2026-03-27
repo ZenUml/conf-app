@@ -1,5 +1,5 @@
 import { OkResponse, response } from "./OkResponse";
-import { mixpanelTrack } from "./service/mixpanelService";
+import { mixpanelTrack, MIXPANEL_TOKEN_FORGE_USER_BEHAVIOUR } from "./service/mixpanelService";
 import { captureError } from "./utils/sentry";
 import { getAuthorizationHeader } from "./utils/requestUtils";
 import { validateContextToken } from "./utils/authenticate";
@@ -42,7 +42,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil })
       return OkResponse({ ignored: true });
     }
 
-    waitUntil(mixpanelTrack(analyticsEvent));
+    waitUntil(mixpanelTrack(analyticsEvent, MIXPANEL_TOKEN_FORGE_USER_BEHAVIOUR));
     return OkResponse();
   } catch (error) {
     console.error("Error in forge-user-behavior:", error);

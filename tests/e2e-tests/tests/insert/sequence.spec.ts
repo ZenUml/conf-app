@@ -8,15 +8,15 @@ const skip = !testConfig.macros.includes(macroType);
 test.describe(`Smoke Test - ${macroType}`, () => {
   test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
 
-  test('insert Diagram as Code macro and verify render', async ({ page }) => {
+  test('insert Diagram macro and verify render', async ({ page }) => {
     const variantLabel = testConfig.isLite ? ' Lite' : '';
     console.log(`▶ App: ${testConfig.domain} | macro: ${macroType}`);
 
     const editorPage = await createPageAndSetup(page, variantLabel);
 
-    await test.step('Insert Diagram as Code macro - Sequence tab', async () => {
+    await test.step('Insert Diagram macro - Sequence tab', async () => {
       await editorPage.dismissLearnTheBasicsPanel();
-      const macroName = editorPage.getMacroName('Diagram as Code');
+      const macroName = editorPage.getMacroName('Diagram (Mermaid, PlantUML & ZenUML)');
       console.log(`  → Inserting "${macroName}" (Sequence)`);
       await editorPage.clickInsertElements();
       await editorPage.searchAndSelectMacro('diagram', macroName);

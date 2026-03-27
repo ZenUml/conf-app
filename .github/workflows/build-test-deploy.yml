@@ -6,6 +6,9 @@ on:
       - '**' # do not run on tags
     branches:
       - '**'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
 
 jobs:
   build:

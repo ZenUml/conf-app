@@ -68,9 +68,9 @@ export const APP_PROFILES: Record<string, AppProfile> = {
   'zenuml-full-forge@stg': {
     id: 'zenuml-full-forge@stg',
     domain: 'full-stg.atlassian.net',
-    spaceKey: 'TODO',       // TODO: set after Forge app installed on full-stg
-    parentPageId: 'TODO',   // TODO: set after test page created on full-stg
-    parentPageName: 'Before release test pages',
+    spaceKey: 'SD',
+    parentPageId: '229492',
+    parentPageName: 'Software Development',
     isLite: false,
     isForge: true,
     macros: ALL_MACROS,

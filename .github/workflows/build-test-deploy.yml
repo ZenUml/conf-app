@@ -74,6 +74,28 @@ jobs:
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}
 
+  staging-full-forge:
+    name: Full Forge / Deploy
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      variant: full-forge
+      license: full
+      project: conf-stg-full
+      environment: staging-full-forge
+    secrets: inherit
+
+  staging-full-forge-test:
+    needs: [staging-full-forge, build]
+    name: Full Forge - E2E Test on Staging
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: zenuml-full-forge@stg
+      artifact-suffix: full-forge-stg
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
   staging-diagramly:
     name: Diagramly / Deploy
     uses: ./.github/workflows/staging-deploy.yml
@@ -162,6 +184,36 @@ jobs:
           tag: v${{ env.version }}-full
           name: v${{ env.version }}-full
           body: 'This is a draft release for the Full version of the plugin.'
+          draft: true
+
+  draft-release-full-forge:
+    name: Draft release for the Full Forge version
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
+    needs: [staging-full-forge-test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      repository-projects: write
+    steps:
+      - name: Fetch Sources
+        uses: actions/checkout@v4
+
+      - name: Export Properties
+        id: properties
+        shell: bash
+        run: |
+          VERSION="$(echo $(date +'%Y.%m.%d%H%M'))"
+          echo "version=$VERSION" >> $GITHUB_ENV
+
+      - name: Create Release Draft
+        id: createDraft
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ env.version }}-full-forge
+          name: v${{ env.version }}-full-forge
+          body: 'This is a draft release for the Full Forge version of the plugin.'
           draft: true
 
   draft-release-diagramly:

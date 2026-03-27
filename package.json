@@ -60,8 +60,8 @@
     "forge:all:diagramly:yanhui": "pnpm build:diagramly && npm forge:deploy:diagramly:yanhui && pnpm forge:install:diagramly:yanhui",
     "forge:all:dev": "pnpm build:lite && pnpm forge:deploy:dev && pnpm forge:upgrade:dev",
     "forge:deploy:diagramly:staging": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf CONNECT_KEY=gptdock-confluence SEQUENCE_MACRO_KEY=gpt-diagram-macro CUSTOM_CONTENT_KEY=gpt-custom-content-key LITE_KEY_SUFFIX= LITE_TITLE_SUFFIX= APP_LABEL='Diagramly for Confluence' BACKEND_API_BASE_URL=https://conf-stg-lite.zenuml.com forge deploy -e staging --non-interactive",
-    "forge:install:diagramly:staging": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf forge install --site dia-stg.atlassian.net --product confluence -e staging --non-interactive",
-    "forge:upgrade:diagramly:staging": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf forge install --upgrade --site dia-stg.atlassian.net --product confluence -e staging --non-interactive",
+    "forge:install:diagramly:staging": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf forge install --site zenuml-stg.atlassian.net --product confluence -e staging --non-interactive",
+    "forge:upgrade:diagramly:staging": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf forge install --upgrade --site zenuml-stg.atlassian.net --product confluence -e staging --non-interactive",
     "forge:deploy:diagramly:prod": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf CONNECT_KEY=gptdock-confluence SEQUENCE_MACRO_KEY=gpt-diagram-macro CUSTOM_CONTENT_KEY=gpt-custom-content-key LITE_KEY_SUFFIX= LITE_TITLE_SUFFIX= APP_LABEL='Diagramly for Confluence' BACKEND_API_BASE_URL=https://conf-lite.zenuml.com DIAGRAMLY_BACKEND_API_BASE_URL=https://diagramly.ai forge deploy -e production --non-interactive",
     "forge:use": "f() { ln -sf .env.forge.$1 .env.forge && echo \"Switched to $1\"; }; f"
   },

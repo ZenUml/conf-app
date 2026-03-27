@@ -19,7 +19,7 @@ test.describe(`Smoke Test - ${macroType}`, () => {
       const macroName = editorPage.getMacroName('Diagram as Code');
       console.log(`  → Inserting "${macroName}" (Sequence)`);
       await editorPage.clickInsertElements();
-      await editorPage.searchAndSelectMacro('zenuml', macroName);
+      await editorPage.searchAndSelectMacro('diagram', macroName);
       await editorPage.interactWithDiagramMacro(`Test Diagram${variantLabel}`);
       console.log(`  ✓ Sequence macro inserted`);
     });

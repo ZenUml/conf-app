@@ -159,15 +159,22 @@ export class ConfluenceEditorPage {
     }
 
     // Strategy 2: Click "More elements" quick-insert button at the bottom
+    // Use a short timeout (10s) and try/catch because on some sites (e.g. dia-stg)
+    // the Editor toolbar intercepts pointer events, causing click to hang for 60s
+    // and blocking Strategy 3 from executing.
     const moreElements = this.page.getByRole('button', { name: /More elements|View more|View all elements/ }).last();
     if (await moreElements.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await moreElements.scrollIntoViewIfNeeded().catch(() => {});
-      await moreElements.click();
-      if (await insertCombobox.first().isVisible({ timeout: 5000 }).catch(() => false)) {
-        console.log('  [debug] clickInsertElements: Strategy 2 (More elements button) succeeded');
-        return;
+      try {
+        await moreElements.scrollIntoViewIfNeeded().catch(() => {});
+        await moreElements.click({ timeout: 10000 });
+        if (await insertCombobox.first().isVisible({ timeout: 5000 }).catch(() => false)) {
+          console.log('  [debug] clickInsertElements: Strategy 2 (More elements button) succeeded');
+          return;
+        }
+        console.log('  [debug] clickInsertElements: Strategy 2 clicked but no combobox appeared');
+      } catch {
+        console.log('  [debug] clickInsertElements: Strategy 2 click failed (likely pointer intercept), falling through');
       }
-      console.log('  [debug] clickInsertElements: Strategy 2 clicked but no combobox appeared');
     } else {
       console.log('  [debug] clickInsertElements: Strategy 2 no More elements button found');
     }

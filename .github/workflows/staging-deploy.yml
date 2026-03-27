@@ -82,7 +82,7 @@ jobs:
           pnpm forge:install:lite:staging
           pnpm forge:upgrade:lite:staging
         continue-on-error: true
-      - name: Install Diagramly to dia-stg.atlassian.net
+      - name: Install Diagramly to zenuml-stg.atlassian.net
         if: inputs.variant == 'diagramly'
         run: pnpm forge:install:diagramly:staging || pnpm forge:upgrade:diagramly:staging
         continue-on-error: true

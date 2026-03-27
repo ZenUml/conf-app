@@ -57,7 +57,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     addonKey: 'com.zenuml.confluence-addon',
     sequenceMacroKey: 'zenuml-sequence-macro',
     customContentKey: 'zenuml-content-sequence',
-    appLabel: 'ZenUML for Confluence',
+    appLabel: '',
   },
   'diagramly@stg': {
     id: 'diagramly@stg',
@@ -99,7 +99,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     addonKey: 'com.zenuml.confluence-addon',
     sequenceMacroKey: 'zenuml-sequence-macro',
     customContentKey: 'zenuml-content-sequence',
-    appLabel: 'ZenUML for Confluence',
+    appLabel: '',
   },
   'diagramly@prod': {
     id: 'diagramly@prod',

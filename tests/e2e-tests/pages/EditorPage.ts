@@ -237,9 +237,11 @@ export class ConfluenceEditorPage {
       );
     }
 
-    const option = browseDialog.locator('[role="option"], [role="gridcell"] button')
-      .filter({ hasText: macroName })
-      .filter({ hasText: testConfig.appLabel });
+    let option = browseDialog.locator('[role="option"], [role="gridcell"] button')
+      .filter({ hasText: macroName });
+    if (testConfig.appLabel) {
+      option = option.filter({ hasText: testConfig.appLabel });
+    }
     await option.first().click();
 
     const insertButton = browseDialog.getByRole('button', { name: 'Insert' });

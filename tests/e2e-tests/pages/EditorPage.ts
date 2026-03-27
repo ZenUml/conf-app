@@ -242,6 +242,13 @@ export class ConfluenceEditorPage {
     if (testConfig.appLabel) {
       option = option.filter({ hasText: testConfig.appLabel });
     }
+    const matchCount = await option.count();
+    if (matchCount === 0) {
+      throw new Error(
+        `Macro "${macroName}"${testConfig.appLabel ? ` (${testConfig.appLabel})` : ''} not found when searching "${searchTerm}" on ${testConfig.domain}. ` +
+        `Available options: ${JSON.stringify(optionTexts)}`
+      );
+    }
     await option.first().click();
 
     const insertButton = browseDialog.getByRole('button', { name: 'Insert' });

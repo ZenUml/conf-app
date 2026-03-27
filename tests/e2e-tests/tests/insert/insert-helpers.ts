@@ -40,7 +40,11 @@ export async function publishAndVerifyMacros(page: Page, editorPage: ConfluenceE
     await expect(forgeIframes.first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
     await expect(forgeIframes).toHaveCount(macroCount, { timeout: TIMEOUTS.FRAME_LOAD });
   } else {
-    const connectIframes = page.locator(`iframe.ap-iframe[id*="${testConfig.addonKey}"]`);
+    // Wait for the iframe element itself first (broader selector),
+    // then assert on count — avoids depending on Connect JS class assignment timing.
+    const connectIframes = page.locator(
+      `iframe[src*="${testConfig.domain}"], iframe.ap-iframe[id*="${testConfig.addonKey}"]`
+    );
     await expect(connectIframes.first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
     await expect(connectIframes).toHaveCount(macroCount, { timeout: TIMEOUTS.FRAME_LOAD });
   }

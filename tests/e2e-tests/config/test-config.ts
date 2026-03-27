@@ -15,6 +15,7 @@ interface TestConfig {
   addonKey: string;
   sequenceMacroKey: string;
   customContentKey: string;
+  appLabel: string;
   credentials: {
     username: string;
     password: string;
@@ -51,6 +52,7 @@ function resolveProfile(): AppProfile {
     addonKey: siteProfile?.addonKey ?? (isLite ? 'com.zenuml.confluence-addon-lite' : 'com.zenuml.confluence-addon'),
     sequenceMacroKey: siteProfile?.sequenceMacroKey ?? (isLite ? 'zenuml-sequence-macro-lite' : 'zenuml-sequence-macro'),
     customContentKey: siteProfile?.customContentKey ?? 'zenuml-content-sequence',
+    appLabel: siteProfile?.appLabel ?? 'ZenUML for Confluence',
   };
 }
 
@@ -68,6 +70,7 @@ export const testConfig: TestConfig = {
   addonKey: profile.addonKey,
   sequenceMacroKey: profile.sequenceMacroKey,
   customContentKey: profile.customContentKey,
+  appLabel: profile.appLabel,
 
   credentials: {
     username: process.env.ZENUML_STAGE_USERNAME || '',

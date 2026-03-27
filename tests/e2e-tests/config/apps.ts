@@ -23,6 +23,8 @@ export interface AppProfile {
   sequenceMacroKey: string;
   /** Custom content key (e.g. 'gpt-custom-content-key' or 'zenuml-content-sequence') */
   customContentKey: string;
+  /** App label shown in macro description — used to disambiguate macros from different apps on the same site */
+  appLabel: string;
 }
 
 const ALL_MACROS: MacroType[] = ['sequence', 'graph', 'openapi', 'embed', 'mermaid'];
@@ -41,6 +43,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     addonKey: 'com.zenuml.confluence-addon-lite',
     sequenceMacroKey: 'zenuml-sequence-macro-lite',
     customContentKey: 'zenuml-content-sequence',
+    appLabel: 'ZenUML for Confluence',
   },
   'zenuml-full@stg': {
     id: 'zenuml-full@stg',
@@ -54,6 +57,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     addonKey: 'com.zenuml.confluence-addon',
     sequenceMacroKey: 'zenuml-sequence-macro',
     customContentKey: 'zenuml-content-sequence',
+    appLabel: 'ZenUML for Confluence',
   },
   'diagramly@stg': {
     id: 'diagramly@stg',
@@ -67,6 +71,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     addonKey: 'gptdock-confluence',
     sequenceMacroKey: 'gpt-diagram-macro',
     customContentKey: 'gpt-custom-content-key',
+    appLabel: 'Diagramly for Confluence',
   },
   'zenuml-lite@prod': {
     id: 'zenuml-lite@prod',
@@ -80,6 +85,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     addonKey: 'com.zenuml.confluence-addon-lite',
     sequenceMacroKey: 'zenuml-sequence-macro-lite',
     customContentKey: 'zenuml-content-sequence',
+    appLabel: 'ZenUML for Confluence',
   },
   'zenuml-full@prod': {
     id: 'zenuml-full@prod',
@@ -93,6 +99,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     addonKey: 'com.zenuml.confluence-addon',
     sequenceMacroKey: 'zenuml-sequence-macro',
     customContentKey: 'zenuml-content-sequence',
+    appLabel: 'ZenUML for Confluence',
   },
   'diagramly@prod': {
     id: 'diagramly@prod',
@@ -106,6 +113,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     addonKey: 'gptdock-confluence',
     sequenceMacroKey: 'gpt-diagram-macro',
     customContentKey: 'gpt-custom-content-key',
+    appLabel: 'Diagramly for Confluence',
   },
 };
 

@@ -113,6 +113,16 @@ wrangler d1 create zenuml-for-confluence
 wrangler d1 migrations apply zenuml-for-confluence --remote
 ```
 
+## E2E Test Principles
+
+### Fail Fast
+E2E tests must fail immediately with a clear error when a precondition is not met — never wait out a timeout. Specifically:
+
+- **Macro not found**: After searching the macro browser, check `option.count()` immediately. If 0, throw with the macro name, appLabel, search term, and the list of available options. Do NOT let `locator.click()` wait 60 seconds before timing out.
+- **General principle**: Any assertion about UI state should use an explicit check + immediate throw rather than relying on Playwright's implicit timeout as the failure mechanism.
+
+This prevents slow CI feedback (a single missing macro caused 6 × 60s = ~6 min of wasted waiting across parallel tests).
+
 ## Integration Testing
 
 1. Run `pnpm start:sit` to start both frontend and backend

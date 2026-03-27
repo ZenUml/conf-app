@@ -25,6 +25,10 @@ export interface AppProfile {
   customContentKey: string;
   /** App label shown in macro description — used to disambiguate macros from different apps on the same site */
   appLabel: string;
+  /** Macros to test in render project (API-created pages). May differ from `macros` when
+   *  macro keys collide with another app on the same site — API-created pages can't target
+   *  a specific Forge app, so Confluence falls back to the Connect app. */
+  renderMacros: MacroType[];
 }
 
 const ALL_MACROS: MacroType[] = ['sequence', 'graph', 'openapi', 'embed', 'mermaid'];
@@ -40,6 +44,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isLite: true,
     isForge: true,
     macros: ALL_MACROS,
+    renderMacros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon-lite',
     sequenceMacroKey: 'zenuml-sequence-macro-lite',
     customContentKey: 'zenuml-content-sequence',
@@ -54,6 +59,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isLite: false,
     isForge: false,
     macros: ALL_MACROS,
+    renderMacros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon',
     sequenceMacroKey: 'zenuml-sequence-macro',
     customContentKey: 'zenuml-content-sequence',
@@ -68,6 +74,10 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isLite: false,
     isForge: true,
     macros: NO_EMBED,
+    // graph/openapi/embed macro keys collide with Full Connect on this shared site.
+    // API-created pages render with Connect, so Forge iframe assertions fail.
+    // Insert tests still cover these macros end-to-end via UI insertion.
+    renderMacros: ['sequence', 'mermaid'],
     addonKey: 'gptdock-confluence',
     sequenceMacroKey: 'gpt-diagram-macro',
     customContentKey: 'gpt-custom-content-key',
@@ -82,6 +92,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isLite: true,
     isForge: true,
     macros: ALL_MACROS,
+    renderMacros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon-lite',
     sequenceMacroKey: 'zenuml-sequence-macro-lite',
     customContentKey: 'zenuml-content-sequence',
@@ -96,6 +107,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isLite: false,
     isForge: false,
     macros: ALL_MACROS,
+    renderMacros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon',
     sequenceMacroKey: 'zenuml-sequence-macro',
     customContentKey: 'zenuml-content-sequence',
@@ -110,6 +122,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isLite: false,
     isForge: true,
     macros: NO_EMBED,
+    renderMacros: NO_EMBED,
     addonKey: 'gptdock-confluence',
     sequenceMacroKey: 'gpt-diagram-macro',
     customContentKey: 'gpt-custom-content-key',

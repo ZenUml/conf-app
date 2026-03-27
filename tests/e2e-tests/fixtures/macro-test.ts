@@ -9,8 +9,9 @@ export type DiagramType = MacroType;
 export function createMacroTest(diagramType: DiagramType) {
   const test = base.extend<{ macroPage: MacroPage }>({
     macroPage: async ({ page }, use) => {
-      // Auto-skip if this macro type isn't supported by the current app profile
-      if (!testConfig.macros.includes(diagramType)) {
+      // Auto-skip if this macro type isn't in renderMacros (render tests use API-created
+      // pages, which can't target a specific Forge app when macro keys collide with Connect)
+      if (!testConfig.renderMacros.includes(diagramType)) {
         test.skip();
       }
 

@@ -32,31 +32,31 @@ setup('create diagram test pages', async ({ page }) => {
     await page.goto(testConfig.baseUrl);
 
     // Create pages for each supported diagram type
-    if (testConfig.macros.includes('sequence')) {
+    if (testConfig.renderMacros.includes('sequence')) {
       console.log('Creating sequence diagram page...');
       testPages.sequence = await pageCreator.createTestPage({ sequence: true });
       console.log(`✅ Created sequence test page: ${testPages.sequence}`);
     }
 
-    if (testConfig.macros.includes('graph')) {
+    if (testConfig.renderMacros.includes('graph')) {
       console.log('Creating graph diagram page...');
       testPages.graph = await pageCreator.createTestPage({ graph: true });
       console.log(`✅ Created graph test page: ${testPages.graph}`);
     }
 
-    if (testConfig.macros.includes('openapi')) {
+    if (testConfig.renderMacros.includes('openapi')) {
       console.log('Creating OpenAPI diagram page...');
       testPages.openapi = await pageCreator.createTestPage({ openapi: true });
       console.log(`✅ Created OpenAPI test page: ${testPages.openapi}`);
     }
 
-    if (testConfig.macros.includes('embed')) {
+    if (testConfig.renderMacros.includes('embed')) {
       console.log('Creating embed diagram page...');
       testPages.embed = await pageCreator.createTestPage({ embed: true });
       console.log(`✅ Created embed test page: ${testPages.embed}`);
     }
 
-    if (testConfig.macros.includes('mermaid')) {
+    if (testConfig.renderMacros.includes('mermaid')) {
       console.log('Creating mermaid diagram page...');
       testPages.mermaid = await pageCreator.createTestPage({ mermaid: true });
       console.log(`✅ Created mermaid test page: ${testPages.mermaid}`);

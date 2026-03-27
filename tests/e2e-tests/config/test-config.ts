@@ -16,6 +16,7 @@ interface TestConfig {
   sequenceMacroKey: string;
   customContentKey: string;
   appLabel: string;
+  renderMacros: MacroType[];
   credentials: {
     username: string;
     password: string;
@@ -53,6 +54,7 @@ function resolveProfile(): AppProfile {
     sequenceMacroKey: siteProfile?.sequenceMacroKey ?? (isLite ? 'zenuml-sequence-macro-lite' : 'zenuml-sequence-macro'),
     customContentKey: siteProfile?.customContentKey ?? 'zenuml-content-sequence',
     appLabel: siteProfile?.appLabel ?? 'ZenUML for Confluence',
+    renderMacros: siteProfile?.renderMacros ?? ['sequence', 'graph', 'openapi', 'embed', 'mermaid'],
   };
 }
 
@@ -71,6 +73,7 @@ export const testConfig: TestConfig = {
   sequenceMacroKey: profile.sequenceMacroKey,
   customContentKey: profile.customContentKey,
   appLabel: profile.appLabel,
+  renderMacros: profile.renderMacros,
 
   credentials: {
     username: process.env.ZENUML_STAGE_USERNAME || '',

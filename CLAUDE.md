@@ -113,6 +113,19 @@ wrangler d1 create zenuml-for-confluence
 wrangler d1 migrations apply zenuml-for-confluence --remote
 ```
 
+## Git Workflow
+
+**Never commit directly to `master`** unless explicitly told to. Always create a feature branch for new work:
+
+```bash
+git checkout -b <branch-name>
+# ... make changes ...
+git push origin <branch-name>
+# then open a PR
+```
+
+The only exception is trivial config/doc changes when the user explicitly says to push to master.
+
 ## E2E Test Principles
 
 ### Fail Fast

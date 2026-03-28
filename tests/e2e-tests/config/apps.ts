@@ -37,9 +37,9 @@ const NO_EMBED: MacroType[] = ['sequence', 'graph', 'openapi', 'mermaid'];
 export const APP_PROFILES: Record<string, AppProfile> = {
   'zenuml-lite@stg': {
     id: 'zenuml-lite@stg',
-    domain: 'zenuml-stg.atlassian.net',
-    spaceKey: 'ZS',
-    parentPageId: '177176629',
+    domain: 'lite-stg.atlassian.net',
+    spaceKey: 'SD',
+    parentPageId: '524297',
     parentPageName: 'Before release test pages',
     isLite: true,
     isForge: true,
@@ -82,10 +82,10 @@ export const APP_PROFILES: Record<string, AppProfile> = {
   },
   'diagramly@stg': {
     id: 'diagramly@stg',
-    domain: 'zenuml-stg.atlassian.net',
-    spaceKey: 'ZS',
-    parentPageId: '177176629',
-    parentPageName: 'Before release test pages',
+    domain: 'dia-stg.atlassian.net',
+    spaceKey: 'SD',
+    parentPageId: '1736705',
+    parentPageName: 'Test pages',
     isLite: false,
     isForge: true,
     macros: NO_EMBED,

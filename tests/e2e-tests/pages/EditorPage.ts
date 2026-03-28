@@ -133,56 +133,9 @@ export class ConfluenceEditorPage {
     await this.focusEditorBody();
     await this.page.waitForTimeout(500);
 
-    // Strategy 1: Click the toolbar "+" button
-    const insertButtons = this.page.getByRole('button', { name: /Insert elements/ });
-    let clicked = false;
-    const insertButtonCount = await insertButtons.count();
-    for (let i = 0; i < insertButtonCount; i++) {
-      const button = insertButtons.nth(i);
-      const isVisible = await button.isVisible().catch(() => false);
-      const isEnabled = await button.isEnabled().catch(() => false);
-      if (isVisible && isEnabled) {
-        await button.click();
-        clicked = true;
-        break;
-      }
-    }
-
-    if (clicked) {
-      if (await insertCombobox.first().isVisible({ timeout: 5000 }).catch(() => false)) {
-        console.log('  [debug] clickInsertElements: Strategy 1 (toolbar + button) succeeded');
-        return;
-      }
-      console.log('  [debug] clickInsertElements: Strategy 1 clicked but no combobox appeared');
-    } else {
-      console.log('  [debug] clickInsertElements: Strategy 1 found no Insert elements button');
-    }
-
-    // Strategy 2: Click "More elements" quick-insert button at the bottom
-    // Use a short timeout (10s) and try/catch because on some sites (e.g. dia-stg)
-    // the Editor toolbar intercepts pointer events, causing click to hang for 60s
-    // and blocking Strategy 3 from executing.
-    const moreElements = this.page.getByRole('button', { name: /More elements|View more|View all elements/ }).last();
-    if (await moreElements.isVisible({ timeout: 3000 }).catch(() => false)) {
-      try {
-        await moreElements.scrollIntoViewIfNeeded().catch(() => {});
-        await moreElements.click({ timeout: 10000 });
-        if (await insertCombobox.first().isVisible({ timeout: 5000 }).catch(() => false)) {
-          console.log('  [debug] clickInsertElements: Strategy 2 (More elements button) succeeded');
-          return;
-        }
-        console.log('  [debug] clickInsertElements: Strategy 2 clicked but no combobox appeared');
-      } catch {
-        console.log('  [debug] clickInsertElements: Strategy 2 click failed (likely pointer intercept), falling through');
-      }
-    } else {
-      console.log('  [debug] clickInsertElements: Strategy 2 no More elements button found');
-    }
-
-    // Strategy 3: Type "/" in the editor and search directly (no popup expansion needed)
-    // This works by typing the search term directly after "/", letting Confluence filter inline.
-    console.log('  [debug] clickInsertElements: falling back to Strategy 3 (type /)');
-    await this.focusEditorBody().catch(() => {});
+    // Type "/" in the editor to open the slash-command popup, then expand to full browser.
+    // Strategy 1 (toolbar "+") and Strategy 2 ("More elements" button) were removed —
+    // they never succeed on any site and waste 5-12s per test (verified 2026-03-28).
     await this.page.keyboard.type('/');
     await this.page.waitForTimeout(1000);
 
@@ -190,12 +143,12 @@ export class ConfluenceEditorPage {
     const viewMore = this.page.getByRole('button', { name: /View more|View all elements/ }).last();
     if (await viewMore.isVisible({ timeout: 3000 }).catch(() => false)) {
       await viewMore.click();
-      console.log('  [debug] clickInsertElements: Strategy 3 clicked View more');
+      console.log('  [debug] clickInsertElements: clicked View more');
     }
 
     // Final wait for Insert elements combobox
     await insertCombobox.first().waitFor({ state: 'visible', timeout: 10000 });
-    console.log('  [debug] clickInsertElements: Strategy 3 combobox ready');
+    console.log('  [debug] clickInsertElements: combobox ready');
   }
 
   /**

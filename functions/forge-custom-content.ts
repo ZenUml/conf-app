@@ -1,5 +1,6 @@
 import { response, OkResponse } from "./OkResponse";
 import { getCustomContentFromConfluenceForForge } from "./utils/confluenceUtils";
+import { upsertAtlassianInstance } from "./utils/dbUtils";
 
 export interface Env {
   DB: D1Database;
@@ -91,6 +92,8 @@ async function updateForgeInstallationClientDomain(env, appId, apiBaseUrl, clien
     console.log('Could not extract cloudId from apiBaseUrl:', apiBaseUrl);
     return;
   }
+
+  await upsertAtlassianInstance(env.DB, cloudId, clientDomain);
 
   const result = await env.DB.prepare(
     "UPDATE ForgeInstallation SET clientDomain = ?1 WHERE appId = ?2 AND cloudId = ?3"

@@ -1,6 +1,43 @@
 import { D1Database } from '@cloudflare/workers-types';
 import { ForgeAppRequestBody } from '../RequestBody';
 
+export async function getAtlassianInstanceClientDomain(
+  db: D1Database,
+  cloudId?: string,
+): Promise<string | null> {
+  if (!cloudId) {
+    return null;
+  }
+
+  const result = await db.prepare(
+    `SELECT clientDomain FROM AtlassianInstance WHERE cloudId = ?1`
+  )
+    .bind(cloudId)
+    .first<{ clientDomain?: string | null }>();
+
+  return result?.clientDomain || null;
+}
+
+export async function upsertAtlassianInstance(
+  db: D1Database,
+  cloudId: string,
+  clientDomain: string | null,
+): Promise<void> {
+  if (!cloudId || !clientDomain) {
+    return;
+  }
+
+  const result = await db.prepare(
+    `INSERT INTO AtlassianInstance (cloudId, clientDomain)
+     VALUES (?1, ?2)
+     ON CONFLICT(cloudId) DO UPDATE SET clientDomain = excluded.clientDomain`
+  )
+    .bind(cloudId, clientDomain)
+    .run();
+
+  console.log('DB AtlassianInstance Upsert Result:', result);
+}
+
 export async function getForgeInstallationClientDomain(
   db: D1Database,
   appId?: string,
@@ -98,11 +135,14 @@ export async function upsertForgeInstallation(db: D1Database, body: ForgeAppRequ
     }
   }
 
-  const clientDomain = await getForgeInstallationClientDomain(
-    db,
-    body.app.id,
-    cloudId || undefined,
-  );
+  const instanceDomain = await getAtlassianInstanceClientDomain(db, cloudId || undefined);
+  const clientDomain = instanceDomain
+    || await getForgeInstallationClientDomain(db, body.app.id, cloudId || undefined);
+
+  // Only upsert AtlassianInstance if the domain came from the ForgeInstallation fallback
+  if (cloudId && clientDomain && !instanceDomain) {
+    await upsertAtlassianInstance(db, cloudId, clientDomain);
+  }
 
   const result = await db.prepare(
     `INSERT INTO ForgeInstallation (

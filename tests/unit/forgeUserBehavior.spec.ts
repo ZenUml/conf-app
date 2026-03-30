@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mapForgeUserBehaviorEvent } from "../../functions/service/forgeUserBehavior";
 
 describe("mapForgeUserBehaviorEvent", () => {
-  it("maps viewed page events into the Mixpanel payload shape", () => {
+  it("ignores page_viewed events to avoid Mixpanel event flood", () => {
     const result = mapForgeUserBehaviorEvent(
       {
         eventType: "avi:confluence:viewed:page",
@@ -19,52 +19,20 @@ describe("mapForgeUserBehaviorEvent", () => {
             key: "ENG",
             name: "Engineering",
           },
-          version: {
-            number: 7,
-            when: "2026-03-13T23:59:00.000Z",
-            by: {
-              accountId: "editor-1",
-            },
-          },
         },
       },
       {
         payload: {
           principal: "user-123",
-          app: {
-            id: "ari:cloud:ecosystem::app/app-id",
-            appVersion: "1.2.3",
-            installationId: "ari:cloud:ecosystem::installation/inst-1",
-            environment: {
-              id: "env-1",
-              type: "DEVELOPMENT",
-            },
-            module: {
-              key: "remote-page-behavior-trigger",
-            },
-          },
           context: {
             cloudId: "cloud-1",
             siteUrl: "https://example.atlassian.net",
-            moduleKey: "remote-page-behavior-trigger",
           },
         },
       },
     );
 
-    expect(result).toMatchObject({
-      action: "page_viewed",
-      event_source: "forge_trigger",
-      event_type: "avi:confluence:viewed:page",
-      user_account_id: "user-123",
-      client_domain: "example.atlassian.net",
-      confluence_space: "ENG",
-      cloud_id: "cloud-1",
-      content_id: "page-1",
-      content_title: "Architecture",
-      content_version_number: 7,
-      forge_module_key: "remote-page-behavior-trigger",
-    });
+    expect(result).toBeNull();
   });
 
   it("maps updated page events and preserves updateTrigger", () => {
@@ -106,7 +74,7 @@ describe("mapForgeUserBehaviorEvent", () => {
   it("falls back to the stored installation client domain when siteUrl is missing", () => {
     const result = mapForgeUserBehaviorEvent(
       {
-        eventType: "avi:confluence:viewed:page",
+        eventType: "avi:confluence:updated:page",
         content: {
           id: "page-4",
           type: "page",
@@ -129,7 +97,7 @@ describe("mapForgeUserBehaviorEvent", () => {
     );
 
     expect(result).toMatchObject({
-      action: "page_viewed",
+      action: "page_updated",
       user_account_id: "user-789",
       client_domain: "whimet4.atlassian.net",
       cloud_id: "cloud-2",

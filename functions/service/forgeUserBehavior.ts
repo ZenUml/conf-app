@@ -28,7 +28,7 @@ export interface ForgeConfluenceContent {
 }
 
 export interface ForgeUserBehaviorEventBody {
-  eventType: "avi:confluence:viewed:page" | "avi:confluence:updated:page";
+  eventType: string;
   atlassianId?: string;
   eventCreatedDate?: string;
   suppressNotifications?: boolean;
@@ -71,7 +71,6 @@ interface ForgeUserBehaviorOptions {
 }
 
 const EVENT_ACTIONS: Record<ForgeUserBehaviorEventBody["eventType"], string> = {
-  "avi:confluence:viewed:page": "page_viewed",
   "avi:confluence:updated:page": "page_updated",
 };
 

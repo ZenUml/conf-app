@@ -55,7 +55,8 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil })
       return OkResponse({ ignored: true });
     }
 
-    waitUntil(mixpanelTrack(analyticsEvent, MIXPANEL_TOKEN_FORGE_USER_BEHAVIOUR));
+    // Comment out the actual Mixpanel tracking for now to avoid sending data which incur costs during testing. We can enable it once we're ready to track real events.
+    // waitUntil(mixpanelTrack(analyticsEvent, MIXPANEL_TOKEN_FORGE_USER_BEHAVIOUR));
     return OkResponse();
   } catch (error) {
     console.error("Error in forge-user-behavior:", error);

@@ -5,6 +5,14 @@
 Build a standalone local test page that simulates the Confluence Viewer (no AP/Confluence required),
 and add an enhanced export image modal with theme, background, note, arrow, and watermark support.
 
+### Architecture Decision: v1 → v2 Transition
+
+**v1 (this branch)**: Ship current features as-is. CSS/HTML overlays for preview, Canvas 2D API for export.
+Covers core use case (theme, background, note, arrow, watermark). Production-polished UI.
+
+**v2 (follow-up)**: Rewrite rendering layer to SVG-first. One rendering pipeline for both preview and export.
+Drag-based interactions, grip handles, selection model. Keep sidebar UI unchanged.
+
 ---
 
 ## Stage 1: Local Test Viewer Page
@@ -258,7 +266,7 @@ Clicking theme cards or background swatches showed "nothing happens" because:
 
 ---
 
-## Definition of Done
+## v1 Definition of Done
 
 - [x] `test-viewer.html` renders a real ZenUML diagram with the viewer header
 - [x] Export button opens ExportModal
@@ -267,3 +275,241 @@ Clicking theme cards or background swatches showed "nothing happens" because:
 - [x] Download produces a PNG with all overlays applied (verified: 240KB PNG with arrow + watermark + note overlays)
 - [x] `pnpm test:unit` passes (158 tests, 0 regressions)
 - [x] Integration test on zenuml-stg.atlassian.net (conf-stg-full.zenuml.com/sequence-viewer — all 5 panels verified, PNG download confirmed)
+
+---
+
+# v2 Plan: SVG-First Rendering & Interaction Rewrite
+
+Reference: `docs/markerjs3-feature-analysis.md`
+
+## Motivation
+
+v1 has two rendering pipelines (CSS preview + Canvas export) that must be kept in sync.
+Every new overlay type requires implementing rendering twice. Drag-based interactions and
+grip handles are difficult to retrofit onto the current HTML div overlay approach.
+
+## What to Keep from v1
+
+- Sidebar UI shell (`export-sidebar`, all settings sections, CSS design polish)
+- Theme/background selection logic and `previewCanvasStyle` computed
+- Diagram capture pipeline (`html-to-image` → blob)
+- `useExportEngine.ts` concept (capture → composite → download)
+- Test viewer page (`test-viewer.html`, `src/test-viewer.ts`)
+- All unit tests
+
+## What to Rewrite
+
+- Preview overlay rendering (HTML divs → SVG layer)
+- Export compositing (Canvas 2D drawing → SVG rasterization)
+- Interaction model (click-to-place → drag-based with grip handles)
+- Component structure (1400-line monolith → composable sub-components)
+
+---
+
+## Stage 11: Extract Sidebar Settings Component
+**Goal**: Split ExportModal into shell + sidebar + preview sub-components
+**Status**: Not Started
+
+### Tasks
+- Extract `ExportSidebar.vue` — all settings sections (theme, background, note, arrow, watermark)
+- Extract `ExportPreview.vue` — preview pane with overlay rendering
+- `ExportModal.vue` becomes a thin shell: layout, open/close, export action
+- Communicate via props/events or a shared composable (`useExportState.ts`)
+
+### Success Criteria
+- Same visual behavior as before
+- Each component < 400 lines
+- All 158 tests still pass
+
+---
+
+## Stage 12: SVG Overlay Layer
+**Goal**: Replace HTML div overlays with a single SVG layer for all annotations
+**Status**: Not Started
+
+### Architecture
+```
+<div class="preview-canvas">
+  <img :src="previewDataUrl" />          <!-- Captured diagram -->
+  <svg class="overlay-layer" viewBox="0 0 1 1" preserveAspectRatio="none">
+    <!-- All annotations rendered as SVG -->
+    <g class="note-overlay">
+      <text>...</text>                    <!-- Note text with filter -->
+    </g>
+    <g class="arrow-overlay">
+      <line ... />                        <!-- Arrow line -->
+      <path ... />                        <!-- Arrowhead polygon -->
+    </g>
+    <g class="watermark-overlay">
+      <text>...</text>                    <!-- Watermark text -->
+    </g>
+  </svg>
+</div>
+```
+
+### Tasks
+- Create `OverlayLayer.vue` — renders all annotations as SVG
+- Note: `<text>` with SVG `<filter>` (feDropShadow) for legibility
+- Arrow: `<line>` + `<path>` terminators (already SVG in v1)
+- Watermark: `<text>` with opacity and rotation via SVG `transform`
+- Add SVG `<defs>` section for shared filters (drop shadow, glow)
+
+### Success Criteria
+- Preview looks identical to v1
+- All overlays are pure SVG (no HTML divs for note/watermark)
+- SVG layer has `viewBox="0 0 1 1"` with normalized coordinates
+
+---
+
+## Stage 13: SVG-to-Canvas Export Pipeline
+**Goal**: Replace Canvas 2D drawing code with SVG rasterization
+**Status**: Not Started
+
+### Architecture (markerjs3 Renderer pattern)
+```
+1. Capture diagram → blob (existing html-to-image)
+2. Draw diagram blob on Canvas
+3. Clone SVG overlay layer innerHTML
+4. Convert SVG → Blob → ObjectURL → Image
+5. Draw SVG image on Canvas (on top of diagram)
+6. canvas.toBlob() → saveAs()
+```
+
+### Tasks
+- Rewrite `useExportEngine.ts` to use SVG rasterization instead of `ctx.fillText` / `ctx.beginPath`
+- Remove all Canvas 2D drawing code for note, arrow, watermark
+- Handle SVG-to-Canvas conversion with proper font embedding
+- Support `naturalSize` export (render at diagram's native resolution, not viewport)
+
+### Success Criteria
+- Exported PNG is pixel-identical to preview (same SVG renders both)
+- No more `ctx.fillText`, `ctx.fillStyle`, `ctx.rotate` etc. in export code
+- Export engine is < 80 lines
+
+---
+
+## Stage 14: Drag-to-Draw Arrow Interaction
+**Goal**: Replace click-click arrow with drag gesture (markerjs3 pattern)
+**Status**: Not Started
+
+### Interaction Design
+```
+State machine: idle → creating → placed → (moving | resizing)
+
+idle:
+  pointerdown on canvas → set start point, enter 'creating'
+
+creating:
+  pointermove → update end point, show arrow in real-time
+  pointerup → finish arrow, enter 'placed'
+
+placed:
+  click on arrow → select, show grips, enter 'selected'
+  click on empty → deselect
+
+selected:
+  drag grip → resize (move that endpoint)
+  drag line body → move entire arrow
+  Delete key → remove arrow
+```
+
+### Tasks
+- Implement pointer event state machine in `OverlayLayer.vue`
+- Render grip handles (SVG circles) at arrow endpoints when selected
+- Grip hit area: visible 6px circle + invisible 12px circle for easier clicking
+- Support moving entire arrow by dragging the line body
+- Add keyboard support: Delete to remove, Escape to deselect
+
+### Success Criteria
+- Arrow creation is drag-based (press → drag → release)
+- Arrow shows in real-time during drag
+- After placement: grips appear, endpoints independently draggable
+- Line body draggable to move entire arrow
+
+---
+
+## Stage 15: Draggable Note with In-Place Editing
+**Goal**: Notes are SVG text elements that can be dragged and edited in-place
+**Status**: Not Started
+
+### Interaction Design
+```
+Click "Place note" → click on preview → note appears at click point
+Drag note → reposition
+Double-click note → enter edit mode (contenteditable or text input overlay)
+Escape/click away → exit edit mode
+```
+
+### Tasks
+- Note rendered as SVG `<text>` in the overlay layer
+- Drag-to-reposition via pointer events (already partially done in v1)
+- Double-click to edit: overlay a positioned `<input>` on top of the SVG text
+- Sync edited text back to the note state
+- Support multi-line text with SVG `<tspan>` elements
+
+### Success Criteria
+- Note is draggable after placement (already done in v1)
+- Double-click opens an editable text field at the note position
+- Editing updates both preview and export
+
+---
+
+## Stage 16: Callout Marker (Text + Pointer)
+**Goal**: New annotation type combining text box with a speech-bubble pointer
+**Status**: Not Started
+
+### Design
+- A rounded rectangle with text inside + a triangular pointer extending to a tip point
+- User drags to create the text box, then adjusts the tip position
+- Replaces the separate note + arrow workflow for the "label this part" use case
+
+### Tasks
+- Create `CalloutMarker` component rendering SVG `<path>` (rounded rect + pointer)
+- Text inside the callout uses `<text>` with word wrapping (`<tspan>`)
+- Tip position stored as normalized coordinates, draggable via grip handle
+- Add "Callout" option to the Note section in sidebar (alongside "Click to place")
+
+### Success Criteria
+- Callout renders as a speech bubble with text + pointer
+- Pointer tip is independently draggable
+- Text is editable (double-click)
+- Exports correctly via SVG rasterization
+
+---
+
+## Stage 17: Selection Model & Delete
+**Goal**: Unified selection for all annotation types
+**Status**: Not Started
+
+### Design
+- Click an annotation → selected (grips appear, properties shown in sidebar)
+- Click empty space → deselect all
+- Delete key or trash button → remove selected annotation
+- Only one annotation selected at a time (single selection)
+
+### Tasks
+- Add `selectedAnnotation: 'note' | 'arrow' | 'watermark' | 'callout' | null` state
+- When selected, show grips and highlight the annotation
+- Sidebar dynamically shows properties for the selected type
+- Keyboard: Delete removes, Escape deselects
+
+### Success Criteria
+- Click any annotation to select it
+- Selected annotation shows grips and sidebar updates
+- Delete removes the selected annotation
+- Click empty space deselects
+
+---
+
+## v2 Definition of Done
+
+- [ ] Component split: ExportModal < 200 lines, ExportSidebar, ExportPreview, OverlayLayer
+- [ ] All annotations render as SVG (zero HTML div overlays)
+- [ ] Export uses SVG rasterization (zero Canvas 2D drawing code)
+- [ ] Arrow: drag-to-draw, grip handles at endpoints, draggable line body
+- [ ] Note: draggable, in-place editable (double-click)
+- [ ] Callout: text box + pointer, tip draggable
+- [ ] Selection model: click to select, Delete to remove, Escape to deselect
+- [ ] Preview and export are pixel-identical (same SVG renders both)
+- [ ] All existing unit tests pass + new tests for interaction model
+- [ ] Sidebar UI unchanged (all v1 polish preserved)

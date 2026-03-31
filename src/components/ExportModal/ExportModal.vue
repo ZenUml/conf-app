@@ -505,9 +505,6 @@ export default defineComponent({
     theme() {
       (this as any).scheduleCapturePreview();
     },
-    background() {
-      (this as any).scheduleCapturePreview();
-    },
     'arrow.enabled'(val: boolean) {
       if (!val) {
         (this as any).arrowPoints = null;
@@ -546,11 +543,9 @@ export default defineComponent({
           auto: '#ffffff', light: '#ffffff', dark: '#1e293b', blueprint: '#0f172a',
         };
         const themeBg = themeColors[this.theme] ?? '#ffffff';
-        const isDefaultBg = this.background === 'white' && (this.theme === 'light' || this.theme === 'auto');
-        const bgColor = isDefaultBg ? themeBg : (this as any).resolvedBgColor;
         const dataUrl = await toPng(node, {
           skipFonts: true,
-          backgroundColor: bgColor === 'transparent' ? undefined : bgColor,
+          backgroundColor: themeBg,
         });
         if (self._captureGen === gen) {
           this.previewDataUrl = dataUrl;

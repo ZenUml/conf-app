@@ -377,18 +377,6 @@ export default defineComponent({
       return '#ffffff';
     },
 
-    resolvedThemeBg(): string {
-      if (this.theme === 'light') return '#ffffff';
-      if (this.theme === 'dark') return '#1e293b';
-      if (this.theme === 'blueprint') return '#0f172a';
-      return '#f8fafc'; // auto
-    },
-
-    placeholderStroke(): string {
-      if (this.theme === 'dark' || this.theme === 'blueprint') return '#e2e8f0';
-      return '#64748b';
-    },
-
     previewCanvasStyle(): Record<string, string> {
       const themeColors: Record<string, string> = {
         auto: '#f0f2f5',
@@ -415,10 +403,6 @@ export default defineComponent({
       }
 
       return style;
-    },
-
-    diagramPlaceholderStyle(): Record<string, string> {
-      return {};
     },
 
     noteStyle(): Record<string, string> {

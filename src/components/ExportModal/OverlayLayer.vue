@@ -1,0 +1,591 @@
+<template>
+  <svg
+    v-if="hasAnyOverlay || isInteractive"
+    class="overlay-layer"
+    :viewBox="`0 0 ${viewBoxW} ${viewBoxH}`"
+    preserveAspectRatio="xMidYMid meet"
+    xmlns="http://www.w3.org/2000/svg"
+    ref="overlayEl"
+    :style="isInteractive ? 'pointer-events: auto; cursor: crosshair' : ''"
+    @pointerdown="onSvgPointerDown"
+    @pointermove="onSvgPointerMove"
+    @pointerup="onSvgPointerUp"
+    @keydown="onKeyDown"
+    tabindex="0"
+  >
+    <defs>
+      <filter id="drop-shadow-note" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="rgba(0,0,0,0.3)" flood-opacity="1"/>
+      </filter>
+    </defs>
+
+    <!-- Note overlay -->
+    <g v-if="state.note.text" class="note-overlay"
+       @click.stop="state.selectedAnnotation.value = 'note'">
+      <text
+        :x="noteX"
+        :y="noteY"
+        :font-size="state.note.fontSize"
+        :fill="state.note.color"
+        font-family="'Outfit', sans-serif"
+        font-weight="500"
+        :text-anchor="noteAnchor"
+        dominant-baseline="central"
+        filter="url(#drop-shadow-note)"
+        :class="{ 'draggable-note': state.notePoint.value != null }"
+        :style="'pointer-events: auto;' + (state.notePoint.value != null ? ' cursor: grab' : '')"
+        @pointerdown.stop="startNoteDrag"
+        @dblclick.stop="startNoteEdit"
+      >{{ state.note.text }}</text>
+    </g>
+
+    <!-- Arrow overlay -->
+    <g v-if="state.arrow.enabled && state.arrowPoints.value" class="arrow-overlay"
+       @click.stop="state.selectedAnnotation.value = 'arrow'">
+      <!-- Start point dot (during creation) -->
+      <circle
+        v-if="state.arrowInteraction.value === 'creating'"
+        :cx="arrowStartPx.x"
+        :cy="arrowStartPx.y"
+        :r="Math.max(4, state.arrow.thickness * 2)"
+        :fill="state.arrow.color"
+        opacity="0.6"
+      />
+      <!-- Arrow line -->
+      <line
+        v-if="state.arrowInteraction.value === 'creating' || state.arrowInteraction.value === 'placed'"
+        :x1="arrowStartPx.x" :y1="arrowStartPx.y"
+        :x2="arrowEndPx.x" :y2="arrowEndPx.y"
+        :stroke="state.arrow.color"
+        :stroke-width="state.arrow.thickness"
+        stroke-linejoin="round"
+        class="arrow-line-body"
+        @pointerdown.stop="startArrowBodyDrag"
+      />
+      <!-- Invisible wider hit area for easier arrow body dragging -->
+      <line
+        v-if="state.arrowInteraction.value === 'placed'"
+        :x1="arrowStartPx.x" :y1="arrowStartPx.y"
+        :x2="arrowEndPx.x" :y2="arrowEndPx.y"
+        stroke="transparent"
+        :stroke-width="Math.max(12, state.arrow.thickness * 4)"
+        class="arrow-hit-area"
+        @pointerdown.stop="startArrowBodyDrag"
+      />
+      <!-- Arrowheads -->
+      <path
+        v-if="endHeadPath && (state.arrowInteraction.value === 'creating' || state.arrowInteraction.value === 'placed')"
+        :d="endHeadPath"
+        :fill="state.arrow.color"
+        :stroke="state.arrow.color"
+        stroke-linejoin="round"
+      />
+      <path
+        v-if="startHeadPath && (state.arrowInteraction.value === 'creating' || state.arrowInteraction.value === 'placed')"
+        :d="startHeadPath"
+        :fill="state.arrow.color"
+        :stroke="state.arrow.color"
+        stroke-linejoin="round"
+      />
+      <!-- Arrow label -->
+      <text
+        v-if="state.arrow.label && state.arrowInteraction.value === 'placed'"
+        :x="arrowLabelPos.x"
+        :y="arrowLabelPos.y"
+        :font-size="12 + state.arrow.thickness"
+        :fill="state.arrow.color"
+        font-family="'Outfit', sans-serif"
+        text-anchor="middle"
+        dominant-baseline="central"
+      >{{ state.arrow.label }}</text>
+      <!-- Grip handles (when arrow is selected/placed) -->
+      <template v-if="state.selectedAnnotation.value === 'arrow' && state.arrowInteraction.value === 'placed'">
+        <circle :cx="arrowStartPx.x" :cy="arrowStartPx.y" r="12" fill="transparent" class="grip-hit-area"
+                @pointerdown.stop="startGripDrag('start', $event)" />
+        <circle :cx="arrowStartPx.x" :cy="arrowStartPx.y" r="5" fill="#3b82f6" stroke="white" stroke-width="1.5" class="grip-handle" />
+        <circle :cx="arrowEndPx.x" :cy="arrowEndPx.y" r="12" fill="transparent" class="grip-hit-area"
+                @pointerdown.stop="startGripDrag('end', $event)" />
+        <circle :cx="arrowEndPx.x" :cy="arrowEndPx.y" r="5" fill="#3b82f6" stroke="white" stroke-width="1.5" class="grip-handle" />
+      </template>
+    </g>
+
+    <!-- Watermark overlay -->
+    <g v-if="state.watermark.enabled && state.watermark.text" class="watermark-overlay"
+       @click.stop="state.selectedAnnotation.value = 'watermark'">
+      <text
+        v-if="state.watermark.position === 'diagonal'"
+        :x="viewBoxW / 2"
+        :y="viewBoxH / 2"
+        :font-size="state.watermark.fontSize"
+        :fill="state.watermark.color"
+        :opacity="state.watermark.opacity / 100"
+        font-family="'JetBrains Mono', monospace"
+        font-weight="500"
+        text-anchor="middle"
+        dominant-baseline="central"
+        :transform="`rotate(-45, ${viewBoxW / 2}, ${viewBoxH / 2})`"
+      >{{ state.watermark.text }}</text>
+      <text
+        v-else
+        :x="viewBoxW - 16"
+        :y="viewBoxH - 16"
+        :font-size="state.watermark.fontSize"
+        :fill="state.watermark.color"
+        :opacity="state.watermark.opacity / 100"
+        font-family="'JetBrains Mono', monospace"
+        font-weight="500"
+        text-anchor="end"
+        dominant-baseline="auto"
+      >{{ state.watermark.text }}</text>
+    </g>
+
+    <!-- Callout overlay -->
+    <g v-if="state.callout.enabled && state.callout.position && state.callout.text" class="callout-overlay"
+       style="pointer-events: auto; cursor: pointer"
+       @click.stop="state.selectedAnnotation.value = 'callout'">
+      <path
+        :d="calloutPath"
+        :fill="state.callout.bgColor"
+        stroke="#94a3b8"
+        stroke-width="1"
+        stroke-linejoin="round"
+      />
+      <text
+        :x="calloutTextX"
+        :y="calloutTextY"
+        :font-size="state.callout.fontSize"
+        :fill="state.callout.color"
+        font-family="'Outfit', sans-serif"
+        text-anchor="middle"
+        dominant-baseline="central"
+      >{{ state.callout.text }}</text>
+      <!-- Tip grip -->
+      <template v-if="state.selectedAnnotation.value === 'callout' && state.callout.tipPosition">
+        <circle :cx="state.callout.tipPosition.x * viewBoxW" :cy="state.callout.tipPosition.y * viewBoxH"
+                r="12" fill="transparent" class="grip-hit-area"
+                @pointerdown.stop="startCalloutTipDrag" />
+        <circle :cx="state.callout.tipPosition.x * viewBoxW" :cy="state.callout.tipPosition.y * viewBoxH"
+                r="5" fill="#3b82f6" stroke="white" stroke-width="1.5" class="grip-handle" />
+      </template>
+    </g>
+  </svg>
+
+  <!-- Interaction hints -->
+  <div v-if="state.notePlaceMode.value" class="arrow-click-hint">Click to place note</div>
+  <div v-else-if="state.calloutPlaceMode.value" class="arrow-click-hint">Click to place callout</div>
+  <div v-else-if="state.arrow.enabled && state.arrowInteraction.value === 'idle'" class="arrow-click-hint">
+    Drag to draw arrow
+  </div>
+  <div v-else-if="state.arrow.enabled && state.arrowInteraction.value === 'creating'" class="arrow-click-hint">
+    Release to finish
+  </div>
+  <div v-else-if="state.arrow.enabled && state.arrowInteraction.value === 'placed'" class="arrow-click-hint arrow-click-hint--reset">
+    Click arrow to select · Drag on empty area to redraw
+  </div>
+</template>
+
+<script lang="ts">
+import { defineComponent, type PropType } from 'vue';
+import type { ExportState, Point } from './useExportState';
+
+const VIEWBOX_W = 600;
+const VIEWBOX_H = 400;
+
+function computeArrowheadPath(
+  tipX: number, tipY: number,
+  angle: number, thickness: number,
+): string {
+  const arrowHeight = 10 + thickness * 2;
+  const arrowWidth = Math.min(Math.max(5, thickness * 2), thickness + 5);
+  const dipFactor = 0.7;
+  const baseX = tipX - arrowHeight * dipFactor * Math.cos(angle);
+  const baseY = tipY - arrowHeight * dipFactor * Math.sin(angle);
+  const tipBaseX = tipX - arrowHeight * Math.cos(angle);
+  const tipBaseY = tipY - arrowHeight * Math.sin(angle);
+  const s1X = tipBaseX + arrowWidth * Math.sin(angle);
+  const s1Y = tipBaseY - arrowWidth * Math.cos(angle);
+  const s2X = tipBaseX - arrowWidth * Math.sin(angle);
+  const s2Y = tipBaseY + arrowWidth * Math.cos(angle);
+  return `M ${baseX} ${baseY} L ${s1X} ${s1Y} L ${tipX} ${tipY} L ${s2X} ${s2Y} Z`;
+}
+
+export default defineComponent({
+  name: 'OverlayLayer',
+
+  props: {
+    state: {
+      type: Object as PropType<ExportState>,
+      required: true,
+    },
+  },
+
+  emits: ['preview-click'],
+
+  data() {
+    return {
+      viewBoxW: VIEWBOX_W,
+      viewBoxH: VIEWBOX_H,
+      draggingGrip: null as 'start' | 'end' | null,
+      draggingArrowBody: false,
+      arrowBodyDragStart: null as Point | null,
+      draggingCalloutTip: false,
+    };
+  },
+
+  computed: {
+    hasAnyOverlay(): boolean {
+      return !!(
+        this.state.note.text ||
+        (this.state.arrow.enabled && this.state.arrowPoints.value) ||
+        (this.state.watermark.enabled && this.state.watermark.text) ||
+        (this.state.callout.enabled && this.state.callout.position && this.state.callout.text)
+      );
+    },
+
+    isInteractive(): boolean {
+      return this.state.arrow.enabled || this.state.notePlaceMode.value || this.state.calloutPlaceMode.value;
+    },
+
+    noteX(): number {
+      if (this.state.notePoint.value) return this.state.notePoint.value.x * VIEWBOX_W;
+      const pos = this.state.note.position;
+      if (pos.endsWith('left')) return 12;
+      if (pos.endsWith('right')) return VIEWBOX_W - 12;
+      return VIEWBOX_W / 2;
+    },
+
+    noteY(): number {
+      if (this.state.notePoint.value) return this.state.notePoint.value.y * VIEWBOX_H;
+      return this.state.note.position.startsWith('top') ? 12 + this.state.note.fontSize : VIEWBOX_H - 12;
+    },
+
+    noteAnchor(): string {
+      if (this.state.notePoint.value) return 'middle';
+      const pos = this.state.note.position;
+      if (pos.endsWith('left')) return 'start';
+      if (pos.endsWith('right')) return 'end';
+      return 'middle';
+    },
+
+    arrowStartPx(): Point {
+      const pts = this.state.arrowPoints.value;
+      if (!pts) return { x: 0, y: 0 };
+      return { x: pts.start.x * VIEWBOX_W, y: pts.start.y * VIEWBOX_H };
+    },
+
+    arrowEndPx(): Point {
+      const pts = this.state.arrowPoints.value;
+      if (!pts) return { x: 0, y: 0 };
+      return { x: pts.end.x * VIEWBOX_W, y: pts.end.y * VIEWBOX_H };
+    },
+
+    arrowAngle(): number {
+      return Math.atan2(this.arrowEndPx.y - this.arrowStartPx.y, this.arrowEndPx.x - this.arrowStartPx.x);
+    },
+
+    endHeadPath(): string {
+      const t = this.state.arrow.type;
+      if (t === '→' || t === '←→' || t === '⤷') {
+        return computeArrowheadPath(this.arrowEndPx.x, this.arrowEndPx.y, this.arrowAngle, this.state.arrow.thickness);
+      }
+      return '';
+    },
+
+    startHeadPath(): string {
+      const t = this.state.arrow.type;
+      if (t === '←' || t === '←→') {
+        return computeArrowheadPath(this.arrowStartPx.x, this.arrowStartPx.y, this.arrowAngle + Math.PI, this.state.arrow.thickness);
+      }
+      return '';
+    },
+
+    arrowLabelPos(): Point {
+      const midX = (this.arrowStartPx.x + this.arrowEndPx.x) / 2;
+      const midY = (this.arrowStartPx.y + this.arrowEndPx.y) / 2;
+      const perpX = -Math.sin(this.arrowAngle) * 14;
+      const perpY = Math.cos(this.arrowAngle) * 14;
+      return { x: midX + perpX, y: midY + perpY };
+    },
+
+    calloutBoxW(): number { return 120; },
+    calloutBoxH(): number { return 40; },
+
+    calloutTextX(): number {
+      if (!this.state.callout.position) return 0;
+      return this.state.callout.position.x * VIEWBOX_W;
+    },
+
+    calloutTextY(): number {
+      if (!this.state.callout.position) return 0;
+      return this.state.callout.position.y * VIEWBOX_H;
+    },
+
+    calloutPath(): string {
+      if (!this.state.callout.position) return '';
+      const cx = this.state.callout.position.x * VIEWBOX_W;
+      const cy = this.state.callout.position.y * VIEWBOX_H;
+      const w = this.calloutBoxW;
+      const h = this.calloutBoxH;
+      const r = 5;
+      const left = cx - w / 2;
+      const top = cy - h / 2;
+      const right = cx + w / 2;
+      const bottom = cy + h / 2;
+
+      let path = `M ${left + r} ${top} L ${right - r} ${top} Q ${right} ${top} ${right} ${top + r} L ${right} ${bottom - r} Q ${right} ${bottom} ${right - r} ${bottom}`;
+
+      if (this.state.callout.tipPosition) {
+        const tipX = this.state.callout.tipPosition.x * VIEWBOX_W;
+        const tipY = this.state.callout.tipPosition.y * VIEWBOX_H;
+        const baseLeft = cx - 8;
+        const baseRight = cx + 8;
+        path += ` L ${baseRight} ${bottom} L ${tipX} ${tipY} L ${baseLeft} ${bottom}`;
+      }
+
+      path += ` L ${left + r} ${bottom} Q ${left} ${bottom} ${left} ${bottom - r} L ${left} ${top + r} Q ${left} ${top} ${left + r} ${top} Z`;
+      return path;
+    },
+  },
+
+  methods: {
+    getSvgCoords(event: PointerEvent): Point {
+      const svg = this.$refs.overlayEl as SVGSVGElement;
+      if (!svg) return { x: 0, y: 0 };
+      const rect = svg.getBoundingClientRect();
+      return {
+        x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+        y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
+      };
+    },
+
+    onSvgPointerDown(event: PointerEvent) {
+      const target = event.target as SVGElement;
+      const isOnAnnotation = target.closest('.note-overlay, .arrow-overlay, .watermark-overlay, .callout-overlay');
+
+      if (this.state.notePlaceMode.value) {
+        const coords = this.getSvgCoords(event);
+        this.state.notePoint.value = coords;
+        this.state.notePlaceMode.value = false;
+        return;
+      }
+
+      if (this.state.calloutPlaceMode.value) {
+        const coords = this.getSvgCoords(event);
+        this.state.callout.position = coords;
+        this.state.callout.tipPosition = {
+          x: Math.min(1, coords.x + 0.1),
+          y: Math.min(1, coords.y + 0.15),
+        };
+        this.state.calloutPlaceMode.value = false;
+        this.state.selectedAnnotation.value = 'callout';
+        return;
+      }
+
+      if (this.state.arrow.enabled && !isOnAnnotation) {
+        const coords = this.getSvgCoords(event);
+        this.state.arrowPoints.value = { start: coords, end: coords };
+        this.state.arrowInteraction.value = 'creating';
+        this.state.arrowClickCount.value = 1;
+        this.state.selectedAnnotation.value = 'arrow';
+        const svg = this.$refs.overlayEl as SVGSVGElement;
+        svg.setPointerCapture(event.pointerId);
+        return;
+      }
+
+      if (!isOnAnnotation) {
+        this.state.selectedAnnotation.value = null;
+      }
+    },
+
+    onSvgPointerMove(event: PointerEvent) {
+      if (this.state.arrowInteraction.value === 'creating') {
+        const coords = this.getSvgCoords(event);
+        const start = this.state.arrowPoints.value!.start;
+        this.state.arrowPoints.value = { start, end: coords };
+        return;
+      }
+
+      if (this.draggingGrip && this.state.arrowPoints.value) {
+        const coords = this.getSvgCoords(event);
+        const pts = this.state.arrowPoints.value;
+        if (this.draggingGrip === 'start') {
+          this.state.arrowPoints.value = { start: coords, end: pts.end };
+        } else {
+          this.state.arrowPoints.value = { start: pts.start, end: coords };
+        }
+        return;
+      }
+
+      if (this.draggingArrowBody && this.state.arrowPoints.value && this.arrowBodyDragStart) {
+        const coords = this.getSvgCoords(event);
+        const dx = coords.x - this.arrowBodyDragStart.x;
+        const dy = coords.y - this.arrowBodyDragStart.y;
+        const pts = this.state.arrowPoints.value;
+        this.state.arrowPoints.value = {
+          start: { x: pts.start.x + dx, y: pts.start.y + dy },
+          end: { x: pts.end.x + dx, y: pts.end.y + dy },
+        };
+        this.arrowBodyDragStart = coords;
+        return;
+      }
+
+      if (this.state.noteDragging.value) {
+        const coords = this.getSvgCoords(event);
+        this.state.notePoint.value = coords;
+        return;
+      }
+
+      if (this.draggingCalloutTip) {
+        const coords = this.getSvgCoords(event);
+        this.state.callout.tipPosition = coords;
+      }
+    },
+
+    onSvgPointerUp(event: PointerEvent) {
+      if (this.state.arrowInteraction.value === 'creating') {
+        const coords = this.getSvgCoords(event);
+        const start = this.state.arrowPoints.value!.start;
+        const dist = Math.sqrt(Math.pow(coords.x - start.x, 2) + Math.pow(coords.y - start.y, 2));
+        if (dist < 0.01) {
+          this.state.resetArrow();
+        } else {
+          this.state.arrowPoints.value = { start, end: coords };
+          this.state.arrowInteraction.value = 'placed';
+          this.state.arrowClickCount.value = 2;
+        }
+        return;
+      }
+
+      if (this.draggingGrip) {
+        this.draggingGrip = null;
+        return;
+      }
+
+      if (this.draggingArrowBody) {
+        this.draggingArrowBody = false;
+        this.arrowBodyDragStart = null;
+        return;
+      }
+
+      if (this.state.noteDragging.value) {
+        this.state.noteDragging.value = false;
+        return;
+      }
+
+      if (this.draggingCalloutTip) {
+        this.draggingCalloutTip = false;
+      }
+    },
+
+    onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (this.state.selectedAnnotation.value === 'arrow') {
+          this.state.resetArrow();
+          this.state.selectedAnnotation.value = null;
+        } else if (this.state.selectedAnnotation.value === 'note') {
+          this.state.note.text = '';
+          this.state.notePoint.value = null;
+          this.state.selectedAnnotation.value = null;
+        } else if (this.state.selectedAnnotation.value === 'watermark') {
+          this.state.watermark.enabled = false;
+          this.state.selectedAnnotation.value = null;
+        } else if (this.state.selectedAnnotation.value === 'callout') {
+          this.state.callout.enabled = false;
+          this.state.callout.position = null;
+          this.state.callout.tipPosition = null;
+          this.state.selectedAnnotation.value = null;
+        }
+      } else if (event.key === 'Escape') {
+        this.state.selectedAnnotation.value = null;
+      }
+    },
+
+    startNoteDrag(event: PointerEvent) {
+      if (!this.state.notePoint.value) return;
+      this.state.noteDragging.value = true;
+      this.state.selectedAnnotation.value = 'note';
+      const svg = this.$refs.overlayEl as SVGSVGElement;
+      svg.setPointerCapture(event.pointerId);
+    },
+
+    startNoteEdit() {
+      this.state.noteEditing.value = true;
+      this.state.selectedAnnotation.value = 'note';
+    },
+
+    startGripDrag(grip: 'start' | 'end', event: PointerEvent) {
+      this.draggingGrip = grip;
+      this.state.selectedAnnotation.value = 'arrow';
+      const svg = this.$refs.overlayEl as SVGSVGElement;
+      svg.setPointerCapture(event.pointerId);
+    },
+
+    startArrowBodyDrag(event: PointerEvent) {
+      this.draggingArrowBody = true;
+      this.arrowBodyDragStart = this.getSvgCoords(event);
+      this.state.selectedAnnotation.value = 'arrow';
+      const svg = this.$refs.overlayEl as SVGSVGElement;
+      svg.setPointerCapture(event.pointerId);
+    },
+
+    startCalloutTipDrag(event: PointerEvent) {
+      this.draggingCalloutTip = true;
+      const svg = this.$refs.overlayEl as SVGSVGElement;
+      svg.setPointerCapture(event.pointerId);
+    },
+  },
+});
+</script>
+
+<style scoped>
+.overlay-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  outline: none;
+}
+
+.overlay-layer:has(.arrow-overlay),
+.overlay-layer[data-interactive] {
+  pointer-events: auto;
+}
+
+.overlay-layer .note-overlay text,
+.overlay-layer .arrow-overlay .grip-hit-area,
+.overlay-layer .arrow-overlay .arrow-hit-area,
+.overlay-layer .arrow-overlay .arrow-line-body,
+.overlay-layer .callout-overlay .grip-hit-area {
+  pointer-events: auto;
+}
+
+.draggable-note { cursor: grab; }
+.draggable-note:active { cursor: grabbing; }
+.grip-hit-area { cursor: grab; }
+.grip-handle { pointer-events: none; }
+.arrow-line-body { cursor: move; }
+.arrow-hit-area { cursor: move; }
+
+.arrow-click-hint {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(59, 130, 246, 0.9);
+  color: white;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: 'Outfit', sans-serif;
+  padding: 5px 12px;
+  border-radius: 20px;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(59,130,246,0.4);
+  letter-spacing: 0.02em;
+}
+
+.arrow-click-hint--reset {
+  background: rgba(100, 116, 139, 0.85);
+}
+</style>

@@ -138,9 +138,10 @@
     "vuex": "^4.1.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.4.0",
     "@babel/plugin-proposal-optional-chaining": "^7.21.0",
+    "@eslint/js": "^9.4.0",
     "@forge/cli": "^12.14.0",
+    "@playwright/test": "^1.58.2",
     "@types/jest": "^24.0.19",
     "@types/js-yaml": "^4.0.9",
     "@types/lodash": "^4.14.202",

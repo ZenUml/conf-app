@@ -231,6 +231,33 @@ Clicking theme cards or background swatches showed "nothing happens" because:
 
 ---
 
+## Stage 10: markerjs3-Inspired Improvements
+**Goal**: Learn from markerjs3 architecture and adopt key rendering/interaction patterns
+**Status**: Complete ✓
+
+### Patterns Adopted
+
+#### 10a. Path-based arrowheads (replaces SVG `<marker>` elements)
+- Removed `<defs>` with `<marker>` elements from arrow SVG overlay
+- Arrowheads now computed as `<path>` polygons using trigonometry (same algorithm as markerjs3's ArrowMarker)
+- Arrow size proportional to thickness: `arrowHeight = 10 + thickness * 2`, `arrowWidth = min(max(5, thickness * 2), thickness + 5)`
+- Dip factor 0.7 for refined diamond shape; `stroke-linejoin: round` for smooth corners
+- Both preview SVG and export canvas use identical formula
+
+#### 10b. Note text drop shadow for legibility
+- Preview: dual `text-shadow` (dark drop + white glow) on `.preview-note`
+- Export: canvas `shadowColor/shadowBlur/shadowOffsetY` wrapped in `ctx.save()/restore()`
+- Inspired by markerjs3's SVG filter pattern (feDropShadow on all markers)
+
+#### 10c. Draggable note overlay
+- Placed notes can be repositioned by dragging (pointer events: `pointerdown → pointermove → pointerup`)
+- Uses `setPointerCapture` for reliable tracking beyond element bounds
+- Coordinates clamped to 0–1 normalized range
+- CSS: `.preview-note.draggable` overrides `pointer-events: none` with `cursor: grab/grabbing`
+- Inspired by markerjs3's editor state machine (`new → creating → select → move`)
+
+---
+
 ## Definition of Done
 
 - [x] `test-viewer.html` renders a real ZenUML diagram with the viewer header

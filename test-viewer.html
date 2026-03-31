@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Local Test Viewer</title>
+  <meta charset="utf-8">
+  <script type="text/javascript" src="js/util.js"></script>
+  <script type="text/javascript" src="js/dom-to-image.min.js?version=2022.02"></script>
+  <script type="text/javascript" src="js/md5.js"></script>
+  <!-- No Atlassian Connect script needed — MockAp is used automatically in local dev -->
+  <!-- Force display mode so the Viewer header (Fullscreen/Edit buttons) is visible -->
+  <script>
+    if (!window.location.search.includes('outputType=display')) {
+      var sep = window.location.search ? '&' : '?';
+      window.location.replace(window.location.pathname + window.location.search + sep + 'outputType=display');
+    }
+  </script>
+  <style>
+    *::-webkit-scrollbar { width: 6px; height: 6px; }
+    *::-webkit-scrollbar-thumb { background-color: #D0D5DD; border-radius: 6px; }
+    *::-webkit-scrollbar-track { background-color: #fff; }
+  </style>
+</head>
+<body style="overflow: clip">
+<div class="mx-auto" style="width: 100%">
+  <div id="app"></div>
+</div>
+</body>
+<script type="module" src="src/test-viewer.ts"></script>
+</html>

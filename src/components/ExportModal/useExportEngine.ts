@@ -40,21 +40,35 @@ function resolveBgColor(background: string): string | undefined {
 
 function drawArrowhead(
   ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
+  tipX: number,
+  tipY: number,
   angle: number,
   color: string,
   thickness: number,
 ): void {
-  const size = 8 + thickness * 2;
+  // markerjs3-inspired proportional arrow sizing
+  const arrowHeight = 10 + thickness * 2;
+  const arrowWidth = Math.min(Math.max(5, thickness * 2), thickness + 5);
+  const dipFactor = 0.7;
+
+  const baseX = tipX - arrowHeight * dipFactor * Math.cos(angle);
+  const baseY = tipY - arrowHeight * dipFactor * Math.sin(angle);
+  const tipBaseX = tipX - arrowHeight * Math.cos(angle);
+  const tipBaseY = tipY - arrowHeight * Math.sin(angle);
+  const side1X = tipBaseX + arrowWidth * Math.sin(angle);
+  const side1Y = tipBaseY - arrowWidth * Math.cos(angle);
+  const side2X = tipBaseX - arrowWidth * Math.sin(angle);
+  const side2Y = tipBaseY + arrowWidth * Math.cos(angle);
+
   ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(angle);
   ctx.fillStyle = color;
+  ctx.strokeStyle = color;
+  ctx.lineJoin = 'round';
   ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(-size, -size / 2);
-  ctx.lineTo(-size, size / 2);
+  ctx.moveTo(baseX, baseY);
+  ctx.lineTo(side1X, side1Y);
+  ctx.lineTo(tipX, tipY);
+  ctx.lineTo(side2X, side2Y);
   ctx.closePath();
   ctx.fill();
   ctx.restore();
@@ -110,8 +124,12 @@ export function useExportEngine() {
 
     // ── Step 3: Draw note overlay ──────────────────────────────────────────
     if (options.note.text) {
+      ctx.save();
       ctx.font = `${options.note.fontSize}px sans-serif`;
       ctx.fillStyle = options.note.color;
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      ctx.shadowBlur = 4;
+      ctx.shadowOffsetY = 1;
 
       if (options.notePoint) {
         // Custom click-to-place position (normalized 0–1 coords)
@@ -137,6 +155,7 @@ export function useExportEngine() {
         ctx.textAlign = align[options.note.position] ?? 'left';
         ctx.fillText(options.note.text, x, y);
       }
+      ctx.restore();
     }
 
     // ── Step 4: Draw arrow overlay ─────────────────────────────────────────

@@ -32,14 +32,6 @@
 
               <!-- Arrow overlay -->
               <svg v-if="arrow.enabled && arrowPoints" class="preview-arrow-overlay" viewBox="0 0 1 1" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                  <marker id="arrowhead-end" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                    <polygon points="0 0, 10 3.5, 0 7" :fill="arrow.color"/>
-                  </marker>
-                  <marker id="arrowhead-start" markerWidth="10" markerHeight="7" refX="1" refY="3.5" orient="auto-start-reverse">
-                    <polygon points="0 0, 10 3.5, 0 7" :fill="arrow.color"/>
-                  </marker>
-                </defs>
                 <!-- Start point dot — visible only when waiting for end point -->
                 <circle
                   v-if="arrowClickCount === 1"
@@ -56,8 +48,21 @@
                   :stroke="arrow.color"
                   :stroke-width="arrow.thickness * 0.003"
                   vector-effect="non-scaling-stroke"
-                  :marker-end="(arrow.type === '→' || arrow.type === '←→' || arrow.type === '⤷') ? 'url(#arrowhead-end)' : null"
-                  :marker-start="(arrow.type === '←' || arrow.type === '←→') ? 'url(#arrowhead-start)' : null"
+                  stroke-linejoin="round"
+                />
+                <path
+                  v-if="arrowClickCount === 2 && arrowHeadPaths && arrowHeadPaths.endPath"
+                  :d="arrowHeadPaths.endPath"
+                  :fill="arrow.color"
+                  :stroke="arrow.color"
+                  stroke-linejoin="round"
+                />
+                <path
+                  v-if="arrowClickCount === 2 && arrowHeadPaths && arrowHeadPaths.startPath"
+                  :d="arrowHeadPaths.startPath"
+                  :fill="arrow.color"
+                  :stroke="arrow.color"
+                  stroke-linejoin="round"
                 />
               </svg>
               <div v-if="notePlaceMode" class="arrow-click-hint">Click to place note</div>
@@ -69,7 +74,13 @@
               </div>
 
               <!-- Note overlay -->
-              <div v-if="note.text" class="preview-note" :style="noteStyle">
+              <div v-if="note.text" class="preview-note"
+                   :style="noteStyle"
+                   :class="{ 'draggable': notePoint != null }"
+                   @pointerdown.stop="startNoteDrag"
+                   @pointermove="onNoteDragMove"
+                   @pointerup="stopNoteDrag"
+              >
                 {{ note.text }}
               </div>
 
@@ -298,6 +309,7 @@ export default defineComponent({
       arrowClickCount: 0,
       notePoint: null as { x: number; y: number } | null,
       notePlaceMode: false,
+      noteDragging: false,
 
       note: {
         text: '',
@@ -448,6 +460,39 @@ export default defineComponent({
       }
       return style;
     },
+
+    arrowHeadPaths(): { startPath: string; endPath: string } | null {
+      if (!this.arrowPoints || this.arrowClickCount !== 2) return null;
+      const s = this.arrowPoints.start;
+      const e = this.arrowPoints.end;
+      const dx = e.x - s.x;
+      const dy = e.y - s.y;
+      const angle = Math.atan2(dy, dx);
+      // Scale arrow size proportional to thickness (markerjs3 pattern)
+      const arrowHeight = (10 + this.arrow.thickness * 2) * 0.003;
+      const arrowWidth = Math.min(Math.max(5, this.arrow.thickness * 2), this.arrow.thickness + 5) * 0.003;
+      const dipFactor = 0.7;
+
+      let endPath = '';
+      if (this.arrow.type === '→' || this.arrow.type === '←→' || this.arrow.type === '⤷') {
+        const base = { x: e.x - arrowHeight * dipFactor * Math.cos(angle), y: e.y - arrowHeight * dipFactor * Math.sin(angle) };
+        const tipBase = { x: e.x - arrowHeight * Math.cos(angle), y: e.y - arrowHeight * Math.sin(angle) };
+        const side1 = { x: tipBase.x + arrowWidth * Math.sin(angle), y: tipBase.y - arrowWidth * Math.cos(angle) };
+        const side2 = { x: tipBase.x - arrowWidth * Math.sin(angle), y: tipBase.y + arrowWidth * Math.cos(angle) };
+        endPath = `M ${base.x} ${base.y} L ${side1.x} ${side1.y} L ${e.x} ${e.y} L ${side2.x} ${side2.y} Z`;
+      }
+
+      let startPath = '';
+      if (this.arrow.type === '←' || this.arrow.type === '←→') {
+        const base = { x: s.x + arrowHeight * dipFactor * Math.cos(angle), y: s.y + arrowHeight * dipFactor * Math.sin(angle) };
+        const tipBase = { x: s.x + arrowHeight * Math.cos(angle), y: s.y + arrowHeight * Math.sin(angle) };
+        const side1 = { x: tipBase.x + arrowWidth * Math.sin(angle), y: tipBase.y - arrowWidth * Math.cos(angle) };
+        const side2 = { x: tipBase.x - arrowWidth * Math.sin(angle), y: tipBase.y + arrowWidth * Math.cos(angle) };
+        startPath = `M ${base.x} ${base.y} L ${side1.x} ${side1.y} L ${s.x} ${s.y} L ${side2.x} ${side2.y} Z`;
+      }
+
+      return { startPath, endPath };
+    },
   },
 
   watch: {
@@ -541,6 +586,27 @@ export default defineComponent({
         this.arrowPoints = null;
         this.arrowClickCount = 0;
       }
+    },
+
+    startNoteDrag(event: PointerEvent) {
+      if (!this.notePoint) return;
+      this.noteDragging = true;
+      const el = event.currentTarget as HTMLElement;
+      el.setPointerCapture(event.pointerId);
+    },
+
+    onNoteDragMove(event: PointerEvent) {
+      if (!this.noteDragging) return;
+      const canvas = (event.currentTarget as HTMLElement).closest('.preview-canvas') as HTMLElement;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+      this.notePoint = { x, y };
+    },
+
+    stopNoteDrag() {
+      this.noteDragging = false;
     },
 
     async handleExport() {
@@ -787,6 +853,14 @@ export default defineComponent({
   max-width: 80%;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 8px rgba(255, 255, 255, 0.5);
+}
+.preview-note.draggable {
+  pointer-events: auto;
+  cursor: grab;
+}
+.preview-note.draggable:active {
+  cursor: grabbing;
 }
 
 /* Watermark overlay */

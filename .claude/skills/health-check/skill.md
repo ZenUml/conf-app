@@ -130,6 +130,33 @@ Same pattern: run TWO queries. Current week uses `{ "unit": "week", "value": 1 }
 
 For 1d and 1w error comparisons, follow the same current+previous pattern as queries 2-3.
 
+### Step 0: Announce the check plan
+
+**Before running any queries**, print a summary of what will be checked so the user knows what to expect:
+
+```
+## Health Check Plan
+
+Checking ZenUML Confluence app health via Mixpanel (project 3402701).
+Excluding internal sites: zenuml, zenuml-stg, dia-stg.
+
+**Queries to run** (10 in parallel):
+1. Today hourly — view_macro, create_macro_end, edit_macro_end by category
+2. Past 1 day — activity totals by category
+3. Previous day ({yesterday}) — activity totals for comparison
+4. Past 1 week — activity totals by category
+5. Previous week ({prev_week_start} to {prev_week_end}) — activity totals for comparison
+6. Today hourly — unexpected_error, update_custom_content_error
+7. Past 1 day — error totals
+8. Previous day ({yesterday}) — error totals for comparison
+9. Past 1 week — error totals
+10. Previous week ({prev_week_start} to {prev_week_end}) — error totals for comparison
+
+Running all queries now...
+```
+
+Replace `{yesterday}`, `{prev_week_start}`, `{prev_week_end}` with actual calculated dates.
+
 ### Query execution strategy
 
 Run all queries in parallel in a single turn. For the comparison periods, calculate dates based on today:

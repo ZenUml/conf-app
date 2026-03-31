@@ -1,4 +1,5 @@
 import { DiagramType } from "@/model/Diagram/Diagram";
+import md5 from 'md5';
 import { trackEvent, addonKey } from '@/utils/window';
 import {
   getClientDomain,
@@ -6,10 +7,21 @@ import {
 import { callRemote } from '@/utils/requestUtil';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 
+const MICRO_SYNC_BLOCKED_DOMAIN_HASHES = new Set([
+  'f1a5aefbdad6aca8afe6cf3ebdf5c93d', // woolworths-agile
+]);
+
 export async function syncCustomContent(customContent: any, diagramType: DiagramType, macroUuid: string) {
   try {
+    const clientDomain = getClientDomain();
+
+    if (clientDomain && MICRO_SYNC_BLOCKED_DOMAIN_HASHES.has(md5(clientDomain))) {
+      console.info('Skipping custom content sync for blocked client domain hash');
+      return;
+    }
+
     const data = {
-      clientDomain: getClientDomain(),
+      clientDomain,
       addonKey: addonKey(),
       contentId: customContent.id,
       customContentId: customContent.id,

@@ -70,9 +70,9 @@ export default defineComponent({
           theme: state.theme.value,
           background: state.background.value === 'custom' ? state.customBgColor.value : state.background.value,
           note: { text: state.note.text, position: state.note.position, fontSize: state.note.fontSize, color: state.note.color },
-          arrow: { enabled: state.arrow.enabled, type: state.arrow.type, label: state.arrow.label, color: state.arrow.color, thickness: state.arrow.thickness },
-          watermark: { enabled: state.watermark.enabled, text: state.watermark.text, opacity: state.watermark.opacity, fontSize: state.watermark.fontSize, color: state.watermark.color, position: state.watermark.position as 'diagonal' | 'bottom-right' },
-          callout: { enabled: state.callout.enabled, text: state.callout.text, fontSize: state.callout.fontSize, color: state.callout.color, bgColor: state.callout.bgColor, position: state.callout.position, tipPosition: state.callout.tipPosition },
+          arrow: { type: state.arrow.type, label: state.arrow.label, color: state.arrow.color, thickness: state.arrow.thickness },
+          watermark: state.hasWatermark.value ? { text: state.watermark.text, opacity: state.watermark.opacity, fontSize: state.watermark.fontSize, color: state.watermark.color, position: state.watermark.position as 'diagonal' | 'bottom-right' } : null,
+          callout: state.hasCallout.value ? { text: state.callout.text, fontSize: state.callout.fontSize, color: state.callout.color, bgColor: state.callout.bgColor, position: state.callout.position, tipPosition: state.callout.tipPosition } : null,
           arrowPoints: state.arrowPoints.value,
           notePoint: state.notePoint.value,
         };
@@ -245,7 +245,7 @@ export default defineComponent({
 
 .preview-stage {
   flex: 1; display: flex; align-items: center; justify-content: center;
-  padding: 24px; overflow: auto;
+  padding: 16px; overflow: auto;
   background-image: radial-gradient(circle, #b6c4d4 1px, transparent 1px);
   background-size: 20px 20px; background-position: 0 0;
 }
@@ -329,7 +329,7 @@ export default defineComponent({
 .theme-swatch { width: 100%; height: 40px; border-radius: 5px; position: relative; overflow: hidden; }
 .theme-swatch::before {
   content: ''; position: absolute; inset: 0;
-  background-image: repeating-linear-gradient(to bottom, transparent 0px, transparent 6px, rgba(128, 128, 128, 0.12) 6px, rgba(128, 128, 128, 0.12) 7px);
+  background-image: repeating-linear-gradient(to bottom, transparent 0px, transparent 6px, rgba(255, 255, 255, 0.15) 6px, rgba(255, 255, 255, 0.15) 7px);
   border-radius: inherit; pointer-events: none;
 }
 .theme-label { font-family: 'Outfit', sans-serif; font-size: 11px; font-weight: 600; color: var(--sidebar-muted); letter-spacing: 0.02em; }
@@ -432,11 +432,11 @@ export default defineComponent({
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 20px; background: var(--sidebar-bg);
   box-shadow: 0 -1px 0 #1e293b, 0 -8px 16px rgba(15, 23, 42, 0.6);
-  flex-shrink: 0; gap: 10px;
+  flex-shrink: 0; gap: 8px;
 }
 .btn-cancel {
   background: none; border: 1px solid #334155; border-radius: 8px;
-  padding: 8px 18px; font-family: 'Outfit', sans-serif; font-size: 13px;
+  padding: 8px 14px; font-family: 'Outfit', sans-serif; font-size: 13px;
   font-weight: 500; color: var(--sidebar-muted); cursor: pointer;
   transition: border-color 0.15s, color 0.15s;
 }
@@ -466,8 +466,9 @@ export default defineComponent({
 
 .btn-export {
   background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  border: none; border-radius: 8px; padding: 9px 22px;
+  border: none; border-radius: 8px; padding: 9px 20px;
   font-family: 'Outfit', sans-serif; font-size: 13px; font-weight: 700; color: #ffffff;
+  white-space: nowrap;
   cursor: pointer; transition: box-shadow 0.2s, transform 0.15s; letter-spacing: 0.03em;
   display: flex; align-items: center; gap: 7px;
   box-shadow: 0 2px 12px rgba(59, 130, 246, 0.35);

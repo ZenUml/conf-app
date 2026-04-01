@@ -32,15 +32,15 @@
         :text-anchor="noteAnchor"
         dominant-baseline="central"
         filter="url(#drop-shadow-note)"
-        :class="{ 'draggable-note': state.notePoint.value != null }"
-        :style="'pointer-events: auto;' + (state.notePoint.value != null ? ' cursor: grab' : '')"
+        class="draggable-note"
+        style="pointer-events: auto; cursor: grab"
         @pointerdown.stop="startNoteDrag"
         @dblclick.stop="startNoteEdit"
       >{{ state.note.text }}</text>
     </g>
 
     <!-- Arrow overlay -->
-    <g v-if="state.arrow.enabled && state.arrowPoints.value" class="arrow-overlay"
+    <g v-if="state.arrowPoints.value" class="arrow-overlay"
        @click.stop="state.selectedAnnotation.value = 'arrow'">
       <!-- Start point dot (during creation) -->
       <circle
@@ -110,7 +110,8 @@
     </g>
 
     <!-- Watermark overlay -->
-    <g v-if="state.watermark.enabled && state.watermark.text" class="watermark-overlay"
+    <g v-if="state.hasWatermark.value" class="watermark-overlay"
+       style="pointer-events: auto; cursor: pointer"
        @click.stop="state.selectedAnnotation.value = 'watermark'">
       <text
         v-if="state.watermark.position === 'diagonal'"
@@ -140,9 +141,10 @@
     </g>
 
     <!-- Callout overlay -->
-    <g v-if="state.callout.enabled && state.callout.position && state.callout.text" class="callout-overlay"
-       style="pointer-events: auto; cursor: pointer"
-       @click.stop="state.selectedAnnotation.value = 'callout'">
+    <g v-if="state.hasCallout.value" class="callout-overlay"
+       style="pointer-events: auto; cursor: move"
+       @click.stop="state.selectedAnnotation.value = 'callout'"
+       @pointerdown.stop="startCalloutBodyDrag">
       <path
         :d="calloutPath"
         :fill="state.callout.bgColor"
@@ -171,16 +173,13 @@
   </svg>
 
   <!-- Interaction hints -->
-  <div v-if="state.notePlaceMode.value" class="arrow-click-hint">Click to place note</div>
-  <div v-else-if="state.calloutPlaceMode.value" class="arrow-click-hint">Click to place callout</div>
-  <div v-else-if="state.arrow.enabled && state.arrowInteraction.value === 'idle'" class="arrow-click-hint">
+  <div v-if="state.activeTool.value === 'note'" class="arrow-click-hint">Click to place note</div>
+  <div v-else-if="state.activeTool.value === 'callout'" class="arrow-click-hint">Click to place callout</div>
+  <div v-else-if="state.activeTool.value === 'arrow' && state.arrowInteraction.value === 'idle'" class="arrow-click-hint">
     Drag to draw arrow
   </div>
-  <div v-else-if="state.arrow.enabled && state.arrowInteraction.value === 'creating'" class="arrow-click-hint">
+  <div v-else-if="state.activeTool.value === 'arrow' && state.arrowInteraction.value === 'creating'" class="arrow-click-hint">
     Release to finish
-  </div>
-  <div v-else-if="state.arrow.enabled && state.arrowInteraction.value === 'placed'" class="arrow-click-hint arrow-click-hint--reset">
-    Click arrow to select · Drag on empty area to redraw
   </div>
 </template>
 
@@ -219,8 +218,6 @@ export default defineComponent({
     },
   },
 
-  emits: ['preview-click'],
-
   data() {
     return {
       viewBoxW: VIEWBOX_W,
@@ -229,6 +226,8 @@ export default defineComponent({
       draggingArrowBody: false,
       arrowBodyDragStart: null as Point | null,
       draggingCalloutTip: false,
+      draggingCalloutBody: false,
+      calloutBodyDragStart: null as Point | null,
     };
   },
 
@@ -236,14 +235,16 @@ export default defineComponent({
     hasAnyOverlay(): boolean {
       return !!(
         this.state.note.text ||
-        (this.state.arrow.enabled && this.state.arrowPoints.value) ||
-        (this.state.watermark.enabled && this.state.watermark.text) ||
-        (this.state.callout.enabled && this.state.callout.position && this.state.callout.text)
+        this.state.arrowPoints.value ||
+        this.state.hasWatermark.value ||
+        this.state.hasCallout.value
       );
     },
 
     isInteractive(): boolean {
-      return this.state.arrow.enabled || this.state.notePlaceMode.value || this.state.calloutPlaceMode.value;
+      return this.state.activeTool.value === 'arrow' ||
+        this.state.activeTool.value === 'note' ||
+        this.state.activeTool.value === 'callout';
     },
 
     noteX(): number {
@@ -361,27 +362,36 @@ export default defineComponent({
     onSvgPointerDown(event: PointerEvent) {
       const target = event.target as SVGElement;
       const isOnAnnotation = target.closest('.note-overlay, .arrow-overlay, .watermark-overlay, .callout-overlay');
+      const tool = this.state.activeTool.value;
 
-      if (this.state.notePlaceMode.value) {
+      if (tool === 'note') {
         const coords = this.getSvgCoords(event);
         this.state.notePoint.value = coords;
-        this.state.notePlaceMode.value = false;
+        if (!this.state.note.text) {
+          this.state.note.text = 'Note';
+        }
+        this.state.selectedAnnotation.value = 'note';
+        this.state.activeTool.value = null;
+        this.state.noteEditing.value = true;
         return;
       }
 
-      if (this.state.calloutPlaceMode.value) {
+      if (tool === 'callout') {
         const coords = this.getSvgCoords(event);
         this.state.callout.position = coords;
         this.state.callout.tipPosition = {
           x: Math.min(1, coords.x + 0.1),
           y: Math.min(1, coords.y + 0.15),
         };
-        this.state.calloutPlaceMode.value = false;
+        if (!this.state.callout.text) {
+          this.state.callout.text = 'Callout';
+        }
         this.state.selectedAnnotation.value = 'callout';
+        this.state.activeTool.value = null;
         return;
       }
 
-      if (this.state.arrow.enabled && !isOnAnnotation) {
+      if (tool === 'arrow' && !isOnAnnotation) {
         const coords = this.getSvgCoords(event);
         this.state.arrowPoints.value = { start: coords, end: coords };
         this.state.arrowInteraction.value = 'creating';
@@ -438,6 +448,24 @@ export default defineComponent({
       if (this.draggingCalloutTip) {
         const coords = this.getSvgCoords(event);
         this.state.callout.tipPosition = coords;
+        return;
+      }
+
+      if (this.draggingCalloutBody && this.calloutBodyDragStart && this.state.callout.position) {
+        const coords = this.getSvgCoords(event);
+        const dx = coords.x - this.calloutBodyDragStart.x;
+        const dy = coords.y - this.calloutBodyDragStart.y;
+        this.state.callout.position = {
+          x: this.state.callout.position.x + dx,
+          y: this.state.callout.position.y + dy,
+        };
+        if (this.state.callout.tipPosition) {
+          this.state.callout.tipPosition = {
+            x: this.state.callout.tipPosition.x + dx,
+            y: this.state.callout.tipPosition.y + dy,
+          };
+        }
+        this.calloutBodyDragStart = coords;
       }
     },
 
@@ -448,10 +476,12 @@ export default defineComponent({
         const dist = Math.sqrt(Math.pow(coords.x - start.x, 2) + Math.pow(coords.y - start.y, 2));
         if (dist < 0.01) {
           this.state.resetArrow();
+          this.state.selectedAnnotation.value = null;
         } else {
           this.state.arrowPoints.value = { start, end: coords };
           this.state.arrowInteraction.value = 'placed';
           this.state.arrowClickCount.value = 2;
+          this.state.activeTool.value = null;
         }
         return;
       }
@@ -474,34 +504,36 @@ export default defineComponent({
 
       if (this.draggingCalloutTip) {
         this.draggingCalloutTip = false;
+        return;
+      }
+
+      if (this.draggingCalloutBody) {
+        this.draggingCalloutBody = false;
+        this.calloutBodyDragStart = null;
       }
     },
 
     onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Delete' || event.key === 'Backspace') {
-        if (this.state.selectedAnnotation.value === 'arrow') {
-          this.state.resetArrow();
-          this.state.selectedAnnotation.value = null;
-        } else if (this.state.selectedAnnotation.value === 'note') {
-          this.state.note.text = '';
-          this.state.notePoint.value = null;
-          this.state.selectedAnnotation.value = null;
-        } else if (this.state.selectedAnnotation.value === 'watermark') {
-          this.state.watermark.enabled = false;
-          this.state.selectedAnnotation.value = null;
-        } else if (this.state.selectedAnnotation.value === 'callout') {
-          this.state.callout.enabled = false;
-          this.state.callout.position = null;
-          this.state.callout.tipPosition = null;
+      if (event.key === 'Escape') {
+        if (this.state.activeTool.value) {
+          this.state.activeTool.value = null;
+        } else {
           this.state.selectedAnnotation.value = null;
         }
-      } else if (event.key === 'Escape') {
-        this.state.selectedAnnotation.value = null;
+        return;
+      }
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        const sel = this.state.selectedAnnotation.value;
+        if (sel) {
+          this.state.removeAnnotation(sel);
+        }
       }
     },
 
     startNoteDrag(event: PointerEvent) {
-      if (!this.state.notePoint.value) return;
+      if (!this.state.notePoint.value) {
+        this.state.notePoint.value = this.getSvgCoords(event);
+      }
       this.state.noteDragging.value = true;
       this.state.selectedAnnotation.value = 'note';
       const svg = this.$refs.overlayEl as SVGSVGElement;
@@ -533,6 +565,15 @@ export default defineComponent({
       const svg = this.$refs.overlayEl as SVGSVGElement;
       svg.setPointerCapture(event.pointerId);
     },
+
+    startCalloutBodyDrag(event: PointerEvent) {
+      if ((event.target as SVGElement).closest('.grip-hit-area')) return;
+      this.draggingCalloutBody = true;
+      this.calloutBodyDragStart = this.getSvgCoords(event);
+      this.state.selectedAnnotation.value = 'callout';
+      const svg = this.$refs.overlayEl as SVGSVGElement;
+      svg.setPointerCapture(event.pointerId);
+    },
   },
 });
 </script>
@@ -545,11 +586,6 @@ export default defineComponent({
   height: 100%;
   pointer-events: none;
   outline: none;
-}
-
-.overlay-layer:has(.arrow-overlay),
-.overlay-layer[data-interactive] {
-  pointer-events: auto;
 }
 
 .overlay-layer .note-overlay text,
@@ -583,9 +619,5 @@ export default defineComponent({
   white-space: nowrap;
   box-shadow: 0 2px 8px rgba(59,130,246,0.4);
   letter-spacing: 0.02em;
-}
-
-.arrow-click-hint--reset {
-  background: rgba(100, 116, 139, 0.85);
 }
 </style>

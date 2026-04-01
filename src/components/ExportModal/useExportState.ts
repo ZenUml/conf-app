@@ -18,7 +18,6 @@ export interface NoteState {
 }
 
 export interface ArrowState {
-  enabled: boolean;
   type: string;
   label: string;
   color: string;
@@ -26,7 +25,6 @@ export interface ArrowState {
 }
 
 export interface WatermarkState {
-  enabled: boolean;
   text: string;
   opacity: number;
   fontSize: number;
@@ -48,8 +46,9 @@ export interface BackgroundOption {
 
 export type ArrowInteractionState = 'idle' | 'creating' | 'placed';
 
+export type ActiveTool = 'arrow' | 'callout' | 'note' | 'watermark' | null;
+
 export interface CalloutState {
-  enabled: boolean;
   text: string;
   fontSize: number;
   color: string;
@@ -66,14 +65,14 @@ export interface ExportState {
   arrow: ArrowState;
   watermark: WatermarkState;
   callout: CalloutState;
+  activeTool: Ref<ActiveTool>;
   arrowPoints: Ref<ArrowPoints | null>;
   arrowClickCount: Ref<number>;
   arrowInteraction: Ref<ArrowInteractionState>;
   notePoint: Ref<Point | null>;
-  notePlaceMode: Ref<boolean>;
   noteDragging: Ref<boolean>;
   noteEditing: Ref<boolean>;
-  calloutPlaceMode: Ref<boolean>;
+  watermarkVisible: Ref<boolean>;
   previewDataUrl: Ref<string | null>;
   isCapturing: Ref<boolean>;
   isExporting: Ref<boolean>;
@@ -85,8 +84,14 @@ export interface ExportState {
   resolvedBgColor: ReturnType<typeof computed<string>>;
   previewCanvasStyle: ReturnType<typeof computed<Record<string, string>>>;
 
+  hasArrow: ReturnType<typeof computed<boolean>>;
+  hasNote: ReturnType<typeof computed<boolean>>;
+  hasCallout: ReturnType<typeof computed<boolean>>;
+  hasWatermark: ReturnType<typeof computed<boolean>>;
+
   selectBackground: (value: string) => void;
   resetArrow: () => void;
+  removeAnnotation: (type: 'note' | 'arrow' | 'watermark' | 'callout') => void;
 }
 
 export function useExportState(): ExportState {
@@ -96,14 +101,14 @@ export function useExportState(): ExportState {
   const previewDataUrl = ref<string | null>(null);
   const isCapturing = ref(false);
   const isExporting = ref(false);
+  const activeTool = ref<ActiveTool>(null);
   const arrowPoints = ref<ArrowPoints | null>(null);
   const arrowClickCount = ref(0);
   const arrowInteraction = ref<ArrowInteractionState>('idle');
   const notePoint = ref<Point | null>(null);
-  const notePlaceMode = ref(false);
   const noteDragging = ref(false);
   const noteEditing = ref(false);
-  const calloutPlaceMode = ref(false);
+  const watermarkVisible = ref(false);
   const selectedAnnotation = ref<'note' | 'arrow' | 'watermark' | 'callout' | null>(null);
 
   const note: NoteState = reactive({
@@ -114,7 +119,6 @@ export function useExportState(): ExportState {
   });
 
   const arrow: ArrowState = reactive({
-    enabled: false,
     type: '→',
     label: '',
     color: '#ef4444',
@@ -122,7 +126,6 @@ export function useExportState(): ExportState {
   });
 
   const watermark: WatermarkState = reactive({
-    enabled: false,
     text: 'Confidential',
     opacity: 20,
     fontSize: 24,
@@ -131,7 +134,6 @@ export function useExportState(): ExportState {
   });
 
   const callout: CalloutState = reactive({
-    enabled: false,
     text: '',
     fontSize: 14,
     color: '#1e293b',
@@ -184,12 +186,17 @@ export function useExportState(): ExportState {
       style.backgroundSize = '16px 16px';
       style.backgroundPosition = '0 0, 0 8px, 8px -8px, -8px 0px';
     } else {
-      const isDefaultBg = background.value === 'white' && (theme.value === 'light' || theme.value === 'auto');
+      const isDefaultBg = background.value === 'white';
       style.backgroundColor = isDefaultBg ? themeBg : resolvedBgColor.value;
     }
 
     return style;
   });
+
+  const hasArrow = computed(() => arrowPoints.value !== null && arrowInteraction.value === 'placed');
+  const hasNote = computed(() => !!note.text);
+  const hasCallout = computed(() => !!callout.position && !!callout.text);
+  const hasWatermark = computed(() => watermarkVisible.value && !!watermark.text);
 
   function selectBackground(value: string) {
     background.value = value;
@@ -201,6 +208,22 @@ export function useExportState(): ExportState {
     arrowInteraction.value = 'idle';
   }
 
+  function removeAnnotation(type: 'note' | 'arrow' | 'watermark' | 'callout') {
+    if (type === 'arrow') {
+      resetArrow();
+    } else if (type === 'note') {
+      note.text = '';
+      notePoint.value = null;
+    } else if (type === 'watermark') {
+      watermarkVisible.value = false;
+    } else if (type === 'callout') {
+      callout.text = '';
+      callout.position = null;
+      callout.tipPosition = null;
+    }
+    selectedAnnotation.value = null;
+  }
+
   return {
     theme,
     background,
@@ -209,14 +232,14 @@ export function useExportState(): ExportState {
     arrow,
     watermark,
     callout,
+    activeTool,
     arrowPoints,
     arrowClickCount,
     arrowInteraction,
     notePoint,
-    notePlaceMode,
     noteDragging,
     noteEditing,
-    calloutPlaceMode,
+    watermarkVisible,
     previewDataUrl,
     isCapturing,
     isExporting,
@@ -225,8 +248,13 @@ export function useExportState(): ExportState {
     backgrounds,
     resolvedBgColor,
     previewCanvasStyle,
+    hasArrow,
+    hasNote,
+    hasCallout,
+    hasWatermark,
     selectBackground,
     resetArrow,
+    removeAnnotation,
   };
 }
 

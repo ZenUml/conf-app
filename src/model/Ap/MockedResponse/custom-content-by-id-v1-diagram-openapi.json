@@ -1,0 +1,13 @@
+{
+  "id": "fake-content-id-diagram-openapi",
+  "type": "ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence",
+  "status": "current",
+  "title": "Sample OpenAPI (Sandbox)",
+  "body": {
+    "raw": {
+      "value": "{\"title\":\"Sample OpenAPI (Sandbox)\",\"code\":\"openapi: 3.0.0\\ninfo:\\n  title: Petstore API\\n  description: A sample API for a pet store\\n  version: 1.0.0\\nservers:\\n  - url: https://api.petstore.example.com/v1\\npaths:\\n  /pets:\\n    get:\\n      summary: List all pets\\n      operationId: listPets\\n      parameters:\\n        - name: limit\\n          in: query\\n          required: false\\n          schema:\\n            type: integer\\n      responses:\\n        '200':\\n          description: A list of pets\\n          content:\\n            application/json:\\n              schema:\\n                type: array\\n                items:\\n                  $ref: '#/components/schemas/Pet'\\ncomponents:\\n  schemas:\\n    Pet:\\n      type: object\\n      properties:\\n        id:\\n          type: integer\\n        name:\\n          type: string\\n        tag:\\n          type: string\",\"styles\":\"\",\"mermaidCode\":\"\",\"diagramType\":\"OpenAPI\",\"source\":\"CustomContent\"}",
+      "representation": "raw",
+      "embeddedContent": []
+    }
+  }
+}

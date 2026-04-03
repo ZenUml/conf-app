@@ -38,7 +38,7 @@
           <div class="flex items-center gap-2 ml-2 pl-2 border-l border-gray-200">
 
             <!-- Heroicons: camera -->
-            <button @click="downloadPng" aria-label="Download PNG"
+            <button @click="showExportModal = true" aria-label="Download PNG"
                     class="inline-flex items-center gap-1.5 px-3 py-1.5
                            border border-gray-300 text-gray-700 hover:bg-gray-50
                            text-xs font-medium rounded-md transition-colors duration-200">
@@ -117,14 +117,15 @@
     </div>
   </error-boundary>
   
-  <UpgradePrompt 
-    :visible="showUpgradeModal" 
+  <UpgradePrompt
+    :visible="showUpgradeModal"
     :macros-created="macrosCreated"
     :macros-limit="MACROS_LIMIT"
     :upgrade-url="upgradeUrl"
     :enterprise-bundle-url="enterpriseBundleUrl"
     @close="showUpgradeModal = false"
   />
+  <ExportModal :visible="showExportModal" @close="showExportModal = false" />
 </div>
 </template>
 
@@ -143,6 +144,7 @@ import {getUrlParam} from '@/utils/window';
 import {getClientDomain} from '@/utils/ContextParameters/ContextParameters';
 import SendFeedback from "@/components/SendFeedback.vue";
 import UpgradePrompt from '@/components/UpgradePrompt/UpgradePrompt.vue'
+import ExportModal from '@/components/ExportModal/ExportModal.vue'
 import * as htmlToImage from "html-to-image";
 import { toggleDiagramLike, getDiagramLikes } from "@/services/DiagramLikes";
 import store from "@/model/store2";
@@ -165,6 +167,7 @@ export default {
       showVersionsTooltip: false,
       versionsTooltipTimer: null,
       showUpgradeModal: false,
+      showExportModal: false,
       macrosCreated,
       severity,
       shouldBlockActions,
@@ -180,6 +183,7 @@ export default {
     Debug,
     ErrorBoundary,
     UpgradePrompt,
+    ExportModal,
     IconLike,
     IconLikeFilled,
   },

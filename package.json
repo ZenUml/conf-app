@@ -66,7 +66,8 @@
     "forge:install:diagramly:staging": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf forge install --site dia-stg.atlassian.net --product confluence -e staging --non-interactive",
     "forge:upgrade:diagramly:staging": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf forge install --upgrade --site dia-stg.atlassian.net --product confluence -e staging --non-interactive",
     "forge:deploy:diagramly:prod": "APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf CONNECT_KEY=gptdock-confluence SEQUENCE_MACRO_KEY=gpt-diagram-macro CUSTOM_CONTENT_KEY=gpt-custom-content-key LITE_KEY_SUFFIX= LITE_TITLE_SUFFIX= APP_LABEL='Diagramly for Confluence' BACKEND_API_BASE_URL=https://conf-lite.zenuml.com DIAGRAMLY_BACKEND_API_BASE_URL=https://diagramly.ai forge deploy -e production --non-interactive",
-    "forge:use": "f() { ln -sf .env.forge.$1 .env.forge && echo \"Switched to $1\"; }; f"
+    "forge:use": "f() { ln -sf .env.forge.$1 .env.forge && echo \"Switched to $1\"; }; f",
+    "forge-wizard": "node scripts/forge-wizard.mjs"
   },
   "dependencies": {
     "@atlaskit/button": "17.6.0",
@@ -138,9 +139,11 @@
     "vuex": "^4.1.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.4.0",
     "@babel/plugin-proposal-optional-chaining": "^7.21.0",
+    "@eslint/js": "^9.4.0",
     "@forge/cli": "^12.14.0",
+    "@inquirer/prompts": "^8.3.2",
+    "@playwright/test": "^1.58.2",
     "@types/jest": "^24.0.19",
     "@types/js-yaml": "^4.0.9",
     "@types/lodash": "^4.14.202",

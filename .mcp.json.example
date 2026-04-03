@@ -1,5 +1,9 @@
 {
   "mcpServers": {
+    "mixpanel": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mcp.mixpanel.com/mcp"]
+    },
     "playwright-conf-app": {
       "command": "npx",
       "args": ["@playwright/mcp@latest", "--extension"],

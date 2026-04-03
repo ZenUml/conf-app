@@ -184,16 +184,18 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, type PropType } from 'vue';
-import type { ExportState } from './useExportState';
+import { defineComponent } from 'vue';
+import { exportStateKey } from './useExportState';
 
 export default defineComponent({
   name: 'ExportSidebar',
 
-  props: {
+  inject: {
     state: {
-      type: Object as PropType<ExportState>,
-      required: true,
+      from: exportStateKey,
+      default: () => {
+        throw new Error('[ExportSidebar] Missing export state injection');
+      },
     },
   },
 

@@ -1,4 +1,4 @@
-import { reactive, computed, ref, type Ref } from 'vue';
+import { reactive, computed, ref, type Ref, type InjectionKey } from 'vue';
 
 export interface Point {
   x: number;
@@ -87,6 +87,8 @@ export interface ExportState {
   resetArrow: () => void;
   removeAnnotation: (type: 'note' | 'arrow' | 'watermark' | 'callout') => void;
 }
+
+export const exportStateKey: InjectionKey<ExportState> = Symbol('exportState');
 
 export function useExportState(): ExportState {
   const background = ref('white');

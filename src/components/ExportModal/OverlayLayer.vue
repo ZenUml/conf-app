@@ -184,8 +184,8 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, type PropType } from 'vue';
-import type { ExportState, Point } from './useExportState';
+import { defineComponent } from 'vue';
+import { exportStateKey, type Point } from './useExportState';
 
 const VIEWBOX_REF_W = 600;
 const VIEWBOX_DEFAULT_H = 400;
@@ -211,10 +211,12 @@ function computeArrowheadPath(
 export default defineComponent({
   name: 'OverlayLayer',
 
-  props: {
+  inject: {
     state: {
-      type: Object as PropType<ExportState>,
-      required: true,
+      from: exportStateKey,
+      default: () => {
+        throw new Error('[OverlayLayer] Missing export state injection');
+      },
     },
   },
 

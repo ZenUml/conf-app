@@ -78,18 +78,20 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, type PropType, nextTick } from 'vue';
-import type { ExportState, ActiveTool } from './useExportState';
+import { defineComponent, nextTick } from 'vue';
+import { exportStateKey, type ActiveTool } from './useExportState';
 import OverlayLayer from './OverlayLayer.vue';
 
 export default defineComponent({
   name: 'ExportPreview',
   components: { OverlayLayer },
 
-  props: {
+  inject: {
     state: {
-      type: Object as PropType<ExportState>,
-      required: true,
+      from: exportStateKey,
+      default: () => {
+        throw new Error('[ExportPreview] Missing export state injection');
+      },
     },
   },
 

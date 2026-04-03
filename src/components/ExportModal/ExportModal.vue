@@ -11,10 +11,10 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, watch } from 'vue';
+import { defineComponent, watch, provide } from 'vue';
 import ExportPreview from './ExportPreview.vue';
 import ExportSidebar from './ExportSidebar.vue';
-import { useExportState } from './useExportState';
+import { exportStateKey, useExportState } from './useExportState';
 import { useExportEngine } from './useExportEngine';
 
 export default defineComponent({
@@ -28,6 +28,7 @@ export default defineComponent({
 
   setup(props, { emit }) {
     const state = useExportState();
+    provide(exportStateKey, state);
     let captureGen = 0;
 
     async function capturePreview() {

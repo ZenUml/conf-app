@@ -3,7 +3,11 @@ import { SANDBOX_PRESETS, getPresetGroups, type SandboxPreset } from './sandbox/
 function createCard(preset: SandboxPreset): HTMLAnchorElement {
   const a = document.createElement('a');
   a.className = 'card';
-  a.href = `./index.html?sandbox=${preset.id}`;
+  const params = new URLSearchParams({ sandbox: preset.id });
+  if (preset.macroMode === 'viewer') {
+    params.set('outputType', 'display');
+  }
+  a.href = `./index.html?${params}`;
 
   const isEditor = preset.macroMode === 'editor';
   const badgeClass = isEditor ? 'badge-editor' : 'badge-viewer';

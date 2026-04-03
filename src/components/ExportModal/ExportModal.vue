@@ -14,7 +14,7 @@
 import { defineComponent, watch } from 'vue';
 import ExportPreview from './ExportPreview.vue';
 import ExportSidebar from './ExportSidebar.vue';
-import { useExportState, THEME_BG_FOR_CAPTURE } from './useExportState';
+import { useExportState } from './useExportState';
 import { useExportEngine } from './useExportEngine';
 
 export default defineComponent({
@@ -29,7 +29,6 @@ export default defineComponent({
   setup(props, { emit }) {
     const state = useExportState();
     let captureGen = 0;
-    let captureTimer: ReturnType<typeof setTimeout> | null = null;
 
     async function capturePreview() {
       const node = document.querySelector('.screen-capture-content') as HTMLElement | null;
@@ -38,19 +37,14 @@ export default defineComponent({
       state.isCapturing.value = true;
       try {
         const { toPng } = await import('html-to-image');
-        const themeBg = THEME_BG_FOR_CAPTURE[state.theme.value] ?? '#ffffff';
-        const dataUrl = await toPng(node, { skipFonts: true, backgroundColor: themeBg });
+        const bgColor = state.resolvedBgColor.value === 'transparent' ? undefined : state.resolvedBgColor.value;
+        const dataUrl = await toPng(node, { skipFonts: true, backgroundColor: bgColor ?? '#ffffff' });
         if (captureGen === gen) state.previewDataUrl.value = dataUrl;
       } catch (e) {
         console.warn('[ExportModal] preview capture failed:', e);
       } finally {
         if (captureGen === gen) state.isCapturing.value = false;
       }
-    }
-
-    function scheduleCapturePreview() {
-      if (captureTimer) clearTimeout(captureTimer);
-      captureTimer = setTimeout(() => capturePreview(), 300);
     }
 
     watch(() => props.visible, async (val) => {
@@ -60,14 +54,11 @@ export default defineComponent({
       }
     });
 
-    watch(() => state.theme.value, () => scheduleCapturePreview());
-
     async function handleExport() {
       if (state.isExporting.value) return;
       state.isExporting.value = true;
       try {
         const options = {
-          theme: state.theme.value,
           background: state.background.value === 'custom' ? state.customBgColor.value : state.background.value,
           note: { text: state.note.text, position: state.note.position, fontSize: state.note.fontSize, color: state.note.color },
           arrow: { type: state.arrow.type, label: state.arrow.label, color: state.arrow.color, thickness: state.arrow.thickness },
@@ -317,23 +308,6 @@ export default defineComponent({
   content: ''; display: inline-block; width: 3px; height: 10px;
   background: var(--accent); border-radius: 2px; flex-shrink: 0; opacity: 1;
 }
-
-.theme-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.theme-card {
-  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px;
-  background: none; border: 1px solid var(--sidebar-border); border-radius: 8px;
-  cursor: pointer; transition: border-color 0.15s, background 0.15s; color: var(--sidebar-text);
-}
-.theme-card:hover { background: var(--sidebar-hover); border-color: #334155; }
-.theme-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: rgba(59, 130, 246, 0.08); }
-.theme-swatch { width: 100%; height: 40px; border-radius: 5px; position: relative; overflow: hidden; }
-.theme-swatch::before {
-  content: ''; position: absolute; inset: 0;
-  background-image: repeating-linear-gradient(to bottom, transparent 0px, transparent 6px, rgba(255, 255, 255, 0.15) 6px, rgba(255, 255, 255, 0.15) 7px);
-  border-radius: inherit; pointer-events: none;
-}
-.theme-label { font-family: 'Outfit', sans-serif; font-size: 11px; font-weight: 600; color: var(--sidebar-muted); letter-spacing: 0.02em; }
-.theme-card.active .theme-label { color: #93c5fd; }
 
 .bg-swatches { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .bg-swatch {

@@ -8,23 +8,6 @@
     </div>
 
     <div class="sidebar-scroll">
-      <!-- Theme Section (always visible) -->
-      <section class="settings-section">
-        <h3 class="section-heading">Theme</h3>
-        <div class="theme-grid">
-          <button
-            v-for="t in state.themes"
-            :key="t.value"
-            class="theme-card"
-            :class="{ active: state.theme.value === t.value }"
-            @click="state.theme.value = t.value"
-          >
-            <div class="theme-swatch" :style="t.style"></div>
-            <span class="theme-label">{{ t.label }}</span>
-          </button>
-        </div>
-      </section>
-
       <!-- Background Section (always visible) -->
       <section class="settings-section">
         <h3 class="section-heading">Background</h3>

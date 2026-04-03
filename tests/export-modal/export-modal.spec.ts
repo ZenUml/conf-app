@@ -93,11 +93,10 @@ test.describe('Modal Structure', () => {
     await expect(tools).toHaveCount(4);
   });
 
-  test('sidebar shows Theme and Background sections', async ({ page }) => {
+  test('sidebar shows Background section', async ({ page }) => {
     await openExportModal(page);
     const headings = await page.locator('.section-heading').allTextContents();
     const lower = headings.map(h => h.trim().toLowerCase());
-    expect(lower).toContain('theme');
     expect(lower).toContain('background');
   });
 
@@ -135,21 +134,12 @@ test.describe('Modal Structure', () => {
   });
 });
 
-// ─── Theme & Background ───
+// ─── Background ───
 
-test.describe('Theme & Background', () => {
+test.describe('Background', () => {
   test.beforeEach(async ({ page }) => {
     await waitForViewerReady(page);
     await openExportModal(page);
-  });
-
-  test('theme cards are clickable and show active state', async ({ page }) => {
-    const themeCards = page.locator('.theme-card');
-    await expect(themeCards).toHaveCount(4);
-    for (let i = 0; i < 4; i++) {
-      await themeCards.nth(i).click();
-      await expect(themeCards.nth(i)).toHaveClass(/active/);
-    }
   });
 
   test('background swatches are clickable', async ({ page }) => {

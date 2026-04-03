@@ -38,3 +38,6 @@ coverage
 wrangler.toml
 /.mcp.json
 .playwright-mcp/
+playwright-report/
+test-results/
+*.png

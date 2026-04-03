@@ -5,6 +5,8 @@ import customContentListGraph from "@/model/Ap/MockedResponse/custom-content-lis
 import customContentByIdV1DiagramSequence from "@/model/Ap/MockedResponse/custom-content-by-id-v1-diagram-sequence.json";
 import customContentByIdV1DiagramMermaid from "@/model/Ap/MockedResponse/custom-content-by-id-v1-diagram-mermaid.json";
 import customContentByIdV1DiagramPlantuml from "@/model/Ap/MockedResponse/custom-content-by-id-v1-diagram-plantuml.json";
+import customContentByIdV1DiagramGraph from "@/model/Ap/MockedResponse/custom-content-by-id-v1-diagram-graph.json";
+import customContentByIdV1DiagramOpenapi from "@/model/Ap/MockedResponse/custom-content-by-id-v1-diagram-openapi.json";
 
 const CONTRACT: any = {
   page: {method: 'get', URL: /\/api\/v2\/pages\/(\d+)/},
@@ -54,6 +56,12 @@ export default class MockAp implements IAp {
     }
     if (req.url.startsWith('/api/v2/custom-content/fake-content-id-diagram-plantuml')) {
       return {body: JSON.stringify(customContentByIdV1DiagramPlantuml)};
+    }
+    if (req.url.startsWith('/api/v2/custom-content/fake-content-id-diagram-graph')) {
+      return {body: JSON.stringify(customContentByIdV1DiagramGraph)};
+    }
+    if (req.url.startsWith('/api/v2/custom-content/fake-content-id-diagram-openapi')) {
+      return {body: JSON.stringify(customContentByIdV1DiagramOpenapi)};
     }
 
     // if request.url start with '/rest/api/content?', return {}

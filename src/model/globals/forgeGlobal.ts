@@ -1,3 +1,5 @@
+import { getPresetById } from '@/sandbox/presets';
+
 const global = {
   isForge: false,
   forgeContext: undefined,
@@ -49,9 +51,31 @@ const STANDALONE_VIEW_STUB = {
 
 /** Minimal Forge-like context for local dev when not running inside Confluence/Forge */
 function getStandaloneContext(): any {
+  const sandboxId = new URLSearchParams(window.location.search).get('sandbox');
+  if (sandboxId) {
+    const preset = getPresetById(sandboxId);
+    if (preset) {
+      const isEditor = preset.macroMode === 'editor';
+      return {
+        extension: {
+          type: 'standalone',
+          content: { id: 'local-dev-page' },
+          config: { uuid: 'local-dev-uuid', customContentId: preset.customContentId },
+          modal: { macroMode: preset.macroMode, diagramType: preset.diagramType },
+          macro: { isConfiguring: isEditor, isInserting: false },
+        },
+        moduleKey: preset.moduleKey,
+        environmentType: 'DEVELOPMENT',
+        localId: undefined,
+        license: undefined,
+      };
+    }
+    console.warn(`[sandbox] Unknown preset "${sandboxId}", falling back to defaults`);
+  }
+
   return {
     extension: {
-      type: 'standalone', // not globalSettings/globalPage/contentBylineItem → normal macro/diagram flow
+      type: 'standalone',
       content: { id: 'local-dev-page' },
       config: { uuid: 'local-dev-uuid', customContentId: undefined },
       modal: { macroMode: 'editor', diagramType: 'sequence' },

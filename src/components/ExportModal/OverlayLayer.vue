@@ -187,8 +187,8 @@
 import { defineComponent, type PropType } from 'vue';
 import type { ExportState, Point } from './useExportState';
 
-const VIEWBOX_W = 600;
-const VIEWBOX_H = 400;
+const VIEWBOX_REF_W = 600;
+const VIEWBOX_DEFAULT_H = 400;
 
 function computeArrowheadPath(
   tipX: number, tipY: number,
@@ -220,8 +220,6 @@ export default defineComponent({
 
   data() {
     return {
-      viewBoxW: VIEWBOX_W,
-      viewBoxH: VIEWBOX_H,
       draggingGrip: null as 'start' | 'end' | null,
       draggingArrowBody: false,
       arrowBodyDragStart: null as Point | null,
@@ -232,6 +230,17 @@ export default defineComponent({
   },
 
   computed: {
+    viewBoxW(): number {
+      return VIEWBOX_REF_W;
+    },
+
+    viewBoxH(): number {
+      const nw = this.state.previewNaturalWidth?.value;
+      const nh = this.state.previewNaturalHeight?.value;
+      if (!nw || !nh || nw <= 0) return VIEWBOX_DEFAULT_H;
+      return Math.round(VIEWBOX_REF_W * nh / nw);
+    },
+
     hasAnyOverlay(): boolean {
       return !!(
         this.state.note.text ||
@@ -248,16 +257,16 @@ export default defineComponent({
     },
 
     noteX(): number {
-      if (this.state.notePoint.value) return this.state.notePoint.value.x * VIEWBOX_W;
+      if (this.state.notePoint.value) return this.state.notePoint.value.x * this.viewBoxW;
       const pos = this.state.note.position;
       if (pos.endsWith('left')) return 12;
-      if (pos.endsWith('right')) return VIEWBOX_W - 12;
-      return VIEWBOX_W / 2;
+      if (pos.endsWith('right')) return this.viewBoxW - 12;
+      return this.viewBoxW / 2;
     },
 
     noteY(): number {
-      if (this.state.notePoint.value) return this.state.notePoint.value.y * VIEWBOX_H;
-      return this.state.note.position.startsWith('top') ? 12 + this.state.note.fontSize : VIEWBOX_H - 12;
+      if (this.state.notePoint.value) return this.state.notePoint.value.y * this.viewBoxH;
+      return this.state.note.position.startsWith('top') ? 12 + this.state.note.fontSize : this.viewBoxH - 12;
     },
 
     noteAnchor(): string {
@@ -271,13 +280,13 @@ export default defineComponent({
     arrowStartPx(): Point {
       const pts = this.state.arrowPoints.value;
       if (!pts) return { x: 0, y: 0 };
-      return { x: pts.start.x * VIEWBOX_W, y: pts.start.y * VIEWBOX_H };
+      return { x: pts.start.x * this.viewBoxW, y: pts.start.y * this.viewBoxH };
     },
 
     arrowEndPx(): Point {
       const pts = this.state.arrowPoints.value;
       if (!pts) return { x: 0, y: 0 };
-      return { x: pts.end.x * VIEWBOX_W, y: pts.end.y * VIEWBOX_H };
+      return { x: pts.end.x * this.viewBoxW, y: pts.end.y * this.viewBoxH };
     },
 
     arrowAngle(): number {
@@ -313,18 +322,18 @@ export default defineComponent({
 
     calloutTextX(): number {
       if (!this.state.callout.position) return 0;
-      return this.state.callout.position.x * VIEWBOX_W;
+      return this.state.callout.position.x * this.viewBoxW;
     },
 
     calloutTextY(): number {
       if (!this.state.callout.position) return 0;
-      return this.state.callout.position.y * VIEWBOX_H;
+      return this.state.callout.position.y * this.viewBoxH;
     },
 
     calloutPath(): string {
       if (!this.state.callout.position) return '';
-      const cx = this.state.callout.position.x * VIEWBOX_W;
-      const cy = this.state.callout.position.y * VIEWBOX_H;
+      const cx = this.state.callout.position.x * this.viewBoxW;
+      const cy = this.state.callout.position.y * this.viewBoxH;
       const w = this.calloutBoxW;
       const h = this.calloutBoxH;
       const r = 5;
@@ -336,8 +345,8 @@ export default defineComponent({
       let path = `M ${left + r} ${top} L ${right - r} ${top} Q ${right} ${top} ${right} ${top + r} L ${right} ${bottom - r} Q ${right} ${bottom} ${right - r} ${bottom}`;
 
       if (this.state.callout.tipPosition) {
-        const tipX = this.state.callout.tipPosition.x * VIEWBOX_W;
-        const tipY = this.state.callout.tipPosition.y * VIEWBOX_H;
+        const tipX = this.state.callout.tipPosition.x * this.viewBoxW;
+        const tipY = this.state.callout.tipPosition.y * this.viewBoxH;
         const baseLeft = cx - 8;
         const baseRight = cx + 8;
         path += ` L ${baseRight} ${bottom} L ${tipX} ${tipY} L ${baseLeft} ${bottom}`;
@@ -352,6 +361,17 @@ export default defineComponent({
     getSvgCoords(event: PointerEvent): Point {
       const svg = this.$refs.overlayEl as SVGSVGElement;
       if (!svg) return { x: 0, y: 0 };
+      const ctm = svg.getScreenCTM();
+      if (ctm) {
+        const pt = svg.createSVGPoint();
+        pt.x = event.clientX;
+        pt.y = event.clientY;
+        const svgPt = pt.matrixTransform(ctm.inverse());
+        return {
+          x: Math.max(0, Math.min(1, svgPt.x / this.viewBoxW)),
+          y: Math.max(0, Math.min(1, svgPt.y / this.viewBoxH)),
+        };
+      }
       const rect = svg.getBoundingClientRect();
       return {
         x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),

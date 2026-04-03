@@ -32,12 +32,6 @@ export interface WatermarkState {
   position: 'diagonal' | 'bottom-right';
 }
 
-export interface ThemeOption {
-  value: string;
-  label: string;
-  style: Record<string, string>;
-}
-
 export interface BackgroundOption {
   value: string;
   label: string;
@@ -58,7 +52,6 @@ export interface CalloutState {
 }
 
 export interface ExportState {
-  theme: Ref<string>;
   background: Ref<string>;
   customBgColor: Ref<string>;
   note: NoteState;
@@ -74,11 +67,12 @@ export interface ExportState {
   noteEditing: Ref<boolean>;
   watermarkVisible: Ref<boolean>;
   previewDataUrl: Ref<string | null>;
+  previewNaturalWidth: Ref<number>;
+  previewNaturalHeight: Ref<number>;
   isCapturing: Ref<boolean>;
   isExporting: Ref<boolean>;
   selectedAnnotation: Ref<'note' | 'arrow' | 'watermark' | 'callout' | null>;
 
-  themes: ThemeOption[];
   backgrounds: BackgroundOption[];
 
   resolvedBgColor: ReturnType<typeof computed<string>>;
@@ -95,10 +89,11 @@ export interface ExportState {
 }
 
 export function useExportState(): ExportState {
-  const theme = ref('auto');
   const background = ref('white');
   const customBgColor = ref('#ffffff');
   const previewDataUrl = ref<string | null>(null);
+  const previewNaturalWidth = ref(600);
+  const previewNaturalHeight = ref(400);
   const isCapturing = ref(false);
   const isExporting = ref(false);
   const activeTool = ref<ActiveTool>(null);
@@ -142,13 +137,6 @@ export function useExportState(): ExportState {
     tipPosition: null,
   });
 
-  const themes: ThemeOption[] = [
-    { value: 'auto', label: 'Auto', style: { background: 'linear-gradient(135deg, #ffffff 50%, #1e293b 50%)', border: '1px solid #334155' } },
-    { value: 'light', label: 'Light', style: { backgroundColor: '#ffffff', border: '1px solid #e2e8f0' } },
-    { value: 'dark', label: 'Dark', style: { backgroundColor: '#1e293b', border: '1px solid #334155' } },
-    { value: 'blueprint', label: 'Blueprint', style: { backgroundColor: '#0f172a', border: '1px solid #1e3a5f' } },
-  ];
-
   const backgrounds: BackgroundOption[] = [
     { value: 'transparent', label: 'Transparent', color: '' },
     { value: 'white', label: 'White', color: '#ffffff' },
@@ -165,15 +153,7 @@ export function useExportState(): ExportState {
     return '#ffffff';
   });
 
-  const THEME_COLORS: Record<string, string> = {
-    auto: '#f0f2f5',
-    light: '#ffffff',
-    dark: '#1e293b',
-    blueprint: '#0f172a',
-  };
-
   const previewCanvasStyle = computed(() => {
-    const themeBg = THEME_COLORS[theme.value] || '#f0f2f5';
     const style: Record<string, string> = { padding: '16px' };
 
     if (background.value === 'transparent') {
@@ -186,8 +166,7 @@ export function useExportState(): ExportState {
       style.backgroundSize = '16px 16px';
       style.backgroundPosition = '0 0, 0 8px, 8px -8px, -8px 0px';
     } else {
-      const isDefaultBg = background.value === 'white';
-      style.backgroundColor = isDefaultBg ? themeBg : resolvedBgColor.value;
+      style.backgroundColor = resolvedBgColor.value;
     }
 
     return style;
@@ -225,7 +204,6 @@ export function useExportState(): ExportState {
   }
 
   return {
-    theme,
     background,
     customBgColor,
     note,
@@ -241,10 +219,11 @@ export function useExportState(): ExportState {
     noteEditing,
     watermarkVisible,
     previewDataUrl,
+    previewNaturalWidth,
+    previewNaturalHeight,
     isCapturing,
     isExporting,
     selectedAnnotation,
-    themes,
     backgrounds,
     resolvedBgColor,
     previewCanvasStyle,
@@ -258,9 +237,3 @@ export function useExportState(): ExportState {
   };
 }
 
-export const THEME_BG_FOR_CAPTURE: Record<string, string> = {
-  auto: '#ffffff',
-  light: '#ffffff',
-  dark: '#1e293b',
-  blueprint: '#0f172a',
-};

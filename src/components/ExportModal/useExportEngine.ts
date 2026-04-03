@@ -2,7 +2,6 @@ import * as htmlToImage from 'html-to-image';
 import { saveAs } from 'file-saver';
 
 export interface ExportOptions {
-  theme: string;
   background: string;
   note: {
     text: string;
@@ -61,13 +60,10 @@ function computeArrowheadPath(
   return `M ${bx} ${by} L ${s1x} ${s1y} L ${tipX} ${tipY} L ${s2x} ${s2y} Z`;
 }
 
-const PREVIEW_VIEWBOX_W = 600;
-const PREVIEW_VIEWBOX_H = 400;
+const VIEWBOX_REF_W = 600;
 
 function buildOverlaySvg(w: number, h: number, options: ExportOptions): string {
-  const scaleX = w / PREVIEW_VIEWBOX_W;
-  const scaleY = h / PREVIEW_VIEWBOX_H;
-  const scale = Math.min(scaleX, scaleY);
+  const scale = w / VIEWBOX_REF_W;
 
   const parts: string[] = [];
   parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`);
@@ -188,13 +184,7 @@ export function useExportEngine() {
       return;
     }
 
-    const bgColor = resolveBgColor(options.background);
-    const themeColors: Record<string, string> = {
-      auto: '#ffffff', light: '#ffffff', dark: '#1e293b', blueprint: '#0f172a',
-    };
-    const themeBg = themeColors[options.theme] ?? '#ffffff';
-    const isDefaultBg = options.background === 'white';
-    const effectiveBg = isDefaultBg ? themeBg : bgColor;
+    const effectiveBg = resolveBgColor(options.background);
 
     const blob = await htmlToImage.toBlob(node, {
       backgroundColor: effectiveBg ?? undefined,

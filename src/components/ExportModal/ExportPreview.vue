@@ -53,7 +53,7 @@
                 <path d="M12 2a10 10 0 0 1 10 10" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
               </svg>
             </div>
-            <img v-else-if="state.previewDataUrl.value" :src="state.previewDataUrl.value" class="preview-real-diagram" alt="Diagram preview" />
+            <img v-else-if="state.previewDataUrl.value" :src="state.previewDataUrl.value" class="preview-real-diagram" alt="Diagram preview" @load="onImageLoad" />
             <span v-else class="preview-diagram-label">No preview available</span>
           </div>
 
@@ -138,6 +138,14 @@ export default defineComponent({
       } else {
         this.state.watermarkVisible.value = true;
         this.state.selectedAnnotation.value = 'watermark';
+      }
+    },
+
+    onImageLoad(event: Event) {
+      const img = event.target as HTMLImageElement;
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        this.state.previewNaturalWidth.value = img.naturalWidth;
+        this.state.previewNaturalHeight.value = img.naturalHeight;
       }
     },
 

@@ -197,3 +197,40 @@ export async function insertUserBehaviorEvent(
 
   console.log('DB UserBehaviorEvent Insert Result:', result);
 }
+
+export async function aggregateDailyCounters(db: D1Database): Promise<void> {
+  const result = await db.prepare(
+    `INSERT INTO DailyBehaviorCounter (date, cloudId, clientDomain, spaceKey, action, eventCount, uniqueUsers, uniquePages, updatedAt)
+     SELECT
+       DATE(createdAt) as date,
+       cloudId,
+       clientDomain,
+       spaceKey,
+       action,
+       COUNT(*) as eventCount,
+       COUNT(DISTINCT userAccountId) as uniqueUsers,
+       COUNT(DISTINCT contentId) as uniquePages,
+       CURRENT_TIMESTAMP
+     FROM UserBehaviorEvent
+     WHERE DATE(createdAt) < DATE('now')
+     GROUP BY DATE(createdAt), cloudId, clientDomain, spaceKey, action
+     ON CONFLICT(date, cloudId, spaceKey, action) DO UPDATE SET
+       eventCount = excluded.eventCount,
+       uniqueUsers = excluded.uniqueUsers,
+       uniquePages = excluded.uniquePages,
+       clientDomain = COALESCE(excluded.clientDomain, DailyBehaviorCounter.clientDomain),
+       updatedAt = CURRENT_TIMESTAMP`
+  ).run();
+
+  console.log('DB DailyBehaviorCounter Aggregate Result:', result);
+}
+
+export async function purgeOldEvents(db: D1Database, retentionDays: number = 60): Promise<void> {
+  const result = await db.prepare(
+    `DELETE FROM UserBehaviorEvent WHERE createdAt < DATETIME('now', ?1)`
+  )
+    .bind(`-${retentionDays} days`)
+    .run();
+
+  console.log(`DB UserBehaviorEvent Purge (>${retentionDays} days):`, result);
+}

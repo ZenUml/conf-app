@@ -20,6 +20,7 @@
     "/api/metrics/evaluation",
     "/forge-installed",
     "/forge-user-behavior",
+    "/aggregate-events",
     "/metrics-cache/query",
     "/metrics-cache/update"
   ],

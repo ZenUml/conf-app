@@ -36,7 +36,7 @@ coverage
 .env.sentry-build-plugin
 
 wrangler.toml
-/.mcp.json
+!workers/*/wrangler.toml
 .playwright-mcp/
 playwright-report/
 test-results/

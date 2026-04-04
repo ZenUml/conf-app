@@ -88,3 +88,25 @@ jobs:
         run: |
           pnpm forge:deploy:enable-analytics
           pnpm forge:deploy:full:prod
+
+  deploy-cron-worker:
+    name: Deploy Cron Worker to Production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts --filter cron-aggregate
+      - name: Deploy cron-aggregate to production
+        working-directory: workers/cron-aggregate
+        run: npx wrangler deploy --env production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

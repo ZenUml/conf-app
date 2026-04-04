@@ -254,3 +254,25 @@ jobs:
           name: v${{ env.version }}-diagramly
           body: 'This is a draft release for the Diagramly version of the plugin.'
           draft: true
+
+  deploy-cron-worker:
+    name: Deploy Cron Worker to Staging
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts --filter cron-aggregate
+      - name: Deploy cron-aggregate to staging
+        working-directory: workers/cron-aggregate
+        run: npx wrangler deploy --env stg
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

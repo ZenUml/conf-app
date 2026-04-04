@@ -17,13 +17,8 @@ export const handler = async (payload) => {
     }
 
     const attachmentName = `zenuml-${customContentId}.png`;
-    const attachmentRoute = route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`;
     
-    // Word export has user context; PDF export is server-side without user context.
-    let response = await api.asUser().requestConfluence(attachmentRoute);
-    if (!response.ok && response.status === 400) {
-      response = await api.asApp().requestConfluence(attachmentRoute);
-    }
+    const response = await api.asApp().requestConfluence(route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`);
     
     if (!response.ok) {
       const errorBody = await response.text();

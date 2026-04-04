@@ -18,7 +18,7 @@ export const handler = async (payload) => {
 
     const attachmentName = `zenuml-${customContentId}.png`;
     
-    const response = await api.asApp().requestConfluence(route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`);
+    const response = await api.asUser().requestConfluence(route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`);
     
     if (!response.ok) {
       const errorBody = await response.text();

@@ -1,5 +1,6 @@
 import * as htmlToImage from 'html-to-image';
 import { saveAs } from 'file-saver';
+import { trackEvent } from '../../utils/window';
 
 export interface ExportOptions {
   background: string;
@@ -213,7 +214,10 @@ export function useExportEngine() {
 
     await new Promise<void>((resolve) => {
       canvas.toBlob(async (pngBlob) => {
-        if (pngBlob) saveAs(pngBlob, 'zenuml-diagram-export.png');
+        if (pngBlob) {
+          trackEvent('download_png', 'click', 'export');
+          saveAs(pngBlob, 'zenuml-diagram-export.png');
+        }
         resolve();
       }, 'image/png');
     });

@@ -4,7 +4,7 @@ import { captureError } from "./utils/sentry";
 import { getAuthorizationHeader } from "./utils/requestUtils";
 import { validateContextToken } from "./utils/authenticate";
 import { ForgeUserBehaviorEventBody, mapForgeUserBehaviorEvent } from "./service/forgeUserBehavior";
-import { getAtlassianInstanceClientDomain, getForgeInstallationClientDomain, upsertAtlassianInstance } from "./utils/dbUtils";
+import { getAtlassianInstanceClientDomain, getForgeInstallationClientDomain, insertUserBehaviorEvent, upsertAtlassianInstance } from "./utils/dbUtils";
 import { D1Database } from "@cloudflare/workers-types";
 
 interface Env {
@@ -54,6 +54,9 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil })
     if (!analyticsEvent) {
       return OkResponse({ ignored: true });
     }
+
+    // Store event in D1 for analysis
+    waitUntil(insertUserBehaviorEvent(env.DB, analyticsEvent));
 
     // Comment out the actual Mixpanel tracking for now to avoid sending data which incur costs during testing. We can enable it once we're ready to track real events.
     // waitUntil(mixpanelTrack(analyticsEvent, MIXPANEL_TOKEN_FORGE_USER_BEHAVIOUR));

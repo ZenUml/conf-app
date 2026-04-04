@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mapForgeUserBehaviorEvent } from "../../functions/service/forgeUserBehavior";
 
 describe("mapForgeUserBehaviorEvent", () => {
-  it("ignores page_viewed events to avoid Mixpanel event flood", () => {
+  it("maps page_viewed events to D1", () => {
     const result = mapForgeUserBehaviorEvent(
       {
         eventType: "avi:confluence:viewed:page",
@@ -32,7 +32,11 @@ describe("mapForgeUserBehaviorEvent", () => {
       },
     );
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.action).toBe("page_viewed");
+    expect(result!.content_id).toBe("page-1");
+    expect(result!.cloud_id).toBe("cloud-1");
+    expect(result!.space_key).toBe("ENG");
   });
 
   it("maps updated page events and preserves updateTrigger", () => {

@@ -8,8 +8,11 @@ export const handler = async (payload) => {
     const customContentId = payload.context.config?.customContentId 
       || payload.extensionPayload?.config?.customContentId;
     
-    // context.content?.id for PDF, context.contentId for Word
-    const pageId = payload.context.content?.id || payload.context.contentId;
+    // Word export: context.content.id or context.contentId
+    // PDF export: context.extension.content.id
+    const pageId = payload.context.content?.id || payload.context.contentId
+      || payload.context.extension?.content?.id
+      || payload.extensionPayload?.content?.id || payload.extensionPayload?.contentId;
 
     if (!customContentId) {
       console.warn(`Export: no customContentId, page ${pageId}`);
@@ -18,7 +21,7 @@ export const handler = async (payload) => {
 
     const attachmentName = `zenuml-${customContentId}.png`;
     
-    const response = await api.asApp().requestConfluence(route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`);
+    const response = await api.asUser().requestConfluence(route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`);
     
     if (!response.ok) {
       const errorBody = await response.text();

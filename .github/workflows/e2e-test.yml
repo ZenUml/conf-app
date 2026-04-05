@@ -27,7 +27,6 @@ on:
 
 jobs:
   test:
-    name: E2E (${{ inputs.app }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

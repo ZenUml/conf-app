@@ -26,10 +26,9 @@ jobs:
         id: properties
         shell: bash
         run: |
-          # extract variant from tag: v{TS}-{variant} (e.g. full, full-forge, lite, diagramly)
+          # extract variant from tag: v{TS}-{variant} (e.g. full, lite, diagramly)
           VARIANT=$(echo ${{ github.event.release.tag_name }} | sed 's/^v[0-9.]*-//')
-          # license is the build type (full-forge builds as full)
-          LICENSE=$(echo "$VARIANT" | sed 's/-forge$//')
+          LICENSE="$VARIANT"
           echo "::set-output name=variant::$VARIANT"
           echo "::set-output name=license::$LICENSE"
           # Map diagramly to lite for Cloudflare project (diagramly uses conf-lite)
@@ -84,7 +83,7 @@ jobs:
           pnpm forge:deploy:enable-analytics
           pnpm forge:deploy:diagramly:prod
       - name: Deploy "ZenUML for Confluence Full" to Forge Production
-        if: ${{ steps.properties.outputs.variant == 'full-forge' }}
+        if: ${{ steps.properties.outputs.variant == 'full' }}
         run: |
           pnpm forge:deploy:enable-analytics
           pnpm forge:deploy:full:prod

@@ -9,3 +9,6 @@
 
 ## [2026-04-05] - Release
 - Triggered release pipeline for diagramly
+
+## [2026-04-05] - Release
+- Triggered release pipeline for full

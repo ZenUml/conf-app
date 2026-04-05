@@ -93,7 +93,12 @@ export class AtlasPage {
         return [];
       }
 
-      const response = forgeGlobal.isForge ? await forgeRequest(`/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format&get-draft=true`) : await connectRequest(this._requestFn,`/api/v2/pages/${pageId}?body-format=atlas_doc_format&get-draft=true`);
+      // Note: `get-draft=true` is intentionally omitted for the Forge path.
+      // The Forge iframe's requestConfluence cannot access the Confluence editor's
+      // collaborative draft session, so get-draft=true always returns 404 from
+      // within a Forge macro dialog. The published version is sufficient for
+      // copy detection (counting macros that share the same customContentId).
+      const response = forgeGlobal.isForge ? await forgeRequest(`/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format`) : await connectRequest(this._requestFn,`/api/v2/pages/${pageId}?body-format=atlas_doc_format&get-draft=true`);
       console.debug('AtlasPage - page response', response);
       responseStatus = response?.xhr?.status || '';
       if (!response || !response.body) {

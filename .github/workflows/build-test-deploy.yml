@@ -36,7 +36,7 @@ jobs:
       - run: pnpm test:unit
   
   staging-lite:
-    name: Deploy: Lite
+    name: "Deploy: Lite"
     uses: ./.github/workflows/staging-deploy.yml
     with:
       variant: lite
@@ -47,7 +47,7 @@ jobs:
 
   staging-lite-test:
     needs: [staging-lite, build]
-    name: E2E: Lite
+    name: "E2E: Lite"
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-lite@stg
@@ -58,7 +58,7 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   staging-full:
-    name: Deploy: Full
+    name: "Deploy: Full"
     uses: ./.github/workflows/staging-deploy.yml
     with:
       variant: full
@@ -69,7 +69,7 @@ jobs:
 
   staging-full-test:
     needs: [staging-full, build]
-    name: E2E: Full
+    name: "E2E: Full"
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-full-forge@stg
@@ -80,7 +80,7 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   staging-diagramly:
-    name: Deploy: Diagramly
+    name: "Deploy: Diagramly"
     uses: ./.github/workflows/staging-deploy.yml
     with:
       variant: diagramly
@@ -91,7 +91,7 @@ jobs:
 
   staging-diagramly-test:
     needs: [staging-diagramly, build]
-    name: E2E: Diagramly
+    name: "E2E: Diagramly"
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: diagramly@stg
@@ -102,7 +102,7 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   draft-release-lite:
-    name: Draft: Lite
+    name: "Draft: Lite"
     # don't run on pull requests to avoid creating draft releases for pull requests
     # only run on the master branch, to avoid cutting releases from feature branches
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
@@ -136,7 +136,7 @@ jobs:
           draft: true
 
   draft-release-full:
-    name: Draft: Full
+    name: "Draft: Full"
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
     needs: [staging-full-test]
     runs-on: ubuntu-latest
@@ -166,7 +166,7 @@ jobs:
           draft: true
 
   draft-release-diagramly:
-    name: Draft: Diagramly
+    name: "Draft: Diagramly"
     # don't run on pull requests to avoid creating draft releases for pull requests
     # only run on the master branch, to avoid cutting releases from feature branches
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
@@ -200,7 +200,7 @@ jobs:
           draft: true
 
   deploy-cron-worker:
-    name: Cron: Deploy
+    name: "Cron: Deploy"
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
     needs: [build]
     runs-on: ubuntu-latest

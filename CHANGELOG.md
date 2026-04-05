@@ -6,3 +6,6 @@
 
 ## [2026-03-26] - Release
 - Triggered release pipeline for lite
+
+## [2026-04-05] - Release
+- Triggered release pipeline for diagramly

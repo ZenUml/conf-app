@@ -53,7 +53,11 @@ async function waitForForgeIframe(page: Page) {
   return frame;
 }
 
+// These tests require the Forge app to be deployed from this branch (feat/space-licensing).
+// Skip in CI until after the PR is merged and the release pipeline runs.
+// To run locally: APP=zenuml-lite@stg npx playwright test tests/insert/upgrade-prompt.spec.ts
 test.describe('Upgrade Prompt (Lite Staging)', () => {
+  test.skip(!!process.env.CI, 'Requires Forge app from feat/space-licensing — run after release');
   test.beforeAll(async ({ browser }) => {
     // Create a fresh page with a sequence macro for these tests
     const ctx = await browser.newContext({ storageState: AUTH_STATE_PATH });

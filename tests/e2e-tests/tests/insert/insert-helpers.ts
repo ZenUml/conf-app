@@ -40,11 +40,10 @@ export async function publishAndVerifyMacros(page: Page, editorPage: ConfluenceE
     await expect(forgeIframes.first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
     await expect(forgeIframes).toHaveCount(macroCount, { timeout: TIMEOUTS.FRAME_LOAD });
   } else {
-    // Wait for the iframe element itself first (broader selector),
-    // then assert on count — avoids depending on Connect JS class assignment timing.
-    const connectIframes = page.locator(
-      `iframe[src*="${testConfig.domain}"], iframe.ap-iframe[id*="${testConfig.addonKey}"]`
-    );
+    // Connect macro iframes have IDs like "{addonKey}__{macroKey}__{hash}".
+    // Avoid using iframe.ap-iframe (class added by AC.js asynchronously)
+    // or iframe[src*=domain] (src is the Cloudflare URL, not the Confluence domain).
+    const connectIframes = page.locator(`iframe[id*="${testConfig.addonKey}"]`);
     await expect(connectIframes.first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
     await expect(connectIframes).toHaveCount(macroCount, { timeout: TIMEOUTS.FRAME_LOAD });
   }

@@ -8,26 +8,15 @@ export class ConfluenceEditorPage {
     return this.page.getByRole('dialog', { name: /Browse/ }).getByRole('combobox').first();
   }
 
+  /**
+   * Returns the editor body element that receives keyboard input.
+   * Uses ARIA role "textbox" with the Confluence editor's accessible name.
+   * Falls back to ProseMirror CSS selectors for older Confluence instances.
+   */
   private editorBody() {
     return this.page.getByRole('textbox', {
       name: /(?:Main content area|Page editing area), start typing to enter text\./,
     });
-  }
-
-  private async focusEditorBody(): Promise<void> {
-    const editorBody = this.editorBody().first();
-    if (await editorBody.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await editorBody.click();
-      return;
-    }
-
-    const proseMirror = this.page.locator('.ProseMirror [contenteditable="true"], .ProseMirror p').last();
-    if (await proseMirror.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await proseMirror.click();
-      return;
-    }
-
-    throw new Error('Could not focus the Confluence editor body');
   }
 
   // ── Navigation ──
@@ -77,9 +66,10 @@ export class ConfluenceEditorPage {
   // ── Macro Name Resolution ──
 
   getMacroName(baseName: string): string {
-    let name = baseName;
+    // Apply per-profile name overrides first (e.g., "Diagram as Code" on production)
+    const name = testConfig.macroNameOverrides[baseName] ?? baseName;
     if (testConfig.isLite) {
-      name += ' Lite';
+      return name + ' Lite';
     }
     // Note: Forge staging apps show "(Staging)" suffix in the macro browser, but we
     // don't append it here because Playwright's hasText filter does substring matching.
@@ -129,21 +119,36 @@ export class ConfluenceEditorPage {
   async clickInsertElements(): Promise<void> {
     const insertCombobox = this.insertBrowserCombobox();
 
-    // Click the editor body to ensure focus
-    await this.focusEditorBody();
-    await this.page.waitForTimeout(500);
+    // On production Confluence (Connect app), typing "/" is unreliable because focus
+    // bounces back to the title input. Click the editor body first to activate the
+    // quick-insert bar, then click the "More elements" button — it opens the slash menu
+    // without needing precise keyboard focus.
+    // Fall back to the "/" approach for sites where "More elements" isn't present.
+    const editorEl = this.editorBody();
+    await editorEl.waitFor({ state: 'visible', timeout: 10000 });
+    await editorEl.click();
+    await this.page.waitForTimeout(300);
 
-    // Type "/" in the editor to open the slash-command popup, then expand to full browser.
-    // Strategy 1 (toolbar "+") and Strategy 2 ("More elements" button) were removed —
-    // they never succeed on any site and waste 5-12s per test (verified 2026-03-28).
-    await this.page.keyboard.type('/');
-    await this.page.waitForTimeout(1000);
+    const moreElements = this.page.getByRole('button', { name: 'More elements' }).last();
+    if (await moreElements.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await moreElements.click();
+      await this.page.waitForTimeout(500);
+      console.log('  [debug] clickInsertElements: clicked More elements button');
+    } else {
+      // Fallback: type "/" in the editor to trigger slash menu
+      await editorEl.pressSequentially('/');
+      await this.page.waitForTimeout(1000);
+    }
 
-    // The "/" popup shows limited items. Look for a "View more" link
-    const viewMore = this.page.getByRole('button', { name: /View more|View all elements/ }).last();
-    if (await viewMore.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await viewMore.click();
-      console.log('  [debug] clickInsertElements: clicked View more');
+    // Check if Browse dialog opened immediately (some Confluence versions skip "View more")
+    const browseAlreadyOpen = await insertCombobox.first().isVisible({ timeout: 500 }).catch(() => false);
+    if (!browseAlreadyOpen) {
+      // Slash menu appears with limited items — click "View more" to open the full Browse dialog
+      const viewMore = this.page.getByRole('button', { name: /View more|View all elements/ }).last();
+      if (await viewMore.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await viewMore.click();
+        console.log('  [debug] clickInsertElements: clicked View more');
+      }
     }
 
     // Final wait for Insert elements combobox

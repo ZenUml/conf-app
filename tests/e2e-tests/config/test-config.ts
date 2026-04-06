@@ -17,6 +17,7 @@ interface TestConfig {
   customContentKey: string;
   appLabel: string;
   renderMacros: MacroType[];
+  macroNameOverrides: Record<string, string>;
   credentials: {
     username: string;
     password: string;
@@ -74,6 +75,7 @@ export const testConfig: TestConfig = {
   customContentKey: profile.customContentKey,
   appLabel: profile.appLabel,
   renderMacros: profile.renderMacros,
+  macroNameOverrides: profile.macroNameOverrides ?? {},
 
   credentials: {
     username: process.env.ZENUML_STAGE_USERNAME || '',

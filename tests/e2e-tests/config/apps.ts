@@ -29,6 +29,13 @@ export interface AppProfile {
    *  macro keys collide with another app on the same site — API-created pages can't target
    *  a specific Forge app, so Confluence falls back to the Connect app. */
   renderMacros: MacroType[];
+  /**
+   * Per-macro display name overrides. Keys are canonical base names; values are what
+   * the macro is actually called in the Confluence macro browser for this profile.
+   * Used when the macro was renamed (e.g., "Diagram (Mermaid, PlantUML & ZenUML)" →
+   * "Diagram as Code" on the production ZenUML full Forge app).
+   */
+  macroNameOverrides?: Record<string, string>;
 }
 
 const ALL_MACROS: MacroType[] = ['sequence', 'graph', 'openapi', 'embed', 'mermaid'];
@@ -120,13 +127,19 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     parentPageId: '247136259',
     parentPageName: 'Test pages',
     isLite: false,
-    isForge: false,
+    isForge: true,
     macros: ALL_MACROS,
     renderMacros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon',
     sequenceMacroKey: 'zenuml-sequence-macro',
     customContentKey: 'zenuml-content-sequence',
-    appLabel: '',
+    // On zenuml.atlassian.net, the Full Forge app coexists with Lite and Diagramly.
+    // appLabel disambiguates ZenUML for Confluence from Diagramly for Confluence.
+    // The diagram macro was renamed from "Diagram (Mermaid, PlantUML & ZenUML)" to "Diagram as Code".
+    appLabel: 'ZenUML for Confluence',
+    macroNameOverrides: {
+      'Diagram (Mermaid, PlantUML & ZenUML)': 'Diagram as Code',
+    },
   },
   'diagramly@prod': {
     id: 'diagramly@prod',

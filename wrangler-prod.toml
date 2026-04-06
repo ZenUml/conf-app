@@ -32,4 +32,4 @@ id = "9531a58d3f5b47a6af77750240c09548"
 
 [[env.production.kv_namespaces]]
 binding = "SPACE_LICENSE_KV"
-id = "PLACEHOLDER_PROD_KV_ID"
+id = "8969e8528105403bb2d9adca9fc16567"

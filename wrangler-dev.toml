@@ -49,10 +49,10 @@ id = "9531a58d3f5b47a6af77750240c09548"
 
 [[env.production.kv_namespaces]]
 binding = "SPACE_LICENSE_KV"
-id = "PLACEHOLDER_DEV_KV_ID"
+id = "e56fcb64cca74e10aac68e1d57b6c05b"
 
 # Local development KV binding
 [[kv_namespaces]]
 binding = "SPACE_LICENSE_KV"
-id = "PLACEHOLDER_DEV_KV_ID"
+id = "e56fcb64cca74e10aac68e1d57b6c05b"
 

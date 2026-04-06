@@ -47,3 +47,12 @@ id = "86916df556884c049e5d2040136b6bd0"
 binding = "confluence_plugin_features"
 id = "9531a58d3f5b47a6af77750240c09548"
 
+[[env.production.kv_namespaces]]
+binding = "SPACE_LICENSE_KV"
+id = "e56fcb64cca74e10aac68e1d57b6c05b"
+
+# Local development KV binding
+[[kv_namespaces]]
+binding = "SPACE_LICENSE_KV"
+id = "e56fcb64cca74e10aac68e1d57b6c05b"
+

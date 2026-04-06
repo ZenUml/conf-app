@@ -14,6 +14,7 @@
     "/forge-custom-content",
     "/api/features",
     "/api/space-status",
+    "/api/space-license",
     "/api/metrics/evaluation",
     "/forge-installed",
     "/forge-user-behavior",

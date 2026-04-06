@@ -41,3 +41,4 @@ wrangler.toml
 playwright-report/
 test-results/
 *.png
+.harness/

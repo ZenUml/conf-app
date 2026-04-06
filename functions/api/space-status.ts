@@ -1,16 +1,17 @@
 import { getAuthorizationHeader } from '../utils/requestUtils';
 import { validateContextToken } from '../utils/authenticate';
 import { captureError } from '../utils/sentry';
+import type { SpaceLicenseRecord } from './space-license';
 
 interface Env {
+  SPACE_LICENSE_KV: KVNamespace;
   ALLOWED_FORGE_APP_IDS?: string;
   FORGE_CONTEXT?: any;
 }
 
 interface SpaceStatusResponse {
   isPaid: boolean;
-  accountType?: string;
-  source?: 'forge_context';
+  source?: 'space_license';
 }
 
 /** Forge invokeRemote requires valid JSON + application/json for every status (incl. errors). */
@@ -62,20 +63,50 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
     }
 
+    const url = new URL(request.url);
     const payload = await validateContextToken(jwt, allowedForgeAppIds);
+    const cloudId = payload?.payload?.context?.cloudId;
+    const spaceKey = url.searchParams.get('spaceKey') || undefined;
 
-    const accountType = payload?.payload?.context?.accountType;
-    const isPaid = accountType === 'licensed';
+    if (!cloudId || !spaceKey) {
+      console.log('space-status: missing cloudId or spaceKey', { cloudId, spaceKey });
+      return jsonResponse(200, { isPaid: false }, 'short');
+    }
 
-    const spaceStatus: SpaceStatusResponse = {
+    // KV-only license check
+    if (!env.SPACE_LICENSE_KV) {
+      console.error('SPACE_LICENSE_KV binding not configured');
+      return jsonResponse(200, { isPaid: false }, 'short');
+    }
+
+    const key = `license:${cloudId}:${spaceKey}`;
+    const raw = await env.SPACE_LICENSE_KV.get(key);
+
+    if (!raw) {
+      console.log('space-status: no license found for', key);
+      return jsonResponse(200, { isPaid: false }, 'short');
+    }
+
+    const record = JSON.parse(raw) as SpaceLicenseRecord;
+
+    const isActive = record.status === 'active';
+    const isExpired = new Date(record.expiresAt) < new Date();
+    const isPaid = isActive && !isExpired;
+
+    console.log('space-status: license check', {
+      key,
+      status: record.status,
+      expiresAt: record.expiresAt,
+      isActive,
+      isExpired,
       isPaid,
-      accountType,
-      source: 'forge_context'
-    };
+    });
 
-    console.log('Forge space status check:', spaceStatus);
+    if (isPaid) {
+      return jsonResponse(200, { isPaid: true, source: 'space_license' }, 'short');
+    }
 
-    return jsonResponse(200, spaceStatus, 'short');
+    return jsonResponse(200, { isPaid: false }, 'short');
   } catch (error) {
     console.error('Error checking space status:', error);
     captureError(error);

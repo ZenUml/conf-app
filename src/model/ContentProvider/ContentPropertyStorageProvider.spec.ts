@@ -24,7 +24,7 @@ describe('ContentPropertyStorageProvider', () => {
   });
 
   test('cannot find content property', async () => {
-    const contentPropertyStorageProvider = new ContentPropertyStorageProvider(new ApWrapper2(mockAp));
+    const contentPropertyStorageProvider = new ContentPropertyStorageProvider(new ApWrapper2());
     try {
       await contentPropertyStorageProvider.getDiagram(undefined)
     } catch (e: any) {
@@ -37,7 +37,7 @@ describe('ContentPropertyStorageProvider', () => {
     mockApConfluence.setContentProperty({
       key: 'zenuml-sequence-macro-1234-body', version: {number: 1}, value: 'A.method'
     }, () => {})
-    const contentPropertyStorageProvider = new ContentPropertyStorageProvider(new ApWrapper2(mockAp));
+    const contentPropertyStorageProvider = new ContentPropertyStorageProvider(new ApWrapper2());
     const diagram = await contentPropertyStorageProvider.getDiagram(undefined)
     expect(diagram?.code).toBe('A.method')
 
@@ -62,7 +62,7 @@ describe('ContentPropertyStorageProvider', () => {
       version: {number: 1},
       value: {code: 'A.method', styles: {'#A': {backgroundColor: '#FFF'}}}
     }, () => {})
-    const contentPropertyStorageProvider = new ContentPropertyStorageProvider(new ApWrapper2(mockAp));
+    const contentPropertyStorageProvider = new ContentPropertyStorageProvider(new ApWrapper2());
     const diagram = await contentPropertyStorageProvider.getDiagram(undefined)
 
     expect(diagram?.code).toBe('A.method')

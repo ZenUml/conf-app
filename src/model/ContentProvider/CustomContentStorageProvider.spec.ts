@@ -8,7 +8,7 @@ global.fetch = () => Promise.resolve(new Response("mock fetch success"));
 describe('CustomContentStorageProvider', () => {
   test('cannot find custom content', async () => {
     const mockAp = new MockAp(undefined);
-    const storageProvider = new CustomContentStorageProvider(new ApWrapper2(mockAp));
+    const storageProvider = new CustomContentStorageProvider(new ApWrapper2());
     const diagram = await storageProvider.getDiagram(undefined)
     expect(diagram).toStrictEqual(NULL_DIAGRAM);
   })
@@ -22,7 +22,7 @@ describe('CustomContentStorageProvider', () => {
       styles:{"#A":{"backgroundColor":"#57d9a3"}}
     });
 
-    const storageProvider = new CustomContentStorageProvider(new ApWrapper2(mockAp));
+    const storageProvider = new CustomContentStorageProvider(new ApWrapper2());
     const diagram = await storageProvider.getDiagram('123')
     expect(diagram).toStrictEqual({
       "id": "123",

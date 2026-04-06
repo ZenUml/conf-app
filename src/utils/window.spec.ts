@@ -15,8 +15,8 @@ vi.mock('mixpanel-browser', () => ({
 
 vi.mock('@/model/globals/forgeGlobal', () => ({
   default: {
-    isForge: false,
-    forgeContext: null
+    isForge: true,
+    forgeContext: { localId: 'forge-local-id-123' }
   }
 }))
 
@@ -54,9 +54,8 @@ describe('window utils', async () => {
     vi.mocked(getSpaceKey).mockReturnValue('TEST')
     // Mock fetch
     global.fetch = vi.fn().mockResolvedValue({} as Response)
-    // Reset forgeGlobal to non-Forge mode
-    vi.mocked(forgeGlobal).isForge = false
-    vi.mocked(forgeGlobal).forgeContext = null
+    vi.mocked(forgeGlobal).isForge = true
+    vi.mocked(forgeGlobal).forgeContext = { localId: 'forge-local-id-123' } as any
   })
 
   describe('getUrlParam', () => {
@@ -107,56 +106,38 @@ describe('window utils', async () => {
       });
     });
 
-    it('should send tracking data to r2Track endpoint', async () => {
-      const fetchSpy = vi.mocked(global.fetch)
-
+    it('should send tracking data via Mixpanel', async () => {
       await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
 
-      expect(fetchSpy).toHaveBeenCalledWith('https://example.com/track', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: expect.any(String)
-      })
-
-      const body = JSON.parse(fetchSpy.mock.calls[0][1]!.body as string)
-      expect(body).toMatchObject({
-        event_source: 'example.com',
-        addon_key: 'unknown_addon',
-        version: 'unknown_version',
-        action: 'test-action',
+      expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
         event_category: 'analytics',
         event_label: 'test-label',
         user_account_id: 'test-user-123',
         client_domain: 'test-domain',
         confluence_space: 'TEST',
-        macro_uuid: 'test-macro-123',
         isLite: false
-      })
+      }))
     })
 
-    it('should handle fetch errors gracefully', async () => {
-      const consoleLogSpy = vi.spyOn(console, 'log')
-      vi.mocked(global.fetch).mockRejectedValueOnce(new Error('Network error'))
+    it('should handle Mixpanel errors gracefully', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      vi.mocked(mixpanel.track).mockImplementation(() => { throw new Error('Mixpanel error') })
 
       await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Error in calling /track',
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Error in calling mixpanel.track',
         expect.any(Error)
       )
+      consoleErrorSpy.mockRestore()
     })
 
-    it('should include addonKey and version from URL params', async () => {
-      window.location.search = '?addonKey=test-addon&version=1.0.0'
-      const fetchSpy = vi.mocked(global.fetch)
-
+    it('should initialize Mixpanel and track events', async () => {
       await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
 
-      const body = JSON.parse(fetchSpy.mock.calls[0][1]!.body as string)
-      expect(body).toMatchObject({
-        addon_key: 'test-addon',
-        version: '1.0.0'
-      })
+      expect(mixpanel.init).toHaveBeenCalled()
+      expect(mixpanel.identify).toHaveBeenCalled()
+      expect(mixpanel.track).toHaveBeenCalled()
     })
 
     it('should track event with correct parameters', async () => {
@@ -261,15 +242,14 @@ describe('window utils', async () => {
       }))
     })
 
-    it('should fallback to macroData.uuid when not in Forge mode', async () => {
-      // Ensure not in Forge mode (already set in beforeEach, but be explicit)
-      vi.mocked(forgeGlobal).isForge = false
+    it('should fallback to macroData.uuid when Forge context has no localId', async () => {
+      vi.mocked(forgeGlobal).forgeContext = {} as any
 
       await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
 
       // @ts-ignore
       expect(window.gtag).toHaveBeenCalledWith('event', 'test-action', expect.objectContaining({
-        macro_uuid: 'test-macro-123' // From mockGlobals.apWrapper.getMacroData()
+        macro_uuid: 'test-macro-123'
       }))
     })
   })

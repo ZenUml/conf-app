@@ -123,7 +123,6 @@ import { DiagramType, getDiagramData } from "@/model/Diagram/Diagram";
 import { getViewerUrl, loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
 import { AtlasPage } from "@/model/page/AtlasPage";
-import AP from "@/model/AP";
 import { MacroIdProvider } from "@/model/ContentProvider/MacroIdProvider";
 import { CustomContentStorageProvider } from "@/model/ContentProvider/CustomContentStorageProvider";
 import ApWrapper2 from "@/model/ApWrapper2";
@@ -276,7 +275,7 @@ export default {
     
     async initializeForConnect() {
       // Connect mode: Use Connect providers
-      const apWrapper = new ApWrapper2(AP);
+      const apWrapper = new ApWrapper2();
       const idProvider = new MacroIdProvider(apWrapper);
       const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
       const customContentId = await idProvider.getId();

@@ -1,13 +1,11 @@
-import {getUrlParam, trackEvent, addonKey} from '@/utils/window';
+import {trackEvent, addonKey} from '@/utils/window';
 import time from '@/utils/timer';
 import {IApWrapper, VersionType} from "@/model/IApWrapper";
 import {IMacroData} from "@/model/IMacroData";
 import {IContentProperty} from "@/model/IContentProperty";
 import {ICustomContent, ICustomContentV2, SearchResults, User} from "@/model/ICustomContent";
 import {IUser} from "@/model/IUser";
-import {IConfluence} from "@/model/IConfluence";
 import {ILicense} from "@/model/ILicense";
-import {IAp} from "@/model/IAp";
 import {DataSource, Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import {
   AccountUser,
@@ -15,26 +13,17 @@ import {
   ICustomContentResponseBodyV2
 } from "@/model/ICustomContentResponseBody";
 import {AtlasPage} from "@/model/page/AtlasPage";
-import CheckPermission, {PermissionCheckRequestFunc} from "@/model/page/CheckPermission";
 import {ISpace, LocationTarget} from './ILocationContext';
 import {Attachment} from './ConfluenceTypes';
 import { loadAllPaginatedData } from '@/utils/requestUtil';
 import forgeGlobal from '@/model/globals/forgeGlobal';
-import {forgeRequest, connectRequest} from '@/utils/requestUtil';
+import {forgeRequest} from '@/utils/requestUtil';
 
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
 const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
 
 export default class ApWrapper2 implements IApWrapper {
   versionType: VersionType;
-  _confluence: IConfluence;
-  _requestFn: {
-    (req: IApRequest): any
-  };
-  _navigator: any;
-  _context: any;
-  _dialog: any;
-  _user: any;
   _page: AtlasPage;
   currentUser: IUser | undefined;
   currentSpace: ISpace | undefined;
@@ -44,15 +33,9 @@ export default class ApWrapper2 implements IApWrapper {
   locationTarget: LocationTarget | undefined;
   license: ILicense | undefined;
 
-  constructor(ap: IAp) {
+  constructor() {
     this.versionType = this.isLite() ? VersionType.Lite : VersionType.Full;
-    this._confluence = ap.confluence;
-    this._requestFn = ap.request;
-    this._navigator = ap.navigator;
-    this._context = ap.context;
-    this._dialog = ap.dialog;
-    this._user = ap.user;
-    this._page = new AtlasPage(ap);
+    this._page = new AtlasPage();
   }
 
   async initializeContext(): Promise<void> {
@@ -62,9 +45,9 @@ export default class ApWrapper2 implements IApWrapper {
       this.currentPageUrl = await this._getCurrentPageUrl();
       this.baseUrl = await this._getBaseUrl();
       this.locationTarget = await this._getLocationTarget();
-      this.currentPageId = forgeGlobal.isForge ? forgeGlobal.forgeContext.extension.content?.id : await this._page.getPageId();
+      this.currentPageId = forgeGlobal.forgeContext?.extension?.content?.id || await this._page.getPageId();
       if (this.versionType === VersionType.Full) {
-        this.license = forgeGlobal.isForge ? forgeGlobal.forgeContext.license : await this._getLicense();
+        this.license = forgeGlobal.forgeContext?.license;
       }
       console.debug('initializeContext', this.currentUser, this.currentSpace, this.currentPageUrl, this.locationTarget, this.currentPageId, this.license);
 
@@ -88,51 +71,22 @@ export default class ApWrapper2 implements IApWrapper {
     }
   }
 
-  getMacroData(): Promise<IMacroData | undefined> {
-    return new Promise(((resolve) => {
-      try {
-        this._confluence.getMacroData((data) => {
-          console.debug('Loaded macro data', data);
-          resolve(data)
-        })
-      } catch (e) {
-        // eslint-disable-next-line
-        console.error('Failed to retrieve macro data.', e)
-        resolve(undefined)
-      }
-    }))
+  async getMacroData(): Promise<IMacroData | undefined> {
+    return forgeGlobal.forgeContext?.extension?.config as IMacroData | undefined;
   }
 
-  getMacroBody(): Promise<string | undefined> {
-    return new Promise((resolve) => {
-      try {
-        this._confluence.getMacroBody((body) => {
-          resolve(body)
-        })
-      } catch (e) {
-        // eslint-disable-next-line
-        console.error('Failed to retrieve macro body.', e)
-        resolve(undefined)
-      }
-    })
+  async getMacroBody(): Promise<string | undefined> {
+    return undefined;
   }
 
-  getContentProperty(key: any): Promise<IContentProperty | undefined> {
-    return new Promise(resolve => {
-      try {
-        this._confluence.getContentProperty(key, (cp) => {
-          resolve(cp)
-        })
-      } catch (e) {
-        // eslint-disable-next-line
-        console.error('Failed to retrieve content property.', e)
-        resolve(undefined)
-      }
-    })
+  getContentProperty(_key: any): Promise<IContentProperty | undefined> {
+    return Promise.resolve(undefined);
   }
 
-  saveMacro(params: IMacroData, body: string) {
-    this._confluence.saveMacro(params, body)
+  saveMacro(params: IMacroData, _body: string) {
+    if (forgeGlobal.view?.submit) {
+      forgeGlobal.view.submit(params);
+    }
   }
 
   // All document types will be using the same content key.
@@ -143,18 +97,14 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   getCustomContentTypePrefix() {
-    let addonKey;
-    if (forgeGlobal.isForge) {
-      if (forgeGlobal.isDiagramly) {
-        addonKey = 'gptdock-confluence';
-      } else {
-        addonKey = `com.zenuml.confluence-addon${forgeGlobal.isLite ? '-lite' : ''}`;
-      }
+    let key;
+    if (forgeGlobal.isDiagramly) {
+      key = 'gptdock-confluence';
     } else {
-      addonKey = getUrlParam('addonKey');
+      key = `com.zenuml.confluence-addon${forgeGlobal.isLite ? '-lite' : ''}`;
     }
-    console.debug('getCustomContentTypePrefix', addonKey);
-    return `ac:${addonKey}`;
+    console.debug('getCustomContentTypePrefix', key);
+    return `ac:${key}`;
   }
 
   getCustomContentType() {
@@ -415,45 +365,8 @@ export default class ApWrapper2 implements IApWrapper {
     return searchUrl;
   }
 
-  async searchCustomContent(maxItems: number = SEARCH_CUSTOM_CONTENT_LIMIT): Promise<Array<ICustomContent>> {
-    if (forgeGlobal.isForge) {
-      // Forge mode: use the new API
-      return await this.searchCustomContentForge(250);
-    }
-
-    // Connect mode: use the old API
-    const searchUrl = await this.buildSearchCustomConentUrl();
-    const searchAll = async (): Promise<Array<ICustomContent>> => {
-      let url = searchUrl, data;
-      let results: Array<ICustomContent> = [];
-      do {
-        data = await this.searchOnce(url);
-        results = results.concat(data?.results);
-        url = data?._links?.next || '';
-      } while (url && results.length < maxItems);
-      return results;
-    };
-
-    const searchAllWithFallback = async (): Promise<Array<ICustomContent>> => {
-      const results = await searchAll();
-      if (results.length) {
-        return results;
-      }
-
-      const results2 = await this.getCustomContentByTypes(CUSTOM_CONTENT_TYPES);
-      trackEvent(`found ${results2.length} content`, 'getCustomContentByTypes', 'info');
-      return results2;
-    };
-
-    try {
-      return await time(searchAllWithFallback, (duration, results) => {
-        trackEvent(`found ${results.length} content, took ${duration} ms`, 'searchAll', 'info');
-      });
-    } catch (e) {
-      console.error('searchCustomContent', e);
-      trackEvent(JSON.stringify(e), 'searchCustomContent', 'error');
-      return [] as Array<ICustomContent>;
-    }
+  async searchCustomContent(_maxItems: number = SEARCH_CUSTOM_CONTENT_LIMIT): Promise<Array<ICustomContent>> {
+    return await this.searchCustomContentForge(250);
   }
 
   async searchCustomContentForge(maxItems: number = 250): Promise<Array<ICustomContent>> {
@@ -494,12 +407,7 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async searchPagedCustomContent(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
-    if (forgeGlobal.isForge) {
-      return await this.searchPagedCustomContentForge(pageSize, keyword, onlyMine, docType, ids);
-    }
-
-    const searchUrl = await this.buildSearchCustomConentUrl(keyword, onlyMine, docType, ids, pageSize);
-    return await this.searchPagedCustomContentByUrl(searchUrl);
+    return await this.searchPagedCustomContentForge(pageSize, keyword, onlyMine, docType, ids);
   }
 
   async searchPagedCustomContentForge(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
@@ -587,35 +495,7 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async searchPagedCustomContentByUrl(searchUrl: string): Promise<SearchResults> {
-    if (forgeGlobal.isForge) {
-      return await this.searchPagedCustomContentForgeByUrl(searchUrl);
-    }
-
-    const searchCustomContent = async (): Promise<SearchResults> => {
-      const data = await this.searchOnce(searchUrl);
-      const results = data?.results || [];
-      const size = results.length;
-      const _links = data?._links;
-      const r = {
-        size,
-        results,
-        _links
-      };
-      console.debug({actiion: 'searchPagedCustomContentByUrl', searchResult: r});
-      return r;
-    };
-    try {
-      return await time(searchCustomContent, (duration, results) => {
-        trackEvent(`found ${results.length} content, took ${duration} ms`, 'searchPagedCustomContentByUrl', 'info');
-      });
-    } catch (e) {
-      console.error('searchPagedCustomContentByUrl', e);
-      trackEvent(JSON.stringify(e), 'searchPagedCustomContentByUrl', 'error');
-      return {
-        size: 0,
-        results: []
-      };
-    }
+    return await this.searchPagedCustomContentForgeByUrl(searchUrl);
   }
 
   searchOnce = async (url: string): Promise<SearchResults> => {
@@ -804,30 +684,14 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   getDialogCustomData() {
-    if(forgeGlobal.isForge) {
-      return Promise.resolve(undefined);
-    }
-    const dialog = this._dialog;
-    return new Promise((resolv: Function) => {
-      try {
-        dialog.getCustomData((data: unknown) => {
-          resolv(data);
-        });
-      } catch (e) {
-        // eslint-disable-next-line
-        console.error('error getting custom data:', e);
-        resolv();
-      }
-    });
+    return Promise.resolve(undefined);
   }
 
   isDisplayMode() {
-    // Check if we're in a Forge modal - hide header in this case
-    if (forgeGlobal.isForge && forgeGlobal.forgeContext?.extension?.modal) {
+    if (forgeGlobal.forgeContext?.extension?.modal) {
       return false;
     }
-    // Check for display mode in URL or regular Forge mode
-    return getUrlParam('outputType') === 'display' || forgeGlobal.isForge;
+    return true;
   }
 
   async getCustomContent(): Promise<ICustomContent | undefined> {
@@ -869,44 +733,19 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async _getCurrentUser(): Promise<IUser> {
-    if(forgeGlobal.isForge) {
-      return {atlassianAccountId: forgeGlobal.forgeContext.accountId};
-    }
-
-    try {
-      const response = await this._requestFn({
-        url: '/rest/api/user/current',
-        type: 'GET',
-        contentType: 'application/json'
-      });
-
-      const userData = response.body ? JSON.parse(response.body) : response;
-      return {
-        atlassianAccountId: userData.accountId,
-        displayName: userData.displayName,
-        publicName: userData.publicName,
-        email: userData.email,
-        accountType: userData.accountType
-      };
-    } catch (error) {
-      console.error('Error fetching current user via REST API:', error);
-      // Fallback to JavaScript API if REST fails
-      return new Promise(resolv => this._user.getCurrentUser((user: IUser) => resolv(user)));
-    }
+    return {atlassianAccountId: forgeGlobal.forgeContext?.accountId};
   }
 
   async getCurrentSpace(): Promise<ISpace> {
-    return this.currentSpace || (this.currentSpace = forgeGlobal.isForge 
-        ? forgeGlobal.forgeContext.extension.space 
-        : (await this._page.getSpace() || {key: await this._page.getSpaceKey()}));
+    return this.currentSpace || (this.currentSpace = forgeGlobal.forgeContext?.extension?.space || {key: await this._page.getSpaceKey()});
   }
 
   async _getCurrentPageId(): Promise<string> {
-    return this.currentPageId || (this.currentPageId = forgeGlobal.isForge ? forgeGlobal.forgeContext.extension.content?.id : await this._page.getPageId());
+    return this.currentPageId || (this.currentPageId = forgeGlobal.forgeContext?.extension?.content?.id || await this._page.getPageId());
   }
 
   async _getCurrentPageUrl(): Promise<string> {
-    return this.currentPageUrl || (this.currentPageUrl = forgeGlobal.isForge ? forgeGlobal.forgeContext.extension.location : await this._page.getHref());
+    return this.currentPageUrl || (this.currentPageUrl = forgeGlobal.forgeContext?.extension?.location || await this._page.getHref());
   }
 
   async _getBaseUrl(): Promise<string> {
@@ -919,24 +758,12 @@ export default class ApWrapper2 implements IApWrapper {
     return this.baseUrl || (this.baseUrl = baseOf(await this._getCurrentPageUrl()));
   }
 
-  async _getLicense(_addonKey: string = ''): Promise<ILicense | undefined> {
-    const url = `/rest/atlassian-connect/1/addons/${_addonKey || addonKey()}`;
-    try {
-      const license: ILicense = await this.request(url);
-      console.debug("getLicense", url, license);
-      trackEvent(JSON.stringify(license), 'getLicense', 'info');
-      return license;
-    } catch (e) {
-      console.error('getLicense', e);
-      trackEvent(JSON.stringify(e), 'getLicense', 'error');
-      return undefined;
-    }
+  async _getLicense(): Promise<ILicense | undefined> {
+    return forgeGlobal.forgeContext?.license;
   }
 
   async hasFullAddon(): Promise<boolean> {
-    const fullAddonKey: string = addonKey().replace('-lite', '');
-    console.debug('check full addon: ', fullAddonKey)
-    return await this._getLicense(fullAddonKey) != null;
+    return false;
   }
 
   async _getLocationTarget(): Promise<LocationTarget> {
@@ -949,18 +776,12 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async canUserEdit(): Promise<boolean> {
-    if(forgeGlobal.isForge) {
-      //TODO: check if the user has edit permission
-      return true;
-    }
-    
-    const pageId = await this._page.getPageId();
-    return await CheckPermission(pageId, this.currentUser?.atlassianAccountId || '', this._requestFn as PermissionCheckRequestFunc)
+    //TODO: check if the user has edit permission via Forge API
+    return true;
   }
 
   isLite(): boolean {
-    // @ts-ignore
-    return forgeGlobal.isForge ? forgeGlobal.isLite : getUrlParam('addonKey')?.includes('lite');
+    return forgeGlobal.isLite;
   }
 
   /**
@@ -971,23 +792,8 @@ export default class ApWrapper2 implements IApWrapper {
    * @param parseFunction Optional custom parsing function for connect mode
    * @returns Parsed response data
    */
-  private async makeRequest(url: string, method: string = 'GET', data: any = undefined, parseFunction?: (response: any) => any): Promise<any> {
-    if (forgeGlobal.isForge) {
-      return await forgeRequest(`/wiki${url}`, method, data);
-    } else {
-      const response = await this._requestFn(data ? {
-        type: method,
-        url,
-        data: JSON.stringify(data),
-        contentType: 'application/json'
-      } : {type: method, url});
-      
-      if (parseFunction) {
-        return parseFunction(response);
-      }
-      // Default parsing: forge mode returns response as-is, connect mode parses JSON
-      return forgeGlobal.isForge ? response : response && response.body && JSON.parse(response.body);
-    }
+  private async makeRequest(url: string, method: string = 'GET', data: any = undefined): Promise<any> {
+    return await forgeRequest(`/wiki${url}`, method, data);
   }
 
   async request(url: string, type: string = 'GET', data: any = undefined): Promise<any> {
@@ -998,36 +804,25 @@ export default class ApWrapper2 implements IApWrapper {
     return loadAllPaginatedData(this.request.bind(this), initialUrl, consumer);
   };
 
-  appPropertyUrl = (key: string) => `/rest/atlassian-connect/1/addons/${addonKey()}/properties/${key}`;
-
-  async getAppProperty(propertyKey: string = ''): Promise<any> {
-    if(forgeGlobal.isForge) {
-      //TODO: Migrate the usage of AppProperty to Forge API
-      return;
-    }
-    const url = this.appPropertyUrl(propertyKey);
-    try {
-      return (await this.request(url)).value;
-    } catch (e) {
-      console.error(`getAppProperty ${propertyKey} error`, e);
-    }
+  async getAppProperty(_propertyKey: string = ''): Promise<any> {
+    //TODO: Migrate the usage of AppProperty to Forge storage API
+    return;
   }
 
-  async setAppProperty(propertyKey: string = '', value: any = undefined): Promise<any> {
-    if(forgeGlobal.isForge) {
-      return;
-    }
-    const url = this.appPropertyUrl(propertyKey);
-    return (await this.request(url, 'PUT', value));
+  async setAppProperty(_propertyKey: string = '', _value: any = undefined): Promise<any> {
+    //TODO: Migrate the usage of AppProperty to Forge storage API
+    return;
+  }
+
+  async getToken(): Promise<string> {
+    //TODO: Remove - this was a Connect-only method. Callers should use @forge/bridge instead.
+    console.warn('getToken() is deprecated - Connect tokens are no longer available');
+    return '';
   }
 
   async getCurrentPage(): Promise<{title: string, body: {export_view: {value: string}}} | undefined> {
     const pageId = await this._getCurrentPageId();
     return await this.request(`/api/v2/pages/${pageId}?body-format=export_view&get-draft=true`);
-  }
-
-  async getToken(): Promise<string> {
-    return this._context.getToken();
   }
 
   /**

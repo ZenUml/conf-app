@@ -1,27 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Use vi.hoisted to define mocks before they're used in vi.mock factories
-const { mockGetUrlParam, mockTrackEvent, mockApRequest, mockApWrapper, mockGetContext, mockForgeRequest, mockConnectRequest, mockRequestConfluence } = vi.hoisted(() => {
-  const mockGetUrlParam = vi.fn();
+const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockRequestConfluence } = vi.hoisted(() => {
   const mockTrackEvent = vi.fn();
-  const mockApRequest = vi.fn();
   const mockApWrapper = {
     _getCurrentPageId: vi.fn(),
     getAttachmentsV2: vi.fn()
   };
   const mockGetContext = vi.fn();
   const mockForgeRequest = vi.fn();
-  const mockConnectRequest = vi.fn();
   const mockRequestConfluence = vi.fn();
   
   return {
-    mockGetUrlParam,
     mockTrackEvent,
-    mockApRequest,
     mockApWrapper,
     mockGetContext,
     mockForgeRequest,
-    mockConnectRequest,
     mockRequestConfluence
   };
 });
@@ -41,15 +35,7 @@ vi.mock('md5', () => ({
 
 // Mock window utils
 vi.mock('@/utils/window.ts', () => ({
-  getUrlParam: (...args: any[]) => mockGetUrlParam(...args),
   trackEvent: (...args: any[]) => mockTrackEvent(...args)
-}));
-
-// Mock AP
-vi.mock('@/model/AP', () => ({
-  default: {
-    request: (...args: any[]) => mockApRequest(...args)
-  }
 }));
 
 // Mock globals
@@ -62,15 +48,14 @@ vi.mock('@/model/globals', () => ({
 // Mock forgeGlobal
 vi.mock('@/model/globals/forgeGlobal', () => ({
   default: {
-    isForge: false
+    isForge: true
   },
   getContext: (...args: any[]) => mockGetContext(...args)
 }));
 
 // Mock requestUtil
 vi.mock('@/utils/requestUtil', () => ({
-  forgeRequest: (...args: any[]) => mockForgeRequest(...args),
-  connectRequest: (...args: any[]) => mockConnectRequest(...args)
+  forgeRequest: (...args: any[]) => mockForgeRequest(...args)
 }));
 
 // Mock @forge/bridge
@@ -90,10 +75,10 @@ describe('Attachment', () => {
     vi.clearAllMocks();
     // Reset window state
     delete (window as any).createAttachmentInProgress;
-    // Reset forgeGlobal
-    forgeGlobal.isForge = false;
-    // Setup default mocks
-    mockGetUrlParam.mockReturnValue('test-uuid');
+    // Setup default mocks for Forge
+    mockGetContext.mockResolvedValue({
+      extension: { config: { customContentId: 'test-uuid' } }
+    });
     mockApWrapper._getCurrentPageId.mockResolvedValue('page-123');
     mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
     // Setup DOM

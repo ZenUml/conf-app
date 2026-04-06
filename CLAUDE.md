@@ -4,15 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a ZenUML Confluence Cloud Add-on that provides diagramming capabilities for Confluence users. The add-on supports three main diagram types:
+This is a ZenUML Confluence Cloud Add-on (Forge app) that provides diagramming capabilities for Confluence users. The add-on supports three main diagram types:
 - **Sequence Diagrams** (ZenUML & Mermaid)
 - **Graph Diagrams** (powered by DrawIO)
 - **OpenAPI/Swagger Specifications**
 
 The project is built as a full-stack application with:
-- **Frontend**: Vue 3 with TypeScript, Vite build system
-- **Backend**: Cloudflare Workers with D1 database
-- **Deployment**: Cloudflare Pages
+- **Frontend**: Vue 3 with TypeScript, Vite build system, Forge Custom UI
+- **Backend**: Cloudflare Workers with D1 database (accessed via Forge remotes)
+- **Deployment**: Cloudflare Pages + Forge CLI
+- **Platform**: Atlassian Forge (Connect runtime was removed; `app.connect` migration bridge in manifest.yml is kept for backward compatibility)
 
 ## Development Commands
 
@@ -21,7 +22,7 @@ The project is built as a full-stack application with:
 # Build full version
 pnpm build:full
 
-# Build lite version  
+# Build lite version
 pnpm build:lite
 
 # Run unit tests
@@ -43,13 +44,14 @@ pnpm start:sit
 pnpm wrangler:serve
 ```
 
-### Deployment
+### Forge Deployment
 ```bash
-# Deploy to staging
-pnpm wrangler:publish:stg
+# Deploy to Forge staging
+pnpm forge:deploy:lite:staging
+pnpm forge:deploy:full:prod
 
-# Deploy lite version to staging
-pnpm wrangler:publish:stg:lite
+# Forge tunnel for local development
+pnpm forge:tunnel
 ```
 
 ### Linting
@@ -61,41 +63,45 @@ pnpm lint:vue
 ## Architecture Overview
 
 ### Frontend Structure
-- **Entry Points**: Multiple HTML files for different diagram types (`index.html`, `sequence-editor.html`, `sequence-viewer.html`, etc.)
+- **Entry Point**: Single Forge Custom UI entry (`index.html` + `src/forgeIndex.ts`)
+- **Forge Entry Points**: `src/forge-*.ts` files for different diagram types
 - **Core Components**:
   - `Workspace.vue` - Main editor interface with split layout
   - `Editor/Editor.vue` - Code editor with syntax highlighting
   - `DiagramPortal.vue` - Diagram rendering portal
   - `Header/Header.vue` - Navigation and actions
   - `Viewer/` - Different viewers for each diagram type
+- **Forge Integration**: `@forge/bridge` for Confluence API access (`requestConfluence`, `invokeRemote`, `view`, `router`)
 
 ### Backend Structure (Cloudflare Workers)
 - **Functions**: Located in `functions/` directory
 - **Database**: D1 database with migrations in `functions/migrations/`
+- **Auth**: Forge invocation token (RS256) validated via `functions/utils/authenticate.ts`
 - **Key Endpoints**:
-  - `/descriptor` - Atlassian Connect descriptor
-  - `/custom-content/` - Custom content management
+  - `/forge-custom-content` - Custom content management (Forge OAuth)
+  - `/forge-installed` - Forge install/upgrade lifecycle handler
+  - `/forge-user-behavior` - Forge trigger event handler
   - `/diagram-likes/` - Diagram like/unlike functionality
   - `/attachment` - File attachment handling
+  - `/api/space-status` - License/payment status check
 
 ### Content Management
-The app uses multiple storage providers for diagram persistence:
-- **MacroBodyStorageProvider** - Stores data in macro body
-- **ContentPropertyStorageProvider** - Stores data in Confluence content properties
-- **CustomContentStorageProvider** - Stores data as custom content
-- **CompositeContentProvider** - Combines multiple providers
+The app uses custom content (V2 API) for diagram persistence:
+- **CustomContentStorageProvider** - Stores data as Confluence custom content
+- **CompositeContentProvider** - Combines multiple providers with fallback chain
 
 ### Key Models
 - **Diagram** - Core diagram model with content and metadata
 - **ContentProvider** - Abstract interface for data persistence
-- **ApWrapper2** - Atlassian Connect JavaScript API wrapper
-- **MacroIdentifier** - Identifies macro instances
+- **ApWrapper2** - Forge API wrapper for Confluence operations
+- **forgeGlobal** - Runtime context (`@forge/bridge` view, context, environment detection)
 
 ## Product Variants
 
-The add-on comes in two variants:
+The add-on comes in three variants:
 - **Full Version** (`PRODUCT_TYPE=full`) - All features enabled
-- **Lite Version** (`PRODUCT_TYPE=lite`) - Reduced feature set
+- **Lite Version** (`PRODUCT_TYPE=lite`) - Reduced feature set (free)
+- **Diagramly** (`PRODUCT_TYPE=diagramly`) - Diagramly-branded variant
 
 ## Environment Configuration
 
@@ -116,24 +122,26 @@ wrangler d1 migrations apply zenuml-for-confluence --remote
 ## Integration Testing
 
 1. Run `pnpm start:sit` to start both frontend and backend
-2. Expose port 8080 publicly (e.g., via ngrok)
-3. Install the add-on using the descriptor URL
-4. Test functionality in a Confluence instance
+2. Use `pnpm forge:tunnel` to expose via Forge tunnel
+3. Test functionality in a Confluence instance
 
 ## Key Dependencies
 
 - **@zenuml/core** - Core ZenUML rendering engine
+- **@forge/bridge** - Forge Custom UI bridge (requestConfluence, invokeRemote, view)
+- **@forge/api** - Forge API runtime
 - **mermaid** - Mermaid diagram rendering
 - **swagger-ui** - OpenAPI/Swagger rendering
 - **codemirror** - Code editor functionality
 - **vue** - Frontend framework
 - **@sentry/cloudflare** - Error tracking
+- **jose** - JWT verification (Forge invocation tokens)
 
 ## File Structure Notes
 
 - `src/` - Frontend source code
 - `functions/` - Cloudflare Workers backend
 - `public/` - Static assets and DrawIO integration
-- `drawio/` - DrawIO editor and viewer integration
+- `manifest.yml` - Forge app manifest
 - `tests/` - Unit and E2E tests
 - `docs/` - Project documentation

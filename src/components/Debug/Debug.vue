@@ -95,7 +95,6 @@
 <script>
 import App from "@/model/app/App";
 import {MacroIdProvider} from "@/model/ContentProvider/MacroIdProvider";
-import AP from "@/model/AP";
 import ApWrapper2 from "@/model/ApWrapper2";
 import IconServer from "@/components/icons/IconServer.vue";
 import IconGitBranch from "@/components/icons/IconGitBranch.vue";
@@ -195,7 +194,7 @@ export default {
     }
   },
   async mounted() {
-    const macroIdProvider = new MacroIdProvider(new ApWrapper2(AP));
+    const macroIdProvider = new MacroIdProvider(new ApWrapper2());
     this.shortUuid = (await macroIdProvider.getUuid())?.substring(0, 8);
     this.contentId = await macroIdProvider.getId();
 

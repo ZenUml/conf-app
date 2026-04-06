@@ -323,7 +323,6 @@ import CloseButton from "@/components/CloseButton.vue";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { getViewerUrl, loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
-import AP from "@/model/AP";
 import { CustomContentStorageProvider } from "@/model/ContentProvider/CustomContentStorageProvider";
 import { ConfluencePage } from "@/model/page/ConfluencePage";
 import { getAttachmentDownloadLink } from "@/model/Attachment";

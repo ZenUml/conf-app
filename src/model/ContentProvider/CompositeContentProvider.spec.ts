@@ -16,7 +16,7 @@ describe('CompositeContentProvider', () => {
     mockAp.confluence.setContentProperty({key: 'key', version: {number: 1}, value: 'abcd'}, () => {})
     mockAp.confluence.saveMacro({uuid: 'uuid'}, 'body')
 
-    const contentProvider = defaultContentProvider(new ApWrapper2(mockAp));
+    const contentProvider = defaultContentProvider(new ApWrapper2());
     const {doc} = (await contentProvider.load());
     expect(doc.code).toBe('abcd');
   })
@@ -28,7 +28,7 @@ describe('CompositeContentProvider', () => {
     }
     mockAp.confluence.saveMacro({}, 'body')
 
-    const contentProvider = defaultContentProvider(new ApWrapper2(mockAp));
+    const contentProvider = defaultContentProvider(new ApWrapper2());
     const {doc} = (await contentProvider.load());
     expect(doc.code).toBe('body');
   })
@@ -51,7 +51,7 @@ describe('CompositeContentProvider', () => {
         styles:{"#A":{"backgroundColor":"#57d9a3"}}
       });
 
-      const contentProvider = defaultContentProvider(new ApWrapper2(mockAp));
+      const contentProvider = defaultContentProvider(new ApWrapper2());
       const {doc} = (await contentProvider.load());
       expect(doc.code).toBe('A.method');
     })

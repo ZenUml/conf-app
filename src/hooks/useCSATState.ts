@@ -1,6 +1,5 @@
 import { ref } from "vue";
 import ApWrapper2 from "@/model/ApWrapper2";
-import AP from "@/model/AP";
 import { getLocalState, setLocalState } from "@/utils/window";
 import clone from "lodash/clone";
 import { IUser } from "@/model/IUser";
@@ -10,7 +9,7 @@ export default function useCSATState() {
   let account = ref<IUser | null>(null);
 
   const checkStateOfCSAT = async () => {
-    account.value = await new ApWrapper2(AP)._getCurrentUser();
+    account.value = await new ApWrapper2()._getCurrentUser();
     const localState = getLocalState(STORAGE_KEY, DEFAULT_STATE);
     const userState = localState.users[account.value.atlassianAccountId];
     return (
@@ -20,7 +19,7 @@ export default function useCSATState() {
   };
 
   const updateStateOfCSAT = async () => {
-    account.value = await new ApWrapper2(AP)._getCurrentUser();
+    account.value = await new ApWrapper2()._getCurrentUser();
     const localState = getLocalState(STORAGE_KEY, DEFAULT_STATE);
 
     const lastUpdated = new Date();

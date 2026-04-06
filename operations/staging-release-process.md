@@ -5,7 +5,7 @@ End-to-end workflow for shipping a change from local development to staging veri
 ## Overview
 
 ```
-commit → push → PR → pipeline (build + deploy to staging) → verify on zenuml-stg → merge PR
+commit -> push -> PR -> pipeline (build + deploy to staging) -> verify on zenuml-stg -> merge PR
 ```
 
 ## 1. Commit
@@ -19,7 +19,7 @@ git add -A
 git commit -m "fix: description of the change"
 ```
 
-Branch naming: keep it short — `fix/diagram-render`, `feat/oauth2-auth`.
+Branch naming: keep it short -- `fix/diagram-render`, `feat/oauth2-auth`.
 
 ## 2. Push
 
@@ -41,39 +41,42 @@ Or create the PR through the GitHub UI. Target branch is `master`.
 
 The push triggers the following pipeline stages:
 
-### Stage 1 — Build & Unit Test
+### Stage 1 -- Build & Unit Test
 
-Runs `pnpm test:unit`. Both Lite and Full staging jobs depend on this passing.
+Runs `pnpm test:unit`. All staging jobs depend on this passing.
 
-### Stage 2 — Deploy to Staging (parallel)
+### Stage 2 -- Deploy to Staging (parallel)
 
-Two jobs run in parallel after build succeeds:
+Three jobs run in parallel after build succeeds:
 
 | Job | What it does |
 |-----|-------------|
-| **L/Push(CF)&Install(Conf)** | Builds Lite variant, deploys to `conf-stg-lite` on Cloudflare Pages, deploys to Forge staging, installs on `zenuml-stg` |
-| **F/Push(CF)&Install(Conf)** | Builds Full variant, deploys to `conf-stg-full` on Cloudflare Pages, installs Connect app on `zenuml-stg` via pluploader |
+| **Lite / Deploy** | Builds Lite variant, deploys to `conf-stg-lite` on Cloudflare Pages, deploys to Forge staging, installs on `zenuml-stg` |
+| **Full / Deploy** | Builds Full variant, deploys to `conf-stg-full` on Cloudflare Pages, deploys to Forge staging |
+| **Diagramly / Deploy** | Builds Diagramly variant, deploys to `conf-stg-lite` on Cloudflare Pages, deploys to Forge staging |
 
 Each deploy job:
-1. Runs `pnpm build:lite` or `pnpm build:full`
+1. Runs `pnpm build:<variant>`
 2. Applies D1 database migrations
 3. Publishes to Cloudflare Pages (`wrangler pages deploy`)
-4. Installs/upgrades on `zenuml-stg.atlassian.net`
+4. Deploys and installs on Forge staging
 
-### Stage 3 — E2E Tests on Staging (parallel)
+### Stage 3 -- E2E Tests on Staging (parallel)
 
 After each deploy completes, Playwright E2E tests run against `zenuml-stg`:
 
 | Job | Environment |
 |-----|------------|
 | **Lite - E2E Test on Staging** | `IS_LITE=true IS_FORGE=true` |
-| **Full - E2E Test on Staging** | Default (Connect) |
+| **Full - E2E Test on Staging** | `IS_FORGE=true` |
+| **Diagramly - E2E Test on Staging** | `IS_FORGE=true` |
 
-### Stage 4 — Draft Release (master only)
+### Stage 4 -- Draft Release (master only)
 
 On `master` branch pushes only (not PRs), draft releases are created after E2E tests pass:
 - `v{YYYY.MM.DDHHMM}-lite`
 - `v{YYYY.MM.DDHHMM}-full`
+- `v{YYYY.MM.DDHHMM}-diagramly`
 
 ### Monitoring
 
@@ -141,7 +144,7 @@ Production deployment is a separate process triggered by publishing a GitHub Rel
 
 ## Quick Reference
 
-| Environment | Connect URL | Confluence Instance |
+| Environment | Backend URL | Confluence Instance |
 |------------|-------------|-------------------|
 | Staging Full | `conf-stg-full.zenuml.com` | `zenuml-stg.atlassian.net` |
 | Staging Lite | `conf-stg-lite.zenuml.com` | `zenuml-stg.atlassian.net` |
@@ -152,5 +155,5 @@ Production deployment is a separate process triggered by publishing a GitHub Rel
 |------|---------|
 | `gh` | GitHub CLI for PRs, runs, releases |
 | `wrangler` | Cloudflare Pages/D1 management |
-| `pluploader` | Connect app installation on Confluence |
+| `forge` | Forge CLI for deploy/install/tunnel |
 | Mixpanel Export API | Event verification (`client_domain=zenuml-stg` for staging) |

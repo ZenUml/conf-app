@@ -4,7 +4,6 @@ import {
   getClientDomain,
 } from "@/utils/ContextParameters/ContextParameters";
 import { callRemote } from '@/utils/requestUtil';
-import forgeGlobal from '@/model/globals/forgeGlobal';
 
 export async function syncCustomContent(customContent: any, diagramType: DiagramType, macroUuid: string) {
   try {
@@ -17,9 +16,9 @@ export async function syncCustomContent(customContent: any, diagramType: Diagram
       macroUuid: macroUuid,
     };
 
-    await callRemote(forgeGlobal.isForge ? '/forge-custom-content' : '/custom-content', 'POST', data);
+    await callRemote('/forge-custom-content', 'POST', data);
     trackEvent('', 'sync_custom_content', 'success');
-    
+
   } catch (e) {
     console.error('Error when syncing custom content', e);
     trackEvent(JSON.stringify(e), 'sync_custom_content', 'error');

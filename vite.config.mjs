@@ -157,14 +157,6 @@ export default defineConfig({
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true
       },
-      '/atlassian-connect-lite.json': {
-        target: 'http://127.0.0.1:8788/',
-        changeOrigin: true
-      },
-      '/descriptor': {
-        target: 'http://127.0.0.1:8788/',
-        changeOrigin: false,
-      },
       '/track': {
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true,
@@ -174,14 +166,6 @@ export default defineConfig({
         changeOrigin: true
       },
       '/diagram-likes': {
-        target: 'http://127.0.0.1:8788/',
-        changeOrigin: true
-      },
-      '/custom-content': {
-        target: 'http://127.0.0.1:8788/',
-        changeOrigin: true
-      },
-      '/installed': {
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true
       },

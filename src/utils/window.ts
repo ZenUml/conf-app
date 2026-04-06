@@ -11,7 +11,7 @@ let identified = false;
 const unknownUserAccountId  = "unknown_user_account_id";
 
 const initMixpanel = () => {
-  if(!initialized && forgeGlobal.isForge) {
+  if(!initialized) {
     mixpanel.init("78617e65fdba543d752fb7f6483d55f4", {
       debug: true,
       track_pageview: false,
@@ -24,7 +24,7 @@ const initMixpanel = () => {
 };
 
 const mixpanelIdentify = () => {
-  if(!identified && forgeGlobal.isForge) {
+  if(!identified) {
     const userAccountId = getCurrentUserAccountId();
     try {
       mixpanel.identify(userAccountId);
@@ -116,13 +116,10 @@ export async function _awaitableTrackEvent(
       console.error(e);
     }
 
-    if(forgeGlobal.isForge) {
-        try {
-        // Clone eventDetails to prevent mixpanel's pollution(will add 'token' property)
-        mixpanel.track(action, Object.assign({}, eventDetails));
-      } catch (e) {
-        console.error("Error in calling mixpanel.track", e);
-      }
+    try {
+      mixpanel.track(action, Object.assign({}, eventDetails));
+    } catch (e) {
+      console.error("Error in calling mixpanel.track", e);
     }
 
     try {
@@ -130,10 +127,6 @@ export async function _awaitableTrackEvent(
       window.gtag && window.gtag("event", action, eventDetails);
     } catch (e) {
       console.log("Error in calling gtag", e);
-    }
-
-    if(!forgeGlobal.isForge) {
-      await callTrack(action, eventDetails);
     }
   } catch (e) {
     console.error(

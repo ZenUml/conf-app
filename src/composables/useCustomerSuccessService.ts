@@ -153,11 +153,16 @@ export function useCustomerSuccessService() {
         return;
       }
 
-      // Get the lic parameter from the URL (for Connect apps)
-      const licParam = getUrlParam('lic');
+      // Get spaceKey from the page context to pass to the KV-based license check
+      let spaceKey = ''
+      try {
+        spaceKey = await globals.apWrapper.page?.getSpaceKey() || ''
+      } catch (e) {
+        console.warn('Could not get spaceKey from page context:', e)
+      }
 
       console.log('🔍 Checking space paid status...')
-      const response = await callRemote(`/api/space-status?lic=${licParam || ''}`, 'GET')
+      const response = await callRemote(`/api/space-status?spaceKey=${encodeURIComponent(spaceKey)}`, 'GET')
 
       if (response && typeof response.isPaid === 'boolean') {
         spacePaidStatus.value = response.isPaid

@@ -11,6 +11,7 @@ interface TestConfig {
   parentPageName: string;
   isLite: boolean;
   isForge: boolean;
+  isProd: boolean;
   macros: MacroType[];
   addonKey: string;
   sequenceMacroKey: string;
@@ -69,6 +70,7 @@ export const testConfig: TestConfig = {
   parentPageName: profile.parentPageName,
   isLite: profile.isLite,
   isForge: profile.isForge,
+  isProd: profile.id.endsWith('@prod'),
   macros: profile.macros,
   addonKey: profile.addonKey,
   sequenceMacroKey: profile.sequenceMacroKey,

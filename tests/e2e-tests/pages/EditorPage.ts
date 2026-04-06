@@ -8,26 +8,15 @@ export class ConfluenceEditorPage {
     return this.page.getByRole('dialog', { name: /Browse/ }).getByRole('combobox').first();
   }
 
+  /**
+   * Returns the editor body element that receives keyboard input.
+   * Uses ARIA role "textbox" with the Confluence editor's accessible name.
+   * Falls back to ProseMirror CSS selectors for older Confluence instances.
+   */
   private editorBody() {
     return this.page.getByRole('textbox', {
       name: /(?:Main content area|Page editing area), start typing to enter text\./,
     });
-  }
-
-  private async focusEditorBody(): Promise<void> {
-    const editorBody = this.editorBody().first();
-    if (await editorBody.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await editorBody.click();
-      return;
-    }
-
-    const proseMirror = this.page.locator('.ProseMirror [contenteditable="true"], .ProseMirror p').last();
-    if (await proseMirror.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await proseMirror.click();
-      return;
-    }
-
-    throw new Error('Could not focus the Confluence editor body');
   }
 
   // ── Navigation ──
@@ -77,9 +66,10 @@ export class ConfluenceEditorPage {
   // ── Macro Name Resolution ──
 
   getMacroName(baseName: string): string {
-    let name = baseName;
+    // Apply per-profile name overrides first (e.g., "Diagram as Code" on production)
+    const name = testConfig.macroNameOverrides[baseName] ?? baseName;
     if (testConfig.isLite) {
-      name += ' Lite';
+      return name + ' Lite';
     }
     // Note: Forge staging apps show "(Staging)" suffix in the macro browser, but we
     // don't append it here because Playwright's hasText filter does substring matching.
@@ -129,73 +119,41 @@ export class ConfluenceEditorPage {
   async clickInsertElements(): Promise<void> {
     const insertCombobox = this.insertBrowserCombobox();
 
-    // Click the editor body to ensure focus
-    await this.focusEditorBody();
-    await this.page.waitForTimeout(500);
+    // On production Confluence (Connect app), typing "/" is unreliable because focus
+    // bounces back to the title input. Click the editor body first to activate the
+    // quick-insert bar, then click the "More elements" button — it opens the slash menu
+    // without needing precise keyboard focus.
+    // Fall back to the "/" approach for sites where "More elements" isn't present.
+    const editorEl = this.editorBody();
+    await editorEl.waitFor({ state: 'visible', timeout: 10000 });
+    await editorEl.click();
+    await this.page.waitForTimeout(300);
 
-    // Strategy 1: Click the toolbar "+" button
-    const insertButtons = this.page.getByRole('button', { name: /Insert elements/ });
-    let clicked = false;
-    const insertButtonCount = await insertButtons.count();
-    for (let i = 0; i < insertButtonCount; i++) {
-      const button = insertButtons.nth(i);
-      const isVisible = await button.isVisible().catch(() => false);
-      const isEnabled = await button.isEnabled().catch(() => false);
-      if (isVisible && isEnabled) {
-        await button.click();
-        clicked = true;
-        break;
-      }
-    }
-
-    if (clicked) {
-      if (await insertCombobox.first().isVisible({ timeout: 5000 }).catch(() => false)) {
-        console.log('  [debug] clickInsertElements: Strategy 1 (toolbar + button) succeeded');
-        return;
-      }
-      console.log('  [debug] clickInsertElements: Strategy 1 clicked but no combobox appeared');
+    const moreElements = this.page.getByRole('button', { name: 'More elements' }).last();
+    if (await moreElements.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await moreElements.click();
+      await this.page.waitForTimeout(500);
+      console.log('  [debug] clickInsertElements: clicked More elements button');
     } else {
-      console.log('  [debug] clickInsertElements: Strategy 1 found no Insert elements button');
+      // Fallback: type "/" in the editor to trigger slash menu
+      await editorEl.pressSequentially('/');
+      await this.page.waitForTimeout(1000);
     }
 
-    // Strategy 2: Click "More elements" quick-insert button at the bottom
-    // Use a short timeout (10s) and try/catch because on some sites (e.g. dia-stg)
-    // the Editor toolbar intercepts pointer events, causing click to hang for 60s
-    // and blocking Strategy 3 from executing.
-    const moreElements = this.page.getByRole('button', { name: /More elements|View more|View all elements/ }).last();
-    if (await moreElements.isVisible({ timeout: 3000 }).catch(() => false)) {
-      try {
-        await moreElements.scrollIntoViewIfNeeded().catch(() => {});
-        await moreElements.click({ timeout: 10000 });
-        if (await insertCombobox.first().isVisible({ timeout: 5000 }).catch(() => false)) {
-          console.log('  [debug] clickInsertElements: Strategy 2 (More elements button) succeeded');
-          return;
-        }
-        console.log('  [debug] clickInsertElements: Strategy 2 clicked but no combobox appeared');
-      } catch {
-        console.log('  [debug] clickInsertElements: Strategy 2 click failed (likely pointer intercept), falling through');
+    // Check if Browse dialog opened immediately (some Confluence versions skip "View more")
+    const browseAlreadyOpen = await insertCombobox.first().isVisible({ timeout: 500 }).catch(() => false);
+    if (!browseAlreadyOpen) {
+      // Slash menu appears with limited items — click "View more" to open the full Browse dialog
+      const viewMore = this.page.getByRole('button', { name: /View more|View all elements/ }).last();
+      if (await viewMore.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await viewMore.click();
+        console.log('  [debug] clickInsertElements: clicked View more');
       }
-    } else {
-      console.log('  [debug] clickInsertElements: Strategy 2 no More elements button found');
-    }
-
-    // Strategy 3: Type "/" in the editor and search directly (no popup expansion needed)
-    // This works by typing the search term directly after "/", letting Confluence filter inline.
-    console.log('  [debug] clickInsertElements: falling back to Strategy 3 (type /)');
-    await this.focusEditorBody().catch(() => {});
-    await this.page.keyboard.type('/');
-    await this.page.waitForTimeout(1000);
-
-    // The "/" popup shows limited items. Look for a "View more" link
-    const viewMore = this.page.getByRole('button', { name: /View more|View all elements/ }).last();
-    if (await viewMore.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await viewMore.click();
-      console.log('  [debug] clickInsertElements: Strategy 3 clicked View more');
     }
 
     // Final wait for Insert elements combobox
     await insertCombobox.first().waitFor({ state: 'visible', timeout: 10000 });
-    console.log('  [debug] clickInsertElements: Strategy 3 combobox ready');
+    console.log('  [debug] clickInsertElements: combobox ready');
   }
 
   /**
@@ -241,6 +199,13 @@ export class ConfluenceEditorPage {
       .filter({ hasText: macroName });
     if (testConfig.appLabel) {
       option = option.filter({ hasText: testConfig.appLabel });
+    }
+    const matchCount = await option.count();
+    if (matchCount === 0) {
+      throw new Error(
+        `Macro "${macroName}"${testConfig.appLabel ? ` (${testConfig.appLabel})` : ''} not found when searching "${searchTerm}" on ${testConfig.domain}. ` +
+        `Available options: ${JSON.stringify(optionTexts)}`
+      );
     }
     await option.first().click();
 

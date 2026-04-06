@@ -4,7 +4,8 @@ import { testConfig } from '../config/test-config.js';
 
 const MAX_OTP_RETRIES = 3;
 const OTP_NAVIGATION_TIMEOUT_MS = 10000;
-const OTP_RETRY_DELAY_MS = 1000;
+// TOTP codes rotate every 30s — wait long enough for next window but not so long the browser times out
+const OTP_RETRY_DELAY_MS = 15_000;
 
 export class ConfluenceLogin {
   private page: Page;

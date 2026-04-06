@@ -34,6 +34,8 @@ export const validateContextToken = async (invocationToken: string, allowedAppId
   }
 }
 
+import { upsertAtlassianInstance } from './dbUtils';
+
 async function authenticateForgeRequest(jwt, env) {
   const allowedForgeAppIds = env.ALLOWED_FORGE_APP_IDS;
   if (!allowedForgeAppIds) {
@@ -45,6 +47,22 @@ async function authenticateForgeRequest(jwt, env) {
   const payload = await validateContextToken(jwt, allowedForgeAppIds);
   console.log('validateContextToken - payload', payload);
   env.FORGE_CONTEXT = payload;
+
+  // Populate AtlassianInstance from siteUrl when available in macro-render tokens
+  const cloudId = payload.payload?.context?.cloudId;
+  const siteUrl = payload.payload?.context?.siteUrl;
+  if (cloudId && siteUrl && env.DB) {
+    try {
+      const domain = new URL(siteUrl).hostname;
+      if (domain) {
+        upsertAtlassianInstance(env.DB, cloudId, domain).catch(e =>
+          console.log('AtlassianInstance upsert failed:', e)
+        );
+      }
+    } catch (e) {
+      console.log('Could not parse siteUrl for AtlassianInstance upsert:', e);
+    }
+  }
 }
 
 export default async function authenticate({ request, env }) {

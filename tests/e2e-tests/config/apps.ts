@@ -29,6 +29,13 @@ export interface AppProfile {
    *  macro keys collide with another app on the same site — API-created pages can't target
    *  a specific Forge app, so Confluence falls back to the Connect app. */
   renderMacros: MacroType[];
+  /**
+   * Per-macro display name overrides. Keys are canonical base names; values are what
+   * the macro is actually called in the Confluence macro browser for this profile.
+   * Used when the macro was renamed (e.g., "Diagram (Mermaid, PlantUML & ZenUML)" →
+   * "Diagram as Code" on the production ZenUML full Forge app).
+   */
+  macroNameOverrides?: Record<string, string>;
 }
 
 const ALL_MACROS: MacroType[] = ['sequence', 'graph', 'openapi', 'embed', 'mermaid'];
@@ -37,9 +44,9 @@ const NO_EMBED: MacroType[] = ['sequence', 'graph', 'openapi', 'mermaid'];
 export const APP_PROFILES: Record<string, AppProfile> = {
   'zenuml-lite@stg': {
     id: 'zenuml-lite@stg',
-    domain: 'zenuml-stg.atlassian.net',
-    spaceKey: 'ZS',
-    parentPageId: '177176629',
+    domain: 'lite-stg.atlassian.net',
+    spaceKey: 'SD',
+    parentPageId: '524297',
     parentPageName: 'Before release test pages',
     isLite: true,
     isForge: true,
@@ -65,12 +72,27 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     customContentKey: 'zenuml-content-sequence',
     appLabel: '',
   },
+  'zenuml-full-forge@stg': {
+    id: 'zenuml-full-forge@stg',
+    domain: 'full-stg.atlassian.net',
+    spaceKey: 'SD',
+    parentPageId: '229492',
+    parentPageName: 'Software Development',
+    isLite: false,
+    isForge: true,
+    macros: ALL_MACROS,
+    renderMacros: ALL_MACROS,
+    addonKey: 'com.zenuml.confluence-addon',
+    sequenceMacroKey: 'zenuml-sequence-macro',
+    customContentKey: 'zenuml-content-sequence',
+    appLabel: 'ZenUML for Confluence',
+  },
   'diagramly@stg': {
     id: 'diagramly@stg',
-    domain: 'zenuml-stg.atlassian.net',
-    spaceKey: 'ZS',
-    parentPageId: '177176629',
-    parentPageName: 'Before release test pages',
+    domain: 'dia-stg.atlassian.net',
+    spaceKey: 'SD',
+    parentPageId: '1736705',
+    parentPageName: 'Test pages',
     isLite: false,
     isForge: true,
     macros: NO_EMBED,
@@ -111,7 +133,13 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     addonKey: 'com.zenuml.confluence-addon',
     sequenceMacroKey: 'zenuml-sequence-macro',
     customContentKey: 'zenuml-content-sequence',
-    appLabel: '',
+    // On zenuml.atlassian.net, the Full Forge app coexists with Lite and Diagramly.
+    // appLabel disambiguates ZenUML for Confluence from Diagramly for Confluence.
+    // The diagram macro was renamed from "Diagram (Mermaid, PlantUML & ZenUML)" to "Diagram as Code".
+    appLabel: 'ZenUML for Confluence',
+    macroNameOverrides: {
+      'Diagram (Mermaid, PlantUML & ZenUML)': 'Diagram as Code',
+    },
   },
   'diagramly@prod': {
     id: 'diagramly@prod',

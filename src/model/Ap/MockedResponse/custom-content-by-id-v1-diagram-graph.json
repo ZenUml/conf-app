@@ -1,0 +1,13 @@
+{
+  "id": "fake-content-id-diagram-graph",
+  "type": "ac:com.zenuml.confluence-addon-lite:zenuml-content-graph",
+  "status": "current",
+  "title": "Sample Graph (Sandbox)",
+  "body": {
+    "raw": {
+      "value": "{\"diagramType\":\"graph\",\"graphXml\":\"<mxGraphModel dx=\\\"1426\\\" dy=\\\"710\\\" grid=\\\"1\\\" gridSize=\\\"10\\\" guides=\\\"1\\\" tooltips=\\\"1\\\" connect=\\\"1\\\" arrows=\\\"1\\\" fold=\\\"1\\\" page=\\\"1\\\" pageScale=\\\"1\\\" pageWidth=\\\"827\\\" pageHeight=\\\"1169\\\"><root><mxCell id=\\\"0\\\"/><mxCell id=\\\"1\\\" parent=\\\"0\\\"/><mxCell id=\\\"2\\\" value=\\\"Start\\\" style=\\\"ellipse;whiteSpace=wrap;html=1;\\\" vertex=\\\"1\\\" parent=\\\"1\\\"><mxGeometry x=\\\"40\\\" y=\\\"40\\\" width=\\\"120\\\" height=\\\"80\\\" as=\\\"geometry\\\"/></mxCell><mxCell id=\\\"3\\\" value=\\\"Process\\\" style=\\\"rounded=1;whiteSpace=wrap;html=1;\\\" vertex=\\\"1\\\" parent=\\\"1\\\"><mxGeometry x=\\\"40\\\" y=\\\"160\\\" width=\\\"120\\\" height=\\\"60\\\" as=\\\"geometry\\\"/></mxCell><mxCell id=\\\"4\\\" style=\\\"edgeStyle=orthogonalEdgeStyle;\\\" edge=\\\"1\\\" source=\\\"2\\\" target=\\\"3\\\" parent=\\\"1\\\"><mxGeometry relative=\\\"1\\\" as=\\\"geometry\\\"/></mxCell></root></mxGraphModel>\",\"source\":\"custom-content\"}",
+      "representation": "raw",
+      "embeddedContent": []
+    }
+  }
+}

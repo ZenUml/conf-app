@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Forge Sandbox – ZenUML</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: #f4f5f7;
+      color: #172b4d;
+      padding: 2rem;
+    }
+    h1 { font-size: 1.5rem; margin-bottom: .25rem; }
+    .subtitle { color: #6b778c; margin-bottom: 2rem; font-size: .875rem; }
+    .group { margin-bottom: 2rem; }
+    .group-title {
+      font-size: .75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: #6b778c;
+      margin-bottom: .75rem;
+    }
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .75rem; }
+    .card {
+      display: block;
+      background: #fff;
+      border: 1px solid #dfe1e6;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      text-decoration: none;
+      color: inherit;
+      transition: box-shadow .15s, border-color .15s;
+    }
+    .card:hover { border-color: #4c9aff; box-shadow: 0 2px 8px rgba(9,30,66,.13); }
+    .card-label { font-weight: 500; font-size: .9375rem; }
+    .card-meta { font-size: .75rem; color: #6b778c; margin-top: .25rem; }
+    .badge {
+      display: inline-block;
+      font-size: .6875rem;
+      font-weight: 600;
+      padding: .125rem .5rem;
+      border-radius: 3px;
+      text-transform: uppercase;
+    }
+    .badge-editor { background: #deebff; color: #0747a6; }
+    .badge-viewer { background: #e3fcef; color: #006644; }
+  </style>
+</head>
+<body>
+  <h1>Forge Sandbox</h1>
+  <p class="subtitle">Pick a scenario to open in <code>index.html</code> with the matching Forge context.</p>
+  <div id="root"></div>
+  <script type="module" src="src/sandbox.ts"></script>
+</body>
+</html>

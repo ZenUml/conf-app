@@ -11,12 +11,14 @@ interface TestConfig {
   parentPageName: string;
   isLite: boolean;
   isForge: boolean;
+  isProd: boolean;
   macros: MacroType[];
   addonKey: string;
   sequenceMacroKey: string;
   customContentKey: string;
   appLabel: string;
   renderMacros: MacroType[];
+  macroNameOverrides: Record<string, string>;
   credentials: {
     username: string;
     password: string;
@@ -68,12 +70,14 @@ export const testConfig: TestConfig = {
   parentPageName: profile.parentPageName,
   isLite: profile.isLite,
   isForge: profile.isForge,
+  isProd: profile.id.endsWith('@prod'),
   macros: profile.macros,
   addonKey: profile.addonKey,
   sequenceMacroKey: profile.sequenceMacroKey,
   customContentKey: profile.customContentKey,
   appLabel: profile.appLabel,
   renderMacros: profile.renderMacros,
+  macroNameOverrides: profile.macroNameOverrides ?? {},
 
   credentials: {
     username: process.env.ZENUML_STAGE_USERNAME || '',

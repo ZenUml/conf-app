@@ -1,6 +1,8 @@
 import uuidv4 from "../utils/uuid";
 
-const token = "78617e65fdba543d752fb7f6483d55f4";
+// Separate tokens for different use cases
+export const MIXPANEL_TOKEN_FORGE_USER_BEHAVIOUR = "0c62cea9ed2247f4824bf196f6817941"; //project "Confluence Analytics(new)"
+export const MIXPANEL_TOKEN_FRONTEND = "78617e65fdba543d752fb7f6483d55f4"; //project "ZenUML"
 
 export interface MixpanelTrackPayload {
   action: string;
@@ -9,17 +11,12 @@ export interface MixpanelTrackPayload {
   [key: string]: string | number | boolean | undefined | null;
 }
 
-async function identify(distinctId: string) {
+async function identify(distinctId: string, token: string) {
   const url = "https://api.mixpanel.com/engage#profile-set"
   const payload = [
     {
       "$token": token,
       "$distinct_id": distinctId,
-      // "$set": {
-      //   "$name": "Jane Doe",
-      //   "$email": "jane.doe@example.com",
-      //   "plan": "Premium"
-      // }
     }
   ]
 
@@ -40,11 +37,11 @@ function getDistinctId(event: MixpanelTrackPayload): string {
   return event.user_account_id || event.atlassian_user_id || "unknown_user_account_id";
 }
 
-export async function mixpanelTrack(event: MixpanelTrackPayload) {
+export async function mixpanelTrack(event: MixpanelTrackPayload, token: string) {
   const distinctId = getDistinctId(event);
 
   if (distinctId !== "unknown_user_account_id") {
-    await identify(distinctId);
+    await identify(distinctId, token);
   }
   
   const events = [{

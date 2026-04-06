@@ -1,10 +1,10 @@
 import { OkResponse, response } from "./OkResponse";
-import { mixpanelTrack } from "./service/mixpanelService";
+import { mixpanelTrack, MIXPANEL_TOKEN_FORGE_USER_BEHAVIOUR } from "./service/mixpanelService";
 import { captureError } from "./utils/sentry";
 import { getAuthorizationHeader } from "./utils/requestUtils";
 import { validateContextToken } from "./utils/authenticate";
 import { ForgeUserBehaviorEventBody, mapForgeUserBehaviorEvent } from "./service/forgeUserBehavior";
-import { getForgeInstallationClientDomain } from "./utils/dbUtils";
+import { getAtlassianInstanceClientDomain, getForgeInstallationClientDomain, insertUserBehaviorEvent, upsertAtlassianInstance } from "./utils/dbUtils";
 import { D1Database } from "@cloudflare/workers-types";
 
 interface Env {
@@ -31,18 +31,35 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil })
 
     const forgeContext = await validateContextToken(jwt, allowedForgeAppIds);
     const body = await request.json() as ForgeUserBehaviorEventBody;
-    const clientDomain = await getForgeInstallationClientDomain(
-      env.DB,
-      forgeContext.payload?.app?.id,
-      forgeContext.payload?.context?.cloudId,
-    );
+
+    const cloudId = forgeContext.payload?.context?.cloudId;
+    const siteUrl = forgeContext.payload?.context?.siteUrl;
+
+    // Populate AtlassianInstance from siteUrl when available
+    if (cloudId && siteUrl) {
+      try {
+        const domain = new URL(siteUrl).hostname;
+        if (domain) {
+          waitUntil(upsertAtlassianInstance(env.DB, cloudId, domain));
+        }
+      } catch (e) {
+        console.log('Could not parse siteUrl for AtlassianInstance upsert:', e);
+      }
+    }
+
+    const clientDomain = await getAtlassianInstanceClientDomain(env.DB, cloudId)
+      || await getForgeInstallationClientDomain(env.DB, forgeContext.payload?.app?.id, cloudId);
     const analyticsEvent = mapForgeUserBehaviorEvent(body, forgeContext, { clientDomain });
 
     if (!analyticsEvent) {
       return OkResponse({ ignored: true });
     }
 
-    waitUntil(mixpanelTrack(analyticsEvent));
+    // Store event in D1 for analysis
+    waitUntil(insertUserBehaviorEvent(env.DB, analyticsEvent));
+
+    // Comment out the actual Mixpanel tracking for now to avoid sending data which incur costs during testing. We can enable it once we're ready to track real events.
+    // waitUntil(mixpanelTrack(analyticsEvent, MIXPANEL_TOKEN_FORGE_USER_BEHAVIOUR));
     return OkResponse();
   } catch (error) {
     console.error("Error in forge-user-behavior:", error);

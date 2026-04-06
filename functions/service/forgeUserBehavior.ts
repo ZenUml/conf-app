@@ -28,7 +28,7 @@ export interface ForgeConfluenceContent {
 }
 
 export interface ForgeUserBehaviorEventBody {
-  eventType: "avi:confluence:viewed:page" | "avi:confluence:updated:page";
+  eventType: string;
   atlassianId?: string;
   eventCreatedDate?: string;
   suppressNotifications?: boolean;

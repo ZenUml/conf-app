@@ -1,0 +1,13 @@
+{
+  "name": "cron-aggregate",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "deploy:stg": "wrangler deploy --env stg",
+    "deploy:prod": "wrangler deploy --env production"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260103.0",
+    "wrangler": "^4.14.1"
+  }
+}

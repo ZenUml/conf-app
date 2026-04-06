@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { defineConfig, devices } from '@playwright/test';
-import path from 'path';
+import { AUTH_STATE_PATH } from './config/auth-state.js';
 
 export default defineConfig({
   testDir: './tests',
@@ -13,7 +13,7 @@ export default defineConfig({
   reporter: 'html',
 
   use: {
-    storageState: path.join(__dirname, 'auth-state.json'),
+    storageState: AUTH_STATE_PATH,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

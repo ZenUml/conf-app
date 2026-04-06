@@ -6,6 +6,11 @@ on:
       - '**' # do not run on tags
     branches:
       - '**'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.claude/**'
+      - '.cursor/**'
 
 jobs:
   build:
@@ -31,7 +36,7 @@ jobs:
       - run: pnpm test:unit
   
   staging-lite:
-    name: Lite / Deploy
+    name: "Deploy: Lite"
     uses: ./.github/workflows/staging-deploy.yml
     with:
       variant: lite
@@ -42,7 +47,7 @@ jobs:
 
   staging-lite-test:
     needs: [staging-lite, build]
-    name: Lite - E2E Test on Staging
+    name: "E2E: Lite"
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-lite@stg
@@ -53,7 +58,7 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   staging-full:
-    name: Full / Deploy
+    name: "Deploy: Full"
     uses: ./.github/workflows/staging-deploy.yml
     with:
       variant: full
@@ -64,10 +69,10 @@ jobs:
 
   staging-full-test:
     needs: [staging-full, build]
-    name: Full - E2E Test on Staging
+    name: "E2E: Full"
     uses: ./.github/workflows/e2e-test.yml
     with:
-      app: zenuml-full@stg
+      app: zenuml-full-forge@stg
       artifact-suffix: full-stg
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
@@ -75,7 +80,7 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   staging-diagramly:
-    name: Diagramly / Deploy
+    name: "Deploy: Diagramly"
     uses: ./.github/workflows/staging-deploy.yml
     with:
       variant: diagramly
@@ -86,7 +91,7 @@ jobs:
 
   staging-diagramly-test:
     needs: [staging-diagramly, build]
-    name: Diagramly - E2E Test on Staging
+    name: "E2E: Diagramly"
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: diagramly@stg
@@ -97,7 +102,7 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   draft-release-lite:
-    name: Draft release for the Lite version
+    name: "Draft: Lite"
     # don't run on pull requests to avoid creating draft releases for pull requests
     # only run on the master branch, to avoid cutting releases from feature branches
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
@@ -131,9 +136,7 @@ jobs:
           draft: true
 
   draft-release-full:
-    name: Draft release for the Full version
-    # don't run on pull requests to avoid creating draft releases for pull requests
-    # only run on the master branch, to avoid cutting releases from feature branches
+    name: "Draft: Full"
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
     needs: [staging-full-test]
     runs-on: ubuntu-latest
@@ -142,7 +145,6 @@ jobs:
       pull-requests: write
       repository-projects: write
     steps:
-      # Check out current repository
       - name: Fetch Sources
         uses: actions/checkout@v4
 
@@ -153,7 +155,6 @@ jobs:
           VERSION="$(echo $(date +'%Y.%m.%d%H%M'))"
           echo "version=$VERSION" >> $GITHUB_ENV
 
-      # Create new release draft - which is not publicly visible and requires manual acceptance
       - name: Create Release Draft
         id: createDraft
         uses: ncipollo/release-action@v1
@@ -165,7 +166,7 @@ jobs:
           draft: true
 
   draft-release-diagramly:
-    name: Draft release for the Diagramly version
+    name: "Draft: Diagramly"
     # don't run on pull requests to avoid creating draft releases for pull requests
     # only run on the master branch, to avoid cutting releases from feature branches
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
@@ -197,3 +198,25 @@ jobs:
           name: v${{ env.version }}-diagramly
           body: 'This is a draft release for the Diagramly version of the plugin.'
           draft: true
+
+  deploy-cron-worker:
+    name: "Cron: Deploy"
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts --filter cron-aggregate
+      - name: Deploy cron-aggregate to staging
+        working-directory: workers/cron-aggregate
+        run: npx wrangler deploy --env stg
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

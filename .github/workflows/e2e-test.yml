@@ -27,8 +27,8 @@ on:
 
 jobs:
   test:
-    name: E2E (${{ inputs.app }})
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Setup pnpm

@@ -16,9 +16,11 @@
     "/custom-content",
     "/forge-custom-content",
     "/api/features",
+    "/api/space-status",
     "/api/metrics/evaluation",
     "/forge-installed",
     "/forge-user-behavior",
+    "/aggregate-events",
     "/metrics-cache/query",
     "/metrics-cache/update"
   ],

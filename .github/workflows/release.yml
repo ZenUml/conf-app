@@ -26,8 +26,10 @@ jobs:
         id: properties
         shell: bash
         run: |
-          # extract License from github.event.release.tag_name
-          LICENSE=$(echo ${{ github.event.release.tag_name }} | cut -d'-' -f2)
+          # extract variant from tag: v{TS}-{variant} (e.g. full, lite, diagramly)
+          VARIANT=$(echo ${{ github.event.release.tag_name }} | sed 's/^v[0-9.]*-//')
+          LICENSE="$VARIANT"
+          echo "::set-output name=variant::$VARIANT"
           echo "::set-output name=license::$LICENSE"
           # Map diagramly to lite for Cloudflare project (diagramly uses conf-lite)
           if [ "$LICENSE" = "diagramly" ]; then
@@ -85,3 +87,30 @@ jobs:
           rm -rf dist/drawio
           pnpm forge:deploy:enable-analytics
           pnpm forge:deploy:diagramly:prod
+      - name: Deploy "ZenUML for Confluence Full" to Forge Production
+        if: ${{ steps.properties.outputs.variant == 'full' }}
+        run: |
+          pnpm forge:deploy:enable-analytics
+          pnpm forge:deploy:full:prod
+
+  deploy-cron-worker:
+    name: Deploy Cron Worker to Production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts --filter cron-aggregate
+      - name: Deploy cron-aggregate to production
+        working-directory: workers/cron-aggregate
+        run: npx wrangler deploy --env production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

@@ -74,14 +74,18 @@ jobs:
       - name: Deploy to Forge Staging
         run: |
           pnpm forge:deploy:enable-analytics
-          pnpm forge:deploy:${{ inputs.variant }}:staging
-      - name: Install Lite to Zenuml Staging
+          pnpm forge:deploy:${{ inputs.variant == 'full-forge' && 'full' || inputs.variant }}:staging
+      - name: Install Lite to lite-stg.atlassian.net
         if: inputs.variant == 'lite'
         run: |
           pnpm forge:install:lite:staging
           pnpm forge:upgrade:lite:staging
         continue-on-error: true
-      - name: Install Diagramly to zenuml-stg.atlassian.net
+      - name: Install Full Forge to full-stg.atlassian.net
+        if: inputs.variant == 'full-forge'
+        run: pnpm forge:install:full:staging || pnpm forge:upgrade:full:staging
+        continue-on-error: true
+      - name: Install Diagramly to dia-stg.atlassian.net
         if: inputs.variant == 'diagramly'
         run: pnpm forge:install:diagramly:staging || pnpm forge:upgrade:diagramly:staging
         continue-on-error: true

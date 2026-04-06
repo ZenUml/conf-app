@@ -211,6 +211,18 @@ describe('MacroMetrics', () => {
   });
 
   describe('reportMacroMetrics', () => {
+    it('should return early without collecting metrics in Forge mode', async () => {
+      const forgeGlobal = await import('@/model/globals/forgeGlobal');
+      (forgeGlobal.default as any).isForge = true;
+
+      await macroMetrics.reportMacroMetrics();
+
+      expect(mockApWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
+      expect(callRemote).not.toHaveBeenCalled();
+
+      (forgeGlobal.default as any).isForge = false;
+    });
+
     it('should collect fresh metrics, write to KV, and track event', async () => {
       mockApWrapper.requestAllPaginatedData.mockImplementation((url, consumer) => {
         consumer({

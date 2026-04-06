@@ -11,8 +11,8 @@ export const validateContextToken = async (invocationToken: string, allowedAppId
     const token = await jose.jwtVerify(invocationToken, JWKS);
     
     const tokenAppId = (token as any).payload.app.id.split('/').pop();
-    if (!allowedAppIds.includes(tokenAppId)) {
-      throw new Error(`App ID mismatch: expected ${tokenAppId} to be contained in ${allowedAppIds}`);
+    if (!allowedAppIds.split(',').map(id => id.trim()).includes(tokenAppId)) {
+      throw new Error(`App ID mismatch: expected ${tokenAppId} to be in ${allowedAppIds}`);
     }
     
     const apiBaseUrl = token.payload?.app?.apiBaseUrl || token.payload?.app?.installation?.contexts?.[0]?.apiBaseUrl;
@@ -40,7 +40,7 @@ async function authenticateForgeRequest(jwt, env) {
   const allowedForgeAppIds = env.ALLOWED_FORGE_APP_IDS;
   if (!allowedForgeAppIds) {
     console.error('ALLOWED_FORGE_APP_IDS environment variable is not set');
-    return response({ error: 'Server configuration error: ALLOWED_FORGE_APP_IDS not configured' }, 500);
+    return response(500, 'Server configuration error: ALLOWED_FORGE_APP_IDS not configured');
   }
   console.log('ALLOWED_FORGE_APP_IDS:', allowedForgeAppIds);
 

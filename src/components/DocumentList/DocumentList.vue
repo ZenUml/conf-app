@@ -236,7 +236,7 @@ export default {
     }
 
     try {
-      const atlasPage = new AtlasPage(AP);
+      const atlasPage = new AtlasPage();
       const pages = 'pages/';
       const currentPageUrl = await atlasPage.getHref();
       const pagesIndex = currentPageUrl.indexOf(pages);

@@ -12,15 +12,12 @@ describe('MacroBodyStorageProvider', () => {
   })
 
   test('macro body', async () => {
-    const mockAp = new MockAp('abcd');
-    mockAp.confluence.saveMacro({}, 'A.method')
+    // In Forge-only mode, getMacroBody() always returns undefined.
+    // MacroBodyStorageProvider returns NULL_DIAGRAM (empty diagram).
     const storageProvider = new MacroBodyStorageProvider(new ApWrapper2());
 
     const diagram = await storageProvider.getDiagram('fake-content-id')
-    expect(diagram).toStrictEqual({
-      "code": "A.method",
-      "diagramType": "sequence"
-    });
+    expect(diagram).toStrictEqual(NULL_DIAGRAM);
   })
 
 })

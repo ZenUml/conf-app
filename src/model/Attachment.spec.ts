@@ -142,12 +142,12 @@ describe('Attachment', () => {
     it('should create new attachment when none exists', async () => {
       const mockBlob = new Blob(['test'], { type: 'image/png' });
       vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
-      
+
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
-      mockApRequest.mockResolvedValue({
-        body: JSON.stringify({ results: [{ id: 'attachment-123' }] })
+      mockRequestConfluence.mockResolvedValue({
+        text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'attachment-123' }] }))
       });
-      mockConnectRequest.mockResolvedValue({});
+      mockForgeRequest.mockResolvedValue({});
 
       await createAttachmentIfContentChanged('test content');
 
@@ -172,14 +172,16 @@ describe('Attachment', () => {
         .mockResolvedValueOnce([existingAttachment]) // tryGetAttachment in uploadNewVersionOfAttachment
         .mockResolvedValueOnce([]); // getAttachmentsV2 in uploadAttachment2
       
-      mockApRequest.mockResolvedValue({ body: 'success' });
-      mockConnectRequest.mockResolvedValue({});
+      mockRequestConfluence.mockResolvedValue({
+        text: vi.fn().mockResolvedValue('success')
+      });
+      mockForgeRequest.mockResolvedValue({});
 
       await createAttachmentIfContentChanged('new content'); // md5('new content') !== 'hash-old-content'
 
       expect(md5).toHaveBeenCalledWith('new content');
       expect(mockTrackEvent).toHaveBeenCalledWith('version:3', 'upload_attachment', 'export');
-      expect(mockConnectRequest).toHaveBeenCalled(); // updateAttachmentProperties
+      expect(mockForgeRequest).toHaveBeenCalled(); // updateAttachmentProperties
     });
 
     it('should skip upload when content hash matches existing attachment', async () => {
@@ -197,8 +199,8 @@ describe('Attachment', () => {
       await createAttachmentIfContentChanged('test content'); // md5('test content') === existingAttachment.comment
 
       // Should not make any upload requests since hash matches
-      expect(mockApRequest).not.toHaveBeenCalled();
-      expect(mockConnectRequest).not.toHaveBeenCalled();
+      expect(mockRequestConfluence).not.toHaveBeenCalled();
+      expect(mockForgeRequest).not.toHaveBeenCalled();
       // Should not call toPng either
       expect(htmlToImage.toBlob).not.toHaveBeenCalled();
     });
@@ -208,10 +210,10 @@ describe('Attachment', () => {
       vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
       
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
-      mockApRequest.mockResolvedValue({
-        body: JSON.stringify({ results: [{ id: 'attachment-123' }] })
+      mockRequestConfluence.mockResolvedValue({
+        text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'attachment-123' }] }))
       });
-      mockConnectRequest.mockResolvedValue({});
+      mockForgeRequest.mockResolvedValue({});
 
       // Set flag to simulate concurrent execution
       (window as any).createAttachmentInProgress = true;
@@ -220,7 +222,7 @@ describe('Attachment', () => {
 
       // Should not make any requests
       expect(mockApWrapper._getCurrentPageId).not.toHaveBeenCalled();
-      expect(mockApRequest).not.toHaveBeenCalled();
+      expect(mockRequestConfluence).not.toHaveBeenCalled();
     });
 
     it('should handle errors gracefully', async () => {
@@ -287,10 +289,10 @@ describe('Attachment', () => {
 
       // Set up mocks for the attachment creation flow
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
-      mockApRequest.mockResolvedValue({
-        body: JSON.stringify({ results: [{ id: 'attachment-123' }] })
+      mockRequestConfluence.mockResolvedValue({
+        text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'attachment-123' }] }))
       });
-      mockConnectRequest.mockResolvedValue({});
+      mockForgeRequest.mockResolvedValue({});
 
       // Start the function which will wait for the iframe message
       const pngPromise = createAttachmentIfContentChanged('test content');
@@ -329,10 +331,10 @@ describe('Attachment', () => {
 
       // Test through createAttachmentIfContentChanged which calls toPng
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
-      mockApRequest.mockResolvedValue({
-        body: JSON.stringify({ results: [{ id: 'attachment-123' }] })
+      mockRequestConfluence.mockResolvedValue({
+        text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'attachment-123' }] }))
       });
-      mockConnectRequest.mockResolvedValue({});
+      mockForgeRequest.mockResolvedValue({});
 
       await createAttachmentIfContentChanged('test content');
 

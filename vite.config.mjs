@@ -3,7 +3,6 @@ import { defineConfig } from 'vite';
 import createVuePlugin from '@vitejs/plugin-vue';
 import { execSync } from "child_process";
 import fs from 'fs'
-import { createFilter } from '@rollup/pluginutils';
 import copy from 'rollup-plugin-copy'
 import { visualizer } from 'rollup-plugin-visualizer'
 import { fileURLToPath } from 'url';
@@ -12,7 +11,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 
-const filter = createFilter(['./drawio/**/*']);
 console.log(process.env.NODE_ENV)
 process.env.VITE_APP_GIT_HASH = execSync('git rev-parse --short HEAD').toString().trim()
 process.env.VITE_APP_GIT_BRANCH = execSync('git branch --show-current').toString().trim()
@@ -42,39 +40,7 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      input: getHtmlFiles('./').concat(getHtmlFiles('./drawio')),
-      output: {
-        // TODO: improve the strategy
-        manualChunks(id) {
-          if (!filter(id)) {
-            return; // 跳过 ./drawio 下的文件
-          }
-
-          if ((id.includes('node_modules') && id.includes('swagger'))) {
-            return 'swagger'
-          }
-
-          if (id.includes('mermaid')) {
-            return 'mermaid'
-          }
-
-          if (id.includes('lodash')) {
-            return 'lodash'
-          }
-
-          if (id.includes('mixpanel')) {
-            return 'mixpanel'
-          }
-
-          if (id.includes('codemirror')) {
-            return 'codemirror'
-          }
-
-          if (id.includes('@zenuml/core')) {
-            return '@zenuml/core'
-          }
-        }
-      }
+      input: getHtmlFiles('./')
     },
 
     emptyOutDir: true,

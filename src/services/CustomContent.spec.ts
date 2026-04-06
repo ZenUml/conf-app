@@ -45,7 +45,7 @@ describe('syncCustomContent', () => {
 
     await syncCustomContent({ id: 'content-2' }, DiagramType.Graph, 'macro-2');
 
-    expect(callRemote).toHaveBeenCalledWith('/custom-content', 'POST', {
+    expect(callRemote).toHaveBeenCalledWith('/forge-custom-content', 'POST', {
       clientDomain: 'another-domain',
       addonKey: 'test-addon',
       contentId: 'content-2',

@@ -13,6 +13,12 @@ vi.mock('@/utils/requestUtil', () => ({
   callRemote: vi.fn()
 }));
 
+vi.mock('@/model/globals/forgeGlobal', () => ({
+  default: {
+    isForge: false,
+  },
+}));
+
 describe('MacroMetrics', () => {
   const mockSpace = 'TEST-SPACE';
   const mockDomain = 'test-domain';

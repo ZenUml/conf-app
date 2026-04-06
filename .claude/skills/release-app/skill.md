@@ -66,9 +66,9 @@ All must pass before draft releases are created.
 
 For each variant being released, run the confluence smoke test skill:
 
-- **Lite**: `/confluence-smoke-test on zenuml-stg lite`
-- **Full**: `/confluence-smoke-test on zenuml-stg full`
-- **Diagramly**: `/confluence-smoke-test on zenuml-stg diagramly`
+- **Lite**: `/smoke-test on zenuml-stg lite`
+- **Full**: `/smoke-test on zenuml-stg full`
+- **Diagramly**: `/smoke-test on zenuml-stg diagramly`
 
 Test all macros (Diagram/ZenUML+PlantUML, Graph/DrawIO, OpenAPI/Swagger) as defined in the smoke test skill.
 
@@ -98,9 +98,9 @@ If releasing multiple variants, publish them one at a time and wait for each Rel
 
 For each variant released, run the production smoke test:
 
-- **Lite**: `/confluence-smoke-test on zenuml lite`
-- **Full**: `/confluence-smoke-test on zenuml full`
-- **Diagramly**: `/confluence-smoke-test on zenuml diagramly`
+- **Lite**: `/smoke-test on zenuml lite`
+- **Full**: `/smoke-test on zenuml full`
+- **Diagramly**: `/smoke-test on zenuml diagramly`
 
 Test all macros. Report results to the user.
 

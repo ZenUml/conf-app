@@ -126,6 +126,20 @@ git push origin <branch-name>
 
 The only exception is trivial config/doc changes when the user explicitly says to push to master.
 
+## Browser Automation and Forge Iframes
+
+Forge Custom UI apps render inside **sandboxed cross-origin iframes** (OOPIFs). Only Playwright can reliably access content inside them.
+
+| Tool | Forge iframe access | Notes |
+|------|---------------------|-------|
+| **Playwright** | ✅ Yes | Use `frameLocator()` |
+| **chrome-devtools-mcp** | ❌ No | Feature not implemented ([issue #703](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/703)) |
+| **browser-use** | ❌ No | `cross_origin_iframes` flag exists but fix was reverted |
+| **agent-browser** | ❌ No | Built on browser-use, same limitation |
+| **claude-in-chrome** | ❌ No | Cannot cross origin iframe boundary |
+
+Always use Playwright for E2E tests that interact with Forge app UI.
+
 ## E2E Test Principles
 
 ### Fail Fast

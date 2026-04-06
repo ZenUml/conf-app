@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Metrics Inspector</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #f5f5f5; color: #1a1a1a; line-height: 1.5; }
+    .container { max-width: 960px; margin: 0 auto; padding: 24px; }
+    h1 { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+    .subtitle { color: #666; font-size: 14px; margin-bottom: 24px; }
+    .card { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+    .card h2 { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group label { font-size: 13px; font-weight: 500; color: #555; }
+    .form-group input { padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+    .form-group input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+    button { padding: 8px 16px; border: none; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.15s; }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 8px 10px; border-bottom: 2px solid #e5e5e5; font-weight: 600; color: #555; white-space: nowrap; }
+    td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; }
+    tr:hover td { background: #fafafa; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 500; }
+    .badge.ok { background: #dcfce7; color: #16a34a; }
+    .badge.stale { background: #fef3c7; color: #d97706; }
+    .badge.no_data { background: #fee2e2; color: #dc2626; }
+    .empty-state { text-align: center; padding: 40px 20px; color: #999; }
+    .mono { font-family: monospace; font-size: 12px; }
+    .diagnosis { background: #f8f9fa; border: 1px solid #e5e5e5; border-radius: 6px; padding: 12px; margin-top: 12px; font-size: 13px; }
+    .diagnosis dt { font-weight: 600; color: #555; display: inline; }
+    .diagnosis dd { display: inline; margin: 0 16px 0 4px; }
+    .form-actions { display: flex; gap: 8px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Metrics Inspector</h1>
+    <p class="subtitle">Inspect MacroMetrics KV cache — diagnose missing or stale data</p>
+
+    <div class="card">
+      <h2>Query</h2>
+      <form id="queryForm" onsubmit="inspect(event)">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="domain">Domain</label>
+            <input type="text" id="domain" required placeholder="example.atlassian.net">
+          </div>
+          <div class="form-group">
+            <label for="space">Space (optional)</label>
+            <input type="text" id="space" placeholder="Leave empty to list all spaces">
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">Inspect</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="results"></div>
+  </div>
+
+  <script>
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str || '';
+      return div.innerHTML;
+    }
+
+    function statusBadge(status) {
+      return `<span class="badge ${status}">${status}</span>`;
+    }
+
+    function formatAge(hours) {
+      if (hours === null || hours === undefined) return '-';
+      if (hours < 1) return `${Math.round(hours * 60)}m ago`;
+      if (hours < 48) return `${Math.round(hours)}h ago`;
+      return `${Math.round(hours / 24)}d ago`;
+    }
+
+    function renderMetricsTable(data) {
+      if (!data) return '<p class="empty-state">No data</p>';
+      const fields = ['sequence', 'graph', 'mermaid', 'openapi', 'plantuml', 'unknown', 'total'];
+      return `
+        <div class="table-wrap">
+          <table>
+            <thead><tr>${fields.map(f => `<th>${f}</th>`).join('')}</tr></thead>
+            <tbody><tr>${fields.map(f => `<td>${data[f] ?? '-'}</td>`).join('')}</tr></tbody>
+          </table>
+        </div>`;
+    }
+
+    function renderDiagnosis(d) {
+      return `
+        <div class="diagnosis">
+          <dl>
+            <dt>KV Key:</dt><dd class="mono">${escapeHtml(d.kvKey)}</dd>
+            <dt>KV Has Data:</dt><dd>${d.kvHasData ? 'Yes' : 'No'}</dd>
+            ${d.spaceFound !== undefined ? `<dt>Space Found:</dt><dd>${d.spaceFound ? 'Yes' : 'No'}</dd>` : ''}
+            ${d.lastUpdated ? `<dt>Last Updated:</dt><dd>${escapeHtml(d.lastUpdated)} (${formatAge(d.ageHours)})</dd>` : ''}
+            <dt>Available Spaces:</dt><dd>${d.domainSpaces.length > 0 ? escapeHtml(d.domainSpaces.join(', ')) : 'None'}</dd>
+            <dt>Stale Threshold:</dt><dd>${d.staleThresholdHours}h</dd>
+          </dl>
+        </div>`;
+    }
+
+    function renderSpaceResult(body) {
+      return `
+        <div class="card">
+          <h2>Result ${statusBadge(body.status)}</h2>
+          ${renderMetricsTable(body.data)}
+          ${renderDiagnosis(body.diagnosis)}
+        </div>`;
+    }
+
+    function renderDomainResult(body) {
+      if (body.status === 'no_data') {
+        return `
+          <div class="card">
+            <h2>Result ${statusBadge('no_data')}</h2>
+            <p class="empty-state">No metrics data for this domain</p>
+            ${renderDiagnosis(body.diagnosis)}
+          </div>`;
+      }
+      let html = `<div class="card"><h2>All Spaces</h2>${renderDiagnosis(body.diagnosis)}`;
+      for (const [spaceKey, spaceResult] of Object.entries(body.spaces)) {
+        html += `<h3 style="margin-top:16px">${escapeHtml(spaceKey)} ${statusBadge(spaceResult.status)}</h3>`;
+        html += renderMetricsTable(spaceResult.data);
+      }
+      html += '</div>';
+      return html;
+    }
+
+    async function inspect(e) {
+      e.preventDefault();
+      const domain = document.getElementById('domain').value.trim();
+      const space = document.getElementById('space').value.trim();
+      const resultsEl = document.getElementById('results');
+
+      const params = new URLSearchParams({ domain });
+      if (space) params.set('space', space);
+
+      resultsEl.innerHTML = '<div class="card"><p class="empty-state">Loading...</p></div>';
+
+      try {
+        const res = await fetch(`/metrics-cache/inspect?${params}`);
+        const body = await res.json();
+
+        if (!res.ok) {
+          resultsEl.innerHTML = `<div class="card"><p class="empty-state" style="color:#dc2626">${escapeHtml(body.error || 'Request failed')}</p></div>`;
+          return;
+        }
+
+        resultsEl.innerHTML = space ? renderSpaceResult(body) : renderDomainResult(body);
+      } catch (err) {
+        resultsEl.innerHTML = `<div class="card"><p class="empty-state" style="color:#dc2626">${escapeHtml(err.message)}</p></div>`;
+      }
+    }
+  </script>
+</body>
+</html>

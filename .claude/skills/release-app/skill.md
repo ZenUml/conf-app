@@ -2,8 +2,8 @@
 name: release-app
 description: >
   Release ZenUML Forge apps (lite, full, and/or diagramly) to production via the full CI/CD pipeline.
-  Triggers the build workflow by pushing a changelog to master, waits for draft releases, runs
-  staging smoke tests, publishes releases to production, and verifies with production smoke tests.
+  Triggers the build workflow by pushing a changelog to master, waits for draft releases,
+  publishes releases to production, and verifies with production smoke tests.
   Use when the user wants to release, deploy, ship, or push the lite, full, or diagramly Forge app to
   production. Triggers on "release lite", "release full", "release diagramly", "deploy to prod",
   "ship forge app", "push to production", "release forge app", "release app", or any request to
@@ -62,21 +62,9 @@ The workflow runs these jobs on master:
 
 All must pass before draft releases are created.
 
-### Step 3: Smoke Test on Staging
+### Step 3: Publish the Draft Release
 
-For each variant being released, run the confluence smoke test skill:
-
-- **Lite**: `/smoke-test on zenuml-stg lite`
-- **Full**: `/smoke-test on zenuml-stg full`
-- **Diagramly**: `/smoke-test on zenuml-stg diagramly`
-
-Test all macros (Diagram/ZenUML+PlantUML, Graph/DrawIO, OpenAPI/Swagger) as defined in the smoke test skill.
-
-**If any smoke test fails**: Stop and report to the user. Do not proceed to production release.
-
-### Step 4: Publish the Draft Release
-
-For each variant that passed staging smoke tests:
+For each variant being released:
 
 1. Find the draft release: `gh release list --exclude-drafts=false | grep "Draft"` and look for the tag matching `v{version}-{variant}`
 2. Publish it: `gh release edit <tag> --draft=false`
@@ -86,13 +74,13 @@ For each variant that passed staging smoke tests:
 
 If releasing multiple variants, publish them one at a time and wait for each Release workflow to complete before publishing the next.
 
-### Step 5: Wait for Release Workflow
+### Step 4: Wait for Release Workflow
 
 1. The Release workflow triggers automatically when the draft release is published
 2. Monitor with `gh run list --workflow=release.yml -L 1` then `gh run watch <run-id>`
 3. Verify it succeeded — if it failed, report and stop
 
-### Step 6: Smoke Test on Production (MANDATORY)
+### Step 5: Smoke Test on Production (MANDATORY)
 
 **This step is NOT optional. Always run it immediately after the release workflow succeeds. Do NOT ask the user whether to run it — just do it.**
 
@@ -104,19 +92,17 @@ For each variant released, run the production smoke test:
 
 Test all macros. Report results to the user.
 
-### Step 7: Report
+### Step 6: Report
 
 Summarize the release:
 - Variants released
 - Release tags published
-- Staging smoke test results
 - Production smoke test results
 - Any issues encountered
 
 ## Error Handling
 
 - **Build workflow fails**: Report which job failed, link to the run, stop
-- **Staging smoke test fails**: Report which macros failed, do not proceed to production
 - **Release workflow fails**: Report the failure, link to the run — the draft release was already published so the user may need to investigate manually
 - **Production smoke test fails**: Report which macros failed — this is a post-deploy issue that needs immediate attention
 

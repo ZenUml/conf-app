@@ -3,19 +3,18 @@ import { decode } from '../utils/atlassian';
 import { getInstallationData } from '../utils/installationUtils';
 import { validateContextToken } from '../utils/authenticate';
 import { captureError } from '../utils/sentry';
+import type { SpaceLicenseRecord } from './space-license';
 
 interface Env {
   confluence_plugin_installations: KVNamespace;
+  SPACE_LICENSE_KV: KVNamespace;
   ALLOWED_FORGE_APP_IDS?: string;
   FORGE_CONTEXT?: any;
 }
 
 interface SpaceStatusResponse {
   isPaid: boolean;
-  licenseStatus?: string;
-  accountType?: string;
-  appKey?: string;
-  source?: 'lic_param' | 'api_call' | 'forge_context';
+  source?: 'space_license';
 }
 
 /** Forge invokeRemote requires valid JSON + application/json for every status (incl. errors). */
@@ -47,7 +46,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   }
 
   try {
-    // Check if this is a Forge request
     const isForge = request.headers.get('x-forge-oauth-user');
     const jwt = getAuthorizationHeader(request);
 
@@ -59,10 +57,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
     }
 
-    let spaceStatus: SpaceStatusResponse;
+    let cloudId: string | undefined;
+    let spaceKey: string | undefined;
+
+    const url = new URL(request.url);
 
     if (isForge) {
-      // Handle Forge requests
+      // Forge: validate JWT and extract cloudId from token, spaceKey from query param
       const allowedForgeAppIds = env.ALLOWED_FORGE_APP_IDS;
       if (!allowedForgeAppIds) {
         console.error('ALLOWED_FORGE_APP_IDS environment variable is not set');
@@ -74,49 +75,59 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
 
       const payload = await validateContextToken(jwt, allowedForgeAppIds);
-
-      // Check accountType from Forge context
-      // According to Atlassian docs, 'licensed' means the app is paid for this instance
-      const accountType = payload?.payload?.context?.accountType;
-      const isPaid = accountType === 'licensed';
-
-      spaceStatus = {
-        isPaid,
-        accountType,
-        source: 'forge_context'
-      };
-
-      console.log('Forge space status check:', spaceStatus);
+      cloudId = payload?.payload?.context?.cloudId;
+      spaceKey = url.searchParams.get('spaceKey') || undefined;
     } else {
-      // Handle Connect requests
+      // Connect: validate JWT, extract clientKey (=cloudId) from JWT, spaceKey from query param
       const installationData = await getInstallationData(env, request);
       decode(jwt, (installationData as any).sharedSecret);
 
-      // Get the 'lic' parameter from the request URL
-      const url = new URL(request.url);
-      const licParam = url.searchParams.get('lic');
-
-      // According to Atlassian documentation:
-      // 'active' means the license is valid and paid for this instance
-      // 'evaluation' means it's in trial period
-      // other values indicate invalid or expired licenses
-      const isPaid = licParam === 'active';
-
-      spaceStatus = {
-        isPaid,
-        licenseStatus: licParam || 'unknown',
-        appKey: (installationData as any)?.key,
-        source: 'lic_param'
-      };
-
-      console.log('Connect space status check:', spaceStatus);
-
-      // Optional: Make API call to get more detailed license info
-      // This requires making a request to /rest/atlassian-connect/1/addons/{app-key}
-      // from the Confluence instance, which would need additional implementation
+      // In Connect mode, clientKey from JWT iss is the cloud identifier
+      // Frontend can also pass cloudId explicitly as a query param
+      cloudId = url.searchParams.get('cloudId') || (installationData as any)?.clientKey || undefined;
+      spaceKey = url.searchParams.get('spaceKey') || undefined;
     }
 
-    return jsonResponse(200, spaceStatus, 'short');
+    if (!cloudId || !spaceKey) {
+      console.log('space-status: missing cloudId or spaceKey', { cloudId, spaceKey });
+      return jsonResponse(200, { isPaid: false }, 'short');
+    }
+
+    // KV-only license check — no fallback to Atlassian lic param or Forge accountType
+    if (!env.SPACE_LICENSE_KV) {
+      console.error('SPACE_LICENSE_KV binding not configured');
+      return jsonResponse(200, { isPaid: false }, 'short');
+    }
+
+    const key = `license:${cloudId}:${spaceKey}`;
+    const raw = await env.SPACE_LICENSE_KV.get(key);
+
+    if (!raw) {
+      console.log('space-status: no license found for', key);
+      return jsonResponse(200, { isPaid: false }, 'short');
+    }
+
+    const record = JSON.parse(raw) as SpaceLicenseRecord;
+
+    // Check active status and expiry
+    const isActive = record.status === 'active';
+    const isExpired = new Date(record.expiresAt) < new Date();
+    const isPaid = isActive && !isExpired;
+
+    console.log('space-status: license check', {
+      key,
+      status: record.status,
+      expiresAt: record.expiresAt,
+      isActive,
+      isExpired,
+      isPaid,
+    });
+
+    if (isPaid) {
+      return jsonResponse(200, { isPaid: true, source: 'space_license' }, 'short');
+    }
+
+    return jsonResponse(200, { isPaid: false }, 'short');
   } catch (error) {
     console.error('Error checking space status:', error);
     captureError(error);

@@ -5,4 +5,4 @@ auth-state.json
 .api-lock
 test-pages.json
 smoke-test-result-*.png
-.env
+.envauth-state-*.json

@@ -5,7 +5,6 @@ import macroMetrics from "@/services/MacroMetrics"
 import { getClientDomain } from "@/utils/ContextParameters/ContextParameters"
 import globals from '@/model/globals'
 import { callRemote } from '@/utils/requestUtil'
-import { getUrlParam } from '@/utils/window'
 
 // Constants that both components use
 export const MACROS_LIMIT = 100
@@ -156,7 +155,8 @@ export function useCustomerSuccessService() {
       // Get spaceKey from the page context to pass to the KV-based license check
       let spaceKey = ''
       try {
-        spaceKey = await globals.apWrapper.page?.getSpaceKey() || ''
+        const space = await globals.apWrapper.getCurrentSpace()
+        spaceKey = space?.key || ''
       } catch (e) {
         console.warn('Could not get spaceKey from page context:', e)
       }

@@ -1,7 +1,7 @@
 import {trackEvent} from "./utils/zaraz";
 import {KVEnv} from "./utils/KVEnv";
 import {checkWhiteList} from "./utils/white-list";
-import { isLite } from './descriptor.js';
+import { isLite } from './utils/appUtils';
 
 export const onRequestGet: PagesFunction = async (params) => {
   const {searchParams} = new URL(params.request.url);

@@ -64,7 +64,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     parentPageId: '177176629',
     parentPageName: 'Before release test pages',
     isLite: false,
-    isForge: false,
+    isForge: true,
     macros: ALL_MACROS,
     renderMacros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon',

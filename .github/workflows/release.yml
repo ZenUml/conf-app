@@ -76,6 +76,11 @@ jobs:
         run: |
           pnpm forge:deploy:enable-analytics
           pnpm forge:deploy:lite:prod
+      - name: Deploy "ZenUML for Confluence Full" to Forge Production
+        if: ${{ steps.properties.outputs.license == 'full' }}
+        run: |
+          pnpm forge:deploy:enable-analytics
+          pnpm forge:deploy:full:prod
       - name: Deploy "Diagramly for Confluence" to Forge Production
         if: ${{ steps.properties.outputs.license == 'diagramly' }}
         run: |

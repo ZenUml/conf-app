@@ -2,8 +2,6 @@
   "version": 1,
   "include": [
     "/attachment",
-    "/descriptor",
-    "/installed",
     "/uninstalled",
     "/track",
     "/diagramly/generate",
@@ -13,7 +11,6 @@
     "/diagram-likes/query",
     "/diagram-likes/toggle",
     "/diagram-likes/user-likes",
-    "/custom-content",
     "/forge-custom-content",
     "/api/features",
     "/api/space-status",
@@ -23,7 +20,8 @@
     "/forge-user-behavior",
     "/aggregate-events",
     "/metrics-cache/query",
-    "/metrics-cache/update"
+    "/metrics-cache/update",
+    "/admin/metrics-inspect"
   ],
   "exclude": []
 }

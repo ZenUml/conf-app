@@ -3,7 +3,6 @@ import { getDiagramConfig } from "@/model/Diagram/DiagramTypeConfig";
 import globals from "@/model/globals";
 import { trackEvent } from "@/utils/window";
 import ApWrapper2 from "@/model/ApWrapper2";
-import forgeGlobal from '@/model/globals/forgeGlobal';
 import { getClientDomain } from "@/utils/ContextParameters/ContextParameters";
 import { callRemote } from "@/utils/requestUtil";
 
@@ -36,10 +35,6 @@ export class MacroMetrics {
 
   // Report Macro Metrics for the Current Space.
   async reportMacroMetrics(): Promise<void> {
-    if(forgeGlobal.isForge) {
-      //TODO: implement Forge metrics reporting
-      return;
-    }
     try {
       const space = (await this.apWrapper.getCurrentSpace()).key;
       const domain = getClientDomain();
@@ -52,11 +47,11 @@ export class MacroMetrics {
         await this.writeToKV(domain, space, metrics);
 
         // Report to analytics
-        console.debug(`Report macro metrics for space ${metrics.space}:`, metrics);
+        console.debug('[metrics:report] success', { space: metrics.space, total: metrics.total });
         this.eventTracker(`${JSON.stringify(metrics)}`, 'report_macro_metrics', 'info');
       }
     } catch (e) {
-      console.error('Error on reportMacroMetrics', e);
+      console.warn('[metrics:report] failed', { error: (e as Error).message });
       this.trackError(e);
     }
   }
@@ -70,11 +65,12 @@ export class MacroMetrics {
       // Read from KV cache
       const cachedMetrics = await this.readFromKV(domain, space);
       if (cachedMetrics) {
-        console.debug(`Using cached metrics for space ${space}`);
+        console.debug('[metrics:kv:read] hit', { domain, space });
         return cachedMetrics;
       }
 
       // KV miss, collect fresh metrics
+      console.debug('[metrics:kv:read] miss', { domain, space });
       const metrics = await this.collectMetrics(space);
       if (metrics) {
         // Write to cache for future reads
@@ -82,7 +78,7 @@ export class MacroMetrics {
       }
       return metrics;
     } catch (e) {
-      console.error('Error on getMacroMetrics', e);
+      console.warn('[metrics:kv:read] failed', { error: (e as Error).message });
       this.trackError(e);
       return undefined;
     }
@@ -102,13 +98,14 @@ export class MacroMetrics {
       const searchUrl = this.buildSearchUrl(space);
       await this.apWrapper.requestAllPaginatedData(searchUrl, consumer);
 
+      console.debug('[metrics:collect] success', { space, total: stats.total });
       return {
         space,
         ...stats,
         isLite: this.apWrapper.isLite()
       };
     } catch (e) {
-      console.error('Error on collectMetrics', e);
+      console.warn('[metrics:collect] failed', { space, error: (e as Error).message });
       this.trackError(e);
     }
   }
@@ -170,7 +167,7 @@ export class MacroMetrics {
       );
       return response;
     } catch (e) {
-      console.debug('KV read failed', e);
+      console.warn('[metrics:kv:read] failed', { error: (e as Error).message });
       return null;
     }
   }
@@ -183,7 +180,7 @@ export class MacroMetrics {
         { domain, space, metrics }
       );
     } catch (e) {
-      console.debug('KV write failed (non-critical)', e);
+      console.warn('[metrics:kv:write] failed', { error: (e as Error).message });
     }
   }
 

@@ -60,8 +60,7 @@ export default defineComponent({
     };
 
     onMounted(() => {
-      if (props.doc?.id) {
-        if (!props.doc.title) return;
+      if (props.doc?.id && props.doc.title) {
         title.value = props.doc.title;
       }
       window.ensureTitle = ensureTitle;

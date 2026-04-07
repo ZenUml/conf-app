@@ -1,8 +1,4 @@
-import {RequestBody} from "../RequestBody";
-
-// You must remember to bind the bucket to EVENT_BUCKET in the pages UI.
-// There is no command line way to do this.
-async function saveToBucket(bucket: any, domain: string, body: RequestBody) {
+async function saveToBucket(bucket: any, domain: string, body: Record<string, any>) {
   if(!bucket) {
     console.warn(`No bucket found for env.EVENT_BUCKET`);
     return;

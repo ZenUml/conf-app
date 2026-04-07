@@ -32,12 +32,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   // Detect edit mode and build event properties
   const editMode = await detectEditMode(apWrapper);
   let isNew;
-  // If in Forge mode, set isNew based on diagram.id existence
-  if (forgeGlobal.isForge) {
-    isNew = !diagram.id;
-  } else {
-    isNew = !macroData?.uuid;
-  }
+  isNew = !diagram.id;
   
   const eventProps: Record<string, any> = {
     // Session tracking (all scenarios)

@@ -5,14 +5,6 @@ vi.mock('../../functions/utils/requestUtils', () => ({
   getAuthorizationHeader: vi.fn(),
 }));
 
-vi.mock('../../functions/utils/atlassian', () => ({
-  decode: vi.fn(),
-}));
-
-vi.mock('../../functions/utils/installationUtils', () => ({
-  getInstallationData: vi.fn(),
-}));
-
 vi.mock('../../functions/utils/authenticate', () => ({
   validateContextToken: vi.fn(),
 }));
@@ -23,8 +15,6 @@ vi.mock('../../functions/utils/sentry', () => ({
 
 import { onRequest } from '../../functions/api/space-status';
 import { getAuthorizationHeader } from '../../functions/utils/requestUtils';
-import { decode } from '../../functions/utils/atlassian';
-import { getInstallationData } from '../../functions/utils/installationUtils';
 import { validateContextToken } from '../../functions/utils/authenticate';
 
 // Mock KV namespace
@@ -76,7 +66,6 @@ describe('space-status API (KV-only)', () => {
   function makeEnv(extra: any = {}) {
     return {
       SPACE_LICENSE_KV: kv as unknown as KVNamespace,
-      confluence_plugin_installations: {} as KVNamespace,
       ALLOWED_FORGE_APP_IDS: 'test-app-id',
       ...extra,
     };
@@ -179,7 +168,7 @@ describe('space-status API (KV-only)', () => {
       kv._set('license:cloud-abc:ENG', {
         cloudId: 'cloud-abc',
         spaceKey: 'ENG',
-        status: 'inactive', // deactivated
+        status: 'inactive',
         activatedBy: 'ops-jane',
         expiresAt: '2099-01-01T00:00:00Z',
         createdAt: '2026-01-01T00:00:00Z',
@@ -234,88 +223,6 @@ describe('space-status API (KV-only)', () => {
       const body = await response.json();
       expect(body.isPaid).toBe(false);
     });
-  });
-
-  describe('Connect mode', () => {
-    it('returns isPaid: true for active non-expired license using clientKey as cloudId', async () => {
-      (getAuthorizationHeader as any).mockReturnValue('connect-jwt');
-      (getInstallationData as any).mockResolvedValue({
-        sharedSecret: 'secret',
-        clientKey: 'cloud-xyz',
-      });
-      (decode as any).mockReturnValue({});
-
-      kv._set('license:cloud-xyz:SALES', {
-        cloudId: 'cloud-xyz',
-        spaceKey: 'SALES',
-        status: 'active',
-        activatedBy: 'ops-bob',
-        expiresAt: '2099-01-01T00:00:00Z',
-        createdAt: '2026-01-01T00:00:00Z',
-        updatedAt: '2026-01-01T00:00:00Z',
-      });
-
-      const ctx = createMockContext({
-        url: 'https://example.com/api/space-status?spaceKey=SALES&xdm_e=https://test.atlassian.net/wiki&addonKey=test-addon',
-        env: makeEnv(),
-      });
-
-      const response = await onRequest(ctx);
-      const body = await response.json();
-      expect(body.isPaid).toBe(true);
-      expect(body.source).toBe('space_license');
-    });
-
-    it('uses explicit cloudId query param over clientKey', async () => {
-      (getAuthorizationHeader as any).mockReturnValue('connect-jwt');
-      (getInstallationData as any).mockResolvedValue({
-        sharedSecret: 'secret',
-        clientKey: 'client-key-123',
-      });
-      (decode as any).mockReturnValue({});
-
-      kv._set('license:explicit-cloud:SALES', {
-        cloudId: 'explicit-cloud',
-        spaceKey: 'SALES',
-        status: 'active',
-        activatedBy: 'ops-bob',
-        expiresAt: '2099-01-01T00:00:00Z',
-        createdAt: '2026-01-01T00:00:00Z',
-        updatedAt: '2026-01-01T00:00:00Z',
-      });
-
-      const ctx = createMockContext({
-        url: 'https://example.com/api/space-status?spaceKey=SALES&cloudId=explicit-cloud&xdm_e=https://test.atlassian.net/wiki&addonKey=test-addon',
-        env: makeEnv(),
-      });
-
-      const response = await onRequest(ctx);
-      const body = await response.json();
-      expect(body.isPaid).toBe(true);
-    });
-  });
-
-  describe('no Atlassian fallback', () => {
-    it('does NOT use lic param even when present — KV only', async () => {
-      (getAuthorizationHeader as any).mockReturnValue('connect-jwt');
-      (getInstallationData as any).mockResolvedValue({
-        sharedSecret: 'secret',
-        clientKey: 'cloud-nolicense',
-      });
-      (decode as any).mockReturnValue({});
-
-      // lic=active is in URL but no KV record exists — should still return isPaid: false
-      const ctx = createMockContext({
-        url: 'https://example.com/api/space-status?spaceKey=ENG&lic=active&xdm_e=https://test.atlassian.net/wiki&addonKey=test-addon',
-        env: makeEnv(),
-      });
-
-      const response = await onRequest(ctx);
-      const body = await response.json();
-      expect(body.isPaid).toBe(false);
-      // Verify no 'lic_param' source — KV-only
-      expect(body.source).toBeUndefined();
-    });
 
     it('does NOT use Forge accountType — KV only', async () => {
       (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
@@ -323,7 +230,7 @@ describe('space-status API (KV-only)', () => {
         payload: {
           context: {
             cloudId: 'cloud-norecord',
-            accountType: 'licensed', // This should be IGNORED
+            accountType: 'licensed', // should be IGNORED — KV only
           },
         },
       });

@@ -34,7 +34,7 @@ export const onRequest = async ({ request, env }) => {
     return OkResponse();
   } catch (error) {
     console.error('Error in forge-custom-content:', error);
-    return response({ error: 'Internal server error' }, 500);
+    return response(500, 'Internal server error');
   }
 };
 

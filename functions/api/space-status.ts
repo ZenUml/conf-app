@@ -1,12 +1,9 @@
 import { getAuthorizationHeader } from '../utils/requestUtils';
-import { decode } from '../utils/atlassian';
-import { getInstallationData } from '../utils/installationUtils';
 import { validateContextToken } from '../utils/authenticate';
 import { captureError } from '../utils/sentry';
 import type { SpaceLicenseRecord } from './space-license';
 
 interface Env {
-  confluence_plugin_installations: KVNamespace;
   SPACE_LICENSE_KV: KVNamespace;
   ALLOWED_FORGE_APP_IDS?: string;
   FORGE_CONTEXT?: any;
@@ -46,7 +43,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   }
 
   try {
-    const isForge = request.headers.get('x-forge-oauth-user');
     const jwt = getAuthorizationHeader(request);
 
     if (!jwt) {
@@ -57,43 +53,27 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
     }
 
-    let cloudId: string | undefined;
-    let spaceKey: string | undefined;
+    const allowedForgeAppIds = env.ALLOWED_FORGE_APP_IDS;
+    if (!allowedForgeAppIds) {
+      console.error('ALLOWED_FORGE_APP_IDS environment variable is not set');
+      return jsonResponse(500, {
+        isPaid: false,
+        error: 'server_configuration',
+        message: 'ALLOWED_FORGE_APP_IDS not configured',
+      });
+    }
 
     const url = new URL(request.url);
-
-    if (isForge) {
-      // Forge: validate JWT and extract cloudId from token, spaceKey from query param
-      const allowedForgeAppIds = env.ALLOWED_FORGE_APP_IDS;
-      if (!allowedForgeAppIds) {
-        console.error('ALLOWED_FORGE_APP_IDS environment variable is not set');
-        return jsonResponse(500, {
-          isPaid: false,
-          error: 'server_configuration',
-          message: 'ALLOWED_FORGE_APP_IDS not configured',
-        });
-      }
-
-      const payload = await validateContextToken(jwt, allowedForgeAppIds);
-      cloudId = payload?.payload?.context?.cloudId;
-      spaceKey = url.searchParams.get('spaceKey') || undefined;
-    } else {
-      // Connect: validate JWT, extract clientKey (=cloudId) from JWT, spaceKey from query param
-      const installationData = await getInstallationData(env, request);
-      decode(jwt, (installationData as any).sharedSecret);
-
-      // In Connect mode, clientKey from JWT iss is the cloud identifier
-      // Frontend can also pass cloudId explicitly as a query param
-      cloudId = url.searchParams.get('cloudId') || (installationData as any)?.clientKey || undefined;
-      spaceKey = url.searchParams.get('spaceKey') || undefined;
-    }
+    const payload = await validateContextToken(jwt, allowedForgeAppIds);
+    const cloudId = payload?.payload?.context?.cloudId;
+    const spaceKey = url.searchParams.get('spaceKey') || undefined;
 
     if (!cloudId || !spaceKey) {
       console.log('space-status: missing cloudId or spaceKey', { cloudId, spaceKey });
       return jsonResponse(200, { isPaid: false }, 'short');
     }
 
-    // KV-only license check — no fallback to Atlassian lic param or Forge accountType
+    // KV-only license check
     if (!env.SPACE_LICENSE_KV) {
       console.error('SPACE_LICENSE_KV binding not configured');
       return jsonResponse(200, { isPaid: false }, 'short');
@@ -109,7 +89,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const record = JSON.parse(raw) as SpaceLicenseRecord;
 
-    // Check active status and expiry
     const isActive = record.status === 'active';
     const isExpired = new Date(record.expiresAt) < new Date();
     const isPaid = isActive && !isExpired;

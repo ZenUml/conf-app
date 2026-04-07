@@ -1,4 +1,4 @@
-import MockAp from '@/model/MockAp'
+import { vi } from 'vitest';
 import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
 import ApWrapper2 from "@/model/ApWrapper2";
 import TestHelper from '../../../tests/unit/TestHelper';
@@ -6,31 +6,26 @@ import globals from '@/model/globals';
 
 global.fetch = () => Promise.resolve(new Response("mock fetch success"));
 
+vi.mock('@/utils/requestUtil', () => ({
+  forgeRequest: vi.fn().mockRejectedValue(new Error('not found')),
+  loadAllPaginatedData: vi.fn(),
+}));
 
 describe('CompositeContentProvider', () => {
-  test('should fallback to content property when no custom content id is provided', async () => {
-    const mockAp = new MockAp('contentId');
-    mockAp.request = () => {
-      throw Error('custom content or content property not found')
-    }
-    mockAp.confluence.setContentProperty({key: 'key', version: {number: 1}, value: 'abcd'}, () => {})
-    mockAp.confluence.saveMacro({uuid: 'uuid'}, 'body')
-
-    const contentProvider = defaultContentProvider(new ApWrapper2(mockAp));
+  test('should return NULL_DIAGRAM when no custom content id is provided (Forge-only: no Connect fallback)', async () => {
+    // In Forge-only mode: getMacroData returns no customContentId,
+    // getContentProperty and getMacroBody both return undefined.
+    // The composite chain returns NULL_DIAGRAM.
+    const contentProvider = defaultContentProvider(new ApWrapper2());
     const {doc} = (await contentProvider.load());
-    expect(doc.code).toBe('abcd');
+    expect(doc.code).toBe('');
   })
 
-  test('should fallback to macro body when content property fails', async () => {
-    const mockAp = new MockAp('contentId');
-    mockAp.request = () => {
-      throw Error('custom content or content property not found')
-    }
-    mockAp.confluence.saveMacro({}, 'body')
-
-    const contentProvider = defaultContentProvider(new ApWrapper2(mockAp));
+  test('should return NULL_DIAGRAM when all providers fail (Forge-only: no Connect fallback)', async () => {
+    // In Forge-only mode, all fallback providers return NULL_DIAGRAM.
+    const contentProvider = defaultContentProvider(new ApWrapper2());
     const {doc} = (await contentProvider.load());
-    expect(doc.code).toBe('body');
+    expect(doc.code).toBe('');
   })
 
   // This is used in embedding documents
@@ -40,18 +35,24 @@ describe('CompositeContentProvider', () => {
     });
 
     test('should use url based content id if rendered.for==custom-content-native', async () => {
+      const { forgeRequest } = await import('@/utils/requestUtil');
       TestHelper.setUpUrlParam('rendered.for=custom-content-native&content.id=123');
-      const mockAp = new MockAp('456');
-      // body will not be used
-      mockAp.confluence.saveMacro({}, 'body');
-      mockAp.setPage({status: 'current'});
-      mockAp.setCustomContent(123, {
-        source: 'custom-content',
-        code: 'A.method',
-        styles:{"#A":{"backgroundColor":"#57d9a3"}}
+
+      // pageId is undefined in test env so the page status call is skipped;
+      // first forgeRequest call is getCustomContentByIdV2
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        body: {
+          raw: {
+            value: JSON.stringify({
+              source: 'custom-content',
+              code: 'A.method',
+              styles: { '#A': { backgroundColor: '#57d9a3' } }
+            })
+          }
+        }
       });
 
-      const contentProvider = defaultContentProvider(new ApWrapper2(mockAp));
+      const contentProvider = defaultContentProvider(new ApWrapper2());
       const {doc} = (await contentProvider.load());
       expect(doc.code).toBe('A.method');
     })

@@ -65,4 +65,56 @@ export class MacroPage {
     await expect(saveButton).toBeVisible({ timeout: TIMEOUTS.BUTTON_VISIBLE });
     await saveButton.click();
   }
+
+  /**
+   * Edits a Graph (DrawIO) macro from the viewer (published page).
+   *
+   * Flow:
+   * 1. Click the Edit button inside the macro frame
+   * 2. Wait for the DrawIO editor modal to open
+   * 3. Click Publish in the nested DrawIO iframe to save without changes
+   */
+  async editGraphMacroFromViewer(macroFrame: FrameLocator): Promise<void> {
+    await this.editMacro(macroFrame);
+
+    // Wait for the DrawIO editor to load inside the modal
+    await this.page.waitForTimeout(5000);
+
+    if (testConfig.isForge || testConfig.isLite) {
+      const modal = this.page.getByTestId('custom-ui-modal-dialog');
+      const outerFrame = modal.locator('[data-testid="hosted-resources-iframe"]').contentFrame();
+      const innerFrame = outerFrame.locator('iframe').contentFrame();
+
+      // Add a shape to the canvas to make a real change
+      const sidebarShape = innerFrame.locator('.geSidebarContainer a').nth(2);
+      try {
+        await sidebarShape.click({ timeout: 30000 });
+        await this.page.waitForTimeout(1000);
+      } catch {
+        console.warn('  ⚠ DrawIO sidebar shape not clickable - proceeding without adding shape');
+      }
+
+      await innerFrame.locator('button:has-text("Publish")').click({ timeout: TIMEOUTS.BUTTON_VISIBLE });
+    } else {
+      const outerFrame = this.page.locator('[role="dialog"] iframe').contentFrame();
+      const innerFrame = outerFrame.locator('iframe').contentFrame();
+
+      // Add a shape to the canvas to make a real change
+      const sidebarShape = innerFrame.locator('.geSidebarContainer a').nth(2);
+      try {
+        await sidebarShape.click({ timeout: 30000 });
+        await this.page.waitForTimeout(1000);
+      } catch {
+        console.warn('  ⚠ DrawIO sidebar shape not clickable - proceeding without adding shape');
+      }
+
+      await innerFrame.locator('button:has-text("Publish")').click({ timeout: TIMEOUTS.BUTTON_VISIBLE });
+    }
+
+    // Verify the editor modal closed — confirms Publish was accepted
+    const modal = testConfig.isForge || testConfig.isLite
+      ? this.page.getByTestId('custom-ui-modal-dialog')
+      : this.page.locator('[role="dialog"] iframe');
+    await expect(modal).toBeHidden({ timeout: TIMEOUTS.FRAME_LOAD });
+  }
 }

@@ -24,7 +24,7 @@ describe('ContentPropertyStorageProvider', () => {
   });
 
   test('cannot find content property', async () => {
-    const contentPropertyStorageProvider = new ContentPropertyStorageProvider(new ApWrapper2(mockAp));
+    const contentPropertyStorageProvider = new ContentPropertyStorageProvider(new ApWrapper2());
     try {
       await contentPropertyStorageProvider.getDiagram(undefined)
     } catch (e: any) {
@@ -33,55 +33,18 @@ describe('ContentPropertyStorageProvider', () => {
   })
 
   test('or content property old', async () => {
-    mockApConfluence.saveMacro({uuid: '1234'}, '')
-    mockApConfluence.setContentProperty({
-      key: 'zenuml-sequence-macro-1234-body', version: {number: 1}, value: 'A.method'
-    }, () => {})
-    const contentPropertyStorageProvider = new ContentPropertyStorageProvider(new ApWrapper2(mockAp));
+    // In Forge-only mode, getContentProperty() always returns undefined.
+    // ContentPropertyStorageProvider returns NULL_DIAGRAM (empty diagram).
+    const contentPropertyStorageProvider = new ContentPropertyStorageProvider(new ApWrapper2());
     const diagram = await contentPropertyStorageProvider.getDiagram(undefined)
-    expect(diagram?.code).toBe('A.method')
-
-    expect(gtag.mock.calls).toEqual([
-      ['event', 'load_macro', {
-        event_category: 'content_property_old',
-        event_label: 'sequence',
-        client_domain: 'unknown_atlassian_domain',
-        user_account_id: 'unknown_user_account_id',
-        isLite: false,
-        isForge: false,
-        macro_uuid: "unknown_macro_uuid",
-        confluence_space: 'unknown_space'
-      }],
-    ])
+    expect(diagram?.code).toBe('')
   })
 
   test('or content property as object {code, styles}', async () => {
-    mockApConfluence.saveMacro({uuid: '1234'}, '')
-    mockApConfluence.setContentProperty({
-      key: 'zenuml-sequence-macro-1234-body',
-      version: {number: 1},
-      value: {code: 'A.method', styles: {'#A': {backgroundColor: '#FFF'}}}
-    }, () => {})
-    const contentPropertyStorageProvider = new ContentPropertyStorageProvider(new ApWrapper2(mockAp));
+    // In Forge-only mode, getContentProperty() always returns undefined.
+    // ContentPropertyStorageProvider returns NULL_DIAGRAM (empty diagram).
+    const contentPropertyStorageProvider = new ContentPropertyStorageProvider(new ApWrapper2());
     const diagram = await contentPropertyStorageProvider.getDiagram(undefined)
-
-    expect(diagram?.code).toBe('A.method')
-    const styles = diagram?.styles || {}
-    // @ts-ignore
-    expect(styles['#A'].backgroundColor).toBe('#FFF')
-
-    expect(gtag.mock.calls).toEqual([
-      ['event', 'load_macro', {
-        event_category: 'content_property',
-        event_label: 'sequence',
-        client_domain: 'unknown_atlassian_domain',
-        user_account_id: 'unknown_user_account_id',
-        isLite: false,
-        isForge: false,
-        macro_uuid: "unknown_macro_uuid",
-        confluence_space: 'unknown_space'
-      }],
-    ])
-
+    expect(diagram?.code).toBe('')
   })
 })

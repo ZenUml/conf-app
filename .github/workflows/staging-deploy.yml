@@ -70,9 +70,8 @@ jobs:
         with:
           cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))' -i manifest.yml
 
-      # Forge deploy (lite, full-forge, and diagramly)
+      # Forge deploy (all variants)
       - name: Deploy to Forge Staging
-        if: inputs.variant != 'full'
         run: |
           pnpm forge:deploy:enable-analytics
           pnpm forge:deploy:${{ inputs.variant == 'full-forge' && 'full' || inputs.variant }}:staging
@@ -91,39 +90,13 @@ jobs:
         run: pnpm forge:install:diagramly:staging || pnpm forge:upgrade:diagramly:staging
         continue-on-error: true
 
-      # Full: pluploader deploy
-      - uses: actions/setup-python@v5
-        if: inputs.variant == 'full'
-        with:
-          python-version: '3.10'
-      - name: Install PyYAML
-        if: inputs.variant == 'full'
-        run: pip3 install PyYAML==5.3.1
-      - name: Install pluploader
-        if: inputs.variant == 'full'
-        run: pip3 install pluploader
-      - name: Install plugin to Confluence
-        if: inputs.variant == 'full'
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 5
-          max_attempts: 3
-          retry_wait_seconds: 10
-          command: |
-            pluploader --base-url https://zenuml-stg.atlassian.net/wiki \
-              --user ${{ secrets.ZENUML_STAGE_UPM_USER }} \
-              --password ${{ secrets.ZENUML_STAGE_UPM_PASSWORD }} \
-              install --cloud \
-              --plugin-uri https://${{ inputs.project }}.zenuml.com/descriptor
-
       - name: Write deployment summary
         if: always()
         run: |
           case "${{ inputs.variant }}" in
-            lite)       SITE="lite-stg.atlassian.net";    TYPE="Forge" ;;
-            full)       SITE="zenuml-stg.atlassian.net";  TYPE="Connect" ;;
-            full-forge) SITE="full-stg.atlassian.net";    TYPE="Forge" ;;
-            diagramly)  SITE="dia-stg.atlassian.net";     TYPE="Forge" ;;
+            lite)      SITE="zenuml-stg.atlassian.net"; TYPE="Forge" ;;
+            full)      SITE="zenuml-stg.atlassian.net"; TYPE="Forge" ;;
+            diagramly) SITE="dia-stg.atlassian.net";   TYPE="Forge" ;;
           esac
           echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY

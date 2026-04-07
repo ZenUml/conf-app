@@ -1,10 +1,9 @@
 import * as htmlToImage from 'html-to-image';
 import md5 from 'md5';
-import {getUrlParam, trackEvent} from '@/utils/window';
-import AP from "@/model/AP";
+import {trackEvent} from '@/utils/window';
 import global from '@/model/globals';
-import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
-import {forgeRequest, connectRequest} from '@/utils/requestUtil';
+import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
+import {forgeRequest} from '@/utils/requestUtil';
 import type { Attachment } from '@/model/ConfluenceTypes';
 
 // ============================================================================
@@ -50,18 +49,9 @@ interface ExportResultMessageData {
 // Helper Functions
 // ============================================================================
 
-/**
- * Get the identifier for the current macro instance.
- * In Connect mode: uuid from URL params
- * In Forge mode: customContentId from extension config
- */
 async function getIdentifier(): Promise<string | undefined> {
-  if (forgeGlobal.isForge) {
-    const context = await initForgeContext();
-    return context?.extension?.config?.customContentId;
-  } else {
-    return getUrlParam("uuid");
-  }
+  const context = await initForgeContext();
+  return context?.extension?.config?.customContentId;
 }
 
 /**
@@ -69,41 +59,21 @@ async function getIdentifier(): Promise<string | undefined> {
  * Handles multipart/form-data differently for file uploads.
  */
 async function makeRequest(requestConfig: RequestConfig): Promise<ApiResponse> {
-  if (forgeGlobal.isForge) {
-    // For Forge mode, we need to handle multipart/form-data differently
-    if (requestConfig.contentType === 'multipart/form-data') {
-      // For file uploads in Forge, we need to use FormData
-      const formData = new FormData();
-      const data = requestConfig.data as Record<string, unknown>;
-      Object.keys(data).forEach(key => {
-        formData.append(key, data[key] as string | Blob);
-      });
+  if (requestConfig.contentType === 'multipart/form-data') {
+    const formData = new FormData();
+    const data = requestConfig.data as Record<string, unknown>;
+    Object.keys(data).forEach(key => {
+      formData.append(key, data[key] as string | Blob);
+    });
 
-      const { requestConfluence } = await import("@forge/bridge");
-      const response = await requestConfluence(`/wiki${requestConfig.url}`, {
-        method: requestConfig.type,
-        body: formData
-      });
-      return { body: await response.text() };
-    } else {
-      // For JSON requests in Forge
-      return await forgeRequest(`/wiki${requestConfig.url}`, requestConfig.type, requestConfig.data);
-    }
+    const { requestConfluence } = await import("@forge/bridge");
+    const response = await requestConfluence(`/wiki${requestConfig.url}`, {
+      method: requestConfig.type,
+      body: formData
+    });
+    return { body: await response.text() };
   } else {
-    // For Connect mode, handle multipart/form-data properly
-    if (requestConfig.contentType === 'multipart/form-data') {
-      // For file uploads in Connect, pass data as-is without JSON.stringify
-      const response = await AP.request({
-        type: requestConfig.type,
-        url: requestConfig.url,
-        data: requestConfig.data,
-        contentType: requestConfig.contentType
-      });
-      return response;
-    } else {
-      // For JSON requests in Connect, use connectRequest
-      return await connectRequest(AP.request, requestConfig.url, requestConfig.type, requestConfig.data);
-    }
+    return await forgeRequest(`/wiki${requestConfig.url}`, requestConfig.type, requestConfig.data);
   }
 }
 

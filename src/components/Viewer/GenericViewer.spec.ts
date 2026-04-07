@@ -65,6 +65,22 @@ vi.mock('@/services/DiagramLikes', () => ({
   getDiagramLikes: vi.fn(() => Promise.resolve([]))  // Returns array of likes
 }))
 
+// Mock useCustomerSuccessService to control spacePaid and macrosCreated.
+// Use plain values (not refs) so Vue Options API data() treats them as reactive primitives.
+vi.mock('@/composables/useCustomerSuccessService', () => ({
+  useCustomerSuccessService: vi.fn(() => ({
+    macrosCreated: 0,
+    severity: 'none',
+    shouldBlockActions: false,
+    upgradeUrl: 'https://marketplace.atlassian.com',
+    enterpriseBundleUrl: 'https://zenuml.com/enterprise',
+    initialize: vi.fn(),
+    spacePaid: false,
+  })),
+  MACROS_LIMIT: 100,
+  getUpgradeContext: vi.fn(() => ({}))
+}))
+
 describe('GenericViewer - Upgrade Features', () => {
   let macroMetrics: any
   let featureFlags: any
@@ -338,10 +354,14 @@ describe('GenericViewer - Upgrade Features', () => {
 
       await wrapper.vm.$nextTick()
 
+      // Set macro count to ensure button shows (> 50)
+      const vm = wrapper.vm as any
+      vm.macrosCreated = 75
+      await wrapper.vm.$nextTick()
+
       // Open modal
       const upgradeButton = wrapper.find('button[title="Upgrade to unlock unlimited diagrams"]')
       await upgradeButton.trigger('click')
-      const vm = wrapper.vm as any
       expect(vm.showUpgradeModal).toBe(true)
 
       // Simulate closing the modal (in the real component, UpgradePrompt emits @close)

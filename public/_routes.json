@@ -20,7 +20,8 @@
     "/forge-user-behavior",
     "/aggregate-events",
     "/metrics-cache/query",
-    "/metrics-cache/update"
+    "/metrics-cache/update",
+    "/admin/metrics-inspect"
   ],
   "exclude": []
 }

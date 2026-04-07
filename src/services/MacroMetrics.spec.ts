@@ -283,6 +283,79 @@ describe('MacroMetrics', () => {
     });
   });
 
+  describe('structured logging', () => {
+    let debugSpy: ReturnType<typeof vi.spyOn>;
+    let warnSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+      warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    it('should log [metrics:kv:read] hit on cache hit', async () => {
+      const cachedMetrics: IMacroMetrics = {
+        space: mockSpace, total: 5, sequence: 2, graph: 1,
+        openapi: 1, mermaid: 1, plantuml: 0, unknown: 0,
+        isLite: false, lastUpdated: new Date().toISOString()
+      };
+      (callRemote as any).mockResolvedValueOnce(cachedMetrics);
+
+      await macroMetrics.getMacroMetrics();
+
+      expect(debugSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[metrics:kv:read] hit'),
+        expect.objectContaining({ space: mockSpace })
+      );
+    });
+
+    it('should log [metrics:kv:read] miss on cache miss', async () => {
+      (callRemote as any).mockResolvedValueOnce(null);
+      mockApWrapper.requestAllPaginatedData.mockImplementation((_url: string, consumer: Function) => {
+        consumer({ results: [] });
+        return Promise.resolve({});
+      });
+
+      await macroMetrics.getMacroMetrics();
+
+      expect(debugSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[metrics:kv:read] miss'),
+        expect.objectContaining({ space: mockSpace })
+      );
+    });
+
+    it('should log [metrics:kv:read] failed on cache error', async () => {
+      (callRemote as any).mockRejectedValueOnce(new Error('Network error'));
+      mockApWrapper.requestAllPaginatedData.mockImplementation((_url: string, consumer: Function) => {
+        consumer({ results: [] });
+        return Promise.resolve({});
+      });
+
+      await macroMetrics.getMacroMetrics();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[metrics:kv:read] failed'),
+        expect.objectContaining({ error: 'Network error' })
+      );
+    });
+
+    it('should log [metrics:collect] success with total count', async () => {
+      (callRemote as any).mockResolvedValueOnce(null);
+      mockApWrapper.requestAllPaginatedData.mockImplementation((_url: string, consumer: Function) => {
+        consumer({ results: [
+          { body: { raw: { value: JSON.stringify({ diagramType: 'Sequence' }) } } },
+        ]});
+        return Promise.resolve({});
+      });
+
+      await macroMetrics.getMacroMetrics();
+
+      expect(debugSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[metrics:collect] success'),
+        expect.objectContaining({ total: 1 })
+      );
+    });
+  });
+
   describe('URL building', () => {
     it('should build correct search URL', async () => {
       // Mock KV miss to force new collection

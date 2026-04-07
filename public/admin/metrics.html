@@ -72,7 +72,9 @@
     }
 
     function statusBadge(status) {
-      return `<span class="badge ${status}">${status}</span>`;
+      const allowed = ['ok', 'stale', 'no_data'];
+      const safe = allowed.includes(status) ? status : 'no_data';
+      return `<span class="badge ${safe}">${escapeHtml(safe)}</span>`;
     }
 
     function formatAge(hours) {
@@ -147,7 +149,7 @@
       resultsEl.innerHTML = '<div class="card"><p class="empty-state">Loading...</p></div>';
 
       try {
-        const res = await fetch(`/metrics-cache/inspect?${params}`);
+        const res = await fetch(`/admin/metrics-inspect?${params}`);
         const body = await res.json();
 
         if (!res.ok) {

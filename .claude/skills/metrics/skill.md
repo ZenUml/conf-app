@@ -28,7 +28,7 @@ Usage: `/metrics <domain> [space]`
 | Staging (full) | `https://full-stg.zenuml.com` |
 | Staging (lite) | `https://lite-stg.zenuml.com` |
 
-Append `/metrics-cache/inspect?domain=<domain>&space=<space>` to the base URL.
+Append `/admin/metrics-inspect?domain=<domain>&space=<space>` to the base URL.
 
 For lite products, add `&addonKey=zenuml-lite` to the query string.
 
@@ -36,8 +36,8 @@ For lite products, add `&addonKey=zenuml-lite` to the query string.
 
 1. Parse the arguments to extract `domain` and optional `space`.
 2. Call the inspect endpoint using `WebFetch`:
-   - If space is provided: `GET <base>/metrics-cache/inspect?domain=<domain>&space=<space>`
-   - If space is omitted: `GET <base>/metrics-cache/inspect?domain=<domain>`
+   - If space is provided: `GET <base>/admin/metrics-inspect?domain=<domain>&space=<space>`
+   - If space is omitted: `GET <base>/admin/metrics-inspect?domain=<domain>`
 3. If the user did not specify an environment, try production (full) first.
 
 ## Output Format

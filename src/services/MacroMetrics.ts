@@ -78,7 +78,7 @@ export class MacroMetrics {
       }
       return metrics;
     } catch (e) {
-      console.warn('[metrics:getMacroMetrics] failed', { error: (e as Error).message });
+      console.warn('[metrics:kv:read] failed', { error: (e as Error).message });
       this.trackError(e);
       return undefined;
     }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { onRequest } from './inspect';
+import { onRequest } from './index';
 
 function makeRequest(url: string): Request {
   return new Request(url);

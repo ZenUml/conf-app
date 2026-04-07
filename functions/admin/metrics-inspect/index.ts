@@ -1,4 +1,4 @@
-import { Env } from '../utils/KVEnv';
+import { Env } from '../../utils/KVEnv';
 
 interface SpaceMetrics {
   space: string;

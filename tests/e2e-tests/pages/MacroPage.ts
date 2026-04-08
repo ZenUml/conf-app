@@ -47,6 +47,13 @@ export class MacroPage {
     await expect(frame.getByText(expectedText, { exact: false })).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
   }
 
+  async openFullscreen(macroFrame: FrameLocator): Promise<void> {
+    await expect(macroFrame.locator('body')).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
+    const fullscreenButton = macroFrame.getByRole('button', { name: 'Fullscreen' });
+    await expect(fullscreenButton).toBeVisible({ timeout: TIMEOUTS.BUTTON_VISIBLE });
+    await fullscreenButton.click();
+  }
+
   async editMacro(macroFrame: FrameLocator): Promise<void> {
     // Wait for frame to fully load
     await expect(macroFrame.locator('body')).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });

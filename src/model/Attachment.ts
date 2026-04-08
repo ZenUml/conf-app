@@ -266,7 +266,12 @@ function uploadNewAttachment(hash: string): () => Promise<AttachmentMeta> {
   return async () => {
     trackEvent('version:1', 'upload_attachment', 'export');
     const response = await uploadAttachment2(hash, buildAttachmentBasePath);
-    const attachmentId = JSON.parse(response.body).results[0].id as string;
+    const parsed = JSON.parse(response.body);
+    const results = parsed.results ?? parsed.data?.results;
+    if (!results?.length) {
+      throw new Error(`Upload succeeded but response has no results: ${response.body}`);
+    }
+    const attachmentId = results[0].id as string;
     const versionNumber = 1;
     return { attachmentId, versionNumber, hash };
   };

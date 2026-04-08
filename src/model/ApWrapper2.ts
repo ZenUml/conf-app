@@ -183,6 +183,18 @@ export default class ApWrapper2 implements IApWrapper {
     return response as ICustomContentResponseBody;
   }
 
+  private isVersionConflict(error: any): boolean {
+    const msg = String(error?.message || error?.responseText || JSON.stringify(error));
+    return msg.includes('Version must be incremented');
+  }
+
+  private buildStructuredErrorProps(error: any): { error_message: string; http_status: string | number } {
+    return {
+      error_message: String(error?.message || error?.responseText || error).substring(0, 500),
+      http_status: error?.status || error?.statusCode || error?.xhr?.status || 'unknown',
+    };
+  }
+
   async updateCustomContentV2(content: ICustomContentV2, newBody: Diagram): Promise<ICustomContentResponseBodyV2> {
     let newVersionNumber = 1;
 
@@ -190,7 +202,7 @@ export default class ApWrapper2 implements IApWrapper {
       newVersionNumber += content.version?.number
     }
     // Must provide at most one of [spaceId, pageId, blogPostId, or customContentId]
-    const data = {
+    const buildData = (versionNumber: number) => ({
       "id": content.id,
       "type": content.type,
       "status": content.status,
@@ -201,16 +213,29 @@ export default class ApWrapper2 implements IApWrapper {
         "representation": "raw"
       },
       "version": {
-        "number": newVersionNumber
+        "number": versionNumber
       }
-    };
+    });
 
     try {
-      const response = await this.makeRequest(`/api/v2/custom-content/${content.id}`, 'PUT', data);
+      const response = await this.makeRequest(`/api/v2/custom-content/${content.id}`, 'PUT', buildData(newVersionNumber));
       trackEvent(JSON.stringify(content.id), 'update_custom_content', 'info');
       return response as ICustomContentResponseBodyV2;
     } catch (error) {
-      trackEvent(JSON.stringify(error), 'update_custom_content_error', 'error');
+      if (this.isVersionConflict(error)) {
+        trackEvent('save_conflict_retry', 'save_conflict_retry', 'info', { content_id: String(content.id) });
+        const fresh = await this.makeRequest(`/api/v2/custom-content/${content.id}?body-format=raw`);
+        const freshVersion = (fresh?.version?.number || 0) + 1;
+        try {
+          const retryResponse = await this.makeRequest(`/api/v2/custom-content/${content.id}`, 'PUT', buildData(freshVersion));
+          trackEvent(JSON.stringify(content.id), 'update_custom_content', 'info');
+          return retryResponse as ICustomContentResponseBodyV2;
+        } catch (retryError) {
+          trackEvent('update_custom_content_error', 'update_custom_content_error', 'error', this.buildStructuredErrorProps(retryError));
+          throw retryError;
+        }
+      }
+      trackEvent('update_custom_content_error', 'update_custom_content_error', 'error', this.buildStructuredErrorProps(error));
       throw error;
     }
   }
@@ -668,7 +693,7 @@ export default class ApWrapper2 implements IApWrapper {
       try {
         result = await this.updateCustomContentV2(existing, value);
       } catch (error) {
-        trackEvent('update_custom_content_error', { error: error?.message });
+        trackEvent('update_custom_content_error', 'update_custom_content_error', 'error', this.buildStructuredErrorProps(error));
         throw error;
       }
     } else {

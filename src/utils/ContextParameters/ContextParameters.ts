@@ -1,5 +1,6 @@
 // https://developer.atlassian.com/cloud/confluence/context-parameters/
 // xdm_e: the base URL of the host application, used for the JavaScript bridge (xdm - cross domain message)
+import forgeGlobal from '@/model/globals/forgeGlobal';
 
 export function getClientDomain() {
   return getSubdomain(getBaseUrl());
@@ -19,7 +20,11 @@ export function getBaseUrl() {
 
 export function getSpaceKey() {
   //@ts-ignore
-  return getUrlParam('spaceKey') || window.initialContext?.currentSpace?.key;
+  const urlSpaceKey = getUrlParam('spaceKey');
+  //@ts-ignore
+  const initialContextSpaceKey = window.initialContext?.currentSpace?.key;
+  const forgeSpaceKey = forgeGlobal.forgeContext?.extension?.space?.key;
+  return urlSpaceKey || initialContextSpaceKey || forgeSpaceKey || 'no_space_context';
 }
 
 export function getSubdomain(baseUrl: string) {

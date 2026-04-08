@@ -2,6 +2,7 @@ import globals from '@/model/globals';
 import { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isFullscreenMode } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
 import {trackEvent} from "@/utils/window";
+import { toast } from '@/utils/toast';
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 
 import './assets/tailwind.css'
@@ -279,18 +280,32 @@ EventBus.$on('save', async () => {
 
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
   store.state.diagram.isNew = false;
-  const id = await saveToPlatform(store.state.diagram);
+
+  let id: string;
+  try {
+    id = await saveToPlatform(store.state.diagram);
+  } catch (error) {
+    console.error('save failed', error);
+    trackEvent('save_failed', 'save_failed', 'error', {
+      error_message: String((error as any)?.message || error).substring(0, 500),
+      http_status: (error as any)?.status || (error as any)?.statusCode || 'unknown',
+    });
+    toast({ message: 'Failed to save. Please try again.', duration: 5000 });
+    // Do NOT close the dialog — let the user retry
+    return;
+  }
+
   const preservedTheme = sessionStorage.getItem(`${location.hostname}-preserve-zenuml-conf-theme`);
   if (isNewSequence && preservedTheme) {
     sessionStorage.removeItem(`${location.hostname}-preserve-zenuml-conf-theme`);
     localStorage.setItem(`${location.hostname}-${id}-zenuml-conf-theme`, preservedTheme);
   }
-  
+
   // End journey on save
   if (getEditJourneyId()) {
     endEditJourney('saved');
   }
-  
+
   // Give some time for track event to be sent out. We are not using a more reliable way to track event because
   // we don't want to block dialog close for too long.
   setTimeout(async () => {

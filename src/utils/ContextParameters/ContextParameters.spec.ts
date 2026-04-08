@@ -1,5 +1,14 @@
 import {setUpWindowLocation} from "../../../tests/SetUpWindowLocation";
 import {getClientDomain, getSpaceKey, getSubdomain} from "@/utils/ContextParameters/ContextParameters";
+import { vi } from 'vitest';
+import forgeGlobal from '@/model/globals/forgeGlobal';
+
+vi.mock('@/model/globals/forgeGlobal', () => ({
+  default: {
+    isForge: false,
+    forgeContext: null,
+  }
+}));
 
 describe('ContextParameters', () => {
   it.each([
@@ -20,5 +29,37 @@ describe('ContextParameters', () => {
     expect(getClientDomain()).toBe('zenuml-stg');
     expect(getSpaceKey()).toBe('ZS')
   })
+
+  describe('getSpaceKey resolution order', () => {
+    beforeEach(() => {
+      // Reset window location to no spaceKey param
+      setUpWindowLocation('?xdm_e=https%3A%2F%2Fzenuml-stg.atlassian.net');
+      // Reset initialContext
+      (window as any).initialContext = undefined;
+      vi.mocked(forgeGlobal).forgeContext = null as any;
+    });
+
+    it('should resolve space key from URL param (source 1)', () => {
+      setUpWindowLocation('?spaceKey=URL_SPACE&xdm_e=https%3A%2F%2Fzenuml-stg.atlassian.net');
+      (window as any).initialContext = { currentSpace: { key: 'INITIAL_SPACE' } };
+      vi.mocked(forgeGlobal).forgeContext = { extension: { space: { key: 'FORGE_SPACE' } } } as any;
+      expect(getSpaceKey()).toBe('URL_SPACE');
+    });
+
+    it('should resolve space key from initialContext (source 2) when URL param absent', () => {
+      (window as any).initialContext = { currentSpace: { key: 'INITIAL_SPACE' } };
+      vi.mocked(forgeGlobal).forgeContext = { extension: { space: { key: 'FORGE_SPACE' } } } as any;
+      expect(getSpaceKey()).toBe('INITIAL_SPACE');
+    });
+
+    it('should resolve space key from Forge context (source 3) when URL param and initialContext absent', () => {
+      vi.mocked(forgeGlobal).forgeContext = { extension: { space: { key: 'FORGE_SPACE' } } } as any;
+      expect(getSpaceKey()).toBe('FORGE_SPACE');
+    });
+
+    it('should return no_space_context when all sources are absent', () => {
+      expect(getSpaceKey()).toBe('no_space_context');
+    });
+  });
 })
 

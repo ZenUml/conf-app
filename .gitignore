@@ -42,3 +42,4 @@ playwright-report/
 test-results/
 *.png
 .harness/
+.worktrees/

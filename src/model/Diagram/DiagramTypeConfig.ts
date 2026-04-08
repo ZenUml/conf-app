@@ -109,8 +109,8 @@ export async function loadForgeViewerComponent(type: DiagramType): Promise<any |
     }
 
     if (type === DiagramType.OpenApi) {
-      const { default: ForgeOpenApiViewer } = await import('@/components/Viewer/ForgeOpenApiViewer.vue');
-      return ForgeOpenApiViewer;
+      const { default: OpenApiViewer } = await import('@/components/Viewer/OpenApiViewer.vue');
+      return OpenApiViewer;
     }
 
     return null;

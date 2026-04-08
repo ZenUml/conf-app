@@ -1,5 +1,5 @@
 <template>
-<generic-viewer>
+<generic-viewer :wide="true">
   <div id="swagger-ui"></div>
 </generic-viewer>
 </template>

@@ -76,16 +76,3 @@ EventBus.$on('edit', async () => {
   });
 });
 
-EventBus.$on('fullscreen', async () => {
-  await openModal({
-    resource: 'main',
-    onClose: (payload: any) => {
-      console.log('onClose called with', payload);
-      location.reload();
-    },
-    size: 'max',
-    context: {
-      macroMode: 'fullscreen',
-    },
-  });
-}); 

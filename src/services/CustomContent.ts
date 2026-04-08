@@ -1,6 +1,6 @@
 import { DiagramType } from "@/model/Diagram/Diagram";
 import md5 from 'md5';
-import { trackEvent, addonKey } from '@/utils/window';
+import { trackEvent, addonKey, serializeError } from '@/utils/window';
 import {
   getClientDomain,
 } from "@/utils/ContextParameters/ContextParameters";
@@ -32,7 +32,7 @@ export async function syncCustomContent(customContent: any, diagramType: Diagram
     trackEvent('', 'sync_custom_content', 'success');
 
   } catch (e) {
-    console.error('Error when syncing custom content', e);
-    trackEvent(JSON.stringify(e), 'sync_custom_content', 'error');
+    console.error('Error when syncing custom content', { contentId: customContent?.id, diagramType, macroUuid }, e);
+    trackEvent(serializeError(e), 'sync_custom_content', 'error');
   }
 }

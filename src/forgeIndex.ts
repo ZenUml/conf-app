@@ -1,7 +1,7 @@
 import globals from '@/model/globals';
 import { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isFullscreenMode } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
-import {trackEvent} from "@/utils/window";
+import {trackEvent, serializeError} from "@/utils/window";
 import { toast } from '@/utils/toast';
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 
@@ -213,7 +213,7 @@ async function createAttachment(code: string, diagramType: DiagramType) {
     console.error("Error when creating attachment", e);
 
     // Improved error tracking with more detailed information
-    let errorDetails: any = { message: e.message };
+    let errorDetails: any = { message: e instanceof Error ? e.message : serializeError(e) };
 
     // Extract XHR details if available
     if (e.xhr) {

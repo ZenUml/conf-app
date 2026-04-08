@@ -1,4 +1,4 @@
-import {getUrlParam, trackEvent} from "@/utils/window";
+import {getUrlParam, trackEvent, serializeError} from "@/utils/window";
 import Global from "@/model/globals/Global";
 import { getPortalDomain } from "./portalDomain";
 
@@ -34,7 +34,7 @@ export default async function (features: string[]) {
     return data;
   } catch (error) {
     console.error("Fetching feature flags failed:", error);
-    trackEvent(JSON.stringify(error), 'get_feature_flags', 'error');
+    trackEvent(serializeError(error), 'get_feature_flags', 'error');
     return {};
   }
 }

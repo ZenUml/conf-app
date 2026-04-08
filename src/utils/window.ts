@@ -244,6 +244,28 @@ export function trackEventSync(
   }
 }
 
+/**
+ * Serialize any caught value into a string suitable for Mixpanel event labels.
+ * Handles Error objects, DOM Events ({isTrusted:true}), and other non-serializable values.
+ */
+export function serializeError(e: unknown): string {
+  if (e instanceof Error) {
+    return e.message;
+  }
+  if (e && typeof e === 'object') {
+    if ('message' in e && typeof (e as any).message === 'string') {
+      return (e as any).message;
+    }
+    // DOM Event objects serialize to {isTrusted:true} — extract type instead
+    if ('isTrusted' in e && e instanceof Event) {
+      return `DOM ${e.type} event (no error message)`;
+    }
+    const json = JSON.stringify(e);
+    return json === '{}' ? `Non-serializable error: ${Object.prototype.toString.call(e)}` : json;
+  }
+  return String(e);
+}
+
 export function getLocalStorageKey(key: string) {
   return `${key}-${getClientDomain()}`;
 }

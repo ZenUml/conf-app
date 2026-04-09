@@ -38,7 +38,7 @@ function loadDrawIOScripts(): Promise<void> {
 }
 
 import createAttachmentIfContentChanged from "@/model/Attachment";
-import {trackEvent} from "@/utils/window";
+import {trackEvent, serializeError} from "@/utils/window";
 import globals from '@/model/globals';
 import {decompress} from '@/utils/compress';
 import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
@@ -93,7 +93,7 @@ async function loadDiagram() {
     } catch (e) {
       // Do not re-throw the error
       console.error("Error when creating attachment", e);
-      trackEvent(JSON.stringify(e), 'create_attachment', 'error');
+      trackEvent(serializeError(e), 'create_attachment', 'error');
     }
 
   }, 1500);

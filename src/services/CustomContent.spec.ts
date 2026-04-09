@@ -16,6 +16,7 @@ vi.mock('@/utils/requestUtil', () => ({
 vi.mock('@/utils/window', () => ({
   trackEvent: vi.fn(),
   addonKey: vi.fn(() => 'test-addon'),
+  serializeError: vi.fn((e: unknown) => e instanceof Error ? e.message : String(e)),
 }));
 
 vi.mock('@/model/globals/forgeGlobal', () => ({

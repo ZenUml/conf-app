@@ -1,6 +1,6 @@
 import globals from '@/model/globals';
 import { DiagramType } from "@/model/Diagram/Diagram";
-import { trackEvent } from '@/utils/window';
+import { trackEvent, serializeError } from '@/utils/window';
 import {
   getClientDomain,
   getSpaceKey,
@@ -24,7 +24,7 @@ export async function toggleDiagramLike(diagramId: string, diagramType: DiagramT
     return result;
   } catch (e) {
     console.error('Error when liking diagram', e);
-    trackEvent(JSON.stringify(e), 'like_diagram', 'error');
+    trackEvent(serializeError(e), 'like_diagram', 'error');
   }
 }
 

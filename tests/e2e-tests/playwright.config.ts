@@ -5,7 +5,7 @@ import { AUTH_STATE_PATH } from './config/auth-state.js';
 export default defineConfig({
   testDir: './tests',
   timeout: 120000,
-  testIgnore: ['**/node_modules/**', '../../**'],
+  testIgnore: ['**/node_modules/**', '../../**', '**/ai-repair/**'],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

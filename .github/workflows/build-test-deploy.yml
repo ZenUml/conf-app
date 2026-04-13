@@ -6,6 +6,7 @@ on:
       - '**' # do not run on tags
     branches:
       - '**'
+      - '!**ruixiang-e2e**'
     paths-ignore:
       - '**.md'
       - 'docs/**'

@@ -1,6 +1,7 @@
 const typeMap = {
   'sequence': {diagramType: 'sequence', languageKey: 'LANG_ZENUML'},
   'mermaid': {diagramType: 'flow', languageKey: 'LANG_MERMAID', subTypeKey: "FLOWCHART"},
+  'OpenAPI': {diagramType: 'openapi', languageKey: 'LANG_OPENAPI'},
 }
 
 export async function generateDsl(context, title, content, userPrompt, diagramId, diagramType = 'sequence') {
@@ -34,6 +35,7 @@ export async function modifyDiagram(context, diagramCode, errorMessage, diagramT
     subTypeKey: typeMap[diagramType].subTypeKey,
     diagramCode,
     errorMessage,
+    command: `Please resolve the issue with minimal code modifications. Preserve the original style and comments. Only address the errors; if the code lacks clarity, use the fewest words possible to improve it.`,
   };
 
   const diagramResult = await callDiagramly(context, `/api/chat/modify`, diagramData);

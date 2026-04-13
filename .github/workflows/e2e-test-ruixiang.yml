@@ -1,0 +1,142 @@
+name: E2E Test (Ruixiang)
+
+on:
+  push:
+    branches:
+      - '**ruixiang-e2e**'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.claude/**'
+      - '.cursor/**'
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'App profile to test'
+        required: true
+        type: choice
+        options:
+          - zenuml-lite@stg
+          - zenuml-full@stg
+          - diagramly@stg
+          - zenuml-lite@prod
+          - zenuml-full@prod
+          - diagramly@prod
+        default: 'zenuml-lite@stg'
+      suite:
+        description: 'Test suite to run'
+        required: true
+        type: choice
+        options:
+          - all
+          - insert
+          - render
+          - syntax-validation
+          - ai-repair
+        default: 'syntax-validation'
+      test-file:
+        description: 'Specific test file (optional, e.g., tests/syntax-validation/sequence.spec.ts)'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  test:
+    name: Ruixiang E2E (${{ inputs.app }} - ${{ inputs.suite }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10.x
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: pnpm
+      
+      - name: Install main dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      
+      - name: Install E2E test dependencies
+        run: cd tests/e2e-tests && pnpm install --ignore-workspace
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-pw-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
+      
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
+      
+      - name: Run specific test file
+        if: github.event_name == 'workflow_dispatch' && inputs.test-file != ''
+        working-directory: tests/e2e-tests
+        run: pnpm exec playwright test ${{ inputs.test-file }}
+        env:
+          APP: ${{ inputs.app || 'zenuml-lite@stg' }}
+          CI: true
+          ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_STAGE_USERNAME }}
+          ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_STAGE_PASSWORD }}
+          ATLASSIAN_OTP: ${{ vars.ATLASSIAN_OTP }}
+      
+      - name: Run test suite (manual trigger)
+        if: github.event_name == 'workflow_dispatch' && inputs.test-file == ''
+        working-directory: tests/e2e-tests
+        run: |
+          case "${{ inputs.suite }}" in
+            insert)            pnpm test:insert ;;
+            render)            pnpm test:render ;;
+            syntax-validation) pnpm test:syntax-validation ;;
+            ai-repair)         pnpm test:ai-repair ;;
+            *)                 pnpm test ;;
+          esac
+        env:
+          APP: ${{ inputs.app || 'zenuml-lite@stg' }}
+          CI: true
+          ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_STAGE_USERNAME }}
+          ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_STAGE_PASSWORD }}
+          ATLASSIAN_OTP: ${{ vars.ATLASSIAN_OTP }}
+      
+      - name: Run test suite (auto trigger on push)
+        if: github.event_name == 'push'
+        working-directory: tests/e2e-tests
+        run: pnpm test:syntax-validation
+        env:
+          APP: zenuml-lite@stg
+          CI: true
+          ZENUML_STAGE_USERNAME: ${{ vars.ZENUML_STAGE_USERNAME }}
+          ZENUML_STAGE_PASSWORD: ${{ vars.ZENUML_STAGE_PASSWORD }}
+          ATLASSIAN_OTP: ${{ vars.ATLASSIAN_OTP }}
+      
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-ruixiang-${{ github.run_number }}
+          path: ./tests/e2e-tests/playwright-report/
+      
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-ruixiang-${{ github.run_number }}
+          path: ./tests/e2e-tests/screenshots/
+      
+      - name: Upload videos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: videos-ruixiang-${{ github.run_number }}
+          path: ./tests/e2e-tests/test-results/**/video.webm
+          if-no-files-found: ignore

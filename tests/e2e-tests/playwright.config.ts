@@ -56,5 +56,19 @@ export default defineConfig({
       dependencies: ['auth'],
       timeout: 300000,
     },
+    {
+      name: 'syntax-validation',
+      testMatch: 'syntax-validation/**/*.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['auth'],
+      timeout: 300000,
+    },
+    {
+      name: 'ai-repair',
+      testMatch: 'ai-repair/**/*.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['auth'],
+      timeout: 300000,
+    },
   ],
 });

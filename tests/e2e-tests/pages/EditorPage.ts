@@ -472,4 +472,43 @@ export class ConfluenceEditorPage {
     // Wait for published page to load
     await expect(this.page.locator('#title-text')).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
   }
+
+  // ── Macro Editor Frame Helpers ──
+
+  /**
+   * Gets the macro editor dialog frame (works for both Forge and Connect variants)
+   * This is the outer frame that contains the macro editor UI
+   */
+  getMacroEditorFrame() {
+    if (testConfig.isForge || testConfig.isLite) {
+      return this.page.getByTestId('custom-ui-modal-dialog')
+        .locator('[data-testid="hosted-resources-iframe"]')
+        .contentFrame();
+    }
+    return this.page.locator('[role="dialog"] iframe').contentFrame();
+  }
+
+  /**
+   * Close the GenerationPrompt dialog if it appears after inserting a macro
+   */
+  async closeGenerationPromptIfVisible(): Promise<void> {
+    const frame = this.getMacroEditorFrame();
+    const openEditorButton = frame.getByRole('button', { name: /open editor/i });
+    if (await openEditorButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await openEditorButton.click();
+      await this.page.waitForTimeout(500);
+      console.log('✓ GenerationPrompt dialog closed');
+    }
+  }
+
+  /**
+   * Switch to a specific tab in the Diagram macro editor (e.g., 'Mermaid', 'PlantUML')
+   */
+  async switchToMacroTab(tabName: string): Promise<void> {
+    const frame = this.getMacroEditorFrame();
+    const tab = frame.getByRole('tab', { name: tabName });
+    await tab.click();
+    await this.page.waitForTimeout(1000);
+    console.log(`✓ Switched to ${tabName} tab`);
+  }
 }

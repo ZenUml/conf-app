@@ -26,19 +26,27 @@ export const validateSequenceSyntax = async (code: string): Promise<SyntaxValida
     const result = await zenuml.parse(code);
 
     if (!result.pass && result.errorDetails && result.errorDetails.length > 0) {
-      // Format the first error for display (we could format all errors if needed)
+      // 1. Get all error messages and merge them
+      const errorMessages = result.errorDetails.map((err: any) => 
+        `at line ${err.line}, column ${err.column}: ${err.msg}`
+      );
+      const combinedErrorMessage = `Sequence syntax error: ${errorMessages.join('\n')}`;
+
+      // 2. Get the first and last error
       const firstError = result.errorDetails[0];
-      const errorMessage = `Sequence syntax error at line ${firstError.line}, column ${firstError.column}: ${firstError.msg}`;
+      const lastError = result.errorDetails[result.errorDetails.length - 1];
 
       return {
         valid: false,
-        error: errorMessage,
+        error: combinedErrorMessage,
         location: {
+          // Use firstError as the starting point
           startLine: firstError.line,
-          endLine: firstError.line,
           startCol: firstError.column,
-          endCol: firstError.column + 10, // Default end column
-          message: errorMessage
+          // Use lastError as the ending point
+          endLine: lastError.line,
+          endCol: lastError.column + 10, // Extend 10 characters backward as highlight range by default
+          message: combinedErrorMessage
         }
       };
     } else {

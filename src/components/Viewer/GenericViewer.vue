@@ -162,8 +162,9 @@ export default {
 
     return {
       canUserEdit: true,
-      userLiked: false, // TODO: check if user liked the diagram
+      userLiked: false,
       likesCount: 0,
+      isLikeInFlight: false,
       showVersionsTooltip: false,
       versionsTooltipTimer: null,
       showUpgradeModal: false,
@@ -305,15 +306,28 @@ console.error('Error getting feature flags', e);
       this.userLiked = likes.some(like => like.userAccountId === userAccountId);
     },
     async clickLikeButton() {
+      if (this.isLikeInFlight) return;
       trackEvent('like_diagram', 'click', 'viewing');
       console.log('clickLikeButton', store.state.diagram.id);
+      const prevLiked = this.userLiked;
+      const prevCount = this.likesCount;
       try {
+        this.isLikeInFlight = true;
         this.userLiked = !this.userLiked;
         this.likesCount += this.userLiked ? 1 : -1;
         const likes = await toggleDiagramLike(store.state.diagram.id);
-        this.likesCount = likes?.length || 0;
+        if (!Array.isArray(likes)) {
+          throw new Error('Toggle returned unexpected result');
+        }
+        const {atlassianAccountId: userAccountId} = await globals.apWrapper._getCurrentUser();
+        this.likesCount = likes.length;
+        this.userLiked = likes.some(like => like.userAccountId === userAccountId);
       } catch (error) {
-        await this.getLikes();
+        console.error('Like button error, reverting', error);
+        this.userLiked = prevLiked;
+        this.likesCount = prevCount;
+      } finally {
+        this.isLikeInFlight = false;
       }
     },
     showContentVersions() {

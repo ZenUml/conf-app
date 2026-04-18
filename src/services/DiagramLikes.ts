@@ -1,31 +1,24 @@
 import globals from '@/model/globals';
-import { DiagramType } from "@/model/Diagram/Diagram";
-import { trackEvent, serializeError } from '@/utils/window';
+import { trackEvent } from '@/utils/window';
 import {
   getClientDomain,
   getSpaceKey,
 } from "@/utils/ContextParameters/ContextParameters";
 import { callRemote } from '@/utils/requestUtil';
 
-export async function toggleDiagramLike(diagramId: string, diagramType: DiagramType) {
-  try {
-    const data = {
-      userAccountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
-      diagramCustomContentId: diagramId,
-      clientDomain: getClientDomain(),
-      confluenceSpace: getSpaceKey(),
-      confluencePageId: (await globals.apWrapper._getCurrentPageId()),
-      macroUuid: (await globals.apWrapper.getMacroData())?.uuid,
-      diagramType: diagramType
-    };
+export async function toggleDiagramLike(diagramId: string) {
+  const data = {
+    userAccountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
+    diagramCustomContentId: diagramId,
+    clientDomain: getClientDomain(),
+    confluenceSpace: getSpaceKey(),
+    confluencePageId: (await globals.apWrapper._getCurrentPageId()),
+    macroUuid: (await globals.apWrapper.getMacroData())?.uuid,
+  };
 
-    const result = await callRemote('/diagram-likes/toggle', 'POST', data);
-    console.debug('Diagram-likes response', result);
-    return result;
-  } catch (e) {
-    console.error('Error when liking diagram', e);
-    trackEvent(serializeError(e), 'like_diagram', 'error');
-  }
+  const result = await callRemote('/diagram-likes/toggle', 'POST', data);
+  console.debug('Diagram-likes response', result);
+  return result;
 }
 
 export async function getDiagramLikes(diagramId: string) {

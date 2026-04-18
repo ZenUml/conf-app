@@ -63,8 +63,16 @@ export class ConfluenceEditorPage {
         `https://${testConfig.domain}/wiki/create-content/page?spaceKey=${testConfig.spaceKey}&parentPageId=${testConfig.parentPageId}`,
       );
     }
-    // Wait for the v2 editor to load
-    await this.titleInput.waitFor({ timeout: TIMEOUTS.FRAME_LOAD });
+    // Wait for the v2 editor to load. If it doesn't load in time, reload and retry
+    // once — Confluence staging sometimes stalls on first editor load.
+    const loaded = await this.titleInput.waitFor({ timeout: TIMEOUTS.FRAME_LOAD })
+      .then(() => true)
+      .catch(() => false);
+    if (!loaded) {
+      console.log('  [debug] createChildPage: editor title not visible after 60s, reloading...');
+      await this.page.reload({ waitUntil: 'domcontentloaded' });
+      await this.titleInput.waitFor({ timeout: TIMEOUTS.FRAME_LOAD });
+    }
   }
 
   async typePageTitle(title: string): Promise<void> {

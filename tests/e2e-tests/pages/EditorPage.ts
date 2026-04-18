@@ -162,109 +162,126 @@ export class ConfluenceEditorPage {
   }
 
   async clickInsertElements(): Promise<void> {
-    // Retry the entire flow if the combobox doesn't appear — "View more" clicks
-    // are flaky and sometimes don't register on Confluence staging.
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const t0 = Date.now();
+    const t0 = Date.now();
 
-      // Click the editor body first to ensure focus is in the content area
-      const editorEl = this.editorBody();
-      await editorEl.waitFor({ state: 'visible', timeout: 10000 });
-      await editorEl.click();
-      await this.page.waitForTimeout(300);
+    // Click the editor body first to ensure focus is in the content area
+    const editorEl = this.editorBody();
+    await editorEl.waitFor({ state: 'visible', timeout: 10000 });
+    await editorEl.click();
+    await this.page.waitForTimeout(300);
 
-      // Strategy 1: Click "More elements" button if visible (most reliable)
-      const moreElements = this.page.getByRole('button', { name: 'More elements' }).last();
-      if (await moreElements.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await moreElements.click();
-        await this.page.waitForTimeout(500);
-        console.log(`  [debug] clickInsertElements[${attempt}]: clicked More elements button`);
-      } else {
-        // Strategy 2: Type "/" in the editor to trigger slash/quick-insert menu
-        console.log(`  [debug] clickInsertElements[${attempt}]: typing "/" to open slash menu`);
-        await editorEl.pressSequentially('/');
-        await this.page.waitForTimeout(1000);
+    // ── Strategy 1: Toolbar "+" insert button (most reliable, opens full browser) ──
+    // The toolbar "+" button is labeled "Insert elements" or similar. It opens the
+    // full element browser dialog directly, bypassing the slash menu entirely.
+    const toolbarInsert = this.page.locator('button[aria-label="Insert elements"]').last();
+    if (await toolbarInsert.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await toolbarInsert.click();
+      await this.page.waitForTimeout(500);
+      console.log(`  [debug] clickInsertElements: clicked toolbar "+" button`);
+
+      const combobox = await this.waitForBrowseCombobox(3000);
+      if (combobox) {
+        console.log(`  [debug] clickInsertElements: combobox ready via toolbar [${Date.now() - t0}ms]`);
+        return;
       }
+      console.log(`  [debug] clickInsertElements: toolbar "+" didn't open combobox, trying slash menu`);
+    }
 
-      // Check if the macro browser dialog opened immediately
-      const insertCombobox = this.insertBrowserCombobox();
-      const browseAlreadyOpen = await insertCombobox.first().isVisible({ timeout: 500 }).catch(() => false);
-      if (browseAlreadyOpen) {
-        console.log(`  [debug] clickInsertElements[${attempt}]: combobox ready (immediate) [${Date.now() - t0}ms]`);
+    // ── Strategy 2: Slash menu "/" → "View more" (2 attempts) ──
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const at0 = Date.now();
+
+      // Ensure editor body has focus
+      await editorEl.click();
+      await this.page.waitForTimeout(200);
+
+      console.log(`  [debug] clickInsertElements[${attempt}]: typing "/" to open slash menu`);
+      await editorEl.pressSequentially('/');
+      await this.page.waitForTimeout(1000);
+
+      // Check if the macro browser opened directly
+      const directCombobox = await this.waitForBrowseCombobox(500);
+      if (directCombobox) {
+        console.log(`  [debug] clickInsertElements[${attempt}]: combobox ready (immediate) [${Date.now() - at0}ms]`);
         return;
       }
 
-      // Slash menu shows limited items — click "View more" to open the full browser
+      // Look for "View more" in the slash menu
       const viewMore = this.page.getByRole('button', { name: /View more|View all/i }).last();
-      const viewMoreVisible = await viewMore.isVisible({ timeout: 3000 }).catch(() => false);
+      const viewMoreVisible = await viewMore.isVisible({ timeout: 2000 }).catch(() => false);
       if (viewMoreVisible) {
-        // Log page state BEFORE clicking
         await this.logPageState(`before-viewmore[${attempt}]`);
         await viewMore.click();
         console.log(`  [debug] clickInsertElements[${attempt}]: clicked View more`);
         await this.page.waitForTimeout(500);
-        // Log page state AFTER clicking
         await this.logPageState(`after-viewmore[${attempt}]`);
+
+        const combobox = await this.waitForBrowseCombobox(3000);
+        if (combobox) {
+          console.log(`  [debug] clickInsertElements[${attempt}]: combobox ready [${Date.now() - at0}ms]`);
+          return;
+        }
       } else {
-        console.log(`  [debug] clickInsertElements[${attempt}]: "View more" not visible after 3s`);
+        // Slash menu opened but shows general items (Rovo, Image, etc.) — no "View more"
+        console.log(`  [debug] clickInsertElements[${attempt}]: "View more" not in slash menu`);
         await this.logPageState(`no-viewmore[${attempt}]`);
       }
 
-      // Wait for the macro browser combobox (reduced timeout for faster retry)
-      const comboboxVisible = await insertCombobox.first()
-        .waitFor({ state: 'visible', timeout: 3000 })
-        .then(() => true)
-        .catch(() => false);
+      // Clean up before retry: dismiss menu, delete the typed "/" character
+      await this.page.keyboard.press('Escape');
+      await this.page.waitForTimeout(200);
+      await this.page.keyboard.press('Escape');
+      await this.page.waitForTimeout(200);
+      await this.page.keyboard.press('Backspace');
+      await this.page.waitForTimeout(200);
+      console.log(`  [debug] clickInsertElements[${attempt}]: cleaned up, ${attempt < 2 ? 'retrying...' : 'moving to fallback'}`);
+    }
 
-      if (comboboxVisible) {
-        console.log(`  [debug] clickInsertElements[${attempt}]: combobox ready [${Date.now() - t0}ms]`);
+    // ── Strategy 3: Toolbar "More elements" at bottom of editor ──
+    const moreElements = this.page.getByRole('button', { name: 'More elements' }).last();
+    if (await moreElements.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await moreElements.click();
+      await this.page.waitForTimeout(500);
+      console.log(`  [debug] clickInsertElements: clicked "More elements" button`);
+
+      const combobox = await this.waitForBrowseCombobox(5000);
+      if (combobox) {
+        console.log(`  [debug] clickInsertElements: combobox ready via More elements [${Date.now() - t0}ms]`);
         return;
-      }
-
-      // Fallback: try any visible dialog's combobox
-      const fallback = this.page.locator('[role="dialog"]:visible').getByRole('combobox').first();
-      const fallbackVisible = await fallback
-        .waitFor({ state: 'visible', timeout: 2000 })
-        .then(() => true)
-        .catch(() => false);
-
-      if (fallbackVisible) {
-        console.log(`  [debug] clickInsertElements[${attempt}]: used fallback dialog combobox [${Date.now() - t0}ms]`);
-        return;
-      }
-
-      // Combobox not found — take screenshot and log diagnostics
-      console.log(`  [debug] clickInsertElements[${attempt}]: combobox NOT found after ${Date.now() - t0}ms`);
-      await this.logPageState(`combobox-missing[${attempt}]`);
-
-      // Take a diagnostic screenshot (CI will upload these as artifacts)
-      try {
-        await this.page.screenshot({ path: `screenshots/viewmore-fail-attempt${attempt}-${Date.now()}.png` });
-        console.log(`  [debug] clickInsertElements[${attempt}]: screenshot saved`);
-      } catch { /* ignore screenshot errors */ }
-
-      if (attempt < 3) {
-        // Dismiss any half-open menus before retrying
-        await this.page.keyboard.press('Escape');
-        await this.page.waitForTimeout(300);
-        await this.page.keyboard.press('Escape');
-        await this.page.waitForTimeout(300);
-        console.log(`  [debug] clickInsertElements[${attempt}]: retrying...`);
       }
     }
 
-    // Final attempt with a longer timeout — if this fails, the test will fail
-    console.log('  [debug] clickInsertElements: final attempt with 10s timeout');
-    await this.logPageState('final-attempt');
-    const insertCombobox = this.insertBrowserCombobox();
+    // Take a diagnostic screenshot before failing
     try {
-      await insertCombobox.first().waitFor({ state: 'visible', timeout: 10000 });
-    } catch {
-      const fallback = this.page.locator('[role="dialog"]:visible').getByRole('combobox').first();
-      await fallback.waitFor({ state: 'visible', timeout: 5000 });
-      console.log('  [debug] clickInsertElements: used fallback combobox (final)');
+      await this.page.screenshot({ path: `screenshots/insert-fail-${Date.now()}.png` });
+    } catch { /* ignore */ }
+    await this.logPageState('all-strategies-failed');
+
+    // Final attempt: wait longer for any combobox
+    console.log('  [debug] clickInsertElements: final wait for any combobox (10s)');
+    const finalCombobox = await this.waitForBrowseCombobox(10000);
+    if (!finalCombobox) {
+      throw new Error('clickInsertElements: could not open element browser after all strategies');
     }
-    console.log('  [debug] clickInsertElements: combobox ready (final attempt)');
+    console.log(`  [debug] clickInsertElements: combobox ready (final) [${Date.now() - t0}ms]`);
+  }
+
+  /** Wait for the element browser combobox to appear. Returns true if found. */
+  private async waitForBrowseCombobox(timeout: number): Promise<boolean> {
+    // Try the named dialog combobox first
+    const insertCombobox = this.insertBrowserCombobox();
+    const found = await insertCombobox.first()
+      .waitFor({ state: 'visible', timeout })
+      .then(() => true)
+      .catch(() => false);
+    if (found) return true;
+
+    // Fallback: any visible dialog's combobox
+    const fallback = this.page.locator('[role="dialog"]:visible').getByRole('combobox').first();
+    return fallback
+      .waitFor({ state: 'visible', timeout: Math.min(timeout, 2000) })
+      .then(() => true)
+      .catch(() => false);
   }
 
   /**

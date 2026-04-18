@@ -51,28 +51,41 @@ export class ConfluenceEditorPage {
    * MUST NOT navigate to /pages/create directly — that opens the legacy v1 editor.
    */
   async createChildPage(): Promise<void> {
-    // Click Create button in the top nav bar
+    const createUrl = `https://${testConfig.domain}/wiki/create-content/page?spaceKey=${testConfig.spaceKey}&parentPageId=${testConfig.parentPageId}`;
+    // In CI, Confluence staging sometimes stalls loading the editor (title input
+    // never appears). When it works it loads in ~12-15s, so we use a short detect
+    // timeout and multiple quick attempts rather than one long wait. If all fail,
+    // we throw immediately so Playwright's built-in retry (fresh browser context)
+    // can take over — that's what actually fixes the stuck state.
+    const DETECT_TIMEOUT = 20_000;
+    const MAX_ATTEMPTS = 3;
+
+    // Attempt 1: UI button → "Page" link (preferred — gets v2 editor)
     await this.page.locator('[data-testid="app-navigation-create"]').click();
-    // Dropdown items are links, not menuitems. Click the "Page" link.
-    // URL pattern: /wiki/create-content/page?... (v2 editor, NOT the legacy /pages/create)
     const pageLink = this.page.getByRole('link', { name: 'Page', exact: true });
     if (await pageLink.isVisible({ timeout: 5000 }).catch(() => false)) {
       await pageLink.click();
     } else {
-      await this.page.goto(
-        `https://${testConfig.domain}/wiki/create-content/page?spaceKey=${testConfig.spaceKey}&parentPageId=${testConfig.parentPageId}`,
-      );
+      await this.page.goto(createUrl);
     }
-    // Wait for the v2 editor to load. If it doesn't load in time, reload and retry
-    // once — Confluence staging sometimes stalls on first editor load.
-    const loaded = await this.titleInput.waitFor({ timeout: TIMEOUTS.FRAME_LOAD })
-      .then(() => true)
-      .catch(() => false);
-    if (!loaded) {
-      console.log('  [debug] createChildPage: editor title not visible after 60s, reloading...');
-      await this.page.reload({ waitUntil: 'domcontentloaded' });
-      await this.titleInput.waitFor({ timeout: TIMEOUTS.FRAME_LOAD });
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const loaded = await this.titleInput.waitFor({ timeout: DETECT_TIMEOUT })
+        .then(() => true)
+        .catch(() => false);
+      if (loaded) return;
+
+      if (attempt < MAX_ATTEMPTS) {
+        console.log(`  [debug] createChildPage: editor not visible after ${DETECT_TIMEOUT / 1000}s (attempt ${attempt}/${MAX_ATTEMPTS}), navigating again...`);
+        await this.page.goto(createUrl, { waitUntil: 'load' });
+      }
     }
+
+    throw new Error(
+      `createChildPage: editor title not visible after ${MAX_ATTEMPTS} attempts ` +
+      `(${MAX_ATTEMPTS * DETECT_TIMEOUT / 1000}s total) on ${testConfig.domain}. ` +
+      `Confluence staging may be stalled — Playwright retry will use a fresh context.`,
+    );
   }
 
   async typePageTitle(title: string): Promise<void> {

@@ -61,6 +61,7 @@
 <script setup lang="ts">
 import PricingSlider from './PricingSlider.vue'
 import { usePricingCalculator } from './usePricingCalculator'
+import { openUrl } from '@/model/globals/forgeGlobal'
 
 const props = defineProps<{
   upgradeUrl: string
@@ -81,14 +82,6 @@ const handleSliderChange = (newValue: number) => {
 
 const openUpgradeUrl = async () => {
   emit('cta-click')
-  const forgeGlobal = (await import('@/model/globals/forgeGlobal')).default;
-  if (forgeGlobal.isForge) {
-    // Forge mode: use router.open() from @forge/bridge
-    const { router } = await import("@forge/bridge")
-    router.open(props.upgradeUrl)
-  } else {
-    // Connect mode: use window.open() (equivalent to <a target="_blank">)
-    window.open(props.upgradeUrl, '_blank', 'noopener,noreferrer')
-  }
+  await openUrl(props.upgradeUrl)
 }
 </script>

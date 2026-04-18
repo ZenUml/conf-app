@@ -164,12 +164,7 @@ const MessageSender = ({ onSubmit, placeholder }) => {
           href={`https://github.com/ZenGPT/confluence-gpt/wiki/Crafting-Effective-Prompts`}
           onClick={(e) => {
             e.preventDefault();
-            // Use forge router when available to open the URL, fallback to window.open
-            try {
-              openUrl(`https://github.com/ZenGPT/confluence-gpt/wiki/Crafting-Effective-Prompts`);
-            } catch (err) {
-              window.open(`https://github.com/ZenGPT/confluence-gpt/wiki/Crafting-Effective-Prompts`, '_blank', 'noopener');
-            }
+            openUrl(`https://github.com/ZenGPT/confluence-gpt/wiki/Crafting-Effective-Prompts`);
           }}
           rel="noreferrer noopener"
         >

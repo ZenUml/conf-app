@@ -80,6 +80,7 @@ import { getEditJourneyId, getOrCreateSession } from "@/utils/journeyTracking";
 import Modal from "@/components/Modal/Modal.vue";
 import { toast } from "@/utils/toast";
 import aiGenerateTitle from "@/apis/aiGenerateTitle";
+import { openUrl } from "@/model/globals/forgeGlobal";
 import LightBulbIcon from '@heroicons/vue/24/outline/LightBulbIcon';
 import QuestionMarkCircleIcon from '@heroicons/vue/24/outline/QuestionMarkCircleIcon';
 import SparklesIcon from '@heroicons/vue/24/outline/SparklesIcon';
@@ -197,21 +198,12 @@ export default {
     async templateClick() {
       trackEvent("template", "click", this.diagramType);
       if (this.templateUrl) {
-        await this.openExternalUrl(this.templateUrl);
+        await openUrl(this.templateUrl);
       }
     },
     async helpClick() {
       trackEvent("help", "click", this.diagramType);
-      await this.openExternalUrl(this.helpUrl);
-    },
-    async openExternalUrl(url) {
-      const forgeGlobal = (await import('@/model/globals/forgeGlobal')).default;
-      if (forgeGlobal.isForge) {
-        const { router } = await import("@forge/bridge");
-        router.open(url);
-      } else {
-        window.open(url, '_blank', 'noopener,noreferrer');
-      }
+      await openUrl(this.helpUrl);
     },
     handleTitleChange(value) {
       if (value) {

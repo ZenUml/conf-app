@@ -65,6 +65,7 @@
 
 <script setup lang="ts">
 import { ENTERPRISE_BUNDLE_ANNUAL_COST, ENTERPRISE_BUNDLE_MIN_MACROS } from './upgradePrompt'
+import { openUrl } from '@/model/globals/forgeGlobal'
 
 const props = defineProps<{
   bundleUrl: string
@@ -76,14 +77,6 @@ const emit = defineEmits<{
 
 const openBundleUrl = async () => {
   emit('cta-click')
-  const forgeGlobal = (await import('@/model/globals/forgeGlobal')).default;
-  if (forgeGlobal.isForge) {
-    // Forge mode: use router.open() from @forge/bridge
-    const { router } = await import("@forge/bridge")
-    router.open(props.bundleUrl)
-  } else {
-    // Connect mode: use window.open() (equivalent to <a target="_blank">)
-    window.open(props.bundleUrl, '_blank', 'noopener,noreferrer')
-  }
+  await openUrl(props.bundleUrl)
 }
 </script>

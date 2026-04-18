@@ -134,6 +134,7 @@
 
 <script>
 import { trackEvent } from "@/utils/window";
+import { openUrl } from "@/model/globals/forgeGlobal";
 
 export default {
   name: "GetStarted",
@@ -146,6 +147,7 @@ export default {
     this.trackPageView();
   },
   methods: {
+    openUrl,
     trackPageView() {
       if (!this.hasTrackedPageView) {
         trackEvent('', 'get_started_page_view', 'forge_get_started', {
@@ -189,11 +191,7 @@ export default {
 
     async viewDocumentation() {
       trackEvent('', 'get_started_view_docs', 'forge_get_started');
-      await this.openUrl('https://zenuml.atlassian.net/wiki/spaces/Doc/overview');
-    },
-    async openUrl(url) {
-      const { router } = await import("@forge/bridge");
-      router.open(url);
+      await openUrl('https://zenuml.atlassian.net/wiki/spaces/Doc/overview');
     },
 
     showMessage(message) {

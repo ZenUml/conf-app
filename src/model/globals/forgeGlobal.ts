@@ -151,8 +151,12 @@ export async function isConfiguring() {
 }
 
 export async function openUrl(url: string) {
-  const { router } = await import("@forge/bridge");
-  router.open(url);
+  if (global.isForge) {
+    const { router } = await import("@forge/bridge");
+    router.open(url);
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
 }
 
 // @ts-ignore

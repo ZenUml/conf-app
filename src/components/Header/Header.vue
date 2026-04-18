@@ -29,24 +29,16 @@
       </div>
     </div>
     <div class="flex items-center gap-3 shrink-0">
-      <a class="inline-block help"
-        target="_blank"
-        :href="templateUrl">
-        <button class="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
-          @click="templateClick">
-          <LightBulbIcon class="w-4 h-4" />
-          <span>Examples</span>
-        </button>
-      </a>
-      <a class="inline-block help"
-        target="_blank"
-        :href="helpUrl">
-        <button class="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
-          @click="helpClick">
-          <QuestionMarkCircleIcon class="w-4 h-4" />
-          <span>Help</span>
-        </button>
-      </a>
+      <button class="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
+        @click="templateClick">
+        <LightBulbIcon class="w-4 h-4" />
+        <span>Examples</span>
+      </button>
+      <button class="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
+        @click="helpClick">
+        <QuestionMarkCircleIcon class="w-4 h-4" />
+        <span>Help</span>
+      </button>
       <div class="h-6 w-px bg-gray-300"></div>
       <div class="relative group/save">
         <publish-button
@@ -202,11 +194,24 @@ export default {
   },
   methods: {
     ...mapMutations(["updateDiagramType"]),
-    templateClick() {
+    async templateClick() {
       trackEvent("template", "click", this.diagramType);
+      if (this.templateUrl) {
+        await this.openExternalUrl(this.templateUrl);
+      }
     },
-    helpClick() {
+    async helpClick() {
       trackEvent("help", "click", this.diagramType);
+      await this.openExternalUrl(this.helpUrl);
+    },
+    async openExternalUrl(url) {
+      const forgeGlobal = (await import('@/model/globals/forgeGlobal')).default;
+      if (forgeGlobal.isForge) {
+        const { router } = await import("@forge/bridge");
+        router.open(url);
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
     },
     handleTitleChange(value) {
       if (value) {

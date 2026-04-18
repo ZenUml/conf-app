@@ -130,47 +130,75 @@ export class ConfluenceEditorPage {
    * of the editor quick-insert bar.
    */
   async clickInsertElements(): Promise<void> {
-    // Click the editor body first to ensure focus is in the content area
-    const editorEl = this.editorBody();
-    await editorEl.waitFor({ state: 'visible', timeout: 10000 });
-    await editorEl.click();
-    await this.page.waitForTimeout(300);
+    // Retry the entire flow if the combobox doesn't appear — "View more" clicks
+    // are flaky and sometimes don't register on Confluence staging.
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      // Click the editor body first to ensure focus is in the content area
+      const editorEl = this.editorBody();
+      await editorEl.waitFor({ state: 'visible', timeout: 10000 });
+      await editorEl.click();
+      await this.page.waitForTimeout(300);
 
-    // Strategy 1: Click "More elements" button if visible (most reliable)
-    const moreElements = this.page.getByRole('button', { name: 'More elements' }).last();
-    if (await moreElements.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await moreElements.click();
-      await this.page.waitForTimeout(500);
-      console.log('  [debug] clickInsertElements: clicked More elements button');
-    } else {
-      // Strategy 2: Type "/" in the editor to trigger slash/quick-insert menu
-      await editorEl.pressSequentially('/');
-      await this.page.waitForTimeout(1000);
-    }
+      // Strategy 1: Click "More elements" button if visible (most reliable)
+      const moreElements = this.page.getByRole('button', { name: 'More elements' }).last();
+      if (await moreElements.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await moreElements.click();
+        await this.page.waitForTimeout(500);
+        console.log('  [debug] clickInsertElements: clicked More elements button');
+      } else {
+        // Strategy 2: Type "/" in the editor to trigger slash/quick-insert menu
+        await editorEl.pressSequentially('/');
+        await this.page.waitForTimeout(1000);
+      }
 
-    // Check if the macro browser dialog opened immediately
-    const insertCombobox = this.insertBrowserCombobox();
-    const browseAlreadyOpen = await insertCombobox.first().isVisible({ timeout: 500 }).catch(() => false);
-    if (!browseAlreadyOpen) {
-      // Slash menu shows limited items — click "View more" to open the full browser
-      const viewMore = this.page.getByRole('button', { name: /View more|View all/i }).last();
-      if (await viewMore.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await viewMore.click();
-        console.log('  [debug] clickInsertElements: clicked View more');
+      // Check if the macro browser dialog opened immediately
+      const insertCombobox = this.insertBrowserCombobox();
+      const browseAlreadyOpen = await insertCombobox.first().isVisible({ timeout: 500 }).catch(() => false);
+      if (!browseAlreadyOpen) {
+        // Slash menu shows limited items — click "View more" to open the full browser
+        const viewMore = this.page.getByRole('button', { name: /View more|View all/i }).last();
+        if (await viewMore.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await viewMore.click();
+          await this.page.waitForTimeout(500);
+          console.log('  [debug] clickInsertElements: clicked View more');
+        }
+      }
+
+      // Wait for the macro browser combobox
+      const comboboxVisible = await insertCombobox.first()
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false);
+
+      if (comboboxVisible) {
+        console.log('  [debug] clickInsertElements: combobox ready');
+        return;
+      }
+
+      // Fallback: try any visible dialog's combobox
+      const fallback = this.page.locator('[role="dialog"]:visible').getByRole('combobox').first();
+      const fallbackVisible = await fallback
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false);
+
+      if (fallbackVisible) {
+        console.log('  [debug] clickInsertElements: used fallback dialog combobox');
+        return;
+      }
+
+      if (attempt < 2) {
+        console.log('  [debug] clickInsertElements: combobox not found, retrying...');
+        // Dismiss any half-open menus before retrying
+        await this.page.keyboard.press('Escape');
+        await this.page.waitForTimeout(500);
       }
     }
 
-    // Wait for the macro browser combobox with a generous timeout.
-    // If the named-dialog selector fails, fall back to any visible dialog's combobox.
-    try {
-      await insertCombobox.first().waitFor({ state: 'visible', timeout: 10000 });
-    } catch {
-      // Fallback: find any dialog with a combobox
-      const fallback = this.page.locator('[role="dialog"]:visible').getByRole('combobox').first();
-      await fallback.waitFor({ state: 'visible', timeout: 5000 });
-      console.log('  [debug] clickInsertElements: used fallback dialog combobox');
-    }
-    console.log('  [debug] clickInsertElements: combobox ready');
+    // Final attempt with a longer timeout — if this fails, the test will fail
+    const insertCombobox = this.insertBrowserCombobox();
+    await insertCombobox.first().waitFor({ state: 'visible', timeout: 10000 });
+    console.log('  [debug] clickInsertElements: combobox ready (final attempt)');
   }
 
   /**

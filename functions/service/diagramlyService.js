@@ -2,6 +2,7 @@ const typeMap = {
   'sequence': {diagramType: 'sequence', languageKey: 'LANG_ZENUML'},
   'mermaid': {diagramType: 'flow', languageKey: 'LANG_MERMAID', subTypeKey: "FLOWCHART"},
   'OpenAPI': {diagramType: 'openapi', languageKey: 'LANG_OPENAPI'},
+  'plantuml': {diagramType: 'plantuml', languageKey: 'LANG_PLANTUML'},
 }
 
 export async function generateDsl(context, title, content, userPrompt, diagramId, diagramType = 'sequence') {

@@ -112,6 +112,7 @@ jobs:
         if: github.event_name == 'push'
         working-directory: tests/e2e-tests
         run: pnpm test:syntax-validation
+        #run: pnpm exec playwright test tests/syntax-validation/plantuml.spec.ts
         env:
           APP: zenuml-lite@stg
           CI: true

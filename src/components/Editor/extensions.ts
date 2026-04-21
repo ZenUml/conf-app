@@ -6,6 +6,7 @@ import {
   zenumlParticipantStateField,
 } from '@zenuml/codemirror-extensions';
 import { mermaidLinter } from '@/utils/mermaid/linter';
+import { plantumlLinter } from '@/utils/plantuml/linter';
 import {
   bracketMatching,
   foldGutter,
@@ -208,23 +209,91 @@ const plantUmlReadonlyFilter = EditorState.transactionFilter.of((tr) => {
   if (!tr.docChanged) return tr;
   // Allow programmatic changes (tab switching, store updates, AI generation)
   if (!tr.annotation(Transaction.userEvent)) return tr;
+  
   const doc = tr.startState.doc;
   if (doc.lines < 2) return tr;
+  
   const first = doc.line(1);
   const last = doc.line(doc.lines);
-  // Protected zones: first line + its trailing newline; newline before last line + last line
-  const firstEnd = first.to + 1;
-  const lastStart = last.from - 1;
-  let blocked = false;
+  const firstText = first.text;
+  const lastText = last.text;
+  
+  // Calculate the editable range in the original document
+  const editableStart = first.to + 1; // After first line and its newline
+  const editableEnd = last.from - 1;   // Before last line's leading newline
+  
+  // Check if the change touches protected areas
+  let touchesProtected = false;
   tr.changes.iterChangedRanges((fromA, toA) => {
-    if (fromA < firstEnd || toA > lastStart) blocked = true;
+    // If change touches first line content or last line content
+    if (fromA < editableStart || toA > editableEnd) {
+      touchesProtected = true;
+    }
   });
-  return blocked ? [] : tr;
+  
+  // If change doesn't touch protected areas, allow it
+  if (!touchesProtected) {
+    return tr;
+  }
+  
+  // Change touches protected areas - need to adjust
+  // Extract what the user is trying to insert
+  let insertText = '';
+  tr.changes.iterChanges((fromA, toA, fromB, toB) => {
+    const inserted = tr.newDoc.sliceString(fromB, toB);
+    insertText += inserted;
+  });
+  
+  // If user is pasting complete PlantUML code, extract only the middle content
+  // Only match @startuml/@enduml as complete lines (with optional whitespace)
+  const lines = insertText.split('\n');
+  const startIdx = lines.findIndex(line => /^\s*@startuml\s*$/.test(line));
+  const endIdx = lines.findIndex(line => /^\s*@enduml\s*$/.test(line));
+  
+  if (startIdx !== -1 && endIdx !== -1 && startIdx < endIdx) {
+    // Extract content between @startuml and @enduml
+    const contentLines = lines.slice(startIdx + 1, endIdx);
+    insertText = contentLines.join('\n');
+  } else if (startIdx !== -1) {
+    // Only has @startuml as a complete line, remove it
+    const contentLines = lines.filter(line => !/^\s*@startuml\s*$/.test(line));
+    insertText = contentLines.join('\n');
+  } else if (endIdx !== -1) {
+    // Only has @enduml as a complete line, remove it
+    const contentLines = lines.filter(line => !/^\s*@enduml\s*$/.test(line));
+    insertText = contentLines.join('\n');
+  }
+  
+  // If there's no editable space (document is "@startuml\n@enduml")
+  if (editableStart > editableEnd) {
+    // Insert content between the lines
+    if (insertText) {
+      return {
+        changes: {
+          from: first.to + 1,
+          to: first.to + 1,
+          insert: insertText + '\n'
+        }
+      };
+    }
+    // If no content to insert (pure deletion), document is already minimal
+    return [];
+  }
+  
+  // Clamp the change to the editable range
+  return {
+    changes: {
+      from: editableStart,
+      to: editableEnd,
+      insert: insertText
+    }
+  };
 });
 
 const plantUmlExtensions = [
   plantUmlReadonlyFilter,
   plantUmlReadonlyDecoration,
+  plantumlLinter,
 ];
 
 export { baseExtensionsFactory, mermaidExtensions, zenumlExtensions, plantUmlExtensions };

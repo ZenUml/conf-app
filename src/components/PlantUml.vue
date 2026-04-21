@@ -18,6 +18,7 @@ Bob --&gt; Alice: Hi there!
 
 <script>
 import { plantumlEncode } from '@/utils/plantuml/encode';
+import { validatePlantUmlSyntax } from '@/utils/plantuml/validate';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import { trackEvent } from '@/utils/window';
 import globals from '@/model/globals';
@@ -44,7 +45,7 @@ export default {
   async mounted() {
     this.debouncedRender = debounce(this.fetchSvg, 500);
     if (!this.plantUmlCode) return;
-    await this.fetchSvg(this.plantUmlCode);
+    await this.validateAndRender(this.plantUmlCode);
     EventBus.$emit('diagramLoaded', this.plantUmlCode, this.$store.state.diagram.diagramType);
     await globals.apWrapper.initializeContext();
     trackEvent('', 'view_macro', DiagramType.PlantUml);
@@ -59,12 +60,38 @@ export default {
       if (!newVal) {
         this.svg = null;
         this.error = null;
+        this.$store.dispatch('updateError', null);
       } else {
-        this.debouncedRender(newVal);
+        this.validateAndRender(newVal);
       }
     },
   },
   methods: {
+    async validateAndRender(code) {
+      // Check if linter already validated and found an error
+      // This avoids duplicate validation calls
+      const currentError = this.$store.state.error;
+      
+      // First validate syntax
+      const validationResult = await validatePlantUmlSyntax(code);
+      
+      if (!validationResult.valid) {
+        // Update store error for SyntaxErrorBox (only if different)
+        if (currentError !== validationResult.error) {
+          this.$store.dispatch('updateError', validationResult.error);
+        }
+        // Also set local error
+        this.error = validationResult.error;
+        this.svg = null;
+        return;
+      }
+      
+      // Clear errors if validation passes
+      this.$store.dispatch('updateError', null);
+      
+      // Proceed with rendering
+      this.debouncedRender(code);
+    },
     async fetchSvg(code) {
       if (!code) return;
       this.loading = true;
@@ -79,6 +106,7 @@ export default {
       } catch (err) {
         console.error('PlantUML render error', err);
         this.error = `Failed to render PlantUML: ${err.message}`;
+        this.$store.dispatch('updateError', this.error);
       } finally {
         this.loading = false;
       }

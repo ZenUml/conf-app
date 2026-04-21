@@ -103,6 +103,61 @@ export class DiagramTestHelper {
   }
 
   /**
+   * Enter PlantUML code into the CodeMirror editor
+   * PlantUML has protected first and last lines (@startuml/@enduml)
+   * This method only replaces the content between them
+   */
+  async enterPlantUmlCode(code: string): Promise<void> {
+    const frame = this.editorPage.getMacroEditorFrame();
+    const editor = frame.locator('.cm-content[contenteditable="true"]').first();
+    
+    // Extract the content between @startuml and @enduml
+    const lines = code.split('\n');
+    const startIndex = lines.findIndex(line => line.trim().startsWith('@startuml'));
+    const endIndex = lines.findIndex(line => line.trim().startsWith('@enduml'));
+    
+    if (startIndex === -1 || endIndex === -1) {
+      throw new Error('PlantUML code must contain @startuml and @enduml');
+    }
+    
+    // Get the content between the markers
+    const contentLines = lines.slice(startIndex + 1, endIndex);
+    const content = contentLines.join('\n');
+    
+    // Click on the editor to focus
+    await editor.click();
+    await this.page.waitForTimeout(200);
+    
+    // Select all and delete
+    // The readonly filter will preserve @startuml and @enduml automatically
+    await this.page.keyboard.press('Control+A');
+    await this.page.keyboard.press('Backspace');
+    await this.page.waitForTimeout(300);
+    
+    // After deletion, editor should have:
+    // @startuml
+    // @enduml
+    // But cursor position might not be correct
+    
+    // Move to the beginning and then to the second line
+    await this.page.keyboard.press('Control+Home');
+    await this.page.waitForTimeout(100);
+    
+    // Move down to the second line (after @startuml)
+    await this.page.keyboard.press('ArrowDown');
+    await this.page.waitForTimeout(100);
+    
+    // Now cursor is at the beginning of the second line (between @startuml and @enduml)
+    // Type the content
+    if (content) {
+      await editor.pressSequentially(content);
+    }
+    
+    await this.page.waitForTimeout(2000);
+    console.log('✓ PlantUML code entered in CodeMirror editor');
+  }
+
+  /**
    * Enter code into the ACE editor (used for OpenAPI)
    */
   async enterCodeInAceEditor(code: string, clearFirst: boolean = true): Promise<void> {

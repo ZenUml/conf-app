@@ -12,7 +12,7 @@ const unknownUserAccountId  = "unknown_user_account_id";
 
 const initMixpanel = () => {
   if(!initialized) {
-    mixpanel.init("78617e65fdba543d752fb7f6483d55f4", {
+    mixpanel.init("62d0ff230c6799db2a4d30a04fe5e1e2", {
       debug: true,
       track_pageview: false,
       autocapture: false,

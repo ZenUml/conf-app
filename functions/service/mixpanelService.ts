@@ -1,8 +1,8 @@
 import uuidv4 from "../utils/uuid";
 
 // Separate tokens for different use cases
-export const MIXPANEL_TOKEN_FORGE_USER_BEHAVIOUR = "0c62cea9ed2247f4824bf196f6817941"; //project "Confluence Analytics(new)"
-export const MIXPANEL_TOKEN_FRONTEND = "78617e65fdba543d752fb7f6483d55f4"; //project "ZenUML"
+export const MIXPANEL_TOKEN_FORGE_USER_BEHAVIOUR = "62d0ff230c6799db2a4d30a04fe5e1e2";
+export const MIXPANEL_TOKEN_FRONTEND = "62d0ff230c6799db2a4d30a04fe5e1e2";
 
 export interface MixpanelTrackPayload {
   action: string;

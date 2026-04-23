@@ -1,3 +1,6 @@
+## [2026-04-24] - Release
+- Triggered release pipeline for diagramly
+
 ## [2026-03-27] - Release
 - Triggered release pipeline for lite, diagramly, full (macro title → "Diagram (Mermaid, PlantUML & ZenUML)")
 

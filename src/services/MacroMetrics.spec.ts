@@ -13,6 +13,11 @@ vi.mock('@/utils/requestUtil', () => ({
   callRemote: vi.fn()
 }));
 
+vi.mock('@/utils/window', () => ({
+  trackEvent: vi.fn(),
+  addonKey: vi.fn(() => 'com.zenuml.confluence-addon-lite')
+}));
+
 vi.mock('@/model/globals/forgeGlobal', () => ({
   default: {
     isForge: false,
@@ -67,7 +72,7 @@ describe('MacroMetrics', () => {
 
         expect(result).toEqual(cachedMetrics);
         expect(callRemote).toHaveBeenCalledWith(
-          `/metrics-cache/query?domain=${mockDomain}&space=${mockSpace}`,
+          `/metrics-cache/query?domain=${mockDomain}&space=${mockSpace}&addonKey=com.zenuml.confluence-addon-lite`,
           'GET'
         );
         expect(mockApWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
@@ -248,7 +253,7 @@ describe('MacroMetrics', () => {
 
       // Should write to KV
       expect(callRemote).toHaveBeenCalledWith(
-        '/metrics-cache/update',
+        '/metrics-cache/update?addonKey=com.zenuml.confluence-addon-lite',
         'POST',
         expect.objectContaining({
           domain: mockDomain,

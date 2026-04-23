@@ -1,7 +1,7 @@
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { getDiagramConfig } from "@/model/Diagram/DiagramTypeConfig";
 import globals from "@/model/globals";
-import { trackEvent } from "@/utils/window";
+import { trackEvent, addonKey } from "@/utils/window";
 import ApWrapper2 from "@/model/ApWrapper2";
 import { getClientDomain } from "@/utils/ContextParameters/ContextParameters";
 import { callRemote } from "@/utils/requestUtil";
@@ -162,7 +162,7 @@ export class MacroMetrics {
   private async readFromKV(domain: string, space: string): Promise<IMacroMetrics | null> {
     try {
       const response = await callRemote(
-        `/metrics-cache/query?domain=${domain}&space=${space}`,
+        `/metrics-cache/query?domain=${domain}&space=${space}&addonKey=${encodeURIComponent(addonKey())}`,
         'GET'
       );
       return response;
@@ -175,7 +175,7 @@ export class MacroMetrics {
   private async writeToKV(domain: string, space: string, metrics: IMacroMetrics): Promise<void> {
     try {
       await callRemote(
-        '/metrics-cache/update',
+        `/metrics-cache/update?addonKey=${encodeURIComponent(addonKey())}`,
         'POST',
         { domain, space, metrics }
       );

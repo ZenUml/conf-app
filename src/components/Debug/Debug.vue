@@ -49,23 +49,22 @@
 
     <div class="w-px h-5 bg-gray-400 flex-shrink-0"></div>
 
-    <!-- isLite Mock Toggle -->
-    <button
-      @click="toggleIsLite"
+    <!-- Build Variant Status -->
+    <div
       :class="[
-        'inline-flex items-center gap-1.5 px-3 h-full font-semibold border-none bg-transparent cursor-pointer transition-all duration-150 rounded hover:bg-black/5 hover:scale-105 active:scale-95',
-        isLiteMocked ? 'text-blue-500' : 'text-gray-400'
+        'inline-flex items-center gap-1.5 px-3 h-full font-semibold',
+        isLiteBuild ? 'text-blue-500' : 'text-gray-400'
       ]"
-      :title="'Click to toggle isLite mock (currently ' + (isLiteMocked ? 'LITE' : 'FULL') + ')'"
+      :title="'Build variant: ' + productType"
     >
       <span
         :class="[
           'inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold flex-shrink-0',
-          isLiteMocked ? 'bg-blue-500 text-white' : 'bg-gray-300 text-gray-600'
+          isLiteBuild ? 'bg-blue-500 text-white' : 'bg-gray-300 text-gray-600'
         ]"
-      >{{ isLiteMocked ? 'L' : 'F' }}</span>
-      <span class="font-normal">{{ isLiteMocked ? 'LITE' : 'FULL' }}</span>
-    </button>
+      >{{ productTypeLabel.charAt(0) }}</span>
+      <span class="font-normal">{{ productTypeLabel }}</span>
+    </div>
 
     <div class="w-px h-5 bg-gray-400 flex-shrink-0"></div>
 
@@ -147,32 +146,13 @@ export default {
       console.log('🧪 Mock CSS Feature Flag set to:', this.customerSuccessEnabled)
       window.location.reload()
     },
-    toggleIsLite() {
-      const url = new URL(window.location.href)
-
-      if (this.isLiteMocked) {
-        // Currently LITE, switch to FULL
-        url.searchParams.set('addonKey', 'com.zenuml.confluence-addon')
-        console.log('🧪 Switching to FULL mode (addonKey: com.zenuml.confluence-addon)')
-      } else {
-        // Currently FULL, switch to LITE
-        url.searchParams.set('addonKey', 'com.zenuml.confluence-addon-lite')
-        console.log('🧪 Switching to LITE mode (addonKey: com.zenuml.confluence-addon-lite)')
-      }
-
-      window.location.href = url.toString()
-    },
     clearAll() {
       delete localStorage.mockMacroCount
       delete localStorage.mockCSSEnabled
 
-      // Clear addonKey from URL
-      const url = new URL(window.location.href)
-      url.searchParams.delete('addonKey')
-
       this.mockMacroCount = null
       console.log('🧪 All mocks cleared')
-      window.location.href = url.toString()
+      window.location.reload()
     }
   },
   computed: {
@@ -187,10 +167,14 @@ export default {
       if (this.contentId.length <= 5) return this.contentId;
       return `..${this.contentId.slice(-5)}`;
     },
-    isLiteMocked() {
-      const urlParams = new URLSearchParams(window.location.search)
-      const addonKey = urlParams.get('addonKey') || 'com.zenuml.confluence-addon'
-      return addonKey.includes('lite')
+    productType() {
+      return import.meta.env.PRODUCT_TYPE;
+    },
+    productTypeLabel() {
+      return this.productType.toUpperCase();
+    },
+    isLiteBuild() {
+      return this.productType === 'lite';
     }
   },
   async mounted() {

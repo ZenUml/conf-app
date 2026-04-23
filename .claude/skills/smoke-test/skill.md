@@ -54,8 +54,19 @@ This solves cross-origin iframe interaction without any special handling.
 MCP extension every time (CDP crash). Instead, type "/" via `browser_type ref=<editor-ref> text="/"`.
 `browser_type` uses `fill()` which DOES trigger the slash menu on Confluence (confirmed).
 
+**`fill('/')` only works reliably when the editor is empty or contains only plain text** — after
+a macro node is inserted, ProseMirror's document structure is complex (macro nodes are atom nodes).
+`fill()` may not position the cursor correctly after existing macro nodes and can silently insert
+"/" as garbage text without triggering the slash menu. For the 2nd macro onwards, use `slowly: true`
+(`pressSequentially`) instead — it fires keydown/keypress/keyup events that ProseMirror handles correctly.
+
 **Always re-snapshot before using refs** — refs become stale after DOM changes (page load,
 macro insert, panel open). Call `browser_snapshot` and use the fresh refs.
+
+**Editor textbox ref changes after macro insert** — after a macro is published and the modal closes,
+take a fresh snapshot to get the new textbox ref. The textbox will show `[active]` only after you
+click the editor area. Use `browser_click ref=<editor-area>` first, then snapshot, then find the
+new `textbox "Page editing area..."` ref before typing.
 
 **`browser_wait_for text="..."` cannot see iframe text** — use `browser_take_screenshot` + a
 fixed wait instead of waiting for text that lives inside the Forge CDN iframe.
@@ -89,145 +100,195 @@ browser_navigate url="https://{domain}/wiki/rest/api/content/search?cql=space%3D
 browser_take_screenshot   ← read ancestors[last].id from JSON
 ```
 
-### Step 1: Create a new child page
+### Step 1–2: One page per macro
+
+**Each macro gets its own page.** This is the most reliable approach — it eliminates all cursor
+repositioning problems. The slash menu always works reliably on a fresh/empty editor.
+
+**Macro list — create one page for each:**
+
+| # | Macro | Search term | Tab / action | Page title suffix |
+|---|-------|-------------|--------------|-------------------|
+| 1 | Diagram Lite — Sequence (ZenUML) | `zenuml` | Click "Sequence" tab | `(Sequence)` |
+| 2 | Diagram Lite — Mermaid | `zenuml` | Click "Mermaid" tab | `(Mermaid)` |
+| 3 | Diagram Lite — PlantUML | `zenuml` | Click "PlantUML" tab | `(PlantUML)` |
+| 4 | Graph (DrawIO) Lite | `graph` | Wait 8s, title = "Name your graph…" | `(Graph)` |
+| 5 | OpenAPI Lite | `openapi` | Wait 5s, title = "Title" | `(OpenAPI)` |
+
+For Full/Diagramly variants, macro names do not include "Lite" — adjust the search match accordingly.
+
+**For each macro, repeat this flow:**
+
+#### Create a page
 
 ```
 browser_navigate url="https://{domain}/wiki/create-content/page?spaceKey={spaceKey}&parentPageId={parentPageId}"
 ```
 
-Wait for the editor to load (screenshot to confirm title input visible), then fill the title:
-```
-browser_snapshot   ← get ref for "Give this page a title" textbox
-browser_type ref=<title-ref> element="Give this page a title" text="Smoke Test {timestamp} {random}"
-```
-
-### Step 2: Insert macros
-
-Repeat this pattern for each macro. **Take a fresh snapshot before every click.**
-
-#### 2a. Open the slash menu
-
-```
-browser_snapshot   ← get ref for "Page editing area" textbox (e.g. e1193)
-browser_type ref=<editor-ref> element="Page editing area" text="/"
-browser_wait_for text="View more" timeout=5000
-```
-
-#### 2b. Open Browse dialog and search
-
+Wait 3s, then set the page title via evaluate (more reliable than snapshot+type):
 ```
 browser_evaluate function="() => {
-  const btn = Array.from(document.querySelectorAll('button'))
-    .find(b => /View more|View all elements/.test(b.textContent || ''));
-  btn?.click();
-  return btn?.textContent;
+  const t = document.querySelector('[placeholder=\"Give this page a title\"]');
+  if (!t) return 'not found';
+  t.focus();
+  const s = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+  s.call(t, 'Smoke Test {timestamp} ({macro name})');
+  t.dispatchEvent(new Event('input', { bubbles: true }));
+  return 'set';
 }"
 ```
 
-Wait 2s, then search for the macro:
+#### Open slash menu, browse, and insert macro — all in one script
+
+Use `browser_run_code` to open the editor, trigger the slash menu, search the Browse dialog,
+and interact with the Forge modal in a **single tool call** per macro. This avoids repeated
+`browser_snapshot` → grep → ref cycles.
+
+**For Diagram macros (Sequence / Mermaid / PlantUML):**
+
 ```
-browser_evaluate function="() => {
-  const dialog = Array.from(document.querySelectorAll('[role=dialog]'))
-    .find(d => d.getAttribute('aria-label') === 'Browse');
-  const input = dialog?.querySelector('input');
-  if (!input) return 'no input';
-  input.focus();
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-  setter?.call(input, 'zenuml');   // ← use 'graph' or 'openapi' for other macros
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  input.dispatchEvent(new Event('change', { bubbles: true }));
-  return 'searched';
+browser_run_code code="async (page) => {
+  // Activate editor and open slash menu
+  await page.locator('[data-testid=\"ak-editor-fp-content-area\"]').click();
+  await page.getByRole('textbox', { name: 'Page editing area, start' }).fill('/');
+  await page.getByText('View more').first().waitFor({ state: 'visible', timeout: 10000 });
+
+  // Open Browse dialog
+  await page.getByText('View more').first().click();
+  await page.waitForTimeout(2000);
+
+  // Search for macro (use 'zenuml', 'graph', or 'openapi')
+  const dialog = page.locator('[role=dialog][aria-label=\"Browse\"]');
+  const input = dialog.locator('input');
+  await input.focus();
+  await input.fill('zenuml');
+  await input.dispatchEvent('input');
+  await input.dispatchEvent('change');
+  await page.waitForTimeout(2000);
+
+  // Click matching option — Lite: include 'Lite'; Full/Diagramly: exclude 'Lite'
+  const options = dialog.locator('[role=option], [role=gridcell] button');
+  const match = options.filter({ hasText: 'Diagram (Mermaid' }).filter({ hasNotText: 'Lite' }).first();
+  await match.click();
+  await page.waitForTimeout(500);
+  // REQUIRED: Browse dialog selects on click but needs Insert button to confirm
+  await page.getByTestId('ModalElementBrowser__insert-button').click();
+
+  // Wait for Forge modal and interact with iframe
+  await page.waitForTimeout(5000);
+  const frame = page.locator('[data-testid=\"hosted-resources-iframe\"]').contentFrame();
+  await frame.getByRole('tab', { name: 'Sequence' }).click();  // change tab name as needed
+  await frame.getByRole('textbox', { name: 'Name your diagram…' }).fill('Test Sequence');
+  await frame.getByRole('button', { name: 'Publish' }).click();
+
+  // Publish the Confluence page
+  await page.waitForTimeout(2000);
+  await page.getByTestId('publish-button').click();
+  await page.waitForTimeout(500);
+  try {
+    await page.getByRole('button', { name: 'Publish' }).last().click({ timeout: 2000 });
+  } catch {}
+  await page.waitForURL(u => !u.includes('edit-v2'), { timeout: 30000 });
+  return page.url();
 }"
 ```
 
-Wait 2s, then click the matching option:
+Change `tab: 'Sequence'` → `'Mermaid'` or `'PlantUML'` and title accordingly per macro.
+For **Lite** variant, change the `filter({ hasNotText: 'Lite' })` to `filter({ hasText: 'Lite' })`.
+
+**For Graph (DrawIO):**
+
 ```
-browser_evaluate function="() => {
-  const dialog = Array.from(document.querySelectorAll('[role=dialog]'))
-    .find(d => d.getAttribute('aria-label') === 'Browse');
-  const options = dialog?.querySelectorAll('[role=option], [role=gridcell] button');
-  // Full/Diagramly: match without 'Lite'; Lite: match with ' Lite'
-  const match = Array.from(options || [])
-    .find(o => o.textContent?.includes('Diagram (Mermaid') && !o.textContent?.includes('Lite'));
-  match?.click();
-  return match?.textContent?.trim().slice(0, 60);
+browser_run_code code="async (page) => {
+  await page.locator('[data-testid=\"ak-editor-fp-content-area\"]').click();
+  await page.getByRole('textbox', { name: 'Page editing area, start' }).fill('/');
+  await page.getByText('View more').first().waitFor({ state: 'visible', timeout: 10000 });
+  await page.getByText('View more').first().click();
+  await page.waitForTimeout(2000);
+
+  const dialog = page.locator('[role=dialog][aria-label=\"Browse\"]');
+  const input = dialog.locator('input');
+  await input.focus();
+  await input.fill('graph');
+  await input.dispatchEvent('input');
+  await input.dispatchEvent('change');
+  await page.waitForTimeout(2000);
+
+  // Lite: include 'Lite'; Full/Diagramly: exclude 'Lite'
+  const match = dialog.locator('[role=option], [role=gridcell] button')
+    .filter({ hasText: 'Graph (DrawIO)' }).filter({ hasNotText: 'Lite' }).first();
+  await match.click();
+  await page.waitForTimeout(500);
+  await page.getByTestId('ModalElementBrowser__insert-button').click();
+
+  // DrawIO: double-nested iframe — title in outer, Publish in inner
+  await page.waitForTimeout(8000);
+  const outerFrame = page.locator('[data-testid=\"hosted-resources-iframe\"]').contentFrame();
+  await outerFrame.getByRole('textbox', { name: 'Name your graph…' }).fill('Test Graph');
+  const innerFrame = outerFrame.locator('iframe').contentFrame();
+  await innerFrame.getByRole('button', { name: 'Publish' }).click();
+
+  await page.waitForTimeout(2000);
+  await page.getByTestId('publish-button').click();
+  try { await page.getByRole('button', { name: 'Publish' }).last().click({ timeout: 2000 }); } catch {}
+  await page.waitForURL(u => !u.includes('edit-v2'), { timeout: 30000 });
+  return page.url();
 }"
 ```
 
-#### 2c. Interact with the Forge modal
-
-Wait 5s for the modal to load, then snapshot to get iframe refs:
-```
-browser_take_screenshot   ← confirm modal is open
-browser_snapshot          ← get f9e* refs for tabs, title input, Publish button
-```
-
-The iframe elements appear in the snapshot under `dialog [active]` → `iframe` → `generic`.
-Key refs to look for:
-- `tab "Sequence"` → click to switch tab
-- `tab "PlantUML"` → click to switch tab  
-- `textbox "Name your diagram…"` → title input (required before Publish enables)
-- `button "Publish" [disabled]` → becomes enabled after title is filled
+**For OpenAPI:**
 
 ```
-browser_click ref=<sequence-tab-ref> element="Sequence"    ← for Sequence macro
-browser_click ref=<title-input-ref> element="Name your diagram…"
-browser_type ref=<title-input-ref> element="Name your diagram…" text="Test Sequence"
-browser_click ref=<publish-ref> element="Publish"
-```
+browser_run_code code="async (page) => {
+  await page.locator('[data-testid=\"ak-editor-fp-content-area\"]').click();
+  await page.getByRole('textbox', { name: 'Page editing area, start' }).fill('/');
+  await page.getByText('View more').first().waitFor({ state: 'visible', timeout: 10000 });
+  await page.getByText('View more').first().click();
+  await page.waitForTimeout(2000);
 
-For PlantUML — same flow but click PlantUML tab first:
-```
-browser_click ref=<plantuml-tab-ref> element="PlantUML"
-browser_type ref=<title-ref> element="Name your diagram…" text="Test PlantUML"
-browser_click ref=<publish-ref> element="Publish"
-```
+  const dialog = page.locator('[role=dialog][aria-label=\"Browse\"]');
+  const input = dialog.locator('input');
+  await input.focus();
+  await input.fill('openapi');
+  await input.dispatchEvent('input');
+  await input.dispatchEvent('change');
+  await page.waitForTimeout(2000);
 
-For Mermaid — but click Mermaid tab first:
-```
-browser_type ref=<title-ref> element="Name your diagram…" text="Test Mermaid"
-browser_click ref=<publish-ref> element="Publish"
-```
+  const match = dialog.locator('[role=option], [role=gridcell] button')
+    .filter({ hasText: 'OpenAPI' }).filter({ hasNotText: 'Lite' }).first();
+  await match.click();
+  await page.waitForTimeout(500);
+  await page.getByTestId('ModalElementBrowser__insert-button').click();
 
-For Graph (DrawIO) — search term `graph`, wait 8s for editor, title label is "Name your graph…":
-```
-browser_snapshot          ← iframe has nested structure: app frame → DrawIO iframe
-browser_type ref=<graph-title-ref> element="Name your graph…" text="Test Graph"
-```
-The Publish button is in the inner DrawIO iframe — snapshot will show it as a nested ref.
+  await page.waitForTimeout(5000);
+  const frame = page.locator('[data-testid=\"hosted-resources-iframe\"]').contentFrame();
+  await frame.getByRole('textbox', { name: 'Title' }).fill('Test OpenAPI');
+  await frame.getByRole('button', { name: 'Publish' }).click();
 
-For OpenAPI — search term `openapi`, wait 5s, title label is "Title":
-```
-browser_type ref=<title-ref> element="Title" text="Test OpenAPI"
-browser_click ref=<publish-ref> element="Publish"
-```
-
-#### 2d. Reposition cursor between macros
-
-After each macro publishes, click the page title to escape the modal frame:
-```
-browser_snapshot   ← get ref for "Give this page a title"
-browser_click ref=<page-title-ref> element="Give this page a title"
-```
-
-Then use evaluate to focus the editor and move cursor to end:
-```
-browser_evaluate function="() => {
-  const editor = document.querySelector('[contenteditable=true][role=textbox]');
-  if (!editor) return 'not found';
-  editor.focus();
-  const range = document.createRange();
-  range.selectNodeContents(editor);
-  range.collapse(false);
-  const sel = window.getSelection();
-  sel.removeAllRanges();
-  sel.addRange(range);
-  return 'cursor at end';
+  await page.waitForTimeout(2000);
+  await page.getByTestId('publish-button').click();
+  try { await page.getByRole('button', { name: 'Publish' }).last().click({ timeout: 2000 }); } catch {}
+  await page.waitForURL(u => !u.includes('edit-v2'), { timeout: 30000 });
+  return page.url();
 }"
-browser_press_key key="Enter"
 ```
 
-Then take a fresh snapshot and repeat from step 2a for the next macro.
+#### Verify and move to PVT
+
+The `browser_run_code` script above already publishes the page and waits for the URL to change.
+After it returns, take a screenshot to confirm rendering, then move to PVT:
+
+```
+browser_take_screenshot   ← confirm macro rendered
+```
+
+```
+browser_evaluate function="async () => {
+  // ... PVT move code (see Step 5)
+}"
+```
+
+Then navigate to a new page and repeat for the next macro.
 
 ### Step 3: Publish the page
 
@@ -325,3 +386,8 @@ Summarize:
 | Macro search returns 0 results | App not installed — report and skip |
 | Browser disconnects after macro insert | `browser_close` then `browser_navigate` back to edit URL — draft is auto-saved |
 | Garbage text (e.g. "/hel") appears in editor | Remove via `browser_evaluate` querying `[contenteditable] p` containing the text |
+| `fill('/')` inserts "/" as text without triggering slash menu | Editor already has macro nodes — use `slowly: true` (pressSequentially) instead of fill |
+| Slash menu doesn't appear after `slowly: true` | Use toolbar "Insert elements" button (find its ref in snapshot) as fallback |
+| Second/third macro not visible on published page | Cursor repositioning (Step 2d) failed — editor was not active when typing "/". Always verify `[contenteditable=true]` before proceeding |
+| DrawIO editor needs depth ≥ 10 snapshot | DrawIO is double-nested: outer `hosted-resources-iframe` (f72e*) + inner DrawIO canvas iframe (f74e*). Title is in outer (f72e*), Publish button is in inner (f74e*) |
+| OpenAPI title field is "Title" not "Name your diagram…" | OpenAPI modal uses different label — search for `textbox "Title"` in snapshot, not "Name your diagram…" |

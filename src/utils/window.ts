@@ -161,8 +161,20 @@ function isLite(): boolean {
   return window.globals?.apWrapper?.isLite() || false;
 }
 
+export function addonKeyForProductType(productType: string | undefined): string {
+  switch (productType) {
+    case "lite":
+      return "com.zenuml.confluence-addon-lite";
+    case "diagramly":
+      return "gptdock-confluence";
+    case "full":
+    default:
+      return "com.zenuml.confluence-addon";
+  }
+}
+
 export function addonKey() {
-  return getUrlParam("addonKey") || "unknown_addon";
+  return addonKeyForProductType(import.meta.env.PRODUCT_TYPE);
 }
 
 function version() {

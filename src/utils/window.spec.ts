@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import mixpanel from 'mixpanel-browser'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
-import { _awaitableTrackEvent, getUrlParam, getLocalStorageKey, getLocalState, setLocalState } from './window';
+import { _awaitableTrackEvent, addonKey, addonKeyForProductType, getUrlParam, getLocalStorageKey, getLocalState, setLocalState } from './window';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 
 // Mock dependencies
@@ -82,6 +82,24 @@ describe('window utils', async () => {
     it('should return undefined on invalid URL', () => {
       window.location.search = '?test=%invalid'
       expect(getUrlParam('test')).toBeUndefined()
+    })
+  })
+
+  describe('addonKey', () => {
+    it.each([
+      ['lite', 'com.zenuml.confluence-addon-lite'],
+      ['full', 'com.zenuml.confluence-addon'],
+      ['diagramly', 'gptdock-confluence'],
+      [undefined, 'com.zenuml.confluence-addon'],
+      ['unknown', 'com.zenuml.confluence-addon'],
+    ])('maps product type %s to addon key %s', (productType, expected) => {
+      expect(addonKeyForProductType(productType)).toBe(expected)
+    })
+
+    it('uses the build product type instead of Connect URL parameters', () => {
+      window.location.search = '?addonKey=com.zenuml.confluence-addon-lite'
+
+      expect(addonKey()).toBe(addonKeyForProductType(import.meta.env.PRODUCT_TYPE))
     })
   })
 

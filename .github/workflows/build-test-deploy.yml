@@ -9,6 +9,7 @@ on:
       - '!**ruixiang-e2e**'
     paths-ignore:
       - '**.md'
+      - '!CHANGELOG.md'
       - 'docs/**'
       - '.claude/**'
       - '.cursor/**'

@@ -1,29 +1,27 @@
-import {getUrlParam, trackEvent, serializeError} from "@/utils/window";
-import Global from "@/model/globals/Global";
+import { trackEvent, serializeError } from "@/utils/window";
+import { getClientDomain } from "@/utils/ContextParameters/ContextParameters";
 import { getPortalDomain } from "./portalDomain";
 
-async function getAtlassianDomain(): Promise<string> {
-  const pattern = /\/\/([a-z0-9-_]+)\.atlassian\.net/i;
-  const x =
-    getUrlParam("xdm_e") || (await Global.apWrapper._getCurrentPageUrl());
-  const url: any = x && decodeURIComponent(x);
-  const result = pattern.exec(url);
-  if (result && result.length > 1) {
-    return result[1];
-  }
-  return "";
-}
-
 export default async function (features: string[]) {
+  const client = getClientDomain();
+  const featuresParam = features.join(",");
+
+  // Attempt telemetry — lets us see every flag fetch, not just the error outcomes.
+  // Category `info` so queries filter by `event_label==='get_feature_flags_attempt'`.
+  trackEvent(`${client || 'empty'}|${featuresParam}`, 'get_feature_flags_attempt', 'info');
+
+  if (!client) {
+    trackEvent('empty_client_domain', 'get_feature_flags', 'error');
+    return {};
+  }
+
   try {
-    const client = await getAtlassianDomain();
-    const portal = getPortalDomain(); // Assuming getPortalDomain is async; if not, remove await.
+    const portal = getPortalDomain();
     const response = await fetch(
-      `${portal}/feature-flags?client=${client}&features=${features.join(",")}`
+      `${portal}/feature-flags?client=${client}&features=${featuresParam}`
     );
 
     if (!response.ok) {
-      // Log error or throw an exception
       console.error("HTTP Error:", response.status, response.statusText);
       trackEvent(response.statusText, 'get_feature_flags', 'error');
       return {};

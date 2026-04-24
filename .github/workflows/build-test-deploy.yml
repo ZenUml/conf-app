@@ -14,6 +14,12 @@ on:
       - '.claude/**'
       - '.cursor/**'
 
+# Cancel superseded runs on the same branch. Master never cancels so
+# release drafts are never lost mid-flight.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
 jobs:
   build:
     name: Build and Unit Test

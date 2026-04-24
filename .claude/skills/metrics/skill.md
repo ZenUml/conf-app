@@ -23,14 +23,17 @@ Usage: `/metrics <domain> [space]`
 
 | Name | Base URL |
 |------|----------|
-| Production (full) | `https://zenuml.com` |
-| Production (lite) | `https://lite.zenuml.com` |
-| Staging (full) | `https://full-stg.zenuml.com` |
-| Staging (lite) | `https://lite-stg.zenuml.com` |
+| Production (full) | `https://conf-full.zenuml.com` |
+| Production (lite) | `https://conf-lite.zenuml.com` |
+| Staging (full) | `https://conf-stg-full.zenuml.com` |
+| Staging (lite) | `https://conf-stg-lite.zenuml.com` |
 
 Append `/admin/metrics-inspect?domain=<domain>&space=<space>` to the base URL.
 
 For lite products, add `&addonKey=zenuml-lite` to the query string.
+
+Note: use curl (not WebFetch's follow-through summarization) to get the raw JSON, e.g.
+`curl -s "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>"`
 
 ## Execution
 

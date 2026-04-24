@@ -152,6 +152,32 @@ Hypothesis 1 remains most plausible. The Stage 1.5 fix + attempt telemetry will 
 
 **Bug to log separately**: `portal-stg.zenuml.com` should mirror prod flag config (or at least seed stub data for known staging clients like `zenuml-stg`). Without this, the `CUSTOMER_SUCCESS_SERVICE` flow is untestable in staging.
 
+## Stage 2.5 — REAL root cause found in production
+
+Opened `zenuml.atlassian.net/wiki/spaces/ZEN/pages/797573145/20200905+ZenUML` (a page with a Lite Forge ZenUML macro) via Playwright. Captured network requests:
+
+```
+GET https://portal-stg.zenuml.com/feature-flags?client=zenuml&features=CUSTOMER_SUCCESS_SERVICE => 200
+```
+
+**The production Forge app is fetching from the staging portal**, which has an empty flag KV (`{}` for every client — verified earlier). So the flag value is always false in production for Forge users.
+
+Why: `src/apis/portalDomain.ts` picks the portal based on `window.location.host`:
+```js
+["conf-full.zenuml.com", "conf-lite.zenuml.com"].includes(window.location.host)
+  ? "https://portal.zenuml.com"
+  : "https://portal-stg.zenuml.com";
+```
+But the Forge Custom UI iframe is hosted at `*.cdn.prod.atlassian-dev.net/<app-id>/…`, not at the conf-*.zenuml.com hosts. The whitelist was only ever true for the Connect iframe. Every Forge session — for every tenant — silently routes to staging portal, returns `{}`, and leaves `customerSuccessServiceEnabled=false`. This perfectly explains the 0 `upgrade_feature_enabled` and 0 `blocked` events across all 27 flagged domains.
+
+### Fix
+`src/apis/portalDomain.ts` now uses `forgeGlobal.forgeContext.environmentType` when running in Forge, falling back to the Connect host whitelist for Connect.
+
+### Revised picture
+- The `getClientDomain` unification in `src/apis/featureFlags.ts` is still correct (the getAtlassianDomain shadow function was redundant) but was NOT the root cause.
+- The portal routing bug is the actual production-blocking issue.
+- Expected post-deploy telemetry: `get_feature_flags_attempt` fires with the right client, `upgrade_feature_enabled` starts appearing for all 27 flagged domains, and `blocked` starts appearing on edits in ≥100-macro spaces (Coles has 8 such spaces).
+
 ### Stage 3 — Fix or instrument (variable)
 
 **If a bug is found:**

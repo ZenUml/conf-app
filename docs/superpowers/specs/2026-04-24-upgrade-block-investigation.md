@@ -112,6 +112,46 @@ If repro succeeds but prod doesn't:
 4. Hit `/api/space-status` for a real Coles space from a staging-authenticated request and log the response.
 5. Hit whatever endpoint `MacroMetrics` fetches and compare to the `/admin/metrics-inspect` numbers.
 
+## Stage 2 findings (2026-04-24, live browser via Playwright)
+
+Opened `zenuml-stg.atlassian.net` in Playwright with an existing ZenUML page. Two surprises:
+
+### Finding 1 — mock flag was set in the Forge iframe, short-circuiting the real code
+Console showed `🧪 Using mock CSS Feature Flag: true` — meaning `localStorage.mockCSSEnabled` is set in the Forge app's iframe origin (CDN host under `*.cdn.prod.atlassian-dev.net/<app-id>`). `loadCSSFeatureFlag` short-circuits on this and never calls the fetch. This is a dev artifact on this particular browser — not the prod root cause — but it's a noisy confound that makes staging an unreliable place to reproduce.
+
+Network log confirmed: **0 requests to `/feature-flags`** were issued during this page render.
+
+### Finding 2 (bigger) — `portal-stg.zenuml.com` has no feature flag data
+Ran direct `fetch()` from the `conf-stg-full.zenuml.com` origin:
+
+| Target | Client | Response |
+|---|---|---|
+| `portal-stg.zenuml.com` | `colesgroup` | `{}` |
+| `portal-stg.zenuml.com` | `zenuml` | `{}` |
+| `portal-stg.zenuml.com` | `zenuml-stg` | `{}` |
+| `portal-stg.zenuml.com` | *(empty)* | `{}` |
+| `portal.zenuml.com` | `colesgroup` | `{"CUSTOMER_SUCCESS_SERVICE":true}` |
+| `portal.zenuml.com` | *(empty)* | `{}` |
+
+**Staging portal's feature-flag KV is empty.** Only the prod portal has any flag data. This has two consequences:
+
+- Any verification attempt on staging will see the flag as `false` regardless of code correctness. **Staging cannot validate this fix.** The only way to verify is to deploy to production and watch the new `get_feature_flags_attempt` telemetry.
+- This also means the 27-domain enablement we saw in prod KV is entirely prod-side; staging is a blank slate.
+
+### What this means for the investigation
+
+Stage 2 did NOT prove or disprove the `getAtlassianDomain()` hypothesis — staging was the wrong environment. Three things remain possible for prod:
+
+1. **`getAtlassianDomain` returns empty in Forge** → my original hypothesis; the fix unifies on `getClientDomain` which demonstrably works in Mixpanel.
+2. **Client param is correct but something downstream drops the flag value** → unlikely given the direct curl works.
+3. **`initialize()` never runs for viewer sessions** → would also silence `FEATURE_ENABLED`, but tests show it's wired to `GenericViewer.mounted`, which fires on every `view_macro`.
+
+Hypothesis 1 remains most plausible. The Stage 1.5 fix + attempt telemetry will tell us definitively within minutes of a prod deploy.
+
+### Follow-up task
+
+**Bug to log separately**: `portal-stg.zenuml.com` should mirror prod flag config (or at least seed stub data for known staging clients like `zenuml-stg`). Without this, the `CUSTOMER_SUCCESS_SERVICE` flow is untestable in staging.
+
 ### Stage 3 — Fix or instrument (variable)
 
 **If a bug is found:**

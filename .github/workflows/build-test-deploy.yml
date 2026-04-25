@@ -66,6 +66,10 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   staging-full:
+    # Lite is representative for feature-branch validation. Full + Diagramly
+    # only run on master to catch variant-specific regressions before release;
+    # this halves the per-push minutes on feature branches.
+    if: github.ref == 'refs/heads/master'
     name: "Deploy: Full"
     uses: ./.github/workflows/staging-deploy.yml
     with:
@@ -76,6 +80,7 @@ jobs:
     secrets: inherit
 
   staging-full-test:
+    if: github.ref == 'refs/heads/master'
     needs: [staging-full, build]
     name: "E2E: Full"
     uses: ./.github/workflows/e2e-test.yml
@@ -88,6 +93,8 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   staging-diagramly:
+    # See note on staging-full — master-only.
+    if: github.ref == 'refs/heads/master'
     name: "Deploy: Diagramly"
     uses: ./.github/workflows/staging-deploy.yml
     with:
@@ -98,6 +105,7 @@ jobs:
     secrets: inherit
 
   staging-diagramly-test:
+    if: github.ref == 'refs/heads/master'
     needs: [staging-diagramly, build]
     name: "E2E: Diagramly"
     uses: ./.github/workflows/e2e-test.yml

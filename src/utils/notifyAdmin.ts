@@ -13,6 +13,16 @@ export interface NotifyAdminResult {
 }
 
 export async function notifyAdmin(input: NotifyAdminInput): Promise<NotifyAdminResult> {
+  // Test-only mock: avoid sending a real notification email during e2e.
+  if (typeof localStorage !== 'undefined' && localStorage.mockNotifyAdmin) {
+    try {
+      const parsed = JSON.parse(localStorage.mockNotifyAdmin) as NotifyAdminResult
+      console.log('🧪 Using mock notifyAdmin response:', parsed)
+      return parsed
+    } catch {
+      return { notified: true, adminCount: 1 }
+    }
+  }
   try {
     const result = await callRemote('/api/notify-admin', 'POST', input as any)
     return result as NotifyAdminResult

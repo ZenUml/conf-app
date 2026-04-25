@@ -124,6 +124,10 @@ restrictions:
       - viewing/rendering macros (view_macro always fires)
       - other read-only actions (fullscreen, export, copy code)
       - editing within an already-open editor (only the entry point is gated)
+      - inline Sequence saves (forgeIndex.ts updateContent handler at line 392
+        bypasses shouldBlockActions and only checks canUserEdit). KNOWN GAP.
+      - macro inserts/edits initiated from the Confluence page editor
+        (source=macro, page_mode=edit; routed via Confluence macro-extension flow)
   measurement:
     correct_event_for_blocked_volume: edit_macro_end + create_macro_end (per space)
     incorrect_event_for_blocked_volume: view_macro
@@ -217,16 +221,31 @@ constants:
 analytics_playbook:
   question_blocked_event_volume:
     use_event: edit_macro_end
-    required_filter: properties.page_mode == "view"
+    required_filter: properties.page_mode == "view" AND properties.source == "dialog"
     rationale: |
-      Only edit-from-view-mode is blocked. edit_macro_end fires for both:
-        - page_mode=view  → user clicked Edit on a published macro (BLOCKED if space unlicensed)
-        - page_mode=edit  → user edited a macro inline while editing the page (NOT blocked)
-      Skipping the page_mode filter overstates blocked volume by ~15% in
-      observed Coles data (7 of 48 edit events were in edit mode, not view).
+      Only the view→dialog path is gated by GenericViewer.edit() →
+      shouldBlockActions. edit_macro_end is emitted with three (source, page_mode)
+      shapes — only one is blockable:
+        (view, dialog) → user clicked Edit on a published macro and the macro
+                         editor dialog opened over the viewer. BLOCKED if space
+                         unlicensed.
+        (edit, macro)  → user was already in the Confluence page editor and
+                         edited an existing macro node via the macro-extension
+                         flow. Bypasses GenericViewer; NOT blocked.
+        (view, inline) → Forge Sequence "save directly from viewer" path
+                         (only Sequence supports it). Triggered by Sequence.vue
+                         updateCode() → EventBus 'updateContent' → forgeIndex.ts
+                         line 392, which calls saveToPlatform after only a
+                         canUserEdit() check. **NOT GATED by shouldBlockActions**
+                         — this is a known gap in the space-restriction feature.
+                         Rare in observed data (0 of 48 Coles edits) but means
+                         heavy-inline Sequence users on Lite bypass the block.
+      create_macro_end is always (edit, macro); creates are never blocked.
+      Skipping these filters overstates blocked volume by ~15% (7 of 48 edit
+      events on Coles were edit/macro, not view/dialog).
     do_not_use_for_blocked_volume:
       - view_macro          # views are never blocked
-      - create_macro_end    # creates only happen in edit mode; never blocked
+      - create_macro_end    # creates only happen via macro-extension flow; never blocked
     group_by: confluence_space
     filter: client_domain matches tenant
     annualization_warning: |

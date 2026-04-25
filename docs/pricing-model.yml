@@ -212,6 +212,21 @@ space_license_check:
 # -------------------------------------------------------------------
 tracking_events:
   source_file: src/utils/upgradeTracking.ts
+  IMPORTANT_mixpanel_event_naming: |
+    The Mixpanel event NAME is the `action`, not the `event_label`. trackEvent()
+    calls mixpanel.track(action, {event_label, event_category, ...details}).
+    So to query upgrade events, filter by event name in the action set
+    {blocked, impression, click, system, dismiss, hover, interaction} and
+    add a property filter event_label STARTSWITH "upgrade_". Querying for
+    event name "upgrade_action_blocked" returns 0 — wrong key.
+  action_to_label_map:
+    blocked:     upgrade_action_blocked
+    impression:  upgrade_modal_shown / upgrade_prompt_shown / upgrade_tooltip_shown
+    click:       upgrade_cta_clicked
+    system:      upgrade_feature_enabled
+    dismiss:     upgrade_modal_dismissed
+    hover:       upgrade_prompt_hovered
+    interaction: upgrade_slider_changed
   events:
     - name: upgrade_action_blocked
       action: blocked

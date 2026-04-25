@@ -5,8 +5,8 @@ export interface EventBody {
   client_domain: string;
   user_account_id: string;
   action: string;
-  event_source: string;
   version: string;
+  [key: string]: string | number | boolean | undefined | null;
 }
 
 const ALLOWED_REFERER_DOMAINS = ['zenuml.com', 'confluence-plugin.pages.dev', 'peng-new-8080.diagramly.ai']

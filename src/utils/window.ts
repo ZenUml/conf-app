@@ -189,7 +189,6 @@ async function callTrack(action: string, eventDetails: any) {
       body: JSON.stringify(
         Object.assign(
           {
-            event_source: window.location.host,
             addon_key: addonKey(),
             version: version(),
             action,
@@ -231,7 +230,6 @@ export function trackEventSync(
     };
     
     const data = JSON.stringify({
-      event_source: window.location.host,
       addon_key: addonKey(),
       version: version(),
       action,

@@ -216,9 +216,17 @@ constants:
 # -------------------------------------------------------------------
 analytics_playbook:
   question_blocked_event_volume:
-    use_event: edit_macro_end                # the action gated by restrictions
-    optionally_add: create_macro_end         # if creates also gated; verify in code
-    do_not_use: view_macro                   # views are never blocked
+    use_event: edit_macro_end
+    required_filter: properties.page_mode == "view"
+    rationale: |
+      Only edit-from-view-mode is blocked. edit_macro_end fires for both:
+        - page_mode=view  → user clicked Edit on a published macro (BLOCKED if space unlicensed)
+        - page_mode=edit  → user edited a macro inline while editing the page (NOT blocked)
+      Skipping the page_mode filter overstates blocked volume by ~15% in
+      observed Coles data (7 of 48 edit events were in edit mode, not view).
+    do_not_use_for_blocked_volume:
+      - view_macro          # views are never blocked
+      - create_macro_end    # creates only happen in edit mode; never blocked
     group_by: confluence_space
     filter: client_domain matches tenant
     annualization_warning: |

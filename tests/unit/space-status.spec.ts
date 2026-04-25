@@ -265,6 +265,184 @@ describe('space-status API (KV-only)', () => {
     });
   });
 
+  describe('extended fields', () => {
+    function forgeHeaders() {
+      return { 'x-forge-oauth-user': 'user-123', Authorization: 'Bearer forge-jwt' };
+    }
+
+    function makePayload(extra: Record<string, any> = {}) {
+      return {
+        payload: {
+          context: {
+            cloudId: 'cloud-abc',
+            accountId: 'acct-xyz',
+            confluence: { admin: false },
+            ...extra,
+          },
+        },
+      };
+    }
+
+    it('returns personalAuthored: 0 and tenantSizeEstimate: unknown when neither MACRO_AUTHORSHIP_KV nor DB are bound', async () => {
+      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
+      (validateContextToken as any).mockResolvedValue(makePayload());
+
+      const ctx = createMockContext({
+        url: 'https://example.com/api/space-status?spaceKey=ENG',
+        headers: forgeHeaders(),
+        env: makeEnv(),
+      });
+
+      const response = await onRequest(ctx);
+      const body = await response.json();
+      expect(body.personalAuthored).toBe(0);
+      expect(body.tenantSizeEstimate).toBe('unknown');
+    });
+
+    it('returns confluenceAdmin: true when forge context says admin', async () => {
+      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
+      (validateContextToken as any).mockResolvedValue(
+        makePayload({ confluence: { admin: true } })
+      );
+
+      const ctx = createMockContext({
+        url: 'https://example.com/api/space-status?spaceKey=ENG',
+        headers: forgeHeaders(),
+        env: makeEnv(),
+      });
+
+      const response = await onRequest(ctx);
+      const body = await response.json();
+      expect(body.confluenceAdmin).toBe(true);
+    });
+
+    it('returns confluenceAdmin: false when forge context admin field is missing', async () => {
+      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
+      (validateContextToken as any).mockResolvedValue({
+        payload: { context: { cloudId: 'cloud-abc' } },
+      });
+
+      const ctx = createMockContext({
+        url: 'https://example.com/api/space-status?spaceKey=ENG',
+        headers: forgeHeaders(),
+        env: makeEnv(),
+      });
+
+      const response = await onRequest(ctx);
+      const body = await response.json();
+      expect(body.confluenceAdmin).toBe(false);
+    });
+
+    it('returns confluenceAdmin: false when forge context says non-admin', async () => {
+      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
+      (validateContextToken as any).mockResolvedValue(
+        makePayload({ confluence: { admin: false } })
+      );
+
+      const ctx = createMockContext({
+        url: 'https://example.com/api/space-status?spaceKey=ENG',
+        headers: forgeHeaders(),
+        env: makeEnv(),
+      });
+
+      const response = await onRequest(ctx);
+      const body = await response.json();
+      expect(body.confluenceAdmin).toBe(false);
+    });
+
+    it('returns the cached tenantSizeEstimate value when present in MACRO_AUTHORSHIP_KV', async () => {
+      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
+      (validateContextToken as any).mockResolvedValue(makePayload());
+
+      const authorshipKv = new MockKV();
+      await authorshipKv.put('tenant_size:cloud-abc', 'medium_or_larger');
+
+      const ctx = createMockContext({
+        url: 'https://example.com/api/space-status?spaceKey=ENG',
+        headers: forgeHeaders(),
+        env: makeEnv({ MACRO_AUTHORSHIP_KV: authorshipKv as unknown as KVNamespace }),
+      });
+
+      const response = await onRequest(ctx);
+      const body = await response.json();
+      expect(body.tenantSizeEstimate).toBe('medium_or_larger');
+    });
+
+    it('computes and caches tenantSizeEstimate on cache miss when DB is provided', async () => {
+      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
+      (validateContextToken as any).mockResolvedValue(makePayload());
+
+      const authorshipKv = new MockKV();
+      const putSpy = vi.spyOn(authorshipKv, 'put');
+
+      // Mock DB returning install age of 60 days and 12 unique viewers => medium_or_larger
+      const installedAt = new Date(Date.now() - 60 * 86_400_000).toISOString();
+      const mockDb: any = {
+        prepare: (sql: string) => ({
+          bind: (..._args: any[]) => ({
+            first: async () => {
+              if (sql.includes('ForgeInstallation')) return { installed_at: installedAt };
+              if (sql.includes('MIN(createdAt)')) return { oldest: installedAt };
+              if (sql.includes('COUNT(DISTINCT userAccountId)')) return { n: 12 };
+              if (sql.includes('UserBehaviorEvent') && sql.includes('COUNT(*)')) return { n: 0 };
+              return null;
+            },
+          }),
+        }),
+      };
+
+      const ctx = createMockContext({
+        url: 'https://example.com/api/space-status?spaceKey=ENG',
+        headers: forgeHeaders(),
+        env: makeEnv({
+          MACRO_AUTHORSHIP_KV: authorshipKv as unknown as KVNamespace,
+          DB: mockDb,
+        }),
+      });
+
+      const response = await onRequest(ctx);
+      const body = await response.json();
+      expect(body.tenantSizeEstimate).toBe('medium_or_larger');
+      // cache key written
+      const cacheCall = putSpy.mock.calls.find(c => c[0] === 'tenant_size:cloud-abc');
+      expect(cacheCall).toBeDefined();
+      expect(cacheCall![1]).toBe('medium_or_larger');
+    });
+
+    it('returns personalAuthored: 5 when DB query returns { n: 5 }', async () => {
+      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
+      (validateContextToken as any).mockResolvedValue(makePayload());
+
+      const authorshipKv = new MockKV();
+      const mockDb: any = {
+        prepare: (sql: string) => ({
+          bind: (..._args: any[]) => ({
+            first: async () => {
+              if (sql.includes('UserBehaviorEvent') && sql.includes('COUNT(*)')) return { n: 5 };
+              if (sql.includes('ForgeInstallation')) return null;
+              if (sql.includes('MIN(createdAt)')) return { oldest: null };
+              if (sql.includes('COUNT(DISTINCT userAccountId)')) return { n: 0 };
+              return null;
+            },
+          }),
+        }),
+      };
+
+      const ctx = createMockContext({
+        url: 'https://example.com/api/space-status?spaceKey=ENG',
+        headers: forgeHeaders(),
+        env: makeEnv({
+          MACRO_AUTHORSHIP_KV: authorshipKv as unknown as KVNamespace,
+          DB: mockDb,
+        }),
+      });
+
+      const response = await onRequest(ctx);
+      const body = await response.json();
+      expect(body.personalAuthored).toBe(5);
+    });
+  });
+
   describe('SPACE_LICENSE_KV not configured', () => {
     it('returns isPaid: false gracefully when KV binding is missing', async () => {
       (getAuthorizationHeader as any).mockReturnValue('forge-jwt');

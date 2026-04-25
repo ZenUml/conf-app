@@ -1,0 +1,255 @@
+# Pricing & Licensing Model — ZenUML for Confluence (Lite)
+#
+# Authoritative reference grounded in source code, intended for AI/analytics
+# consumption. Update this file whenever the constants below change.
+#
+# Scope: this doc covers ONLY the Lite variant. Full and Diagramly are paid
+# Marketplace SKUs whose pricing and licensing are managed entirely by Atlassian
+# Marketplace; they ship with `app.licensing: enabled` in manifest.yml and have
+# no in-app restrictions or upgrade flow. There is nothing pricing-related to
+# document for them on our side.
+#
+# Last verified: 2026-04-25 against master @ commit (post 91930141).
+# Verification commands at the bottom of the file.
+
+meta:
+  doc_version: 2
+  product: ZenUML for Confluence — Lite (Forge)
+  forge_app_id: 8ad26115-211f-4216-971b-0540f606303d
+  marketplace_status: free
+  out_of_scope:
+    - Full variant (Atlassian Marketplace paid SKU; no in-app restrictions)
+    - Diagramly variant (Atlassian Marketplace paid SKU; no in-app restrictions)
+  source_of_truth_files:
+    - manifest.yml
+    - src/composables/useCustomerSuccessService.ts
+    - src/components/UpgradePrompt/usePricingCalculator.ts
+    - src/components/UpgradePrompt/upgradePrompt.ts
+    - functions/api/space-status.ts
+    - functions/api/space-license.ts
+    - src/components/Viewer/GenericViewer.vue
+    - src/utils/upgradeTracking.ts
+
+# -------------------------------------------------------------------
+# Two parallel paid channels presented to Lite users
+# -------------------------------------------------------------------
+# These are the upgrade options shown in the in-product UpgradePrompt modal
+# when a Lite user crosses the warning/limit thresholds. They are NOT
+# paid SKUs of Lite itself — they are paths off of Lite to a paid product:
+#   - Marketplace: switches the tenant from Lite to the paid Full SKU on
+#     Atlassian Marketplace.
+#   - Enterprise Bundle: keeps Lite installed but unlocks a single space via
+#     a KV record set after a Stripe payment.
+channels:
+  marketplace:
+    name: Atlassian Marketplace
+    role: primary
+    sku_type: per_user_per_month_billed_annually
+    months_in_year_billed: 10          # 2 months free under annual billing
+    flat_rate_max_users: 10
+    flat_rate_annual_usd: 40
+    tiers:
+      - name: Flat Rate
+        users_max: 10
+        annual_usd: 40                 # fixed, not per-user
+      - name: Small Tier
+        users_min: 11
+        users_max: 100
+        per_user_per_month_usd: 0.44
+      - name: Medium Tier
+        users_min: 101
+        users_max: 250
+        per_user_per_month_usd: 0.33
+      - name: Large Tier
+        users_min: 251
+        users_max: 1000
+        per_user_per_month_usd: 0.11
+      - name: Enterprise Tier
+        users_min: 1001
+        users_max: 10000
+        per_user_per_month_usd: 0.05
+    cost_formula: |
+      Cumulative tier pricing: cost(N) =
+        if N <= 10:    40
+        else: sum over each tier of (users_in_tier * rate * 10)
+      e.g. 250 users = (100 * 0.44 + 150 * 0.33) * 10 = 935/yr
+    upgrade_url: https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram
+    upgrade_url_param: ?domain={clientDomain}
+    licensing_grants: unlimited macros across all spaces, org-wide
+    charges: ALL Confluence users on the tenant
+    best_for: multiple spaces heavily use this app
+
+  enterprise_bundle:
+    name: ZenUML Enterprise Bundle
+    role: secondary
+    sku_type: flat_per_space_per_year
+    annual_usd_per_space: 299          # was 199 in original spec; current code = 299
+    minimum_macros_to_show_offer: 100
+    payment_provider: Stripe
+    payment_url: https://buy.stripe.com/cNifZifkN7hzavK12H7IY05
+    activation: manual                  # admin sets KV record after Stripe payment
+    licensing_grants:
+      - unlimited macros + unlimited users in ONE space
+      - Enterprise plan for app.zenuml.com
+      - Plus plan for diagramly.ai
+    best_for: large user base but only a few spaces heavily use this app
+    constraint: each space requires its own license
+    no_admin_permission_required: true  # bypasses Confluence-admin gating that Marketplace needs
+
+# -------------------------------------------------------------------
+# Lite restrictions: thresholds and what they trigger
+# -------------------------------------------------------------------
+restrictions:
+  scope: Lite only; gated by CUSTOMER_SUCCESS_SERVICE feature flag
+  bypass_conditions:
+    - space has active license in SPACE_LICENSE_KV (KV-based, see space_license_check)
+    - localStorage.mockSpacePaid === 'true' (test override)
+  thresholds:
+    warning_threshold:
+      macros: 85
+      effect: actionRequired = true; banner / tooltip surfaces on viewer/editor
+      blocks_action: false
+    macros_limit:
+      macros: 100
+      effect: shouldBlockActions = true; edit-from-view-mode is blocked, modal pops
+      blocks_action: true
+  block_surface:
+    name: edit-from-view-mode block
+    where: src/components/Viewer/GenericViewer.vue, methods.edit()
+    behavior: |
+      When user clicks Edit on a published macro and shouldBlockActions is true,
+      showUpgradeModal=true is set and the EventBus 'edit' is suppressed.
+      Tracking event upgrade_action_blocked fires with action_type='edit'.
+    importantly_NOT_blocked:
+      - viewing/rendering macros (view_macro always fires)
+      - other read-only actions (fullscreen, export, copy code)
+      - editing within an already-open editor (only the entry point is gated)
+  measurement:
+    correct_event_for_blocked_volume: edit_macro_end + create_macro_end (per space)
+    incorrect_event_for_blocked_volume: view_macro
+    note: |
+      view_macro fires regardless of license status; using it overstates blocked
+      impact by ~30x in observed data. See memory project_space_restrictions.md.
+
+# -------------------------------------------------------------------
+# Space license — how a single space gets unblocked
+# -------------------------------------------------------------------
+space_license_check:
+  endpoint: GET /api/space-status?spaceKey={key}
+  auth: Forge invocation token (RS256), validated against ALLOWED_FORGE_APP_IDS
+  storage: Cloudflare Workers KV (SPACE_LICENSE_KV binding)
+  kv_key_format: "license:{cloudId}:{spaceKey}"
+  kv_index_key: license-index
+  record_shape:
+    cloudId: string
+    spaceKey: string
+    status: active | inactive
+    activatedBy: string                # admin or operator who activated
+    paymentReference: string?          # optional Stripe payment id
+    expiresAt: ISO8601 string
+    createdAt: ISO8601 string
+    updatedAt: ISO8601 string
+  is_paid_predicate: status == "active" AND expiresAt > now
+  cache_control_short: max-age=300
+  admin_endpoint: /api/space-license   # POST/GET/DELETE, ADMIN_API_SECRET bearer
+  admin_test_skill: test-space-license
+
+# -------------------------------------------------------------------
+# Tracking events emitted around the funnel
+# -------------------------------------------------------------------
+tracking_events:
+  source_file: src/utils/upgradeTracking.ts
+  events:
+    - name: upgrade_action_blocked
+      action: blocked
+      category: conversion
+      fires_when: edit-from-view is blocked at 100+ macros on a Lite, unlicensed space
+      key_props: [ui_component, action_type, macro_count, macro_limit, macro_usage_pct]
+    - name: upgrade_modal_shown
+      action: impression
+      category: conversion
+    - name: upgrade_modal_dismissed
+      action: dismiss
+      category: conversion
+    - name: upgrade_cta_clicked
+      action: click
+      category: conversion
+      key_props: [ui_component, cta_type, product_option]
+      product_option_values: [marketplace, enterprise_bundle, unknown]
+    - name: upgrade_slider_changed
+      action: interaction
+      category: conversion
+      fires_when: user moves the marketplace pricing slider
+    - name: upgrade_feature_enabled
+      action: system
+      category: info
+      fires_when: feature flag CUSTOMER_SUCCESS_SERVICE flips on, OR paid space detected
+    - name: upgrade_prompt_hovered
+      action: hover
+      category: conversion
+    - name: upgrade_prompt_shown
+      action: impression
+      category: conversion
+      reserved: true                   # not yet emitted
+    - name: upgrade_tooltip_shown
+      action: impression
+      category: conversion
+      reserved: true                   # not yet emitted
+  ui_components: [header_badge, tooltip, viewer_notice, banner]
+
+# -------------------------------------------------------------------
+# Constants — single source of truth for analytics joins
+# -------------------------------------------------------------------
+constants:
+  WARNING_THRESHOLD_MACROS: 85
+  MACROS_LIMIT_HARD_CAP: 100
+  ENTERPRISE_BUNDLE_ANNUAL_COST_USD: 299
+  ENTERPRISE_BUNDLE_MIN_MACROS: 100
+  MARKETPLACE_FLAT_RATE_USD: 40
+  MARKETPLACE_FLAT_RATE_USERS_MAX: 10
+  MONTHS_IN_YEAR_BILLED: 10
+  CSS_FEATURE_FLAG_NAME: CUSTOMER_SUCCESS_SERVICE
+  KV_NAMESPACE_BINDING: SPACE_LICENSE_KV
+
+# -------------------------------------------------------------------
+# Analytics playbook — how to estimate impact correctly
+# -------------------------------------------------------------------
+analytics_playbook:
+  question_blocked_event_volume:
+    use_event: edit_macro_end                # the action gated by restrictions
+    optionally_add: create_macro_end         # if creates also gated; verify in code
+    do_not_use: view_macro                   # views are never blocked
+    group_by: confluence_space
+    filter: client_domain matches tenant
+    annualization_warning: |
+      Mixpanel started recording ~2026-04-18. Always check the earliest event
+      date before annualizing. See MEMORY.md > "Mixpanel Data Availability".
+
+  question_marketplace_revenue_estimate:
+    formula: see channels.marketplace.cost_formula
+    inputs_needed: [confluence_user_count, intended_tier_breakpoint]
+
+  question_bundle_addressable_market:
+    heuristic: |
+      Lite tenants where activity is concentrated in a small number of spaces
+      (Pareto: top 1-3 spaces hold >80% of edits) are best fit for the
+      Enterprise Bundle. Heavy multi-space tenants tilt toward Marketplace.
+    inputs_needed:
+      - per-tenant edit_macro_end count by space (last >=30d)
+      - tenant variant (must be lite)
+      - tenant size proxy (unique users on view_macro)
+
+# -------------------------------------------------------------------
+# Verification — re-run if code changes
+# -------------------------------------------------------------------
+verification:
+  marketplace_tiers: |
+    grep -nE 'PRICING_TIERS|PRICING_RATES' src/components/UpgradePrompt/usePricingCalculator.ts
+  bundle_constants: |
+    grep -nE 'ENTERPRISE_BUNDLE_ANNUAL_COST|ENTERPRISE_BUNDLE_MIN_MACROS' src/components/UpgradePrompt/upgradePrompt.ts
+  thresholds: |
+    grep -nE 'MACROS_LIMIT|WARNING_THRESHOLD' src/composables/useCustomerSuccessService.ts
+  block_call_site: |
+    grep -nE 'shouldBlockActions|ACTION_BLOCKED' src/components/Viewer/GenericViewer.vue
+  license_endpoint: |
+    cat functions/api/space-status.ts | grep -nE 'license|isPaid|SPACE_LICENSE_KV'

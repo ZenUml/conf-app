@@ -326,38 +326,52 @@ should produce one container. Report the count.
 
 Extract the page ID from the current URL (`/pages/{pageId}/`), then:
 
+**Important:** Do not use the v1 `/wiki/rest/api/content/{parentId}/child/page?title=...`
+endpoint to look up folders by name. The `title=` filter is fuzzy and limited to a page of
+children, so it can silently miss the real `PVT` page when the parent has many children.
+Combined with `createFolder` swallowing the resulting 400 ("page already exists"), the move
+ends up calling `movePage(pageId, undefined)` which returns 200 without re-parenting — a
+silent failure. Use the v2 space-scoped lookup with an exact-title + parentId filter instead.
+
 ```
 browser_evaluate function="async () => {
   const pageId = location.pathname.match(/\/pages\/(\d+)\//)?.[1];
   const parentId = '{parentPageId}';
+  const spaceKey = '{spaceKey}';  // e.g. 'SD', 'ZS', 'ZEN'
 
-  async function findChild(pid, title) {
-    const r = await fetch('/wiki/rest/api/content/' + pid + '/child/page?title=' + encodeURIComponent(title) + '&limit=25', {headers: {'Accept': 'application/json'}});
-    return (await r.json()).results?.find(p => p.title === title);
+  // Resolve numeric space id from the space key (v2 API needs the id, not the key)
+  const sr = await fetch('/wiki/api/v2/spaces?keys=' + spaceKey, {headers: {'Accept': 'application/json'}});
+  const spaceId = (await sr.json()).results[0].id;
+
+  async function findExact(title, parent) {
+    const r = await fetch('/wiki/api/v2/spaces/' + spaceId + '/pages?title=' + encodeURIComponent(title) + '&limit=50', {headers: {'Accept': 'application/json'}});
+    if (!r.ok) throw new Error('findExact ' + title + ' failed: ' + r.status);
+    const j = await r.json();
+    return (j.results || []).find(p => p.title === title && (!parent || p.parentId === parent));
   }
 
-  async function createFolder(spaceId, pid, title) {
-    const r = await fetch('/wiki/api/v2/pages', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({spaceId, status: 'current', title, parentId: pid, body: {representation: 'storage', value: ''}})});
+  async function createFolder(title, parent) {
+    const r = await fetch('/wiki/api/v2/pages', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({spaceId, status: 'current', title, parentId: parent, body: {representation: 'storage', value: ''}})});
+    if (!r.ok) throw new Error('createFolder ' + title + ' failed: ' + r.status + ' ' + (await r.text()).slice(0, 200));
     return (await r.json()).id;
   }
 
   async function movePage(pid, newParentId) {
     const r = await fetch('/wiki/rest/api/content/' + pid + '?expand=version,body.storage', {headers: {'Accept': 'application/json'}});
     const p = await r.json();
-    await fetch('/wiki/rest/api/content/' + pid, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'page', title: p.title, ancestors: [{id: parseInt(newParentId)}], version: {number: p.version.number + 1}, body: {storage: {value: p.body.storage.value, representation: 'storage'}}})});
+    const r2 = await fetch('/wiki/rest/api/content/' + pid, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'page', title: p.title, ancestors: [{id: parseInt(newParentId)}], version: {number: p.version.number + 1}, body: {storage: {value: p.body.storage.value, representation: 'storage'}}})});
+    if (!r2.ok) throw new Error('movePage failed: ' + r2.status);
   }
 
-  const pageRes = await fetch('/wiki/rest/api/content/' + pageId + '?expand=space', {headers: {'Accept': 'application/json'}});
-  const spaceId = (await pageRes.json()).space?.id;
   const year = new Date().getFullYear().toString();
   const month = year + '-' + String(new Date().getMonth() + 1).padStart(2, '0');
 
-  let pvt = await findChild(parentId, 'PVT');
-  if (!pvt) pvt = {id: await createFolder(spaceId, parentId, 'PVT')};
-  let yr = await findChild(pvt.id, year);
-  if (!yr) yr = {id: await createFolder(spaceId, pvt.id, year)};
-  let mo = await findChild(yr.id, month);
-  if (!mo) mo = {id: await createFolder(spaceId, yr.id, month)};
+  let pvt = await findExact('PVT', parentId);
+  if (!pvt) pvt = {id: await createFolder('PVT', parentId)};
+  let yr = await findExact(year, pvt.id);
+  if (!yr) yr = {id: await createFolder(year, pvt.id)};
+  let mo = await findExact(month, yr.id);
+  if (!mo) mo = {id: await createFolder(month, yr.id)};
   await movePage(pageId, mo.id);
   return 'Moved to PVT / ' + year + ' / ' + month;
 }"

@@ -16,8 +16,9 @@ on:
   # Note: push events are not supported by claude-code-action
   # Use workflow_dispatch for manual runs or schedule for automated tests
   schedule:
-    # Run daily at 2 AM UTC
-    - cron: '0 2 * * *'
+    # Run weekly Monday 2 AM UTC. Master CI already exercises E2E on every
+    # merge, so a daily Claude-driven run mostly duplicated coverage.
+    - cron: '0 2 * * 1'
 
 jobs:
   playwright-e2e-test:

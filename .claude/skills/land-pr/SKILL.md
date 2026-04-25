@@ -20,16 +20,21 @@ Production deployment requires manually publishing those draft releases (or usin
 
 Before merging, verify ALL of these:
 
-1. **All CI checks green** — no pending or failed checks
-2. **No pending reviews** — no requested changes outstanding
-3. **Branch is up to date** — no merge conflicts with master
-4. **PR is the right one** — confirm PR number with the user if ambiguous
+1. **PR is NOT a Draft** — Draft PRs skip `E2E: Lite` by design, so a "green" Draft PR has not actually been E2E-verified. Refuse to merge a Draft.
+2. **All CI checks green** — no pending or failed checks (and `E2E: Lite` is among them, not skipped)
+3. **No pending reviews** — no requested changes outstanding
+4. **Branch is up to date** — no merge conflicts with master
+5. **PR is the right one** — confirm PR number with the user if ambiguous
 
 ```bash
-gh pr view <PR_NUMBER> --json state,mergeable,statusCheckRollup,reviewDecision
+gh pr view <PR_NUMBER> --json state,isDraft,mergeable,statusCheckRollup,reviewDecision
 ```
 
-If any precondition fails, report which one and stop.
+If `isDraft` is `true`, stop with this message:
+
+> **REFUSED: PR #N is a Draft.** `E2E: Lite` was skipped because of the Draft gate, so this PR has not been verified end-to-end. Mark it Ready for Review (`gh pr ready <PR>`) and wait for the resulting CI run to go green, or run `/ship-branch` which handles this automatically.
+
+If any other precondition fails, report which one and stop.
 
 ## Steps
 

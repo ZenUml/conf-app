@@ -27,7 +27,7 @@ Steps 2-4 run in parallel per variant. E2E depends on its variant's staging depl
 Resolve which PR to babysit, in this priority order:
 
 1. **Explicit PR number** — if the user provided one (e.g., `#123`), use it
-2. **Current branch PR** — run `gh pr view --json number,title,headRefName,state,statusCheckRollup`
+2. **Current branch PR** — run `gh pr view --json number,title,headRefName,state,isDraft,statusCheckRollup`
 3. **Recently failed PR** — if no PR on current branch, find the most recent failed PR:
    ```bash
    gh run list --repo ZenUml/confluence-plugin-cloud --status failure --limit 5 --json databaseId,headBranch,event,createdAt,conclusion,name
@@ -35,6 +35,17 @@ Resolve which PR to babysit, in this priority order:
    Filter to runs created within the last 10 minutes. If multiple, pick the most recent.
 
 If no PR is found, tell the user and stop.
+
+### Note the PR's draft state
+
+After finding the PR, check `isDraft`. This affects which jobs are expected to run:
+
+| State | Jobs that run | Jobs that are `skipped` (and that's fine) |
+|---|---|---|
+| **Draft** | `Build and Unit Test`, `Deploy: Lite` | `E2E: Lite` (and Full/Diagramly variants — those skip on any feature branch) |
+| **Ready for Review** | `Build`, `Deploy: Lite`, `E2E: Lite` | Full/Diagramly variants only |
+
+When watching a Draft PR, do NOT wait for `E2E: Lite` — it will be `skipped`, which is the designed behaviour, not a failure. If the user expected E2E to run, suggest marking the PR Ready for Review (`gh pr ready <PR>`) or running `/ship-branch`.
 
 ## Step 2: Check CI Status
 

@@ -39,10 +39,10 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
           cache: pnpm
-      - name: Install main dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
+      # tests/e2e-tests is a standalone package (not in pnpm-workspace.yaml)
+      # with only @playwright/test, otpauth, and dotenv as dependencies. It does
+      # not import any code from the main workspace, so installing the main
+      # app's dependency tree here is dead weight (~60–90 s wall-clock per job).
       - name: Install E2E test dependencies
         run: cd tests/e2e-tests && pnpm install --ignore-workspace
         env:

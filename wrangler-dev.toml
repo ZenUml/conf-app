@@ -56,3 +56,12 @@ id = "e56fcb64cca74e10aac68e1d57b6c05b"
 binding = "SPACE_LICENSE_KV"
 id = "e56fcb64cca74e10aac68e1d57b6c05b"
 
+# Macro authorship counters (per-user-per-space) and tenant-size cache
+[[kv_namespaces]]
+binding = "MACRO_AUTHORSHIP_KV"
+id = "a5f31e656020439783721e180222b885"
+
+[[env.production.kv_namespaces]]
+binding = "MACRO_AUTHORSHIP_KV"
+id = "3f27e2bd6cc545a5b8931b653e30bde8"
+

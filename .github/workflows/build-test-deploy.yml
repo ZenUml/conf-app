@@ -27,10 +27,11 @@ on:
 
 # Cancel superseded runs on the same branch. Master never cancels so release
 # drafts are never lost mid-flight. `head_ref` is the source branch on
-# pull_request events; `ref` is used otherwise. The combined key collapses
-# push + pull_request synchronize events on the same branch into one group.
+# pull_request events; `ref_name` is the short branch name on push events.
+# Both resolve to the bare branch name, so push + pull_request synchronize
+# events on the same branch share one concurrency group (deduplicated).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:

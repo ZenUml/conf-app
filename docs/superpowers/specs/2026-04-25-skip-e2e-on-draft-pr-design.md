@@ -79,13 +79,17 @@ to:
 
 ```yaml
 concurrency:
-  # head_ref is the source branch on pull_request events; ref is used otherwise.
-  # This collapses push + pull_request events for the same branch into one group.
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/master' && github.head_ref != null }}
+  # head_ref is the source branch on pull_request events; ref_name is the short
+  # branch name on push events. Both resolve to the bare branch name, so push
+  # and pull_request synchronize events on the same branch share one group.
+  # Note: github.ref (used in the original key) is "refs/heads/<branch>" on
+  # push but "refs/pull/N/merge" on pull_request — those don't match, which
+  # is why we use head_ref / ref_name instead.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 ```
 
-`cancel-in-progress` stays false for master (no head_ref on push to master) and true for any branch update.
+`cancel-in-progress` stays false for master and true for any other branch.
 
 ### `staging-lite-test` job condition
 

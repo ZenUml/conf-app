@@ -15,6 +15,18 @@ The project is built as a full-stack application with:
 - **Deployment**: Cloudflare Pages + Forge CLI
 - **Platform**: Atlassian Forge (Connect runtime was removed; `app.connect` migration bridge in manifest.yml is kept for backward compatibility)
 
+## Pure Forge — no Connect code
+
+All three variants (lite, full, diagramly) are **Forge-only** in production. The Connect runtime is fully removed.
+
+**Policy for all code changes:**
+- Remove any Connect-era code when you encounter it. This includes: `xdm_e` / `xdm_c` URL parameter reads, the `AP.*` global, Connect-only host whitelists (e.g. `conf-full.zenuml.com`, `conf-lite.zenuml.com`), and helpers that assume a Connect iframe context.
+- For prod/staging detection, use `forgeGlobal.forgeContext?.environmentType` — not `window.location.host`. The Forge iframe is served from `*.cdn.prod.atlassian-dev.net/<app-id>/…`, not from the conf-*.zenuml.com hosts.
+- For client-domain extraction, use `getClientDomain()` from `src/utils/ContextParameters/ContextParameters.ts`. Do not reimplement a Connect-style `getAtlassianDomain()` that relies on `xdm_e`.
+- For variant-specific backend hostnames, use `forgeGlobal.zenumlRemoteBaseUrl` (derived from build variant + environment type) rather than hardcoding. **Exception:** DrawIO assets (`https://conf-full.zenuml.com/drawio/...`) are intentionally hosted on `conf-full.zenuml.com` and shared across all variants — keep those URLs as-is.
+
+**Only exception:** `manifest.yml` must keep the `app.connect` / Connect key / modules entries — Atlassian's Forge-from-Connect migration requires these to stay so that upgrade paths from legacy Connect installs still work. Don't remove those.
+
 ## Development Commands
 
 ### Building and Testing

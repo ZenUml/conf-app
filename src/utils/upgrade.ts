@@ -5,9 +5,6 @@ import { loadAllPaginatedData } from '@/utils/requestUtil';
 //new/full custom content: migrated: true, sourceCustomContentId: xxx (needed by downgrade)
 //content properties
 
-const UPGRADE_INCLUDE_DOMAINS = ['whimet4', 'whimet6', 'zenuml-dashboard-full-test'];
-const EXPORT_INCLUDE_DOMAINS = ['whimet4', 'zenuml-dashboard-full-test', 'zenuml-stg'];
-
 async function request(url: string, data: any = undefined, method: string | undefined = undefined): Promise<any> {
   const type = data ? method || 'POST' : 'GET';
   const params = Object.assign({url, type}, data ? {contentType: 'application/json', data: JSON.stringify(data)}: {});
@@ -336,36 +333,19 @@ function showPopup(title: string, actions: any = undefined): any {
 }
 
 
-function getAtlassianDomain(): string {
-  const pattern = /\/\/([a-z0-9-_]+)\.atlassian\.net/i;
-  const xdme = getUrlParam('xdm_e');
-  const url: any = xdme && decodeURIComponent(xdme);
-  const result = pattern.exec(url);
-  if(result && result.length > 1) {
-    return result[1];
-  }
-  return '';
-}
-
-function isUpgradeEnabled(): boolean {
-  return UPGRADE_INCLUDE_DOMAINS.includes(getAtlassianDomain());
-}
 function isExportEnabled(): boolean {
   //@ts-ignore
-  return !!localStorage.zenumlExport || EXPORT_INCLUDE_DOMAINS.includes(getAtlassianDomain());
+  return !!localStorage.zenumlExport;
 }
 
 export default {
-  isEnabled: isUpgradeEnabled,
   isExportEnabled: isExportEnabled,
   run(progressReporter: any) {
-    if(isUpgradeEnabled()) {
-      console.log('Upgrade - atlassian domain allowed, kicking off..');
-      showPopup('Started to migrate ZenUML Lite macros in all spaces');
+    console.log('Upgrade - kicking off..');
+    showPopup('Started to migrate ZenUML Lite macros in all spaces');
 
-      //@ts-ignore
-      AP.user.getCurrentUser(async (u) => await upgradeAllSpaces(u.atlassianAccountId, progressReporter));
-    }
+    //@ts-ignore
+    AP.user.getCurrentUser(async (u) => await upgradeAllSpaces(u.atlassianAccountId, progressReporter));
   },
   async exportContents(isLite: boolean) {
     console.log('Export - atlassian domain allowed, kicking off..');

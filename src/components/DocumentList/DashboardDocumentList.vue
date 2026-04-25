@@ -460,8 +460,7 @@ export default {
     this.initTheRightSideContent();
 
     const hasFull = await apWrapper.hasFullAddon();
-    this.isMigrationEnabled =
-      apWrapper.isLite() && hasFull && upgrade.isEnabled();
+    this.isMigrationEnabled = apWrapper.isLite() && hasFull;
     this.isExportEnabled = upgrade.isExportEnabled();
     this.isLite = apWrapper.isLite();
   },

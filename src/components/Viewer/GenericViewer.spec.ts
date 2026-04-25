@@ -13,7 +13,8 @@ vi.mock('@/model/globals', () => ({
       isLite: vi.fn(() => false),
       canUserEdit: vi.fn(() => Promise.resolve(true)),
       isDisplayMode: vi.fn(() => true),
-      _getCurrentUser: vi.fn(() => Promise.resolve({ atlassianAccountId: 'test-user-id' }))
+      _getCurrentUser: vi.fn(() => Promise.resolve({ atlassianAccountId: 'test-user-id' })),
+      getCurrentSpace: vi.fn(() => Promise.resolve({ key: 'TEST' }))
     }
   }
 }))
@@ -67,19 +68,28 @@ vi.mock('@/services/DiagramLikes', () => ({
 
 // Mock useCustomerSuccessService to control spacePaid and macrosCreated.
 // Use plain values (not refs) so Vue Options API data() treats them as reactive primitives.
-vi.mock('@/composables/useCustomerSuccessService', () => ({
-  useCustomerSuccessService: vi.fn(() => ({
-    macrosCreated: 0,
-    severity: 'none',
-    shouldBlockActions: false,
-    upgradeUrl: 'https://marketplace.atlassian.com',
-    enterpriseBundleUrl: 'https://zenuml.com/enterprise',
-    initialize: vi.fn(),
-    spacePaid: false,
-  })),
-  MACROS_LIMIT: 100,
-  getUpgradeContext: vi.fn(() => ({}))
-}))
+vi.mock('@/composables/useCustomerSuccessService', async () => {
+  const { ref } = await import('vue')
+  return {
+    useCustomerSuccessService: vi.fn(() => ({
+      macrosCreated: 0,
+      severity: 'none',
+      shouldBlockActions: false,
+      upgradeUrl: 'https://marketplace.atlassian.com',
+      enterpriseBundleUrl: 'https://zenuml.com/enterprise',
+      initialize: vi.fn(),
+      spacePaid: false,
+      // Persona-aware paywall fields (used by UpgradePromptRouter)
+      persona: ref('creator'),
+      personalAuthored: ref(0),
+      tenantSizeEstimate: ref('unknown'),
+      confluenceAdmin: ref(false),
+      personaAwarePaywallEnabled: ref(false),
+    })),
+    MACROS_LIMIT: 100,
+    getUpgradeContext: vi.fn(() => ({}))
+  }
+})
 
 describe('GenericViewer - Upgrade Features', () => {
   let macroMetrics: any

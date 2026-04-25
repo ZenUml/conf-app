@@ -31,6 +31,55 @@ meta:
     - src/utils/upgradeTracking.ts
 
 # -------------------------------------------------------------------
+# Core concepts: view mode vs edit mode (Confluence page state)
+# -------------------------------------------------------------------
+# A Confluence page exists in one of two states. The macro lifecycle differs
+# in each, and so does the gating point for our space-restriction block.
+# These map directly to the `page_mode` property on edit_macro_end /
+# create_macro_end events.
+#
+# Source detection: src/utils/editModeDetection.ts (detectEditMode)
+concepts:
+  page_view_mode:
+    page_mode_value: view
+    description: |
+      User is on a published Confluence page, reading it. Macros render via
+      our Forge viewer. To modify a macro, the user must click "Edit" on the
+      macro's toolbar, which opens the macro editor as a Forge modal dialog
+      OVER the page.
+    macro_lifecycle_paths:
+      - source: dialog
+        trigger: clicks "Edit" on the rendered macro toolbar
+        runs_through: src/components/Viewer/GenericViewer.vue methods.edit()
+        gated_by_block: true                # shouldBlockActions intercepts here
+        emits_event: edit_macro_end
+      - source: inline
+        trigger: edits the diagram directly in the viewer (no dialog)
+        applies_to: Sequence only (Forge)
+        runs_through: src/components/Sequence.vue updateCode → EventBus 'updateContent' → src/forgeIndex.ts:392 → saveToPlatform
+        gated_by_block: false               # ⚠️ KNOWN GAP — only canUserEdit() is checked
+        emits_event: edit_macro_end
+
+  page_edit_mode:
+    page_mode_value: edit
+    description: |
+      User is in Confluence's page editor, authoring the page itself. To add
+      or modify a macro, they use Confluence's macro-extension flow (insert
+      via slash menu or click-to-configure on an existing macro node). The
+      macro editor opens as part of the page-editor surface, NOT as a modal
+      over a viewer.
+    macro_lifecycle_paths:
+      - source: macro
+        trigger: insert macro from page editor OR click existing macro node to configure
+        runs_through: Confluence macro-extension flow → src/forgeIndex.ts save handler → saveToPlatform
+        gated_by_block: false               # never enters GenericViewer; block does not apply
+        emits_event: create_macro_end (insert) | edit_macro_end (configure)
+
+  blockable_event_predicate: |
+    page_mode == "view" AND source == "dialog"
+    (use this filter when estimating space-restriction impact for any tenant)
+
+# -------------------------------------------------------------------
 # Two parallel paid channels presented to Lite users
 # -------------------------------------------------------------------
 # These are the upgrade options shown in the in-product UpgradePrompt modal

@@ -121,7 +121,10 @@ export function useCustomerSuccessService() {
       // Check for mock override first (for testing)
       if (localStorage.mockCSSEnabled !== undefined) {
         customerSuccessServiceEnabled.value = localStorage.mockCSSEnabled === 'true'
-        console.log('🧪 Using mock CSS Feature Flag:', customerSuccessServiceEnabled.value)
+        if (localStorage.mockPersonaAwarePaywall !== undefined) {
+          personaAwarePaywallEnabled.value = localStorage.mockPersonaAwarePaywall === 'true'
+        }
+        console.log('🧪 Using mock CSS Feature Flag:', customerSuccessServiceEnabled.value, 'personaAwarePaywall:', personaAwarePaywallEnabled.value)
         cssFlagLoaded = true;
         return;
       }

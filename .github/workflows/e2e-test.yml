@@ -16,7 +16,7 @@ on:
         required: true
       node-version:
         type: string
-        default: '22.x'
+        default: '24.x'
     secrets:
       username:
         required: true

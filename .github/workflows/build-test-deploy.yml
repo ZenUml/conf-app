@@ -49,7 +49,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "24"
           cache: pnpm
       - name: Install dependencies (skip post-install scripts)
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -249,7 +249,7 @@ jobs:
           version: 10.x
       - uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "24"
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts --filter cron-aggregate
       - name: Deploy cron-aggregate to staging

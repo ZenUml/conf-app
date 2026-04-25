@@ -13,11 +13,24 @@ on:
       - 'docs/**'
       - '.claude/**'
       - '.cursor/**'
+  # pull_request events let us gate E2E on PR draft state. The pull_request
+  # synchronize event also fires on every push to a PR branch — concurrency
+  # below dedupes it against the matching push event.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - '**.md'
+      - '!CHANGELOG.md'
+      - 'docs/**'
+      - '.claude/**'
+      - '.cursor/**'
 
-# Cancel superseded runs on the same branch. Master never cancels so
-# release drafts are never lost mid-flight.
+# Cancel superseded runs on the same branch. Master never cancels so release
+# drafts are never lost mid-flight. `head_ref` is the source branch on
+# pull_request events; `ref` is used otherwise. The combined key collapses
+# push + pull_request synchronize events on the same branch into one group.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
@@ -54,6 +67,14 @@ jobs:
     secrets: inherit
 
   staging-lite-test:
+    # Run E2E only when it actually matters:
+    #   - on master (post-merge / scheduled coverage), or
+    #   - on a PR that is Ready for Review (signals "I want this merged").
+    # Pushing to a Draft PR (or to a branch with no PR open) deploys but
+    # skips E2E so iterative work isn't gated on a 10-minute test run.
+    if: |
+      github.ref == 'refs/heads/master' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     needs: [staging-lite, build]
     name: "E2E: Lite"
     uses: ./.github/workflows/e2e-test.yml

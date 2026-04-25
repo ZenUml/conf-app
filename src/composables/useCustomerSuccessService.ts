@@ -167,7 +167,21 @@ export function useCustomerSuccessService() {
       // Check for mock override first (for testing)
       if (localStorage.mockSpacePaid !== undefined) {
         spacePaidStatus.value = localStorage.mockSpacePaid === 'true'
-        console.log('🧪 Using mock space paid status:', spacePaidStatus.value)
+        if (localStorage.mockPersonalAuthored !== undefined) {
+          const n = parseInt(localStorage.mockPersonalAuthored, 10)
+          if (!isNaN(n)) personalAuthored.value = n
+        }
+        if (localStorage.mockTenantSizeEstimate) {
+          tenantSizeEstimate.value = localStorage.mockTenantSizeEstimate as typeof tenantSizeEstimate.value
+        }
+        if (localStorage.mockConfluenceAdmin !== undefined) {
+          confluenceAdmin.value = localStorage.mockConfluenceAdmin === 'true'
+        }
+        console.log('🧪 Using mock space paid status:', spacePaidStatus.value, {
+          personalAuthored: personalAuthored.value,
+          tenantSizeEstimate: tenantSizeEstimate.value,
+          confluenceAdmin: confluenceAdmin.value,
+        })
         spacePaidStatusLoaded = true;
         return;
       }

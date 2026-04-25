@@ -15,9 +15,11 @@ Orchestrate the full path from local branch to merged on master. This skill comp
 validate-branch → FAIL → stop, report
      | PASS
 submit-branch → FAIL → stop, report
-     | PR ready
+     | PR ready (Draft by default)
+mark Ready for Review → so E2E will run on the next CI cycle
+     |
 babysit-pr → EXHAUSTED → stop, "CI blocked"
-     | GREEN
+     | GREEN (incl. E2E)
 land-pr → BLOCKED → stop, report
      | MERGED
      done → suggest /release-app if production deploy is needed
@@ -33,15 +35,25 @@ Invoke `/validate-branch`. If it reports FAIL, stop and show the failure. Fix lo
 
 Invoke `/submit-branch`. If it reports FAILED, stop and show what went wrong (dirty worktree, push conflict, etc.).
 
-On success, note the PR number and URL.
+On success, note the PR number and URL. The PR is created as Draft (so iterative pushes don't trigger E2E).
 
-### Step 3: Get CI green
+### Step 3: Mark Ready for Review
 
-Invoke `/babysit-pr` with the PR number from Step 2. It will monitor CI, diagnose failures, attempt fixes (up to 3 retries), and report back.
+`/ship-branch` means "I want this merged" — so flip the PR out of Draft now. This triggers a fresh CI run that includes `E2E: Lite`, which `/land-pr` requires before merge.
+
+```bash
+gh pr ready <PR_NUMBER> --repo ZenUml/confluence-plugin-cloud
+```
+
+If the PR is already Ready, this is a no-op — proceed.
+
+### Step 4: Get CI green
+
+Invoke `/babysit-pr` with the PR number from Step 2. It will monitor CI (now including E2E since the PR is Ready), diagnose failures, attempt fixes (up to 3 retries), and report back.
 
 If babysit-pr exhausts all 3 retry attempts, stop and report "CI blocked" with the babysit report.
 
-### Step 4: Land and verify
+### Step 5: Land and verify
 
 **Confirm with the user before merging** unless they explicitly said "ship it".
 

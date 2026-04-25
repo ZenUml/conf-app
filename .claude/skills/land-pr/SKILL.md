@@ -18,26 +18,40 @@ Production deployment requires manually publishing those draft releases (or usin
 
 ## Preconditions
 
-Before merging, verify ALL of these:
-
-1. **All CI checks green** — no pending or failed checks
-2. **No pending reviews** — no requested changes outstanding
-3. **Branch is up to date** — no merge conflicts with master
-4. **PR is the right one** — confirm PR number with the user if ambiguous
-
 ```bash
-gh pr view <PR_NUMBER> --json state,mergeable,statusCheckRollup,reviewDecision
+gh pr view <PR_NUMBER> --json state,isDraft,mergeable,statusCheckRollup,reviewDecision
 ```
 
-If any precondition fails, report which one and stop.
+Verify ALL of these:
+
+1. **PR is the right one** — confirm PR number with the user if ambiguous
+2. **No pending reviews** — no requested changes outstanding
+3. **Branch is up to date** — no merge conflicts with master
+4. **CI is green AFTER the Draft gate is lifted** — see Step 1 below
+
+If a precondition fails (other than Draft), report which one and stop.
 
 ## Steps
 
-### 1. Verify readiness
+### 1. Lift the Draft gate if needed
 
-Run the precondition checks above. If anything is not green, stop and report.
+If `isDraft === true`, this PR has not been E2E-verified (the Draft gate skips `E2E: Lite`). `/land-pr` means "I want this merged" — so flip it Ready, wait for the resulting CI run with E2E to go green, then merge. Don't refuse and don't merge without verification.
 
-### 2. Merge
+```bash
+gh pr ready <PR_NUMBER> --repo ZenUml/confluence-plugin-cloud
+```
+
+Tell the user: "PR is Draft → marking Ready and waiting for CI (~14 min) to verify E2E before merge."
+
+Then delegate to `/babysit-pr <PR>` (or watch inline). If the new CI run fails, stop and report — do not merge.
+
+If `isDraft === false` already, skip this step.
+
+### 2. Verify CI green
+
+Confirm CI is green and `E2E: Lite` is among the passed checks (not skipped). Re-run the precondition checks. If anything is not green, stop and report.
+
+### 3. Merge
 
 Use the repo's default merge strategy — do not pass `--squash` or `--rebase` unless the user explicitly requests it.
 
@@ -47,7 +61,7 @@ gh pr merge <PR_NUMBER> --auto --delete-branch
 
 Using `--auto` arms auto-merge so GitHub merges when all checks pass.
 
-### 3. Wait for merge
+### 4. Wait for merge
 
 ```bash
 gh pr view <PR_NUMBER> --json state
@@ -55,7 +69,7 @@ gh pr view <PR_NUMBER> --json state
 
 Poll until state is `MERGED`. Timeout after 5 minutes.
 
-### 4. Monitor CI on master
+### 5. Monitor CI on master
 
 After merge, the `Build, Test and Draft Release` workflow runs on master. Watch it:
 

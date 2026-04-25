@@ -27,7 +27,7 @@ Steps 2-4 run in parallel per variant. E2E depends on its variant's staging depl
 Resolve which PR to babysit, in this priority order:
 
 1. **Explicit PR number** — if the user provided one (e.g., `#123`), use it
-2. **Current branch PR** — run `gh pr view --json number,title,headRefName,state,statusCheckRollup`
+2. **Current branch PR** — run `gh pr view --json number,title,headRefName,state,isDraft,statusCheckRollup`
 3. **Recently failed PR** — if no PR on current branch, find the most recent failed PR:
    ```bash
    gh run list --repo ZenUml/confluence-plugin-cloud --status failure --limit 5 --json databaseId,headBranch,event,createdAt,conclusion,name
@@ -36,17 +36,36 @@ Resolve which PR to babysit, in this priority order:
 
 If no PR is found, tell the user and stop.
 
+### Note the PR's draft state
+
+After finding the PR, check `isDraft`. This affects which jobs are expected to run:
+
+| State | Jobs that run | Jobs that are `skipped` (and that's fine) |
+|---|---|---|
+| **Draft** | `Build and Unit Test`, `Deploy: Lite` | `E2E: Lite` (and Full/Diagramly variants — those skip on any feature branch) |
+| **Ready for Review** | `Build`, `Deploy: Lite`, `E2E: Lite` | Full/Diagramly variants only |
+
+When watching a Draft PR, do NOT wait for `E2E: Lite` — it will be `skipped`, which is the designed behaviour, not a failure. If the user expected E2E to run, suggest marking the PR Ready for Review (`gh pr ready <PR>`) or running `/ship-branch`.
+
 ## Step 2: Check CI Status
 
 ```bash
 gh pr checks <PR_NUMBER> --repo ZenUml/confluence-plugin-cloud
 ```
 
-**If all checks pass**: Report success and stop. Nothing to babysit.
+### Build the expected-jobs set FIRST, based on draft state
 
-**If checks are still running**: Report status and wait. Use `gh run watch <RUN_ID> --repo ZenUml/confluence-plugin-cloud` to wait for completion (with a 10-minute timeout). Then re-evaluate.
+This is the most important step — your evaluation of "did CI pass?" depends on it.
 
-**If checks failed**: Proceed to Step 3.
+- **`isDraft === true`**: expected jobs = `Build and Unit Test`, `Deploy: Lite / deploy`. `E2E: Lite / test` is **expected to be `skipped`** — treat that as success, not failure, and never wait for it. (Full/Diagramly variants always skip on feature branches regardless of draft state.)
+- **`isDraft === false` (Ready)**: expected jobs = `Build and Unit Test`, `Deploy: Lite / deploy`, `E2E: Lite / test`. All three must reach success. Full/Diagramly skip as today.
+
+### Evaluate
+
+- **All expected jobs passed** (and skipped jobs are the right ones): report success and stop.
+- **Some expected jobs still pending/in_progress**: wait. Use `gh run watch <RUN_ID> --repo ZenUml/confluence-plugin-cloud` (10-minute timeout). Then re-evaluate.
+- **An expected job failed**: proceed to Step 3.
+- **An expected job was unexpectedly `skipped`** (e.g. `E2E: Lite` skipped on a Ready PR): this is a configuration bug, not a normal failure. Report it: "Expected `E2E: Lite` to run on this Ready PR but it was skipped — check the workflow `if:` condition or the PR's draft state."
 
 ## Step 3: Diagnose Failures
 

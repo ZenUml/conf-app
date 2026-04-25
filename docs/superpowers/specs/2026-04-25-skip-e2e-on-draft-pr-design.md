@@ -133,7 +133,16 @@ So `ship-branch` becomes the single command that exercises the full pipeline.
 Detect the PR's draft state at the start. If Draft, only watch `Build and Unit Test` + `Deploy: Lite`. If Ready, also watch `E2E: Lite`. Avoids waiting for jobs that will never run.
 
 ### `land-pr`
-Add a guard: if the PR is Draft, refuse with a clear message — "PR is Draft. Mark Ready for Review (or run `/ship-branch`) so E2E can verify before merge." Keeps the safety net.
+On a Draft PR, **auto-flip Draft → Ready, wait for the resulting CI run with E2E to go green, then merge.** Don't refuse and don't merge without verification. `/land-pr` means "I want this merged" — flipping is the right thing to do.
+
+If `isDraft === false` already, behave as today (verify green → merge).
+
+The wait can delegate to `/babysit-pr`. If the new CI run fails, stop and report — never merge a red PR.
+
+### `ready-pr` (new skill)
+Standalone "flip a Draft PR to Ready for Review". Use when the dev wants E2E verification mid-development without committing to a merge yet — avoids waiting until the last minute (`/ship-branch` or `/land-pr` time) to find out E2E breaks.
+
+Steps: `gh pr ready <PR>` (no-op if already Ready), then suggest `/babysit-pr` to watch.
 
 ### `validate-branch`
 No change. Local validation is independent of CI.
@@ -200,6 +209,7 @@ The dollar figure is small because the bulk-cost optimisations already shipped (
 2. Update `submit-branch` skill default + announcement.
 3. Update `ship-branch` skill sequence (add mark-Ready step).
 4. Update `babysit-pr` skill draft-detection.
-5. Update `land-pr` skill draft-guard.
+5. Update `land-pr` skill: auto-flip Draft → Ready, wait for new CI green, then merge.
+6. Add new `ready-pr` skill: standalone Draft → Ready flip for mid-development E2E verification.
 
 Each step is its own PR so the CI behaviour is verified before the skills depend on it.

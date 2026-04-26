@@ -35,14 +35,21 @@ describe('PresetDropdown', () => {
     await wrapper.get('[data-testid="preset-trigger"]').trigger('click')
     const items = wrapper.findAll('[data-testid="preset-item"]')
     expect(items).toHaveLength(6)
-    expect(items[0].text()).toBe('Reset')
-    expect(items[2].text()).toBe('Bystander')
+    expect(items.map((w) => w.text())).toEqual([
+      'Reset',
+      'Lite blocked',
+      'Bystander',
+      'Heavy creator — Bundle primary',
+      'Heavy creator — Marketplace primary',
+      'Comparison view',
+    ])
   })
 
   it('clicking a preset item writes its signature and reloads', async () => {
     const wrapper = mount(PresetDropdown)
     await wrapper.get('[data-testid="preset-trigger"]').trigger('click')
-    const bystander = wrapper.findAll('[data-testid="preset-item"]')[2]
+    const bystander = wrapper.findAll('[data-testid="preset-item"]')
+      .find((w) => w.text() === 'Bystander')!
     await bystander.trigger('click')
     await nextTick()
     expect(localStorage.getItem('mockPersonaAwarePaywall')).toBe('true')

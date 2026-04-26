@@ -39,16 +39,26 @@ const strategies: Strategy[] = [
   },
 ];
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
 export async function onRequestPost({ request, env }: { request: Request; env: Env }) {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { headers: CORS_HEADERS });
+  }
+
   let body: { dsl?: string; type?: string };
   try {
     body = await request.json();
   } catch {
-    return new Response('Invalid JSON body', { status: 400 });
+    return new Response('Invalid JSON body', { status: 400, headers: CORS_HEADERS });
   }
 
-  if (typeof body?.dsl !== 'string') return new Response("Invalid 'dsl' field", { status: 400 });
-  if (body.type && typeof body.type !== 'string') return new Response("Invalid 'type' field", { status: 400 });
+  if (typeof body?.dsl !== 'string') return new Response("Invalid 'dsl' field", { status: 400, headers: CORS_HEADERS });
+  if (body.type && typeof body.type !== 'string') return new Response("Invalid 'type' field", { status: 400, headers: CORS_HEADERS });
 
   const { dsl, type } = body;
   let title = '';
@@ -63,6 +73,6 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     }
   }
 
-  if (!title) return new Response(lastError || 'Failed to generate title', { status: 500 });
-  return new Response(title);
+  if (!title) return new Response(lastError || 'Failed to generate title', { status: 500, headers: CORS_HEADERS });
+  return new Response(title, { headers: CORS_HEADERS });
 }

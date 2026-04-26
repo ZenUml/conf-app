@@ -68,14 +68,24 @@ function handleTest(result: Record<string, unknown>) {
   result.TEST = { enabled: true, data: 'test data' };
 }
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
 export async function onRequestGet({ request, env }: { request: Request; env: Env }) {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { headers: CORS_HEADERS });
+  }
+
   const url = new URL(request.url);
   const client = url.searchParams.get('client') || '';
   const featuresParam = url.searchParams.get('features') || '';
   const queryAll = url.searchParams.get('queryAll') === 'true';
 
-  if (!client) return new Response('Invalid client field', { status: 400 });
-  if (!featuresParam) return new Response('Invalid features field', { status: 400 });
+  if (!client) return new Response('Invalid client field', { status: 400, headers: CORS_HEADERS });
+  if (!featuresParam) return new Response('Invalid features field', { status: 400, headers: CORS_HEADERS });
 
   const features = featuresParam.split(',');
   const kvService = env.KV_FEATURE_FLAGS;
@@ -99,5 +109,5 @@ export async function onRequestGet({ request, env }: { request: Request; env: En
     }
   }
 
-  return Response.json(result);
+  return Response.json(result, { headers: CORS_HEADERS });
 }

@@ -113,14 +113,14 @@ Update `src/model/ApWrapper2.spec.ts` if it relies on `portalDomain` mocks.
 1. **Land code change** — endpoints + wrangler bindings on a feature branch. CI deploys to stg variants.
 2. **Smoke test on staging** — verify `https://conf-lite-stg.zenuml.com/feature-flags?client=foo&features=PERSONA_AWARE_PAYWALL` returns the same shape as `https://portal-stg.zenuml.com/feature-flags?...`. Same for full-stg and dia-stg.
 3. **Frontend cutover** — merge the `portalDomain.ts` change. Now Forge clients call their own backend.
-4. **Soak period (~1 week)** — monitor `get_feature_flags` error tracking + AI usage. Old `portal.zenuml.com` Worker still running and untouched.
-5. **Decommission** — delete `zenuml-portal-staging` Worker, then `zenuml-portal-production`. Remove the `portal.zenuml.com` / `portal-stg.zenuml.com` DNS records last.
+4. **Soak period (30 days)** — keep `zenuml-portal` Worker and DNS live and untouched. Monitor `get_feature_flags` error tracking + AI usage on the new per-variant endpoints. The 30-day window is sized to outlast cached/old Forge bundles still pointing at `portal.zenuml.com` so they continue to work during the transition.
+5. **Decommission** — after the 30-day soak, delete `zenuml-portal-staging` Worker, then `zenuml-portal-production`. Remove the `portal.zenuml.com` / `portal-stg.zenuml.com` DNS records last.
 6. **Archive repo** — `zenuml-portal` GitHub repo archived.
 
 ## Risks and mitigations
 
 ### Old Forge bundles in the wild
-Forge bundles cached on client devices may still reference `portal.zenuml.com` for some time after cutover. Mitigation: keep the standalone Worker + DNS alive for the soak period (step 4). Atlassian's Forge force-upgrade typically takes effect within days.
+Forge bundles cached on client devices may still reference `portal.zenuml.com` for some time after cutover. Mitigation: keep the standalone Worker + DNS alive for the full 30-day soak period (step 4) so legacy clients continue to work while Atlassian's Forge force-upgrade rolls them forward.
 
 ### KV write paths
 The current zenuml-portal Worker has read-only `/feature-flags`. If anything writes to `KV_FEATURE_FLAGS` (admin tooling, scripts), audit and confirm it doesn't depend on the Worker URL. *Open item: confirm no write callers exist before step 5.*

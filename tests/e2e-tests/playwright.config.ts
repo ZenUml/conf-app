@@ -70,5 +70,16 @@ export default defineConfig({
       dependencies: ['auth'],
       timeout: 300000,
     },
+    {
+      // Standalone visual snapshots against local Vite dev server (pnpm start:local).
+      // No Confluence/Forge auth required.
+      name: 'preview',
+      testMatch: 'persona-preview*.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: { cookies: [], origins: [] },
+      },
+      timeout: 60000,
+    },
   ],
 });

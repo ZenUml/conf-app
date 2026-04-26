@@ -75,6 +75,7 @@ test.describe('Persona-Aware Paywall (Lite Staging)', () => {
       localStorage.setItem('mockPersonaAwarePaywall', 'true');
       localStorage.setItem('mockMacroCount', '120');
       localStorage.setItem('mockSpacePaid', 'false');
+      localStorage.setItem('mockNotifyAdmin', JSON.stringify({ notified: true, adminCount: 2 }));
     });
 
     await page.goto(testPageUrl, { waitUntil: 'domcontentloaded' });
@@ -90,10 +91,24 @@ test.describe('Persona-Aware Paywall (Lite Staging)', () => {
 
     // BystanderNotice teleports to the iframe's body (Vue runs in the Forge iframe)
     await expect(frame.getByText('Editing paused on this space')).toBeVisible({ timeout: 30_000 });
-    await expect(frame.getByText('Notify the space admin')).toBeVisible();
-    await expect(frame.getByText('I am the owner', { exact: false }).or(frame.getByText('see upgrade options'))).toBeVisible();
+    await expect(frame.locator('[data-testid="notify-admin-btn"]')).toBeVisible();
 
-    console.log('✅ Variant A (BystanderNotice) renders correctly');
+    await page.waitForTimeout(1500);
+    await page.screenshot({ path: 'persona-e2e-screenshots/bystander.png', fullPage: false });
+
+    // === Click "Notify the space admin" — backend stubbed via mockNotifyAdmin ===
+    await frame.locator('[data-testid="notify-admin-btn"]').click();
+    await expect(frame.locator('[data-testid="notify-admin-btn"]')).toContainText(/Admin notified/, { timeout: 10_000 });
+    await page.waitForTimeout(1500);
+    await page.screenshot({ path: 'persona-e2e-screenshots/bystander-after-notify.png' });
+
+    // === Click "see upgrade options" — should switch to HeavyCreatorPrompt ===
+    await frame.locator('[data-testid="self-identify-owner"]').click();
+    await expect(frame.getByText('This space has reached the Lite limit')).toBeVisible({ timeout: 10_000 });
+    await page.waitForTimeout(1500);
+    await page.screenshot({ path: 'persona-e2e-screenshots/bystander-after-self-identify.png' });
+
+    console.log('✅ Variant A (BystanderNotice + interactions) renders correctly');
   });
 
   test('Variant B: ComparisonView — tenant size unknown', async ({ context, page }) => {
@@ -118,6 +133,14 @@ test.describe('Persona-Aware Paywall (Lite Staging)', () => {
     await expect(frame.getByText(/marketplace/i).first()).toBeVisible({ timeout: 30_000 });
     await expect(frame.getByText(/enterprise bundle/i).first()).toBeVisible();
 
+    // Hold modal on screen + capture
+    await page.waitForTimeout(2500);
+    await page.screenshot({ path: 'persona-e2e-screenshots/comparison.png', fullPage: false });
+    await frame.getByText(/marketplace/i).first().hover().catch(() => {});
+    await page.waitForTimeout(1500);
+    await frame.getByText(/enterprise bundle/i).first().hover().catch(() => {});
+    await page.waitForTimeout(1500);
+
     console.log('✅ Variant B (ComparisonView) renders correctly');
   });
 
@@ -141,8 +164,17 @@ test.describe('Persona-Aware Paywall (Lite Staging)', () => {
 
     // HeavyCreator copy
     await expect(frame.getByText('This space has reached the Lite limit')).toBeVisible({ timeout: 30_000 });
-    // Bundle should be primary (contains $299)
-    await expect(frame.getByText(/\$299/)).toBeVisible();
+    // Bundle should be primary — assert presence (modal taller than iframe viewport)
+    await expect(frame.locator('body')).toContainText(/\$299/);
+
+    // Hold + capture; modal is taller than iframe so scroll it for the video
+    await page.waitForTimeout(2500);
+    await page.screenshot({ path: 'persona-e2e-screenshots/heavy-top.png', fullPage: false });
+    // Scroll the modal so the $299 CTA comes into view for the video
+    await frame.getByText(/\$299/).first().scrollIntoViewIfNeeded().catch(() => {});
+    await page.waitForTimeout(2000);
+    await page.screenshot({ path: 'persona-e2e-screenshots/heavy-bundle-cta.png', fullPage: false });
+    await page.waitForTimeout(1500);
 
     console.log('✅ Variant C (HeavyCreatorPrompt — Bundle primary) renders correctly');
   });

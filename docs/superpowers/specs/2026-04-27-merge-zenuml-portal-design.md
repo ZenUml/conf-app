@@ -25,6 +25,7 @@
 - The only callers of zenuml-portal:
   - `src/apis/portalDomain.ts` — picks portal host by Forge environment
   - `src/apis/featureFlags.ts` — fetches `${portal}/feature-flags?client=...&features=...`
+  - `src/apis/aiGenerateTitle.ts` — POSTs to `${portal}/ai-generate-title`
 
 ## Decision
 
@@ -94,17 +95,24 @@ KV IDs are reused as-is. **No data migration.**
 
 ### 4. Frontend caller change
 
-`src/apis/portalDomain.ts` becomes one line:
+Delete `src/apis/portalDomain.ts` entirely. Its sole purpose was selecting between `portal.zenuml.com` and `portal-stg.zenuml.com`; with each variant calling its own backend, that selection is gone.
 
-```ts
-import forgeGlobal from '@/model/globals/forgeGlobal';
+Update the two callers to use `forgeGlobal.zenumlRemoteBaseUrl` directly:
 
-export function getPortalDomain() {
-  return forgeGlobal.zenumlRemoteBaseUrl;
-}
-```
-
-The `featureFlags.ts` fetch URL stays as `${portal}/feature-flags?...` — `portal` now resolves to the variant's own backend (e.g. `https://conf-lite.zenuml.com`).
+- `src/apis/featureFlags.ts`:
+  ```ts
+  import forgeGlobal from '@/model/globals/forgeGlobal';
+  // ...
+  const response = await fetch(
+    `${forgeGlobal.zenumlRemoteBaseUrl}/feature-flags?client=${client}&features=${featuresParam}`
+  );
+  ```
+- `src/apis/aiGenerateTitle.ts`:
+  ```ts
+  import forgeGlobal from '@/model/globals/forgeGlobal';
+  // ...
+  return fetch(`${forgeGlobal.zenumlRemoteBaseUrl}/ai-generate-title`, { ... });
+  ```
 
 Update `src/model/ApWrapper2.spec.ts` if it relies on `portalDomain` mocks.
 

@@ -77,6 +77,7 @@ function getStandaloneContext(): any {
 }
 
 function applyStandaloneContext() {
+  global.isForge = false;
   global.view = STANDALONE_VIEW_STUB;
   global.forgeContext = getStandaloneContext();
   global.isDiagramly = import.meta.env.PRODUCT_TYPE === 'diagramly';
@@ -101,6 +102,7 @@ export async function getView() {
     if (!ctx?.extension) {
       throw new Error('Forge context missing extension');
     }
+    global.isForge = true;
     global.view = view;
     global.forgeContext = ctx;
     global.isDiagramly = import.meta.env.PRODUCT_TYPE === 'diagramly';

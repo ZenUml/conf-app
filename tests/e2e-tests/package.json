@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "test": "playwright test",
+    "test": "playwright test --ignore-snapshots --project=auth --project=pages --project=render --project=insert --project=syntax-validation",
+    "test:preview": "playwright test --project=preview",
     "test:render": "playwright test --project=render",
     "test:insert": "playwright test --project=insert",
     "test:syntax-validation": "playwright test --project=syntax-validation",

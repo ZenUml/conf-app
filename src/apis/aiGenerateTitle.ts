@@ -1,7 +1,7 @@
-import { getPortalDomain } from "./portalDomain";
+import forgeGlobal from "@/model/globals/forgeGlobal";
 
 export default async function (body: { dsl: string; type?: string }) {
-  return fetch(`${getPortalDomain()}/ai-generate-title`, {
+  return fetch(`${forgeGlobal.zenumlRemoteBaseUrl}/ai-generate-title`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

@@ -39,3 +39,16 @@ id = "8969e8528105403bb2d9adca9fc16567"
 [[env.production.kv_namespaces]]
 binding = "MACRO_AUTHORSHIP_KV"
 id = "2ace99065cee4bf394576627870049fe"
+
+# Portal feature flags KV (staging)
+[[kv_namespaces]]
+binding = "KV_FEATURE_FLAGS"
+id = "fd87eed34f864190880a4b44d25c0e91"
+
+[[env.production.kv_namespaces]]
+binding = "KV_FEATURE_FLAGS"
+id = "fd87eed34f864190880a4b44d25c0e91"
+
+[ai]
+binding = "AI"
+

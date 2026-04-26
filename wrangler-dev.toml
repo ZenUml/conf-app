@@ -65,3 +65,14 @@ id = "a5f31e656020439783721e180222b885"
 binding = "MACRO_AUTHORSHIP_KV"
 id = "3f27e2bd6cc545a5b8931b653e30bde8"
 
+# Portal feature flags KV (shared with zenuml-portal staging)
+[[kv_namespaces]]
+binding = "KV_FEATURE_FLAGS"
+id = "fd87eed34f864190880a4b44d25c0e91"
+
+[[env.production.kv_namespaces]]
+binding = "KV_FEATURE_FLAGS"
+id = "fe9042cb20994651b0a2ef9e68f9037c"
+
+[ai]
+binding = "AI"

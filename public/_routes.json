@@ -15,6 +15,7 @@
     "/api/features",
     "/api/space-status",
     "/api/space-license",
+    "/api/notify-admin",
     "/api/metrics/evaluation",
     "/forge-installed",
     "/forge-user-behavior",

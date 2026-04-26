@@ -18,6 +18,8 @@ const VARIANTS = [
   { name: 'heavy-admin-medium', label: 'HeavyCreator (admin + medium → Bundle primary)' },
   { name: 'heavy-non-admin', label: 'HeavyCreator (non-admin → Bundle primary)' },
   { name: 'heavy-admin-small', label: 'HeavyCreator (admin + small → Marketplace primary)' },
+  { name: 'debug-bar-clean', label: 'DebugBar (no preset)' },
+  { name: 'debug-bar-bystander', label: 'DebugBar (Bystander preset)' },
 ] as const
 
 test.describe('Persona Paywall Visual Snapshots', () => {
@@ -26,8 +28,11 @@ test.describe('Persona Paywall Visual Snapshots', () => {
   for (const variant of VARIANTS) {
     test(`${variant.label} matches snapshot`, async ({ page }) => {
       await page.goto(`${BASE}?variant=${variant.name}`)
-      // Wait for Teleport target to render
-      await expect(page.locator('div.fixed.inset-0').first()).toBeVisible({ timeout: 10_000 })
+      // Wait for the variant's root element to render. Modal variants render
+      // a fixed-overlay; DebugBar variants render an inline bar at the top.
+      const isDebugBar = variant.name.startsWith('debug-bar-')
+      const waitSelector = isDebugBar ? 'aside[role="status"]' : 'div.fixed.inset-0'
+      await expect(page.locator(waitSelector).first()).toBeVisible({ timeout: 10_000 })
       // Disable animations / caret blink for stable diffs
       await page.addStyleTag({ content: '*, *::before, *::after { animation-duration: 0s !important; transition-duration: 0s !important; caret-color: transparent !important; }' })
       await expect(page).toHaveScreenshot(`${variant.name}.png`, {

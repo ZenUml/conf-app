@@ -63,8 +63,8 @@ const marketplaceOption = {
     'Atlassian billing',
   ],
   ctaLabel: 'Upgrade on Marketplace →',
-  hint: 'Self-serve, no admin needed?',
-  secondaryLabel: 'Enterprise Bundle — $299/yr for this space',
+  hint: 'Need access across all spaces?',
+  secondaryLabel: 'Compare org-wide Marketplace pricing',
 }
 
 const bundleOption = {
@@ -76,8 +76,8 @@ const bundleOption = {
     'Activated within minutes of payment',
   ],
   ctaLabel: 'Unlock this space — $299/yr →',
-  hint: 'Rolling out across many spaces?',
-  secondaryLabel: 'Compare org-wide Marketplace pricing',
+  hint: 'Only need one space upgraded?',
+  secondaryLabel: 'Enterprise Bundle — $299/yr for this space',
 }
 
 const primary = computed(() => {

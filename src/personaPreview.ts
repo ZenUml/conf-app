@@ -22,29 +22,10 @@ const variants: Record<string, () => ReturnType<typeof h>> = {
     enterpriseBundleUrl: 'https://example.com/bundle',
     onClose: () => {},
   }),
-  'heavy-admin-medium': () => h(HeavyCreatorPrompt, {
-    visible: true,
-    personalAuthored: 60,
-    tenantSizeEstimate: 'medium_or_larger' as const,
-    confluenceAdmin: true,
-    upgradeUrl: 'https://example.com/upgrade',
-    enterpriseBundleUrl: 'https://example.com/bundle',
-    onClose: () => {},
-  }),
-  'heavy-non-admin': () => h(HeavyCreatorPrompt, {
+  'heavy-creator': () => h(HeavyCreatorPrompt, {
     visible: true,
     personalAuthored: 60,
     tenantSizeEstimate: 'small_likely' as const,
-    confluenceAdmin: false,
-    upgradeUrl: 'https://example.com/upgrade',
-    enterpriseBundleUrl: 'https://example.com/bundle',
-    onClose: () => {},
-  }),
-  'heavy-admin-small': () => h(HeavyCreatorPrompt, {
-    visible: true,
-    personalAuthored: 60,
-    tenantSizeEstimate: 'small_likely' as const,
-    confluenceAdmin: true,
     upgradeUrl: 'https://example.com/upgrade',
     enterpriseBundleUrl: 'https://example.com/bundle',
     onClose: () => {},
@@ -52,8 +33,7 @@ const variants: Record<string, () => ReturnType<typeof h>> = {
   'debug-bar-clean': () => {
     for (const k of [
       'mockCSSEnabled','mockMacroCount','mockSpacePaid','mockPersonaAwarePaywall',
-      'mockPersonalAuthored','mockTenantSizeEstimate','mockConfluenceAdmin',
-      'mockPersonaThreshold','mockNotifyAdmin',
+      'mockPersonalAuthored','mockTenantSizeEstimate','mockPersonaThreshold','mockNotifyAdmin',
     ]) localStorage.removeItem(k)
     return h(DebugBar)
   },
@@ -64,7 +44,6 @@ const variants: Record<string, () => ReturnType<typeof h>> = {
     localStorage.setItem('mockPersonaAwarePaywall', 'true')
     localStorage.setItem('mockPersonalAuthored', '0')
     localStorage.setItem('mockTenantSizeEstimate', 'small_likely')
-    localStorage.setItem('mockConfluenceAdmin', 'false')
     localStorage.setItem('mockNotifyAdmin', '{"notified":true,"adminCount":1}')
     return h(DebugBar)
   },

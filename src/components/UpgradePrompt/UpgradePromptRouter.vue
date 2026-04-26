@@ -64,7 +64,6 @@ const activeProps = computed(() => {
   return {
     personalAuthored: svc.personalAuthored.value,
     tenantSizeEstimate: svc.tenantSizeEstimate.value,
-    confluenceAdmin: svc.confluenceAdmin.value,
     upgradeUrl: props.upgradeUrl,
     enterpriseBundleUrl: props.enterpriseBundleUrl,
   }

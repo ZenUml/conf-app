@@ -30,17 +30,16 @@ describe('PresetDropdown', () => {
     expect(wrapper.get('[data-testid="preset-active"]').text()).toBe('Lite blocked')
   })
 
-  it('renders all 6 preset items when toggled', async () => {
+  it('renders all 5 preset items when toggled', async () => {
     const wrapper = mount(PresetDropdown)
     await wrapper.get('[data-testid="preset-trigger"]').trigger('click')
     const items = wrapper.findAll('[data-testid="preset-item"]')
-    expect(items).toHaveLength(6)
+    expect(items).toHaveLength(5)
     expect(items.map((w) => w.text())).toEqual([
       'Reset',
       'Lite blocked',
       'Bystander',
-      'Heavy creator — Bundle primary',
-      'Heavy creator — Marketplace primary',
+      'Heavy creator',
       'Comparison view',
     ])
   })

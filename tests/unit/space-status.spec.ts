@@ -299,57 +299,6 @@ describe('space-status API (KV-only)', () => {
       expect(body.tenantSizeEstimate).toBe('unknown');
     });
 
-    it('returns confluenceAdmin: true when forge context says admin', async () => {
-      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
-      (validateContextToken as any).mockResolvedValue(
-        makePayload({ confluence: { admin: true } })
-      );
-
-      const ctx = createMockContext({
-        url: 'https://example.com/api/space-status?spaceKey=ENG',
-        headers: forgeHeaders(),
-        env: makeEnv(),
-      });
-
-      const response = await onRequest(ctx);
-      const body = await response.json();
-      expect(body.confluenceAdmin).toBe(true);
-    });
-
-    it('returns confluenceAdmin: false when forge context admin field is missing', async () => {
-      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
-      (validateContextToken as any).mockResolvedValue({
-        payload: { context: { cloudId: 'cloud-abc' } },
-      });
-
-      const ctx = createMockContext({
-        url: 'https://example.com/api/space-status?spaceKey=ENG',
-        headers: forgeHeaders(),
-        env: makeEnv(),
-      });
-
-      const response = await onRequest(ctx);
-      const body = await response.json();
-      expect(body.confluenceAdmin).toBe(false);
-    });
-
-    it('returns confluenceAdmin: false when forge context says non-admin', async () => {
-      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
-      (validateContextToken as any).mockResolvedValue(
-        makePayload({ confluence: { admin: false } })
-      );
-
-      const ctx = createMockContext({
-        url: 'https://example.com/api/space-status?spaceKey=ENG',
-        headers: forgeHeaders(),
-        env: makeEnv(),
-      });
-
-      const response = await onRequest(ctx);
-      const body = await response.json();
-      expect(body.confluenceAdmin).toBe(false);
-    });
-
     it('returns the cached tenantSizeEstimate value when present in MACRO_AUTHORSHIP_KV', async () => {
       (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
       (validateContextToken as any).mockResolvedValue(makePayload());

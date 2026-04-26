@@ -40,7 +40,7 @@ describe('useCustomerSuccessService — persona derivation', () => {
       isPaid: false,
       personalAuthored: M_THRESHOLD,
       tenantSizeEstimate: 'medium_or_larger',
-      confluenceAdmin: false,
+
     });
     (getFeatureFlags as any).mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true, PERSONA_AWARE_PAYWALL: true });
 
@@ -55,7 +55,7 @@ describe('useCustomerSuccessService — persona derivation', () => {
       isPaid: false,
       personalAuthored: 0,
       tenantSizeEstimate: 'small_likely',
-      confluenceAdmin: false,
+
     });
     (getFeatureFlags as any).mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true, PERSONA_AWARE_PAYWALL: true });
 
@@ -65,27 +65,12 @@ describe('useCustomerSuccessService — persona derivation', () => {
     expect(svc.persona.value).toBe('bystander');
   });
 
-  it('exposes persona = "admin" when confluenceAdmin === true (overrides authorship)', async () => {
-    (callRemote as any).mockResolvedValue({
-      isPaid: false,
-      personalAuthored: 0,
-      tenantSizeEstimate: 'medium_or_larger',
-      confluenceAdmin: true,
-    });
-    (getFeatureFlags as any).mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true, PERSONA_AWARE_PAYWALL: true });
-
-    const svc = useCustomerSuccessService();
-    await svc.initialize();
-    await nextTick();
-    expect(svc.persona.value).toBe('admin');
-  });
-
   it('exposes tenantSizeEstimate and personalAuthored as reactive refs', async () => {
     (callRemote as any).mockResolvedValue({
       isPaid: false,
       personalAuthored: 17,
       tenantSizeEstimate: 'small_likely',
-      confluenceAdmin: false,
+
     });
     (getFeatureFlags as any).mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true, PERSONA_AWARE_PAYWALL: true });
 
@@ -110,7 +95,7 @@ describe('useCustomerSuccessService — persona derivation', () => {
       isPaid: false,
       personalAuthored: 3,
       tenantSizeEstimate: 'medium_or_larger',
-      confluenceAdmin: false,
+
     });
     (getFeatureFlags as any).mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true, PERSONA_AWARE_PAYWALL: true });
 

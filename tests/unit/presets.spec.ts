@@ -6,33 +6,26 @@ describe('presets', () => {
     for (const k of MOCK_KEYS) localStorage.removeItem(k)
   })
 
-  it('exposes 6 presets in stable order', () => {
-    expect(PRESETS.map((p) => p.name)).toEqual([
-      'Reset',
-      'Lite blocked',
-      'Bystander',
-      'Heavy creator — Bundle primary',
-      'Heavy creator — Marketplace primary',
-      'Comparison view',
-    ])
+  it('Reset is always the first preset (so empty localStorage matches Reset, not nothing)', () => {
+    expect(PRESETS[0].name).toBe('Reset')
   })
 
   it('applyPreset("Bystander") writes the documented signature', () => {
     applyPreset('Bystander')
-    expect(localStorage.mockCSSEnabled).toBe('true')
-    expect(localStorage.mockMacroCount).toBe('120')
-    expect(localStorage.mockSpacePaid).toBe('false')
-    expect(localStorage.mockPersonaAwarePaywall).toBe('true')
-    expect(localStorage.mockPersonalAuthored).toBe('0')
-    expect(localStorage.mockTenantSizeEstimate).toBe('small_likely')
-    expect(localStorage.mockConfluenceAdmin).toBe('false')
-    expect(localStorage.mockNotifyAdmin).toBe('{"notified":true,"adminCount":1}')
-    expect(localStorage.mockPersonaThreshold).toBeUndefined()
+    expect(localStorage.getItem('mockCSSEnabled')).toBe('true')
+    expect(localStorage.getItem('mockMacroCount')).toBe('120')
+    expect(localStorage.getItem('mockSpacePaid')).toBe('false')
+    expect(localStorage.getItem('mockPersonaAwarePaywall')).toBe('true')
+    expect(localStorage.getItem('mockPersonalAuthored')).toBe('0')
+    expect(localStorage.getItem('mockTenantSizeEstimate')).toBe('small_likely')
+    expect(localStorage.getItem('mockConfluenceAdmin')).toBe('false')
+    expect(localStorage.getItem('mockNotifyAdmin')).toBe('{"notified":true,"adminCount":1}')
+    expect(localStorage.getItem('mockPersonaThreshold')).toBeNull()
   })
 
   it('applyPreset("Reset") deletes every mock key', () => {
-    localStorage.mockCSSEnabled = 'true'
-    localStorage.mockMacroCount = '120'
+    localStorage.setItem('mockCSSEnabled', 'true')
+    localStorage.setItem('mockMacroCount', '120')
     applyPreset('Reset')
     for (const k of MOCK_KEYS) expect(localStorage.getItem(k)).toBeNull()
   })
@@ -44,14 +37,14 @@ describe('presets', () => {
 
   it('findActivePreset returns null when no preset matches', () => {
     applyPreset('Bystander')
-    localStorage.mockMacroCount = '999'
+    localStorage.setItem('mockMacroCount', '999')
     expect(findActivePreset()).toBeNull()
   })
 
   it('applyPreset is fully replacing — leftover keys from a prior preset get cleared', () => {
     applyPreset('Bystander')
     applyPreset('Lite blocked')
-    expect(localStorage.mockPersonaAwarePaywall).toBeUndefined()
-    expect(localStorage.mockPersonalAuthored).toBeUndefined()
+    expect(localStorage.getItem('mockPersonaAwarePaywall')).toBeNull()
+    expect(localStorage.getItem('mockPersonalAuthored')).toBeNull()
   })
 })

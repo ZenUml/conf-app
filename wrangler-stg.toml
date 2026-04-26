@@ -35,3 +35,7 @@ id = "9531a58d3f5b47a6af77750240c09548"
 [[env.production.kv_namespaces]]
 binding = "SPACE_LICENSE_KV"
 id = "8969e8528105403bb2d9adca9fc16567"
+
+[[env.production.kv_namespaces]]
+binding = "MACRO_AUTHORSHIP_KV"
+id = "2ace99065cee4bf394576627870049fe"

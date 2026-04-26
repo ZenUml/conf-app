@@ -117,12 +117,13 @@
     </div>
   </error-boundary>
   
-  <UpgradePrompt
+  <UpgradePromptRouter
     :visible="showUpgradeModal"
     :macros-created="macrosCreated"
     :macros-limit="MACROS_LIMIT"
     :upgrade-url="upgradeUrl"
     :enterprise-bundle-url="enterpriseBundleUrl"
+    :space-key="currentSpaceKey"
     @close="showUpgradeModal = false"
   />
   <ExportModal :visible="showExportModal" @close="showExportModal = false" />
@@ -143,7 +144,7 @@ import { getCodeFromDiagram } from "@/model/Diagram/DiagramTypeConfig";
 import {getUrlParam} from '@/utils/window';
 import {getClientDomain} from '@/utils/ContextParameters/ContextParameters';
 import SendFeedback from "@/components/SendFeedback.vue";
-import UpgradePrompt from '@/components/UpgradePrompt/UpgradePrompt.vue'
+import UpgradePromptRouter from '@/components/UpgradePrompt/UpgradePromptRouter.vue'
 import ExportModal from '@/components/ExportModal/ExportModal.vue'
 import * as htmlToImage from "html-to-image";
 import { toggleDiagramLike, getDiagramLikes } from "@/services/DiagramLikes";
@@ -169,6 +170,7 @@ export default {
       versionsTooltipTimer: null,
       showUpgradeModal: false,
       showExportModal: false,
+      currentSpaceKey: '',
       macrosCreated,
       severity,
       shouldBlockActions,
@@ -183,7 +185,7 @@ export default {
     SendFeedback,
     Debug,
     ErrorBoundary,
-    UpgradePrompt,
+    UpgradePromptRouter,
     ExportModal,
     IconLike,
     IconLikeFilled,
@@ -245,6 +247,11 @@ export default {
       this.canUserEdit = await globals.apWrapper.canUserEdit();
       await this.getLikes();
       await this.initializeCustomerSuccess();
+      try {
+        this.currentSpaceKey = (await globals.apWrapper.getCurrentSpace())?.key || '';
+      } catch (e) {
+        // ignore — spaceKey is optional for the router
+      }
     } catch (e) {
 console.error('Error getting feature flags', e);
     }

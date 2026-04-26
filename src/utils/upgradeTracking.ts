@@ -18,6 +18,17 @@ export enum UpgradeEventName {
   // Reserved for future expansion
   PROMPT_SHOWN = 'upgrade_prompt_shown',
   TOOLTIP_SHOWN = 'upgrade_tooltip_shown',
+  // Persona-aware paywall events
+  BYSTANDER_NOTICE_SHOWN = 'bystander_notice_shown',
+  BYSTANDER_ADMIN_NOTIFIED = 'bystander_admin_notified',
+  BYSTANDER_OWNER_SELF_IDENTIFY = 'bystander_owner_self_identify',
+  COMPARISON_VIEW_SHOWN = 'persona_comparison_view_shown',
+}
+
+export enum Persona {
+  CREATOR = 'creator',
+  BYSTANDER = 'bystander',
+  ADMIN = 'admin',
 }
 
 export enum ProductOption {
@@ -37,6 +48,7 @@ interface UpgradeEventParams {
   product_option?: ProductOption;
   ui_component?: UIComponent;
   cta_position?: 'primary' | 'secondary';
+  persona?: Persona;
   [key: string]: any;
 }
 
@@ -54,6 +66,10 @@ const EVENT_CONFIG: Record<UpgradeEventName, { action: string; category: string 
   [UpgradeEventName.MODAL_DISMISSED]: { action: 'dismiss', category: 'conversion' },
   [UpgradeEventName.PROMPT_SHOWN]: { action: 'impression', category: 'conversion' },
   [UpgradeEventName.TOOLTIP_SHOWN]: { action: 'impression', category: 'conversion' },
+  [UpgradeEventName.BYSTANDER_NOTICE_SHOWN]: { action: 'impression', category: 'conversion' },
+  [UpgradeEventName.BYSTANDER_ADMIN_NOTIFIED]: { action: 'click', category: 'conversion' },
+  [UpgradeEventName.BYSTANDER_OWNER_SELF_IDENTIFY]: { action: 'click', category: 'conversion' },
+  [UpgradeEventName.COMPARISON_VIEW_SHOWN]: { action: 'impression', category: 'conversion' },
 };
 
 /**

@@ -12,7 +12,30 @@ export async function loadAllPaginatedData(requestFunc: any, initialUrl: string,
   } while (url);
 };
 
+function isStandaloneEnv(): boolean {
+  try {
+    return typeof window !== 'undefined' && window.self === window.top;
+  } catch {
+    return false;
+  }
+}
+
+let _mockAp: any = null;
+async function getMockAp() {
+  if (!_mockAp) {
+    const { default: MockAp } = await import('@/model/MockAp');
+    _mockAp = new MockAp();
+  }
+  return _mockAp;
+}
+
 export async function forgeRequest(url: string, method: string = 'GET', data: any = undefined): Promise<any> {
+  if (isStandaloneEnv()) {
+    const mockAp = await getMockAp();
+    const apiUrl = url.startsWith('/wiki') ? url.substring(5) : url;
+    const response = await mockAp.request({ url: apiUrl, type: method, body: data ? JSON.stringify(data) : undefined });
+    return response ? JSON.parse(response.body) : undefined;
+  }
   const { requestConfluence } = await import("@forge/bridge");
   return (await requestConfluence(url, {
     method,

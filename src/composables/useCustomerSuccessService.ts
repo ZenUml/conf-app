@@ -12,10 +12,17 @@ const WARNING_THRESHOLD = 85
 const BASE_UPGRADE_URL = 'https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram'
 const BASE_LEARN_MORE_URL = 'https://zenuml.com/upgrade'
 
+export type Persona = 'creator' | 'bystander' | 'admin'
+export const M_THRESHOLD = 5
+
 // Shared reactive state across all component instances
 const macrosCreated = ref<number>(0)
 const customerSuccessServiceEnabled = ref<boolean>(false)
 const spacePaidStatus = ref<boolean>(false)
+const personalAuthored = ref<number>(0)
+const tenantSizeEstimate = ref<'unknown' | 'small_likely' | 'medium_or_larger'>('unknown')
+const confluenceAdmin = ref<boolean>(false)
+const personaAwarePaywallEnabled = ref<boolean>(false)
 
 // Cache flags to track if data has been loaded
 let macroMetricsLoaded = false;
@@ -69,6 +76,13 @@ export function useCustomerSuccessService() {
     return `${BASE_LEARN_MORE_URL}?domain=${domain}`
   })
 
+  const persona = computed<Persona>(() => {
+    if (confluenceAdmin.value) return 'admin'
+    const threshold = parseInt(localStorage.getItem('mockPersonaThreshold') ?? '', 10)
+    const m = Number.isFinite(threshold) && threshold >= 0 ? threshold : M_THRESHOLD
+    return personalAuthored.value >= m ? 'creator' : 'bystander'
+  })
+
   async function loadMacroMetrics(): Promise<void> {
     if (macroMetricsLoaded) {
       return;
@@ -107,17 +121,23 @@ export function useCustomerSuccessService() {
       // Check for mock override first (for testing)
       if (localStorage.mockCSSEnabled !== undefined) {
         customerSuccessServiceEnabled.value = localStorage.mockCSSEnabled === 'true'
-        console.log('🧪 Using mock CSS Feature Flag:', customerSuccessServiceEnabled.value)
+        if (localStorage.mockPersonaAwarePaywall !== undefined) {
+          personaAwarePaywallEnabled.value = localStorage.mockPersonaAwarePaywall === 'true'
+        }
+        console.log('🧪 Using mock CSS Feature Flag:', customerSuccessServiceEnabled.value, 'personaAwarePaywall:', personaAwarePaywallEnabled.value)
         cssFlagLoaded = true;
         return;
       }
 
       console.log('🔍 Loading CUSTOMER_SUCCESS_SERVICE feature flag...')
-      const customerSuccessService: any = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE'])
-      customerSuccessServiceEnabled.value = !!customerSuccessService.CUSTOMER_SUCCESS_SERVICE
+      const flags: any = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE', 'PERSONA_AWARE_PAYWALL'])
+      customerSuccessServiceEnabled.value = !!flags.CUSTOMER_SUCCESS_SERVICE
+      personaAwarePaywallEnabled.value = !!flags.PERSONA_AWARE_PAYWALL
       console.log('✅ Feature flag loaded:', {
-        CUSTOMER_SUCCESS_SERVICE: customerSuccessService.CUSTOMER_SUCCESS_SERVICE,
-        enabled: customerSuccessServiceEnabled.value
+        CUSTOMER_SUCCESS_SERVICE: flags.CUSTOMER_SUCCESS_SERVICE,
+        PERSONA_AWARE_PAYWALL: flags.PERSONA_AWARE_PAYWALL,
+        enabled: customerSuccessServiceEnabled.value,
+        personaAwarePaywallEnabled: personaAwarePaywallEnabled.value,
       })
       if (customerSuccessServiceEnabled.value) {
         trackUpgradeEvent(UpgradeEventName.FEATURE_ENABLED, {
@@ -147,7 +167,21 @@ export function useCustomerSuccessService() {
       // Check for mock override first (for testing)
       if (localStorage.mockSpacePaid !== undefined) {
         spacePaidStatus.value = localStorage.mockSpacePaid === 'true'
-        console.log('🧪 Using mock space paid status:', spacePaidStatus.value)
+        if (localStorage.mockPersonalAuthored !== undefined) {
+          const n = parseInt(localStorage.mockPersonalAuthored, 10)
+          if (!isNaN(n)) personalAuthored.value = n
+        }
+        if (localStorage.mockTenantSizeEstimate) {
+          tenantSizeEstimate.value = localStorage.mockTenantSizeEstimate as typeof tenantSizeEstimate.value
+        }
+        if (localStorage.mockConfluenceAdmin !== undefined) {
+          confluenceAdmin.value = localStorage.mockConfluenceAdmin === 'true'
+        }
+        console.log('🧪 Using mock space paid status:', spacePaidStatus.value, {
+          personalAuthored: personalAuthored.value,
+          tenantSizeEstimate: tenantSizeEstimate.value,
+          confluenceAdmin: confluenceAdmin.value,
+        })
         spacePaidStatusLoaded = true;
         return;
       }
@@ -166,6 +200,15 @@ export function useCustomerSuccessService() {
 
       if (response && typeof response.isPaid === 'boolean') {
         spacePaidStatus.value = response.isPaid
+        if (typeof response.personalAuthored === 'number') {
+          personalAuthored.value = response.personalAuthored
+        }
+        if (response.tenantSizeEstimate) {
+          tenantSizeEstimate.value = response.tenantSizeEstimate
+        }
+        if (typeof response.confluenceAdmin === 'boolean') {
+          confluenceAdmin.value = response.confluenceAdmin
+        }
         console.log('💳 Space paid status:', {
           isPaid: response.isPaid,
           source: response.source,
@@ -208,8 +251,26 @@ export function useCustomerSuccessService() {
     enterpriseBundleUrl,
     learnMoreUrl,
     spacePaid: spacePaidStatus,
-    initialize
+    initialize,
+    persona,
+    personalAuthored,
+    tenantSizeEstimate,
+    confluenceAdmin,
+    personaAwarePaywallEnabled,
   }
+}
+
+;(useCustomerSuccessService as any).__resetForTests = () => {
+  macrosCreated.value = 0
+  customerSuccessServiceEnabled.value = false
+  spacePaidStatus.value = false
+  personalAuthored.value = 0
+  tenantSizeEstimate.value = 'unknown'
+  confluenceAdmin.value = false
+  personaAwarePaywallEnabled.value = false
+  macroMetricsLoaded = false
+  cssFlagLoaded = false
+  spacePaidStatusLoaded = false
 }
 
 /**

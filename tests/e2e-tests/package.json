@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "test": "playwright test",
+    "test": "playwright test --ignore-snapshots --project=auth --project=pages --project=render --project=insert --project=syntax-validation",
+    "test:preview": "playwright test --project=preview",
     "test:render": "playwright test --project=render",
     "test:insert": "playwright test --project=insert",
     "test:syntax-validation": "playwright test --project=syntax-validation",
@@ -26,11 +27,11 @@
     "install:browsers": "playwright install"
   },
   "dependencies": {
-    "otpauth": "^9.4.0"
+    "otpauth": "^9.5.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.54.1",
-    "dotenv": "^16.0.0"
+    "@playwright/test": "^1.59.1",
+    "dotenv": "^16.6.1"
   },
   "engines": {
     "node": ">=20"

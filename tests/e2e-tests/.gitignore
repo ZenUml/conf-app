@@ -6,3 +6,6 @@ auth-state.json
 test-pages.json
 smoke-test-result-*.png
 .envauth-state-*.json
+persona-videos/
+persona-e2e-videos/
+persona-e2e-screenshots/

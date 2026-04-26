@@ -47,7 +47,9 @@ function getStandaloneContext(): any {
           type: 'standalone',
           content: { id: 'local-dev-page' },
           config: { uuid: 'local-dev-uuid', customContentId: preset.customContentId },
-          modal: { macroMode: preset.macroMode, diagramType: preset.diagramType },
+          // In a real Forge page macro, extension.modal is only set when the app is opened
+          // as a dialog (editor). Viewer mode has no modal — isDisplayMode() checks for this.
+          modal: isEditor ? { macroMode: preset.macroMode, diagramType: preset.diagramType } : undefined,
           macro: { isConfiguring: isEditor, isInserting: false },
         },
         moduleKey: preset.moduleKey,
@@ -75,6 +77,7 @@ function getStandaloneContext(): any {
 }
 
 function applyStandaloneContext() {
+  global.isForge = false;
   global.view = STANDALONE_VIEW_STUB;
   global.forgeContext = getStandaloneContext();
   global.isDiagramly = import.meta.env.PRODUCT_TYPE === 'diagramly';
@@ -99,6 +102,7 @@ export async function getView() {
     if (!ctx?.extension) {
       throw new Error('Forge context missing extension');
     }
+    global.isForge = true;
     global.view = view;
     global.forgeContext = ctx;
     global.isDiagramly = import.meta.env.PRODUCT_TYPE === 'diagramly';

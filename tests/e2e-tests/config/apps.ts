@@ -135,11 +135,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     customContentKey: 'zenuml-content-sequence',
     // On zenuml.atlassian.net, the Full Forge app coexists with Lite and Diagramly.
     // appLabel disambiguates ZenUML for Confluence from Diagramly for Confluence.
-    // The diagram macro was renamed from "Diagram (Mermaid, PlantUML & ZenUML)" to "Diagram as Code".
     appLabel: 'ZenUML for Confluence',
-    macroNameOverrides: {
-      'Diagram (Mermaid, PlantUML & ZenUML)': 'Diagram as Code',
-    },
   },
   'diagramly@prod': {
     id: 'diagramly@prod',

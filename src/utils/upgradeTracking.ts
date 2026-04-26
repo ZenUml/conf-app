@@ -28,7 +28,6 @@ export enum UpgradeEventName {
 export enum Persona {
   CREATOR = 'creator',
   BYSTANDER = 'bystander',
-  ADMIN = 'admin',
 }
 
 export enum ProductOption {

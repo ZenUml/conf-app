@@ -83,7 +83,6 @@ vi.mock('@/composables/useCustomerSuccessService', async () => {
       persona: ref('creator'),
       personalAuthored: ref(0),
       tenantSizeEstimate: ref('unknown'),
-      confluenceAdmin: ref(false),
       personaAwarePaywallEnabled: ref(false),
     })),
     MACROS_LIMIT: 100,

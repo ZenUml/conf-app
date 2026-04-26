@@ -5,7 +5,6 @@ export const MOCK_KEYS = [
   'mockPersonaAwarePaywall',
   'mockPersonalAuthored',
   'mockTenantSizeEstimate',
-  'mockConfluenceAdmin',
   'mockPersonaThreshold',
   'mockNotifyAdmin',
 ] as const
@@ -40,12 +39,11 @@ export const PRESETS: Preset[] = [
       mockPersonaAwarePaywall: 'true',
       mockPersonalAuthored: '0',
       mockTenantSizeEstimate: 'small_likely',
-      mockConfluenceAdmin: 'false',
       mockNotifyAdmin: '{"notified":true,"adminCount":1}',
     },
   },
   {
-    name: 'Heavy creator — Bundle primary',
+    name: 'Heavy creator',
     signature: {
       mockCSSEnabled: 'true',
       mockMacroCount: '120',
@@ -53,19 +51,6 @@ export const PRESETS: Preset[] = [
       mockPersonaAwarePaywall: 'true',
       mockPersonalAuthored: '60',
       mockTenantSizeEstimate: 'medium_or_larger',
-      mockConfluenceAdmin: 'true',
-    },
-  },
-  {
-    name: 'Heavy creator — Marketplace primary',
-    signature: {
-      mockCSSEnabled: 'true',
-      mockMacroCount: '120',
-      mockSpacePaid: 'false',
-      mockPersonaAwarePaywall: 'true',
-      mockPersonalAuthored: '60',
-      mockTenantSizeEstimate: 'small_likely',
-      mockConfluenceAdmin: 'true',
     },
   },
   {
@@ -77,7 +62,6 @@ export const PRESETS: Preset[] = [
       mockPersonaAwarePaywall: 'true',
       mockPersonalAuthored: '20',
       mockTenantSizeEstimate: 'unknown',
-      mockConfluenceAdmin: 'true',
     },
   },
 ]

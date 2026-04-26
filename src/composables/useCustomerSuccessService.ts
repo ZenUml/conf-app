@@ -12,7 +12,7 @@ const WARNING_THRESHOLD = 85
 const BASE_UPGRADE_URL = 'https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram'
 const BASE_LEARN_MORE_URL = 'https://zenuml.com/upgrade'
 
-export type Persona = 'creator' | 'bystander' | 'admin'
+export type Persona = 'creator' | 'bystander'
 export const M_THRESHOLD = 5
 
 // Shared reactive state across all component instances
@@ -21,7 +21,6 @@ const customerSuccessServiceEnabled = ref<boolean>(false)
 const spacePaidStatus = ref<boolean>(false)
 const personalAuthored = ref<number>(0)
 const tenantSizeEstimate = ref<'unknown' | 'small_likely' | 'medium_or_larger'>('unknown')
-const confluenceAdmin = ref<boolean>(false)
 const personaAwarePaywallEnabled = ref<boolean>(false)
 
 // Cache flags to track if data has been loaded
@@ -77,7 +76,6 @@ export function useCustomerSuccessService() {
   })
 
   const persona = computed<Persona>(() => {
-    if (confluenceAdmin.value) return 'admin'
     const threshold = parseInt(localStorage.getItem('mockPersonaThreshold') ?? '', 10)
     const m = Number.isFinite(threshold) && threshold >= 0 ? threshold : M_THRESHOLD
     return personalAuthored.value >= m ? 'creator' : 'bystander'
@@ -174,13 +172,9 @@ export function useCustomerSuccessService() {
         if (localStorage.mockTenantSizeEstimate) {
           tenantSizeEstimate.value = localStorage.mockTenantSizeEstimate as typeof tenantSizeEstimate.value
         }
-        if (localStorage.mockConfluenceAdmin !== undefined) {
-          confluenceAdmin.value = localStorage.mockConfluenceAdmin === 'true'
-        }
         console.log('🧪 Using mock space paid status:', spacePaidStatus.value, {
           personalAuthored: personalAuthored.value,
           tenantSizeEstimate: tenantSizeEstimate.value,
-          confluenceAdmin: confluenceAdmin.value,
         })
         spacePaidStatusLoaded = true;
         return;
@@ -205,9 +199,6 @@ export function useCustomerSuccessService() {
         }
         if (response.tenantSizeEstimate) {
           tenantSizeEstimate.value = response.tenantSizeEstimate
-        }
-        if (typeof response.confluenceAdmin === 'boolean') {
-          confluenceAdmin.value = response.confluenceAdmin
         }
         console.log('💳 Space paid status:', {
           isPaid: response.isPaid,
@@ -255,7 +246,6 @@ export function useCustomerSuccessService() {
     persona,
     personalAuthored,
     tenantSizeEstimate,
-    confluenceAdmin,
     personaAwarePaywallEnabled,
   }
 }
@@ -266,7 +256,6 @@ export function useCustomerSuccessService() {
   spacePaidStatus.value = false
   personalAuthored.value = 0
   tenantSizeEstimate.value = 'unknown'
-  confluenceAdmin.value = false
   personaAwarePaywallEnabled.value = false
   macroMetricsLoaded = false
   cssFlagLoaded = false

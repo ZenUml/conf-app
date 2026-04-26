@@ -24,7 +24,6 @@ interface SpaceStatusResponse {
   source?: 'space_license';
   personalAuthored?: number;
   tenantSizeEstimate?: TenantSizeEstimate;
-  confluenceAdmin?: boolean;
 }
 
 /** Forge invokeRemote requires valid JSON + application/json for every status (incl. errors). */
@@ -127,15 +126,6 @@ async function getTenantSizeEstimate(
   }
 }
 
-function extractConfluenceAdmin(payload: any): boolean {
-  try {
-    const ctx = payload?.payload?.context;
-    return ctx?.confluence?.admin === true;
-  } catch {
-    return false;
-  }
-}
-
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
 
@@ -173,7 +163,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const cloudId = payload?.payload?.context?.cloudId;
     const accountId = payload?.payload?.context?.accountId;
     const spaceKey = url.searchParams.get('spaceKey') || undefined;
-    const confluenceAdmin = extractConfluenceAdmin(payload);
 
     if (!cloudId || !spaceKey) {
       console.log('space-status: missing cloudId or spaceKey', { cloudId, spaceKey });
@@ -187,7 +176,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       ]);
       return jsonResponse(
         200,
-        { isPaid: false, personalAuthored, tenantSizeEstimate, confluenceAdmin },
+        { isPaid: false, personalAuthored, tenantSizeEstimate },
         'short'
       );
     }
@@ -203,7 +192,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       console.error('SPACE_LICENSE_KV binding not configured');
       return jsonResponse(
         200,
-        { isPaid: false, personalAuthored, tenantSizeEstimate, confluenceAdmin },
+        { isPaid: false, personalAuthored, tenantSizeEstimate },
         'short'
       );
     }
@@ -212,7 +201,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       console.log('space-status: no license found for', `license:${cloudId}:${spaceKey}`);
       return jsonResponse(
         200,
-        { isPaid: false, personalAuthored, tenantSizeEstimate, confluenceAdmin },
+        { isPaid: false, personalAuthored, tenantSizeEstimate },
         'short'
       );
     }
@@ -240,7 +229,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           source: 'space_license',
           personalAuthored,
           tenantSizeEstimate,
-          confluenceAdmin,
         },
         'short'
       );
@@ -248,7 +236,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     return jsonResponse(
       200,
-      { isPaid: false, personalAuthored, tenantSizeEstimate, confluenceAdmin },
+      { isPaid: false, personalAuthored, tenantSizeEstimate },
       'short'
     );
   } catch (error) {

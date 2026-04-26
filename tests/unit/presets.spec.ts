@@ -18,7 +18,6 @@ describe('presets', () => {
     expect(localStorage.getItem('mockPersonaAwarePaywall')).toBe('true')
     expect(localStorage.getItem('mockPersonalAuthored')).toBe('0')
     expect(localStorage.getItem('mockTenantSizeEstimate')).toBe('small_likely')
-    expect(localStorage.getItem('mockConfluenceAdmin')).toBe('false')
     expect(localStorage.getItem('mockNotifyAdmin')).toBe('{"notified":true,"adminCount":1}')
     expect(localStorage.getItem('mockPersonaThreshold')).toBeNull()
   })
@@ -31,8 +30,8 @@ describe('presets', () => {
   })
 
   it('findActivePreset returns the matching preset name', () => {
-    applyPreset('Heavy creator — Bundle primary')
-    expect(findActivePreset()).toBe('Heavy creator — Bundle primary')
+    applyPreset('Heavy creator')
+    expect(findActivePreset()).toBe('Heavy creator')
   })
 
   it('findActivePreset returns null when no preset matches', () => {

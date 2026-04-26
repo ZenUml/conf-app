@@ -39,7 +39,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { watch } from 'vue'
 import BasePromptModal from './BasePromptModal.vue'
 import { trackUpgradeEvent, UpgradeEventName, Persona, ProductOption, UIComponent } from '@/utils/upgradeTracking'
 import { openUrl } from '@/model/globals/forgeGlobal'
@@ -48,7 +48,6 @@ const props = defineProps<{
   visible: boolean
   personalAuthored: number
   tenantSizeEstimate: 'unknown' | 'small_likely' | 'medium_or_larger'
-  confluenceAdmin: boolean
   upgradeUrl: string
   enterpriseBundleUrl: string
 }>()
@@ -80,46 +79,39 @@ const bundleOption = {
   secondaryLabel: 'Enterprise Bundle — $299/yr for this space',
 }
 
-const primary = computed(() => {
-  if (!props.confluenceAdmin) return bundleOption
-  return props.tenantSizeEstimate === 'small_likely' ? marketplaceOption : bundleOption
-})
+const primary = bundleOption
 
-const secondary = computed(() => {
-  return primary.value === marketplaceOption
-    ? { hint: bundleOption.hint, ctaLabel: bundleOption.secondaryLabel, product: bundleOption.product }
-    : { hint: marketplaceOption.hint, ctaLabel: marketplaceOption.secondaryLabel, product: marketplaceOption.product }
-})
+const secondary = { hint: marketplaceOption.hint, ctaLabel: marketplaceOption.secondaryLabel, product: marketplaceOption.product }
 
 watch(() => props.visible, (v) => {
   if (v) {
     trackUpgradeEvent(UpgradeEventName.MODAL_SHOWN, {
-      persona: props.confluenceAdmin ? Persona.ADMIN : Persona.CREATOR,
+      persona: Persona.CREATOR,
       tenant_size_estimate: props.tenantSizeEstimate,
-      primary_option: primary.value.product,
+      primary_option: primary.product,
     })
   }
 }, { immediate: true })
 
 async function onPrimary() {
   trackUpgradeEvent(UpgradeEventName.CTA_CLICKED, {
-    product_option: primary.value.product,
+    product_option: primary.product,
     cta_position: 'primary',
-    persona: props.confluenceAdmin ? Persona.ADMIN : Persona.CREATOR,
+    persona: Persona.CREATOR,
     ui_component: UIComponent.TOOLTIP,
   })
-  await openUrl(primary.value.product === ProductOption.MARKETPLACE ? props.upgradeUrl : props.enterpriseBundleUrl)
+  await openUrl(primary.product === ProductOption.MARKETPLACE ? props.upgradeUrl : props.enterpriseBundleUrl)
   emit('close')
 }
 
 async function onSecondary() {
   trackUpgradeEvent(UpgradeEventName.CTA_CLICKED, {
-    product_option: secondary.value.product,
+    product_option: secondary.product,
     cta_position: 'secondary',
-    persona: props.confluenceAdmin ? Persona.ADMIN : Persona.CREATOR,
+    persona: Persona.CREATOR,
     ui_component: UIComponent.TOOLTIP,
   })
-  await openUrl(secondary.value.product === ProductOption.MARKETPLACE ? props.upgradeUrl : props.enterpriseBundleUrl)
+  await openUrl(secondary.product === ProductOption.MARKETPLACE ? props.upgradeUrl : props.enterpriseBundleUrl)
   emit('close')
 }
 </script>

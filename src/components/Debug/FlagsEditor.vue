@@ -103,7 +103,6 @@ const KIND: Record<MockKey, Kind> = {
   mockPersonaAwarePaywall: 'bool',
   mockPersonalAuthored: 'number',
   mockTenantSizeEstimate: 'enum',
-  mockConfluenceAdmin: 'bool',
   mockPersonaThreshold: 'number',
   mockNotifyAdmin: 'json',
 }

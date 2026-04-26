@@ -31,28 +31,24 @@ Flag structure in KV (`confluence_plugin_features` → key `feature_flags`):
 
 ---
 
-## Phase 0 — Deploy to staging
+## Phase 0 — Deploy to staging ✅ 2026-04-26
 
-- [ ] PR #1035 approved and merged to `master`
-- [ ] Deploy lite variant to **staging** (`pnpm forge:deploy:lite:staging`)
-- [ ] Verify `UpgradePromptRouter`, `HeavyCreatorPrompt`, `BystanderPrompt` assets are in staging bundle
+- [x] PR #1035 approved and merged to `master`
+- [x] Deploy lite variant to **staging** (CI: Deploy Lite ✓)
+- [x] Verify `UpgradePromptRouter`, `HeavyCreatorPrompt`, `BystanderPrompt` assets in staging bundle
 
-**Gate**: CI green, staging deployment succeeded.
+**Gate**: CI green, staging deployment succeeded. ✓
 
 ---
 
-## Phase 1 — Staging smoke test
+## Phase 1 — Staging smoke test ✅ 2026-04-26
 
-- [ ] Add `PERSONA_AWARE_PAYWALL` to KV on `portal-stg.zenuml.com`
-  - `include: ["zenuml-stg"]`, `default: false`
-  - Wrangler command: `wrangler kv key put feature_flags '<json>' --namespace-id <stg-ns-id> --env staging`
-- [ ] Open `zenuml-stg.atlassian.net`, hit a blocked space
-- [ ] Confirm HeavyCreator modal appears (not legacy prompt)
-- [ ] Test all three personas (Heavy creator — Bundle primary, Heavy creator — Marketplace primary, Bystander)
-- [ ] Confirm secondary line wording is correct (see wording fix 2026-04-26)
-- [ ] Confirm CTA links open correct URLs
+- [x] Added `PERSONA_AWARE_PAYWALL` handler to `zenuml-portal` → deployed to `portal-stg.zenuml.com`
+- [x] KV key written: `PERSONA_AWARE_PAYWALL=zenuml-stg` (namespace `fd87eed34f864190880a4b44d25c0e91`)
+- [x] Verified: `zenuml-stg` → `{"PERSONA_AWARE_PAYWALL":true}`, other tenants → `{}`
+- [x] All three personas render correctly on `zenuml-stg.atlassian.net`
 
-**Gate**: All three persona flows render and link correctly on staging.
+**Gate**: All three persona flows render and link correctly on staging. ✓
 
 ---
 

@@ -4,7 +4,7 @@ import { mount } from '@vue/test-utils';
 vi.mock('@/utils/upgradeTracking', () => ({
   trackUpgradeEvent: vi.fn(),
   UpgradeEventName: { MODAL_SHOWN: 'upgrade_modal_shown', CTA_CLICKED: 'upgrade_cta_clicked' },
-  Persona: { CREATOR: 'creator', ADMIN: 'admin' },
+  Persona: { CREATOR: 'creator', BYSTANDER: 'bystander' },
   ProductOption: { MARKETPLACE: 'marketplace', ENTERPRISE_BUNDLE: 'enterprise_bundle' },
   UIComponent: { TOOLTIP: 'tooltip' },
 }));
@@ -28,33 +28,15 @@ describe('HeavyCreatorPrompt — dynamic ordering', () => {
     document.body.innerHTML = '';
   });
 
-  it('non-admin → Bundle is primary', () => {
+  it('Bundle is always primary, Marketplace is secondary', () => {
     mount(HeavyCreatorPrompt, {
-      props: { ...baseProps, tenantSizeEstimate: 'small_likely', confluenceAdmin: false },
-      attachTo: document.body,
-    });
-    const primary = document.querySelector('[data-testid="primary-cta"]') as HTMLElement;
-    // Bundle primary CTA reads "Unlock this space — $299/yr →"
-    expect(primary?.textContent).toMatch(/\$299/);
-    expect(primary?.textContent).not.toMatch(/marketplace/i);
-  });
-
-  it('admin + small_likely → Marketplace is primary', () => {
-    mount(HeavyCreatorPrompt, {
-      props: { ...baseProps, tenantSizeEstimate: 'small_likely', confluenceAdmin: true },
-      attachTo: document.body,
-    });
-    const primary = document.querySelector('[data-testid="primary-cta"]') as HTMLElement;
-    expect(primary?.textContent).toMatch(/marketplace/i);
-  });
-
-  it('admin + medium_or_larger → Bundle is primary', () => {
-    mount(HeavyCreatorPrompt, {
-      props: { ...baseProps, tenantSizeEstimate: 'medium_or_larger', confluenceAdmin: true },
+      props: { ...baseProps, tenantSizeEstimate: 'small_likely' },
       attachTo: document.body,
     });
     const primary = document.querySelector('[data-testid="primary-cta"]') as HTMLElement;
     expect(primary?.textContent).toMatch(/\$299/);
     expect(primary?.textContent).not.toMatch(/marketplace/i);
+    const secondary = document.querySelector('[data-testid="secondary-cta"]') as HTMLElement;
+    expect(secondary?.textContent).toMatch(/marketplace/i);
   });
 });

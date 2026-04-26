@@ -27,6 +27,7 @@ meta:
     - src/components/UpgradePrompt/upgradePrompt.ts
     - functions/api/space-status.ts
     - functions/api/space-license.ts
+    - functions/utils/tenantSize.ts
     - src/components/Viewer/GenericViewer.vue
     - src/utils/upgradeTracking.ts
 
@@ -329,6 +330,69 @@ analytics_playbook:
       - per-tenant edit_macro_end count by space (last >=30d)
       - tenant variant (must be lite)
       - tenant size proxy (unique users on view_macro)
+
+# -------------------------------------------------------------------
+# Tenant size estimation — how it's computed, stored, and used
+# -------------------------------------------------------------------
+tenant_size_estimation:
+  source_file: functions/utils/tenantSize.ts
+  type: TenantSizeEstimate
+  values: [unknown, small_likely, medium_or_larger]
+
+  data_source:
+    storage: D1 (UserBehaviorEvent table) — NOT Mixpanel
+    query: |
+      SELECT COUNT(DISTINCT userAccountId) AS n
+        FROM UserBehaviorEvent
+       WHERE cloudId = ?
+         AND action = 'view_macro'
+         AND createdAt >= datetime('now', '-30 days')
+    note: |
+      view_macro events are written to D1 by the forge-user-behavior endpoint,
+      so the estimate is independent of Mixpanel availability.
+
+  install_age:
+    primary_source: ForgeInstallation.installed_at (D1)
+    fallback: MIN(UserBehaviorEvent.createdAt) for the same cloudId
+    why: install age gates confidence — a brand-new tenant has too little data
+
+  classification_algorithm:
+    MIN_DAYS_FOR_CONFIDENCE: 30
+    MIN_VIEWERS_FOR_SIGNAL: 3
+    SMALL_LIKELY_MAX_VIEWERS: 8
+    rules:
+      - condition: installAgeDays < 30 OR uniqueViewerCount30d < 3
+        result: unknown
+      - condition: uniqueViewerCount30d <= 8
+        result: small_likely          # proxy for ≤10-user flat-rate or small tier
+      - condition: uniqueViewerCount30d > 8
+        result: medium_or_larger      # proxy for 100+ Confluence users
+
+  caching:
+    store: Cloudflare KV (same namespace as SPACE_LICENSE_KV)
+    key_format: "tenant_size:{cloudId}"
+    ttl_seconds: 86400                # refreshed at most once per day
+
+  how_used:
+    endpoint: GET /api/space-status
+    response_field: tenantSizeEstimate
+    consumer: src/components/UpgradePrompt/UpgradePromptRouter.vue
+    effect: |
+      The frontend uses the estimate to route to the appropriate upgrade prompt
+      variant — e.g. HeavyCreatorPrompt.vue highlights the Marketplace tier
+      that matches the tenant's likely size.
+
+  interpretation_notes:
+    - |
+      unique viewers is a LOWER BOUND on true Confluence user count — users
+      who have never opened a page with a ZenUML macro are invisible.
+    - |
+      'small_likely' (≤8 viewers) maps loosely to the ≤10-user flat-rate tier
+      ($40/yr). 'medium_or_larger' (>8 viewers) suggests Small Tier or above.
+    - |
+      Mixpanel is NOT used for this computation. The D1 query is authoritative.
+      Mixpanel unique-user counts can be used manually to cross-check, but are
+      not the source for the in-product estimate.
 
 # -------------------------------------------------------------------
 # Verification — re-run if code changes

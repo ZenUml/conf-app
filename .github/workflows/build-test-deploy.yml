@@ -103,6 +103,22 @@ jobs:
             -f app="zenuml-lite@stg" \
             -f suite="insert"
 
+      - name: Wait for E2E result
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+        run: |
+          for i in $(seq 1 60); do
+            STATE=$(gh api "/repos/${{ github.repository }}/commits/${{ github.sha }}/statuses" \
+              -q '[.[] | select(.context == "external-e2e/zenuml-lite@stg")] | first | .state')
+            echo "attempt $i: $STATE"
+            if [ "$STATE" = "success" ]; then exit 0; fi
+            if [ "$STATE" = "failure" ] || [ "$STATE" = "error" ]; then
+              echo "E2E failed" && exit 1
+            fi
+            sleep 30
+          done
+          echo "Timed out (30 min) waiting for E2E result" && exit 1
+
   staging-full:
     # Lite is representative for feature-branch validation. Full + Diagramly
     # only run on master to catch variant-specific regressions before release;
@@ -146,6 +162,22 @@ jobs:
             -f app="zenuml-full-forge@stg" \
             -f suite="insert"
 
+      - name: Wait for E2E result
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+        run: |
+          for i in $(seq 1 60); do
+            STATE=$(gh api "/repos/${{ github.repository }}/commits/${{ github.sha }}/statuses" \
+              -q '[.[] | select(.context == "external-e2e/zenuml-full-forge@stg")] | first | .state')
+            echo "attempt $i: $STATE"
+            if [ "$STATE" = "success" ]; then exit 0; fi
+            if [ "$STATE" = "failure" ] || [ "$STATE" = "error" ]; then
+              echo "E2E failed" && exit 1
+            fi
+            sleep 30
+          done
+          echo "Timed out (30 min) waiting for E2E result" && exit 1
+
   staging-diagramly:
     # See note on staging-full — master-only.
     if: github.ref == 'refs/heads/master'
@@ -186,6 +218,22 @@ jobs:
             -f pr_number="" \
             -f app="diagramly@stg" \
             -f suite="insert"
+
+      - name: Wait for E2E result
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+        run: |
+          for i in $(seq 1 60); do
+            STATE=$(gh api "/repos/${{ github.repository }}/commits/${{ github.sha }}/statuses" \
+              -q '[.[] | select(.context == "external-e2e/diagramly@stg")] | first | .state')
+            echo "attempt $i: $STATE"
+            if [ "$STATE" = "success" ]; then exit 0; fi
+            if [ "$STATE" = "failure" ] || [ "$STATE" = "error" ]; then
+              echo "E2E failed" && exit 1
+            fi
+            sleep 30
+          done
+          echo "Timed out (30 min) waiting for E2E result" && exit 1
 
   draft-release-lite:
     name: "Draft: Lite"

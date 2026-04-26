@@ -22,6 +22,7 @@
                 :data-testid="`edit-${row.key}`"
                 type="number"
                 :value="form[row.key] ?? ''"
+                :disabled="form[row.key] === undefined"
                 @input="onChange(row.key, ($event.target as HTMLInputElement).value)"
                 class="border border-gray-300 rounded px-1 py-0.5 w-20"
               />
@@ -33,6 +34,11 @@
                 />
                 unset
               </label>
+              <span
+                v-if="numberErrors[row.key]"
+                :data-testid="`editor-error-${row.key}`"
+                class="text-red-600 text-[10px]"
+              >Invalid number (must be ≥ 0)</span>
             </span>
 
             <select
@@ -117,7 +123,7 @@ function onChange(key: MockKey, val: string) {
 
 function toggleUnset(key: MockKey, checked: boolean) {
   if (checked) delete form[key]
-  else form[key] = '0'
+  else form[key] = ''
 }
 
 const jsonErrors = computed<Record<string, boolean>>(() => {
@@ -130,7 +136,22 @@ const jsonErrors = computed<Record<string, boolean>>(() => {
   return errors
 })
 
-const canSave = computed(() => Object.keys(jsonErrors.value).length === 0)
+const numberErrors = computed<Record<string, boolean>>(() => {
+  const errors: Record<string, boolean> = {}
+  for (const k of MOCK_KEYS) {
+    if (KIND[k] === 'number' && form[k] !== undefined) {
+      const trimmed = (form[k] as string).trim()
+      if (trimmed === '' || isNaN(Number(trimmed)) || Number(trimmed) < 0) {
+        errors[k] = true
+      }
+    }
+  }
+  return errors
+})
+
+const canSave = computed(
+  () => Object.keys(jsonErrors.value).length === 0 && Object.keys(numberErrors.value).length === 0
+)
 
 function onSave() {
   if (!canSave.value) return

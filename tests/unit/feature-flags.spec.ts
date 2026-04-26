@@ -64,7 +64,7 @@ describe('feature-flags onRequestGet', () => {
       );
       const response = await onRequestGet(ctx);
       expect(response.status).toBe(200);
-      const body = await response.json();
+      const body = await response.json() as Record<string, unknown>;
       expect(body.CUSTOMER_SUCCESS_SERVICE).toEqual({ plan: 'enterprise' });
     });
 
@@ -75,7 +75,7 @@ describe('feature-flags onRequestGet', () => {
         { CUSTOMER_SUCCESS_SERVICE: JSON.stringify(cssValue) },
       );
       const response = await onRequestGet(ctx);
-      const body = await response.json();
+      const body = await response.json() as Record<string, unknown>;
       expect(body.CUSTOMER_SUCCESS_SERVICE).toBeUndefined();
     });
   });
@@ -87,7 +87,7 @@ describe('feature-flags onRequestGet', () => {
         { LITE_PNG_EXPORT_ENABLED: 'example.atlassian.net,other.atlassian.net' },
       );
       const response = await onRequestGet(ctx);
-      const body = await response.json();
+      const body = await response.json() as Record<string, unknown>;
       expect(body.LITE_PNG_EXPORT).toEqual({ status: 'ENABLED' });
     });
 
@@ -97,7 +97,7 @@ describe('feature-flags onRequestGet', () => {
         { LITE_PNG_EXPORT_TRIAL: 'example.atlassian.net' },
       );
       const response = await onRequestGet(ctx);
-      const body = await response.json();
+      const body = await response.json() as Record<string, unknown>;
       expect(body.LITE_PNG_EXPORT).toEqual({ status: 'TRIAL' });
     });
 
@@ -107,7 +107,7 @@ describe('feature-flags onRequestGet', () => {
         { LITE_PNG_EXPORT_LOCKED: 'example.atlassian.net' },
       );
       const response = await onRequestGet(ctx);
-      const body = await response.json();
+      const body = await response.json() as Record<string, unknown>;
       expect(body.LITE_PNG_EXPORT).toEqual({ status: 'LOCKED' });
     });
 
@@ -118,7 +118,7 @@ describe('feature-flags onRequestGet', () => {
         { LITE_PNG_EXPORT_ENABLED: 'atlassian.net' }, // substring, not exact
       );
       const response = await onRequestGet(ctx);
-      const body = await response.json();
+      const body = await response.json() as Record<string, unknown>;
       expect(body.LITE_PNG_EXPORT).toBeUndefined();
     });
 
@@ -128,7 +128,7 @@ describe('feature-flags onRequestGet', () => {
         { LITE_PNG_EXPORT_ENABLED: 'other.atlassian.net, example.atlassian.net' },
       );
       const response = await onRequestGet(ctx);
-      const body = await response.json();
+      const body = await response.json() as Record<string, unknown>;
       expect(body.LITE_PNG_EXPORT).toEqual({ status: 'ENABLED' });
     });
   });
@@ -140,7 +140,7 @@ describe('feature-flags onRequestGet', () => {
         { AI_TITLE_ENABLED_DOMAINS: 'atlassian.net' },
       );
       const response = await onRequestGet(ctx);
-      const body = await response.json();
+      const body = await response.json() as Record<string, unknown>;
       expect(body.AI_TITLE).toEqual({ enabled: true });
     });
 
@@ -150,7 +150,7 @@ describe('feature-flags onRequestGet', () => {
         { AI_TITLE_ENABLED_DOMAINS: 'example.com' },
       );
       const response = await onRequestGet(ctx);
-      const body = await response.json();
+      const body = await response.json() as Record<string, unknown>;
       expect(body.AI_TITLE).toEqual({ enabled: false });
     });
   });
@@ -162,7 +162,7 @@ describe('feature-flags onRequestGet', () => {
         { PERSONA_AWARE_PAYWALL: 'example.atlassian.net,other.atlassian.net' },
       );
       const response = await onRequestGet(ctx);
-      const body = await response.json();
+      const body = await response.json() as Record<string, unknown>;
       expect(body.PERSONA_AWARE_PAYWALL).toBe(true);
     });
 
@@ -172,7 +172,7 @@ describe('feature-flags onRequestGet', () => {
         { PERSONA_AWARE_PAYWALL: 'example.atlassian.net' },
       );
       const response = await onRequestGet(ctx);
-      const body = await response.json();
+      const body = await response.json() as Record<string, unknown>;
       expect(body.PERSONA_AWARE_PAYWALL).toBeUndefined();
     });
   });
@@ -181,7 +181,7 @@ describe('feature-flags onRequestGet', () => {
     it('returns TEST flag always', async () => {
       const ctx = makeContext({ client: 'any.atlassian.net', features: 'TEST' });
       const response = await onRequestGet(ctx);
-      const body = await response.json();
+      const body = await response.json() as Record<string, unknown>;
       expect(body.TEST).toEqual({ enabled: true, data: 'test data' });
     });
   });

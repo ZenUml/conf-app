@@ -157,7 +157,9 @@ export default {
   },
   computed: {
     debug() {
-      return !!localStorage.zenumlDebug;
+      // Always show in standalone local dev (not inside a Forge iframe)
+      const isStandalone = typeof window !== 'undefined' && window.self === window.top;
+      return isStandalone || !!localStorage.zenumlDebug;
     },
     app() {
       return new App();

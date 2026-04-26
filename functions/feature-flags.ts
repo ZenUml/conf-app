@@ -1,3 +1,5 @@
+/// <reference types="@cloudflare/workers-types" />
+
 interface Env {
   KV_FEATURE_FLAGS: KVNamespace;
 }

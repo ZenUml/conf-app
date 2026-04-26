@@ -31,7 +31,7 @@ async function handleLitePngExport(
   const litePngExportKeys = ['LITE_PNG_EXPORT_ENABLED', 'LITE_PNG_EXPORT_TRIAL', 'LITE_PNG_EXPORT_LOCKED'];
   for (const key of litePngExportKeys) {
     const raw = await kvService.get(key);
-    const ENABLED_DOMAINS: string[] = raw?.split(',') || [];
+    const ENABLED_DOMAINS: string[] = raw?.split(',').map((d) => d.trim()) || [];
     if (ENABLED_DOMAINS.some((d) => d !== '' && client === d)) {
       const flagType = key.split('_').pop();
       if (flagType) {
@@ -48,7 +48,7 @@ async function handleAiTitles(
   result: Record<string, unknown>,
 ) {
   const raw = await kvService.get('AI_TITLE_ENABLED_DOMAINS');
-  const ENABLED_DOMAINS: string[] = raw?.split(',') || [];
+  const ENABLED_DOMAINS: string[] = raw?.split(',').map((d) => d.trim()) || [];
   result.AI_TITLE = { enabled: ENABLED_DOMAINS.some((d) => client.includes(d)) };
 }
 
@@ -58,7 +58,7 @@ async function handlePersonaAwarePaywall(
   result: Record<string, unknown>,
 ) {
   const raw = await kvService.get('PERSONA_AWARE_PAYWALL');
-  const ENABLED_DOMAINS: string[] = raw?.split(',') || [];
+  const ENABLED_DOMAINS: string[] = raw?.split(',').map((d) => d.trim()) || [];
   if (ENABLED_DOMAINS.some((d) => d !== '' && client === d)) {
     result.PERSONA_AWARE_PAYWALL = true;
   }

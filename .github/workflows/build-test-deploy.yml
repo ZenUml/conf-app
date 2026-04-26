@@ -67,25 +67,41 @@ jobs:
       environment: staging-lite
     secrets: inherit
 
-  staging-lite-test:
-    # Run E2E only when it actually matters:
+  staging-lite-e2e-dispatch:
+    # Dispatch E2E to the public repo runner only when it actually matters:
     #   - on master (post-merge / scheduled coverage), or
     #   - on a PR that is Ready for Review (signals "I want this merged").
     # Pushing to a Draft PR (or to a branch with no PR open) deploys but
-    # skips E2E so iterative work isn't gated on a 10-minute test run.
+    # skips E2E so iterative work isn't gated on a slow test run.
     if: |
       github.ref == 'refs/heads/master' ||
       (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     needs: [staging-lite, build]
-    name: "E2E: Lite"
-    uses: ./.github/workflows/e2e-test.yml
-    with:
-      app: zenuml-lite@stg
-      artifact-suffix: lite-stg
-    secrets:
-      username: ${{ vars.ZENUML_STAGE_USERNAME }}
-      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
-      otp: ${{ vars.ATLASSIAN_OTP }}
+    name: "E2E: Dispatch Lite"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set commit status → pending
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+        run: |
+          gh api --method POST \
+            "/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state=pending \
+            -f context="external-e2e/zenuml-lite@stg" \
+            -f description="E2E queued on public runner"
+
+      - name: Dispatch public E2E workflow
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_DISPATCH_TOKEN }}
+        run: |
+          gh workflow run run-external-e2e.yml \
+            --repo ZenUml/conf-app-e2e \
+            --ref main \
+            -f source_repo="${{ github.repository }}" \
+            -f source_sha="${{ github.sha }}" \
+            -f pr_number="${{ github.event.pull_request.number || '' }}" \
+            -f app="zenuml-lite@stg" \
+            -f suite="insert"
 
   staging-full:
     # Lite is representative for feature-branch validation. Full + Diagramly
@@ -101,18 +117,34 @@ jobs:
       environment: staging-full
     secrets: inherit
 
-  staging-full-test:
+  staging-full-e2e-dispatch:
     if: github.ref == 'refs/heads/master'
     needs: [staging-full, build]
-    name: "E2E: Full"
-    uses: ./.github/workflows/e2e-test.yml
-    with:
-      app: zenuml-full-forge@stg
-      artifact-suffix: full-stg
-    secrets:
-      username: ${{ vars.ZENUML_STAGE_USERNAME }}
-      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
-      otp: ${{ vars.ATLASSIAN_OTP }}
+    name: "E2E: Dispatch Full"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set commit status → pending
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+        run: |
+          gh api --method POST \
+            "/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state=pending \
+            -f context="external-e2e/zenuml-full-forge@stg" \
+            -f description="E2E queued on public runner"
+
+      - name: Dispatch public E2E workflow
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_DISPATCH_TOKEN }}
+        run: |
+          gh workflow run run-external-e2e.yml \
+            --repo ZenUml/conf-app-e2e \
+            --ref main \
+            -f source_repo="${{ github.repository }}" \
+            -f source_sha="${{ github.sha }}" \
+            -f pr_number="" \
+            -f app="zenuml-full-forge@stg" \
+            -f suite="insert"
 
   staging-diagramly:
     # See note on staging-full — master-only.
@@ -126,25 +158,41 @@ jobs:
       environment: staging-diagramly
     secrets: inherit
 
-  staging-diagramly-test:
+  staging-diagramly-e2e-dispatch:
     if: github.ref == 'refs/heads/master'
     needs: [staging-diagramly, build]
-    name: "E2E: Diagramly"
-    uses: ./.github/workflows/e2e-test.yml
-    with:
-      app: diagramly@stg
-      artifact-suffix: diagramly-stg
-    secrets:
-      username: ${{ vars.ZENUML_STAGE_USERNAME }}
-      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
-      otp: ${{ vars.ATLASSIAN_OTP }}
+    name: "E2E: Dispatch Diagramly"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set commit status → pending
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+        run: |
+          gh api --method POST \
+            "/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state=pending \
+            -f context="external-e2e/diagramly@stg" \
+            -f description="E2E queued on public runner"
+
+      - name: Dispatch public E2E workflow
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_DISPATCH_TOKEN }}
+        run: |
+          gh workflow run run-external-e2e.yml \
+            --repo ZenUml/conf-app-e2e \
+            --ref main \
+            -f source_repo="${{ github.repository }}" \
+            -f source_sha="${{ github.sha }}" \
+            -f pr_number="" \
+            -f app="diagramly@stg" \
+            -f suite="insert"
 
   draft-release-lite:
     name: "Draft: Lite"
     # don't run on pull requests to avoid creating draft releases for pull requests
     # only run on the master branch, to avoid cutting releases from feature branches
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
-    needs: [staging-lite-test]
+    needs: [staging-lite-e2e-dispatch]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -176,7 +224,7 @@ jobs:
   draft-release-full:
     name: "Draft: Full"
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
-    needs: [staging-full-test]
+    needs: [staging-full-e2e-dispatch]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -208,7 +256,7 @@ jobs:
     # don't run on pull requests to avoid creating draft releases for pull requests
     # only run on the master branch, to avoid cutting releases from feature branches
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
-    needs: [staging-diagramly-test]
+    needs: [staging-diagramly-e2e-dispatch]
     runs-on: ubuntu-latest
     permissions:
       contents: write

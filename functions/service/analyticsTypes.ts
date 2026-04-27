@@ -4,16 +4,16 @@
 // TODO: unify into a shared/ module when build config supports it.
 
 export type AnalyticsEventName =
-  | "diagram_viewed"
-  | "diagram_create_started"
-  | "diagram_create_succeeded"
-  | "diagram_edit_opened"
-  | "diagram_edit_cancelled"
-  | "diagram_save_succeeded"
-  | "diagram_save_failed"
-  | "diagram_export_requested"
-  | "diagram_export_succeeded"
-  | "diagram_export_failed"
+  | "macro_viewed"
+  | "macro_create_started"
+  | "macro_create_succeeded"
+  | "macro_edit_opened"
+  | "macro_edit_cancelled"
+  | "macro_save_succeeded"
+  | "macro_save_failed"
+  | "macro_export_requested"
+  | "macro_export_succeeded"
+  | "macro_export_failed"
   | "ai_generation_requested"
   | "ai_generation_succeeded"
   | "ai_generation_failed"
@@ -38,16 +38,16 @@ export type AnalyticsEventName =
   | "custom_content_update_failed";
 
 export const CANONICAL_EVENT_NAMES = new Set<string>([
-  "diagram_viewed",
-  "diagram_create_started",
-  "diagram_create_succeeded",
-  "diagram_edit_opened",
-  "diagram_edit_cancelled",
-  "diagram_save_succeeded",
-  "diagram_save_failed",
-  "diagram_export_requested",
-  "diagram_export_succeeded",
-  "diagram_export_failed",
+  "macro_viewed",
+  "macro_create_started",
+  "macro_create_succeeded",
+  "macro_edit_opened",
+  "macro_edit_cancelled",
+  "macro_save_succeeded",
+  "macro_save_failed",
+  "macro_export_requested",
+  "macro_export_succeeded",
+  "macro_export_failed",
   "ai_generation_requested",
   "ai_generation_succeeded",
   "ai_generation_failed",

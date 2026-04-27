@@ -48,71 +48,71 @@ describe("trackAnalyticsEvent", () => {
     vi.mocked(getSpaceKey).mockReturnValue("ENG");
   });
 
-  it("sends diagram_viewed with correct event name to Mixpanel", async () => {
-    await _awaitableTrackAnalyticsEvent("diagram_viewed", {
-      feature_area: "diagram",
+  it("sends macro_viewed with correct event name to Mixpanel", async () => {
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
       surface: "viewer",
-      diagram_type: "sequence",
+      macro_type: "sequence",
       entry_point: "page_view",
     });
 
     expect(mixpanel.track).toHaveBeenCalledWith(
-      "diagram_viewed",
+      "macro_viewed",
       expect.objectContaining({
-        feature_area: "diagram",
+        feature_area: "macro",
         surface: "viewer",
-        diagram_type: "sequence",
+        macro_type: "sequence",
         entry_point: "page_view",
       })
     );
   });
 
   it("auto-enriches user_account_id from window.globals", async () => {
-    await _awaitableTrackAnalyticsEvent("diagram_viewed", {
-      feature_area: "diagram",
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
       surface: "viewer",
     });
 
     expect(mixpanel.track).toHaveBeenCalledWith(
-      "diagram_viewed",
+      "macro_viewed",
       expect.objectContaining({ user_account_id: "user-123" })
     );
   });
 
   it("auto-enriches client_domain from ContextParameters", async () => {
-    await _awaitableTrackAnalyticsEvent("diagram_viewed", {
-      feature_area: "diagram",
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
       surface: "viewer",
     });
 
     expect(mixpanel.track).toHaveBeenCalledWith(
-      "diagram_viewed",
+      "macro_viewed",
       expect.objectContaining({ client_domain: "example.atlassian.net" })
     );
   });
 
   it("auto-enriches macro_uuid from Forge localId", async () => {
-    await _awaitableTrackAnalyticsEvent("diagram_viewed", {
-      feature_area: "diagram",
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
       surface: "viewer",
     });
 
     expect(mixpanel.track).toHaveBeenCalledWith(
-      "diagram_viewed",
+      "macro_viewed",
       expect.objectContaining({ macro_uuid: "macro-abc" })
     );
   });
 
   it("caller-supplied properties override auto-enriched values", async () => {
-    await _awaitableTrackAnalyticsEvent("diagram_viewed", {
-      feature_area: "diagram",
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
       surface: "viewer",
       client_domain: "override.atlassian.net",
       user_account_id: "caller-user",
     });
 
     expect(mixpanel.track).toHaveBeenCalledWith(
-      "diagram_viewed",
+      "macro_viewed",
       expect.objectContaining({
         client_domain: "override.atlassian.net",
         user_account_id: "caller-user",
@@ -128,13 +128,13 @@ describe("trackAnalyticsEvent", () => {
     vi.mocked(forgeGlobal).isForge = false;
     vi.mocked(forgeGlobal).forgeContext = null as any;
 
-    await _awaitableTrackAnalyticsEvent("diagram_viewed", {
-      feature_area: "diagram",
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
       surface: "viewer",
     });
 
     expect(mixpanel.track).toHaveBeenCalledWith(
-      "diagram_viewed",
+      "macro_viewed",
       expect.objectContaining({
         client_domain: "unknown_atlassian_domain",
         user_account_id: "unknown_user_account_id",

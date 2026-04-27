@@ -2,7 +2,7 @@
 
 import type {
   FeatureArea,
-  DiagramTypeValue,
+  MacroTypeValue,
   Surface,
   EntryPoint,
   OperationMode,
@@ -19,7 +19,7 @@ export type AnalyticsProperties = {
   product_type?: "lite" | "full" | "diagramly";
   environment_type?: string;
   // Contextual — required when scope implies them
-  diagram_type?: DiagramTypeValue;
+  macro_type?: MacroTypeValue;
   entry_point?: EntryPoint;
   confluence_space?: string;
   macro_uuid?: string;

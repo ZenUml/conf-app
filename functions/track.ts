@@ -3,9 +3,14 @@ import { isCanonicalRequest, TrackRequest } from "./service/analyticsTypes";
 
 const ALLOWED_REFERER_DOMAINS = ['zenuml.com', 'confluence-plugin.pages.dev', 'peng-new-8080.diagramly.ai'];
 
-const validateReferer = (referer: string) => {
-  const refererDomain = new URL(referer).hostname;
-  return ALLOWED_REFERER_DOMAINS.find(d => refererDomain.endsWith(d));
+const validateReferer = (referer: string): boolean => {
+  if (!referer) return false;
+  try {
+    const refererDomain = new URL(referer).hostname;
+    return !!ALLOWED_REFERER_DOMAINS.find(d => refererDomain.endsWith(d));
+  } catch {
+    return false;
+  }
 };
 
 export const onRequest = async (event: any) => {

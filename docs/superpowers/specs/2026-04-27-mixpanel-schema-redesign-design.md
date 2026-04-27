@@ -108,18 +108,20 @@ Use event names that describe business facts:
 
 The catalog stays flat in Mixpanel, but is grouped into families in code and documentation.
 
-#### Diagram events
+#### Macro events
 
-- `diagram_viewed`
-- `diagram_create_started`
-- `diagram_create_succeeded`
-- `diagram_edit_opened`
-- `diagram_edit_cancelled`
-- `diagram_save_succeeded`
-- `diagram_save_failed`
-- `diagram_export_requested`
-- `diagram_export_succeeded`
-- `diagram_export_failed`
+These cover all macro types: sequence diagrams, Mermaid, graph (DrawIO), OpenAPI specs, embed, and PlantUML. The prefix is `macro_` rather than `diagram_` because the umbrella includes non-diagram macros such as OpenAPI and embed.
+
+- `macro_viewed`
+- `macro_create_started`
+- `macro_create_succeeded`
+- `macro_edit_opened`
+- `macro_edit_cancelled`
+- `macro_save_succeeded`
+- `macro_save_failed`
+- `macro_export_requested`
+- `macro_export_succeeded`
+- `macro_export_failed`
 
 #### AI events
 
@@ -170,7 +172,7 @@ Each canonical event should carry a small shared property set when the value is 
 ### Base properties
 
 - `feature_area`
-- `diagram_type`
+- `macro_type`
 - `surface`
 - `entry_point`
 - `client_domain`
@@ -194,7 +196,7 @@ Properties fall into three buckets:
    - `environment_type`
 
 2. Required when the event scope implies them
-   - `diagram_type` for diagram events and AI events tied to a specific diagram type
+   - `macro_type` for macro events and AI events tied to a specific macro type
    - `entry_point` for user-initiated UI flows
    - `macro_uuid` for macro-scoped events
    - `operation_mode` for create/edit/save lifecycle outcome events
@@ -206,7 +208,7 @@ Properties fall into three buckets:
 
 Call-site rule:
 
-- Callers must always provide the semantic fields they know directly, especially `feature_area`, `surface`, `entry_point`, `diagram_type`, and family-specific fields.
+- Callers must always provide the semantic fields they know directly, especially `feature_area`, `surface`, `entry_point`, `macro_type`, and family-specific fields.
 - The tracking layer is responsible for auto-enriching runtime context such as `client_domain`, `user_account_id`, `product_type`, `environment_type`, `confluence_space`, and `macro_uuid` where those can be derived centrally.
 
 If a required-at-emission-time property cannot be derived, the tracker should emit an explicit sentinel value rather than omit it:
@@ -220,9 +222,9 @@ If a required-at-emission-time property cannot be derived, the tracker should em
 ### Property definitions
 
 - `feature_area`
-  - Broad product area such as `diagram`, `ai`, `upgrade`, `content`, `confluence`, `feedback`, `system`
-- `diagram_type`
-  - `sequence`, `mermaid`, `graph`, `openapi`, `embed`, `plantuml`, or `none`
+  - Broad product area such as `macro`, `ai`, `upgrade`, `content`, `confluence`, `feedback`, `system`
+- `macro_type`
+  - The type of macro: `sequence`, `mermaid`, `graph`, `openapi`, `embed`, `plantuml`, or `none`
 - `surface`
   - Where the event occurred, such as `viewer`, `editor`, `modal`, `dashboard`, `route`, `forge_trigger`
 - `entry_point`
@@ -288,9 +290,9 @@ Allow narrow additive property groups for specific event families:
 Introduce a new canonical tracking API:
 
 ```ts
-trackAnalyticsEvent("diagram_viewed", {
-  feature_area: "diagram",
-  diagram_type: "sequence",
+trackAnalyticsEvent("macro_viewed", {
+  feature_area: "macro",
+  macro_type: "sequence",
   surface: "viewer",
   entry_point: "page_view",
 });
@@ -302,7 +304,7 @@ This API should make the Mixpanel event name first-class and explicit.
 
 ```ts
 type FeatureArea =
-  | "diagram"
+  | "macro"
   | "ai"
   | "upgrade"
   | "content"
@@ -310,7 +312,7 @@ type FeatureArea =
   | "feedback"
   | "system";
 
-type DiagramTypeValue =
+type MacroTypeValue =
   | "sequence"
   | "mermaid"
   | "graph"
@@ -350,16 +352,16 @@ type FeedbackValue =
   | "bad";
 
 type AnalyticsEventName =
-  | "diagram_viewed"
-  | "diagram_create_started"
-  | "diagram_create_succeeded"
-  | "diagram_edit_opened"
-  | "diagram_edit_cancelled"
-  | "diagram_save_succeeded"
-  | "diagram_save_failed"
-  | "diagram_export_requested"
-  | "diagram_export_succeeded"
-  | "diagram_export_failed"
+  | "macro_viewed"
+  | "macro_create_started"
+  | "macro_create_succeeded"
+  | "macro_edit_opened"
+  | "macro_edit_cancelled"
+  | "macro_save_succeeded"
+  | "macro_save_failed"
+  | "macro_export_requested"
+  | "macro_export_succeeded"
+  | "macro_export_failed"
   | "ai_generation_requested"
   | "ai_generation_succeeded"
   | "ai_generation_failed"
@@ -390,7 +392,7 @@ type AnalyticsProperties = {
   user_account_id?: string;
   product_type?: string;
   environment_type?: string;
-  diagram_type?: DiagramTypeValue;
+  macro_type?: MacroTypeValue;
   entry_point?: EntryPoint;
   confluence_space?: string;
   macro_uuid?: string;
@@ -429,7 +431,7 @@ The event catalog should live in code, not just documentation.
 Recommended structure:
 
 - `shared/analytics/catalog.ts`
-  - canonical `AnalyticsEventName` list and shared enums such as `FeatureArea`, `Surface`, `EntryPoint`, `DiagramTypeValue`
+  - canonical `AnalyticsEventName` list and shared enums such as `FeatureArea`, `Surface`, `EntryPoint`, `MacroTypeValue`
 - `shared/analytics/types.ts`
   - base property types, event-family property types, endpoint request/response types
 - `src/utils/analytics/trackAnalyticsEvent.ts`
@@ -469,10 +471,10 @@ Recommended approach:
 
 ### Legacy mapping examples
 
-- `view_macro` -> `diagram_viewed`
-- `create_macro_begin` -> `diagram_create_started`
-- `create_macro_end` -> `diagram_create_succeeded`
-- `save_macro` -> `diagram_save_succeeded`
+- `view_macro` -> `macro_viewed`
+- `create_macro_begin` -> `macro_create_started`
+- `create_macro_end` -> `macro_create_succeeded`
+- `save_macro` -> `macro_save_succeeded`
 - `page_viewed` -> `confluence_page_viewed`
 - `page_updated` -> `confluence_page_updated`
 
@@ -486,9 +488,9 @@ Most importantly:
 
 Split it into actual business facts:
 
-- opening edit UI -> `diagram_edit_opened`
-- saving an edited diagram -> `diagram_save_succeeded` with `operation_mode=edit`
-- cancelling editing -> `diagram_edit_cancelled`
+- opening edit UI -> `macro_edit_opened`
+- saving an edited macro -> `macro_save_succeeded` with `operation_mode=edit`
+- cancelling editing -> `macro_edit_cancelled`
 
 ### Legacy fields
 
@@ -639,11 +641,11 @@ Migrate these first:
 
 Acceptance thresholds for Phase 4:
 
-- For direct 1:1 mappings such as `view_macro` -> `diagram_viewed`, daily canonical counts should be within +/-5% of the legacy baseline for 3 consecutive validation days.
+- For direct 1:1 mappings such as `view_macro` -> `macro_viewed`, daily canonical counts should be within +/-5% of the legacy baseline for 3 consecutive validation days.
 - For split or merged mappings such as `edit_*`, the combined canonical event set should be within +/-10% of the legacy baseline after documented semantic changes are accounted for.
 - Required shared-property completeness should be at least 99% for `client_domain`, `user_account_id`, `product_type`, and `environment_type`.
-- Contextual property completeness should be at least 95% for `diagram_type`, `surface`, `entry_point`, and `macro_uuid` on events where those fields are expected.
-- No unexpected enum drift is allowed in `feature_area`, `diagram_type`, `surface`, or `entry_point`.
+- Contextual property completeness should be at least 95% for `macro_type`, `surface`, `entry_point`, and `macro_uuid` on events where those fields are expected.
+- No unexpected enum drift is allowed in `feature_area`, `macro_type`, `surface`, or `entry_point`.
 
 Phase 5 should not begin until these thresholds pass for the migrated high-value event families.
 
@@ -657,8 +659,8 @@ Phase 5 should not begin until these thresholds pass for the migrated high-value
 
 ### High-priority migration order
 
-1. `diagram_viewed`
-2. diagram create/save/edit lifecycle
+1. `macro_viewed`
+2. macro create/save/edit lifecycle
 3. upgrade funnel events
 4. AI generation funnel
 5. CSAT and feedback
@@ -703,7 +705,7 @@ Rules:
 
 - confirm the new event names appear with expected property sets
 - compare legacy and canonical counts on key funnels during migration
-- validate property cardinality for fields like `entry_point`, `surface`, and `diagram_type`
+- validate property cardinality for fields like `entry_point`, `surface`, and `macro_type`
 - verify no new important report depends on `event_category` or `event_label`
 
 ## Governance
@@ -743,7 +745,7 @@ Canonical shape:
   - `persona=creator`
   - `product_option=marketplace`
 
-### Diagram view
+### Macro view
 
 Current shape:
 
@@ -752,10 +754,10 @@ Current shape:
 
 Canonical shape:
 
-- event name: `diagram_viewed`
+- event name: `macro_viewed`
 - properties:
-  - `feature_area=diagram`
-  - `diagram_type=sequence`
+  - `feature_area=macro`
+  - `macro_type=sequence`
   - `surface=viewer`
   - `entry_point=page_view`
 

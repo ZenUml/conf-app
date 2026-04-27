@@ -1,7 +1,7 @@
 // src/utils/analytics/catalog.ts
 
 export type FeatureArea =
-  | "diagram"
+  | "macro"
   | "ai"
   | "upgrade"
   | "content"
@@ -9,7 +9,7 @@ export type FeatureArea =
   | "feedback"
   | "system";
 
-export type DiagramTypeValue =
+export type MacroTypeValue =
   | "sequence"
   | "mermaid"
   | "graph"
@@ -43,16 +43,16 @@ export type OperationMode = "create" | "edit" | "unknown";
 export type FeedbackValue = "good" | "partial" | "bad";
 
 export type AnalyticsEventName =
-  | "diagram_viewed"
-  | "diagram_create_started"
-  | "diagram_create_succeeded"
-  | "diagram_edit_opened"
-  | "diagram_edit_cancelled"
-  | "diagram_save_succeeded"
-  | "diagram_save_failed"
-  | "diagram_export_requested"
-  | "diagram_export_succeeded"
-  | "diagram_export_failed"
+  | "macro_viewed"
+  | "macro_create_started"
+  | "macro_create_succeeded"
+  | "macro_edit_opened"
+  | "macro_edit_cancelled"
+  | "macro_save_succeeded"
+  | "macro_save_failed"
+  | "macro_export_requested"
+  | "macro_export_succeeded"
+  | "macro_export_failed"
   | "ai_generation_requested"
   | "ai_generation_succeeded"
   | "ai_generation_failed"

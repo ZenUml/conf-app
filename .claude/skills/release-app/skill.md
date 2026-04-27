@@ -2,8 +2,9 @@
 name: release-app
 description: >
   Release ZenUML Forge apps (lite, full, and/or diagramly) to production via the full CI/CD pipeline.
-  Triggers the build workflow by pushing a changelog to master, waits for draft releases,
-  publishes releases to production, and verifies with production smoke tests.
+  Reuses an existing fresh draft release when available (the common case after a recent merge),
+  publishes it to production, and verifies with production smoke tests. Falls back to triggering a
+  fresh build via a changelog push only when no recent draft exists.
   Use when the user wants to release, deploy, ship, or push the lite, full, or diagramly Forge app to
   production. Triggers on "release lite", "release full", "release diagramly", "deploy to prod",
   "ship forge app", "push to production", "release forge app", "release app", or any request to
@@ -35,24 +36,51 @@ All three variants are Forge apps deployed to the same Confluence sites. On prod
 
 Execute these steps sequentially. Stop and report to the user if any step fails.
 
-### Step 1: Trigger the Build Workflow
+### Step 1: Check for an existing fresh draft release
 
-The "Build, Test and Draft Release" workflow (`build-test-deploy.yml`) triggers on push to any branch. To retrigger on master, create a changelog commit:
+Most of the time you arrive here right after merging a PR to master, which already triggered `build-test-deploy.yml` and produced fresh draft releases. Reuse those — don't push a fake commit just to re-trigger the build.
+
+For each requested variant:
+
+```bash
+gh release list --repo ZenUml/confluence-plugin-cloud --limit 20 \
+  | awk '$2=="Draft" && $1 ~ /-{variant}$/ {print $1; exit}'
+```
+
+If a draft tag is returned, also confirm it's recent (within the last hour or two) and that its source workflow run succeeded:
+
+```bash
+# Get the run that produced the draft (drafts are created at the end of build-test-deploy.yml)
+gh run list --repo ZenUml/confluence-plugin-cloud --workflow=build-test-deploy.yml --branch=master --limit 1 \
+  --json databaseId,status,conclusion,createdAt
+```
+
+- If `status=completed` and `conclusion=success` for the relevant variant's `Deploy: {Variant}` and `Draft: {Variant}` jobs → **skip to Step 3** and publish that draft.
+- If `status=in_progress` → **wait for it (Step 2b)**, then publish.
+- If no fresh draft exists (last drafts are stale or absent) → fall back to **Step 2a** to trigger a fresh build.
+
+Use `gh run view <run-id> --json jobs` to inspect per-variant job conclusions when there's any doubt.
+
+### Step 2a (fallback): Trigger a fresh build with a changelog push
+
+Only do this if Step 1 found no usable draft. The "Build, Test and Draft Release" workflow has no `workflow_dispatch`, so a push to master is the only way to retrigger it.
 
 1. `cd` to the conf-app project root
-2. Create or append to `CHANGELOG.md` with today's date and a release entry:
+2. Append to `CHANGELOG.md` with today's date and a release entry:
    ```
    ## [YYYY-MM-DD] - Release
    - Triggered release pipeline for {variants}
    ```
-3. Stage, commit (message: `chore: trigger release pipeline`), and push to master
-4. The push triggers the "Build, Test and Draft Release" workflow automatically
+3. Stage, commit (message: `chore: trigger release pipeline`), and push to master **only after explicit user confirmation**
+4. Proceed to Step 2b
 
-### Step 2: Wait for Build Workflow
+### Step 2b: Wait for the Build Workflow run
 
-1. Use `gh run list --workflow=build-test-deploy.yml --branch=master -L 1` to find the latest run
-2. Poll with `gh run watch <run-id>` or periodic `gh run view <run-id>` until it completes
-3. Verify the run succeeded — if it failed, report the failure and stop
+Whether the run was triggered by a real merge (Step 1) or your changelog push (Step 2a), wait for it to complete:
+
+1. `gh run list --workflow=build-test-deploy.yml --branch=master -L 1` to find the run
+2. `gh run watch <run-id>` (foreground) or `gh run watch <run-id> --exit-status` with `run_in_background: true` so you get a single completion notification
+3. Verify the run succeeded — if it failed for any variant being released, report the failure and stop
 
 The workflow runs these jobs on master:
 - Build and unit test
@@ -60,7 +88,7 @@ The workflow runs these jobs on master:
 - E2E tests on all 3 staging variants
 - Create 3 draft releases (lite, full, diagramly)
 
-All must pass before draft releases are created.
+If only some variants succeeded (e.g. lite is still deploying but full and diagramly are done), you can publish the completed ones immediately.
 
 ### Step 3: Publish the Draft Release
 
@@ -108,7 +136,8 @@ Summarize the release:
 
 ## Important Notes
 
-- The build workflow has no `workflow_dispatch` — a push to master is required to trigger it
+- **Always check for an existing fresh draft first (Step 1).** A merge to master that completed in the last hour or so already produced the drafts you need — reuse them. Pushing a `chore: trigger release pipeline` changelog commit when fresh drafts exist wastes ~15 min of CI, pollutes master history, and gains nothing.
+- The build workflow has no `workflow_dispatch` — a push to master is the only fallback if no fresh draft exists
 - Draft releases are only created on the `master` branch (not on PRs or other branches)
 - All three variants (lite, full, diagramly) are Forge apps deployed to the same production site (`zenuml.atlassian.net`)
 - Always confirm with the user before pushing to master or publishing releases

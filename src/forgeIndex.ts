@@ -186,14 +186,9 @@ async function main() {
 
 export default main()
 
-EventBus.$on('diagramLoaded', () => {
-  const resizeAfterDelay = () => {
-    console.log('Resizing viewport after diagram loaded');
-    // @ts-ignore
-    window.AP?.resize();
-  };
-  setTimeout(resizeAfterDelay, 1500);
-});
+// Connect-era 'diagramLoaded' resize handler removed: the host-iframe resize
+// bridge call has no @forge/bridge equivalent (Custom UI iframes auto-size),
+// so the handler was a silent no-op in pure Forge.
 
 // Dynamically import createAttachmentIfContentChanged only when needed
 const createAttachmentIfContentChangedPromise = import("@/model/Attachment").then(

@@ -64,7 +64,8 @@ export default {
             resizeTarget.style.transform = `scale(${scale})`;
             resizeTarget.style.transformOrigin = 'top left';
             this.containerRef.style.height = `${scaledHeight}px`;
-            window.AP?.resize?.("100%", scaledHeight + 50); // 50 is for the header
+            // Connect-era host-iframe resize call removed: Forge Custom UI iframes
+            // auto-size; @forge/bridge has no public view.resize() equivalent.
           }, 10);
         }
       });

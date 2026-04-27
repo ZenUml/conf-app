@@ -181,6 +181,42 @@ Each canonical event should carry a small shared property set when the value is 
 - `product_type`
 - `environment_type`
 
+### Requiredness
+
+Properties fall into three buckets:
+
+1. Required at emission time
+   - `feature_area`
+   - `surface`
+   - `client_domain`
+   - `user_account_id`
+   - `product_type`
+   - `environment_type`
+
+2. Required when the event scope implies them
+   - `diagram_type` for diagram events and AI events tied to a specific diagram type
+   - `entry_point` for user-initiated UI flows
+   - `macro_uuid` for macro-scoped events
+   - `operation_mode` for create/edit/save lifecycle outcome events
+
+3. Optional
+   - `confluence_space`
+   - `is_forge`
+   - family-specific additive properties such as `persona`, `content_id`, `error_code`
+
+Call-site rule:
+
+- Callers must always provide the semantic fields they know directly, especially `feature_area`, `surface`, `entry_point`, `diagram_type`, and family-specific fields.
+- The tracking layer is responsible for auto-enriching runtime context such as `client_domain`, `user_account_id`, `product_type`, `environment_type`, `confluence_space`, and `macro_uuid` where those can be derived centrally.
+
+If a required-at-emission-time property cannot be derived, the tracker should emit an explicit sentinel value rather than omit it:
+
+- `client_domain=unknown_atlassian_domain`
+- `user_account_id=unknown_user_account_id`
+- `product_type=unknown_product_type`
+- `environment_type=unknown_environment_type`
+- `entry_point=unknown`
+
 ### Property definitions
 
 - `feature_area`
@@ -213,6 +249,7 @@ Allow narrow additive property groups for specific event families:
 
 - lifecycle
   - `operation_mode`
+    - Allowed values: `create`, `edit`, `unknown`
   - `result`
   - `failure_reason`
 - upgrade
@@ -223,6 +260,10 @@ Allow narrow additive property groups for specific event families:
 - AI
   - `prompt_length`
   - `generation_source`
+- feedback
+  - `feedback_value`
+    - For AI feedback, allowed values are `good`, `partial`, `bad`
+  - `feedback_score`
 - content
   - `content_id`
   - `content_type`
@@ -298,6 +339,16 @@ type EntryPoint =
   | "forge_trigger"
   | "unknown";
 
+type OperationMode =
+  | "create"
+  | "edit"
+  | "unknown";
+
+type FeedbackValue =
+  | "good"
+  | "partial"
+  | "bad";
+
 type AnalyticsEventName =
   | "diagram_viewed"
   | "diagram_create_started"
@@ -306,6 +357,9 @@ type AnalyticsEventName =
   | "diagram_edit_cancelled"
   | "diagram_save_succeeded"
   | "diagram_save_failed"
+  | "diagram_export_requested"
+  | "diagram_export_succeeded"
+  | "diagram_export_failed"
   | "ai_generation_requested"
   | "ai_generation_succeeded"
   | "ai_generation_failed"
@@ -315,31 +369,58 @@ type AnalyticsEventName =
   | "upgrade_cta_clicked"
   | "upgrade_action_blocked"
   | "upgrade_modal_dismissed"
+  | "upgrade_prompt_hovered"
+  | "upgrade_slider_changed"
+  | "content_sync_requested"
+  | "content_sync_succeeded"
+  | "content_sync_failed"
+  | "custom_content_loaded"
   | "confluence_page_viewed"
-  | "confluence_page_updated";
+  | "confluence_page_updated"
+  | "csat_submitted"
+  | "feedback_link_clicked"
+  | "feature_flags_fetch_failed"
+  | "attachment_create_failed"
+  | "custom_content_update_failed";
 
 type AnalyticsProperties = {
-  feature_area?: FeatureArea;
-  diagram_type?: DiagramTypeValue;
-  surface?: Surface;
-  entry_point?: EntryPoint;
+  feature_area: FeatureArea;
+  surface: Surface;
   client_domain?: string;
-  confluence_space?: string;
-  macro_uuid?: string;
   user_account_id?: string;
-  is_forge?: boolean;
   product_type?: string;
   environment_type?: string;
-  [key: string]: string | number | boolean | null | undefined;
+  diagram_type?: DiagramTypeValue;
+  entry_point?: EntryPoint;
+  confluence_space?: string;
+  macro_uuid?: string;
+  is_forge?: boolean;
+  operation_mode?: OperationMode;
+  result?: string;
+  failure_reason?: string;
+  prompt_length?: number;
+  generation_source?: string;
+  persona?: string;
+  product_option?: string;
+  ui_component?: string;
+  cta_position?: "primary" | "secondary";
+  feedback_value?: FeedbackValue;
+  feedback_score?: number;
+  content_id?: string;
+  content_type?: string;
+  content_status?: string;
+  error_code?: string;
+  error_name?: string;
+  error_source?: string;
 };
 
 declare function trackAnalyticsEvent(
   eventName: AnalyticsEventName,
-  properties?: AnalyticsProperties,
+  properties: AnalyticsProperties,
 ): void;
 ```
 
-The exact implementation can be stricter than this example. The important constraint is that canonical tracking is event-name first, not action first.
+The exact implementation should be stricter than this example. In real code, do not use a catch-all index signature. Model event-specific payloads through an `AnalyticsEventMap` or equivalent typed lookup so unsupported properties fail at compile time.
 
 ### Typed catalog
 
@@ -347,11 +428,22 @@ The event catalog should live in code, not just documentation.
 
 Recommended structure:
 
-- one central event name catalog
-- one shared property enum/types module
-- optional per-family property types for the most important events
+- `shared/analytics/catalog.ts`
+  - canonical `AnalyticsEventName` list and shared enums such as `FeatureArea`, `Surface`, `EntryPoint`, `DiagramTypeValue`
+- `shared/analytics/types.ts`
+  - base property types, event-family property types, endpoint request/response types
+- `src/utils/analytics/trackAnalyticsEvent.ts`
+  - canonical frontend tracker, runtime enrichment, and caller-facing API
+- `src/utils/window.ts`
+  - legacy `trackEvent(...)` adapter that delegates to the canonical tracker where mapping is defined
+- `functions/service/normalizeAnalyticsEvent.ts`
+  - normalization from canonical or legacy request payloads into a single server-side event shape
+- `functions/service/mixpanelService.ts`
+  - Mixpanel sender that consumes normalized canonical events
+- `functions/track.ts`
+  - `/track` endpoint request validation and asynchronous forwarding
 
-This prevents raw event name strings from spreading across the codebase.
+If the repo cannot safely share a top-level `shared/` module between frontend and `functions/`, Phase 1 must create one shared analytics package or path alias consumed by both sides. Do not duplicate the catalog separately under `src/` and `functions/`.
 
 ## Legacy Adapter Design
 
@@ -416,7 +508,9 @@ When a legacy call cannot be mapped cleanly to a canonical event:
 2. Pass the event through using the legacy transport shape so telemetry is preserved during migration.
 3. In local development and tests, emit `console.warn` with the legacy signature and a short reason.
 4. In staging and production, emit a sampled Sentry message named `legacy_analytics_unmapped` with tags for `legacy_action`, `legacy_event_category`, and `legacy_event_label`.
-5. Rate-limit that warning to once per unique legacy signature per page load or request lifecycle so noisy legacy paths do not flood logs.
+5. Apply time-window deduplication to operational warnings:
+   - frontend: at most once per unique legacy signature per page load
+   - backend: low fixed sampling plus at most one Sentry message per unique signature per worker isolate per 10-minute window when isolate-local cache is available
 
 This keeps migration gaps visible without creating data loss or overwhelming operational signals.
 
@@ -432,6 +526,54 @@ type MixpanelEvent = {
   properties: Record<string, string | number | boolean | null | undefined>;
 };
 ```
+
+### `/track` endpoint contract
+
+- Method: `POST`
+- Path: `/track`
+- Content-Type: `application/json`
+- Request body: exactly one JSON object per request in Phase 1, not an array batch
+
+Canonical request shape:
+
+```ts
+type TrackCanonicalRequest = {
+  transport_version: 2;
+  event: AnalyticsEventName;
+  properties: AnalyticsProperties;
+  addon_key: string;
+  version: string;
+};
+```
+
+Legacy request shape accepted during migration:
+
+```ts
+type TrackLegacyRequest = {
+  transport_version?: 1;
+  action: string;
+  event_category?: string;
+  event_label?: string;
+  client_domain?: string;
+  user_account_id?: string;
+  addon_key: string;
+  version: string;
+  [legacyProperty: string]: string | number | boolean | null | undefined;
+};
+```
+
+Response contract:
+
+- `204 No Content`
+  - request accepted for asynchronous forwarding to Mixpanel
+- `400 Bad Request`
+  - invalid JSON or schema validation failure
+- `403 Forbidden`
+  - rejected referer/origin
+- `415 Unsupported Media Type`
+  - non-JSON body
+
+Do not add array batching to `/track` in Phase 1. If batching is ever introduced later, it should be a separate versioned contract rather than an overloaded endpoint shape.
 
 ### Backend requirements
 
@@ -457,6 +599,16 @@ The surrounding properties such as `cloud_id`, `content_id`, `content_type`, `sp
 - add shared property enums/types
 - add the canonical frontend tracking API
 - add the canonical backend transport model
+
+Phase 1 implementation targets:
+
+- `shared/analytics/catalog.ts` exists and compiles
+- `shared/analytics/types.ts` exists and compiles
+- `src/utils/analytics/trackAnalyticsEvent.ts` exists and is used by at least one migrated call site
+- `functions/track.ts` validates the new canonical request contract
+- at least one unit test covers a canonical event payload end-to-end through normalization
+
+Phase 1 is not complete until those artifacts exist, one real call site has been migrated, and at least one canonical-path test passes.
 
 ### Phase 2: Compatibility bridge
 
@@ -520,6 +672,16 @@ These can be deferred if they are not used in meaningful reports:
 - scattered debug events
 - incidental warning/info events
 - old low-signal operational tracking
+
+### Rollback strategy
+
+During Phases 1-4, the legacy path must continue to fire in parallel for migrated high-value flows unless a specific flow is proven safe to cut over earlier.
+
+Rules:
+
+- Canonical emission should be controlled by a kill switch or feature flag so it can be disabled quickly if a schema or enrichment bug is discovered.
+- If canonical events are found to be malformed or materially incomplete during rollout, disable canonical emission and continue shipping the legacy path while the fix is prepared.
+- Do not remove the legacy path for a migrated high-value flow until Phase 4 acceptance thresholds pass for that flow.
 
 ## Validation And Testing
 

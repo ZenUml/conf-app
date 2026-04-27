@@ -115,6 +115,26 @@ The add-on comes in three variants:
 - **Lite Version** (`PRODUCT_TYPE=lite`) - Reduced feature set (free)
 - **Diagramly** (`PRODUCT_TYPE=diagramly`) - Diagramly-branded variant
 
+## Cloudflare Pages projects
+
+Each variant maps to a specific Cloudflare Pages project. Use these exact names with `wrangler pages secret put`, `wrangler pages deployment tail`, etc.
+
+| Variant | Staging project | Production project | Public hostname (prod) |
+|---------|-----------------|--------------------|------------------------|
+| Lite | `conf-stg-lite` | `conf-lite` | `conf-lite.zenuml.com` |
+| Full | `conf-stg-full` | `conf-full` | `conf-full.zenuml.com` |
+| Diagramly | `conf-stg-lite` (shared) | `conf-lite` (shared) | (served from lite) |
+
+Sources: `.github/workflows/build-test-deploy.yml` (staging), `.github/workflows/release.yml` (prod). The wrangler config (`wrangler.toml`) has a placeholder `name="confluence-plugin"` that the CI replaces at deploy time via `sed` in `.github/actions/wrangler-publish/action.yml`.
+
+**Setting a Pages secret** (e.g. `STRIPE_WEBHOOK_SECRET`):
+```bash
+# Staging
+wrangler pages secret put STRIPE_WEBHOOK_SECRET --project-name=conf-stg-lite
+# Production
+wrangler pages secret put STRIPE_WEBHOOK_SECRET --project-name=conf-lite
+```
+
 ## Environment Configuration
 
 ### Local Development
@@ -185,6 +205,32 @@ This prevents slow CI feedback (a single missing macro caused 6 × 60s = ~6 min 
 - **vue** - Frontend framework
 - **@sentry/cloudflare** - Error tracking
 - **jose** - JWT verification (Forge invocation tokens)
+
+## Analytics & Observability
+
+### Event storage
+
+| Event | Storage | Purpose |
+|-------|---------|---------|
+| `page_viewed`, `page_updated` | D1 `UserBehaviorEvent` (full hostname as `clientDomain`, e.g. `linemanwongnai.atlassian.net`) | Tenant activity signal — fires for any Confluence page with the macro installed, NOT specific to macro views |
+| `view_macro` | Mixpanel only | Actual macro view counts; use for paywall/engagement analysis |
+| Install/uninstall lifecycle | R2 `atlassian-events` bucket (`{domain}/lifecycle/{isoDate}.json`) | Forge install events |
+
+> Mixpanel tracking for `page_viewed`/`page_updated` is intentionally commented out in `functions/forge-user-behavior.ts:62`.
+
+### Interpreting `page_viewed` in D1
+
+`page_viewed` fires whenever a user views any Confluence page on a site where our macro is installed. It does **not** mean the user viewed one of our macros. Use it to determine whether a **tenant is active on Confluence** (i.e., people are using the product at all). For macro-specific engagement, use Mixpanel `view_macro`.
+
+### Key analytics sources
+
+- **D1 `conf-zenuml-prod`** — tenant activity (`UserBehaviorEvent`), install records (`ForgeInstallation`, `ClientInstallation`), content data
+- **Mixpanel** — macro view counts (`view_macro`), filtered by `client_domain` property
+- **KV metrics-inspect** — macro counts per space: `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<subdomain>`
+
+### clientDomain format mismatch
+
+KV flags use the **subdomain prefix** (`linemanwongnai`) but D1 `UserBehaviorEvent` stores the **full hostname** (`linemanwongnai.atlassian.net`). Always use full hostname when querying D1.
 
 ## File Structure Notes
 

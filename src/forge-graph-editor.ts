@@ -6,6 +6,7 @@ import defaultContentProvider from "@/model/ContentProvider/CompositeContentProv
 import ApWrapper2 from "@/model/ApWrapper2";
 import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from "@/utils/window";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { mountRoot } from "@/mount-root";
 import ForgeGraphEditor from "@/components/DrawIoExtension/ForgeGraphEditor.vue";
 import { Diagram, DiagramType, DataSource, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
@@ -166,12 +167,21 @@ async function initializeMacro() {
 
   // Track begin event (create or edit)
   const isNew = await MacroUtil.isCreateNew();
-  const beginEventAction = isNew ? 'create_macro_begin' : 'edit_macro_begin';
-  
-  trackEvent("", beginEventAction, "graph", {
-    journey_id: getEditJourneyId(),
-    session_id: getOrCreateSession(),
-  });
+  if (isNew) {
+    trackAnalyticsEvent("macro_create_started", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "graph",
+      entry_point: "page_editor",
+    });
+  } else {
+    trackAnalyticsEvent("macro_edit_opened", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "graph",
+      entry_point: "macro_toolbar",
+    });
+  }
 }
 
 export default initializeMacro(); 

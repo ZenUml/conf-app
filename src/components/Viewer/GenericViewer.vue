@@ -141,7 +141,7 @@ import ErrorBoundary from "@/components/ErrorBoundary.vue";
 import globals from '@/model/globals';
 import {DataSource} from "@/model/Diagram/Diagram";
 import { getCodeFromDiagram } from "@/model/Diagram/DiagramTypeConfig";
-import {getUrlParam} from '@/utils/window';
+import {isEmbedMode} from '@/utils/isEmbedMode';
 import {getClientDomain} from '@/utils/ContextParameters/ContextParameters';
 import SendFeedback from "@/components/SendFeedback.vue";
 import UpgradePromptRouter from '@/components/UpgradePrompt/UpgradePromptRouter.vue'
@@ -198,7 +198,7 @@ export default {
       return globals.apWrapper.isLite();
     },
     isEmbedded() {
-      return getUrlParam('xdm_c')?.includes('channel-com.zenuml.confluence-addon__zenuml-embed');
+      return isEmbedMode();
     },
     isCustomContent() {
       return this.diagram.source === DataSource.CustomContent;

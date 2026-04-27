@@ -2,7 +2,6 @@ import globals from "@/model/globals";
 import { getView, getContext as initForgeContext, isConfiguring, isInserting } from './model/globals/forgeGlobal';
 import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import MacroUtil from "@/model/MacroUtil";
-import { trackEvent } from "@/utils/window";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { mountRoot } from "@/mount-root";
 import ForgeEmbedEditor from "@/components/DrawIoExtension/ForgeEmbedEditor.vue";

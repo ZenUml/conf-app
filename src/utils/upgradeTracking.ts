@@ -1,11 +1,6 @@
-import { trackEvent } from './window';
-
-/**
- * Standardized upgrade event tracking
- *
- * This module provides a unified way to track upgrade-related events with consistent
- * naming, proper action/category mapping, and automatic context enrichment.
- */
+import { trackAnalyticsEvent } from './analytics/trackAnalyticsEvent';
+import type { AnalyticsEventName } from './analytics/catalog';
+import type { AnalyticsProperties } from './analytics/types';
 
 export enum UpgradeEventName {
   CTA_CLICKED = 'upgrade_cta_clicked',
@@ -15,7 +10,6 @@ export enum UpgradeEventName {
   MODAL_SHOWN = 'upgrade_modal_shown',
   SLIDER_CHANGED = 'upgrade_slider_changed',
   MODAL_DISMISSED = 'upgrade_modal_dismissed',
-  // Reserved for future expansion
   PROMPT_SHOWN = 'upgrade_prompt_shown',
   TOOLTIP_SHOWN = 'upgrade_tooltip_shown',
   // Persona-aware paywall events
@@ -43,58 +37,15 @@ export enum UIComponent {
   BANNER = 'banner',
 }
 
-interface UpgradeEventParams {
-  product_option?: ProductOption;
-  ui_component?: UIComponent;
-  cta_position?: 'primary' | 'secondary';
-  persona?: Persona;
-  [key: string]: any;
-}
+type UpgradeEventParams = Partial<Omit<AnalyticsProperties, 'feature_area'>> & Record<string, unknown>;
 
-/**
- * Maps event names to their corresponding action and category
- * Maintains compatibility with existing analytics system
- */
-const EVENT_CONFIG: Record<UpgradeEventName, { action: string; category: string }> = {
-  [UpgradeEventName.CTA_CLICKED]: { action: 'click', category: 'conversion' },
-  [UpgradeEventName.PROMPT_HOVERED]: { action: 'hover', category: 'conversion' },
-  [UpgradeEventName.FEATURE_ENABLED]: { action: 'system', category: 'info' },
-  [UpgradeEventName.ACTION_BLOCKED]: { action: 'blocked', category: 'conversion' },
-  [UpgradeEventName.MODAL_SHOWN]: { action: 'impression', category: 'conversion' },
-  [UpgradeEventName.SLIDER_CHANGED]: { action: 'interaction', category: 'conversion' },
-  [UpgradeEventName.MODAL_DISMISSED]: { action: 'dismiss', category: 'conversion' },
-  [UpgradeEventName.PROMPT_SHOWN]: { action: 'impression', category: 'conversion' },
-  [UpgradeEventName.TOOLTIP_SHOWN]: { action: 'impression', category: 'conversion' },
-  [UpgradeEventName.BYSTANDER_NOTICE_SHOWN]: { action: 'impression', category: 'conversion' },
-  [UpgradeEventName.BYSTANDER_ADMIN_NOTIFIED]: { action: 'click', category: 'conversion' },
-  [UpgradeEventName.BYSTANDER_OWNER_SELF_IDENTIFY]: { action: 'click', category: 'conversion' },
-  [UpgradeEventName.COMPARISON_VIEW_SHOWN]: { action: 'impression', category: 'conversion' },
-};
-
-/**
- * Unified upgrade event tracking function
- * Automatically selects the correct action and category based on event type
- *
- * @param eventName - The type of event to track
- * @param params - Additional parameters including product_option, ui_component, etc.
- *
- * @example
- * trackUpgradeEvent(UpgradeEventName.CTA_CLICKED, {
- *   product_option: ProductOption.MARKETPLACE,
- *   ui_component: UIComponent.TOOLTIP,
- *   cta_position: 'primary',
- *   ...getUpgradeContext(),
- * })
- */
 export function trackUpgradeEvent(
   eventName: UpgradeEventName,
   params: UpgradeEventParams = {}
-) {
-  const config = EVENT_CONFIG[eventName];
-  trackEvent(
-    eventName,        // label: clear event name
-    config.action,    // action: mapped based on event type (click/hover/system/impression)
-    config.category,  // category: conversion or info
-    params
-  );
+): void {
+  trackAnalyticsEvent(eventName as AnalyticsEventName, {
+    feature_area: 'upgrade',
+    surface: 'modal',
+    ...params,
+  });
 }

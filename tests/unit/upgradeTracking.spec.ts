@@ -1,38 +1,48 @@
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('@/utils/window', () => ({ trackEvent: vi.fn() }));
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }));
 
 import { trackUpgradeEvent, UpgradeEventName, Persona } from '@/utils/upgradeTracking';
-import { trackEvent } from '@/utils/window';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 
-describe('trackUpgradeEvent — new persona events', () => {
-  it('maps BYSTANDER_NOTICE_SHOWN to action=impression', () => {
+describe('trackUpgradeEvent', () => {
+  it('sends bystander_notice_shown as the Mixpanel event name', () => {
     trackUpgradeEvent(UpgradeEventName.BYSTANDER_NOTICE_SHOWN, { persona: Persona.BYSTANDER });
-    expect(trackEvent).toHaveBeenCalledWith(
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'bystander_notice_shown',
-      'impression',
-      'conversion',
-      expect.objectContaining({ persona: 'bystander' })
+      expect.objectContaining({ feature_area: 'upgrade', persona: 'bystander' })
     );
   });
 
-  it('maps BYSTANDER_ADMIN_NOTIFIED to action=click', () => {
+  it('sends bystander_admin_notified as the Mixpanel event name', () => {
     trackUpgradeEvent(UpgradeEventName.BYSTANDER_ADMIN_NOTIFIED, { persona: Persona.BYSTANDER });
-    expect(trackEvent).toHaveBeenCalledWith(
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'bystander_admin_notified',
-      'click',
-      'conversion',
-      expect.objectContaining({ persona: 'bystander' })
+      expect.objectContaining({ feature_area: 'upgrade', persona: 'bystander' })
     );
   });
 
-  it('maps COMPARISON_VIEW_SHOWN to action=impression', () => {
+  it('sends persona_comparison_view_shown as the Mixpanel event name', () => {
     trackUpgradeEvent(UpgradeEventName.COMPARISON_VIEW_SHOWN, { tenant_size_estimate: 'unknown' });
-    expect(trackEvent).toHaveBeenCalledWith(
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'persona_comparison_view_shown',
-      'impression',
-      'conversion',
-      expect.objectContaining({ tenant_size_estimate: 'unknown' })
+      expect.objectContaining({ feature_area: 'upgrade', tenant_size_estimate: 'unknown' })
+    );
+  });
+
+  it('sends upgrade_modal_shown as the Mixpanel event name', () => {
+    trackUpgradeEvent(UpgradeEventName.MODAL_SHOWN, {});
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'upgrade_modal_shown',
+      expect.objectContaining({ feature_area: 'upgrade' })
+    );
+  });
+
+  it('sends upgrade_action_blocked as the Mixpanel event name', () => {
+    trackUpgradeEvent(UpgradeEventName.ACTION_BLOCKED, {});
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'upgrade_action_blocked',
+      expect.objectContaining({ feature_area: 'upgrade' })
     );
   });
 });

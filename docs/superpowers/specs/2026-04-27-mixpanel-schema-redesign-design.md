@@ -190,7 +190,8 @@ Each canonical event should carry a small shared property set when the value is 
 - `surface`
   - Where the event occurred, such as `viewer`, `editor`, `modal`, `dashboard`, `route`, `forge_trigger`
 - `entry_point`
-  - How the user entered the flow, such as `macro_toolbar`, `page_editor`, `get_started`, `viewer_notice`, `ai_prompt`
+  - Allowed values: `page_view`, `macro_toolbar`, `page_editor`, `get_started`, `viewer_notice`, `ai_prompt`, `dashboard`, `route`, `forge_trigger`, `unknown`
+  - New values must be added to the central enum before use
 - `client_domain`
   - Atlassian site hostname
 - `confluence_space`
@@ -259,6 +260,44 @@ This API should make the Mixpanel event name first-class and explicit.
 ### Recommended TypeScript shape
 
 ```ts
+type FeatureArea =
+  | "diagram"
+  | "ai"
+  | "upgrade"
+  | "content"
+  | "confluence"
+  | "feedback"
+  | "system";
+
+type DiagramTypeValue =
+  | "sequence"
+  | "mermaid"
+  | "graph"
+  | "openapi"
+  | "embed"
+  | "plantuml"
+  | "none";
+
+type Surface =
+  | "viewer"
+  | "editor"
+  | "modal"
+  | "dashboard"
+  | "route"
+  | "forge_trigger";
+
+type EntryPoint =
+  | "page_view"
+  | "macro_toolbar"
+  | "page_editor"
+  | "get_started"
+  | "viewer_notice"
+  | "ai_prompt"
+  | "dashboard"
+  | "route"
+  | "forge_trigger"
+  | "unknown";
+
 type AnalyticsEventName =
   | "diagram_viewed"
   | "diagram_create_started"
@@ -270,6 +309,7 @@ type AnalyticsEventName =
   | "ai_generation_requested"
   | "ai_generation_succeeded"
   | "ai_generation_failed"
+  | "ai_editor_opened"
   | "ai_feedback_submitted"
   | "upgrade_modal_shown"
   | "upgrade_cta_clicked"
@@ -279,10 +319,10 @@ type AnalyticsEventName =
   | "confluence_page_updated";
 
 type AnalyticsProperties = {
-  feature_area?: string;
-  diagram_type?: string;
-  surface?: string;
-  entry_point?: string;
+  feature_area?: FeatureArea;
+  diagram_type?: DiagramTypeValue;
+  surface?: Surface;
+  entry_point?: EntryPoint;
   client_domain?: string;
   confluence_space?: string;
   macro_uuid?: string;
@@ -368,6 +408,18 @@ If the implementation needs to preserve old fields temporarily during migration,
 
 Do not allow those fields to remain core to the canonical API.
 
+### Unmappable legacy calls
+
+When a legacy call cannot be mapped cleanly to a canonical event:
+
+1. Do not drop the event.
+2. Pass the event through using the legacy transport shape so telemetry is preserved during migration.
+3. In local development and tests, emit `console.warn` with the legacy signature and a short reason.
+4. In staging and production, emit a sampled Sentry message named `legacy_analytics_unmapped` with tags for `legacy_action`, `legacy_event_category`, and `legacy_event_label`.
+5. Rate-limit that warning to once per unique legacy signature per page load or request lifecycle so noisy legacy paths do not flood logs.
+
+This keeps migration gaps visible without creating data loss or overwhelming operational signals.
+
 ## Backend Transport Model
 
 The backend transport and Mixpanel service model should be updated so the canonical event name is explicit.
@@ -433,6 +485,16 @@ Migrate these first:
 - compare old vs new event volumes for key flows
 - rebuild primary Mixpanel dashboards and funnels using canonical events
 
+Acceptance thresholds for Phase 4:
+
+- For direct 1:1 mappings such as `view_macro` -> `diagram_viewed`, daily canonical counts should be within +/-5% of the legacy baseline for 3 consecutive validation days.
+- For split or merged mappings such as `edit_*`, the combined canonical event set should be within +/-10% of the legacy baseline after documented semantic changes are accounted for.
+- Required shared-property completeness should be at least 99% for `client_domain`, `user_account_id`, `product_type`, and `environment_type`.
+- Contextual property completeness should be at least 95% for `diagram_type`, `surface`, `entry_point`, and `macro_uuid` on events where those fields are expected.
+- No unexpected enum drift is allowed in `feature_area`, `diagram_type`, `surface`, or `entry_point`.
+
+Phase 5 should not begin until these thresholds pass for the migrated high-value event families.
+
 ### Phase 5: Legacy cleanup
 
 - stop adding new legacy-style calls
@@ -485,6 +547,14 @@ These can be deferred if they are not used in meaningful reports:
 ## Governance
 
 Treat the event catalog as product infrastructure rather than ad hoc logging.
+
+### Ownership and approval
+
+- The canonical catalog should live in a dedicated analytics module, for example under `src/utils/analytics/`.
+- Ownership belongs to the app maintainers responsible for analytics and product instrumentation, not to an ad hoc rotating reviewer.
+- Any PR that adds or changes canonical event names, shared-property enums, or legacy mappings should receive one approving review from an analytics owner.
+- Catalog changes should land in the same product PR as the first usage change. There should not be a separate approval queue or tracking spreadsheet.
+- If the repository does not yet have CODEOWNERS coverage for the analytics module, add it during implementation so this process is enforced by the repo rather than by memory.
 
 Rules:
 

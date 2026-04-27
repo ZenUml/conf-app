@@ -27,14 +27,23 @@ async function saveEmbedAndExit(customContentId: string) {
     source: DataSource.CustomContent,
   } as Diagram);
   
-  // Split into create_macro_end and edit_macro_end
   const isNew = !macroData?.uuid;
-  const endEventAction = isNew ? 'create_macro_end' : 'edit_macro_end';
-  
-  trackEvent(uuid, endEventAction, 'embed', {
-    journey_id: getEditJourneyId(),
-    session_id: getOrCreateSession(),
-  });
+
+  if (isNew) {
+    trackAnalyticsEvent("macro_create_succeeded", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "embed",
+      operation_mode: "create",
+    });
+  } else {
+    trackAnalyticsEvent("macro_save_succeeded", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "embed",
+      operation_mode: "edit",
+    });
+  }
   
   // End journey after all tracking is done
   if (getEditJourneyId()) {

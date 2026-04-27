@@ -1,6 +1,7 @@
-import {Diagram} from "@/model/Diagram/Diagram";
+import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import {CustomContentStorageProvider} from "@/model/ContentProvider/CustomContentStorageProvider";
-import {trackEvent} from "@/utils/window";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import type { MacroTypeValue } from "@/utils/analytics/catalog";
 import ApWrapper2 from "@/model/ApWrapper2";
 import uuidv4 from "@/utils/uuid";
 import { syncCustomContent } from "@/services/CustomContent";
@@ -51,13 +52,34 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
     
     // Macro information
     macro_uuid: uuid,
-    diagram_type: diagram.diagramType,
     code_length: body.length,
   };
   
-  // Split save_macro into create_macro_end and edit_macro_end
-  const saveEventAction = isNew ? 'create_macro_end' : 'edit_macro_end';
-  trackEvent(uuid || '', saveEventAction, diagram.diagramType, eventProps);
+  const DIAGRAM_TYPE_TO_MACRO_TYPE: Record<string, MacroTypeValue> = {
+    [DiagramType.Sequence]: 'sequence',
+    [DiagramType.Mermaid]:  'mermaid',
+    [DiagramType.PlantUml]: 'plantuml',
+    [DiagramType.Graph]:    'graph',
+    [DiagramType.OpenApi]:  'openapi',
+    [DiagramType.Embed]:    'embed',
+  };
+  const macroType: MacroTypeValue = DIAGRAM_TYPE_TO_MACRO_TYPE[diagram.diagramType] ?? 'none';
+
+  if (isNew) {
+    trackAnalyticsEvent("macro_create_succeeded", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: macroType,
+      operation_mode: "create",
+    });
+  } else {
+    trackAnalyticsEvent("macro_save_succeeded", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: macroType,
+      operation_mode: "edit",
+    });
+  }
 
   // Report metrics on save (updates KV cache for all users)
   macroMetrics.reportMacroMetrics().catch(e => console.debug('Metrics reporting failed (non-critical)', e));

@@ -21,6 +21,10 @@ const mockApWrapper: ApWrapper2 = {
   isInContentEditOrContentCreate: mockIsInContentEditOrContentCreate
 };
 
+vi.mock("@/utils/analytics/trackAnalyticsEvent", () => ({
+  trackAnalyticsEvent: vi.fn(),
+}));
+
 vi.mock("@/model/ContentProvider/CustomContentStorageProvider", () => {
   return {
     CustomContentStorageProvider: class CustomContentStorageProvider {

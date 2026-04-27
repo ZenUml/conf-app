@@ -135,6 +135,40 @@ wrangler pages secret put STRIPE_WEBHOOK_SECRET --project-name=conf-stg-lite
 wrangler pages secret put STRIPE_WEBHOOK_SECRET --project-name=conf-lite
 ```
 
+Pipe the secret via `printf '...' | npx wrangler pages secret put ...` so the value never appears in shell history or `ps`.
+
+## Stripe webhook (`/api/stripe-webhook`)
+
+Auto-activates a space license in `SPACE_LICENSE_KV` when Stripe fires `checkout.session.completed`. Handler at `functions/api/stripe-webhook.ts`. The `STRIPE_WEBHOOK_SECRET` and `SPACE_LICENSE_KV` bindings are mandatory — without either, the function returns `500 server_configuration`.
+
+**Stripe-side configuration** (Test and Live webhooks are separate):
+
+| Stripe mode | Endpoint URL | Cloudflare project for the secret |
+|-------------|--------------|----------------------------------|
+| Test | `https://conf-stg-lite.pages.dev/api/stripe-webhook` | `conf-stg-lite` |
+| Live | `https://conf-lite.zenuml.com/api/stripe-webhook` | `conf-lite` |
+
+Required event: `checkout.session.completed`. The Stripe Checkout session must include `cloudId` and `spaceKey` in `session.metadata` — without them the webhook returns `400 missing_metadata` and no license is activated.
+
+**Smoke test (no Stripe needed)** — confirms the function is deployed, the route allowlist (`public/_routes.json`) routes it through Pages Functions, and the secret + KV bindings are set:
+
+```bash
+curl -i -X POST "https://conf-stg-lite.pages.dev/api/stripe-webhook" \
+  -H "Content-Type: application/json" -d '{}'
+# Expected: HTTP 400  {"error":"missing_signature"}
+# Got 500 server_configuration → secret or KV binding missing
+# Got 405 with empty body → route not in _routes.json (function not invoked)
+# Got 200 text/html → function not deployed at all (SPA fallback)
+```
+
+Verify a license record landed after a real Stripe event:
+
+```bash
+# Find the SPACE_LICENSE_KV namespace ID in wrangler.toml
+npx wrangler kv key get --namespace-id <SPACE_LICENSE_KV_ID> --remote \
+  "license:<cloudId>:<spaceKey>"
+```
+
 ## Environment Configuration
 
 ### Local Development

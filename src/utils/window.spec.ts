@@ -246,6 +246,20 @@ describe('window utils', async () => {
       ).resolves.not.toThrow();
     })
 
+    it('should warn when a migrated action is used via the legacy path', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await _awaitableTrackEvent('', 'view_macro', 'macro');
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('"view_macro"'));
+      warnSpy.mockRestore();
+    })
+
+    it('should not warn for non-migrated actions', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await _awaitableTrackEvent('', 'some_other_action', 'analytics');
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    })
+
     it('should use localId for macro_uuid in Forge mode', async () => {
       // Set up Forge mode with localId
       vi.mocked(forgeGlobal).isForge = true

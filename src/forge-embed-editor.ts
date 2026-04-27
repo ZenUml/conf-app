@@ -1,5 +1,5 @@
 import globals from "@/model/globals";
-import { getView, getContext as initForgeContext, isConfiguring, isInserting } from './model/globals/forgeGlobal';
+import { getView, getContext as initForgeContext, isInserting } from './model/globals/forgeGlobal';
 import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import MacroUtil from "@/model/MacroUtil";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
@@ -8,19 +8,11 @@ import ForgeEmbedEditor from "@/components/DrawIoExtension/ForgeEmbedEditor.vue"
 import { Diagram, DiagramType, DataSource, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
 import uuidv4 from "@/utils/uuid";
-import EventBus from "./EventBus";
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
 
-async function saveEmbedAndExit(customContentId: string) {
+async function saveEmbedAndExit(_customContentId: string) {
   const macroData = await globals.apWrapper.getMacroData();
-  const uuid = macroData?.uuid || uuidv4();
-  
-  const params = { 
-    uuid, 
-    customContentId: customContentId, 
-    updatedAt: new Date().toISOString() 
-  };
-  
+
   const id = await saveToPlatform({
     diagramType: DiagramType.Embed,
     source: DataSource.CustomContent,
@@ -126,18 +118,5 @@ async function initializeMacro() {
   }
 }
 
-
-EventBus.$on('save-embed', async (customContent: any) => {
-  console.log('forge-embed-editor - save', customContent);
-  // Give some time for track event to be sent out. We are not using a more reliable way to track event because
-  // we don't want to block dialog close for too long.
-  setTimeout(async () => {
-    if(await isConfiguring() || await isInserting()) {
-      await (await getView()).submit({config: {customContentId: customContent.id, updatedAt: new Date().toISOString()}});
-    } else {
-      await (await getView()).close();
-    }
-  }, 500);
-});
 
 export default initializeMacro(); 

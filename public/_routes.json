@@ -15,6 +15,7 @@
     "/api/features",
     "/api/space-status",
     "/api/space-license",
+    "/api/stripe-webhook",
     "/api/notify-admin",
     "/api/metrics/evaluation",
     "/forge-installed",

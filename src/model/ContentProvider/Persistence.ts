@@ -30,31 +30,33 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   
   let isNew;
   isNew = !diagram.id;
-  
-  const DIAGRAM_TYPE_TO_MACRO_TYPE: Record<string, MacroTypeValue> = {
-    [DiagramType.Sequence]: 'sequence',
-    [DiagramType.Mermaid]:  'mermaid',
-    [DiagramType.PlantUml]: 'plantuml',
-    [DiagramType.Graph]:    'graph',
-    [DiagramType.OpenApi]:  'openapi',
-    [DiagramType.Embed]:    'embed',
-  };
-  const macroType: MacroTypeValue = DIAGRAM_TYPE_TO_MACRO_TYPE[diagram.diagramType] ?? 'none';
 
-  if (isNew) {
-    trackAnalyticsEvent("macro_create_succeeded", {
-      feature_area: "macro",
-      surface: "editor",
-      macro_type: macroType,
-      operation_mode: "create",
-    });
-  } else {
-    trackAnalyticsEvent("macro_save_succeeded", {
-      feature_area: "macro",
-      surface: "editor",
-      macro_type: macroType,
-      operation_mode: "edit",
-    });
+  // Analytics: embed editor handles its own tracking
+  if (diagram.diagramType !== DiagramType.Embed) {
+    const DIAGRAM_TYPE_TO_MACRO_TYPE: Record<string, MacroTypeValue> = {
+      [DiagramType.Sequence]: 'sequence',
+      [DiagramType.Mermaid]:  'mermaid',
+      [DiagramType.PlantUml]: 'plantuml',
+      [DiagramType.Graph]:    'graph',
+      [DiagramType.OpenApi]:  'openapi',
+    };
+    const macroType: MacroTypeValue = DIAGRAM_TYPE_TO_MACRO_TYPE[diagram.diagramType] ?? 'none';
+
+    if (isNew) {
+      trackAnalyticsEvent("macro_create_succeeded", {
+        feature_area: "macro",
+        surface: "editor",
+        macro_type: macroType,
+        operation_mode: "create",
+      });
+    } else {
+      trackAnalyticsEvent("macro_save_succeeded", {
+        feature_area: "macro",
+        surface: "editor",
+        macro_type: macroType,
+        operation_mode: "edit",
+      });
+    }
   }
 
   // Report metrics on save (updates KV cache for all users)

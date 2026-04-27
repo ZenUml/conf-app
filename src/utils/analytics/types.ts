@@ -33,6 +33,9 @@ export type AnalyticsProperties = {
   product_option?: string;
   ui_component?: string;
   cta_position?: "primary" | "secondary";
+  tenant_size_estimate?: string;
+  feature_name?: string;
+  source?: string;
   // AI
   prompt_length?: number;
   generation_source?: string;

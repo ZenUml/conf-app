@@ -2,8 +2,6 @@ import store from '@/model/store2';
 import globals from '@/model/globals';
 import {DiagramType} from "@/model/Diagram/Diagram";
 import { getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
-import { getBaseUrl } from "@/utils/ContextParameters/ContextParameters";
-import {addonKey} from '@/utils/window';
 import { callRemote } from '@/utils/requestUtil';
 
 export async function generateDiagramFromPage(diagramType: DiagramType, userPrompt: string) {
@@ -16,7 +14,7 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
     if (page?.body?.export_view?.value || page?.title) {
       console.log('generating from page content');
 
-      const response = await callRemote(`/diagramly/generate?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, 'POST', {
+      const response = await callRemote(`/diagramly/generate`, 'POST', {
           accountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
           title: page.title,
           content: page.body.export_view.value,
@@ -41,7 +39,7 @@ export async function generateDiagramFromPage(diagramType: DiagramType, userProm
 }
 
 export async function diagramlyChat(messages: Array<any>) {
-  return await callRemote(`/diagramly/chat?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, 'POST', {
+  return await callRemote(`/diagramly/chat`, 'POST', {
       accountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
       messages
     });
@@ -49,7 +47,7 @@ export async function diagramlyChat(messages: Array<any>) {
 
 export async function fixDiagram(diagramCode: string, errorMessage: string, diagramType: DiagramType): Promise<{ updatedCode: string }> {
   try {
-    const response = await callRemote(`/diagramly/fix-diagram?xdm_e=${getBaseUrl()}&addonKey=${addonKey()}`, 'POST', {
+    const response = await callRemote(`/diagramly/fix-diagram`, 'POST', {
       accountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
       diagramCode,
       errorMessage,

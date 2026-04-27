@@ -23,7 +23,8 @@
     "/aggregate-events",
     "/metrics-cache/query",
     "/metrics-cache/update",
-    "/admin/metrics-inspect"
+    "/admin/metrics-inspect",
+    "/feature-flags"
   ],
   "exclude": []
 }

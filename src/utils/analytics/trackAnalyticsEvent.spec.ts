@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import mixpanel from "mixpanel-browser";
 import { getClientDomain, getSpaceKey } from "@/utils/ContextParameters/ContextParameters";
 import forgeGlobal from "@/model/globals/forgeGlobal";
-import { _awaitableTrackAnalyticsEvent } from "./trackAnalyticsEvent";
+import { _awaitableTrackAnalyticsEvent, _resetForTesting } from "./trackAnalyticsEvent";
 
 vi.mock("mixpanel-browser", () => ({
   default: {
@@ -36,6 +36,7 @@ const mockGlobals = {
 describe("trackAnalyticsEvent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetForTesting();
     // @ts-ignore
     window.globals = mockGlobals;
     vi.mocked(forgeGlobal).isForge = true;
@@ -137,6 +138,8 @@ describe("trackAnalyticsEvent", () => {
       expect.objectContaining({
         client_domain: "unknown_atlassian_domain",
         user_account_id: "unknown_user_account_id",
+        macro_uuid: "unknown_macro_uuid",
+        confluence_space: "unknown_space",
       })
     );
   });

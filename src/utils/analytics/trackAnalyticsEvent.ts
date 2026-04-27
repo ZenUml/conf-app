@@ -37,9 +37,13 @@ async function _getMacroUuid(): Promise<string> {
   if (forgeGlobal.isForge && forgeGlobal.forgeContext?.localId) {
     return forgeGlobal.forgeContext.localId;
   }
-  // @ts-ignore
-  const macroData = await window.globals?.apWrapper?.getMacroData();
-  return macroData?.uuid || "unknown_macro_uuid";
+  try {
+    // @ts-ignore
+    const macroData = await window.globals?.apWrapper?.getMacroData();
+    return macroData?.uuid || "unknown_macro_uuid";
+  } catch {
+    return "unknown_macro_uuid";
+  }
 }
 
 function _getProductType(): "lite" | "full" | "diagramly" {
@@ -98,4 +102,9 @@ export function trackAnalyticsEvent(
   properties: AnalyticsProperties
 ): void {
   void _awaitableTrackAnalyticsEvent(eventName, properties);
+}
+
+export function _resetForTesting(): void {
+  _initialized = false;
+  _identified = false;
 }

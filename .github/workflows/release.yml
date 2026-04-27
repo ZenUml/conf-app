@@ -120,12 +120,45 @@ jobs:
   smoke-test:
     needs: release
     name: Smoke Test (Prod) — ${{ needs.release.outputs.license }}
-    uses: ./.github/workflows/e2e-test.yml
-    with:
-      app: ${{ needs.release.outputs.license == 'lite' && 'zenuml-lite@prod' || needs.release.outputs.license == 'full' && 'zenuml-full@prod' || 'diagramly@prod' }}
-      suite: insert
-      artifact-suffix: ${{ needs.release.outputs.license }}-prod
-    secrets:
-      username: ${{ vars.ZENUML_PROD_USERNAME }}
-      password: ${{ vars.ZENUML_PROD_PASSWORD }}
-      otp: ${{ vars.ATLASSIAN_OTP }}
+    runs-on: ubuntu-latest
+    env:
+      APP: ${{ needs.release.outputs.license == 'lite' && 'zenuml-lite@prod' || needs.release.outputs.license == 'full' && 'zenuml-full@prod' || 'diagramly@prod' }}
+    steps:
+      - name: Set commit status → pending
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+        run: |
+          gh api --method POST \
+            "/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state=pending \
+            -f context="external-e2e/${{ env.APP }}" \
+            -f description="Smoke test queued on public runner"
+
+      - name: Dispatch public E2E workflow
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_DISPATCH_TOKEN }}
+        run: |
+          gh workflow run run-external-e2e.yml \
+            --repo ZenUml/conf-app-e2e \
+            --ref main \
+            -f source_repo="${{ github.repository }}" \
+            -f source_sha="${{ github.sha }}" \
+            -f pr_number="" \
+            -f app="${{ env.APP }}" \
+            -f suite="insert"
+
+      - name: Wait for smoke test result
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+        run: |
+          for i in $(seq 1 60); do
+            STATE=$(gh api "/repos/${{ github.repository }}/commits/${{ github.sha }}/statuses" \
+              -q "[.[] | select(.context == \"external-e2e/${{ env.APP }}\")] | first | .state")
+            echo "attempt $i: $STATE"
+            if [ "$STATE" = "success" ]; then exit 0; fi
+            if [ "$STATE" = "failure" ] || [ "$STATE" = "error" ]; then
+              echo "Smoke test failed" && exit 1
+            fi
+            sleep 30
+          done
+          echo "Timed out (30 min) waiting for smoke test result" && exit 1

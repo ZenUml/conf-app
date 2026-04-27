@@ -33,3 +33,12 @@ id = "9531a58d3f5b47a6af77750240c09548"
 [[env.production.kv_namespaces]]
 binding = "SPACE_LICENSE_KV"
 id = "8969e8528105403bb2d9adca9fc16567"
+
+# Portal feature flags KV (production)
+[[env.production.kv_namespaces]]
+binding = "KV_FEATURE_FLAGS"
+id = "fe9042cb20994651b0a2ef9e68f9037c"
+
+[ai]
+binding = "AI"
+

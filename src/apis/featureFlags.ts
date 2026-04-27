@@ -1,13 +1,11 @@
 import { trackEvent, serializeError } from "@/utils/window";
 import { getClientDomain } from "@/utils/ContextParameters/ContextParameters";
-import { getPortalDomain } from "./portalDomain";
+import forgeGlobal from "@/model/globals/forgeGlobal";
 
 export default async function (features: string[]) {
   const client = getClientDomain();
   const featuresParam = features.join(",");
 
-  // Attempt telemetry — lets us see every flag fetch, not just the error outcomes.
-  // Category `info` so queries filter by `event_label==='get_feature_flags_attempt'`.
   trackEvent(`${client || 'empty'}|${featuresParam}`, 'get_feature_flags_attempt', 'info');
 
   if (!client) {
@@ -16,9 +14,9 @@ export default async function (features: string[]) {
   }
 
   try {
-    const portal = getPortalDomain();
+    const baseUrl = forgeGlobal.zenumlRemoteBaseUrl;
     const response = await fetch(
-      `${portal}/feature-flags?client=${client}&features=${featuresParam}`
+      `${baseUrl}/feature-flags?client=${client}&features=${featuresParam}`
     );
 
     if (!response.ok) {

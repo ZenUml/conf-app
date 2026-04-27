@@ -39,6 +39,7 @@ function loadDrawIOScripts(): Promise<void> {
 
 import createAttachmentIfContentChanged from "@/model/Attachment";
 import {trackEvent, serializeError} from "@/utils/window";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import globals from '@/model/globals';
 import {decompress} from '@/utils/compress';
 import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
@@ -103,7 +104,12 @@ async function initializeMacro() {
   try {
     // Load DrawIO scripts first
     // await loadDrawIOScripts();
-    trackEvent('', 'view_macro', 'graph');
+    trackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "graph",
+      entry_point: "page_view",
+    });
     await loadDiagram();
   } catch (e) {
     console.error('Error loading graph viewer', e);

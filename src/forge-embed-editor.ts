@@ -2,7 +2,7 @@ import globals from "@/model/globals";
 import { getView, getContext as initForgeContext, isConfiguring, isInserting } from './model/globals/forgeGlobal';
 import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import MacroUtil from "@/model/MacroUtil";
-import { trackEvent } from "@/utils/window";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { mountRoot } from "@/mount-root";
 import ForgeEmbedEditor from "@/components/DrawIoExtension/ForgeEmbedEditor.vue";
 import { Diagram, DiagramType, DataSource, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
@@ -26,14 +26,23 @@ async function saveEmbedAndExit(customContentId: string) {
     source: DataSource.CustomContent,
   } as Diagram);
   
-  // Split into create_macro_end and edit_macro_end
   const isNew = !macroData?.uuid;
-  const endEventAction = isNew ? 'create_macro_end' : 'edit_macro_end';
-  
-  trackEvent(uuid, endEventAction, 'embed', {
-    journey_id: getEditJourneyId(),
-    session_id: getOrCreateSession(),
-  });
+
+  if (isNew) {
+    trackAnalyticsEvent("macro_create_succeeded", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "embed",
+      operation_mode: "create",
+    });
+  } else {
+    trackAnalyticsEvent("macro_save_succeeded", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "embed",
+      operation_mode: "edit",
+    });
+  }
   
   // End journey after all tracking is done
   if (getEditJourneyId()) {
@@ -100,12 +109,21 @@ async function initializeMacro() {
 
   // Track begin event (create or edit)
   const isNew = await MacroUtil.isCreateNew();
-  const beginEventAction = isNew ? 'create_macro_begin' : 'edit_macro_begin';
-  
-  trackEvent("", beginEventAction, "embed", {
-    journey_id: getEditJourneyId(),
-    session_id: getOrCreateSession(),
-  });
+  if (isNew) {
+    trackAnalyticsEvent("macro_create_started", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "embed",
+      entry_point: "page_editor",
+    });
+  } else {
+    trackAnalyticsEvent("macro_edit_opened", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "embed",
+      entry_point: "macro_toolbar",
+    });
+  }
 }
 
 

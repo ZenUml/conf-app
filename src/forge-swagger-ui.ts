@@ -6,6 +6,7 @@ import './assets/tailwind.css'
 import OpenApiExample from '@/model/OpenApi/OpenApiExample'
 import createAttachmentIfContentChanged from "@/model/Attachment";
 import {trackEvent, serializeError} from "@/utils/window";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import globals from '@/model/globals';
 import OpenApiViewer from "@/components/Viewer/OpenApiViewer.vue";
 import EventBus from './EventBus'
@@ -83,7 +84,12 @@ async function loadDiagram() {
 
 async function initializeMacro() {
   await globals.apWrapper.initializeContext();
-  trackEvent('', 'view_macro', 'openapi');
+  trackAnalyticsEvent("macro_viewed", {
+    feature_area: "macro",
+    surface: "viewer",
+    macro_type: "openapi",
+    entry_point: "page_view",
+  });
 
   // Initialize with empty doc, will be loaded in loadDiagram
   mountRoot(NULL_DIAGRAM, OpenApiViewer);

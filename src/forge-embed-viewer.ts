@@ -1,5 +1,6 @@
 import createAttachmentIfContentChanged from "@/model/Attachment";
 import {trackEvent, serializeError} from "@/utils/window";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import globals from '@/model/globals';
 import ForgeEmbedViewer from "@/components/Viewer/ForgeEmbedViewer.vue";
 import EventBus from './EventBus'
@@ -50,7 +51,12 @@ async function loadDiagram() {
 async function initializeMacro() {
   try {
     await globals.apWrapper.initializeContext();
-    trackEvent('', 'view_macro', 'embed');
+    trackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "embed",
+      entry_point: "page_view",
+    });
 
     // Initialize with empty doc, will be loaded in loadDiagram
     mountRoot(NULL_DIAGRAM, ForgeEmbedViewer);

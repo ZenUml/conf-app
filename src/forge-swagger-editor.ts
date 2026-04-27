@@ -16,6 +16,7 @@ import { Diagram, DataSource, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/
 import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from '@/utils/window';
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
 import store from "@/model/store2";
 import { showCloseWithoutSavingDialog } from './utils/modalService';
@@ -182,12 +183,21 @@ async function initializeMacro() {
 
   // Track begin event (create or edit)
   const isNew = await MacroUtil.isCreateNew();
-  const beginEventAction = isNew ? 'create_macro_begin' : 'edit_macro_begin';
-  
-  trackEvent('', beginEventAction, 'openapi', {
-    journey_id: getEditJourneyId(),
-    session_id: getOrCreateSession(),
-  });
+  if (isNew) {
+    trackAnalyticsEvent("macro_create_started", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "openapi",
+      entry_point: "page_editor",
+    });
+  } else {
+    trackAnalyticsEvent("macro_edit_opened", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "openapi",
+      entry_point: "macro_toolbar",
+    });
+  }
 
   // Trigger initial validation after a short delay to ensure everything is set up
   setTimeout(() => {

@@ -5,7 +5,8 @@ export const MIXPANEL_TOKEN_FORGE_USER_BEHAVIOUR = "62d0ff230c6799db2a4d30a04fe5
 export const MIXPANEL_TOKEN_FRONTEND = "62d0ff230c6799db2a4d30a04fe5e1e2";
 
 export interface MixpanelTrackPayload {
-  action: string;
+  event?: string;           // canonical event name (transport_version: 2)
+  action?: string;          // legacy event name (transport_version: 1)
   user_account_id?: string;
   atlassian_user_id?: string;
   [key: string]: string | number | boolean | undefined | null;
@@ -44,8 +45,9 @@ export async function mixpanelTrack(event: MixpanelTrackPayload, token: string) 
     await identify(distinctId, token);
   }
   
+  const eventName = event.event || event.action || "unknown_event";
   const events = [{
-    "event": event.action,
+    "event": eventName,
     "properties": {
       token,
       time: Date.now(),

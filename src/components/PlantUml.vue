@@ -20,7 +20,7 @@ Bob --&gt; Alice: Hi there!
 import { plantumlEncode } from '@/utils/plantuml/encode';
 import { validatePlantUmlSyntax } from '@/utils/plantuml/validate';
 import { DiagramType } from '@/model/Diagram/Diagram';
-import { trackEvent } from '@/utils/window';
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import globals from '@/model/globals';
 import EventBus from '@/EventBus';
 import { debounce } from 'lodash';
@@ -48,7 +48,12 @@ export default {
     await this.validateAndRender(this.plantUmlCode);
     EventBus.$emit('diagramLoaded', this.plantUmlCode, this.$store.state.diagram.diagramType);
     await globals.apWrapper.initializeContext();
-    trackEvent('', 'view_macro', DiagramType.PlantUml);
+    trackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "plantuml",
+      entry_point: "page_view",
+    });
   },
   beforeUnmount() {
     if (this.debouncedRender) {

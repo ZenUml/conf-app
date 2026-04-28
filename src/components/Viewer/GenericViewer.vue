@@ -277,15 +277,8 @@ console.error('Error getting feature flags', e);
       EventBus.$emit('edit');
     },
     openUpgradeModal() {
-      // Track header upgrade button click
-      trackUpgradeEvent(UpgradeEventName.CTA_CLICKED, {
-        ui_component: UIComponent.HEADER_BADGE,
-        cta_type: 'button',
-        ...getUpgradeContext()
-      });
-      
       this.showUpgradeModal = true
-      // MODAL_SHOWN tracking will be handled by the watch in UpgradePrompt component
+      // MODAL_SHOWN tracking is handled by the watch in UpgradePrompt component
     },
     fullscreen() {
       trackEvent('fullscreen', 'click', 'viewing');

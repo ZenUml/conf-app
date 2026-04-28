@@ -38,10 +38,10 @@ describe('trackUpgradeEvent', () => {
     );
   });
 
-  it('sends upgrade_action_blocked as the Mixpanel event name', () => {
-    trackUpgradeEvent(UpgradeEventName.ACTION_BLOCKED, {});
+  it('sends paywall_triggered as the Mixpanel event name', () => {
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {});
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
-      'upgrade_action_blocked',
+      'paywall_triggered',
       expect.objectContaining({ feature_area: 'upgrade' })
     );
   });

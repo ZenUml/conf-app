@@ -60,7 +60,7 @@ export type AnalyticsEventName =
   | "ai_feedback_submitted"
   | "upgrade_modal_shown"
   | "upgrade_cta_clicked"
-  | "upgrade_action_blocked"
+  | "paywall_triggered"
   | "upgrade_modal_dismissed"
   | "upgrade_prompt_hovered"
   | "upgrade_slider_changed"

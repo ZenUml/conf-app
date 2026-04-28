@@ -142,37 +142,23 @@ permissions:
         - https://zenuml.com
         - https://*.zenuml.com
         - https://www.plantuml.com
-        - address: https://*.mixpanel.com
-          category: analytics
-          inScopeEUD: false
+        - https://*.mixpanel.com
         - remote: diagramly
-        - address: https://cdn.mxpnl.com
-          category: analytics
-          inScopeEUD: false
-        - address: https://*.cdn.mxpnl.com
-          category: analytics
-          inScopeEUD: false
+        - https://cdn.mxpnl.com
+        - https://*.cdn.mxpnl.com
     frames:
       - https://conf-full.zenuml.com/drawio/index.html
     images:
-      - address: https://*.googletagmanager.com
-        category: analytics
-        inScopeEUD: false
+      - https://*.googletagmanager.com
     scripts:
       - https://conf-full.zenuml.com/drawio/js/sanitizer/purify.min.js
       - https://conf-full.zenuml.com/drawio/mxgraph/mxClient.js
       - https://conf-full.zenuml.com/drawio/js/grapheditor/Init.js
       - https://conf-full.zenuml.com/drawio/js/grapheditor/Graph.js
       - https://conf-full.zenuml.com/drawio/js/grapheditor/Shapes.js
-      - address: https://*.googletagmanager.com
-        category: analytics
-        inScopeEUD: false
-      - address: https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js
-        category: analytics
-        inScopeEUD: false
-      - address: https://cdn.mxpnl.com/libs/mixpanel-recorder.min.js
-        category: analytics
-        inScopeEUD: false
+      - https://*.googletagmanager.com
+      - https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js
+      - https://cdn.mxpnl.com/libs/mixpanel-recorder.min.js
   content:
     styles:
       - unsafe-inline

@@ -277,7 +277,11 @@ console.error('Error getting feature flags', e);
     },
     openUpgradeModal() {
       this.showUpgradeModal = true
-      // MODAL_SHOWN tracking is handled by the watch in UpgradePrompt component
+      trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
+        ui_component: UIComponent.VIEWER_NOTICE,
+        action_type: 'header_badge',
+        ...getUpgradeContext(),
+      })
     },
     fullscreen() {
       trackEvent('fullscreen', 'click', 'viewing');

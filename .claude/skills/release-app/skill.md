@@ -108,17 +108,17 @@ If releasing multiple variants, publish them one at a time and wait for each Rel
 2. Monitor with `gh run list --workflow=release.yml -L 1` then `gh run watch <run-id>`
 3. Verify it succeeded — if it failed, report and stop
 
-### Step 5: Smoke Test on Production (MANDATORY)
+### Step 5: PVT — Production Validation Testing (MANDATORY)
 
 **This step is NOT optional. Always run it immediately after the release workflow succeeds. Do NOT ask the user whether to run it — just do it.**
 
-For each variant released, run the production smoke test:
+For each variant released, run PVT:
 
-- **Lite**: `/smoke-test on zenuml lite`
-- **Full**: `/smoke-test on zenuml full`
-- **Diagramly**: `/smoke-test on zenuml diagramly`
+- **Lite**: `/pvt lite`
+- **Full**: `/pvt full`
+- **Diagramly**: `/pvt diagramly`
 
-Test all macros. Report results to the user.
+Report PVT results to the user.
 
 ### Step 6: Report
 
@@ -132,7 +132,7 @@ Summarize the release:
 
 - **Build workflow fails**: Report which job failed, link to the run, stop
 - **Release workflow fails**: Report the failure, link to the run — the draft release was already published so the user may need to investigate manually
-- **Production smoke test fails**: Report which macros failed — this is a post-deploy issue that needs immediate attention
+- **PVT fails**: Report which variant failed and the error — this is a post-deploy issue that needs immediate attention
 
 ## Important Notes
 

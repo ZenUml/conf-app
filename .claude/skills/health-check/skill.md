@@ -2,9 +2,10 @@
 name: health-check
 description: >
   [today] [1d] [1w] — Quick health check of ZenUML Confluence app via Mixpanel.
-  Queries key events (view_macro, create_macro_end, edit_macro_end, errors) across
-  time windows, broken down by event_category, compared to previous period and same
-  time last week. Flags anomalies like zero views or error spikes.
+  Queries key events (macro_viewed/view_macro, macro_create_succeeded/create_macro_end,
+  macro_save_succeeded/edit_macro_end, save_failed) across time windows, broken down by
+  event_category, compared to previous period and same time last week.
+  Flags anomalies like zero views or error spikes.
   Use when the user wants to check app health, verify the app is working after a deploy,
   monitor event volumes, or investigate if something is broken. Triggers on "health check",
   "is the app working", "check mixpanel", "any errors", "event volumes", "is anything broken",
@@ -17,22 +18,24 @@ Run a quick health check by querying Mixpanel for key event volumes across multi
 
 ## Mixpanel Project
 
-- **Project ID**: `3402701` (ZenUML)
+- **Project ID**: `3373228` (ZenUML)
 - **Internal sites to exclude**: `zenuml`, `zenuml-stg`, `dia-stg` (always filter these out)
 
 ## Key Events
 
-| Event | What it means | Healthy signal |
-|-------|--------------|----------------|
-| `view_macro` | Macro rendered on a page | Should never be zero in past day |
-| `create_macro_end` | User created a new macro | Low volume is normal; zero for a week is concerning |
-| `edit_macro_end` | User edited an existing macro | Low volume is normal |
-| `unexpected_error` | Client-side error | Any spike vs previous period is a red flag |
-| `update_custom_content_error` | Save-to-backend failed | Any spike means backend issues |
+**Event migration note (deployed 2026-04-27):** Event names were renamed to canonical form. Both old and new names are live during the transition — query both and sum totals.
+
+| New canonical name | Legacy name | What it means | Healthy signal |
+|--------------------|------------|----------------|----------------|
+| `macro_viewed` | `view_macro` | Macro rendered on a page | Should never be zero in past day |
+| `macro_create_succeeded` | `create_macro_end` | User created a new macro | Low volume is normal; zero for a week is concerning |
+| `macro_save_succeeded` | `edit_macro_end` | User edited an existing macro | Low volume is normal |
+| `save_failed` | *(was `unexpected_error` — now split)* | Save operation failed | Any spike vs previous period is a red flag |
+| `macro_save_failed` | *(was `update_custom_content_error`)* | Custom content save failed | Any spike means backend issues |
 
 ## Execution Steps
 
-Run these queries using `mcp__mixpanel__Run-Query` with `project_id: 3402701`. All queries should filter out internal sites using a global filter on `client_domain`.
+Run these queries using `mcp__mixpanel__Run-Query` with `project_id: 3373228`. All queries should filter out internal sites using a global filter on `client_domain`.
 
 ### Global filter (apply to every query)
 
@@ -61,11 +64,16 @@ Run these queries using `mcp__mixpanel__Run-Query` with `project_id: 3402701`. A
 
 Purpose: See recent activity. The last complete hour is the closest to "right now" that Mixpanel supports.
 
+Query both old (legacy) and new (canonical) event names — the migration deployed 2026-04-27 so both are live. Sum old+new totals when reporting.
+
+**Property name change:** New canonical events use `macro_type` for the diagram type; legacy events used `event_category`. The values are identical (`sequence`, `mermaid`, `plantuml`, `graph`, `openapi`, `embed`). Run two breakdown queries — one per property — and sum the category totals.
+
+**Query 1a — legacy events, broken down by `event_category`:**
 ```json
 {
   "report_type": "insights",
   "report": {
-    "name": "Health: Today hourly activity",
+    "name": "Health: Today hourly activity (legacy)",
     "chartType": "line",
     "unit": "hour",
     "dateRange": { "type": "relative", "range": "today" },
@@ -82,14 +90,36 @@ Purpose: See recent activity. The last complete hour is the closest to "right no
 }
 ```
 
-### Query 2: Past 1 day — activity events (current + previous)
-
-Run TWO queries: one for the current day, one for the previous day. Compute deltas yourself.
-
-**Current day:**
+**Query 1b — canonical events, broken down by `macro_type`:**
 ```json
 {
-  "name": "Health: 1d activity",
+  "report_type": "insights",
+  "report": {
+    "name": "Health: Today hourly activity (canonical)",
+    "chartType": "line",
+    "unit": "hour",
+    "dateRange": { "type": "relative", "range": "today" },
+    "metrics": [
+      { "eventName": "macro_viewed", "measurement": { "type": "basic", "math": "total" } },
+      { "eventName": "macro_create_succeeded", "measurement": { "type": "basic", "math": "total" } },
+      { "eventName": "macro_save_succeeded", "measurement": { "type": "basic", "math": "total" } }
+    ],
+    "breakdowns": [
+      { "metric": { "type": "property", "propertyName": "macro_type" } }
+    ],
+    "filters": [ ...global filters... ]
+  }
+}
+```
+
+### Query 2: Past 1 day — activity events (current + previous)
+
+Run sub-queries per time window — legacy events with `event_category` breakdown, canonical events with `macro_type` breakdown. Sum per-category totals across both.
+
+**Current day — legacy (`event_category`):**
+```json
+{
+  "name": "Health: 1d activity legacy",
   "chartType": "table",
   "dateRange": { "type": "relative", "range": { "unit": "day", "value": 1 } },
   "metrics": [
@@ -104,14 +134,33 @@ Run TWO queries: one for the current day, one for the previous day. Compute delt
 }
 ```
 
-**Previous day** (use absolute date range for yesterday):
-Same query but with `"dateRange": { "type": "absolute", "from": "YYYY-MM-DD", "to": "YYYY-MM-DD" }` where both dates are yesterday. Calculate yesterday's date from the current date.
+**Current day — canonical (`macro_type`):**
+```json
+{
+  "name": "Health: 1d activity canonical",
+  "chartType": "table",
+  "dateRange": { "type": "relative", "range": { "unit": "day", "value": 1 } },
+  "metrics": [
+    { "eventName": "macro_viewed", "measurement": { "type": "basic", "math": "total" } },
+    { "eventName": "macro_create_succeeded", "measurement": { "type": "basic", "math": "total" } },
+    { "eventName": "macro_save_succeeded", "measurement": { "type": "basic", "math": "total" } }
+  ],
+  "breakdowns": [
+    { "metric": { "type": "property", "propertyName": "macro_type" } }
+  ],
+  "filters": [ ...global filters... ]
+}
+```
+
+**Previous day**: Same two sub-queries with `"dateRange": { "type": "absolute", "from": "YYYY-MM-DD", "to": "YYYY-MM-DD" }` (both dates = yesterday).
 
 ### Query 3: Past 1 week — activity events (current + previous)
 
-Same pattern: run TWO queries. Current week uses `{ "unit": "week", "value": 1 }`. Previous week uses absolute date range for the 7 days before that.
+Same pattern as Query 2 (two sub-queries per window). Current week uses `{ "unit": "week", "value": 1 }`. Previous week uses absolute date range for 7 days before that.
 
 ### Query 4: Error events — today, 1d (current + previous), 1w (current + previous)
+
+Legacy `unexpected_error` and `update_custom_content_error` are gone from the catalog. Use `save_failed` (general save failure) and `macro_save_failed` (custom content save failure).
 
 **Today errors (hourly):**
 ```json
@@ -121,8 +170,8 @@ Same pattern: run TWO queries. Current week uses `{ "unit": "week", "value": 1 }
   "unit": "hour",
   "dateRange": { "type": "relative", "range": "today" },
   "metrics": [
-    { "eventName": "unexpected_error", "measurement": { "type": "basic", "math": "total" } },
-    { "eventName": "update_custom_content_error", "measurement": { "type": "basic", "math": "total" } }
+    { "eventName": "save_failed", "measurement": { "type": "basic", "math": "total" } },
+    { "eventName": "macro_save_failed", "measurement": { "type": "basic", "math": "total" } }
   ],
   "filters": [ ...global filters... ]
 }
@@ -137,16 +186,17 @@ For 1d and 1w error comparisons, follow the same current+previous pattern as que
 ```
 ## Health Check Plan
 
-Checking ZenUML Confluence app health via Mixpanel (project 3402701).
+Checking ZenUML Confluence app health via Mixpanel (project 3373228).
 Excluding internal sites: zenuml, zenuml-stg, dia-stg.
+Note: querying both legacy and canonical event names (migration deployed 2026-04-27).
 
 **Queries to run** (10 in parallel):
-1. Today hourly — view_macro, create_macro_end, edit_macro_end by category
+1. Today hourly — macro_viewed+view_macro, macro_create_succeeded+create_macro_end, macro_save_succeeded+edit_macro_end by category
 2. Past 1 day — activity totals by category
 3. Previous day ({yesterday}) — activity totals for comparison
 4. Past 1 week — activity totals by category
 5. Previous week ({prev_week_start} to {prev_week_end}) — activity totals for comparison
-6. Today hourly — unexpected_error, update_custom_content_error
+6. Today hourly — save_failed, macro_save_failed
 7. Past 1 day — error totals
 8. Previous day ({yesterday}) — error totals for comparison
 9. Past 1 week — error totals
@@ -175,12 +225,11 @@ Present a summary table, then flag any of these conditions:
 
 | Condition | Severity | What it means |
 |-----------|----------|---------------|
-| `view_macro` = 0 in past day | CRITICAL | App may be completely down |
-| `view_macro` dropped >50% vs previous period | WARNING | Possible outage or tracking regression |
-| `view_macro` dropped >50% vs same time last week | WARNING | Could be seasonal, but investigate |
-| `unexpected_error` > 2x previous period | WARNING | New bug introduced |
-| `update_custom_content_error` > 0 and rising | WARNING | Backend save issues |
-| `create_macro_end` = 0 for past week | INFO | Low activity but possibly normal for small user base |
+| `macro_viewed` + `view_macro` = 0 in past day | CRITICAL | App may be completely down |
+| combined views dropped >50% vs previous period | WARNING | Possible outage or tracking regression |
+| combined views dropped >50% vs same time last week | WARNING | Could be seasonal, but investigate |
+| `save_failed` or `macro_save_failed` > 2x previous period | WARNING | New bug or backend issue introduced |
+| `macro_create_succeeded` + `create_macro_end` = 0 for past week | INFO | Low activity but possibly normal for small user base |
 | Any `event_category` that had volume before but now shows 0 | WARNING | Specific diagram type may be broken |
 
 ### Output format
@@ -191,26 +240,26 @@ Present results as a concise table per time window:
 ## Health Check — {date/time}
 
 ### Today (hourly)
-Last hour: view_macro={N}, create={N}, edit={N}, errors={N}
-Peak hour: {time} with {N} views
+Last hour: views={N} (macro_viewed={N} + view_macro={N}), create={N}, edit={N}, errors={N}
+Peak hour: {time} with {N} total views
 
 ### Past 24 hours (vs previous day)
-| Event | Category | Count | Prev Day | Change |
-|-------|----------|-------|----------|--------|
-| view_macro | sequence | 150 | 140 | +7% |
-| ... | ... | ... | ... | ... |
+| Metric | Category | Count (new+legacy) | Prev Day | Change |
+|--------|----------|--------------------|----------|--------|
+| views  | sequence | 150 (10+140)       | 140      | +7%    |
+| ...    | ...      | ...                | ...      | ...    |
 
 ### Past 7 days (vs previous week)
-| Event | Category | Count | Prev Week | Change |
-|-------|----------|-------|-----------|--------|
-| ... | ... | ... | ... | ... |
+| Metric | Category | Count (new+legacy) | Prev Week | Change |
+|--------|----------|--------------------|-----------|--------|
+| ...    | ...      | ...                | ...       | ...    |
 
 ### Errors
-| Window | unexpected_error | save_error | vs previous |
-|--------|-----------------|------------|-------------|
-| Today  | 3               | 0          | —           |
-| 1 day  | 5               | 1          | +2 / +1     |
-| 1 week | 12              | 3          | -5 / +1     |
+| Window | save_failed | macro_save_failed | vs previous |
+|--------|-------------|-------------------|-------------|
+| Today  | 3           | 0                 | —           |
+| 1 day  | 5           | 1                 | +2 / +1     |
+| 1 week | 12          | 3                 | -5 / +1     |
 
 ### Flags
 - ✅ No critical issues (or list flags)
@@ -218,9 +267,12 @@ Peak hour: {time} with {N} views
 
 ## Known Limitations
 
+- **Event migration in progress (as of 2026-04-27)**: Events were renamed to canonical form. Old names (`view_macro`, `create_macro_end`, `edit_macro_end`) still represent the majority of volume; new names (`macro_viewed`, `macro_create_succeeded`, `macro_save_succeeded`) are growing. Always query and sum both. Once legacy events drop to zero, simplify queries to new names only.
+- **Property rename: `event_category` → `macro_type`**: Legacy events used `event_category` for the diagram type breakdown. New canonical events use `macro_type` instead. The values are identical (`sequence`, `mermaid`, `plantuml`, `graph`, `openapi`, `embed`). Use `event_category` breakdown for legacy queries and `macro_type` breakdown for canonical queries; sum per-category totals.
+- **`unexpected_error` / `update_custom_content_error` are gone**: These old error event names are no longer in the Mixpanel catalog. Use `save_failed` (general) and `macro_save_failed` (custom content) instead.
 - **No 5-minute window**: Mixpanel's smallest query granularity via the MCP tool is hourly. Today's hourly chart is the closest to real-time. Mixpanel also has ~5-10 min ingestion delay.
 - **`timeComparison` not in API response**: The Mixpanel `timeComparison` parameter creates visual comparisons in the UI but delta values are not returned in the Run-Query API response. Use explicit previous-period queries instead.
-- **Forge graph view_macro missing**: `view_macro` for graph type on Forge is not tracked (known bug in `forge-graph-viewer.ts`). Don't flag missing graph views as an anomaly.
+- **Forge graph macro_viewed missing**: `macro_viewed` (and legacy `view_macro`) for graph type on Forge is not tracked (known bug in `forge-graph-viewer.ts`). Don't flag missing graph views as an anomaly.
 - **`event_category` casing**: `openapi` and `OpenAPI` both appear. Treat them as the same category when comparing.
 - **Weekend/holiday dip**: Confluence usage drops significantly on weekends. A 50% drop on Saturday vs Friday is normal, not an outage.
 

@@ -142,9 +142,6 @@ permissions:
         - https://zenuml.com
         - https://*.zenuml.com
         - https://www.plantuml.com
-        - address: https://*.google-analytics.com
-          category: analytics
-          inScopeEUD: false
         - address: https://*.mixpanel.com
           category: analytics
           inScopeEUD: false
@@ -168,9 +165,6 @@ permissions:
       - https://conf-full.zenuml.com/drawio/js/grapheditor/Graph.js
       - https://conf-full.zenuml.com/drawio/js/grapheditor/Shapes.js
       - address: https://*.googletagmanager.com
-        category: analytics
-        inScopeEUD: false
-      - address: https://www.google-analytics.com/analytics.js
         category: analytics
         inScopeEUD: false
       - address: https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js

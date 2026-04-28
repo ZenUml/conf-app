@@ -139,9 +139,11 @@ export const APP_PROFILES: Record<string, AppProfile> = {
   },
   'diagramly@prod': {
     id: 'diagramly@prod',
-    domain: 'diagramly.atlassian.net',
-    spaceKey: 'TEAM',
-    parentPageId: '205422593',
+    // diagramly.atlassian.net only has the staging Forge app installed.
+    // The production Diagramly Forge app is installed on zenuml.atlassian.net alongside Lite and Full.
+    domain: 'zenuml.atlassian.net',
+    spaceKey: 'ZEN',
+    parentPageId: '247136259',
     parentPageName: 'Test pages',
     isLite: false,
     isForge: true,

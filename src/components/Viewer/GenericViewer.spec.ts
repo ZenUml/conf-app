@@ -41,7 +41,7 @@ vi.mock('@/utils/upgradeTracking', () => ({
   trackUpgradeEvent: vi.fn(),
   UpgradeEventName: {
     MODAL_SHOWN: 'modal_shown',
-    ACTION_BLOCKED: 'action_blocked',
+    PAYWALL_TRIGGERED: 'paywall_triggered',
     CTA_CLICKED: 'cta_clicked'
   },
   UIComponent: {
@@ -280,7 +280,7 @@ describe('GenericViewer - Upgrade Features', () => {
       if (wasBlocked) {
         expect(vm.showUpgradeModal).toBe(true)
         expect(upgradeTracking.trackUpgradeEvent).toHaveBeenCalledWith(
-          upgradeTracking.UpgradeEventName.ACTION_BLOCKED,
+          upgradeTracking.UpgradeEventName.PAYWALL_TRIGGERED,
           expect.objectContaining({
             ui_component: upgradeTracking.UIComponent.VIEWER_NOTICE,
             action_type: 'edit'

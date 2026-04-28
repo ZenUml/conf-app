@@ -6,7 +6,7 @@ export enum UpgradeEventName {
   CTA_CLICKED = 'upgrade_cta_clicked',
   PROMPT_HOVERED = 'upgrade_prompt_hovered',
   FEATURE_ENABLED = 'upgrade_feature_enabled',
-  ACTION_BLOCKED = 'upgrade_action_blocked',
+  PAYWALL_TRIGGERED = 'paywall_triggered',
   MODAL_SHOWN = 'upgrade_modal_shown',
   SLIDER_CHANGED = 'upgrade_slider_changed',
   MODAL_DISMISSED = 'upgrade_modal_dismissed',

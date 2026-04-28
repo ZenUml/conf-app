@@ -29,7 +29,7 @@ Usage: `/pvt [lite] [full] [diagramly]`
 |---------|----------------|
 | lite | zenuml.atlassian.net |
 | full | zenuml.atlassian.net |
-| diagramly | diagramly.atlassian.net |
+| diagramly | zenuml.atlassian.net |
 
 ## Steps
 
@@ -37,7 +37,7 @@ For each requested variant, invoke the smoke-test skill with the production site
 
 - **Lite**: `/smoke-test on zenuml lite mermaid`
 - **Full**: `/smoke-test on zenuml full mermaid`
-- **Diagramly**: `/smoke-test on diagramly mermaid`
+- **Diagramly**: `/smoke-test on zenuml diagramly mermaid`
 
 Run variants sequentially. If a variant fails, report it and continue with the remaining variants.
 

@@ -28,6 +28,7 @@ Resolve which PR to babysit, in this priority order:
 
 1. **Explicit PR number** — if the user provided one (e.g., `#123`), use it
 2. **Current branch PR** — run `gh pr view --json number,title,headRefName,state,isDraft,statusCheckRollup`
+   > **WARNING**: Do NOT add `--repo` to this command. `gh pr view` without `--repo` infers the repo from the current directory's git remote, which is correct. Adding `--repo` requires an explicit PR number/branch argument and breaks branch inference, causing "argument required when using the --repo flag".
 3. **Recently failed PR** — if no PR on current branch, find the most recent failed PR:
    ```bash
    gh run list --repo ZenUml/confluence-plugin-cloud --status failure --limit 5 --json databaseId,headBranch,event,createdAt,conclusion,name

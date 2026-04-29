@@ -107,15 +107,17 @@ repositioning problems. The slash menu always works reliably on a fresh/empty ed
 
 **Macro list — create one page for each:**
 
-| # | Macro | Search term | Tab / action | Page title suffix |
-|---|-------|-------------|--------------|-------------------|
-| 1 | Diagram Lite — Sequence (ZenUML) | `zenuml` | Click "Sequence" tab | `(Sequence)` |
-| 2 | Diagram Lite — Mermaid | `zenuml` | Click "Mermaid" tab | `(Mermaid)` |
-| 3 | Diagram Lite — PlantUML | `zenuml` | Click "PlantUML" tab | `(PlantUML)` |
-| 4 | Graph (DrawIO) Lite | `graph` | Wait 8s, title = "Name your graph…" | `(Graph)` |
-| 5 | OpenAPI Lite | `openapi` | Wait 5s, title = "Title" | `(OpenAPI)` |
+| # | Macro | Search term | Tab / action | Page title (with unique timestamp) |
+|---|-------|-------------|--------------|-----------------------------------|
+| 1 | Diagram Lite — Sequence (ZenUML) | `zenuml` | Click "Sequence" tab | `Smoke Test {random6digits} (Sequence)` |
+| 2 | Diagram Lite — Mermaid | `zenuml` | Click "Mermaid" tab | `Smoke Test {random6digits} (Mermaid)` |
+| 3 | Diagram Lite — PlantUML | `zenuml` | Click "PlantUML" tab | `Smoke Test {random6digits} (PlantUML)` |
+| 4 | Graph (DrawIO) Lite | `graph` | Wait 8s, title = "Name your graph…" | `Smoke Test {random6digits} (Graph)` |
+| 5 | OpenAPI Lite | `openapi` | Wait 5s, title = "Title" | `Smoke Test {random6digits} (OpenAPI)` |
 
 For Full/Diagramly variants, macro names do not include "Lite" — adjust the search match accordingly.
+
+**Important:** Each page title includes a 6-digit timestamp suffix to ensure uniqueness and prevent Confluence publish conflicts from duplicate titles.
 
 **For each macro, repeat this flow:**
 
@@ -132,11 +134,14 @@ browser_evaluate function="() => {
   if (!t) return 'not found';
   t.focus();
   const s = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-  s.call(t, 'Smoke Test {timestamp} ({macro name})');
+  const timestamp = Date.now().toString().slice(-6);  // last 6 digits of milliseconds
+  s.call(t, 'Smoke Test ' + timestamp + ' ({macro name})');
   t.dispatchEvent(new Event('input', { bubbles: true }));
   return 'set';
 }"
 ```
+
+**Note:** Each page title must be unique to avoid Confluence publishing conflicts. The timestamp suffix ensures uniqueness.
 
 #### Open slash menu, browse, and insert macro — all in one script
 

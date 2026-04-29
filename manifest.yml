@@ -25,7 +25,7 @@ app:
     key: ${CONNECT_KEY}
     remote: connect
   runtime:
-    name: nodejs20.x
+    name: nodejs22.x
   # Licensing: Enabled for Full and Diagramly (paid apps)
   # CI/CD removes this block for Lite only via: yq eval 'del(.app.licensing)' -i manifest.yml
   licensing:

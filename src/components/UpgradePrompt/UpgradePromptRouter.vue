@@ -9,12 +9,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import LegacyPrompt from './UpgradePrompt.vue'
 import HeavyCreatorPrompt from './HeavyCreatorPrompt.vue'
 import BystanderNotice from './BystanderNotice.vue'
 import ComparisonView from './ComparisonView.vue'
 import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
+import { trackUpgradeEvent, UpgradeEventName } from '@/utils/upgradeTracking'
 
 const props = defineProps<{
   visible: boolean
@@ -68,4 +69,19 @@ const activeProps = computed(() => {
     enterpriseBundleUrl: props.enterpriseBundleUrl,
   }
 })
+
+watch(
+  () => props.visible,
+  (isVisible) => {
+    if (!isVisible) return
+
+    // LegacyPrompt and HeavyCreatorPrompt already emit this event.
+    if (activeComponent.value === BystanderNotice || activeComponent.value === ComparisonView) {
+      trackUpgradeEvent(UpgradeEventName.MODAL_SHOWN, {
+        prompt_variant: activeComponent.value === BystanderNotice ? 'bystander_notice' : 'comparison_view',
+      })
+    }
+  },
+  { immediate: true }
+)
 </script>

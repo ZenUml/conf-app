@@ -22,7 +22,7 @@ export function useUpgradeTracking(
         ...getUpgradeContext(),
       })
     }
-  })
+  }, { immediate: true })
 
   // Handle slider interaction tracking (debounced)
   const trackSliderChange = () => {

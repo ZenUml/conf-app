@@ -16,6 +16,10 @@ vi.mock('@/composables/useCustomerSuccessService', () => ({
   useCustomerSuccessService: () => mockSvc,
   getUpgradeContext: () => ({}),
 }));
+vi.mock('@/utils/upgradeTracking', () => ({
+  trackUpgradeEvent: vi.fn(),
+  UpgradeEventName: { MODAL_SHOWN: 'upgrade_modal_shown' },
+}));
 vi.mock('@/components/UpgradePrompt/UpgradePrompt.vue', () => ({
   default: { name: 'LegacyPrompt', template: '<div>legacy</div>' },
 }));
@@ -30,6 +34,7 @@ vi.mock('@/components/UpgradePrompt/ComparisonView.vue', () => ({
 }));
 
 import UpgradePromptRouter from '@/components/UpgradePrompt/UpgradePromptRouter.vue';
+import { trackUpgradeEvent } from '@/utils/upgradeTracking';
 
 const baseProps = {
   visible: true,
@@ -87,5 +92,16 @@ describe('UpgradePromptRouter', () => {
     const w = mount(UpgradePromptRouter, { props: baseProps });
     await (w.findComponent({ name: 'BystanderNotice' }) as any).vm.$emit('showHeavyCreator');
     expect(w.text()).toContain('heavy');
+  });
+
+  it('tracks upgrade_modal_shown for bystander/comparison variants', () => {
+    mockSvc.personaAwarePaywallEnabled.value = true;
+    mockSvc.persona.value = 'bystander';
+    mount(UpgradePromptRouter, { props: baseProps });
+
+    expect(trackUpgradeEvent).toHaveBeenCalledWith(
+      'upgrade_modal_shown',
+      expect.objectContaining({ prompt_variant: 'bystander_notice' })
+    );
   });
 });

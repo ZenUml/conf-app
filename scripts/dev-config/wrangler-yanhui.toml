@@ -31,3 +31,7 @@ binding = "DB"
 database_name = "confluence-plugin"
 database_id = "78530089-656d-482f-b38b-60f4f6765cc6"
 migrations_dir = "functions/migrations"
+
+[[ env.production.r2_buckets ]]
+binding = "EVENT_BUCKET"
+bucket_name = "atlassian-events"

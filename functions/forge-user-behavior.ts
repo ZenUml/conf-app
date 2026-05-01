@@ -58,7 +58,6 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil })
     }
 
     // Store event in D1 for analysis
-    waitUntil(insertUserBehaviorEvent(env.DB, analyticsEvent));
     waitUntil((async () => {
       const canonicalEvent = normalizeMappedAnalyticsEvent(analyticsEvent as unknown as Record<string, unknown>, 'forge');
       const r2Key = await archiveAnalyticsEvent(env.EVENT_BUCKET, canonicalEvent, analyticsEvent as unknown as Record<string, unknown>);

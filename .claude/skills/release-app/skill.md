@@ -120,19 +120,65 @@ For each variant released, run PVT:
 
 Report PVT results to the user.
 
+### Step 5.5: Focused Feature Test
+
+**This step runs automatically after PVT. Do not skip it.**
+
+1. Find the previous release tag for the variant being released:
+   ```bash
+   gh release list --repo ZenUml/confluence-plugin-cloud --exclude-drafts \
+     --limit 10 | grep <variant> | awk 'NR==2 {print $3}'
+   ```
+   Example result: `v2026.04.301216-lite`
+
+2. Scan commit messages between the previous tag and the new tag:
+   ```bash
+   git log <prev-tag>..<new-tag> --oneline
+   ```
+   Example result:
+   ```
+   1ee2f655 chore(paywall-skill): move paywall skill from user-level to project
+   8fd921ee feat(paywall): add pre-edit gate with explicit Continue editing button
+   20574271 fix(paywall): emit upgrade_modal_shown for all prompt variants
+   ```
+
+3. Match commit messages (case-insensitive) against the keyword registry:
+
+   | Keywords | Sub-skill |
+   |---|---|
+   | `paywall`, `upgrade`, `css`, `persona`, `modal` | `/pvt-paywall` |
+   | `editor`, `editor-ui`, `codemirror` | `/pvt-editor` |
+   | `swagger`, `openapi` | `/pvt-swagger` |
+   | `graph`, `drawio` | `/pvt-drawio` |
+
+4. For each matched sub-skill: invoke it with the variant as argument (e.g., `/pvt-paywall lite`). Deduplicate — each sub-skill runs at most once per release. Run sequentially.
+
+5. If no keywords match, log "No focused test registered for this release" and proceed to Step 6 — this is not an error.
+
+6. Collect pass/fail from each sub-skill and carry results forward to the Step 6 report.
+
 ### Step 6: Report
 
 Summarize the release:
-- Variants released
-- Release tags published
-- Production smoke test results
-- Any issues encountered
+
+```
+## Release Report: v{version}-{variant}
+- Draft published: ✓
+- Release workflow: ✓
+- PVT (Mermaid smoke): PASS | FAIL
+- Focused tests:
+  - pvt-paywall: PASS | FAIL — <failing step if FAIL>
+  - pvt-editor: PASS | FAIL — <failing step if FAIL>
+  (line omitted if sub-skill was not invoked)
+  (or: "No focused test registered for this release")
+```
 
 ## Error Handling
 
 - **Build workflow fails**: Report which job failed, link to the run, stop
 - **Release workflow fails**: Report the failure, link to the run — the draft release was already published so the user may need to investigate manually
 - **PVT fails**: Report which variant failed and the error — this is a post-deploy issue that needs immediate attention
+- **Focused test fails**: Report which sub-skill failed and which step — this is a post-deploy issue. Do NOT roll back or block future releases. The app is already live; investigation is the next action.
 
 ## Important Notes
 

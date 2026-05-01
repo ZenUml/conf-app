@@ -4,6 +4,11 @@ import { upsertForgeInstallation } from "./utils/dbUtils";
 import { ForgeAppRequestBody } from "./RequestBody";
 import { getAuthorizationHeader } from "./utils/requestUtils";
 import { validateContextToken } from "./utils/authenticate";
+import {
+  archiveAnalyticsEvent,
+  insertAnalyticsEventFact,
+  normalizeForgeInstallAnalyticsEvent,
+} from "./utils/analytics";
 
 export const onRequest: PagesFunction = async ({ request, env }) => {
   try {
@@ -28,6 +33,9 @@ export const onRequest: PagesFunction = async ({ request, env }) => {
     const data = await request.json() as ForgeAppRequestBody;
     console.log('forge-installed body:', data);
     await upsertForgeInstallation((env as any).DB, data);
+    const analyticsEvent = normalizeForgeInstallAnalyticsEvent(data);
+    const r2Key = await archiveAnalyticsEvent((env as any).EVENT_BUCKET, analyticsEvent, data as unknown as Record<string, unknown>);
+    await insertAnalyticsEventFact((env as any).DB, analyticsEvent, r2Key);
 
   } catch (e) {
     console.log(`Error: ${e}`);

@@ -4,6 +4,11 @@ import {postData} from "./utils/zaraz";
 import {saveToBucket} from "./utils/R2Bucket";
 import { getAuthorizationHeader } from "./utils/requestUtils";
 import { validateContextToken } from "./utils/authenticate";
+import {
+  archiveAnalyticsEvent,
+  insertAnalyticsEventFact,
+  normalizeUninstallAnalyticsEvent,
+} from "./utils/analytics";
 
 export const onRequest: PagesFunction = async ({ request, env }) => {
   try {
@@ -27,6 +32,9 @@ export const onRequest: PagesFunction = async ({ request, env }) => {
     await postData(body.eventType || 'uninstalled', body.key, body.clientKey, domain);
     // @ts-ignore
     await saveToBucket(env.EVENT_BUCKET, domain, body);
+    const analyticsEvent = normalizeUninstallAnalyticsEvent(body);
+    const r2Key = await archiveAnalyticsEvent((env as any).EVENT_BUCKET, analyticsEvent, body);
+    await insertAnalyticsEventFact((env as any).DB, analyticsEvent, r2Key);
   } catch (e: unknown) {
     console.log(`Error: ${e}`);
     captureError(e)

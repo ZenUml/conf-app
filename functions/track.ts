@@ -1,4 +1,5 @@
 import { mixpanelTrack, MIXPANEL_TOKEN_FRONTEND } from "./service/mixpanelService";
+import { archiveAnalyticsEvent, insertAnalyticsEventFact, normalizeFrontendAnalyticsEvent } from "./utils/analytics";
 import { isCanonicalRequest, TrackRequest } from "./service/analyticsTypes";
 
 const ALLOWED_REFERER_DOMAINS = ['zenuml.com', 'confluence-plugin.pages.dev', 'peng-new-8080.diagramly.ai'];
@@ -45,6 +46,12 @@ export const onRequest = async (event: any) => {
     return new Response(error, { status: 400 });
   }
 
-  event.waitUntil(mixpanelTrack(legacyBody, MIXPANEL_TOKEN_FRONTEND));
+  const analyticsEvent = normalizeFrontendAnalyticsEvent(body as unknown as Record<string, unknown>, event.request);
+  event.waitUntil((async () => {
+    const r2Key = await archiveAnalyticsEvent(event.env.EVENT_BUCKET, analyticsEvent, body as unknown as Record<string, unknown>);
+    await insertAnalyticsEventFact(event.env.DB, analyticsEvent, r2Key);
+  })());
+  event.waitUntil(mixpanelTrack(body, MIXPANEL_TOKEN_FRONTEND)); //async handling
+
   return new Response(null, { status: 204 });
 };

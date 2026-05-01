@@ -24,6 +24,7 @@ Usage: `/pvt-paywall [lite] [full] [diagramly]`
 - A Confluence page with a ZenUML sequence diagram macro must exist on that site.
   Use the existing smoke-test page if one is available.
 - localStorage mocks simulate a saturated space — no real CSS flag change needed.
+- **Browser automation:** Use Playwright with `frameLocator()` to interact with content inside the Forge iframe. `claude-in-chrome`, `chrome-devtools-mcp`, and `browser-use` cannot cross the Forge iframe boundary (see CLAUDE.md § Browser Automation and E2E Test Principles).
 
 ## Steps
 
@@ -34,7 +35,7 @@ that contains a ZenUML sequence macro (the smoke test page works).
 
 ### 2. Set localStorage mocks to simulate a saturated space
 
-In the browser console (F12 → Console), run:
+In Chrome DevTools (F12), open the Console tab. In the context picker dropdown at the top-left of the Console panel, switch from `top` to the ZenUML Forge iframe frame (look for a frame with origin `cdn.prod.atlassian-dev.net`). Then run:
 
 ```js
 localStorage.setItem('mockCSSEnabled', 'true');
@@ -46,7 +47,7 @@ Reload the page for the mocks to take effect.
 
 ### 3. Trigger the paywall — click Edit
 
-Click the Edit button on the ZenUML macro in the rendered Confluence page.
+Click the Edit button rendered inside the ZenUML macro's Forge iframe (the blue-outlined 'Edit' button in the macro header). Note: the button may take 1–2 seconds to appear after page load while the app fetches edit permissions asynchronously.
 
 **Expected:** The paywall modal appears. The ZenUML editor does NOT mount.
 
@@ -109,7 +110,7 @@ Click Edit again to reopen the modal. Click `Continue editing`.
 
 ### 9. Verify Mixpanel events
 
-After completing steps 3–8, query Mixpanel for the last 1 hour filtered to `client_domain = zenuml`.
+Wait at least 2 minutes after completing step 8 before querying — Mixpanel ingestion typically takes 30–120 seconds. Then query for the last 1 hour filtered to `client_domain = zenuml`. If both counts return 0, wait another minute and retry once before declaring FAIL.
 
 Use `mcp__mixpanel__Run-Query` with project_id=3373228, last 1 hour, chartType=bar:
 
@@ -141,7 +142,7 @@ localStorage.removeItem('mockMacroCount');
 localStorage.removeItem('mockSpacePaid');
 ```
 
-Reload the page to confirm the paywall no longer appears.
+After removing the mocks and reloading, click the Edit button again. The paywall modal must NOT appear and the editor must mount normally. If the editor is still blocked, confirm all three localStorage keys were removed correctly.
 
 ## Pass/Fail Report
 

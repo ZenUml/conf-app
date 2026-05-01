@@ -95,9 +95,9 @@ navigator.clipboard.readText().then(t => console.log('CLIPBOARD:', t));
 
 Inspect the `Open in email` button's href attribute (right-click → Inspect). It should be a `mailto:` link.
 
-**Expected:** `href` starts with `mailto:` and the URL-decoded body contains the pitch message text and a Stripe URL.
+**Expected:** `href` starts with `mailto:` and the URL-decoded href contains a non-empty `subject` parameter and a `body` parameter that includes the pitch message text and a Stripe URL.
 
-**Fail if:** href is absent, not a mailto link, or body is empty.
+**Fail if:** href is absent, not a mailto link, subject is empty, or body is empty.
 
 ### 8. Verify Continue editing grants access
 

@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="visible" class="fixed inset-0 z-50 flex items-center justify-center p-4" @keydown.esc="tracking.handleClose">
+    <div ref="modalContainer" v-if="visible" class="fixed inset-0 z-50 flex items-center justify-center p-4" tabindex="-1" @keydown.esc="tracking.handleClose">
       <!-- Backdrop -->
       <div class="fixed inset-0 bg-black bg-opacity-50" @click="tracking.handleClose"></div>
 
@@ -59,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import MarketplacePricingCard from './MarketplacePricingCard.vue'
 import EnterpriseBundleCard from './EnterpriseBundleCard.vue'
 import { useUpgradeTracking } from './useUpgradeTracking'
@@ -103,4 +103,12 @@ const handleSliderChange = (userCount: number, annualCost: number) => {
   currentAnnualCost.value = annualCost
   tracking.trackSliderChange()
 }
+
+const modalContainer = ref<HTMLElement | null>(null)
+watch(() => props.visible, async (v) => {
+  if (v) {
+    await nextTick()
+    modalContainer.value?.focus()
+  }
+})
 </script>

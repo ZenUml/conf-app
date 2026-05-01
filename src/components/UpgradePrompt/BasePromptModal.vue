@@ -1,8 +1,10 @@
 <template>
   <Teleport to="body">
     <div
+      ref="modalContainer"
       v-if="visible"
       class="fixed inset-0 z-50 flex items-center justify-center p-4"
+      tabindex="-1"
       @keydown.esc="$emit('close')"
     >
       <div class="fixed inset-0 bg-black bg-opacity-50" @click="$emit('close')"></div>
@@ -29,7 +31,9 @@
 </template>
 
 <script setup lang="ts">
-withDefaults(defineProps<{
+import { ref, watch, nextTick } from 'vue'
+
+const props = withDefaults(defineProps<{
   visible: boolean
   widthClass?: string
 }>(), {
@@ -37,4 +41,12 @@ withDefaults(defineProps<{
 })
 
 defineEmits<{ (e: 'close'): void }>()
+
+const modalContainer = ref<HTMLElement | null>(null)
+watch(() => props.visible, async (v) => {
+  if (v) {
+    await nextTick()
+    modalContainer.value?.focus()
+  }
+})
 </script>

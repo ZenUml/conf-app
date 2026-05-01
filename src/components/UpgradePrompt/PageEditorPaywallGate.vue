@@ -6,6 +6,7 @@
     :upgrade-url="upgradeUrl"
     :enterprise-bundle-url="enterpriseBundleUrl"
     :space-key="spaceKey"
+    @close="$emit('close')"
     @continue-editing="$emit('continue-editing')"
   />
 </template>
@@ -21,5 +22,8 @@ defineProps<{
   spaceKey?: string
 }>()
 
-defineEmits<{ (e: 'continue-editing'): void }>()
+defineEmits<{
+  (e: 'close'): void
+  (e: 'continue-editing'): void
+}>()
 </script>

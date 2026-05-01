@@ -178,6 +178,9 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
             upgradeUrl: customerSuccess.upgradeUrl.value,
             enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
             spaceKey,
+            onClose: async () => {
+              await (await getView()).close();
+            },
             onContinueEditing: async () => {
               // @ts-ignore - Enable splitbar for editor mode
               window.split = true;

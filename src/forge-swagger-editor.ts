@@ -242,6 +242,9 @@ async function initializeMacro() {
       upgradeUrl: customerSuccess.upgradeUrl.value,
       enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
       spaceKey,
+      onClose: async () => {
+        await (await getView()).close();
+      },
       onContinueEditing: () => {
         void mountEditor();
       },

@@ -381,4 +381,5 @@ describe('GenericViewer - Upgrade Features', () => {
       expect(vm.showUpgradeModal).toBe(false)
     })
   })
+
 })

@@ -124,7 +124,8 @@
     :upgrade-url="upgradeUrl"
     :enterprise-bundle-url="enterpriseBundleUrl"
     :space-key="currentSpaceKey"
-    @close="showUpgradeModal = false"
+    @close="onCloseUpgradeModal"
+    @continue-editing="onContinueEditing"
   />
   <ExportModal :visible="showExportModal" @close="showExportModal = false" />
 </div>
@@ -259,26 +260,6 @@ console.error('Error getting feature flags', e);
   methods: {
     edit() {
       trackEvent('edit', 'click', 'editing');
-
-      // Block if critical (100+ macros) AND feature flag enabled
-      if (this.shouldBlockActions) {
-        this.showUpgradeModal = true
-
-        trackUpgradeEvent(UpgradeEventName.PAYWALL_BLOCKED_EDIT, {
-          ui_component: UIComponent.VIEWER_NOTICE,
-          action_type: 'viewer',
-          ...getUpgradeContext(),
-        })
-
-        trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
-          ui_component: UIComponent.VIEWER_NOTICE,
-          action_type: 'edit',
-          ...getUpgradeContext(),
-        })
-        return  // Block the action
-      }
-
-      // Allow if under limit
       EventBus.$emit('edit');
     },
     openUpgradeModal() {
@@ -288,6 +269,12 @@ console.error('Error getting feature flags', e);
         action_type: 'header_badge',
         ...getUpgradeContext(),
       })
+    },
+    onCloseUpgradeModal() {
+      this.showUpgradeModal = false
+    },
+    onContinueEditing() {
+      this.showUpgradeModal = false
     },
     fullscreen() {
       trackEvent('fullscreen', 'click', 'viewing');

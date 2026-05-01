@@ -170,7 +170,6 @@ export default {
       showVersionsTooltip: false,
       versionsTooltipTimer: null,
       showUpgradeModal: false,
-      pendingEditAction: false,
       showExportModal: false,
       currentSpaceKey: '',
       macrosCreated,
@@ -261,31 +260,9 @@ console.error('Error getting feature flags', e);
   methods: {
     edit() {
       trackEvent('edit', 'click', 'editing');
-
-      // Block if critical (100+ macros) AND feature flag enabled
-      if (this.shouldBlockActions) {
-        this.pendingEditAction = true
-        this.showUpgradeModal = true
-
-        trackUpgradeEvent(UpgradeEventName.PAYWALL_BLOCKED_EDIT, {
-          ui_component: UIComponent.VIEWER_NOTICE,
-          action_type: 'viewer',
-          ...getUpgradeContext(),
-        })
-
-        trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
-          ui_component: UIComponent.VIEWER_NOTICE,
-          action_type: 'edit',
-          ...getUpgradeContext(),
-        })
-        return  // Block the action
-      }
-
-      // Allow if under limit
       EventBus.$emit('edit');
     },
     openUpgradeModal() {
-      this.pendingEditAction = false
       this.showUpgradeModal = true
       trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
         ui_component: UIComponent.VIEWER_NOTICE,
@@ -294,16 +271,10 @@ console.error('Error getting feature flags', e);
       })
     },
     onCloseUpgradeModal() {
-      this.pendingEditAction = false
       this.showUpgradeModal = false
     },
     onContinueEditing() {
-      const wasEditAction = this.pendingEditAction
-      this.pendingEditAction = false
       this.showUpgradeModal = false
-      if (wasEditAction) {
-        EventBus.$emit('edit')
-      }
     },
     fullscreen() {
       trackEvent('fullscreen', 'click', 'viewing');

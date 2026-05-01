@@ -4,6 +4,7 @@
     v-bind="activeProps"
     :visible="visible"
     @close="$emit('close')"
+    @continue-editing="$emit('continueEditing')"
     @show-heavy-creator="ownerSelfIdentified = true"
   />
 </template>
@@ -27,7 +28,10 @@ const props = defineProps<{
   requesterDisplayName?: string
 }>()
 
-defineEmits<{ (e: 'close'): void }>()
+defineEmits<{
+  (e: 'close'): void
+  (e: 'continueEditing'): void
+}>()
 
 const svc = useCustomerSuccessService()
 const ownerSelfIdentified = ref(false)

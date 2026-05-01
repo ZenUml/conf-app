@@ -5,7 +5,8 @@ auth-state.json
 .api-lock
 test-pages.json
 smoke-test-result-*.png
-.envauth-state-*.json
+.env
+auth-state-*.json
 persona-videos/
 persona-e2e-videos/
 persona-e2e-screenshots/

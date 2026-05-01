@@ -18,7 +18,12 @@
     </div>
 
     <template #footer>
-      <div class="flex justify-end text-xs">
+      <div class="flex justify-between items-center text-xs">
+        <button
+          data-testid="continue-editing-btn"
+          class="text-gray-600 hover:text-gray-800 hover:underline cursor-pointer"
+          @click="onContinueEditing"
+        >Continue editing without upgrading</button>
         <a href="https://zenuml.com/upgrade/" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">Why is there a limit?</a>
       </div>
     </template>
@@ -38,7 +43,18 @@ const props = defineProps<{
   enterpriseBundleUrl: string
 }>()
 
-const emit = defineEmits<{ (e: 'close'): void }>()
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'continueEditing'): void
+}>()
+
+function onContinueEditing() {
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING, {
+    prompt_variant: 'comparison_view',
+    tenant_size_estimate: 'unknown',
+  })
+  emit('continueEditing')
+}
 
 watch(() => props.visible, (v) => {
   if (v) {

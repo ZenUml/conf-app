@@ -26,6 +26,11 @@ import { createApp } from 'vue';
 import SyntaxErrorBox from "@/components/SyntaxErrorBox.vue";
 import { validateOpenApiSpecForStore } from '@/utils/openapi/validate';
 import { debounce } from 'lodash';
+import { useCustomerSuccessService, MACROS_LIMIT, getUpgradeContext } from '@/composables/useCustomerSuccessService';
+import { isPageEditorEditBlocked } from '@/utils/paywall/preEditGate';
+import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking';
+import { mountRoot } from '@/mount-root';
+import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
 
 const debouncedValidateOpenApi = debounce(async (spec: string) => {
   if (!spec) {
@@ -141,70 +146,110 @@ async function initializeMacro() {
   
   // Ensure session is initialized
   getOrCreateSession();
-
-  let doc: Diagram | undefined;
   const customContentId = context.extension?.config?.customContentId;
-  if(!customContentId) {
-  } else {
-    const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-    console.log('loadDiagram - customContent', customContent);
-    doc = customContent?.value;
-  }
-  store.state.diagram = doc ?? NULL_DIAGRAM;
 
-  // @ts-ignore
-  window.diagram = doc;
-
-  console.log('-------------- loaded spec:', doc?.code)
-  // eslint-disable-next-line
-  // @ts-ignore
-  window.updateSpec(doc?.code || OpenApiExample);
-  console.log('-------------- updateSpec with:', doc?.code)
-
-  // Initialize spec listeners for validation and store sync
-  window.specListeners = window.specListeners || [];
-  window.specListeners.push((spec: string) => {
-    store.dispatch('updateCode2', spec);
-    debouncedValidateOpenApi(spec);
-  });
-  store.dispatch('updateError', null);
-  store.subscribe((mutation, state) => {
-    if (mutation.type === 'updateCode2' && window.editor && window.specContent !== state.diagram.code) {
-      window.updateSpec(state.diagram.code || '');
+  const mountEditor = async () => {
+    let doc: Diagram | undefined;
+    if(!customContentId) {
+    } else {
+      const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
+      console.log('loadDiagram - customContent', customContent);
+      doc = customContent?.value;
     }
-  });
+    store.state.diagram = doc ?? NULL_DIAGRAM;
 
-  // Render the syntax error box using Vue
-  const syntaxErrorBoxContainer = document.getElementById('syntax-error-box');
-  if (syntaxErrorBoxContainer) {
-    syntaxErrorBoxContainer.style.fontSize = '14px'; // Set a consistent base font size
-    createApp(SyntaxErrorBox).use(store).mount(syntaxErrorBoxContainer);
-  }
+    // @ts-ignore
+    window.diagram = doc;
 
-  // Track begin event (create or edit)
-  const isNew = await MacroUtil.isCreateNew();
-  if (isNew) {
-    trackAnalyticsEvent("macro_create_started", {
-      feature_area: "macro",
-      surface: "editor",
-      macro_type: "openapi",
-      entry_point: "page_editor",
+    console.log('-------------- loaded spec:', doc?.code)
+    // eslint-disable-next-line
+    // @ts-ignore
+    window.updateSpec(doc?.code || OpenApiExample);
+    console.log('-------------- updateSpec with:', doc?.code)
+
+    // Initialize spec listeners for validation and store sync
+    window.specListeners = window.specListeners || [];
+    window.specListeners.push((spec: string) => {
+      store.dispatch('updateCode2', spec);
+      debouncedValidateOpenApi(spec);
     });
-  } else {
-    trackAnalyticsEvent("macro_edit_opened", {
-      feature_area: "macro",
-      surface: "editor",
-      macro_type: "openapi",
-      entry_point: "macro_toolbar",
+    store.dispatch('updateError', null);
+    store.subscribe((mutation, state) => {
+      if (mutation.type === 'updateCode2' && window.editor && window.specContent !== state.diagram.code) {
+        window.updateSpec(state.diagram.code || '');
+      }
     });
-  }
 
-  // Trigger initial validation after a short delay to ensure everything is set up
-  setTimeout(() => {
-    if (window.specContent) {
-      debouncedValidateOpenApi(window.specContent);
+    // Render the syntax error box using Vue
+    const syntaxErrorBoxContainer = document.getElementById('syntax-error-box');
+    if (syntaxErrorBoxContainer) {
+      syntaxErrorBoxContainer.style.fontSize = '14px'; // Set a consistent base font size
+      createApp(SyntaxErrorBox).use(store).mount(syntaxErrorBoxContainer);
     }
-  }, 300); // Using 300ms to ensure everything is properly set up
+
+    // Track begin event (create or edit)
+    const isNew = await MacroUtil.isCreateNew();
+    if (isNew) {
+      trackAnalyticsEvent("macro_create_started", {
+        feature_area: "macro",
+        surface: "editor",
+        macro_type: "openapi",
+        entry_point: "page_editor",
+      });
+    } else {
+      trackAnalyticsEvent("macro_edit_opened", {
+        feature_area: "macro",
+        surface: "editor",
+        macro_type: "openapi",
+        entry_point: "macro_toolbar",
+      });
+    }
+
+    // Trigger initial validation after a short delay to ensure everything is set up
+    setTimeout(() => {
+      if (window.specContent) {
+        debouncedValidateOpenApi(window.specContent);
+      }
+    }, 300); // Using 300ms to ensure everything is properly set up
+  };
+
+  const customerSuccess = useCustomerSuccessService();
+  await customerSuccess.initialize();
+
+  if (isPageEditorEditBlocked(customContentId, customerSuccess.shouldBlockActions.value)) {
+    let spaceKey = '';
+    try {
+      spaceKey = (await globals.apWrapper.getCurrentSpace())?.key || '';
+    } catch (error) {
+      console.debug('Could not resolve current space for page-editor paywall gate', error);
+    }
+
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_BLOCKED_EDIT, {
+      ui_component: UIComponent.VIEWER_NOTICE,
+      action_type: 'page_editor',
+      ...getUpgradeContext(),
+    });
+
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
+      ui_component: UIComponent.VIEWER_NOTICE,
+      action_type: 'page_editor',
+      ...getUpgradeContext(),
+    });
+
+    mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
+      macrosCreated: customerSuccess.macrosCreated.value,
+      macrosLimit: MACROS_LIMIT,
+      upgradeUrl: customerSuccess.upgradeUrl.value,
+      enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
+      spaceKey,
+      onContinueEditing: () => {
+        void mountEditor();
+      },
+    });
+    return;
+  }
+
+  await mountEditor();
 }
 
 

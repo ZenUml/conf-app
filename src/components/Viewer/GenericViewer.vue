@@ -264,6 +264,12 @@ console.error('Error getting feature flags', e);
       if (this.shouldBlockActions) {
         this.showUpgradeModal = true
 
+        trackUpgradeEvent(UpgradeEventName.PAYWALL_BLOCKED_EDIT, {
+          ui_component: UIComponent.VIEWER_NOTICE,
+          action_type: 'viewer',
+          ...getUpgradeContext(),
+        })
+
         trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
           ui_component: UIComponent.VIEWER_NOTICE,
           action_type: 'edit',

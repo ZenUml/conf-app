@@ -37,8 +37,13 @@
           />
         </div>
 
-        <!-- Learn More Link - Compact -->
-        <div class="px-4 py-2 bg-gray-50 text-center">
+        <!-- Footer - Continue editing + Learn more -->
+        <div class="px-4 py-2 bg-gray-50 flex justify-between items-center">
+          <button
+            data-testid="continue-editing-btn"
+            class="text-xs text-gray-600 hover:text-gray-800 hover:underline cursor-pointer"
+            @click="onContinueEditing"
+          >Continue editing without upgrading</button>
           <a
             href="https://zenuml.com/upgrade/"
             target="_blank"
@@ -58,6 +63,7 @@ import { ref } from 'vue'
 import MarketplacePricingCard from './MarketplacePricingCard.vue'
 import EnterpriseBundleCard from './EnterpriseBundleCard.vue'
 import { useUpgradeTracking } from './useUpgradeTracking'
+import { trackUpgradeEvent, UpgradeEventName } from '@/utils/upgradeTracking'
 
 const props = defineProps<{
   visible: boolean
@@ -69,7 +75,15 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'continueEditing'): void
 }>()
+
+function onContinueEditing() {
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING, {
+    prompt_variant: 'legacy',
+  })
+  emit('continueEditing')
+}
 
 // Track current pricing values from MarketplacePricingCard
 const currentUserCount = ref(50)

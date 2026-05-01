@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Paywall Modal Behavior — Mockup &amp; Reference</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
+    .annot { position: relative; }
+    .annot::before {
+      content: attr(data-annot);
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: #1f2937;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 500;
+      white-space: nowrap;
+      z-index: 10;
+      pointer-events: none;
+    }
+    .annot-l::before { right: calc(100% + 12px); }
+    .annot-r::before { left: calc(100% + 12px); }
+    .annot-l::after, .annot-r::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 0; height: 0;
+      border-top: 5px solid transparent;
+      border-bottom: 5px solid transparent;
+    }
+    .annot-l::after { right: calc(100% + 4px); border-left: 6px solid #1f2937; }
+    .annot-r::after { left: calc(100% + 4px); border-right: 6px solid #1f2937; }
+    .legend-pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .pill-grant { background: #dcfce7; color: #166534; }
+    .pill-block { background: #fee2e2; color: #991b1b; }
+    .pill-noop { background: #f3f4f6; color: #374151; }
+    .pill-extern { background: #dbeafe; color: #1e40af; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+
+  <!-- HERO -->
+  <header class="bg-gradient-to-br from-slate-900 to-slate-700 text-white">
+    <div class="max-w-6xl mx-auto px-6 py-12">
+      <p class="text-xs uppercase tracking-widest text-slate-300 mb-3">Paywall Behavior Reference · 2026-05-01</p>
+      <h1 class="text-4xl font-bold mb-3">Pre-Edit Gate: Modal Variants &amp; Their Behaviors</h1>
+      <p class="text-slate-300 text-base max-w-3xl leading-relaxed">
+        When a Lite-app user attempts to edit an existing macro in a space with ≥100 macros (CSS enabled, unpaid),
+        the <code class="bg-slate-800 px-1.5 py-0.5 rounded text-sm">PageEditorPaywallGate</code> mounts instead of the editor.
+        It shows one of four modal variants based on persona &amp; tenant size. This page documents the new explicit
+        <strong>"Continue editing"</strong> button, what each modal action does, and which actions grant edit access.
+      </p>
+
+      <div class="mt-6 flex flex-wrap gap-2">
+        <span class="legend-pill pill-grant">● Grants edit access</span>
+        <span class="legend-pill pill-block">● Does NOT grant access</span>
+        <span class="legend-pill pill-extern">● Opens external URL</span>
+        <span class="legend-pill pill-noop">● Modal close (no-op at gate)</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ROUTING -->
+  <section class="max-w-6xl mx-auto px-6 py-10">
+    <h2 class="text-2xl font-bold mb-2">1. Which modal shows?</h2>
+    <p class="text-slate-600 mb-6 max-w-3xl">
+      <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">UpgradePromptRouter.vue</code> selects a variant based on the
+      <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">PERSONA_AWARE_PAYWALL</code> flag, the user's persona
+      (creator vs bystander, threshold M=5), and tenant-size estimate.
+    </p>
+
+    <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+        <div class="flex items-center gap-3">
+          <span class="text-xs font-mono bg-slate-100 px-2 py-1 rounded">PAP off</span>
+          <span class="text-slate-400">→</span>
+          <span class="font-semibold">LegacyPrompt</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-xs font-mono bg-slate-100 px-2 py-1 rounded">PAP on · personalAuthored &lt; 5</span>
+          <span class="text-slate-400">→</span>
+          <span class="font-semibold">BystanderNotice</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-xs font-mono bg-slate-100 px-2 py-1 rounded">PAP on · tenantSize unknown</span>
+          <span class="text-slate-400">→</span>
+          <span class="font-semibold">ComparisonView</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-xs font-mono bg-slate-100 px-2 py-1 rounded">PAP on · creator + size known</span>
+          <span class="text-slate-400">→</span>
+          <span class="font-semibold">HeavyCreatorPrompt</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MODAL MOCKUPS -->
+  <section class="max-w-6xl mx-auto px-6 pb-10">
+    <h2 class="text-2xl font-bold mb-2">2. Modal variants (with new Continue editing button)</h2>
+    <p class="text-slate-600 mb-8 max-w-3xl">
+      Each modal now has a labeled <strong>Continue editing without upgrading</strong> action — the only path that grants edit access.
+      Every other button/action either opens an external URL, dismisses the modal (no-op at the gate), or notifies an admin.
+    </p>
+
+    <!-- BYSTANDER -->
+    <div class="mb-12">
+      <div class="flex items-baseline gap-3 mb-3">
+        <h3 class="text-lg font-bold">BystanderNotice</h3>
+        <span class="text-xs text-slate-500 font-mono">w-[480px] · personalAuthored &lt; 5</span>
+      </div>
+
+      <div class="flex justify-center">
+        <div class="bg-white border border-slate-300 rounded-lg shadow-xl" style="width: 480px;">
+          <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+            <span class="font-semibold text-slate-900">Editing paused on this space</span>
+            <span class="annot annot-l text-slate-400 text-xl leading-none cursor-pointer" data-annot="× button → close (no-op)">×</span>
+          </div>
+          <div class="px-5 py-4">
+            <p class="text-sm text-slate-700 mb-4">This space has reached the ZenUML Lite limit (100 macros). Existing diagrams still render — but new edits are paused until the space is upgraded.</p>
+            <div class="space-y-2 mb-4">
+              <button class="annot annot-r w-full bg-blue-600 text-white font-semibold py-2 px-3 rounded text-sm" data-annot="bystander_admin_notified · stays in modal">Notify the space admin →</button>
+            </div>
+            <p class="text-xs text-slate-600">Or, if you own this space: <button class="annot annot-r text-blue-600 hover:underline" data-annot="switches to HeavyCreatorPrompt">See upgrade options</button></p>
+          </div>
+          <div class="px-5 py-3 border-t border-slate-200 flex justify-between items-center">
+            <button class="annot annot-r text-sm text-slate-600 hover:underline" data-annot="✓ paywall_continued_editing · MOUNTS EDITOR">Continue editing without upgrading</button>
+            <button class="annot annot-l text-sm text-slate-600" data-annot="close (no-op)">Got it</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4 grid grid-cols-2 gap-3 text-xs max-w-2xl mx-auto">
+        <div class="border border-slate-200 rounded p-3 bg-white">
+          <div class="font-semibold text-slate-900 mb-1">When this fires</div>
+          <div class="text-slate-600">User has created &lt;5 of the macros in this space. They're not the heavy creator — likely a downstream consumer.</div>
+        </div>
+        <div class="border border-slate-200 rounded p-3 bg-white">
+          <div class="font-semibold text-slate-900 mb-1">Conversion intent</div>
+          <div class="text-slate-600">Notify a likely admin / route to "I'm the owner" path. Continue editing button preserves workflow.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COMPARISON -->
+    <div class="mb-12">
+      <div class="flex items-baseline gap-3 mb-3">
+        <h3 class="text-lg font-bold">ComparisonView</h3>
+        <span class="text-xs text-slate-500 font-mono">w-[680px] · tenantSize unknown</span>
+      </div>
+
+      <div class="flex justify-center">
+        <div class="bg-white border border-slate-300 rounded-lg shadow-xl" style="width: 680px;">
+          <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+            <span class="font-semibold text-slate-900">This space has reached the Lite limit (100 macros)</span>
+            <span class="annot annot-l text-slate-400 text-xl leading-none" data-annot="× → close (no-op)">×</span>
+          </div>
+          <div class="px-5 py-4">
+            <p class="text-sm text-slate-700 mb-3">Pick the path that fits — both options unlock unlimited macros in different ways:</p>
+            <div class="grid grid-cols-2 gap-0 border border-slate-200 rounded">
+              <div class="p-4 border-r border-slate-200">
+                <div class="text-sm font-bold text-slate-900 mb-2">Marketplace</div>
+                <div class="text-xs text-slate-600 mb-3">From $40/yr (≤10 users) · Atlassian billing · Org-wide</div>
+                <button class="annot annot-r w-full bg-blue-600 text-white font-semibold py-2 px-3 rounded text-xs" data-annot="upgrade_cta_clicked → external URL → close (no-op)">Upgrade on Marketplace →</button>
+              </div>
+              <div class="p-4">
+                <div class="text-sm font-bold text-slate-900 mb-2">Enterprise Bundle</div>
+                <div class="text-xs text-slate-600 mb-3">$299/yr for this space · No admin permission · Stripe</div>
+                <button class="annot annot-r w-full bg-blue-600 text-white font-semibold py-2 px-3 rounded text-xs" data-annot="upgrade_cta_clicked → external URL → close (no-op)">Unlock — $299/yr →</button>
+              </div>
+            </div>
+          </div>
+          <div class="px-5 py-3 border-t border-slate-200 flex justify-between items-center text-xs">
+            <button class="annot annot-r text-slate-600 hover:underline" data-annot="✓ paywall_continued_editing · MOUNTS EDITOR">Continue editing without upgrading</button>
+            <a class="annot annot-l text-blue-600 hover:underline" href="#" data-annot="external link · new tab">Why is there a limit?</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4 grid grid-cols-2 gap-3 text-xs max-w-3xl mx-auto">
+        <div class="border border-slate-200 rounded p-3 bg-white">
+          <div class="font-semibold text-slate-900 mb-1">When this fires</div>
+          <div class="text-slate-600">User is a creator (≥5 personal macros) but tenant-size estimate is unknown — can't yet decide which path to recommend.</div>
+        </div>
+        <div class="border border-slate-200 rounded p-3 bg-white">
+          <div class="font-semibold text-slate-900 mb-1">Conversion intent</div>
+          <div class="text-slate-600">Side-by-side comparison lets the user self-select. Both CTAs open external pages but never grant edit access.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HEAVY CREATOR -->
+    <div class="mb-12">
+      <div class="flex items-baseline gap-3 mb-3">
+        <h3 class="text-lg font-bold">HeavyCreatorPrompt</h3>
+        <span class="text-xs text-slate-500 font-mono">w-[560px] · creator · size known</span>
+      </div>
+
+      <div class="flex justify-center">
+        <div class="bg-white border border-slate-300 rounded-lg shadow-xl" style="width: 560px;">
+          <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+            <span class="font-semibold text-slate-900">This space has reached the Lite limit (100 macros)</span>
+            <span class="annot annot-l text-slate-400 text-xl leading-none" data-annot="× → close (no-op)">×</span>
+          </div>
+          <div class="px-5 py-4">
+            <p class="text-sm text-slate-700 mb-3">You've created 14 of them — thanks for building with us. To keep adding macros to this space, pick a path:</p>
+            <div class="border border-blue-200 bg-blue-50 rounded p-3 mb-3">
+              <div class="text-xs font-semibold text-blue-700 mb-2">★ RECOMMENDED</div>
+              <div class="text-sm font-bold text-slate-900 mb-2">Enterprise Bundle — $299/yr for this space</div>
+              <ul class="text-xs text-slate-700 mb-3 space-y-1">
+                <li>✓ Unlimited macros &amp; users in this space</li>
+                <li>✓ No Confluence admin permission needed</li>
+                <li>✓ Activated within minutes of payment</li>
+              </ul>
+              <button class="annot annot-r w-full bg-blue-600 text-white font-semibold py-2 px-3 rounded text-sm" data-annot="upgrade_cta_clicked (primary) → external URL → close (no-op)">Unlock this space — $299/yr →</button>
+            </div>
+            <p class="text-xs text-slate-600">Need access across all spaces? <button class="annot annot-r text-blue-600 hover:underline" data-annot="upgrade_cta_clicked (secondary) → external URL → close (no-op)">Compare org-wide Marketplace pricing</button></p>
+          </div>
+          <div class="px-5 py-3 border-t border-slate-200 flex justify-between items-center text-xs">
+            <div class="flex gap-3">
+              <button class="annot annot-r text-slate-600" data-annot="close (no-op)">Remind me later</button>
+              <button class="annot annot-r text-slate-600 hover:underline" data-annot="✓ paywall_continued_editing · MOUNTS EDITOR">Continue editing</button>
+            </div>
+            <a class="annot annot-l text-blue-600 hover:underline" href="#" data-annot="external link">Why is there a limit?</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4 grid grid-cols-2 gap-3 text-xs max-w-3xl mx-auto">
+        <div class="border border-slate-200 rounded p-3 bg-white">
+          <div class="font-semibold text-slate-900 mb-1">When this fires</div>
+          <div class="text-slate-600">User has authored ≥5 macros AND tenant-size estimate is small_likely or medium_or_larger — heavy contributor, ready for a real recommendation.</div>
+        </div>
+        <div class="border border-slate-200 rounded p-3 bg-white">
+          <div class="font-semibold text-slate-900 mb-1">Conversion intent</div>
+          <div class="text-slate-600">One recommended path (Enterprise Bundle for small tenants), one secondary (Marketplace). Includes "Remind me later" for soft dismissal.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LEGACY -->
+    <div class="mb-4">
+      <div class="flex items-baseline gap-3 mb-3">
+        <h3 class="text-lg font-bold">LegacyPrompt</h3>
+        <span class="text-xs text-slate-500 font-mono">w-[680px] · PAP off (fallback)</span>
+      </div>
+
+      <div class="flex justify-center">
+        <div class="bg-white border border-slate-300 rounded-lg shadow-xl overflow-hidden" style="width: 680px;">
+          <div class="px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100 flex items-center gap-2">
+            <span class="text-xl">🚀</span>
+            <span class="text-sm font-semibold text-blue-900">Awesome progress—120 diagrams already! Unlock unlimited access to keep building.</span>
+          </div>
+          <div class="px-4 py-2 bg-blue-50 border-b border-blue-100">
+            <div class="text-base font-bold text-slate-900">Pick the upgrade that fits your team</div>
+          </div>
+          <div class="grid grid-cols-2 gap-0 border-b border-slate-200">
+            <div class="p-4 border-r border-slate-200">
+              <div class="text-sm font-bold text-slate-900 mb-2">Marketplace</div>
+              <div class="text-xs text-slate-600 mb-3">Pay per user · Atlassian billing · Slider for sizing</div>
+              <button class="annot annot-r w-full bg-blue-600 text-white font-semibold py-2 px-3 rounded text-xs" data-annot="upgrade_cta_clicked → external URL → close (no-op)">Upgrade on Marketplace →</button>
+            </div>
+            <div class="p-4">
+              <div class="text-sm font-bold text-slate-900 mb-2">Enterprise Bundle</div>
+              <div class="text-xs text-slate-600 mb-3">$299/yr for this space · Stripe checkout · No admin needed</div>
+              <button class="annot annot-r w-full bg-blue-600 text-white font-semibold py-2 px-3 rounded text-xs" data-annot="upgrade_cta_clicked → external URL → close (no-op)">Unlock — $299/yr →</button>
+            </div>
+          </div>
+          <div class="px-4 py-2 bg-slate-50 flex justify-between items-center">
+            <button class="annot annot-r text-xs text-slate-600 hover:underline" data-annot="✓ paywall_continued_editing · MOUNTS EDITOR">Continue editing without upgrading</button>
+            <a class="annot annot-l text-xs text-blue-600 hover:underline" href="#" data-annot="external link · new tab">Why do I need to upgrade? →</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BEHAVIOR MATRIX -->
+  <section class="bg-white border-y border-slate-200">
+    <div class="max-w-6xl mx-auto px-6 py-10">
+      <h2 class="text-2xl font-bold mb-2">3. Action × Behavior matrix</h2>
+      <p class="text-slate-600 mb-6 max-w-3xl">Every action across every modal, mapped to its event emit and whether it mounts the editor.</p>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-slate-100 border-b border-slate-300">
+              <th class="text-left px-3 py-2 font-semibold">Action</th>
+              <th class="text-left px-3 py-2 font-semibold">Source</th>
+              <th class="text-left px-3 py-2 font-semibold">Emit</th>
+              <th class="text-left px-3 py-2 font-semibold">Mixpanel event</th>
+              <th class="text-left px-3 py-2 font-semibold">Mounts editor?</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-200">
+            <tr class="bg-green-50">
+              <td class="px-3 py-2 font-semibold">Continue editing without upgrading</td>
+              <td class="px-3 py-2 text-slate-600">All 4 modals (footer)</td>
+              <td class="px-3 py-2 font-mono text-xs">continueEditing</td>
+              <td class="px-3 py-2 font-mono text-xs text-green-800">paywall_continued_editing</td>
+              <td class="px-3 py-2"><span class="legend-pill pill-grant">YES</span></td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2">Notify space admin</td>
+              <td class="px-3 py-2 text-slate-600">BystanderNotice</td>
+              <td class="px-3 py-2 font-mono text-xs">—</td>
+              <td class="px-3 py-2 font-mono text-xs">bystander_admin_notified</td>
+              <td class="px-3 py-2"><span class="legend-pill pill-block">no</span></td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2">See upgrade options (own space)</td>
+              <td class="px-3 py-2 text-slate-600">BystanderNotice</td>
+              <td class="px-3 py-2 font-mono text-xs">showHeavyCreator</td>
+              <td class="px-3 py-2 font-mono text-xs">bystander_owner_self_identify</td>
+              <td class="px-3 py-2"><span class="legend-pill pill-block">no (re-routes)</span></td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2">Upgrade on Marketplace</td>
+              <td class="px-3 py-2 text-slate-600">Comparison · HeavyCreator · Legacy</td>
+              <td class="px-3 py-2 font-mono text-xs">close (after URL open)</td>
+              <td class="px-3 py-2 font-mono text-xs">upgrade_cta_clicked (marketplace)</td>
+              <td class="px-3 py-2"><span class="legend-pill pill-extern">opens URL</span> + <span class="legend-pill pill-noop">no-op</span></td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2">Unlock — $299/yr (Enterprise)</td>
+              <td class="px-3 py-2 text-slate-600">Comparison · HeavyCreator · Legacy</td>
+              <td class="px-3 py-2 font-mono text-xs">close (after URL open)</td>
+              <td class="px-3 py-2 font-mono text-xs">upgrade_cta_clicked (enterprise_bundle)</td>
+              <td class="px-3 py-2"><span class="legend-pill pill-extern">opens URL</span> + <span class="legend-pill pill-noop">no-op</span></td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2">Got it / Remind me later</td>
+              <td class="px-3 py-2 text-slate-600">Bystander · HeavyCreator</td>
+              <td class="px-3 py-2 font-mono text-xs">close</td>
+              <td class="px-3 py-2 font-mono text-xs">—</td>
+              <td class="px-3 py-2"><span class="legend-pill pill-noop">no-op (modal stays)</span></td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2">× button</td>
+              <td class="px-3 py-2 text-slate-600">All 4 modals</td>
+              <td class="px-3 py-2 font-mono text-xs">close</td>
+              <td class="px-3 py-2 font-mono text-xs">—</td>
+              <td class="px-3 py-2"><span class="legend-pill pill-noop">no-op (modal stays)</span></td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2">Escape key</td>
+              <td class="px-3 py-2 text-slate-600">All 4 modals</td>
+              <td class="px-3 py-2 font-mono text-xs">close</td>
+              <td class="px-3 py-2 font-mono text-xs">—</td>
+              <td class="px-3 py-2"><span class="legend-pill pill-noop">no-op (modal stays)</span></td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2">Backdrop click</td>
+              <td class="px-3 py-2 text-slate-600">All 4 modals</td>
+              <td class="px-3 py-2 font-mono text-xs">close</td>
+              <td class="px-3 py-2 font-mono text-xs">—</td>
+              <td class="px-3 py-2"><span class="legend-pill pill-noop">no-op (modal stays)</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- BEFORE / AFTER -->
+  <section class="max-w-6xl mx-auto px-6 py-10">
+    <h2 class="text-2xl font-bold mb-2">4. Before / after the bypass fix</h2>
+    <p class="text-slate-600 mb-6 max-w-3xl">
+      Codex's P1 #4 review caught that the prior code translated <em>any</em> close event into "continue-editing" —
+      so Escape, backdrop, ×, "Got it", "Remind me later", and even the upgrade CTAs all silently mounted the editor.
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="border border-red-200 bg-red-50 rounded-xl p-5">
+        <div class="text-xs font-bold text-red-700 uppercase tracking-wider mb-2">Before</div>
+        <div class="font-semibold text-slate-900 mb-3">Every dismissal mounted the editor</div>
+        <pre class="bg-white border border-red-200 rounded p-3 text-xs overflow-x-auto"><code>// PageEditorPaywallGate.vue
+&lt;UpgradePromptRouter
+  ...
+  @close="$emit('continue-editing')"
+/&gt;</code></pre>
+        <ul class="text-xs text-red-900 mt-3 space-y-1 list-disc list-inside">
+          <li>Escape → editor mounts</li>
+          <li>Backdrop click → editor mounts</li>
+          <li>× → editor mounts</li>
+          <li>Marketplace CTA click → editor mounts (worst case: pays nothing, gets editor)</li>
+        </ul>
+      </div>
+
+      <div class="border border-green-200 bg-green-50 rounded-xl p-5">
+        <div class="text-xs font-bold text-green-700 uppercase tracking-wider mb-2">After</div>
+        <div class="font-semibold text-slate-900 mb-3">Only the explicit button mounts the editor</div>
+        <pre class="bg-white border border-green-200 rounded p-3 text-xs overflow-x-auto"><code>// PageEditorPaywallGate.vue
+&lt;UpgradePromptRouter
+  ...
+  @continue-editing="$emit('continue-editing')"
+/&gt;</code></pre>
+        <ul class="text-xs text-green-900 mt-3 space-y-1 list-disc list-inside">
+          <li>Escape / backdrop / × → modal stays in place</li>
+          <li>Upgrade CTAs → external URL opens, modal stays</li>
+          <li>"Continue editing without upgrading" button → editor mounts + <code class="bg-white px-1 rounded">paywall_continued_editing</code> fires</li>
+          <li>Stage 4 can now measure abandonment as a real signal</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="bg-slate-100 border-t border-slate-200 mt-6">
+    <div class="max-w-6xl mx-auto px-6 py-6 text-xs text-slate-500">
+      <p>
+        Source files:
+        <code class="bg-white px-1.5 py-0.5 rounded">src/components/UpgradePrompt/{BystanderNotice,ComparisonView,HeavyCreatorPrompt,UpgradePrompt,UpgradePromptRouter,PageEditorPaywallGate}.vue</code>
+        ·
+        <code class="bg-white px-1.5 py-0.5 rounded">src/utils/upgradeTracking.ts</code>
+        ·
+        <code class="bg-white px-1.5 py-0.5 rounded">tests/unit/PageEditorPaywallGate.spec.ts</code>
+      </p>
+      <p class="mt-2">
+        Plan: <code class="bg-white px-1.5 py-0.5 rounded">docs/superpowers/plans/2026-04-30-paywall-message-pitch.md</code>
+        — this gate is the Stage 2 implementation; the message-pitch modal (Stage 3) will replace these variants.
+      </p>
+    </div>
+  </footer>
+
+</body>
+</html>

@@ -28,7 +28,12 @@
     </p>
 
     <template #footer>
-      <div class="flex justify-end">
+      <div class="flex justify-between items-center">
+        <button
+          data-testid="continue-editing-btn"
+          class="text-sm text-gray-600 hover:text-gray-800 hover:underline cursor-pointer"
+          @click="onContinueEditing"
+        >Continue editing without upgrading</button>
         <button
           data-testid="dismiss-btn"
           class="text-sm text-gray-600 hover:text-gray-800 cursor-pointer"
@@ -53,8 +58,17 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'continueEditing'): void
   (e: 'showHeavyCreator'): void
 }>()
+
+function onContinueEditing() {
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING, {
+    persona: Persona.BYSTANDER,
+    prompt_variant: 'bystander_notice',
+  })
+  emit('continueEditing')
+}
 
 const notifying = ref(false)
 const notified = ref(false)

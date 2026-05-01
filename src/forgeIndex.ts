@@ -16,6 +16,11 @@ import { handleGetStartedRoute } from './routes/getStarted';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, getEditJourneyStartTime, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
+import { useCustomerSuccessService, MACROS_LIMIT, getUpgradeContext } from '@/composables/useCustomerSuccessService';
+import { isPageEditorEditBlocked } from '@/utils/paywall/preEditGate';
+import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking';
+import { NULL_DIAGRAM } from '@/model/Diagram/Diagram';
+import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -142,6 +147,50 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
 
     if(isSequence) {
+      // Pre-edit paywall gate: block existing-macro edits in saturated spaces
+      if (editable && customContentId) {
+        const customerSuccess = useCustomerSuccessService();
+        await customerSuccess.initialize();
+
+        if (isPageEditorEditBlocked(customContentId, customerSuccess.shouldBlockActions.value)) {
+          let spaceKey = '';
+          try {
+            spaceKey = (await globals.apWrapper.getCurrentSpace())?.key || '';
+          } catch (e) {
+            console.debug('Could not resolve current space for page-editor paywall gate', e);
+          }
+
+          trackUpgradeEvent(UpgradeEventName.PAYWALL_BLOCKED_EDIT, {
+            ui_component: UIComponent.VIEWER_NOTICE,
+            action_type: 'page_editor',
+            ...getUpgradeContext(),
+          });
+
+          trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
+            ui_component: UIComponent.VIEWER_NOTICE,
+            action_type: 'page_editor',
+            ...getUpgradeContext(),
+          });
+
+          mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
+            macrosCreated: customerSuccess.macrosCreated.value,
+            macrosLimit: MACROS_LIMIT,
+            upgradeUrl: customerSuccess.upgradeUrl.value,
+            enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
+            spaceKey,
+            onContinueEditing: async () => {
+              // @ts-ignore - Enable splitbar for editor mode
+              window.split = true;
+              const component = (await import("@/components/Workspace.vue")).default;
+              const fullscreenMode = await isFullscreenMode();
+              //@ts-ignore
+              mountRoot(doc, component, { autoResize: !fullscreenMode });
+            },
+          });
+          return;
+        }
+      }
+
       if (editable) {
         // @ts-ignore - Enable splitbar for editor mode (Workspace.vue checks window.split)
         window.split = true;

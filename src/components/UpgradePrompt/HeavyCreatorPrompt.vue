@@ -30,8 +30,15 @@
     </p>
 
     <template #footer>
-      <div class="flex justify-between text-xs">
-        <button class="text-gray-600 hover:text-gray-800 cursor-pointer" @click="$emit('close')">Remind me later</button>
+      <div class="flex justify-between items-center text-xs">
+        <div class="flex gap-3">
+          <button class="text-gray-600 hover:text-gray-800 cursor-pointer" @click="$emit('close')">Remind me later</button>
+          <button
+            data-testid="continue-editing-btn"
+            class="text-gray-600 hover:text-gray-800 hover:underline cursor-pointer"
+            @click="onContinueEditing"
+          >Continue editing without upgrading</button>
+        </div>
         <a href="https://zenuml.com/upgrade/" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">Why is there a limit?</a>
       </div>
     </template>
@@ -52,7 +59,19 @@ const props = defineProps<{
   enterpriseBundleUrl: string
 }>()
 
-const emit = defineEmits<{ (e: 'close'): void }>()
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'continueEditing'): void
+}>()
+
+function onContinueEditing() {
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING, {
+    persona: Persona.CREATOR,
+    prompt_variant: 'heavy_creator',
+    tenant_size_estimate: props.tenantSizeEstimate,
+  })
+  emit('continueEditing')
+}
 
 const marketplaceOption = {
   product: ProductOption.MARKETPLACE,

@@ -17,6 +17,8 @@ export enum UpgradeEventName {
   BYSTANDER_ADMIN_NOTIFIED = 'bystander_admin_notified',
   BYSTANDER_OWNER_SELF_IDENTIFY = 'bystander_owner_self_identify',
   COMPARISON_VIEW_SHOWN = 'persona_comparison_view_shown',
+  PAYWALL_BLOCKED_EDIT = 'paywall_blocked_edit',
+  PAYWALL_CONTINUED_EDITING = 'paywall_continued_editing',
 }
 
 export enum Persona {

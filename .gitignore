@@ -1,5 +1,5 @@
 .env
-.env.mixpanel
+.env.mixpanel*
 .env.forge
 .env.forge.local
 .pluprc
@@ -44,3 +44,6 @@ test-results/
 .harness/
 .worktrees/
 .mcp.json
+
+# Local Mixpanel exports — raw production telemetry, never commit
+mixpanel-export*

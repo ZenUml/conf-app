@@ -127,12 +127,14 @@ Report PVT results to the user.
 1. Find the previous release tag for the variant being released:
    ```bash
    gh release list --repo ZenUml/confluence-plugin-cloud --exclude-drafts \
-     --limit 10 | grep <variant> | awk 'NR==2 {print $3}'
+     --limit 10 --json tagName \
+     | jq -r '[.[] | select(.tagName | test("<variant>"))] | .[1].tagName'
    ```
    Example result: `v2026.04.301216-lite`
 
 2. Scan commit messages between the previous tag and the new tag:
    ```bash
+   git fetch --tags
    git log <prev-tag>..<new-tag> --oneline
    ```
    Example result:
@@ -151,7 +153,7 @@ Report PVT results to the user.
    | `swagger`, `openapi` | `/pvt-swagger` |
    | `graph`, `drawio` | `/pvt-drawio` |
 
-4. For each matched sub-skill: invoke it with the variant as argument (e.g., `/pvt-paywall lite`). Deduplicate — each sub-skill runs at most once per release. Run sequentially.
+4. For each matched sub-skill: invoke it with the variant as argument (e.g., `/pvt-paywall lite`). Deduplicate — each sub-skill runs at most once per release. Run sequentially. If a matched sub-skill file does not exist (not yet implemented), log a warning (`sub-skill /pvt-X not yet implemented`) and skip it — treat as skipped, not as FAIL.
 
 5. If no keywords match, log "No focused test registered for this release" and proceed to Step 6 — this is not an error.
 
@@ -168,8 +170,7 @@ Summarize the release:
 - PVT (Mermaid smoke): PASS | FAIL
 - Focused tests:
   - pvt-paywall: PASS | FAIL — <failing step if FAIL>
-  - pvt-editor: PASS | FAIL — <failing step if FAIL>
-  (line omitted if sub-skill was not invoked)
+  (one line per invoked sub-skill; omitted if sub-skill was not invoked or not yet implemented)
   (or: "No focused test registered for this release")
 ```
 

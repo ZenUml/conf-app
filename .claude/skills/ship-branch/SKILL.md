@@ -14,10 +14,8 @@ Orchestrate the full path from local branch to merged on master. This skill comp
 ```
 validate-branch → FAIL → stop, report
      | PASS
-submit-branch → FAIL → stop, report
-     | PR ready (Draft by default)
-mark Ready for Review → so E2E will run on the next CI cycle
-     |
+submit-branch (as Ready, not Draft) → FAIL → stop, report
+     | single CI run with E2E included
 babysit-pr → EXHAUSTED → stop, "CI blocked"
      | GREEN (incl. E2E)
 land-pr → BLOCKED → stop, report
@@ -31,29 +29,26 @@ land-pr → BLOCKED → stop, report
 
 Invoke `/validate-branch`. If it reports FAIL, stop and show the failure. Fix locally before shipping.
 
-### Step 2: Submit as PR
+### Step 2: Submit as PR — Ready, not Draft
 
-Invoke `/submit-branch`. If it reports FAILED, stop and show what went wrong (dirty worktree, push conflict, etc.).
-
-On success, note the PR number and URL. The PR is created as Draft (so iterative pushes don't trigger E2E).
-
-### Step 3: Mark Ready for Review
-
-`/ship-branch` means "I want this merged" — so flip the PR out of Draft now. This triggers a fresh CI run that includes `E2E: Lite`, which `/land-pr` requires before merge.
+Push the branch and create the PR as **Ready for Review** (omit `--draft`). Ship-branch means immediate landing intent — there's no iterative phase, so Draft would only generate a redundant `ready_for_review` event when we flip it, triggering two CI runs unnecessarily.
 
 ```bash
-gh pr ready <PR_NUMBER> --repo ZenUml/confluence-plugin-cloud
+git push -u origin <branch>
+gh pr create --base master --title "<title>" --body "..."
 ```
 
-If the PR is already Ready, this is a no-op — proceed.
+Note: `/submit-branch` defaults to Draft. Override it here by running `gh pr create` directly without `--draft`. If a PR already exists for the branch, check its draft state — if Draft, flip it Ready now (`gh pr ready <PR>`), then proceed.
 
-### Step 4: Get CI green
+On success, note the PR number and URL.
 
-Invoke `/babysit-pr` with the PR number from Step 2. It will monitor CI (now including E2E since the PR is Ready), diagnose failures, attempt fixes (up to 3 retries), and report back.
+### Step 3: Get CI green
+
+Invoke `/babysit-pr` with the PR number from Step 2. It will monitor CI (E2E runs because the PR is Ready from the start), diagnose failures, attempt fixes (up to 3 retries), and report back.
 
 If babysit-pr exhausts all 3 retry attempts, stop and report "CI blocked" with the babysit report.
 
-### Step 5: Land and verify
+### Step 4: Land and verify
 
 **Confirm with the user before merging** unless they explicitly said "ship it".
 
@@ -65,7 +60,7 @@ On success, report the draft releases created and suggest `/release-app` if the 
 
 - **Each step is a hard boundary.** No step reaches back to retry a previous step.
 - **No auto-rollback.** Stop and report on any failure. The developer decides next steps.
-- **Confirm before merge.** Pause and confirm with the user before Step 4 unless they explicitly said "ship it".
+- **Confirm before merge.** Pause and confirm with the user before the land-pr step unless they explicitly said "ship it".
 
 ## Output
 

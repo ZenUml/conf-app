@@ -3,18 +3,17 @@ import { mount } from '@vue/test-utils';
 import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
 
 describe('PageEditorPaywallGate', () => {
-  it('emits continue-editing only on the explicit continue-editing event from the router', async () => {
+  it('emits continue-editing only on the explicit continue-editing event from the prompt', async () => {
     const wrapper = mount(PageEditorPaywallGate, {
       props: {
         macrosCreated: 100,
         macrosLimit: 100,
         upgradeUrl: 'https://example.com/upgrade',
         enterpriseBundleUrl: 'https://example.com/enterprise',
-        spaceKey: 'ENG',
       },
       global: {
         stubs: {
-          UpgradePromptRouter: {
+          UpgradePrompt: {
             template: `
               <div>
                 <button data-testid="close" @click="$emit('close')">close</button>
@@ -30,7 +29,7 @@ describe('PageEditorPaywallGate', () => {
     await wrapper.get('[data-testid="close"]').trigger('click');
     expect(wrapper.emitted('continue-editing')).toBeFalsy();
 
-    // Only an explicit continueEditing from the router unlocks the editor
+    // Only an explicit continueEditing from the prompt unlocks the editor
     await wrapper.get('[data-testid="continue"]').trigger('click');
     expect(wrapper.emitted('continue-editing')).toBeTruthy();
     expect(wrapper.emitted('continue-editing')).toHaveLength(1);

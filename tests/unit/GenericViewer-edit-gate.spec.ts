@@ -53,8 +53,7 @@ vi.mock('@/services/DiagramLikes', () => ({
   getDiagramLikes: vi.fn(() => Promise.resolve([])),
 }))
 
-vi.mock('@/composables/useCustomerSuccessService', async () => {
-  const { ref } = await import('vue')
+vi.mock('@/composables/useCustomerSuccessService', () => {
   return {
     useCustomerSuccessService: vi.fn(() => ({
       macrosCreated: 120,
@@ -64,10 +63,6 @@ vi.mock('@/composables/useCustomerSuccessService', async () => {
       enterpriseBundleUrl: 'https://zenuml.com/enterprise',
       initialize: vi.fn(),
       spacePaid: false,
-      persona: ref('creator'),
-      personalAuthored: ref(0),
-      tenantSizeEstimate: ref('unknown'),
-      personaAwarePaywallEnabled: ref(false),
     })),
     MACROS_LIMIT: 100,
     getUpgradeContext: vi.fn(() => ({})),

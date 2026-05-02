@@ -12,18 +12,8 @@ export enum UpgradeEventName {
   MODAL_DISMISSED = 'upgrade_modal_dismissed',
   PROMPT_SHOWN = 'upgrade_prompt_shown',
   TOOLTIP_SHOWN = 'upgrade_tooltip_shown',
-  // Persona-aware paywall events
-  BYSTANDER_NOTICE_SHOWN = 'bystander_notice_shown',
-  BYSTANDER_ADMIN_NOTIFIED = 'bystander_admin_notified',
-  BYSTANDER_OWNER_SELF_IDENTIFY = 'bystander_owner_self_identify',
-  COMPARISON_VIEW_SHOWN = 'persona_comparison_view_shown',
   PAYWALL_BLOCKED_EDIT = 'paywall_blocked_edit',
   PAYWALL_CONTINUED_EDITING = 'paywall_continued_editing',
-}
-
-export enum Persona {
-  CREATOR = 'creator',
-  BYSTANDER = 'bystander',
 }
 
 export enum ProductOption {

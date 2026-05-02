@@ -21,9 +21,9 @@ describe('FlagsStatusTable', () => {
 
   it('shows the stored value when set', () => {
     localStorage.setItem('mockMacroCount', '120')
-    localStorage.setItem('mockTenantSizeEstimate', 'medium_or_larger')
+    localStorage.setItem('mockCSSEnabled', 'true')
     const wrapper = mount(FlagsStatusTable)
     expect(wrapper.find('[data-testid="flag-row"][data-key="mockMacroCount"] [data-testid="flag-value"]').text()).toBe('120')
-    expect(wrapper.find('[data-testid="flag-row"][data-key="mockTenantSizeEstimate"] [data-testid="flag-value"]').text()).toBe('medium_or_larger')
+    expect(wrapper.find('[data-testid="flag-row"][data-key="mockCSSEnabled"] [data-testid="flag-value"]').text()).toBe('true')
   })
 })

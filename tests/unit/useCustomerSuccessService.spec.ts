@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { nextTick } from 'vue';
 
 vi.mock('@/utils/requestUtil', () => ({ callRemote: vi.fn() }));
 vi.mock('@/apis/featureFlags', () => ({
@@ -24,84 +23,42 @@ vi.mock('@/model/globals', () => ({
   },
 }));
 
-import { useCustomerSuccessService, M_THRESHOLD } from '@/composables/useCustomerSuccessService';
+import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService';
 import { callRemote } from '@/utils/requestUtil';
 import getFeatureFlags from '@/apis/featureFlags';
 
-describe('useCustomerSuccessService — persona derivation', () => {
+describe('useCustomerSuccessService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset module state — see implementation note below for how to expose a reset
     (useCustomerSuccessService as any).__resetForTests?.();
   });
 
-  it('exposes persona = "creator" when personalAuthored >= M_THRESHOLD', async () => {
-    (callRemote as any).mockResolvedValue({
-      isPaid: false,
-      personalAuthored: M_THRESHOLD,
-      tenantSizeEstimate: 'medium_or_larger',
-
-    });
-    (getFeatureFlags as any).mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true, PERSONA_AWARE_PAYWALL: true });
+  it('exposes spacePaid = true for paid spaces', async () => {
+    (callRemote as any).mockResolvedValue({ isPaid: true, source: 'space_license' });
+    (getFeatureFlags as any).mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true });
 
     const svc = useCustomerSuccessService();
     await svc.initialize();
-    await nextTick();
-    expect(svc.persona.value).toBe('creator');
+    expect(svc.spacePaid.value).toBe(true);
   });
 
-  it('exposes persona = "bystander" when personalAuthored < M_THRESHOLD AND not admin', async () => {
-    (callRemote as any).mockResolvedValue({
-      isPaid: false,
-      personalAuthored: 0,
-      tenantSizeEstimate: 'small_likely',
-
-    });
-    (getFeatureFlags as any).mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true, PERSONA_AWARE_PAYWALL: true });
-
-    const svc = useCustomerSuccessService();
-    await svc.initialize();
-    await nextTick();
-    expect(svc.persona.value).toBe('bystander');
-  });
-
-  it('exposes tenantSizeEstimate and personalAuthored as reactive refs', async () => {
-    (callRemote as any).mockResolvedValue({
-      isPaid: false,
-      personalAuthored: 17,
-      tenantSizeEstimate: 'small_likely',
-
-    });
-    (getFeatureFlags as any).mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true, PERSONA_AWARE_PAYWALL: true });
-
-    const svc = useCustomerSuccessService();
-    await svc.initialize();
-    expect(svc.personalAuthored.value).toBe(17);
-    expect(svc.tenantSizeEstimate.value).toBe('small_likely');
-  });
-
-  it('personaAwarePaywallEnabled reflects the PERSONA_AWARE_PAYWALL flag', async () => {
+  it('exposes spacePaid = false for unpaid spaces', async () => {
     (callRemote as any).mockResolvedValue({ isPaid: false });
-    (getFeatureFlags as any).mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true, PERSONA_AWARE_PAYWALL: false });
+    (getFeatureFlags as any).mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true });
 
     const svc = useCustomerSuccessService();
     await svc.initialize();
-    expect(svc.personaAwarePaywallEnabled.value).toBe(false);
+    expect(svc.spacePaid.value).toBe(false);
   });
 
-  it('localStorage.mockPersonaThreshold overrides M_THRESHOLD', async () => {
-    localStorage.setItem('mockPersonaThreshold', '2');
-    (callRemote as any).mockResolvedValue({
-      isPaid: false,
-      personalAuthored: 3,
-      tenantSizeEstimate: 'medium_or_larger',
-
-    });
-    (getFeatureFlags as any).mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true, PERSONA_AWARE_PAYWALL: true });
+  it('shouldBlockActions is true when macroCount >= MACROS_LIMIT and CSS flag is on and isLite', async () => {
+    localStorage.setItem('mockMacroCount', '120');
+    (callRemote as any).mockResolvedValue({ isPaid: false });
+    (getFeatureFlags as any).mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true });
 
     const svc = useCustomerSuccessService();
     await svc.initialize();
-    expect(svc.persona.value).toBe('creator');
-    localStorage.removeItem('mockPersonaThreshold');
+    expect(svc.shouldBlockActions.value).toBe(true);
+    localStorage.removeItem('mockMacroCount');
   });
 });

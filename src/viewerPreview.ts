@@ -17,7 +17,6 @@ async function bootstrap() {
   localStorage.mockCSSEnabled = 'true'
   localStorage.mockMacroCount = noBlock ? '60' : '120'
   localStorage.mockSpacePaid = 'false'
-  localStorage.mockPersonaAwarePaywall = 'false'
 
   await getContext()
 

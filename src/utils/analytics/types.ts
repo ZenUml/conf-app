@@ -29,11 +29,9 @@ export type AnalyticsProperties = {
   result?: string;
   failure_reason?: string;
   // Upgrade
-  persona?: string;
   product_option?: string;
   ui_component?: string;
   cta_position?: "primary" | "secondary";
-  tenant_size_estimate?: string;
   feature_name?: string;
   source?: string;
   // AI

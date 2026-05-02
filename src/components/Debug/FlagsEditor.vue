@@ -100,11 +100,6 @@ const KIND: Record<MockKey, Kind> = {
   mockCSSEnabled: 'bool',
   mockMacroCount: 'number',
   mockSpacePaid: 'bool',
-  mockPersonaAwarePaywall: 'bool',
-  mockPersonalAuthored: 'number',
-  mockTenantSizeEstimate: 'enum',
-  mockPersonaThreshold: 'number',
-  mockNotifyAdmin: 'json',
 }
 
 const rows = MOCK_KEYS.map((k) => ({ key: k, kind: KIND[k] }))

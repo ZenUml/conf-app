@@ -15,7 +15,7 @@ beforeEach(() => {
 })
 
 describe('FlagsEditor', () => {
-  it('Save writes booleans, numbers, enum, and JSON correctly', async () => {
+  it('Save writes booleans and numbers correctly', async () => {
     const wrapper = mount(FlagsEditor)
     await wrapper.get('[data-testid="edit-mockCSSEnabled"]').setValue('true')
     // Uncheck "unset" to enable the number input
@@ -25,14 +25,10 @@ describe('FlagsEditor', () => {
     })!
     await macroCountUnset.setValue(false)
     await wrapper.get('[data-testid="edit-mockMacroCount"]').setValue('120')
-    await wrapper.get('[data-testid="edit-mockTenantSizeEstimate"]').setValue('medium_or_larger')
-    await wrapper.get('[data-testid="edit-mockNotifyAdmin"]').setValue('{"notified":true,"adminCount":3}')
     await wrapper.get('[data-testid="editor-save"]').trigger('click')
     await nextTick()
     expect(localStorage.getItem('mockCSSEnabled')).toBe('true')
     expect(localStorage.getItem('mockMacroCount')).toBe('120')
-    expect(localStorage.getItem('mockTenantSizeEstimate')).toBe('medium_or_larger')
-    expect(localStorage.getItem('mockNotifyAdmin')).toBe('{"notified":true,"adminCount":3}')
     expect(reload).toHaveBeenCalledOnce()
   })
 
@@ -44,22 +40,15 @@ describe('FlagsEditor', () => {
     expect(localStorage.getItem('mockCSSEnabled')).toBeNull()
   })
 
-  it('Invalid JSON in mockNotifyAdmin disables Save and shows an error', async () => {
-    const wrapper = mount(FlagsEditor)
-    await wrapper.get('[data-testid="edit-mockNotifyAdmin"]').setValue('{ not json')
-    expect(wrapper.find('[data-testid="editor-error-mockNotifyAdmin"]').exists()).toBe(true)
-    expect((wrapper.get('[data-testid="editor-save"]').element as HTMLButtonElement).disabled).toBe(true)
-  })
-
   it('Negative number disables Save and shows an error', async () => {
     const wrapper = mount(FlagsEditor)
-    const personalAuthoredUnset = wrapper.findAll('input[type="checkbox"]').find((w) => {
+    const macroCountUnset = wrapper.findAll('input[type="checkbox"]').find((w) => {
       const row = w.element.closest('tr')
-      return row?.textContent?.includes('mockPersonalAuthored')
+      return row?.textContent?.includes('mockMacroCount')
     })!
-    await personalAuthoredUnset.setValue(false)
-    await wrapper.get('[data-testid="edit-mockPersonalAuthored"]').setValue('-5')
-    expect(wrapper.find('[data-testid="editor-error-mockPersonalAuthored"]').exists()).toBe(true)
+    await macroCountUnset.setValue(false)
+    await wrapper.get('[data-testid="edit-mockMacroCount"]').setValue('-5')
+    expect(wrapper.find('[data-testid="editor-error-mockMacroCount"]').exists()).toBe(true)
     expect((wrapper.get('[data-testid="editor-save"]').element as HTMLButtonElement).disabled).toBe(true)
   })
 

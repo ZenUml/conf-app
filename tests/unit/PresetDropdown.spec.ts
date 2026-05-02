@@ -30,29 +30,26 @@ describe('PresetDropdown', () => {
     expect(wrapper.get('[data-testid="preset-active"]').text()).toBe('Lite blocked')
   })
 
-  it('renders all 5 preset items when toggled', async () => {
+  it('renders all preset items when toggled', async () => {
     const wrapper = mount(PresetDropdown)
     await wrapper.get('[data-testid="preset-trigger"]').trigger('click')
     const items = wrapper.findAll('[data-testid="preset-item"]')
-    expect(items).toHaveLength(5)
     expect(items.map((w) => w.text())).toEqual([
       'Reset',
       'Lite blocked',
-      'Bystander',
-      'Heavy creator',
-      'Comparison view',
     ])
   })
 
   it('clicking a preset item writes its signature and reloads', async () => {
     const wrapper = mount(PresetDropdown)
     await wrapper.get('[data-testid="preset-trigger"]').trigger('click')
-    const bystander = wrapper.findAll('[data-testid="preset-item"]')
-      .find((w) => w.text() === 'Bystander')!
-    await bystander.trigger('click')
+    const liteBlocked = wrapper.findAll('[data-testid="preset-item"]')
+      .find((w) => w.text() === 'Lite blocked')!
+    await liteBlocked.trigger('click')
     await nextTick()
-    expect(localStorage.getItem('mockPersonaAwarePaywall')).toBe('true')
-    expect(localStorage.getItem('mockPersonalAuthored')).toBe('0')
+    expect(localStorage.getItem('mockCSSEnabled')).toBe('true')
+    expect(localStorage.getItem('mockMacroCount')).toBe('120')
+    expect(localStorage.getItem('mockSpacePaid')).toBe('false')
     expect(reload).toHaveBeenCalledOnce()
   })
 })

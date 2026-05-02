@@ -123,4 +123,42 @@ describe('UpgradePrompt', () => {
 
     wrapper.unmount()
   })
+
+  // Regression: in editor-modal context, the parent's @close handler calls
+  // view.close() which tears down the iframe before router.open() completes.
+  // CTA clicks must NOT emit 'close' synchronously — that races with openUrl
+  // and silently drops the external-nav security dialog.
+  it('does NOT emit close on Get Bundle CTA click', async () => {
+    const wrapper = mount(UpgradePrompt, {
+      props: baseProps,
+      attachTo: document.body,
+    })
+
+    const enterpriseButton = Array.from(document.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Get Bundle →')
+    ) as HTMLButtonElement | undefined
+
+    enterpriseButton?.click()
+    await Promise.resolve()
+
+    expect(wrapper.emitted('close')).toBeFalsy()
+    wrapper.unmount()
+  })
+
+  it('does NOT emit close on Marketplace Upgrade CTA click', async () => {
+    const wrapper = mount(UpgradePrompt, {
+      props: baseProps,
+      attachTo: document.body,
+    })
+
+    const marketplaceButton = Array.from(document.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Upgrade →')
+    ) as HTMLButtonElement | undefined
+
+    marketplaceButton?.click()
+    await Promise.resolve()
+
+    expect(wrapper.emitted('close')).toBeFalsy()
+    wrapper.unmount()
+  })
 })

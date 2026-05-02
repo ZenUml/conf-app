@@ -6,18 +6,18 @@
 
       <!-- Modal content - Optimized for 700×600px iframe -->
       <div class="relative bg-white rounded-lg shadow-xl w-[680px] max-h-[660px] overflow-y-auto">
-        <!-- Achievement Header - Celebratory -->
-        <div class="px-4 py-2 border-b border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50">
-          <div class="flex items-center gap-2">
-            <span class="text-xl shrink-0">🚀</span>
-            <span class="text-sm font-semibold text-blue-900">
-              Awesome progress—{{ macrosCreated }} diagrams already! Unlock unlimited access to keep building.
-            </span>
-          </div>
+        <!-- Header - Factual -->
+        <div class="px-4 py-2 border-b border-gray-200">
+          <h2 class="text-sm font-semibold text-gray-900">
+            This space has reached the ZenUML Lite limit ({{ macrosLimit }} macros).
+          </h2>
+          <p class="text-xs text-gray-600 mt-0.5">
+            Existing diagrams still render. To create or edit, upgrade the space.
+          </p>
         </div>
 
         <!-- Calculator Heading - Slim -->
-        <div class="px-4 py-2 bg-blue-50 border-b border-blue-100">
+        <div class="px-4 py-2 bg-gray-50 border-b border-gray-200">
           <h3 class="text-base font-bold text-gray-900">Pick the upgrade that fits your team</h3>
         </div>
 

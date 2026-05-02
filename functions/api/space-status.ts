@@ -1,20 +1,10 @@
-import { D1Database } from "@cloudflare/workers-types";
 import { getAuthorizationHeader } from '../utils/requestUtils';
 import { validateContextToken } from '../utils/authenticate';
 import { captureError } from '../utils/sentry';
-import {
-  getCachedTenantSize,
-  setCachedTenantSize,
-  computeTenantSizeEstimate,
-  loadTenantSizeInputs,
-  TenantSizeEstimate,
-} from '../utils/tenantSize';
 import type { SpaceLicenseRecord } from './space-license';
 
 interface Env {
   SPACE_LICENSE_KV: KVNamespace;
-  MACRO_AUTHORSHIP_KV?: KVNamespace;
-  DB?: D1Database;
   ALLOWED_FORGE_APP_IDS?: string;
   FORGE_CONTEXT?: any;
 }
@@ -22,8 +12,6 @@ interface Env {
 interface SpaceStatusResponse {
   isPaid: boolean;
   source?: 'space_license';
-  personalAuthored?: number;
-  tenantSizeEstimate?: TenantSizeEstimate;
 }
 
 /** Forge invokeRemote requires valid JSON + application/json for every status (incl. errors). */
@@ -41,89 +29,6 @@ function jsonResponse(
     headers['Cache-Control'] = 'no-store';
   }
   return new Response(JSON.stringify(body), { status, headers });
-}
-
-async function hashAccountId(accountId: string): Promise<string> {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(accountId));
-  return Array.from(new Uint8Array(buf))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-async function getPersonalAuthored(
-  db: D1Database | undefined,
-  authorshipKv: KVNamespace | undefined,
-  cloudId: string,
-  spaceKey: string,
-  accountId: string | undefined
-): Promise<number> {
-  if (!accountId) return 0;
-  if (!db && !authorshipKv) return 0;
-  let cacheKey: string | null = null;
-  try {
-    if (authorshipKv) {
-      const hashed = await hashAccountId(accountId);
-      cacheKey = `authored:${cloudId}:${spaceKey}:${hashed}`;
-      const cached = await authorshipKv.get(cacheKey);
-      if (cached !== null) {
-        const n = parseInt(cached, 10);
-        if (!Number.isNaN(n)) return n;
-      }
-    }
-  } catch (err) {
-    console.warn('space-status: personalAuthored cache lookup failed', err);
-  }
-  if (!db) return 0;
-  try {
-    const row = await db
-      .prepare(
-        `SELECT COUNT(*) AS n FROM UserBehaviorEvent
-          WHERE cloudId = ? AND userAccountId = ? AND spaceKey = ?
-            AND action IN ('create_macro_end', 'edit_macro_end')`
-      )
-      .bind(cloudId, accountId, spaceKey)
-      .first<{ n: number }>();
-    const count = row?.n ?? 0;
-    if (cacheKey && authorshipKv) {
-      try {
-        await authorshipKv.put(cacheKey, String(count), { expirationTtl: 300 });
-      } catch (err) {
-        console.warn('space-status: personalAuthored cache write failed', err);
-      }
-    }
-    return count;
-  } catch (err) {
-    console.warn('space-status: personalAuthored query failed', err);
-    return 0;
-  }
-}
-
-async function getTenantSizeEstimate(
-  db: D1Database | undefined,
-  authorshipKv: KVNamespace | undefined,
-  cloudId: string
-): Promise<TenantSizeEstimate> {
-  if (!authorshipKv && !db) return 'unknown';
-  try {
-    if (authorshipKv) {
-      const cached = await getCachedTenantSize(authorshipKv, cloudId);
-      if (cached !== null) return cached;
-    }
-    if (!db) return 'unknown';
-    const inputs = await loadTenantSizeInputs({ DB: db }, cloudId);
-    const estimate = computeTenantSizeEstimate(inputs);
-    if (authorshipKv) {
-      try {
-        await setCachedTenantSize(authorshipKv, cloudId, estimate);
-      } catch (err) {
-        console.warn('space-status: tenantSize cache write failed', err);
-      }
-    }
-    return estimate;
-  } catch (err) {
-    console.warn('space-status: tenantSizeEstimate failed', err);
-    return 'unknown';
-  }
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -161,49 +66,23 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const url = new URL(request.url);
     const payload = await validateContextToken(jwt, allowedForgeAppIds);
     const cloudId = payload?.payload?.context?.cloudId;
-    const accountId = payload?.payload?.context?.accountId;
     const spaceKey = url.searchParams.get('spaceKey') || undefined;
 
     if (!cloudId || !spaceKey) {
       console.log('space-status: missing cloudId or spaceKey', { cloudId, spaceKey });
-      const [personalAuthored, tenantSizeEstimate] = await Promise.all([
-        cloudId && spaceKey
-          ? getPersonalAuthored(env.DB, env.MACRO_AUTHORSHIP_KV, cloudId, spaceKey, accountId)
-          : Promise.resolve(0),
-        cloudId
-          ? getTenantSizeEstimate(env.DB, env.MACRO_AUTHORSHIP_KV, cloudId)
-          : Promise.resolve<TenantSizeEstimate>('unknown'),
-      ]);
-      return jsonResponse(
-        200,
-        { isPaid: false, personalAuthored, tenantSizeEstimate },
-        'short'
-      );
+      return jsonResponse(200, { isPaid: false }, 'short');
     }
-
-    // Run license + extended fields in parallel.
-    const [licenseRaw, personalAuthored, tenantSizeEstimate] = await Promise.all([
-      env.SPACE_LICENSE_KV ? env.SPACE_LICENSE_KV.get(`license:${cloudId}:${spaceKey}`) : Promise.resolve(null),
-      getPersonalAuthored(env.DB, env.MACRO_AUTHORSHIP_KV, cloudId, spaceKey, accountId),
-      getTenantSizeEstimate(env.DB, env.MACRO_AUTHORSHIP_KV, cloudId),
-    ]);
 
     if (!env.SPACE_LICENSE_KV) {
       console.error('SPACE_LICENSE_KV binding not configured');
-      return jsonResponse(
-        200,
-        { isPaid: false, personalAuthored, tenantSizeEstimate },
-        'short'
-      );
+      return jsonResponse(200, { isPaid: false }, 'short');
     }
+
+    const licenseRaw = await env.SPACE_LICENSE_KV.get(`license:${cloudId}:${spaceKey}`);
 
     if (!licenseRaw) {
       console.log('space-status: no license found for', `license:${cloudId}:${spaceKey}`);
-      return jsonResponse(
-        200,
-        { isPaid: false, personalAuthored, tenantSizeEstimate },
-        'short'
-      );
+      return jsonResponse(200, { isPaid: false }, 'short');
     }
 
     const record = JSON.parse(licenseRaw) as SpaceLicenseRecord;
@@ -224,21 +103,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (isPaid) {
       return jsonResponse(
         200,
-        {
-          isPaid: true,
-          source: 'space_license',
-          personalAuthored,
-          tenantSizeEstimate,
-        },
+        { isPaid: true, source: 'space_license' },
         'short'
       );
     }
 
-    return jsonResponse(
-      200,
-      { isPaid: false, personalAuthored, tenantSizeEstimate },
-      'short'
-    );
+    return jsonResponse(200, { isPaid: false }, 'short');
   } catch (error) {
     console.error('Error checking space status:', error);
     captureError(error);

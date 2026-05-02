@@ -155,28 +155,6 @@ describe('feature-flags onRequestGet', () => {
     });
   });
 
-  describe('PERSONA_AWARE_PAYWALL', () => {
-    it('returns PERSONA_AWARE_PAYWALL true for matching domain', async () => {
-      const ctx = makeContext(
-        { client: 'example.atlassian.net', features: 'PERSONA_AWARE_PAYWALL' },
-        { PERSONA_AWARE_PAYWALL: 'example.atlassian.net,other.atlassian.net' },
-      );
-      const response = await onRequestGet(ctx);
-      const body = await response.json() as Record<string, unknown>;
-      expect(body.PERSONA_AWARE_PAYWALL).toBe(true);
-    });
-
-    it('does not return PERSONA_AWARE_PAYWALL when client does not match', async () => {
-      const ctx = makeContext(
-        { client: 'nomatch.atlassian.net', features: 'PERSONA_AWARE_PAYWALL' },
-        { PERSONA_AWARE_PAYWALL: 'example.atlassian.net' },
-      );
-      const response = await onRequestGet(ctx);
-      const body = await response.json() as Record<string, unknown>;
-      expect(body.PERSONA_AWARE_PAYWALL).toBeUndefined();
-    });
-  });
-
   describe('TEST', () => {
     it('returns TEST flag always', async () => {
       const ctx = makeContext({ client: 'any.atlassian.net', features: 'TEST' });

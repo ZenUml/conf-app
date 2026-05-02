@@ -68,8 +68,7 @@ vi.mock('@/services/DiagramLikes', () => ({
 
 // Mock useCustomerSuccessService to control spacePaid and macrosCreated.
 // Use plain values (not refs) so Vue Options API data() treats them as reactive primitives.
-vi.mock('@/composables/useCustomerSuccessService', async () => {
-  const { ref } = await import('vue')
+vi.mock('@/composables/useCustomerSuccessService', () => {
   return {
     useCustomerSuccessService: vi.fn(() => ({
       macrosCreated: 0,
@@ -79,11 +78,6 @@ vi.mock('@/composables/useCustomerSuccessService', async () => {
       enterpriseBundleUrl: 'https://zenuml.com/enterprise',
       initialize: vi.fn(),
       spacePaid: false,
-      // Persona-aware paywall fields (used by UpgradePromptRouter)
-      persona: ref('creator'),
-      personalAuthored: ref(0),
-      tenantSizeEstimate: ref('unknown'),
-      personaAwarePaywallEnabled: ref(false),
     })),
     MACROS_LIMIT: 100,
     getUpgradeContext: vi.fn(() => ({}))

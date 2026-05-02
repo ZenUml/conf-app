@@ -2,11 +2,6 @@ export const MOCK_KEYS = [
   'mockCSSEnabled',
   'mockMacroCount',
   'mockSpacePaid',
-  'mockPersonaAwarePaywall',
-  'mockPersonalAuthored',
-  'mockTenantSizeEstimate',
-  'mockPersonaThreshold',
-  'mockNotifyAdmin',
 ] as const
 
 export type MockKey = (typeof MOCK_KEYS)[number]
@@ -28,40 +23,6 @@ export const PRESETS: Preset[] = [
       mockCSSEnabled: 'true',
       mockMacroCount: '120',
       mockSpacePaid: 'false',
-    },
-  },
-  {
-    name: 'Bystander',
-    signature: {
-      mockCSSEnabled: 'true',
-      mockMacroCount: '120',
-      mockSpacePaid: 'false',
-      mockPersonaAwarePaywall: 'true',
-      mockPersonalAuthored: '0',
-      mockTenantSizeEstimate: 'small_likely',
-      mockNotifyAdmin: '{"notified":true,"adminCount":1}',
-    },
-  },
-  {
-    name: 'Heavy creator',
-    signature: {
-      mockCSSEnabled: 'true',
-      mockMacroCount: '120',
-      mockSpacePaid: 'false',
-      mockPersonaAwarePaywall: 'true',
-      mockPersonalAuthored: '60',
-      mockTenantSizeEstimate: 'medium_or_larger',
-    },
-  },
-  {
-    name: 'Comparison view',
-    signature: {
-      mockCSSEnabled: 'true',
-      mockMacroCount: '120',
-      mockSpacePaid: 'false',
-      mockPersonaAwarePaywall: 'true',
-      mockPersonalAuthored: '20',
-      mockTenantSizeEstimate: 'unknown',
     },
   },
 ]

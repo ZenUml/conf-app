@@ -146,16 +146,9 @@ permissions:
         - remote: diagramly
         - https://cdn.mxpnl.com
         - https://*.cdn.mxpnl.com
-    frames:
-      - https://conf-full.zenuml.com/drawio/index.html
     images:
       - https://*.googletagmanager.com
     scripts:
-      - https://conf-full.zenuml.com/drawio/js/sanitizer/purify.min.js
-      - https://conf-full.zenuml.com/drawio/mxgraph/mxClient.js
-      - https://conf-full.zenuml.com/drawio/js/grapheditor/Init.js
-      - https://conf-full.zenuml.com/drawio/js/grapheditor/Graph.js
-      - https://conf-full.zenuml.com/drawio/js/grapheditor/Shapes.js
       - https://*.googletagmanager.com
       - https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js
       - https://cdn.mxpnl.com/libs/mixpanel-recorder.min.js

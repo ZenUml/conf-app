@@ -3,11 +3,11 @@
 function loadDrawIOScripts(): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const scripts = [
-      'https://conf-full.zenuml.com/drawio/js/sanitizer/purify.min.js',
-      'https://conf-full.zenuml.com/drawio/mxgraph/mxClient.js',
-      'https://conf-full.zenuml.com/drawio/js/grapheditor/Init.js',
-      'https://conf-full.zenuml.com/drawio/js/grapheditor/Graph.js',
-      'https://conf-full.zenuml.com/drawio/js/grapheditor/Shapes.js'
+      './drawio/js/sanitizer/purify.min.js',
+      './drawio/mxgraph/mxClient.js',
+      './drawio/js/grapheditor/Init.js',
+      './drawio/js/grapheditor/Graph.js',
+      './drawio/js/grapheditor/Shapes.js'
     ];
     
     let loadedCount = 0;

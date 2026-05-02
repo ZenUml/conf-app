@@ -37,7 +37,7 @@ export default {
       graph.resizeContainer = true;
       graph.setEnabled(false);
       // @ts-ignore
-      setGraphStyle('https://conf-full.zenuml.com/drawio/styles/default.xml', graph);
+      setGraphStyle('./drawio/styles/default.xml', graph);
       // @ts-ignore
       setGraphXml(this.graphXml, graph);
     }

@@ -15,11 +15,11 @@ import { trackEvent } from '@/utils/window';
 function loadDrawIOScripts() {
   return new Promise((resolve, reject) => {
     const scripts = [
-      'https://conf-full.zenuml.com/drawio/js/sanitizer/purify.min.js',
-      'https://conf-full.zenuml.com/drawio/mxgraph/mxClient.js',
-      'https://conf-full.zenuml.com/drawio/js/grapheditor/Init.js',
-      'https://conf-full.zenuml.com/drawio/js/grapheditor/Graph.js',
-      'https://conf-full.zenuml.com/drawio/js/grapheditor/Shapes.js'
+      './drawio/js/sanitizer/purify.min.js',
+      './drawio/mxgraph/mxClient.js',
+      './drawio/js/grapheditor/Init.js',
+      './drawio/js/grapheditor/Graph.js',
+      './drawio/js/grapheditor/Shapes.js'
     ];
     
     let loadedCount = 0;
@@ -124,7 +124,7 @@ export default {
           graph.resizeContainer = true;
           graph.setEnabled(false);
           // @ts-ignore
-          setGraphStyle('https://conf-full.zenuml.com/drawio/styles/default.xml', graph);
+          setGraphStyle('./drawio/styles/default.xml', graph);
           // @ts-ignore
           setGraphXml(graphXml, graph);
           

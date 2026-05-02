@@ -61,7 +61,11 @@ export function useUpgradeTracking(
     onClose()
   }
 
-  // Track marketplace CTA click
+  // Track marketplace CTA click. Do NOT close the modal here — closing
+  // synchronously tears down the host iframe in editor-modal context (Forge
+  // calls view.close() on the close emit), which races router.open() and
+  // drops the external-nav security dialog. The CTA itself opens Stripe in
+  // a new tab; the user can dismiss the modal explicitly.
   const trackMarketplaceClick = () => {
     const timeToDecision = Date.now() - modalShownTime.value
     trackUpgradeEvent(UpgradeEventName.CTA_CLICKED, {
@@ -74,10 +78,9 @@ export function useUpgradeTracking(
       time_to_decision: Math.round(timeToDecision / 1000),
       ...getUpgradeContext(),
     })
-    onClose()
   }
 
-  // Track enterprise bundle CTA click
+  // Track enterprise bundle CTA click. Same rationale as trackMarketplaceClick.
   const trackEnterpriseBundleClick = () => {
     const timeToDecision = Date.now() - modalShownTime.value
     trackUpgradeEvent(UpgradeEventName.CTA_CLICKED, {
@@ -90,7 +93,6 @@ export function useUpgradeTracking(
       time_to_decision: Math.round(timeToDecision / 1000),
       ...getUpgradeContext(),
     })
-    onClose()
   }
 
   return {

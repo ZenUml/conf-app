@@ -42,6 +42,7 @@ playwright-report/
 test-results/
 *.png
 !public/image/*.png
+!public/drawio/**/*.png
 .harness/
 .worktrees/
 .mcp.json

@@ -7,12 +7,6 @@ description: Run local validation checks on the current branch before shipping. 
 
 Verify the current branch passes all local checks. Run anytime before shipping, or just to check your work.
 
-## Why this order matters
-
-Checks run fastest-first so you get feedback quickly. Lint catches syntax issues in seconds. Unit tests catch logic errors in a few seconds. Build catches bundling/type issues. The feature smoke test on a live Confluence instance is the slowest and most expensive — but it's the only step that proves the feature actually works for real users. No point running the smoke test if any earlier step fails.
-
-Note: CI E2E tests run against staging Confluence instances post-push. The forge-tunnel smoke test in Step 4 is a faster, pre-push equivalent — it exercises real Confluence with your local code via tunnel.
-
 ## Steps
 
 Run from the `conf-app` directory. Stop on first failure.

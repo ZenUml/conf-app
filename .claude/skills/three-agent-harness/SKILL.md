@@ -163,7 +163,7 @@ Spawn an Agent (subagent_type: `general-purpose`) with fresh context:
 >
 > ### Phase 1: Local Validation + Code Review
 >
-> 1. **Code review**: Read the changed files (`git diff master...HEAD`). Check for:
+> 1. **Code review**: Read the changed files (`git diff main...HEAD`). Check for:
 >    - Security issues (XSS, injection, exposed secrets)
 >    - Missing error handling at system boundaries
 >    - Violations of project conventions (read CLAUDE.md)

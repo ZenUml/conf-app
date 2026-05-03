@@ -45,7 +45,7 @@ After lint/unit/build pass, exercise the feature against a real Confluence site 
 
 **How to run:**
 
-1. **Identify what to test.** Read the changes (`git diff master...HEAD`, recent commits, plan file if present) and write down:
+1. **Identify what to test.** Read the changes (`git diff main...HEAD`, recent commits, plan file if present) and write down:
    - The user-visible behavior the change affects (e.g. "clicking Edit when paywalled should open the editor paywall, not double-gate from viewer")
    - 2–4 concrete interactions that exercise that behavior (button clicks, ESC key, form input)
    - The expected outcome of each interaction
@@ -79,6 +79,6 @@ If Step 4 was skipped, say so explicitly: "Step 4 skipped — backend-only chang
 After you push, CI runs lint/unit/build plus:
 - Deploys all 4 variants (lite, full, full-forge, diagramly) to staging
 - Runs E2E tests against staging Confluence instances
-- On master only: creates draft releases for each variant
+- On main only: creates draft releases for each variant
 
 The forge-tunnel smoke step in Step 4 catches Confluence-integration regressions earlier — before they burn 6+ minutes of CI time.

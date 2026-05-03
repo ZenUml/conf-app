@@ -8,131 +8,35 @@ on:
 jobs:
   prod-lite:
     name: Lite Smoke Test (Prod)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set commit status → pending
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
-        run: |
-          gh api --method POST \
-            "/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
-            -f state=pending \
-            -f context="external-e2e/zenuml-lite@prod" \
-            -f description="Smoke test queued on public runner"
-
-      - name: Dispatch public E2E workflow
-        env:
-          GH_TOKEN: ${{ secrets.PUBLIC_REPO_DISPATCH_TOKEN }}
-        run: |
-          gh workflow run run-external-e2e.yml \
-            --repo ZenUml/conf-app-e2e \
-            --ref main \
-            -f source_repo="${{ github.repository }}" \
-            -f source_sha="${{ github.sha }}" \
-            -f pr_number="" \
-            -f app="zenuml-lite@prod" \
-            -f suite="insert"
-
-      - name: Wait for smoke test result
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
-        run: |
-          for i in $(seq 1 60); do
-            STATE=$(gh api "/repos/${{ github.repository }}/commits/${{ github.sha }}/statuses" \
-              -q '[.[] | select(.context == "external-e2e/zenuml-lite@prod")] | first | .state')
-            echo "attempt $i: $STATE"
-            if [ "$STATE" = "success" ]; then exit 0; fi
-            if [ "$STATE" = "failure" ] || [ "$STATE" = "error" ]; then
-              echo "Smoke test failed" && exit 1
-            fi
-            sleep 30
-          done
-          echo "Timed out (30 min) waiting for smoke test result" && exit 1
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: zenuml-lite@prod
+      suite: insert
+      artifact-suffix: lite-prod-smoke
+      username: ${{ vars.ZENUML_PROD_USERNAME }}
+      password: ${{ vars.ZENUML_PROD_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
 
   prod-full:
     needs: prod-lite
     name: Full Smoke Test (Prod)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set commit status → pending
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
-        run: |
-          gh api --method POST \
-            "/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
-            -f state=pending \
-            -f context="external-e2e/zenuml-full@prod" \
-            -f description="Smoke test queued on public runner"
-
-      - name: Dispatch public E2E workflow
-        env:
-          GH_TOKEN: ${{ secrets.PUBLIC_REPO_DISPATCH_TOKEN }}
-        run: |
-          gh workflow run run-external-e2e.yml \
-            --repo ZenUml/conf-app-e2e \
-            --ref main \
-            -f source_repo="${{ github.repository }}" \
-            -f source_sha="${{ github.sha }}" \
-            -f pr_number="" \
-            -f app="zenuml-full@prod" \
-            -f suite="insert"
-
-      - name: Wait for smoke test result
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
-        run: |
-          for i in $(seq 1 60); do
-            STATE=$(gh api "/repos/${{ github.repository }}/commits/${{ github.sha }}/statuses" \
-              -q '[.[] | select(.context == "external-e2e/zenuml-full@prod")] | first | .state')
-            echo "attempt $i: $STATE"
-            if [ "$STATE" = "success" ]; then exit 0; fi
-            if [ "$STATE" = "failure" ] || [ "$STATE" = "error" ]; then
-              echo "Smoke test failed" && exit 1
-            fi
-            sleep 30
-          done
-          echo "Timed out (30 min) waiting for smoke test result" && exit 1
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: zenuml-full@prod
+      suite: insert
+      artifact-suffix: full-prod-smoke
+      username: ${{ vars.ZENUML_PROD_USERNAME }}
+      password: ${{ vars.ZENUML_PROD_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
 
   prod-diagramly:
     needs: prod-full
     name: Diagramly Smoke Test (Prod)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set commit status → pending
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
-        run: |
-          gh api --method POST \
-            "/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
-            -f state=pending \
-            -f context="external-e2e/diagramly@prod" \
-            -f description="Smoke test queued on public runner"
-
-      - name: Dispatch public E2E workflow
-        env:
-          GH_TOKEN: ${{ secrets.PUBLIC_REPO_DISPATCH_TOKEN }}
-        run: |
-          gh workflow run run-external-e2e.yml \
-            --repo ZenUml/conf-app-e2e \
-            --ref main \
-            -f source_repo="${{ github.repository }}" \
-            -f source_sha="${{ github.sha }}" \
-            -f pr_number="" \
-            -f app="diagramly@prod" \
-            -f suite="insert"
-
-      - name: Wait for smoke test result
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
-        run: |
-          for i in $(seq 1 60); do
-            STATE=$(gh api "/repos/${{ github.repository }}/commits/${{ github.sha }}/statuses" \
-              -q '[.[] | select(.context == "external-e2e/diagramly@prod")] | first | .state')
-            echo "attempt $i: $STATE"
-            if [ "$STATE" = "success" ]; then exit 0; fi
-            if [ "$STATE" = "failure" ] || [ "$STATE" = "error" ]; then
-              echo "Smoke test failed" && exit 1
-            fi
-            sleep 30
-          done
-          echo "Timed out (30 min) waiting for smoke test result" && exit 1
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: diagramly@prod
+      suite: insert
+      artifact-suffix: diagramly-prod-smoke
+      username: ${{ vars.ZENUML_PROD_USERNAME }}
+      password: ${{ vars.ZENUML_PROD_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}

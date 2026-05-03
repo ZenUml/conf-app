@@ -17,13 +17,18 @@ on:
       node-version:
         type: string
         default: '24.x'
-    secrets:
       username:
+        type: string
         required: true
+        description: 'Confluence username used by the Playwright auth bootstrap'
       password:
+        type: string
         required: true
+        description: 'Confluence password used by the Playwright auth bootstrap'
       otp:
+        type: string
         required: true
+        description: 'TOTP secret used by tests/e2e-tests/utils/otp.js'
 
 jobs:
   test:
@@ -67,9 +72,9 @@ jobs:
         env:
           APP: ${{ inputs.app }}
           CI: true
-          ZENUML_STAGE_USERNAME: ${{ secrets.username }}
-          ZENUML_STAGE_PASSWORD: ${{ secrets.password }}
-          ATLASSIAN_OTP: ${{ secrets.otp }}
+          ZENUML_STAGE_USERNAME: ${{ inputs.username }}
+          ZENUML_STAGE_PASSWORD: ${{ inputs.password }}
+          ATLASSIAN_OTP: ${{ inputs.otp }}
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

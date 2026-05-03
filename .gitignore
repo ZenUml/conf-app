@@ -41,6 +41,7 @@ wrangler.toml
 playwright-report/
 test-results/
 *.png
+!public/image/*.png
 .harness/
 .worktrees/
 .mcp.json

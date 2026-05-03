@@ -1,0 +1,89 @@
+---
+name: ship-branch
+description: Ship the current branch from local validation through to merged on master with staging deployed and draft releases created. Orchestrates validate-branch, submit-branch, and land-pr in sequence. Use when the user says "ship", "ship it", "ship this branch", "merge this", or wants to go from local branch to merged in one command. Stops at the first failure. Does NOT deploy to production — use /release-app after shipping.
+---
+
+# Ship Branch
+
+Orchestrate the full path from local branch to merged on master. This skill composes sub-skills in sequence, stopping at the first failure.
+
+**Note:** This gets your code to master with staging deployed and draft releases created. Production deployment is a separate step via `/release-app`.
+
+## Flow
+
+```
+validate-branch → FAIL → stop, report
+     | PASS
+submit-branch (as Ready, not Draft) → FAIL → stop, report
+     | single CI run with E2E included
+babysit-pr → EXHAUSTED → stop, "CI blocked"
+     | GREEN (incl. E2E)
+land-pr → BLOCKED → stop, report
+     | MERGED
+     done → suggest /release-app if production deploy is needed
+```
+
+## Steps
+
+### Step 1: Validate locally
+
+Invoke `/validate-branch`. If it reports FAIL, stop and show the failure. Fix locally before shipping.
+
+### Step 2: Submit as PR — Ready, not Draft
+
+Push the branch and create the PR as **Ready for Review** (omit `--draft`). Ship-branch means immediate landing intent — there's no iterative phase, so Draft would only generate a redundant `ready_for_review` event when we flip it, triggering two CI runs unnecessarily.
+
+```bash
+git push -u origin <branch>
+gh pr create --base master --title "<title>" --body "..."
+```
+
+Note: `/submit-branch` defaults to Draft. Override it here by running `gh pr create` directly without `--draft`. If a PR already exists for the branch, check its draft state — if Draft, flip it Ready now (`gh pr ready <PR>`), then proceed.
+
+On success, note the PR number and URL.
+
+### Step 3: Get CI green
+
+Invoke `/babysit-pr` with the PR number from Step 2. It will monitor CI (E2E runs because the PR is Ready from the start), diagnose failures, attempt fixes (up to 3 retries), and report back.
+
+If babysit-pr exhausts all 3 retry attempts, stop and report "CI blocked" with the babysit report.
+
+### Step 4: Land and verify
+
+**Confirm with the user before merging** unless they explicitly said "ship it".
+
+Invoke `/land-pr` with the PR number. If merge is blocked, stop and report.
+
+On success, report the draft releases created and suggest `/release-app` if the user wants to go to production.
+
+## Rules
+
+- **Each step is a hard boundary.** No step reaches back to retry a previous step.
+- **No auto-rollback.** Stop and report on any failure. The developer decides next steps.
+- **Confirm before merge.** Pause and confirm with the user before the land-pr step unless they explicitly said "ship it".
+
+## Output
+
+Final report:
+
+```
+## Ship Report: <branch-name>
+- Validation: PASS
+- PR: #<number> (<url>)
+- CI: GREEN
+- Merge: SQUASHED into master (<sha>)
+- Staging: Deployed (lite, full, full-forge, diagramly)
+- Draft releases: Created
+- Production: Not yet — run /release-app to deploy to production
+```
+
+Or on failure:
+
+```
+## Ship Report: <branch-name>
+- Validation: PASS
+- PR: #<number>
+- CI: FAILED — <job name>
+- Stopped at: <step name>
+- Details: <failure summary>
+```

@@ -59,21 +59,6 @@ export const APP_PROFILES: Record<string, AppProfile> = {
   },
   'zenuml-full@stg': {
     id: 'zenuml-full@stg',
-    domain: 'zenuml-stg.atlassian.net',
-    spaceKey: 'ZS',
-    parentPageId: '177176629',
-    parentPageName: 'Before release test pages',
-    isLite: false,
-    isForge: true,
-    macros: ALL_MACROS,
-    renderMacros: ALL_MACROS,
-    addonKey: 'com.zenuml.confluence-addon',
-    sequenceMacroKey: 'zenuml-sequence-macro',
-    customContentKey: 'zenuml-content-sequence',
-    appLabel: '',
-  },
-  'zenuml-full-forge@stg': {
-    id: 'zenuml-full-forge@stg',
     domain: 'full-stg.atlassian.net',
     spaceKey: 'SD',
     parentPageId: '229492',
@@ -133,7 +118,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     addonKey: 'com.zenuml.confluence-addon',
     sequenceMacroKey: 'zenuml-sequence-macro',
     customContentKey: 'zenuml-content-sequence',
-    // On zenuml.atlassian.net, the Full Forge app coexists with Lite and Diagramly.
+    // On zenuml.atlassian.net, the Full app coexists with Lite and Diagramly.
     // appLabel disambiguates ZenUML for Confluence from Diagramly for Confluence.
     appLabel: 'ZenUML for Confluence',
   },

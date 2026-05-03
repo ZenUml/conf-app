@@ -72,7 +72,7 @@ Final report:
 - PR: #<number> (<url>)
 - CI: GREEN
 - Merge: SQUASHED into main (<sha>)
-- Staging: Deployed (lite, full, full-forge, diagramly)
+- Staging: Deployed (lite, full, diagramly)
 - Draft releases: Created
 - Production: Not yet — run /release-app to deploy to production
 ```

@@ -76,15 +76,15 @@ jobs:
       - name: Deploy to Forge Staging
         run: |
           pnpm forge:deploy:enable-analytics
-          pnpm forge:deploy:${{ inputs.variant == 'full-forge' && 'full' || inputs.variant }}:staging
+          pnpm forge:deploy:${{ inputs.variant }}:staging
       - name: Install Lite to lite-stg.atlassian.net
         if: inputs.variant == 'lite'
         run: |
           pnpm forge:install:lite:staging
           pnpm forge:upgrade:lite:staging
         continue-on-error: true
-      - name: Install Full Forge to full-stg.atlassian.net
-        if: inputs.variant == 'full-forge'
+      - name: Install Full to full-stg.atlassian.net
+        if: inputs.variant == 'full'
         run: pnpm forge:install:full:staging || pnpm forge:upgrade:full:staging
         continue-on-error: true
       - name: Install Diagramly to dia-stg.atlassian.net
@@ -97,8 +97,8 @@ jobs:
         run: |
           case "${{ inputs.variant }}" in
             lite)      SITE="zenuml-stg.atlassian.net"; TYPE="Forge" ;;
-            full)      SITE="zenuml-stg.atlassian.net"; TYPE="Forge" ;;
-            diagramly) SITE="dia-stg.atlassian.net";   TYPE="Forge" ;;
+            full)      SITE="full-stg.atlassian.net";   TYPE="Forge" ;;
+            diagramly) SITE="dia-stg.atlassian.net";    TYPE="Forge" ;;
           esac
           echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY

@@ -16,9 +16,9 @@ This skill targets **ZenUml/conf-app** (conf-app). All commands run from the con
 The `Build, Test and Draft Release` workflow runs on every push and does:
 
 1. **Build + unit tests** — `pnpm install` + `pnpm test:unit`
-2. **Staging deploy** — 4 variants (lite, full, full-forge, diagramly) deployed to Cloudflare Pages
+2. **Staging deploy** — 3 variants (lite, full, diagramly) deployed to Cloudflare Pages
 3. **Staging E2E** — Playwright tests run against live Confluence staging instances for each variant
-4. **Draft releases** — created on main only (lite, full, full-forge, diagramly)
+4. **Draft releases** — created on main only (lite, full, diagramly)
 
 Steps 2-4 run in parallel per variant. E2E depends on its variant's staging deploy + build passing.
 

@@ -16,7 +16,6 @@ vi.mock('@/utils/uuid', () => {
 // }
 
 describe('Content Provider', () => {
-  let gtag: any;
   const contentId = 'abcd'
 
   beforeEach(() => {
@@ -34,10 +33,6 @@ describe('Content Provider', () => {
     mockApConfluence = mockAp.confluence as MockApConfluence;
     // @ts-ignore
     // macro = new Macro(new ApWrapper2(mockAp));
-
-    gtag = vi.fn();
-    // @ts-ignore
-    window.gtag = gtag;
   });
 
   it('should default to example', async () => {

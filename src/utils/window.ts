@@ -132,13 +132,6 @@ export async function _awaitableTrackEvent(
     } catch (e) {
       console.error("Error in calling mixpanel.track", e);
     }
-
-    try {
-      // @ts-ignore
-      window.gtag && window.gtag("event", action, eventDetails);
-    } catch (e) {
-      console.log("Error in calling gtag", e);
-    }
   } catch (e) {
     console.error(
       "Error in trackingEvent. Please report to our helpdesk: https://zenuml.atlassian.net/servicedesk/customer/portals",

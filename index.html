@@ -30,11 +30,64 @@
 	<script type="text/javascript" src="/drawio/js/grapheditor/Init.js"></script>
 	<script type="text/javascript" src="/drawio/js/grapheditor/Graph.js"></script>
 	<script type="text/javascript" src="/drawio/js/grapheditor/Shapes.js"></script>
-
 	<script type="text/javascript">
-		var STENCIL_PATH = 'stencils';
-		var IMAGE_PATH = 'images';
-		var STYLE_PATH = 'styles';
+		var SHAPES_PATH = '/drawio/shapes';
+		var STENCIL_PATH = '/drawio/stencils';
+		var IMAGE_PATH = '/drawio/images';
+		var STYLE_PATH = '/drawio/styles';
+
+		// Register stencil libraries so mxStencilRegistry.getStencil() can resolve
+		// shapes like `shape=mxgraph.aws3.lambda` in the viewer. Each entry maps a
+		// "basename" (the second segment of the shape name — see
+		// mxStencilRegistry.getBasenameForStencil in Graph.js) to the JS shape
+		// definitions and/or XML stencils that back it. Files are fetched lazily
+		// on first use so this adds no upfront cost.
+		//
+		// The mapping mirrors DrawIO's own Editor.js (see
+		// public/drawio/js/diagramly/Editor.js, ~line 7920) — the embedded viewer
+		// loads the basic mxGraph runtime but not Editor.js, so the libraries map
+		// stays empty and stencil-backed shapes fall back to a solid rectangle
+		// filled with the shape's fillColor. The aws3 entry is added on top of
+		// the official list to keep legacy AWS-2017 diagrams (mxgraph.aws3.*)
+		// rendering correctly.
+		(function () {
+			if (typeof mxStencilRegistry === 'undefined') return;
+			var L = mxStencilRegistry.libraries;
+			L['arrows2'] = [SHAPES_PATH + '/mxArrows.js'];
+			L['atlassian'] = [STENCIL_PATH + '/atlassian.xml', SHAPES_PATH + '/mxAtlassian.js'];
+			L['bpmn'] = [SHAPES_PATH + '/mxBasic.js', STENCIL_PATH + '/bpmn.xml', SHAPES_PATH + '/bpmn/mxBpmnShape2.js'];
+			L['bpmn2'] = [SHAPES_PATH + '/mxBasic.js', STENCIL_PATH + '/bpmn.xml', SHAPES_PATH + '/bpmn/mxBpmnShape2.js'];
+			L['c4'] = [SHAPES_PATH + '/mxC4.js'];
+			L['cisco19'] = [SHAPES_PATH + '/mxCisco19.js', STENCIL_PATH + '/cisco19.xml'];
+			L['dfd'] = [SHAPES_PATH + '/mxDFD.js'];
+			L['er'] = [SHAPES_PATH + '/er/mxER.js'];
+			L['kubernetes'] = [SHAPES_PATH + '/mxKubernetes.js', STENCIL_PATH + '/kubernetes.xml'];
+			L['flowchart'] = [SHAPES_PATH + '/mxFlowchart.js', STENCIL_PATH + '/flowchart.xml'];
+			L['lean_mapping'] = [SHAPES_PATH + '/mxLeanMap.js', STENCIL_PATH + '/lean_mapping.xml'];
+			L['basic'] = [SHAPES_PATH + '/mxBasic.js', STENCIL_PATH + '/basic.xml'];
+			L['floorplan'] = [SHAPES_PATH + '/mxFloorplan.js', STENCIL_PATH + '/floorplan.xml'];
+			L['bootstrap'] = [SHAPES_PATH + '/mxBootstrap.js', SHAPES_PATH + '/mxBasic.js', STENCIL_PATH + '/bootstrap.xml'];
+			L['gmdl'] = [SHAPES_PATH + '/mxGmdl.js', STENCIL_PATH + '/gmdl.xml'];
+			L['gcp2'] = [SHAPES_PATH + '/mxGCP2.js', STENCIL_PATH + '/gcp2.xml'];
+			L['ibm'] = [SHAPES_PATH + '/mxIBM.js', STENCIL_PATH + '/ibm.xml'];
+			L['cabinets'] = [SHAPES_PATH + '/mxCabinets.js', STENCIL_PATH + '/cabinets.xml'];
+			L['archimate'] = [SHAPES_PATH + '/mxArchiMate.js'];
+			L['archimate3'] = [SHAPES_PATH + '/mxArchiMate3.js'];
+			L['sysml'] = [SHAPES_PATH + '/mxSysML.js'];
+			L['eip'] = [SHAPES_PATH + '/mxEip.js', STENCIL_PATH + '/eip.xml'];
+			L['networks'] = [SHAPES_PATH + '/mxNetworks.js', STENCIL_PATH + '/networks.xml'];
+			L['aws3'] = [STENCIL_PATH + '/aws3.xml']; // legacy AWS-2017 stencils — not in upstream Editor.js
+			L['aws3d'] = [SHAPES_PATH + '/mxAWS3D.js', STENCIL_PATH + '/aws3d.xml'];
+			L['aws4'] = [SHAPES_PATH + '/mxAWS4.js', STENCIL_PATH + '/aws4.xml'];
+			L['aws4b'] = [SHAPES_PATH + '/mxAWS4.js', STENCIL_PATH + '/aws4.xml'];
+			L['android'] = [SHAPES_PATH + '/mxAndroid.js', STENCIL_PATH + '/android/android.xml'];
+			L['ios'] = [SHAPES_PATH + '/mockup/mxMockupiOS.js'];
+			L['ios7icons'] = [STENCIL_PATH + '/ios7/icons.xml'];
+			L['ios7ui'] = [SHAPES_PATH + '/ios7/mxIOS7Ui.js', STENCIL_PATH + '/ios7/misc.xml'];
+			L['infographic'] = [SHAPES_PATH + '/mxInfographic.js'];
+			L['rackGeneral'] = [SHAPES_PATH + '/rack/mxRack.js', STENCIL_PATH + '/rack/general.xml'];
+			L['rackF5'] = [STENCIL_PATH + '/rack/f5.xml'];
+		})();
 
 		var urlParams = (function (url) {
 			var result = new Object();

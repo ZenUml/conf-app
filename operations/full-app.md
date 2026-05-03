@@ -1,4 +1,4 @@
-# Full Forge App — Operations
+# Full App — Operations
 
 ## Identity
 

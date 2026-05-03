@@ -77,7 +77,7 @@ If Step 4 was skipped, say so explicitly: "Step 4 skipped — backend-only chang
 ## What CI does beyond this
 
 After you push, CI runs lint/unit/build plus:
-- Deploys all 4 variants (lite, full, full-forge, diagramly) to staging
+- Deploys all 3 variants (lite, full, diagramly) to staging
 - Runs E2E tests against staging Confluence instances
 - On main only: creates draft releases for each variant
 

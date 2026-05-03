@@ -107,7 +107,7 @@ jobs:
     name: "E2E: Full"
     uses: ./.github/workflows/e2e-test.yml
     with:
-      app: zenuml-full-forge@stg
+      app: zenuml-full@stg
       suite: insert
       artifact-suffix: full-stg
       username: ${{ vars.ZENUML_STAGE_USERNAME }}

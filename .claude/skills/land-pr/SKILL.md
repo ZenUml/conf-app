@@ -10,9 +10,9 @@ Merge a green PR to `main` and verify CI succeeds. In this repo, **merge to main
 ## What happens on merge to main
 
 1. Build + unit tests
-2. Deploy all 4 variants (lite, full, full-forge, diagramly) to Cloudflare staging
+2. Deploy all 3 variants (lite, full, diagramly) to Cloudflare staging
 3. Run E2E tests against staging Confluence instances
-4. Create draft GitHub releases for each variant (lite, full, full-forge, diagramly)
+4. Create draft GitHub releases for each variant (lite, full, diagramly)
 
 Production deployment requires manually publishing those draft releases (or using `/release-app`).
 

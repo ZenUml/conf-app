@@ -30,7 +30,12 @@
 	<link rel="stylesheet" href="/drawio/mxgraph/css/common.css">
 	<script type="text/javascript">
 		// Read by mxClient.js at evaluation time (must be set BEFORE the script tag below).
+		// mxLoadStylesheets=false stops mxClient.link("stylesheet","mxgraph/css/common.css") (line 9).
+		// mxLoadResources=false stops the synchronous XHR for "./resources/graph.txt" (line 1094);
+		// our app intentionally skips core mx language bundles — see Init.js comment about
+		// grapheditor.properties holding everything we need.
 		var mxLoadStylesheets = false;
+		var mxLoadResources = false;
 	</script>
 	<script type="text/javascript" src="/drawio/js/sanitizer/purify.min.js"></script>
 	<script type="text/javascript" src="/drawio/mxgraph/mxClient.js"></script>

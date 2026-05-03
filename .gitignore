@@ -45,6 +45,7 @@ test-results/
 !public/drawio/**/*.png
 .harness/
 .worktrees/
+.worktree/
 .mcp.json
 
 # Local Mixpanel exports — raw production telemetry, never commit

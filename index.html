@@ -31,10 +31,16 @@
 	<script type="text/javascript" src="/drawio/js/grapheditor/Graph.js"></script>
 	<script type="text/javascript" src="/drawio/js/grapheditor/Shapes.js"></script>
 	<script type="text/javascript">
-		var SHAPES_PATH = '/drawio/shapes';
-		var STENCIL_PATH = '/drawio/stencils';
-		var IMAGE_PATH = '/drawio/images';
-		var STYLE_PATH = '/drawio/styles';
+		// Use relative paths. Vite rewrites the leading "/" on <script src> at
+		// build time so the script tags above hit the right files inside the
+		// Forge iframe (hosted at <host>/<app-id>/<install-id>/<resource>/main/_ctx_<…>/).
+		// JS string constants are NOT rewritten by Vite — an absolute "/drawio/…"
+		// here would resolve to the CDN host root in production, where no files
+		// exist, and stencil XHRs would silently fail (broken AWS icons in viewer).
+		var SHAPES_PATH = './drawio/shapes';
+		var STENCIL_PATH = './drawio/stencils';
+		var IMAGE_PATH = './drawio/images';
+		var STYLE_PATH = './drawio/styles';
 
 		// Register stencil libraries so mxStencilRegistry.getStencil() can resolve
 		// shapes like `shape=mxgraph.aws3.lambda` in the viewer. Each entry maps a

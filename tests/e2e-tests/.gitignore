@@ -1,0 +1,12 @@
+playwright-report/
+test-results/
+screenshots/
+auth-state.json
+.api-lock
+test-pages.json
+smoke-test-result-*.png
+.env
+auth-state-*.json
+persona-videos/
+persona-e2e-videos/
+persona-e2e-screenshots/

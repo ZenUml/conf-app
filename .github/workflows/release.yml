@@ -1,0 +1,164 @@
+# GitHub Actions Workflow created for handling the release process based on the draft release prepared
+# with the Build workflow. Running the publishPlugin task requires the PUBLISH_TOKEN secret provided.
+
+name: Release
+on:
+  release:
+    types: [prereleased, released]
+
+jobs:
+  release:
+    name: ${{ github.event.release.tag_name }} to production
+#    environment:  # It will wait for approval if we add an environment
+#      name: staging
+    runs-on: ubuntu-latest
+    env:
+      FORGE_EMAIL: "${{ vars.FORGE_EMAIL }}"
+      FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN }}"
+    outputs:
+      license: ${{ steps.properties.outputs.license }}
+    steps:
+      # Check out current repository
+      - name: Fetch Sources
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      # Set environment variables
+      - name: Export Properties
+        id: properties
+        shell: bash
+        run: |
+          # extract variant from tag: v{TS}-{variant} (e.g. full, lite, diagramly)
+          VARIANT=$(echo ${{ github.event.release.tag_name }} | sed 's/^v[0-9.]*-//')
+          LICENSE="$VARIANT"
+          echo "::set-output name=variant::$VARIANT"
+          echo "::set-output name=license::$LICENSE"
+          # Map diagramly to lite for Cloudflare project (diagramly uses conf-lite)
+          if [ "$LICENSE" = "diagramly" ]; then
+            echo "::set-output name=cf_project::lite"
+          else
+            echo "::set-output name=cf_project::$LICENSE"
+          fi
+      - name: Build and publish to Cloudflare
+        uses: ./.github/actions/wrangler-publish
+        with:
+          node-version: '24.x'
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          license: ${{ steps.properties.outputs.license }}
+          project: conf-${{ steps.properties.outputs.cf_project }}
+          environment: prod
+      - name: Remove contentBylineItem in manifest.yml
+        if: ${{ steps.properties.outputs.license != 'diagramly' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"])' -i manifest.yml
+      - name: Remove globalSettings and globalPage for Diagramly
+        if: ${{ steps.properties.outputs.license == 'diagramly' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"])' -i manifest.yml
+      - name: Remove embed macro for Diagramly
+        if: ${{ steps.properties.outputs.license == 'diagramly' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))' -i manifest.yml
+      - name: Remove licensing for Lite
+        if: ${{ steps.properties.outputs.license == 'lite' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.app.licensing)' -i manifest.yml
+      - name: Upload final manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifest-${{ steps.properties.outputs.license }}-prod
+          path: manifest.yml
+      - name: Deploy "ZenUML for Confluence" to Forge Production
+        if: ${{ steps.properties.outputs.license == 'lite' }}
+        run: |
+          pnpm forge:deploy:enable-analytics
+          pnpm forge:deploy:lite:prod
+      - name: Deploy "ZenUML for Confluence Full" to Forge Production
+        if: ${{ steps.properties.outputs.license == 'full' }}
+        run: |
+          pnpm forge:deploy:enable-analytics
+          pnpm forge:deploy:full:prod
+      - name: Deploy "Diagramly for Confluence" to Forge Production
+        if: ${{ steps.properties.outputs.license == 'diagramly' }}
+        run: |
+          rm -rf dist/drawio
+          pnpm forge:deploy:enable-analytics
+          pnpm forge:deploy:diagramly:prod
+      - name: Deploy "ZenUML for Confluence Full" to Forge Production
+        if: ${{ steps.properties.outputs.variant == 'full' }}
+        run: |
+          pnpm forge:deploy:enable-analytics
+          pnpm forge:deploy:full:prod
+
+  deploy-cron-worker:
+    name: Deploy Cron Worker to Production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.x
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts --filter cron-aggregate
+      - name: Deploy cron-aggregate to production
+        working-directory: workers/cron-aggregate
+        run: npx wrangler deploy --env production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  smoke-test:
+    needs: release
+    name: Smoke Test (Prod) — ${{ needs.release.outputs.license }}
+    runs-on: ubuntu-latest
+    env:
+      APP: ${{ needs.release.outputs.license == 'lite' && 'zenuml-lite@prod' || needs.release.outputs.license == 'full' && 'zenuml-full@prod' || 'diagramly@prod' }}
+    steps:
+      - name: Set commit status → pending
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+        run: |
+          gh api --method POST \
+            "/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state=pending \
+            -f context="external-e2e/${{ env.APP }}" \
+            -f description="Smoke test queued on public runner"
+
+      - name: Dispatch public E2E workflow
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_DISPATCH_TOKEN }}
+        run: |
+          gh workflow run run-external-e2e.yml \
+            --repo ZenUml/conf-app-e2e \
+            --ref main \
+            -f source_repo="${{ github.repository }}" \
+            -f source_sha="${{ github.sha }}" \
+            -f pr_number="" \
+            -f app="${{ env.APP }}" \
+            -f suite="insert"
+
+      - name: Wait for smoke test result
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+        run: |
+          for i in $(seq 1 60); do
+            STATE=$(gh api "/repos/${{ github.repository }}/commits/${{ github.sha }}/statuses" \
+              -q "[.[] | select(.context == \"external-e2e/${{ env.APP }}\")] | first | .state")
+            echo "attempt $i: $STATE"
+            if [ "$STATE" = "success" ]; then exit 0; fi
+            if [ "$STATE" = "failure" ] || [ "$STATE" = "error" ]; then
+              echo "Smoke test failed" && exit 1
+            fi
+            sleep 30
+          done
+          echo "Timed out (30 min) waiting for smoke test result" && exit 1

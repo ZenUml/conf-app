@@ -1,0 +1,15 @@
+{
+  "name": "atlassian-events",
+  "version": "1.0.0",
+  "description": "",
+  "main": "get_csv.js",
+  "scripts": {
+    "get": "node get_csv.js",
+    "get-events": "node get_events.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "aws-sdk": "^2.1386.0"
+  }
+}

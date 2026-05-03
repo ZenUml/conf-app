@@ -1,0 +1,106 @@
+name: Staging Deploy
+
+on:
+  workflow_call:
+    inputs:
+      variant:
+        required: true
+        type: string
+        description: 'lite, full, or diagramly'
+      license:
+        required: true
+        type: string
+        description: 'Build license passed to wrangler-publish'
+      project:
+        required: true
+        type: string
+        description: 'Cloudflare Pages project name'
+      environment:
+        required: true
+        type: string
+        description: 'GitHub environment name'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+    env:
+      FORGE_EMAIL: "${{ vars.FORGE_EMAIL }}"
+      FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN }}"
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and publish
+        uses: ./.github/actions/wrangler-publish
+        with:
+          node-version: '24.x'
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          license: ${{ inputs.license }}
+          project: ${{ inputs.project }}
+          environment: stg
+
+      # Lite: remove contentBylineItem and licensing
+      - name: Remove contentBylineItem from manifest
+        if: inputs.variant == 'lite'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"])' -i manifest.yml
+      - name: Remove licensing (Lite is free)
+        if: inputs.variant == 'lite'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.app.licensing)' -i manifest.yml
+      - name: Upload final manifest
+        if: inputs.variant == 'lite'
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifest-lite-staging
+          path: manifest.yml
+
+      # Diagramly: remove dashboard and embed macro
+      - name: Remove dashboard from manifest
+        if: inputs.variant == 'diagramly'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"])' -i manifest.yml
+      - name: Remove embed macro from manifest
+        if: inputs.variant == 'diagramly'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))' -i manifest.yml
+
+      # Forge deploy (all variants)
+      - name: Deploy to Forge Staging
+        run: |
+          pnpm forge:deploy:enable-analytics
+          pnpm forge:deploy:${{ inputs.variant == 'full-forge' && 'full' || inputs.variant }}:staging
+      - name: Install Lite to lite-stg.atlassian.net
+        if: inputs.variant == 'lite'
+        run: |
+          pnpm forge:install:lite:staging
+          pnpm forge:upgrade:lite:staging
+        continue-on-error: true
+      - name: Install Full Forge to full-stg.atlassian.net
+        if: inputs.variant == 'full-forge'
+        run: pnpm forge:install:full:staging || pnpm forge:upgrade:full:staging
+        continue-on-error: true
+      - name: Install Diagramly to dia-stg.atlassian.net
+        if: inputs.variant == 'diagramly'
+        run: pnpm forge:install:diagramly:staging || pnpm forge:upgrade:diagramly:staging
+        continue-on-error: true
+
+      - name: Write deployment summary
+        if: always()
+        run: |
+          case "${{ inputs.variant }}" in
+            lite)      SITE="zenuml-stg.atlassian.net"; TYPE="Forge" ;;
+            full)      SITE="zenuml-stg.atlassian.net"; TYPE="Forge" ;;
+            diagramly) SITE="dia-stg.atlassian.net";   TYPE="Forge" ;;
+          esac
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Variant  | ${{ inputs.variant }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| App type | ${TYPE} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Confluence site | ${SITE} |" >> $GITHUB_STEP_SUMMARY

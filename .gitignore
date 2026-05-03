@@ -1,0 +1,55 @@
+.env
+.env.mixpanel*
+.env.forge
+.env.forge.local
+.pluprc
+ui-debug.log
+.DS_Store
+node_modules
+.firebase
+firebase-debug.log
+tests/e2e-tests/screenshots
+
+dist
+.cache
+.wrangler
+wrangler.toml
+log.txt
+
+# Log files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw*
+
+# coverage
+coverage
+# Sentry Config File
+.env.sentry-build-plugin
+
+wrangler.toml
+!workers/*/wrangler.toml
+.playwright-mcp/
+playwright-report/
+test-results/
+*.png
+.harness/
+.worktrees/
+.mcp.json
+
+# Local Mixpanel exports — raw production telemetry, never commit
+mixpanel-export*
+
+# Sensitive files — never commit
+credentials.json
+.dev.vars
+scripts/dev-config/
+scripts/confluence_domain_migration/

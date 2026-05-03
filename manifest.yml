@@ -1,0 +1,304 @@
+environment:
+  variables:
+    - key: APP_ID
+      default: 8ad26115-211f-4216-971b-0540f606303d #Lite App ID
+    - key: BACKEND_API_BASE_URL
+      default: https://conf-stg-lite.zenuml.com
+    - key: CONNECT_KEY
+      default: com.zenuml.confluence-addon-lite
+    - key: LITE_KEY_SUFFIX
+      default: -lite
+    - key: LITE_TITLE_SUFFIX
+      default: " Lite"
+    - key: SEQUENCE_MACRO_KEY
+      default: zenuml-sequence-macro-lite
+    - key: CUSTOM_CONTENT_KEY
+      default: zenuml-content-sequence
+    - key: APP_LABEL
+      default: ZenUML for Confluence Lite
+    - key: DIAGRAMLY_BASE_URL
+      default: https://staging.diagramly.ai
+
+app:
+  id: ari:cloud:ecosystem::app/${APP_ID}
+  connect:
+    key: ${CONNECT_KEY}
+    remote: connect
+  runtime:
+    name: nodejs22.x
+  # Licensing: Enabled for Full and Diagramly (paid apps)
+  # CI/CD removes this block for Lite only via: yq eval 'del(.app.licensing)' -i manifest.yml
+  licensing:
+    enabled: true
+remotes:
+  # Addition of one or more new remotes, see https://developer.atlassian.com/platform/adopting-forge-from-connect/connect-forge-updates-preview/
+  - key: connect
+    baseUrl: ${BACKEND_API_BASE_URL}
+    operations:
+      - compute
+    auth:
+      appSystemToken:
+        enabled: true
+      appUserToken:
+        enabled: true
+  - key: diagramly #Note: This module will be removed for "ZenUML for Confluence Lite"
+    baseUrl: ${DIAGRAMLY_BASE_URL}
+    operations:
+      - compute
+    auth:
+      appSystemToken:
+        enabled: true
+      appUserToken:
+        enabled: true
+permissions:
+  scopes:
+    # "Addition of Forge-specific OAuth 2.0 scopes that inherit permissions already granted by a Connect scope the customer has already accepted" doesn't require admin approval only the first time, see https://developer.atlassian.com/platform/adopting-forge-from-connect/connect-forge-updates-preview/. To avoid admin approval in future, all the scopes that are already granted by Connect Read and Write scopes are added here.
+    - read:connect-confluence
+    - write:connect-confluence
+    - read:confluence-content.summary
+    - write:confluence-content
+    - read:confluence-content.all
+    - write:confluence-file
+    - read:confluence-content.permission
+    - search:confluence
+    - manage:confluence-configuration
+    - read:confluence-groups
+    - read:confluence-props
+    - read:confluence-space.summary
+    - read:confluence-user
+    - readonly:content.attachment:confluence
+    - write:confluence-props
+    - read:page:confluence
+    - read:content:confluence
+    - read:content-details:confluence
+    - read:space:confluence
+    - read:custom-content:confluence
+    - write:custom-content:confluence
+    - write:attachment:confluence
+    - write:app-data:confluence
+    - write:comment:confluence
+    - write:configuration:confluence
+    - write:content.property:confluence
+    - write:content.restriction:confluence
+    - write:content:confluence
+    - write:database:confluence
+    - write:embed:confluence
+    - write:folder:confluence
+    - write:inlinetask:confluence
+    - write:label:confluence
+    - write:page:confluence
+    - write:relation:confluence
+    - write:space.permission:confluence
+    - write:space.property:confluence
+    - write:space.setting:confluence
+    - write:space:confluence
+    - write:task:confluence
+    - write:user.property:confluence
+    - write:watcher:confluence
+    - write:whiteboard:confluence
+    - read:analytics.content:confluence
+    - read:app-data:confluence
+    - read:attachment:confluence
+    - read:comment:confluence
+    - read:configuration:confluence
+    - read:content.metadata:confluence
+    - read:content.permission:confluence
+    - read:content.property:confluence
+    - read:content.restriction:confluence
+    - read:content:confluence
+    - read:custom-content:confluence
+    - read:database:confluence
+    - read:embed:confluence
+    - read:folder:confluence
+    - read:group:confluence
+    - read:hierarchical-content:confluence
+    - read:inlinetask:confluence
+    - read:label:confluence
+    - read:page:confluence
+    - read:relation:confluence
+    - read:space-details:confluence
+    - read:space.permission:confluence
+    - read:space.property:confluence
+    - read:space.setting:confluence
+    - read:space:confluence
+    - read:task:confluence
+    - read:template:confluence
+    - read:user.property:confluence
+    - read:user:confluence
+    - read:watcher:confluence
+    - read:whiteboard:confluence
+    - read:app-user-token
+    - read:app-system-token
+    - storage:app
+  external:
+    # "Modifying content permissions CSP options, external permissions CSP options and URLs, or
+    # fetch permissions options and URLs" does not require admin approval.
+    fetch:
+      backend:
+        - https://zenuml.com
+        - https://*.zenuml.com
+        - remote: diagramly
+      client:
+        - https://zenuml.com
+        - https://*.zenuml.com
+        - https://www.plantuml.com
+        - https://*.mixpanel.com
+        - remote: diagramly
+        - https://cdn.mxpnl.com
+        - https://*.cdn.mxpnl.com
+    images:
+      - https://*.googletagmanager.com
+    scripts:
+      - https://*.googletagmanager.com
+      - https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js
+      - https://cdn.mxpnl.com/libs/mixpanel-recorder.min.js
+  content:
+    styles:
+      - unsafe-inline
+
+connectModules:
+  confluence:lifecycle:
+    - key: lifecycle-events
+      uninstalled: /uninstalled?version=2026.01_forge
+
+modules:
+  macro:
+    - key: ${SEQUENCE_MACRO_KEY}
+      title: Diagram (Mermaid, PlantUML & ZenUML)${LITE_TITLE_SUFFIX}
+      description: Create diagrams with Mermaid, PlantUML & ZenUML. ${APP_LABEL}
+      resource: main
+      config:
+        resource: main
+        viewportSize: max
+      adfExport:
+        function: exportMacro
+      resolver:
+        endpoint: remote-connect
+      icon: resource:main;image/diagram_macro_icon.png
+    - key: zenuml-openapi-macro${LITE_KEY_SUFFIX}
+      title: OpenAPI / Swagger${LITE_TITLE_SUFFIX}
+      description: Create an OpenAPI / Swagger Spec. ${APP_LABEL}
+      resource: main
+      config:
+        resource: main
+        viewportSize: max
+      adfExport:
+        function: exportMacro
+      resolver:
+        endpoint: remote-connect
+      icon: resource:main;image/openapi_macro_icon.png
+    - key: zenuml-graph-macro${LITE_KEY_SUFFIX}
+      title: Graph (DrawIO)${LITE_TITLE_SUFFIX}
+      description: Create a Graph powered by DrawIO. ${APP_LABEL}
+      resource: main
+      config:
+        resource: main
+        viewportSize: max
+      adfExport:
+        function: exportMacro
+      resolver:
+        endpoint: remote-connect
+      icon: resource:main;image/graph_macro_icon.png
+    - key: zenuml-embed-macro${LITE_KEY_SUFFIX}
+      title: Embed a Diagram, Graph or API Spec${LITE_TITLE_SUFFIX}
+      description: Embed an existing Diagram, Graph or API Spec. ${APP_LABEL}
+      resource: main
+      config:
+        resource: main
+        viewportSize: max
+      adfExport:
+        function: exportMacro
+      resolver:
+        endpoint: remote-connect
+      icon: resource:main;image/diagram_macro_icon.png
+  trigger:
+    - key: remote-installed-trigger
+      endpoint: remote-installed-endpoint
+      events:
+        - avi:forge:installed:app
+        - avi:forge:upgraded:app
+    - key: remote-page-behavior-trigger
+      endpoint: remote-page-behavior-endpoint
+      events:
+        - avi:confluence:viewed:page
+        - avi:confluence:updated:page
+  endpoint:
+    - key: remote-connect
+      remote: connect
+      auth:
+        appUserToken:
+          enabled: true
+        appSystemToken:
+          enabled: true
+    - key: remote-installed-endpoint
+      remote: connect
+      route:
+        path: /forge-installed
+      auth:
+        appSystemToken:
+          enabled: true
+    - key: remote-page-behavior-endpoint
+      remote: connect
+      route:
+        path: /forge-user-behavior
+      auth:
+        appSystemToken:
+          enabled: true
+  confluence:globalSettings: #Note: This module is applicable for "ZenUML for Confluence", not "Diagramly for Confluence"
+    - key: zenuml-get-started-settings
+      title: Get Started
+      resource: main
+      useAsGetStarted: true
+  confluence:globalPage: #Note: This module is applicable for "ZenUML for Confluence", not Diagramly for Confluence
+    - key: zenuml-dashboard-page
+      resource: main
+      title: ZenUML${LITE_TITLE_SUFFIX}
+      route: zenuml-dashboard
+      resolver:
+        endpoint: remote-connect
+  confluence:contentBylineItem: #Note: This module is applicable for "Diagramly for Confluence", not "ZenUML for Confluence"
+    - key: zenuml-byline-aiaide
+      resource: main
+      title: Aide${LITE_TITLE_SUFFIX}
+      icon: resource:main;image/ai-aide-logo.png
+      tooltip: AI Aide
+      viewportSize: fullscreen
+      viewportContainer: modal
+      resolver:
+        endpoint: remote-connect
+  confluence:customContent:
+    - key: ${CUSTOM_CONTENT_KEY}
+      supportedContainerTypes:
+        - space
+        - page
+        - blogpost
+      supportedChildTypes:
+        - attachment
+        - comment
+      title: ZenUML
+      resource: main
+      bodyType: raw
+      indexing: true
+      migratedFromConnect: true
+    - key: zenuml-content-graph
+      supportedContainerTypes:
+        - space
+        - page
+        - blogpost
+      supportedChildTypes:
+        - attachment
+        - comment
+      title: ZenUML Graph
+      resource: main
+      bodyType: raw
+      indexing: true
+      migratedFromConnect: true
+  function:
+    - key: exportMacro
+      handler: export.handler
+
+resources:
+  - key: main
+    path: dist/
+    tunnel:
+      port: 8080

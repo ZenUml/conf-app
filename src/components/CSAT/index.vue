@@ -1,0 +1,226 @@
+<template>
+  <!-- BAR variant: in-flow footer strip below the workspace split -->
+  <transition name="slide-up">
+    <div
+      v-if="open && variant === 'bar'"
+      class="w-full border-t border-gray-200 bg-white flex items-center gap-4 px-5 py-2.5 flex-shrink-0"
+    >
+      <template v-if="!hasFeedback">
+        <span class="text-xs text-gray-500 whitespace-nowrap flex-shrink-0">Rate your experience</span>
+        <div class="flex items-center gap-1.5">
+          <button
+            v-for="(value, index) in score"
+            :key="value"
+            @click="handleSetValue(index + 1)"
+            class="text-xl w-8 h-8 rounded-md flex items-center justify-center hover:bg-gray-100 transition-colors duration-150 cursor-pointer"
+            :class="csatVal === index + 1 ? 'bg-gray-100 ring-1 ring-gray-300' : ''"
+          >{{ value }}</button>
+        </div>
+        <span class="text-xs text-gray-400 flex-1">
+          <span v-if="!csatVal" class="flex gap-3">
+            <span class="text-gray-300">Very bad</span>
+            <span class="text-gray-300">· · ·</span>
+            <span class="text-gray-300">Very good</span>
+          </span>
+          <a
+            v-else
+            target="_blank"
+            href="https://github.com/orgs/ZenUml/discussions"
+            @click="handleTellUsMoreClick"
+            class="text-blue-600 hover:underline text-xs"
+          >Tell us more →</a>
+        </span>
+        <div class="flex items-center gap-3 ml-auto flex-shrink-0">
+          <a
+            v-if="!csatVal"
+            target="_blank"
+            @click="handlePopTooFrequentlyClick"
+            href="https://zenuml.atlassian.net/servicedesk/customer/portals"
+            class="text-xs text-gray-400 hover:text-gray-600 hover:underline whitespace-nowrap"
+          >Too frequent?</a>
+          <button v-else @click="handleSkipClick" class="text-xs text-gray-400 hover:text-gray-600">Skip</button>
+          <button @click="handleDismiss" class="text-gray-300 hover:text-gray-500 text-lg leading-none" aria-label="Dismiss">×</button>
+        </div>
+      </template>
+      <template v-else>
+        <div class="flex items-center gap-2 text-sm text-gray-600 w-full justify-center">
+          <svg width="16" height="16" viewBox="0 0 36 36" fill="none">
+            <rect width="36" height="36" rx="18" fill="#1BA97F"/>
+            <path d="M12.7119 18L16.4619 21.75L23.9619 14.25" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>Thanks for your feedback!</span>
+          <button @click="handleCloseClick" class="ml-4 text-xs text-gray-400 hover:text-gray-600">Close</button>
+        </div>
+      </template>
+    </div>
+  </transition>
+
+  <!-- POPUP variant: original floating card (default, for viewer contexts) -->
+  <transition name="fade">
+    <div
+      v-if="open && variant === 'popup'"
+      class="fixed w-[470px] h-fit bottom-4 right-4 z-50 bg-white text-[#282828] py-10 px-12 rounded-xl drop-shadow-[0_20px_26px_rgba(176,176,176,0.35)]"
+    >
+      <div v-if="!hasFeedback">
+        <p class="font-bold text-lg">
+          Rate your experience with ZenUML
+        </p>
+        <div class="mt-8 flex justify-between text-sm">
+          <div
+            v-for="(value, index) in score"
+            :key="value"
+            @click="handleSetValue(index + 1)"
+            class="bg-[#F1F1F1] w-12 h-12 rounded-lg border-2 p-1.5 text-3xl flex items-center justify-center group hover:bg-[#e0e0e0] duration-200 cursor-pointer"
+            :class="csatVal === index + 1 ? 'border-[#444BFF]' : 'border-transparent'"
+          >
+            {{ value }}
+          </div>
+        </div>
+        <div class="mt-2.5 text-sm text-[#939393] flex justify-between">
+          <span>Very bad</span>
+          <span>Very good</span>
+        </div>
+        <div class="flex text-xs mt-10 justify-center">
+          <a
+            v-if="!csatVal"
+            target="_blank"
+            @click="handlePopTooFrequentlyClick"
+            data-event-label="csat_too_frequent"
+            class="text-[#939393] hover:text-[#282828] hover:underline"
+            href="https://zenuml.atlassian.net/servicedesk/customer/portals"
+          >Pop too frequently?</a>
+          <div v-else class="flex w-full text-sm gap-8 items-center cursor-pointer">
+            <span class="font-bold text-[#939393]" @click="handleSkipClick">Skip</span>
+            <a
+              target="_blank"
+              @click="handleTellUsMoreClick"
+              data-event-label="csat_tell_us_more"
+              class="px-7 text-base flex justify-center h-[52px] items-center flex-1 py-3 bg-[#282828] rounded-lg text-white"
+              href="https://github.com/orgs/ZenUml/discussions"
+            >Tell us more</a>
+          </div>
+        </div>
+      </div>
+      <div>
+        <transition name="fade-no-transform">
+          <div
+            class="bg-inherit rounded-lg flex flex-col py-[18px] -mx-[10px]"
+            v-if="hasFeedback && csatVal"
+          >
+            <div class="flex gap-2">
+              <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+                <rect width="36" height="36" rx="18" fill="#1BA97F"/>
+                <path d="M12.7119 18L16.4619 21.75L23.9619 14.25" stroke="white" stroke-width="1.125"
+                      stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="text-center text-4xl font-bold">Thank You</span>
+            </div>
+            <p class="mt-4">Your review was successfully submitted.</p>
+            <div class="flex justify-end mt-8">
+              <button class="h-[52px] px-8 py-3 bg-[#282828] rounded-[6px] text-white" @click="handleCloseClick">Close</button>
+            </div>
+          </div>
+        </transition>
+      </div>
+    </div>
+  </transition>
+</template>
+
+<script setup lang="ts">
+import {onMounted, onUnmounted, ref} from "vue";
+import useCSATState from "@/hooks/useCSATState";
+import {trackEvent} from "@/utils/window";
+import { useStore } from 'vuex';
+
+const props = defineProps<{ variant?: 'popup' | 'bar' }>();
+
+const score = ['\u{1F620}', '\u{1F612}', '\u{1F610}', '\u{1F60A}', '\u{1F60D}'];
+const hasFeedback = ref(false);
+const open = ref(false);
+const csatVal = ref<null | number>(null);
+const store = useStore();
+
+const variant = props.variant ?? 'popup';
+
+const {checkStateOfCSAT, updateStateOfCSAT} = useCSATState();
+
+let timer: number;
+
+onMounted(async () => {
+  const isPopped = await checkStateOfCSAT();
+  if (!isPopped && !store.state.lastDiagramWasAI) {
+    timer = setTimeout(() => {
+      open.value = true;
+    }, 1000 * 60)
+  }
+});
+
+onUnmounted(() => {
+  clearTimeout(timer)
+});
+
+const handleSkipClick = () => {
+  hasFeedback.value = true;
+}
+
+const handleDismiss = () => {
+  open.value = false;
+  updateStateOfCSAT();
+}
+
+const handlePopTooFrequentlyClick = () => {
+  trackEvent("csat", "csat_too_frequent", "operation");
+  open.value = false;
+  hasFeedback.value = false;
+  updateStateOfCSAT();
+}
+
+const handleTellUsMoreClick = () => {
+  trackEvent("csat", "csat_tell_us_more", "operation");
+  hasFeedback.value = true;
+}
+
+const handleCloseClick = () => {
+  trackEvent("csat", "click", "operation", {
+    csat_value: csatVal.value,
+  });
+
+  setTimeout(() => {
+    open.value = false;
+    hasFeedback.value = false;
+    updateStateOfCSAT();
+  }, 500);
+}
+
+const handleSetValue = (value: number) => {
+  csatVal.value = value;
+};
+</script>
+
+<style scoped>
+.fade-enter-active, .fade-leave-active {
+  transition: all .3s ease;
+}
+.fade-enter, .fade-leave-to {
+  opacity: 0;
+  transform: translateY(30px);
+}
+.fade-leave-active {
+  transform: translateY(30px);
+}
+
+.slide-up-enter-active, .slide-up-leave-active {
+  transition: all .25s ease;
+}
+.slide-up-enter-from, .slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.fade-no-transform-enter-active, .fade-no-transform-leave-active {
+  transition: opacity .3s ease;
+}
+.fade-no-transform-enter, .fade-no-transform-leave-to {
+  opacity: 0;
+}
+</style>

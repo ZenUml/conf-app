@@ -1,0 +1,356 @@
+name: Build, Test and Draft Release
+
+on:
+  push:
+    tags-ignore:
+      - '**' # do not run on tags
+    branches:
+      - '**'
+      - '!**ruixiang-e2e**'
+    paths-ignore:
+      - '**.md'
+      - '!CHANGELOG.md'
+      - 'docs/**'
+      - '.claude/**'
+      - '.cursor/**'
+  # pull_request events let us gate E2E on PR draft state. The pull_request
+  # synchronize event also fires on every push to a PR branch — concurrency
+  # below dedupes it against the matching push event.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - '**.md'
+      - '!CHANGELOG.md'
+      - 'docs/**'
+      - '.claude/**'
+      - '.cursor/**'
+
+# Cancel superseded runs on the same branch. Master never cancels so release
+# drafts are never lost mid-flight. `head_ref` is the source branch on
+# pull_request events; `ref_name` is the short branch name on push events.
+# Both resolve to the bare branch name, so push + pull_request synchronize
+# events on the same branch share one concurrency group (deduplicated).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  build:
+    name: Build and Unit Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.x
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      - name: Install dependencies (skip post-install scripts)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - run: pnpm test:unit
+  
+  staging-lite:
+    name: "Deploy: Lite"
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      variant: lite
+      license: lite
+      project: conf-stg-lite
+      environment: staging-lite
+    secrets: inherit
+
+  staging-lite-e2e-dispatch:
+    # Dispatch E2E to the public repo runner only when it actually matters:
+    #   - on master (post-merge / scheduled coverage), or
+    #   - on a PR that is Ready for Review (signals "I want this merged").
+    # Pushing to a Draft PR (or to a branch with no PR open) deploys but
+    # skips E2E so iterative work isn't gated on a slow test run.
+    if: |
+      github.ref == 'refs/heads/master' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    needs: [staging-lite, build]
+    name: "E2E: Dispatch Lite"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set commit status → pending
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+        run: |
+          gh api --method POST \
+            "/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state=pending \
+            -f context="external-e2e/zenuml-lite@stg" \
+            -f description="E2E queued on public runner"
+
+      - name: Dispatch public E2E workflow
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_DISPATCH_TOKEN }}
+        run: |
+          gh workflow run run-external-e2e.yml \
+            --repo ZenUml/conf-app-e2e \
+            --ref main \
+            -f source_repo="${{ github.repository }}" \
+            -f source_sha="${{ github.sha }}" \
+            -f pr_number="${{ github.event.pull_request.number || '' }}" \
+            -f app="zenuml-lite@stg" \
+            -f suite="insert"
+
+      - name: Wait for E2E result
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+        run: |
+          for i in $(seq 1 60); do
+            STATE=$(gh api "/repos/${{ github.repository }}/commits/${{ github.sha }}/statuses" \
+              -q '[.[] | select(.context == "external-e2e/zenuml-lite@stg")] | first | .state')
+            echo "attempt $i: $STATE"
+            if [ "$STATE" = "success" ]; then exit 0; fi
+            if [ "$STATE" = "failure" ] || [ "$STATE" = "error" ]; then
+              echo "E2E failed" && exit 1
+            fi
+            sleep 30
+          done
+          echo "Timed out (30 min) waiting for E2E result" && exit 1
+
+  staging-full:
+    # Lite is representative for feature-branch validation. Full + Diagramly
+    # only run on master to catch variant-specific regressions before release;
+    # this halves the per-push minutes on feature branches.
+    if: github.ref == 'refs/heads/master'
+    name: "Deploy: Full"
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      variant: full
+      license: full
+      project: conf-stg-full
+      environment: staging-full
+    secrets: inherit
+
+  staging-full-e2e-dispatch:
+    if: github.ref == 'refs/heads/master'
+    needs: [staging-full, build]
+    name: "E2E: Dispatch Full"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set commit status → pending
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+        run: |
+          gh api --method POST \
+            "/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state=pending \
+            -f context="external-e2e/zenuml-full-forge@stg" \
+            -f description="E2E queued on public runner"
+
+      - name: Dispatch public E2E workflow
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_DISPATCH_TOKEN }}
+        run: |
+          gh workflow run run-external-e2e.yml \
+            --repo ZenUml/conf-app-e2e \
+            --ref main \
+            -f source_repo="${{ github.repository }}" \
+            -f source_sha="${{ github.sha }}" \
+            -f pr_number="" \
+            -f app="zenuml-full-forge@stg" \
+            -f suite="insert"
+
+      - name: Wait for E2E result
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+        run: |
+          for i in $(seq 1 60); do
+            STATE=$(gh api "/repos/${{ github.repository }}/commits/${{ github.sha }}/statuses" \
+              -q '[.[] | select(.context == "external-e2e/zenuml-full-forge@stg")] | first | .state')
+            echo "attempt $i: $STATE"
+            if [ "$STATE" = "success" ]; then exit 0; fi
+            if [ "$STATE" = "failure" ] || [ "$STATE" = "error" ]; then
+              echo "E2E failed" && exit 1
+            fi
+            sleep 30
+          done
+          echo "Timed out (30 min) waiting for E2E result" && exit 1
+
+  staging-diagramly:
+    # See note on staging-full — master-only.
+    if: github.ref == 'refs/heads/master'
+    name: "Deploy: Diagramly"
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      variant: diagramly
+      license: diagramly
+      project: conf-stg-lite
+      environment: staging-diagramly
+    secrets: inherit
+
+  staging-diagramly-e2e-dispatch:
+    if: github.ref == 'refs/heads/master'
+    needs: [staging-diagramly, build]
+    name: "E2E: Dispatch Diagramly"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set commit status → pending
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+        run: |
+          gh api --method POST \
+            "/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state=pending \
+            -f context="external-e2e/diagramly@stg" \
+            -f description="E2E queued on public runner"
+
+      - name: Dispatch public E2E workflow
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_DISPATCH_TOKEN }}
+        run: |
+          gh workflow run run-external-e2e.yml \
+            --repo ZenUml/conf-app-e2e \
+            --ref main \
+            -f source_repo="${{ github.repository }}" \
+            -f source_sha="${{ github.sha }}" \
+            -f pr_number="" \
+            -f app="diagramly@stg" \
+            -f suite="insert"
+
+      - name: Wait for E2E result
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+        run: |
+          for i in $(seq 1 60); do
+            STATE=$(gh api "/repos/${{ github.repository }}/commits/${{ github.sha }}/statuses" \
+              -q '[.[] | select(.context == "external-e2e/diagramly@stg")] | first | .state')
+            echo "attempt $i: $STATE"
+            if [ "$STATE" = "success" ]; then exit 0; fi
+            if [ "$STATE" = "failure" ] || [ "$STATE" = "error" ]; then
+              echo "E2E failed" && exit 1
+            fi
+            sleep 30
+          done
+          echo "Timed out (30 min) waiting for E2E result" && exit 1
+
+  draft-release-lite:
+    name: "Draft: Lite"
+    # don't run on pull requests to avoid creating draft releases for pull requests
+    # only run on the master branch, to avoid cutting releases from feature branches
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
+    needs: [staging-lite-e2e-dispatch]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      repository-projects: write
+    steps:
+      # Check out current repository
+      - name: Fetch Sources
+        uses: actions/checkout@v5
+
+      - name: Export Properties
+        id: properties
+        shell: bash
+        run: |
+          VERSION="$(echo $(date +'%Y.%m.%d%H%M'))"
+          echo "version=$VERSION" >> $GITHUB_ENV
+
+      # Create new release draft - which is not publicly visible and requires manual acceptance
+      - name: Create Release Draft
+        id: createDraft
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ env.version }}-lite
+          name: v${{ env.version }}-lite
+          body: 'This is a draft release for the Lite version of the plugin.'
+          draft: true
+
+  draft-release-full:
+    name: "Draft: Full"
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
+    needs: [staging-full-e2e-dispatch]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      repository-projects: write
+    steps:
+      - name: Fetch Sources
+        uses: actions/checkout@v5
+
+      - name: Export Properties
+        id: properties
+        shell: bash
+        run: |
+          VERSION="$(echo $(date +'%Y.%m.%d%H%M'))"
+          echo "version=$VERSION" >> $GITHUB_ENV
+
+      - name: Create Release Draft
+        id: createDraft
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ env.version }}-full
+          name: v${{ env.version }}-full
+          body: 'This is a draft release for the Full version of the plugin.'
+          draft: true
+
+  draft-release-diagramly:
+    name: "Draft: Diagramly"
+    # don't run on pull requests to avoid creating draft releases for pull requests
+    # only run on the master branch, to avoid cutting releases from feature branches
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
+    needs: [staging-diagramly-e2e-dispatch]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      repository-projects: write
+    steps:
+      # Check out current repository
+      - name: Fetch Sources
+        uses: actions/checkout@v5
+
+      - name: Export Properties
+        id: properties
+        shell: bash
+        run: |
+          VERSION="$(echo $(date +'%Y.%m.%d%H%M'))"
+          echo "version=$VERSION" >> $GITHUB_ENV
+
+      # Create new release draft - which is not publicly visible and requires manual acceptance
+      - name: Create Release Draft
+        id: createDraft
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ env.version }}-diagramly
+          name: v${{ env.version }}-diagramly
+          body: 'This is a draft release for the Diagramly version of the plugin.'
+          draft: true
+
+  deploy-cron-worker:
+    name: "Cron: Deploy"
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.x
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts --filter cron-aggregate
+      - name: Deploy cron-aggregate to staging
+        working-directory: workers/cron-aggregate
+        run: npx wrangler deploy --env stg
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

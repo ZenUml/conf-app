@@ -1,0 +1,33 @@
+{
+  "name": "forge-console",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"pnpm run dev:server\" \"pnpm run dev:client\"",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:client": "vite --port 3457",
+    "build": "vite build && tsc -p tsconfig.server.json",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "fastify": "^5.2.1",
+    "@fastify/cors": "^10.0.2",
+    "@fastify/static": "^8.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitejs/plugin-vue": "^6.0.2",
+    "autoprefixer": "^10.4.13",
+    "concurrently": "^8.2.2",
+    "pinia": "^2.1.7",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^3.4.3",
+    "tsx": "^4.7.0",
+    "typescript": "^5.2.2",
+    "vite": "^7.2.2",
+    "vitest": "^2.1.9",
+    "vue": "^3.4.0"
+  }
+}

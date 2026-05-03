@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "include": [
+    "/attachment",
+    "/uninstalled",
+    "/track",
+    "/diagramly/generate",
+    "/diagramly/fix-diagram",
+    "/diagramly/chat",
+    "/diagram-likes",
+    "/diagram-likes/query",
+    "/diagram-likes/toggle",
+    "/diagram-likes/user-likes",
+    "/forge-custom-content",
+    "/api/features",
+    "/api/space-status",
+    "/api/space-license",
+    "/api/stripe-webhook",
+    "/api/metrics/evaluation",
+    "/forge-installed",
+    "/forge-user-behavior",
+    "/aggregate-events",
+    "/metrics-cache/query",
+    "/metrics-cache/update",
+    "/admin/metrics-inspect",
+    "/feature-flags"
+  ],
+  "exclude": []
+}

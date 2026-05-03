@@ -1,0 +1,36 @@
+# Cron Worker: aggregate daily counters and purge old events from D1
+# Runs daily at 2:00 AM UTC via Cloudflare Cron Trigger
+#
+# Deploy:
+#   pnpm --filter cron-aggregate deploy:stg
+#   pnpm --filter cron-aggregate deploy:prod
+
+name = "cron-aggregate"
+main = "src/index.ts"
+compatibility_date = "2024-11-11"
+compatibility_flags = ["nodejs_compat"]
+account_id = "8d5fc7ce04adc5096f52485cce7d7b3d"
+
+# Staging
+[env.stg]
+name = "cron-aggregate-stg"
+
+[env.stg.triggers]
+crons = ["0 2 * * *"]
+
+[[env.stg.d1_databases]]
+binding = "DB"
+database_name = "conf-zenuml-stg"
+database_id = "5894387c-08be-43d7-b8dc-0b7b8eb7c264"
+
+# Production
+[env.production]
+name = "cron-aggregate-prod"
+
+[env.production.triggers]
+crons = ["0 2 * * *"]
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "conf-zenuml-prod"
+database_id = "2e34f32e-5ddd-40dc-9e3d-019f9b1d431f"

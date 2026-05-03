@@ -1,0 +1,84 @@
+name: E2E Test
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        type: string
+        required: true
+        description: 'App profile (e.g., zenuml-lite@stg)'
+      suite:
+        type: string
+        default: 'all'
+        description: 'Test suite: all, insert, render'
+      artifact-suffix:
+        type: string
+        required: true
+      node-version:
+        type: string
+        default: '24.x'
+    secrets:
+      username:
+        required: true
+      password:
+        required: true
+      otp:
+        required: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.x
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+      # tests/e2e-tests is a standalone package (not in pnpm-workspace.yaml)
+      # with only @playwright/test, otpauth, and dotenv as dependencies. It does
+      # not import any code from the main workspace, so installing the main
+      # app's dependency tree here is dead weight (~60–90 s wall-clock per job).
+      - name: Install E2E test dependencies
+        run: cd tests/e2e-tests && pnpm install --ignore-workspace
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-pw-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
+      - name: Run tests
+        run: |
+          cd tests/e2e-tests
+          case "${{ inputs.suite }}" in
+            insert)  pnpm test:insert ;;
+            render)  pnpm test:render ;;
+            *)       pnpm test ;;
+          esac
+        env:
+          APP: ${{ inputs.app }}
+          CI: true
+          ZENUML_STAGE_USERNAME: ${{ secrets.username }}
+          ZENUML_STAGE_PASSWORD: ${{ secrets.password }}
+          ATLASSIAN_OTP: ${{ secrets.otp }}
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ inputs.artifact-suffix }}
+          path: ./tests/e2e-tests/playwright-report/
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ inputs.artifact-suffix }}
+          path: ./tests/e2e-tests/screenshots/

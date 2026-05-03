@@ -1,0 +1,39 @@
+{
+  "name": "confluence-plugin-e2e-tests",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test --ignore-snapshots --project=auth --project=pages --project=render --project=insert --project=syntax-validation",
+    "test:preview": "playwright test --project=preview",
+    "test:render": "playwright test --project=render",
+    "test:insert": "playwright test --project=insert",
+    "test:syntax-validation": "playwright test --project=syntax-validation",
+    "test:ai-repair": "playwright test --project=ai-repair",
+    "test:lite:stg": "APP=zenuml-lite@stg playwright test",
+    "test:lite:prod": "APP=zenuml-lite@prod playwright test",
+    "test:full:stg": "APP=zenuml-full@stg playwright test",
+    "test:full:prod": "APP=zenuml-full@prod playwright test",
+    "test:diagramly:stg": "APP=diagramly@stg playwright test",
+    "test:diagramly:prod": "APP=diagramly@prod playwright test",
+    "test:insert:lite:stg": "APP=zenuml-lite@stg playwright test --project=insert",
+    "test:insert:lite:prod": "APP=zenuml-lite@prod playwright test --project=insert",
+    "test:insert:full:stg": "APP=zenuml-full@stg playwright test --project=insert",
+    "test:insert:full:prod": "APP=zenuml-full@prod playwright test --project=insert",
+    "test:insert:diagramly:stg": "APP=diagramly@stg playwright test --project=insert",
+    "test:insert:diagramly:prod": "APP=diagramly@prod playwright test --project=insert",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:ui": "playwright test --ui",
+    "install:browsers": "playwright install"
+  },
+  "dependencies": {
+    "otpauth": "^9.5.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "dotenv": "^16.6.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

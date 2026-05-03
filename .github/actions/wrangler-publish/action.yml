@@ -1,0 +1,83 @@
+name: 'Build and publish using wrangler'
+description: 'Build the application with functions and publish it to cloudflare pages.'
+
+inputs:
+  node-version:
+    description: 'The node version'
+    required: true
+  cloudflare-api-token:
+    description: 'Cloudflare API Token'
+    required: true
+  cloudflare-account-id:
+    description: 'Cloudflare account ID'
+    required: true
+  license:
+    description: 'Full, Lite, or Diagramly'
+    required: true
+  project:
+    description: 'Project name of cloudflare pages'
+    required: true
+  environment:
+    description: 'Environment (stg or prod)'
+    required: true
+    default: 'stg'
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10.x
+    - uses: actions/setup-node@v5
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: 'pnpm'
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile --ignore-scripts
+      shell: bash
+      env:
+        NODE_OPTIONS: "--max-old-space-size=8192"
+    - name: pnpm build
+      run: pnpm build:${{ inputs.license }}
+      shell: bash
+      env:
+        NODE_OPTIONS: "--max-old-space-size=8192"
+        VITE_MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}
+    - name: Sync runtime env vars to Cloudflare Pages
+      run: |
+        printf '%s' '${{ vars.VITE_MIXPANEL_TOKEN }}' | npx wrangler pages secret put MIXPANEL_TOKEN --project-name=${{ inputs.project }}
+        printf '%s' '${{ vars.SENTRY_DSN }}' | npx wrangler pages secret put SENTRY_DSN --project-name=${{ inputs.project }}
+      shell: bash
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+    - name: Prepare wrangler config
+      run: |
+        # Select the appropriate config file based on environment
+        CONFIG_FILE="wrangler-${{ inputs.environment }}.toml"
+        
+        # Check if the config file exists
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "Error: Configuration file $CONFIG_FILE not found!"
+          exit 1
+        fi
+        
+        # Create wrangler.toml with the project name replaced
+        sed "s/name=\"conf-${{ inputs.environment }}\"/name=\"${{ inputs.project }}\"/" "$CONFIG_FILE" > wrangler.toml
+        cat wrangler.toml
+      shell: bash
+    - name: Run D1 Migrations
+      uses: cloudflare/wrangler-action@v3
+      with:
+        apiToken: ${{ inputs.cloudflare-api-token }}
+        accountId: ${{ inputs.cloudflare-account-id }}
+        command: d1 migrations apply DB --remote --env production
+    - name: Publish
+      uses: cloudflare/wrangler-action@v3
+      with:
+        apiToken: ${{ inputs.cloudflare-api-token }}
+        accountId: ${{ inputs.cloudflare-account-id }}
+        command: pages deploy dist --branch production --project-name=${{ inputs.project }}
+    - name: Cleanup
+      if: always()
+      run: rm -f wrangler.toml
+      shell: bash

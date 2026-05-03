@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Space License Admin</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #f5f5f5; color: #1a1a1a; line-height: 1.5; }
+    .container { max-width: 960px; margin: 0 auto; padding: 24px; }
+    h1 { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+    .subtitle { color: #666; font-size: 14px; margin-bottom: 24px; }
+
+    /* Auth bar */
+    .auth-bar { display: flex; gap: 8px; margin-bottom: 24px; align-items: center; }
+    .auth-bar input { flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: monospace; }
+    .auth-bar .status { font-size: 13px; color: #666; white-space: nowrap; }
+    .auth-bar .status.ok { color: #16a34a; }
+    .auth-bar .status.err { color: #dc2626; }
+
+    /* Cards */
+    .card { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+    .card h2 { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+
+    /* Form */
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group.full { grid-column: 1 / -1; }
+    .form-group label { font-size: 13px; font-weight: 500; color: #555; }
+    .form-group input { padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+    .form-group input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+
+    /* Buttons */
+    button { padding: 8px 16px; border: none; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.15s; }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-danger { background: #dc2626; color: #fff; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-secondary { background: #e5e5e5; color: #333; }
+    .btn-secondary:hover { background: #d4d4d4; }
+    .btn-sm { padding: 4px 10px; font-size: 13px; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .form-actions { display: flex; gap: 8px; margin-top: 12px; }
+
+    /* Table */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 8px 10px; border-bottom: 2px solid #e5e5e5; font-weight: 600; color: #555; white-space: nowrap; }
+    td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; }
+    tr:hover td { background: #fafafa; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 500; }
+    .badge.active { background: #dcfce7; color: #16a34a; }
+    .badge.inactive { background: #fee2e2; color: #dc2626; }
+    .badge.expired { background: #fef3c7; color: #d97706; }
+    .empty-state { text-align: center; padding: 40px 20px; color: #999; }
+    .mono { font-family: monospace; font-size: 12px; }
+
+    /* Filters */
+    .filters { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+    .filters input, .filters select { padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; border-radius: 8px; color: #fff; font-size: 14px; transform: translateY(100px); opacity: 0; transition: all 0.3s; z-index: 100; }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { background: #16a34a; }
+    .toast.error { background: #dc2626; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Space License Admin</h1>
+    <p class="subtitle">Manage Enterprise Bundle space licenses for ZenUML Lite</p>
+
+    <div class="auth-bar">
+      <input type="password" id="apiSecret" placeholder="Enter ADMIN_API_SECRET" autocomplete="off">
+      <button class="btn-secondary" onclick="testAuth()">Test</button>
+      <span id="authStatus" class="status"></span>
+    </div>
+
+    <!-- Activate License -->
+    <div class="card">
+      <h2>Activate License</h2>
+      <form id="activateForm" onsubmit="activateLicense(event)">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="cloudId">Cloud ID</label>
+            <input type="text" id="cloudId" required placeholder="866c3a03-...">
+          </div>
+          <div class="form-group">
+            <label for="spaceKey">Space Key</label>
+            <input type="text" id="spaceKey" required placeholder="ENGINEERING">
+          </div>
+          <div class="form-group">
+            <label for="expiresAt">Expires At</label>
+            <input type="date" id="expiresAt" required>
+          </div>
+          <div class="form-group">
+            <label for="activatedBy">Activated By</label>
+            <input type="text" id="activatedBy" required placeholder="ops-jane">
+          </div>
+          <div class="form-group full">
+            <label for="paymentReference">Payment Reference (optional)</label>
+            <input type="text" id="paymentReference" placeholder="pi_3abc... or Stripe invoice ID">
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">Activate License</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- License List -->
+    <div class="card">
+      <h2>Licenses</h2>
+      <div class="filters">
+        <input type="text" id="filterCloudId" placeholder="Filter by Cloud ID" oninput="loadLicenses()">
+        <select id="filterStatus" onchange="loadLicenses()">
+          <option value="">All statuses</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+        <button class="btn-secondary btn-sm" onclick="loadLicenses()">Refresh</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Cloud ID</th>
+              <th>Space</th>
+              <th>Status</th>
+              <th>Expires</th>
+              <th>Activated By</th>
+              <th>Payment Ref</th>
+              <th>Created</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="licenseTable">
+            <tr><td colspan="8" class="empty-state">Enter API secret and press Test to load licenses</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const API_BASE = '/api/space-license';
+
+    function getSecret() {
+      return document.getElementById('apiSecret').value.trim();
+    }
+
+    function headers() {
+      return {
+        'Authorization': `Bearer ${getSecret()}`,
+        'Content-Type': 'application/json',
+      };
+    }
+
+    function showToast(msg, type = 'success') {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.className = `toast ${type} show`;
+      setTimeout(() => el.classList.remove('show'), 3000);
+    }
+
+    function formatDate(iso) {
+      if (!iso) return '-';
+      const d = new Date(iso);
+      return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    function isExpired(expiresAt) {
+      return expiresAt && new Date(expiresAt) < new Date();
+    }
+
+    function statusBadge(record) {
+      if (record.status === 'inactive') return '<span class="badge inactive">Inactive</span>';
+      if (isExpired(record.expiresAt)) return '<span class="badge expired">Expired</span>';
+      return '<span class="badge active">Active</span>';
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str || '';
+      return div.innerHTML;
+    }
+
+    async function apiCall(method, path, body) {
+      const opts = { method, headers: headers() };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(`${API_BASE}${path}`, opts);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+      return data;
+    }
+
+    async function testAuth() {
+      const status = document.getElementById('authStatus');
+      try {
+        await apiCall('GET', '');
+        status.textContent = 'Authenticated';
+        status.className = 'status ok';
+        loadLicenses();
+      } catch (e) {
+        status.textContent = e.message;
+        status.className = 'status err';
+      }
+    }
+
+    async function loadLicenses() {
+      if (!getSecret()) return;
+      const tbody = document.getElementById('licenseTable');
+      const cloudId = document.getElementById('filterCloudId').value.trim();
+      const status = document.getElementById('filterStatus').value;
+
+      const params = new URLSearchParams();
+      if (cloudId) params.set('cloudId', cloudId);
+      if (status) params.set('status', status);
+      const qs = params.toString() ? `?${params}` : '';
+
+      try {
+        const data = await apiCall('GET', qs);
+        const licenses = data.licenses || [];
+
+        if (licenses.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No licenses found</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = licenses.map(r => `
+          <tr>
+            <td class="mono">${escapeHtml(r.cloudId)}</td>
+            <td><strong>${escapeHtml(r.spaceKey)}</strong></td>
+            <td>${statusBadge(r)}</td>
+            <td>${formatDate(r.expiresAt)}</td>
+            <td>${escapeHtml(r.activatedBy)}</td>
+            <td class="mono">${escapeHtml(r.paymentReference || '-')}</td>
+            <td>${formatDate(r.createdAt)}</td>
+            <td>
+              ${r.status === 'active' && !isExpired(r.expiresAt)
+                ? `<button class="btn-danger btn-sm" onclick="deactivate('${escapeHtml(r.cloudId)}','${escapeHtml(r.spaceKey)}')">Deactivate</button>`
+                : r.status === 'inactive'
+                  ? `<button class="btn-primary btn-sm" onclick="reactivate('${escapeHtml(r.cloudId)}','${escapeHtml(r.spaceKey)}')">Reactivate</button>`
+                  : ''}
+            </td>
+          </tr>
+        `).join('');
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="8" class="empty-state" style="color:#dc2626">${escapeHtml(e.message)}</td></tr>`;
+      }
+    }
+
+    async function activateLicense(e) {
+      e.preventDefault();
+      const expiresDate = document.getElementById('expiresAt').value;
+      const body = {
+        cloudId: document.getElementById('cloudId').value.trim(),
+        spaceKey: document.getElementById('spaceKey').value.trim(),
+        expiresAt: new Date(expiresDate + 'T23:59:59Z').toISOString(),
+        activatedBy: document.getElementById('activatedBy').value.trim(),
+      };
+      const payRef = document.getElementById('paymentReference').value.trim();
+      if (payRef) body.paymentReference = payRef;
+
+      try {
+        await apiCall('POST', '', body);
+        showToast(`License activated for ${body.spaceKey}`);
+        document.getElementById('activateForm').reset();
+        loadLicenses();
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    async function deactivate(cloudId, spaceKey) {
+      if (!confirm(`Deactivate license for ${spaceKey}?`)) return;
+      try {
+        await apiCall('DELETE', `?cloudId=${encodeURIComponent(cloudId)}&spaceKey=${encodeURIComponent(spaceKey)}`);
+        showToast(`License deactivated for ${spaceKey}`);
+        loadLicenses();
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    async function reactivate(cloudId, spaceKey) {
+      const expiresAt = prompt('New expiry date (YYYY-MM-DD):', new Date(Date.now() + 365*86400000).toISOString().slice(0, 10));
+      if (!expiresAt) return;
+      try {
+        await apiCall('POST', '', {
+          cloudId, spaceKey,
+          expiresAt: new Date(expiresAt + 'T23:59:59Z').toISOString(),
+          activatedBy: 'admin-portal-reactivation',
+        });
+        showToast(`License reactivated for ${spaceKey}`);
+        loadLicenses();
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    // Set default expiry to 1 year from now
+    document.getElementById('expiresAt').value = new Date(Date.now() + 365*86400000).toISOString().slice(0, 10);
+
+    // Auto-test auth if secret is cached in sessionStorage
+    const cached = sessionStorage.getItem('adminSecret');
+    if (cached) {
+      document.getElementById('apiSecret').value = cached;
+      testAuth();
+    }
+    document.getElementById('apiSecret').addEventListener('change', () => {
+      sessionStorage.setItem('adminSecret', getSecret());
+    });
+  </script>
+</body>
+</html>

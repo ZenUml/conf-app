@@ -1,0 +1,37 @@
+.ecohelp-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  width: 18px;
+  height: 18px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 50%;
+  background: #DFE1E6;
+  color: #505F79;
+  vertical-align: middle;
+  cursor: pointer;
+  user-select: none;
+}
+.ecohelp-add-btn:hover {
+  background: #B3D4FF;
+}
+.ecohelp-label-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  border-radius: 10px;
+  background: #DEEBFF;
+  color: #0747A6;
+  vertical-align: middle;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ecohelp-label-badge:hover {
+  background: #B3D4FF;
+}

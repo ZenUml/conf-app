@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "src/**/*.vue",
+    "src/**/*.js",
+    "src/utils/spec-listener/**/*.js",
+    "tests/**/*.ts",
+    "tests/**/*.tsx",
+    "global.d.ts"
+  ]
+} 

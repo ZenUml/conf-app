@@ -1,0 +1,4 @@
+packages:
+  - "."
+  - "forge-console"
+  - "workers/cron-aggregate"

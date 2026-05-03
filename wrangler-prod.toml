@@ -1,0 +1,44 @@
+compatibility_flags = [ "nodejs_compat" ]
+compatibility_date = "2024-11-11"
+
+name="conf-prod"
+pages_build_output_dir = "dist"
+
+[vars]
+DIAGRAMLY_BACKEND_API_BASE_URL = "https://diagramly.ai"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+DIAGRAMLY_BACKEND_API_BASE_URL = "https://diagramly.ai"
+ALLOWED_FORGE_APP_IDS = "8ad26115-211f-4216-971b-0540f606303d,d9e4002b-120b-426b-834b-402a4a5adce7,01ede8b1-4e88-451a-b9ef-89eeef93afaf" # ZenUML Lite, Full and Diagramly
+
+[[ env.production.d1_databases ]]
+binding = "DB"
+database_name = "conf-zenuml-prod"
+database_id = "2e34f32e-5ddd-40dc-9e3d-019f9b1d431f"
+migrations_dir = "functions/migrations"
+
+[[ env.production.kv_namespaces ]]
+binding = "CLIENT_INSTALLATION_KV"
+id = "ae1a9199a02e4f75b1cad07f0016aae0"
+
+[[ env.production.r2_buckets ]]
+binding = "EVENT_BUCKET"
+bucket_name = "atlassian-events"
+
+[[env.production.kv_namespaces]]
+binding = "confluence_plugin_features"
+id = "9531a58d3f5b47a6af77750240c09548"
+
+[[env.production.kv_namespaces]]
+binding = "SPACE_LICENSE_KV"
+id = "8969e8528105403bb2d9adca9fc16567"
+
+# Portal feature flags KV (production)
+[[env.production.kv_namespaces]]
+binding = "KV_FEATURE_FLAGS"
+id = "fe9042cb20994651b0a2ef9e68f9037c"
+
+[ai]
+binding = "AI"
+

@@ -1,0 +1,50 @@
+compatibility_flags = [ "nodejs_compat" ]
+compatibility_date = "2024-11-11"
+
+# To be replaced with conf-stg-lite or conf-stg-full in action.yml
+name="conf-stg"
+pages_build_output_dir = "dist"
+
+[vars]
+DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
+ALLOWED_FORGE_APP_IDS = "8ad26115-211f-4216-971b-0540f606303d,d9e4002b-120b-426b-834b-402a4a5adce7,01ede8b1-4e88-451a-b9ef-89eeef93afaf" # ZenUML Lite, Full and Diagramly
+
+[env.production.vars]
+ENVIRONMENT = "production"
+DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
+ALLOWED_FORGE_APP_IDS = "8ad26115-211f-4216-971b-0540f606303d,d9e4002b-120b-426b-834b-402a4a5adce7,01ede8b1-4e88-451a-b9ef-89eeef93afaf" # ZenUML Lite, Full and Diagramly
+
+[[ env.production.d1_databases ]]
+binding = "DB"
+database_name = "conf-zenuml-stg"
+database_id = "5894387c-08be-43d7-b8dc-0b7b8eb7c264"
+migrations_dir = "functions/migrations"
+
+[[ env.production.kv_namespaces ]]
+binding = "CLIENT_INSTALLATION_KV"
+id = "a1252fa9b51f4b87a462413bd4fd2f27"
+
+[[ env.production.r2_buckets ]]
+binding = "EVENT_BUCKET"
+bucket_name = "atlassian-events"
+
+[[env.production.kv_namespaces]]
+binding = "confluence_plugin_features"
+id = "9531a58d3f5b47a6af77750240c09548"
+
+[[env.production.kv_namespaces]]
+binding = "SPACE_LICENSE_KV"
+id = "8969e8528105403bb2d9adca9fc16567"
+
+# Portal feature flags KV (staging)
+[[kv_namespaces]]
+binding = "KV_FEATURE_FLAGS"
+id = "fd87eed34f864190880a4b44d25c0e91"
+
+[[env.production.kv_namespaces]]
+binding = "KV_FEATURE_FLAGS"
+id = "fd87eed34f864190880a4b44d25c0e91"
+
+[ai]
+binding = "AI"
+

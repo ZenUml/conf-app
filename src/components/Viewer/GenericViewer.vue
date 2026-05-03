@@ -432,3 +432,24 @@ console.error('Error getting feature flags', e);
   background-color: #a855f7; /* purple-500 */
 }
 </style>
+
+<!--
+  Tailwind's preflight resets h1-h6 to `font-size: inherit; font-weight: inherit`
+  and zeros heading/paragraph margins. That clobbers DrawIO Textbox shapes whose
+  HTML payload (e.g. `<h1>Heading</h1><p>...</p>`) relies on UA defaults to render
+  the heading in bold/larger text. Restore UA defaults inside foreignObjects only.
+-->
+<style>
+.screen-capture-content foreignObject h1,
+.screen-capture-content foreignObject h2,
+.screen-capture-content foreignObject h3,
+.screen-capture-content foreignObject h4,
+.screen-capture-content foreignObject h5,
+.screen-capture-content foreignObject h6,
+.screen-capture-content foreignObject p,
+.screen-capture-content foreignObject blockquote {
+  font-size: revert;
+  font-weight: revert;
+  margin: revert;
+}
+</style>

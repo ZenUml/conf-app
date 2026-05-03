@@ -809,14 +809,6 @@ export default class ApWrapper2 implements IApWrapper {
     return forgeGlobal.isLite;
   }
 
-  /**
-   * Common request method that handles both forge and connect modes
-   * @param url The API endpoint URL (without /wiki prefix)
-   * @param method HTTP method (GET, POST, PUT, etc.)
-   * @param data Request body data (optional)
-   * @param parseFunction Optional custom parsing function for connect mode
-   * @returns Parsed response data
-   */
   private async makeRequest(url: string, method: string = 'GET', data: any = undefined): Promise<any> {
     return await forgeRequest(`/wiki${url}`, method, data);
   }
@@ -837,12 +829,6 @@ export default class ApWrapper2 implements IApWrapper {
   async setAppProperty(_propertyKey: string = '', _value: any = undefined): Promise<any> {
     //TODO: Migrate the usage of AppProperty to Forge storage API
     return;
-  }
-
-  async getToken(): Promise<string> {
-    //TODO: Remove - this was a Connect-only method. Callers should use @forge/bridge instead.
-    console.warn('getToken() is deprecated - Connect tokens are no longer available');
-    return '';
   }
 
   async getCurrentPage(): Promise<{title: string, body: {export_view: {value: string}}} | undefined> {

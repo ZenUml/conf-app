@@ -18748,6 +18748,11 @@ snapshots:
       '@types/react': 17.0.2
       hoist-non-react-statics: 3.3.2
 
+  '@types/hoist-non-react-statics@3.3.7(@types/react@18.3.28)':
+    dependencies:
+      '@types/react': 18.3.28
+      hoist-non-react-statics: 3.3.2
+
   '@types/html-minifier-terser@6.1.0': {}
 
   '@types/http-cache-semantics@4.0.4': {}
@@ -24028,8 +24033,8 @@ snapshots:
       '@formatjs/intl': 2.2.1(typescript@5.9.3)
       '@formatjs/intl-displaynames': 5.4.3
       '@formatjs/intl-listformat': 6.5.3
-      '@types/hoist-non-react-statics': 3.3.7(@types/react@17.0.2)
-      '@types/react': 17.0.2
+      '@types/hoist-non-react-statics': 3.3.7(@types/react@18.3.28)
+      '@types/react': 18.3.28
       hoist-non-react-statics: 3.3.2
       intl-messageformat: 9.13.0
       react: 17.0.2

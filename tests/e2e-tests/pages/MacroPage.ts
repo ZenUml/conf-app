@@ -90,6 +90,20 @@ export class MacroPage {
     if (testConfig.isForge || testConfig.isLite) {
       const modal = this.page.getByTestId('custom-ui-modal-dialog');
       const outerFrame = modal.locator('[data-testid="hosted-resources-iframe"]').contentFrame();
+
+      // If the space hit the macro limit, PageEditorPaywallGate mounts in the
+      // outer Forge frame above DrawIO. Click Continue editing to proceed —
+      // forgeIndex.ts swaps the gate for Workspace.vue, which renders DrawIO.
+      const continueBtn = outerFrame.locator('[data-testid="continue-editing-btn"]');
+      try {
+        await continueBtn.waitFor({ state: 'visible', timeout: 3000 });
+        console.log('  → Paywall gate detected; clicking Continue editing');
+        await continueBtn.click();
+        await this.page.waitForTimeout(2000);
+      } catch {
+        // No gate — space is below the macro limit
+      }
+
       const innerFrame = outerFrame.locator('iframe').contentFrame();
 
       // Add a shape to the canvas to make a real change

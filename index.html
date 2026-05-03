@@ -30,17 +30,38 @@
 	<script type="text/javascript" src="/drawio/js/grapheditor/Init.js"></script>
 	<script type="text/javascript" src="/drawio/js/grapheditor/Graph.js"></script>
 	<script type="text/javascript" src="/drawio/js/grapheditor/Shapes.js"></script>
+	<!-- Pre-load shape JS files. mxStencilRegistry.getStencil() falls back to
+	     loading these via XHR + eval(), which the Forge CSP blocks
+	     ("'unsafe-eval' is not an allowed source of script"). Loading them via
+	     <script> tags side-steps the CSP eval restriction. Each file calls
+	     mxCellRenderer.registerShape() at evaluation time, so shapes like
+	     mxgraph.aws4.resourceIcon (defined only in JS, not XML) become
+	     resolvable. mxBasic is required first because mxBootstrap, mxBpmn,
+	     etc. extend mxShapeBasic. -->
+	<script type="text/javascript" src="/drawio/shapes/mxBasic.js"></script>
+	<script type="text/javascript" src="/drawio/shapes/mxAWS3D.js"></script>
+	<script type="text/javascript" src="/drawio/shapes/mxAWS4.js"></script>
 	<script type="text/javascript">
 		// Use relative paths. Vite rewrites the leading "/" on <script src> at
-		// build time so the script tags above hit the right files inside the
-		// Forge iframe (hosted at <host>/<app-id>/<install-id>/<resource>/main/_ctx_<…>/).
-		// JS string constants are NOT rewritten by Vite — an absolute "/drawio/…"
-		// here would resolve to the CDN host root in production, where no files
-		// exist, and stencil XHRs would silently fail (broken AWS icons in viewer).
+		// build time so the script tags above resolve correctly inside the Forge
+		// iframe (which uses a path of the form <host>/<app-id>/<install>/<res>/main/_ctx_<…>/).
+		// JS string constants are NOT rewritten by Vite, so we set them to the
+		// already-relative form that the runtime expects — matching the URLs that
+		// the loaded mxClient/Graph scripts resolve from.
 		var SHAPES_PATH = './drawio/shapes';
 		var STENCIL_PATH = './drawio/stencils';
 		var IMAGE_PATH = './drawio/images';
 		var STYLE_PATH = './drawio/styles';
+
+		// Forge CSP forbids "unsafe-eval", which breaks mxStencilRegistry's
+		// fallback path that loads shape .js files via XHR + eval(). Disable that
+		// path so we don't litter the console with caught EvalErrors. The XML
+		// stencils continue to load lazily via mxUtils.load (XHR, no eval), and
+		// shape .js files that need to be available are pre-loaded as <script>
+		// tags above.
+		if (typeof mxStencilRegistry !== 'undefined') {
+			mxStencilRegistry.allowEval = false;
+		}
 
 		// Register stencil libraries so mxStencilRegistry.getStencil() can resolve
 		// shapes like `shape=mxgraph.aws3.lambda` in the viewer. Each entry maps a

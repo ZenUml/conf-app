@@ -1,17 +1,22 @@
 /**
  * Graph viewer — AWS icon stencils render correctly (regression).
  *
- * Reproduces the bug where AWS shapes (`shape=mxgraph.aws3.lambda`,
- * `shape=mxgraph.aws3.s3`, …) fall back to a solid colored rectangle in the
- * viewer because the stencil definitions aren't loaded. In that broken state,
- * mxGraph renders each AWS shape as `<rect fill="#f58536">` (Lambda) or
- * `<rect fill="#7aa116">` (S3) — the literal `fillColor` from the cell style.
- * When stencils are loaded the shapes render via `<path>` elements and no
- * such rect ever appears.
+ * Two failure modes this test guards against:
+ *
+ * 1. XML-stencil shapes (e.g. `mxgraph.aws3.lambda`, `mxgraph.aws3.s3`) — broken
+ *    when `mxStencilRegistry.libraries` is empty. The fallback is a `<rect>`
+ *    filled with the cell's `fillColor` (`#f58536` Lambda, `#7aa116` S3).
+ *
+ * 2. JS-only shapes (e.g. `mxgraph.aws4.resourceIcon`) — broken when the shape
+ *    JS file (`mxAWS4.js`) hasn't been pre-loaded as a `<script>` tag. The
+ *    registry's fallback path tries to XHR + `eval()` the .js file, which the
+ *    Forge CSP blocks (`'unsafe-eval'` not allowed). Fallback is again a
+ *    `<rect>` with the fillColor (`#945df2` here).
  *
  * Mock fixture: `src/model/Ap/MockedResponse/custom-content-by-id-v1-diagram-graph.json`
- * contains an AWS Lambda + AWS S3 + a plain ellipse. The plain ellipse confirms
- * basic rendering still works regardless of stencil loading.
+ * contains an ellipse + AWS Lambda (aws3.xml) + AWS S3 (aws3.xml) + AWS
+ * ResourceIcon (mxAWS4.js). The ellipse confirms basic rendering still works
+ * regardless of stencil loading.
  *
  * Run:
  *   pnpm start:local &
@@ -62,20 +67,17 @@ test.describe('Graph viewer — AWS icon stencils', () => {
     expect(stats!.ellipses, 'baseline ellipse "D" must render').toBeGreaterThan(0);
 
     // Core assertion: when stencils are loaded, no <rect> on the canvas should
-    // have the AWS fillColor — those rects only appear in the fallback path.
-    const lambdaFallback = '#f58536';
-    const s3Fallback = '#7aa116';
-    expect(
-      stats!.rectFills,
-      `Found a fallback rect filled with the AWS Lambda color (${lambdaFallback}). ` +
-        'This means the stencil definitions failed to load and the shape rendered ' +
-        'as a solid rectangle instead of the proper Lambda icon.'
-    ).not.toContain(lambdaFallback);
-    expect(
-      stats!.rectFills,
-      `Found a fallback rect filled with the AWS S3 color (${s3Fallback}). ` +
-        'This means the stencil definitions failed to load and the shape rendered ' +
-        'as a solid rectangle instead of the proper S3 bucket icon.'
-    ).not.toContain(s3Fallback);
+    // have a shape's fillColor — those rects only appear in the fallback path.
+    const fallbacks: Record<string, string> = {
+      '#f58536': 'AWS Lambda (aws3.xml stencil)',
+      '#7aa116': 'AWS S3 (aws3.xml stencil)',
+      '#945df2': 'AWS ResourceIcon (mxAWS4.js shape) — pre-loaded shape JS file likely missing',
+    };
+    for (const [color, description] of Object.entries(fallbacks)) {
+      expect(
+        stats!.rectFills,
+        `Found a fallback rect filled with ${color} (${description}). The shape rendered as a solid rectangle instead of the proper icon.`,
+      ).not.toContain(color);
+    }
   });
 });

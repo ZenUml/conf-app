@@ -175,14 +175,7 @@ The events are tracked through multiple channels:
 mixpanel.track(action, Object.assign({}, eventDetails));
 ```
 
-### 2. Google Analytics (gtag)
-
-```typescript
-// window.ts
-window.gtag && window.gtag("event", action, eventDetails);
-```
-
-### 3. Custom R2 Tracking
+### 2. Custom R2 Tracking
 
 ```typescript
 // window.ts

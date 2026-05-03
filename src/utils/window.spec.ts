@@ -45,8 +45,6 @@ describe('window utils', async () => {
     // Reset window.globals
     // @ts-ignore
     window.globals = mockGlobals
-    // @ts-ignore
-    window.gtag = vi.fn()
     // Reset localStorage
     localStorage.clear()
     // Mock context parameters
@@ -159,8 +157,7 @@ describe('window utils', async () => {
 
     it('should track event with correct parameters', async () => {
       await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
-      // @ts-ignore
-      expect(window.gtag).toHaveBeenCalledWith('event', 'test-action', expect.objectContaining({
+      expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
         event_category: 'analytics',
         event_label: 'test-label',
         user_account_id: 'test-user-123',
@@ -175,8 +172,7 @@ describe('window utils', async () => {
       // @ts-ignore
       window.globals.apWrapper.currentUser = null
       await _awaitableTrackEvent('test-label', 'test-action', 'test-category')
-      // @ts-ignore
-      expect(window.gtag).toHaveBeenCalledWith('event', 'test-action', expect.objectContaining({
+      expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
         user_account_id: 'unknown_user_account_id'
       }))
     })
@@ -184,8 +180,7 @@ describe('window utils', async () => {
     it('should handle empty label gracefully', async () => {
       await _awaitableTrackEvent('', 'action', 'analytics');
 
-      // @ts-ignore
-      expect(window.gtag).toHaveBeenCalledWith('event', 'action', expect.objectContaining({
+      expect(mixpanel.track).toHaveBeenCalledWith('action', expect.objectContaining({
         event_label: ''
       }));
     })
@@ -193,8 +188,7 @@ describe('window utils', async () => {
     it('should include custom event details', async () => {
       const customDetails = { custom_field: 'custom_value' }
       await _awaitableTrackEvent('test-label', 'test-action', 'analytics', customDetails)
-      // @ts-ignore
-      expect(window.gtag).toHaveBeenCalledWith('event', 'test-action', expect.objectContaining({
+      expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
         custom_field: 'custom_value'
       }))
     })
@@ -210,8 +204,7 @@ describe('window utils', async () => {
       await _awaitableTrackEvent('label', 'action', 'performance', customDetails);
 
       // Standard properties should be preserved
-      // @ts-ignore
-      expect(window.gtag).toHaveBeenCalledWith('event', 'action', expect.objectContaining({
+      expect(mixpanel.track).toHaveBeenCalledWith('action', expect.objectContaining({
         event_category: 'should-override',
         event_label: 'label',
         timing: 123,
@@ -219,24 +212,9 @@ describe('window utils', async () => {
       }));
     })
 
-    it('should handle gtag errors gracefully', async () => {
-      const consoleLogSpy = vi.spyOn(console, 'log')
-      // @ts-ignore
-      window.gtag = () => { throw new Error('Gtag error') }
-
-      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
-
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Error in calling gtag',
-        expect.any(Error)
-      )
-    })
-
     it('should continue execution even when all tracking services fail', async () => {
       // Make everything fail
-
-      // @ts-ignore
-      window.gtag = () => { throw new Error('Gtag error') };
+      vi.mocked(mixpanel.track).mockImplementationOnce(() => { throw new Error('Mixpanel error') });
 
       vi.mocked(global.fetch).mockRejectedValueOnce(new Error('Network error'));
 
@@ -267,8 +245,7 @@ describe('window utils', async () => {
 
       await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
 
-      // @ts-ignore
-      expect(window.gtag).toHaveBeenCalledWith('event', 'test-action', expect.objectContaining({
+      expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
         macro_uuid: 'forge-local-id-123'
       }))
     })
@@ -278,8 +255,7 @@ describe('window utils', async () => {
 
       await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
 
-      // @ts-ignore
-      expect(window.gtag).toHaveBeenCalledWith('event', 'test-action', expect.objectContaining({
+      expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.objectContaining({
         macro_uuid: 'test-macro-123'
       }))
     })

@@ -1,13 +1,13 @@
 ---
 name: ship-branch
-description: Ship the current branch from local validation through to merged on master with staging deployed and draft releases created. Orchestrates validate-branch, submit-branch, and land-pr in sequence. Use when the user says "ship", "ship it", "ship this branch", "merge this", or wants to go from local branch to merged in one command. Stops at the first failure. Does NOT deploy to production — use /release-app after shipping.
+description: Ship the current branch from local validation through to merged on main with staging deployed and draft releases created. Orchestrates validate-branch, submit-branch, and land-pr in sequence. Use when the user says "ship", "ship it", "ship this branch", "merge this", or wants to go from local branch to merged in one command. Stops at the first failure. Does NOT deploy to production — use /release-app after shipping.
 ---
 
 # Ship Branch
 
-Orchestrate the full path from local branch to merged on master. This skill composes sub-skills in sequence, stopping at the first failure.
+Orchestrate the full path from local branch to merged on main. This skill composes sub-skills in sequence, stopping at the first failure.
 
-**Note:** This gets your code to master with staging deployed and draft releases created. Production deployment is a separate step via `/release-app`.
+**Note:** This gets your code to main with staging deployed and draft releases created. Production deployment is a separate step via `/release-app`.
 
 ## Flow
 
@@ -35,7 +35,7 @@ Push the branch and create the PR as **Ready for Review** (omit `--draft`). Ship
 
 ```bash
 git push -u origin <branch>
-gh pr create --base master --title "<title>" --body "..."
+gh pr create --base main --title "<title>" --body "..."
 ```
 
 Note: `/submit-branch` defaults to Draft. Override it here by running `gh pr create` directly without `--draft`. If a PR already exists for the branch, check its draft state — if Draft, flip it Ready now (`gh pr ready <PR>`), then proceed.
@@ -71,7 +71,7 @@ Final report:
 - Validation: PASS
 - PR: #<number> (<url>)
 - CI: GREEN
-- Merge: SQUASHED into master (<sha>)
+- Merge: SQUASHED into main (<sha>)
 - Staging: Deployed (lite, full, full-forge, diagramly)
 - Draft releases: Created
 - Production: Not yet — run /release-app to deploy to production

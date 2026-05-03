@@ -49,10 +49,10 @@ gh pr view --json number,title,url 2>/dev/null
 
 If a PR exists, report its URL and stop — nothing more to do.
 
-If no PR exists, create one targeting `master` **as Draft**:
+If no PR exists, create one targeting `main` **as Draft**:
 
 ```bash
-gh pr create --base master --draft --title "<concise title>" --body "$(cat <<'EOF'
+gh pr create --base main --draft --title "<concise title>" --body "$(cat <<'EOF'
 ## Summary
 <bullet points — mention which variant(s) are affected: lite/full/diagramly>
 

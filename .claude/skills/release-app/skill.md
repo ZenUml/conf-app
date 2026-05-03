@@ -38,7 +38,7 @@ Execute these steps sequentially. Stop and report to the user if any step fails.
 
 ### Step 1: Check for an existing fresh draft release
 
-Most of the time you arrive here right after merging a PR to master, which already triggered `build-test-deploy.yml` and produced fresh draft releases. Reuse those — don't push a fake commit just to re-trigger the build.
+Most of the time you arrive here right after merging a PR to main, which already triggered `build-test-deploy.yml` and produced fresh draft releases. Reuse those — don't push a fake commit just to re-trigger the build.
 
 For each requested variant:
 
@@ -51,7 +51,7 @@ If a draft tag is returned, also confirm it's recent (within the last hour or tw
 
 ```bash
 # Get the run that produced the draft (drafts are created at the end of build-test-deploy.yml)
-gh run list --repo ZenUml/confluence-plugin-cloud --workflow=build-test-deploy.yml --branch=master --limit 1 \
+gh run list --repo ZenUml/confluence-plugin-cloud --workflow=build-test-deploy.yml --branch=main --limit 1 \
   --json databaseId,status,conclusion,createdAt
 ```
 
@@ -63,7 +63,7 @@ Use `gh run view <run-id> --json jobs` to inspect per-variant job conclusions wh
 
 ### Step 2a (fallback): Trigger a fresh build with a changelog push
 
-Only do this if Step 1 found no usable draft. The "Build, Test and Draft Release" workflow has no `workflow_dispatch`, so a push to master is the only way to retrigger it.
+Only do this if Step 1 found no usable draft. The "Build, Test and Draft Release" workflow has no `workflow_dispatch`, so a push to main is the only way to retrigger it.
 
 1. `cd` to the conf-app project root
 2. Append to `CHANGELOG.md` with today's date and a release entry:
@@ -71,18 +71,18 @@ Only do this if Step 1 found no usable draft. The "Build, Test and Draft Release
    ## [YYYY-MM-DD] - Release
    - Triggered release pipeline for {variants}
    ```
-3. Stage, commit (message: `chore: trigger release pipeline`), and push to master **only after explicit user confirmation**
+3. Stage, commit (message: `chore: trigger release pipeline`), and push to main **only after explicit user confirmation**
 4. Proceed to Step 2b
 
 ### Step 2b: Wait for the Build Workflow run
 
 Whether the run was triggered by a real merge (Step 1) or your changelog push (Step 2a), wait for it to complete:
 
-1. `gh run list --workflow=build-test-deploy.yml --branch=master -L 1` to find the run
+1. `gh run list --workflow=build-test-deploy.yml --branch=main -L 1` to find the run
 2. `gh run watch <run-id>` (foreground) or `gh run watch <run-id> --exit-status` with `run_in_background: true` so you get a single completion notification
 3. Verify the run succeeded — if it failed for any variant being released, report the failure and stop
 
-The workflow runs these jobs on master:
+The workflow runs these jobs on main:
 - Build and unit test
 - Deploy 3 variants to staging (lite, full, diagramly)
 - E2E tests on all 3 staging variants
@@ -183,8 +183,8 @@ Summarize the release:
 
 ## Important Notes
 
-- **Always check for an existing fresh draft first (Step 1).** A merge to master that completed in the last hour or so already produced the drafts you need — reuse them. Pushing a `chore: trigger release pipeline` changelog commit when fresh drafts exist wastes ~15 min of CI, pollutes master history, and gains nothing.
-- The build workflow has no `workflow_dispatch` — a push to master is the only fallback if no fresh draft exists
-- Draft releases are only created on the `master` branch (not on PRs or other branches)
+- **Always check for an existing fresh draft first (Step 1).** A merge to main that completed in the last hour or so already produced the drafts you need — reuse them. Pushing a `chore: trigger release pipeline` changelog commit when fresh drafts exist wastes ~15 min of CI, pollutes main history, and gains nothing.
+- The build workflow has no `workflow_dispatch` — a push to main is the only fallback if no fresh draft exists
+- Draft releases are only created on the `main` branch (not on PRs or other branches)
 - All three variants (lite, full, diagramly) are Forge apps deployed to the same production site (`zenuml.atlassian.net`)
-- Always confirm with the user before pushing to master or publishing releases
+- Always confirm with the user before pushing to main or publishing releases

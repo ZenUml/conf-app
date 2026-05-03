@@ -1,13 +1,13 @@
 ---
 name: land-pr
-description: Merge a green PR to master and verify CI succeeds (staging deploy + draft releases). Use when the user says "merge", "land", "land PR", "merge this", or when a PR has passed CI and is ready to merge. This does NOT deploy to production — use /release-app for that.
+description: Merge a green PR to main and verify CI succeeds (staging deploy + draft releases). Use when the user says "merge", "land", "land PR", "merge this", or when a PR has passed CI and is ready to merge. This does NOT deploy to production — use /release-app for that.
 ---
 
 # Land PR
 
-Merge a green PR to `master` and verify CI succeeds. In this repo, **merge to master triggers staging deploys and creates draft releases** — it does NOT deploy to production. Production release is a separate step via `/release-app`.
+Merge a green PR to `main` and verify CI succeeds. In this repo, **merge to main triggers staging deploys and creates draft releases** — it does NOT deploy to production. Production release is a separate step via `/release-app`.
 
-## What happens on merge to master
+## What happens on merge to main
 
 1. Build + unit tests
 2. Deploy all 4 variants (lite, full, full-forge, diagramly) to Cloudflare staging
@@ -26,7 +26,7 @@ Verify ALL of these:
 
 1. **PR is the right one** — confirm PR number with the user if ambiguous
 2. **No pending reviews** — no requested changes outstanding
-3. **Branch is up to date** — no merge conflicts with master
+3. **Branch is up to date** — no merge conflicts with main
 4. **CI is green AFTER the Draft gate is lifted** — see Step 1 below
 
 If a precondition fails (other than Draft), report which one and stop.
@@ -53,11 +53,18 @@ Confirm CI is green and `E2E: Lite` is among the passed checks (not skipped). Re
 
 ### 3. Merge
 
-Use the repo's default merge strategy — do not pass `--squash` or `--rebase` unless the user explicitly requests it.
+Fetch the repo's enabled merge strategies and pick the right flag (GitHub requires one when multiple strategies are enabled):
 
 ```bash
-gh pr merge <PR_NUMBER> --auto --delete-branch
+MERGE_FLAG=$(gh api repos/ZenUml/confluence-plugin-cloud \
+  --jq 'if .allow_squash_merge and (.allow_merge_commit | not) and (.allow_rebase_merge | not) then "--squash"
+        elif .allow_rebase_merge and (.allow_merge_commit | not) and (.allow_squash_merge | not) then "--rebase"
+        else "--merge" end')
+
+gh pr merge <PR_NUMBER> --auto --delete-branch $MERGE_FLAG
 ```
+
+Logic: use `--squash` if only squash is enabled, `--rebase` if only rebase is enabled, otherwise `--merge` (GitHub's default when multiple strategies are on). Do not override with `--squash` or `--rebase` unless the user explicitly requests it.
 
 Using `--auto` arms auto-merge so GitHub merges when all checks pass.
 
@@ -69,12 +76,12 @@ gh pr view <PR_NUMBER> --json state
 
 Poll until state is `MERGED`. Timeout after 5 minutes.
 
-### 5. Monitor CI on master
+### 5. Monitor CI on main
 
-After merge, the `Build, Test and Draft Release` workflow runs on master. Watch it:
+After merge, the `Build, Test and Draft Release` workflow runs on main. Watch it:
 
 ```bash
-gh run list --repo ZenUml/confluence-plugin-cloud --branch master --limit 1 --json databaseId,status,conclusion
+gh run list --repo ZenUml/confluence-plugin-cloud --branch main --limit 1 --json databaseId,status,conclusion
 gh run watch <RUN_ID> --repo ZenUml/confluence-plugin-cloud
 ```
 
@@ -92,9 +99,9 @@ Report one of:
 
 - **LANDED** — merged, staging deployed, draft releases created
 - **MERGE BLOCKED** — which precondition failed
-- **CI FAILED** — merged but CI failed on master, with error details
+- **CI FAILED** — merged but CI failed on main, with error details
 
-## On CI failure on master
+## On CI failure on main
 
 **Do NOT auto-rollback.** Report:
 

@@ -39,6 +39,8 @@ jobs:
           license: ${{ inputs.license }}
           project: ${{ inputs.project }}
           environment: stg
+          vite-mixpanel-token: ${{ vars.VITE_MIXPANEL_TOKEN }}
+          sentry-dsn: ${{ vars.SENTRY_DSN }}
 
       # Lite: remove contentBylineItem and licensing
       - name: Remove contentBylineItem from manifest

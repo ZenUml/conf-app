@@ -21,6 +21,12 @@ inputs:
     description: 'Environment (stg or prod)'
     required: true
     default: 'stg'
+  vite-mixpanel-token:
+    description: 'Mixpanel token (baked into the JS bundle and synced to Cloudflare Pages as MIXPANEL_TOKEN)'
+    required: true
+  sentry-dsn:
+    description: 'Sentry DSN synced to Cloudflare Pages as SENTRY_DSN'
+    required: true
 runs:
   using: 'composite'
   steps:
@@ -42,14 +48,16 @@ runs:
       shell: bash
       env:
         NODE_OPTIONS: "--max-old-space-size=8192"
-        VITE_MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}
+        VITE_MIXPANEL_TOKEN: ${{ inputs.vite-mixpanel-token }}
     - name: Sync runtime env vars to Cloudflare Pages
       run: |
-        printf '%s' '${{ vars.VITE_MIXPANEL_TOKEN }}' | npx wrangler pages secret put MIXPANEL_TOKEN --project-name=${{ inputs.project }}
-        printf '%s' '${{ vars.SENTRY_DSN }}' | npx wrangler pages secret put SENTRY_DSN --project-name=${{ inputs.project }}
+        printf '%s' "$VITE_MIXPANEL_TOKEN" | npx wrangler pages secret put MIXPANEL_TOKEN --project-name=${{ inputs.project }}
+        printf '%s' "$SENTRY_DSN" | npx wrangler pages secret put SENTRY_DSN --project-name=${{ inputs.project }}
       shell: bash
       env:
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        VITE_MIXPANEL_TOKEN: ${{ inputs.vite-mixpanel-token }}
+        SENTRY_DSN: ${{ inputs.sentry-dsn }}
     - name: Prepare wrangler config
       run: |
         # Select the appropriate config file based on environment

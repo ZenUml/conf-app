@@ -9,6 +9,19 @@ Orchestrate the full path from local branch to merged on master. This skill comp
 
 **Note:** This gets your code to master with staging deployed and draft releases created. Production deployment is a separate step via `/release-app`.
 
+## Pre-flight: uncommitted work on `main` or `master`
+
+Before Step 1, if `git status` shows uncommitted changes **and** the current branch is the default trunk (`main` or `master` — whichever this repo uses):
+
+1. **Do not** run `git add -A`, `git add .`, or otherwise stage all unstaged files by default.
+2. **Decide the changeset from conversation history:** infer which files and edits belong to the task the user asked to ship (this session and prior turns). Stage **only** those paths with explicit `git add <path> …`. Untracked junk, unrelated edits, or parallel experiments stay out unless the user clearly included them.
+3. **If it is ambiguous** which dirty files belong to this ship (e.g. mixed topics, unclear scope, or many unrelated diffs), **stop and ask** what to include before branching or committing.
+4. **Branch vs trunk:**
+   - **Repo-wide meta only — may stay on trunk:** If **all** scoped changes are skill updates (e.g. `.claude/skills/**`) and/or documentation that applies to the **whole repo** (not tied to a specific product feature), you **may** commit directly on `main`/`master` and ship **from that branch** — no separate feature branch required.
+   - **Feature or product code:** Otherwise **create a feature branch first** — do not commit product/feature work directly on the trunk. Pick a short descriptive name aligned with the work being shipped.
+
+After you know whether you are on trunk (allowed case) or on a feature branch, and the intentional paths are staged, commit with a message that matches the scoped work, then continue with the flow below.
+
 ## Flow
 
 ```
@@ -58,6 +71,7 @@ On success, report the draft releases created and suggest `/release-app` if the 
 
 ## Rules
 
+- **Trunk + dirty tree:** Stage only conversation-scoped files; ask when scope is unclear. Branch off for feature work; **skills-only or repo-wide docs-only** may commit on `main`/`master` and ship from trunk.
 - **Each step is a hard boundary.** No step reaches back to retry a previous step.
 - **No auto-rollback.** Stop and report on any failure. The developer decides next steps.
 - **Confirm before merge.** Pause and confirm with the user before the land-pr step unless they explicitly said "ship it".

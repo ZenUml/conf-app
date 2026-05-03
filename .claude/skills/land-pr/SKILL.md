@@ -38,7 +38,7 @@ If a precondition fails (other than Draft), report which one and stop.
 If `isDraft === true`, this PR has not been E2E-verified (the Draft gate skips `E2E: Lite`). `/land-pr` means "I want this merged" — so flip it Ready, wait for the resulting CI run with E2E to go green, then merge. Don't refuse and don't merge without verification.
 
 ```bash
-gh pr ready <PR_NUMBER> --repo ZenUml/confluence-plugin-cloud
+gh pr ready <PR_NUMBER> --repo ZenUml/conf-app
 ```
 
 Tell the user: "PR is Draft → marking Ready and waiting for CI (~14 min) to verify E2E before merge."
@@ -56,7 +56,7 @@ Confirm CI is green and `E2E: Lite` is among the passed checks (not skipped). Re
 Fetch the repo's enabled merge strategies and pick the right flag (GitHub requires one when multiple strategies are enabled):
 
 ```bash
-MERGE_FLAG=$(gh api repos/ZenUml/confluence-plugin-cloud \
+MERGE_FLAG=$(gh api repos/ZenUml/conf-app \
   --jq 'if .allow_squash_merge and (.allow_merge_commit | not) and (.allow_rebase_merge | not) then "--squash"
         elif .allow_rebase_merge and (.allow_merge_commit | not) and (.allow_squash_merge | not) then "--rebase"
         else "--merge" end')
@@ -81,14 +81,14 @@ Poll until state is `MERGED`. Timeout after 5 minutes.
 After merge, the `Build, Test and Draft Release` workflow runs on main. Watch it:
 
 ```bash
-gh run list --repo ZenUml/confluence-plugin-cloud --branch main --limit 1 --json databaseId,status,conclusion
-gh run watch <RUN_ID> --repo ZenUml/confluence-plugin-cloud
+gh run list --repo ZenUml/conf-app --branch main --limit 1 --json databaseId,status,conclusion
+gh run watch <RUN_ID> --repo ZenUml/conf-app
 ```
 
 ### 5. Verify draft releases created
 
 ```bash
-gh release list --repo ZenUml/confluence-plugin-cloud --limit 4
+gh release list --repo ZenUml/conf-app --limit 4
 ```
 
 Confirm draft releases were created for the expected variants.

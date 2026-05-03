@@ -1,6 +1,6 @@
 ---
 name: babysit-pr
-description: Monitor and fix failing GitHub Actions CI checks on PRs for ZenUml/confluence-plugin-cloud. Use when the user says "babysit PR", "check PR status", "fix CI", "PR is failing", "watch this PR", "why is CI red", or when used with /loop to continuously monitor a PR. Also use when staging deploy failures, E2E test flakiness, lint issues, or unit test failures block merging. Triggers on any PR monitoring, CI failure diagnosis, or automated fix-and-retry workflow.
+description: Monitor and fix failing GitHub Actions CI checks on PRs for ZenUml/conf-app. Use when the user says "babysit PR", "check PR status", "fix CI", "PR is failing", "watch this PR", "why is CI red", or when used with /loop to continuously monitor a PR. Also use when staging deploy failures, E2E test flakiness, lint issues, or unit test failures block merging. Triggers on any PR monitoring, CI failure diagnosis, or automated fix-and-retry workflow.
 ---
 
 # Babysit PR
@@ -9,7 +9,7 @@ Monitor a GitHub Actions PR, diagnose failures, attempt fixes, and retry — up 
 
 ## Scope
 
-This skill targets **ZenUml/confluence-plugin-cloud** (conf-app). All commands run from the conf-app directory.
+This skill targets **ZenUml/conf-app** (conf-app). All commands run from the conf-app directory.
 
 ## CI Pipeline Overview
 
@@ -31,7 +31,7 @@ Resolve which PR to babysit, in this priority order:
    > **WARNING**: Do NOT add `--repo` to this command. `gh pr view` without `--repo` infers the repo from the current directory's git remote, which is correct. Adding `--repo` requires an explicit PR number/branch argument and breaks branch inference, causing "argument required when using the --repo flag".
 3. **Recently failed PR** — if no PR on current branch, find the most recent failed PR:
    ```bash
-   gh run list --repo ZenUml/confluence-plugin-cloud --status failure --limit 5 --json databaseId,headBranch,event,createdAt,conclusion,name
+   gh run list --repo ZenUml/conf-app --status failure --limit 5 --json databaseId,headBranch,event,createdAt,conclusion,name
    ```
    Filter to runs created within the last 10 minutes. If multiple, pick the most recent.
 
@@ -51,7 +51,7 @@ When watching a Draft PR, do NOT wait for `E2E: Lite` — it will be `skipped`, 
 ## Step 2: Check CI Status
 
 ```bash
-gh pr checks <PR_NUMBER> --repo ZenUml/confluence-plugin-cloud
+gh pr checks <PR_NUMBER> --repo ZenUml/conf-app
 ```
 
 ### Build the expected-jobs set FIRST, based on draft state
@@ -64,7 +64,7 @@ This is the most important step — your evaluation of "did CI pass?" depends on
 ### Evaluate
 
 - **All expected jobs passed** (and skipped jobs are the right ones): report success and stop.
-- **Some expected jobs still pending/in_progress**: wait. Use `gh run watch <RUN_ID> --repo ZenUml/confluence-plugin-cloud` (10-minute timeout). Then re-evaluate.
+- **Some expected jobs still pending/in_progress**: wait. Use `gh run watch <RUN_ID> --repo ZenUml/conf-app` (10-minute timeout). Then re-evaluate.
 - **An expected job failed**: proceed to Step 3.
 - **An expected job was unexpectedly `skipped`** (e.g. `E2E: Lite` skipped on a Ready PR): this is a configuration bug, not a normal failure. Report it: "Expected `E2E: Lite` to run on this Ready PR but it was skipped — check the workflow `if:` condition or the PR's draft state."
 
@@ -73,7 +73,7 @@ This is the most important step — your evaluation of "did CI pass?" depends on
 For each failed check, pull the logs:
 
 ```bash
-gh run view <RUN_ID> --repo ZenUml/confluence-plugin-cloud --log-failed
+gh run view <RUN_ID> --repo ZenUml/conf-app --log-failed
 ```
 
 Categorize the failure:
@@ -145,7 +145,7 @@ E2E tests run against live Confluence staging instances, which makes them inhere
 - **Deterministic failure** (same test fails consistently, error points to a code bug): Fix the code, not the test. You cannot reproduce these locally easily since they need a deployed staging app + Confluence auth.
 - **Flaky failure** (test passed before, no code changes in test area): Re-run the failed jobs:
   ```bash
-  gh run rerun <RUN_ID> --repo ZenUml/confluence-plugin-cloud --failed
+  gh run rerun <RUN_ID> --repo ZenUml/conf-app --failed
   ```
 
 Common E2E failure patterns:
@@ -158,7 +158,7 @@ Common E2E failure patterns:
 
 1. **Re-run the failed jobs**:
    ```bash
-   gh run rerun <RUN_ID> --repo ZenUml/confluence-plugin-cloud --failed
+   gh run rerun <RUN_ID> --repo ZenUml/conf-app --failed
    ```
 2. If it fails again with the same infra error, report to user — this is outside our control.
 
@@ -170,7 +170,7 @@ Common E2E failure patterns:
 
 1. **Re-run the failed job**:
    ```bash
-   gh run rerun <RUN_ID> --repo ZenUml/confluence-plugin-cloud --failed
+   gh run rerun <RUN_ID> --repo ZenUml/conf-app --failed
    ```
 2. If it fails again with the same infra error, report to user.
 

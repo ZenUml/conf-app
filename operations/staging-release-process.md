@@ -93,7 +93,7 @@ gh run watch <run-id>
 gh run view <run-id> --log-failed
 ```
 
-Or monitor directly on GitHub Actions: `https://github.com/ZenUml/confluence-plugin-cloud/actions`
+Or monitor directly on GitHub Actions: `https://github.com/ZenUml/conf-app/actions`
 
 ## 5. Verify on zenuml-stg
 
@@ -137,7 +137,7 @@ Once merged to `master`, the pipeline runs again on `master`, deploys to staging
 
 Production deployment is a separate process triggered by publishing a GitHub Release:
 
-1. Go to [GitHub Releases](https://github.com/ZenUml/confluence-plugin-cloud/releases)
+1. Go to [GitHub Releases](https://github.com/ZenUml/conf-app/releases)
 2. Find the draft release (e.g., `v2026.02.201135-full`)
 3. Edit and publish it
 4. The **Release** workflow (`.github/workflows/release.yml`) deploys to production Cloudflare Pages and Forge

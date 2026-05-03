@@ -1,11 +1,11 @@
 ---
 name: submit-branch
-description: Push the current branch and create or reuse a PR on ZenUml/confluence-plugin-cloud. Use when the user says "submit", "create PR", "push and PR", "open a pull request", "submit branch", or wants to publish their work as a PR without merging. Does not fix CI or merge — those are separate skills.
+description: Push the current branch and create or reuse a PR on ZenUml/conf-app. Use when the user says "submit", "create PR", "push and PR", "open a pull request", "submit branch", or wants to publish their work as a PR without merging. Does not fix CI or merge — those are separate skills.
 ---
 
 # Submit Branch
 
-Publish the current branch as a pull request on `ZenUml/confluence-plugin-cloud`. Reuses an existing PR if one already exists for this branch.
+Publish the current branch as a pull request on `ZenUml/conf-app`. Reuses an existing PR if one already exists for this branch.
 
 **Tip:** Run `/validate-branch` first to catch lint, test, and build failures before pushing.
 

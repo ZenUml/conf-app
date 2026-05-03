@@ -43,7 +43,7 @@ Most of the time you arrive here right after merging a PR to main, which already
 For each requested variant:
 
 ```bash
-gh release list --repo ZenUml/confluence-plugin-cloud --limit 20 \
+gh release list --repo ZenUml/conf-app --limit 20 \
   | awk '$2=="Draft" && $1 ~ /-{variant}$/ {print $1; exit}'
 ```
 
@@ -51,7 +51,7 @@ If a draft tag is returned, also confirm it's recent (within the last hour or tw
 
 ```bash
 # Get the run that produced the draft (drafts are created at the end of build-test-deploy.yml)
-gh run list --repo ZenUml/confluence-plugin-cloud --workflow=build-test-deploy.yml --branch=main --limit 1 \
+gh run list --repo ZenUml/conf-app --workflow=build-test-deploy.yml --branch=main --limit 1 \
   --json databaseId,status,conclusion,createdAt
 ```
 
@@ -126,7 +126,7 @@ Report PVT results to the user.
 
 1. Find the previous release tag for the variant being released:
    ```bash
-   gh release list --repo ZenUml/confluence-plugin-cloud --exclude-drafts \
+   gh release list --repo ZenUml/conf-app --exclude-drafts \
      --limit 10 --json tagName \
      | jq -r '[.[] | select(.tagName | test("<variant>"))] | .[1].tagName'
    ```

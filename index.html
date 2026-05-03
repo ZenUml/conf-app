@@ -22,6 +22,16 @@
 	</script>
 
   <!-- TODO: load DrawIO scripts for Graph macro only -->
+	<!-- Load common.css explicitly so we can disable mxClient.js's auto-load.
+	     mxClient.js (line 9) hard-codes `mxClient.link("stylesheet","mxgraph/css/common.css")`
+	     with no basePath prefix; in the Forge iframe that resolves to
+	     <iframe-root>/mxgraph/css/common.css → 404. Vite rewrites the leading
+	     "/" on this <link href> at build time so it resolves correctly. -->
+	<link rel="stylesheet" href="/drawio/mxgraph/css/common.css">
+	<script type="text/javascript">
+		// Read by mxClient.js at evaluation time (must be set BEFORE the script tag below).
+		var mxLoadStylesheets = false;
+	</script>
 	<script type="text/javascript" src="/drawio/js/sanitizer/purify.min.js"></script>
 	<script type="text/javascript" src="/drawio/mxgraph/mxClient.js"></script>
 	<script type="text/javascript" src="/drawio/js/grapheditor/Init.js"></script>

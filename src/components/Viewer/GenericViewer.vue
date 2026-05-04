@@ -11,9 +11,7 @@
     </template>
 
     <template v-else>
-      <div class="v8-frame" :class="{'v8-frame--wide': wide, 'v8-frame--auto': !wide}" :data-app="appType">
-        <span class="v8-product-bar" aria-hidden="true"></span>
-
+      <div class="v8-frame" :class="{'v8-frame--wide': wide, 'v8-frame--auto': !wide}">
         <div class="v8-surface" :class="{'v8-surface--hover': isHovering}"
              @mouseenter="isHovering = true" @mouseleave="isHovering = false">
           <!-- Top edge: title (left) + Edit / Fullscreen (right) -->
@@ -126,12 +124,6 @@ export default {
       const isNotCopy = !this.diagram.isCopy;
       return this.canUserEdit && isCustomContent && isNotCopy;
     },
-    appType() {
-      const productType = import.meta.env.PRODUCT_TYPE;
-      if (productType === 'diagramly') return 'diagramly';
-      if (productType === 'lite') return 'lite';
-      return 'full';
-    },
   },
   async mounted() {
     try {
@@ -229,23 +221,13 @@ export default {
 .v8-frame--auto { width: fit-content; margin-left: auto; margin-right: auto; }
 .v8-frame--wide { width: 100%; }
 
-.v8-product-bar {
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 3px;
-  z-index: 1;
-  background: #3B82F6;
-}
-.v8-frame[data-app="lite"] .v8-product-bar      { background: #F97316; }
-.v8-frame[data-app="diagramly"] .v8-product-bar { background: #A855F7; }
-
 .v8-surface { position: relative; }
 
 .v8-edge-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px 10px 19px;
+  padding: 6px 12px;
   background: #fff;
   border-bottom: 1px solid transparent;
   transition: border-color 200ms ease;
@@ -294,7 +276,7 @@ export default {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
+  padding: 4px 8px;
   background: transparent;
   color: #374151;
   border: 1px solid transparent;
@@ -311,7 +293,7 @@ export default {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 12px;
+  padding: 5px 10px;
   background: #0052CC;
   color: #fff;
   border: none;
@@ -329,9 +311,7 @@ export default {
 
 .v8-canvas {
   position: relative;
-  background: #F8F7F4;
-  background-image: radial-gradient(#D0CEC7 1px, transparent 1px);
-  background-size: 20px 20px;
+  background: #fff;
 }
 .v8-canvas .screen-capture-content { position: relative; z-index: 0; }
 .v8-canvas .screen-capture-content.w-full { width: 100%; }

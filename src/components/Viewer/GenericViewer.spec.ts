@@ -132,10 +132,4 @@ describe('GenericViewer (V8 chrome-less)', () => {
     })
   })
 
-  describe('product variant accent', () => {
-    it('exposes the appType on data-app for the product-bar accent', () => {
-      const wrapper = mountViewer()
-      expect(wrapper.find('.v8-frame').attributes('data-app')).toBe('full')
-    })
-  })
 })

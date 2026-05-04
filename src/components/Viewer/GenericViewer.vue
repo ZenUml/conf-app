@@ -65,7 +65,6 @@
               </button>
             </div>
 
-            <div v-if="!isHovering" class="v8-resting-hint">Hover to reveal controls</div>
           </div>
         </div>
       </div>
@@ -352,21 +351,6 @@ export default {
   transition: background-color 200ms ease, color 200ms ease;
 }
 .v8-pill-btn:hover { background: #F3F4F6; color: #374151; }
-
-.v8-resting-hint {
-  position: absolute;
-  bottom: 12px;
-  right: 12px;
-  padding: 4px 9px;
-  background: rgba(255, 255, 255, 0.85);
-  border: 1px solid #E5E7EB;
-  border-radius: 9999px;
-  font-size: 11px;
-  color: #6B7280;
-  backdrop-filter: blur(4px);
-  pointer-events: none;
-  z-index: 2;
-}
 </style>
 
 <!--

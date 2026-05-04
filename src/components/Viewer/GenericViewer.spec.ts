@@ -71,11 +71,9 @@ describe('GenericViewer (V8 chrome-less)', () => {
 
       await surface.trigger('mouseenter')
       expect(surface.classes()).toContain('v8-surface--hover')
-      expect(wrapper.find('.v8-resting-hint').exists()).toBe(false)
 
       await surface.trigger('mouseleave')
       expect(surface.classes()).not.toContain('v8-surface--hover')
-      expect(wrapper.find('.v8-resting-hint').text()).toBe('Hover to reveal controls')
     })
 
     it('skips the V8 chrome when hideHeader is true', () => {

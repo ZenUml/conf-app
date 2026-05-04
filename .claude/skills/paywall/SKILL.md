@@ -63,6 +63,8 @@ Apr 29 is **Shōwa Day (昭和の日)** — a Japan public holiday and the start
 |--------|-------------------------------------------|--------------------------|
 | linemanwongnai | Japan (37%), South Korea (30%), Thailand (21%), Singapore (11%) | JP Golden Week (Apr 29 → May 5–6), JP New Year (Jan 1–3), KR/TH major holidays |
 | mcoproduct | Singapore (41%), Hong Kong (33%), Taiwan (19%) | Labour Day May 1 (SG/HK/TW all public holiday — expect ~90% drop); CN New Year (Jan/Feb) |
+| airwallex | Singapore (85%), Australia (7%), Hong Kong (3%), Netherlands (3%) | SG Labour Day May 1 (~75% view drop, ~85% edit drop); SG National Day Aug 9; CN New Year (Jan/Feb); AU public holidays minor |
+| xendit | Indonesia (81%), Philippines (6%), Singapore (4%), Thailand (2%) | ID Hari Buruh / Labour Day May 1 (~60% view drop, ~95% edit drop); ID Idul Fitri (varies, Mar/Apr); ID Independence Aug 17; ID Christmas Dec 25 |
 | (extend as discovered) | | |
 
 When extending this table, run the country breakdown query and capture the top 3–4 regions. Add the holidays that affect those regions' work calendars.
@@ -130,7 +132,9 @@ Writing JSON to PAP silently breaks it (flag always returns false). Always write
 
 ## Step M: Daily Monitoring Queries (run in parallel)
 
-Use `mcp__mixpanel__Run-Query` with project_id=3373228, last 1 day, chartType=table, breakdown by `client_domain`.
+Use `mcp__claude_ai_Mixpanel__Run-Query` with project_id=3373228, last 1 day, chartType=table, breakdown by `client_domain`.
+
+> **Server name matters.** The `mcp__mixpanel__Run-Query` variant rejects the `report` parameter as a string in some sessions (`Input should be a valid dictionary`). Use the `mcp__claude_ai_Mixpanel__` namespace consistently — it accepts the same payload reliably.
 
 **Correct breakdown schema** (the schema evolves — if validation fails, call `Get-Query-Schema(report_type: 'insights')` first):
 ```json
@@ -139,12 +143,12 @@ Use `mcp__mixpanel__Run-Query` with project_id=3373228, last 1 day, chartType=ta
 
 Run all 5 queries in parallel:
 
-**Q1 — Paywall block events** (multi-metric: query BOTH event names — see version-drift note in Step 0)
+**Q1 — Paywall block events**
 ```
 event A: paywall_triggered, measurement: total          # new name (post-rename)
-event B: upgrade_action_blocked, measurement: total     # legacy name (still emitted by current master code + cached browser bundles)
+event B: upgrade_action_blocked, measurement: total     # legacy name — kept transitionally
 ```
-> Treat the `triggered` column in the table as `paywall_triggered + upgrade_action_blocked` summed per domain. Never query only one — you will miss data. As of 2026-04-30, `linemanwongnai` and `xendit` emit ONLY the legacy name; `vin3s` and `gip-onshore` emit ONLY the new name; tenants like `colesgroup` emit BOTH.
+> As of 2026-05-04 the legacy `upgrade_action_blocked` returned zero across all customer domains for the day — the rename has fully propagated. Keep querying both for one more week as a safety net; **if legacy is 0 for 7 consecutive daily runs, drop event B and simplify the `triggered` column to `paywall_triggered` only.**
 
 **Q2 — Paywall display events** (multi-metric: which modal was shown)
 ```
@@ -190,7 +194,7 @@ For these customer domains (all on CSS+PAP as of 2026-05-01): **colesgroup, line
 | Domain | triggered | bystander | modal_shown | saves | friction | continued | marketplace | enterprise | signal |
 |--------|-----------|-----------|-------------|-------|----------|-----------|-------------|------------|--------|
 
-- `triggered` = sum of `paywall_triggered` + `upgrade_action_blocked` for that domain
+- `triggered` = sum of `paywall_triggered` + `upgrade_action_blocked` for that domain (legacy now zero across all domains; drop once 7-day-zero confirmed)
 - `saves` = `macro_save_succeeded`
 - `friction` = triggered / saves — add as a note if > 50%
 - `continued` = `paywall_continued_editing` (post-PR #1056 deployment)
@@ -213,7 +217,7 @@ These domains have emitted paywall events despite not being in CSS. Treat as lik
 
 | Domain | First seen | Pattern |
 |--------|------------|---------|
-| vin3s | 2026-04-30 | paywall_triggered only |
+| vin3s | 2026-04-30 | **CSS enrollment candidate** — 4 spaces over 100 macros (VSA 534, VARW 438, VPay 226, OP 141), 12 saves on 2026-05-04 spread across them. Re-classified from "test traffic" on 2026-05-04. |
 | gip-onshore | 2026-04-30 | paywall_triggered only |
 | rizapg | 2026-05-01 | paywall_triggered + upgrade_modal_shown + macro_save_succeeded |
 | olix | 2026-05-02 | high save volume (19 saves/day), no paywall events — likely below 100 macros in active spaces |

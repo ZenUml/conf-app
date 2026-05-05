@@ -1,6 +1,6 @@
 ---
 name: paywall
-description: Manage the ZenUML Lite paywall rollout — analyse which tenants are ready to advance to the next stage, decide which domains to add to CUSTOMER_SUCCESS_SERVICE or PERSONA_AWARE_PAYWALL, and generate the exact KV commands to execute. Use this skill whenever the user asks about paywall rollout, which clients to enable, CSS/PAP flags, tenant upgrade state, space licensing, or "who should be on the paywall list". Also use when the user asks to check a specific domain's paywall state or wants to understand why a tenant is or isn't seeing the paywall.
+description: Manage the ZenUML Lite paywall rollout — analyse which tenants are ready to advance to the next stage, decide which domains to add to CUSTOMER_SUCCESS_SERVICE or PERSONA_AWARE_PAYWALL, and generate the exact KV commands to execute. Use this skill whenever the user asks about paywall rollout, which clients to enable, CSS/PAP flags, tenant upgrade state, space licensing, or "who should be on the paywall list". Also use when the user asks to check a specific domain's paywall state, wants to understand why a tenant is or isn't seeing the paywall, or wants to A/B compare paywall impact (treatment vs. control tenants).
 ---
 
 # Paywall Rollout Skill
@@ -17,6 +17,8 @@ When invoked with no description or extra prompt, run the daily monitoring resea
 4. Build the domain table and suggest next steps
 5. Send a PushNotification with the summary
 6. Run the self-review (Step R below) — surface errors, surprises, and proposed skill improvements
+
+When invoked with "compare", "ab", "impact", or "a/b", run the **A/B Impact Analysis** section instead — this measures paywall friction against control tenants and is meant to run weekly (Mondays).
 
 ---
 
@@ -337,6 +339,98 @@ curl -X POST https://conf-lite.zenuml.com/api/space-license \
   -H "Content-Type: application/json" \
   -d '{"cloudId":"<cloudId>","spaceKey":"<spaceKey>","activatedBy":"<email>","paymentReference":"<stripe_id>","expiresAt":"<ISO8601>"}'
 ```
+
+## A/B Impact Analysis (paywall vs control)
+
+Periodic comparison: are paywall-affected tenants editing less than comparable unrestricted tenants? Run this weekly (Mondays, after the daily monitoring) so you have a rolling readout on real-world paywall friction.
+
+### Group definitions
+
+**Group A (treatment — paywall on).** CSS+PAP tenants with ≥1 space ≥100 macros and a working baseline of edits in the last 7d. Refresh as enrollments change. Skip any tenant currently in a regional holiday (see Tenant geography table) and skip newly enrolled tenants for 7 days post-enrollment (rollout shock dominates early days).
+
+| Domain | top space (macros) | spaces ≥100 | rationale |
+|--------|--------------------|--------------|-----------|
+| colesgroup | AGWS=1080 | 8 | High-volume editor, large surface area |
+| airwallex | APA=650 | 7 | High-volume editor, multi-space |
+| linemanwongnai | (varies) | 5+ | Normal week. Skip during JP Golden Week (Apr 29 → May 6) |
+
+Currently too low-volume or too newly enrolled to count: vin3s (enrolled 2026-05-04), mcoproduct, xendit, zeptonow.
+
+**Group B (control — paywall off).** Comparable tenants NOT on CSS, with ≥1 space ≥100 macros AND save volume of the same order as Group A. The macro-count requirement matters: a control tenant with no spaces over the threshold would never trigger the paywall even if enrolled — there's nothing to compare.
+
+| Domain | top space (macros) | spaces ≥100 | saves/wk |
+|--------|--------------------|--------------|----------|
+| woolworths-agile | WIQ=145 | 1 | ~31 |
+| appculqi | CR=194, UPI=136 | 2 | ~36 |
+| economical | PA=241 | 1 | ~32 |
+
+> **Excluded controls:** zayogroup (60 total macros, 0 spaces ≥100 — zero paywall surface area, can't be a fair control).
+
+### Step A1: Run the comparison queries
+
+Two queries, last 7 days, broken down by `client_domain`. Don't filter on `client_domain in [...]` — Mixpanel's `equals` operator doesn't accept arrays. Pull all domains and pick out the rows you need.
+
+```
+metrics: macro_save_succeeded (total), paywall_triggered (total), macro_viewed (total)
+metrics: macro_save_succeeded (unique), macro_viewed (unique)
+breakdown: client_domain
+date: last 7 days
+```
+
+### Step A2: Build the comparison table
+
+| Group | Domain | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|--------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+
+Definitions:
+- `attempts = saves + triggered`
+- `success_rate = saves / attempts` (%)
+- `saves/user = saves / save_users`
+- Aggregate per group by summing each numeric column.
+
+### Step A3: Interpret
+
+**Primary signal — `success_rate`.** Group B should sit at ~99% (no paywall, saves nearly always succeed). Group A's deviation from that is the cleanest measure of paywall friction in production.
+
+| Group A success_rate | What it means |
+|----------------------|---------------|
+| > 80% | Paywall barely engaging — most users below threshold or not editing |
+| 50–80% | Healthy friction — paywall firing as designed |
+| 35–50% | Heavy friction — many users hitting the wall repeatedly |
+| < 35% | Severe friction — investigate (broken upgrade path? unfair routing?) |
+
+**Secondary signals:**
+- `saves/user` lower in Group A → paywall reduces per-editor productivity. A >25% gap is meaningful.
+- `view_users` per tenant in Group A is naturally higher (selection bias — larger tenants), so view-to-edit conversion ratios are noisy. Don't over-read them.
+
+**Known confounds:**
+- **Selection bias:** Group A tenants were enrolled because they were larger/more active. They have proportionally more passive viewers than Group B, which inflates `view_users` and depresses conversion ratios independently of the paywall.
+- **Regional holidays:** Always check Group A tenants against the Tenant geography table. A tenant in JP Golden Week or SG Labour Day can drop edits to zero — that's not a paywall effect.
+- **Newly enrolled tenants:** Hold for 7 days. Day 1 looks dramatic but isn't a steady-state read.
+
+### Baseline snapshot (2026-05-05, last 7 days)
+
+| Group | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| **A** (colesgroup, airwallex, linemanwongnai) | 85 | 81 | 166 | 26 | 662 | 9,568 | **51%** | 3.3 |
+| **B** (woolworths-agile, appculqi, economical) | 99 | 1 | 100 | 20 | 206 | 1,893 | **99%** | 5.0 |
+
+Per-tenant breakdown:
+
+| Group | Domain | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|--------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| A | colesgroup | 42 | 69 | 111 | 13 | 370 | 3,808 | 38% | 3.2 |
+| A | airwallex | 31 | 11 | 42 | 8 | 179 | 3,419 | 74% | 3.9 |
+| A | linemanwongnai | 12 | 1 | 13 | 5 | 113 | 2,341 | 92% | 2.4 |
+| B | woolworths-agile | 31 | 1 | 32 | 5 | 99 | 685 | 97% | 6.2 |
+| B | appculqi | 36 | 0 | 36 | 8 | 38 | 516 | 100% | 4.5 |
+| B | economical | 32 | 0 | 32 | 7 | 69 | 692 | 100% | 4.6 |
+
+**Reading:** Group A's success rate is 51% vs Group B's 99% — paywall blocks ~half of Group A's save attempts. Per active editor, Group A produces 34% fewer successful saves (3.3 vs 5.0). colesgroup is the friction outlier (38% — heavy block rate, 13 active editors). linemanwongnai's 92% is artificially high because Golden Week has suppressed both saves and triggers. Track this baseline week-over-week.
+
+> **linemanwongnai caveat:** their 7-day window includes the start of JP Golden Week. Re-read the comparison after May 6 with a clean week.
+
+---
 
 ## Debugging a specific tenant
 

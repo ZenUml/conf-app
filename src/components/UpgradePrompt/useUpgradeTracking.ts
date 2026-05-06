@@ -70,7 +70,7 @@ export function useUpgradeTracking(
     const timeToDecision = Date.now() - modalShownTime.value
     trackUpgradeEvent(UpgradeEventName.CTA_CLICKED, {
       product_option: ProductOption.MARKETPLACE,
-      ui_component: UIComponent.TOOLTIP,
+      ui_component: UIComponent.MODAL,
       cta_position: 'primary',
       confluence_users: confluenceUsers(),
       marketplace_cost: marketplaceAnnualCost(),
@@ -85,7 +85,7 @@ export function useUpgradeTracking(
     const timeToDecision = Date.now() - modalShownTime.value
     trackUpgradeEvent(UpgradeEventName.CTA_CLICKED, {
       product_option: ProductOption.ENTERPRISE_BUNDLE,
-      ui_component: UIComponent.TOOLTIP,
+      ui_component: UIComponent.MODAL,
       cta_position: 'secondary',
       confluence_users: confluenceUsers(),
       marketplace_cost: marketplaceAnnualCost(),

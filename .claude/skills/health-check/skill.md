@@ -19,7 +19,7 @@ Run a quick health check by querying Mixpanel for key event volumes across multi
 ## Mixpanel Project
 
 - **Project ID**: `3373228` (ZenUML)
-- **Internal sites to exclude**: `zenuml`, `zenuml-stg`, `dia-stg` (always filter these out)
+- **Internal sites to exclude**: all `zenuml*` domains, all `whimet*` domains, `diagramly`, `dia-stg` (always filter these out)
 
 ## Key Events
 
@@ -40,25 +40,13 @@ Run these queries using `mcp__mixpanel__Run-Query` with `project_id: 3373228`. A
 ### Global filter (apply to every query)
 
 ```json
-{
-  "type": "string",
-  "propertyName": "client_domain",
-  "operator": "does not equal",
-  "value": "zenuml"
-},
-{
-  "type": "string",
-  "propertyName": "client_domain",
-  "operator": "does not equal",
-  "value": "zenuml-stg"
-},
-{
-  "type": "string",
-  "propertyName": "client_domain",
-  "operator": "does not equal",
-  "value": "dia-stg"
-}
+{"type": "string", "propertyName": "client_domain", "operator": "does not contain", "value": "zenuml"},
+{"type": "string", "propertyName": "client_domain", "operator": "does not contain", "value": "whimet"},
+{"type": "string", "propertyName": "client_domain", "operator": "does not equal", "value": "diagramly"},
+{"type": "string", "propertyName": "client_domain", "operator": "does not equal", "value": "dia-stg"}
 ```
+
+> **Note:** `does not contain` covers all `zenuml*` variants (zenuml, zenuml-stg, zenuml-connect, etc.) and all `whimet*` variants in one filter. No customer domain contains "zenuml" or "whimet" as a substring.
 
 ### Query 1: Today hourly — activity events
 
@@ -187,8 +175,8 @@ For 1d and 1w error comparisons, follow the same current+previous pattern as que
 ## Health Check Plan
 
 Checking ZenUML Confluence app health via Mixpanel (project 3373228).
-Excluding internal sites: zenuml, zenuml-stg, dia-stg.
-Note: querying both legacy and canonical event names (migration deployed 2026-04-27).
+Excluding internal sites: zenuml* (all variants), whimet* (all variants), diagramly, dia-stg.
+Note: querying both legacy and canonical event names (migration deployed 2026-04-27; legacy confirmed zero as of 2026-05-05).
 
 **Queries to run** (10 in parallel):
 1. Today hourly — macro_viewed+view_macro, macro_create_succeeded+create_macro_end, macro_save_succeeded+edit_macro_end by category
@@ -267,7 +255,7 @@ Peak hour: {time} with {N} total views
 
 ## Known Limitations
 
-- **Event migration in progress (as of 2026-04-27)**: Events were renamed to canonical form. Old names (`view_macro`, `create_macro_end`, `edit_macro_end`) still represent the majority of volume; new names (`macro_viewed`, `macro_create_succeeded`, `macro_save_succeeded`) are growing. Always query and sum both. Once legacy events drop to zero, simplify queries to new names only.
+- **Event migration complete (as of 2026-05-05)**: Events were renamed to canonical form on 2026-04-27. Legacy names (`view_macro`, `create_macro_end`, `edit_macro_end`) returned zero for both today and yesterday as of 2026-05-06 — the migration is done. Queries can now use canonical names only (`macro_viewed`, `macro_create_succeeded`, `macro_save_succeeded`). Keep the dual-query approach only if you need historical data before Apr 27; for current health checks, canonical queries alone are sufficient.
 - **Property rename: `event_category` → `macro_type`**: Legacy events used `event_category` for the diagram type breakdown. New canonical events use `macro_type` instead. The values are identical (`sequence`, `mermaid`, `plantuml`, `graph`, `openapi`, `embed`). Use `event_category` breakdown for legacy queries and `macro_type` breakdown for canonical queries; sum per-category totals.
 - **`unexpected_error` / `update_custom_content_error` are gone**: These old error event names are no longer in the Mixpanel catalog. Use `save_failed` (general) and `macro_save_failed` (custom content) instead.
 - **No 5-minute window**: Mixpanel's smallest query granularity via the MCP tool is hourly. Today's hourly chart is the closest to real-time. Mixpanel also has ~5-10 min ingestion delay.

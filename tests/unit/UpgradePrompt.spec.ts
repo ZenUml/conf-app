@@ -14,7 +14,7 @@ vi.mock('@/utils/upgradeTracking', () => ({
     ENTERPRISE_BUNDLE: 'enterprise_bundle',
   },
   UIComponent: {
-    TOOLTIP: 'tooltip',
+    MODAL: 'modal',
   },
 }))
 
@@ -89,7 +89,7 @@ describe('UpgradePrompt', () => {
       expect.objectContaining({
         product_option: 'marketplace',
         cta_position: 'primary',
-        ui_component: 'tooltip',
+        ui_component: 'modal',
       })
     )
     expect(openUrl).toHaveBeenCalledWith(baseProps.upgradeUrl)
@@ -116,7 +116,7 @@ describe('UpgradePrompt', () => {
       expect.objectContaining({
         product_option: 'enterprise_bundle',
         cta_position: 'secondary',
-        ui_component: 'tooltip',
+        ui_component: 'modal',
       })
     )
     expect(openUrl).toHaveBeenCalledWith(baseProps.enterpriseBundleUrl)

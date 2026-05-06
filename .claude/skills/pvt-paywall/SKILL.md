@@ -35,15 +35,19 @@ that contains a ZenUML sequence macro (the smoke test page works).
 
 ### 2. Set localStorage mocks to simulate a saturated space
 
-In Chrome DevTools (F12), open the Console tab. In the context picker dropdown at the top-left of the Console panel, switch from `top` to the ZenUML Forge iframe frame (look for a frame with origin `cdn.prod.atlassian-dev.net`). Then run:
+Set localStorage mocks via Playwright's `page.evaluate()` inside the Forge iframe frame:
 
 ```js
-localStorage.setItem('mockCSSEnabled', 'true');
-localStorage.setItem('mockMacroCount', '105');
-localStorage.setItem('mockSpacePaid', 'false');
+// In the Playwright test, target the Forge iframe frame and run:
+await frame.evaluate(() => {
+  localStorage.setItem('mockCSSEnabled', 'true');
+  localStorage.setItem('mockMacroCount', '105');
+  localStorage.setItem('mockSpacePaid', 'false');
+});
+await page.reload();
 ```
 
-Reload the page for the mocks to take effect.
+If running manually (not via Playwright), open Chrome DevTools (F12), switch the Console context from `top` to the Forge iframe frame (origin `cdn.prod.atlassian-dev.net`), run the `localStorage.setItem` calls, then reload.
 
 ### 3. Trigger the paywall — click Edit
 
@@ -112,7 +116,7 @@ Click Edit again to reopen the modal. Click `Continue editing`.
 
 Wait at least 2 minutes after completing step 8 before querying — Mixpanel ingestion typically takes 30–120 seconds. Then query for the last 1 hour filtered to `client_domain = zenuml`. If both counts return 0, wait another minute and retry once before declaring FAIL.
 
-Use `mcp__mixpanel__Run-Query` with project_id=3373228, last 1 hour, chartType=bar:
+Use `mcp__claude_ai_Mixpanel__Run-Query` with project_id=3373228, last 1 hour, chartType=bar:
 
 **Query A — upgrade_modal_shown count:**
 ```

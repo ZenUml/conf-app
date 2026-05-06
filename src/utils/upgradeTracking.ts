@@ -27,6 +27,7 @@ export enum UIComponent {
   TOOLTIP = 'tooltip',
   VIEWER_NOTICE = 'viewer_notice',
   BANNER = 'banner',
+  MODAL = 'modal',
 }
 
 type UpgradeEventParams = Partial<Omit<AnalyticsProperties, 'feature_area'>> & Record<string, unknown>;

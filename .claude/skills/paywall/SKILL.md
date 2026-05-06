@@ -1,6 +1,6 @@
 ---
 name: paywall
-description: Manage the ZenUML Lite paywall rollout — analyse which tenants are ready to advance to the next stage, decide which domains to add to CUSTOMER_SUCCESS_SERVICE or PERSONA_AWARE_PAYWALL, and generate the exact KV commands to execute. Use this skill whenever the user asks about paywall rollout, which clients to enable, CSS/PAP flags, tenant upgrade state, space licensing, or "who should be on the paywall list". Also use when the user asks to check a specific domain's paywall state or wants to understand why a tenant is or isn't seeing the paywall.
+description: Manage the ZenUML Lite paywall rollout (Lite variant only — Full and Diagramly have no restrictions). Decide which domains to enroll in CUSTOMER_SUCCESS_SERVICE (CSS), monitor daily paywall activity, and generate the exact KV commands to execute. Use this skill whenever the user asks about paywall rollout, which clients to enable, the CSS flag, tenant enrollment state, space licensing, or "who should be on the paywall list". Also use when the user asks to check a specific domain's paywall state, wants to understand why a tenant is or isn't seeing the paywall, or wants to A/B compare paywall impact (treatment vs. control tenants).
 ---
 
 # Paywall Rollout Skill
@@ -12,30 +12,31 @@ This skill covers the Lite variant only. Full and Diagramly have no in-app restr
 When invoked with no description or extra prompt, run the daily monitoring research automatically:
 
 1. (Optional) When debugging a specific tenant, check their Forge app version (Step 0)
-2. Read current CSS/PAP flags (Step 1)
-3. Run the parallel Mixpanel queries for the last 1 day (Step M below)
+2. Read the current CSS flag (Step 1) — the live CSS flag is the authoritative domain list; do not rely on any hardcoded list in this skill
+3. Run the parallel Mixpanel queries for the last 1 day (Step M below) — Q1–Q5 in parallel, then Q6 for domains with blocks or high save volume
 4. Build the domain table and suggest next steps
 5. Send a PushNotification with the summary
 6. Run the self-review (Step R below) — surface errors, surprises, and proposed skill improvements
 
+When invoked with "compare", "ab", "impact", or "a/b", run the **A/B Impact Analysis** section instead — this measures paywall friction against control tenants and is meant to run weekly (Mondays).
+
 ---
 
-## Rollout Stages
+## Rollout States
 
-Every Lite tenant sits in one of four stages. Your job is to determine which stage each CSS-enrolled tenant is in and recommend the next action.
+Every Lite tenant sits in one of three states. Your job is to determine which state each tenant is in and recommend the next action.
 
-| Stage | CSS | PAP | What user sees |
-|-------|-----|-----|----------------|
-| **0 — Unrestricted** | ❌ | — | No paywall at all |
-| **1 — Legacy paywall** | ✅ | ❌ | Blocked at 100 macros, generic "Pick the upgrade that fits" modal |
-| **2 — Persona-aware paywall** | ✅ | ✅ | Blocked at 100 macros, routed to HeavyCreator / Bystander / ComparisonView based on usage |
-| **Licensed** | any | any | Space paid via KV license — restrictions bypassed entirely |
+| State | CSS | What user sees |
+|-------|-----|----------------|
+| **Unrestricted** | ❌ | No paywall at all |
+| **Paywall on** | ✅ | Warning at 85 macros (per space), blocked at 100 macros (per space). Single `UpgradePrompt` modal — no persona routing. |
+| **Licensed** | any | Space paid via KV license — restrictions bypassed entirely |
 
-The PAP flag is a temporary canary gate. Once validated across all CSS tenants, collapse stages 1 and 2 by removing the PAP gate from `UpgradePromptRouter.vue` and letting all CSS tenants get persona-aware routing automatically.
+> **Historical note:** the previous `PERSONA_AWARE_PAYWALL` (PAP) flag and persona-aware modal routing (BystanderNotice / HeavyCreatorPrompt / ComparisonView) have been removed from the codebase. There is now a single `src/components/UpgradePrompt/UpgradePrompt.vue`. The PAP KV key is dead weight — safe to delete once you've confirmed no other consumer reads it.
 
 ## Known Internal Sites
 
-These CSS-enrolled domains are ZenUML's own Confluence instances — not customer tenants. Mark as `internal` in all tables; never recommend for PAP promotion based on engagement metrics.
+These CSS-enrolled domains are ZenUML's own Confluence instances — not customer tenants. Mark as `internal` in all tables; never count their engagement metrics toward customer enrollment recommendations.
 
 - `zenuml` → zenuml.atlassian.net (production/internal)
 - `zenuml-connect` → zenuml-connect.atlassian.net (internal, Connect-era)
@@ -63,6 +64,8 @@ Apr 29 is **Shōwa Day (昭和の日)** — a Japan public holiday and the start
 |--------|-------------------------------------------|--------------------------|
 | linemanwongnai | Japan (37%), South Korea (30%), Thailand (21%), Singapore (11%) | JP Golden Week (Apr 29 → May 5–6), JP New Year (Jan 1–3), KR/TH major holidays |
 | mcoproduct | Singapore (41%), Hong Kong (33%), Taiwan (19%) | Labour Day May 1 (SG/HK/TW all public holiday — expect ~90% drop); CN New Year (Jan/Feb) |
+| airwallex | Singapore (85%), Australia (7%), Hong Kong (3%), Netherlands (3%) | SG Labour Day May 1 (~75% view drop, ~85% edit drop); SG National Day Aug 9; CN New Year (Jan/Feb); AU public holidays minor |
+| xendit | Indonesia (81%), Philippines (6%), Singapore (4%), Thailand (2%) | ID Hari Buruh / Labour Day May 1 (~60% view drop, ~95% edit drop); ID Idul Fitri (varies, Mar/Apr); ID Independence Aug 17; ID Christmas Dec 25 |
 | (extend as discovered) | | |
 
 When extending this table, run the country breakdown query and capture the top 3–4 regions. Add the holidays that affect those regions' work calendars.
@@ -88,23 +91,16 @@ If a tenant shows `Status: Out-of-date`, that's a real version drift case — th
 
 ## Step 1: Read current flag state
 
-Run these two wrangler commands from the `conf-app` project root to get the live flag values:
+Run from the `conf-app` project root to get the live CSS flag value:
 
 ```bash
 # CSS — stored as JSON
 npx wrangler kv key get --namespace-id fe9042cb20994651b0a2ef9e68f9037c --remote "CUSTOMER_SUCCESS_SERVICE"
-
-# PAP — stored as comma-separated string (NOT JSON)
-npx wrangler kv key get --namespace-id fe9042cb20994651b0a2ef9e68f9037c --remote "PERSONA_AWARE_PAYWALL"
 ```
 
 > **IMPORTANT — always use `--remote`**: `wrangler.toml` declares `pages_build_output_dir`, which makes wrangler treat this as a Pages project and default to local Miniflare storage. Without `--remote`, every `kv key get/list` silently reads local state (always empty) and returns "Value not found" — even when the remote namespace has data. Also **never pipe through `2>/dev/null`** on wrangler KV commands — wrangler writes auth prompts and account selection to stdout (not stderr), and suppressing stderr can make it appear to succeed while actually returning stale local data.
 
-Note the formats — they differ intentionally:
-- **CSS** → `{"zenuml-stg":true,"linemanwongnai":true}` — JSON object, keys are subdomain prefixes
-- **PAP** → `"zenuml,zenuml-stg"` — plain comma-separated string, NO JSON
-
-Writing JSON to PAP silently breaks it (flag always returns false). Always write PAP as a plain string.
+Format: `{"zenuml-stg":true,"linemanwongnai":true}` — JSON object, keys are subdomain prefixes.
 
 ## Infrastructure constants
 
@@ -130,7 +126,9 @@ Writing JSON to PAP silently breaks it (flag always returns false). Always write
 
 ## Step M: Daily Monitoring Queries (run in parallel)
 
-Use `mcp__mixpanel__Run-Query` with project_id=3373228, last 1 day, chartType=table, breakdown by `client_domain`.
+Use `mcp__claude_ai_Mixpanel__Run-Query` with project_id=3373228, last 1 day, chartType=table, breakdown by `client_domain`.
+
+> **Server name matters.** The `mcp__mixpanel__Run-Query` variant rejects the `report` parameter as a string in some sessions (`Input should be a valid dictionary`). Use the `mcp__claude_ai_Mixpanel__` namespace consistently — it accepts the same payload reliably.
 
 **Correct breakdown schema** (the schema evolves — if validation fails, call `Get-Query-Schema(report_type: 'insights')` first):
 ```json
@@ -139,19 +137,17 @@ Use `mcp__mixpanel__Run-Query` with project_id=3373228, last 1 day, chartType=ta
 
 Run all 5 queries in parallel:
 
-**Q1 — Paywall block events** (multi-metric: query BOTH event names — see version-drift note in Step 0)
+**Q1 — Paywall block events**
 ```
-event A: paywall_triggered, measurement: total          # new name (post-rename)
-event B: upgrade_action_blocked, measurement: total     # legacy name (still emitted by current master code + cached browser bundles)
+event: paywall_triggered, measurement: total
 ```
-> Treat the `triggered` column in the table as `paywall_triggered + upgrade_action_blocked` summed per domain. Never query only one — you will miss data. As of 2026-04-30, `linemanwongnai` and `xendit` emit ONLY the legacy name; `vin3s` and `gip-onshore` emit ONLY the new name; tenants like `colesgroup` emit BOTH.
+> The legacy event name `upgrade_action_blocked` (pre-2026-04-29) is no longer emitted. Only query it if your window crosses 2026-04-28; for any window after 2026-04-29, `paywall_triggered` is the only block event.
 
-**Q2 — Paywall display events** (multi-metric: which modal was shown)
+**Q2 — Paywall display events**
 ```
-event A: bystander_notice_shown, measurement: total
-event B: persona_comparison_view_shown, measurement: total
-event C: upgrade_modal_shown, measurement: total
+event: upgrade_modal_shown, measurement: total
 ```
+> Persona-routed display events (`bystander_notice_shown`, `persona_comparison_view_shown`) no longer fire — those modals were removed when persona routing was removed. The only display event now is `upgrade_modal_shown`.
 
 **Q3 — Marketplace CTA clicks**
 ```
@@ -169,7 +165,7 @@ event: upgrade_cta_clicked, filter: product_option equals "enterprise_bundle", m
 ```
 event A: macro_save_succeeded, measurement: total
 event B: macro_save_failed, measurement: total
-event C: paywall_continued_editing, measurement: total   # new event from PR #1056; shows in prod after Lite release
+event C: paywall_continued_editing, measurement: total
 ```
 > `saves` = macro_save_succeeded. Use to compute friction rate: `triggered / saves` per domain — a high ratio (>50%) means users are hitting the wall on most edits, a sign the space is heavily restricted.
 > Non-CSS domains with high save volume are CSS enrollment candidates — flag them.
@@ -185,15 +181,15 @@ Run these in parallel after Q1–Q5 complete. Cross-reference space keys against
 
 ### Build the monitoring table
 
-For these customer domains (all on CSS+PAP as of 2026-05-01): **colesgroup, linemanwongnai, airwallex, mcoproduct, xendit, zeptonow** (exclude internals: zenuml, zenuml-stg, zenuml-connect)
+For customer domains on CSS: **read the live CSS flag from Step 1** to get the current list. Do not rely on any hardcoded list here — it goes stale as new tenants are enrolled. Exclude internal sites: zenuml, zenuml-stg, zenuml-connect.
 
-| Domain | triggered | bystander | modal_shown | saves | friction | continued | marketplace | enterprise | signal |
-|--------|-----------|-----------|-------------|-------|----------|-----------|-------------|------------|--------|
+| Domain | triggered | modal_shown | saves | friction | continued | marketplace | enterprise | signal |
+|--------|-----------|-------------|-------|----------|-----------|-------------|------------|--------|
 
-- `triggered` = sum of `paywall_triggered` + `upgrade_action_blocked` for that domain
+- `triggered` = `paywall_triggered`
 - `saves` = `macro_save_succeeded`
 - `friction` = triggered / saves — add as a note if > 50%
-- `continued` = `paywall_continued_editing` (post-PR #1056 deployment)
+- `continued` = `paywall_continued_editing`
 - `signal` = **UPGRADE** if marketplace > 0 or enterprise > 0, else `—`
 - Lead the summary with **CONVERSION ALERT** if any domain has signal = UPGRADE
 - Flag any domain that appears in Q1 or Q5 results but is NOT in the CSS list — that's an anomaly or CSS enrollment candidate
@@ -213,7 +209,7 @@ These domains have emitted paywall events despite not being in CSS. Treat as lik
 
 | Domain | First seen | Pattern |
 |--------|------------|---------|
-| vin3s | 2026-04-30 | paywall_triggered only |
+| vin3s | 2026-04-30 | **CSS enrollment candidate** — 4 spaces over 100 macros (VSA 534, VARW 438, VPay 226, OP 141), 12 saves on 2026-05-04 spread across them. Re-classified from "test traffic" on 2026-05-04. Check CSS flag in Step 1 to confirm whether enrollment has happened; if already enrolled, remove from this table. |
 | gip-onshore | 2026-04-30 | paywall_triggered only |
 | rizapg | 2026-05-01 | paywall_triggered + upgrade_modal_shown + macro_save_succeeded |
 | olix | 2026-05-02 | high save volume (19 saves/day), no paywall events — likely below 100 macros in active spaces |
@@ -228,9 +224,11 @@ After building the table, send a PushNotification:
 
 ---
 
-## Step 2: Gather tenant data for promotion decisions (run in parallel)
+## Step 2: Gather tenant data for CSS enrollment decisions (run in parallel)
 
-For each CSS domain, run these **in parallel**:
+> **When to run:** Step 2 is for deciding whether to enroll a non-CSS tenant into CSS (turning the paywall on for them), not daily monitoring. The default flow (no arguments) can skip Steps 2–4 unless the monitoring table shows non-CSS domains with high save volume or near-100-macro spaces. Run Steps 2–4 when: the user asks "who should we enroll in CSS?" or when Step M reveals new tenants with sufficient activity.
+
+For each candidate domain, run these **in parallel**:
 
 ```bash
 # 1. Macro counts + space data per domain
@@ -272,43 +270,32 @@ total = sum(r[1] for r in rows)
 ```
 Use `total` as the primary activity proxy when viewer counts are sparse.
 
-Build a promotion recommendation table with these columns:
+Build an enrollment recommendation table with these columns:
 
 | Column | Source | Meaning |
 |--------|--------|---------|
-| `domain` | KV | Subdomain prefix |
-| `stage` | KV | 1 = CSS only, 2 = CSS + PAP |
-| `install_age_d` | D1 ClientInstallation.timestamp | Days since first Connect install |
-| `total_macros` | metrics-inspect data.total | Total macros across all spaces |
-| `viewers_30d` | Mixpanel `macro_viewed` | Unique macro viewers, last 30d |
+| `domain` | candidate list | Subdomain prefix |
+| `on_css` | KV | Already enrolled? |
+| `install_age_d` | D1 ClientInstallation.timestamp | Days since first install |
+| `top_space_macros` | metrics-inspect | Largest single-space macro count (paywall surface area) |
+| `spaces_over_100` | metrics-inspect | Count of spaces ≥ 100 macros |
+| `viewers_30d` | Mixpanel `macro_viewed` (unique) | Unique macro viewers, last 30d |
+| `saves_7d` | Mixpanel `macro_save_succeeded` | Total saves, last 7d |
 | `recommendation` | computed | see Step 3 |
 
 ## Step 3: Interpret the table
 
-The recommendation is computed from the same logic as `tenantSize.ts`:
+The paywall is per-space (fires when any single space ≥ 100 macros). So enrollment only matters for tenants with a real chance of crossing that threshold.
 
-- `insufficient_data` — install < 30 days OR viewers_30d < 3. Don't add to PAP yet; not enough signal for persona routing to be meaningful.
-- `promote_to_pap` — install ≥ 30d, viewers_30d ≥ 3, not yet on PAP. This tenant is ready.
-- `monitor` — on PAP already but `tenant_size = unknown`. Keep watching — may need more time.
-- `already_pap` — fully promoted, tenant_size has signal. Healthy.
-- `internal` — ZenUML's own site; skip for promotion decisions.
+- `enroll` — at least 1 space ≥ 100 macros (or top space ≥ 85 and trending up), install ≥ 14d, viewers_30d ≥ 3, saves_7d ≥ 5. Enroll in CSS.
+- `monitor` — top space 50–99 macros, active editors. Re-check in a few weeks; not worth enrolling yet.
+- `skip` — top space < 50 macros OR viewers_30d < 3. Zero paywall surface area; enrolling would be invisible noise.
+- `already_enrolled` — already on CSS. Use the daily monitoring table to track friction.
+- `internal` — ZenUML's own site; skip enrollment decisions.
 
-When multiple tenants are `promote_to_pap`, add them in order of `viewers_30d` descending (most active first — more likely to trigger persona routing meaningfully).
+When multiple tenants are `enroll`, add them in order of `top_space_macros` descending (most likely to trigger soonest).
 
 ## Step 4: Execute changes
-
-### Add domains to PAP
-
-Read the current PAP value first, append the new domain(s), write back as a plain string:
-
-```bash
-# Read current value
-npx wrangler kv key get --namespace-id fe9042cb20994651b0a2ef9e68f9037c --remote "PERSONA_AWARE_PAYWALL"
-# → "zenuml"
-
-# Write updated value (plain string, no quotes in the value itself)
-npx wrangler kv key put --namespace-id fe9042cb20994651b0a2ef9e68f9037c --remote "PERSONA_AWARE_PAYWALL" "zenuml,linemanwongnai,zeptonow"
-```
 
 ### Add domains to CSS
 
@@ -334,31 +321,116 @@ curl -X POST https://conf-lite.zenuml.com/api/space-license \
   -d '{"cloudId":"<cloudId>","spaceKey":"<spaceKey>","activatedBy":"<email>","paymentReference":"<stripe_id>","expiresAt":"<ISO8601>"}'
 ```
 
+## A/B Impact Analysis (paywall vs control)
+
+Periodic comparison: are paywall-affected tenants editing less than comparable unrestricted tenants? Run this weekly (Mondays, after the daily monitoring) so you have a rolling readout on real-world paywall friction.
+
+### Group definitions
+
+**Group A (treatment — paywall on).** CSS-enrolled tenants with ≥1 space ≥100 macros and a working baseline of edits in the last 7d. Refresh as enrollments change. Skip any tenant currently in a regional holiday (see Tenant geography table) and skip newly enrolled tenants for 7 days post-enrollment (rollout shock dominates early days).
+
+| Domain | top space (macros) | spaces ≥100 | rationale |
+|--------|--------------------|--------------|-----------|
+| colesgroup | AGWS=1080 | 8 | High-volume editor, large surface area |
+| airwallex | APA=650 | 7 | High-volume editor, multi-space |
+| linemanwongnai | (varies) | 5+ | Normal week. Skip during JP Golden Week (Apr 29 → May 6) |
+
+Currently too low-volume or too newly enrolled to count: vin3s (enrolled 2026-05-04), mcoproduct, xendit, zeptonow.
+
+**Group B (control — paywall off).** Comparable tenants NOT on CSS, with ≥1 space ≥100 macros AND save volume of the same order as Group A. The macro-count requirement matters: a control tenant with no spaces over the threshold would never trigger the paywall even if enrolled — there's nothing to compare.
+
+| Domain | top space (macros) | spaces ≥100 | saves/wk |
+|--------|--------------------|--------------|----------|
+| woolworths-agile | WIQ=145 | 1 | ~31 |
+| appculqi | CR=194, UPI=136 | 2 | ~36 |
+| economical | PA=241 | 1 | ~32 |
+
+> **Excluded controls:** zayogroup (60 total macros, 0 spaces ≥100 — zero paywall surface area, can't be a fair control).
+
+### Step A1: Run the comparison queries
+
+Two queries, last 7 days, broken down by `client_domain`. Don't filter on `client_domain in [...]` — Mixpanel's `equals` operator doesn't accept arrays. Pull all domains and pick out the rows you need.
+
+```
+metrics: macro_save_succeeded (total), paywall_triggered (total), macro_viewed (total)
+metrics: macro_save_succeeded (unique), macro_viewed (unique)
+breakdown: client_domain
+date: last 7 days
+```
+
+### Step A2: Build the comparison table
+
+| Group | Domain | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|--------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+
+Definitions:
+- `attempts = saves + triggered`
+- `success_rate = saves / attempts` (%)
+- `saves/user = saves / save_users`
+- Aggregate per group by summing each numeric column.
+
+### Step A3: Interpret
+
+**Primary signal — `success_rate`.** Group B should sit at ~99% (no paywall, saves nearly always succeed). Group A's deviation from that is the cleanest measure of paywall friction in production.
+
+| Group A success_rate | What it means |
+|----------------------|---------------|
+| > 80% | Paywall barely engaging — most users below threshold or not editing |
+| 50–80% | Healthy friction — paywall firing as designed |
+| 35–50% | Heavy friction — many users hitting the wall repeatedly |
+| < 35% | Severe friction — investigate (broken upgrade path? unfair routing?) |
+
+**Secondary signals:**
+- `saves/user` lower in Group A → paywall reduces per-editor productivity. A >25% gap is meaningful.
+- `view_users` per tenant in Group A is naturally higher (selection bias — larger tenants), so view-to-edit conversion ratios are noisy. Don't over-read them.
+
+**Known confounds:**
+- **Selection bias:** Group A tenants were enrolled because they were larger/more active. They have proportionally more passive viewers than Group B, which inflates `view_users` and depresses conversion ratios independently of the paywall.
+- **Regional holidays:** Always check Group A tenants against the Tenant geography table. A tenant in JP Golden Week or SG Labour Day can drop edits to zero — that's not a paywall effect.
+- **Newly enrolled tenants:** Hold for 7 days. Day 1 looks dramatic but isn't a steady-state read.
+
+### Baseline snapshot (2026-05-05, last 7 days)
+
+| Group | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| **A** (colesgroup, airwallex, linemanwongnai) | 85 | 81 | 166 | 26 | 662 | 9,568 | **51%** | 3.3 |
+| **B** (woolworths-agile, appculqi, economical) | 99 | 1 | 100 | 20 | 206 | 1,893 | **99%** | 5.0 |
+
+Per-tenant breakdown:
+
+| Group | Domain | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|--------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| A | colesgroup | 42 | 69 | 111 | 13 | 370 | 3,808 | 38% | 3.2 |
+| A | airwallex | 31 | 11 | 42 | 8 | 179 | 3,419 | 74% | 3.9 |
+| A | linemanwongnai | 12 | 1 | 13 | 5 | 113 | 2,341 | 92% | 2.4 |
+| B | woolworths-agile | 31 | 1 | 32 | 5 | 99 | 685 | 97% | 6.2 |
+| B | appculqi | 36 | 0 | 36 | 8 | 38 | 516 | 100% | 4.5 |
+| B | economical | 32 | 0 | 32 | 7 | 69 | 692 | 100% | 4.6 |
+
+**Reading:** Group A's success rate is 51% vs Group B's 99% — paywall blocks ~half of Group A's save attempts. Per active editor, Group A produces 34% fewer successful saves (3.3 vs 5.0). colesgroup is the friction outlier (38% — heavy block rate, 13 active editors). linemanwongnai's 92% is artificially high because Golden Week has suppressed both saves and triggers. Track this baseline week-over-week.
+
+> **linemanwongnai caveat:** their 7-day window includes the start of JP Golden Week. Re-read the comparison after May 6 with a clean week.
+
+---
+
 ## Debugging a specific tenant
 
-If a user reports they're not seeing the paywall (or seeing the wrong modal), check in order:
+If a user reports they're not seeing the paywall, check in order:
 
 1. **Forge app version** (Step 0): `pnpm forge install list 2>&1 | grep <domain>`. Confirms install status and rules out version drift before deeper investigation.
 2. **Is their domain on CSS?** If not, they'll never see the paywall regardless of macro count.
 3. **Are they on Lite?** Paywall logic short-circuits to `false` for Full/Diagramly. Check Mixpanel `product_type` property on their `macro_viewed` events.
 4. **Per-space macro count ≥ 100?** Paywall is per-space, not per-tenant. A tenant with 5,000 total macros across 100 spaces won't trigger if no single space crosses the threshold. Check `metrics-inspect` and look at top spaces by `total`.
-5. **Are users actually trying to EDIT macros in over-threshold spaces?** Paywall fires on edit click (`upgrade_action_blocked` / `paywall_triggered`), NOT on viewing. View-only users in a 1,000-macro space generate zero paywall events. Cross-check `macro_viewed` against `macro_edit_opened` / `macro_save_succeeded` filtered by `client_domain` (and ideally `confluence_space`). **If edit activity collapses on a specific date while views only partially drop, suspect a regional holiday in the tenant's primary engineering geography — see "Tenant geography & regional holidays" section above.**
+5. **Are users actually trying to EDIT macros in over-threshold spaces?** Paywall fires on edit click (`paywall_triggered`), NOT on viewing. View-only users in a 1,000-macro space generate zero paywall events. Cross-check `macro_viewed` against `macro_save_succeeded` filtered by `client_domain` (and ideally `confluence_space`). **If edit activity collapses on a specific date while views only partially drop, suspect a regional holiday in the tenant's primary engineering geography — see "Tenant geography & regional holidays" section above.**
 6. **Is their space licensed?** Check KV: `license:{cloudId}:{spaceKey}`.
-7. **Which modal will they see?** Depends on PAP flag + persona:
-   - PAP off → LegacyPrompt
-   - PAP on + personalAuthored < 5 → BystanderNotice (unless `ownerSelfIdentified`)
-   - PAP on + tenantSize unknown → ComparisonView
-   - PAP on + tenantSize known + creator → HeavyCreatorPrompt
+
+There is no longer any persona / modal-routing branch — every blocked user sees the same `UpgradePrompt` modal.
 
 For local simulation, use localStorage overrides:
 ```js
 localStorage.mockCSSEnabled = 'true'
-localStorage.mockPersonaAwarePaywall = 'true'
 localStorage.mockMacroCount = '105'
 localStorage.mockSpacePaid = 'false'
-localStorage.mockPersonalAuthored = '7'        // ≥5 = creator
-localStorage.mockTenantSizeEstimate = 'small_likely'
-localStorage.mockPersonaThreshold = '5'        // default M threshold
 ```
 
 ## Step R: Self-Review (always run after monitoring)
@@ -403,9 +475,8 @@ If there are proposed improvements, ask the user: "Want me to apply these to the
 
 | What | File |
 |------|------|
-| Thresholds (85/100) | `src/composables/useCustomerSuccessService.ts` |
-| Modal routing | `src/components/UpgradePrompt/UpgradePromptRouter.vue` |
-| Persona threshold (M=5) | `src/composables/useCustomerSuccessService.ts:16` |
-| Tenant size algorithm | `functions/utils/tenantSize.ts` |
+| Thresholds (85 warning / 100 block) + CSS flag fetch + space-paid check | `src/composables/useCustomerSuccessService.ts` |
+| Single paywall modal | `src/components/UpgradePrompt/UpgradePrompt.vue` |
+| Upgrade tracking event names | `src/utils/upgradeTracking.ts` |
 | Space license endpoint | `functions/api/space-status.ts`, `functions/api/space-license.ts` |
 | Pricing tiers + cost formula | `docs/pricing-model.yml` |

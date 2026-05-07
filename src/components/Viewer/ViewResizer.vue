@@ -33,7 +33,7 @@ export default {
     window.addEventListener('resize', this.handleResize);
     this.handleResize();
   },
-  beforeDestroy() {
+  beforeUnmount() {
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
     }

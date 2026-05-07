@@ -18,30 +18,57 @@ process.env.VITE_APP_GIT_BRANCH = execSync('git branch --show-current').toString
 process.env.VITE_APP_GIT_TAG = execSync('git describe --tags --always --abbrev=0').toString().trim()
 console.log(`Building ${process.env.VITE_APP_GIT_TAG} (${process.env.VITE_APP_GIT_HASH}) on ${process.env.VITE_APP_GIT_BRANCH}`)
 
-function getHtmlFiles(dir) {
+// Dev-only HTML entries — driven by `src/{test-viewer,viewerPreview,sandbox}.ts`.
+// Each ships a sandbox/preview UI (`localStorage.mock*` flags, sandbox-preset
+// catalog, etc.) that has no place in a production bundle. Excluding them
+// drops their independent module graphs from `pnpm build:*` and trims the
+// dist file count.
+const DEV_ONLY_HTML_ENTRIES = new Set([
+  'test-viewer.html',
+  'viewer-preview.html',
+  'sandbox.html',
+]);
+
+function getHtmlFiles(dir, { isBuild = false } = {}) {
   const htmlFiles = [];
   const files = fs.readdirSync(dir);
 
   for (let i = 0; i < files.length; i++) {
     const filepath = path.join(dir, files[i]);
-    if (fs.lstatSync(filepath).isFile()) {
-      if (path.extname(filepath) === '.html') {
-        htmlFiles.push(filepath);
-      }
+    if (fs.lstatSync(filepath).isFile() && path.extname(filepath) === '.html') {
+      if (isBuild && DEV_ONLY_HTML_ENTRIES.has(files[i])) continue;
+      htmlFiles.push(filepath);
     }
   }
   return htmlFiles;
 }
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   base: './',
   define: {
     'import.meta.env.PRODUCT_TYPE': JSON.stringify(process.env.PRODUCT_TYPE || 'full'),
     'import.meta.env.VITE_MIXPANEL_TOKEN': JSON.stringify(process.env.VITE_MIXPANEL_TOKEN || ''),
   },
+  // Pre-bundle the hot CJS / Vue / CodeMirror cluster on dev-server cold start.
+  // Without this, Vite discovers each lazily on first request and rebuilds the
+  // dep graph mid-session, which jitters HMR for the first ~30s after launch.
+  optimizeDeps: {
+    include: [
+      'vue',
+      '@vue/compat',
+      '@codemirror/state',
+      '@codemirror/view',
+      '@codemirror/language',
+      '@codemirror/autocomplete',
+      '@codemirror/lint',
+      'codemirror-lang-mermaid',
+      '@zenuml/codemirror-extensions',
+      '@zenuml/core',
+    ],
+  },
   build: {
     rollupOptions: {
-      input: getHtmlFiles('./')
+      input: getHtmlFiles('./', { isBuild: command === 'build' })
     },
 
     emptyOutDir: true,
@@ -155,4 +182,4 @@ export default defineConfig({
     },
     allowedHosts: ['yanhui8080.zenuml.com', '8080.diagramly.net', 'precise-oriented-mink.ngrok-free.app', 'special-lemming-radically.ngrok-free.app'],
   }
-});
+}));

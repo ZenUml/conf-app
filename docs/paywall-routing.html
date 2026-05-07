@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paywall Routing — ZenUML conf-app</title>
+<style>
+  :root {
+    --fg: #1f2328;
+    --muted: #57606a;
+    --accent: #0969da;
+    --warn: #9a6700;
+    --warn-bg: #fff8c5;
+    --good: #1a7f37;
+    --good-bg: #dafbe1;
+    --border: #d0d7de;
+    --bg: #ffffff;
+    --bg-soft: #f6f8fa;
+    --code-bg: #f6f8fa;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    margin: 0;
+    padding: 0;
+  }
+  .wrap {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px 28px 96px;
+  }
+  h1 {
+    font-size: 28px;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  h2 {
+    font-size: 20px;
+    margin: 36px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 { font-size: 16px; margin: 20px 0 8px; }
+  p { margin: 8px 0; }
+  .lead {
+    color: var(--muted);
+    font-size: 15px;
+    margin-bottom: 24px;
+  }
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: var(--bg-soft);
+    padding: 12px 16px;
+    margin: 16px 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .callout.warn {
+    border-color: var(--warn);
+    background: var(--warn-bg);
+  }
+  .callout.good {
+    border-color: var(--good);
+    background: var(--good-bg);
+  }
+  .badge {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    vertical-align: 2px;
+    margin-left: 8px;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 12px 0 18px;
+    font-size: 14px;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 8px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: var(--bg-soft);
+    font-weight: 600;
+  }
+  td code, th code, p code, li code {
+    font: 13px/1.4 ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    font: 13px/1.5 ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+  }
+  pre code { background: none; padding: 0; }
+  .mermaid-host {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin: 16px 0;
+    overflow-x: auto;
+  }
+  .mermaid { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+  .timeline {
+    display: grid;
+    grid-template-columns: 110px 1fr 1fr;
+    gap: 6px 14px;
+    font-size: 14px;
+    margin: 12px 0 4px;
+  }
+  .timeline .head {
+    font-weight: 600;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 4px;
+    margin-bottom: 4px;
+  }
+  .timeline .row {
+    display: contents;
+  }
+  .timeline .cutover {
+    background: var(--warn-bg);
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+  .footer {
+    margin-top: 56px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 13px;
+  }
+  ul, ol { padding-left: 22px; }
+  li { margin: 4px 0; }
+  strong { font-weight: 600; }
+  .pill {
+    display: inline-block;
+    font-size: 12px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Paywall Routing <span class="badge">conf-app · Lite</span></h1>
+  <p class="lead">Generated 2026-05-07 from a code + Mixpanel audit. Source files referenced inline.</p>
+
+  <div class="callout warn">
+    <strong>Headline:</strong> there is no variant routing today. Every paywall impression goes to a single modal — <code>UpgradePrompt.vue</code>. Bystander / HeavyCreator / PersonaComparison routing existed previously and was removed; the migration completed around <strong>2026-05-02</strong>, and the residual <code>prompt_variant: 'legacy'</code> property was dropped on 2026-05-07.
+  </div>
+
+  <h2>What triggers the modal</h2>
+  <p>Two surfaces reach the same <code>UpgradePrompt</code> modal. They have <em>different</em> trigger thresholds — easy to confuse.</p>
+
+  <table>
+    <thead>
+      <tr><th>Surface</th><th>File / line</th><th>Show condition</th><th>Modal opens on…</th><th>Events fired on open</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Header "Upgrade" badge</strong> <span class="pill">passive</span></td>
+        <td><code>src/components/Viewer/GenericViewer.vue:97</code></td>
+        <td><code>isLite && macrosCreated &gt; 50 && !spacePaid</code><br><em>(NB: ignores CSS flag)</em></td>
+        <td>Click on the badge</td>
+        <td><code>paywall_triggered</code> (<code>ui_component=viewer_notice</code>) → then <code>upgrade_modal_shown</code> from the modal mount</td>
+      </tr>
+      <tr>
+        <td><strong>Pre-edit gate</strong> <span class="pill">blocking</span></td>
+        <td><code>src/forgeIndex.ts:155</code>, <code>src/forge-*-editor.ts</code></td>
+        <td><code>isPageEditorEditBlocked(customContentId, shouldBlockActions)</code> where <code>shouldBlockActions = isLite && customerSuccessServiceEnabled && macrosCreated &gt;= 100 && !spacePaid</code></td>
+        <td>Automatic when user clicks Edit on a macro in a CSS-enrolled, ≥100-macro, unpaid Lite space</td>
+        <td><code>paywall_blocked_edit</code> + <code>paywall_triggered</code> (<code>ui_component=viewer_notice</code>) → then <code>upgrade_modal_shown</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <strong>Threshold mismatch is intentional.</strong> The badge appears from 50 macros on every Lite space (regardless of CSS enrollment). The editor is only <em>blocked</em> at 100 macros on CSS-enrolled tenants. So a 60-macro Lite space sees the badge but can still freely edit.
+  </div>
+
+  <h2>Flowchart</h2>
+  <div class="mermaid-host">
+<pre class="mermaid">
+flowchart TD
+  Start([User on a Confluence page<br/>with a ZenUML / Mermaid / Graph / OpenAPI macro]) --&gt; Action{User action}
+
+  Action --&gt;|View page| ViewMount["GenericViewer.vue mounts<br/>useCustomerSuccessService.initialize()"]
+  Action --&gt;|Click Edit| EditEntry["forge-*-editor.ts entry<br/>(forgeIndex / embed / graph / swagger)"]
+
+  ViewMount --&gt; BadgeCheck{"isLite<br/>AND macrosCreated &gt; 50<br/>AND !spacePaid"}
+  BadgeCheck --&gt;|true| BadgeShown["Render persistent gold 'Upgrade' badge<br/>in macro header (no event yet)"]
+  BadgeCheck --&gt;|false| NoBadge["Render diagram normally<br/>No paywall surface"]
+
+  BadgeShown --&gt; BadgeClick{User clicks the badge?}
+  BadgeClick --&gt;|yes| OpenViaBadge["openUpgradeModal() in GenericViewer<br/>Fire: paywall_triggered<br/>ui_component = viewer_notice"]
+  BadgeClick --&gt;|no| EndPassive([Diagram stays viewable])
+
+  EditEntry --&gt; BlockCheck{"isPageEditorEditBlocked?<br/>shouldBlockActions:<br/>isLite AND CSS-enabled<br/>AND macrosCreated &gt;= 100<br/>AND !spacePaid"}
+  BlockCheck --&gt;|true| BlockMount["Mount PageEditorPaywallGate.vue<br/>Fire: paywall_blocked_edit<br/>+ paywall_triggered<br/>ui_component = viewer_notice"]
+  BlockCheck --&gt;|false| EditorMount["Mount editor normally<br/>No paywall"]
+
+  BlockMount --&gt; Modal
+  OpenViaBadge --&gt; Modal
+
+  Modal["UpgradePrompt.vue<br/>Fire: upgrade_modal_shown<br/>trigger_source = header_badge"]
+
+  Modal --&gt; CTA{User action on modal}
+
+  CTA --&gt;|"Click 'Upgrade →'<br/>(Marketplace card)"| Marketplace["upgrade_cta_clicked<br/>product_option = marketplace<br/>ui_component = modal<br/>cta_position = primary<br/>Opens Marketplace listing<br/>(modal stays open)"]
+
+  CTA --&gt;|"Click 'Get Bundle →'<br/>(Enterprise card)"| Bundle["upgrade_cta_clicked<br/>product_option = enterprise_bundle<br/>ui_component = modal<br/>cta_position = secondary<br/>Opens Stripe Checkout<br/>(modal stays open)"]
+
+  CTA --&gt;|"Click 'Continue editing<br/>without upgrading'"| Continue["paywall_continued_editing<br/>emit 'continue-editing'<br/>caller decides next step"]
+
+  CTA --&gt;|"Click ×, press Esc,<br/>or click backdrop"| Dismiss["upgrade_modal_dismissed<br/>(slider_interacted, time_spent,<br/>interaction_count)"]
+
+  classDef event fill:#dafbe1,stroke:#1a7f37,color:#1a4f26
+  classDef block fill:#fff1cc,stroke:#9a6700,color:#5b4500
+  classDef neutral fill:#f6f8fa,stroke:#d0d7de,color:#1f2328
+  classDef cta fill:#ddf4ff,stroke:#0969da,color:#0a3069
+
+  class Start,EndPassive,NoBadge,EditorMount neutral
+  class BadgeShown,BlockMount,OpenViaBadge cta
+  class Modal block
+  class Marketplace,Bundle,Continue,Dismiss event
+</pre>
+  </div>
+
+  <h2>Key conditions, in code</h2>
+
+  <p><code>src/composables/useCustomerSuccessService.ts:29-46</code></p>
+<pre><code>const shouldBlockActions = computed(() =&gt; {
+  if (spacePaidStatus.value) return false       // paid space → no block, ever
+  const isLite = globals.apWrapper.isLite()
+  return macrosCreated.value &gt;= MACROS_LIMIT     // 100
+    &amp;&amp; customerSuccessServiceEnabled.value       // CSS feature flag for this tenant
+    &amp;&amp; isLite
+})</code></pre>
+
+  <p><code>src/utils/paywall/preEditGate.ts</code></p>
+<pre><code>export function isPageEditorEditBlocked(customContentId, shouldBlockActions) {
+  return Boolean(customContentId) &amp;&amp; shouldBlockActions
+}</code></pre>
+
+  <p><code>src/components/Viewer/GenericViewer.vue:97</code> (badge condition — note the looser threshold)</p>
+<pre><code>&lt;div v-if="isLite &amp;&amp; macrosCreated &gt; 50 &amp;&amp; !spacePaid"&gt;
+  &lt;button @click="openUpgradeModal" ...&gt;Upgrade&lt;/button&gt;
+&lt;/div&gt;</code></pre>
+
+  <h2>Inside the modal: every button is wired the same way</h2>
+  <p>From <code>src/components/UpgradePrompt/UpgradePrompt.vue</code> template:</p>
+
+  <table>
+    <thead>
+      <tr><th>Button</th><th>Event fired</th><th>What happens after</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>Upgrade →</code> <em>(Marketplace card)</em></td>
+        <td><code>upgrade_cta_clicked</code><br>marketplace · primary · modal</td>
+        <td><code>openUrl(upgradeUrl)</code> opens Atlassian Marketplace listing in a new tab. Modal stays open by design — see <code>useUpgradeTracking.ts:64-68</code> comment about the Forge view-close race.</td>
+      </tr>
+      <tr>
+        <td><code>Get Bundle →</code> <em>(Enterprise card)</em></td>
+        <td><code>upgrade_cta_clicked</code><br>enterprise_bundle · secondary · modal</td>
+        <td><code>openUrl(enterpriseBundleUrl)</code> opens Stripe Checkout in a new tab. Modal stays open.</td>
+      </tr>
+      <tr>
+        <td><code>Continue editing without upgrading</code></td>
+        <td><code>paywall_continued_editing</code></td>
+        <td>Emits <code>continueEditing</code>. Caller (PageEditorPaywallGate or GenericViewer) decides what to do — typically dismiss the modal so the editor can mount or the user can keep viewing.</td>
+      </tr>
+      <tr>
+        <td><code>Why do I need to upgrade? →</code></td>
+        <td><em>(no Mixpanel event)</em></td>
+        <td>Plain <code>&lt;a target=_blank&gt;</code> to <code>https://zenuml.com/upgrade/</code>.</td>
+      </tr>
+      <tr>
+        <td>× button (top-right of card)</td>
+        <td><code>upgrade_modal_dismissed</code></td>
+        <td>Hides modal.</td>
+      </tr>
+      <tr>
+        <td>Esc key</td>
+        <td><code>upgrade_modal_dismissed</code></td>
+        <td>Same as ×.</td>
+      </tr>
+      <tr>
+        <td>Click on backdrop (<code>bg-black bg-opacity-50</code>)</td>
+        <td><code>upgrade_modal_dismissed</code></td>
+        <td>Same as ×.</td>
+      </tr>
+    </tbody>
+  </table>
+
+
+  <h2>Historical context</h2>
+  <p>Mixpanel events <code>bystander_notice_shown</code>, <code>bystander_admin_notified</code>, <code>bystander_owner_self_identify</code>, <code>persona_comparison_view_shown</code>, and <code>paywall_continued_editing</code> with <code>prompt_variant ∈ {bystander_notice, heavy_creator}</code> come from an older multi-variant implementation. The migration to single-variant happened around 2026-05-01 → 2026-05-02:</p>
+
+  <div class="timeline">
+    <div class="head">Date</div>
+    <div class="head"><code>bystander_notice_shown</code></div>
+    <div class="head"><code>upgrade_modal_shown</code></div>
+
+    <div class="row"><div>Apr 7 → Apr 27</div><div>0</div><div>0</div></div>
+    <div class="row"><div>Apr 28</div><div>61</div><div>2</div></div>
+    <div class="row"><div>Apr 29</div><div>47</div><div>3</div></div>
+    <div class="row"><div>Apr 30</div><div>9</div><div>1</div></div>
+    <div class="row"><div>May 1</div><div>35</div><div>43</div></div>
+    <div class="row"><div><span class="cutover">May 2</span></div><div><span class="cutover">1</span></div><div><span class="cutover">63</span></div></div>
+    <div class="row"><div>May 3 onward</div><div>0–1</div><div>14–63 (steady)</div></div>
+  </div>
+
+  <p>Since May 3, all paywall impressions are Legacy. Any historical conversion comparison between Legacy and Bystander measures the <em>old</em> code, not anything that's currently on prod. If you're tempted to "borrow Bystander's tactics," that's a forward-looking design decision — not a "re-enable existing mechanic" task.</p>
+
+  <h2>Implications for the next workstream</h2>
+  <ul>
+    <li>The "53% Continue editing escape" number from the earlier brainstorm broke down as <strong>228 / 235 = ~97% on Legacy alone</strong> once you separate variants. The Legacy modal is essentially escapable in one click. <strong>That is the dominant leak.</strong></li>
+    <li>Bystander's higher action-rate (~10%) was a <em>different engagement model</em> (notify-admin + self-identify) that no longer exists. Re-introducing it would be net-new product work, not a regression fix.</li>
+    <li>The badge (passive surface, 50-macro threshold, no CSS gate) and the pre-edit gate (blocking, 100-macro, CSS-gated) reach the same modal. Any modal-side change affects both surfaces. Plan accordingly.</li>
+  </ul>
+
+  <div class="footer">
+    docs/paywall-routing.html · ZenUml/conf-app · this is a snapshot at 2026-05-07; verify against <code>git log</code> if reading later.
+  </div>
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+      fontSize: '13px',
+      primaryColor: '#ffffff',
+      primaryBorderColor: '#d0d7de',
+      primaryTextColor: '#1f2328',
+      lineColor: '#57606a',
+    },
+    flowchart: { curve: 'basis', padding: 12 },
+  });
+</script>
+</body>
+</html>

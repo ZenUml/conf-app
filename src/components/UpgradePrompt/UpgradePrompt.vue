@@ -79,9 +79,7 @@ const emit = defineEmits<{
 }>()
 
 function onContinueEditing() {
-  trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING, {
-    prompt_variant: 'legacy',
-  })
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING)
   emit('continueEditing')
 }
 

@@ -6,6 +6,13 @@ on:
   release:
     types: [prereleased, released]
 
+# Opt into Node 24 for actions still pinned to Node 20 (upload-artifact@v4,
+# cache@v4, pnpm/action-setup@v4, cloudflare/wrangler-action@v3). Removes
+# the "Node.js 20 actions are deprecated" warning until those actions ship
+# Node-24 majors. Drop this once all consumed actions are Node-24 native.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   release:
     name: ${{ github.event.release.tag_name }} to production
@@ -31,14 +38,16 @@ jobs:
           # extract variant from tag: v{TS}-{variant} (e.g. full, lite, diagramly)
           VARIANT=$(echo ${{ github.event.release.tag_name }} | sed 's/^v[0-9.]*-//')
           LICENSE="$VARIANT"
-          echo "::set-output name=variant::$VARIANT"
-          echo "::set-output name=license::$LICENSE"
-          # Map diagramly to lite for Cloudflare project (diagramly uses conf-lite)
-          if [ "$LICENSE" = "diagramly" ]; then
-            echo "::set-output name=cf_project::lite"
-          else
-            echo "::set-output name=cf_project::$LICENSE"
-          fi
+          {
+            echo "variant=$VARIANT"
+            echo "license=$LICENSE"
+            # Map diagramly to lite for Cloudflare project (diagramly uses conf-lite)
+            if [ "$LICENSE" = "diagramly" ]; then
+              echo "cf_project=lite"
+            else
+              echo "cf_project=$LICENSE"
+            fi
+          } >> "$GITHUB_OUTPUT"
       - name: Build and publish to Cloudflare
         uses: ./.github/actions/wrangler-publish
         with:

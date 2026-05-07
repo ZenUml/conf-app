@@ -45,6 +45,10 @@ on:
 # a third entry to strategy.matrix.shard.
 env:
   SHARD_COUNT: 2
+  # Opt into Node 24 for actions still pinned to Node 20 (upload-artifact@v4,
+  # cache@v4, pnpm/action-setup@v4). Removes the "Node.js 20 actions are
+  # deprecated" warning until those actions ship Node-24 majors.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   test:
@@ -121,3 +125,6 @@ jobs:
         with:
           name: screenshots-${{ inputs.artifact-suffix }}-shard-${{ matrix.shard }}
           path: ./tests/e2e-tests/screenshots/
+          # Tests only write screenshots on failure; suppress the "no files
+          # found" warning that fires on every green run.
+          if-no-files-found: ignore

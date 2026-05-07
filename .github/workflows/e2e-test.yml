@@ -30,10 +30,31 @@ on:
         required: true
         description: 'TOTP secret used by tests/e2e-tests/utils/otp.js'
 
+# Spec-level parallelism via Playwright's `--shard=N/M`. Each shard is an
+# independent GitHub Actions job: it does its own auth bootstrap (~30s) and
+# runs ~half of the suite's specs in parallel with the other shard.
+#
+# Trade-off: 2× auth cost (~30s × 2 = 60s of duplicate work) vs. wall-clock
+# savings of half the spec runtime. For the insert suite (~250s today),
+# the longest shard finishes in ~150s — a ~40% wall-clock reduction.
+#
+# Why N=2: insert (the only suite running in CI today) has 9 tests, which
+# Playwright shards as 4/4/1 across N=3 — the small shard pays full auth
+# overhead for almost no work. N=2 splits cleanly to 5/4. If `suite=all`
+# is ever enabled in CI (~23 tests), bump SHARD_COUNT to 3 below and add
+# a third entry to strategy.matrix.shard.
+env:
+  SHARD_COUNT: 2
+
 jobs:
   test:
+    name: shard ${{ matrix.shard }}/2
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v5
       - name: Setup pnpm
@@ -64,11 +85,24 @@ jobs:
       - name: Run tests
         run: |
           cd tests/e2e-tests
+          # Build the project filter list per suite — same as the per-suite
+          # pnpm scripts, but inlined so we can append `--shard=N/M` for
+          # spec-level parallelism. Setup projects (auth, pages) run in every
+          # shard (Playwright shards specs, not setup deps); their cost is the
+          # price we pay for the parallelism.
           case "${{ inputs.suite }}" in
-            insert)  pnpm test:insert ;;
-            render)  pnpm test:render ;;
-            *)       pnpm test ;;
+            insert)
+              PROJECTS="--project=auth --project=insert"
+              ;;
+            render)
+              PROJECTS="--project=auth --project=pages --project=render"
+              ;;
+            *)
+              PROJECTS="--project=auth --project=pages --project=render --project=insert --project=syntax-validation"
+              ;;
           esac
+          pnpm exec playwright test --ignore-snapshots $PROJECTS \
+            --shard=${{ matrix.shard }}/${{ env.SHARD_COUNT }}
         env:
           APP: ${{ inputs.app }}
           CI: true
@@ -79,11 +113,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ inputs.artifact-suffix }}
+          name: playwright-report-${{ inputs.artifact-suffix }}-shard-${{ matrix.shard }}
           path: ./tests/e2e-tests/playwright-report/
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: screenshots-${{ inputs.artifact-suffix }}
+          name: screenshots-${{ inputs.artifact-suffix }}-shard-${{ matrix.shard }}
           path: ./tests/e2e-tests/screenshots/

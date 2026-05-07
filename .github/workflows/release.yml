@@ -78,22 +78,18 @@ jobs:
       - name: Deploy "ZenUML for Confluence" to Forge Production
         if: ${{ steps.properties.outputs.license == 'lite' }}
         run: |
-          pnpm forge:deploy:enable-analytics
           pnpm forge:deploy:lite:prod
       - name: Deploy "ZenUML for Confluence Full" to Forge Production
         if: ${{ steps.properties.outputs.license == 'full' }}
         run: |
-          pnpm forge:deploy:enable-analytics
           pnpm forge:deploy:full:prod
       - name: Deploy "Diagramly for Confluence" to Forge Production
         if: ${{ steps.properties.outputs.license == 'diagramly' }}
         run: |
-          pnpm forge:deploy:enable-analytics
           pnpm forge:deploy:diagramly:prod
       - name: Deploy "ZenUML for Confluence Full" to Forge Production
         if: ${{ steps.properties.outputs.variant == 'full' }}
         run: |
-          pnpm forge:deploy:enable-analytics
           pnpm forge:deploy:full:prod
 
   deploy-cron-worker:

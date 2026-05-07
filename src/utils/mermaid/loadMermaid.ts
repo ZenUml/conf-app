@@ -1,18 +1,21 @@
 /**
  * Lazy-loaded Mermaid singleton.
  *
- * Loads mermaid from a runtime URL (`/vendor/mermaid/mermaid.esm.min.mjs`) so
- * Vite/Rollup cannot statically resolve it and bundle it into the app graph.
+ * Loads mermaid from a bundle-relative URL (`vendor/mermaid/mermaid.esm.min.mjs`)
+ * so Vite/Rollup cannot statically resolve it and bundle it into the app graph.
  * The mermaid runtime is copied to `dist/vendor/mermaid/` at build time via
  * rollup-plugin-copy in vite.config.mjs.
  *
- * Initializes mermaid the first time it's loaded with sensible defaults.
- * Subsequent calls return the cached instance.
+ * Resolve against `document.baseURI` (the document's URL or its <base> tag)
+ * rather than the origin root. Forge Custom UI iframes are served from
+ * `<app-id>.cdn.prod.atlassian-dev.net/<bundle-hash>/index.html`, so a leading
+ * "/vendor/..." would resolve to `/vendor/...` at the origin (wrong path) —
+ * the vendor assets actually live at `<bundle-hash>/vendor/...`. Using
+ * `document.baseURI` as the resolution base keeps the URL inside the bundle.
  */
 
-// Use a non-literal expression so neither Vite nor Rollup attempt to statically
-// resolve this URL — they only handle string literals in dynamic import().
-const MERMAID_URL = '/vendor/mermaid/mermaid.esm.min.mjs';
+// Bundle-relative path; resolved at runtime against `document.baseURI`.
+const MERMAID_PATH = 'vendor/mermaid/mermaid.esm.min.mjs';
 
 let cached: any = null;
 let loading: Promise<any> | null = null;
@@ -22,7 +25,7 @@ export async function loadMermaid(): Promise<any> {
   if (loading) return loading;
 
   loading = (async () => {
-    const url = MERMAID_URL;
+    const url = new URL(MERMAID_PATH, document.baseURI).href;
     const mod = await import(/* @vite-ignore */ url);
     const instance = mod.default ?? mod;
     instance.initialize({

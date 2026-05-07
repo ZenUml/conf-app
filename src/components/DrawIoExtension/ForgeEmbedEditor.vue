@@ -6,6 +6,7 @@
 
 <script>
 import DocumentList from '@/components/DocumentList/DocumentList.vue';
+import EventBus from '@/EventBus';
 
 export default {
   name: "ForgeEmbedEditor",
@@ -18,15 +19,19 @@ export default {
     doc: Object
   },
   mounted() {
-    // Set up event listeners for the DocumentList component
-    this.$root.$on('save-embed', async (selectedContent) => {
+    // Listen on EventBus — `save-embed` and `exit` are emitted there from
+    // DocumentList.vue and Header.vue. (Pre-migration these were registered
+    // on `this.$root.$on(...)`, which under Vue 2 only catches descendant-
+    // bubbled `$emit`s — the EventBus channel never reached them, so the
+    // listeners were dead. Switching to EventBus actually wires them up.)
+    EventBus.$on('save-embed', async (selectedContent) => {
       console.log('embed editor - save', selectedContent);
       if (this.saveEmbedAndExit && selectedContent?.id) {
         await this.saveEmbedAndExit(selectedContent.id);
       }
     });
 
-    this.$root.$on('exit', async (showWarning) => {
+    EventBus.$on('exit', async (showWarning) => {
       if (this.exit) {
         if (showWarning) {
           // Show warning dialog - in Forge mode, we'll just call exit directly

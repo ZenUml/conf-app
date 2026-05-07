@@ -52,6 +52,10 @@ export default defineConfig({
     {
       name: 'insert',
       testMatch: 'insert/**/*.spec.ts',
+      // upgrade-prompt suite is gated on the unreleased space-licensing Forge
+      // build and skips at runtime in CI. Excluding at collection time so
+      // `--shard` doesn't allocate idle slots to skipped tests.
+      testIgnore: process.env.CI ? ['insert/upgrade-prompt.spec.ts'] : [],
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['auth'],
       timeout: 300000,

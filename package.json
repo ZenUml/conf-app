@@ -34,6 +34,7 @@
     "start:local": "VERSION=latest PRODUCT_TYPE=lite vite dev --port 8080 --host 127.0.0.1",
     "start:sit": "pnpm db:migrate:local && concurrently \"pnpm wrangler:serve\" \"pnpm start:local\" ",
     "start:diagramly": "PRODUCT_TYPE=diagramly concurrently \"pnpm wrangler:serve\" \"pnpm start:local\" ",
+    "forge:deploy:disable-analytics": "forge settings set usage-analytics false",
     "forge:deploy:lite:staging": "forge deploy -e staging --non-interactive --verbose",
     "forge:deploy:full:staging": "APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 CONNECT_KEY=com.zenuml.confluence-addon SEQUENCE_MACRO_KEY=zenuml-sequence-macro CUSTOM_CONTENT_KEY=zenuml-content-sequence LITE_KEY_SUFFIX= LITE_TITLE_SUFFIX= APP_LABEL='ZenUML for Confluence' BACKEND_API_BASE_URL=https://conf-stg-full.zenuml.com forge deploy -e staging --non-interactive",
     "forge:install:full:staging": "APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 forge install --site full-stg.atlassian.net --product confluence -e staging --non-interactive",

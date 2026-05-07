@@ -75,6 +75,7 @@ jobs:
       # Forge deploy (all variants)
       - name: Deploy to Forge Staging
         run: |
+          pnpm forge:deploy:disable-analytics
           pnpm forge:deploy:${{ inputs.variant }}:staging
       - name: Install Lite to lite-stg.atlassian.net
         if: inputs.variant == 'lite'

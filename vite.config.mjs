@@ -76,12 +76,12 @@ export default defineConfig({
       { src: 'node_modules/@zenuml/core/dist/fonts', dest: 'dist' }
     ],
     hook: process.env.NODE_ENV === 'development' ? 'buildStart' : 'writeBundle'
-  }), visualizer({
+  }), ...(process.env.ANALYZE === '1' ? [visualizer({
     filename: 'dist/stats.html',
     open: false,
     gzipSize: true,
     brotliSize: true,
-  })],
+  })] : [])],
   test: {
     environment: 'jsdom',
     globals: true,

@@ -23,10 +23,10 @@ describe('trackUpgradeEvent', () => {
   });
 
   it('sends paywall_continued_editing as the Mixpanel event name', () => {
-    trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING, { prompt_variant: 'legacy' });
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING);
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'paywall_continued_editing',
-      expect.objectContaining({ feature_area: 'upgrade', prompt_variant: 'legacy' })
+      expect.objectContaining({ feature_area: 'upgrade' })
     );
   });
 });

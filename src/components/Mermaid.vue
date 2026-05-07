@@ -13,16 +13,11 @@
 </template>
 
 <script>
-import mermaid from 'mermaid'
+import { loadMermaid } from '@/utils/mermaid/loadMermaid'
 import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import globals from '@/model/globals';
-
-mermaid.initialize({
-  startOnLoad: true,
-  theme: 'neutral',
-})
 
 export default {
   name: "Mermaid",
@@ -66,6 +61,7 @@ export default {
       // Generate a unique ID to avoid conflicts
       this.renderId = `mermaid-${crypto.randomUUID()}`;
       try {
+        const mermaid = await loadMermaid();
         // Use the unique ID to render, avoiding creating extra elements in the body
         const { svg } = await mermaid.render(this.renderId, code);
         return svg;

@@ -73,7 +73,12 @@ export default defineConfig({
     },
   }), copy({
     targets: [
-      { src: 'node_modules/@zenuml/core/dist/fonts', dest: 'dist' }
+      { src: 'node_modules/@zenuml/core/dist/fonts', dest: 'dist' },
+      // Mermaid is loaded at runtime from /vendor/mermaid/ via dynamic URL
+      // import (see src/utils/mermaid/loadMermaid.ts) so it's excluded from
+      // the Rollup module graph. Copy the entire dist/ tree (entry +
+      // chunks/) so the relative imports inside the entry resolve.
+      { src: 'node_modules/mermaid/dist/*', dest: 'dist/vendor/mermaid' }
     ],
     hook: process.env.NODE_ENV === 'development' ? 'buildStart' : 'writeBundle'
   }), ...(process.env.ANALYZE === '1' ? [visualizer({

@@ -134,10 +134,10 @@ importers:
         version: 3.5.26
       '@zenuml/codemirror-extensions':
         specifier: ^0.3.1
-        version: 0.3.1(@codemirror/autocomplete@6.20.0)(@codemirror/commands@6.10.1)(@codemirror/language@6.12.1)(@codemirror/lint@6.9.2)(@codemirror/search@6.5.11)(@codemirror/state@6.5.3)(@codemirror/view@6.39.8)(@zenuml/core@3.46.2(@babel/core@7.28.5)(@babel/template@7.27.2)(@types/react@17.0.2)(tsx@4.21.0)(yaml@2.8.2))(codemirror@6.0.2)
+        version: 0.3.1(@codemirror/autocomplete@6.20.0)(@codemirror/commands@6.10.1)(@codemirror/language@6.12.1)(@codemirror/lint@6.9.2)(@codemirror/search@6.5.11)(@codemirror/state@6.5.3)(@codemirror/view@6.39.8)(@zenuml/core@3.47.5(@babel/core@7.28.5)(@babel/template@7.27.2)(@types/react@17.0.2)(tsx@4.21.0)(yaml@2.8.2))(codemirror@6.0.2)
       '@zenuml/core':
-        specifier: ^3.46.2
-        version: 3.46.2(@babel/core@7.28.5)(@babel/template@7.27.2)(@types/react@17.0.2)(tsx@4.21.0)(yaml@2.8.2)
+        specifier: ^3.47.5
+        version: 3.47.5(@babel/core@7.28.5)(@babel/template@7.27.2)(@types/react@17.0.2)(tsx@4.21.0)(yaml@2.8.2)
       autoprefixer:
         specifier: ^10.4.13
         version: 10.4.23(postcss@8.4.31)
@@ -2155,8 +2155,8 @@ packages:
   '@codemirror/autocomplete@6.20.0':
     resolution: {integrity: sha512-bOwvTOIJcG5FVo5gUUupiwYh8MioPLQ4UcqbcRf7UQ98X90tCa9E1kZ3Z7tqwpZxYyOvh1YTYbmZE9RTfTp5hg==}
 
-  '@codemirror/autocomplete@6.20.1':
-    resolution: {integrity: sha512-1cvg3Vz1dSSToCNlJfRA2WSI4ht3K+WplO0UMOgmUYPivCyy2oueZY6Lx7M9wThm7SDUBViRmuT+OG/i8+ON9A==}
+  '@codemirror/autocomplete@6.20.2':
+    resolution: {integrity: sha512-G5FPkgIiLjOgZMjqVjvuKQ1rGPtHogLldJr33eFJdVLtmwY+giGrlv/ewljLz6b9BSQLkjxuwBc6g6omDM+YxQ==}
 
   '@codemirror/commands@6.10.1':
     resolution: {integrity: sha512-uWDWFypNdQmz2y1LaNJzK7fL7TYKLeUAU0npEC685OKTF3KcQ2Vu3klIM78D7I6wGhktme0lh3CuQLv0ZCrD9Q==}
@@ -2242,8 +2242,8 @@ packages:
   '@codemirror/lint@6.9.2':
     resolution: {integrity: sha512-sv3DylBiIyi+xKwRCJAAsBZZZWo82shJ/RTMymLabAdtbkV5cSKwWDeCgtUq3v8flTaXS2y1kKkICuRYtUswyQ==}
 
-  '@codemirror/lint@6.9.5':
-    resolution: {integrity: sha512-GElsbU9G7QT9xXhpUg1zWGmftA/7jamh+7+ydKRuT0ORpWS3wOSP0yT1FOlIZa7mIJjpVPipErsyvVqB9cfTFA==}
+  '@codemirror/lint@6.9.6':
+    resolution: {integrity: sha512-6Kp7r6XfCi/D/5sdXieMfg9pJU1bUEx96WITuLU6ESaKizCz0QHFMjY/TaFSbigDdEAIgi93itLBIUETP4oK+A==}
 
   '@codemirror/search@6.5.11':
     resolution: {integrity: sha512-KmWepDE6jUdL6n8cAAqIpRmLPBZ5ZKnicE8oGU/s3QrAVID+0VhLFrzUucVKHG5035/BSykhExDL/Xm7dHthiA==}
@@ -2263,8 +2263,8 @@ packages:
   '@codemirror/view@6.39.8':
     resolution: {integrity: sha512-1rASYd9Z/mE3tkbC9wInRlCNyCkSn+nLsiQKZhEDUUJiUfs/5FHDpCUDaQpoTIaNGeDc6/bhaEAyLmeEucEFPw==}
 
-  '@codemirror/view@6.40.0':
-    resolution: {integrity: sha512-WA0zdU7xfF10+5I3HhUUq3kqOx3KjqmtQ9lqZjfK7jtYk4G72YW9rezcSywpaUMCWOMlq+6E0pO1IWg1TNIhtg==}
+  '@codemirror/view@6.42.0':
+    resolution: {integrity: sha512-+PJEyndSCrsS2oLH3DfWoLBcF3xfeyGXtLnpXqHY01kL3TogyCLD12hNvSu73ww2KFftrx3Rd0nGOigbSkU3Hw==}
 
   '@colors/colors@1.5.0':
     resolution: {integrity: sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ==}
@@ -3442,8 +3442,8 @@ packages:
   '@lezer/common@1.5.0':
     resolution: {integrity: sha512-PNGcolp9hr4PJdXR4ix7XtixDrClScvtSCYW3rQG106oVMOOI+jFb+0+J3mbeL/53g1Zd6s0kJzaw6Ri68GmAA==}
 
-  '@lezer/common@1.5.1':
-    resolution: {integrity: sha512-6YRVG9vBkaY7p1IVxL4s44n5nUnaNnGM2/AckNgYOnxTG2kWh1vR8BMxPseWPjRNpb5VtXnMpeYAEAADoRV1Iw==}
+  '@lezer/common@1.5.2':
+    resolution: {integrity: sha512-sxQE460fPZyU3sdc8lafxiPwJHBzZRy/udNFynGQky1SePYBdhkBl1kOagA9uT3pxR8K09bOrmTUqA9wb/PjSQ==}
 
   '@lezer/cpp@1.1.5':
     resolution: {integrity: sha512-DIhSXmYtJKLehrjzDFN+2cPt547ySQ41nA8yqcDf/GxMc+YM736xqltFkvADL2M0VebU5I+3+4ks2Vv+Kyq3Aw==}
@@ -3472,11 +3472,11 @@ packages:
   '@lezer/json@1.0.3':
     resolution: {integrity: sha512-BP9KzdF9Y35PDpv04r0VeSTKDeox5vVr3efE7eBbx3r4s3oNLfunchejZhjArmeieBH+nVOpgIiBJpEAv8ilqQ==}
 
+  '@lezer/lr@1.4.10':
+    resolution: {integrity: sha512-rnCpTIBafOx4mRp43xOxDJbFipJm/c0cia/V5TiGlhmMa+wsSdoGmUN3w5Bqrks/09Q/D4tNAmWaT8p6NRi77A==}
+
   '@lezer/lr@1.4.6':
     resolution: {integrity: sha512-u42yGuGBsHgodm86lwi0HAtUTNSs23yl9RoaI5em90B+OGm9/XuWkNiJ46sKkCgp8Tp4zgoBQbepcshfKLhFdw==}
-
-  '@lezer/lr@1.4.8':
-    resolution: {integrity: sha512-bPWa0Pgx69ylNlMlPvBPryqeLYQjyJjqPx+Aupm5zydLIF3NE+6MMLT8Yi23Bd9cif9VS00aUebn+6fDIGBcDA==}
 
   '@lezer/markdown@1.6.2':
     resolution: {integrity: sha512-iNSdKrIK0FfOjVPVpV0fu7OykdncYpEzf4vkG9szFf60ql/ObZShoVbM9u1tgkogDOmubms1CyoNS2/unOXWNw==}
@@ -5084,8 +5084,8 @@ packages:
       '@zenuml/core': ^3.43.3
       codemirror: ^6.0.1
 
-  '@zenuml/core@3.46.2':
-    resolution: {integrity: sha512-iKS61aDnjPzGw7Qvr1U205sL3AmBqr7M47Ri2qqm2iI46cZMSc0Ce5QdQ/5RZs7UExlVL4bZ1hzQ0UrbUsAl9w==}
+  '@zenuml/core@3.47.5':
+    resolution: {integrity: sha512-eZK8Qt5AJmpwAnmwwRSJncO9Ry2NKnT/Nq+XI8n+5JpY2sGoAO/4RhQW7I9HjplKywS/u9Ga3UBNTRQpZdUprQ==}
     engines: {node: '>=20'}
 
   abbrev@1.1.1:
@@ -15353,12 +15353,12 @@ snapshots:
       '@codemirror/view': 6.39.8
       '@lezer/common': 1.5.0
 
-  '@codemirror/autocomplete@6.20.1':
+  '@codemirror/autocomplete@6.20.2':
     dependencies:
       '@codemirror/language': 6.12.3
       '@codemirror/state': 6.6.0
-      '@codemirror/view': 6.40.0
-      '@lezer/common': 1.5.1
+      '@codemirror/view': 6.42.0
+      '@lezer/common': 1.5.2
 
   '@codemirror/commands@6.10.1':
     dependencies:
@@ -15371,8 +15371,8 @@ snapshots:
     dependencies:
       '@codemirror/language': 6.12.3
       '@codemirror/state': 6.6.0
-      '@codemirror/view': 6.40.0
-      '@lezer/common': 1.5.1
+      '@codemirror/view': 6.42.0
+      '@lezer/common': 1.5.2
 
   '@codemirror/lang-angular@0.1.4':
     dependencies:
@@ -15584,10 +15584,10 @@ snapshots:
   '@codemirror/language@6.12.3':
     dependencies:
       '@codemirror/state': 6.6.0
-      '@codemirror/view': 6.40.0
-      '@lezer/common': 1.5.1
+      '@codemirror/view': 6.42.0
+      '@lezer/common': 1.5.2
       '@lezer/highlight': 1.2.3
-      '@lezer/lr': 1.4.8
+      '@lezer/lr': 1.4.10
       style-mod: 4.1.3
 
   '@codemirror/legacy-modes@6.5.2':
@@ -15600,16 +15600,16 @@ snapshots:
       '@codemirror/view': 6.39.8
       crelt: 1.0.6
 
-  '@codemirror/lint@6.9.5':
+  '@codemirror/lint@6.9.6':
     dependencies:
       '@codemirror/state': 6.6.0
-      '@codemirror/view': 6.40.0
+      '@codemirror/view': 6.42.0
       crelt: 1.0.6
 
   '@codemirror/search@6.5.11':
     dependencies:
       '@codemirror/state': 6.6.0
-      '@codemirror/view': 6.40.0
+      '@codemirror/view': 6.42.0
       crelt: 1.0.6
 
   '@codemirror/state@6.5.1':
@@ -15637,7 +15637,7 @@ snapshots:
       style-mod: 4.1.3
       w3c-keyname: 2.2.8
 
-  '@codemirror/view@6.40.0':
+  '@codemirror/view@6.42.0':
     dependencies:
       '@codemirror/state': 6.6.0
       crelt: 1.0.6
@@ -16837,7 +16837,7 @@ snapshots:
 
   '@lezer/common@1.5.0': {}
 
-  '@lezer/common@1.5.1': {}
+  '@lezer/common@1.5.2': {}
 
   '@lezer/cpp@1.1.5':
     dependencies:
@@ -16889,13 +16889,13 @@ snapshots:
       '@lezer/highlight': 1.2.3
       '@lezer/lr': 1.4.6
 
+  '@lezer/lr@1.4.10':
+    dependencies:
+      '@lezer/common': 1.5.2
+
   '@lezer/lr@1.4.6':
     dependencies:
       '@lezer/common': 1.5.0
-
-  '@lezer/lr@1.4.8':
-    dependencies:
-      '@lezer/common': 1.5.1
 
   '@lezer/markdown@1.6.2':
     dependencies:
@@ -18748,11 +18748,6 @@ snapshots:
       '@types/react': 17.0.2
       hoist-non-react-statics: 3.3.2
 
-  '@types/hoist-non-react-statics@3.3.7(@types/react@18.3.28)':
-    dependencies:
-      '@types/react': 18.3.28
-      hoist-non-react-statics: 3.3.2
-
   '@types/html-minifier-terser@6.1.0': {}
 
   '@types/http-cache-semantics@4.0.4': {}
@@ -19401,7 +19396,7 @@ snapshots:
 
   '@yarnpkg/lockfile@1.1.0': {}
 
-  '@zenuml/codemirror-extensions@0.3.1(@codemirror/autocomplete@6.20.0)(@codemirror/commands@6.10.1)(@codemirror/language@6.12.1)(@codemirror/lint@6.9.2)(@codemirror/search@6.5.11)(@codemirror/state@6.5.3)(@codemirror/view@6.39.8)(@zenuml/core@3.46.2(@babel/core@7.28.5)(@babel/template@7.27.2)(@types/react@17.0.2)(tsx@4.21.0)(yaml@2.8.2))(codemirror@6.0.2)':
+  '@zenuml/codemirror-extensions@0.3.1(@codemirror/autocomplete@6.20.0)(@codemirror/commands@6.10.1)(@codemirror/language@6.12.1)(@codemirror/lint@6.9.2)(@codemirror/search@6.5.11)(@codemirror/state@6.5.3)(@codemirror/view@6.39.8)(@zenuml/core@3.47.5(@babel/core@7.28.5)(@babel/template@7.27.2)(@types/react@17.0.2)(tsx@4.21.0)(yaml@2.8.2))(codemirror@6.0.2)':
     dependencies:
       '@codemirror/autocomplete': 6.20.0
       '@codemirror/commands': 6.10.1
@@ -19413,11 +19408,11 @@ snapshots:
       '@lezer/common': 1.5.0
       '@lezer/highlight': 1.2.3
       '@lezer/lr': 1.4.6
-      '@zenuml/core': 3.46.2(@babel/core@7.28.5)(@babel/template@7.27.2)(@types/react@17.0.2)(tsx@4.21.0)(yaml@2.8.2)
+      '@zenuml/core': 3.47.5(@babel/core@7.28.5)(@babel/template@7.27.2)(@types/react@17.0.2)(tsx@4.21.0)(yaml@2.8.2)
       codemirror: 6.0.2
       thememirror: 2.0.1(@codemirror/language@6.12.1)(@codemirror/state@6.5.3)(@codemirror/view@6.39.8)
 
-  '@zenuml/core@3.46.2(@babel/core@7.28.5)(@babel/template@7.27.2)(@types/react@17.0.2)(tsx@4.21.0)(yaml@2.8.2)':
+  '@zenuml/core@3.47.5(@babel/core@7.28.5)(@babel/template@7.27.2)(@types/react@17.0.2)(tsx@4.21.0)(yaml@2.8.2)':
     dependencies:
       '@floating-ui/react': 0.27.16(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@headlessui/react': 2.2.9(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
@@ -20094,13 +20089,13 @@ snapshots:
 
   codemirror@6.0.2:
     dependencies:
-      '@codemirror/autocomplete': 6.20.1
+      '@codemirror/autocomplete': 6.20.2
       '@codemirror/commands': 6.10.3
       '@codemirror/language': 6.12.3
-      '@codemirror/lint': 6.9.5
+      '@codemirror/lint': 6.9.6
       '@codemirror/search': 6.5.11
       '@codemirror/state': 6.6.0
-      '@codemirror/view': 6.40.0
+      '@codemirror/view': 6.42.0
 
   color-convert@1.9.3:
     dependencies:
@@ -24033,8 +24028,8 @@ snapshots:
       '@formatjs/intl': 2.2.1(typescript@5.9.3)
       '@formatjs/intl-displaynames': 5.4.3
       '@formatjs/intl-listformat': 6.5.3
-      '@types/hoist-non-react-statics': 3.3.7(@types/react@18.3.28)
-      '@types/react': 18.3.28
+      '@types/hoist-non-react-statics': 3.3.7(@types/react@17.0.2)
+      '@types/react': 17.0.2
       hoist-non-react-statics: 3.3.2
       intl-messageformat: 9.13.0
       react: 17.0.2

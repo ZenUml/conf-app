@@ -1,11 +1,10 @@
 import globals from "@/model/globals";
 import { getView, getContext as initForgeContext, isInserting } from './model/globals/forgeGlobal';
-import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import MacroUtil from "@/model/MacroUtil";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { mountRoot } from "@/mount-root";
 import ForgeEmbedEditor from "@/components/DrawIoExtension/ForgeEmbedEditor.vue";
-import { Diagram, DiagramType, DataSource, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { Diagram, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
 import uuidv4 from "@/utils/uuid";
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
@@ -14,14 +13,17 @@ import { isPageEditorEditBlocked } from '@/utils/paywall/preEditGate';
 import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking';
 import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
 
-async function saveEmbedAndExit(_customContentId: string) {
+async function saveEmbedAndExit(customContentId: string) {
+  // The picked customContentId points at the document the user wants to embed
+  // (e.g. an existing Sequence or Mermaid diagram). The macro config stores
+  // that ID directly — the viewer (forge-embed-viewer.ts) dereferences it and
+  // renders the referenced document with its own diagramType.
+  //
+  // Earlier this function created a placeholder Diagram with diagramType='embed'
+  // and stored *that* placeholder's ID in the macro config, discarding the
+  // picked ID entirely. The viewer then loaded the placeholder, saw an
+  // unregistered 'embed' type, and rendered "Unknown diagram type: embed".
   const macroData = await globals.apWrapper.getMacroData();
-
-  const id = await saveToPlatform({
-    diagramType: DiagramType.Embed,
-    source: DataSource.CustomContent,
-  } as Diagram);
-  
   const isNew = !macroData?.uuid;
 
   if (isNew) {
@@ -39,15 +41,14 @@ async function saveEmbedAndExit(_customContentId: string) {
       operation_mode: "edit",
     });
   }
-  
-  // End journey after all tracking is done
+
   if (getEditJourneyId()) {
     endEditJourney('saved');
   }
-  
+
   setTimeout(async () => {
     if(await isInserting()) {
-      await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
+      await (await getView()).submit({config: {customContentId, updatedAt: new Date().toISOString()}});
     } else {
       await (await getView()).close();
     }

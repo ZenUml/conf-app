@@ -79,9 +79,7 @@ jobs:
           pnpm forge:deploy:${{ inputs.variant }}:staging
       - name: Install Lite to lite-stg.atlassian.net
         if: inputs.variant == 'lite'
-        run: |
-          pnpm forge:install:lite:staging
-          pnpm forge:upgrade:lite:staging
+        run: pnpm forge:install:lite:staging || pnpm forge:upgrade:lite:staging
         continue-on-error: true
       - name: Install Full to full-stg.atlassian.net
         if: inputs.variant == 'full'

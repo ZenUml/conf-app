@@ -23,7 +23,6 @@ export type AnalyticsProperties = {
   entry_point?: EntryPoint;
   confluence_space?: string;
   macro_uuid?: string;
-  is_forge?: boolean;
   // Lifecycle
   operation_mode?: OperationMode;
   result?: string;

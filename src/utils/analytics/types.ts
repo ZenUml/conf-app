@@ -47,7 +47,7 @@ export type AnalyticsProperties = {
   error_code?: string;
   error_name?: string;
   error_source?: string;
-  // Build
+  // Build info — auto-enriched from VITE_APP_VERSION / VITE_APP_COMMIT
   app_version?: string;
   app_commit?: string;
 };

@@ -95,10 +95,22 @@ export function useUpgradeTracking(
     })
   }
 
+  // Track advocacy message copy. Fired when the user clicks the
+  // "Copy upgrade request" button and the clipboard write succeeds.
+  const trackAdvocacyCopy = () => {
+    const timeToDecision = Date.now() - modalShownTime.value
+    trackUpgradeEvent(UpgradeEventName.ADVOCACY_MESSAGE_COPIED, {
+      ui_component: UIComponent.MODAL,
+      time_to_decision: Math.round(timeToDecision / 1000),
+      ...getUpgradeContext(),
+    })
+  }
+
   return {
     trackSliderChange,
     handleClose,
     trackMarketplaceClick,
     trackEnterpriseBundleClick,
+    trackAdvocacyCopy,
   }
 }

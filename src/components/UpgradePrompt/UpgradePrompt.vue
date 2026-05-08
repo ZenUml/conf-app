@@ -16,26 +16,17 @@
           </p>
         </div>
 
-        <!-- Calculator Heading - Slim -->
-        <div class="px-4 py-2 bg-gray-50 border-b border-gray-200">
-          <h3 class="text-base font-bold text-gray-900">Pick the upgrade that fits your team</h3>
-        </div>
+        <!-- Hero: illustration + title + body -->
+        <PaywallHero />
 
-        <!-- Two-column pricing comparison - Compact -->
-        <div class="grid grid-cols-2 gap-0 border-b border-gray-200">
-          <!-- Marketplace Section -->
-          <MarketplacePricingCard
-            :upgrade-url="upgradeUrl"
-            @slider-change="handleSliderChange"
-            @cta-click="tracking.trackMarketplaceClick"
-          />
+        <!-- Always-visible draft preview of what gets copied -->
+        <DraftCard :ctx="messageContext" />
 
-          <!-- Enterprise Bundle Section -->
-          <EnterpriseBundleCard
-            :bundle-url="enterpriseBundleUrl"
-            @cta-click="tracking.trackEnterpriseBundleClick"
-          />
-        </div>
+        <!-- Primary advocacy CTA -->
+        <AdvocacyButton
+          :message="message"
+          @copied="tracking.trackAdvocacyCopy"
+        />
 
         <!-- Footer - Continue editing + Learn more -->
         <div class="px-4 py-2 bg-gray-50 flex justify-between items-center">
@@ -59,11 +50,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
-import MarketplacePricingCard from './MarketplacePricingCard.vue'
-import EnterpriseBundleCard from './EnterpriseBundleCard.vue'
+import { ref, computed, watch, nextTick } from 'vue'
+import PaywallHero from './PaywallHero.vue'
+import DraftCard from './DraftCard.vue'
+import AdvocacyButton from './AdvocacyButton.vue'
 import { useUpgradeTracking } from './useUpgradeTracking'
 import { trackUpgradeEvent, UpgradeEventName } from '@/utils/upgradeTracking'
+import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
+import { buildAdvocacyMessage, type AdvocacyMessageContext } from './buildAdvocacyMessage'
+
+const ENTERPRISE_BUNDLE_PRICE = '$1,200/yr'
 
 const props = defineProps<{
   visible: boolean
@@ -83,24 +79,27 @@ function onContinueEditing() {
   emit('continueEditing')
 }
 
-// Track current pricing values from MarketplacePricingCard
-const currentUserCount = ref(50)
-const currentAnnualCost = ref(0)
+const customerSuccess = useCustomerSuccessService() as ReturnType<typeof useCustomerSuccessService> | undefined
 
-// Initialize tracking
+const messageContext = computed<AdvocacyMessageContext>(() => ({
+  spaceKey: customerSuccess?.spaceKey?.value ?? '',
+  macroCount: props.macrosCreated,
+  macrosLimit: props.macrosLimit,
+  upgradeUrl: props.upgradeUrl,
+  enterpriseBundleUrl: props.enterpriseBundleUrl,
+  enterpriseBundlePrice: ENTERPRISE_BUNDLE_PRICE,
+}))
+
+const message = computed(() => buildAdvocacyMessage(messageContext.value))
+
+// Tracking — slider params kept for backward compat with the helper signature,
+// but we no longer have a slider so they always read 0.
 const tracking = useUpgradeTracking(
   () => props.visible,
-  () => currentUserCount.value,
-  () => currentAnnualCost.value,
+  () => 0,
+  () => 0,
   () => emit('close')
 )
-
-// Handle slider changes with tracking
-const handleSliderChange = (userCount: number, annualCost: number) => {
-  currentUserCount.value = userCount
-  currentAnnualCost.value = annualCost
-  tracking.trackSliderChange()
-}
 
 const modalContainer = ref<HTMLElement | null>(null)
 watch(() => props.visible, async (v) => {

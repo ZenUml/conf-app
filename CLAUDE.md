@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Domain Terminology
+
+- **edits** — new versions of existing macro custom content (updating an existing diagram)
+- **creates** — new macro custom content (saving a diagram for the first time)
+- **D1** — Cloudflare D1 database (SQLite-compatible, used for backend storage)
+- **pw** — Playwright (E2E test runner)
+- **client** / **tenant** — interchangeable; both refer to a Confluence Cloud site (one Atlassian instance that has installed the add-on)
+
 ## Project Overview
 
 This is a ZenUML Confluence Cloud Add-on (Forge app) that provides diagramming capabilities for Confluence users. The add-on supports three main diagram types:

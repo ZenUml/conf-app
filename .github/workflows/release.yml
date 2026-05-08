@@ -58,6 +58,7 @@ jobs:
           project: conf-${{ steps.properties.outputs.cf_project }}
           environment: prod
           vite-mixpanel-token: ${{ vars.VITE_MIXPANEL_TOKEN }}
+          vite-app-version: ${{ github.event.release.tag_name }}
           sentry-dsn: ${{ vars.SENTRY_DSN }}
       - name: Remove contentBylineItem in manifest.yml
         if: ${{ steps.properties.outputs.license != 'diagramly' }}

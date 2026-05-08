@@ -24,6 +24,10 @@ inputs:
   vite-mixpanel-token:
     description: 'Mixpanel token (baked into the JS bundle and synced to Cloudflare Pages as MIXPANEL_TOKEN)'
     required: true
+  vite-app-version:
+    description: 'App version baked into the JS bundle as VITE_APP_VERSION'
+    required: false
+    default: ''
   sentry-dsn:
     description: 'Sentry DSN synced to Cloudflare Pages as SENTRY_DSN'
     required: true
@@ -49,6 +53,7 @@ runs:
       env:
         NODE_OPTIONS: "--max-old-space-size=8192"
         VITE_MIXPANEL_TOKEN: ${{ inputs.vite-mixpanel-token }}
+        VITE_APP_VERSION: ${{ inputs.vite-app-version }}
     - name: Sync runtime env vars to Cloudflare Pages
       run: |
         printf '%s' "$VITE_MIXPANEL_TOKEN" | npx wrangler pages secret put MIXPANEL_TOKEN --project-name=${{ inputs.project }}

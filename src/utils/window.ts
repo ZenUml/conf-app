@@ -58,6 +58,8 @@ interface EventDetails {
   // event
   event_category: string;
   event_label: string;
+  app_version?: string;
+  app_commit?: string;
   [key: string]: string | boolean | undefined;
 }
 
@@ -120,6 +122,8 @@ export async function _awaitableTrackEvent(
         confluence_space: getSpaceKey() || "unknown_space",
         macro_uuid: await getMacroUuid(),
         product_type: _getProductType(),
+        app_version: import.meta.env.VITE_APP_VERSION,
+        app_commit: import.meta.env.VITE_APP_COMMIT,
       };
     } catch (e) {
       console.error(e);
@@ -228,6 +232,8 @@ export function trackEventSync(
       client_domain: getClientDomain() || "unknown_atlassian_domain",
       confluence_space: getSpaceKey() || "unknown_space",
       product_type: _getProductType(),
+      app_version: import.meta.env.VITE_APP_VERSION,
+      app_commit: import.meta.env.VITE_APP_COMMIT,
       ...details,
     };
     

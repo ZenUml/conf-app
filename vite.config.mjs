@@ -14,9 +14,15 @@ const __dirname = dirname(__filename);
 console.log(process.env.NODE_ENV)
 process.env.VITE_APP_GIT_HASH = execSync('git rev-parse --short HEAD').toString().trim()
 process.env.VITE_APP_GIT_BRANCH = execSync('git branch --show-current').toString().trim()
-// https://stackoverflow.com/a/45993185/529187
-process.env.VITE_APP_GIT_TAG = execSync('git describe --tags --always --abbrev=0').toString().trim()
-console.log(`Building ${process.env.VITE_APP_GIT_TAG} (${process.env.VITE_APP_GIT_HASH}) on ${process.env.VITE_APP_GIT_BRANCH}`)
+// Scope --match to the current variant so that a lite build gets v*-lite, not v*-full,
+// even when all three variant tags point to the same commit.
+const _productType = process.env.PRODUCT_TYPE || 'full'
+// Fallback for local/staging builds. Production release builds pass VITE_APP_VERSION
+// explicitly from github.event.release.tag_name because git describe --abbrev=0
+// returns the nearest reachable matching tag, not necessarily the release event tag.
+process.env.VITE_APP_GIT_TAG = execSync(`git describe --tags --always --abbrev=0 --match "v*-${_productType}"`).toString().trim()
+const appVersion = process.env.VITE_APP_VERSION || process.env.VITE_APP_GIT_TAG || 'dev'
+console.log(`Building ${appVersion} (${process.env.VITE_APP_GIT_HASH}) on ${process.env.VITE_APP_GIT_BRANCH}`)
 
 // Dev-only HTML entries — driven by `src/{test-viewer,viewerPreview,sandbox}.ts`.
 // Each ships a sandbox/preview UI (`localStorage.mock*` flags, sandbox-preset
@@ -48,6 +54,8 @@ export default defineConfig(({ command }) => ({
   define: {
     'import.meta.env.PRODUCT_TYPE': JSON.stringify(process.env.PRODUCT_TYPE || 'full'),
     'import.meta.env.VITE_MIXPANEL_TOKEN': JSON.stringify(process.env.VITE_MIXPANEL_TOKEN || ''),
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
+    'import.meta.env.VITE_APP_COMMIT': JSON.stringify(process.env.VITE_APP_GIT_HASH || 'unknown'),
   },
   // Pre-bundle the hot CJS / Vue / CodeMirror cluster on dev-server cold start.
   // Without this, Vite discovers each lazily on first request and rebuilds the

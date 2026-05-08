@@ -119,7 +119,8 @@ describe('UpgradePrompt', () => {
     expect(copiedMessage).toContain('105 of 100 macros')
     expect(copiedMessage).toContain('https://marketplace.example/upgrade')
     expect(copiedMessage).toContain('https://stripe.example/bundle')
-    expect(copiedMessage).toContain('$1,200/yr')
+    expect(copiedMessage).toContain('$299/yr/space')
+    expect(copiedMessage).toContain('ZenUML for Confluence Lite')
 
     expect(trackUpgradeEvent).toHaveBeenCalledWith(
       'advocacy_message_copied',

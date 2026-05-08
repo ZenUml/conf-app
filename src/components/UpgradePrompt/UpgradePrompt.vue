@@ -62,8 +62,10 @@ import {
   type AdvocacyMessageContext,
   type MacroKind,
 } from './buildAdvocacyMessage'
+import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
 
-const ENTERPRISE_BUNDLE_PRICE = '$1,200/yr'
+// Mirrors the price displayed on EnterpriseBundleCard (`$<cost>/yr/space`).
+const ENTERPRISE_BUNDLE_PRICE = `$${ENTERPRISE_BUNDLE_ANNUAL_COST}/yr/space`
 
 const props = withDefaults(
   defineProps<{

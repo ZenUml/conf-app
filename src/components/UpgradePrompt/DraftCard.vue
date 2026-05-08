@@ -10,7 +10,7 @@
     <div
       class="px-3.5 py-3 text-[12.5px] leading-[1.55] text-gray-800 whitespace-pre-wrap font-sans max-h-[240px] overflow-y-auto"
       data-testid="advocacy-draft-body"
-    ><template v-for="(seg, i) in segments" :key="i"><span v-if="seg.type === 'token'" class="pw-draft-token">{{ seg.value }}</span><template v-else>{{ seg.value }}</template></template></div>
+    ><template v-for="(seg, i) in segments" :key="i"><span v-if="seg.type === 'token'" class="pw-draft-token">{{ seg.value }}</span><a v-else-if="seg.type === 'link'" :href="seg.value" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-700 hover:underline break-all">{{ seg.value }}</a><template v-else>{{ seg.value }}</template></template></div>
   </div>
 </template>
 

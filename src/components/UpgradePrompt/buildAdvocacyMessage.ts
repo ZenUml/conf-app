@@ -20,6 +20,7 @@ export interface AdvocacyMessageContext {
 export type AdvocacySegment =
   | { type: 'text'; value: string }
   | { type: 'token'; value: string }
+  | { type: 'link'; value: string }
 
 const MACRO_LABELS: Record<MacroKind, string> = {
   sequence: 'sequence diagrams',
@@ -38,9 +39,9 @@ export function macroLabelFor(kind: MacroKind): string {
 /**
  * Single source of truth for the advocacy message.
  * Returns a structured sequence of segments — text runs (with literal \n
- * characters preserved) and token spans (the values that get visually
- * highlighted in the draft preview). The clipboard write joins these
- * back into a plain string; the DraftCard renders them with token styling.
+ * characters preserved), token spans (highlighted values like the space
+ * key and macro count), and link segments (URLs rendered as clickable
+ * hyperlinks in the preview but pasted as plain text into the clipboard).
  */
 export function advocacySegments(ctx: AdvocacyMessageContext): AdvocacySegment[] {
   const macroLabel = macroLabelFor(ctx.macroKind)
@@ -56,14 +57,14 @@ export function advocacySegments(ctx: AdvocacyMessageContext): AdvocacySegment[]
       value:
         ' macros). New edits are blocked until someone with billing access upgrades the space.\n\nTwo options when you have a moment:\n\n  • ZenUML Marketplace plan — per-user monthly billing through Atlassian.\n    ',
     },
-    { type: 'token', value: ctx.upgradeUrl },
+    { type: 'link', value: ctx.upgradeUrl },
     { type: 'text', value: '\n  • Enterprise bundle — ' },
     { type: 'token', value: ctx.enterpriseBundlePrice },
     {
       type: 'text',
       value: ', annual flat fee, includes the AI diagramming tools too.\n    ',
     },
-    { type: 'token', value: ctx.enterpriseBundleUrl },
+    { type: 'link', value: ctx.enterpriseBundleUrl },
     {
       type: 'text',
       value:

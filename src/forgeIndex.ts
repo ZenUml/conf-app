@@ -63,8 +63,8 @@ async function initializeCriticalPath() {
     await globals.apWrapper.initializeContext();
     const macroData = await globals.apWrapper.getMacroData();
 
-    // Report metrics (can run in parallel with heavy content loading)
-    macroMetrics.reportMacroMetrics().catch(e => console.error('Error reporting metrics:', e));
+    // Refresh metrics cache on miss; full collect only on save (Persistence.ts)
+    macroMetrics.getMacroMetrics().catch(e => console.error('Error refreshing metrics cache:', e));
 
     // Return the macro data for use in the second phase
     return { macroData };

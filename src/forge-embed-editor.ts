@@ -151,6 +151,7 @@ async function initializeMacro() {
       macrosLimit: MACROS_LIMIT,
       upgradeUrl: customerSuccess.upgradeUrl.value,
       enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
+      macroKind: 'embed',
       spaceKey,
       onContinueEditing: () => {
         void mountEditor();

@@ -172,11 +172,13 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
             ...getUpgradeContext(),
           });
 
+          const macroKind = context.extension.modal?.diagramType === 'mermaid' ? 'mermaid' : 'sequence';
           mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
             macrosCreated: customerSuccess.macrosCreated.value,
             macrosLimit: MACROS_LIMIT,
             upgradeUrl: customerSuccess.upgradeUrl.value,
             enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
+            macroKind,
             spaceKey,
             onClose: async () => {
               await (await getView()).close();

@@ -241,6 +241,7 @@ async function initializeMacro() {
       macrosLimit: MACROS_LIMIT,
       upgradeUrl: customerSuccess.upgradeUrl.value,
       enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
+      macroKind: 'openapi',
       spaceKey,
       onClose: async () => {
         await (await getView()).close();

@@ -217,6 +217,7 @@ async function initializeMacro() {
       macrosLimit: MACROS_LIMIT,
       upgradeUrl: customerSuccess.upgradeUrl.value,
       enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
+      macroKind: 'graph',
       spaceKey,
       onContinueEditing: () => {
         void mountEditor();

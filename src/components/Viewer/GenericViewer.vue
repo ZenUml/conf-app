@@ -123,6 +123,7 @@
     :macros-limit="MACROS_LIMIT"
     :upgrade-url="upgradeUrl"
     :enterprise-bundle-url="enterpriseBundleUrl"
+    :macro-kind="diagramType || 'unknown'"
     @close="onCloseUpgradeModal"
     @continue-editing="onContinueEditing"
   />

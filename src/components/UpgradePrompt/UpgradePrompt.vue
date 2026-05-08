@@ -57,17 +57,25 @@ import AdvocacyButton from './AdvocacyButton.vue'
 import { useUpgradeTracking } from './useUpgradeTracking'
 import { trackUpgradeEvent, UpgradeEventName } from '@/utils/upgradeTracking'
 import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
-import { buildAdvocacyMessage, type AdvocacyMessageContext } from './buildAdvocacyMessage'
+import {
+  buildAdvocacyMessage,
+  type AdvocacyMessageContext,
+  type MacroKind,
+} from './buildAdvocacyMessage'
 
 const ENTERPRISE_BUNDLE_PRICE = '$1,200/yr'
 
-const props = defineProps<{
-  visible: boolean
-  macrosCreated: number
-  macrosLimit: number
-  upgradeUrl: string
-  enterpriseBundleUrl: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    visible: boolean
+    macrosCreated: number
+    macrosLimit: number
+    upgradeUrl: string
+    enterpriseBundleUrl: string
+    macroKind?: MacroKind
+  }>(),
+  { macroKind: 'unknown' }
+)
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -88,6 +96,7 @@ const messageContext = computed<AdvocacyMessageContext>(() => ({
   upgradeUrl: props.upgradeUrl,
   enterpriseBundleUrl: props.enterpriseBundleUrl,
   enterpriseBundlePrice: ENTERPRISE_BUNDLE_PRICE,
+  macroKind: props.macroKind,
 }))
 
 const message = computed(() => buildAdvocacyMessage(messageContext.value))

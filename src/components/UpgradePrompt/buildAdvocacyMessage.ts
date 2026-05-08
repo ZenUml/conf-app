@@ -1,3 +1,12 @@
+export type MacroKind =
+  | 'sequence'
+  | 'mermaid'
+  | 'graph'
+  | 'openapi'
+  | 'embed'
+  | 'plantuml'
+  | 'unknown'
+
 export interface AdvocacyMessageContext {
   spaceKey: string
   macroCount: number
@@ -5,11 +14,26 @@ export interface AdvocacyMessageContext {
   upgradeUrl: string
   enterpriseBundleUrl: string
   enterpriseBundlePrice: string
+  macroKind: MacroKind
 }
 
 export type AdvocacySegment =
   | { type: 'text'; value: string }
   | { type: 'token'; value: string }
+
+const MACRO_LABELS: Record<MacroKind, string> = {
+  sequence: 'sequence diagrams',
+  mermaid: 'Mermaid diagrams',
+  graph: 'DrawIO diagrams',
+  openapi: 'OpenAPI specs',
+  embed: 'embedded diagrams',
+  plantuml: 'PlantUML diagrams',
+  unknown: 'diagrams',
+}
+
+export function macroLabelFor(kind: MacroKind): string {
+  return MACRO_LABELS[kind] ?? MACRO_LABELS.unknown
+}
 
 /**
  * Single source of truth for the advocacy message.
@@ -19,8 +43,9 @@ export type AdvocacySegment =
  * back into a plain string; the DraftCard renders them with token styling.
  */
 export function advocacySegments(ctx: AdvocacyMessageContext): AdvocacySegment[] {
+  const macroLabel = macroLabelFor(ctx.macroKind)
   return [
-    { type: 'text', value: 'Hey,\n\nI\'ve been using ZenUML to draft sequence diagrams in our "' },
+    { type: 'text', value: `Hey,\n\nI've been using ZenUML for Confluence Lite to create ${macroLabel} in our "` },
     { type: 'token', value: ctx.spaceKey },
     { type: 'text', value: '" Confluence space, and we\'ve just hit the Lite limit (' },
     { type: 'token', value: String(ctx.macroCount) },

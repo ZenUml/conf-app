@@ -10,29 +10,22 @@
     <div
       class="px-3.5 py-3 text-[12.5px] leading-[1.55] text-gray-800 whitespace-pre-wrap font-sans max-h-[240px] overflow-y-auto"
       data-testid="advocacy-draft-body"
-    >Hey,
-
-I've been using ZenUML to draft sequence diagrams in our "<span class="pw-draft-token">{{ ctx.spaceKey }}</span>" Confluence space, and we've just hit the Lite limit (<span class="pw-draft-token">{{ ctx.macroCount }}</span> of <span class="pw-draft-token">{{ ctx.macrosLimit }}</span> macros). New edits are blocked until someone with billing access upgrades the space.
-
-Two options when you have a moment:
-
-  • ZenUML Marketplace plan — per-user monthly billing through Atlassian.
-    <span class="pw-draft-token">{{ ctx.upgradeUrl }}</span>
-  • Enterprise bundle — <span class="pw-draft-token">{{ ctx.enterpriseBundlePrice }}</span>, annual flat fee, includes the AI diagramming tools too.
-    <span class="pw-draft-token">{{ ctx.enterpriseBundleUrl }}</span>
-
-Could you take a quick look? Happy to send more details — I'm running into the limit on existing work and would love to keep moving.
-
-Thanks!</div>
+    ><template v-for="(seg, i) in segments" :key="i"><span v-if="seg.type === 'token'" class="pw-draft-token">{{ seg.value }}</span><template v-else>{{ seg.value }}</template></template></div>
   </div>
 </template>
 
 <script setup lang="ts">
-import type { AdvocacyMessageContext } from './buildAdvocacyMessage'
+import { computed } from 'vue'
+import {
+  advocacySegments,
+  type AdvocacyMessageContext,
+} from './buildAdvocacyMessage'
 
-defineProps<{
+const props = defineProps<{
   ctx: AdvocacyMessageContext
 }>()
+
+const segments = computed(() => advocacySegments(props.ctx))
 </script>
 
 <style scoped>

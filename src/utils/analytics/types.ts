@@ -47,4 +47,7 @@ export type AnalyticsProperties = {
   error_code?: string;
   error_name?: string;
   error_source?: string;
+  // Build
+  app_version?: string;
+  app_commit?: string;
 };

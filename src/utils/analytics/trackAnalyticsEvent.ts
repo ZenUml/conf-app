@@ -92,6 +92,8 @@ export async function _awaitableTrackAnalyticsEvent(
         callerProps.environment_type ??
         forgeGlobal.forgeContext?.environmentType ??
         "unknown_environment_type",
+      app_version: callerProps.app_version ?? import.meta.env.VITE_APP_VERSION,
+      app_commit: callerProps.app_commit ?? import.meta.env.VITE_APP_COMMIT,
     };
 
     mixpanel.track(eventName, enriched);

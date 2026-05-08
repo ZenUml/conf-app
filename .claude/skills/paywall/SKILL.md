@@ -166,16 +166,18 @@ event: upgrade_cta_clicked, filter: product_option equals "enterprise_bundle", m
 event A: macro_save_succeeded, measurement: total
 event B: macro_save_failed, measurement: total
 event C: paywall_continued_editing, measurement: total
+event D: macro_create_succeeded, measurement: total
 ```
-> `saves` = macro_save_succeeded. Use to compute friction rate: `triggered / saves` per domain — a high ratio (>50%) means users are hitting the wall on most edits, a sign the space is heavily restricted.
+> `saves` = macro_save_succeeded (edits of existing diagrams). `creates` = macro_create_succeeded (first-time saves of new diagrams). Use to compute friction rate: `triggered / (triggered + saves)` per domain — a ratio >50% means users are hitting the wall on most edits, a sign the space is heavily restricted.
 > Non-CSS domains with high save volume are CSS enrollment candidates — flag them.
 
-**Q6 — Per-space breakdown for domains with blocks or high save volume**
+**Q6 — Per-space breakdown for domains with blocks, high save volume, or creates**
 
-For each domain that had triggered > 0 OR saves > 10 today, run two per-domain queries (filter by `client_domain`), broken down by `confluence_space`:
+For each domain that had triggered > 0 OR saves > 10 OR creates > 0 today, run per-domain queries (filter by `client_domain`), broken down by `confluence_space`:
 ```
 event: paywall_triggered, filter: client_domain equals "<domain>", breakdown: confluence_space, measurement: total
 event: macro_save_succeeded, filter: client_domain equals "<domain>", breakdown: confluence_space, measurement: total
+event: macro_create_succeeded, filter: client_domain equals "<domain>", breakdown: confluence_space, measurement: total
 ```
 Run these in parallel after Q1–Q5 complete. Cross-reference space keys against metrics-inspect (`curl https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>`) to get each space's macro count. This catches the pattern where a tenant has heavy spaces (>100 macros) but saves happen in light spaces — which explains zero blocks despite high activity (e.g. mcoproduct: 22 saves all in space MA=52 macros, while TMAB=1546 sits untouched by editors).
 
@@ -183,21 +185,22 @@ Run these in parallel after Q1–Q5 complete. Cross-reference space keys against
 
 For customer domains on CSS: **read the live CSS flag from Step 1** to get the current list. Do not rely on any hardcoded list here — it goes stale as new tenants are enrolled. Exclude internal sites: zenuml, zenuml-stg, zenuml-connect.
 
-| Domain | triggered | modal_shown | saves | friction | continued | marketplace | enterprise | signal |
-|--------|-----------|-------------|-------|----------|-----------|-------------|------------|--------|
+| Domain | triggered | modal_shown | saves | creates | friction | continued | marketplace | enterprise | signal |
+|--------|-----------|-------------|-------|---------|----------|-----------|-------------|------------|--------|
 
 - `triggered` = `paywall_triggered`
-- `saves` = `macro_save_succeeded`
-- `friction` = triggered / saves — add as a note if > 50%
+- `saves` = `macro_save_succeeded` (edits of existing diagrams)
+- `creates` = `macro_create_succeeded` (first-time saves of new diagrams)
+- `friction` = triggered / (triggered + saves) — add as a note if > 50%
 - `continued` = `paywall_continued_editing`
 - `signal` = **UPGRADE** if marketplace > 0 or enterprise > 0, else `—`
 - Lead the summary with **CONVERSION ALERT** if any domain has signal = UPGRADE
 - Flag any domain that appears in Q1 or Q5 results but is NOT in the CSS list — that's an anomaly or CSS enrollment candidate
 
-### Per-space sub-table (for domains with blocks or saves > 10)
+### Per-space sub-table (for domains with blocks, saves > 10, or creates > 0)
 
-| Domain | Space | macros | triggered | saves | note |
-|--------|-------|--------|-----------|-------|------|
+| Domain | Space | macros | triggered | saves | creates | note |
+|--------|-------|--------|-----------|-------|---------|------|
 
 - `macros` = total from metrics-inspect for that space
 - Highlight spaces where macros ≥ 100 and triggered = 0 — these are latent paywall spaces where users edit but haven't hit a blocked user yet (or are view-only)
@@ -209,7 +212,7 @@ These domains have emitted paywall events despite not being in CSS. Treat as lik
 
 | Domain | First seen | Pattern |
 |--------|------------|---------|
-| vin3s | 2026-04-30 | **CSS enrollment candidate** — 4 spaces over 100 macros (VSA 534, VARW 438, VPay 226, OP 141), 12 saves on 2026-05-04 spread across them. Re-classified from "test traffic" on 2026-05-04. Check CSS flag in Step 1 to confirm whether enrollment has happened; if already enrolled, remove from this table. |
+| woolworths-agile | 2026-05-08 | 1 paywall_triggered — this is a Group B A/B control tenant (not on CSS); anomalous, likely stale cached bundle. Persistent occurrences warrant a code-path investigation. |
 | gip-onshore | 2026-04-30 | paywall_triggered only |
 | rizapg | 2026-05-01 | paywall_triggered + upgrade_modal_shown + macro_save_succeeded |
 | olix | 2026-05-02 | high save volume (19 saves/day), no paywall events — likely below 100 macros in active spaces |
@@ -217,9 +220,9 @@ These domains have emitted paywall events despite not being in CSS. Treat as lik
 
 ### PushNotification
 
-After building the table, send a PushNotification:
-- Title: `Paywall Daily {date}`
-- Body: key highlights + summary line (under 200 chars total)
+After building the table, send a PushNotification (single `message` field only — no separate title/body):
+- Format: `Paywall Daily {date} | {key highlights} | {summary}`
+- Keep under 200 chars total
 - Lead with `CONVERSION ALERT` if any UPGRADE signal
 
 ---
@@ -441,7 +444,7 @@ After completing the monitoring run, review what happened and propose skill impr
 
 1. **Errors or unexpected results** — did any query fail, return unexpectedly empty results, or require a workaround not covered in the skill? If so, document the fix.
 
-2. **Event name drift** — did any event return 0 results that should have data? Could be a rename, a drop, or a new event name. Check with `mcp__mixpanel__Get-Events` if suspicious.
+2. **Event name drift** — did any event return 0 results that should have data? Could be a rename, a drop, or a new event name. Check with `mcp__claude_ai_Mixpanel__Get-Events` if suspicious. Note: `macro_save_failed` (Q5 event B) is expected to be very sparse or zero — this is normal, not a drift signal.
 
 3. **Domain list staleness** — are there new domains in Q1/Q2 results that aren't in the known CSS list? Flag them — they may need to be enrolled.
 
@@ -467,7 +470,7 @@ End your run with a section like this:
 - [specific wording or section changes — quote the line to change and the replacement]
 ```
 
-If there are proposed improvements, ask the user: "Want me to apply these to the skill?" — do not self-edit without confirmation.
+Apply proposed improvements directly to the skill file without asking for confirmation.
 
 ---
 

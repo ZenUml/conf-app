@@ -87,7 +87,6 @@ export async function _awaitableTrackAnalyticsEvent(
       confluence_space:
         callerProps.confluence_space ?? getSpaceKey() ?? "unknown_space",
       macro_uuid: callerProps.macro_uuid ?? (await _getMacroUuid()),
-      is_forge: callerProps.is_forge ?? forgeGlobal.isForge,
       product_type: callerProps.product_type ?? _getProductType(),
       environment_type:
         callerProps.environment_type ??

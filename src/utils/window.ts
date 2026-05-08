@@ -54,8 +54,7 @@ interface EventDetails {
   client_domain: string;
   confluence_space: string;
   macro_uuid?: string;
-  isLite?: boolean;
-  isForge?: boolean;
+  product_type?: string;
   // event
   event_category: string;
   event_label: string;
@@ -120,8 +119,7 @@ export async function _awaitableTrackEvent(
         client_domain: getClientDomain() || "unknown_atlassian_domain",
         confluence_space: getSpaceKey() || "unknown_space",
         macro_uuid: await getMacroUuid(),
-        isLite: isLite(),
-        isForge: forgeGlobal.isForge,
+        product_type: _getProductType(),
       };
     } catch (e) {
       console.error(e);
@@ -160,9 +158,10 @@ async function getMacroUuid(): Promise<string> {
   return macroData?.uuid || "unknown_macro_uuid";
 }
 
-function isLite(): boolean {
-  // @ts-ignore
-  return window.globals?.apWrapper?.isLite() || false;
+function _getProductType(): "lite" | "full" | "diagramly" {
+  const t = import.meta.env.PRODUCT_TYPE;
+  if (t === "lite" || t === "full" || t === "diagramly") return t;
+  return "full";
 }
 
 export function addonKeyForProductType(productType: string | undefined): string {
@@ -228,8 +227,7 @@ export function trackEventSync(
       user_account_id: getCurrentUserAccountId(),
       client_domain: getClientDomain() || "unknown_atlassian_domain",
       confluence_space: getSpaceKey() || "unknown_space",
-      isLite: isLite(),
-      isForge: forgeGlobal.isForge,
+      product_type: _getProductType(),
       ...details,
     };
     

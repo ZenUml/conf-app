@@ -131,7 +131,7 @@ describe('window utils', async () => {
         user_account_id: 'test-user-123',
         client_domain: 'test-domain',
         confluence_space: 'TEST',
-        isLite: false
+        product_type: 'full'
       }))
     })
 
@@ -164,7 +164,7 @@ describe('window utils', async () => {
         client_domain: 'test-domain',
         confluence_space: 'TEST',
         macro_uuid: 'forge-local-id-123',
-        isLite: false
+        product_type: 'full'
       }))
     })
 

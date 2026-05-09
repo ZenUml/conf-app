@@ -29,7 +29,6 @@ import { debounce } from 'lodash';
 import { useCustomerSuccessService, MACROS_LIMIT, getUpgradeContext } from '@/composables/useCustomerSuccessService';
 import { isPageEditorEditBlocked } from '@/utils/paywall/preEditGate';
 import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking';
-import { mountRoot } from '@/mount-root';
 import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
 
 const debouncedValidateOpenApi = debounce(async (spec: string) => {
@@ -236,12 +235,18 @@ async function initializeMacro() {
       ...getUpgradeContext(),
     });
 
-    // Swagger editor doesn't use Vue's mountRoot for its main UI (it boots
-    // window.editor directly), so we can't slot it under PageEditorPaywallGate
-    // the way sequence / graph / embed do. Keep the modal-only paywall here for
-    // now; the editor still appears after Continue editing or Close.
-    // @ts-ignore — placeholder editor stub satisfies the required prop without rendering UI
-    mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
+    // Swagger boots a React UI inside #app via ReactDOM.render in onload().
+    // Vue's mountRoot would wipe that, so we leave #app alone and mount the
+    // paywall overlay as a separate Vue app to a body-level div. UpgradePrompt
+    // already uses <Teleport to="body">, so the modal renders correctly above
+    // the swagger UI. The editor itself loads the user's spec via mountEditor()
+    // — save is gated by shouldBlockActions in the persistence layer.
+    await mountEditor();
+
+    const overlayContainer = document.createElement('div');
+    overlayContainer.id = 'swagger-paywall-overlay';
+    document.body.appendChild(overlayContainer);
+    createApp(PageEditorPaywallGate, {
       editor: { template: '<div />' },
       macrosCreated: customerSuccess.macrosCreated.value,
       macrosLimit: MACROS_LIMIT,
@@ -252,10 +257,7 @@ async function initializeMacro() {
       onClose: async () => {
         await (await getView()).close();
       },
-      onContinueEditing: () => {
-        void mountEditor();
-      },
-    });
+    }).use(store).mount(overlayContainer);
     return;
   }
 

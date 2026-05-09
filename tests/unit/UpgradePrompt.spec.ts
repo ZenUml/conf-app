@@ -76,11 +76,30 @@ describe('UpgradePrompt', () => {
     wrapper.unmount()
   })
 
-  it('renders the draft card with interpolated values', () => {
+  it('draft card is collapsed by default and shows the toggle button', () => {
     const wrapper = mount(UpgradePrompt, {
       props: baseProps,
       attachTo: document.body,
     })
+
+    expect(document.querySelector('[data-testid="advocacy-draft-body"]')).toBeNull()
+    const toggle = document.querySelector('[data-testid="draft-toggle-btn"]') as HTMLButtonElement
+    expect(toggle).toBeTruthy()
+    expect(toggle.textContent).toContain('Preview the draft before you copy')
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+
+    wrapper.unmount()
+  })
+
+  it('renders the draft card with interpolated values after expanding the toggle', async () => {
+    const wrapper = mount(UpgradePrompt, {
+      props: baseProps,
+      attachTo: document.body,
+    })
+
+    const toggle = document.querySelector('[data-testid="draft-toggle-btn"]') as HTMLButtonElement
+    toggle.click()
+    await Promise.resolve()
 
     const draftBody = document.querySelector('[data-testid="advocacy-draft-body"]') as HTMLElement
     expect(draftBody).toBeTruthy()
@@ -89,6 +108,7 @@ describe('UpgradePrompt', () => {
     expect(draftBody.textContent).toContain('100 macros')
     expect(draftBody.textContent).toContain('https://marketplace.example/upgrade')
     expect(draftBody.textContent).toContain('https://stripe.example/bundle')
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
 
     wrapper.unmount()
   })

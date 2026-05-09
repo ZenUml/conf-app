@@ -311,6 +311,7 @@ export default {
 .v8-canvas {
   position: relative;
   background: #fff;
+  min-height: 64px;
 }
 .v8-canvas .screen-capture-content { position: relative; z-index: 0; }
 .v8-canvas .screen-capture-content.w-full { width: 100%; }

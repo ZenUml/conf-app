@@ -22,7 +22,7 @@ import store from "@/model/store2";
 import { showCloseWithoutSavingDialog } from './utils/modalService';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
-import { createApp } from 'vue';
+import { createApp, h } from 'vue';
 import SyntaxErrorBox from "@/components/SyntaxErrorBox.vue";
 import { validateOpenApiSpecForStore } from '@/utils/openapi/validate';
 import { debounce } from 'lodash';
@@ -247,7 +247,7 @@ async function initializeMacro() {
     overlayContainer.id = 'swagger-paywall-overlay';
     document.body.appendChild(overlayContainer);
     createApp(PageEditorPaywallGate, {
-      editor: { template: '<div />' },
+      editor: { render: () => h('div') },
       macrosCreated: customerSuccess.macrosCreated.value,
       macrosLimit: MACROS_LIMIT,
       upgradeUrl: customerSuccess.upgradeUrl.value,

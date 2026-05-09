@@ -1,8 +1,9 @@
 <template>
   <Teleport to="body">
     <div ref="modalContainer" v-if="visible" class="fixed inset-0 z-50 flex items-center justify-center p-4" tabindex="-1" @keydown.esc="tracking.handleClose">
-      <!-- Backdrop -->
-      <div class="fixed inset-0 bg-black bg-opacity-50" @click="tracking.handleClose"></div>
+      <!-- Backdrop. 75% opacity (was 50%) so the editor underneath is dimmed
+           enough to recede as context, not distract from the modal. -->
+      <div class="fixed inset-0 bg-black bg-opacity-75" @click="tracking.handleClose"></div>
 
       <!-- Modal content - Optimized for 700×600px iframe -->
       <div class="relative bg-white rounded-lg shadow-xl w-[680px] max-h-[660px] overflow-y-auto">

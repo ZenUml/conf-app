@@ -18,6 +18,8 @@ environment:
       default: ZenUML for Confluence Lite
     - key: DIAGRAMLY_BASE_URL
       default: https://staging.diagramly.ai
+    - key: PAGE_CAPTURE_SECRET
+      default: ""
 
 app:
   id: ari:cloud:ecosystem::app/${APP_ID}
@@ -36,6 +38,7 @@ remotes:
     baseUrl: ${BACKEND_API_BASE_URL}
     operations:
       - compute
+      - fetch
     auth:
       appSystemToken:
         enabled: true
@@ -138,6 +141,7 @@ permissions:
         - https://zenuml.com
         - https://*.zenuml.com
         - https://*.mixpanel.com
+        - remote: connect
         - remote: diagramly
       client:
         - https://zenuml.com
@@ -223,6 +227,10 @@ modules:
       events:
         - avi:confluence:viewed:page
         - avi:confluence:updated:page
+    - key: page-content-capture-trigger
+      function: pageCaptureFn
+      events:
+        - avi:confluence:updated:page
   endpoint:
     - key: remote-connect
       remote: connect
@@ -297,6 +305,8 @@ modules:
   function:
     - key: exportMacro
       handler: export.handler
+    - key: pageCaptureFn
+      handler: page-capture.handler
 
 resources:
   - key: main

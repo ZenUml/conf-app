@@ -18,6 +18,7 @@
     "/api/metrics/evaluation",
     "/forge-installed",
     "/forge-user-behavior",
+    "/forge-page-capture",
     "/aggregate-events",
     "/metrics-cache/query",
     "/metrics-cache/update",

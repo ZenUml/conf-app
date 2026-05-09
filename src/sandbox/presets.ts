@@ -124,6 +124,16 @@ export const SANDBOX_PRESETS: Record<string, SandboxPreset> = {
     customContentId: 'fake-content-id-diagram-graph',
     paywall: true,
   },
+  'paywall-openapi-edit': {
+    id: 'paywall-openapi-edit',
+    label: 'OpenAPI – Editor + Paywall',
+    group: 'Paywall',
+    moduleKey: 'zenuml-openapi-macro',
+    macroMode: 'editor',
+    diagramType: 'openapi',
+    customContentId: 'fake-content-id-diagram-openapi',
+    paywall: true,
+  },
   'paywall-embed-edit': {
     id: 'paywall-embed-edit',
     label: 'Embed – Editor + Paywall',

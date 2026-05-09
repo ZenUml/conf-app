@@ -15,9 +15,6 @@
           <p class="text-xs text-gray-600 mt-0.5">
             Existing diagrams still render. To create or edit, upgrade the space.
           </p>
-          <p class="text-xs text-blue-700 font-medium mt-1">
-            Ask your Confluence admin or manager to upgrade.
-          </p>
         </div>
 
         <!-- Hero: illustration + title + body -->

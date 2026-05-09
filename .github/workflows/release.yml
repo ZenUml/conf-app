@@ -54,6 +54,7 @@ jobs:
           vite-mixpanel-token: ${{ vars.VITE_MIXPANEL_TOKEN }}
           vite-app-version: ${{ github.event.release.tag_name }}
           sentry-dsn: ${{ vars.SENTRY_DSN }}
+          page-capture-secret: ${{ secrets.PAGE_CAPTURE_SECRET }}
       - name: Remove contentBylineItem in manifest.yml
         if: ${{ steps.properties.outputs.license != 'diagramly' }}
         uses: mikefarah/yq@master
@@ -103,6 +104,22 @@ jobs:
           pnpm forge:deploy:disable-analytics
           APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
           pnpm forge:deploy:full:prod
+      - name: Set PAGE_CAPTURE_SECRET in Forge Production
+        if: ${{ secrets.PAGE_CAPTURE_SECRET != '' }}
+        run: |
+          case "${{ steps.properties.outputs.license }}" in
+            lite)
+              forge variables set PAGE_CAPTURE_SECRET --value "$PAGE_CAPTURE_SECRET" --encrypt -e production
+              ;;
+            full)
+              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 forge variables set PAGE_CAPTURE_SECRET --value "$PAGE_CAPTURE_SECRET" --encrypt -e production
+              ;;
+            diagramly)
+              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf forge variables set PAGE_CAPTURE_SECRET --value "$PAGE_CAPTURE_SECRET" --encrypt -e production
+              ;;
+          esac
+        env:
+          PAGE_CAPTURE_SECRET: ${{ secrets.PAGE_CAPTURE_SECRET }}
 
   deploy-cron-worker:
     name: Deploy Cron Worker to Production

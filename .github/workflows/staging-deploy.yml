@@ -41,6 +41,7 @@ jobs:
           environment: stg
           vite-mixpanel-token: ${{ vars.VITE_MIXPANEL_TOKEN }}
           sentry-dsn: ${{ vars.SENTRY_DSN }}
+          page-capture-secret: ${{ secrets.PAGE_CAPTURE_SECRET }}
 
       # Lite: remove contentBylineItem and licensing
       - name: Remove contentBylineItem from manifest
@@ -84,6 +85,22 @@ jobs:
             *)         pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging ;;
           esac
           pnpm forge:deploy:${{ inputs.variant }}:staging
+      - name: Set PAGE_CAPTURE_SECRET in Forge Staging
+        if: ${{ secrets.PAGE_CAPTURE_SECRET != '' }}
+        run: |
+          case "${{ inputs.variant }}" in
+            lite)
+              forge variables set PAGE_CAPTURE_SECRET --value "$PAGE_CAPTURE_SECRET" --encrypt -e staging
+              ;;
+            full)
+              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 forge variables set PAGE_CAPTURE_SECRET --value "$PAGE_CAPTURE_SECRET" --encrypt -e staging
+              ;;
+            diagramly)
+              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf forge variables set PAGE_CAPTURE_SECRET --value "$PAGE_CAPTURE_SECRET" --encrypt -e staging
+              ;;
+          esac
+        env:
+          PAGE_CAPTURE_SECRET: ${{ secrets.PAGE_CAPTURE_SECRET }}
       - name: Install Lite to lite-stg.atlassian.net
         if: inputs.variant == 'lite'
         run: pnpm forge:install:lite:staging || pnpm forge:upgrade:lite:staging

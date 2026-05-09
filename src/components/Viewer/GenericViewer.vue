@@ -329,11 +329,13 @@ export default {
   border-radius: 9999px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.10);
   opacity: 0;
+  pointer-events: none;
   transition: opacity 200ms ease, transform 200ms ease;
   z-index: 2;
 }
 .v8-surface--hover .v8-edge-bottom-pill {
   opacity: 1;
+  pointer-events: auto;
   transform: translateX(-50%) translateY(0);
 }
 

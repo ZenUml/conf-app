@@ -1,11 +1,18 @@
 export interface SandboxPreset {
   id: string;
   label: string;
-  group: 'Sequence' | 'Graph' | 'OpenAPI' | 'Embed';
+  group: 'Sequence' | 'Graph' | 'OpenAPI' | 'Embed' | 'Paywall';
   moduleKey: string;
   macroMode: 'editor' | 'viewer';
   diagramType: string;
   customContentId?: string;
+  /**
+   * When true, the standalone bootstrap (forgeGlobal.applyStandaloneContext)
+   * sets localStorage.mock{MacroCount,CSSEnabled,SpacePaid,SpaceKey,ClientDomain}
+   * so the paywall fires immediately. Used for visual review of the editor +
+   * advocacy-modal overlay UX without needing to type the mocks by hand.
+   */
+  paywall?: boolean;
 }
 
 export const SANDBOX_PRESETS: Record<string, SandboxPreset> = {
@@ -96,6 +103,35 @@ export const SANDBOX_PRESETS: Record<string, SandboxPreset> = {
     moduleKey: 'zenuml-embed-macro',
     macroMode: 'editor',
     diagramType: 'embed',
+  },
+  'paywall-seq-edit': {
+    id: 'paywall-seq-edit',
+    label: 'Sequence – Editor + Paywall',
+    group: 'Paywall',
+    moduleKey: 'zenuml-sequence-macro',
+    macroMode: 'editor',
+    diagramType: 'sequence',
+    customContentId: 'fake-content-id-diagram-sequence',
+    paywall: true,
+  },
+  'paywall-graph-edit': {
+    id: 'paywall-graph-edit',
+    label: 'Graph – Editor + Paywall',
+    group: 'Paywall',
+    moduleKey: 'zenuml-graph-macro',
+    macroMode: 'editor',
+    diagramType: 'graph',
+    customContentId: 'fake-content-id-diagram-graph',
+    paywall: true,
+  },
+  'paywall-embed-edit': {
+    id: 'paywall-embed-edit',
+    label: 'Embed – Editor + Paywall',
+    group: 'Paywall',
+    moduleKey: 'zenuml-embed-macro',
+    macroMode: 'editor',
+    diagramType: 'embed',
+    paywall: true,
   },
 };
 

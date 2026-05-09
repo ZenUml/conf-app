@@ -132,7 +132,7 @@ async function initializeMacro() {
   getOrCreateSession();
   const customContentId = context.extension?.config?.customContentId;
 
-  const mountEditor = async () => {
+  const mountEditor = async (paywallWrap?: Record<string, unknown>) => {
     let doc: Diagram | undefined;
     if(!customContentId) {
       doc = {
@@ -164,11 +164,16 @@ async function initializeMacro() {
       window.graphXml = graphXml;
     }
 
-    mountRoot(doc ?? NULL_DIAGRAM, ForgeGraphEditor, {
-      graphXml,
-      saveGraphAndExit,
-      doc
-    });
+    const editorProps = { graphXml, saveGraphAndExit, doc };
+    if (paywallWrap) {
+      mountRoot(doc ?? NULL_DIAGRAM, PageEditorPaywallGate, {
+        editor: ForgeGraphEditor,
+        editorProps,
+        ...paywallWrap,
+      });
+    } else {
+      mountRoot(doc ?? NULL_DIAGRAM, ForgeGraphEditor, editorProps);
+    }
 
     // Track begin event (create or edit)
     const isNew = await MacroUtil.isCreateNew();
@@ -212,16 +217,13 @@ async function initializeMacro() {
       ...getUpgradeContext(),
     });
 
-    mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
+    await mountEditor({
       macrosCreated: customerSuccess.macrosCreated.value,
       macrosLimit: MACROS_LIMIT,
       upgradeUrl: customerSuccess.upgradeUrl.value,
       enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
       macroKind: 'graph',
       spaceKey,
-      onContinueEditing: () => {
-        void mountEditor();
-      },
     });
     return;
   }

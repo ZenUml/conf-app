@@ -173,7 +173,18 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           });
 
           const macroKind = context.extension.modal?.diagramType === 'mermaid' ? 'mermaid' : 'sequence';
-          mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
+          // Mount the editor + paywall together so the fullscreen Forge iframe is
+          // populated with the diagram the user wanted to edit. Save remains gated
+          // by `shouldBlockActions` in the persistence layer; the modal sits on top
+          // as the visible reminder. Continue editing now just dismisses the modal.
+          // @ts-ignore - Workspace's Split() helper checks window.split
+          window.split = true;
+          const fullscreenMode = await isFullscreenMode();
+          const Workspace = (await import('@/components/Workspace.vue')).default;
+          // @ts-ignore - doc may be a partial spread type; same suppression as the happy-path mount below
+          mountRoot(doc ?? NULL_DIAGRAM, PageEditorPaywallGate, {
+            editor: Workspace,
+            editorProps: { autoResize: !fullscreenMode },
             macrosCreated: customerSuccess.macrosCreated.value,
             macrosLimit: MACROS_LIMIT,
             upgradeUrl: customerSuccess.upgradeUrl.value,
@@ -182,14 +193,6 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
             spaceKey,
             onClose: async () => {
               await (await getView()).close();
-            },
-            onContinueEditing: async () => {
-              // @ts-ignore - Enable splitbar for editor mode
-              window.split = true;
-              const component = (await import("@/components/Workspace.vue")).default;
-              const fullscreenMode = await isFullscreenMode();
-              //@ts-ignore
-              mountRoot(doc, component, { autoResize: !fullscreenMode });
             },
           });
           return;

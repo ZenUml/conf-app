@@ -10,6 +10,7 @@ describe('PageEditorPaywallGate', () => {
         macrosLimit: 100,
         upgradeUrl: 'https://example.com/upgrade',
         enterpriseBundleUrl: 'https://example.com/enterprise',
+        editor: { template: '<div data-testid="editor-stub" />' },
       },
       global: {
         stubs: {

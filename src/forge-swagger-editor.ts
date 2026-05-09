@@ -236,7 +236,13 @@ async function initializeMacro() {
       ...getUpgradeContext(),
     });
 
+    // Swagger editor doesn't use Vue's mountRoot for its main UI (it boots
+    // window.editor directly), so we can't slot it under PageEditorPaywallGate
+    // the way sequence / graph / embed do. Keep the modal-only paywall here for
+    // now; the editor still appears after Continue editing or Close.
+    // @ts-ignore — placeholder editor stub satisfies the required prop without rendering UI
     mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
+      editor: { template: '<div />' },
       macrosCreated: customerSuccess.macrosCreated.value,
       macrosLimit: MACROS_LIMIT,
       upgradeUrl: customerSuccess.upgradeUrl.value,

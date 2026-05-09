@@ -81,7 +81,7 @@ async function initializeMacro() {
   getOrCreateSession();
   const customContentId = context.extension?.config?.customContentId;
 
-  const mountEditor = async () => {
+  const mountEditor = async (paywallWrap?: Record<string, unknown>) => {
     let doc: Diagram | undefined;
     if(!customContentId) {
       doc = {
@@ -98,11 +98,16 @@ async function initializeMacro() {
     window.diagram = doc ?? NULL_DIAGRAM;
     console.log('loadDiagram - window.diagram', window.diagram);
 
-    mountRoot(doc ?? NULL_DIAGRAM, ForgeEmbedEditor, {
-      saveEmbedAndExit,
-      exit,
-      doc
-    });
+    const editorProps = { saveEmbedAndExit, exit, doc };
+    if (paywallWrap) {
+      mountRoot(doc ?? NULL_DIAGRAM, PageEditorPaywallGate, {
+        editor: ForgeEmbedEditor,
+        editorProps,
+        ...paywallWrap,
+      });
+    } else {
+      mountRoot(doc ?? NULL_DIAGRAM, ForgeEmbedEditor, editorProps);
+    }
 
     // Track begin event (create or edit)
     const isNew = await MacroUtil.isCreateNew();
@@ -146,16 +151,13 @@ async function initializeMacro() {
       ...getUpgradeContext(),
     });
 
-    mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
+    await mountEditor({
       macrosCreated: customerSuccess.macrosCreated.value,
       macrosLimit: MACROS_LIMIT,
       upgradeUrl: customerSuccess.upgradeUrl.value,
       enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
       macroKind: 'embed',
       spaceKey,
-      onContinueEditing: () => {
-        void mountEditor();
-      },
     });
     return;
   }

@@ -36,11 +36,29 @@ const STANDALONE_VIEW_STUB = {
   },
 };
 
+/**
+ * Sandbox presets with `paywall: true` auto-populate the localStorage knobs
+ * that useCustomerSuccessService reads, so opening one of the Paywall cards
+ * lands directly on a blocked editor with the advocacy modal on top.
+ */
+function applyPaywallSandboxMocks(): void {
+  try {
+    if (!localStorage.getItem('mockMacroCount')) localStorage.setItem('mockMacroCount', '105');
+    if (!localStorage.getItem('mockCSSEnabled')) localStorage.setItem('mockCSSEnabled', 'true');
+    if (!localStorage.getItem('mockSpacePaid')) localStorage.setItem('mockSpacePaid', 'false');
+    if (!localStorage.getItem('mockSpaceKey')) localStorage.setItem('mockSpaceKey', 'SD');
+    if (!localStorage.getItem('mockClientDomain')) localStorage.setItem('mockClientDomain', 'lite-stg');
+  } catch {
+    // localStorage unavailable in sandboxed iframe — non-fatal, mocks stay unset.
+  }
+}
+
 function getStandaloneContext(): any {
   const sandboxId = new URLSearchParams(window.location.search).get('sandbox');
   if (sandboxId) {
     const preset = getPresetById(sandboxId);
     if (preset) {
+      if (preset.paywall) applyPaywallSandboxMocks();
       const isEditor = preset.macroMode === 'editor';
       return {
         extension: {

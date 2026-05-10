@@ -1,11 +1,5 @@
 <template>
   <div id="forge-graph-editor">
-    <!-- Title row first, in flow, so the iframe below gets the remaining height
-         exactly. Previously the title row was position:absolute over the iframe,
-         which (a) hid DrawIO's top toolbar under our title and (b) gave DrawIO a
-         viewport ~30px taller than the visible area, pushing its bottom toolbar
-         below the screen. -->
-    <DrawIoExtension :doc="doc" />
     <!-- noExitBtn=1 suppresses DrawIO's standalone "Exit" button. The Atlassian
          header X is the canonical close affordance and onClose autosaves drafts.
          Save & Exit (saveAndExit=1) remains for explicit publish. -->
@@ -15,6 +9,11 @@
       class="drawio-frame"
       @load="onFrameLoad"
     ></iframe>
+    <!-- Title input overlays the iframe at the top-right, positioned to share
+         DrawIO's toolbar row visually (matching the official drawio Confluence
+         plugin's filename placement). The right offset clears DrawIO's
+         Save & Exit button. -->
+    <DrawIoExtension :doc="doc" />
   </div>
 </template>
 

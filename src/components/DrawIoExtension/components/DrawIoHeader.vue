@@ -1,11 +1,10 @@
 <template>
-  <!-- Right-align the title input so it visually sits at the right end of
-       the toolbar row, matching the official drawio Confluence plugin where
-       the filename appears top-right (e.g. "AAAAA.drawio"). The DrawIO
-       toolbar inside the iframe sits directly below this row, so the user
-       reads it as one continuous chrome band. -->
-  <div class="flex h-10 w-full bg-[#f1f3f4] py-1 px-[10px] flex-shrink-0 items-center justify-end">
-    <div class="flex items-center w-72 max-w-md border-2 rounded-md transition-colors duration-200 h-8"
+  <!-- Compact overlay anchored at top-right of the iframe, on DrawIO's
+       toolbar row (matching the official drawio Confluence plugin's
+       filename placement). The right offset clears DrawIO's Save & Exit
+       button. -->
+  <div class="absolute top-1 right-[140px] z-50 flex items-center pointer-events-auto">
+    <div class="flex items-center w-72 max-w-md border-2 rounded-md transition-colors duration-200 h-8 bg-white"
       :class="error ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-gray-300 focus-within:border-blue-500'">
       <span class="pl-3 pr-2 text-xs font-semibold tracking-wide text-gray-400 uppercase select-none flex-shrink-0">Title</span>
       <div class="w-px h-4 bg-gray-200 flex-shrink-0"></div>

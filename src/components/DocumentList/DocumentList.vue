@@ -141,8 +141,8 @@ export default {
       baseUrl: '',
       filterKeyword: '',
       previewComponentCache: {}, // Cache for loaded components
-      _originalPickedId: null,
-      _closeGuardOff: null,
+      sessionOriginalPickedId: null,
+      closeGuardOff: null,
     };
   },
   computed: {
@@ -223,8 +223,8 @@ export default {
         // Capture the initial selection as the baseline for dirty-state detection.
         // `picked` is set asynchronously by initializeForForge/Connect, so we can't
         // capture in mounted(); the first non-empty value is our baseline.
-        if (newPicked?.id && this._originalPickedId === null) {
-          this._originalPickedId = newPicked.id;
+        if (newPicked?.id && this.sessionOriginalPickedId === null) {
+          this.sessionOriginalPickedId = newPicked.id;
         }
         if (newPicked && newPicked.value?.diagramType && window.forgeGlobal?.isForge) {
           // Load the preview component when picked item changes
@@ -237,9 +237,9 @@ export default {
   async mounted() {
     await primeCloudId();
     this._draftScope = 'new:embed';
-    this._closeGuardOff = setupCloseGuard(() => {
-      if (this._originalPickedId === null) return;
-      if (this.picked?.id === this._originalPickedId) return;
+    this.closeGuardOff = setupCloseGuard(() => {
+      if (this.sessionOriginalPickedId === null) return;
+      if (this.picked?.id === this.sessionOriginalPickedId) return;
       const cloudId = getCachedCloudId();
       if (cloudId && this.picked?.id) {
         // For embed, the "code" payload is just the selected id. The next
@@ -252,7 +252,7 @@ export default {
     });
   },
   beforeUnmount() {
-    this._closeGuardOff?.();
+    this.closeGuardOff?.();
   },
   async created() {
     if (window.forgeGlobal?.isForge) {

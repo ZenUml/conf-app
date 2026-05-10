@@ -61,62 +61,70 @@ export default {
     }
   },
   data() {
-    return { _drawioModified: false, _closeGuardOff: null, _latestXml: null, _draftSaver: null, _onSaved: null, _draftScope: null };
+    return {
+      drawioModified: false,
+      closeGuardOff: null,
+      latestXml: null,
+      draftSaver: null,
+      savedListener: null,
+      draftScope: null,
+      restoreListener: null,
+    };
   },
   beforeUnmount() {
-    this._closeGuardOff?.();
-    this._draftSaver?.flush();
-    if (this._onSaved) EventBus.$off('saved', this._onSaved);
-    if (this._onRestore) EventBus.$off('draft-restore', this._onRestore);
+    this.closeGuardOff?.();
+    this.draftSaver?.flush();
+    if (this.savedListener) EventBus.$off('saved', this.savedListener);
+    if (this.restoreListener) EventBus.$off('draft-restore', this.restoreListener);
   },
   async mounted() {
     await primeCloudId();
     const diagramId = this.$store?.state?.diagram?.id;
-    this._draftScope = diagramId ? `edit:${diagramId}` : 'new:graph';
-    this._draftSaver = makeDebouncedDraftSaver(this._draftScope, 500);
+    this.draftScope = diagramId ? `edit:${diagramId}` : 'new:graph';
+    this.draftSaver = makeDebouncedDraftSaver(this.draftScope, 500);
 
     // Restore prompt if a newer draft exists in localStorage.
-    const draft = await loadDraft(this._draftScope);
+    const draft = await loadDraft(this.draftScope);
     if (draft) {
       const updatedAt = Number(this.$store?.state?.diagram?.updatedAt) || 0;
       const baseline = this.graphXml || '';
       if (draft.savedAt > updatedAt && draft.code !== baseline) {
-        EventBus.$emit('draft-available', { scope: this._draftScope, draft });
+        EventBus.$emit('draft-available', { scope: this.draftScope, draft });
       } else {
-        await clearDraft(this._draftScope);
+        await clearDraft(this.draftScope);
       }
     }
 
     // view.onClose: synchronously persist the latest XML if dirty.
-    this._closeGuardOff = setupCloseGuard(() => {
-      if (!this._drawioModified || !this._latestXml) return;
+    this.closeGuardOff = setupCloseGuard(() => {
+      if (!this.drawioModified || !this.latestXml) return;
       const cloudId = getCachedCloudId();
       if (cloudId) {
-        saveDraftSync(this._draftScope, cloudId, {
-          code: this._latestXml,
+        saveDraftSync(this.draftScope, cloudId, {
+          code: this.latestXml,
           title: this.$store?.state?.diagram?.title || '',
         });
       }
     });
 
     // Clear draft after successful publish.
-    this._onSaved = () => clearDraft(this._draftScope);
-    EventBus.$on('saved', this._onSaved);
+    this.savedListener = () => clearDraft(this.draftScope);
+    EventBus.$on('saved', this.savedListener);
 
     // Restore handler: re-load the draft XML into the DrawIO iframe.
-    this._onRestore = (payload) => {
-      if (payload?.scope !== this._draftScope || !payload?.draft) return;
+    this.restoreListener = (payload) => {
+      if (payload?.scope !== this.draftScope || !payload?.draft) return;
       try {
         this.sendToFrame({ action: 'load', xml: payload.draft.code });
         if (payload.draft.title) this.$store.dispatch('updateTitle', payload.draft.title);
-        this._drawioModified = true;
-        this._latestXml = payload.draft.code;
-        clearDraft(this._draftScope);
+        this.drawioModified = true;
+        this.latestXml = payload.draft.code;
+        clearDraft(this.draftScope);
       } catch (e) {
         console.error('[draft-restore] graph restore failed', e);
       }
     };
-    EventBus.$on('draft-restore', this._onRestore);
+    EventBus.$on('draft-restore', this.restoreListener);
 		const loadGraph = (xml) => this.sendToFrame({action: 'load', xml});
 
 		function toGraphModel(xmlString) {
@@ -145,11 +153,11 @@ export default {
 				loadGraph(initialGraphXml);
 			}
 			else if(payload.event === 'autosave') {
-				this._drawioModified = !!payload.modified;
+				this.drawioModified = !!payload.modified;
 				if (payload.xml) {
-					this._latestXml = payload.xml;
-					if (this._drawioModified && this._draftSaver) {
-						this._draftSaver.save({
+					this.latestXml = payload.xml;
+					if (this.drawioModified && this.draftSaver) {
+						this.draftSaver.save({
 							code: payload.xml,
 							title: this.$store?.state?.diagram?.title || '',
 						});
@@ -157,7 +165,7 @@ export default {
 				}
 			}
 			else if(payload.event === 'save') {
-				this._drawioModified = false;
+				this.drawioModified = false;
 				window.graphXml = toGraphModel(payload.xml);
 				await window.ensureTitle();
 				await this.saveGraphAndExit(window.graphXml);

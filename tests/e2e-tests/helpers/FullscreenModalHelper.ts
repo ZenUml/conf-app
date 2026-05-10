@@ -5,8 +5,12 @@
 // underneath, Esc key behavior, tab switching, title gating).
 //
 // Selectors follow the Forge Custom UI bridge convention:
-//   - Edit modal:        [data-testid="custom-ui-modal-dialog"]
+//   - Edit modal:        [data-testid="custom-ui-fullscreen-modal-dialog"]
+//                        (manifest.yml has viewportSize: fullscreen for all 4
+//                         macros, so the insert/edit modal Atlassian renders
+//                         is the fullscreen variant)
 //   - Fullscreen viewer: [data-testid="custom-ui-fullscreen-modal-dialog"]
+//                        (opened via view.open({ size: 'fullscreen' }))
 // Both wrap an iframe at [data-testid="hosted-resources-iframe"] whose
 // contentFrame() is the actual macro UI.
 //
@@ -26,7 +30,7 @@ import { Page, FrameLocator, Locator, expect } from '@playwright/test';
 export type ModalKind = 'edit' | 'fullscreen-viewer';
 
 const MODAL_TESTIDS: Record<ModalKind, string> = {
-  'edit': 'custom-ui-modal-dialog',
+  'edit': 'custom-ui-fullscreen-modal-dialog',
   'fullscreen-viewer': 'custom-ui-fullscreen-modal-dialog',
 };
 

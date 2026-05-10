@@ -32,12 +32,12 @@ export type EditorKind = 'sequence' | 'graph' | 'openapi' | 'embed';
 
 /**
  * Locate the Forge bridge modal's editor iframe content frame. Matches the
- * `data-testid="custom-ui-modal-dialog"` selector that Forge uses for Custom
+ * `data-testid="custom-ui-fullscreen-modal-dialog"` selector that Forge uses for Custom
  * UI bridge modals — same convention as `EditorPage.interactWithForgeDiagramMacro`.
  */
 export function bridgeModalFrame(page: Page): FrameLocator {
   return page
-    .getByTestId('custom-ui-modal-dialog')
+    .getByTestId('custom-ui-fullscreen-modal-dialog')
     .locator('[data-testid="hosted-resources-iframe"]')
     .contentFrame();
 }
@@ -47,7 +47,7 @@ export function bridgeModalFrame(page: Page): FrameLocator {
  * Use after triggering insert or edit. Throws if the modal doesn't appear.
  */
 export async function waitForBridgeModal(page: Page, timeoutMs = 15_000): Promise<void> {
-  const modal = page.getByTestId('custom-ui-modal-dialog');
+  const modal = page.getByTestId('custom-ui-fullscreen-modal-dialog');
   await expect(modal).toBeVisible({ timeout: timeoutMs });
   await expect(modal.locator('[data-testid="hosted-resources-iframe"]')).toBeVisible({ timeout: timeoutMs });
 }
@@ -241,7 +241,7 @@ export async function clickHeaderXAndCaptureDialog(
   const dialogPromise = page.waitForEvent('dialog', { timeout: options.timeoutMs ?? 5_000 })
     .catch(() => null);
 
-  const closeBtn = page.getByTestId('custom-ui-modal-dialog').getByRole('button', { name: /close/i }).first();
+  const closeBtn = page.getByTestId('custom-ui-fullscreen-modal-dialog').getByRole('button', { name: /close/i }).first();
   await closeBtn.click();
 
   const dialog = await dialogPromise;

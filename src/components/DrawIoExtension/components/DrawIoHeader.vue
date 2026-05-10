@@ -1,6 +1,11 @@
 <template>
-  <div class="flex h-10 w-full bg-[#f1f3f4] pl-[10px] py-1 flex-shrink-0">
-    <div class="flex items-center flex-1 min-w-64 max-w-md border-2 rounded-md transition-colors duration-200 h-8"
+  <!-- Right-align the title input so it visually sits at the right end of
+       the toolbar row, matching the official drawio Confluence plugin where
+       the filename appears top-right (e.g. "AAAAA.drawio"). The DrawIO
+       toolbar inside the iframe sits directly below this row, so the user
+       reads it as one continuous chrome band. -->
+  <div class="flex h-10 w-full bg-[#f1f3f4] py-1 px-[10px] flex-shrink-0 items-center justify-end">
+    <div class="flex items-center w-72 max-w-md border-2 rounded-md transition-colors duration-200 h-8"
       :class="error ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-gray-300 focus-within:border-blue-500'">
       <span class="pl-3 pr-2 text-xs font-semibold tracking-wide text-gray-400 uppercase select-none flex-shrink-0">Title</span>
       <div class="w-px h-4 bg-gray-200 flex-shrink-0"></div>

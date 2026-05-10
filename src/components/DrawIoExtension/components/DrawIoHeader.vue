@@ -1,5 +1,5 @@
 <template>
-  <div class="absolute flex h-10 w-[100vw] bg-[#f1f3f4] pl-[10px] py-1 z-10">
+  <div class="flex h-10 w-full bg-[#f1f3f4] pl-[10px] py-1 flex-shrink-0">
     <div class="flex items-center flex-1 min-w-64 max-w-md border-2 rounded-md transition-colors duration-200 h-8"
       :class="error ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-gray-300 focus-within:border-blue-500'">
       <span class="pl-3 pr-2 text-xs font-semibold tracking-wide text-gray-400 uppercase select-none flex-shrink-0">Title</span>

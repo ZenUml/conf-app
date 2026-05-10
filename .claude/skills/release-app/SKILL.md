@@ -3,7 +3,8 @@ name: release-app
 description: >
   Release ZenUML Forge apps (lite, full, and/or diagramly) to production via the full CI/CD pipeline.
   Reuses an existing fresh draft release when available (the common case after a recent merge),
-  publishes it to production, and verifies with production smoke tests. Falls back to triggering a
+  publishes it to production, verifies with PVT, then runs focused tests — targeted coverage for
+  what shipped this iteration (not keyword→skill matching alone). Falls back to triggering a
   fresh build via a changelog push only when no recent draft exists.
   Use when the user wants to release, deploy, ship, or push the lite, full, or diagramly Forge app to
   production. Triggers on "release lite", "release full", "release diagramly", "deploy to prod",
@@ -120,44 +121,63 @@ For each variant released, run PVT:
 
 Report PVT results to the user.
 
-### Step 5.5: Focused Feature Test
+### Step 5.5: Focused tests (targeted coverage for **this** release)
 
 **This step runs automatically after PVT. Do not skip it.**
 
-1. Find the previous release tag for the variant being released:
-   ```bash
-   gh release list --repo ZenUml/conf-app --exclude-drafts \
-     --limit 10 --json tagName \
-     | jq -r '[.[] | select(.tagName | test("<variant>"))] | .[1].tagName'
-   ```
-   Example result: `v2026.04.301216-lite`
+A **focused test** is **not** defined as “find a matching `/pvt-*` skill.” It means: **understand what shipped in this iteration** for the variant being released, then **run checks that deliberately exercise those changes** — the smallest set of verification that still covers the delta.
 
-2. Scan commit messages between the previous tag and the new tag:
-   ```bash
-   git fetch --tags
-   git log <prev-tag>..<new-tag> --oneline
-   ```
-   Example result:
-   ```
-   1ee2f655 chore(paywall-skill): move paywall skill from user-level to project
-   8fd921ee feat(paywall): add pre-edit gate with explicit Continue editing button
-   20574271 fix(paywall): emit upgrade_modal_shown for all prompt variants
-   ```
+#### 1. Establish the release delta
 
-3. Match commit messages (case-insensitive) against the keyword registry:
+Find the previous **published** tag for this variant, then list commits between old and new tag:
 
-   | Keywords | Sub-skill |
-   |---|---|
-   | `paywall`, `upgrade`, `css`, `persona`, `modal` | `/pvt-paywall` |
-   | `editor`, `editor-ui`, `codemirror` | `/pvt-editor` |
-   | `swagger`, `openapi` | `/pvt-swagger` |
-   | `graph`, `drawio` | `/pvt-drawio` |
+```bash
+gh release list --repo ZenUml/conf-app --exclude-drafts \
+  --limit 10 --json tagName \
+  | jq -r '[.[] | select(.tagName | test("<variant>"))] | .[1].tagName'
+```
 
-4. For each matched sub-skill: invoke it with the variant as argument (e.g., `/pvt-paywall lite`). Deduplicate — each sub-skill runs at most once per release. Run sequentially. If a matched sub-skill file does not exist (not yet implemented), log a warning (`sub-skill /pvt-X not yet implemented`) and skip it — treat as skipped, not as FAIL.
+```bash
+git fetch --tags
+git log <prev-tag>..<new-tag> --oneline
+```
 
-5. If no keywords match, log "No focused test registered for this release" and proceed to Step 6 — this is not an error.
+Read `git log` output **as product intent**, not just keyword soup: group commits into themes (e.g. paywall modal, fullscreen bridge, DrawIO chrome, OpenAPI viewer, editor modal). Note **which user-visible surfaces** and **macro types** are implicated.
 
-6. Collect pass/fail from each sub-skill and carry results forward to the Step 6 report.
+#### 2. Design the focused test **plan** (required)
+
+Produce an explicit **plan**: one line per check — **what behaviour** you are validating and **how** (production URL flow, Playwright MCP, insert smoke, API poke, etc.). The plan must map to **this** delta. Examples:
+
+- Paywall / upgrade paths touched → exercise modal, dismissal, Continue editing (often `/pvt-paywall <variant>` when Lite funnel applies).
+- Fullscreen / viewer chrome touched → enter and exit fullscreen (`/pvt-fullscreen <variant>`).
+- Edit path / Forge modal touched → edit → publish / cancel (`/pvt-edit <variant>`).
+- OpenAPI / Swagger touched → macro insert or viewer smoke (`/pvt-swagger <variant>`).
+- Graph / DrawIO touched → graph macro with geometry check (`/pvt-drawio <variant>`).
+
+If the delta does **not** map to an existing skill, **still** add targeted checks (custom steps). Absence of a keyword registry match is **not** an excuse to skip focused coverage.
+
+#### 3. Execute the plan
+
+- **Variant:** Always pass **the same variant as this release** into skills or instructions (e.g. `/release-app diagramly` → tests target **diagramly**).
+- **Pre-built skills:** Invoke `/pvt-*` skills **when they align** with the plan — they are reusable recipes, not the definition of “focused test.”
+- **Order:** Run planned checks **sequentially**. Deduplicate redundant steps.
+- **Missing skill file:** If you planned to use `/pvt-X` but the skill file does not exist, log `sub-skill /pvt-X not yet implemented`, substitute **manual/custom** steps for that coverage if the delta still requires it — treat missing file as **skipped recipe**, not “no test needed.”
+
+#### 4. Optional keyword hints (secondary)
+
+If helpful when scanning commits quickly, these **hints** often correlate with the listed skills — **do not** treat this table as exhaustive or sufficient on its own:
+
+| Themes (commit / area hints) | Often covered by |
+|---|---|
+| paywall, upgrade, css, persona, modal | `/pvt-paywall` |
+| fullscreen, fullscreen-bridge, viewport, expanded viewer | `/pvt-fullscreen` |
+| editor, editor-ui, codemirror, edit path | `/pvt-edit` |
+| swagger, openapi | `/pvt-swagger` |
+| graph, drawio | `/pvt-drawio` |
+
+#### 5. Collect results for Step 6
+
+Record **pass | fail | skipped** per **planned check** (skill name if used, or short description if custom). If the delta was genuinely tiny (e.g. docs-only), state **“Focused tests: N/A — no product behaviour changed”** with one-line justification — not “no keywords matched.”
 
 ### Step 6: Report
 
@@ -168,10 +188,11 @@ Summarize the release:
 - Draft published: ✓
 - Release workflow: ✓
 - PVT (Mermaid smoke): PASS | FAIL
-- Focused tests:
-  - pvt-paywall: PASS | FAIL — <failing step if FAIL>
-  (one line per invoked sub-skill; omitted if sub-skill was not invoked or not yet implemented)
-  (or: "No focused test registered for this release")
+- Release delta (one line): <themes / surfaces touched>
+- Focused tests (targeted coverage for this delta):
+  - <check 1 — skill or custom>: PASS | FAIL | SKIPPED — <note>
+  - <check 2>: …
+  (or: N/A — docs-only / no product behaviour in this tag — <brief justification>)
 ```
 
 ## Error Handling
@@ -179,7 +200,7 @@ Summarize the release:
 - **Build workflow fails**: Report which job failed, link to the run, stop
 - **Release workflow fails**: Report the failure, link to the run — the draft release was already published so the user may need to investigate manually
 - **PVT fails**: Report which variant failed and the error — this is a post-deploy issue that needs immediate attention
-- **Focused test fails**: Report which sub-skill failed and which step — this is a post-deploy issue. Do NOT roll back or block future releases. The app is already live; investigation is the next action.
+- **Focused test fails**: Report **which planned check** failed (skill name or custom step) and **what** was observed — this is a post-deploy issue. Do NOT roll back or block future releases. The app is already live; investigation is the next action.
 
 ## Important Notes
 

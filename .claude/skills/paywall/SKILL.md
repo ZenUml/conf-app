@@ -160,6 +160,23 @@ event: upgrade_cta_clicked, filter: product_option equals "marketplace", measure
 event: upgrade_cta_clicked, filter: product_option equals "enterprise_bundle", measurement: total
 ```
 
+> **CRITICAL — per-metric filter shape.** Per-metric filters in `Run-Query` use `filters` (plural array), not `filter` (singular). The wrong key is silently ignored — the metric returns the unfiltered global total, and Q3/Q4 will return identical results. The schema:
+> ```json
+> "metrics": [{
+>   "eventName": "upgrade_cta_clicked",
+>   "measurement": {"type": "basic", "math": "total"},
+>   "filters": [{
+>     "type": "string",
+>     "propertyName": "product_option",
+>     "propertyType": "string",
+>     "resource": "event",
+>     "operator": "equals",
+>     "value": "marketplace"
+>   }]
+> }]
+> ```
+> Sanity check: if Q3 and Q4 return the SAME `$overall` value, the filter was ignored — fix the shape and re-run.
+
 > Note: header-badge clicks no longer fire `upgrade_cta_clicked`. Only modal product-choice clicks do, so `product_option` is always `marketplace` or `enterprise_bundle`.
 
 **Q5 — Macro save activity** (edit activity baseline + paywall friction signal)
@@ -174,13 +191,39 @@ event D: macro_create_succeeded, measurement: total
 
 **Q6 — Per-space breakdown for domains with blocks, high save volume, or creates**
 
-For each domain that had triggered > 0 OR saves > 10 OR creates > 0 today, run per-domain queries (filter by `client_domain`), broken down by `confluence_space`:
+For each domain that had triggered > 0 OR saves > 10 OR creates > 0 today, run a per-domain query with metrics filtered by `client_domain` and a single `confluence_space` breakdown. **Use `filters: [...]` (plural array) on each metric, not `filter: {...}` — see Q3/Q4 note above.** Concrete shape:
+
+```json
+{
+  "name": "Q6 <domain> per-space",
+  "metrics": [
+    {
+      "eventName": "paywall_triggered",
+      "measurement": {"type": "basic", "math": "total"},
+      "filters": [{"type": "string", "propertyName": "client_domain", "propertyType": "string", "resource": "event", "operator": "equals", "value": "<domain>"}]
+    },
+    {
+      "eventName": "macro_save_succeeded",
+      "measurement": {"type": "basic", "math": "total"},
+      "filters": [{"type": "string", "propertyName": "client_domain", "propertyType": "string", "resource": "event", "operator": "equals", "value": "<domain>"}]
+    },
+    {
+      "eventName": "macro_create_succeeded",
+      "measurement": {"type": "basic", "math": "total"},
+      "filters": [{"type": "string", "propertyName": "client_domain", "propertyType": "string", "resource": "event", "operator": "equals", "value": "<domain>"}]
+    }
+  ],
+  "breakdowns": [{"metric": {"type": "property", "propertyName": "confluence_space", "propertyType": "string", "resource": "event"}}],
+  "chartType": "table",
+  "dateRange": {"type": "relative", "range": {"unit": "day", "value": 1}}
+}
 ```
-event: paywall_triggered, filter: client_domain equals "<domain>", breakdown: confluence_space, measurement: total
-event: macro_save_succeeded, filter: client_domain equals "<domain>", breakdown: confluence_space, measurement: total
-event: macro_create_succeeded, filter: client_domain equals "<domain>", breakdown: confluence_space, measurement: total
-```
+
+For the `mcoproduct` case where `paywall_continued_editing` is high, add it as a fourth metric with the same `filters` array — the per-space split tells you which space the bouncing user is on.
+
 Run these in parallel after Q1–Q5 complete. Cross-reference space keys against metrics-inspect (`curl https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>`) to get each space's macro count. This catches the pattern where a tenant has heavy spaces (>100 macros) but saves happen in light spaces — which explains zero blocks despite high activity (e.g. mcoproduct: 22 saves all in space MA=52 macros, while TMAB=1546 sits untouched by editors).
+
+> **Sanity check after Q6 runs.** Look at the breakdown `rows` — every space key should plausibly belong to the target tenant. If you see foreign keys (e.g. `vin3s`'s `VPay` showing up in a `mcoproduct` query), the filter wasn't applied; the query returned a global aggregate. Verify the `filters` shape and re-run.
 
 ### Build the monitoring table
 
@@ -339,18 +382,23 @@ Periodic comparison: are paywall-affected tenants editing less than comparable u
 | colesgroup | AGWS=1080 | 8 | High-volume editor, large surface area |
 | airwallex | APA=650 | 7 | High-volume editor, multi-space |
 | linemanwongnai | (varies) | 5+ | Normal week. Skip during JP Golden Week (Apr 29 → May 6) |
+| vin3s | (varies) | 5+ | Heaviest-volume CSS tenant (162 saves/wk, 283 creates/wk). Enrolled 2026-05-04 — flag rollout shock until 2026-05-11 |
+| mcoproduct | TMAB=1546 | 1+ | Edit volume concentrated in 1–2 power users; saves/user often >10 |
 
-Currently too low-volume or too newly enrolled to count: vin3s (enrolled 2026-05-04), mcoproduct, xendit, zeptonow.
+Currently too low-volume to count: xendit (0 paywall events even with high save volume — active spaces below threshold), zeptonow (only 16 attempts/wk).
 
 **Group B (control — paywall off).** Comparable tenants NOT on CSS, with ≥1 space ≥100 macros AND save volume of the same order as Group A. The macro-count requirement matters: a control tenant with no spaces over the threshold would never trigger the paywall even if enrolled — there's nothing to compare.
 
 | Domain | top space (macros) | spaces ≥100 | saves/wk |
 |--------|--------------------|--------------|----------|
-| woolworths-agile | WIQ=145 | 1 | ~31 |
-| appculqi | CR=194, UPI=136 | 2 | ~36 |
-| economical | PA=241 | 1 | ~32 |
+| myntfintech | GCASHPRODUCTS=224, MARCHI=188 | 2 | ~43 |
+| hktdc | EOP=223 | 1 | ~48 |
+| alterric | DA=176 | 1 | ~23 |
+| woolworths-agile | WIQ=145 | 1 | ~32 (sometimes fires anomalous paywall events — known issue) |
+| appculqi | CR=194, UPI=136 | 2 | ~34 |
+| economical | PA=241 | 1 | ~25 |
 
-> **Excluded controls:** zayogroup (60 total macros, 0 spaces ≥100 — zero paywall surface area, can't be a fair control).
+> **Excluded controls:** zayogroup (60 total macros, 0 spaces ≥100 — zero paywall surface area). syscobt, creditacceptance, mainspringenergy (high save volume but no spaces ≥100 — same disqualification). suncoragilecoe (qualifies on macro count but redundant with alterric in size band). **aegisepdev** qualifies on macro count (top space=599, 2 spaces ≥100) and has very high save volume (~94/wk) but is excluded because a 5-editor team with ~19 saves/user is not representative — it inflates Group B's saves/user metric and hides the paywall's true productivity impact. If you want a "high-volume control" reading, run aegisepdev as a one-off comparison rather than aggregating it into Group B.
 
 ### Step A1: Run the comparison queries
 
@@ -394,28 +442,35 @@ Definitions:
 - **Regional holidays:** Always check Group A tenants against the Tenant geography table. A tenant in JP Golden Week or SG Labour Day can drop edits to zero — that's not a paywall effect.
 - **Newly enrolled tenants:** Hold for 7 days. Day 1 looks dramatic but isn't a steady-state read.
 
-### Baseline snapshot (2026-05-08, last 7 days)
+### Baseline snapshot (2026-05-09, last 7 days, expanded groups)
 
-| Group | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
-|-------|-------|-----------|----------|------------|------------|-------|--------------|------------|
-| **A** (colesgroup, airwallex, linemanwongnai¹) | 182 | 96 | 278 | 40 | 747 | 10,812 | **65%** | 4.6 |
-| **B** (woolworths-agile², appculqi, economical) | 96 | 2 | 98 | 20 | 205 | 2,109 | **98%** | 4.8 |
+| Group | tenants | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|---------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| **A** | 5 (colesgroup, airwallex, linemanwongnai¹, vin3s², mcoproduct³) | 380 | 224 | 604 | 72 | 1,257 | 29,968 | **63%** | 5.3 |
+| **B** | 6 (hktdc, myntfintech, woolworths-agile⁴, appculqi, economical, alterric) | 205 | 2 | 207 | 37 | 345 | 7,796 | **99%** | 5.5 |
 
 Per-tenant breakdown:
 
 | Group | Domain | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
 |-------|--------|-------|-----------|----------|------------|------------|-------|--------------|------------|
-| A | colesgroup | 74 | 53 | 127 | 17 | 375 | 4,263 | 58% | 4.4 |
-| A | airwallex | 84 | 36 | 120 | 18 | 235 | 4,731 | 70% | 4.7 |
-| A | linemanwongnai¹ | 24 | 7 | 31 | 5 | 137 | 1,818 | 77% | 4.8 |
-| B | woolworths-agile² | 36 | 2 | 38 | 6 | 96 | 899 | 95% | 6.0 |
-| B | appculqi | 34 | 0 | 34 | 6 | 42 | 494 | 100% | 5.7 |
-| B | economical | 26 | 0 | 26 | 8 | 67 | 716 | 100% | 3.3 |
+| A | vin3s² | 162 | 112 | 274 | 31 | 345 | 15,936 | 59% | 5.2 |
+| A | airwallex | 84 | 36 | 120 | 18 | 237 | 4,803 | 70% | 4.7 |
+| A | colesgroup | 62 | 44 | 106 | 14 | 355 | 3,621 | 58% | 4.4 |
+| A | mcoproduct³ | 48 | 25 | 73 | 4 | 185 | 3,821 | 66% | 12.0 |
+| A | linemanwongnai¹ | 24 | 7 | 31 | 5 | 135 | 1,787 | 77% | 4.8 |
+| B | hktdc | 48 | 0 | 48 | 8 | 52 | 3,566 | 100% | 6.0 |
+| B | myntfintech | 43 | 0 | 43 | 8 | 70 | 1,922 | 100% | 5.4 |
+| B | woolworths-agile⁴ | 32 | 2 | 34 | 5 | 88 | 836 | 94% | 6.4 |
+| B | appculqi | 34 | 0 | 34 | 6 | 45 | 568 | 100% | 5.7 |
+| B | economical | 25 | 0 | 25 | 7 | 74 | 704 | 100% | 3.6 |
+| B | alterric | 23 | 0 | 23 | 3 | 16 | 200 | 100% | 7.7 |
 
-**Reading:** Group A success rate 65% vs Group B 98% — 32pp gap. saves/user gap nearly closed (4.6 vs 4.8, 4%). colesgroup remains the friction outlier (58%). vin3s excluded (enrolled 2026-05-04, include from May 11).
+**Reading:** 36pp success-rate gap (99% → 63%) — wider than the prior 32pp baseline because vin3s+mcoproduct pull Group A's average down. saves/user is now near-flat (A 5.3 vs B 5.5, 4% gap) — once aegisepdev's power-user concentration is removed, **the paywall has essentially no impact on per-editor save throughput in steady state**. The signal lives entirely in success rate (i.e. blocked attempts), not in slowing down the editors who get through.
 
 > ¹ **linemanwongnai:** window May 2–8 still covers Golden Week tail. True clean read from May 12 (7 full post-GW days).
-> ² **woolworths-agile:** fired anomalous `paywall_triggered` for 3 consecutive days despite not being on CSS — under investigation. Negligible impact on Group B rate.
+> ² **vin3s:** enrolled 2026-05-04 — only 5 days into steady state. Rollout shock pulls success rate down; re-baseline from May 12.
+> ³ **mcoproduct:** 4 unique save users for 48 saves = 12 saves/user. 89 `paywall_continued_editing` from US space alone (1–2 power users dismissing the wall repeatedly).
+> ⁴ **woolworths-agile:** fires anomalous `paywall_triggered` despite not being on CSS — known issue under investigation. Negligible impact on Group B rate.
 
 ---
 

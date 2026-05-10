@@ -16,8 +16,13 @@ Focused post-release validation for the paywall modal on `zenuml.atlassian.net` 
 
 Usage: `/pvt-paywall [lite] [full] [diagramly]`
 
-- If no variant specified, test lite (paywall is Lite-only).
-- Site: always production (`zenuml.atlassian.net`).
+### Which product (variant) to test
+
+1. **Explicit flags** — Test only the variants named (paywall UX is **Lite-first**, but follow explicit args).
+2. **Infer from conversation** — Prefer the variant from the **current release or thread** (e.g. `/release-app lite` → lite). Do **not** ignore an explicit Diagramly/Full discussion.
+3. **If still ambiguous** — Prefer **lite** for paywall-modal behaviour (space-limit funnel), **unless** the conversation is clearly about another variant — then ask once.
+
+Site: always production (`zenuml.atlassian.net`).
 
 ## Prerequisites
 

@@ -1,8 +1,9 @@
 <template>
   <Teleport to="body">
     <div ref="modalContainer" v-if="visible" class="fixed inset-0 z-50 flex items-center justify-center p-4" tabindex="-1" @keydown.esc="tracking.handleClose">
-      <!-- Backdrop -->
-      <div class="fixed inset-0 bg-black bg-opacity-50" @click="tracking.handleClose"></div>
+      <!-- Backdrop. 75% opacity (was 50%) so the editor underneath is dimmed
+           enough to recede as context, not distract from the modal. -->
+      <div class="fixed inset-0 bg-black bg-opacity-75" @click="tracking.handleClose"></div>
 
       <!-- Modal content - Optimized for 700×600px iframe -->
       <div class="relative bg-white rounded-lg shadow-xl w-[680px] max-h-[660px] overflow-y-auto">
@@ -16,26 +17,33 @@
           </p>
         </div>
 
-        <!-- Calculator Heading - Slim -->
-        <div class="px-4 py-2 bg-gray-50 border-b border-gray-200">
-          <h3 class="text-base font-bold text-gray-900">Pick the upgrade that fits your team</h3>
-        </div>
+        <!-- Hero: illustration + title + body -->
+        <PaywallHero />
 
-        <!-- Two-column pricing comparison - Compact -->
-        <div class="grid grid-cols-2 gap-0 border-b border-gray-200">
-          <!-- Marketplace Section -->
-          <MarketplacePricingCard
-            :upgrade-url="upgradeUrl"
-            @slider-change="handleSliderChange"
-            @cta-click="tracking.trackMarketplaceClick"
-          />
-
-          <!-- Enterprise Bundle Section -->
-          <EnterpriseBundleCard
-            :bundle-url="enterpriseBundleUrl"
-            @cta-click="tracking.trackEnterpriseBundleClick"
-          />
+        <!-- Collapsible draft preview -->
+        <div class="px-4 pb-1">
+          <button
+            class="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 cursor-pointer select-none w-full"
+            @click="draftExpanded = !draftExpanded"
+            :aria-expanded="draftExpanded ? 'true' : 'false'"
+            data-testid="draft-toggle-btn"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+              :class="draftExpanded ? 'rotate-90' : ''"
+              class="transition-transform duration-150 shrink-0"
+            >
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+            Preview the draft before you copy
+          </button>
         </div>
+        <DraftCard v-if="draftExpanded" :ctx="messageContext" />
+
+        <!-- Primary advocacy CTA -->
+        <AdvocacyButton
+          :message="message"
+          @copied="tracking.trackAdvocacyCopy"
+        />
 
         <!-- Footer - Continue editing + Learn more -->
         <div class="px-4 py-2 bg-gray-50 flex justify-between items-center">
@@ -59,19 +67,34 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
-import MarketplacePricingCard from './MarketplacePricingCard.vue'
-import EnterpriseBundleCard from './EnterpriseBundleCard.vue'
+import { ref, computed, watch, nextTick } from 'vue'
+import PaywallHero from './PaywallHero.vue'
+import DraftCard from './DraftCard.vue'
+import AdvocacyButton from './AdvocacyButton.vue'
 import { useUpgradeTracking } from './useUpgradeTracking'
 import { trackUpgradeEvent, UpgradeEventName } from '@/utils/upgradeTracking'
+import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
+import {
+  buildAdvocacyMessage,
+  type AdvocacyMessageContext,
+  type MacroKind,
+} from './buildAdvocacyMessage'
+import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
 
-const props = defineProps<{
-  visible: boolean
-  macrosCreated: number
-  macrosLimit: number
-  upgradeUrl: string
-  enterpriseBundleUrl: string
-}>()
+// Mirrors the price displayed on EnterpriseBundleCard (`$<cost>/yr/space`).
+const ENTERPRISE_BUNDLE_PRICE = `$${ENTERPRISE_BUNDLE_ANNUAL_COST}/yr/space`
+
+const props = withDefaults(
+  defineProps<{
+    visible: boolean
+    macrosCreated: number
+    macrosLimit: number
+    upgradeUrl: string
+    enterpriseBundleUrl: string
+    macroKind?: MacroKind
+  }>(),
+  { macroKind: 'unknown' }
+)
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -83,24 +106,30 @@ function onContinueEditing() {
   emit('continueEditing')
 }
 
-// Track current pricing values from MarketplacePricingCard
-const currentUserCount = ref(50)
-const currentAnnualCost = ref(0)
+const customerSuccess = useCustomerSuccessService() as ReturnType<typeof useCustomerSuccessService> | undefined
 
-// Initialize tracking
+const messageContext = computed<AdvocacyMessageContext>(() => ({
+  spaceKey: customerSuccess?.spaceKey?.value ?? '',
+  macroCount: props.macrosCreated,
+  macrosLimit: props.macrosLimit,
+  upgradeUrl: props.upgradeUrl,
+  enterpriseBundleUrl: props.enterpriseBundleUrl,
+  enterpriseBundlePrice: ENTERPRISE_BUNDLE_PRICE,
+  macroKind: props.macroKind,
+}))
+
+const message = computed(() => buildAdvocacyMessage(messageContext.value))
+
+// Tracking — slider params kept for backward compat with the helper signature,
+// but we no longer have a slider so they always read 0.
 const tracking = useUpgradeTracking(
   () => props.visible,
-  () => currentUserCount.value,
-  () => currentAnnualCost.value,
+  () => 0,
+  () => 0,
   () => emit('close')
 )
 
-// Handle slider changes with tracking
-const handleSliderChange = (userCount: number, annualCost: number) => {
-  currentUserCount.value = userCount
-  currentAnnualCost.value = annualCost
-  tracking.trackSliderChange()
-}
+const draftExpanded = ref(false)
 
 const modalContainer = ref<HTMLElement | null>(null)
 watch(() => props.visible, async (v) => {

@@ -268,6 +268,19 @@ E2E tests must fail immediately with a clear error when a precondition is not me
 
 This prevents slow CI feedback (a single missing macro caused 6 × 60s = ~6 min of wasted waiting across parallel tests).
 
+## Focused Tests (Playwright MCP)
+
+When asked to "run a focused test" on a specific environment (e.g. "run focused test on zenuml-lite@stg"), use the Playwright MCP tools (`mcp__playwright__*`) to drive a real browser against the target Confluence site. There are no pre-written E2E test files for this — improvise the test steps based on what feature/change is being verified.
+
+**Workflow:**
+1. Navigate to the target Confluence site (from the app profile in `tests/e2e-tests/config/apps.ts`)
+2. Log in if needed (credentials from `.env.forge.local` or environment)
+3. Open a page that has the relevant macro installed
+4. Interact with the feature being tested
+5. Assert the expected outcome (DOM state, network requests, console output, etc.)
+
+**For analytics/event changes:** Intercept network requests to `api.mixpanel.com` and assert the payload properties.
+
 ## Integration Testing
 
 1. Run `pnpm start:sit` to start both frontend and backend
@@ -305,12 +318,27 @@ This prevents slow CI feedback (a single missing macro caused 6 × 60s = ~6 min 
 ### Key analytics sources
 
 - **D1 `conf-zenuml-prod`** — tenant activity (`UserBehaviorEvent`), install records (`ForgeInstallation`, `ClientInstallation`), content data
-- **Mixpanel** — macro view counts (`view_macro`), filtered by `client_domain` property
+- **Mixpanel** — macro view counts (`view_macro`), filtered by `client_domain` property. **Project ID: `3373228`** (the `Diagramly.Ai` project; conf-app shares this single project — there is no separate one). Query via `mcp__mixpanel__Run-Query` with `project_id=3373228`, or via JQL using `API_Secret` from `.env.mixpanel`.
 - **KV metrics-inspect** — macro counts per space: `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<subdomain>`
 
 ### clientDomain format mismatch
 
 KV flags use the **subdomain prefix** (`linemanwongnai`) but D1 `UserBehaviorEvent` stores the **full hostname** (`linemanwongnai.atlassian.net`). Always use full hostname when querying D1.
+
+### Paywall / upgrade event mapping
+
+Don't assume "Upgrade" clicks map to `upgrade_cta_clicked`. The actual wiring:
+
+| User action | Event fired | Key property |
+|-------------|-------------|--------------|
+| Clicks **"Upgrade" button in the viewer header** | `paywall_triggered` | `action_type: "header_badge"` (and `ui_component: "viewer_notice"`) |
+| Hits a per-space limit while editing | `paywall_triggered` / `paywall_blocked_edit` | `action_type` set accordingly |
+| Upgrade modal becomes visible (any path) | `upgrade_modal_shown` | `trigger_source` |
+| Clicks Marketplace / Enterprise Bundle **inside the modal** | `upgrade_cta_clicked` | `ui_component: "modal"`, `product_option`, `cta_position` |
+| Copies advocacy message inside the modal | `advocacy_message_copied` | `ui_component: "modal"` |
+| Dismisses the modal | `upgrade_modal_dismissed` | `time_spent`, `slider_interacted` |
+
+Key trap: **`upgrade_cta_clicked` only fires from inside the modal**, so it is NOT the right event for "who clicked the Upgrade button in the header." Use `paywall_triggered` filtered by `action_type="header_badge"` for that. Sources: `src/utils/upgradeTracking.ts` (event/property enums), `src/components/Viewer/GenericViewer.vue:258` (header button → `paywall_triggered`), `src/components/UpgradePrompt/useUpgradeTracking.ts` (modal-internal events).
 
 ## File Structure Notes
 

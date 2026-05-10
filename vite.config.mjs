@@ -106,7 +106,27 @@ export default defineConfig(({ command }) => ({
         },
       },
     },
-  }), copy({
+  }),
+  // Dev-only: serve sandbox.html at "/" so engineers landing on
+  // http://127.0.0.1:8080/ get the test-case index instead of the Forge
+  // app entry (which only renders meaningfully inside a Confluence iframe).
+  // index.html itself is unchanged — production build still uses it.
+  {
+    name: 'dev-root-to-sandbox',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        // Show sandbox cards at the root and at the bare /index.html.
+        // Sandbox cards link to ./index.html?sandbox=<id>... — those (with a
+        // query string) pass through unchanged so the actual Forge app mounts.
+        if (req.url === '/' || req.url === '/index.html') {
+          req.url = '/sandbox.html';
+        }
+        next();
+      });
+    },
+  },
+  copy({
     targets: [
       { src: 'node_modules/@zenuml/core/dist/fonts', dest: 'dist' },
       // Mermaid is loaded at runtime from /vendor/mermaid/ via dynamic URL

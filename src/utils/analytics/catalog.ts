@@ -64,6 +64,7 @@ export type AnalyticsEventName =
   | "upgrade_modal_dismissed"
   | "upgrade_slider_changed"
   | "upgrade_feature_enabled"
+  | "advocacy_message_copied"
   | "content_sync_requested"
   | "content_sync_succeeded"
   | "content_sync_failed"

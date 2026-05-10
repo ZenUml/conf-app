@@ -322,6 +322,12 @@ EventBus.$on('edit', async(params: any) => {
 });
 
 
+// Install the singleton "Restore unsaved changes" banner. It listens for
+// 'draft-available' on EventBus and renders a fixed-position banner at the
+// top of the page; each editor's mount logic emits the event on reopen.
+import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
+installRestoreDraftBanner();
+
 EventBus.$on('save', async () => {
   console.log('save', store.state.diagram);
 

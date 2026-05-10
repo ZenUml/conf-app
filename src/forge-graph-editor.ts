@@ -8,7 +8,10 @@ import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from "@/utils/window";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { mountRoot } from "@/mount-root";
+import { installRestoreDraftBanner } from "@/utils/restoreDraftBanner";
 import ForgeGraphEditor from "@/components/DrawIoExtension/ForgeGraphEditor.vue";
+
+installRestoreDraftBanner();
 import { Diagram, DiagramType, DataSource, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
 import { showCloseWithoutSavingDialog } from './utils/modalService';

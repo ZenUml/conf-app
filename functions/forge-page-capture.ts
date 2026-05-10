@@ -1,9 +1,12 @@
-import { R2Bucket } from "@cloudflare/workers-types";
+import { D1Database, R2Bucket } from "@cloudflare/workers-types";
 import { response } from "./OkResponse";
 
 interface Env {
   EVENT_BUCKET?: R2Bucket;
   PAGE_CAPTURE_SECRET?: string;
+  /** Comma-separated Atlassian subdomain prefixes to capture (e.g. "colesgroup,airwallex"). Empty = capture all. */
+  PAGE_CAPTURE_ALLOWED_DOMAINS?: string;
+  DB?: D1Database;
 }
 
 export interface PageCapturePayload {
@@ -66,6 +69,27 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
   if (!cloudId) {
     console.warn("forge-page-capture: no cloudId in payload, skipping");
     return response(400, "Missing required field: cloudId");
+  }
+
+  // Domain allowlist check: if PAGE_CAPTURE_ALLOWED_DOMAINS is configured, only
+  // capture pages from those Atlassian subdomains (e.g. "colesgroup,airwallex").
+  const allowedDomains = env.PAGE_CAPTURE_ALLOWED_DOMAINS
+    ? env.PAGE_CAPTURE_ALLOWED_DOMAINS.split(",").map((d) => d.trim()).filter(Boolean)
+    : [];
+
+  if (allowedDomains.length > 0) {
+    const row = await env.DB?.prepare(
+      "SELECT clientDomain FROM AtlassianInstance WHERE cloudId = ? LIMIT 1",
+    ).bind(cloudId).first<{ clientDomain: string }>();
+
+    const subdomain = row?.clientDomain ? row.clientDomain.split(".")[0] : null;
+    if (!subdomain || !allowedDomains.includes(subdomain)) {
+      console.log(`forge-page-capture: subdomain=${subdomain ?? "unknown"} not in allowlist, skipping`);
+      return new Response(JSON.stringify({ stored: false, reason: "domain_not_allowed" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
   }
 
   const key = buildPageSnapshotKey(cloudId, contentId, versionNumber);

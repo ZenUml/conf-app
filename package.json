@@ -152,7 +152,7 @@
     "tailwind-scrollbar": "^3.0.5",
     "typescript-eslint": "^8.57.1",
     "vitest": "^2.1.9",
-    "vue-tsc": "^1.8.27",
+    "vue-tsc": "^3.2.8",
     "wrangler": "^4.59.1"
   },
   "resolutions": {

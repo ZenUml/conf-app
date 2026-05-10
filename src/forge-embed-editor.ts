@@ -4,7 +4,10 @@ import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import MacroUtil from "@/model/MacroUtil";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { mountRoot } from "@/mount-root";
+import { installRestoreDraftBanner } from "@/utils/restoreDraftBanner";
 import ForgeEmbedEditor from "@/components/DrawIoExtension/ForgeEmbedEditor.vue";
+
+installRestoreDraftBanner();
 import { Diagram, DiagramType, DataSource, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
 import uuidv4 from "@/utils/uuid";
@@ -81,7 +84,7 @@ async function initializeMacro() {
   getOrCreateSession();
   const customContentId = context.extension?.config?.customContentId;
 
-  const mountEditor = async () => {
+  const mountEditor = async (paywallWrap?: Record<string, unknown>) => {
     let doc: Diagram | undefined;
     if(!customContentId) {
       doc = {
@@ -98,11 +101,16 @@ async function initializeMacro() {
     window.diagram = doc ?? NULL_DIAGRAM;
     console.log('loadDiagram - window.diagram', window.diagram);
 
-    mountRoot(doc ?? NULL_DIAGRAM, ForgeEmbedEditor, {
-      saveEmbedAndExit,
-      exit,
-      doc
-    });
+    const editorProps = { saveEmbedAndExit, exit, doc };
+    if (paywallWrap) {
+      mountRoot(doc ?? NULL_DIAGRAM, PageEditorPaywallGate, {
+        editor: ForgeEmbedEditor,
+        editorProps,
+        ...paywallWrap,
+      });
+    } else {
+      mountRoot(doc ?? NULL_DIAGRAM, ForgeEmbedEditor, editorProps);
+    }
 
     // Track begin event (create or edit)
     const isNew = await MacroUtil.isCreateNew();
@@ -146,15 +154,13 @@ async function initializeMacro() {
       ...getUpgradeContext(),
     });
 
-    mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
+    await mountEditor({
       macrosCreated: customerSuccess.macrosCreated.value,
       macrosLimit: MACROS_LIMIT,
       upgradeUrl: customerSuccess.upgradeUrl.value,
       enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
+      macroKind: 'embed',
       spaceKey,
-      onContinueEditing: () => {
-        void mountEditor();
-      },
     });
     return;
   }

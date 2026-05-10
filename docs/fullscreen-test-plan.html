@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Fullscreen Bridge Modal — Test Plan</title>
+<style>
+  :root {
+    --bg: #fafbfc;
+    --surface: #fff;
+    --border: #d8dce0;
+    --border-strong: #b9bfc6;
+    --text: #1f2328;
+    --muted: #57606a;
+    --accent: #0969da;
+    --pending: #6b7280;
+    --pass: #1a7f37;
+    --pass-bg: #dcfce0;
+    --fail: #cf222e;
+    --fail-bg: #ffe1e3;
+    --blocked: #bf6500;
+    --blocked-bg: #fff4cf;
+    --na: #8c959f;
+    --na-bg: #eef0f3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  header.page-head {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    position: sticky; top: 0; z-index: 10;
+  }
+  header.page-head h1 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
+  header.page-head .sub { color: var(--muted); font-size: 13px; }
+  .progress-row {
+    margin-top: 14px;
+    display: grid;
+    grid-template-columns: auto 1fr auto auto auto auto auto;
+    align-items: center;
+    gap: 10px 16px;
+    font-size: 13px;
+  }
+  .progress-row .label { color: var(--muted); font-weight: 500; }
+  .progress-bar {
+    background: #eef0f3;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    height: 10px;
+    position: relative;
+    overflow: hidden;
+  }
+  .progress-bar > span {
+    display: block; height: 100%;
+    background: linear-gradient(90deg, var(--pass) 0%, var(--pass) 100%);
+    transition: width 200ms ease;
+  }
+  .pill { padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+  .pill.pending  { color: var(--pending); background: var(--na-bg); border: 1px solid var(--border); }
+  .pill.pass     { color: var(--pass); background: var(--pass-bg); border: 1px solid #b6f0c0; }
+  .pill.fail     { color: var(--fail); background: var(--fail-bg); border: 1px solid #ffc6cc; }
+  .pill.blocked  { color: var(--blocked); background: var(--blocked-bg); border: 1px solid #ffe5a3; }
+  .pill.na       { color: var(--na); background: var(--na-bg); border: 1px solid var(--border); }
+  .actions {
+    display: flex; gap: 8px;
+    margin-left: auto;
+  }
+  button {
+    font-family: inherit;
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+  }
+  button:hover { background: #f3f4f6; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.primary:hover { filter: brightness(0.95); }
+  main { padding: 0 24px 96px; max-width: 1400px; margin: 0 auto; }
+  details.section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-top: 16px;
+    overflow: hidden;
+  }
+  details.section > summary {
+    cursor: pointer;
+    padding: 12px 16px;
+    font-weight: 600;
+    font-size: 14px;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  details.section > summary::-webkit-details-marker { display: none; }
+  details.section > summary::before {
+    content: "▸";
+    color: var(--muted);
+    transition: transform 100ms ease;
+  }
+  details.section[open] > summary::before { transform: rotate(90deg); }
+  details.section .sect-stats { color: var(--muted); font-size: 12px; font-weight: 500; margin-left: auto; }
+  table.cases {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  table.cases th, table.cases td {
+    text-align: left;
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+    vertical-align: top;
+  }
+  table.cases th {
+    background: #f6f7f9;
+    font-weight: 500;
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  table.cases td.id { color: var(--muted); font-variant-numeric: tabular-nums; width: 64px; white-space: nowrap; }
+  table.cases td.action { font-weight: 500; }
+  table.cases td.expected { color: var(--muted); }
+  table.cases td.status { width: 110px; }
+  table.cases td.notes { width: 30%; }
+  table.cases td.notes .thumbs {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  table.cases td.notes .thumbs a img {
+    max-height: 64px;
+    max-width: 120px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: zoom-in;
+    background: #fff;
+  }
+  table.cases td.notes .thumbs a img:hover {
+    border-color: var(--accent);
+  }
+  table.cases td.notes textarea {
+    width: 100%;
+    min-height: 28px;
+    max-height: 120px;
+    resize: vertical;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 12px;
+    background: var(--surface);
+    color: var(--text);
+  }
+  table.cases td.last-run { color: var(--muted); font-size: 12px; width: 130px; white-space: nowrap; }
+  table.summary { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.summary th, table.summary td {
+    text-align: center;
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  table.summary th {
+    background: #f6f7f9;
+    font-weight: 500;
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  table.summary th.macro-col, table.summary td.macro-name {
+    text-align: left;
+    width: 240px;
+    font-weight: 500;
+  }
+  table.summary td.macro-name { color: var(--text); }
+  table.summary td.cell { cursor: default; }
+  table.summary td.cell .pill { display: inline-block; min-width: 56px; }
+  table.summary td.cell .pill-counts { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .pill-btn { cursor: pointer; border: none; background: transparent; padding: 0; }
+  footer.summary {
+    margin-top: 32px;
+    padding: 16px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+  }
+  code {
+    background: #eef0f3;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-family: ui-monospace, "SF Mono", monospace;
+  }
+  .legend { display: inline-flex; gap: 6px; align-items: center; }
+</style>
+</head>
+<body>
+<header class="page-head">
+  <h1>Fullscreen Bridge Modal — Test Plan</h1>
+  <div class="sub">
+    Bridge modal <code>size: 'fullscreen'</code> + manifest <code>viewportSize: fullscreen</code>
+    + unsaved-edit close guard (<code>src/utils/closeGuard.ts</code>).
+    Click any status pill to cycle: pending → pass → fail → blocked → n/a → pending.
+    Notes &amp; status persist in <code>localStorage</code>.
+    <em>Dirty-state cases are also covered by an automated spec —
+    <code>tests/e2e-tests/tests/insert/close-guard.spec.ts</code> — that runs against any Forge profile.</em>
+  </div>
+  <div class="progress-row">
+    <div class="label">Overall</div>
+    <div class="progress-bar"><span id="bar"></span></div>
+    <div class="pill pass" id="cnt-pass">0 pass</div>
+    <div class="pill fail" id="cnt-fail">0 fail</div>
+    <div class="pill blocked" id="cnt-blocked">0 blocked</div>
+    <div class="pill pending" id="cnt-pending">0 pending</div>
+    <div class="actions">
+      <button id="expand-all" type="button">Expand all</button>
+      <button id="collapse-all" type="button">Collapse all</button>
+      <button id="reset-all" type="button">Reset</button>
+      <button id="export-json" type="button" class="primary">Export run</button>
+    </div>
+  </div>
+</header>
+<main>
+  <details class="section" id="summary-section" open>
+    <summary>
+      <span>Summary — macro × feature matrix</span>
+      <span class="sect-stats" id="summary-stats"></span>
+    </summary>
+    <div id="summary"></div>
+  </details>
+  <div id="content"></div>
+  <footer class="summary">
+    <span class="legend"><span class="pill pending">pending</span> not run</span> ·
+    <span class="legend"><span class="pill pass">pass</span> verified</span> ·
+    <span class="legend"><span class="pill fail">fail</span> regression</span> ·
+    <span class="legend"><span class="pill blocked">blocked</span> can't run yet</span> ·
+    <span class="legend"><span class="pill na">n/a</span> not applicable</span>
+  </footer>
+</main>
+
+<script>
+const PLAN = [
+  {
+    id: 'cross', title: 'Cross-cutting modal chrome', cases: [
+      { a: 'Bridge modal renders at 100vw × 100vh', e: 'role=dialog or modal iframe rect equals viewport (verified at 1920×835: 0,0,1920,835)' },
+      { a: 'Atlassian header is the only close affordance', e: 'Single X button in the header (~70px tall). No additional Close inside our iframe content.' },
+      { a: 'Header shows app icon + macro title', e: 'Icon visible; title matches the macro module title from manifest' },
+      { a: 'No Confluence chrome around modal', e: 'Top nav, sidebar, byline are NOT visible while modal is open' },
+      { a: 'Close (header X) — clean state', e: 'Modal dismisses immediately; viewer/page returns underneath' },
+      { a: 'Close (header X) — dirty state', e: 'Prompts unsaved-changes warning. Cancel keeps modal; Confirm dismisses.' },
+      { a: 'Esc key', e: 'Behavior is intentional (DrawIO captures it; sequence editor passes it through). Document outcome.' },
+    ],
+  },
+  {
+    id: 'sequence-create', title: 'Diagram (Sequence) — Create', cases: [
+      { a: 'Slash menu finds "Diagram (Mermaid, PlantUML & ZenUML) Lite"', e: 'Option shown after typing /dia or /diagram' },
+      { a: 'Modal opens at fullscreen viewport', e: '0,70 → 1920×765 inside 1920×835 viewport (header occupies top 70px)' },
+      { a: 'Sequence tab is selected by default', e: 'Editor shows default ZenUML sequence sample' },
+      { a: 'Tab switch to Mermaid', e: 'Editor and preview switch to Mermaid mode; canvas updates' },
+      { a: 'Tab switch to PlantUML', e: 'Editor and preview switch to PlantUML mode' },
+      { a: 'Title field — empty', e: 'Publish button is disabled with tooltip "Add a diagram title to publish"' },
+      { a: 'Title field — non-empty', e: 'Publish becomes enabled' },
+      { a: 'Publish persists macro on page', e: 'Modal closes; page editor shows rendered macro toolbar + diagram' },
+      { a: 'Close — clean state', e: 'Header X dismisses immediately, no prompt' },
+      { a: 'Close — dirty state (typed in editor)', e: 'Header X prompts unsaved-changes warning' },
+    ],
+  },
+  {
+    id: 'sequence-edit', title: 'Diagram (Sequence) — Edit', cases: [
+      { a: 'Edit button in viewer toolbar opens modal', e: 'Bridge modal at 0,0,1920,835; existing diagram loads in editor' },
+      { a: 'Editor shows existing source', e: 'Code matches what the viewer was rendering' },
+      { a: 'Edits update preview', e: 'Type in editor → preview re-renders' },
+      { a: 'Publish persists edit', e: 'Modal closes; viewer reflects new diagram' },
+      { a: 'Close — clean state', e: 'Dismisses without prompt' },
+      { a: 'Close — dirty state', e: 'Prompts; Cancel keeps modal' },
+    ],
+  },
+  {
+    id: 'graph-create', title: 'Graph (DrawIO) — Create', cases: [
+      { a: 'Slash menu finds "Graph (DrawIO) Lite"', e: 'Option shown after /gra' },
+      { a: 'Modal opens at fullscreen viewport', e: '0,70 → 1920×765' },
+      { a: 'DrawIO canvas + shape library load', e: 'Left shape panel populated; canvas grid visible' },
+      { a: 'Title field gates Publish', e: 'Publish disabled until title typed' },
+      { a: 'Publish persists graph on page', e: 'Modal closes; page shows graph with viewer toolbar' },
+      { a: 'Close — clean state', e: 'Dismisses immediately' },
+      { a: 'Close — dirty state (added a shape)', e: 'Prompts before dismissing' },
+    ],
+  },
+  {
+    id: 'graph-edit', title: 'Graph (DrawIO) — Edit', cases: [
+      { a: 'Edit button opens fullscreen modal', e: '0,0,1920,835 dialog; DrawIO editor mounts with existing graph' },
+      { a: 'Edits update canvas', e: 'Move/add shape → reflected in canvas' },
+      { a: 'Publish persists changes', e: 'Modal closes; viewer shows new graph' },
+      { a: 'Close — clean state', e: 'Dismisses immediately' },
+      { a: 'Close — dirty state', e: 'Prompts before dismissing' },
+    ],
+  },
+  {
+    id: 'openapi-create', title: 'OpenAPI / Swagger — Create', cases: [
+      { a: 'Slash menu finds "OpenAPI / Swagger Lite"', e: 'Option shown after /open' },
+      { a: 'Modal opens at fullscreen viewport', e: '0,70 → 1920×765' },
+      { a: 'Default sample spec renders', e: 'Title "Sample API"; left = YAML editor; right = Swagger UI preview' },
+      { a: 'Edits update preview', e: 'Modify spec text → preview reflects' },
+      { a: 'Publish persists spec on page', e: 'Modal closes; page shows OpenAPI viewer toolbar' },
+      { a: 'Close — clean state', e: 'Dismisses immediately' },
+      { a: 'Close — dirty state', e: 'Prompts before dismissing' },
+    ],
+  },
+  {
+    id: 'openapi-edit', title: 'OpenAPI / Swagger — Edit', cases: [
+      { a: 'Edit button opens fullscreen modal', e: '0,0,1920,835; existing spec loads' },
+      { a: 'Edits update preview', e: 'Modify a path → Swagger preview re-renders' },
+      { a: 'Publish persists edit', e: 'Viewer reflects new spec' },
+      { a: 'Close — clean state', e: 'Dismisses' },
+      { a: 'Close — dirty state', e: 'Prompts' },
+    ],
+  },
+  {
+    id: 'embed-create', title: 'Embed — Create', cases: [
+      { a: 'Slash menu finds "Embed a Diagram, Graph or API Spec Lite"', e: 'Option shown after /emb' },
+      { a: 'Picker modal opens at fullscreen viewport', e: 'Modal iframe at 0,70,1920,765' },
+      { a: 'Tabs (All/Sequence/Mermaid/Graph/Open API)', e: 'Filter switches between source types' },
+      { a: 'Recent diagrams list populated', e: 'Existing macros from accessible pages are listed' },
+      { a: 'Search box filters list', e: 'Typing a title narrows results' },
+      { a: 'Selecting a diagram shows preview', e: 'Right pane renders the chosen diagram' },
+      { a: 'Publish embeds the chosen diagram', e: 'Modal closes; page shows embed viewer' },
+      { a: 'Close — clean state', e: 'Dismisses' },
+    ],
+  },
+  {
+    id: 'embed-edit', title: 'Embed — Edit', cases: [
+      { a: 'Embed viewer renders without "Unknown diagram type" error', e: 'Currently reproducible bug on lite-dev; pre-existing, separate fix' },
+      { a: 'Edit button opens fullscreen modal', e: 'Bridge modal at 0,0,1920,835' },
+      { a: 'Picker shows currently embedded diagram', e: 'Pre-selection / preview matches' },
+      { a: 'Publish persists change to embedded source', e: 'Viewer updates' },
+      { a: 'Close — clean state', e: 'Dismisses' },
+      { a: 'Close — dirty state', e: 'Prompts' },
+    ],
+  },
+  {
+    id: 'viewer-actions', title: 'Viewer toolbar actions (per macro)', cases: [
+      { a: 'Sequence — Fullscreen button opens fullscreen modal', e: '0,0,1920,835 dialog' },
+      { a: 'Sequence — Export PNG downloads file', e: 'Browser downloads .png; image opens correctly' },
+      { a: 'Sequence — Copy Code copies source', e: 'Clipboard contains the diagram code' },
+      { a: 'Sequence — Versions opens version history', e: 'Version list shows; selecting an old version renders it' },
+      { a: 'Graph — Fullscreen button opens fullscreen modal', e: '0,0,1920,835 dialog' },
+      { a: 'Graph — Export PNG downloads file', e: 'PNG contains the graph rendering' },
+      { a: 'Graph — Copy Code copies source', e: 'Clipboard contains DrawIO XML' },
+      { a: 'Graph — Versions opens history', e: 'Version list, restore preview' },
+      { a: 'OpenAPI — Fullscreen button opens fullscreen modal', e: '0,0,1920,835 dialog' },
+      { a: 'OpenAPI — Export', e: 'Format expected? Document actual behavior' },
+      { a: 'OpenAPI — Copy Code copies spec source', e: 'Clipboard contains YAML/JSON spec' },
+      { a: 'OpenAPI — Versions', e: 'Version list, restore preview' },
+      { a: 'Embed — Fullscreen button opens fullscreen modal', e: '0,0,1920,835 dialog' },
+      { a: 'Embed — Export', e: 'Document expected behavior (delegates to embedded source?)' },
+      { a: 'Embed — Copy Code', e: 'Document expected behavior' },
+      { a: 'Embed — Versions', e: 'Document expected behavior' },
+    ],
+  },
+  {
+    id: 'page-actions', title: 'Page-level actions', cases: [
+      { a: 'Publish a page containing one of our macros', e: 'Page transitions from edit-v2 URL to view URL; macro renders in viewer' },
+      { a: 'Publish dialog opens with location + access fields', e: 'Standard Confluence dialog' },
+      { a: 'Close page — clean (just published, nothing changed)', e: 'Closes immediately, no prompt' },
+      { a: 'Close page — dirty (typed but did not publish)', e: 'Atlassian native unsaved-changes prompt fires' },
+      { a: 'Close button in page editor is the only one (no extra in macro chrome)', e: 'After our cleanup: only Confluence editor "Close" + Atlassian modal X' },
+    ],
+  },
+  {
+    id: 'regression', title: 'Regression baseline (e2e suite)', cases: [
+      { a: 'pnpm test:unit', e: '301 tests pass (recorded 2026-05-09; was 296 before adding 5 closeGuard utility tests in src/utils/closeGuard.spec.ts)' },
+      { a: 'pnpm test:e2e -- tests/insert/close-guard.spec.ts', e: 'Automated dirty-state coverage for sequence/graph/openapi/embed via tests/e2e-tests/helpers/CloseGuardHelper.ts (synthetic beforeunload dispatch)' },
+      { a: 'pnpm test:lite:stg insert specs', e: 'Insert flow on staging: 4 macro types pass (recorded 2026-05-09)' },
+      { a: 'pnpm test:lite:stg upgrade-prompt failures', e: 'Pre-existing on staging, unrelated to this work. Known: 4 failures (3 upgrade-prompt + 1 viewer-preview-continue-editing)' },
+    ],
+  },
+];
+
+// Storage key kept as the historical "-poc-" name so existing recorded runs
+// don't get orphaned by the rename to fullscreen-test-plan.html.
+const STORAGE = 'fullscreen-poc-test-plan-v1';
+const STATUSES = ['pending', 'pass', 'fail', 'blocked', 'na'];
+const STATUS_LABEL = {
+  pending: 'pending',
+  pass: 'pass',
+  fail: 'fail',
+  blocked: 'blocked',
+  na: 'n/a',
+};
+
+function loadState() {
+  try { return JSON.parse(localStorage.getItem(STORAGE) || '{}'); } catch { return {}; }
+}
+function saveState(s) { localStorage.setItem(STORAGE, JSON.stringify(s)); }
+
+let state = loadState();
+
+function caseKey(sid, idx) { return sid + ':' + idx; }
+function getCase(key) { return state[key] || { status: 'pending', notes: '', lastRun: null }; }
+
+// Parse markdown-style image references from a notes string and render
+// clickable thumbnails. Accepts ![alt](path) or bare *.png|*.jpg paths.
+function renderThumbs(container, notes) {
+  if (!container) return;
+  container.innerHTML = '';
+  if (!notes) return;
+  const seen = new Set();
+  const md = /!\[[^\]]*\]\(([^)\s]+)\)/g;
+  const bare = /(?:^|\s)((?:[\w./-]+)\.(?:png|jpg|jpeg|gif|webp))/gi;
+  const paths = [];
+  let m;
+  while ((m = md.exec(notes))) paths.push(m[1]);
+  while ((m = bare.exec(notes))) paths.push(m[1]);
+  for (const p of paths) {
+    if (seen.has(p)) continue;
+    seen.add(p);
+    // Resolve relative paths against the project root (page lives at /docs/...).
+    const href = p.startsWith('http') || p.startsWith('/') ? p : '/' + p.replace(/^\.\//, '');
+    const a = document.createElement('a');
+    a.href = href;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    const img = document.createElement('img');
+    img.src = href;
+    img.alt = p;
+    img.loading = 'lazy';
+    img.onerror = () => a.remove();
+    a.appendChild(img);
+    container.appendChild(a);
+  }
+}
+
+function nextStatus(s) {
+  const i = STATUSES.indexOf(s);
+  return STATUSES[(i + 1) % STATUSES.length];
+}
+
+function fmtTs(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return d.toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+// Macro × feature summary matrix.
+// Each cell collects keys from the sections; status aggregates across them.
+const MACROS = [
+  { id: 'diagram', label: 'Diagram (Sequence / Mermaid / PlantUML)' },
+  { id: 'graph',   label: 'Graph (DrawIO)' },
+  { id: 'openapi', label: 'OpenAPI / Swagger' },
+  { id: 'embed',   label: 'Embed' },
+];
+const FEATURES = ['Create', 'Edit', 'Fullscreen', 'Export', 'Copy Code', 'Versions'];
+// keyMatrix[macroId][feature] = array of caseKeys (sectionId:caseIndex)
+const KEY_MATRIX = {
+  diagram: {
+    'Create': allKeys('sequence-create'),
+    'Edit':   allKeys('sequence-edit'),
+    'Fullscreen': ['viewer-actions:0'],
+    'Export':     ['viewer-actions:1'],
+    'Copy Code':  ['viewer-actions:2'],
+    'Versions':   ['viewer-actions:3'],
+  },
+  graph: {
+    'Create': allKeys('graph-create'),
+    'Edit':   allKeys('graph-edit'),
+    'Fullscreen': ['viewer-actions:4'],
+    'Export':     ['viewer-actions:5'],
+    'Copy Code':  ['viewer-actions:6'],
+    'Versions':   ['viewer-actions:7'],
+  },
+  openapi: {
+    'Create': allKeys('openapi-create'),
+    'Edit':   allKeys('openapi-edit'),
+    'Fullscreen': ['viewer-actions:8'],
+    'Export':     ['viewer-actions:9'],
+    'Copy Code':  ['viewer-actions:10'],
+    'Versions':   ['viewer-actions:11'],
+  },
+  embed: {
+    'Create': allKeys('embed-create'),
+    'Edit':   allKeys('embed-edit'),
+    'Fullscreen': ['viewer-actions:12'],
+    'Export':     ['viewer-actions:13'],
+    'Copy Code':  ['viewer-actions:14'],
+    'Versions':   ['viewer-actions:15'],
+  },
+};
+function allKeys(sectionId) {
+  const s = PLAN.find(x => x.id === sectionId);
+  return s ? s.cases.map((_, i) => caseKey(sectionId, i)) : [];
+}
+function aggregateStatus(keys) {
+  const counts = { pending: 0, pass: 0, fail: 0, blocked: 0, na: 0 };
+  keys.forEach(k => { counts[getCase(k).status]++; });
+  let bucket = 'pending';
+  if (counts.fail > 0) bucket = 'fail';
+  else if (counts.blocked > 0) bucket = 'blocked';
+  else if (counts.pending > 0) bucket = 'pending';
+  else if (counts.pass > 0) bucket = 'pass';
+  else bucket = 'na';
+  return { bucket, counts, total: keys.length };
+}
+
+function renderSummary() {
+  const root = document.getElementById('summary');
+  if (!root) return;
+  const wrap = document.createElement('table');
+  wrap.className = 'summary';
+  let head = '<thead><tr><th class="macro-col">Macro</th>';
+  FEATURES.forEach(f => head += `<th>${f}</th>`);
+  head += '</tr></thead>';
+  let body = '<tbody>';
+  let mPass = 0, mFail = 0, mBlocked = 0, mPending = 0, mNa = 0, mTotal = 0;
+  MACROS.forEach(m => {
+    body += `<tr><td class="macro-name">${m.label}</td>`;
+    FEATURES.forEach(f => {
+      const keys = (KEY_MATRIX[m.id] || {})[f] || [];
+      if (!keys.length) {
+        body += `<td class="cell"><span class="pill na">n/a</span></td>`;
+        return;
+      }
+      const agg = aggregateStatus(keys);
+      mTotal += agg.total;
+      mPass += agg.counts.pass;
+      mFail += agg.counts.fail;
+      mBlocked += agg.counts.blocked;
+      mPending += agg.counts.pending;
+      mNa += agg.counts.na;
+      const counts = `${agg.counts.pass}/${agg.total}`;
+      body += `<td class="cell" title="${agg.counts.pass} pass · ${agg.counts.fail} fail · ${agg.counts.blocked} blocked · ${agg.counts.pending} pending · ${agg.counts.na} n/a">
+        <span class="pill ${agg.bucket}">${STATUS_LABEL[agg.bucket]}</span>
+        <span class="pill-counts">${counts}</span>
+      </td>`;
+    });
+    body += '</tr>';
+  });
+  body += '</tbody>';
+  wrap.innerHTML = head + body;
+  root.innerHTML = '';
+  root.appendChild(wrap);
+
+  const stats = document.getElementById('summary-stats');
+  if (stats) {
+    const parts = [];
+    if (mPass) parts.push(`${mPass} pass`);
+    if (mFail) parts.push(`${mFail} fail`);
+    if (mBlocked) parts.push(`${mBlocked} blocked`);
+    if (mNa) parts.push(`${mNa} n/a`);
+    if (mPending) parts.push(`${mPending} pending`);
+    stats.textContent = parts.join(' · ') + ` · ${mTotal} total`;
+  }
+}
+
+function render() {
+  renderSummary();
+  const root = document.getElementById('content');
+  root.innerHTML = '';
+  let totalPass = 0, totalFail = 0, totalBlocked = 0, totalPending = 0, totalCases = 0;
+
+  PLAN.forEach(section => {
+    const det = document.createElement('details');
+    det.className = 'section';
+    det.open = true;
+
+    const summary = document.createElement('summary');
+    const title = document.createElement('span'); title.textContent = section.title;
+    const stats = document.createElement('span'); stats.className = 'sect-stats';
+
+    summary.appendChild(title); summary.appendChild(stats);
+    det.appendChild(summary);
+
+    const table = document.createElement('table');
+    table.className = 'cases';
+    table.innerHTML = `
+      <thead><tr>
+        <th>ID</th><th>Action</th><th>Expected</th><th>Status</th><th>Notes</th><th>Last run</th>
+      </tr></thead>
+      <tbody></tbody>
+    `;
+    const tbody = table.querySelector('tbody');
+
+    let sectPass = 0, sectFail = 0, sectBlocked = 0, sectPending = 0, sectNa = 0;
+
+    section.cases.forEach((c, idx) => {
+      const key = caseKey(section.id, idx);
+      const cs = getCase(key);
+      totalCases++;
+      if (cs.status === 'pass') { sectPass++; totalPass++; }
+      else if (cs.status === 'fail') { sectFail++; totalFail++; }
+      else if (cs.status === 'blocked') { sectBlocked++; totalBlocked++; }
+      else if (cs.status === 'na') { sectNa++; }
+      else { sectPending++; totalPending++; }
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="id">${section.id.slice(0,3)}-${(idx+1).toString().padStart(2,'0')}</td>
+        <td class="action"></td>
+        <td class="expected"></td>
+        <td class="status"><button class="pill-btn"><span class="pill ${cs.status}">${STATUS_LABEL[cs.status]}</span></button></td>
+        <td class="notes"><textarea placeholder="Add notes. Embed screenshots with markdown: ![](docs/screenshots/foo.png)"></textarea><div class="thumbs"></div></td>
+        <td class="last-run">${fmtTs(cs.lastRun)}</td>
+      `;
+      tr.querySelector('.action').textContent = c.a;
+      tr.querySelector('.expected').textContent = c.e;
+      const ta = tr.querySelector('textarea');
+      const thumbs = tr.querySelector('.thumbs');
+      ta.value = cs.notes || '';
+      renderThumbs(thumbs, ta.value);
+      ta.addEventListener('input', () => {
+        const cur = getCase(key);
+        cur.notes = ta.value;
+        cur.lastRun = Date.now();
+        state[key] = cur; saveState(state);
+        tr.querySelector('.last-run').textContent = fmtTs(cur.lastRun);
+        renderThumbs(thumbs, ta.value);
+      });
+      const btn = tr.querySelector('.pill-btn');
+      btn.addEventListener('click', () => {
+        const cur = getCase(key);
+        cur.status = nextStatus(cur.status);
+        cur.lastRun = Date.now();
+        state[key] = cur; saveState(state);
+        render();
+      });
+      tbody.appendChild(tr);
+    });
+
+    const parts = [];
+    if (sectPass) parts.push(`${sectPass} pass`);
+    if (sectFail) parts.push(`${sectFail} fail`);
+    if (sectBlocked) parts.push(`${sectBlocked} blocked`);
+    if (sectNa) parts.push(`${sectNa} n/a`);
+    if (sectPending) parts.push(`${sectPending} pending`);
+    stats.textContent = parts.join(' · ');
+
+    det.appendChild(table);
+    root.appendChild(det);
+  });
+
+  const cnt = (id, n) => document.getElementById(id).textContent = `${n} ${id.replace('cnt-','')}`;
+  cnt('cnt-pass', totalPass);
+  cnt('cnt-fail', totalFail);
+  cnt('cnt-blocked', totalBlocked);
+  cnt('cnt-pending', totalPending);
+  const pct = totalCases ? Math.round((totalPass / totalCases) * 100) : 0;
+  document.getElementById('bar').style.width = pct + '%';
+}
+
+document.getElementById('reset-all').addEventListener('click', () => {
+  if (!confirm('Reset all statuses and notes?')) return;
+  state = {}; saveState(state); render();
+});
+document.getElementById('expand-all').addEventListener('click', () => {
+  document.querySelectorAll('details.section').forEach(d => d.open = true);
+});
+document.getElementById('collapse-all').addEventListener('click', () => {
+  document.querySelectorAll('details.section').forEach(d => d.open = false);
+});
+document.getElementById('export-json').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), state }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `fullscreen-test-plan-${new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 0);
+});
+
+render();
+</script>
+</body>
+</html>

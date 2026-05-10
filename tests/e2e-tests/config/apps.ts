@@ -57,6 +57,22 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     customContentKey: 'zenuml-content-sequence',
     appLabel: 'ZenUML for Confluence',
   },
+  'zenuml-lite@dev': {
+    id: 'zenuml-lite@dev',
+    domain: 'lite-dev.atlassian.net',
+    spaceKey: 'SD',
+    // Space homepage (id 196866) — stable parent for test pages.
+    parentPageId: '196866',
+    parentPageName: 'Software Development',
+    isLite: true,
+    isForge: true,
+    macros: ALL_MACROS,
+    renderMacros: ALL_MACROS,
+    addonKey: 'com.zenuml.confluence-addon-lite',
+    sequenceMacroKey: 'zenuml-sequence-macro-lite',
+    customContentKey: 'zenuml-content-sequence',
+    appLabel: 'ZenUML for Confluence',
+  },
   'zenuml-full@stg': {
     id: 'zenuml-full@stg',
     domain: 'full-stg.atlassian.net',

@@ -415,7 +415,7 @@ export class ConfluenceEditorPage {
   }
 
   private async interactWithForgeDiagramMacro(title: string, tab?: string): Promise<void> {
-    const modal = this.page.getByTestId('custom-ui-modal-dialog');
+    const modal = this.page.getByTestId('custom-ui-fullscreen-modal-dialog');
     const frame = modal.locator('[data-testid="hosted-resources-iframe"]').contentFrame();
 
     if (tab) {
@@ -470,7 +470,7 @@ export class ConfluenceEditorPage {
   }
 
   private async interactWithForgeGraphMacro(title: string): Promise<void> {
-    const modal = this.page.getByTestId('custom-ui-modal-dialog');
+    const modal = this.page.getByTestId('custom-ui-fullscreen-modal-dialog');
     const frame = modal.locator('[data-testid="hosted-resources-iframe"]').contentFrame();
 
     // Step 1: Fill inline title input
@@ -520,7 +520,7 @@ export class ConfluenceEditorPage {
    * it doesn't depend on the DrawIO iframe URL pattern.
    */
   private async addDrawioShapeForge(): Promise<void> {
-    const modal = this.page.getByTestId('custom-ui-modal-dialog');
+    const modal = this.page.getByTestId('custom-ui-fullscreen-modal-dialog');
     const outerFrame = modal.locator('[data-testid="hosted-resources-iframe"]').contentFrame();
     const innerFrame = outerFrame.locator('iframe').contentFrame();
 
@@ -558,7 +558,7 @@ export class ConfluenceEditorPage {
    * double-nested iframes: Forge modal > hosted-resources-iframe > DrawIO iframe.
    */
   private async clickDrawioPublishForge(): Promise<void> {
-    const modal = this.page.getByTestId('custom-ui-modal-dialog');
+    const modal = this.page.getByTestId('custom-ui-fullscreen-modal-dialog');
     const outerFrame = modal.locator('[data-testid="hosted-resources-iframe"]').contentFrame();
     const innerFrame = outerFrame.locator('iframe').contentFrame();
     await innerFrame.locator('button:has-text("Publish")').click();
@@ -579,7 +579,7 @@ export class ConfluenceEditorPage {
     await this.page.waitForTimeout(5000);
 
     if (testConfig.isForge || testConfig.isLite) {
-      const modal = this.page.getByTestId('custom-ui-modal-dialog');
+      const modal = this.page.getByTestId('custom-ui-fullscreen-modal-dialog');
       const frame = modal.locator('[data-testid="hosted-resources-iframe"]').contentFrame();
       const titleInput = frame.locator('input[type="text"]').first();
       await titleInput.clear();
@@ -636,7 +636,7 @@ export class ConfluenceEditorPage {
    */
   getMacroEditorFrame() {
     if (testConfig.isForge || testConfig.isLite) {
-      return this.page.getByTestId('custom-ui-modal-dialog')
+      return this.page.getByTestId('custom-ui-fullscreen-modal-dialog')
         .locator('[data-testid="hosted-resources-iframe"]')
         .contentFrame();
     }

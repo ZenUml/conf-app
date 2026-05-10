@@ -14,10 +14,12 @@ const BASE_LEARN_MORE_URL = 'https://zenuml.com/upgrade'
 const macrosCreated = ref<number>(0)
 const customerSuccessServiceEnabled = ref<boolean>(false)
 const spacePaidStatus = ref<boolean>(false)
+const currentSpaceKey = ref<string>('')
 
 let macroMetricsLoaded = false;
 let cssFlagLoaded = false;
 let spacePaidStatusLoaded = false;
+let spaceKeyLoaded = false;
 
 export function useCustomerSuccessService() {
   const actionRequired = computed(() => {
@@ -123,6 +125,25 @@ export function useCustomerSuccessService() {
     }
   }
 
+  async function loadSpaceKey(): Promise<void> {
+    if (spaceKeyLoaded) return;
+
+    if (localStorage.mockSpaceKey) {
+      currentSpaceKey.value = localStorage.mockSpaceKey
+      spaceKeyLoaded = true
+      return;
+    }
+
+    try {
+      const space = await globals.apWrapper.getCurrentSpace()
+      currentSpaceKey.value = space?.key || ''
+    } catch (e) {
+      console.warn('Could not get spaceKey from page context:', e)
+    } finally {
+      spaceKeyLoaded = true
+    }
+  }
+
   async function loadSpacePaidStatus(): Promise<void> {
     if (spacePaidStatusLoaded) {
       console.log('💳 Space paid status already loaded, skipping')
@@ -144,13 +165,8 @@ export function useCustomerSuccessService() {
         return;
       }
 
-      let spaceKey = ''
-      try {
-        const space = await globals.apWrapper.getCurrentSpace()
-        spaceKey = space?.key || ''
-      } catch (e) {
-        console.warn('Could not get spaceKey from page context:', e)
-      }
+      await loadSpaceKey()
+      const spaceKey = currentSpaceKey.value
 
       console.log('🔍 Checking space paid status...')
       const response = await callRemote(`/api/space-status?spaceKey=${encodeURIComponent(spaceKey)}`, 'GET')
@@ -182,12 +198,14 @@ export function useCustomerSuccessService() {
     await Promise.all([
       loadMacroMetrics(),
       loadCSSFeatureFlag(),
-      loadSpacePaidStatus()
+      loadSpacePaidStatus(),
+      loadSpaceKey(),
     ]);
   }
 
   return {
     macrosCreated,
+    spaceKey: currentSpaceKey,
     actionRequired,
     shouldBlockActions,
     severity,
@@ -203,9 +221,11 @@ export function useCustomerSuccessService() {
   macrosCreated.value = 0
   customerSuccessServiceEnabled.value = false
   spacePaidStatus.value = false
+  currentSpaceKey.value = ''
   macroMetricsLoaded = false
   cssFlagLoaded = false
   spacePaidStatusLoaded = false
+  spaceKeyLoaded = false
 }
 
 export function getUpgradeContext() {
@@ -213,5 +233,6 @@ export function getUpgradeContext() {
     macro_count: macrosCreated.value,
     macro_limit: MACROS_LIMIT,
     macro_usage_pct: Math.round((macrosCreated.value / MACROS_LIMIT) * 100),
+    space_key: currentSpaceKey.value,
   };
 }

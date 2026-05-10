@@ -9,16 +9,17 @@ This skill covers the Lite variant only. Full and Diagramly have no in-app restr
 
 ## Default Behaviour (no arguments)
 
-When invoked with no description or extra prompt, run the daily monitoring research automatically:
+When invoked with no description or extra prompt, run **both** the daily monitoring and A/B impact analysis automatically:
 
 1. (Optional) When debugging a specific tenant, check their Forge app version (Step 0)
 2. Read the current CSS flag (Step 1) — the live CSS flag is the authoritative domain list; do not rely on any hardcoded list in this skill
 3. Run the parallel Mixpanel queries for the last 1 day (Step M below) — Q1–Q5 in parallel, then Q6 for domains with blocks or high save volume
 4. Build the domain table and suggest next steps
-5. Send a PushNotification with the summary
-6. Run the self-review (Step R below) — surface errors, surprises, and proposed skill improvements
+5. Run the **A/B Impact Analysis** section — measures paywall friction against control tenants
+6. Send a PushNotification with the combined summary (daily highlights + A/B deltas)
+7. Run the self-review (Step R below) — surface errors, surprises, and proposed skill improvements
 
-When invoked with "compare", "ab", "impact", or "a/b", run the **A/B Impact Analysis** section instead — this measures paywall friction against control tenants and is meant to run weekly (Mondays).
+When invoked with "compare", "ab", "impact", or "a/b", run only the **A/B Impact Analysis** section (skip daily monitoring).
 
 ---
 
@@ -205,6 +206,7 @@ For customer domains on CSS: **read the live CSS flag from Step 1** to get the c
 - `macros` = total from metrics-inspect for that space
 - Highlight spaces where macros ≥ 100 and triggered = 0 — these are latent paywall spaces where users edit but haven't hit a blocked user yet (or are view-only)
 - Highlight spaces where macros ≥ 100 and triggered > 0 — active paywall spaces
+- **Creates bypass the paywall** — `paywall_triggered` fires only on editing existing macros, not on creating new ones. Users in a blocked space can still add new diagrams, pushing the macro count higher and tightening the wall over time. Flag spaces where `creates > 0` and `triggered > 0` — they are self-ratcheting.
 
 ### Known anomalous non-CSS domains
 
@@ -212,7 +214,7 @@ These domains have emitted paywall events despite not being in CSS. Treat as lik
 
 | Domain | First seen | Pattern |
 |--------|------------|---------|
-| woolworths-agile | 2026-05-08 | 1 paywall_triggered — this is a Group B A/B control tenant (not on CSS); anomalous, likely stale cached bundle. Persistent occurrences warrant a code-path investigation. |
+| woolworths-agile | 2026-05-07 | Group B A/B control tenant (not on CSS). Seen on 2026-05-07 (1 triggered) and 2026-05-08 (1 triggered, 6 saves, 3 creates), and 2026-05-09 (1 triggered again). Three consecutive days — not a cache artifact, investigate code path. |
 | gip-onshore | 2026-04-30 | paywall_triggered only |
 | rizapg | 2026-05-01 | paywall_triggered + upgrade_modal_shown + macro_save_succeeded |
 | olix | 2026-05-02 | high save volume (19 saves/day), no paywall events — likely below 100 macros in active spaces |
@@ -392,27 +394,28 @@ Definitions:
 - **Regional holidays:** Always check Group A tenants against the Tenant geography table. A tenant in JP Golden Week or SG Labour Day can drop edits to zero — that's not a paywall effect.
 - **Newly enrolled tenants:** Hold for 7 days. Day 1 looks dramatic but isn't a steady-state read.
 
-### Baseline snapshot (2026-05-05, last 7 days)
+### Baseline snapshot (2026-05-08, last 7 days)
 
 | Group | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
 |-------|-------|-----------|----------|------------|------------|-------|--------------|------------|
-| **A** (colesgroup, airwallex, linemanwongnai) | 85 | 81 | 166 | 26 | 662 | 9,568 | **51%** | 3.3 |
-| **B** (woolworths-agile, appculqi, economical) | 99 | 1 | 100 | 20 | 206 | 1,893 | **99%** | 5.0 |
+| **A** (colesgroup, airwallex, linemanwongnai¹) | 182 | 96 | 278 | 40 | 747 | 10,812 | **65%** | 4.6 |
+| **B** (woolworths-agile², appculqi, economical) | 96 | 2 | 98 | 20 | 205 | 2,109 | **98%** | 4.8 |
 
 Per-tenant breakdown:
 
 | Group | Domain | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
 |-------|--------|-------|-----------|----------|------------|------------|-------|--------------|------------|
-| A | colesgroup | 42 | 69 | 111 | 13 | 370 | 3,808 | 38% | 3.2 |
-| A | airwallex | 31 | 11 | 42 | 8 | 179 | 3,419 | 74% | 3.9 |
-| A | linemanwongnai | 12 | 1 | 13 | 5 | 113 | 2,341 | 92% | 2.4 |
-| B | woolworths-agile | 31 | 1 | 32 | 5 | 99 | 685 | 97% | 6.2 |
-| B | appculqi | 36 | 0 | 36 | 8 | 38 | 516 | 100% | 4.5 |
-| B | economical | 32 | 0 | 32 | 7 | 69 | 692 | 100% | 4.6 |
+| A | colesgroup | 74 | 53 | 127 | 17 | 375 | 4,263 | 58% | 4.4 |
+| A | airwallex | 84 | 36 | 120 | 18 | 235 | 4,731 | 70% | 4.7 |
+| A | linemanwongnai¹ | 24 | 7 | 31 | 5 | 137 | 1,818 | 77% | 4.8 |
+| B | woolworths-agile² | 36 | 2 | 38 | 6 | 96 | 899 | 95% | 6.0 |
+| B | appculqi | 34 | 0 | 34 | 6 | 42 | 494 | 100% | 5.7 |
+| B | economical | 26 | 0 | 26 | 8 | 67 | 716 | 100% | 3.3 |
 
-**Reading:** Group A's success rate is 51% vs Group B's 99% — paywall blocks ~half of Group A's save attempts. Per active editor, Group A produces 34% fewer successful saves (3.3 vs 5.0). colesgroup is the friction outlier (38% — heavy block rate, 13 active editors). linemanwongnai's 92% is artificially high because Golden Week has suppressed both saves and triggers. Track this baseline week-over-week.
+**Reading:** Group A success rate 65% vs Group B 98% — 32pp gap. saves/user gap nearly closed (4.6 vs 4.8, 4%). colesgroup remains the friction outlier (58%). vin3s excluded (enrolled 2026-05-04, include from May 11).
 
-> **linemanwongnai caveat:** their 7-day window includes the start of JP Golden Week. Re-read the comparison after May 6 with a clean week.
+> ¹ **linemanwongnai:** window May 2–8 still covers Golden Week tail. True clean read from May 12 (7 full post-GW days).
+> ² **woolworths-agile:** fired anomalous `paywall_triggered` for 3 consecutive days despite not being on CSS — under investigation. Negligible impact on Group B rate.
 
 ---
 

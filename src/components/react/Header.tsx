@@ -1,7 +1,9 @@
-import React, { FormEventHandler, useEffect, useState } from "react";
+import React, { FormEventHandler, useEffect, useRef, useState } from "react";
 import { trackEvent } from "@/utils/window";
 import { PublishButton } from "./PublishButton";
-import { CloseButton } from "./CloseButton";
+import { setupCloseGuard } from "@/utils/closeGuard";
+import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
+import EventBus from "@/EventBus";
 import yaml from "js-yaml";
 
 interface Props {
@@ -11,6 +13,102 @@ interface Props {
 const Component = ({ saveAndExit, exit }: Props) => {
   const [title, setTitle] = useState("");
   const [parseError, setParseError] = useState<Error | null>(null);
+  const originalSpec = useRef<string | null>(null);
+  const onRestoreRef = useRef<((p: any) => void) | null>(null);
+
+  // Persist drafts (per keystroke + on close) so accidental Atlassian-X close
+  // can be recovered on next open. See src/utils/closeGuard.ts for why we
+  // dropped beforeunload. Capture the baseline lazily because Swagger UI
+  // injects window.diagram.code asynchronously.
+  useEffect(() => {
+    let cancelled = false;
+    const captureBaseline = (spec: string) => {
+      if (originalSpec.current === null && spec) {
+        originalSpec.current = spec;
+      }
+    };
+    captureBaseline(window.specContent ?? window.diagram?.code ?? '');
+
+    if (!window.specListeners) window.specListeners = [];
+    window.specListeners.push(captureBaseline);
+
+    const diagramId = (window as any).diagram?.id;
+    const scope = diagramId ? `edit:${diagramId}` : 'new:openapi';
+    const saver = makeDebouncedDraftSaver(scope, 500);
+    let saveOnChange: ((spec: string) => void) | null = null;
+
+    let closeGuardOff: (() => void) | null = null;
+    let onSaved: ((id: string) => void) | null = null;
+
+    (async () => {
+      await primeCloudId();
+      if (cancelled) return;
+
+      // Restore prompt if a newer draft is sitting in localStorage.
+      const draft = await loadDraft(scope);
+      if (draft) {
+        const updatedAt = Number((window as any).diagram?.updatedAt) || 0;
+        const baseline = originalSpec.current ?? '';
+        if (draft.savedAt > updatedAt && draft.code !== baseline) {
+          EventBus.$emit('draft-available', { scope, draft });
+        } else {
+          await clearDraft(scope);
+        }
+      }
+
+      // Per-keystroke draft via Swagger's spec listener pipeline.
+      saveOnChange = (spec: string) => {
+        if (originalSpec.current === null || spec === originalSpec.current) return;
+        saver.save({ code: spec, title: (window as any).diagram?.title || '' });
+      };
+      window.specListeners!.push(saveOnChange);
+
+      // view.onClose: synchronously flush the latest spec to localStorage.
+      closeGuardOff = setupCloseGuard(() => {
+        const current = window.specContent ?? window.diagram?.code ?? '';
+        if (originalSpec.current === null || current === originalSpec.current) return;
+        const cloudId = getCachedCloudId();
+        if (cloudId) {
+          saveDraftSync(scope, cloudId, {
+            code: current,
+            title: (window as any).diagram?.title || '',
+          });
+        }
+      });
+
+      // Clear draft after a successful publish.
+      onSaved = () => clearDraft(scope);
+      EventBus.$on('saved', onSaved);
+
+      // Restore handler: push the draft spec into Swagger UI.
+      const onRestore = (payload: any) => {
+        if (payload?.scope !== scope || !payload?.draft) return;
+        try {
+          (window as any).editor?.specActions?.updateSpec(payload.draft.code);
+          if (payload.draft.title && (window as any).diagram) {
+            (window as any).diagram.title = payload.draft.title;
+          }
+          originalSpec.current = ''; // force restored content to count as dirty
+          clearDraft(scope);
+        } catch (e) {
+          console.error('[draft-restore] openapi restore failed', e);
+        }
+      };
+      (onRestoreRef as any).current = onRestore;
+      EventBus.$on('draft-restore', onRestore);
+    })();
+
+    return () => {
+      cancelled = true;
+      if (window.specListeners) {
+        window.specListeners = window.specListeners.filter(l => l !== captureBaseline && l !== saveOnChange);
+      }
+      saver.flush();
+      closeGuardOff?.();
+      if (onSaved) EventBus.$off('saved', onSaved);
+      if (onRestoreRef.current) EventBus.$off('draft-restore', onRestoreRef.current);
+    };
+  }, []);
 
   const helpClick = () => {
     trackEvent("help", "click", "open-api");
@@ -131,7 +229,6 @@ const Component = ({ saveAndExit, exit }: Props) => {
         </a>
         <div className="inline-block ml-2">
           <PublishButton saveAndExit={saveAndExit} disabled={!title} />
-          <CloseButton exit={exit} />
         </div>
       </div>
     </header>

@@ -30,6 +30,9 @@ import { useCustomerSuccessService, MACROS_LIMIT, getUpgradeContext } from '@/co
 import { isPageEditorEditBlocked } from '@/utils/paywall/preEditGate';
 import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking';
 import { mountRoot } from '@/mount-root';
+import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
+
+installRestoreDraftBanner();
 import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
 
 const debouncedValidateOpenApi = debounce(async (spec: string) => {

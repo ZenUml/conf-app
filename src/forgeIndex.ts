@@ -172,22 +172,27 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
             ...getUpgradeContext(),
           });
 
-          mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
+          const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';
+          // Mount the editor + paywall together so the fullscreen Forge iframe is
+          // populated with the diagram the user wanted to edit. Save remains gated
+          // by `shouldBlockActions` in the persistence layer; the modal sits on top
+          // as the visible reminder. Continue editing now just dismisses the modal.
+          // @ts-ignore - Workspace's Split() helper checks window.split
+          window.split = true;
+          const fullscreenMode = await isFullscreenMode();
+          const Workspace = (await import('@/components/Workspace.vue')).default;
+          // @ts-ignore - doc may be a partial spread type; same suppression as the happy-path mount below
+          mountRoot(doc ?? NULL_DIAGRAM, PageEditorPaywallGate, {
+            editor: Workspace,
+            editorProps: { autoResize: !fullscreenMode },
             macrosCreated: customerSuccess.macrosCreated.value,
             macrosLimit: MACROS_LIMIT,
             upgradeUrl: customerSuccess.upgradeUrl.value,
             enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
+            macroKind,
             spaceKey,
             onClose: async () => {
               await (await getView()).close();
-            },
-            onContinueEditing: async () => {
-              // @ts-ignore - Enable splitbar for editor mode
-              window.split = true;
-              const component = (await import("@/components/Workspace.vue")).default;
-              const fullscreenMode = await isFullscreenMode();
-              //@ts-ignore
-              mountRoot(doc, component, { autoResize: !fullscreenMode });
             },
           });
           return;
@@ -299,6 +304,10 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
 EventBus.$on('edit', async(params: any) => {
   const context = await initForgeContext();
   const macroUuid = context.extension?.config?.uuid || uuidv4();
+  // Forward the macro's customContentId so the modal can load the right diagram
+  // and the pre-edit paywall gate can fire. Without this the modal opens a blank
+  // new diagram and the paywall check is skipped entirely.
+  const customContentId = context.extension?.config?.customContentId;
   const journeyId = startEditJourney(macroUuid, 'dialog');
   const journeyStartTime = getEditJourneyStartTime();
   
@@ -309,9 +318,10 @@ EventBus.$on('edit', async(params: any) => {
       endEditJourney('cancelled');
       location.reload();
     },
-    size: 'max',
+    size: 'fullscreen',
     context: {
       macroMode: 'editor',
+      ...(customContentId && { customContentId }),
       journey_id: journeyId,
       journey_start_time: journeyStartTime,
       macro_uuid: macroUuid,
@@ -321,6 +331,12 @@ EventBus.$on('edit', async(params: any) => {
   });
 });
 
+
+// Install the singleton "Restore unsaved changes" banner. It listens for
+// 'draft-available' on EventBus and renders a fixed-position banner at the
+// top of the page; each editor's mount logic emits the event on reopen.
+import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
+installRestoreDraftBanner();
 
 EventBus.$on('save', async () => {
   console.log('save', store.state.diagram);
@@ -341,6 +357,10 @@ EventBus.$on('save', async () => {
     // Do NOT close the dialog — let the user retry
     return;
   }
+
+  // Notify editors so they can clear their localStorage drafts now that the
+  // diagram is durably persisted.
+  EventBus.$emit('saved', id);
 
   const preservedTheme = sessionStorage.getItem(`${location.hostname}-preserve-zenuml-conf-theme`);
   if (isNewSequence && preservedTheme) {
@@ -420,14 +440,14 @@ EventBus.$on('exit', async (showWarning: boolean) => {
 EventBus.$on('fullscreen', async () => {
   const context = await initForgeContext();
   const macroUuid = context.extension?.config?.uuid || uuidv4();
-  
+
   await openModal({
     resource: 'main',
     onClose: (payload: any) => {
       console.log('onClose called with', payload);
       location.reload();
     },
-    size: 'max',
+    size: 'fullscreen',
     context: {
       macroMode: 'fullscreen',
       macro_uuid: macroUuid,

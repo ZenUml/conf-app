@@ -87,35 +87,35 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
     vm.edit()
 
     expect(editSpy).toHaveBeenCalledWith('edit')
-    expect(vm.showUpgradeModal).toBe(false)  // no viewer-level paywall dialog
+    // viewer has no viewer-level paywall state at all — showUpgradeModal is gone
+    expect(vm.showUpgradeModal).toBeUndefined()
   })
 
-  it('Upgrade badge opens the upgrade modal without firing edit', async () => {
+  it('viewer has no openUpgradeModal — paywall gating moved to editor (forgeIndex)', async () => {
+    const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
+
+    const vm = wrapper.vm as any
+
+    // The redesign intentionally removed the viewer-level paywall dialog.
+    // openUpgradeModal / showUpgradeModal / onContinueEditing no longer exist here;
+    // the gate lives in forgeIndex.ts → isPageEditorEditBlocked → PageEditorPaywallGate.
+    expect(vm.openUpgradeModal).toBeUndefined()
+    expect(vm.showUpgradeModal).toBeUndefined()
+    expect(vm.onContinueEditing).toBeUndefined()
+  })
+
+  it('viewer edit() always fires EventBus without any paywall interception', async () => {
     const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
     await wrapper.vm.$nextTick()
 
     const editSpy = vi.spyOn(EventBus, '$emit')
     const vm = wrapper.vm as any
 
-    vm.openUpgradeModal()
+    vm.edit()
 
-    expect(vm.showUpgradeModal).toBe(true)
-    expect(editSpy).not.toHaveBeenCalledWith('edit')
-  })
-
-  it('Continue editing from Upgrade badge just closes the modal', async () => {
-    const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
-    await wrapper.vm.$nextTick()
-
-    const editSpy = vi.spyOn(EventBus, '$emit')
-    const vm = wrapper.vm as any
-
-    vm.openUpgradeModal()
-    expect(vm.showUpgradeModal).toBe(true)
-
-    vm.onContinueEditing()
-
-    expect(vm.showUpgradeModal).toBe(false)
-    expect(editSpy).not.toHaveBeenCalledWith('edit')  // no edit from upgrade badge
+    // Direct EventBus emission, no modal state changes
+    expect(editSpy).toHaveBeenCalledWith('edit')
+    expect(editSpy).toHaveBeenCalledTimes(1)
   })
 })

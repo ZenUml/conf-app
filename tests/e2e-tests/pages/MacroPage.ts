@@ -29,7 +29,7 @@ export class MacroPage {
   }
 
   getEditorDialogFrame(): FrameLocator {
-    return this.page.frameLocator(testConfig.isForge ? '[data-testid="custom-ui-modal-dialog"] [data-testid="hosted-resources-iframe"]' : '[role="dialog"] iframe');
+    return this.page.frameLocator(testConfig.isForge ? '[data-testid="custom-ui-fullscreen-modal-dialog"] [data-testid="hosted-resources-iframe"]' : '[role="dialog"] iframe');
   }
 
   async dismissSpotlightModal(): Promise<void> {
@@ -88,7 +88,7 @@ export class MacroPage {
     await this.page.waitForTimeout(5000);
 
     if (testConfig.isForge || testConfig.isLite) {
-      const modal = this.page.getByTestId('custom-ui-modal-dialog');
+      const modal = this.page.getByTestId('custom-ui-fullscreen-modal-dialog');
       const outerFrame = modal.locator('[data-testid="hosted-resources-iframe"]').contentFrame();
 
       // If the space hit the macro limit, PageEditorPaywallGate mounts in the
@@ -134,7 +134,7 @@ export class MacroPage {
 
     // Verify the editor modal closed — confirms Publish was accepted
     const modal = testConfig.isForge || testConfig.isLite
-      ? this.page.getByTestId('custom-ui-modal-dialog')
+      ? this.page.getByTestId('custom-ui-fullscreen-modal-dialog')
       : this.page.locator('[role="dialog"] iframe');
     await expect(modal).toBeHidden({ timeout: TIMEOUTS.FRAME_LOAD });
   }

@@ -11,6 +11,7 @@ export enum UpgradeEventName {
   MODAL_DISMISSED = 'upgrade_modal_dismissed',
   PAYWALL_BLOCKED_EDIT = 'paywall_blocked_edit',
   PAYWALL_CONTINUED_EDITING = 'paywall_continued_editing',
+  ADVOCACY_MESSAGE_COPIED = 'advocacy_message_copied',
 }
 
 export enum ProductOption {

@@ -126,7 +126,7 @@ EventBus.$on('edit', async () => {
       console.log('onClose called with', payload);
       location.reload();
     },
-    size: 'max',
+    size: 'fullscreen',
     context: {
       macroMode: 'editor',
     },

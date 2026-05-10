@@ -87,17 +87,17 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
     vm.edit()
 
     expect(editSpy).toHaveBeenCalledWith('edit')
-    // V8 viewer has no viewer-level paywall state at all — showUpgradeModal is gone
+    // viewer has no viewer-level paywall state at all — showUpgradeModal is gone
     expect(vm.showUpgradeModal).toBeUndefined()
   })
 
-  it('V8 viewer has no openUpgradeModal — paywall gating moved to editor (forgeIndex)', async () => {
+  it('viewer has no openUpgradeModal — paywall gating moved to editor (forgeIndex)', async () => {
     const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
     await wrapper.vm.$nextTick()
 
     const vm = wrapper.vm as any
 
-    // The V8 redesign intentionally removed the viewer-level paywall dialog.
+    // The redesign intentionally removed the viewer-level paywall dialog.
     // openUpgradeModal / showUpgradeModal / onContinueEditing no longer exist here;
     // the gate lives in forgeIndex.ts → isPageEditorEditBlocked → PageEditorPaywallGate.
     expect(vm.openUpgradeModal).toBeUndefined()
@@ -105,7 +105,7 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
     expect(vm.onContinueEditing).toBeUndefined()
   })
 
-  it('V8 viewer edit() always fires EventBus without any paywall interception', async () => {
+  it('viewer edit() always fires EventBus without any paywall interception', async () => {
     const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
     await wrapper.vm.$nextTick()
 

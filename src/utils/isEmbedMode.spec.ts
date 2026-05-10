@@ -52,7 +52,7 @@ describe('GenericViewer embed detection', () => {
   });
 
   it('uses a Forge moduleKey-based embed detection (inline or via isEmbedMode helper)', () => {
-    // The V8 viewer uses inline regex on forgeContext.moduleKey instead of importing
+    // The viewer uses inline regex on forgeContext.moduleKey instead of importing
     // the isEmbedMode helper — both are equivalent; accept either pattern.
     const usesHelper = /isEmbedMode/.test(source);
     const usesInline = /moduleKey/.test(source) && /embed-macro/.test(source);

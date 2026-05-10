@@ -11,24 +11,24 @@
     </template>
 
     <template v-else>
-      <div class="v8-frame" :class="{'v8-frame--wide': wide, 'v8-frame--auto': !wide}">
-        <div class="v8-surface" :class="{'v8-surface--hover': isHovering}"
+      <div class="viewer-frame" :class="{'viewer-frame--wide': wide, 'viewer-frame--auto': !wide}">
+        <div class="viewer-surface" :class="{'viewer-surface--hover': isHovering}"
              @mouseenter="isHovering = true" @mouseleave="isHovering = false">
           <!-- Top edge: title (left) + Edit / Fullscreen (right) -->
-          <div class="v8-edge-top">
-            <div class="v8-title-area">
-              <span v-if="isEmbedded" class="v8-embed-chip" title="Content is embedded from another page">EMBED</span>
-              <span class="v8-title" :title="title">{{ title }}</span>
+          <div class="viewer-edge-top">
+            <div class="viewer-title-area">
+              <span v-if="isEmbedded" class="viewer-embed-chip" title="Content is embedded from another page">EMBED</span>
+              <span class="viewer-title" :title="title">{{ title }}</span>
             </div>
-            <div class="v8-top-actions">
-              <button v-if="showEdit" @click="edit" aria-label="Edit" class="v8-btn-ghost">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="v8-icon">
+            <div class="viewer-top-actions">
+              <button v-if="showEdit" @click="edit" aria-label="Edit" class="viewer-btn-ghost">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
                 </svg>
                 <span>Edit</span>
               </button>
-              <button @click="fullscreen" aria-label="Fullscreen" class="v8-btn-primary">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="v8-icon">
+              <button @click="fullscreen" aria-label="Fullscreen" class="viewer-btn-primary">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
                 </svg>
                 <span>Fullscreen</span>
@@ -37,29 +37,29 @@
           </div>
 
           <!-- Canvas + bottom-edge pill -->
-          <div class="v8-canvas">
+          <div class="viewer-canvas">
             <div class="screen-capture-content" :class="{'w-full': wide}">
               <slot></slot>
             </div>
 
-            <div class="v8-edge-bottom-pill" role="toolbar" aria-label="Diagram actions">
-              <button @click="copyCode" title="Copy code" aria-label="Copy code" class="v8-pill-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="v8-icon">
+            <div class="viewer-edge-bottom-pill" role="toolbar" aria-label="Diagram actions">
+              <button @click="copyCode" title="Copy code" aria-label="Copy code" class="viewer-pill-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
                 </svg>
               </button>
-              <button @click="showExportModal = true" title="Export PNG" aria-label="Export PNG" class="v8-pill-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="v8-icon">
+              <button @click="showExportModal = true" title="Export PNG" aria-label="Export PNG" class="viewer-pill-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
                 </svg>
               </button>
-              <button v-if="isCustomContent" @click="showContentVersions" title="Versions" aria-label="Versions" class="v8-pill-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="v8-icon">
+              <button v-if="isCustomContent" @click="showContentVersions" title="Versions" aria-label="Versions" class="viewer-pill-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                 </svg>
               </button>
-              <button @click="copyLink" title="Copy link" aria-label="Copy link" class="v8-pill-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="v8-icon">
+              <button @click="copyLink" title="Copy link" aria-label="Copy link" class="viewer-pill-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
                 </svg>
               </button>
@@ -207,8 +207,8 @@ export default {
 </script>
 
 <style scoped>
-/* ----- V8 chrome-less viewer surface ------------------------------------ */
-.v8-frame {
+/* ----- chrome-less viewer surface --------------------------------------- */
+.viewer-frame {
   position: relative;
   display: block;
   background: #fff;
@@ -217,12 +217,12 @@ export default {
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
-.v8-frame--auto { width: fit-content; margin-left: auto; margin-right: auto; }
-.v8-frame--wide { width: 100%; }
+.viewer-frame--auto { width: fit-content; margin-left: auto; margin-right: auto; }
+.viewer-frame--wide { width: 100%; }
 
-.v8-surface { position: relative; }
+.viewer-surface { position: relative; }
 
-.v8-edge-top {
+.viewer-edge-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -231,9 +231,9 @@ export default {
   border-bottom: 1px solid transparent;
   transition: border-color 200ms ease;
 }
-.v8-surface--hover .v8-edge-top { border-bottom-color: #E5E7EB; }
+.viewer-surface--hover .viewer-edge-top { border-bottom-color: #E5E7EB; }
 
-.v8-title-area {
+.viewer-title-area {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -241,7 +241,7 @@ export default {
   flex-shrink: 1;
   margin-right: 12px;
 }
-.v8-title {
+.viewer-title {
   font-size: 14px;
   font-weight: 600;
   color: #172B4D;
@@ -250,7 +250,7 @@ export default {
   white-space: nowrap;
   max-width: 420px;
 }
-.v8-embed-chip {
+.viewer-embed-chip {
   flex-shrink: 0;
   padding: 2px 6px;
   font-size: 10px;
@@ -262,16 +262,16 @@ export default {
   text-transform: uppercase;
 }
 
-.v8-top-actions {
+.viewer-top-actions {
   display: flex;
   align-items: center;
   gap: 6px;
   opacity: 0;
   transition: opacity 200ms ease;
 }
-.v8-surface--hover .v8-top-actions { opacity: 1; }
+.viewer-surface--hover .viewer-top-actions { opacity: 1; }
 
-.v8-btn-ghost {
+.viewer-btn-ghost {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -286,9 +286,9 @@ export default {
   cursor: pointer;
   transition: background-color 200ms ease, color 200ms ease;
 }
-.v8-btn-ghost:hover { background: #F3F4F6; color: #111827; }
+.viewer-btn-ghost:hover { background: #F3F4F6; color: #111827; }
 
-.v8-btn-primary {
+.viewer-btn-primary {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -303,20 +303,20 @@ export default {
   cursor: pointer;
   transition: background-color 200ms ease;
 }
-.v8-btn-primary:hover { background: #0747A6; }
-.v8-btn-primary:active { background: #064395; }
+.viewer-btn-primary:hover { background: #0747A6; }
+.viewer-btn-primary:active { background: #064395; }
 
-.v8-icon { width: 16px; height: 16px; }
+.viewer-icon { width: 16px; height: 16px; }
 
-.v8-canvas {
+.viewer-canvas {
   position: relative;
   background: #fff;
   min-height: 64px;
 }
-.v8-canvas .screen-capture-content { position: relative; z-index: 0; }
-.v8-canvas .screen-capture-content.w-full { width: 100%; }
+.viewer-canvas .screen-capture-content { position: relative; z-index: 0; }
+.viewer-canvas .screen-capture-content.w-full { width: 100%; }
 
-.v8-edge-bottom-pill {
+.viewer-edge-bottom-pill {
   position: absolute;
   left: 50%;
   bottom: 12px;
@@ -334,13 +334,13 @@ export default {
   transition: opacity 200ms ease, transform 200ms ease;
   z-index: 2;
 }
-.v8-surface--hover .v8-edge-bottom-pill {
+.viewer-surface--hover .viewer-edge-bottom-pill {
   opacity: 1;
   pointer-events: auto;
   transform: translateX(-50%) translateY(0);
 }
 
-.v8-pill-btn {
+.viewer-pill-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -353,7 +353,7 @@ export default {
   cursor: pointer;
   transition: background-color 200ms ease, color 200ms ease;
 }
-.v8-pill-btn:hover { background: #F3F4F6; color: #374151; }
+.viewer-pill-btn:hover { background: #F3F4F6; color: #374151; }
 </style>
 
 <!--

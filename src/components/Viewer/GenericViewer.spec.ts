@@ -36,7 +36,7 @@ vi.mock('@/utils/toast', () => ({
 
 const mountViewer = () => mount(GenericViewer, { global: { plugins: [store] } })
 
-describe('GenericViewer (V8 chrome-less)', () => {
+describe('GenericViewer (chrome-less)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     store.commit('updateDiagramType', DiagramType.Sequence)
@@ -47,13 +47,13 @@ describe('GenericViewer (V8 chrome-less)', () => {
   })
 
   describe('layout', () => {
-    it('renders the V8 frame with the title and the slot content', () => {
+    it('renders the viewer frame with the title and the slot content', () => {
       const wrapper = mount(GenericViewer, {
         global: { plugins: [store] },
         slots: { default: '<div class="diagram-stub">slot</div>' },
       })
-      expect(wrapper.find('.v8-frame').exists()).toBe(true)
-      expect(wrapper.find('.v8-title').text()).toBe('Login flow')
+      expect(wrapper.find('.viewer-frame').exists()).toBe(true)
+      expect(wrapper.find('.viewer-title').text()).toBe('Login flow')
       expect(wrapper.find('.diagram-stub').exists()).toBe(true)
       expect(wrapper.find('.screen-capture-content').exists()).toBe(true)
     })
@@ -61,28 +61,28 @@ describe('GenericViewer (V8 chrome-less)', () => {
     it('falls back to a default title when the diagram has no title', () => {
       store.state.diagram.title = ''
       const wrapper = mountViewer()
-      expect(wrapper.find('.v8-title').text()).toBe('Untitled diagram')
+      expect(wrapper.find('.viewer-title').text()).toBe('Untitled diagram')
     })
 
     it('reveals top + bottom edges on mouseenter and hides on mouseleave', async () => {
       const wrapper = mountViewer()
-      const surface = wrapper.find('.v8-surface')
-      expect(surface.classes()).not.toContain('v8-surface--hover')
+      const surface = wrapper.find('.viewer-surface')
+      expect(surface.classes()).not.toContain('viewer-surface--hover')
 
       await surface.trigger('mouseenter')
-      expect(surface.classes()).toContain('v8-surface--hover')
+      expect(surface.classes()).toContain('viewer-surface--hover')
 
       await surface.trigger('mouseleave')
-      expect(surface.classes()).not.toContain('v8-surface--hover')
+      expect(surface.classes()).not.toContain('viewer-surface--hover')
     })
 
-    it('skips the V8 chrome when hideHeader is true', () => {
+    it('skips the viewer chrome when hideHeader is true', () => {
       const wrapper = mount(GenericViewer, {
         global: { plugins: [store] },
         props: { hideHeader: true },
         slots: { default: '<div class="diagram-stub" />' },
       })
-      expect(wrapper.find('.v8-frame').exists()).toBe(false)
+      expect(wrapper.find('.viewer-frame').exists()).toBe(false)
       expect(wrapper.find('.screen-capture-content').exists()).toBe(true)
       expect(wrapper.find('.diagram-stub').exists()).toBe(true)
     })
@@ -108,7 +108,7 @@ describe('GenericViewer (V8 chrome-less)', () => {
   describe('bottom-edge pill actions', () => {
     it('shows the four expected actions for a custom-content diagram', () => {
       const wrapper = mountViewer()
-      const labels = wrapper.findAll('.v8-edge-bottom-pill .v8-pill-btn')
+      const labels = wrapper.findAll('.viewer-edge-bottom-pill .viewer-pill-btn')
         .map(b => b.attributes('aria-label'))
       expect(labels).toEqual(['Copy code', 'Export PNG', 'Versions', 'Copy link'])
     })
@@ -116,7 +116,7 @@ describe('GenericViewer (V8 chrome-less)', () => {
     it('hides the Versions button when the diagram is not custom content', () => {
       store.state.diagram.source = DataSource.MacroBody
       const wrapper = mountViewer()
-      const labels = wrapper.findAll('.v8-edge-bottom-pill .v8-pill-btn')
+      const labels = wrapper.findAll('.viewer-edge-bottom-pill .viewer-pill-btn')
         .map(b => b.attributes('aria-label'))
       expect(labels).toEqual(['Copy code', 'Export PNG', 'Copy link'])
     })

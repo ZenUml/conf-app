@@ -8,6 +8,10 @@ pages_build_output_dir = "dist"
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
 ENVIRONMENT = "development"  # Set to "development" for local development
 
+# JOINT-DEBUG
+NGROK_AUTHTOKEN = "2piBMy4QpL0xxxxx"
+NGROK_DOMAIN = "xxxx.ngrok-free.app"
+
 [env.production]
 ENVIRONMENT = "production"
 

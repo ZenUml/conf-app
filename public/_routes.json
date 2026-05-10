@@ -6,6 +6,7 @@
     "/track",
     "/diagramly/generate",
     "/diagramly/fix-diagram",
+    "/diagramly/job-status",
     "/diagramly/chat",
     "/diagram-likes",
     "/diagram-likes/query",

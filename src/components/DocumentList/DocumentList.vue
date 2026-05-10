@@ -29,7 +29,6 @@
         <div class="w-80 flex-shrink-0 px-4 py-3 bg-white">
           <div class="flex items-center justify-end space-x-2">
             <publish-button :save-and-exit="saveAndExit" />
-            <close-button :exit="exit" />
           </div>
         </div>
 
@@ -118,7 +117,6 @@
 
 <script>
 import PublishButton from "@/components/PublishButton.vue";
-import CloseButton from "@/components/CloseButton.vue";
 import { DiagramType, getDiagramData } from "@/model/Diagram/Diagram";
 import { getViewerUrl, loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
@@ -129,6 +127,8 @@ import ApWrapper2 from "@/model/ApWrapper2";
 import _ from 'lodash';
 import { trackEvent } from "@/utils/window";
 import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
+import { setupCloseGuard } from "@/utils/closeGuard";
+import { saveDraft, clearDraft, primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
 
 export default {
   name: 'DocumentList', // for embed-editor
@@ -140,7 +140,9 @@ export default {
       docTypeFilter: '',
       baseUrl: '',
       filterKeyword: '',
-      previewComponentCache: {} // Cache for loaded components
+      previewComponentCache: {}, // Cache for loaded components
+      _originalPickedId: null,
+      _closeGuardOff: null,
     };
   },
   computed: {
@@ -218,6 +220,12 @@ export default {
     picked: {
       async handler(newPicked) {
         console.log('DocumentList - picked', newPicked);
+        // Capture the initial selection as the baseline for dirty-state detection.
+        // `picked` is set asynchronously by initializeForForge/Connect, so we can't
+        // capture in mounted(); the first non-empty value is our baseline.
+        if (newPicked?.id && this._originalPickedId === null) {
+          this._originalPickedId = newPicked.id;
+        }
         if (newPicked && newPicked.value?.diagramType && window.forgeGlobal?.isForge) {
           // Load the preview component when picked item changes
           await this.getPreviewComponentForForge(newPicked.value.diagramType);
@@ -225,6 +233,26 @@ export default {
       },
       immediate: true
     }
+  },
+  async mounted() {
+    await primeCloudId();
+    this._draftScope = 'new:embed';
+    this._closeGuardOff = setupCloseGuard(() => {
+      if (this._originalPickedId === null) return;
+      if (this.picked?.id === this._originalPickedId) return;
+      const cloudId = getCachedCloudId();
+      if (cloudId && this.picked?.id) {
+        // For embed, the "code" payload is just the selected id. The next
+        // mount can offer to restore by pre-selecting it.
+        saveDraftSync(this._draftScope, cloudId, {
+          code: String(this.picked.id),
+          title: '',
+        });
+      }
+    });
+  },
+  beforeUnmount() {
+    this._closeGuardOff?.();
   },
   async created() {
     if (window.forgeGlobal?.isForge) {
@@ -331,7 +359,6 @@ export default {
   },
   components: {
     PublishButton,
-    CloseButton,
   }
 }
 </script>

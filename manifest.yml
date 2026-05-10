@@ -169,7 +169,7 @@ modules:
       resource: main
       config:
         resource: main
-        viewportSize: max
+        viewportSize: fullscreen
       adfExport:
         function: exportMacro
       resolver:
@@ -181,7 +181,7 @@ modules:
       resource: main
       config:
         resource: main
-        viewportSize: max
+        viewportSize: fullscreen
       adfExport:
         function: exportMacro
       resolver:
@@ -193,7 +193,7 @@ modules:
       resource: main
       config:
         resource: main
-        viewportSize: max
+        viewportSize: fullscreen
       adfExport:
         function: exportMacro
       resolver:
@@ -205,7 +205,7 @@ modules:
       resource: main
       config:
         resource: main
-        viewportSize: max
+        viewportSize: fullscreen
       adfExport:
         function: exportMacro
       resolver:

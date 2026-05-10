@@ -8,6 +8,7 @@
 
     <div class="content h-screen flex flex-col" style="height: 100vh; overflow: hidden;">
       <div class="flex-shrink-0">
+        <RestoreDraftBanner />
         <Header />
       </div>
       <div class="workspace flex-grow split" style="overflow: hidden; position: relative;">
@@ -35,6 +36,7 @@
   import Editor from '@/components/Editor/Editor.vue'
   import Split from 'split.js'
   import Header from "@/components/Header/Header.vue";
+  import RestoreDraftBanner from "@/components/RestoreDraftBanner.vue";
   import DiagramPortal from "@/components/DiagramPortal.vue";
   import CSAT from '@/components/CSAT/index.vue'
   import AIFeedback from '@/components/AIFeedback/index.vue'
@@ -91,6 +93,7 @@
     components: {
       DiagramPortal,
       Header,
+      RestoreDraftBanner,
       Editor,
       CSAT,
       GenerationPrompt,

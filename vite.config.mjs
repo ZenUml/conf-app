@@ -121,7 +121,41 @@ export default defineConfig(({ command }) => ({
     open: false,
     gzipSize: true,
     brotliSize: true,
-  })] : [])],
+  })] : []),
+  // Dev-only plugin: persist rerun test data to docs/fullscreen-test-rerun-data.json
+  // so it survives across sessions without relying on localStorage.
+  {
+    name: 'rerun-data-api',
+    configureServer(server) {
+      const DATA_FILE = path.join(__dirname, 'docs', 'fullscreen-test-rerun-data.json');
+      server.middlewares.use('/api/rerun-data', (req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Cache-Control', 'no-store');
+        if (req.method === 'GET') {
+          try {
+            res.end(fs.existsSync(DATA_FILE) ? fs.readFileSync(DATA_FILE, 'utf8') : '{}');
+          } catch (e) {
+            res.statusCode = 500; res.end(JSON.stringify({ error: e.message }));
+          }
+        } else if (req.method === 'POST') {
+          let body = '';
+          req.on('data', chunk => { body += chunk; });
+          req.on('end', () => {
+            try {
+              JSON.parse(body); // validate
+              fs.writeFileSync(DATA_FILE, body, 'utf8');
+              res.end('{}');
+            } catch (e) {
+              res.statusCode = 400; res.end(JSON.stringify({ error: e.message }));
+            }
+          });
+        } else {
+          res.statusCode = 405; res.end();
+        }
+      });
+    },
+  },
+  ],
   test: {
     environment: 'jsdom',
     globals: true,
@@ -188,6 +222,6 @@ export default defineConfig(({ command }) => ({
         changeOrigin: true
       }
     },
-    allowedHosts: ['yanhui8080.zenuml.com', '8080.diagramly.net', 'precise-oriented-mink.ngrok-free.app', 'special-lemming-radically.ngrok-free.app'],
+    allowedHosts: ['yanhui8080.zenuml.com', '8080.diagramly.net', 'precise-oriented-mink.ngrok-free.app', 'special-lemming-radically.ngrok-free.app', 'poc-fullscreen-app.zenuml.com'],
   }
 }));

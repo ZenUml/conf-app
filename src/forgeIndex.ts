@@ -309,7 +309,7 @@ EventBus.$on('edit', async(params: any) => {
       endEditJourney('cancelled');
       location.reload();
     },
-    size: 'max',
+    size: 'fullscreen',
     context: {
       macroMode: 'editor',
       journey_id: journeyId,
@@ -341,6 +341,10 @@ EventBus.$on('save', async () => {
     // Do NOT close the dialog — let the user retry
     return;
   }
+
+  // Notify editors so they can clear their localStorage drafts now that the
+  // diagram is durably persisted.
+  EventBus.$emit('saved', id);
 
   const preservedTheme = sessionStorage.getItem(`${location.hostname}-preserve-zenuml-conf-theme`);
   if (isNewSequence && preservedTheme) {
@@ -420,14 +424,14 @@ EventBus.$on('exit', async (showWarning: boolean) => {
 EventBus.$on('fullscreen', async () => {
   const context = await initForgeContext();
   const macroUuid = context.extension?.config?.uuid || uuidv4();
-  
+
   await openModal({
     resource: 'main',
     onClose: (payload: any) => {
       console.log('onClose called with', payload);
       location.reload();
     },
-    size: 'max',
+    size: 'fullscreen',
     context: {
       macroMode: 'fullscreen',
       macro_uuid: macroUuid,

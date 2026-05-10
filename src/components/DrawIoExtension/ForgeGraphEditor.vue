@@ -2,7 +2,7 @@
   <div id="forge-graph-editor">
     <iframe
       ref="drawioFrame"
-      src="./drawio/index.html?embed=1&spin=1&proto=json&noSaveBtn=1&publishClose=1&libraries=1&offline=1"
+      src="./drawio/index.html?embed=1&spin=1&proto=json&noSaveBtn=1&saveAndExit=1&libraries=1&offline=1"
       style="width:100%;height:100%;border:0;"
       @load="onFrameLoad"
     ></iframe>
@@ -14,6 +14,9 @@
 import DrawIoExtension from "@/components/DrawIoExtension/DrawIoExtension.vue";
 import "@/components/DrawIoExtension/graphEditor.css";
 import { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
+import { setupCloseGuard } from "@/utils/closeGuard";
+import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
+import EventBus from "@/EventBus";
 
 const EMPTY_GRAPH = `<mxfile>
   <diagram name="Page-1">
@@ -49,7 +52,63 @@ export default {
       }
     }
   },
-  mounted() {
+  data() {
+    return { _drawioModified: false, _closeGuardOff: null, _latestXml: null, _draftSaver: null, _onSaved: null, _draftScope: null };
+  },
+  beforeUnmount() {
+    this._closeGuardOff?.();
+    this._draftSaver?.flush();
+    if (this._onSaved) EventBus.$off('saved', this._onSaved);
+    if (this._onRestore) EventBus.$off('draft-restore', this._onRestore);
+  },
+  async mounted() {
+    await primeCloudId();
+    const diagramId = this.$store?.state?.diagram?.id;
+    this._draftScope = diagramId ? `edit:${diagramId}` : 'new:graph';
+    this._draftSaver = makeDebouncedDraftSaver(this._draftScope, 500);
+
+    // Restore prompt if a newer draft exists in localStorage.
+    const draft = await loadDraft(this._draftScope);
+    if (draft) {
+      const updatedAt = Number(this.$store?.state?.diagram?.updatedAt) || 0;
+      const baseline = this.graphXml || '';
+      if (draft.savedAt > updatedAt && draft.code !== baseline) {
+        EventBus.$emit('draft-available', { scope: this._draftScope, draft });
+      } else {
+        await clearDraft(this._draftScope);
+      }
+    }
+
+    // view.onClose: synchronously persist the latest XML if dirty.
+    this._closeGuardOff = setupCloseGuard(() => {
+      if (!this._drawioModified || !this._latestXml) return;
+      const cloudId = getCachedCloudId();
+      if (cloudId) {
+        saveDraftSync(this._draftScope, cloudId, {
+          code: this._latestXml,
+          title: this.$store?.state?.diagram?.title || '',
+        });
+      }
+    });
+
+    // Clear draft after successful publish.
+    this._onSaved = () => clearDraft(this._draftScope);
+    EventBus.$on('saved', this._onSaved);
+
+    // Restore handler: re-load the draft XML into the DrawIO iframe.
+    this._onRestore = (payload) => {
+      if (payload?.scope !== this._draftScope || !payload?.draft) return;
+      try {
+        this.sendToFrame({ action: 'load', xml: payload.draft.code });
+        if (payload.draft.title) this.$store.dispatch('updateTitle', payload.draft.title);
+        this._drawioModified = true;
+        this._latestXml = payload.draft.code;
+        clearDraft(this._draftScope);
+      } catch (e) {
+        console.error('[draft-restore] graph restore failed', e);
+      }
+    };
+    EventBus.$on('draft-restore', this._onRestore);
 		const loadGraph = (xml) => this.sendToFrame({action: 'load', xml});
 
 		function toGraphModel(xmlString) {
@@ -77,7 +136,20 @@ export default {
 				const initialGraphXml = this.graphXml || EMPTY_GRAPH;
 				loadGraph(initialGraphXml);
 			}
+			else if(payload.event === 'autosave') {
+				this._drawioModified = !!payload.modified;
+				if (payload.xml) {
+					this._latestXml = payload.xml;
+					if (this._drawioModified && this._draftSaver) {
+						this._draftSaver.save({
+							code: payload.xml,
+							title: this.$store?.state?.diagram?.title || '',
+						});
+					}
+				}
+			}
 			else if(payload.event === 'save') {
+				this._drawioModified = false;
 				window.graphXml = toGraphModel(payload.xml);
 				await window.ensureTitle();
 				await this.saveGraphAndExit(window.graphXml);

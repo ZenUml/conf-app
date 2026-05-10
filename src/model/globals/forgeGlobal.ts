@@ -138,6 +138,8 @@ export async function isFullscreenMode() {
   return context.extension.modal?.macroMode === 'fullscreen';
 }
 
+// Pass `size: 'fullscreen'` to fill the viewport (100vw × 100vh, no Confluence chrome).
+// GA'd Apr 28 2026 (FRGE-557 / CHANGE-3163). Atlassian-enforced header (~50px, app icon + title + X) is unavoidable.
 export async function openModal(_options: any) {
   const { Modal } = await import("@forge/bridge");
   const modal = new Modal(_options);

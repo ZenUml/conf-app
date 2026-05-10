@@ -76,7 +76,7 @@
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.26.3",
     "@forge/api": "^6.0.0",
-    "@forge/bridge": "^5.6.0",
+    "@forge/bridge": "^5.16.0",
     "@forge/resolver": "^1.6.13",
     "@heroicons/vue": "^2.2.0",
     "@lezer/highlight": "^1.2.1",

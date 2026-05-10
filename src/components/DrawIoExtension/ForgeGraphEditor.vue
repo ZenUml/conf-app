@@ -2,10 +2,11 @@
   <div id="forge-graph-editor">
     <!-- noExitBtn=1 suppresses DrawIO's standalone "Exit" button. The Atlassian
          header X is the canonical close affordance and onClose autosaves drafts.
-         Save & Exit (saveAndExit=1) remains for explicit publish. -->
+         saveAndExit=1 keeps the explicit-publish button; publishClose=1
+         relabels it from "Save & Exit" to "Publish" via mxResources. -->
     <iframe
       ref="drawioFrame"
-      src="./drawio/index.html?embed=1&spin=1&proto=json&noSaveBtn=1&saveAndExit=1&noExitBtn=1&libraries=1&offline=1"
+      src="./drawio/index.html?embed=1&spin=1&proto=json&noSaveBtn=1&saveAndExit=1&publishClose=1&noExitBtn=1&libraries=1&offline=1"
       class="drawio-frame"
       @load="onFrameLoad"
     ></iframe>

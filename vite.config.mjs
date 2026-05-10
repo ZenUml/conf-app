@@ -122,6 +122,36 @@ export default defineConfig(({ command }) => ({
     gzipSize: true,
     brotliSize: true,
   })] : []),
+  // Dev-only plugin: serve /vendor/mermaid/* from node_modules/mermaid/dist/*.
+  // The runtime loads mermaid via a dynamic URL import (src/utils/mermaid/loadMermaid.ts)
+  // resolved against document.baseURI. rollup-plugin-copy puts the assets in dist/
+  // for production, but Vite's dev server doesn't serve from dist/, so without
+  // this middleware /vendor/mermaid/mermaid.esm.min.mjs hits the SPA fallback
+  // (200 text/html) and the import fails.
+  {
+    name: 'vendor-mermaid-dev',
+    apply: 'serve',
+    configureServer(server) {
+      const VENDOR_PREFIX = '/vendor/mermaid/';
+      const SOURCE_DIR = path.join(__dirname, 'node_modules', 'mermaid', 'dist');
+      server.middlewares.use((req, res, next) => {
+        if (!req.url || !req.url.startsWith(VENDOR_PREFIX)) return next();
+        const relPath = req.url.slice(VENDOR_PREFIX.length).split('?')[0].split('#')[0];
+        const abs = path.join(SOURCE_DIR, relPath);
+        // Prevent path traversal outside SOURCE_DIR.
+        if (!abs.startsWith(SOURCE_DIR + path.sep)) return next();
+        if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return next();
+        const ext = path.extname(abs);
+        const contentType = ext === '.mjs' || ext === '.js' ? 'application/javascript'
+          : ext === '.json' ? 'application/json'
+          : ext === '.css' ? 'text/css'
+          : 'application/octet-stream';
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'no-cache');
+        fs.createReadStream(abs).pipe(res);
+      });
+    },
+  },
   // Dev-only plugin: persist rerun test data to docs/fullscreen-test-rerun-data.json
   // so it survives across sessions without relying on localStorage.
   {

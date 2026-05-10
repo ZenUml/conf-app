@@ -172,7 +172,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
             ...getUpgradeContext(),
           });
 
-          const macroKind = context.extension.modal?.diagramType === 'mermaid' ? 'mermaid' : 'sequence';
+          const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';
           // Mount the editor + paywall together so the fullscreen Forge iframe is
           // populated with the diagram the user wanted to edit. Save remains gated
           // by `shouldBlockActions` in the persistence layer; the modal sits on top
@@ -304,6 +304,10 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
 EventBus.$on('edit', async(params: any) => {
   const context = await initForgeContext();
   const macroUuid = context.extension?.config?.uuid || uuidv4();
+  // Forward the macro's customContentId so the modal can load the right diagram
+  // and the pre-edit paywall gate can fire. Without this the modal opens a blank
+  // new diagram and the paywall check is skipped entirely.
+  const customContentId = context.extension?.config?.customContentId;
   const journeyId = startEditJourney(macroUuid, 'dialog');
   const journeyStartTime = getEditJourneyStartTime();
   
@@ -317,6 +321,7 @@ EventBus.$on('edit', async(params: any) => {
     size: 'fullscreen',
     context: {
       macroMode: 'editor',
+      ...(customContentId && { customContentId }),
       journey_id: journeyId,
       journey_start_time: journeyStartTime,
       macro_uuid: macroUuid,

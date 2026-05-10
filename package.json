@@ -131,7 +131,7 @@
     "@forge/cli": "^12.14.0",
     "@inquirer/prompts": "^8.3.2",
     "@playwright/test": "^1.59.1",
-    "@types/jest": "^24.0.19",
+    "@types/jest": "^30.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/lodash": "^4.14.202",
     "@types/mermaid": "^8.2.1",

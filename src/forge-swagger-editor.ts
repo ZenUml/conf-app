@@ -34,6 +34,7 @@ import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
 
 installRestoreDraftBanner();
 import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
+import SwaggerForgeEditorShell from '@/components/OpenApi/SwaggerForgeEditorShell.vue';
 
 const debouncedValidateOpenApi = debounce(async (spec: string) => {
   if (!spec) {
@@ -45,6 +46,35 @@ const debouncedValidateOpenApi = debounce(async (spec: string) => {
 
 // Track editor session start time
 const editorStartTime = Date.now();
+
+let swaggerReactMounted = false;
+let openApiDocumentHydrated = false;
+
+function bootstrapSwaggerUi(mountEl: HTMLElement | null) {
+  if (!mountEl) {
+    console.error('OpenAPI editor: missing DOM mount element');
+    return;
+  }
+  if (swaggerReactMounted) {
+    return;
+  }
+  swaggerReactMounted = true;
+
+  ReactDOM.render(
+    React.createElement(SwaggerEditor as any, { saveAndExit: saveOpenApiAndExit, exit: exit }),
+    mountEl,
+  );
+
+  const editor = SwaggerEditorBundle({
+    dom_id: '#swagger-editor',
+    presets: [],
+    plugins: [SpecListener],
+  });
+
+  // eslint-disable-next-line
+  // @ts-ignore
+  window.editor = editor;
+}
 
 async function saveOpenApiAndExit() {
   const code = window.specContent;
@@ -151,9 +181,14 @@ async function initializeMacro() {
   getOrCreateSession();
   const customContentId = context.extension?.config?.customContentId;
 
-  const mountEditor = async () => {
+  const mountEditorDocument = async () => {
+    if (openApiDocumentHydrated) {
+      return;
+    }
+    openApiDocumentHydrated = true;
+
     let doc: Diagram | undefined;
-    if(!customContentId) {
+    if (!customContentId) {
     } else {
       const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
       console.log('loadDiagram - customContent', customContent);
@@ -164,11 +199,11 @@ async function initializeMacro() {
     // @ts-ignore
     window.diagram = doc;
 
-    console.log('-------------- loaded spec:', doc?.code)
+    console.log('-------------- loaded spec:', doc?.code);
     // eslint-disable-next-line
     // @ts-ignore
     window.updateSpec(doc?.code || OpenApiExample);
-    console.log('-------------- updateSpec with:', doc?.code)
+    console.log('-------------- updateSpec with:', doc?.code);
 
     // Initialize spec listeners for validation and store sync
     window.specListeners = window.specListeners || [];
@@ -193,18 +228,18 @@ async function initializeMacro() {
     // Track begin event (create or edit)
     const isNew = await MacroUtil.isCreateNew();
     if (isNew) {
-      trackAnalyticsEvent("macro_create_started", {
-        feature_area: "macro",
-        surface: "editor",
-        macro_type: "openapi",
-        entry_point: "page_editor",
+      trackAnalyticsEvent('macro_create_started', {
+        feature_area: 'macro',
+        surface: 'editor',
+        macro_type: 'openapi',
+        entry_point: 'page_editor',
       });
     } else {
-      trackAnalyticsEvent("macro_edit_opened", {
-        feature_area: "macro",
-        surface: "editor",
-        macro_type: "openapi",
-        entry_point: "macro_toolbar",
+      trackAnalyticsEvent('macro_edit_opened', {
+        feature_area: 'macro',
+        surface: 'editor',
+        macro_type: 'openapi',
+        entry_point: 'macro_toolbar',
       });
     }
 
@@ -240,22 +275,29 @@ async function initializeMacro() {
     });
 
     mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
+      editor: SwaggerForgeEditorShell,
+      editorProps: {
+        onMountedBootstrap: async () => {
+          const root = document.getElementById('openapi-bootstrap-root');
+          bootstrapSwaggerUi(root);
+          await mountEditorDocument();
+        },
+      },
       macrosCreated: customerSuccess.macrosCreated.value,
       macrosLimit: MACROS_LIMIT,
       upgradeUrl: customerSuccess.upgradeUrl.value,
       enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
+      macroKind: 'openapi',
       spaceKey,
       onClose: async () => {
         await (await getView()).close();
-      },
-      onContinueEditing: () => {
-        void mountEditor();
       },
     });
     return;
   }
 
-  await mountEditor();
+  bootstrapSwaggerUi(document.getElementById('app'));
+  await mountEditorDocument();
 }
 
 
@@ -263,30 +305,4 @@ async function initializeMacro() {
 // @ts-ignore
 window.SwaggerEditorBundle = SwaggerEditorBundle;
 
-function onload() {
-  console.log('swagger-editor - window.onload');
-
-  ReactDOM.render(
-    React.createElement(SwaggerEditor as any, { saveAndExit: saveOpenApiAndExit, exit: exit }),
-    document.getElementById('app')
-  );
-  
-  // Build a system
-  const editor = SwaggerEditorBundle({
-    dom_id: '#swagger-editor',
-    // layout: 'StandaloneLayout',
-    presets: [
-      // SwaggerEditorStandalonePreset
-    ],
-    plugins: [SpecListener],
-    // url: 'https://raw.githubusercontent.com/OAI/OpenAPI-Specification/main/examples/v3.0/uspto.json'
-  })
-
-  // eslint-disable-next-line
-  // @ts-ignore
-  window.editor = editor
-
-  initializeMacro();
-}
-
-onload();
+void initializeMacro();

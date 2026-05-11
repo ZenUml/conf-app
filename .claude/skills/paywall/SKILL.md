@@ -13,7 +13,7 @@ When invoked with no description or extra prompt, run **both** the daily monitor
 
 1. (Optional) When debugging a specific tenant, check their Forge app version (Step 0)
 2. Read the current CSS flag (Step 1) — the live CSS flag is the authoritative domain list; do not rely on any hardcoded list in this skill
-3. Run the parallel Mixpanel queries for the last 1 day (Step M below) — Q1–Q5 in parallel, then Q6 for domains with blocks or high save volume
+3. Run the parallel Mixpanel queries for the last 1 day (Step M below) — Q1–Q4 in parallel, then Q5 for domains with blocks or high save volume
 4. Build the domain table and suggest next steps
 5. Run the **A/B Impact Analysis** section — measures paywall friction against control tenants
 6. Send a PushNotification with the combined summary (daily highlights + A/B deltas)
@@ -42,6 +42,7 @@ These CSS-enrolled domains are ZenUML's own Confluence instances — not custome
 - `zenuml` → zenuml.atlassian.net (production/internal)
 - `zenuml-connect` → zenuml-connect.atlassian.net (internal, Connect-era)
 - `zenuml-stg` → zenuml-stg.atlassian.net (staging)
+- `lite-stg` → staging environment (appears in KV flag; treat as internal in all monitoring tables)
 
 ## Tenant geography & regional holidays
 
@@ -101,6 +102,8 @@ npx wrangler kv key get --namespace-id fe9042cb20994651b0a2ef9e68f9037c --remote
 
 > **IMPORTANT — always use `--remote`**: `wrangler.toml` declares `pages_build_output_dir`, which makes wrangler treat this as a Pages project and default to local Miniflare storage. Without `--remote`, every `kv key get/list` silently reads local state (always empty) and returns "Value not found" — even when the remote namespace has data. Also **never pipe through `2>/dev/null`** on wrangler KV commands — wrangler writes auth prompts and account selection to stdout (not stderr), and suppressing stderr can make it appear to succeed while actually returning stale local data.
 
+> **401 Unauthorized on `--remote`:** the shell has no Cloudflare credentials. Run `npx wrangler login` in an interactive terminal, or export `CLOUDFLARE_API_TOKEN` with at least Workers KV read (and write if updating CSS). Until auth works, skip building the “on CSS?” column from KV and state clearly that the CSS list was unavailable — do not infer enrollment from Mixpanel alone.
+
 Format: `{"zenuml-stg":true,"linemanwongnai":true}` — JSON object, keys are subdomain prefixes.
 
 ## Infrastructure constants
@@ -136,7 +139,7 @@ Use `mcp__claude_ai_Mixpanel__Run-Query` with project_id=3373228, last 1 day, ch
 "breakdowns": [{"metric": {"type": "property", "propertyName": "client_domain", "propertyType": "string", "resource": "event"}}]
 ```
 
-Run all 5 queries in parallel:
+Run all 4 queries in parallel:
 
 **Q1 — Paywall block events**
 ```
@@ -150,36 +153,13 @@ event: upgrade_modal_shown, measurement: total
 ```
 > Persona-routed display events (`bystander_notice_shown`, `persona_comparison_view_shown`) no longer fire — those modals were removed when persona routing was removed. The only display event now is `upgrade_modal_shown`.
 
-**Q3 — Marketplace CTA clicks**
+**Q3 — Advocacy copy (sole in-modal intent signal)**
 ```
-event: upgrade_cta_clicked, filter: product_option equals "marketplace", measurement: total
+event: advocacy_message_copied, measurement: total
 ```
+> The Lite paywall modal is advocacy-only: users copy a templated message to admins. Modal product-choice CTA analytics were removed with the pricing cards; **intent capture** is Q3 (`advocacy_message_copied`) only.
 
-**Q4 — Enterprise bundle CTA clicks**
-```
-event: upgrade_cta_clicked, filter: product_option equals "enterprise_bundle", measurement: total
-```
-
-> **CRITICAL — per-metric filter shape.** Per-metric filters in `Run-Query` use `filters` (plural array), not `filter` (singular). The wrong key is silently ignored — the metric returns the unfiltered global total, and Q3/Q4 will return identical results. The schema:
-> ```json
-> "metrics": [{
->   "eventName": "upgrade_cta_clicked",
->   "measurement": {"type": "basic", "math": "total"},
->   "filters": [{
->     "type": "string",
->     "propertyName": "product_option",
->     "propertyType": "string",
->     "resource": "event",
->     "operator": "equals",
->     "value": "marketplace"
->   }]
-> }]
-> ```
-> Sanity check: if Q3 and Q4 return the SAME `$overall` value, the filter was ignored — fix the shape and re-run.
-
-> Note: header-badge clicks no longer fire `upgrade_cta_clicked`. Only modal product-choice clicks do, so `product_option` is always `marketplace` or `enterprise_bundle`.
-
-**Q5 — Macro save activity** (edit activity baseline + paywall friction signal)
+**Q4 — Macro save activity** (edit activity baseline + paywall friction signal)
 ```
 event A: macro_save_succeeded, measurement: total
 event B: macro_save_failed, measurement: total
@@ -189,13 +169,13 @@ event D: macro_create_succeeded, measurement: total
 > `saves` = macro_save_succeeded (edits of existing diagrams). `creates` = macro_create_succeeded (first-time saves of new diagrams). Use to compute friction rate: `triggered / (triggered + saves)` per domain — a ratio >50% means users are hitting the wall on most edits, a sign the space is heavily restricted.
 > Non-CSS domains with high save volume are CSS enrollment candidates — flag them.
 
-**Q6 — Per-space breakdown for domains with blocks, high save volume, or creates**
+**Q5 — Per-space breakdown for domains with blocks, high save volume, or creates**
 
-For each domain that had triggered > 0 OR saves > 10 OR creates > 0 today, run a per-domain query with metrics filtered by `client_domain` and a single `confluence_space` breakdown. **Use `filters: [...]` (plural array) on each metric, not `filter: {...}` — see Q3/Q4 note above.** Concrete shape:
+For each domain that had triggered > 0 OR saves > 10 OR creates > 0 today, run a per-domain query with metrics filtered by `client_domain` and a single `confluence_space` breakdown. **Use `filters: [...]` (plural array) on each metric, not `filter: {...}`** — wrong shape returns a global aggregate. Concrete shape:
 
 ```json
 {
-  "name": "Q6 <domain> per-space",
+  "name": "Q5 <domain> per-space",
   "metrics": [
     {
       "eventName": "paywall_triggered",
@@ -221,25 +201,27 @@ For each domain that had triggered > 0 OR saves > 10 OR creates > 0 today, run a
 
 For the `mcoproduct` case where `paywall_continued_editing` is high, add it as a fourth metric with the same `filters` array — the per-space split tells you which space the bouncing user is on.
 
-Run these in parallel after Q1–Q5 complete. Cross-reference space keys against metrics-inspect (`curl https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>`) to get each space's macro count. This catches the pattern where a tenant has heavy spaces (>100 macros) but saves happen in light spaces — which explains zero blocks despite high activity (e.g. mcoproduct: 22 saves all in space MA=52 macros, while TMAB=1546 sits untouched by editors).
+Run these in parallel after Q1–Q4 complete. Cross-reference space keys against metrics-inspect (`curl https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>`) to get each space's macro count. This catches the pattern where a tenant has heavy spaces (>100 macros) but saves happen in light spaces — which explains zero blocks despite high activity (e.g. mcoproduct: 22 saves all in space MA=52 macros, while TMAB=1546 sits untouched by editors).
 
-> **Sanity check after Q6 runs.** Look at the breakdown `rows` — every space key should plausibly belong to the target tenant. If you see foreign keys (e.g. `vin3s`'s `VPay` showing up in a `mcoproduct` query), the filter wasn't applied; the query returned a global aggregate. Verify the `filters` shape and re-run.
+> **Sanity check after Q5 runs.** Look at the breakdown `rows` — every space key should plausibly belong to the target tenant. If you see foreign keys (e.g. `vin3s`'s `VPay` showing up in a `mcoproduct` query), the filter wasn't applied; the query returned a global aggregate. Verify the `filters` shape and re-run.
 
 ### Build the monitoring table
 
 For customer domains on CSS: **read the live CSS flag from Step 1** to get the current list. Do not rely on any hardcoded list here — it goes stale as new tenants are enrolled. Exclude internal sites: zenuml, zenuml-stg, zenuml-connect.
 
-| Domain | triggered | modal_shown | saves | creates | friction | continued | marketplace | enterprise | signal |
-|--------|-----------|-------------|-------|---------|----------|-----------|-------------|------------|--------|
+| Domain | triggered | modal_shown | advocacy_copies | intent_capture_rate | saves | creates | friction | continued | note |
+|--------|-----------|-------------|-----------------|---------------------|-------|---------|----------|-----------|------|
 
 - `triggered` = `paywall_triggered`
+- `advocacy_copies` = `advocacy_message_copied` (successful clipboard copy from the paywall modal — sole in-modal intent signal)
+- `intent_capture_rate` = `advocacy_copies / triggered` when `triggered > 0`, else `—`
 - `saves` = `macro_save_succeeded` (edits of existing diagrams)
 - `creates` = `macro_create_succeeded` (first-time saves of new diagrams)
 - `friction` = triggered / (triggered + saves) — add as a note if > 50%
 - `continued` = `paywall_continued_editing`
-- `signal` = **UPGRADE** if marketplace > 0 or enterprise > 0, else `—`
-- Lead the summary with **CONVERSION ALERT** if any domain has signal = UPGRADE
-- Flag any domain that appears in Q1 or Q5 results but is NOT in the CSS list — that's an anomaly or CSS enrollment candidate
+- `note` — flag high `intent_capture_rate` (users copying the advocacy message), zero copies with high triggers (message may not be landing), or domains in Q1/Q4 but not on CSS (anomaly / enrollment candidate)
+- Lead the PushNotification summary with **intent highlights** (top domains by `advocacy_copies` or `intent_capture_rate`) — there is no separate “marketplace vs enterprise” conversion column anymore
+- Flag any domain that appears in Q1 or Q4 results but is NOT in the CSS list — that's an anomaly or CSS enrollment candidate
 
 ### Per-space sub-table (for domains with blocks, saves > 10, or creates > 0)
 
@@ -262,13 +244,14 @@ These domains have emitted paywall events despite not being in CSS. Treat as lik
 | rizapg | 2026-05-01 | paywall_triggered + upgrade_modal_shown + macro_save_succeeded |
 | olix | 2026-05-02 | high save volume (19 saves/day), no paywall events — likely below 100 macros in active spaces |
 | hht-nanoplatform | 2026-05-02 | paywall_triggered + upgrade_modal_shown — not on CSS |
+| 99dotco | 2026-05-11 | 2 triggered + 2 modal_shown today (first seen); 3 triggered + 10 saves over 7 days. Not on CSS. Persistent — investigate code path. |
 
 ### PushNotification
 
 After building the table, send a PushNotification (single `message` field only — no separate title/body):
-- Format: `Paywall Daily {date} | {key highlights} | {summary}`
+- Format: `Paywall Daily {date} | {intent highlights} | {summary}`
 - Keep under 200 chars total
-- Lead with `CONVERSION ALERT` if any UPGRADE signal
+- Lead with advocacy/intent stats (e.g. domains with the highest `advocacy_copies` or `intent_capture_rate`), not legacy “marketplace vs enterprise” CTA counts
 
 ---
 
@@ -382,7 +365,7 @@ Periodic comparison: are paywall-affected tenants editing less than comparable u
 | colesgroup | AGWS=1080 | 8 | High-volume editor, large surface area |
 | airwallex | APA=650 | 7 | High-volume editor, multi-space |
 | linemanwongnai | (varies) | 5+ | Normal week. Skip during JP Golden Week (Apr 29 → May 6) |
-| vin3s | (varies) | 5+ | Heaviest-volume CSS tenant (162 saves/wk, 283 creates/wk). Enrolled 2026-05-04 — flag rollout shock until 2026-05-11 |
+| vin3s | (varies) | 5+ | Heaviest-volume CSS tenant (185 saves/wk, 40 creates/day). Enrolled 2026-05-04 — rollout shock ended 2026-05-11; re-baseline from 2026-05-18 (first clean 7-day window) |
 | mcoproduct | TMAB=1546 | 1+ | Edit volume concentrated in 1–2 power users; saves/user often >10 |
 
 Currently too low-volume to count: xendit (0 paywall events even with high save volume — active spaces below threshold), zeptonow (only 16 attempts/wk).
@@ -442,35 +425,34 @@ Definitions:
 - **Regional holidays:** Always check Group A tenants against the Tenant geography table. A tenant in JP Golden Week or SG Labour Day can drop edits to zero — that's not a paywall effect.
 - **Newly enrolled tenants:** Hold for 7 days. Day 1 looks dramatic but isn't a steady-state read.
 
-### Baseline snapshot (2026-05-09, last 7 days, expanded groups)
+### Baseline snapshot (2026-05-11, last 7 days, expanded groups)
 
 | Group | tenants | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
 |-------|---------|-------|-----------|----------|------------|------------|-------|--------------|------------|
-| **A** | 5 (colesgroup, airwallex, linemanwongnai¹, vin3s², mcoproduct³) | 380 | 224 | 604 | 72 | 1,257 | 29,968 | **63%** | 5.3 |
-| **B** | 6 (hktdc, myntfintech, woolworths-agile⁴, appculqi, economical, alterric) | 205 | 2 | 207 | 37 | 345 | 7,796 | **99%** | 5.5 |
+| **A** | 5 (colesgroup, airwallex, linemanwongnai¹, vin3s², mcoproduct) | 445 | 315 | 760 | 84 | 1,392 | 38,295 | **59%** | 5.3 |
+| **B** | 6 (hktdc, myntfintech, woolworths-agile³, appculqi, economical, alterric) | 234 | 3 | 237 | 39 | 375 | 9,766 | **99%** | 6.0 |
 
 Per-tenant breakdown:
 
 | Group | Domain | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
 |-------|--------|-------|-----------|----------|------------|------------|-------|--------------|------------|
-| A | vin3s² | 162 | 112 | 274 | 31 | 345 | 15,936 | 59% | 5.2 |
-| A | airwallex | 84 | 36 | 120 | 18 | 237 | 4,803 | 70% | 4.7 |
-| A | colesgroup | 62 | 44 | 106 | 14 | 355 | 3,621 | 58% | 4.4 |
-| A | mcoproduct³ | 48 | 25 | 73 | 4 | 185 | 3,821 | 66% | 12.0 |
-| A | linemanwongnai¹ | 24 | 7 | 31 | 5 | 135 | 1,787 | 77% | 4.8 |
-| B | hktdc | 48 | 0 | 48 | 8 | 52 | 3,566 | 100% | 6.0 |
-| B | myntfintech | 43 | 0 | 43 | 8 | 70 | 1,922 | 100% | 5.4 |
-| B | woolworths-agile⁴ | 32 | 2 | 34 | 5 | 88 | 836 | 94% | 6.4 |
-| B | appculqi | 34 | 0 | 34 | 6 | 45 | 568 | 100% | 5.7 |
-| B | economical | 25 | 0 | 25 | 7 | 74 | 704 | 100% | 3.6 |
-| B | alterric | 23 | 0 | 23 | 3 | 16 | 200 | 100% | 7.7 |
+| A | vin3s² | 185 | 157 | 342 | 34 | 392 | 20,638 | 54% | 5.4 |
+| A | airwallex | 100 | 44 | 144 | 21 | 255 | 5,881 | 69% | 4.8 |
+| A | colesgroup | 80 | 59 | 139 | 17 | 389 | 4,473 | 58% | 4.7 |
+| A | mcoproduct | 55 | 42 | 97 | 6 | 199 | 5,013 | 57% | 9.2 |
+| A | linemanwongnai¹ | 25 | 13 | 38 | 6 | 157 | 2,290 | 66% | 4.2 |
+| B | hktdc | 57 | 0 | 57 | 8 | 60 | 4,490 | 100% | 7.1 |
+| B | myntfintech | 61 | 0 | 61 | 10 | 78 | 2,764 | 100% | 6.1 |
+| B | woolworths-agile³ | 34 | 3 | 37 | 6 | 104 | 1,013 | 92% | 5.7 |
+| B | appculqi | 34 | 0 | 34 | 5 | 46 | 581 | 100% | 6.8 |
+| B | economical | 24 | 0 | 24 | 6 | 71 | 705 | 100% | 4.0 |
+| B | alterric | 24 | 0 | 24 | 4 | 16 | 213 | 100% | 6.0 |
 
-**Reading:** 36pp success-rate gap (99% → 63%) — wider than the prior 32pp baseline because vin3s+mcoproduct pull Group A's average down. saves/user is now near-flat (A 5.3 vs B 5.5, 4% gap) — once aegisepdev's power-user concentration is removed, **the paywall has essentially no impact on per-editor save throughput in steady state**. The signal lives entirely in success rate (i.e. blocked attempts), not in slowing down the editors who get through.
+**Reading:** 40pp success-rate gap (99% → 59%) — up from 36pp on 2026-05-09. vin3s still in the window with rollout shock days included; saves/user gap widened to 12% (A 5.3 vs B 6.0) but remains below the 25% meaningful threshold. **The paywall has essentially no impact on per-editor save throughput in steady state** — signal lives entirely in success rate (blocked attempts). Next clean read May 18 when both vin3s and linemanwongnai have full post-shock/post-GW 7-day windows.
 
-> ¹ **linemanwongnai:** window May 2–8 still covers Golden Week tail. True clean read from May 12 (7 full post-GW days).
-> ² **vin3s:** enrolled 2026-05-04 — only 5 days into steady state. Rollout shock pulls success rate down; re-baseline from May 12.
-> ³ **mcoproduct:** 4 unique save users for 48 saves = 12 saves/user. 89 `paywall_continued_editing` from US space alone (1–2 power users dismissing the wall repeatedly).
-> ⁴ **woolworths-agile:** fires anomalous `paywall_triggered` despite not being on CSS — known issue under investigation. Negligible impact on Group B rate.
+> ¹ **linemanwongnai:** window May 5–11 still covers Golden Week tail (May 5–6). True clean read from May 12 (7 full post-GW days).
+> ² **vin3s:** enrolled 2026-05-04 — rollout shock ends 2026-05-11. This window includes shock days; re-baseline from 2026-05-18.
+> ³ **woolworths-agile:** fires anomalous `paywall_triggered` despite not being on CSS — known issue under investigation. Negligible impact on Group B rate.
 
 ---
 
@@ -484,6 +466,7 @@ If a user reports they're not seeing the paywall, check in order:
 4. **Per-space macro count ≥ 100?** Paywall is per-space, not per-tenant. A tenant with 5,000 total macros across 100 spaces won't trigger if no single space crosses the threshold. Check `metrics-inspect` and look at top spaces by `total`.
 5. **Are users actually trying to EDIT macros in over-threshold spaces?** Paywall fires on edit click (`paywall_triggered`), NOT on viewing. View-only users in a 1,000-macro space generate zero paywall events. Cross-check `macro_viewed` against `macro_save_succeeded` filtered by `client_domain` (and ideally `confluence_space`). **If edit activity collapses on a specific date while views only partially drop, suspect a regional holiday in the tenant's primary engineering geography — see "Tenant geography & regional holidays" section above.**
 6. **Is their space licensed?** Check KV: `license:{cloudId}:{spaceKey}`.
+7. **Sub-threshold trigger discrepancy?** If `paywall_triggered` fires for a space that `metrics-inspect` shows below 100 macros, suspect a count methodology gap: `metrics-inspect` shows live macro counts, but the frontend paywall check in `useCustomerSuccessService.ts` may use a cached or differently-computed count. Observed cases: vin3s VE (83 macros, 19 triggers on 2026-05-11), vin3s VLEARN (89 macros, 2 triggers), zeptonow Engineerin (25 macros, 3 triggers). Reconcile by adding a debug log in `useCustomerSuccessService.ts` to emit the raw count seen at trigger time.
 
 There is no longer any persona / modal-routing branch — every blocked user sees the same `UpgradePrompt` modal.
 
@@ -502,7 +485,7 @@ After completing the monitoring run, review what happened and propose skill impr
 
 1. **Errors or unexpected results** — did any query fail, return unexpectedly empty results, or require a workaround not covered in the skill? If so, document the fix.
 
-2. **Event name drift** — did any event return 0 results that should have data? Could be a rename, a drop, or a new event name. Check with `mcp__claude_ai_Mixpanel__Get-Events` if suspicious. Note: `macro_save_failed` (Q5 event B) is expected to be very sparse or zero — this is normal, not a drift signal.
+2. **Event name drift** — did any event return 0 results that should have data? Could be a rename, a drop, or a new event name. Check with `mcp__claude_ai_Mixpanel__Get-Events` if suspicious. Note: `macro_save_failed` (Q4 event B in the macro-activity query) is expected to be very sparse or zero — this is normal, not a drift signal.
 
 3. **Domain list staleness** — are there new domains in Q1/Q2 results that aren't in the known CSS list? Flag them — they may need to be enrolled.
 

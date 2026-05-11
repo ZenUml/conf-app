@@ -3,22 +3,14 @@ import type { AnalyticsEventName } from './analytics/catalog';
 import type { AnalyticsProperties } from './analytics/types';
 
 export enum UpgradeEventName {
-  CTA_CLICKED = 'upgrade_cta_clicked',
   FEATURE_ENABLED = 'upgrade_feature_enabled',
   PAYWALL_TRIGGERED = 'paywall_triggered',
   MODAL_SHOWN = 'upgrade_modal_shown',
-  SLIDER_CHANGED = 'upgrade_slider_changed',
   MODAL_DISMISSED = 'upgrade_modal_dismissed',
   PAYWALL_BLOCKED_EDIT = 'paywall_blocked_edit',
   PAYWALL_CONTINUED_EDITING = 'paywall_continued_editing',
   ADVOCACY_MESSAGE_COPIED = 'advocacy_message_copied',
   ADVOCACY_DRAFT_PREVIEW_CLICKED = 'advocacy_draft_preview_clicked',
-}
-
-export enum ProductOption {
-  MARKETPLACE = 'marketplace',
-  ENTERPRISE_BUNDLE = 'enterprise_bundle',
-  UNKNOWN = 'unknown',
 }
 
 export enum UIComponent {

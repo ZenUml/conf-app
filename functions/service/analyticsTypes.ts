@@ -20,11 +20,9 @@ export type AnalyticsEventName =
   | "ai_editor_opened"
   | "ai_feedback_submitted"
   | "upgrade_modal_shown"
-  | "upgrade_cta_clicked"
   | "upgrade_action_blocked"
   | "upgrade_modal_dismissed"
   | "upgrade_prompt_hovered"
-  | "upgrade_slider_changed"
   | "content_sync_requested"
   | "content_sync_succeeded"
   | "content_sync_failed"
@@ -54,11 +52,9 @@ export const CANONICAL_EVENT_NAMES = new Set<string>([
   "ai_editor_opened",
   "ai_feedback_submitted",
   "upgrade_modal_shown",
-  "upgrade_cta_clicked",
   "upgrade_action_blocked",
   "upgrade_modal_dismissed",
   "upgrade_prompt_hovered",
-  "upgrade_slider_changed",
   "content_sync_requested",
   "content_sync_succeeded",
   "content_sync_failed",

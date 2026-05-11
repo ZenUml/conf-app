@@ -2,7 +2,7 @@
 name: pvt-paywall
 description: >
   Focused production validation for the paywall modal. Tests every interactive element,
-  every dismissal path, and Mixpanel event firing (upgrade_modal_shown, upgrade_cta_clicked
+  every dismissal path, and Mixpanel event firing (upgrade_modal_shown, advocacy_message_copied
   with ui_component=modal, paywall_continued_editing). Invoked automatically by release-app
   Step 5.5 when paywall-related commits are detected.
   Triggers on "pvt-paywall", "test paywall", "validate paywall".
@@ -33,18 +33,17 @@ Site: always production (`zenuml.atlassian.net`).
 
 ## What the modal looks like (current)
 
-The current modal is `src/components/UpgradePrompt/UpgradePrompt.vue`. Single variant, single funnel. Structure:
+The current modal is `src/components/UpgradePrompt/UpgradePrompt.vue`. Single variant, advocacy-first. Structure:
 
 - **Header**: `This space has reached the ZenUML Lite limit ({{macrosLimit}} macros).`
 - **Subhead**: `Existing diagrams still render. To create or edit, upgrade the space.`
-- **Heading**: `Pick the upgrade that fits your team`
-- **Two side-by-side pricing cards**:
-  - Marketplace card with primary button `Upgrade →`
-  - Enterprise Bundle card with secondary button `Get Bundle →`
-- **Footer**: a `Continue editing without upgrading` button (`data-testid="continue-editing-btn"`) on the left and a `Why do I need to upgrade? →` link on the right.
-- **No × button.** Dismissal is via Escape or clicking the backdrop. The CTAs open external tabs and *deliberately do not close the modal* (closing tears down the Forge iframe and races `router.open()`; see `useUpgradeTracking.ts:64-68`).
+- **Hero** (`PaywallHero`) — illustration + factual framing
+- **Collapsible draft preview** — control `data-testid="draft-toggle-btn"`; expands to show the templated message body
+- **Primary CTA**: `Copy upgrade request` (`data-testid="advocacy-copy-btn"`) — copies advocacy text; on success fires Mixpanel `advocacy_message_copied` with `ui_component=modal`
+- **Footer**: `Continue editing without upgrading` (`data-testid="continue-editing-btn"`) and external link `Why do I need to upgrade? →` (`https://zenuml.com/upgrade/`, `target="_blank"`)
+- **No × button.** Dismissal is via Escape or clicking the backdrop.
 
-If the modal you see has a "Copy message" or "Open in email" button, you're on stale code (pre-2026-05-02 multi-variant Bystander) — **stop and report**, do not continue.
+If the modal still shows side-by-side Marketplace / Enterprise Bundle cards with `Upgrade →` / `Get Bundle →`, the Forge host is on **stale code** — stop and report.
 
 ## Steps
 
@@ -83,34 +82,30 @@ In the iframe document, confirm all of the following are visible:
 
 - Header text contains `This space has reached the ZenUML Lite limit`
 - Subhead text contains `Existing diagrams still render`
-- Heading text contains `Pick the upgrade that fits your team`
-- A button with text `Upgrade →` (Marketplace primary CTA)
-- A button with text `Get Bundle →` (Enterprise Bundle secondary CTA)
-- A button with `data-testid="continue-editing-btn"` (text: `Continue editing without upgrading`)
+- Control `data-testid="draft-toggle-btn"` (draft preview toggle)
+- Button `data-testid="advocacy-copy-btn"` with label containing `Copy upgrade request`
+- Button `data-testid="continue-editing-btn"` (text: `Continue editing without upgrading`)
 - An anchor with text `Why do I need to upgrade? →` whose href is `https://zenuml.com/upgrade/` and `target="_blank"`
 
 **Fail if:** any of the above is missing.
 
-### 5. Verify dismissals do NOT grant edit access
+### 5. Verify dismissals and external link do NOT grant edit access
 
 Reopen the modal between each test by clicking `Edit` again on the macro.
 
 | Action | Expected |
 |---|---|
 | Press Escape | Modal closes. Editor not mounted. |
-| Click the dark backdrop (`bg-black bg-opacity-50`) outside the white card | Modal closes. Editor not mounted. |
-| Click `Upgrade →` (Marketplace) | New tab opens (Atlassian Marketplace listing). **Modal stays open.** Editor not mounted on the original tab. |
-| Click `Get Bundle →` (Enterprise) | New tab opens (Stripe Checkout). **Modal stays open.** Editor not mounted. |
-| Click `Why do I need to upgrade? →` | New tab opens (zenuml.com/upgrade). Modal stays open. Editor not mounted. |
+| Click the dark backdrop outside the white card | Modal closes. Editor not mounted. |
+| Click `Why do I need to upgrade? →` | New tab opens (zenuml.com/upgrade). Modal may stay open. Editor not mounted on the original tab until user uses Continue editing. |
 
-**Fail if:** the editor mounts after any of these actions, OR the modal closes after a CTA click (CTA closing the modal is the regression that was specifically fixed in `useUpgradeTracking.ts:64-68` — protect it).
+**Fail if:** the editor mounts after Escape or backdrop without an explicit Continue flow.
 
-### 6. Verify the recent `ui_component=modal` instrumentation fix
+### 6. Verify advocacy copy instrumentation
 
-After clicking each CTA in step 5, capture the outgoing Mixpanel network request. Confirm the request body contains `"ui_component":"modal"` (this property was previously hardcoded as `"tooltip"` — the fix landed in PR #32, deployed 2026-05-07).
+After a successful clipboard write from `advocacy-copy-btn`, capture the outgoing Mixpanel request. Confirm the POST body includes the advocacy event name and `"ui_component":"modal"`.
 
 ```js
-// Listen for Mixpanel requests
 const captured = [];
 page.on('request', req => {
   const url = req.url();
@@ -118,13 +113,12 @@ page.on('request', req => {
     captured.push({ url, body: req.postData() });
   }
 });
-// ... click Marketplace and Bundle CTAs ...
-// Then verify:
-const ctaRequests = captured.filter(r => r.body?.includes('upgrade_cta_clicked'));
-const allHaveModal = ctaRequests.every(r => r.body.includes('"ui_component":"modal"'));
+// ... click Copy upgrade request after secure clipboard is available ...
+const advocacyRequests = captured.filter(r => r.body?.includes('advocacy_message_copied'));
+const allHaveModal = advocacyRequests.every(r => r.body.includes('"ui_component":"modal"'));
 ```
 
-**Fail if:** any `upgrade_cta_clicked` request from the modal carries `"ui_component":"tooltip"` (the regression).
+**Fail if:** a successful copy does not emit an analytics request tagged `ui_component=modal`.
 
 ### 7. Verify Continue editing grants access
 
@@ -136,7 +130,7 @@ Click `Edit` again to reopen the modal. Click the `Continue editing without upgr
 
 ### 8. Verify Mixpanel events (delayed sanity check)
 
-This step is OPTIONAL when step 6 already passed (we have direct network evidence). Skip if you're time-constrained. If running it: wait at least 2 minutes after step 7 before querying — Mixpanel ingestion takes 30–120 seconds.
+Optional when step 6 already passed. If running: wait at least 2 minutes after step 7 — Mixpanel ingestion takes 30–120 seconds.
 
 Use `mcp__claude_ai_Mixpanel__Run-Query` with project_id=3373228, last 1 hour, filtered to `client_domain = zenuml`.
 
@@ -144,7 +138,7 @@ Use `mcp__claude_ai_Mixpanel__Run-Query` with project_id=3373228, last 1 hour, f
 
 **Query B — `paywall_continued_editing`:** count ≥ 1 (from step 7).
 
-**Query C — `upgrade_cta_clicked` with breakdown by `ui_component`:** every event from this run should be tagged `ui_component=modal`.
+**Query C — `advocacy_message_copied`:** if step 6 exercised copy, count ≥ 1; breakdown by `ui_component` should be `modal` only for this flow.
 
 ### 9. Clean up localStorage mocks
 
@@ -166,9 +160,9 @@ Verify cleanup: after the reload, click `Edit` again. The paywall modal must NOT
 ## pvt-paywall: PASS | FAIL
 - Step 3 (modal appears on edit): PASS | FAIL
 - Step 4 (all elements present): PASS | FAIL
-- Step 5 (dismissals don't grant access): PASS | FAIL — <which action failed>
-- Step 6 (ui_component=modal in CTA requests): PASS | FAIL
+- Step 5 (dismissals / external link): PASS | FAIL — <which action failed>
+- Step 6 (advocacy copy analytics): PASS | FAIL
 - Step 7 (continue editing mounts editor): PASS | FAIL
-- Step 8 (Mixpanel ingestion check): PASS | FAIL | SKIPPED — modal_shown={n}, continued={n}, cta_modal={n}
+- Step 8 (Mixpanel ingestion check): PASS | FAIL | SKIPPED — modal_shown={n}, continued={n}, advocacy={n}
 - Step 9 (cleanup leaves modal disabled): PASS | FAIL
 ```

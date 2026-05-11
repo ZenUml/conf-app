@@ -43,7 +43,6 @@ vi.mock('@/utils/upgradeTracking', () => ({
   trackUpgradeEvent: vi.fn(),
   UpgradeEventName: { PAYWALL_TRIGGERED: 'paywall_triggered', PAYWALL_BLOCKED_EDIT: 'paywall_blocked_edit' },
   UIComponent: { VIEWER_NOTICE: 'viewer_notice' },
-  ProductOption: { MARKETPLACE: 'marketplace', ENTERPRISE_BUNDLE: 'enterprise_bundle' },
 }))
 
 vi.mock('@/utils/window', () => ({ trackEvent: vi.fn(), getUrlParam: vi.fn() }))

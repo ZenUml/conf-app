@@ -81,7 +81,6 @@ import {
 } from './buildAdvocacyMessage'
 import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
 
-// Mirrors the price displayed on EnterpriseBundleCard (`$<cost>/yr/space`).
 const ENTERPRISE_BUNDLE_PRICE = `$${ENTERPRISE_BUNDLE_ANNUAL_COST}/yr/space`
 
 const props = withDefaults(
@@ -120,14 +119,7 @@ const messageContext = computed<AdvocacyMessageContext>(() => ({
 
 const message = computed(() => buildAdvocacyMessage(messageContext.value))
 
-// Tracking — slider params kept for backward compat with the helper signature,
-// but we no longer have a slider so they always read 0.
-const tracking = useUpgradeTracking(
-  () => props.visible,
-  () => 0,
-  () => 0,
-  () => emit('close')
-)
+const tracking = useUpgradeTracking(() => props.visible, () => emit('close'))
 
 const draftExpanded = ref(false)
 

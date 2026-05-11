@@ -327,18 +327,17 @@ KV flags use the **subdomain prefix** (`linemanwongnai`) but D1 `UserBehaviorEve
 
 ### Paywall / upgrade event mapping
 
-Don't assume "Upgrade" clicks map to `upgrade_cta_clicked`. The actual wiring:
+The Lite paywall modal (`UpgradePrompt.vue`) is advocacy-only: there are no in-modal Marketplace or Enterprise Bundle CTAs. **Intent capture** is `advocacy_message_copied` when the user successfully copies the templated upgrade request.
 
 | User action | Event fired | Key property |
 |-------------|-------------|--------------|
 | Clicks **"Upgrade" button in the viewer header** | `paywall_triggered` | `action_type: "header_badge"` (and `ui_component: "viewer_notice"`) |
 | Hits a per-space limit while editing | `paywall_triggered` / `paywall_blocked_edit` | `action_type` set accordingly |
 | Upgrade modal becomes visible (any path) | `upgrade_modal_shown` | `trigger_source` |
-| Clicks Marketplace / Enterprise Bundle **inside the modal** | `upgrade_cta_clicked` | `ui_component: "modal"`, `product_option`, `cta_position` |
-| Copies advocacy message inside the modal | `advocacy_message_copied` | `ui_component: "modal"` |
-| Dismisses the modal | `upgrade_modal_dismissed` | `time_spent`, `slider_interacted` |
+| Copies advocacy message inside the modal (clipboard succeeds) | `advocacy_message_copied` | `ui_component: "modal"` |
+| Dismisses the modal | `upgrade_modal_dismissed` | `time_spent` |
 
-Key trap: **`upgrade_cta_clicked` only fires from inside the modal**, so it is NOT the right event for "who clicked the Upgrade button in the header." Use `paywall_triggered` filtered by `action_type="header_badge"` for that. Sources: `src/utils/upgradeTracking.ts` (event/property enums), `src/components/Viewer/GenericViewer.vue:258` (header button → `paywall_triggered`), `src/components/UpgradePrompt/useUpgradeTracking.ts` (modal-internal events).
+Use `paywall_triggered` filtered by `action_type="header_badge"` for header Upgrade clicks — not modal copy events. Sources: `src/utils/upgradeTracking.ts`, `src/components/Viewer/GenericViewer.vue` (header → `paywall_triggered`), `src/components/UpgradePrompt/useUpgradeTracking.ts` (modal events).
 
 ## File Structure Notes
 

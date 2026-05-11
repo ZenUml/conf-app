@@ -24,7 +24,7 @@
         <div class="px-4 pb-1">
           <button
             class="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 cursor-pointer select-none w-full"
-            @click="draftExpanded = !draftExpanded"
+            @click="onDraftPreviewToggle"
             :aria-expanded="draftExpanded ? 'true' : 'false'"
             data-testid="draft-toggle-btn"
           >
@@ -130,6 +130,12 @@ const tracking = useUpgradeTracking(
 )
 
 const draftExpanded = ref(false)
+
+function onDraftPreviewToggle() {
+  const willExpand = !draftExpanded.value
+  draftExpanded.value = willExpand
+  tracking.trackAdvocacyDraftPreviewToggle(willExpand)
+}
 
 const modalContainer = ref<HTMLElement | null>(null)
 watch(() => props.visible, async (v) => {

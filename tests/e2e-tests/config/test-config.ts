@@ -1,7 +1,7 @@
-import { getAppProfile, APP_PROFILES, type AppProfile, type MacroType } from './apps.js';
+import { getAppProfile, APP_PROFILES, type AppProfile, type MacroType, type ProductType } from './apps.js';
 
 export { TIMEOUTS } from './timeouts.js';
-export type { MacroType } from './apps.js';
+export type { MacroType, ProductType } from './apps.js';
 
 interface TestConfig {
   domain: string;
@@ -9,6 +9,8 @@ interface TestConfig {
   existingPageId: string | undefined;
   parentPageId: string;
   parentPageName: string;
+  /** Same values as Vite `PRODUCT_TYPE` / Forge wizard (`lite` | `full` | `diagramly`). */
+  productType: ProductType;
   isLite: boolean;
   isForge: boolean;
   isProd: boolean;
@@ -26,6 +28,13 @@ interface TestConfig {
   baseUrl: string;
   pageUrl(id: string): string;
   validate(): void;
+}
+
+/** Optional override when using legacy env vars (`APP` unset) — matches build `PRODUCT_TYPE`. */
+function productTypeFromEnv(): ProductType | undefined {
+  const t = process.env.PRODUCT_TYPE;
+  if (t === 'lite' || t === 'full' || t === 'diagramly') return t;
+  return undefined;
 }
 
 function resolveProfile(): AppProfile {
@@ -50,6 +59,8 @@ function resolveProfile(): AppProfile {
     parentPageId: siteProfile?.parentPageId || '',
     parentPageName: siteProfile?.parentPageName || 'Before release test pages',
     isLite,
+    productType:
+      productTypeFromEnv() ?? siteProfile?.productType ?? (isLite ? 'lite' : 'full'),
     isForge,
     macros: ['sequence', 'graph', 'openapi', 'embed', 'mermaid'],
     addonKey: siteProfile?.addonKey ?? (isLite ? 'com.zenuml.confluence-addon-lite' : 'com.zenuml.confluence-addon'),
@@ -68,6 +79,7 @@ export const testConfig: TestConfig = {
   existingPageId: process.env.PAGE_ID,
   parentPageId: process.env.PARENT_PAGE_ID || profile.parentPageId,
   parentPageName: profile.parentPageName,
+  productType: profile.productType,
   isLite: profile.isLite,
   isForge: profile.isForge,
   isProd: profile.id.endsWith('@prod'),

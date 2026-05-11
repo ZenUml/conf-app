@@ -1,6 +1,15 @@
 import { Page } from '@playwright/test';
-import { testConfig } from '../config/test-config.js';
+import { testConfig, type MacroType } from '../config/test-config.js';
 import { withLock } from './api-lock.js';
+
+/** One emoji per diagram/macro kind (stable set for E2E page titles). */
+const MACRO_EMOJI: Record<MacroType, string> = {
+  sequence: '💬',
+  graph: '📐',
+  openapi: '🔌',
+  embed: '🧩',
+  mermaid: '🌊',
+};
 
 interface MacroOptions {
   sequence?: boolean | { bodyOnly?: boolean };
@@ -33,7 +42,7 @@ export class PageCreator {
   }
 
   async createTestPage(options: MacroOptions): Promise<string> {
-    const title = `E2E test page at ${new Date()} - ${this.generateUUID()}`;
+    const title = this.buildPageTitle(options);
 
     // Serialize entire page creation to prevent overwhelming Confluence
     return await withLock(async () => {
@@ -177,6 +186,43 @@ export class PageCreator {
     return testConfig.isLite ? '-lite' : '';
   }
 
+  /** Compact UTC stamp for titles (avoids `Date`’s long default string with TZ name). */
+  private titleTimestamp(): string {
+    return new Date().toISOString().slice(0, 16).replace('T', ' ');
+  }
+
+  private activeMacroTypes(options: MacroOptions): MacroType[] {
+    const out: MacroType[] = [];
+    if (options.sequence) out.push('sequence');
+    if (options.graph) out.push('graph');
+    if (options.openapi) out.push('openapi');
+    if (options.embed) out.push('embed');
+    if (options.mermaid) out.push('mermaid');
+    return out;
+  }
+
+  /**
+   * Keeps the contiguous substring `E2E test page at` for scripts/filters (e.g. archive_pages.js).
+   */
+  private buildPageTitle(options: MacroOptions): string {
+    const macros = this.activeMacroTypes(options);
+    const emojiRun = macros.map((m) => MACRO_EMOJI[m]).join('');
+    const macroSlug = macros.length ? macros.join('+') : 'unknown';
+    const product = testConfig.productType;
+    const ts = this.titleTimestamp();
+    const suf = this.titleSuffix();
+    const prefix = emojiRun ? `${emojiRun} · ` : '';
+    return `E2E test page at ${prefix}${product} · ${macroSlug} · ${ts} - ${suf}`;
+  }
+
+  /** Short disambiguator for page titles only (macros still use `generateUUID`). */
+  private titleSuffix(): string {
+    let s = '';
+    while (s.length < 3) {
+      s += Math.random().toString(36).slice(2);
+    }
+    return s.slice(0, 3);
+  }
 
   private generateUUID(): string {
     return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);

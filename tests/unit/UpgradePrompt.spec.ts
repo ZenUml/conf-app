@@ -11,6 +11,7 @@ vi.mock('@/utils/upgradeTracking', () => ({
     SLIDER_CHANGED: 'upgrade_slider_changed',
     PAYWALL_CONTINUED_EDITING: 'paywall_continued_editing',
     ADVOCACY_MESSAGE_COPIED: 'advocacy_message_copied',
+    ADVOCACY_DRAFT_PREVIEW_CLICKED: 'advocacy_draft_preview_clicked',
   },
   ProductOption: {
     MARKETPLACE: 'marketplace',
@@ -101,6 +102,15 @@ describe('UpgradePrompt', () => {
     toggle.click()
     await Promise.resolve()
 
+    expect(trackUpgradeEvent).toHaveBeenCalledWith(
+      'advocacy_draft_preview_clicked',
+      expect.objectContaining({
+        ui_component: 'modal',
+        expanded: true,
+        macro_count: 100,
+      })
+    )
+
     const draftBody = document.querySelector('[data-testid="advocacy-draft-body"]') as HTMLElement
     expect(draftBody).toBeTruthy()
     expect(draftBody.textContent).toContain('engineering-architecture')
@@ -109,6 +119,33 @@ describe('UpgradePrompt', () => {
     expect(draftBody.textContent).toContain('https://marketplace.example/upgrade')
     expect(draftBody.textContent).toContain('https://stripe.example/bundle')
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
+
+    wrapper.unmount()
+  })
+
+  it('tracks advocacy_draft_preview_clicked with expanded false when collapsing the draft', async () => {
+    const wrapper = mount(UpgradePrompt, {
+      props: baseProps,
+      attachTo: document.body,
+    })
+
+    const toggle = document.querySelector('[data-testid="draft-toggle-btn"]') as HTMLButtonElement
+    toggle.click()
+    await Promise.resolve()
+    vi.mocked(trackUpgradeEvent).mockClear()
+
+    toggle.click()
+    await Promise.resolve()
+
+    expect(trackUpgradeEvent).toHaveBeenCalledTimes(1)
+    expect(trackUpgradeEvent).toHaveBeenCalledWith(
+      'advocacy_draft_preview_clicked',
+      expect.objectContaining({
+        ui_component: 'modal',
+        expanded: false,
+        macro_count: 100,
+      })
+    )
 
     wrapper.unmount()
   })

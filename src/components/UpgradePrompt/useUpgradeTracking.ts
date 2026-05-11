@@ -106,11 +106,23 @@ export function useUpgradeTracking(
     })
   }
 
+  /** User toggled the collapsible advocacy draft preview in the paywall modal. */
+  const trackAdvocacyDraftPreviewToggle = (expanded: boolean) => {
+    const timeToDecision = Date.now() - modalShownTime.value
+    trackUpgradeEvent(UpgradeEventName.ADVOCACY_DRAFT_PREVIEW_CLICKED, {
+      ui_component: UIComponent.MODAL,
+      expanded,
+      time_to_decision: Math.round(timeToDecision / 1000),
+      ...getUpgradeContext(),
+    })
+  }
+
   return {
     trackSliderChange,
     handleClose,
     trackMarketplaceClick,
     trackEnterpriseBundleClick,
     trackAdvocacyCopy,
+    trackAdvocacyDraftPreviewToggle,
   }
 }

@@ -1,0 +1,71 @@
+# A/B baseline snapshots
+
+Each weekly A/B run appends a snapshot here so the next run can read week-over-week deltas without re-querying history. Most recent snapshot at the **top**.
+
+When you run the A/B Impact Analysis, after computing the per-tenant and group-aggregate numbers:
+
+1. Read the most recent snapshot below to compute Δ (success_rate gap change, saves/user trend, new conversions).
+2. Prepend a new dated section with today's numbers. Keep the format consistent so future runs can diff.
+3. Don't delete old snapshots — they're the only longitudinal record. Trim if the file grows past ~20 entries.
+
+---
+
+## 2026-05-12 (last 7 days)
+
+| Group | tenants | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|---------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| **A** | 5 (colesgroup, airwallex, linemanwongnai¹, vin3s², mcoproduct) | 401 | 273 | 674 | 74 | 1,322 | 35,299 | **59.5%** | 5.4 |
+| **B** | 6 (hktdc, myntfintech, woolworths-agile³, appculqi, economical, alterric) | 206 | 2 | 208 | 37 | 374 | 8,722 | **99.0%** | 5.6 |
+
+Per-tenant breakdown:
+
+| Group | Domain | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|--------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| A | vin3s² | 163 | 142 | 305 | 29 | 362 | 18,523 | 53.4% | 5.6 |
+| A | airwallex | 92 | 39 | 131 | 17 | 243 | 5,804 | 70.2% | 5.4 |
+| A | colesgroup | 72 | 37 | 109 | 16 | 367 | 3,887 | 66.1% | 4.5 |
+| A | mcoproduct | 49 | 42 | 91 | 5 | 193 | 4,841 | 53.8% | 9.8 |
+| A | linemanwongnai¹ | 25 | 13 | 38 | 7 | 157 | 2,244 | 65.8% | 3.6 |
+| B | hktdc | 52 | 0 | 52 | 8 | 58 | 3,794 | 100% | 6.5 |
+| B | myntfintech | 53 | 0 | 53 | 9 | 72 | 2,277 | 100% | 5.9 |
+| B | woolworths-agile³ | 22 | 2 | 24 | 5 | 99 | 986 | 91.7% | 4.4 |
+| B | appculqi | 31 | 0 | 31 | 5 | 48 | 675 | 100% | 6.2 |
+| B | economical | 24 | 0 | 24 | 6 | 81 | 770 | 100% | 4.0 |
+| B | alterric | 24 | 0 | 24 | 4 | 16 | 220 | 100% | 6.0 |
+
+**Reading:** 39.5pp success-rate gap (99.0% → 59.5%), essentially flat vs the 40pp on 2026-05-11. saves/user gap *narrowed* sharply: A=5.4 vs B=5.6 (3.6% gap, down from 12% yesterday) — driven by Group B trending down (myntfintech 6.1→5.9, hktdc 7.1→6.5, appculqi 6.8→6.2) more than Group A trending up. Per-tenant, colesgroup improved (58%→66%) and mcoproduct slipped (57%→54%) but its 9.8 saves/user remains the highest in either group — power-user team continues high output despite friction. **mcoproduct advocacy held at 5/7d** (still the strongest conversion signal). vin3s rollout-shock window ends 2026-05-11 so this snapshot is the *last* shock-affected read; from 2026-05-18 we get the first clean post-shock 7-day read for vin3s. linemanwongnai window May 6–12 still spans the Golden Week tail — clean read also May 18.
+
+> ¹ **linemanwongnai:** window May 6–12 still includes Golden Week (Apr 29 → May 6) tail day. True clean read from May 13 onward.
+> ² **vin3s:** rollout shock window (enrolled 2026-05-04) ends 2026-05-11. From 2026-05-18, we get the first fully clean 7-day post-shock read.
+> ³ **woolworths-agile:** still firing 2 anomalous `paywall_triggered` events despite not being on CSS — known persistent issue (see references/anomalies.md, first seen 2026-05-07).
+
+---
+
+## 2026-05-11 (last 7 days, expanded groups)
+
+| Group | tenants | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|---------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| **A** | 5 (colesgroup, airwallex, linemanwongnai¹, vin3s², mcoproduct) | 445 | 315 | 760 | 84 | 1,392 | 38,295 | **59%** | 5.3 |
+| **B** | 6 (hktdc, myntfintech, woolworths-agile³, appculqi, economical, alterric) | 234 | 3 | 237 | 39 | 375 | 9,766 | **99%** | 6.0 |
+
+Per-tenant breakdown:
+
+| Group | Domain | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|--------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| A | vin3s² | 185 | 157 | 342 | 34 | 392 | 20,638 | 54% | 5.4 |
+| A | airwallex | 100 | 44 | 144 | 21 | 255 | 5,881 | 69% | 4.8 |
+| A | colesgroup | 80 | 59 | 139 | 17 | 389 | 4,473 | 58% | 4.7 |
+| A | mcoproduct | 55 | 42 | 97 | 6 | 199 | 5,013 | 57% | 9.2 |
+| A | linemanwongnai¹ | 25 | 13 | 38 | 6 | 157 | 2,290 | 66% | 4.2 |
+| B | hktdc | 57 | 0 | 57 | 8 | 60 | 4,490 | 100% | 7.1 |
+| B | myntfintech | 61 | 0 | 61 | 10 | 78 | 2,764 | 100% | 6.1 |
+| B | woolworths-agile³ | 34 | 3 | 37 | 6 | 104 | 1,013 | 92% | 5.7 |
+| B | appculqi | 34 | 0 | 34 | 5 | 46 | 581 | 100% | 6.8 |
+| B | economical | 24 | 0 | 24 | 6 | 71 | 705 | 100% | 4.0 |
+| B | alterric | 24 | 0 | 24 | 4 | 16 | 213 | 100% | 6.0 |
+
+**Reading:** 40pp success-rate gap (99% → 59%) — up from 36pp on 2026-05-09. vin3s still in the window with rollout shock days included; saves/user gap widened to 12% (A 5.3 vs B 6.0) but remains below the 25% meaningful threshold. The paywall has essentially no impact on per-editor save throughput in steady state — signal lives entirely in success rate (blocked attempts). Next clean read May 18 when both vin3s and linemanwongnai have full post-shock/post-GW 7-day windows.
+
+> ¹ **linemanwongnai:** window May 5–11 still covers Golden Week tail (May 5–6). True clean read from May 12 (7 full post-GW days).
+> ² **vin3s:** enrolled 2026-05-04 — rollout shock ends 2026-05-11. This window includes shock days; re-baseline from 2026-05-18.
+> ³ **woolworths-agile:** fires anomalous `paywall_triggered` despite not being on CSS — known issue under investigation. Negligible impact on Group B rate.

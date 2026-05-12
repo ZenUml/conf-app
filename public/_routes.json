@@ -1,7 +1,6 @@
 {
   "version": 1,
   "include": [
-    "/attachment",
     "/uninstalled",
     "/track",
     "/diagramly/generate",

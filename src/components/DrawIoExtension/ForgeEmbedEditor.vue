@@ -34,8 +34,6 @@ export default {
     EventBus.$on('exit', async (showWarning) => {
       if (this.exit) {
         if (showWarning) {
-          // Show warning dialog - in Forge mode, we'll just call exit directly
-          // since AP.dialog is not available
           console.warn('Warning: User is trying to exit without saving');
           await this.exit();
         } else {

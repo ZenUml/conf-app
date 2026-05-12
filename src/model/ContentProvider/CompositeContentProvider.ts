@@ -39,24 +39,20 @@ export class CompositeContentProvider implements IContentProvider{
   }
 }
 
-const defaultContentProvider = function getCompositeContentProvider(apWrapper2: ApWrapper2): IContentProvider {
+const defaultContentProvider = function getCompositeContentProvider(apWrapper: ApWrapper2): IContentProvider {
   const renderedFor = getUrlParam('rendered.for');
-  const apWrapper = apWrapper2;
 
   if (renderedFor === 'custom-content-native') {
     const idProvider = globals.isEmbedded ? new UrlIdProvider() : new DialogCustomDataProvider(apWrapper);
-    const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
-    return new ContentProvider(idProvider, customContentStorageProvider);
+    return new ContentProvider(idProvider, new CustomContentStorageProvider(apWrapper));
   }
 
   const macroIdProvider = new MacroIdProvider(apWrapper);
-  const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
-  const ccContentProvider = new ContentProvider(macroIdProvider, customContentStorageProvider);
-  const contentPropertyStorageProvider = new ContentPropertyStorageProvider(apWrapper);
-  const cpContentProvider = new ContentProvider(macroIdProvider, contentPropertyStorageProvider);
-  const macroBodyStorageProvider = new MacroBodyStorageProvider(apWrapper);
-  const mbContentProvider = new ContentProvider(undefined, macroBodyStorageProvider);
-  return new CompositeContentProvider([ccContentProvider, cpContentProvider, mbContentProvider]);
+  return new CompositeContentProvider([
+    new ContentProvider(macroIdProvider, new CustomContentStorageProvider(apWrapper)),
+    new ContentProvider(macroIdProvider, new ContentPropertyStorageProvider(apWrapper)),
+    new ContentProvider(undefined, new MacroBodyStorageProvider(apWrapper)),
+  ]);
 }
 
 export default defaultContentProvider;

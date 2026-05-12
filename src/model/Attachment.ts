@@ -55,8 +55,7 @@ async function getIdentifier(): Promise<string | undefined> {
 }
 
 /**
- * Make requests in both Forge and Connect modes.
- * Handles multipart/form-data differently for file uploads.
+ * Handles multipart/form-data differently for Forge file uploads.
  */
 async function makeRequest(requestConfig: RequestConfig): Promise<ApiResponse> {
   if (requestConfig.contentType === 'multipart/form-data') {
@@ -189,10 +188,6 @@ function buildPutRequestToUpdateAttachmentProperties(
 // Attachment Name & Link Functions
 // ============================================================================
 
-/**
- * Generate attachment filename from identifier.
- * uuid in Connect mode, customContentId in Forge mode.
- */
 function attachmentNameByIdentifier(id: string): string {
   return `zenuml-${id}.png`;
 }

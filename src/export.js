@@ -20,24 +20,21 @@ import api, { route } from '@forge/api';
  * PDF sets context.extension.content.id (see lines 13–15 below).
  */
 function extractExportContext(payload) {
-  const isWord = !!(payload.context?.content?.id || payload.context?.contentId);
-  const format = isWord ? 'word' : 'pdf';
+  const format = payload.exportType ?? (payload.context?.content?.id || payload.context?.contentId ? 'word' : 'pdf');
 
-  const cloudId = payload.context?.cloudId ?? payload.extensionPayload?.cloudId ?? 'unknown';
+  const cloudId = payload.context?.cloudId ?? 'unknown';
 
-  const siteUrl = payload.context?.siteUrl ?? payload.extensionPayload?.siteUrl;
+  const siteUrl = payload.context?.siteUrl;
   let clientDomain = cloudId;
   if (siteUrl) {
     try { clientDomain = new URL(siteUrl).hostname; } catch (_) { clientDomain = siteUrl; }
   }
 
-  const spaceKey =
-    payload.context?.extension?.space?.key ??
-    payload.context?.spaceKey ??
-    payload.extensionPayload?.spaceKey ??
-    'unknown';
+  const spaceKey = payload.context?.spaceKey ?? payload.context?.extension?.space?.key ?? 'unknown';
 
-  return { format, cloudId, clientDomain, spaceKey };
+  const accountId = payload.context?.accountId ?? null;
+
+  return { format, cloudId, clientDomain, spaceKey, accountId };
 }
 
 /**
@@ -59,7 +56,7 @@ async function trackExportEvent(eventName, properties) {
       properties: {
         token,
         time: Math.floor(Date.now() / 1000),
-        distinct_id: properties.client_domain ?? 'forge_export',
+        distinct_id: properties.account_id ?? properties.client_domain ?? 'forge_export',
         $insert_id: `${eventName}_${properties.cloud_id ?? ''}_${Date.now()}`,
         source: 'forge_export',
         ...properties,
@@ -97,9 +94,10 @@ async function trackExportEvent(eventName, properties) {
 // ---------------------------------------------------------------------------
 
 export const handler = async (payload) => {
-  const { format, cloudId, clientDomain, spaceKey } = extractExportContext(payload);
+  const { format, cloudId, clientDomain, spaceKey, accountId } = extractExportContext(payload);
 
   await trackExportEvent('macro_export_requested', {
+    account_id: accountId,
     client_domain: clientDomain,
     cloud_id: cloudId,
     space_key: spaceKey,
@@ -107,19 +105,17 @@ export const handler = async (payload) => {
   });
 
   try {
-    // The "extensionPayload" field is observed since 2025-09-20
     const customContentId = payload.context.config?.customContentId
+      || payload.config?.customContentId
       || payload.extensionPayload?.config?.customContentId;
 
-    // Word export: context.content.id or context.contentId
-    // PDF export: context.extension.content.id
     const pageId = payload.context.content?.id || payload.context.contentId
-      || payload.context.extension?.content?.id
-      || payload.extensionPayload?.content?.id || payload.extensionPayload?.contentId;
+      || payload.context.extension?.content?.id;
 
     if (!customContentId) {
       console.warn(`Export: no customContentId, page ${pageId}`);
       await trackExportEvent('macro_export_failed', {
+        account_id: accountId,
         client_domain: clientDomain,
         cloud_id: cloudId,
         space_key: spaceKey,
@@ -140,6 +136,7 @@ export const handler = async (payload) => {
         ? 'needs_authentication'
         : `attachments_api_${response.status}`;
       await trackExportEvent('macro_export_failed', {
+        account_id: accountId,
         client_domain: clientDomain,
         cloud_id: cloudId,
         space_key: spaceKey,
@@ -155,6 +152,7 @@ export const handler = async (payload) => {
     if (!attachmentsData?.results?.length) {
       console.debug(`Export: ${attachmentName} not found on page ${pageId}`);
       await trackExportEvent('macro_export_failed', {
+        account_id: accountId,
         client_domain: clientDomain,
         cloud_id: cloudId,
         space_key: spaceKey,
@@ -170,6 +168,7 @@ export const handler = async (payload) => {
     console.info(`Export: found ${attachmentName} on page ${pageId}`);
 
     await trackExportEvent('macro_export_succeeded', {
+      account_id: accountId,
       client_domain: clientDomain,
       cloud_id: cloudId,
       space_key: spaceKey,
@@ -181,6 +180,7 @@ export const handler = async (payload) => {
   } catch (error) {
     console.error('Export function error:', error);
     await trackExportEvent('macro_export_failed', {
+      account_id: accountId,
       client_domain: clientDomain,
       cloud_id: cloudId,
       space_key: spaceKey,

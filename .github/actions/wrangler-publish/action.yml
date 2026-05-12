@@ -35,7 +35,7 @@ runs:
   using: 'composite'
   steps:
     - name: Setup pnpm
-      uses: pnpm/action-setup@v4
+      uses: pnpm/action-setup@v5
       with:
         version: 10.x
     - uses: actions/setup-node@v5
@@ -80,17 +80,17 @@ runs:
         cat wrangler.toml
       shell: bash
     - name: Run D1 Migrations
-      uses: cloudflare/wrangler-action@v3
-      with:
-        apiToken: ${{ inputs.cloudflare-api-token }}
-        accountId: ${{ inputs.cloudflare-account-id }}
-        command: d1 migrations apply DB --remote --env production
+      run: pnpm exec wrangler d1 migrations apply DB --remote --env production
+      shell: bash
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
     - name: Publish
-      uses: cloudflare/wrangler-action@v3
-      with:
-        apiToken: ${{ inputs.cloudflare-api-token }}
-        accountId: ${{ inputs.cloudflare-account-id }}
-        command: pages deploy dist --branch production --project-name=${{ inputs.project }}
+      run: pnpm exec wrangler pages deploy dist --branch production --project-name=${{ inputs.project }}
+      shell: bash
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
     - name: Cleanup
       if: always()
       run: rm -f wrangler.toml

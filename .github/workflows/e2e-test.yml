@@ -45,10 +45,6 @@ on:
 # a third entry to strategy.matrix.shard.
 env:
   SHARD_COUNT: 2
-  # Opt into Node 24 for actions still pinned to Node 20 (upload-artifact@v4,
-  # cache@v4, pnpm/action-setup@v4). Removes the "Node.js 20 actions are
-  # deprecated" warning until those actions ship Node-24 majors.
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   test:
@@ -62,7 +58,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 10.x
       - uses: actions/setup-node@v5
@@ -78,7 +74,7 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         id: pw-cache
         with:
           path: ~/.cache/ms-playwright
@@ -115,13 +111,13 @@ jobs:
           ATLASSIAN_OTP: ${{ inputs.otp }}
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: playwright-report-${{ inputs.artifact-suffix }}-shard-${{ matrix.shard }}
           path: ./tests/e2e-tests/playwright-report/
       - name: Upload screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: screenshots-${{ inputs.artifact-suffix }}-shard-${{ matrix.shard }}
           path: ./tests/e2e-tests/screenshots/

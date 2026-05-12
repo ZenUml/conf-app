@@ -55,7 +55,7 @@ jobs:
           cmd: yq eval 'del(.app.licensing)' -i manifest.yml
       - name: Upload final manifest
         if: inputs.variant == 'lite'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: manifest-lite-staging
           path: manifest.yml

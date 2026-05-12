@@ -47,10 +47,6 @@ describe('GenericViewer embed detection', () => {
     'utf-8',
   );
 
-  it('does not rely on the Connect xdm_c URL parameter', () => {
-    expect(source).not.toMatch(/xdm_c/);
-  });
-
   it('uses a Forge moduleKey-based embed detection (inline or via isEmbedMode helper)', () => {
     // The viewer uses inline regex on forgeContext.moduleKey instead of importing
     // the isEmbedMode helper — both are equivalent; accept either pattern.

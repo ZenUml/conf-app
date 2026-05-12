@@ -82,25 +82,25 @@ jobs:
       - name: Deploy "ZenUML for Confluence" to Forge Production
         if: ${{ steps.properties.outputs.license == 'lite' }}
         run: |
-          forge variables set --key MIXPANEL_TOKEN --value "$MIXPANEL_TOKEN" -e production
+          pnpm exec forge variables set --key MIXPANEL_TOKEN --value "$MIXPANEL_TOKEN" -e production
           pnpm forge:deploy:disable-analytics
           pnpm forge:deploy:lite:prod
       - name: Deploy "ZenUML for Confluence Full" to Forge Production
         if: ${{ steps.properties.outputs.license == 'full' }}
         run: |
-          APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 forge variables set --key MIXPANEL_TOKEN --value "$MIXPANEL_TOKEN" -e production
+          APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set --key MIXPANEL_TOKEN --value "$MIXPANEL_TOKEN" -e production
           pnpm forge:deploy:disable-analytics
           pnpm forge:deploy:full:prod
       - name: Deploy "Diagramly for Confluence" to Forge Production
         if: ${{ steps.properties.outputs.license == 'diagramly' }}
         run: |
-          APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf forge variables set --key MIXPANEL_TOKEN --value "$MIXPANEL_TOKEN" -e production
+          APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set --key MIXPANEL_TOKEN --value "$MIXPANEL_TOKEN" -e production
           pnpm forge:deploy:disable-analytics
           pnpm forge:deploy:diagramly:prod
       - name: Deploy "ZenUML for Confluence Full" to Forge Production
         if: ${{ steps.properties.outputs.variant == 'full' }}
         run: |
-          APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 forge variables set --key MIXPANEL_TOKEN --value "$MIXPANEL_TOKEN" -e production
+          APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set --key MIXPANEL_TOKEN --value "$MIXPANEL_TOKEN" -e production
           pnpm forge:deploy:disable-analytics
           pnpm forge:deploy:full:prod
 

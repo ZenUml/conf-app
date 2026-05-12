@@ -104,11 +104,11 @@ export const handler = async (payload) => {
     format,
   });
 
-  try {
-    const customContentId = payload.context.config?.customContentId
-      || payload.config?.customContentId
-      || payload.extensionPayload?.config?.customContentId;
+  // Word → payload.context.config, PDF → payload.extensionPayload.config
+  const customContentId = payload.context.config?.customContentId
+    || payload.extensionPayload?.config?.customContentId;
 
+  try {
     const pageId = payload.context.content?.id || payload.context.contentId
       || payload.context.extension?.content?.id;
 
@@ -120,6 +120,7 @@ export const handler = async (payload) => {
         cloud_id: cloudId,
         space_key: spaceKey,
         format,
+        custom_content_id: customContentId,
         failure_reason: 'missing_custom_content_id',
       });
       return createErrorDocument("Diagram content not available for export");
@@ -141,6 +142,7 @@ export const handler = async (payload) => {
         cloud_id: cloudId,
         space_key: spaceKey,
         format,
+        custom_content_id: customContentId,
         failure_reason: failureReason,
         http_status: response.status,
       });
@@ -157,6 +159,7 @@ export const handler = async (payload) => {
         cloud_id: cloudId,
         space_key: spaceKey,
         format,
+        custom_content_id: customContentId,
         failure_reason: 'attachment_not_found',
       });
       return createErrorDocument("Diagram attachment not found");
@@ -173,6 +176,7 @@ export const handler = async (payload) => {
       cloud_id: cloudId,
       space_key: spaceKey,
       format,
+      custom_content_id: customContentId,
     });
 
     return createMediaDocument(downloadLink);
@@ -185,6 +189,7 @@ export const handler = async (payload) => {
       cloud_id: cloudId,
       space_key: spaceKey,
       format,
+      custom_content_id: customContentId,
       failure_reason: 'unexpected_error',
     });
     return createErrorDocument("Error generating export content");

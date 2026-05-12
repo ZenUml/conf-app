@@ -104,11 +104,11 @@ export const handler = async (payload) => {
     format,
   });
 
-  try {
-    const customContentId = payload.context.config?.customContentId
-      || payload.config?.customContentId
-      || payload.extensionPayload?.config?.customContentId;
+  const customContentId = payload.context.config?.customContentId
+    || payload.config?.customContentId
+    || payload.extensionPayload?.config?.customContentId;
 
+  try {
     const pageId = payload.context.content?.id || payload.context.contentId
       || payload.context.extension?.content?.id;
 
@@ -185,6 +185,7 @@ export const handler = async (payload) => {
       cloud_id: cloudId,
       space_key: spaceKey,
       format,
+      custom_content_id: customContentId,
       failure_reason: 'unexpected_error',
     });
     return createErrorDocument("Error generating export content");

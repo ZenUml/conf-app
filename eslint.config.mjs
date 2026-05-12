@@ -67,5 +67,13 @@ export default tseslint.config(
         vi: "readonly",
       },
     },
-  }
+  },
+  {
+    files: ["src/export.js"],
+    languageOptions: {
+      globals: {
+        process: "readonly",
+      },
+    },
+  },
 );

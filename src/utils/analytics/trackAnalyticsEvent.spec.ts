@@ -30,6 +30,10 @@ const mockGlobals = {
   apWrapper: {
     currentUser: { atlassianAccountId: "user-123" },
     getMacroData: vi.fn().mockResolvedValue({ uuid: "fallback-uuid" }),
+    getCurrentSpaceAdmins: vi.fn().mockResolvedValue([
+      { type: "user", id: "user-999", displayName: "Alice Admin" },
+      { type: "user", id: "user-123", displayName: "Bob Builder" },
+    ]),
   },
 };
 
@@ -100,6 +104,19 @@ describe("trackAnalyticsEvent", () => {
     expect(mixpanel.track).toHaveBeenCalledWith(
       "macro_viewed",
       expect.objectContaining({ macro_uuid: "macro-abc" })
+    );
+  });
+
+  it("adds the space admin count for macro_viewed", async () => {
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    expect(mockGlobals.apWrapper.getCurrentSpaceAdmins).toHaveBeenCalled();
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({ space_admin_count: 2 })
     );
   });
 

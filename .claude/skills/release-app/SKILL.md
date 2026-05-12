@@ -144,17 +144,54 @@ git log <prev-tag>..<new-tag> --oneline
 
 Read `git log` output **as product intent**, not just keyword soup: group commits into themes (e.g. paywall modal, fullscreen bridge, DrawIO chrome, OpenAPI viewer, editor modal). Note **which user-visible surfaces** and **macro types** are implicated.
 
-#### 2. Design the focused test **plan** (required)
+For any commit that is not self-explanatory from the subject line, **read the actual diff** (`git show <sha>`) to understand the specific code change before writing the plan.
 
-Produce an explicit **plan**: one line per check — **what behaviour** you are validating and **how** (production URL flow, Playwright MCP, insert smoke, API poke, etc.). The plan must map to **this** delta. Examples:
+#### 2. Write the focused test plan — BEFORE touching the browser
 
-- Paywall / upgrade paths touched → exercise modal, dismissal, Continue editing (often `/pvt-paywall <variant>` when Lite funnel applies).
-- Fullscreen / viewer chrome touched → enter and exit fullscreen (`/pvt-fullscreen <variant>`).
-- Edit path / Forge modal touched → edit → publish / cancel (`/pvt-edit <variant>`).
-- OpenAPI / Swagger touched → macro insert or viewer smoke (`/pvt-swagger <variant>`).
-- Graph / DrawIO touched → graph macro with geometry check (`/pvt-drawio <variant>`).
+**STOP. Do not open the browser, run Playwright, or invoke any `/pvt-*` skill until this plan is written and output in the response.**
 
-If the delta does **not** map to an existing skill, **still** add targeted checks (custom steps). Absence of a keyword registry match is **not** an excuse to skip focused coverage.
+The plan is a checklist of **specific, falsifiable assertions** about what you expect to observe in production — one assertion per behavioural or instrumentation change in the delta. Each assertion must name:
+
+1. **The changed behaviour** — derived from reading the commit/diff, not from keyword matching
+2. **The observable signal** — a specific Mixpanel event + property, a named UI element, a network response, etc.
+3. **The method** — how you will verify it (Playwright MCP step, request intercept, curl, etc.)
+
+**Format:**
+
+```
+Focused test plan for v{new-tag}
+
+Commit: <subject>
+  - [ ] <specific observable assertion>  [method]
+  - [ ] <specific observable assertion>  [method]
+
+Commit: <subject>
+  - [ ] <specific observable assertion>  [method]
+
+Skipped: <subject> — <reason, e.g. "test-only change, no production behaviour">
+```
+
+**Example of a good plan entry** (for a commit that adds draft-preview toggle tracking):
+
+```
+Commit: Track paywall advocacy draft preview expand and collapse in Mixpanel
+  - [ ] Clicking draft toggle (expand) fires Mixpanel `advocacy_draft_preview_clicked`
+        with `expanded: true` and `ui_component: "modal"`  [Playwright + request intercept]
+  - [ ] Clicking draft toggle (collapse) fires Mixpanel `advocacy_draft_preview_clicked`
+        with `expanded: false` and `ui_component: "modal"`  [Playwright + request intercept]
+```
+
+**Example of a bad plan entry** (vague; derived from keyword not diff):
+
+```
+Commit: Track paywall advocacy draft preview expand and collapse in Mixpanel
+  - [ ] Run /pvt-paywall  ← BAD: this is a recipe call, not an assertion
+```
+
+**Key rules:**
+- Each `[ ]` must be independently pass/fail checkable — if you cannot state what "pass" looks like before running, the assertion is too vague.
+- `/pvt-*` skills may appear as **method shortcuts** once an assertion is already written (`/pvt-paywall` covers assertions A, B, C), but never as a substitute for writing the assertion first.
+- If the delta contains no production behaviour changes (docs-only, test-only, infra-only), write `Focused tests: N/A — <one-line justification>` and proceed to Step 6.
 
 #### 3. Execute the plan
 

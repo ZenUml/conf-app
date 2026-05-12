@@ -306,19 +306,19 @@ When asked to "run a focused test" on a specific environment (e.g. "run focused 
 | Event | Storage | Purpose |
 |-------|---------|---------|
 | `page_viewed`, `page_updated` | D1 `UserBehaviorEvent` (full hostname as `clientDomain`, e.g. `linemanwongnai.atlassian.net`) | Tenant activity signal — fires for any Confluence page with the macro installed, NOT specific to macro views |
-| `view_macro` | Mixpanel only | Actual macro view counts; use for paywall/engagement analysis |
+| `macro_viewed` (renamed from `view_macro` on 2026-04-28) | Mixpanel only | Actual macro view counts; use for paywall/engagement analysis |
 | Install/uninstall lifecycle | R2 `atlassian-events` bucket (`{domain}/lifecycle/{isoDate}.json`) | Forge install events |
 
 > Mixpanel tracking for `page_viewed`/`page_updated` is intentionally commented out in `functions/forge-user-behavior.ts:62`.
 
 ### Interpreting `page_viewed` in D1
 
-`page_viewed` fires whenever a user views any Confluence page on a site where our macro is installed. It does **not** mean the user viewed one of our macros. Use it to determine whether a **tenant is active on Confluence** (i.e., people are using the product at all). For macro-specific engagement, use Mixpanel `view_macro`.
+`page_viewed` fires whenever a user views any Confluence page on a site where our macro is installed. It does **not** mean the user viewed one of our macros. Use it to determine whether a **tenant is active on Confluence** (i.e., people are using the product at all). For macro-specific engagement, use Mixpanel `macro_viewed`.
 
 ### Key analytics sources
 
 - **D1 `conf-zenuml-prod`** — tenant activity (`UserBehaviorEvent`), install records (`ForgeInstallation`, `ClientInstallation`), content data
-- **Mixpanel** — macro view counts (`view_macro`), filtered by `client_domain` property. **Project ID: `3373228`** (the `Diagramly.Ai` project; conf-app shares this single project — there is no separate one). Query via `mcp__mixpanel__Run-Query` with `project_id=3373228`, or via JQL using `API_Secret` from `.env.mixpanel`.
+- **Mixpanel** — macro view counts (`macro_viewed`), filtered by `client_domain` property. **Project ID: `3373228`** (the `Diagramly.Ai` project; conf-app shares this single project — there is no separate one). Query via `mcp__mixpanel__Run-Query` with `project_id=3373228`, or via JQL using `API_Secret` from `.env.mixpanel`.
 - **KV metrics-inspect** — macro counts per space: `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<subdomain>`
 
 ### clientDomain format mismatch

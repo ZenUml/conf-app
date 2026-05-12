@@ -207,6 +207,53 @@ This gives you actual numbers for both periods, allowing you to compute % change
 
 ## Interpreting Results
 
+### Observation vs interpretation rule
+
+**State what the data shows first. Only offer a causal explanation if you can verify it before writing it.**
+
+- ✅ "views +47% week-over-week — both windows are structurally identical (Tue–Mon, 2 weekend days each), so this looks like genuine growth worth investigating"
+- ✅ "views dropped 40% Saturday vs Friday — expected weekend dip (Sat/Sun consistently lower in this dataset)"
+- ❌ "views up because fewer weekend days in the comparison window" — **verify the calendar before claiming this**
+
+When comparing two date windows and attributing a difference to calendar composition (weekends, holidays), **list the day-of-week for each date in both windows and count explicitly**. Do not assert a calendar explanation from memory.
+
+If you cannot identify a verified cause, say so: "cause unclear — possible explanations: new large customer, genuine growth, tracking change. Worth investigating."
+
+### Holiday calendar check
+
+**Trigger:** Run this check whenever week-over-week delta exceeds ±15%. Holidays can suppress a week's baseline by 10–30%, making genuine growth look larger (or a real drop look smaller).
+
+**Procedure:**
+
+1. List every date in both the current and previous week windows with its day-of-week.
+2. For each date, check against the high-impact holiday list below.
+3. Count "affected business days" per window (a day is affected if a major holiday falls on a weekday in that window).
+4. If the counts differ, estimate the view suppression: a fully-off Labour Day (~13k/day typical) or Golden Week weekday (~5–8k/day) can shift the weekly total by 10–20k.
+5. State the holiday-adjusted estimate explicitly: "Holiday-adjusted previous week ≈ X; holiday-adjusted current week ≈ Y; underlying change ≈ Z%".
+
+**High-impact holidays for this user base (global enterprise Confluence users):**
+
+| Holiday | Date | Countries affected | Expected views impact |
+|---------|------|--------------------|-----------------------|
+| New Year's Day | Jan 1 | Global | Full weekday wipeout |
+| Chinese New Year | Late Jan / early Feb (varies) | China, SE Asia | 2–5 day suppression |
+| Easter (Good Friday) | Variable (Fri before Easter Sunday) | Europe, Australia, LATAM | ~1 weekday |
+| Easter (Easter Monday) | Variable (Mon after Easter Sunday) | Europe, Australia | ~1 weekday |
+| Labour Day / May Day | May 1 | Europe, China, India, SE Asia, LATAM | Full weekday wipeout (~65% drop) |
+| Japanese Golden Week | Apr 29 – May 5 | Japan | 3–5 affected weekdays |
+| US Memorial Day | Last Monday of May | USA | ~1 weekday (partial — US only) |
+| US Independence Day | Jul 4 | USA | ~1 weekday (partial) |
+| US Labor Day | First Monday of September | USA | ~1 weekday (partial) |
+| US Thanksgiving | 4th Thursday of November | USA | ~1–2 weekdays |
+| Christmas / Boxing Day | Dec 25–26 | Global / Commonwealth | Full weekday; 2-day window Dec 25–26 |
+| New Year's Eve | Dec 31 | Global | Partial suppression |
+
+> **Note:** The ZenUML Confluence user base skews heavily non-US (EU, APAC, LATAM). US-only holidays cause a modest dip (~10–15%); global holidays like May Day or Christmas cause severe drops (40–70%).
+
+**Example (from May 12, 2026 health check):**
+
+> Previous week Apr 28–May 4: May 1 (Labour Day, -9k vs expected) + May 4 (Golden Week trailing, -4.6k) = ~13.6k suppressed. Adjusted total: ~73k. Current week: ~84k. Holiday-adjusted growth: **+15%** (not the raw +47%).
+
 ### Anomaly flags
 
 Present a summary table, then flag any of these conditions:
@@ -262,7 +309,8 @@ Peak hour: {time} with {N} total views
 - **`timeComparison` not in API response**: The Mixpanel `timeComparison` parameter creates visual comparisons in the UI but delta values are not returned in the Run-Query API response. Use explicit previous-period queries instead.
 - **Forge graph macro_viewed missing**: `macro_viewed` (and legacy `view_macro`) for graph type on Forge is not tracked (known bug in `forge-graph-viewer.ts`). Don't flag missing graph views as an anomaly.
 - **`event_category` casing**: `openapi` and `OpenAPI` both appear. Treat them as the same category when comparing.
-- **Weekend/holiday dip**: Confluence usage drops significantly on weekends. A 50% drop on Saturday vs Friday is normal, not an outage.
+- **Weekend dip**: Confluence usage drops significantly on weekends (~85% vs weekday peak). A 50–80% drop on Saturday vs Friday is normal, not an outage.
+- **Holiday dip**: Major public holidays (Labour Day, Christmas, Golden Week) can suppress a full weekday by 50–70%. Always run the holiday calendar check (see above) before interpreting any week-over-week delta >15% as genuine signal.
 
 ## Tips
 

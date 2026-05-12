@@ -104,6 +104,7 @@ async function initializeMacro() {
   try {
     // Load DrawIO scripts first
     // await loadDrawIOScripts();
+    await globals.apWrapper.initializeContext();
     trackAnalyticsEvent("macro_viewed", {
       feature_area: "macro",
       surface: "viewer",
@@ -132,4 +133,3 @@ EventBus.$on('edit', async () => {
     },
   });
 });
-

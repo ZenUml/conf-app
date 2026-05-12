@@ -3,6 +3,7 @@ import {ICustomContent, ICustomContentV2} from "@/model/ICustomContent";
 import {Diagram} from "@/model/Diagram/Diagram";
 import { ICustomContentResponseBodyV2 } from "./ICustomContentResponseBody";
 import { Attachment } from "./ConfluenceTypes";
+import { SpaceAdmin } from "./SpaceAdmin";
 
 export enum VersionType {
   Lite = 'lite',
@@ -28,6 +29,7 @@ export interface IApWrapper {
   saveCustomContent(customContentId: string, value: Diagram): Promise<any>;
   saveCustomContentV2(customContentId: string, value: Diagram): Promise<ICustomContentResponseBodyV2>;
   getAttachmentsV2(pageId?: string, queryParameters?: any): Promise<Array<Attachment>>;
+  getCurrentSpaceAdmins(): Promise<Array<SpaceAdmin>>;
   canUserEdit(): Promise<boolean>;
 
   isDisplayMode(): any;

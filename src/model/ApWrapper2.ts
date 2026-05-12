@@ -18,6 +18,8 @@ import {Attachment} from './ConfluenceTypes';
 import { loadAllPaginatedData } from '@/utils/requestUtil';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import {forgeRequest} from '@/utils/requestUtil';
+import { SpaceAdmin } from './SpaceAdmin';
+import SpaceAdminResolver from './permissions/SpaceAdminResolver';
 
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
 const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
@@ -32,10 +34,12 @@ export default class ApWrapper2 implements IApWrapper {
   baseUrl: string | undefined;
   locationTarget: LocationTarget | undefined;
   license: ILicense | undefined;
+  private readonly spaceAdminResolver: SpaceAdminResolver;
 
   constructor() {
     this.versionType = this.isLite() ? VersionType.Lite : VersionType.Full;
     this._page = new AtlasPage();
+    this.spaceAdminResolver = new SpaceAdminResolver(this);
   }
 
   async initializeContext(): Promise<void> {
@@ -763,6 +767,10 @@ export default class ApWrapper2 implements IApWrapper {
 
   async getCurrentSpace(): Promise<ISpace> {
     return this.currentSpace || (this.currentSpace = forgeGlobal.forgeContext?.extension?.space || {key: await this._page.getSpaceKey()});
+  }
+
+  async getCurrentSpaceAdmins(): Promise<SpaceAdmin[]> {
+    return this.spaceAdminResolver.getSpaceAdmins(await this.getCurrentSpace());
   }
 
   async _getCurrentPageId(): Promise<string> {

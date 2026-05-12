@@ -6,8 +6,8 @@ import api, { route } from '@forge/api';
 //
 // Events are sent directly to Mixpanel /import from this Forge backend function.
 // Requires MIXPANEL_TOKEN to be set as a Forge variable:
-//   forge variables set --key MIXPANEL_TOKEN --value <token> --environment staging
-//   forge variables set --key MIXPANEL_TOKEN --value <token> --environment production
+//   forge variables set MIXPANEL_TOKEN <token> -e staging
+//   forge variables set MIXPANEL_TOKEN <token> -e production
 //
 // NEVER emit page_viewed / page_updated from this function — those are
 // intentionally excluded from Mixpanel (see forge-user-behavior.ts).
@@ -41,8 +41,10 @@ function extractExportContext(payload) {
 }
 
 /**
- * Sends a single event to Mixpanel /import (fire-and-forget).
- * Uses server-side import with Basic auth (token as username, empty password).
+ * Sends a single event to Mixpanel /import.
+ * Awaited — Forge's serverless runtime kills pending promises when the handler returns,
+ * so fire-and-forget is not reliable here.
+ * Uses a 3-second timeout so a slow Mixpanel call never blocks the export response.
  * Never throws — a tracking failure must never break the export function.
  */
 async function trackExportEvent(eventName, properties) {
@@ -55,26 +57,35 @@ async function trackExportEvent(eventName, properties) {
     const body = JSON.stringify([{
       event: eventName,
       properties: {
+        token,
         time: Math.floor(Date.now() / 1000),
         distinct_id: properties.client_domain ?? 'forge_export',
-        $insert_id: `${eventName}_${properties.cloudId ?? ''}_${Date.now()}`,
+        $insert_id: `${eventName}_${properties.cloud_id ?? ''}_${Date.now()}`,
         source: 'forge_export',
         ...properties,
       },
     }]);
 
-    const response = await fetch('https://api.mixpanel.com/import?strict=1', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Basic ${btoa(`${token}:`)}`,
-      },
-      body,
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
 
-    if (!response.ok) {
-      const text = await response.text();
-      console.warn(`Export: Mixpanel import failed (${response.status}): ${text}`);
+    try {
+      const response = await fetch('https://api.mixpanel.com/import?strict=1', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${btoa(`${token}:`)}`,
+        },
+        body,
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.warn(`Export: Mixpanel import failed (${response.status}): ${text}`);
+      }
+    } finally {
+      clearTimeout(timeout);
     }
   } catch (e) {
     console.warn('Export: analytics tracking error:', e?.message);
@@ -88,8 +99,7 @@ async function trackExportEvent(eventName, properties) {
 export const handler = async (payload) => {
   const { format, cloudId, clientDomain, spaceKey } = extractExportContext(payload);
 
-  // Fire-and-forget — don't await so it doesn't slow the export response
-  trackExportEvent('macro_export_requested', {
+  await trackExportEvent('macro_export_requested', {
     client_domain: clientDomain,
     cloud_id: cloudId,
     space_key: spaceKey,
@@ -109,7 +119,7 @@ export const handler = async (payload) => {
 
     if (!customContentId) {
       console.warn(`Export: no customContentId, page ${pageId}`);
-      trackExportEvent('macro_export_failed', {
+      await trackExportEvent('macro_export_failed', {
         client_domain: clientDomain,
         cloud_id: cloudId,
         space_key: spaceKey,
@@ -129,7 +139,7 @@ export const handler = async (payload) => {
       const failureReason = response.status === 401 || response.status === 403
         ? 'needs_authentication'
         : `attachments_api_${response.status}`;
-      trackExportEvent('macro_export_failed', {
+      await trackExportEvent('macro_export_failed', {
         client_domain: clientDomain,
         cloud_id: cloudId,
         space_key: spaceKey,
@@ -144,7 +154,7 @@ export const handler = async (payload) => {
 
     if (!attachmentsData?.results?.length) {
       console.debug(`Export: ${attachmentName} not found on page ${pageId}`);
-      trackExportEvent('macro_export_failed', {
+      await trackExportEvent('macro_export_failed', {
         client_domain: clientDomain,
         cloud_id: cloudId,
         space_key: spaceKey,
@@ -159,7 +169,7 @@ export const handler = async (payload) => {
 
     console.info(`Export: found ${attachmentName} on page ${pageId}`);
 
-    trackExportEvent('macro_export_succeeded', {
+    await trackExportEvent('macro_export_succeeded', {
       client_domain: clientDomain,
       cloud_id: cloudId,
       space_key: spaceKey,
@@ -170,7 +180,7 @@ export const handler = async (payload) => {
 
   } catch (error) {
     console.error('Export function error:', error);
-    trackExportEvent('macro_export_failed', {
+    await trackExportEvent('macro_export_failed', {
       client_domain: clientDomain,
       cloud_id: cloudId,
       space_key: spaceKey,

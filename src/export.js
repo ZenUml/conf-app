@@ -128,7 +128,17 @@ export const handler = async (payload) => {
 
     const attachmentName = `zenuml-${customContentId}.png`;
 
-    const response = await api.asApp().requestConfluence(route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`);
+    let response = await api.asApp().requestConfluence(route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`);
+
+    // asApp() returns 404 for pages the app principal can't read (space restrictions, page restrictions).
+    // Fall back to asUser(), which has the exporting user's permissions. Keep the original 404 if asUser
+    // also fails so analytics still records `attachments_api_404` with the right failure_reason.
+    if (!response.ok && response.status === 404) {
+      const userResponse = await api.asUser().requestConfluence(route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`);
+      if (userResponse.ok) {
+        response = userResponse;
+      }
+    }
 
     if (!response.ok) {
       const errorBody = await response.text();

@@ -12,6 +12,7 @@
 
 <script>
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
+import { extractMxGraphModelForViewer } from "@/model/Graph/extractMxGraphModel";
 export default {
   name: "ForgeGraphViewer",
   components: {
@@ -50,7 +51,7 @@ export default {
       // @ts-ignore
       setGraphStyle('./drawio/styles/default.xml', graph);
       // @ts-ignore
-      setGraphXml(this.graphXml, graph);
+      setGraphXml(extractMxGraphModelForViewer(this.graphXml), graph);
       try {
         graph.fit(/* border */ 10);
       } catch (fitErr) {

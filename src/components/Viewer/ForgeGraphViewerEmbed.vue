@@ -14,6 +14,7 @@
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { decompress } from '@/utils/compress';
 import { trackEvent } from '@/utils/window';
+import { extractMxGraphModelForViewer } from "@/model/Graph/extractMxGraphModel";
 
 // Load external DrawIO scripts dynamically
 function loadDrawIOScripts() {
@@ -138,7 +139,7 @@ export default {
           // @ts-ignore
           setGraphStyle('./drawio/styles/default.xml', graph);
           // @ts-ignore
-          setGraphXml(graphXml, graph);
+          setGraphXml(extractMxGraphModelForViewer(graphXml), graph);
 
           // Fit the diagram to the container after the model is loaded.
           // Wrapped because fit() can throw on degenerate (empty) graphs.

@@ -34,12 +34,24 @@ export default {
     if (this.$refs.graphContainer && this.graphXml) {
       // @ts-ignore
       const graph = new window.Graph(this.$refs.graphContainer);
-      graph.resizeContainer = true;
+      // Do NOT set resizeContainer=true — that makes the container grow to the
+      // diagram's natural width and overflows the fixed-width Forge iframe with
+      // no horizontal scroll (see ZEN-1168). Leave the container at its
+      // parent-driven size and scale the graph to fit via graph.fit() below.
       graph.setEnabled(false);
+      // Allow downscaling for wide diagrams; cap upscale at 1 so small
+      // diagrams aren't blown up beyond their natural size.
+      graph.minFitScale = null;
+      graph.maxFitScale = 1;
       // @ts-ignore
       setGraphStyle('./drawio/styles/default.xml', graph);
       // @ts-ignore
       setGraphXml(this.graphXml, graph);
+      try {
+        graph.fit(/* border */ 10);
+      } catch (fitErr) {
+        console.warn('ForgeGraphViewer: graph.fit() failed (likely empty graph):', fitErr);
+      }
     }
   }
 }

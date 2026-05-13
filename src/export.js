@@ -128,7 +128,7 @@ export const handler = async (payload) => {
 
     const attachmentName = `zenuml-${customContentId}.png`;
 
-    const response = await api.asUser().requestConfluence(route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`);
+    const response = await api.asApp().requestConfluence(route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`);
 
     if (!response.ok) {
       const errorBody = await response.text();
@@ -162,7 +162,7 @@ export const handler = async (payload) => {
         custom_content_id: customContentId,
         failure_reason: 'attachment_not_found',
       });
-      return createErrorDocument("Diagram attachment not found");
+      return createErrorDocument("Diagram image not yet generated. Please open the Confluence page containing this diagram to generate it, then export again.");
     }
 
     const attachment = attachmentsData.results[0];
@@ -182,6 +182,14 @@ export const handler = async (payload) => {
     return createMediaDocument(downloadLink);
 
   } catch (error) {
+    const errorName = error?.name ?? 'UnknownError';
+    const errorMessage = String(error?.message ?? error ?? '').slice(0, 200);
+    const errorStatus = error?.status;
+    const isKnownError = errorName === 'NEEDS_AUTHENTICATION_ERR';
+    const failureReason = isKnownError ? 'needs_authentication' : `unexpected_error:${errorName}`;
+    const errorStack = !isKnownError
+      ? String(error?.stack ?? '').slice(0, 500)
+      : undefined;
     console.error('Export function error:', error);
     await trackExportEvent('macro_export_failed', {
       account_id: accountId,
@@ -190,7 +198,11 @@ export const handler = async (payload) => {
       space_key: spaceKey,
       format,
       custom_content_id: customContentId,
-      failure_reason: 'unexpected_error',
+      failure_reason: failureReason,
+      error_name: errorName,
+      error_message: errorMessage,
+      error_stack: errorStack,
+      http_status: errorStatus,
     });
     return createErrorDocument("Error generating export content");
   }

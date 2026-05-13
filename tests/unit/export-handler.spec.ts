@@ -180,7 +180,7 @@ describe('Forge export resolver (src/export.js)', () => {
     );
   });
 
-  it('falls back to asUser() when asApp() returns 404 and succeeds', async () => {
+  it('falls back to asUser() when asApp() returns 404 and succeeds, with fallback telemetry', async () => {
     asAppRequest.mockResolvedValue({
       ok: false,
       status: 404,
@@ -217,10 +217,18 @@ describe('Forge export resolver (src/export.js)', () => {
 
     const rows = mixpanelBodiesFromFetch(fetch) as Array<{
       event?: string;
-      properties?: { custom_content_id?: string };
+      properties?: {
+        custom_content_id?: string;
+        used_asuser_fallback?: boolean;
+        fallback_http_status?: number;
+        fallback_error_name?: string;
+      };
     }>;
     const succeeded = rows.find((r) => r.event === 'macro_export_succeeded');
     expect(succeeded?.properties?.custom_content_id).toBe('cc-fallback');
+    expect(succeeded?.properties?.used_asuser_fallback).toBe(true);
+    expect(succeeded?.properties?.fallback_http_status).toBe(200);
+    expect(succeeded?.properties?.fallback_error_name).toBeUndefined();
     expect(rows.find((r) => r.event === 'macro_export_failed')).toBeUndefined();
 
     expect(JSON.stringify(result)).toContain(
@@ -228,7 +236,7 @@ describe('Forge export resolver (src/export.js)', () => {
     );
   });
 
-  it('preserves asApp 404 failure_reason when asUser() fallback also fails', async () => {
+  it('preserves asApp 404 failure_reason when asUser() fallback also fails, and tags telemetry', async () => {
     asAppRequest.mockResolvedValue({
       ok: false,
       status: 404,
@@ -261,15 +269,65 @@ describe('Forge export resolver (src/export.js)', () => {
 
     const rows = mixpanelBodiesFromFetch(fetch) as Array<{
       event?: string;
-      properties?: { failure_reason?: string; http_status?: number; custom_content_id?: string };
+      properties?: {
+        failure_reason?: string;
+        http_status?: number;
+        custom_content_id?: string;
+        used_asuser_fallback?: boolean;
+        fallback_http_status?: number;
+      };
     }>;
     const failed = rows.find((r) => r.event === 'macro_export_failed');
     expect(failed?.properties?.failure_reason).toBe('attachments_api_404');
     expect(failed?.properties?.http_status).toBe(404);
     expect(failed?.properties?.custom_content_id).toBe('cc-fallback-fail');
+    expect(failed?.properties?.used_asuser_fallback).toBe(true);
+    expect(failed?.properties?.fallback_http_status).toBe(404);
   });
 
-  it('does not call asUser() when asApp() returns a non-404 error', async () => {
+  it('tags telemetry with fallback_error_name when asUser() throws', async () => {
+    asAppRequest.mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: async () => 'not found',
+    });
+    asUserRequest.mockRejectedValue(
+      Object.assign(new Error('Authentication Required'), { name: 'NEEDS_AUTHENTICATION_ERR' }),
+    );
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-fb3',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SP',
+        accountId: 'acc-fb3',
+        extension: { content: { id: '777' } },
+      },
+      extensionPayload: {
+        config: { customContentId: 'cc-fb-throw' },
+      },
+    };
+
+    await handler(payload);
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: {
+        failure_reason?: string;
+        used_asuser_fallback?: boolean;
+        fallback_http_status?: number;
+        fallback_error_name?: string;
+      };
+    }>;
+    const failed = rows.find((r) => r.event === 'macro_export_failed');
+    expect(failed?.properties?.failure_reason).toBe('attachments_api_404');
+    expect(failed?.properties?.used_asuser_fallback).toBe(true);
+    expect(failed?.properties?.fallback_http_status).toBeUndefined();
+    expect(failed?.properties?.fallback_error_name).toBe('NEEDS_AUTHENTICATION_ERR');
+  });
+
+  it('does not call asUser() and omits fallback telemetry when asApp() returns a non-404 error', async () => {
     asAppRequest.mockResolvedValue({
       ok: false,
       status: 403,
@@ -297,10 +355,15 @@ describe('Forge export resolver (src/export.js)', () => {
 
     const rows = mixpanelBodiesFromFetch(fetch) as Array<{
       event?: string;
-      properties?: { failure_reason?: string; http_status?: number };
+      properties?: {
+        failure_reason?: string;
+        http_status?: number;
+        used_asuser_fallback?: boolean;
+      };
     }>;
     const failed = rows.find((r) => r.event === 'macro_export_failed');
     expect(failed?.properties?.failure_reason).toBe('needs_authentication');
     expect(failed?.properties?.http_status).toBe(403);
+    expect(failed?.properties?.used_asuser_fallback).toBeUndefined();
   });
 });

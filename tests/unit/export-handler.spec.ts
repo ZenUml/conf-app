@@ -1,13 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const { requestConfluence } = vi.hoisted(() => ({
-  requestConfluence: vi.fn(),
+const { asAppRequest, asUserRequest } = vi.hoisted(() => ({
+  asAppRequest: vi.fn(),
+  asUserRequest: vi.fn(),
 }));
 
 vi.mock('@forge/api', () => ({
   default: {
-    asUser: () => ({ requestConfluence }),
-    asApp: () => ({ requestConfluence }),
+    asUser: () => ({ requestConfluence: asUserRequest }),
+    asApp: () => ({ requestConfluence: asAppRequest }),
   },
   route: (strings: TemplateStringsArray, ...values: unknown[]) =>
     strings.reduce((acc, s, i) => acc + s + String(values[i] ?? ''), ''),
@@ -42,7 +43,8 @@ describe('Forge export resolver (src/export.js)', () => {
       })),
     );
     process.env.MIXPANEL_TOKEN = 'unit-test-token';
-    requestConfluence.mockReset();
+    asAppRequest.mockReset();
+    asUserRequest.mockReset();
   });
 
   afterEach(() => {
@@ -51,7 +53,7 @@ describe('Forge export resolver (src/export.js)', () => {
   });
 
   it('includes custom_content_id on macro_export_failed when catch runs (Word config path)', async () => {
-    requestConfluence.mockRejectedValue(new Error('forced attachments failure'));
+    asAppRequest.mockRejectedValue(new Error('forced attachments failure'));
 
     const payload = {
       exportType: 'word',
@@ -80,7 +82,7 @@ describe('Forge export resolver (src/export.js)', () => {
   });
 
   it('includes custom_content_id on macro_export_failed when catch runs (PDF extensionPayload path)', async () => {
-    requestConfluence.mockRejectedValue(new Error('forced attachments failure'));
+    asAppRequest.mockRejectedValue(new Error('forced attachments failure'));
 
     const payload = {
       context: {
@@ -111,7 +113,7 @@ describe('Forge export resolver (src/export.js)', () => {
       name: 'NEEDS_AUTHENTICATION_ERR',
       status: 401,
     });
-    requestConfluence.mockRejectedValue(authErr);
+    asAppRequest.mockRejectedValue(authErr);
 
     const payload = {
       exportType: 'pdf',
@@ -141,7 +143,7 @@ describe('Forge export resolver (src/export.js)', () => {
   });
 
   it('tracks macro_export_succeeded with custom_content_id when PDF export completes (extensionPayload path)', async () => {
-    requestConfluence.mockResolvedValue({
+    asAppRequest.mockResolvedValue({
       ok: true,
       status: 200,
       text: async () => '',
@@ -176,5 +178,192 @@ describe('Forge export resolver (src/export.js)', () => {
     expect(JSON.stringify(result)).toContain(
       'https://acme.atlassian.net/wiki/download/attachments/222/zenuml-cc-pdf-ok.png',
     );
+  });
+
+  it('falls back to asUser() when asApp() returns 404 and succeeds, with fallback telemetry', async () => {
+    asAppRequest.mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: async () => '{"errors":[{"status":404,"code":"NOT_FOUND"}]}',
+    });
+    asUserRequest.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => '',
+      json: async () => ({
+        results: [{ downloadLink: '/wiki/download/attachments/444/zenuml-cc-fallback.png' }],
+        _links: { base: 'https://acme.atlassian.net' },
+      }),
+    });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-fb',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SP',
+        accountId: 'acc-fb',
+        extension: { content: { id: '444' } },
+      },
+      extensionPayload: {
+        config: { customContentId: 'cc-fallback' },
+      },
+    };
+
+    const result = await handler(payload);
+
+    expect(asAppRequest).toHaveBeenCalledTimes(1);
+    expect(asUserRequest).toHaveBeenCalledTimes(1);
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: {
+        custom_content_id?: string;
+        used_asuser_fallback?: boolean;
+        fallback_http_status?: number;
+        fallback_error_name?: string;
+      };
+    }>;
+    const succeeded = rows.find((r) => r.event === 'macro_export_succeeded');
+    expect(succeeded?.properties?.custom_content_id).toBe('cc-fallback');
+    expect(succeeded?.properties?.used_asuser_fallback).toBe(true);
+    expect(succeeded?.properties?.fallback_http_status).toBe(200);
+    expect(succeeded?.properties?.fallback_error_name).toBeUndefined();
+    expect(rows.find((r) => r.event === 'macro_export_failed')).toBeUndefined();
+
+    expect(JSON.stringify(result)).toContain(
+      'https://acme.atlassian.net/wiki/download/attachments/444/zenuml-cc-fallback.png',
+    );
+  });
+
+  it('preserves asApp 404 failure_reason when asUser() fallback also fails, and tags telemetry', async () => {
+    asAppRequest.mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: async () => '{"errors":[{"status":404,"code":"NOT_FOUND"}]}',
+    });
+    asUserRequest.mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: async () => '{"errors":[{"status":404,"code":"NOT_FOUND"}]}',
+    });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-fb2',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SP',
+        accountId: 'acc-fb2',
+        extension: { content: { id: '555' } },
+      },
+      extensionPayload: {
+        config: { customContentId: 'cc-fallback-fail' },
+      },
+    };
+
+    await handler(payload);
+
+    expect(asAppRequest).toHaveBeenCalledTimes(1);
+    expect(asUserRequest).toHaveBeenCalledTimes(1);
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: {
+        failure_reason?: string;
+        http_status?: number;
+        custom_content_id?: string;
+        used_asuser_fallback?: boolean;
+        fallback_http_status?: number;
+      };
+    }>;
+    const failed = rows.find((r) => r.event === 'macro_export_failed');
+    expect(failed?.properties?.failure_reason).toBe('attachments_api_404');
+    expect(failed?.properties?.http_status).toBe(404);
+    expect(failed?.properties?.custom_content_id).toBe('cc-fallback-fail');
+    expect(failed?.properties?.used_asuser_fallback).toBe(true);
+    expect(failed?.properties?.fallback_http_status).toBe(404);
+  });
+
+  it('tags telemetry with fallback_error_name when asUser() throws', async () => {
+    asAppRequest.mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: async () => 'not found',
+    });
+    asUserRequest.mockRejectedValue(
+      Object.assign(new Error('Authentication Required'), { name: 'NEEDS_AUTHENTICATION_ERR' }),
+    );
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-fb3',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SP',
+        accountId: 'acc-fb3',
+        extension: { content: { id: '777' } },
+      },
+      extensionPayload: {
+        config: { customContentId: 'cc-fb-throw' },
+      },
+    };
+
+    await handler(payload);
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: {
+        failure_reason?: string;
+        used_asuser_fallback?: boolean;
+        fallback_http_status?: number;
+        fallback_error_name?: string;
+      };
+    }>;
+    const failed = rows.find((r) => r.event === 'macro_export_failed');
+    expect(failed?.properties?.failure_reason).toBe('attachments_api_404');
+    expect(failed?.properties?.used_asuser_fallback).toBe(true);
+    expect(failed?.properties?.fallback_http_status).toBeUndefined();
+    expect(failed?.properties?.fallback_error_name).toBe('NEEDS_AUTHENTICATION_ERR');
+  });
+
+  it('does not call asUser() and omits fallback telemetry when asApp() returns a non-404 error', async () => {
+    asAppRequest.mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: async () => 'forbidden',
+    });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-403',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SP',
+        accountId: 'acc-403',
+        extension: { content: { id: '666' } },
+      },
+      extensionPayload: {
+        config: { customContentId: 'cc-403' },
+      },
+    };
+
+    await handler(payload);
+
+    expect(asAppRequest).toHaveBeenCalledTimes(1);
+    expect(asUserRequest).not.toHaveBeenCalled();
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: {
+        failure_reason?: string;
+        http_status?: number;
+        used_asuser_fallback?: boolean;
+      };
+    }>;
+    const failed = rows.find((r) => r.event === 'macro_export_failed');
+    expect(failed?.properties?.failure_reason).toBe('needs_authentication');
+    expect(failed?.properties?.http_status).toBe(403);
+    expect(failed?.properties?.used_asuser_fallback).toBeUndefined();
   });
 });

@@ -89,6 +89,18 @@ async function trackExportEvent(eventName, properties) {
   }
 }
 
+/**
+ * Spreads fallback telemetry into an event's properties. Returns {} when the
+ * fallback path wasn't taken so we don't bloat every export event.
+ */
+function fallbackProps(info) {
+  if (!info) return {};
+  const out = { used_asuser_fallback: true };
+  if (info.status !== null) out.fallback_http_status = info.status;
+  if (info.error_name !== null) out.fallback_error_name = info.error_name;
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Export handler
 // ---------------------------------------------------------------------------
@@ -128,7 +140,28 @@ export const handler = async (payload) => {
 
     const attachmentName = `zenuml-${customContentId}.png`;
 
-    const response = await api.asApp().requestConfluence(route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`);
+    let response = await api.asApp().requestConfluence(route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`);
+
+    // asApp() returns 404 for pages the app principal can't read (space restrictions, page restrictions).
+    // Fall back to asUser(), which has the exporting user's permissions. Keep the original 404 if asUser
+    // also fails so analytics still records `attachments_api_404` with the right failure_reason.
+    //
+    // The fallback path is the new failure mode introduced by switching to asApp() (issue #74) —
+    // track usage so we can measure how often it triggers and whether it succeeds.
+    let fallbackInfo = null;
+    if (!response.ok && response.status === 404) {
+      fallbackInfo = { used: true, status: null, error_name: null };
+      try {
+        const userResponse = await api.asUser().requestConfluence(route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`);
+        fallbackInfo.status = userResponse.status;
+        if (userResponse.ok) {
+          response = userResponse;
+        }
+      } catch (e) {
+        fallbackInfo.error_name = e?.name ?? 'UnknownError';
+        console.warn(`Export: asUser() fallback threw for ${attachmentName} on page ${pageId}: ${e?.message}`);
+      }
+    }
 
     if (!response.ok) {
       const errorBody = await response.text();
@@ -145,6 +178,7 @@ export const handler = async (payload) => {
         custom_content_id: customContentId,
         failure_reason: failureReason,
         http_status: response.status,
+        ...fallbackProps(fallbackInfo),
       });
       return createErrorDocument(`Failed to fetch attachments: ${response.status}`);
     }
@@ -161,6 +195,7 @@ export const handler = async (payload) => {
         format,
         custom_content_id: customContentId,
         failure_reason: 'attachment_not_found',
+        ...fallbackProps(fallbackInfo),
       });
       return createErrorDocument("Diagram image not yet generated. Please open the Confluence page containing this diagram to generate it, then export again.");
     }
@@ -177,6 +212,7 @@ export const handler = async (payload) => {
       space_key: spaceKey,
       format,
       custom_content_id: customContentId,
+      ...fallbackProps(fallbackInfo),
     });
 
     return createMediaDocument(downloadLink);

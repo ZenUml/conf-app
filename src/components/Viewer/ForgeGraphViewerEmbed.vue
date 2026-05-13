@@ -1,6 +1,10 @@
 <template>
   <div id="forge-graph-viewer-embed">
-    <generic-viewer :hideHeader="hideHeader">
+    <!-- :wide="true" forces viewer-frame--wide (width:100%) so graph.fit() has
+         a fixed container to fit to. Without it, the fit-content frame wraps
+         to the SVG's natural width and the diagram still overflows. See
+         ZEN-1168 follow-up. -->
+    <generic-viewer :wide="true" :hideHeader="hideHeader">
       <div ref="graphContainer" style="width:100%;height:100%;"></div>
     </generic-viewer>
   </div>

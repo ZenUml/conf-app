@@ -1,6 +1,10 @@
 <template>
   <div id="forge-graph-viewer">
-    <generic-viewer>
+    <!-- :wide="true" forces viewer-frame--wide (width:100%) instead of --auto
+         (fit-content). Without this, the inline DrawIO SVG renders at its
+         natural width and the fit-content frame wraps to that width, so
+         graph.fit() has no fixed container to fit to. See ZEN-1168 follow-up. -->
+    <generic-viewer :wide="true">
       <div ref="graphContainer" style="width:100%;height:100%;"></div>
     </generic-viewer>
   </div>

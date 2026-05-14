@@ -87,7 +87,7 @@ async function loadDiagram() {
   setTimeout(async function () {
     try {
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
-        await createAttachmentIfContentChanged(graphXml ?? '');
+        await createAttachmentIfContentChanged(graphXml ?? '', 'graph');
       } else {
         console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");
       }

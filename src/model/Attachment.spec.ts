@@ -154,7 +154,17 @@ describe('Attachment', () => {
       expect(mockApWrapper._getCurrentPageId).toHaveBeenCalled();
       expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalled();
       expect(md5).toHaveBeenCalledWith('test content');
-      expect(mockTrackEvent).toHaveBeenCalledWith('version:1', 'upload_attachment', 'export');
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'version:1',
+        'upload_attachment',
+        'export',
+        expect.objectContaining({
+          custom_content_id: 'test-uuid',
+          page_id: 'page-123',
+          attachment_name: 'zenuml-test-uuid.png',
+          content_hash: expect.stringContaining('hash-'),
+        }),
+      );
     });
 
     it('should update existing attachment when content hash changes', async () => {
@@ -180,7 +190,16 @@ describe('Attachment', () => {
       await createAttachmentIfContentChanged('new content'); // md5('new content') !== 'hash-old-content'
 
       expect(md5).toHaveBeenCalledWith('new content');
-      expect(mockTrackEvent).toHaveBeenCalledWith('version:3', 'upload_attachment', 'export');
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'version:3',
+        'upload_attachment',
+        'export',
+        expect.objectContaining({
+          custom_content_id: 'test-uuid',
+          page_id: 'page-123',
+          attachment_name: 'zenuml-test-uuid.png',
+        }),
+      );
       expect(mockForgeRequest).toHaveBeenCalled(); // updateAttachmentProperties
     });
 
@@ -203,6 +222,14 @@ describe('Attachment', () => {
       expect(mockForgeRequest).not.toHaveBeenCalled();
       // Should not call toPng either
       expect(htmlToImage.toBlob).not.toHaveBeenCalled();
+      // Emits attachment_upload_skipped('unchanged') so we can prove upload
+      // coverage exists when investigating attachment_not_found export failures.
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'unchanged',
+        'attachment_upload_skipped',
+        'export',
+        expect.objectContaining({ custom_content_id: 'test-uuid' }),
+      );
     });
 
     it('should prevent concurrent execution', async () => {
@@ -220,19 +247,40 @@ describe('Attachment', () => {
 
       await createAttachmentIfContentChanged('test content');
 
-      // Should not make any requests
-      expect(mockApWrapper._getCurrentPageId).not.toHaveBeenCalled();
+      // Concurrency guard short-circuits the upload itself — but we now build the
+      // event context up-front, so `_getCurrentPageId` IS called (and we record
+      // `attachment_upload_skipped` with full context for diagnostics).
       expect(mockRequestConfluence).not.toHaveBeenCalled();
+      expect(mockForgeRequest).not.toHaveBeenCalled();
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'concurrent',
+        'attachment_upload_skipped',
+        'export',
+        expect.objectContaining({ custom_content_id: 'test-uuid' }),
+      );
     });
 
     it('should handle errors gracefully', async () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      mockApWrapper._getCurrentPageId.mockRejectedValue(new Error('API error'));
+      // buildUploadContext swallows _getCurrentPageId errors (so context is
+      // best-effort), so to exercise the catch path we make the attachment
+      // lookup throw instead.
+      mockApWrapper.getAttachmentsV2.mockRejectedValue(new Error('API error'));
 
-      // The function will throw, but the finally block ensures the flag is reset
+      // The function still throws so existing callers see the failure.
       await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow('API error');
       // The flag should still be reset in the finally block
       expect((window as any).createAttachmentInProgress).toBe(false);
+      // attachment_upload_failed event fires with join-key context.
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        expect.any(String),
+        'attachment_upload_failed',
+        'export',
+        expect.objectContaining({
+          custom_content_id: 'test-uuid',
+          error_message: 'API error',
+        }),
+      );
 
       consoleErrorSpy.mockRestore();
     });

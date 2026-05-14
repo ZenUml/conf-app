@@ -713,10 +713,10 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   isDisplayMode() {
-    if (forgeGlobal.forgeContext?.extension?.modal) {
-      return false;
-    }
-    return true;
+    const modal = forgeGlobal.forgeContext?.extension?.modal;
+    if (!modal) return true;
+    // fullscreen is a viewer context, not an editor — still display mode
+    return modal.macroMode === 'fullscreen';
   }
 
   async getCustomContent(): Promise<ICustomContent | undefined> {

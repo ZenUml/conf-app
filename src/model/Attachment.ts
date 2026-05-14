@@ -265,6 +265,20 @@ export async function getAttachmentDownloadLink(
 // ============================================================================
 
 /**
+ * Thrown when the Confluence v1 attachment API rejects the upload because the
+ * page is still a draft.  The API returns HTTP 200 with a body like:
+ *   {"statusCode":404,"message":"No content found … status : draft"}
+ * We surface this as a typed error so the outer catch can handle it without
+ * re-throwing (draft pages are expected — not a bug).
+ */
+class DraftPageError extends Error {
+  constructor(body: string) {
+    super(`Attachment upload skipped — page is a draft: ${body}`);
+    this.name = 'DraftPageError';
+  }
+}
+
+/**
  * Try to get existing attachment for current macro.
  * Returns the attachment with highest version number, or false if none found.
  */
@@ -315,6 +329,11 @@ function uploadNewAttachment(hash: string, ctx: UploadContext): () => Promise<At
     trackEvent('version:1', 'upload_attachment', 'export', ctx);
     const response = await uploadAttachment2(hash, buildAttachmentBasePath);
     const parsed = JSON.parse(response.body);
+    // Option B: Confluence v1 wraps a 404 in a 200 body when the page is a draft.
+    // Body: {"statusCode":404,"message":"No content found … status : draft"}
+    if (parsed.statusCode === 404 && String(parsed.message ?? '').includes('status : draft')) {
+      throw new DraftPageError(response.body);
+    }
     const results = parsed.results ?? parsed.data?.results;
     if (!results?.length) {
       throw new Error(`Upload succeeded but response has no results: ${response.body}`);
@@ -353,7 +372,7 @@ async function updateAttachmentProperties(attachmentMeta: AttachmentMeta): Promi
  * it flows into the analytics events so we can correlate per diagram type.
  *
  * Emits the following events alongside the existing `upload_attachment`:
- *   - `attachment_upload_skipped`   (event_label: 'concurrent' | 'unchanged')
+ *   - `attachment_upload_skipped`   (event_label: 'concurrent' | 'unchanged' | 'draft_page')
  *   - `attachment_upload_failed`    (event_label: failure reason, plus error fields)
  * Each carries the same join keys (page_id, custom_content_id, cloud_id, ...)
  * used by the backend `macro_export_*` events in src/export.js.
@@ -371,6 +390,16 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
     return;
   }
 
+  // Option A: skip if the page is still a draft.
+  // `isDisplayMode()` in ApWrapper2 returns true for inline-preview iframes (not modal),
+  // so callers fire this function before the user has published the page.
+  // The v1 attachment API only accepts status=current pages — a draft page returns a
+  // wrapped 404 body, causing a misleading "no results" error downstream.
+  if (forgeGlobal.forgeContext?.extension?.content?.status === 'draft') {
+    trackEvent('draft_page', 'attachment_upload_skipped', 'export', ctx);
+    return;
+  }
+
   window.createAttachmentInProgress = true;
 
   try {
@@ -384,6 +413,12 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
       trackEvent('unchanged', 'attachment_upload_skipped', 'export', ctx);
     }
   } catch (e: any) {
+    // Option B: DraftPageError means the v1 API confirmed the page is a draft —
+    // non-fatal, no re-throw. Emit the skip event so analysts can correlate.
+    if (e instanceof DraftPageError) {
+      trackEvent('draft_page', 'attachment_upload_skipped', 'export', ctx);
+      return;
+    }
     // The function still throws (callers wrap this in try/catch already), but we
     // now record the failure with full join-key context so it can be correlated
     // with the backend `macro_export_failed` event.

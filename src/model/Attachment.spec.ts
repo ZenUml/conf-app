@@ -285,6 +285,65 @@ describe('Attachment', () => {
       consoleErrorSpy.mockRestore();
     });
 
+    it('should skip upload when page is a draft (Option A — context status check)', async () => {
+      // Simulate the inline-edit-canvas preview context where isDisplayMode() returns
+      // true but the page hasn't been published yet.
+      (forgeGlobal as any).forgeContext = {
+        extension: { content: { status: 'draft' } }
+      };
+
+      await createAttachmentIfContentChanged('test content');
+
+      // Must not touch the attachment API at all
+      expect(mockRequestConfluence).not.toHaveBeenCalled();
+      expect(mockForgeRequest).not.toHaveBeenCalled();
+      expect(htmlToImage.toBlob).not.toHaveBeenCalled();
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'draft_page',
+        'attachment_upload_skipped',
+        'export',
+        expect.objectContaining({ custom_content_id: 'test-uuid' }),
+      );
+
+      // Cleanup
+      delete (forgeGlobal as any).forgeContext;
+    });
+
+    it('should skip upload when API returns wrapped draft-page 404 (Option B — body parse)', async () => {
+      // Option A guard won't fire because status is not 'draft' in context
+      (forgeGlobal as any).forgeContext = {
+        extension: { content: { status: 'current' } }
+      };
+
+      const mockBlob = new Blob(['test'], { type: 'image/png' });
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      // Confluence v1 wraps the draft 404 inside a 200 body
+      mockRequestConfluence.mockResolvedValue({
+        text: vi.fn().mockResolvedValue(
+          JSON.stringify({
+            statusCode: 404,
+            message: 'No content found with id : ContentId{id=123} and status [current], there is a content object with status : draft'
+          })
+        )
+      });
+
+      // Should NOT throw — DraftPageError is caught and treated as non-fatal
+      await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'draft_page',
+        'attachment_upload_skipped',
+        'export',
+        expect.objectContaining({ custom_content_id: 'test-uuid' }),
+      );
+      // The concurrency flag must be released even on the non-fatal path
+      expect((window as any).createAttachmentInProgress).toBe(false);
+
+      // Cleanup
+      delete (forgeGlobal as any).forgeContext;
+    });
+
     // the hash comparison happens before any Forge/Connect branching, so behavior should be identical
     it('should work in Forge mode', async () => {
       forgeGlobal.isForge = true;

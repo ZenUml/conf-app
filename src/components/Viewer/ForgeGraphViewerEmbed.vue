@@ -6,6 +6,34 @@
          ZEN-1168 follow-up. -->
     <generic-viewer :wide="true" :hideHeader="hideHeader">
       <div ref="graphContainer" style="width:100%;height:100%;"></div>
+      <template v-if="pageCount > 1" #pill-prefix>
+        <button
+          @click="goToPage(currentPage - 1)"
+          :disabled="currentPage <= 0"
+          title="Previous page"
+          aria-label="Previous page"
+          class="viewer-pill-btn"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+          </svg>
+        </button>
+        <span class="viewer-pill-page-indicator" aria-live="polite">
+          {{ currentPage + 1 }} / {{ pageCount }}
+        </span>
+        <button
+          @click="goToPage(currentPage + 1)"
+          :disabled="currentPage >= pageCount - 1"
+          title="Next page"
+          aria-label="Next page"
+          class="viewer-pill-btn"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </button>
+        <span class="viewer-pill-divider" aria-hidden="true"></span>
+      </template>
     </generic-viewer>
   </div>
 </template>
@@ -72,7 +100,10 @@ export default {
   data() {
     return {
       loading: true,
-      error: null
+      error: null,
+      graphViewer: null,
+      currentPage: 0,
+      pageCount: 0,
     }
   },
   async mounted() {
@@ -114,20 +145,26 @@ export default {
       try {
         // GraphViewer accepts either <mxfile> (multi-page) or raw <mxGraphModel>
         // (legacy single-page) via its Editor.extractGraphModel pipeline.
+        // No 'toolbar' config — page nav is rendered into the GenericViewer
+        // bottom pill via the #pill-prefix slot above.
         const xmlNode = mxUtils.parseXml(graphXml).documentElement;
-        new window.GraphViewer(this.$refs.graphContainer, xmlNode, {
-          'toolbar': 'pages',
-          'toolbar-position': 'inline',
-          'toolbar-nohide': true,
+        this.graphViewer = new window.GraphViewer(this.$refs.graphContainer, xmlNode, {
           'auto-fit': true,
           'border': 10,
         });
+        this.pageCount = this.graphViewer.diagrams?.length || 0;
+        this.currentPage = this.graphViewer.currentPage || 0;
         this.loading = false;
       } catch (error) {
         console.error('Failed to initialize graph viewer:', error);
         this.error = 'Failed to initialize graph';
         this.loading = false;
       }
+    },
+    goToPage(index) {
+      if (!this.graphViewer || index < 0 || index >= this.pageCount) return;
+      this.graphViewer.selectPage(index);
+      this.currentPage = index;
     }
   },
   watch: {
@@ -168,4 +205,24 @@ export default {
   font-size: 16px;
   color: #d32f2f;
 }
-</style> 
+
+.viewer-pill-page-indicator {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: #44546f;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.viewer-pill-divider {
+  display: inline-block;
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: rgba(9, 30, 66, 0.14);
+  align-self: center;
+}
+</style>

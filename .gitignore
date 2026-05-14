@@ -48,6 +48,11 @@ test-results/
 .worktree/
 .mcp.json
 
+# Local runtime / agent cruft
+.claude/scheduled_tasks.lock
+.claude/skills/**/__pycache__/
+.codex/
+
 # Local Mixpanel exports — raw production telemetry, never commit
 mixpanel-export*
 

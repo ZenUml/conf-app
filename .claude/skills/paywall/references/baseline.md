@@ -10,6 +10,31 @@ When you run the A/B Impact Analysis, after computing the per-tenant and group-a
 
 ---
 
+## 2026-05-13 (last 7 days, rerun with unique-user metrics)
+
+| Group | tenants | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|---------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| **A** | 5 (colesgroup, airwallex, linemanwongnai, vin3s¹, mcoproduct) | 355 | 279 | 634 | 112 | 1,603 | 35,614 | **56.0%** | 3.2 |
+| **B** | 6 (hktdc, myntfintech, woolworths-agile², appculqi, economical, alterric) | 185 | 2 | 187 | 46 | 479 | 7,759 | **98.9%** | 4.0 |
+
+Per-tenant breakdown:
+
+| Group | Domain | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|--------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| A | vin3s¹ | 152 | 155 | 307 | 41 | 404 | 19,250 | 49.5% | 3.7 |
+| A | airwallex | 82 | 38 | 120 | 24 | 288 | 5,626 | 68.3% | 3.4 |
+| A | mcoproduct | 45 | 41 | 86 | 9 | 246 | 4,790 | 52.3% | 5.0 |
+| A | colesgroup | 41 | 31 | 72 | 22 | 464 | 3,642 | 56.9% | 1.9 |
+| A | linemanwongnai | 35 | 14 | 49 | 16 | 201 | 2,306 | 71.4% | 2.2 |
+| B | hktdc | 51 | 0 | 51 | 8 | 70 | 3,349 | 100% | 6.4 |
+| B | myntfintech | 51 | 0 | 51 | 10 | 90 | 2,143 | 100% | 5.1 |
+| B | alterric | 35 | 0 | 35 | 5 | 18 | 259 | 100% | 7.0 |
+| B | appculqi | 22 | 0 | 22 | 11 | 52 | 619 | 100% | 2.0 |
+| B | economical | 13 | 0 | 13 | 6 | 101 | 611 | 100% | 2.2 |
+| B | woolworths-agile² | 13 | 2 | 15 | 6 | 148 | 778 | 86.7% | 2.2 |
+
+**Reading:** 43pp success-rate gap (99% -> 56%) - widened +3.5pp vs 2026-05-12 (39.5pp). Saves/user gap widened to 21% (A 3.2 vs B 4.0), still below the 25% threshold; the signal remains in blocked attempts. vin3s is still the main friction driver, while mcoproduct remains the power-user outlier. woolworths-agile continues to fire anomalous triggers despite not being on CSS.
+
 ## 2026-05-12 (last 7 days)
 
 | Group | tenants | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |

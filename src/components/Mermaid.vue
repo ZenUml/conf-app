@@ -16,7 +16,6 @@
 import { loadMermaid } from '@/utils/mermaid/loadMermaid'
 import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
-import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import globals from '@/model/globals';
 
 export default {
@@ -37,12 +36,6 @@ export default {
     this.svg = await this.render(this.mermaidCode);
     EventBus.$emit('diagramLoaded', this.mermaidCode, this.$store.state.diagram.diagramType);
     await globals.apWrapper.initializeContext();
-    trackAnalyticsEvent("macro_viewed", {
-      feature_area: "macro",
-      surface: "viewer",
-      macro_type: "mermaid",
-      entry_point: "page_view",
-    });
   },
   updated() {
     // Don't use updated() to render, because it will cause infinite loop.

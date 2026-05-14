@@ -13,7 +13,6 @@
 import EventBus from "@/EventBus";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { trackEvent } from "@/utils/window";
-import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import globals from "@/model/globals";
 import ViewResizer from "./Viewer/ViewResizer.vue";
 
@@ -53,13 +52,6 @@ export default {
       console.log("ZenUML Core version: ", ZenUml.version);
       zenuml = new ZenUml(this.$refs["zenuml"]);
       await this.render();
-      // Track the view event here, after the diagram is rendered
-      trackAnalyticsEvent("macro_viewed", {
-        feature_area: "macro",
-        surface: "viewer",
-        macro_type: "sequence",
-        entry_point: "page_view",
-      });
       EventBus.$emit(
         "diagramLoaded",
         this.$store.state.diagram.code,

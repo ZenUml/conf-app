@@ -19,6 +19,7 @@ import { handleAiAideRoute } from './routes/aiAide';
 import { useCustomerSuccessService, MACROS_LIMIT, getUpgradeContext } from '@/composables/useCustomerSuccessService';
 import { isPageEditorEditBlocked } from '@/utils/paywall/preEditGate';
 import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
 
@@ -211,6 +212,15 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 
       //@ts-ignore
       mountRoot(doc, component, { autoResize: !editable && !fullscreenMode });
+
+      if (!editable) {
+        trackAnalyticsEvent("macro_viewed", {
+          feature_area: "macro",
+          surface: "viewer",
+          macro_type: doc.diagramType,
+          entry_point: "page_view",
+        });
+      }
     } else if(isGraph) {
       await import(editable ? "@/forge-graph-editor" : "@/forge-graph-viewer");
     } else if(isEmbed) {

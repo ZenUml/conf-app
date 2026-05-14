@@ -10,6 +10,35 @@ When you run the A/B Impact Analysis, after computing the per-tenant and group-a
 
 ---
 
+## 2026-05-14 (last 7 days)
+
+| Group | tenants | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|---------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| **A** | 5 (vin3s¹, colesgroup, airwallex, linemanwongnai², mcoproduct) | 375 | 278 | 653 | 87 | 1,416 | 44,312 | **57.4%** | 4.3 |
+| **B** | 6 (hktdc, myntfintech, woolworths-agile³, appculqi, economical, alterric) | 179 | 2 | 181 | 37 | 421 | 9,278 | **98.9%** | 4.8 |
+
+Per-tenant breakdown:
+
+| Group | Domain | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|--------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| A | vin3s¹ | 197 | 163 | 360 | 35 | 381 | 25,190 | 54.7% | 5.6 |
+| A | airwallex | 56 | 27 | 83 | 18 | 252 | 6,255 | 67.5% | 3.1 |
+| A | colesgroup | 41 | 33 | 74 | 13 | 384 | 4,725 | 55.4% | 3.2 |
+| A | linemanwongnai² | 46 | 14 | 60 | 15 | 178 | 2,926 | 76.7% | 3.1 |
+| A | mcoproduct | 35 | 41 | 76 | 6 | 221 | 5,216 | 46.1% | 5.8 |
+| B | myntfintech | 53 | 0 | 53 | 12 | 86 | 2,540 | 100% | 4.4 |
+| B | hktdc | 33 | 0 | 33 | 5 | 68 | 3,988 | 100% | 6.6 |
+| B | alterric | 37 | 0 | 37 | 4 | 17 | 278 | 100% | 9.3 |
+| B | appculqi | 27 | 0 | 27 | 5 | 47 | 801 | 100% | 5.4 |
+| B | economical | 13 | 0 | 13 | 5 | 89 | 758 | 100% | 2.6 |
+| B | woolworths-agile³ | 16 | 2 | 18 | 6 | 114 | 913 | 88.9% | 2.7 |
+
+**Reading:** 41.5pp success-rate gap (99% → 57.4%) — narrowed 1.4pp vs 2026-05-13 (42.9pp). saves/user gap shrank dramatically: A=4.3 vs B=4.8 (11%), down from 21% last week — driven by vin3s saves +45 as rollout shock clears and linemanwongnai saves +11 with Golden Week fully out of window. **mcoproduct is the outlier: 46.1% success_rate (down from 52.3%), degrading toward heavy-friction territory — 41 triggers on 35 saves in TMAB=1546 space.** Advocacy strong: mcoproduct 7 copies/7d (top signal). colesgroup 67% intent capture rate today (2/3 triggers → 2 copies). propertyguru flagged as CSS enrollment candidate (ATS=122, 31 saves today, non-CSS).
+
+> ¹ **vin3s:** First clean post-rollout-shock 7-day window (enrolled 2026-05-04, shock ended 2026-05-11). saves/user jumped 3.7→5.6; success_rate 49.5%→54.7%.
+> ² **linemanwongnai:** First fully clean 7-day window (Golden Week fully out). success_rate 71.4%→76.7%.
+> ³ **woolworths-agile:** Persistent anomalous triggers despite not being on CSS (known issue, see anomalies.md).
+
 ## 2026-05-13 (last 7 days, rerun with unique-user metrics)
 
 | Group | tenants | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |

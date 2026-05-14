@@ -42,6 +42,43 @@
 	<script type="text/javascript" src="/drawio/js/grapheditor/Init.js"></script>
 	<script type="text/javascript" src="/drawio/js/grapheditor/Graph.js"></script>
 	<script type="text/javascript" src="/drawio/js/grapheditor/Shapes.js"></script>
+	<script type="text/javascript">
+		// These globals must be defined BEFORE the Editor / GraphViewer scripts
+		// below — they read them at module-load time (bare references, not
+		// window.* lookups), so a missing binding throws ReferenceError and the
+		// viewer iframe goes blank.
+		//   - uiTheme: grapheditor/Editor.js:243 (Editor.currentTheme = uiTheme;)
+		//   - urlParams: diagramly/GraphViewer.js:23, grapheditor/Editor.js:207
+		//   - SHAPES_PATH / STENCIL_PATH / IMAGE_PATH / STYLE_PATH:
+		//     diagramly/Editor.js:~7920 stencil-library map
+		var uiTheme = '';
+		var SHAPES_PATH = './drawio/shapes';
+		var STENCIL_PATH = './drawio/stencils';
+		var IMAGE_PATH = './drawio/images';
+		var STYLE_PATH = './drawio/styles';
+		var urlParams = (function (url) {
+			var result = {};
+			var idx = url.lastIndexOf('?');
+			if (idx > 0) {
+				var params = url.substring(idx + 1).split('&');
+				for (var i = 0; i < params.length; i++) {
+					var eq = params[i].indexOf('=');
+					if (eq > 0) result[params[i].substring(0, eq)] = params[i].substring(eq + 1);
+				}
+			}
+			return result;
+		})(window.location.href);
+	</script>
+	<!-- Editor + EditorUi + diagramly extensions + GraphViewer power the
+	     multi-page viewer (prev / "X / Y" / next toolbar). GraphViewer.js
+	     references Editor and EditorUi globals at module-load time, and uses
+	     Editor.extractGraphModel + Editor.parseDiagramNode (defined in
+	     diagramly/Editor.js) at runtime to walk <mxfile> pages. Without these
+	     the official drawio Confluence plugin's page-nav UX can't render. -->
+	<script type="text/javascript" src="/drawio/js/grapheditor/Editor.js"></script>
+	<script type="text/javascript" src="/drawio/js/grapheditor/EditorUi.js"></script>
+	<script type="text/javascript" src="/drawio/js/diagramly/Editor.js"></script>
+	<script type="text/javascript" src="/drawio/js/diagramly/GraphViewer.js"></script>
 	<!-- Pre-load shape JS files. mxStencilRegistry.getStencil() falls back to
 	     loading these via XHR + eval(), which the Forge CSP blocks
 	     ("'unsafe-eval' is not an allowed source of script"). Loading them via
@@ -54,16 +91,10 @@
 	<script type="text/javascript" src="/drawio/shapes/mxAWS3D.js"></script>
 	<script type="text/javascript" src="/drawio/shapes/mxAWS4.js"></script>
 	<script type="text/javascript">
-		// Use relative paths. Vite rewrites the leading "/" on <script src> at
-		// build time so the script tags above resolve correctly inside the Forge
-		// iframe (which uses a path of the form <host>/<app-id>/<install>/<res>/main/_ctx_<…>/).
-		// JS string constants are NOT rewritten by Vite, so we set them to the
-		// already-relative form that the runtime expects — matching the URLs that
-		// the loaded mxClient/Graph scripts resolve from.
-		var SHAPES_PATH = './drawio/shapes';
-		var STENCIL_PATH = './drawio/stencils';
-		var IMAGE_PATH = './drawio/images';
-		var STYLE_PATH = './drawio/styles';
+		// SHAPES_PATH / STENCIL_PATH / IMAGE_PATH / STYLE_PATH / urlParams are
+		// defined earlier (above the Editor scripts) — they have to exist BEFORE
+		// those scripts evaluate. This block only configures the stencil
+		// registry, which depends on Graph.js having loaded.
 
 		// Forge CSP forbids "unsafe-eval", which breaks mxStencilRegistry's
 		// fallback path that loads shape .js files via XHR + eval(). Disable that
@@ -127,25 +158,6 @@
 			L['rackGeneral'] = [SHAPES_PATH + '/rack/mxRack.js', STENCIL_PATH + '/rack/general.xml'];
 			L['rackF5'] = [STENCIL_PATH + '/rack/f5.xml'];
 		})();
-
-		var urlParams = (function (url) {
-			var result = new Object();
-			var idx = url.lastIndexOf('?');
-
-			if (idx > 0) {
-				var params = url.substring(idx + 1).split('&');
-
-				for (var i = 0; i < params.length; i++) {
-					idx = params[i].indexOf('=');
-
-					if (idx > 0) {
-						result[params[i].substring(0, idx)] = params[i].substring(idx + 1);
-					}
-				}
-			}
-
-			return result;
-		})(window.location.href);
 
 	</script>
 

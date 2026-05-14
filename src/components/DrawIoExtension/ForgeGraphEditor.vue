@@ -127,19 +127,6 @@ export default {
     EventBus.$on('draft-restore', this.restoreListener);
 		const loadGraph = (xml) => this.sendToFrame({action: 'load', xml});
 
-		function toGraphModel(xmlString) {
-			const parser = new DOMParser();
-			const xmlDoc = parser.parseFromString(xmlString, 'text/xml');
-			const rootElement = xmlDoc.documentElement;
-			const modelElement = rootElement.querySelector('mxGraphModel');
-			if(!modelElement) {
-				throw `<mxGraphModel> not found in ${xmlString}`;
-			}
-
-			const serializer = new XMLSerializer();
-			return serializer.serializeToString(modelElement);
-		}
-
     //interaction protocol with embeded Drawio frame
 		addEventListener('message', async ({data}) => {
       if(!data) {
@@ -166,7 +153,13 @@ export default {
 			}
 			else if(payload.event === 'save') {
 				this.drawioModified = false;
-				window.graphXml = toGraphModel(payload.xml);
+				// Persist the full <mxfile> wrapper so multi-page diagrams keep
+				// every page. Previously we extracted the first <mxGraphModel>
+				// and dropped every page after Page-1. Legacy records stored as
+				// raw <mxGraphModel> still open — DrawIO's embed setFileData
+				// and the GraphViewer used in the read path both accept either
+				// <mxfile> or raw <mxGraphModel>.
+				window.graphXml = payload.xml;
 				await window.ensureTitle();
 				await this.saveGraphAndExit(window.graphXml);
 			}

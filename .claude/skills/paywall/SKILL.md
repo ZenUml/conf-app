@@ -85,9 +85,10 @@ Output is a JSON object — `{"zenuml-stg":true,"linemanwongnai":true,...}` — 
 Prefer `scripts/paywall_queries.py` over hand-built Mixpanel payloads. It centralises the segmentation query for every event in this skill so a filter-shape mistake can't silently substitute a global aggregate. It pulls the API secret from `.env.mixpanel` and prints `{event: {breakdown: count}}` as JSON.
 
 ```bash
-# Q1–Q4 (paywall_triggered, upgrade_modal_shown, advocacy_message_copied,
+# Q1 + Q3–Q4 in one call (paywall_triggered, advocacy_message_copied,
 # macro_save_succeeded, macro_save_failed, paywall_continued_editing,
-# macro_create_succeeded — all broken down by client_domain)
+# macro_create_succeeded — all broken down by client_domain). Q2 was
+# removed from the script 2026-05-12; see Q2 below.
 python3 .claude/skills/paywall/scripts/paywall_queries.py daily
 
 # Q5 per-space (filtered to <domain>, broken down by confluence_space)
@@ -106,7 +107,7 @@ The legacy MCP-based approach below is preserved for the cases where the script 
 "breakdowns": [{"metric": {"type": "property", "propertyName": "client_domain", "propertyType": "string", "resource": "event"}}]
 ```
 
-Run all 4 queries in parallel:
+The daily script runs these events in parallel internally.
 
 **Q1 — Paywall block events**
 ```
@@ -114,11 +115,9 @@ event: paywall_triggered, measurement: total
 ```
 > The legacy event name `upgrade_action_blocked` (pre-2026-04-29) is no longer emitted. Only query it if your window crosses 2026-04-28; for any window after 2026-04-29, `paywall_triggered` is the only block event.
 
-**Q2 — Paywall display events**
-```
-event: upgrade_modal_shown, measurement: total
-```
-> Paywall modal impressions are tracked as `upgrade_modal_shown`.
+**Q2 — Paywall display events (`upgrade_modal_shown`)**
+
+Not included in `paywall_queries.py daily` as of 2026-05-12: it duplicated `paywall_triggered` ~1:1 in production, so the script dropped it to save API calls. For a one-off modal-impression series, use MCP/Insights: `upgrade_modal_shown`, breakdown `client_domain`. In the monitoring table, put `—` in **modal_shown** unless you ran that separate query.
 
 **Q3 — Advocacy copy (sole in-modal intent signal)**
 ```
@@ -147,7 +146,7 @@ For the `mcoproduct` case where `paywall_continued_editing` is high, the per-spa
 
 ### Build the monitoring table
 
-For customer domains on CSS: **read the live CSS flag from Step 1** to get the current list. Do not rely on any hardcoded list here — it goes stale as new tenants are enrolled. Exclude internal sites: zenuml, zenuml-stg, zenuml-connect.
+For customer domains on CSS: **read the live CSS flag from Step 1** to get the current list. Do not rely on any hardcoded list here — it goes stale as new tenants are enrolled. Exclude internal sites: zenuml, zenuml-stg, zenuml-connect, lite-stg.
 
 | Domain | triggered | modal_shown | advocacy_copies | intent_capture_rate | saves | creates | friction | continued | note |
 |--------|-----------|-------------|-----------------|---------------------|-------|---------|----------|-----------|------|

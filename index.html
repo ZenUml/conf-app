@@ -42,6 +42,16 @@
 	<script type="text/javascript" src="/drawio/js/grapheditor/Init.js"></script>
 	<script type="text/javascript" src="/drawio/js/grapheditor/Graph.js"></script>
 	<script type="text/javascript" src="/drawio/js/grapheditor/Shapes.js"></script>
+	<!-- Editor + EditorUi + diagramly extensions + GraphViewer power the
+	     multi-page viewer (prev / "X / Y" / next toolbar). GraphViewer.js
+	     references Editor and EditorUi globals at module-load time, and uses
+	     Editor.extractGraphModel + Editor.parseDiagramNode (defined in
+	     diagramly/Editor.js) at runtime to walk <mxfile> pages. Without these
+	     the official drawio Confluence plugin's page-nav UX can't render. -->
+	<script type="text/javascript" src="/drawio/js/grapheditor/Editor.js"></script>
+	<script type="text/javascript" src="/drawio/js/grapheditor/EditorUi.js"></script>
+	<script type="text/javascript" src="/drawio/js/diagramly/Editor.js"></script>
+	<script type="text/javascript" src="/drawio/js/diagramly/GraphViewer.js"></script>
 	<!-- Pre-load shape JS files. mxStencilRegistry.getStencil() falls back to
 	     loading these via XHR + eval(), which the Forge CSP blocks
 	     ("'unsafe-eval' is not an allowed source of script"). Loading them via

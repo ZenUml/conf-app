@@ -14,7 +14,6 @@
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { decompress } from '@/utils/compress';
 import { trackEvent } from '@/utils/window';
-import { extractMxGraphModelForViewer } from "@/model/Graph/extractMxGraphModel";
 
 // Load external DrawIO scripts dynamically
 function loadDrawIOScripts() {
@@ -95,70 +94,37 @@ export default {
     },
     
     initGraph() {
-      const setGraphStyle = (styleUrl, graph) => {
-        const req = mxUtils.load(styleUrl);
-        const root = req.getDocumentElement();
-        const dec = new mxCodec(root.ownerDocument);
-        dec.decode(root, graph.stylesheet);
-      }
-
-      const setGraphXml = (data, graph) => {
-        const xmlDoc = mxUtils.parseXml(data);
-        const codec = new mxCodec(xmlDoc);
-        codec.decode(xmlDoc.documentElement, graph.getModel());
-      }
-
-      // Get the graph XML from props or document
       let graphXml = this.graphXml || this.doc?.value?.graphXml || this.doc?.graphXml;
-      console.log('ForgeGraphViewerEmbed: original graphXml', graphXml);
-      
-      // Handle compressed diagrams
+
+      // Legacy compressed records — flag still controls decompression.
       if (this.doc?.compressed || this.doc?.value?.compressed) {
         trackEvent('compressed_field_viewer', 'load', 'warning');
         if (!graphXml?.startsWith('<mxGraphModel')) {
           graphXml = decompress(graphXml);
           trackEvent('compressed_content_viewer', 'load', 'warning');
-          console.log('ForgeGraphViewerEmbed: decompressed graphXml', graphXml);
         }
       }
-      
-      if (this.$refs.graphContainer && graphXml && window.Graph) {
-        try {
-          // @ts-ignore
-          const graph = new window.Graph(this.$refs.graphContainer);
-          // Do NOT set resizeContainer=true here — that makes the container grow
-          // to the diagram's natural width and causes wide diagrams to overflow
-          // the fixed-width Forge iframe, with no horizontal scroll. See ZEN-1168.
-          // Instead, leave the container at its parent-driven size and scale the
-          // graph to fit via graph.fit() below.
-          graph.setEnabled(false);
-          // Allow downscaling without limit; cap upscale at 1 so small diagrams
-          // aren't blown up beyond their natural size.
-          graph.minFitScale = null;
-          graph.maxFitScale = 1;
-          // @ts-ignore
-          setGraphStyle('./drawio/styles/default.xml', graph);
-          // @ts-ignore
-          setGraphXml(extractMxGraphModelForViewer(graphXml), graph);
 
-          // Fit the diagram to the container after the model is loaded.
-          // Wrapped because fit() can throw on degenerate (empty) graphs.
-          try {
-            graph.fit(/* border */ 10);
-          } catch (fitErr) {
-            console.warn('ForgeGraphViewerEmbed: graph.fit() failed (likely empty graph):', fitErr);
-          }
+      if (!this.$refs.graphContainer || !graphXml || !window.GraphViewer) {
+        this.error = !window.GraphViewer ? 'Graph viewer not loaded' : 'Missing graph data';
+        this.loading = false;
+        return;
+      }
 
-          this.loading = false;
-          console.log('ForgeGraphViewerEmbed: Graph initialized successfully');
-        } catch (error) {
-          console.error('Failed to initialize graph:', error);
-          this.error = 'Failed to initialize graph';
-          this.loading = false;
-        }
-      } else {
-        console.error('Missing required data for graph initialization');
-        this.error = 'Missing graph data';
+      try {
+        // GraphViewer accepts either <mxfile> (multi-page) or raw <mxGraphModel>
+        // (legacy single-page) via its Editor.extractGraphModel pipeline.
+        const xmlNode = mxUtils.parseXml(graphXml).documentElement;
+        new window.GraphViewer(this.$refs.graphContainer, xmlNode, {
+          'toolbar': 'pages',
+          'toolbar-position': 'inline',
+          'auto-fit': true,
+          'border': 10,
+        });
+        this.loading = false;
+      } catch (error) {
+        console.error('Failed to initialize graph viewer:', error);
+        this.error = 'Failed to initialize graph';
         this.loading = false;
       }
     }

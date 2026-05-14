@@ -156,9 +156,9 @@ export default {
 				// Persist the full <mxfile> wrapper so multi-page diagrams keep
 				// every page. Previously we extracted the first <mxGraphModel>
 				// and dropped every page after Page-1. Legacy records stored as
-				// raw <mxGraphModel> still load — DrawIO's embed setFileData
-				// accepts both shapes; the viewer normalizes via
-				// extractMxGraphModelForViewer.
+				// raw <mxGraphModel> still open — DrawIO's embed setFileData
+				// and the GraphViewer used in the read path both accept either
+				// <mxfile> or raw <mxGraphModel>.
 				window.graphXml = payload.xml;
 				await window.ensureTitle();
 				await this.saveGraphAndExit(window.graphXml);

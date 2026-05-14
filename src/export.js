@@ -18,6 +18,10 @@ import api, { route } from '@forge/api';
  *
  * Format detection: Word sets context.content.id at the top level;
  * PDF sets context.extension.content.id (see lines 13–15 below).
+ *
+ * Also extracts `pageId` and `customContentId` so every event (incl.
+ * `macro_export_requested`) can carry the join keys we use to correlate
+ * with frontend `attachment_upload_*` events.
  */
 function extractExportContext(payload) {
   const format = payload.exportType ?? (payload.context?.content?.id || payload.context?.contentId ? 'word' : 'pdf');
@@ -34,7 +38,38 @@ function extractExportContext(payload) {
 
   const accountId = payload.context?.accountId ?? null;
 
-  return { format, cloudId, clientDomain, spaceKey, accountId };
+  // Page → Word puts contentId at top level; PDF nests under context.extension.content.id.
+  const pageId = payload.context?.content?.id
+    ?? payload.context?.contentId
+    ?? payload.context?.extension?.content?.id
+    ?? null;
+
+  // Macro instance → Word puts it on context.config; PDF on extensionPayload.config.
+  const customContentId = payload.context?.config?.customContentId
+    ?? payload.extensionPayload?.config?.customContentId
+    ?? null;
+
+  const attachmentName = customContentId ? `zenuml-${customContentId}.png` : null;
+
+  return { format, cloudId, clientDomain, spaceKey, accountId, pageId, customContentId, attachmentName };
+}
+
+/**
+ * Common join-key fields included on every export tracking event so we can
+ * left-join to the frontend `attachment_upload_*` events on
+ * (cloud_id, custom_content_id, page_id).
+ */
+function joinKeyProps(ctx) {
+  return {
+    account_id: ctx.accountId,
+    client_domain: ctx.clientDomain,
+    cloud_id: ctx.cloudId,
+    space_key: ctx.spaceKey,
+    page_id: ctx.pageId,
+    custom_content_id: ctx.customContentId,
+    attachment_name: ctx.attachmentName,
+    format: ctx.format,
+  };
 }
 
 /**
@@ -106,39 +141,20 @@ function fallbackProps(info) {
 // ---------------------------------------------------------------------------
 
 export const handler = async (payload) => {
-  const { format, cloudId, clientDomain, spaceKey, accountId } = extractExportContext(payload);
+  const ctx = extractExportContext(payload);
+  const { pageId, customContentId, attachmentName } = ctx;
 
-  await trackExportEvent('macro_export_requested', {
-    account_id: accountId,
-    client_domain: clientDomain,
-    cloud_id: cloudId,
-    space_key: spaceKey,
-    format,
-  });
-
-  // Word → payload.context.config, PDF → payload.extensionPayload.config
-  const customContentId = payload.context.config?.customContentId
-    || payload.extensionPayload?.config?.customContentId;
+  await trackExportEvent('macro_export_requested', joinKeyProps(ctx));
 
   try {
-    const pageId = payload.context.content?.id || payload.context.contentId
-      || payload.context.extension?.content?.id;
-
     if (!customContentId) {
       console.warn(`Export: no customContentId, page ${pageId}`);
       await trackExportEvent('macro_export_failed', {
-        account_id: accountId,
-        client_domain: clientDomain,
-        cloud_id: cloudId,
-        space_key: spaceKey,
-        format,
-        custom_content_id: customContentId,
+        ...joinKeyProps(ctx),
         failure_reason: 'missing_custom_content_id',
       });
       return createErrorDocument("Diagram content not available for export");
     }
-
-    const attachmentName = `zenuml-${customContentId}.png`;
 
     let response = await api.asApp().requestConfluence(route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`);
 
@@ -170,12 +186,7 @@ export const handler = async (payload) => {
         ? 'needs_authentication'
         : `attachments_api_${response.status}`;
       await trackExportEvent('macro_export_failed', {
-        account_id: accountId,
-        client_domain: clientDomain,
-        cloud_id: cloudId,
-        space_key: spaceKey,
-        format,
-        custom_content_id: customContentId,
+        ...joinKeyProps(ctx),
         failure_reason: failureReason,
         http_status: response.status,
         ...fallbackProps(fallbackInfo),
@@ -188,12 +199,7 @@ export const handler = async (payload) => {
     if (!attachmentsData?.results?.length) {
       console.debug(`Export: ${attachmentName} not found on page ${pageId}`);
       await trackExportEvent('macro_export_failed', {
-        account_id: accountId,
-        client_domain: clientDomain,
-        cloud_id: cloudId,
-        space_key: spaceKey,
-        format,
-        custom_content_id: customContentId,
+        ...joinKeyProps(ctx),
         failure_reason: 'attachment_not_found',
         ...fallbackProps(fallbackInfo),
       });
@@ -206,12 +212,7 @@ export const handler = async (payload) => {
     console.info(`Export: found ${attachmentName} on page ${pageId}`);
 
     await trackExportEvent('macro_export_succeeded', {
-      account_id: accountId,
-      client_domain: clientDomain,
-      cloud_id: cloudId,
-      space_key: spaceKey,
-      format,
-      custom_content_id: customContentId,
+      ...joinKeyProps(ctx),
       ...fallbackProps(fallbackInfo),
     });
 
@@ -228,12 +229,7 @@ export const handler = async (payload) => {
       : undefined;
     console.error('Export function error:', error);
     await trackExportEvent('macro_export_failed', {
-      account_id: accountId,
-      client_domain: clientDomain,
-      cloud_id: cloudId,
-      space_key: spaceKey,
-      format,
-      custom_content_id: customContentId,
+      ...joinKeyProps(ctx),
       failure_reason: failureReason,
       error_name: errorName,
       error_message: errorMessage,

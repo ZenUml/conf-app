@@ -2,7 +2,7 @@ import * as htmlToImage from 'html-to-image';
 import md5 from 'md5';
 import {trackEvent} from '@/utils/window';
 import global from '@/model/globals';
-import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
+import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import {forgeRequest} from '@/utils/requestUtil';
 import type { Attachment } from '@/model/ConfluenceTypes';
 
@@ -45,6 +45,20 @@ interface ExportResultMessageData {
   data: Blob;
 }
 
+/**
+ * Join keys + diagnostic context shared by every `attachment_upload_*` event.
+ * Mirrors the backend `joinKeyProps()` in src/export.js so analysts can
+ * left-join uploads → exports on (cloud_id, custom_content_id, page_id).
+ */
+interface UploadContext {
+  page_id: string | undefined;
+  custom_content_id: string | undefined;
+  cloud_id: string | undefined;
+  attachment_name: string | undefined;
+  content_hash: string | undefined;
+  diagram_type: string | undefined;
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -52,6 +66,14 @@ interface ExportResultMessageData {
 async function getIdentifier(): Promise<string | undefined> {
   const context = await initForgeContext();
   return context?.extension?.config?.customContentId;
+}
+
+/**
+ * Read the cloud_id from the Forge context if it has loaded.
+ * Safe to call before `initForgeContext()` resolves — returns undefined.
+ */
+function getCloudId(): string | undefined {
+  return forgeGlobal.forgeContext?.cloudId;
 }
 
 /**
@@ -126,6 +148,37 @@ function toPng(): Promise<Blob | null | undefined> {
   } finally {
     trackEvent('toPng', 'convert_to_png', 'export');
   }
+}
+
+/**
+ * Build the upload-event context once per `createAttachmentIfContentChanged`
+ * invocation. Any field can be undefined if its source hasn't loaded yet —
+ * the analyst should still get whatever partial context we have.
+ */
+async function buildUploadContext(
+  contentHash: string,
+  diagramType: string | undefined
+): Promise<UploadContext> {
+  let pageId: string | undefined;
+  let customContentId: string | undefined;
+  try {
+    pageId = await global.apWrapper._getCurrentPageId();
+  } catch {
+    pageId = undefined;
+  }
+  try {
+    customContentId = await getIdentifier();
+  } catch {
+    customContentId = undefined;
+  }
+  return {
+    page_id: pageId,
+    custom_content_id: customContentId,
+    cloud_id: getCloudId(),
+    attachment_name: customContentId ? `zenuml-${customContentId}.png` : undefined,
+    content_hash: contentHash,
+    diagram_type: diagramType,
+  };
 }
 
 // ============================================================================
@@ -241,12 +294,12 @@ async function uploadAttachment2(
 /**
  * Create a function that uploads a new version of an existing attachment.
  */
-function uploadNewVersionOfAttachment(hash: string): () => Promise<AttachmentMeta> {
+function uploadNewVersionOfAttachment(hash: string, ctx: UploadContext): () => Promise<AttachmentMeta> {
   return async () => {
     const attachment = await tryGetAttachment() as AttachmentWithLinks;
     const attachmentId = attachment.id;
     const versionNumber = attachment.version.number + 1;
-    trackEvent('version:' + versionNumber, 'upload_attachment', 'export');
+    trackEvent('version:' + versionNumber, 'upload_attachment', 'export', ctx);
     await uploadAttachment2(hash, (pageId: string) => {
       return buildAttachmentBasePath(pageId) + '/' + attachmentId + '/data';
     });
@@ -257,9 +310,9 @@ function uploadNewVersionOfAttachment(hash: string): () => Promise<AttachmentMet
 /**
  * Create a function that uploads a new attachment.
  */
-function uploadNewAttachment(hash: string): () => Promise<AttachmentMeta> {
+function uploadNewAttachment(hash: string, ctx: UploadContext): () => Promise<AttachmentMeta> {
   return async () => {
-    trackEvent('version:1', 'upload_attachment', 'export');
+    trackEvent('version:1', 'upload_attachment', 'export', ctx);
     const response = await uploadAttachment2(hash, buildAttachmentBasePath);
     const parsed = JSON.parse(response.body);
     const results = parsed.results ?? parsed.data?.results;
@@ -295,13 +348,26 @@ async function updateAttachmentProperties(attachmentMeta: AttachmentMeta): Promi
  *
  * Guards against concurrent execution to prevent 409/503 errors when
  * multiple 'diagramLoaded' events fire simultaneously.
+ *
+ * `diagramType` is optional — when callers pass it (zenuml/mermaid/graph/openapi/embed)
+ * it flows into the analytics events so we can correlate per diagram type.
+ *
+ * Emits the following events alongside the existing `upload_attachment`:
+ *   - `attachment_upload_skipped`   (event_label: 'concurrent' | 'unchanged')
+ *   - `attachment_upload_failed`    (event_label: failure reason, plus error fields)
+ * Each carries the same join keys (page_id, custom_content_id, cloud_id, ...)
+ * used by the backend `macro_export_*` events in src/export.js.
  */
-async function createAttachmentIfContentChanged(content: string): Promise<void> {
+async function createAttachmentIfContentChanged(content: string, diagramType?: string): Promise<void> {
+  const hash = md5(content);
+  const ctx = await buildUploadContext(hash, diagramType);
+
   // Ensure this method will NOT be called multiple times at the same time.
   // There's an issue when diagram is edited through page edit, multiple 'diagramLoaded'
   // events are fired afterwards, thus multiple calls to this method at (almost) same time,
   // caused 409 or 503 error.
   if (window.createAttachmentInProgress) {
+    trackEvent('concurrent', 'attachment_upload_skipped', 'export', ctx);
     return;
   }
 
@@ -309,11 +375,28 @@ async function createAttachmentIfContentChanged(content: string): Promise<void> 
 
   try {
     const attachment = await tryGetAttachment();
-    const hash = md5(content);
     if (!attachment || hash !== attachment.comment) {
-      const attachmentMeta = await (attachment ? uploadNewVersionOfAttachment(hash) : uploadNewAttachment(hash))();
+      const attachmentMeta = await (attachment ? uploadNewVersionOfAttachment(hash, ctx) : uploadNewAttachment(hash, ctx))();
       await updateAttachmentProperties(attachmentMeta);
+    } else {
+      // Already up to date — this is the expected steady-state for an existing macro.
+      // Emit so we can prove upload coverage exists when investigating `attachment_not_found`.
+      trackEvent('unchanged', 'attachment_upload_skipped', 'export', ctx);
     }
+  } catch (e: any) {
+    // The function still throws (callers wrap this in try/catch already), but we
+    // now record the failure with full join-key context so it can be correlated
+    // with the backend `macro_export_failed` event.
+    const errorName = e?.name ?? 'UnknownError';
+    const errorMessage = String(e?.message ?? e ?? '').slice(0, 200);
+    const httpStatus = e?.xhr?.status ?? e?.status;
+    trackEvent(errorName, 'attachment_upload_failed', 'export', {
+      ...ctx,
+      error_name: errorName,
+      error_message: errorMessage,
+      http_status: httpStatus,
+    });
+    throw e;
   } finally {
     window.createAttachmentInProgress = false;
   }

@@ -266,7 +266,7 @@ async function createAttachment(code: string, diagramType: DiagramType) {
   try {
     if (globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
       const createAttachmentIfContentChanged = await createAttachmentIfContentChangedPromise;
-      await createAttachmentIfContentChanged(code);
+      await createAttachmentIfContentChanged(code, diagramType);
     } else {
       console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");
     }

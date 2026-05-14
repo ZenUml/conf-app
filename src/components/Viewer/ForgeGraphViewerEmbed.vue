@@ -118,6 +118,7 @@ export default {
         new window.GraphViewer(this.$refs.graphContainer, xmlNode, {
           'toolbar': 'pages',
           'toolbar-position': 'inline',
+          'toolbar-nohide': true,
           'auto-fit': true,
           'border': 10,
         });

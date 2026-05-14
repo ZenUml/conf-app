@@ -32,10 +32,15 @@ export default {
       try {
         // @ts-ignore
         const xmlNode = mxUtils.parseXml(this.graphXml).documentElement;
+        // toolbar-nohide=true keeps the page-nav strip visible without
+        // hover, so multi-page diagrams advertise their prev / "1 / 2" / next
+        // controls up front. The pages token alone auto-hides on single-page
+        // diagrams (GraphViewer.js:1374 sets display:none when len <= 1).
         // @ts-ignore
         new GraphViewer(container, xmlNode, {
           'toolbar': 'pages',
           'toolbar-position': 'inline',
+          'toolbar-nohide': true,
           'auto-fit': true,
           'border': 10,
         });

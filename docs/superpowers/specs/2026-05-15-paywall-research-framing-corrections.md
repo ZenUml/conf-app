@@ -86,17 +86,27 @@ Errors are roughly ordered by impact, not chronology.
 - **What's actually true.** Always cross-verify Mixpanel MCP query results against another method (raw export, manual breakdown) before drawing conclusions. Use breakdowns instead of filters where possible.
 - **Strategic impact.** Smaller — caused some intermediate confusion but no strategic decision rested on it.
 
-### B4. "Tunnel does NOT proxy `adfExport`" — itself a wrong claim, self-corrected 2026-05-16
+### B4. Tunnel does NOT proxy `adfExport` — empirically confirmed 2026-05-16
 
-- **What I originally said.** I claimed `adfExport` runs server-side on Atlassian's export pipeline and bypasses the tunnel entirely. I told the user the only way to spike was `forge deploy -e development`.
-- **Why that was wrong.** I drew this conclusion from a single ad-hoc observation (PDF rendered the deployed code, not my local changes; no log in the tunnel output). I did NOT consult the docs before publishing the claim.
-- **What the docs actually say** ([Forge Tunneling](https://developer.atlassian.com/platform/forge/tunneling/)). The tunnel proxies "non-UI functions, such as Custom UI resolvers and web triggers"; source code changes auto-rebundle. `adfExport` is structurally a function module ( `function: { key, handler }` in the manifest), so the general principle says it IS proxied. The docs don't list it as an exception.
-- **What likely explained my observation** instead of a tunnel limitation:
-  - The tunnel showed `ENOENT: dist/` warnings on first run — Forge bundled an incomplete artifact.
-  - Logs from tunnelled invocations go to the **tunnel terminal**, not to `forge logs`. I was looking at `forge logs` for the probe output, so I would have missed the live log.
-  - I had the tunnel running, then edited `src/export.js`, then triggered the export — but never verified the rebundle had completed or the in-memory handler matched my edits.
-- **Honest current state.** Not actually settled. Two paths to settle: (a) re-run a clean tunnel test with a fresh `dist/` and a probe that watches the tunnel terminal in real time; or (b) trust the docs as written. Either way the original "deploy is the only path" claim was over-confident and is hereby retracted.
-- **Strategic impact.** Cost ~3 deploys during the spike that could have been tunnel rebundles. Doesn't change the strategy doc, only the operational guidance for future spikes on adfExport.
+The journey on this one was: original claim → retraction → empirical re-confirmation. The retraction was wrong; the original claim is correct.
+
+- **Original claim (2026-05-15).** `adfExport` runs server-side on Atlassian's export pipeline and bypasses the tunnel; spiking requires `forge deploy -e development`.
+- **Retraction (2026-05-16, earlier same day).** I retracted the claim after reading the [Forge Tunneling docs](https://developer.atlassian.com/platform/forge/tunneling/), which say "tunnel proxies non-UI functions, such as Custom UI resolvers and web triggers." `adfExport` is structurally a function module; the general principle suggested it should be proxied. I attributed my original observation to a setup error (`ENOENT: dist/`, wrong log channel).
+- **Re-confirmation via clean test (2026-05-16, later same day).** Set up a controlled experiment:
+  - Fresh `pnpm build:lite` → `dist/` complete, no `ENOENT` warnings
+  - `src/export.js` had a `console.log('[TUNNEL-PROBE-2026-05-16]', ...)` at the very top of the handler, and `createMediaDocument` reverted to baseline (no footer)
+  - Deployed dev code (separately): v3-conditional WITH footer (different code from local)
+  - `forge tunnel -e development` started cleanly, terminal showed `✔ Functions bundled. Listening for requests on local port 51434.`
+  - Triggered PDF export via Playwright
+- **Three independent empirical signals — all confirm tunnel bypass:**
+  1. **Tunnel terminal: zero `TUNNEL-PROBE-2026-05-16` log lines** after the PDF export fired. (`grep -c "TUNNEL-PROBE-2026-05-16" tunnel.log` → 0)
+  2. **PDF contains the footer** "Diagram by ZenUML Lite — upgrade to remove this footer ↗" — this string is in the deployed code, NOT in my current local code
+  3. **PDF size: 72 KB** matches the with-footer deployed shape; baseline (no footer) is ~49 KB
+- **Control experiment** (added 2026-05-16 to rule out "tunnel logging is just broken"). Same tunnel session, added a `webtrigger` module + `tunnel-test-trigger.handler` to the manifest, deployed, and curled the trigger URL. **The tunnel terminal logged the web-trigger invocation** with `invocation: <id> tunnel-test-trigger.handler` followed by `[TUNNEL-TEST-TRIGGER-2026-05-16] webTrigger fired ...`. So tunnel logging works fine — it just doesn't see the macro-export pipeline. (Test artefacts cleaned up; manifest reverted; clean deploy back to baseline.)
+- **Why the docs read otherwise.** The Forge Tunneling docs say tunnel proxies "Custom UI resolvers and web triggers". Both of those are invoked from the user's authenticated frontend session (iframe `invoke()` or HTTP request to a web-trigger URL). **`adfExport` is different** — it's invoked by Atlassian's macro-export pipeline, which is a separate server-side job that runs outside the user's session even though `accountId` is attached. The docs don't explicitly list it as unsupported, but the execution path is not one the tunnel intercepts.
+- **Final claim** (re-confirmed): **`forge tunnel` does NOT proxy `adfExport` invocations from Atlassian's PDF/Word export pipeline. To spike `adfExport` changes, you must `forge deploy -e development`.**
+- **Lesson on the framing-correction itself.** I was right, then I retracted in deference to the docs without testing, then the test reconfirmed the original. The right ordering is: docs first, test second, ship the claim only after both line up. Skipping the test step in the retraction round was a mistake of its own kind.
+- **Operational guidance for the forge-tunnel skill.** Add: "Note: `adfExport` invocations from Atlassian's PDF/Word export pipeline do NOT route through the tunnel. They run in Atlassian's server-side macro-export pipeline against the deployed code. To iterate on `adfExport` changes, `forge deploy -e development` is required for each test."
 
 ### B5. "ADF `caption` would solve the Word problem"
 

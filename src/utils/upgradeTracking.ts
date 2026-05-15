@@ -8,6 +8,7 @@ export enum UpgradeEventName {
   MODAL_SHOWN = 'upgrade_modal_shown',
   MODAL_DISMISSED = 'upgrade_modal_dismissed',
   PAYWALL_BLOCKED_EDIT = 'paywall_blocked_edit',
+  PAYWALL_BLOCKED_CREATE = 'paywall_blocked_create',
   PAYWALL_CONTINUED_EDITING = 'paywall_continued_editing',
   ADVOCACY_MESSAGE_COPIED = 'advocacy_message_copied',
   ADVOCACY_DRAFT_PREVIEW_CLICKED = 'advocacy_draft_preview_clicked',

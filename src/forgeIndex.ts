@@ -201,6 +201,54 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         }
       }
 
+      // Pre-create paywall gate: block new-macro creation in saturated spaces
+      if (editable && !customContentId) {
+        const customerSuccess = useCustomerSuccessService();
+        await customerSuccess.initialize();
+
+        if (isPageEditorCreateBlocked(customerSuccess.shouldBlockActions.value)) {
+          let spaceKey = '';
+          try {
+            spaceKey = (await globals.apWrapper.getCurrentSpace())?.key || '';
+          } catch (e) {
+            console.debug('Could not resolve current space for page-editor create paywall gate', e);
+          }
+
+          trackUpgradeEvent(UpgradeEventName.PAYWALL_BLOCKED_CREATE, {
+            ui_component: UIComponent.VIEWER_NOTICE,
+            action_type: 'page_editor_create',
+            ...getUpgradeContext(),
+          });
+
+          trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
+            ui_component: UIComponent.VIEWER_NOTICE,
+            action_type: 'page_editor_create',
+            ...getUpgradeContext(),
+          });
+
+          const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';
+          // @ts-ignore - Workspace's Split() helper checks window.split
+          window.split = true;
+          const fullscreenMode = await isFullscreenMode();
+          const Workspace = (await import('@/components/Workspace.vue')).default;
+          // @ts-ignore - doc may be a partial spread type; same suppression as the happy-path mount below
+          mountRoot(doc ?? NULL_DIAGRAM, PageEditorPaywallGate, {
+            editor: Workspace,
+            editorProps: { autoResize: !fullscreenMode },
+            macrosCreated: customerSuccess.macrosCreated.value,
+            macrosLimit: MACROS_LIMIT,
+            upgradeUrl: customerSuccess.upgradeUrl.value,
+            enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
+            macroKind,
+            spaceKey,
+            onClose: async () => {
+              await (await getView()).close();
+            },
+          });
+          return;
+        }
+      }
+
       if (editable) {
         // @ts-ignore - Enable splitbar for editor mode (Workspace.vue checks window.split)
         window.split = true;

@@ -17,9 +17,10 @@ import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId,
 import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
 import { useCustomerSuccessService, MACROS_LIMIT, getUpgradeContext } from '@/composables/useCustomerSuccessService';
-import { isPageEditorEditBlocked } from '@/utils/paywall/preEditGate';
+import { isPageEditorEditBlocked, isPageEditorCreateBlocked } from '@/utils/paywall/preEditGate';
 import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
 
@@ -220,6 +221,24 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           macro_type: doc.diagramType,
           entry_point: "page_view",
         });
+      } else {
+        const isNew = !customContentId;
+        const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';
+        if (isNew) {
+          trackAnalyticsEvent("macro_create_started", {
+            feature_area: "macro",
+            surface: "editor",
+            macro_type: macroType,
+            entry_point: "page_editor",
+          });
+        } else {
+          trackAnalyticsEvent("macro_edit_opened", {
+            feature_area: "macro",
+            surface: "editor",
+            macro_type: macroType,
+            entry_point: "macro_toolbar",
+          });
+        }
       }
     } else if(isGraph) {
       await import(editable ? "@/forge-graph-editor" : "@/forge-graph-viewer");

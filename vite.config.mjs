@@ -24,6 +24,24 @@ process.env.VITE_APP_GIT_TAG = execSync(`git describe --tags --always --abbrev=0
 const appVersion = process.env.VITE_APP_VERSION || process.env.VITE_APP_GIT_TAG || 'dev'
 console.log(`Building ${appVersion} (${process.env.VITE_APP_GIT_HASH}) on ${process.env.VITE_APP_GIT_BRANCH}`)
 
+// Mixpanel token: CI passes via process.env (set from `vars.VITE_MIXPANEL_TOKEN`
+// in staging-deploy.yml / release.yml). Local dev builds don't have that env var
+// set, which would leave `mixpanel.init("")` in the bundle and drop all events.
+// Fall back to reading `Token=` from .env.mixpanel (gitignored, each dev has
+// their own copy) so `pnpm build:lite` from a clean shell still produces a
+// bundle that emits analytics.
+const mixpanelToken = (() => {
+  if (process.env.VITE_MIXPANEL_TOKEN) return process.env.VITE_MIXPANEL_TOKEN
+  try {
+    const m = fs.readFileSync(path.resolve(__dirname, '.env.mixpanel'), 'utf8').match(/^Token=(.+)$/m)
+    if (m?.[1]) return m[1].trim()
+  } catch {}
+  return ''
+})()
+if (!mixpanelToken) {
+  console.warn('[vite] VITE_MIXPANEL_TOKEN is empty — analytics events will be dropped. Set the env var or populate .env.mixpanel.')
+}
+
 // Dev-only HTML entries — driven by `src/{test-viewer,viewerPreview,sandbox}.ts`.
 // Each ships a sandbox/preview UI (`localStorage.mock*` flags, sandbox-preset
 // catalog, etc.) that has no place in a production bundle. Excluding them
@@ -53,7 +71,7 @@ export default defineConfig(({ command }) => ({
   base: './',
   define: {
     'import.meta.env.PRODUCT_TYPE': JSON.stringify(process.env.PRODUCT_TYPE || 'full'),
-    'import.meta.env.VITE_MIXPANEL_TOKEN': JSON.stringify(process.env.VITE_MIXPANEL_TOKEN || ''),
+    'import.meta.env.VITE_MIXPANEL_TOKEN': JSON.stringify(mixpanelToken),
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
     'import.meta.env.VITE_APP_COMMIT': JSON.stringify(process.env.VITE_APP_GIT_HASH || 'unknown'),
   },

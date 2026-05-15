@@ -17,9 +17,10 @@ import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId,
 import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
 import { useCustomerSuccessService, MACROS_LIMIT, getUpgradeContext } from '@/composables/useCustomerSuccessService';
-import { isPageEditorEditBlocked } from '@/utils/paywall/preEditGate';
+import { isPageEditorEditBlocked, isPageEditorCreateBlocked } from '@/utils/paywall/preEditGate';
 import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
 
@@ -200,6 +201,54 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         }
       }
 
+      // Pre-create paywall gate: block new-macro creation in saturated spaces
+      if (editable && !customContentId) {
+        const customerSuccess = useCustomerSuccessService();
+        await customerSuccess.initialize();
+
+        if (isPageEditorCreateBlocked(customerSuccess.shouldBlockActions.value)) {
+          let spaceKey = '';
+          try {
+            spaceKey = (await globals.apWrapper.getCurrentSpace())?.key || '';
+          } catch (e) {
+            console.debug('Could not resolve current space for page-editor create paywall gate', e);
+          }
+
+          trackUpgradeEvent(UpgradeEventName.PAYWALL_BLOCKED_CREATE, {
+            ui_component: UIComponent.VIEWER_NOTICE,
+            action_type: 'page_editor_create',
+            ...getUpgradeContext(),
+          });
+
+          trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
+            ui_component: UIComponent.VIEWER_NOTICE,
+            action_type: 'page_editor_create',
+            ...getUpgradeContext(),
+          });
+
+          const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';
+          // @ts-ignore - Workspace's Split() helper checks window.split
+          window.split = true;
+          const fullscreenMode = await isFullscreenMode();
+          const Workspace = (await import('@/components/Workspace.vue')).default;
+          // @ts-ignore - doc may be a partial spread type; same suppression as the happy-path mount below
+          mountRoot(doc ?? NULL_DIAGRAM, PageEditorPaywallGate, {
+            editor: Workspace,
+            editorProps: { autoResize: !fullscreenMode },
+            macrosCreated: customerSuccess.macrosCreated.value,
+            macrosLimit: MACROS_LIMIT,
+            upgradeUrl: customerSuccess.upgradeUrl.value,
+            enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
+            macroKind,
+            spaceKey,
+            onClose: async () => {
+              await (await getView()).close();
+            },
+          });
+          return;
+        }
+      }
+
       if (editable) {
         // @ts-ignore - Enable splitbar for editor mode (Workspace.vue checks window.split)
         window.split = true;
@@ -220,6 +269,24 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           macro_type: doc.diagramType,
           entry_point: "page_view",
         });
+      } else {
+        const isNew = !customContentId;
+        const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';
+        if (isNew) {
+          trackAnalyticsEvent("macro_create_started", {
+            feature_area: "macro",
+            surface: "editor",
+            macro_type: macroType,
+            entry_point: "page_editor",
+          });
+        } else {
+          trackAnalyticsEvent("macro_edit_opened", {
+            feature_area: "macro",
+            surface: "editor",
+            macro_type: macroType,
+            entry_point: "macro_toolbar",
+          });
+        }
       }
     } else if(isGraph) {
       await import(editable ? "@/forge-graph-editor" : "@/forge-graph-viewer");

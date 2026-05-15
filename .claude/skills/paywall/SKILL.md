@@ -146,6 +146,8 @@ For the `mcoproduct` case where `paywall_continued_editing` is high, the per-spa
 
 ### Build the monitoring table
 
+**Output format: always render as a markdown table — never as a bullet list or prose.** One row per customer CSS domain (exclude internal sites). The table must appear verbatim in your response under the heading "Step 2: Daily Monitoring Table (last 1 day)".
+
 For customer domains on CSS: **read the live CSS flag from Step 1** to get the current list. Do not rely on any hardcoded list here — it goes stale as new tenants are enrolled. Exclude internal sites: zenuml, zenuml-stg, zenuml-connect, lite-stg.
 
 | Domain | triggered | modal_shown | advocacy_copies | intent_capture_rate | saves | creates | friction | continued | note |

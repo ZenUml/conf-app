@@ -233,16 +233,30 @@ wrangler d1 migrations apply zenuml-for-confluence --remote
 
 ## Git Workflow
 
-**Never commit directly to `master`** unless explicitly told to. Always create a feature branch for new work:
+**Never commit directly to `main`** unless explicitly told to. Always create a feature branch for new work.
 
+**Exception:** Changes to `.md` files only (docs, CLAUDE.md, README, etc.) may be committed directly to `main`.
+
+### Starting work on an issue
+
+When beginning a fix or feature, check the current branch state first:
+
+**If on `main`:**
 ```bash
-git checkout -b <branch-name>
-# ... make changes ...
-git push origin <branch-name>
-# then open a PR
+git checkout -b <feature-branch-name>
 ```
 
-The only exception is trivial config/doc changes when the user explicitly says to push to master.
+**If on a different feature branch:**
+1. Check if the branch is clean: `git status`
+2. **If clean** — switch back to main, pull, then create the new branch:
+   ```bash
+   git checkout main && git pull && git checkout -b <feature-branch-name>
+   ```
+3. **If dirty (uncommitted changes)** — stop and present these options:
+   1. Commit the current changes first, then switch to the new branch
+   2. Use a git worktree so both branches can coexist: `git worktree add ../conf-app-<feature> -b <feature-branch-name>`
+
+Always use the `/superpowers:using-git-worktrees` skill when choosing option 2.
 
 ## Browser Automation and Forge Iframes
 

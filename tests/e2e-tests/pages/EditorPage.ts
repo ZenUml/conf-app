@@ -1,4 +1,4 @@
-import { Page, expect } from '@playwright/test';
+import { Page, FrameLocator, expect } from '@playwright/test';
 import { testConfig, TIMEOUTS } from '../config/test-config.js';
 
 export class ConfluenceEditorPage {
@@ -418,6 +418,8 @@ export class ConfluenceEditorPage {
     const modal = this.page.getByTestId('custom-ui-fullscreen-modal-dialog');
     const frame = modal.locator('[data-testid="hosted-resources-iframe"]').contentFrame();
 
+    await this.dismissPaywallIfPresent(frame);
+
     if (tab) {
       await frame.getByRole('tab', { name: tab }).click();
       await this.page.waitForTimeout(1000);
@@ -557,9 +559,24 @@ export class ConfluenceEditorPage {
    * The button is invisible to the accessibility snapshot because it's inside
    * double-nested iframes: Forge modal > hosted-resources-iframe > DrawIO iframe.
    */
+  // If the paywall gate is active (space over macro limit on Lite), the upgrade
+  // modal overlays the editor with a fixed inset overlay that intercepts all
+  // pointer events. Dismiss it before attempting any editor interaction.
+  private async dismissPaywallIfPresent(frame: FrameLocator): Promise<void> {
+    const continueEditingBtn = frame.locator('[data-testid="continue-editing-btn"]');
+    if (await continueEditingBtn.count() > 0) {
+      console.log('Paywall gate detected; clicking Continue editing');
+      await continueEditingBtn.click();
+      await this.page.waitForTimeout(500);
+    }
+  }
+
   private async clickDrawioPublishForge(): Promise<void> {
     const modal = this.page.getByTestId('custom-ui-fullscreen-modal-dialog');
     const outerFrame = modal.locator('[data-testid="hosted-resources-iframe"]').contentFrame();
+
+    await this.dismissPaywallIfPresent(outerFrame);
+
     const innerFrame = outerFrame.locator('iframe').contentFrame();
     await innerFrame.locator('button:has-text("Publish")').click();
     await this.page.waitForTimeout(2000);
@@ -581,6 +598,9 @@ export class ConfluenceEditorPage {
     if (testConfig.isForge || testConfig.isLite) {
       const modal = this.page.getByTestId('custom-ui-fullscreen-modal-dialog');
       const frame = modal.locator('[data-testid="hosted-resources-iframe"]').contentFrame();
+
+      await this.dismissPaywallIfPresent(frame);
+
       const titleInput = frame.locator('input[type="text"]').first();
       await titleInput.clear();
       await titleInput.fill(title);

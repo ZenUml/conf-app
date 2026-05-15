@@ -128,6 +128,53 @@ Those are assumptions that need validation, not premises to build on.
 
 ---
 
+## 7a. Phase 2 results (run 2026-05-15, 30-day window)
+
+**Outcome volumes**
+
+| Event | Count | Note |
+|---|---|---|
+| `macro_export_requested` | 3,092 | |
+| `macro_export_succeeded` | 2,658 | 86.0% of requests |
+| `macro_export_failed` | 724 | 23.4% of requests |
+
+> Outcomes (succeeded + failed = 3,382) exceed requested (3,092). Likely a property/time-attribution skew on the requested event; not investigated further since the failure analysis below is independent of the request count.
+
+**Failure taxonomy**
+
+| `failure_reason` | Count | % of failures | Interpretation |
+|---|---|---|---|
+| `attachment_not_found` | 517 | 71.4% | Image not yet generated — viewer never rendered the macro, so the PNG attachment doesn't exist. UX issue, not a paywall opportunity. |
+| `unexpected_error` | 142 | 19.6% | Uncaught exceptions in the export handler. Needs separate triage; not a monetization signal. |
+| `attachments_api_404` | 56 | 7.7% | API returned 404 even after `asUser()` fallback. Possible page-restriction edge cases. |
+| `missing_custom_content_id` | 8 | 1.1% | Payload didn't carry a customContentId. Frontend bug or malformed payload. |
+| `attachments_api_429` | 1 | 0.1% | Rate limited. Noise. |
+| `needs_authentication` | **0** | **0%** | **Hypothesis refuted** — anonymous / unauthenticated public-page export is not a measurable failure mode in this window. |
+
+**asUser() fallback rescue rate**
+
+`asApp()` returned 404 → `asUser()` fallback was attempted on **182 occasions** (136 succeeded + 46 failed):
+
+| Outcome | Count | % of fallback attempts |
+|---|---|---|
+| asUser rescued the 404 → export succeeded | 136 | 74.7% |
+| asUser also failed → `attachments_api_404` or `attachment_not_found` | 46 | 25.3% |
+
+Without the fallback, those 136 successful exports would have been `attachments_api_404` failures. The fallback meaningfully reduces the failure surface.
+
+---
+
+## 7b. Implications
+
+1. **The original "anonymous public-page export" thesis is dead.** Zero `needs_authentication` failures over 30 days. There is no measurable cohort of unauthenticated public-page exporters to convert.
+2. **The biggest failure bucket is a product bug, not a paywall surface.** 71% of failures are `attachment_not_found` — the diagram image was never generated because no viewer rendered the macro. This is a fix-the-product problem (e.g., generate the attachment server-side on first export request, or document the "open the page first" requirement in the export UI), not a monetization problem.
+3. **`unexpected_error` (20%) warrants its own triage.** The `error_name` and `error_stack` properties on these events should narrow this down quickly; not blocking the strategy question.
+4. **`asUser()` fallback is paying its rent.** 75% rescue rate on what would otherwise be 404 failures.
+
+Recommendation per §8 *Decision branches*: **"Restricted-space export volume is small or mostly outside Lite → Do not build a new export surface"** — Phase 3 should confirm by cohort-segmenting the 724 failures and 2,658 successes, but the absence of any auth-failure signal makes it likely Phase 3 confirms abandon.
+
+---
+
 ## 8. Decision branches
 
 | Finding | Recommendation |

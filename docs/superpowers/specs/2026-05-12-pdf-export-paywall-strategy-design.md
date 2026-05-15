@@ -292,20 +292,103 @@ This is a placement-level constraint, not a strategy blocker:
 | Watermark rendered onto the PNG itself (no ADF change) | ✅ | ✅ |
 | Post-export Confluence message via separate channel | ✅ | ✅ |
 
+### Spike v2 — caption nested inside mediaSingle (single-root, ADF spec)
+
+Hypothesis: the Word break in v1 was caused by multi-root content. Move the footer text inside the `mediaSingle` as a `caption` child so the document still has a single root node.
+
+```json
+{
+  "type": "doc",
+  "version": 1,
+  "content": [{
+    "type": "mediaSingle",
+    "attrs": { "layout": "center" },
+    "content": [
+      { "type": "media", "attrs": { ... } },
+      { "type": "caption", "content": [ ...text+link... ] }
+    ]
+  }]
+}
+```
+
+| Format | Outcome | Verdict |
+|---|---|---|
+| PDF | ❌ Caption text **silently dropped** — output identical to baseline (no footer) | **Caption not rendered** |
+| Word | ✅ No error, image renders — but caption text also silently dropped | Caption not rendered |
+
+Conclusion: Confluence's export pipelines accept `caption` syntactically (no error) but skip the text content during render. ADF caption inside mediaSingle is not a viable path for the upgrade nudge.
+
+### Spike v3 — conditional ADF keyed on `payload.exportType` (chosen approach)
+
+Atlassian's [macro manifest reference](https://developer.atlassian.com/platform/forge/manifest-reference/modules/macro/) confirms `payload.exportType` is `"pdf" | "word" | "other"` and explicitly supports branching:
+
+> *"The specified function can consume the exportType directly from the function's payload in order to specify different views per export type."*
+
+Mixpanel `macro_export_succeeded.format` shows production also emits `email`, `feed`, `diff`, and `html_export` in addition to the documented three values.
+
+v3 returns the v1 multi-root (with footer) for everything **except** `exportType === "word"`, which gets the baseline single-root:
+
+```js
+const content = [mediaSingle];
+if (exportType !== "word") {
+  content.push({ type: "paragraph", content: [ /* footer */ ] });
+}
+return { type: "doc", version: 1, content };
+```
+
+| Format | Outcome | Verdict |
+|---|---|---|
+| PDF | ✅ Footer renders (71KB PDF, identical to v1) | Confirmed |
+| Word | ✅ Baseline rendering, no error (62KB MHTML, identical to baseline) | Confirmed |
+| other / email / feed / diff / html_export | ❓ **Untested at spike time** — v3 includes the footer for all of them. Unknown which user-facing surfaces these formats correspond to. | **Phase 4 follow-up** |
+
+### Format-share split (production, 30d window)
+
+| format | events | % of total | Footer in v3? | Visual confirmation? |
+|---|---|---|---|---|
+| `other` | 2,269 | 83.6% | Yes (untested) | Unknown |
+| `email` | 203 | 7.5% | Yes (untested) | Unknown |
+| `word` | 123 | 4.5% | No (intentional) | n/a |
+| `pdf` | 74 | **2.7%** | Yes (tested) | ✅ |
+| `feed` | 28 | 1.0% | Yes (untested) | Unknown |
+| `diff` | 14 | 0.5% | Yes (untested) | Unknown |
+| `html_export` | 2 | <0.1% | Yes (untested) | Unknown |
+
+**Strategic implication:** PDF is a sliver of the cohort. If `other` is a real user-visible surface (page history view, content preview, Rovo summary, etc.) then v3 already reaches ~95% of the cohort with no Word regression. If `other` is entirely headless/machine-only (search indexing, internal pipelines), then PDF alone is too small to justify the effort.
+
+### Interpretation
+
+Confluence's Word export pipeline does not tolerate multi-node ADF documents from `adfExport`. Only a single root-level `mediaSingle` is honored; sibling nodes appear to cause the entire macro export to fail rather than degrade gracefully. PDF tolerates multi-node and renders the appended paragraph cleanly. Captions inside mediaSingle are accepted but silently dropped — they are not a viable text surface.
+
+The right code shape is the v3 conditional: branch on `payload.exportType` and emit `[mediaSingle, footerParagraph]` for everything except `"word"`. This pattern is documented and supported by Atlassian.
+
+### Updated placement matrix
+
+| Placement | PDF viable | Word viable | Code change |
+|---|---|---|---|
+| Multi-root paragraph (v1) | ✅ | ❌ | Small |
+| Caption inside mediaSingle (v2) | ❌ | ❌ | Small |
+| **Conditional on `exportType` (v3)** | ✅ | ✅ baseline | Small |
+| Watermark rendered onto the PNG itself | ✅ | ✅ | Medium (touches macro PNG generation pipeline) |
+| Post-export Confluence message via separate channel | ✅ | ✅ | Large (new surface to design) |
+
 ### Recommendation
 
-Two viable Phase 4 directions:
+Ship the **v3 conditional shape** as the Phase 5 implementation candidate, plus targeted instrumentation:
 
-1. **PNG watermark approach** — render the upgrade callout into the PNG before responding. The Word path then renders the same PNG it always has, with the upgrade text baked into the image. Tradeoff: less professional-looking; harder to make the link clickable in Word (links from images work in PDF/Word viewers but the affordance is weaker).
-2. **PDF-only footer + alternate Word surface** — keep the appended-paragraph approach for PDF, find a separate hook for Word (post-export Confluence dialog, periodic Lite-tenant nudge in the Confluence UI). Tradeoff: design complexity, two surfaces to maintain.
+1. Gate the footer behind `isLite()` (the spike was un-gated; production needs the variant check).
+2. Emit a new event when the footer is included in the response (e.g. `export_footer_included` with `format` property) so we can measure how many footers we actually emit per format in production, and learn what `other` represents by the tenants and surfaces hitting it.
+3. Hold the rollout to a small CSS subset (one or two tenants) and watch the new event for ~7 days before broader enrollment.
+4. Independent of the footer: investigate what `other` is. Candidates: page-history view, Rovo content summary, Confluence search snippet, anonymous page preview. The right way to learn is probably a property survey query (`Get-Property-Values` against `macro_export_succeeded` events with `format=other`) and cross-reference against client-domain patterns.
 
-**Question for product**: is the upgrade nudge worth pursuing on PDF alone if Word needs a different mechanism, or is parity across formats a requirement before investing?
+If the `other` surface turns out to be headless / non-user-visible, the strategic value drops to just PDF (2.7%) plus possibly email (7.5%) — at that point the PNG watermark approach is the only one with material coverage and worth a second spike round.
 
 ### Side observations from the spike
 
-- The spike was deployed to the `development` Forge env on `lite-dev.atlassian.net`. Subsequently reverted (working tree clean). The dev env may have residual deploys; no action needed.
-- The spike confirmed end-to-end that the export response *is* the right hook — modifications to `createMediaDocument` flow directly into the exported document. No additional plumbing is required.
+- v1, v2, and v3 were each deployed to the `development` Forge env on `lite-dev.atlassian.net` and reverted before this commit. Working tree and dev env are at baseline after this run.
+- The spike confirmed end-to-end that the export response *is* the right hook — modifications to `createMediaDocument` flow directly into the exported document. No additional plumbing required.
 - A test page exists at `https://lite-dev.atlassian.net/wiki/spaces/SD/pages/8355841/Export+footer+spike+2021` and can be reused for future spike runs.
+- `forge tunnel` does not proxy `adfExport` resolver calls; any future spike in this code path requires a real `forge deploy`.
 
 ---
 

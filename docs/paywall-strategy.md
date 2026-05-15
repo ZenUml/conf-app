@@ -98,7 +98,7 @@ The gate predicates live in `src/utils/paywall/preEditGate.ts`:
 
 ## 5. Open strategic questions
 
-1. **Export-adjacent surface — leaning abandon after Phase 2.** Phase 2 (run 2026-05-15, 30d window) refuted the "anonymous public-page export" thesis: **0** `needs_authentication` failures out of 724 total failures. The dominant failure (71%) is `attachment_not_found` — a product bug (viewer never rendered → no PNG generated), not a paywall opportunity. Phase 3 (cohort segmentation) should confirm, but the strategic case for an export-adjacent paywall is now weak. Full Phase 2 results live in `docs/superpowers/specs/2026-05-12-pdf-export-paywall-strategy-design.md` §7a.
+1. ~~**Export-adjacent surface.**~~ **CLOSED (2026-05-15): abandon.** The Phase 2+3 audit converged on "do not build". 0 `needs_authentication` failures over 30 days kills the anonymous-export thesis; 71% of failures are `attachment_not_found` (product bug, not a paywall); the CSS-customer addressable cohort is ~2 failures/day — the editor-path advocacy surface already captures more intent than any plausible export surface could. Full results in `docs/superpowers/specs/2026-05-12-pdf-export-paywall-strategy-design.md` §7a–7d. Telemetry stays; the export instrumentation in `src/export.js` is long-lived.
 
 2. **Hard block on create.** Edit path is soft (77% continue rate is acceptable). Create is also soft today, mirroring edit. Question: are create-blocked users qualitatively different (newer, higher-intent) such that hard-blocking creates would convert more without unacceptable CSAT damage?
 

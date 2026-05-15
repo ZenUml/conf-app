@@ -1,7 +1,7 @@
 # PDF/Word Export Telemetry Audit — Paywall Decision Support
 
-**Date:** 2026-05-12 (Phase 2 + Phase 3 results added 2026-05-15)
-**Status:** **Closed — recommendation: abandon** (see §7d). Telemetry continues to land; no export paywall surface to be built.
+**Date:** 2026-05-12 (Phase 2 + Phase 3 results added 2026-05-15; reframed same day)
+**Status:** **Open — reframed.** The original audit framed the question as *failure-cohort recovery* (anonymous public-page export → upgrade). That thesis is dead (Phase 2). The right framing is *success-as-nudge-surface*: every successful Lite export = a moment of value-realization, where an in-document or post-export upgrade hint can reach the exporter **and the document's audience** at zero friction. The volume is real (§7c). Phase 4 needs to evaluate placement and ADF rendering consistency.
 **Current strategy source:** [`docs/paywall-strategy.md`](../../paywall-strategy.md) (see §5 open question on export-adjacent surface)
 **Variant:** ZenUML Lite only
 **Related work:** Existing editor paywall (`UpgradePrompt`, `advocacy_message_copied`), export telemetry in `src/export.js`
@@ -201,19 +201,42 @@ If we converted 100% of the 72 CSS-customer failures into upgrade actions — im
 
 ---
 
-## 7d. Phase 3 conclusion — ABANDON
+## 7d. Phase 3 conclusion — REFRAME, advance to Phase 4
 
-Convergent evidence supports `§8 — "Restricted-space export volume is small or mostly outside Lite → Do not build a new export surface"`:
+The original Phase 3 framing — cohort-size the **failures** as a paywall-recovery surface — is the wrong question. Under that framing the audit lands at abandon: the failure-driven thesis is dead (0 auth failures), and the dominant bucket is a product bug to fix, not a wall to monetize.
 
-1. **Phase 2 killed the auth thesis.** 0 `needs_authentication` failures over 30 days.
-2. **The dominant failure is a product bug, not a paywall.** 71% of failures are `attachment_not_found` — fix the viewer-pre-render dependency or document it; don't monetize it.
-3. **The addressable cohort is small.** Even generously, CSS-customer failures are ~2/day. Editor-path advocacy already captures more intent than any plausible export surface could.
-4. **`asUser()` fallback is already paying.** 75% of `asApp()` 404s are silently rescued. Most of the remaining noise will resolve as instances mature.
+**But that framing was always the smaller opportunity.** The right strategic question is: *can a successful export carry an upgrade nudge?*
 
-**Recommendation:** Stop the audit at Phase 3. Do not advance to Phases 4–5. Redirect the export effort to:
-- Triage `unexpected_error` (142 events / 20% of failures) for actionable bugs
-- Consider auto-regenerating PNG attachments on export request when missing, removing the `attachment_not_found` UX surprise
-- Treat the export instrumentation in `src/export.js` as long-lived telemetry; it's working as intended
+| Surface | 30d volume (CSS customer) | 30d volume (all tenants) | Friction added |
+|---|---|---|---|
+| Failure-driven (what the audit measured) | ~21 addressable / mo | ~21 addressable / mo | Adds friction to a broken state — bad |
+| **Success-as-nudge (the right question)** | **752 / mo** | **2,667 / mo** (likely 60-80% Lite) | **None — export still works exactly as today** |
+
+The success surface is ~35× larger than the addressable-failure surface in the CSS cohort, and it carries downstream amplification: every exported document is opened by the exporter and typically forwarded to a manager / team / customer / decision-maker. **That's the audience the editor-path advocacy CTA is trying to nominate indirectly.**
+
+**Why this matters for the strategic decision:**
+
+1. **Phase 2's findings stand** — the failure taxonomy is real product debt. Triage `unexpected_error` (142/mo); consider auto-regenerating attachments on demand to kill `attachment_not_found`. These are bugs to fix, not paywalls.
+2. **The export surface is alive** as a value-moment upgrade signal, NOT as a friction-driven recovery surface.
+3. **Math:** at even a 0.5% click-to-upgrade-path rate on 2,000+ Lite-flavored exports/month, the success surface yields ≥10 high-intent leads/month — comparable to or exceeding current editor-path advocacy capture, from a different funnel (document readers and forwarders, not blocked editors).
+
+**Recommendation: advance to Phase 4 with the reframed question.**
+
+Phase 4 needs to evaluate:
+
+1. **Placement options.** Each has different reach and rendering risk:
+   - Footer line appended to the returned ADF document (every PDF/Word carries it)
+   - Watermark/callout overlaid on the exported PNG (we control the rendering pipeline)
+   - Post-export message in the Confluence page near the macro (harder to instrument; Confluence-API dependent)
+2. **ADF rendering consistency** across PDF and Word export modes — the §4.2 concern that originally ruled the in-document surface out. This is a design-validation question, not a reason to abandon strategy.
+3. **Copy tone** — "value-moment nudge", not "you've been blocked". Targets BOTH the exporter (who got value) and the doc's audience (who may be the budget owner).
+4. **What we offer / what we charge for** — the nudge needs to point at a specific upgrade benefit that's tangible from the moment of opening the exported doc (no Lite watermark, batch export, higher resolution, brand customization, etc.). TBD by product.
+
+Phase 5 (design spec) is conditional on Phase 4 producing a viable placement + rendering plan.
+
+**Still out of scope:** hard-blocking successful exports (that's a Lite-feature-scope decision, a different conversation with CSAT implications).
+
+**Independent of this strategy: the Phase 2 failure taxonomy is its own action list** — triage `unexpected_error`, fix `attachment_not_found` by auto-regenerating PNGs on demand. These ship regardless of the paywall decision.
 
 ---
 

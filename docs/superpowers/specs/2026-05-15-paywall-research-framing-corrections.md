@@ -86,12 +86,17 @@ Errors are roughly ordered by impact, not chronology.
 - **What's actually true.** Always cross-verify Mixpanel MCP query results against another method (raw export, manual breakdown) before drawing conclusions. Use breakdowns instead of filters where possible.
 - **Strategic impact.** Smaller — caused some intermediate confusion but no strategic decision rested on it.
 
-### B4. "Tunnel proxies `adfExport`"
+### B4. "Tunnel does NOT proxy `adfExport`" — itself a wrong claim, self-corrected 2026-05-16
 
-- **What I said.** Assumed `forge tunnel` would route adfExport invocations to local code, ran a spike, and was confused when the PDF rendered the old baseline.
-- **Why it was wrong.** `adfExport` runs server-side on Atlassian's export pipeline (PDF and Word export jobs), bypassing the user's tunnel session entirely.
-- **What's actually true.** To spike adfExport changes you must `forge deploy -e development` to a real dev environment. `forge tunnel` is for Custom-UI iframe code only.
-- **Strategic impact.** Cost ~30 minutes of mis-spiking but was caught and documented. Worth adding to the forge-tunnel skill.
+- **What I originally said.** I claimed `adfExport` runs server-side on Atlassian's export pipeline and bypasses the tunnel entirely. I told the user the only way to spike was `forge deploy -e development`.
+- **Why that was wrong.** I drew this conclusion from a single ad-hoc observation (PDF rendered the deployed code, not my local changes; no log in the tunnel output). I did NOT consult the docs before publishing the claim.
+- **What the docs actually say** ([Forge Tunneling](https://developer.atlassian.com/platform/forge/tunneling/)). The tunnel proxies "non-UI functions, such as Custom UI resolvers and web triggers"; source code changes auto-rebundle. `adfExport` is structurally a function module ( `function: { key, handler }` in the manifest), so the general principle says it IS proxied. The docs don't list it as an exception.
+- **What likely explained my observation** instead of a tunnel limitation:
+  - The tunnel showed `ENOENT: dist/` warnings on first run — Forge bundled an incomplete artifact.
+  - Logs from tunnelled invocations go to the **tunnel terminal**, not to `forge logs`. I was looking at `forge logs` for the probe output, so I would have missed the live log.
+  - I had the tunnel running, then edited `src/export.js`, then triggered the export — but never verified the rebundle had completed or the in-memory handler matched my edits.
+- **Honest current state.** Not actually settled. Two paths to settle: (a) re-run a clean tunnel test with a fresh `dist/` and a probe that watches the tunnel terminal in real time; or (b) trust the docs as written. Either way the original "deploy is the only path" claim was over-confident and is hereby retracted.
+- **Strategic impact.** Cost ~3 deploys during the spike that could have been tunnel rebundles. Doesn't change the strategy doc, only the operational guidance for future spikes on adfExport.
 
 ### B5. "ADF `caption` would solve the Word problem"
 

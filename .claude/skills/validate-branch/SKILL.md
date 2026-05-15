@@ -9,9 +9,13 @@ Verify the current branch passes all local checks. Run anytime before shipping, 
 
 ## Steps
 
-Run from the `conf-app` directory. Stop on first failure.
+Run from the repo's root directory. Stop on first failure.
 
-### 1. Lint
+### 1. Lint, unit tests, and build
+
+Run the following in order.
+
+**Lint**
 
 ```bash
 pnpm lint
@@ -19,7 +23,7 @@ pnpm lint
 
 This lints all of `src/` (not just `.vue` files). If lint fails, report the errors and stop.
 
-### 2. Unit tests
+**Unit tests**
 
 ```bash
 pnpm test:unit
@@ -27,7 +31,7 @@ pnpm test:unit
 
 If tests fail, report the failing test names and stop.
 
-### 3. Build
+**Build**
 
 Build at least one variant to catch bundling and import errors:
 
@@ -37,13 +41,15 @@ pnpm build:lite
 
 If working on a specific variant, build that one instead (`pnpm build:full`, `pnpm build:diagramly`). If lint and tests passed but build fails, it's usually a missing import or Vite config issue.
 
-### 4. Feature smoke test
+### 2. Feature smoke test
 
-After lint/unit/build pass, exercise the feature against a real Confluence site. This is the only step that proves the user-visible behavior actually works.
+After Step 1 passes, exercise the feature against a real Confluence site. This is the only step that proves the user-visible behavior actually works.
 
-**When to skip:** docs-only, test-only, build/CI config, or backend-only (`functions/`) changes that have no Custom UI surface. If unsure, run it.
+**When to skip:** docs-only, build/CI config.
 
-#### 4a. Write a focused test plan first
+#### 2a. Write a spot check plan first
+
+> See **Spot Checks** in `CLAUDE.md` for the full definition — environment selection rules, key principles, and workflow.
 
 Before touching the browser, read the changes and write down:
 - The user-visible behavior the change affects (e.g. "clicking Fullscreen on a multi-page DrawIO diagram should show prev/next page navigation")
@@ -51,9 +57,9 @@ Before touching the browser, read the changes and write down:
 - 2–4 concrete interactions that exercise that behavior (button clicks, ESC key, form input, etc.)
 - The **expected** outcome of each interaction
 
-Do not skip this. A test plan written before running Playwright is a contract — it makes PASS/FAIL unambiguous.
+Do not skip this. A plan written before opening the browser is a contract — it makes PASS/FAIL unambiguous.
 
-#### 4b. Choose how to test
+#### 2b. Choose how to test
 
 **Option A — Forge tunnel (for unreleased frontend changes)**
 
@@ -70,7 +76,7 @@ Use when the branch has been deployed to staging/dev (e.g. a recent push to `fix
 1. Navigate directly to `lite-dev.atlassian.net` (or the relevant dev site) in Playwright.
 2. Confirm the version label in the macro debug bar shows the expected build SHA or branch name.
 
-#### 4c. Execute the test plan
+#### 2c. Execute the test plan
 
 Use Playwright MCP (`mcp__playwright__*`) — it's the only tool that can reach into Forge cross-origin iframes. Ad-hoc reproduction: use Playwright MCP directly; do not write spec files.
 
@@ -79,8 +85,8 @@ For each interaction in your test plan:
 2. Take a screenshot
 3. Assert the actual outcome matches the expected outcome
 
-If every interaction matches: Step 4 **PASS**.
-If any diverges: Step 4 **FAIL** — include the screenshot path + which assertion failed. Fix the underlying code, then re-run from Step 1.
+If every interaction matches: Step 2 **PASS**.
+If any diverges: Step 2 **FAIL** — include the screenshot path + which assertion failed. Fix the underlying code, then re-run from Step 1.
 
 **Common gotchas:**
 
@@ -93,10 +99,10 @@ If any diverges: Step 4 **FAIL** — include the screenshot path + which asserti
 
 Report one of:
 
-- **PASS** — all 4 checks passed, branch is ready to push
-- **FAIL** — which check failed, the error output (or failing interaction + screenshot for Step 4), and a one-line suggestion
+- **PASS** — Step 1 (lint, unit tests, build) and Step 2 passed; branch is ready to push
+- **FAIL** — which part failed (lint vs unit tests vs build vs Step 2), the error output (or failing interaction + screenshot for Step 2), and a one-line suggestion
 
-If Step 4 was skipped, say so explicitly: "Step 4 skipped — backend-only change, no Custom UI surface."
+If Step 2 was skipped, say so explicitly: "Step 2 skipped — docs-only or build/CI config (per **When to skip** above)."
 
 ## What CI does beyond this
 
@@ -105,4 +111,4 @@ After you push, CI runs lint/unit/build plus:
 - Runs E2E tests against staging Confluence instances
 - On main only: creates draft releases for each variant
 
-The forge-tunnel smoke step in Step 4 catches Confluence-integration regressions earlier — before they burn 6+ minutes of CI time.
+The forge-tunnel smoke step in Step 2 catches Confluence-integration regressions earlier — before they burn 6+ minutes of CI time.

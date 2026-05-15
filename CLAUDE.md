@@ -282,18 +282,47 @@ E2E tests must fail immediately with a clear error when a precondition is not me
 
 This prevents slow CI feedback (a single missing macro caused 6 × 60s = ~6 min of wasted waiting across parallel tests).
 
-## Focused Tests (Playwright MCP)
+## Spot Checks
 
-When asked to "run a focused test" on a specific environment (e.g. "run focused test on zenuml-lite@stg"), use the Playwright MCP tools (`mcp__playwright__*`) to drive a real browser against the target Confluence site. There are no pre-written E2E test files for this — improvise the test steps based on what feature/change is being verified.
+A **spot check** is an ad hoc, AI-driven, ephemeral verification of a specific behavior. It is not a pre-written test case and not meant for long-term use. Use it after developing a feature, fixing a bug, or reproducing an issue — to confirm the specific behavior works as expected.
+
+**What it is NOT:** a pre-written `.spec.ts` file, a comprehensive regression test, or a repeatable automated test.
+
+**Key principles:**
+- **Lightweight**: reuse what already exists. If a page with the relevant macro is already available, use it — don't create a new one. If you know which macro has the issue, navigate to it directly.
+- **AI-driven**: use Playwright MCP (`mcp__playwright__*`) or Claude in Chrome to improvise the test steps. The AI drives the browser; no script is checked in.
+- **Ephemeral**: the test steps are not saved for future use.
+- **Targeted**: verify the specific behavior being checked, not a comprehensive regression.
+
+**Choosing the environment:**
+
+| Situation | Target environment |
+|-----------|-------------------|
+| New feature not yet deployed | Forge Tunnel → `lite-dev.atlassian.net` |
+| Deployed to staging / failing pipeline | Staging site (e.g. `zenuml-lite@stg`) |
+| Reproducing a production issue | Production site directly |
+| Validating the test workflow itself | Any appropriate env |
+
+**Verification methods — use whichever the behavior requires:**
+
+| Signal | How |
+|--------|-----|
+| UI behavior | Playwright MCP (`mcp__playwright__*`) driving a real browser |
+| Analytics events | Intercept requests to `api.mixpanel.com` via Playwright, or query via `mcp__mixpanel__Run-Query` with `project_id=3373228` |
+| Forge logs | `forge logs --environment staging` / `forge logs --environment production` |
+| Cloudflare Workers logs | `wrangler pages deployment tail --project-name <project>` |
+| D1 database state | `wrangler d1 execute <db> --remote --command "SELECT ..."` |
+| R2 object storage | `wrangler r2 object get <bucket>/<key>` |
+
+Mix methods freely — a single spot check might drive the browser, then query D1 to confirm the record was written, then check Mixpanel to confirm the event fired.
 
 **Workflow:**
-1. Navigate to the target Confluence site (from the app profile in `tests/e2e-tests/config/apps.ts`)
-2. Log in if needed (credentials from `.env.forge.local` or environment)
-3. Open a page that has the relevant macro installed
-4. Interact with the feature being tested
-5. Assert the expected outcome (DOM state, network requests, console output, etc.)
+1. Write a brief test plan first (before touching the browser or running any queries): the specific behavior being verified, the target page/macro or data path, and the expected observable signal for each assertion.
+2. Navigate to the target Confluence site if UI interaction is needed (app profiles in `tests/e2e-tests/config/apps.ts`). Log in if needed (credentials from `.env.forge.local` or environment).
+3. Reuse an existing page with the relevant macro — only create a new page if none exists.
+4. Execute the plan using whichever verification methods apply. Assert the expected outcome at each step.
 
-**For analytics/event changes:** Intercept network requests to `api.mixpanel.com` and assert the payload properties.
+**Trigger phrases:** "run a spot check on X", "spot check zenuml-lite@stg", "spot check this fix", "spot check on staging", "verify on staging".
 
 ## Integration Testing
 

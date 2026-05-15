@@ -3,7 +3,7 @@ name: release-app
 description: >
   Release ZenUML Forge apps (lite, full, and/or diagramly) to production via the full CI/CD pipeline.
   Reuses an existing fresh draft release when available (the common case after a recent merge),
-  publishes it to production, verifies with PVT, then runs focused tests — targeted coverage for
+  publishes it to production, verifies with PVT, then runs a spot check — targeted coverage for
   what shipped this iteration (not keyword→skill matching alone). Falls back to triggering a
   fresh build via a changelog push only when no recent draft exists.
   Use when the user wants to release, deploy, ship, or push the lite, full, or diagramly Forge app to
@@ -121,11 +121,13 @@ For each variant released, run PVT:
 
 Report PVT results to the user.
 
-### Step 5.5: Focused tests (targeted coverage for **this** release)
+### Step 5.5: Spot check (targeted coverage for **this** release)
 
 **This step runs automatically after PVT. Do not skip it.**
 
-A **focused test** is **not** defined as “find a matching `/pvt-*` skill.” It means: **understand what shipped in this iteration** for the variant being released, then **run checks that deliberately exercise those changes** — the smallest set of verification that still covers the delta.
+> See **Spot Checks** in `CLAUDE.md` for the full definition — what a spot check is, environment selection rules, and key principles.
+
+A **spot check** here is **not** defined as “find a matching `/pvt-*` skill.” It means: **understand what shipped in this iteration** for the variant being released, then **run checks that deliberately exercise those changes** — the smallest set of verification that still covers the delta.
 
 #### 1. Establish the release delta
 
@@ -146,7 +148,7 @@ Read `git log` output **as product intent**, not just keyword soup: group commit
 
 For any commit that is not self-explanatory from the subject line, **read the actual diff** (`git show <sha>`) to understand the specific code change before writing the plan.
 
-#### 2. Write the focused test plan — BEFORE touching the browser
+#### 2. Write the spot check plan — BEFORE touching the browser
 
 **STOP. Do not open the browser, run Playwright, or invoke any `/pvt-*` skill until this plan is written and output in the response.**
 
@@ -159,7 +161,7 @@ The plan is a checklist of **specific, falsifiable assertions** about what you e
 **Format:**
 
 ```
-Focused test plan for v{new-tag}
+Spot check plan for v{new-tag}
 
 Commit: <subject>
   - [ ] <specific observable assertion>  [method]
@@ -191,12 +193,12 @@ Commit: Track paywall advocacy draft preview expand and collapse in Mixpanel
 **Key rules:**
 - Each `[ ]` must be independently pass/fail checkable — if you cannot state what "pass" looks like before running, the assertion is too vague.
 - `/pvt-*` skills may appear as **method shortcuts** once an assertion is already written (`/pvt-paywall` covers assertions A, B, C), but never as a substitute for writing the assertion first.
-- If the delta contains no production behaviour changes (docs-only, test-only, infra-only), write `Focused tests: N/A — <one-line justification>` and proceed to Step 6.
+- If the delta contains no production behaviour changes (docs-only, test-only, infra-only), write `Spot check: N/A — <one-line justification>` and proceed to Step 6.
 
 #### 3. Execute the plan
 
 - **Variant:** Always pass **the same variant as this release** into skills or instructions (e.g. `/release-app diagramly` → tests target **diagramly**).
-- **Pre-built skills:** Invoke `/pvt-*` skills **when they align** with the plan — they are reusable recipes, not the definition of “focused test.”
+- **Pre-built skills:** Invoke `/pvt-*` skills **when they align** with the plan — they are reusable recipes, not the definition of “spot check.”
 - **Order:** Run planned checks **sequentially**. Deduplicate redundant steps.
 - **Missing skill file:** If you planned to use `/pvt-X` but the skill file does not exist, log `sub-skill /pvt-X not yet implemented`, substitute **manual/custom** steps for that coverage if the delta still requires it — treat missing file as **skipped recipe**, not “no test needed.”
 

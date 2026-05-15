@@ -41,6 +41,7 @@ export class Diagram {
   // id is used only for debugging and for display only. It is NOT saved in custom content or content property.
   id?: string; // custom content id or content property id or uuid
   isCopy?: boolean;
+  copyReason?: 'cross-page' | 'same-page-duplicate';
   diagramType: DiagramType = DiagramType.Unknown;
   code?: string = '';
   title?: string = '';

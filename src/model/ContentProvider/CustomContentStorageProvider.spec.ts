@@ -37,6 +37,7 @@ describe('CustomContentStorageProvider', () => {
     expect(diagram).toStrictEqual({
       "id": "123",
       "isCopy": false,
+      "copyReason": undefined,
       "code": "A.method",
       "source": "custom-content",
       "styles": {

@@ -258,9 +258,10 @@ export default class ApWrapper2 implements IApWrapper {
     console.debug(`Found ${count} macros on page`);
 
     const pageId = await this._page.getPageId();
-    let isCrossPageCopy = pageId && String(pageId) !== String(customContent?.container?.id);
+    let isCrossPageCopy = pageId && customContent?.container?.id && String(pageId) !== String(customContent.container.id);
     if (isCrossPageCopy || count > 1) {
       diagram.isCopy = true;
+      diagram.copyReason = isCrossPageCopy ? 'cross-page' : 'same-page-duplicate';
       console.warn(`Detected copied macro - ID: ${id}, Cross-page copy: ${isCrossPageCopy}, Instances on page: ${count}, Source page: ${customContent?.container?.id}, Current page: ${pageId}`);
       if (isCrossPageCopy) {
         trackEvent('cross_page', 'duplication_detect', 'warning');
@@ -270,6 +271,7 @@ export default class ApWrapper2 implements IApWrapper {
       }
     } else {
       diagram.isCopy = false;
+      diagram.copyReason = undefined;
     }
     diagram.id = id;
     let assign = <unknown>Object.assign({}, customContent, {value: diagram});
@@ -291,9 +293,13 @@ export default class ApWrapper2 implements IApWrapper {
     console.debug(`Found ${count} macros on page`);
 
     const pageId = await this._page.getPageId();
-    let isCrossPageCopy = pageId && pageId !== String(customContent?.pageId);
+    // Require both sides present — undefined pageId on the custom content
+    // (e.g. content created via REST API without a container) previously
+    // caused a false-positive isCopy=true (issue #80).
+    let isCrossPageCopy = pageId && customContent?.pageId && pageId !== String(customContent.pageId);
     if (isCrossPageCopy || count > 1) {
       diagram.isCopy = true;
+      diagram.copyReason = isCrossPageCopy ? 'cross-page' : 'same-page-duplicate';
       console.warn(`Detected copied macro - ID: ${id}, Cross-page copy: ${isCrossPageCopy}, Instances on page: ${count}, Source page: ${customContent?.pageId}, Current page: ${pageId}`);
       if (isCrossPageCopy) {
         trackEvent('cross_page', 'duplication_detect', 'warning');
@@ -303,6 +309,7 @@ export default class ApWrapper2 implements IApWrapper {
       }
     } else {
       diagram.isCopy = false;
+      diagram.copyReason = undefined;
     }
     diagram.id = id;
     let assign = <unknown>Object.assign({}, customContent, {value: diagram});

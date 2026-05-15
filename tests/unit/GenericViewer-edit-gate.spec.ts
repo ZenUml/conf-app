@@ -117,4 +117,47 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
     expect(editSpy).toHaveBeenCalledWith('edit')
     expect(editSpy).toHaveBeenCalledTimes(1)
   })
+
+  it('Edit button is shown but disabled with cross-page tooltip when isCopy=true copyReason=cross-page', async () => {
+    store.state.diagram.isCopy = true
+    ;(store.state.diagram as any).copyReason = 'cross-page'
+    const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
+
+    const vm = wrapper.vm as any
+    expect(vm.editDisabledReason).toContain('another page')
+
+    const btn = wrapper.find('button[aria-label="Edit"]')
+    expect(btn.exists()).toBe(true)
+    expect(btn.attributes('disabled')).toBeDefined()
+    expect(btn.attributes('title')).toContain('another page')
+  })
+
+  it('Edit button is shown but disabled with duplicate tooltip when isCopy=true copyReason=same-page-duplicate', async () => {
+    store.state.diagram.isCopy = true
+    ;(store.state.diagram as any).copyReason = 'same-page-duplicate'
+    const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
+
+    const vm = wrapper.vm as any
+    expect(vm.editDisabledReason).toContain('multiple copies')
+
+    const btn = wrapper.find('button[aria-label="Edit"]')
+    expect(btn.exists()).toBe(true)
+    expect(btn.attributes('disabled')).toBeDefined()
+    expect(btn.attributes('title')).toContain('multiple copies')
+  })
+
+  it('Edit button is shown and enabled when isCopy=false', async () => {
+    store.state.diagram.isCopy = false
+    const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
+
+    const vm = wrapper.vm as any
+    expect(vm.editDisabledReason).toBeNull()
+
+    const btn = wrapper.find('button[aria-label="Edit"]')
+    expect(btn.exists()).toBe(true)
+    expect(btn.attributes('disabled')).toBeUndefined()
+  })
 })

@@ -385,10 +385,66 @@ If the `other` surface turns out to be headless / non-user-visible, the strategi
 
 ### Side observations from the spike
 
-- v1, v2, and v3 were each deployed to the `development` Forge env on `lite-dev.atlassian.net` and reverted before this commit. Working tree and dev env are at baseline after this run.
+- v1, v2, v3, v4 were each deployed to the `development` Forge env on `lite-dev.atlassian.net` and reverted before this commit. Working tree and dev env are at baseline after this run.
 - The spike confirmed end-to-end that the export response *is* the right hook — modifications to `createMediaDocument` flow directly into the exported document. No additional plumbing required.
 - A test page exists at `https://lite-dev.atlassian.net/wiki/spaces/SD/pages/8355841/Export+footer+spike+2021` and can be reused for future spike runs.
 - `forge tunnel` does not proxy `adfExport` resolver calls; any future spike in this code path requires a real `forge deploy`.
+
+### Spike v4 — "other" renderer probe (2026-05-15)
+
+Hypothesis: the "other" exportType (83% of events) may share Word's HTML-conversion renderer and so reject multi-root ADF the same way.
+
+Method: redeploy v1 unconditionally (multi-root with footer, regardless of `exportType`). Query the Confluence REST `body.*` representations directly to see what the macro renders to in each:
+
+```bash
+curl -u $EMAIL:$TOKEN \
+  "https://lite-dev.atlassian.net/wiki/rest/api/content/8355841?expand=body.<FORMAT>"
+```
+
+| REST body format | Renders v4 multi-root footer? | Output excerpt |
+|---|---|---|
+| `body.view` | ✅ Yes | `<p>Diagram by ZenUML Lite — <a class="external-link" href="...">upgrade</a> ↗</p>` directly after the embedded image |
+| `body.export_view` | ✅ Yes | Same as `body.view` |
+| `body.styled_view` | ✅ Yes (footer text present in the 135 KB styled HTML) | — |
+| `body.anonymous_export_view` | ⚠️ Renders the error doc — but only because `asUser()` fallback can't auth in an anonymous request, not because the renderer rejects multi-root | — |
+| Word export (`/wiki/exportword`) | ❌ Same MHTML error stub as v1 | (5.9 KB stub, "We've encountered an issue exporting this macro") |
+| PDF export | ✅ Yes (matches v1) | Footer line below the image with clickable link |
+
+**Conclusion: multi-root ADF works in ALL public surfaces except the Word MHTML export pipeline specifically.** The earlier hypothesis that "anonymous_export_view's error means the HTML-conversion family rejects multi-root" was wrong — that error is the macro's own response (failed attachment fetch in anonymous context), not a renderer rejection.
+
+This means the v3 conditional shape — return multi-root unless `exportType === "word"` — covers the entire ~95% non-Word cohort safely. The `other` (83%), `email` (7.5%), `feed`, `diff`, `html_export` formats are all served by the same renderer family that handles `body.view` and the REST `body.export_view` endpoint, which v4 just proved tolerates multi-root.
+
+### What "other" most likely represents (informed inference)
+
+| Likely source | Evidence | User-visible? |
+|---|---|---|
+| Third-party Confluence integrations calling `GET /wiki/rest/api/content/{id}?expand=body.export_view` | Direct API path renders our footer; many SaaS integrations call this for page sync | Yes — content reaches users of those tools |
+| Atlassian Intelligence / Rovo content summarization fetching macro content | Rovo references page content; this endpoint is the canonical "rendered" payload | Yes — surfaces in AI responses |
+| Confluence mobile / lighter renderers | Mobile rendering uses export_view-class pipelines | Yes |
+| Content indexing for search | Headless, but the data still flows into search snippets | Possibly — search hover cards may render the HTML |
+| Old/legacy renderers from non-Forge contexts | Plausible legacy fallback | Mixed |
+
+The dominant fraction is most likely real, user-visible surfaces. We cannot prove this without further attribution telemetry (e.g. annotating `macro_export_succeeded` with a request source / user-agent property), but the path evidence + the consistent 83–87% share across windows points to this conclusion.
+
+### Revised Phase 5 implementation recommendation
+
+Ship the **v3 conditional shape** (Word → baseline, else → multi-root + footer) as Phase 5, gated by `isLite()`. Add one new event:
+
+```js
+trackExportEvent('macro_export_nudge_included', {
+  ...joinKeyProps(ctx),
+  format: ctx.format,
+  variant: PRODUCT_TYPE,
+});
+```
+
+…fired immediately before the `return createMediaDocument(downloadLink, ctx.format)` whenever the footer is appended. This gives us:
+
+1. **Production attribution for `other`** — by tenant, format, and timestamp, we can correlate footer emissions with paywall_triggered / advocacy_message_copied to measure cross-funnel lift.
+2. **Per-format reach measurement** — confirms the 95% theoretical coverage in practice.
+3. **Safety rail** — if `other` turns out to be mostly headless, the event volumes + low conversion will surface quickly.
+
+Roll out to a small CSS subset (one or two tenants) for ~7 days, measure, then expand. The PNG-watermark alternative remains in reserve if production data contradicts the v4 finding.
 
 ---
 

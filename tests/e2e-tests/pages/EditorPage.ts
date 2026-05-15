@@ -560,6 +560,16 @@ export class ConfluenceEditorPage {
   private async clickDrawioPublishForge(): Promise<void> {
     const modal = this.page.getByTestId('custom-ui-fullscreen-modal-dialog');
     const outerFrame = modal.locator('[data-testid="hosted-resources-iframe"]').contentFrame();
+
+    // If the paywall gate is active (space over macro limit), the upgrade modal
+    // overlays the editor and intercepts all pointer events. Dismiss it first so
+    // the DrawIO Publish button becomes clickable.
+    const continueEditingBtn = outerFrame.locator('[data-testid="continue-editing-btn"]');
+    if (await continueEditingBtn.count() > 0) {
+      await continueEditingBtn.click();
+      await this.page.waitForTimeout(500);
+    }
+
     const innerFrame = outerFrame.locator('iframe').contentFrame();
     await innerFrame.locator('button:has-text("Publish")').click();
     await this.page.waitForTimeout(2000);

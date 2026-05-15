@@ -91,7 +91,13 @@ Prefer `scripts/paywall_queries.py` over hand-built Mixpanel payloads. It centra
 # removed from the script 2026-05-12; see Q2 below.
 python3 .claude/skills/paywall/scripts/paywall_queries.py daily
 
-# Q5 per-space (filtered to <domain>, broken down by confluence_space)
+# Q5 for ALL CSS customer domains in one batch — 4 JQL calls total instead
+# of N×4 segmentation calls. Read CSS domains from Step 1, exclude internals.
+# Output: {event: {domain: {space: count}}}
+python3 .claude/skills/paywall/scripts/paywall_queries.py per-space-all \
+  --domains colesgroup linemanwongnai mcoproduct airwallex xendit vin3s zeptonow
+
+# Q5 for a single domain (use only when debugging one tenant, not for daily run)
 python3 .claude/skills/paywall/scripts/paywall_queries.py per-space <domain>
 
 # Larger window (default is 1 day)
@@ -136,9 +142,16 @@ event D: macro_create_succeeded, measurement: total
 
 **Q5 — Per-space breakdown for domains with blocks, high save volume, or creates**
 
-For each domain that had triggered > 0 OR saves > 10 OR creates > 0 today, run `scripts/paywall_queries.py per-space <domain>`. The script emits `{paywall_triggered, macro_save_succeeded, macro_create_succeeded, paywall_continued_editing}` keyed by `confluence_space`, with the `client_domain` filter applied — so every space key in the result genuinely belongs to that tenant. (If you see a foreign space key in the output, the script is broken; the filter is baked in.)
+Run `per-space-all` once for all CSS customer domains — fans all N×4 segmentation API calls in a single parallel pool (one call per domain×event combination), far faster than looping `per-space` per domain. Read the CSS domain list from Step 1 output (exclude internals: zenuml, zenuml-stg, zenuml-connect, lite-stg).
 
-Cross-reference space keys against metrics-inspect (`curl https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>`) to get each space's macro count. This catches the pattern where a tenant has heavy spaces (>100 macros) but saves happen in light spaces — which explains zero blocks despite high activity (e.g. mcoproduct: 22 saves all in space MA=52 macros, while TMAB=1546 sits untouched by editors).
+```bash
+python3 .claude/skills/paywall/scripts/paywall_queries.py per-space-all \
+  --domains <domain1> <domain2> ...
+```
+
+Output: `{event: {domain: {space: count}}}`. From this output, focus only on domains where triggered > 0 OR saves > 10 OR creates > 0. Wall time ≈ the slowest single segmentation call rather than N×4 sequential batches.
+
+Cross-reference space keys against metrics-inspect (`curl https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>`) to get each space's macro count. This catches the pattern where a tenant has heavy spaces (>100 macros) but saves happen in light spaces — which explains zero blocks despite high activity (e.g. mcoproduct: saves all in space MA=52 macros, while TMAB=1546 sits untouched by editors).
 
 For the `mcoproduct` case where `paywall_continued_editing` is high, the per-space split tells you which space the bouncing user is on — the script already includes that event.
 
@@ -155,7 +168,7 @@ For customer domains on CSS: **read the live CSS flag from Step 1** to get the c
 
 - `triggered` = `paywall_triggered`
 - `advocacy_copies` = `advocacy_message_copied` (successful clipboard copy from the paywall modal — sole in-modal intent signal)
-- `intent_capture_rate` = `advocacy_copies / triggered` when `triggered > 0`, else `—`
+- `intent_capture_rate` = `advocacy_copies / triggered` when `triggered > 0`, else `—`. **Can exceed 100%** — a single user may copy the message multiple times (e.g., to multiple recipients). This is the strongest intent signal possible, not a data error. A domain with `intent_capture_rate > 100%` should be the top outreach priority for that day.
 - `saves` = `macro_save_succeeded` (edits of existing diagrams)
 - `creates` = `macro_create_succeeded` (first-time saves of new diagrams)
 - `friction` = triggered / (triggered + saves) — add as a note if > 50%
@@ -320,14 +333,15 @@ Currently too low-volume to count: xendit (0 paywall events even with high save 
 
 ### Step A1: Run the comparison queries
 
-Two queries, last 7 days, broken down by `client_domain`. Don't filter on `client_domain in [...]` — Mixpanel's `equals` operator doesn't accept arrays. Pull all domains and pick out the rows you need.
+Use the `ab-metrics` script command — it runs all five metrics (saves total, triggers total, views total, save_users unique, view_users unique) in one invocation using 6 parallel API calls (segmentation + JQL), replacing the two slow MCP queries that were used previously.
 
+```bash
+python3 .claude/skills/paywall/scripts/paywall_queries.py ab-metrics --window-days 7
 ```
-metrics: macro_save_succeeded (total), paywall_triggered (total), macro_viewed (total)
-metrics: macro_save_succeeded (unique), macro_viewed (unique)
-breakdown: client_domain
-date: last 7 days
-```
+
+Output keys: `macro_save_succeeded` (saves), `paywall_triggered` (triggered), `macro_viewed` (views), `macro_save_succeeded__unique` (save_users), `macro_viewed__unique` (view_users) — all broken down by `client_domain`. Pull Group A and Group B domains from the output; ignore all others.
+
+**MCP fallback** (if script unavailable): run two MCP queries with top-level `breakdowns: [{"metric": {"type": "property", "propertyName": "client_domain", ...}}]` — note `breakdowns` must be a top-level key on the report object, not nested inside each metric. Pull all domains and filter to A/B groups manually.
 
 ### Step A2: Build the comparison table
 

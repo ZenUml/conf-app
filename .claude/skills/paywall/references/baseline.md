@@ -10,6 +10,35 @@ When you run the A/B Impact Analysis, after computing the per-tenant and group-a
 
 ---
 
+## 2026-05-15 (last 7 days)
+
+| Group | tenants | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|---------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| **A** | 5 (vin3s, colesgroup, airwallex, linemanwongnai, mcoproduct) | 385 | 276 | 661 | 87 | 1,355 | 41,985 | **58.2%** | 4.4 |
+| **B** | 6 (hktdc, myntfintech, woolworths-agile¹, appculqi, economical, alterric) | 166 | 1 | 167 | 38 | 401 | 9,427 | **99.4%** | 4.4 |
+
+Per-tenant breakdown:
+
+| Group | Domain | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|--------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| A | vin3s | 213 | 169 | 382 | 34 | 363 | 24,232 | 55.8% | 6.3 |
+| A | airwallex | 54 | 16 | 70 | 17 | 238 | 5,306 | 77.1% | 3.2 |
+| A | colesgroup | 39 | 42 | 81 | 15 | 371 | 4,782 | 48.1% | 2.6 |
+| A | linemanwongnai | 41 | 17 | 58 | 14 | 164 | 2,777 | 70.7% | 2.9 |
+| A | mcoproduct | 38 | 32 | 70 | 7 | 219 | 4,888 | 54.3% | 5.4 |
+| B | myntfintech | 54 | 0 | 54 | 11 | 82 | 2,488 | 100% | 4.9 |
+| B | hktdc | 29 | 0 | 29 | 5 | 64 | 4,178 | 100% | 5.8 |
+| B | alterric | 33 | 0 | 33 | 4 | 14 | 224 | 100% | 8.3 |
+| B | woolworths-agile¹ | 17 | 1 | 18 | 8 | 109 | 910 | 94.4% | 2.1 |
+| B | appculqi | 19 | 0 | 19 | 5 | 49 | 781 | 100% | 3.8 |
+| B | economical | 14 | 0 | 14 | 5 | 83 | 846 | 100% | 2.8 |
+
+**Reading:** 41.2pp success-rate gap (99.4% → 58.2%) — narrowed 0.3pp vs 2026-05-14 (41.5pp). saves/user gap closed to 0% (A=B=4.4), down from 11% last week — vin3s and mcoproduct both improved productivity. **colesgroup degraded to 48.1%** (heavy-friction zone: 35-50%), driven by 42 triggers vs only 39 saves over 7 days — DNLT (278 macros) and CLC (260 macros) primary friction spaces. **airwallex improved +9.6pp** (67.5%→77.1%): edit activity concentrated in sub-threshold spaces, so fewer blocks. **mcoproduct recovered +8.2pp** (46.1%→54.3%): fewer triggers this 7-day window. **linemanwongnai: 18 advocacy copies today** (257% intent capture rate) — strongest advocacy signal in the dataset; top outreach priority.
+
+> ¹ **woolworths-agile:** Persistent anomalous triggers despite not being on CSS (known issue, see anomalies.md).
+
+---
+
 ## 2026-05-14 (last 7 days)
 
 | Group | tenants | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |

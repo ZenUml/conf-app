@@ -240,6 +240,75 @@ Phase 5 (design spec) is conditional on Phase 4 producing a viable placement + r
 
 ---
 
+## 7e. Phase 4 — in-doc footer placement spike (run 2026-05-15)
+
+Goal: validate whether Confluence renders an ADF paragraph appended after the mediaSingle response from `adfExport`, consistently across PDF and Word export pipelines.
+
+**Spike change** (deployed temporarily to `development` env, reverted in working tree):
+
+```js
+function createMediaDocument(downloadLink) {
+  return {
+    type: "doc",
+    version: 1,
+    content: [
+      { type: "mediaSingle", ... },                      // existing
+      { type: "paragraph", content: [                    // appended
+        { type: "text", text: "Diagram by ZenUML Lite — " },
+        { type: "text", text: "upgrade to remove this footer",
+          marks: [{ type: "link",
+                    attrs: { href: "https://conf-lite.zenuml.com/upgrade?source=export_footer_spike" }}]},
+        { type: "text", text: " ↗" }
+      ]}
+    ]
+  };
+}
+```
+
+### Result matrix
+
+| Format | Outcome | Evidence | Verdict |
+|---|---|---|---|
+| **PDF** (`/wiki/spaces/flyingpdf/pdfpageexport.action`) | ✅ Footer rendered directly below diagram. Link clickable in viewer. Typography matches body. | 71KB PDF, single page, footer line present in text content | **Surface works** |
+| **Word** (`/wiki/exportword`) | ❌ Entire macro export failed. Confluence substituted error placeholder: *"We've encountered an issue exporting this macro. Please try exporting again later."* | 5.9KB MHTML stub, no diagram image, no footer text, error text present | **Surface broken** |
+| Word — baseline (single-node ADF, no footer) | ✅ Diagram renders as embedded image | 62KB MHTML, `<img class="confluence-embedded-image">` present | Pre-existing capability confirmed |
+
+### Operational note: forge tunnel does NOT proxy `adfExport`
+
+The first spike attempt routed `forge tunnel` to local code and exported a PDF. The tunnel logged zero resolver invocations and the PDF rendered the baseline (un-modified) document. This is consistent with Confluence's export pipeline running server-side, bypassing the user's tunnel session.
+
+**Implication:** future `adfExport` changes cannot be spike-tested via `forge tunnel` alone — they require a real deploy (e.g. `forge deploy -e development`) before export can be triggered. The skill `.claude/skills/forge-tunnel/SKILL.md` should grow a caveat for this.
+
+### Interpretation
+
+Confluence's Word export pipeline does not tolerate multi-node ADF documents from `adfExport`. Only a single root-level `mediaSingle` is honored; sibling nodes appear to cause the entire macro export to fail rather than degrade gracefully. PDF tolerates multi-node and renders the appended paragraph cleanly.
+
+This is a placement-level constraint, not a strategy blocker:
+
+| Placement | PDF viable | Word viable |
+|---|---|---|
+| Paragraph appended to ADF response | ✅ | ❌ |
+| Inline caption inside `mediaSingle` (untested) | ? | ? |
+| Watermark rendered onto the PNG itself (no ADF change) | ✅ | ✅ |
+| Post-export Confluence message via separate channel | ✅ | ✅ |
+
+### Recommendation
+
+Two viable Phase 4 directions:
+
+1. **PNG watermark approach** — render the upgrade callout into the PNG before responding. The Word path then renders the same PNG it always has, with the upgrade text baked into the image. Tradeoff: less professional-looking; harder to make the link clickable in Word (links from images work in PDF/Word viewers but the affordance is weaker).
+2. **PDF-only footer + alternate Word surface** — keep the appended-paragraph approach for PDF, find a separate hook for Word (post-export Confluence dialog, periodic Lite-tenant nudge in the Confluence UI). Tradeoff: design complexity, two surfaces to maintain.
+
+**Question for product**: is the upgrade nudge worth pursuing on PDF alone if Word needs a different mechanism, or is parity across formats a requirement before investing?
+
+### Side observations from the spike
+
+- The spike was deployed to the `development` Forge env on `lite-dev.atlassian.net`. Subsequently reverted (working tree clean). The dev env may have residual deploys; no action needed.
+- The spike confirmed end-to-end that the export response *is* the right hook — modifications to `createMediaDocument` flow directly into the exported document. No additional plumbing is required.
+- A test page exists at `https://lite-dev.atlassian.net/wiki/spaces/SD/pages/8355841/Export+footer+spike+2021` and can be reused for future spike runs.
+
+---
+
 ## 8. Decision branches
 
 | Finding | Recommendation |

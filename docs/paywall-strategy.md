@@ -76,10 +76,11 @@ Each export is opened by the exporter and typically forwarded to additional read
 
 ### Phase 4 — what's open
 
-1. **Placement.** Footer line in the returned ADF document; watermark on the rendered PNG; post-export message in the Confluence page. Each has different reach and rendering risk.
-2. **ADF rendering consistency** across PDF and Word export modes — historical concern that ruled the in-doc surface out (§4.2 of the spec). Design-validation question, not a strategy blocker.
+1. **Placement.** Footer line in the returned ADF document; watermark on the rendered PNG; post-export message in the Confluence page. Each has different reach and rendering risk. Spike on 2026-05-15 partly answered this — see below.
+2. **ADF rendering consistency** across PDF and Word export modes — historical concern that ruled the in-doc surface out (§4.2 of the spec). **Spike result (2026-05-15):** PDF renders an appended ADF paragraph cleanly with clickable link. Word *errors out* on multi-node ADF responses ("We've encountered an issue exporting this macro"). The in-doc footer is PDF-viable, Word-broken. Full results in `docs/superpowers/specs/2026-05-12-pdf-export-paywall-strategy-design.md` §7e.
 3. **Copy tone.** "Value-moment nudge", not "you've been blocked".
 4. **Upgrade hook.** What specifically the upgrade unlocks that's visible from the artefact — no Lite watermark, higher resolution, batch export, brand customization. TBD by product.
+5. **Word surface (new, after spike).** Two viable directions: (a) PNG watermark — bake the upgrade callout into the image before responding, works in both formats; (b) PDF-only footer + a separate Word hook (post-export dialog or periodic in-app nudge). Tradeoff: parity vs design complexity.
 
 Full audit results in `docs/superpowers/specs/2026-05-12-pdf-export-paywall-strategy-design.md` §7a–7d.
 

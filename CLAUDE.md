@@ -9,6 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **D1** — Cloudflare D1 database (SQLite-compatible, used for backend storage)
 - **pw** — Playwright (E2E test runner)
 - **client** / **tenant** — interchangeable; both refer to a Confluence Cloud site (one Atlassian instance that has installed the add-on)
+- **spot check** — ad hoc, AI-driven, ephemeral verification of a specific behavior; see the [Spot Checks](#spot-checks) section for full definition
 
 ## Project Overview
 
@@ -290,7 +291,7 @@ A **spot check** is an ad hoc, AI-driven, ephemeral verification of a specific b
 
 **Key principles:**
 - **Lightweight**: reuse what already exists. If a page with the relevant macro is already available, use it — don't create a new one. If you know which macro has the issue, navigate to it directly.
-- **AI-driven**: use Playwright MCP (`mcp__playwright__*`) or Claude in Chrome to improvise the test steps. The AI drives the browser; no script is checked in.
+- **AI-driven**: use Playwright MCP (`mcp__playwright__*`) to improvise the test steps — it is the only tool that can reach inside Forge iframes (see [Browser Automation and Forge Iframes](#browser-automation-and-forge-iframes)). Claude in Chrome can only be used for interactions outside the iframe (e.g., Confluence page navigation, checking page-level elements). No script is checked in.
 - **Ephemeral**: the test steps are not saved for future use.
 - **Targeted**: verify the specific behavior being checked, not a comprehensive regression.
 
@@ -324,12 +325,6 @@ Mix methods freely — a single spot check might drive the browser, then query D
 
 **Trigger phrases:** "run a spot check on X", "spot check zenuml-lite@stg", "spot check this fix", "spot check on staging", "verify on staging".
 
-## Integration Testing
-
-1. Run `pnpm start:sit` to start both frontend and backend
-2. Use `pnpm forge:tunnel` to expose via Forge tunnel
-3. Test functionality in a Confluence instance
-
 ## Key Dependencies
 
 - **@zenuml/core** - Core ZenUML rendering engine
@@ -362,7 +357,7 @@ Mix methods freely — a single spot check might drive the browser, then query D
 
 - **D1 `conf-zenuml-prod`** — tenant activity (`UserBehaviorEvent`), install records (`ForgeInstallation`, `ClientInstallation`), content data
 - **Mixpanel** — macro view counts (`macro_viewed`), filtered by `client_domain` property. **Project ID: `3373228`** (the `Diagramly.Ai` project; conf-app shares this single project — there is no separate one). Query via `mcp__mixpanel__Run-Query` with `project_id=3373228`, or via JQL using `API_Secret` from `.env.mixpanel`.
-- **KV metrics-inspect** — macro counts per space: `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<subdomain>`
+- **KV metrics-inspect** — macro counts per space: `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<subdomain>` (subdomain prefix only, e.g. `linemanwongnai` — not the full hostname)
 
 ### clientDomain format mismatch
 
@@ -382,11 +377,3 @@ The Lite paywall modal (`UpgradePrompt.vue`) is advocacy-only: there are no in-m
 
 Use `paywall_triggered` filtered by `action_type="header_badge"` for header Upgrade clicks — not modal copy events. Sources: `src/utils/upgradeTracking.ts`, `src/components/Viewer/GenericViewer.vue` (header → `paywall_triggered`), `src/components/UpgradePrompt/useUpgradeTracking.ts` (modal events).
 
-## File Structure Notes
-
-- `src/` - Frontend source code
-- `functions/` - Cloudflare Workers backend
-- `public/` - Static assets and DrawIO integration
-- `manifest.yml` - Forge app manifest
-- `tests/` - Unit and E2E tests
-- `docs/` - Project documentation

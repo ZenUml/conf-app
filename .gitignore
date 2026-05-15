@@ -61,3 +61,4 @@ credentials.json
 .dev.vars
 scripts/dev-config/
 scripts/confluence_domain_migration/
+.worktrees

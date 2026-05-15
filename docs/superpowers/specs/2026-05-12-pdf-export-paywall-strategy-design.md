@@ -1,7 +1,7 @@
 # PDF/Word Export Telemetry Audit — Paywall Decision Support
 
-**Date:** 2026-05-12
-**Status:** Draft (reframed after code review) — telemetry audit only; not a commitment to ship an export paywall
+**Date:** 2026-05-12 (Phase 2 + Phase 3 results added 2026-05-15)
+**Status:** **Closed — recommendation: abandon** (see §7d). Telemetry continues to land; no export paywall surface to be built.
 **Current strategy source:** [`docs/paywall-strategy.md`](../../paywall-strategy.md) (see §5 open question on export-adjacent surface)
 **Variant:** ZenUML Lite only
 **Related work:** Existing editor paywall (`UpgradePrompt`, `advocacy_message_copied`), export telemetry in `src/export.js`
@@ -172,6 +172,48 @@ Without the fallback, those 136 successful exports would have been `attachments_
 4. **`asUser()` fallback is paying its rent.** 75% rescue rate on what would otherwise be 404 failures.
 
 Recommendation per §8 *Decision branches*: **"Restricted-space export volume is small or mostly outside Lite → Do not build a new export surface"** — Phase 3 should confirm by cohort-segmenting the 724 failures and 2,658 successes, but the absence of any auth-failure signal makes it likely Phase 3 confirms abandon.
+
+---
+
+## 7c. Phase 3 results (run 2026-05-15, 30-day window)
+
+**CSS-enrolled customer cohort (the closest thing to "addressable Lite tenants"):**
+
+| Domain | succeeded | failed | total | failure rate |
+|---|---|---|---|---|
+| colesgroup | 340 | 19 | 359 | 5.3% |
+| mcoproduct | 120 | 8 | 128 | 6.3% |
+| vin3s | 108 | 16 | 124 | 12.9% |
+| airwallex | 71 | 21 | 92 | 22.8% |
+| linemanwongnai | 47 | 4 | 51 | 7.8% |
+| xendit | 48 | 2 | 50 | 4.0% |
+| zeptonow | 18 | 2 | 20 | 10.0% |
+| **CSS customer total** | **752** | **72** | **824** | **8.7%** |
+| Overall (all domains) | 2,658 | 724 | 3,382 | 21.4% |
+
+**CSS-customer slice = 24.3% of total exports.** CSS-enrolled tenants have a ~2.5× lower failure rate than the long tail, consistent with the Phase 2 finding that the dominant failure is `attachment_not_found` — mature instances have their attachments already generated.
+
+**Lite identification limitation:** the export events emit no `product_type` property (the Forge resolver in `src/export.js` doesn't tag exports with the variant). Mixpanel cannot directly distinguish Lite from Full/Diagramly exports. The CSS list above is a strict subset of Lite; the true Lite total is larger but unmeasurable without an instrumentation change. Even the generous case (assume the entire long tail is Lite) does not change the strategic answer below — the failure mix is the same.
+
+**Addressable failures, optimistic upper bound:**
+
+If we converted 100% of the 72 CSS-customer failures into upgrade actions — implausibly high — that's 2.4 failures per day across all CSS tenants. With realistic conversion rates (existing advocacy CTA copy rate ~7-15% of triggers), the export-adjacent surface yields well under 1 upgrade lead per week. The editor-path advocacy surface already produces meaningfully more.
+
+---
+
+## 7d. Phase 3 conclusion — ABANDON
+
+Convergent evidence supports `§8 — "Restricted-space export volume is small or mostly outside Lite → Do not build a new export surface"`:
+
+1. **Phase 2 killed the auth thesis.** 0 `needs_authentication` failures over 30 days.
+2. **The dominant failure is a product bug, not a paywall.** 71% of failures are `attachment_not_found` — fix the viewer-pre-render dependency or document it; don't monetize it.
+3. **The addressable cohort is small.** Even generously, CSS-customer failures are ~2/day. Editor-path advocacy already captures more intent than any plausible export surface could.
+4. **`asUser()` fallback is already paying.** 75% of `asApp()` 404s are silently rescued. Most of the remaining noise will resolve as instances mature.
+
+**Recommendation:** Stop the audit at Phase 3. Do not advance to Phases 4–5. Redirect the export effort to:
+- Triage `unexpected_error` (142 events / 20% of failures) for actionable bugs
+- Consider auto-regenerating PNG attachments on export request when missing, removing the `attachment_not_found` UX surprise
+- Treat the export instrumentation in `src/export.js` as long-lived telemetry; it's working as intended
 
 ---
 

@@ -187,7 +187,7 @@ For customer domains on CSS: **read the live CSS flag from Step 1** to get the c
 - `macros` = total from metrics-inspect for that space
 - Highlight spaces where macros ≥ 100 and triggered = 0 — these are latent paywall spaces where users edit but haven't hit a blocked user yet (or are view-only)
 - Highlight spaces where macros ≥ 100 and triggered > 0 — active paywall spaces
-- **Creates bypass the paywall** — `paywall_triggered` fires only on editing existing macros, not on creating new ones. Users in a blocked space can still add new diagrams, pushing the macro count higher and tightening the wall over time. Flag spaces where `creates > 0` and `triggered > 0` — they are self-ratcheting.
+- **Creates are gated as of 2026-05-15** (PR #89, `paywall_blocked_create` event). Before that date, creates bypassed the paywall; in any window crossing 2026-05-15, expect `paywall_triggered` for creates to ramp in. Spaces where `creates > 0` and `triggered > 0` are no longer "self-ratcheting" — both edits and creates are now blocked when the space is over the limit. Strategy details: `docs/paywall-strategy.md`.
 
 ### Non-CSS domains in the results
 

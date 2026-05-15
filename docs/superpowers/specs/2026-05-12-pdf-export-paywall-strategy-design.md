@@ -1,7 +1,8 @@
 # PDF/Word Export Telemetry Audit — Paywall Decision Support
 
 **Date:** 2026-05-12
-**Status:** Draft (reframed after code review)
+**Status:** Draft (reframed after code review) — telemetry audit only; not a commitment to ship an export paywall
+**Current strategy source:** [`docs/paywall-strategy.md`](../../paywall-strategy.md) (see §5 open question on export-adjacent surface)
 **Variant:** ZenUML Lite only
 **Related work:** Existing editor paywall (`UpgradePrompt`, `advocacy_message_copied`), export telemetry in `src/export.js`
 

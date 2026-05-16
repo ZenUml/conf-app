@@ -139,12 +139,20 @@ export default defineConfig(({ command }) => ({
     alias: {
       'vue': '@vue/compat',
       '@': resolve(__dirname, './src'),
-      // AsyncAPI variant: @asyncapi/parser pulls in Node's fs for its
+      // AsyncAPI variant: @asyncapi/parser pulls in Node's `fs` for its
       // fromURL/fromFile helpers (which we never call — we always pass a
-      // pre-parsed schema). Map fs to memfs so the imports resolve to a
-      // browser-safe implementation. Mirrors AsyncAPI-Conf-V2's vite config.
+      // pre-parsed schema). Earlier attempts aliased fs -> memfs but
+      // memfs@4's internal class hierarchies blow up at module-eval time
+      // ("class FileHandle extends <undefined>") under Rollup's CJS interop.
+      // Use a hand-written stub instead: exports the names Rollup needs to
+      // satisfy strict named-import resolution; bodies throw at call time,
+      // which never happens because we don't invoke fromURL/fromFile.
       ...(process.env.PRODUCT_TYPE === 'asyncapi'
-        ? { 'fs': 'memfs', 'fs/promises': 'memfs/lib/promises', 'stream': 'stream-browserify' }
+        ? {
+            'fs': resolve(__dirname, './src/stubs/empty-fs.ts'),
+            'fs/promises': resolve(__dirname, './src/stubs/empty-fs.ts'),
+            'stream': 'stream-browserify',
+          }
         : {}),
     },
     dedupe: [

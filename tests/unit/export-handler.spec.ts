@@ -334,7 +334,7 @@ describe('Forge export resolver (src/export.js)', () => {
       exportType: 'pdf',
       context: {
         cloudId: 'cloud-sub',
-        siteUrl: 'https://linemanwongnai.atlassian.net',
+        siteUrl: 'https://example-tenant.atlassian.net',
         spaceKey: 'SP',
         accountId: 'acc-sub',
         extension: { content: { id: '999' } },
@@ -349,7 +349,7 @@ describe('Forge export resolver (src/export.js)', () => {
       properties?: { client_domain?: string };
     }>;
     const failed = rows.find((r) => r.event === 'macro_export_failed');
-    expect(failed?.properties?.client_domain).toBe('linemanwongnai');
+    expect(failed?.properties?.client_domain).toBe('example-tenant');
   });
 
   it('does not call asUser() and omits fallback telemetry when asApp() returns a non-404 error', async () => {

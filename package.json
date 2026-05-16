@@ -22,6 +22,7 @@
     "build:full:watch": "PRODUCT_TYPE=full vite build --watch",
     "build:lite": "PRODUCT_TYPE=lite vite build",
     "build:diagramly": "PRODUCT_TYPE=diagramly vite build",
+    "build:asyncapi": "PRODUCT_TYPE=asyncapi vite build",
     "wrangler:serve": "wrangler pages dev dist --compatibility-flags=nodejs_compat --compatibility-date=2024-11-11",
     "wrangler:publish:stg": "CLOUDFLARE_ACCOUNT_ID=8d5fc7ce04adc5096f52485cce7d7b3d wrangler pages publish dist --project-name conf-stg-full --branch=production",
     "wrangler:publish:stg:lite": "CLOUDFLARE_ACCOUNT_ID=8d5fc7ce04adc5096f52485cce7d7b3d wrangler pages publish dist --project-name conf-stg-lite --branch=production",

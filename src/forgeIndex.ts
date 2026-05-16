@@ -147,6 +147,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const isSequence = context.moduleKey.startsWith('zenuml-sequence-macro') || context.moduleKey.startsWith('gpt-diagram-macro') || context.extension.modal?.diagramType === 'sequence' || context.extension.modal?.diagramType === 'mermaid';
     const isGraph = context.moduleKey.startsWith('zenuml-graph-macro');
     const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
+    const isAsyncApi = context.moduleKey.startsWith('zenuml-asyncapi-macro');
 
     if(isSequence) {
       // Pre-edit paywall gate: block existing-macro edits in saturated spaces
@@ -292,6 +293,8 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       await import(editable ? "@/forge-graph-editor" : "@/forge-graph-viewer");
     } else if(isEmbed) {
       await import(editable ? "@/forge-embed-editor" : "@/forge-embed-viewer");
+    } else if(isAsyncApi) {
+      await import(editable ? "@/forge-asyncapi-editor" : "@/forge-asyncapi-viewer");
     } else {
       await import(editable ? "@/forge-swagger-editor" : "@/forge-swagger-ui");
     }

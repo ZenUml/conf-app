@@ -217,6 +217,20 @@ modules:
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/diagram_macro_icon.png
+    # AsyncAPI macro: ships only with the asyncapi variant; lite/full/diagramly
+    # strip this entry via manifestEdits in scripts/forge-wizard.mjs.
+    - key: zenuml-asyncapi-macro
+      title: AsyncAPI Spec
+      description: Create an AsyncAPI Spec. ${APP_LABEL}
+      resource: main
+      config:
+        resource: main
+        viewportSize: max
+      adfExport:
+        function: exportMacro
+      resolver:
+        endpoint: remote-connect
+      icon: resource:main;image/openapi_macro_icon.png
   trigger:
     - key: remote-installed-trigger
       endpoint: remote-installed-endpoint
@@ -303,6 +317,20 @@ modules:
       bodyType: raw
       indexing: true
       migratedFromConnect: true
+    # AsyncAPI custom content: ships only with the asyncapi variant.
+    # lite/full/diagramly strip this entry via manifestEdits.
+    - key: zenuml-content-asyncapi
+      supportedContainerTypes:
+        - space
+        - page
+        - blogpost
+      supportedChildTypes:
+        - attachment
+        - comment
+      title: AsyncAPI Spec
+      resource: main
+      bodyType: raw
+      indexing: true
   function:
     - key: exportMacro
       handler: export.handler

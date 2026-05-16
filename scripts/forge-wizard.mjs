@@ -31,6 +31,16 @@ export const APPS = {
         description: 'Remove confluence:contentBylineItem',
         yqEvalExpr: 'del(.modules["confluence:contentBylineItem"])',
       },
+      {
+        description: 'Remove asyncapi macro (zenuml-asyncapi-macro)',
+        yqEvalExpr:
+          'del(.modules.macro[] | select(.key | test("zenuml-asyncapi-macro")))',
+      },
+      {
+        description: 'Remove asyncapi custom content (zenuml-content-asyncapi)',
+        yqEvalExpr:
+          'del(.modules["confluence:customContent"][] | select(.key | test("zenuml-content-asyncapi")))',
+      },
     ],
     sites: {
       staging: ['lite-stg.atlassian.net'],
@@ -52,7 +62,18 @@ export const APPS = {
       staging: 'https://conf-stg-full.zenuml.com',
       production: 'https://conf-full.zenuml.com',
     },
-    manifestEdits: [],
+    manifestEdits: [
+      {
+        description: 'Remove asyncapi macro (zenuml-asyncapi-macro)',
+        yqEvalExpr:
+          'del(.modules.macro[] | select(.key | test("zenuml-asyncapi-macro")))',
+      },
+      {
+        description: 'Remove asyncapi custom content (zenuml-content-asyncapi)',
+        yqEvalExpr:
+          'del(.modules["confluence:customContent"][] | select(.key | test("zenuml-content-asyncapi")))',
+      },
+    ],
     sites: {
       staging: ['full-stg.atlassian.net'],
       production: ['zenuml.atlassian.net'],
@@ -86,6 +107,16 @@ export const APPS = {
         yqEvalExpr:
           'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))',
       },
+      {
+        description: 'Remove asyncapi macro (zenuml-asyncapi-macro)',
+        yqEvalExpr:
+          'del(.modules.macro[] | select(.key | test("zenuml-asyncapi-macro")))',
+      },
+      {
+        description: 'Remove asyncapi custom content (zenuml-content-asyncapi)',
+        yqEvalExpr:
+          'del(.modules["confluence:customContent"][] | select(.key | test("zenuml-content-asyncapi")))',
+      },
     ],
     sites: {
       staging: ['dia-stg.atlassian.net'],
@@ -98,6 +129,53 @@ export const APPS = {
         DIAGRAMLY_BACKEND_API_BASE_URL: 'https://diagramly.ai',
       },
     },
+  },
+  asyncapi: {
+    appKey: 'asyncapi',
+    appId: '49017727-af19-4ab6-8d5a-7d28108936b6',
+    connectKey: 'com.zenuml.confluence-addon-asyncapi',
+    sequenceMacroKey: 'zenuml-asyncapi-macro',
+    customContentKey: 'zenuml-content-asyncapi',
+    liteKeySuffix: '',
+    liteTitleSuffix: '',
+    appLabel: 'AsyncAPI for Confluence',
+    backendUrls: {
+      // Shared with the lite Cloudflare Pages projects until a dedicated
+      // conf-(stg-)asyncapi project is stood up. Revisit before GA.
+      staging: 'https://conf-stg-lite.zenuml.com',
+      production: 'https://conf-lite.zenuml.com',
+    },
+    // AsyncAPI is a single-purpose variant: strip every macro except the
+    // AsyncAPI one, and drop the dashboard / get-started / byline modules
+    // that don't apply.
+    manifestEdits: [
+      {
+        description: 'Remove licensing (asyncapi MVP is free)',
+        yqEvalExpr: 'del(.app.licensing)',
+      },
+      {
+        description: 'Remove non-asyncapi macros (sequence, openapi, graph, embed)',
+        yqEvalExpr:
+          'del(.modules.macro[] | select(.key | test("zenuml-asyncapi-macro") | not))',
+      },
+      {
+        description: 'Remove globalSettings + globalPage + contentBylineItem',
+        yqEvalExpr:
+          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"])',
+      },
+      {
+        description: 'Remove non-asyncapi custom content types',
+        yqEvalExpr:
+          'del(.modules["confluence:customContent"][] | select(.key | test("zenuml-content-asyncapi") | not))',
+      },
+    ],
+    sites: {
+      // No dedicated asyncapi staging site yet; reuse lite-stg for early validation.
+      staging: ['lite-stg.atlassian.net'],
+      production: ['zenuml.atlassian.net'],
+    },
+    productType: 'asyncapi',
+    forgeAppLabelVarName: 'APP_LABEL',
   },
 }
 
@@ -432,6 +510,7 @@ async function main() {
           { name: 'lite', value: 'lite' },
           { name: 'full', value: 'full' },
           { name: 'diagramly', value: 'diagramly' },
+          { name: 'asyncapi', value: 'asyncapi' },
         ],
       })
 

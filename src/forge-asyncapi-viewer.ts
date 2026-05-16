@@ -13,7 +13,12 @@ import macroMetrics from '@/services/MacroMetrics'
 
 async function initializeMacro() {
   const context = await initForgeContext()
-  const customContentId = context.extension?.config?.customContentId
+  // Read customContentId from config (macro context) AND modal context —
+  // the dashboard's View flow opens this viewer via a modal with the
+  // contentId passed through extension.modal.customContentId.
+  const customContentId =
+    context.extension?.config?.customContentId ||
+    context.extension?.modal?.customContentId
 
   let spec: string | undefined
   if (customContentId) {

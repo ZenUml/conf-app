@@ -38,7 +38,12 @@ operations:
 
 async function initializeMacro() {
   const context = await initForgeContext()
-  const customContentId = context.extension?.config?.customContentId
+  // Read customContentId from config (macro context) AND modal context —
+  // the dashboard's Edit flow opens this editor via a modal with the
+  // contentId passed through extension.modal.customContentId.
+  const customContentId =
+    context.extension?.config?.customContentId ||
+    context.extension?.modal?.customContentId
 
   let existing: Diagram | undefined
   let initialSpec = DEFAULT_ASYNCAPI_SPEC

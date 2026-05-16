@@ -21,7 +21,7 @@
               <span class="viewer-title" :title="title">{{ title }}</span>
             </div>
             <div class="viewer-top-actions">
-              <button v-if="showEdit && !isFullscreenMode" @click="edit" aria-label="Edit" class="viewer-btn-ghost">
+              <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason" :title="editDisabledReason || undefined" @click="edit" aria-label="Edit" class="viewer-btn-ghost">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
                 </svg>
@@ -125,8 +125,13 @@ export default {
     showEdit() {
       if (import.meta.env.DEV) return true;
       const isCustomContent = this.diagram.source === DataSource.CustomContent;
-      const isNotCopy = !this.diagram.isCopy;
-      return this.canUserEdit && isCustomContent && isNotCopy;
+      return this.canUserEdit && isCustomContent;
+    },
+    editDisabledReason() {
+      if (!this.diagram.isCopy) return null;
+      return this.diagram.copyReason === 'cross-page'
+        ? 'This diagram lives on another page. Edit it there to keep both in sync.'
+        : 'There are multiple copies of this diagram on this page. Edits affect all of them.';
     },
   },
   async mounted() {
@@ -292,6 +297,8 @@ export default {
   transition: background-color 200ms ease, color 200ms ease;
 }
 .viewer-btn-ghost:hover { background: #F3F4F6; color: #111827; }
+.viewer-btn-ghost:disabled { opacity: 0.45; cursor: not-allowed; }
+.viewer-btn-ghost:disabled:hover { background: transparent; color: #374151; }
 
 .viewer-btn-primary {
   display: inline-flex;

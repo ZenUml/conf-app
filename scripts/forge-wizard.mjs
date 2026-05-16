@@ -133,7 +133,11 @@ export const APPS = {
   asyncapi: {
     appKey: 'asyncapi',
     appId: '49017727-af19-4ab6-8d5a-7d28108936b6',
-    connectKey: 'com.zenuml.confluence-addon-asyncapi',
+    // Preserve the original AsyncAPI-Conf-V2 Connect key so Atlassian's
+    // Forge-from-Connect migration tracking stays continuous. Changing
+    // this would trigger a confirmation prompt on every deploy and could
+    // affect features that key off the Connect identifier.
+    connectKey: 'my-api',
     sequenceMacroKey: 'zenuml-asyncapi-macro',
     customContentKey: 'zenuml-content-asyncapi',
     liteKeySuffix: '',

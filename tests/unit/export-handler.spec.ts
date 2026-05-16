@@ -327,6 +327,31 @@ describe('Forge export resolver (src/export.js)', () => {
     expect(failed?.properties?.fallback_error_name).toBe('NEEDS_AUTHENTICATION_ERR');
   });
 
+  it('uses subdomain prefix as client_domain in analytics events', async () => {
+    asAppRequest.mockRejectedValue(new Error('forced failure'));
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-sub',
+        siteUrl: 'https://linemanwongnai.atlassian.net',
+        spaceKey: 'SP',
+        accountId: 'acc-sub',
+        extension: { content: { id: '999' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-sub' } },
+    };
+
+    await handler(payload);
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: { client_domain?: string };
+    }>;
+    const failed = rows.find((r) => r.event === 'macro_export_failed');
+    expect(failed?.properties?.client_domain).toBe('linemanwongnai');
+  });
+
   it('does not call asUser() and omits fallback telemetry when asApp() returns a non-404 error', async () => {
     asAppRequest.mockResolvedValue({
       ok: false,

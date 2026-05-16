@@ -361,18 +361,18 @@ The `AnalyticsEventFact` schema has richer columns than the legacy `UserBehavior
 - **Mixpanel** — macro view counts (`macro_viewed`), filtered by `client_domain` property. **Project ID: `3373228`** (the `Diagramly.Ai` project; conf-app shares this single project — there is no separate one). Query via `mcp__mixpanel__Run-Query` with `project_id=3373228`, or via JQL using `API_Secret` from `.env.mixpanel`. Project display timezone is UTC+7, so hourly buckets need conversion when joining to D1 (which is UTC).
 - **KV metrics-inspect** — macro counts per space: `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<subdomain>` (subdomain prefix only, e.g. `linemanwongnai` — not the full hostname)
 
-### clientDomain format mismatch
+### clientDomain format
 
-There are **three** stores with three different conventions — always match the store's form:
+Two stores, two conventions — always match the store's form:
 
 | Store | Form | Example |
 |---|---|---|
 | KV flags | subdomain prefix | `linemanwongnai` |
 | D1 (`AnalyticsEventFact`, `UserBehaviorEvent`) | full hostname | `linemanwongnai.atlassian.net` |
-| Mixpanel — **frontend events** (`macro_viewed`, `paywall_*`, `upload_attachment`, etc.) | **subdomain prefix** (via `getSubdomain()` in `src/utils/ContextParameters/ContextParameters.ts:42-45`) | `linemanwongnai` |
-| Mixpanel — **backend events** (`macro_export_requested/succeeded/failed`) | **full hostname** (via `new URL(siteUrl).hostname` in `src/export.js:34`) | `linemanwongnai.atlassian.net` |
+| Mixpanel — all events (frontend + backend) | **subdomain prefix** | `linemanwongnai` |
 
-So in Mixpanel a single tenant has TWO `client_domain` values depending on which event you're filtering. Use `client_domain contains "<subdomain>"` to span both, or filter separately per event group with the matching form.
+Frontend source: `getSubdomain()` in `src/utils/ContextParameters/ContextParameters.ts:42-45`.
+Backend source: regex on hostname in `src/export.js:34` (fixed 2026-05-16 to match frontend format).
 
 ### Paywall / upgrade event mapping
 
@@ -387,4 +387,18 @@ The Lite paywall modal (`UpgradePrompt.vue`) is advocacy-only: there are no in-m
 | Dismisses the modal | `upgrade_modal_dismissed` | `time_spent` |
 
 Use `paywall_triggered` filtered by `action_type="header_badge"` for header Upgrade clicks — not modal copy events. Sources: `src/utils/upgradeTracking.ts`, `src/components/Viewer/GenericViewer.vue` (header → `paywall_triggered`), `src/components/UpgradePrompt/useUpgradeTracking.ts` (modal events).
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as GitHub issues on `ZenUml/conf-app` — use the `gh` CLI for all operations. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles, names verbatim: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: `CONTEXT.md` + `docs/adr/` at the repo root (created lazily by `/grill-with-docs` as terms and decisions crystallise). See `docs/agents/domain.md`.
 

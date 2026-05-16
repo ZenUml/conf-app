@@ -124,6 +124,20 @@ The journey on this one was: original claim → retraction → empirical re-conf
 
 ---
 
+### B7. The 30-day `format` distribution headline was distorted by the 2026-05-12 instrumentation rollout
+
+- **What I said.** Pulled a 30-day window from `macro_export_requested` and reported `other` = 83.7% of all exports, treated it as a steady-state behavioural fact.
+- **Why it was wrong.** The instrumentation that captures `payload.exportType` literally (so that `other` can land in Mixpanel at all) was deployed on 2026-05-12 across two commits — `7519c0ca feat(export): instrument PDF/Word export with Mixpanel analytics (Phase 1)` at 14:58 AEST and `d825b25a fix(export): use payload.exportType + accountId for analytics` at 20:33 AEST. Before `d825b25a`, the format field was synthesised from payload shape and could only emit `word` or `pdf`. So the "30-day" window contained ~3-4 days of real `other` data layered on ~30 days of `pdf/word` heuristic data.
+- **What's actually true.** Global daily `other`-export counts: 2026-05-09 to 11 = 0, 12 = 93, 13 = 867, 14 = 868, 15 = 762. The `other` cohort is the steady-state dominant trigger at ~800/day globally and likely has been so for the app's entire life — we just couldn't measure it. The percentage breakdown stabilises only once the post-rollout window is used in isolation.
+- **Strategic impact.** Smaller than it looks. The strategic conclusion (`other` is the bulk of the surface) is *unchanged* — the corrected percentage from the post-rollout-only window is still in the 80%+ range. But any narrative that says "the share of `other` grew rapidly recently" is wrong — what grew was our visibility, not user behaviour.
+
+### B8. `client_domain` in Mixpanel has TWO forms — frontend uses subdomain, backend uses FQDN
+
+- **What I said (implicitly).** Filtered Mixpanel for a tenant using `client_domain equals "colesgroup.atlassian.net"` and reported zero frontend activity for that tenant. Concluded that some tenants are "export-only with no frontend usage."
+- **Why it was wrong.** Backend export events (from `src/export.js:34`, which uses `new URL(siteUrl).hostname`) store `client_domain` as the full hostname (`colesgroup.atlassian.net`). Frontend events (from `getSubdomain()` in `src/utils/ContextParameters/ContextParameters.ts:42-45`, which strips `.atlassian.net` via regex) store it as the subdomain prefix only (`colesgroup`). An `equals` filter on the FQDN form silently drops every frontend event.
+- **What's actually true.** For the same colesgroup tenant over 7 days, filtering `client_domain contains "colesgroup"` returns 7,872 events total — including 4,306 `macro_viewed`, 348 `upload_attachment`, etc. The "export-only footprint" was a measurement artifact. Three out of five major storage layers have a different `client_domain` form: KV uses subdomain, D1 uses FQDN, Mixpanel splits frontend (subdomain) vs backend (FQDN). All three need to be matched separately to their stores when querying.
+- **Strategic impact.** Methodological, not strategic — the cohort sizing in the validated-knowledge doc already used the right join key (`$user_id` from §B2) so the headline 1,773-weekly-exporters figure stands. But anyone reading Mixpanel data going forward needs to know about this split, otherwise the same trap will catch the next session. The CLAUDE.md analytics section now documents both `client_domain` quirks.
+
 ## C. What is now hard-proven vs still inferred
 
 ### Hard-proven (empirical evidence on record)

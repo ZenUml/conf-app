@@ -42,6 +42,7 @@ jobs:
           vite-mixpanel-token: ${{ vars.VITE_MIXPANEL_TOKEN }}
           sentry-dsn: ${{ vars.SENTRY_DSN }}
           page-capture-secret: ${{ vars.PAGE_CAPTURE_SECRET }}
+          page-capture-allowed-domains: ${{ vars.PAGE_CAPTURE_ALLOWED_DOMAINS_STG }}
 
       # Lite: remove contentBylineItem and licensing
       - name: Remove contentBylineItem from manifest

@@ -96,7 +96,6 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import globals from '@/model/globals'
 import { openModal } from '@/model/globals/forgeGlobal'
-import { DiagramType } from '@/model/Diagram/Diagram'
 import type { ICustomContent } from '@/model/ICustomContent'
 
 interface AsyncApiDoc {
@@ -131,7 +130,11 @@ async function loadDocuments(isRefresh = false): Promise<void> {
       .map((entry) => {
         const v = entry.value as AsyncApiDoc & { diagramType?: string }
         if (!v) return null
-        if (v.diagramType !== DiagramType.AsyncApi) return null
+        // Case-insensitive match: stored data spans 'AsyncAPI' (current
+        // enum), 'AsyncApi' (older intermediate builds), and 'asyncapi'
+        // (potential future). Match any 'async*' diagramType.
+        const dt = typeof v.diagramType === 'string' ? v.diagramType.toLowerCase() : ''
+        if (!dt.startsWith('async')) return null
         return {
           id: entry.id || v.id || String(Math.random()),
           contentId: entry.id,
@@ -394,6 +397,7 @@ onUnmounted(() => {
   margin-bottom: 16px;
   font-size: 13px;
 }
+
 
 .dash-filters {
   display: flex;

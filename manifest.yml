@@ -273,11 +273,17 @@ modules:
       title: Get Started
       resource: main
       useAsGetStarted: true
-  confluence:globalPage: #Note: This module is applicable for "ZenUML for Confluence", not Diagramly for Confluence
+  confluence:globalPage: #Note: zenuml-dashboard-page is for ZenUML variants; zenuml-asyncapi-dashboard-page only ships in the asyncapi variant (others strip it via manifestEdits in scripts/forge-wizard.mjs)
     - key: zenuml-dashboard-page
       resource: main
       title: ZenUML${LITE_TITLE_SUFFIX}
       route: zenuml-dashboard
+      resolver:
+        endpoint: remote-connect
+    - key: zenuml-asyncapi-dashboard-page
+      resource: main
+      title: AsyncAPI for Confluence
+      route: zenuml-asyncapi-dashboard
       resolver:
         endpoint: remote-connect
   confluence:contentBylineItem: #Note: This module is applicable for "Diagramly for Confluence", not "ZenUML for Confluence"

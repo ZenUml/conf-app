@@ -41,6 +41,11 @@ export const APPS = {
         yqEvalExpr:
           'del(.modules["confluence:customContent"][] | select(.key | test("zenuml-content-asyncapi")))',
       },
+      {
+        description: 'Remove asyncapi dashboard page (zenuml-asyncapi-dashboard-page)',
+        yqEvalExpr:
+          'del(.modules["confluence:globalPage"][] | select(.key | test("zenuml-asyncapi-dashboard-page")))',
+      },
     ],
     sites: {
       staging: ['lite-stg.atlassian.net'],
@@ -72,6 +77,11 @@ export const APPS = {
         description: 'Remove asyncapi custom content (zenuml-content-asyncapi)',
         yqEvalExpr:
           'del(.modules["confluence:customContent"][] | select(.key | test("zenuml-content-asyncapi")))',
+      },
+      {
+        description: 'Remove asyncapi dashboard page (zenuml-asyncapi-dashboard-page)',
+        yqEvalExpr:
+          'del(.modules["confluence:globalPage"][] | select(.key | test("zenuml-asyncapi-dashboard-page")))',
       },
     ],
     sites: {
@@ -163,9 +173,16 @@ export const APPS = {
           'del(.modules.macro[] | select(.key | test("zenuml-asyncapi-macro") | not))',
       },
       {
-        description: 'Remove globalSettings + globalPage + contentBylineItem',
+        description: 'Remove globalSettings + contentBylineItem',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"])',
+          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:contentBylineItem"])',
+      },
+      {
+        // Keep only the asyncapi dashboard page; strip the ZenUML one so
+        // asyncapi's sidebar entry is "AsyncAPI for Confluence", not "ZenUML".
+        description: 'Remove non-asyncapi globalPage entries (strip zenuml-dashboard-page)',
+        yqEvalExpr:
+          'del(.modules["confluence:globalPage"][] | select(.key | test("zenuml-asyncapi-dashboard-page") | not))',
       },
       {
         description: 'Remove non-asyncapi custom content types',

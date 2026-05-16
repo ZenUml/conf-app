@@ -47,10 +47,20 @@ async function initializeCriticalPath() {
       return { macroData: null };
     }
 
-    // Check if this is a global page route (dashboard)
+    // Check if this is a global page route (dashboard). The asyncapi variant
+    // ships its own globalPage entry (zenuml-asyncapi-dashboard-page) with a
+    // distinct branded landing page; other variants only ever see
+    // zenuml-dashboard-page and route to the existing ZenUML getStarted UI.
     if (context.extension?.type === 'confluence:globalPage') {
-      await handleGetStartedRoute();
-      // await import('./dashboard');
+      if (
+        import.meta.env.PRODUCT_TYPE === 'asyncapi' &&
+        context.moduleKey === 'zenuml-asyncapi-dashboard-page'
+      ) {
+        const { handleAsyncApiDashboardRoute } = await import('./routes/asyncApiDashboard');
+        await handleAsyncApiDashboardRoute();
+      } else {
+        await handleGetStartedRoute();
+      }
       return { macroData: null };
     }
 

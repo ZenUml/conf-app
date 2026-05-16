@@ -172,6 +172,15 @@ export const APPS = {
         yqEvalExpr:
           'del(.modules["confluence:customContent"][] | select(.key | test("zenuml-content-asyncapi") | not))',
       },
+      {
+        // AsyncAPI Studio (transitively via AJV / @asyncapi/parser) compiles
+        // JSON Schema validators at runtime via `new Function()`. Forge
+        // Custom UI's default CSP forbids 'unsafe-eval'. Granting it only
+        // for the asyncapi variant keeps the blast radius scoped to this
+        // single app's sandboxed iframe — not the Confluence top-level page.
+        description: "Allow 'unsafe-eval' in CSP (required by AsyncAPI Studio runtime schema compilation)",
+        yqEvalExpr: '.permissions.content.scripts = ["unsafe-eval"]',
+      },
     ],
     sites: {
       // No dedicated asyncapi staging site yet; reuse lite-stg for early validation.

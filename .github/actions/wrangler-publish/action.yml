@@ -69,9 +69,10 @@ runs:
         if [ -n "$PAGE_CAPTURE_SECRET" ]; then
           printf '%s' "$PAGE_CAPTURE_SECRET" | npx wrangler pages secret put PAGE_CAPTURE_SECRET --project-name=${{ inputs.project }}
         fi
-        if [ -n "$PAGE_CAPTURE_ALLOWED_DOMAINS" ]; then
-          printf '%s' "$PAGE_CAPTURE_ALLOWED_DOMAINS" | npx wrangler pages secret put PAGE_CAPTURE_ALLOWED_DOMAINS --project-name=${{ inputs.project }}
-        fi
+        # PAGE_CAPTURE_ALLOWED_DOMAINS is a plain (non-secret) Pages var — injected into
+        # wrangler.toml [vars] in the "Prepare wrangler config" step below.
+        # Delete any pre-existing secret with the same name so the plain var isn't shadowed.
+        echo y | npx wrangler pages secret delete PAGE_CAPTURE_ALLOWED_DOMAINS --project-name=${{ inputs.project }} 2>/dev/null || true
       shell: bash
       env:
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
@@ -93,8 +94,18 @@ runs:
         
         # Create wrangler.toml with the project name replaced
         sed "s/name=\"conf-${{ inputs.environment }}\"/name=\"${{ inputs.project }}\"/" "$CONFIG_FILE" > wrangler.toml
+
+        # Inject PAGE_CAPTURE_ALLOWED_DOMAINS into [vars] and [env.production.vars] sections as a plain var.
+        # Sourced from GitHub Actions vars (PAGE_CAPTURE_ALLOWED_DOMAINS_STG / _PROD) so the
+        # tenant allowlist can be updated without a source PR.
+        if [ -n "$PAGE_CAPTURE_ALLOWED_DOMAINS" ]; then
+          sed -i "/^\[vars\]$/a PAGE_CAPTURE_ALLOWED_DOMAINS = \"$PAGE_CAPTURE_ALLOWED_DOMAINS\"" wrangler.toml
+          sed -i "/^\[env\.production\.vars\]$/a PAGE_CAPTURE_ALLOWED_DOMAINS = \"$PAGE_CAPTURE_ALLOWED_DOMAINS\"" wrangler.toml
+        fi
         cat wrangler.toml
       shell: bash
+      env:
+        PAGE_CAPTURE_ALLOWED_DOMAINS: ${{ inputs.page-capture-allowed-domains }}
     - name: Run D1 Migrations
       run: pnpm exec wrangler d1 migrations apply DB --remote --env production
       shell: bash

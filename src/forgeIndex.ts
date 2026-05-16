@@ -157,7 +157,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const isSequence = context.moduleKey.startsWith('zenuml-sequence-macro') || context.moduleKey.startsWith('gpt-diagram-macro') || context.extension.modal?.diagramType === 'sequence' || context.extension.modal?.diagramType === 'mermaid';
     const isGraph = context.moduleKey.startsWith('zenuml-graph-macro');
     const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
-    const isAsyncApi = context.moduleKey.startsWith('zenuml-asyncapi-macro');
+    // isAsyncApi also picks up modal contexts opened from the asyncapi
+    // dashboard ("My API Documents"), which don't carry the macro moduleKey
+    // but do set extension.modal.diagramType='asyncapi'. Without that check
+    // dashboard-launched Create / Edit / View modals fall through to the
+    // swagger editor.
+    const isAsyncApi = context.moduleKey.startsWith('zenuml-asyncapi-macro') || context.extension.modal?.diagramType === 'asyncapi';
 
     if(isSequence) {
       // Pre-edit paywall gate: block existing-macro edits in saturated spaces

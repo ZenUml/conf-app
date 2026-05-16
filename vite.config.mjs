@@ -91,7 +91,32 @@ export default defineConfig(({ command }) => ({
       'codemirror-lang-mermaid',
       '@zenuml/codemirror-extensions',
       '@zenuml/core',
+      // AsyncAPI variant: @asyncapi/parser pulls in CJS-only modules
+      // (readable-stream, qs, avsc, @openapi-contrib/openapi-schema-to-json-schema)
+      // whose default exports must be unwrapped via Vite's CJS-interop
+      // pre-bundling — otherwise `import { Readable } from 'readable-stream'`
+      // resolves to undefined and `class FooStream extends Readable` throws
+      // "Class extends value undefined". Mirrors AsyncAPI-Conf-V2's vite config.
+      ...(process.env.PRODUCT_TYPE === 'asyncapi'
+        ? [
+            'readable-stream',
+            'qs',
+            'avsc',
+            '@openapi-contrib/openapi-schema-to-json-schema',
+          ]
+        : []),
     ],
+    ...(process.env.PRODUCT_TYPE === 'asyncapi'
+      ? {
+          needsInterop: [
+            'readable-stream',
+            'qs',
+            'avsc',
+            '@openapi-contrib/openapi-schema-to-json-schema',
+          ],
+          exclude: ['stream-browserify', 'node-stdlib-browser'],
+        }
+      : {}),
   },
   build: {
     rollupOptions: {

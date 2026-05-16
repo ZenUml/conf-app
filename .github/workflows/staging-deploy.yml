@@ -90,13 +90,13 @@ jobs:
         run: |
           case "${{ inputs.variant }}" in
             lite)
-              forge variables set PAGE_CAPTURE_SECRET --value "$PAGE_CAPTURE_SECRET" --encrypt -e staging
+              pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e staging
               ;;
             full)
-              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 forge variables set PAGE_CAPTURE_SECRET --value "$PAGE_CAPTURE_SECRET" --encrypt -e staging
+              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e staging
               ;;
             diagramly)
-              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf forge variables set PAGE_CAPTURE_SECRET --value "$PAGE_CAPTURE_SECRET" --encrypt -e staging
+              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e staging
               ;;
           esac
         env:

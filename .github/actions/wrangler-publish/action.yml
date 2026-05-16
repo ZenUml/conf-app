@@ -31,6 +31,10 @@ inputs:
   sentry-dsn:
     description: 'Sentry DSN synced to Cloudflare Pages as SENTRY_DSN'
     required: true
+  page-capture-secret:
+    description: 'Shared secret for forge-page-capture endpoint (PAGE_CAPTURE_SECRET). If empty, the secret is not updated on Cloudflare Pages.'
+    required: false
+    default: ''
 runs:
   using: 'composite'
   steps:
@@ -58,12 +62,16 @@ runs:
       run: |
         printf '%s' "$VITE_MIXPANEL_TOKEN" | npx wrangler pages secret put MIXPANEL_TOKEN --project-name=${{ inputs.project }}
         printf '%s' "$SENTRY_DSN" | npx wrangler pages secret put SENTRY_DSN --project-name=${{ inputs.project }}
+        if [ -n "$PAGE_CAPTURE_SECRET" ]; then
+          printf '%s' "$PAGE_CAPTURE_SECRET" | npx wrangler pages secret put PAGE_CAPTURE_SECRET --project-name=${{ inputs.project }}
+        fi
       shell: bash
       env:
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
         VITE_MIXPANEL_TOKEN: ${{ inputs.vite-mixpanel-token }}
         SENTRY_DSN: ${{ inputs.sentry-dsn }}
+        PAGE_CAPTURE_SECRET: ${{ inputs.page-capture-secret }}
     - name: Prepare wrangler config
       run: |
         # Select the appropriate config file based on environment

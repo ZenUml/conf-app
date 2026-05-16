@@ -7,9 +7,13 @@ pages_build_output_dir = "dist"
 [vars]
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
 ENVIRONMENT = "development"  # Set to "development" for local development
+PAGE_CAPTURE_ALLOWED_DOMAINS = "whimet4"
 
 [env.production]
 ENVIRONMENT = "production"
+
+[env.production.vars]
+PAGE_CAPTURE_ALLOWED_DOMAINS = "whimet4"
 
 [[ env.preview.d1_databases ]]
 binding = "DB"

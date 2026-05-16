@@ -2,18 +2,15 @@
 // around an iframe that loads the vendored AsyncAPI Studio bundle from
 // `./asyncapi-studio/index.html`). The Studio runs same-origin under the
 // Forge resource so localStorage works as a sync channel.
-//
-// Scope (PR #2): render the editor, validate that the Studio iframe loads
-// inside the Forge Custom UI runtime, and that localStorage polling sees
-// changes. Save/persist wiring (custom-content storage, DiagramType enum
-// extension, mixpanel events) lands in PR #3.
 
 import React from 'react'
 import ReactDOM from 'react-dom'
 
 import globals from '@/model/globals'
-import { getContext as initForgeContext, getView } from '@/model/globals/forgeGlobal'
+import { getContext as initForgeContext, getView, isInserting } from '@/model/globals/forgeGlobal'
 import AsyncApiStudioEditor from '@/components/Editor/AsyncApiEditor/AsyncApiStudioEditor'
+import { DataSource, Diagram, DiagramType } from '@/model/Diagram/Diagram'
+import { saveToPlatform } from '@/model/ContentProvider/Persistence'
 
 const DEFAULT_ASYNCAPI_SPEC = `asyncapi: 3.0.0
 info:
@@ -43,11 +40,13 @@ async function initializeMacro() {
   const context = await initForgeContext()
   const customContentId = context.extension?.config?.customContentId
 
+  let existing: Diagram | undefined
   let initialSpec = DEFAULT_ASYNCAPI_SPEC
   if (customContentId) {
     try {
       const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId)
-      const stored = customContent?.value?.code
+      existing = customContent?.value as Diagram | undefined
+      const stored = existing?.code
       if (typeof stored === 'string' && stored.trim().length > 0) {
         initialSpec = stored
       }
@@ -71,20 +70,29 @@ async function initializeMacro() {
     }
   }
 
-  const handleSpecChange = (spec: string) => {
-    // PR #2 stub: log only so we can verify the same-origin localStorage
-    // polling actually surfaces edits from inside the Studio iframe.
-    // PR #3 will dispatch this to the store and persist via saveToPlatform.
-    console.debug('asyncapi spec changed (length:', spec.length, ')')
+  const handleSave = async (spec: string) => {
+    const diagram: Diagram = {
+      ...(existing ?? {}),
+      diagramType: DiagramType.AsyncApi,
+      code: spec,
+      source: DataSource.CustomContent,
+    } as Diagram
+    const savedId = await saveToPlatform(diagram)
+    const view = await getView()
+    if (await isInserting()) {
+      await view.submit({
+        config: { customContentId: savedId, updatedAt: new Date().toISOString() },
+      })
+    } else {
+      await view.close()
+    }
   }
 
   ReactDOM.render(
     React.createElement(AsyncApiStudioEditor, {
       initialSpec,
-      onSpecChange: handleSpecChange,
+      onSave: handleSave,
       onCancel: handleCancel,
-      // onSave intentionally omitted: PR #3 wires this to saveToPlatform
-      // once the AsyncApi DiagramType + custom-content shape are in place.
     }),
     root,
   )

@@ -1,27 +1,26 @@
-// AsyncAPI viewer entry. Read-only Studio render for now — the real viewer
-// using @asyncapi/react-component lands in PR #3 once the persistence /
-// custom-content shape settles. Reusing the Studio iframe in `?readOnly=true`
-// mode keeps PR #2 focused on the same-origin loading question.
+// AsyncAPI viewer entry. Renders @asyncapi/react-component as a static
+// read-only view. The Studio iframe is editor-only — viewer uses the
+// dedicated react-component for a cleaner render with no bundle bloat
+// from the Studio's Monaco-based editor surface.
 
 import React from 'react'
 import ReactDOM from 'react-dom'
 
 import globals from '@/model/globals'
 import { getContext as initForgeContext } from '@/model/globals/forgeGlobal'
-import AsyncApiStudioEditor from '@/components/Editor/AsyncApiEditor/AsyncApiStudioEditor'
+import AsyncApiViewer from '@/components/Viewer/AsyncApiViewer/AsyncApiViewer'
+import macroMetrics from '@/services/MacroMetrics'
 
 async function initializeMacro() {
   const context = await initForgeContext()
   const customContentId = context.extension?.config?.customContentId
 
-  let initialSpec: string | undefined
+  let spec: string | undefined
   if (customContentId) {
     try {
       const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId)
       const stored = customContent?.value?.code
-      if (typeof stored === 'string' && stored.trim().length > 0) {
-        initialSpec = stored
-      }
+      if (typeof stored === 'string') spec = stored
     } catch (err) {
       console.error('Failed to load AsyncAPI spec for viewer:', err)
     }
@@ -33,13 +32,11 @@ async function initializeMacro() {
     return
   }
 
-  ReactDOM.render(
-    React.createElement(AsyncApiStudioEditor, {
-      initialSpec,
-      readOnly: true,
-    }),
-    root,
-  )
+  ReactDOM.render(React.createElement(AsyncApiViewer, { spec }), root)
+
+  // Match the metrics-reporting cadence of the other viewers so AsyncAPI
+  // macros count toward the same per-space MacroMetrics tally.
+  macroMetrics.reportMacroMetrics().catch((e) => console.debug('Metrics report failed (non-critical)', e))
 }
 
 void initializeMacro()

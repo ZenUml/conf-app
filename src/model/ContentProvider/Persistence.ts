@@ -39,6 +39,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
       [DiagramType.PlantUml]: 'plantuml',
       [DiagramType.Graph]:    'graph',
       [DiagramType.OpenApi]:  'openapi',
+      [DiagramType.AsyncApi]: 'asyncapi',
     };
     const macroType: MacroTypeValue = DIAGRAM_TYPE_TO_MACRO_TYPE[diagram.diagramType] ?? 'none';
 

@@ -13,6 +13,7 @@ export enum DiagramType {
   PlantUml = 'plantuml',
   Graph = 'graph',
   OpenApi = 'OpenAPI',
+  AsyncApi = 'AsyncAPI',
   Embed = 'embed',
   Unknown = 'unknown'
 }
@@ -22,6 +23,7 @@ export function getDiagramData(o: any): string{
   switch (o.diagramType) {
     case DiagramType.Sequence:
     case DiagramType.OpenApi:
+    case DiagramType.AsyncApi:
       body = o.code || '';
       break;
     case DiagramType.Mermaid:

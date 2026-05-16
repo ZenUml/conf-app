@@ -8,13 +8,13 @@ pages_build_output_dir = "dist"
 [vars]
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
 ALLOWED_FORGE_APP_IDS = "8ad26115-211f-4216-971b-0540f606303d,d9e4002b-120b-426b-834b-402a4a5adce7,01ede8b1-4e88-451a-b9ef-89eeef93afaf" # ZenUML Lite, Full and Diagramly
-PAGE_CAPTURE_ALLOWED_DOMAINS = "colesgroup,airwallex,linemanwongnai,vin3s,mcoproduct,myntfintech,hktdc,alterric,woolworths-agile,appculqi,economical"
+PAGE_CAPTURE_ALLOWED_DOMAINS = "lite-stg,full-stg,dia-stg"
 
 [env.production.vars]
 ENVIRONMENT = "production"
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
 ALLOWED_FORGE_APP_IDS = "8ad26115-211f-4216-971b-0540f606303d,d9e4002b-120b-426b-834b-402a4a5adce7,01ede8b1-4e88-451a-b9ef-89eeef93afaf" # ZenUML Lite, Full and Diagramly
-PAGE_CAPTURE_ALLOWED_DOMAINS = "colesgroup,airwallex,linemanwongnai,vin3s,mcoproduct,myntfintech,hktdc,alterric,woolworths-agile,appculqi,economical"
+PAGE_CAPTURE_ALLOWED_DOMAINS = "lite-stg,full-stg,dia-stg"
 
 [[ env.production.d1_databases ]]
 binding = "DB"

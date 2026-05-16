@@ -31,7 +31,11 @@ function extractExportContext(payload) {
   const siteUrl = payload.context?.siteUrl;
   let clientDomain = cloudId;
   if (siteUrl) {
-    try { clientDomain = new URL(siteUrl).hostname; } catch (_) { clientDomain = siteUrl; }
+    try {
+      const hostname = new URL(siteUrl).hostname.toLowerCase();
+      const match = /^([a-z0-9-_]+)\.atlassian\.net$/.exec(hostname);
+      clientDomain = match ? match[1] : hostname;
+    } catch (_) { clientDomain = siteUrl; }
   }
 
   const spaceKey = payload.context?.spaceKey ?? payload.context?.extension?.space?.key ?? 'unknown';

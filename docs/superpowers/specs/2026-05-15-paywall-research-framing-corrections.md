@@ -1,0 +1,183 @@
+# Paywall research — framing corrections log
+
+**Date:** 2026-05-15 to 2026-05-16 (one extended research session)
+**Author of errors:** Claude (this assistant)
+**Caught by:** the user (Peng), in real time
+**Purpose:** every framing or numerical mistake I made during the export-paywall research, paired with the empirical truth and the corrected conclusion. The strategy doc (`docs/paywall-strategy.md`) and audit spec (`docs/superpowers/specs/2026-05-12-pdf-export-paywall-strategy-design.md`) reflect the corrected view; this file exists so future readers can see how the picture evolved and why.
+
+---
+
+## How to read this document
+
+Each entry has:
+
+- **What I said** — the framing I committed to
+- **Why it was wrong** — the empirical or logical flaw
+- **What's actually true** — the corrected statement
+- **Strategic impact** — whether it materially changed a decision, or was a noise correction
+
+Errors are roughly ordered by impact, not chronology.
+
+---
+
+## A. Big framing reversals (changed strategic direction)
+
+### A1. The export audit was framed as *failure-recovery* instead of *success-as-nudge*
+
+- **What I said.** The audit asked "can we convert failed exports into upgrade actions?" I sized the failure cohort (724 / 30 d), found that 71% were `attachment_not_found` (a product bug) and 0% were `needs_authentication` (the original thesis), and recommended **abandon**.
+- **Why it was wrong.** The failure cohort was always the smaller opportunity. The strategic surface is every *successful* export — a value-realisation moment where the user just got what they wanted.
+- **What's actually true.** Successful exports are ~2,700 / week (vs ~21 addressable failures); each export produces a shared artefact that reaches the exporter AND a downstream audience.
+- **Strategic impact.** Flipped the audit from "abandon" to "advance to Phase 4". This is the single most important correction. The whole `paywall-strategy.md` §2 (nudge funnel) exists because of it.
+
+### A2. "Word breaks multi-root → in-doc footer is half-viable"
+
+- **What I said.** Spike v1 showed Word export errors out with multi-root ADF. I framed this as forcing a binary: ship to PDF only (2.7% of cohort, too small) or pivot to PNG watermark.
+- **Why it was wrong.** I generalised the Word failure to the entire HTML-conversion family. Without testing, I assumed `body.view` / `body.export_view` / `body.styled_view` would also reject multi-root.
+- **What's actually true** (Spike v4). Multi-root renders cleanly in `body.view`, `body.export_view`, `body.styled_view`. Only Word's MHTML pipeline specifically rejects it. The v3 conditional shape (`exportType !== "word" → multi-root + footer`) covers ~95% of all formats.
+- **Strategic impact.** Major. Took the in-doc footer from "PDF-only sliver" back to "95% of the cohort", which restored the viability of the multi-root approach as the primary surface.
+
+### A3. "`other` is mostly headless / machine-only"
+
+- **What I said.** Once I learned `other` was 84% of all exports, I leaned toward "this is probably background indexing / search crawlers / Atlassian internal pipelines — not user-visible".
+- **Why it was wrong.** I was inferring from the name and the bulk volume; I had no empirical attribution.
+- **What's actually true.** A `FORMAT-PROBE` log + REST endpoint matrix proved `body.view` and `body.styled_view` fire `exportType=other`. These endpoints are consumed by third-party integrations, Atlassian Intelligence / Rovo, mobile rendering, anonymous public-page rendering, email-notification body composition, etc. — all user-visible surfaces.
+- **Strategic impact.** Large. The `other` cohort is the addressable bulk of the nudge surface; without this empirical proof I would have stuck with the "small PDF-only" reach number.
+
+### A4. "User is cold at render time — exports fire long after viewing"
+
+- **What I said.** I cited a Mixpanel funnel showing 42-hour average gap from `macro_viewed` to `macro_export_succeeded` and concluded the user is offline when adfExport runs. I then said the QR/link is the *only* hook because the user can't be reached at render time.
+- **Why it was wrong.** The 42-hour figure was the cross-window average across all users; it lumped human exporters with integration-only accountIds and counted views very loosely. Also: my first per-user timeline analysis used the wrong filter (`properties.account_id` vs `properties.$user_id`) and silently dropped every frontend event, which reinforced the false conclusion.
+- **What's actually true.** With the corrected filter, 77% of export events fire within ±30 seconds of a same-user `macro_viewed` event. There is a sharp bimodal split: tight-cluster (in-session, ~77%, median 18 s gap) and distant-cluster (~23%, >1 h away). The user IS active at render time in three out of four exports.
+- **Strategic impact.** Pivotal. Made the **live in-product banner** strategy viable. Without the corrected analysis we would have shipped only the in-doc footer/QR.
+
+### A5. "Build a paywall on top of exports"
+
+- **What I said (early).** Treated this as a paywall design problem, looking for ways to gate exports or convert failures.
+- **Why it was wrong.** The user's pivot — *just put a link and a QR in the export, say "I don't know what app you saw this in, click to help me improve it"* — reframed the whole thing from "paywall" to "humble engineering ask + telemetry hook + secondary upgrade signal". That framing is more honest, lower-pressure, and produces empirical attribution as a side effect of the click endpoint.
+- **What's actually true.** The right object isn't a paywall on the export surface; it's a **soft nudge artefact** baked into every Lite export that doubles as our attribution channel.
+- **Strategic impact.** Reframes the entire Phase 5 design from gating mechanic to engagement mechanic.
+
+---
+
+## B. Numerical / methodological errors
+
+### B1. Linear `× 7/3` extrapolation for weekly uniques
+
+- **What I said.** Used 3-day data multiplied by `7/3 ≈ 2.33` to estimate weekly unique users.
+- **Why it was wrong.** User behaviour is highly repeat-driven over a 7-day window. The same users active on day 1 are typically active on day 4. Naive linear extrapolation double-counts the regulars.
+- **What's actually true.** Real 7-day pull: **1,773 weekly exporters** vs the linear estimate of 3,742. Overstatement: ~53%.
+- **Numbers that need correction across the strategy/spec docs:**
+  - Step 1 (unique exporters / week): ~1,770, not ~3,700
+  - Step 2 (banner-reachable / week): ~1,240, not ~2,500
+  - Combined reach: ~1,770 / week (not ~3,700)
+- **Strategic impact.** The absolute numbers in the strategy doc need to be halved; the *percentages* (69% banner-reachable, 31% async backstop) are still correct.
+
+### B2. Mixpanel `where` filter on `account_id` for frontend events
+
+- **What I said.** Filtered the Mixpanel Export API with `properties["account_id"]=="..."` to fetch event timelines for chosen accountIds.
+- **Why it was wrong.** Backend export events have a `properties.account_id` field. **Frontend events (`macro_viewed`, etc.) do NOT have `account_id` in `properties`; they only have `$user_id` and `distinct_id`.** My filter silently dropped every frontend event.
+- **What's actually true.** Use `properties["$user_id"]=="..."` to match both event families. After fixing, the per-user timelines showed real frontend activity (`macro_viewed`, `attachment_upload_skipped`, `click`, etc.) within ±30 seconds of exports.
+- **Strategic impact.** Caused the false "users have no frontend activity around exports" conclusion (A4). Once fixed, restored the live-banner viability.
+
+### B3. Mixpanel MCP filter clauses are silently ignored in some cases
+
+- **What I said.** Used the `filter.clauses` field on `Run-Query` to scope queries to specific `client_domain` or `format` values.
+- **Why it was wrong.** Empirically the clauses had no effect in several runs — `client_domain equals "lite-dev.atlassian.net"` returned the same total as no filter. The MCP wrapper or Mixpanel side appears not to honour all clause shapes consistently.
+- **What's actually true.** Always cross-verify Mixpanel MCP query results against another method (raw export, manual breakdown) before drawing conclusions. Use breakdowns instead of filters where possible.
+- **Strategic impact.** Smaller — caused some intermediate confusion but no strategic decision rested on it.
+
+### B4. Tunnel does NOT proxy `adfExport` — empirically confirmed 2026-05-16
+
+The journey on this one was: original claim → retraction → empirical re-confirmation. The retraction was wrong; the original claim is correct.
+
+- **Original claim (2026-05-15).** `adfExport` runs server-side on Atlassian's export pipeline and bypasses the tunnel; spiking requires `forge deploy -e development`.
+- **Retraction (2026-05-16, earlier same day).** I retracted the claim after reading the [Forge Tunneling docs](https://developer.atlassian.com/platform/forge/tunneling/), which say "tunnel proxies non-UI functions, such as Custom UI resolvers and web triggers." `adfExport` is structurally a function module; the general principle suggested it should be proxied. I attributed my original observation to a setup error (`ENOENT: dist/`, wrong log channel).
+- **Re-confirmation via clean test (2026-05-16, later same day).** Set up a controlled experiment:
+  - Fresh `pnpm build:lite` → `dist/` complete, no `ENOENT` warnings
+  - `src/export.js` had a `console.log('[TUNNEL-PROBE-2026-05-16]', ...)` at the very top of the handler, and `createMediaDocument` reverted to baseline (no footer)
+  - Deployed dev code (separately): v3-conditional WITH footer (different code from local)
+  - `forge tunnel -e development` started cleanly, terminal showed `✔ Functions bundled. Listening for requests on local port 51434.`
+  - Triggered PDF export via Playwright
+- **Three independent empirical signals — all confirm tunnel bypass:**
+  1. **Tunnel terminal: zero `TUNNEL-PROBE-2026-05-16` log lines** after the PDF export fired. (`grep -c "TUNNEL-PROBE-2026-05-16" tunnel.log` → 0)
+  2. **PDF contains the footer** "Diagram by ZenUML Lite — upgrade to remove this footer ↗" — this string is in the deployed code, NOT in my current local code
+  3. **PDF size: 72 KB** matches the with-footer deployed shape; baseline (no footer) is ~49 KB
+- **Control experiment** (added 2026-05-16 to rule out "tunnel logging is just broken"). Same tunnel session, added a `webtrigger` module + `tunnel-test-trigger.handler` to the manifest, deployed, and curled the trigger URL. **The tunnel terminal logged the web-trigger invocation** with `invocation: <id> tunnel-test-trigger.handler` followed by `[TUNNEL-TEST-TRIGGER-2026-05-16] webTrigger fired ...`. So tunnel logging works fine — it just doesn't see the macro-export pipeline. (Test artefacts cleaned up; manifest reverted; clean deploy back to baseline.)
+- **Why the docs read otherwise.** The Forge Tunneling docs say tunnel proxies "Custom UI resolvers and web triggers". Both of those are invoked from the user's authenticated frontend session (iframe `invoke()` or HTTP request to a web-trigger URL). **`adfExport` is different** — it's invoked by Atlassian's macro-export pipeline, which is a separate server-side job that runs outside the user's session even though `accountId` is attached. The docs don't explicitly list it as unsupported, but the execution path is not one the tunnel intercepts.
+- **Final claim** (re-confirmed): **`forge tunnel` does NOT proxy `adfExport` invocations from Atlassian's PDF/Word export pipeline. To spike `adfExport` changes, you must `forge deploy -e development`.**
+- **Lesson on the framing-correction itself.** I was right, then I retracted in deference to the docs without testing, then the test reconfirmed the original. The right ordering is: docs first, test second, ship the claim only after both line up. Skipping the test step in the retraction round was a mistake of its own kind.
+- **Operational guidance for the forge-tunnel skill.** Add: "Note: `adfExport` invocations from Atlassian's PDF/Word export pipeline do NOT route through the tunnel. They run in Atlassian's server-side macro-export pipeline against the deployed code. To iterate on `adfExport` changes, `forge deploy -e development` is required for each test."
+
+### B5. "ADF `caption` would solve the Word problem"
+
+- **What I said.** Hypothesised that putting the footer inside `mediaSingle` as a `caption` child (single root) would render in both PDF and Word.
+- **Why it was wrong.** Confluence's export pipelines accept the `caption` node syntactically but **silently drop the text content during rendering**. Neither PDF nor Word renders caption text.
+- **What's actually true** (Spike v2). Caption is a non-starter. The correct approach is the v3 conditional (multi-root for non-Word; baseline for Word).
+- **Strategic impact.** Eliminated one false path. No big damage; would have cost time later if untested.
+
+### B6. The Mixpanel funnel report's avg_time figures
+
+- **What I said.** Quoted "70% of users view a macro within 1 h after export, average 1.6 h" from a Mixpanel funnels report.
+- **Why it was wrong.** The funnel matches events across the entire window, not within a session. The "70% within 1 h" overcounted because the funnel saw any `macro_viewed` event by the same user anywhere in the 24 h conversion window. The per-user raw-event analysis showed the real co-occurrence is much tighter (±30 s for 77%) but also has a long async tail (>1 h or days for the rest).
+- **What's actually true.** Use Mixpanel funnels for directional signal only. For precise temporal relationships pull raw events via the Export API and analyse locally.
+- **Strategic impact.** Initially led to a confused intermediate claim about session co-occurrence. The user caught this and pushed me to do the per-user analysis instead.
+
+---
+
+### B7. The 30-day `format` distribution headline was distorted by the 2026-05-12 instrumentation rollout
+
+- **What I said.** Pulled a 30-day window from `macro_export_requested` and reported `other` = 83.7% of all exports, treated it as a steady-state behavioural fact.
+- **Why it was wrong.** The instrumentation that captures `payload.exportType` literally (so that `other` can land in Mixpanel at all) was deployed on 2026-05-12 across two commits — `7519c0ca feat(export): instrument PDF/Word export with Mixpanel analytics (Phase 1)` at 14:58 AEST and `d825b25a fix(export): use payload.exportType + accountId for analytics` at 20:33 AEST. Before `d825b25a`, the format field was synthesised from payload shape and could only emit `word` or `pdf`. So the "30-day" window contained ~3-4 days of real `other` data layered on ~30 days of `pdf/word` heuristic data.
+- **What's actually true.** Global daily `other`-export counts: 2026-05-09 to 11 = 0, 12 = 93, 13 = 867, 14 = 868, 15 = 762. The `other` cohort is the steady-state dominant trigger at ~800/day globally and likely has been so for the app's entire life — we just couldn't measure it. The percentage breakdown stabilises only once the post-rollout window is used in isolation.
+- **Strategic impact.** Smaller than it looks. The strategic conclusion (`other` is the bulk of the surface) is *unchanged* — the corrected percentage from the post-rollout-only window is still in the 80%+ range. But any narrative that says "the share of `other` grew rapidly recently" is wrong — what grew was our visibility, not user behaviour.
+
+### B8. `client_domain` in Mixpanel has TWO forms — frontend uses subdomain, backend uses FQDN
+
+- **What I said (implicitly).** Filtered Mixpanel for a tenant using `client_domain equals "colesgroup.atlassian.net"` and reported zero frontend activity for that tenant. Concluded that some tenants are "export-only with no frontend usage."
+- **Why it was wrong.** Backend export events (from `src/export.js:34`, which uses `new URL(siteUrl).hostname`) store `client_domain` as the full hostname (`colesgroup.atlassian.net`). Frontend events (from `getSubdomain()` in `src/utils/ContextParameters/ContextParameters.ts:42-45`, which strips `.atlassian.net` via regex) store it as the subdomain prefix only (`colesgroup`). An `equals` filter on the FQDN form silently drops every frontend event.
+- **What's actually true.** For the same colesgroup tenant over 7 days, filtering `client_domain contains "colesgroup"` returns 7,872 events total — including 4,306 `macro_viewed`, 348 `upload_attachment`, etc. The "export-only footprint" was a measurement artifact. Three out of five major storage layers have a different `client_domain` form: KV uses subdomain, D1 uses FQDN, Mixpanel splits frontend (subdomain) vs backend (FQDN). All three need to be matched separately to their stores when querying.
+- **Strategic impact.** Methodological, not strategic — the cohort sizing in the validated-knowledge doc already used the right join key (`$user_id` from §B2) so the headline 1,773-weekly-exporters figure stands. But anyone reading Mixpanel data going forward needs to know about this split, otherwise the same trap will catch the next session. The CLAUDE.md analytics section now documents both `client_domain` quirks.
+
+## C. What is now hard-proven vs still inferred
+
+### Hard-proven (empirical evidence on record)
+
+- `body.view` → `exportType="other"` (forge logs probe, 2026-05-15)
+- `body.styled_view` → `exportType="other"` (same probe)
+- `body.export_view` → `exportType="email"` (same probe)
+- `/wiki/exportword` → `exportType="word"` (same probe)
+- PDF export menu click → `exportType="pdf"` (same probe)
+- Multi-root ADF renders cleanly in `body.view`, `body.export_view`, `body.styled_view`, and PDF export (Spike v4)
+- Multi-root ADF causes the macro export to error in Word's MHTML pipeline only (Spikes v1, v3 baseline comparison)
+- `caption` inside `mediaSingle` is accepted but text content silently dropped in both PDF and Word (Spike v2)
+- Every `macro_export_succeeded` event carries a populated `account_id` (zero null across 2,827 events / 7 d)
+- For users with both events, 77% of their exports occur within ±30 s of one of their `macro_viewed` events; sharp bimodal split with a long async tail >1 h
+- Real 7-day unique-exporter count: 1,773 (not the 3,742 linear extrapolation predicted)
+- Of those 1,773, 1,239 (70%) are reachable by a live banner (have ±1-min co-occurrence)
+
+### Still inferred (best-guess, not proven by direct probe)
+
+- *Which* third-party tools / Atlassian features consume `body.view` vs `body.export_view` for which user actions. We know the endpoint-to-exportType mapping; we don't have ground-truth attribution from inside Atlassian's stack about who calls each endpoint and when.
+- That `exportType="email"` is dominated by Confluence email notifications. The name is suggestive, but I couldn't catch a real email-notification firing during a deliberate Share + comment action within the probe window.
+- That the integration-only accountIds (320 / week) are OAuth-token service accounts vs dormant real users. Plausible but not verified.
+- That 1.6 events per user (for `format=other`) is "broad real-user distribution" rather than something else. Reasonable but not air-tight.
+
+### Yet to be proven (deferred to production telemetry)
+
+- That a Lite-only `macro_export_nudge_included` event in production will correlate `format` values with `paywall_triggered` / `advocacy_message_copied` / `upgrade_clicks` to give per-cohort conversion attribution.
+- That the live in-product banner ships and produces a measurable upgrade-click rate at the 30–50% banner-shown × 5–8% click range.
+
+---
+
+## D. Current strategic conclusion (as of 2026-05-16, post-corrections)
+
+Carrying through all corrections above:
+
+1. **Export nudge surface is alive.** Multi-root ADF works in ~95% of formats; the v3 conditional shape is the right code change.
+2. **`other` is a real user-visible cohort**, served by `body.view` / `body.styled_view` REST consumers — Rovo, integrations, mobile, email body rendering, anonymous public-page views.
+3. **Most exporters are real humans active at render time.** 77% co-occur within ±30 s; 70% are reachable by an in-product live banner on their next macro view.
+4. **Real weekly addressable surface (corrected):** ~1,240 banner-reachable Lite users + ~530 backstopped by in-doc QR/footer = **~1,770 unique humans per week**.
+5. **Layered design:** live banner (precise, in-session, high-intent) + in-doc footer/QR (backstop, async, captures forwarded artefacts).
+6. **Telemetry hook on the click endpoint** doubles as empirical attribution for the inferred items in §C — users tell us which surface they saw.
+
+Strategy doc `docs/paywall-strategy.md` and audit spec `docs/superpowers/specs/2026-05-12-pdf-export-paywall-strategy-design.md` reflect this corrected view. Earlier commits on the `worktree-docs-paywall-strategy-dual-funnel-framing` branch contain intermediate (wrong) framings — preserved for audit-trail.

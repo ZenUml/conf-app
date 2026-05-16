@@ -343,7 +343,7 @@ Mix methods freely — a single spot check might drive the browser, then query D
 
 | Event | Storage | Purpose |
 |-------|---------|---------|
-| `page_viewed`, `page_updated` | D1 `UserBehaviorEvent` (full hostname as `clientDomain`, e.g. `linemanwongnai.atlassian.net`) | Tenant activity signal — fires for any Confluence page with the macro installed, NOT specific to macro views |
+| `page_viewed`, `page_updated` | D1 `AnalyticsEventFact` (full hostname as `clientDomain`). Replaced `UserBehaviorEvent` on 2026-05-02; older rows still live in `UserBehaviorEvent` for May 1 and earlier. | Tenant activity signal — fires for any Confluence page with the macro installed, NOT specific to macro views |
 | `macro_viewed` (renamed from `view_macro` on 2026-04-28) | Mixpanel only | Actual macro view counts; use for paywall/engagement analysis |
 | Install/uninstall lifecycle | R2 `atlassian-events` bucket (`{domain}/lifecycle/{isoDate}.json`) | Forge install events |
 
@@ -353,15 +353,26 @@ Mix methods freely — a single spot check might drive the browser, then query D
 
 `page_viewed` fires whenever a user views any Confluence page on a site where our macro is installed. It does **not** mean the user viewed one of our macros. Use it to determine whether a **tenant is active on Confluence** (i.e., people are using the product at all). For macro-specific engagement, use Mixpanel `macro_viewed`.
 
+The `AnalyticsEventFact` schema has richer columns than the legacy `UserBehaviorEvent` (key fields: `eventTime`, `eventDate`, `cloudId`, `macroUuid`, `diagramType`, `eventCategory`, `eventSource`, `appVersion`, `r2Key`). Aggregate views: `AnalyticsDailyEventSummary`, `AnalyticsWeeklyClientActivity`, `AnalyticsDailyCsat`.
+
 ### Key analytics sources
 
-- **D1 `conf-zenuml-prod`** — tenant activity (`UserBehaviorEvent`), install records (`ForgeInstallation`, `ClientInstallation`), content data
-- **Mixpanel** — macro view counts (`macro_viewed`), filtered by `client_domain` property. **Project ID: `3373228`** (the `Diagramly.Ai` project; conf-app shares this single project — there is no separate one). Query via `mcp__mixpanel__Run-Query` with `project_id=3373228`, or via JQL using `API_Secret` from `.env.mixpanel`.
+- **D1 `conf-zenuml-prod`** — tenant activity (`AnalyticsEventFact` since 2026-05-02; `UserBehaviorEvent` for ≤ 2026-05-01), install records (`ForgeInstallation`, `ClientInstallation`), content data
+- **Mixpanel** — macro view counts (`macro_viewed`), filtered by `client_domain` property. **Project ID: `3373228`** (the `Diagramly.Ai` project; conf-app shares this single project — there is no separate one). Query via `mcp__mixpanel__Run-Query` with `project_id=3373228`, or via JQL using `API_Secret` from `.env.mixpanel`. Project display timezone is UTC+7, so hourly buckets need conversion when joining to D1 (which is UTC).
 - **KV metrics-inspect** — macro counts per space: `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<subdomain>` (subdomain prefix only, e.g. `linemanwongnai` — not the full hostname)
 
-### clientDomain format mismatch
+### clientDomain format
 
-KV flags use the **subdomain prefix** (`linemanwongnai`) but D1 `UserBehaviorEvent` stores the **full hostname** (`linemanwongnai.atlassian.net`). Always use full hostname when querying D1.
+Two stores, two conventions — always match the store's form:
+
+| Store | Form | Example |
+|---|---|---|
+| KV flags | subdomain prefix | `linemanwongnai` |
+| D1 (`AnalyticsEventFact`, `UserBehaviorEvent`) | full hostname | `linemanwongnai.atlassian.net` |
+| Mixpanel — all events (frontend + backend) | **subdomain prefix** | `linemanwongnai` |
+
+Frontend source: `getSubdomain()` in `src/utils/ContextParameters/ContextParameters.ts:42-45`.
+Backend source: regex on hostname in `src/export.js:34` (fixed 2026-05-16 to match frontend format).
 
 ### Paywall / upgrade event mapping
 
@@ -376,4 +387,18 @@ The Lite paywall modal (`UpgradePrompt.vue`) is advocacy-only: there are no in-m
 | Dismisses the modal | `upgrade_modal_dismissed` | `time_spent` |
 
 Use `paywall_triggered` filtered by `action_type="header_badge"` for header Upgrade clicks — not modal copy events. Sources: `src/utils/upgradeTracking.ts`, `src/components/Viewer/GenericViewer.vue` (header → `paywall_triggered`), `src/components/UpgradePrompt/useUpgradeTracking.ts` (modal events).
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as GitHub issues on `ZenUml/conf-app` — use the `gh` CLI for all operations. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles, names verbatim: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: `CONTEXT.md` + `docs/adr/` at the repo root (created lazily by `/grill-with-docs` as terms and decisions crystallise). See `docs/agents/domain.md`.
 

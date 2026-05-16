@@ -645,14 +645,71 @@ export class ConfluenceEditorPage {
 
   /**
    * Close the GenerationPrompt dialog if it appears after inserting a macro
+   * 
+   * The GenerationPrompt only appears when:
+   * 1. isNewDiagram = true (new diagram)
+   * 2. isAiTitleFeatureEnabled = true (AI_TITLE feature flag enabled)
+   * 3. isLite = true (Lite variant)
    */
   async closeGenerationPromptIfVisible(): Promise<void> {
     const frame = this.getMacroEditorFrame();
-    const openEditorButton = frame.getByRole('button', { name: /open editor/i });
-    if (await openEditorButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+    
+    // Wait for the frame to be ready
+    await this.page.waitForTimeout(2000);
+    
+    // Check if the GenerationPrompt dialog is visible by looking for its heading
+    const promptHeading = frame.locator('text=ZenUML diagram').first();
+    const isPromptVisible = await promptHeading.isVisible({ timeout: 3000 }).catch(() => false);
+    
+    if (!isPromptVisible) {
+      console.log('✓ GenerationPrompt dialog not visible (may not be Lite variant or AI_TITLE not enabled)');
+      return;
+    }
+    
+    console.log('✓ GenerationPrompt dialog detected');
+    
+    // Strategy 1: Try to find button by exact text "Open Editor"
+    let openEditorButton = frame.locator('button:has-text("Open Editor")').first();
+    let isButtonVisible = await openEditorButton.isVisible({ timeout: 1000 }).catch(() => false);
+    
+    if (!isButtonVisible) {
+      // Strategy 2: Try case-insensitive role-based selector
+      console.log('  [debug] Trying role-based selector with regex...');
+      openEditorButton = frame.getByRole('button', { name: /open editor/i }).first();
+      isButtonVisible = await openEditorButton.isVisible({ timeout: 1000 }).catch(() => false);
+    }
+    
+    if (!isButtonVisible) {
+      // Strategy 3: Try to find any button in the Manual Mode section
+      console.log('  [debug] Trying to find button in Manual Mode section...');
+      const manualModeSection = frame.locator('text=Manual Mode').locator('..').locator('..');
+      openEditorButton = manualModeSection.locator('button').first();
+      isButtonVisible = await openEditorButton.isVisible({ timeout: 1000 }).catch(() => false);
+    }
+    
+    if (isButtonVisible) {
+      const buttonText = await openEditorButton.textContent();
+      console.log(`✓ Found button: "${buttonText}", clicking...`);
       await openEditorButton.click();
-      await this.page.waitForTimeout(500);
-      console.log('✓ GenerationPrompt dialog closed');
+      await this.page.waitForTimeout(1000);
+      
+      // Verify the dialog is closed
+      const isStillVisible = await promptHeading.isVisible({ timeout: 1000 }).catch(() => false);
+      if (isStillVisible) {
+        console.warn('⚠ GenerationPrompt dialog still visible after clicking button');
+        // Try pressing Escape as fallback
+        await this.page.keyboard.press('Escape');
+        await this.page.waitForTimeout(500);
+      } else {
+        console.log('✓ GenerationPrompt dialog closed successfully');
+      }
+    } else {
+      console.warn('⚠ Could not find Open Editor button in GenerationPrompt dialog');
+      // Take a screenshot for debugging
+      try {
+        await this.page.screenshot({ path: `screenshots/generation-prompt-${Date.now()}.png` });
+        console.log('  [debug] Screenshot saved');
+      } catch { /* ignore */ }
     }
   }
 

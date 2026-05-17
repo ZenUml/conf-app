@@ -42,9 +42,8 @@ export const APPS = {
           'del(.modules["confluence:customContent"][] | select(.key | test("zenuml-content-asyncapi")))',
       },
       {
-        description: 'Remove asyncapi dashboard page (zenuml-asyncapi-dashboard-page)',
-        yqEvalExpr:
-          'del(.modules["confluence:globalPage"][] | select(.key | test("zenuml-asyncapi-dashboard-page")))',
+        description: 'Remove asyncapi spacePage (zenuml-asyncapi-dashboard-page)',
+        yqEvalExpr: 'del(.modules["confluence:spacePage"])',
       },
     ],
     sites: {
@@ -79,9 +78,8 @@ export const APPS = {
           'del(.modules["confluence:customContent"][] | select(.key | test("zenuml-content-asyncapi")))',
       },
       {
-        description: 'Remove asyncapi dashboard page (zenuml-asyncapi-dashboard-page)',
-        yqEvalExpr:
-          'del(.modules["confluence:globalPage"][] | select(.key | test("zenuml-asyncapi-dashboard-page")))',
+        description: 'Remove asyncapi spacePage (zenuml-asyncapi-dashboard-page)',
+        yqEvalExpr: 'del(.modules["confluence:spacePage"])',
       },
     ],
     sites: {
@@ -108,9 +106,9 @@ export const APPS = {
     // Diagramly includes licensing; remove only the global UI modules and embed macro.
     manifestEdits: [
       {
-        description: 'Remove globalSettings + globalPage',
+        description: 'Remove globalSettings + globalPage + spacePage',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"])',
+          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:spacePage"])',
       },
       {
         description: 'Remove embed macro (zenuml-embed-macro)',
@@ -173,16 +171,12 @@ export const APPS = {
           'del(.modules.macro[] | select(.key | test("zenuml-asyncapi-macro") | not))',
       },
       {
-        description: 'Remove globalSettings + contentBylineItem',
+        // AsyncAPI ships only confluence:spacePage (the per-space "My API
+        // Documents" entry). Strip the ZenUML globalPage + getStarted +
+        // byline entries — they don't apply to asyncapi.
+        description: 'Remove globalSettings + globalPage + contentBylineItem (asyncapi uses spacePage only)',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:contentBylineItem"])',
-      },
-      {
-        // Keep only the asyncapi dashboard page; strip the ZenUML one so
-        // asyncapi's sidebar entry is "AsyncAPI for Confluence", not "ZenUML".
-        description: 'Remove non-asyncapi globalPage entries (strip zenuml-dashboard-page)',
-        yqEvalExpr:
-          'del(.modules["confluence:globalPage"][] | select(.key | test("zenuml-asyncapi-dashboard-page") | not))',
+          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"])',
       },
       {
         description: 'Remove non-asyncapi custom content types',

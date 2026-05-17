@@ -47,20 +47,25 @@ async function initializeCriticalPath() {
       return { macroData: null };
     }
 
-    // Check if this is a global page route (dashboard). The asyncapi variant
-    // ships its own globalPage entry (zenuml-asyncapi-dashboard-page) with a
-    // distinct branded landing page; other variants only ever see
-    // zenuml-dashboard-page and route to the existing ZenUML getStarted UI.
+    // Check if this is a global page route (dashboard). The ZenUML variants
+    // route this to the existing getStarted UI.
     if (context.extension?.type === 'confluence:globalPage') {
-      if (
-        import.meta.env.PRODUCT_TYPE === 'asyncapi' &&
-        context.moduleKey === 'zenuml-asyncapi-dashboard-page'
-      ) {
-        const { handleAsyncApiDashboardRoute } = await import('./routes/asyncApiDashboard');
-        await handleAsyncApiDashboardRoute();
-      } else {
-        await handleGetStartedRoute();
-      }
+      await handleGetStartedRoute();
+      return { macroData: null };
+    }
+
+    // Check if this is a space page route. The asyncapi variant ships a
+    // confluence:spacePage entry (zenuml-asyncapi-dashboard-page) that
+    // renders "My API Documents" in each Confluence space's sidebar —
+    // mirrors the original AsyncAPI-Conf-V2 spacePage. The route is gated
+    // on PRODUCT_TYPE so Vite dead-code-eliminates the import in
+    // non-asyncapi variant builds.
+    if (
+      context.extension?.type === 'confluence:spacePage' &&
+      import.meta.env.PRODUCT_TYPE === 'asyncapi'
+    ) {
+      const { handleAsyncApiDashboardRoute } = await import('./routes/asyncApiDashboard');
+      await handleAsyncApiDashboardRoute();
       return { macroData: null };
     }
 
@@ -99,8 +104,11 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 
     const context = await initForgeContext();
 
-    // Skip loading heavy components if this is a global settings or global page context
-    if (['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem'].includes(context.extension?.type)) {
+    // Skip loading heavy components for non-macro routes (dashboard /
+    // global settings / byline / asyncapi space page). Their entry handlers
+    // (handleGetStartedRoute / handleAiAideRoute / handleAsyncApiDashboardRoute)
+    // mount their own Vue trees into #app.
+    if (['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:spacePage'].includes(context.extension?.type)) {
       console.log('Skipping heavy components load for global context');
       return;
     }

@@ -9,6 +9,7 @@ import macroMetrics from '@/services/MacroMetrics';
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import store from "@/model/store2";
 import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
 
 async function loadDiagram() {
   const context = await initForgeContext();
@@ -25,10 +26,16 @@ async function loadDiagram() {
   window.diagram = doc ?? NULL_DIAGRAM;
   console.log('loadDiagram - window.diagram', window.diagram);
 
-  mountRoot(doc ?? NULL_DIAGRAM, ForgeEmbedViewer, {
-    diagramType: doc?.diagramType,
-    doc: doc
+  const contentProps = { diagramType: doc?.diagramType, doc };
+  const paywalled = await tryFullscreenViewerPaywall({
+    doc,
+    content: ForgeEmbedViewer,
+    contentProps,
+    macroKind: 'embed',
   });
+  if (!paywalled) {
+    mountRoot(doc ?? NULL_DIAGRAM, ForgeEmbedViewer, contentProps);
+  }
 
   setTimeout(async function () {
     try {

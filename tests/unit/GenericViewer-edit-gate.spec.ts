@@ -1,7 +1,7 @@
 /**
  * Regression test: viewer's Edit button must fire EventBus 'edit' directly,
  * without showing a paywall dialog. The paywall gate lives in the editor
- * (forgeIndex.ts → isPageEditorEditBlocked → PageEditorPaywallGate), not here.
+ * (forgeIndex.ts → isPageEditorEditBlocked → PaywallGate), not here.
  *
  * The bug (reproduced at zenuml.atlassian.net/wiki/spaces/ZEN/pages/1806270487/PVT+Lite):
  * Clicking "Continue editing without upgrading" in the viewer paywall dialog did nothing
@@ -98,7 +98,7 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
 
     // The redesign intentionally removed the viewer-level paywall dialog.
     // openUpgradeModal / showUpgradeModal / onContinueEditing no longer exist here;
-    // the gate lives in forgeIndex.ts → isPageEditorEditBlocked → PageEditorPaywallGate.
+    // the gate lives in forgeIndex.ts → isPageEditorEditBlocked → PaywallGate.
     expect(vm.openUpgradeModal).toBeUndefined()
     expect(vm.showUpgradeModal).toBeUndefined()
     expect(vm.onContinueEditing).toBeUndefined()

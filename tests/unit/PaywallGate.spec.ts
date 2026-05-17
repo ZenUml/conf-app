@@ -1,16 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
-import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
+import PaywallGate from '@/components/UpgradePrompt/PaywallGate.vue';
 
-describe('PageEditorPaywallGate', () => {
+describe('PaywallGate', () => {
   it('emits continue-editing only on the explicit continue-editing event from the prompt', async () => {
-    const wrapper = mount(PageEditorPaywallGate, {
+    const wrapper = mount(PaywallGate, {
       props: {
         macrosCreated: 100,
         macrosLimit: 100,
         upgradeUrl: 'https://example.com/upgrade',
         enterpriseBundleUrl: 'https://example.com/enterprise',
-        editor: { template: '<div data-testid="editor-stub" />' },
+        content: { template: '<div data-testid="content-stub" />' },
       },
       global: {
         stubs: {
@@ -26,11 +26,11 @@ describe('PageEditorPaywallGate', () => {
       },
     });
 
-    // A bare close (Escape, backdrop, ×, upgrade-CTA dismissal) must NOT grant edit access
+    // A bare close (Escape, backdrop, ×, dismissal) must NOT grant edit access
     await wrapper.get('[data-testid="close"]').trigger('click');
     expect(wrapper.emitted('continue-editing')).toBeFalsy();
 
-    // Only an explicit continueEditing from the prompt unlocks the editor
+    // Only an explicit continueEditing from the prompt unlocks the content
     await wrapper.get('[data-testid="continue"]').trigger('click');
     expect(wrapper.emitted('continue-editing')).toBeTruthy();
     expect(wrapper.emitted('continue-editing')).toHaveLength(1);

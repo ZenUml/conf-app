@@ -15,6 +15,7 @@ import macroMetrics from "@/services/MacroMetrics";
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import store from "@/model/store2";
 import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
 
 // @ts-ignore
 window.SwaggerUIBundle = SwaggerUIBundle;
@@ -91,8 +92,18 @@ async function initializeMacro() {
     entry_point: "page_view",
   });
 
-  // Initialize with empty doc, will be loaded in loadDiagram
-  mountRoot(NULL_DIAGRAM, OpenApiViewer);
+  // Initialize with empty doc, will be loaded in loadDiagram.
+  // Fullscreen viewer paywall wraps OpenApiViewer underneath the modal
+  // when triggered; #swagger-ui still lives inside OpenApiViewer's
+  // template, so initSwaggerUi() resolves it after the wrapped mount.
+  const paywalled = await tryFullscreenViewerPaywall({
+    doc: NULL_DIAGRAM,
+    content: OpenApiViewer,
+    macroKind: 'openapi',
+  });
+  if (!paywalled) {
+    mountRoot(NULL_DIAGRAM, OpenApiViewer);
+  }
   initSwaggerUi();
 
   await loadDiagram();

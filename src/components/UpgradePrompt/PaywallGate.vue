@@ -1,21 +1,22 @@
 <template>
   <!--
-    Mount the editor immediately so the fullscreen Forge iframe is populated
-    with the diagram the user wanted to edit, then layer the upgrade modal on
-    top via UpgradePrompt's own <Teleport to="body">. Save is already gated by
-    `shouldBlockActions` in the persistence layer, so an editor mounted here
-    cannot persist changes — the modal serves as the visible reminder.
+    Wrap any content component (editor or viewer) with the upgrade modal on top.
+    The content mounts immediately so the Forge iframe is never blank, then
+    UpgradePrompt teleports its overlay to <body>.
 
-    The editor component is passed in by each Forge entry point so the same
-    wrapper works for sequence/mermaid (Workspace), graph (ForgeGraphEditor),
-    OpenAPI (forge-swagger-editor mounts), and embed.
+    Editor use case (page editor / fullscreen editor):
+      Save is gated by `shouldBlockActions` in the persistence layer, so the
+      modal serves as the visible reminder — an editor mounted here cannot
+      actually persist changes.
 
-    The modal stays open until the user clicks "Continue editing" (or otherwise
-    closes it). After dismiss, the editor remains so the user can read code,
-    copy snippets, or just see what they're losing access to — they just can't
-    save.
+    Viewer use case (fullscreen viewer):
+      The user is read-only by definition; the modal is the only friction.
+      Dismissing leaves the diagram visible so they can keep looking.
+
+    The modal stays open until the user clicks "Continue editing" or otherwise
+    closes it. After dismiss, the underlying content remains mounted.
   -->
-  <component :is="editor" v-bind="editorProps" />
+  <component :is="content" v-bind="contentProps" />
   <UpgradePrompt
     :visible="modalVisible"
     :macros-created="macrosCreated"
@@ -40,10 +41,10 @@ withDefaults(
     upgradeUrl: string
     enterpriseBundleUrl: string
     macroKind?: MacroKind
-    editor: Component
-    editorProps?: Record<string, unknown>
+    content: Component
+    contentProps?: Record<string, unknown>
   }>(),
-  { macroKind: 'unknown', editorProps: () => ({}) }
+  { macroKind: 'unknown', contentProps: () => ({}) }
 )
 
 const emit = defineEmits<{

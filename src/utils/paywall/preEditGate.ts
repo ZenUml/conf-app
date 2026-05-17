@@ -8,3 +8,11 @@ export function isPageEditorEditBlocked(
 export function isPageEditorCreateBlocked(shouldBlockActions: boolean): boolean {
   return shouldBlockActions;
 }
+
+export function isFullscreenViewerBlocked(
+  isFullscreen: boolean,
+  isEditor: boolean,
+  shouldBlockActions: boolean
+): boolean {
+  return isFullscreen && !isEditor && shouldBlockActions;
+}

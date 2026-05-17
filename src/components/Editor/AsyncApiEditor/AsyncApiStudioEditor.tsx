@@ -209,64 +209,105 @@ const AsyncApiStudioEditor: React.FC<AsyncApiStudioEditorProps> = ({
     );
   }
 
+  // Dedicated toolbar above the Studio iframe (rather than absolute-
+  // positioned over it) — the Studio renders its own dark header inside
+  // the iframe, so overlaying buttons there clashes visually and the
+  // buttons end up partly hidden behind Studio's controls. A separate
+  // strip with a clear border keeps the host's affordances out of the
+  // Studio's chrome.
+  const HEADER_HEIGHT = 48;
+  const showSave = !!onSave && !readOnly;
+  const showCancel = !!onCancel;
+  const showToolbar = showSave || showCancel;
+
   return (
-    <div style={{ width: '100%', height, position: 'relative' }}>
-      {!isLoaded && studioUrl && (
-        <div style={{
-          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          backgroundColor: '#f9f9f9', zIndex: 1, flexDirection: 'column', gap: '10px',
-        }}>
-          <div style={{ fontSize: '16px', color: '#0052CC' }}>Loading AsyncAPI Studio…</div>
+    <div style={{ width: '100%', height, display: 'flex', flexDirection: 'column' }}>
+      {showToolbar && (
+        <div
+          style={{
+            flex: `0 0 ${HEADER_HEIGHT}px`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            padding: '0 16px',
+            background: '#fff',
+            borderBottom: '1px solid #DFE1E6',
+            gap: 12,
+          }}
+        >
+          <div style={{ display: 'flex', gap: 8 }}>
+            {showCancel && (
+              <button
+                onClick={onCancel}
+                disabled={isSaving}
+                style={{
+                  padding: '6px 14px',
+                  border: '1px solid #DFE1E6',
+                  borderRadius: 4,
+                  background: '#fff',
+                  color: '#42526E',
+                  cursor: isSaving ? 'not-allowed' : 'pointer',
+                  fontSize: 14,
+                  fontFamily: 'inherit',
+                }}
+              >
+                Cancel
+              </button>
+            )}
+            {showSave && (
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                style={{
+                  padding: '6px 14px',
+                  border: 'none',
+                  borderRadius: 4,
+                  background: isSaving ? '#A5ADBA' : '#0052CC',
+                  color: '#fff',
+                  cursor: isSaving ? 'not-allowed' : 'pointer',
+                  fontSize: 14,
+                  fontWeight: 500,
+                  fontFamily: 'inherit',
+                }}
+              >
+                {isSaving ? 'Saving…' : 'Save'}
+              </button>
+            )}
+          </div>
         </div>
       )}
 
-      {studioUrl && (
-        <iframe
-          ref={iframeRef}
-          src={studioUrl}
-          width="100%"
-          height="100%"
-          style={{ border: 'none', opacity: isLoaded ? 1 : 0, transition: 'opacity 0.3s' }}
-          title="AsyncAPI Studio"
-          allow="clipboard-read; clipboard-write"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-        />
-      )}
+      <div style={{ flex: '1 1 auto', position: 'relative', minHeight: 0 }}>
+        {!isLoaded && studioUrl && (
+          <div
+            style={{
+              position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              backgroundColor: '#f9f9f9', zIndex: 1, flexDirection: 'column', gap: 10,
+            }}
+          >
+            <div style={{ fontSize: 16, color: '#0052CC' }}>Loading AsyncAPI Studio…</div>
+          </div>
+        )}
 
-      {isLoaded && (
-        <div style={{
-          position: 'absolute', top: '10px', right: '10px', zIndex: 1000,
-          display: 'flex', gap: '8px',
-        }}>
-          {onCancel && (
-            <button
-              onClick={onCancel}
-              style={{
-                padding: '8px 16px', border: 'none', borderRadius: '4px',
-                backgroundColor: '#6B778C', color: 'white', cursor: 'pointer',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.2)', fontSize: '12px',
-              }}
-            >
-              Cancel
-            </button>
-          )}
-          {onSave && !readOnly && (
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              style={{
-                padding: '8px 16px', border: 'none', borderRadius: '4px',
-                backgroundColor: isSaving ? '#ccc' : '#0052CC', color: 'white',
-                cursor: isSaving ? 'not-allowed' : 'pointer',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.2)', fontSize: '12px',
-              }}
-            >
-              {isSaving ? 'Saving…' : 'Save'}
-            </button>
-          )}
-        </div>
-      )}
+        {studioUrl && (
+          <iframe
+            ref={iframeRef}
+            src={studioUrl}
+            width="100%"
+            height="100%"
+            style={{
+              border: 'none',
+              opacity: isLoaded ? 1 : 0,
+              transition: 'opacity 0.3s',
+              display: 'block',
+            }}
+            title="AsyncAPI Studio"
+            allow="clipboard-read; clipboard-write"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          />
+        )}
+      </div>
     </div>
   );
 };

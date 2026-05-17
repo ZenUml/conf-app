@@ -151,7 +151,15 @@ export default defineConfig(({ command }) => ({
       // import (see src/utils/mermaid/loadMermaid.ts) so it's excluded from
       // the Rollup module graph. Copy the entire dist/ tree (entry +
       // chunks/) so the relative imports inside the entry resolve.
-      { src: 'node_modules/mermaid/dist/*', dest: 'dist/vendor/mermaid' }
+      { src: 'node_modules/mermaid/dist/*', dest: 'dist/vendor/mermaid' },
+      // AsyncAPI Studio assets ship only with the asyncapi variant. Studio is
+      // loaded as a nested iframe from the AsyncAPI editor and uses
+      // localStorage to sync the document with the host; that requires
+      // same-origin, so Studio must live under the same Forge resource as
+      // index.html (`*.cdn.prod.atlassian-dev.net/<app-id>/asyncapi-studio/`).
+      ...(process.env.PRODUCT_TYPE === 'asyncapi'
+        ? [{ src: 'static/asyncapi-studio', dest: 'dist' }]
+        : []),
     ],
     hook: process.env.NODE_ENV === 'development' ? 'buildStart' : 'writeBundle'
   }), ...(process.env.ANALYZE === '1' ? [visualizer({

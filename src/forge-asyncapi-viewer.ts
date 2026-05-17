@@ -7,7 +7,7 @@ import React from 'react'
 import ReactDOM from 'react-dom'
 
 import globals from '@/model/globals'
-import { getContext as initForgeContext } from '@/model/globals/forgeGlobal'
+import { getContext as initForgeContext, getView } from '@/model/globals/forgeGlobal'
 import AsyncApiViewer from '@/components/Viewer/AsyncApiViewer/AsyncApiViewer'
 import macroMetrics from '@/services/MacroMetrics'
 
@@ -37,7 +37,24 @@ async function initializeMacro() {
     return
   }
 
-  ReactDOM.render(React.createElement(AsyncApiViewer, { spec }), root)
+  // Render an Edit button only when this viewer is rendered inside a
+  // modal opened from the asyncapi dashboard (extension.modal.macroMode
+  // is set). On a regular Confluence page-rendered macro there's no modal,
+  // and edit is reached via Confluence's own macro toolbar — the dashboard
+  // affordance would just be a duplicate.
+  const isModal = !!context.extension?.modal?.macroMode
+  const onEdit = isModal
+    ? async () => {
+        try {
+          const view = await getView()
+          await view.submit({ action: 'edit' })
+        } catch (err) {
+          console.error('Failed to submit edit intent from viewer:', err)
+        }
+      }
+    : undefined
+
+  ReactDOM.render(React.createElement(AsyncApiViewer, { spec, onEdit }), root)
 
   // Match the metrics-reporting cadence of the other viewers so AsyncAPI
   // macros count toward the same per-space MacroMetrics tally.

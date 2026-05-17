@@ -379,14 +379,17 @@ onUnmounted(() => {
 .btn-secondary:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .btn-link {
-  background: transparent;
+  background: #f4f5f7;
   color: #0052cc;
-  padding: 4px 8px;
-  font-size: 13px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid #dfe1e6;
 }
 
-.btn-link:hover { text-decoration: underline; }
+.btn-link:hover { background: #ebecf0; }
 .btn-danger { color: #de350b; }
+.btn-danger:hover { background: #ffebe6; }
 
 .indexing-notice {
   padding: 10px 14px;
@@ -397,6 +400,7 @@ onUnmounted(() => {
   margin-bottom: 16px;
   font-size: 13px;
 }
+
 
 
 .dash-filters {

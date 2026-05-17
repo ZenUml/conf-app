@@ -40,16 +40,26 @@ async function initializeCriticalPath() {
   try {
     await initForgeContext();
 
-    // Check if this is a global settings route (get started page)
+    // Modals opened from a globalPage / spacePage keep the parent's
+    // extension.type but populate extension.modal with the openModal
+    // context. For asyncapi modals opened from the dashboard, we want
+    // dispatch to fall through to loadHeavyComponents (which routes on
+    // modal.diagramType + modal.macroMode) — not to re-render the dashboard
+    // inside the modal. Detect via modal.macroMode which the openModal
+    // caller sets to 'editor' / 'viewer' / 'fullscreen'; Forge's default
+    // extension.modal (when there isn't a real modal) doesn't have it.
     const context = await initForgeContext();
-    if (context.extension?.type === 'confluence:globalSettings') {
+    const isOpenedModal = !!context.extension?.modal?.macroMode;
+
+    // Check if this is a global settings route (get started page)
+    if (!isOpenedModal && context.extension?.type === 'confluence:globalSettings') {
       await handleGetStartedRoute();
       return { macroData: null };
     }
 
     // Check if this is a global page route (dashboard). The ZenUML variants
     // route this to the existing getStarted UI.
-    if (context.extension?.type === 'confluence:globalPage') {
+    if (!isOpenedModal && context.extension?.type === 'confluence:globalPage') {
       await handleGetStartedRoute();
       return { macroData: null };
     }
@@ -61,6 +71,7 @@ async function initializeCriticalPath() {
     // on PRODUCT_TYPE so Vite dead-code-eliminates the import in
     // non-asyncapi variant builds.
     if (
+      !isOpenedModal &&
       context.extension?.type === 'confluence:spacePage' &&
       import.meta.env.PRODUCT_TYPE === 'asyncapi'
     ) {
@@ -70,7 +81,7 @@ async function initializeCriticalPath() {
     }
 
     // Check if this is a content byine item route (AI Aide)
-    if (context.extension?.type === 'confluence:contentBylineItem') {
+    if (!isOpenedModal && context.extension?.type === 'confluence:contentBylineItem') {
       await handleAiAideRoute();
       return { macroData: null };
     }
@@ -108,7 +119,17 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // global settings / byline / asyncapi space page). Their entry handlers
     // (handleGetStartedRoute / handleAiAideRoute / handleAsyncApiDashboardRoute)
     // mount their own Vue trees into #app.
-    if (['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:spacePage'].includes(context.extension?.type)) {
+    //
+    // Exception: modals opened from those routes carry the parent's
+    // extension.type but populate extension.modal.macroMode with 'editor' /
+    // 'viewer' / 'fullscreen'. We DO want to load heavy components for those
+    // modals so the editor / viewer renders — skip only when there's no
+    // opened-modal marker (i.e. the actual dashboard / settings page).
+    const isOpenedModal = !!context.extension?.modal?.macroMode;
+    if (
+      !isOpenedModal &&
+      ['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:spacePage'].includes(context.extension?.type)
+    ) {
       console.log('Skipping heavy components load for global context');
       return;
     }

@@ -2,6 +2,13 @@
 // read-only view. The Studio iframe is editor-only — viewer uses the
 // dedicated react-component for a cleaner render with no bundle bloat
 // from the Studio's Monaco-based editor surface.
+//
+// When this entry is hosted inside a dashboard-opened modal it also wires
+// an Edit button. Clicking Edit re-mounts the React tree INSIDE the same
+// modal as the Studio editor (dynamic import) — we deliberately do NOT
+// close-and-reopen as a new modal because Forge's Modal.open() requires a
+// user gesture within the synchronous click handler, which is lost across
+// the async view.close → onClose → openModal hop.
 
 import React from 'react'
 import ReactDOM from 'react-dom'
@@ -10,6 +17,8 @@ import globals from '@/model/globals'
 import { getContext as initForgeContext, getView } from '@/model/globals/forgeGlobal'
 import AsyncApiViewer from '@/components/Viewer/AsyncApiViewer/AsyncApiViewer'
 import macroMetrics from '@/services/MacroMetrics'
+import { DataSource, Diagram, DiagramType } from '@/model/Diagram/Diagram'
+import { saveToPlatform } from '@/model/ContentProvider/Persistence'
 
 async function initializeMacro() {
   const context = await initForgeContext()
@@ -21,10 +30,12 @@ async function initializeMacro() {
     context.extension?.modal?.customContentId
 
   let spec: string | undefined
+  let existing: Diagram | undefined
   if (customContentId) {
     try {
       const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId)
-      const stored = customContent?.value?.code
+      existing = customContent?.value as Diagram | undefined
+      const stored = existing?.code
       if (typeof stored === 'string') spec = stored
     } catch (err) {
       console.error('Failed to load AsyncAPI spec for viewer:', err)
@@ -37,24 +48,60 @@ async function initializeMacro() {
     return
   }
 
-  // Render an Edit button only when this viewer is rendered inside a
-  // modal opened from the asyncapi dashboard (extension.modal.macroMode
-  // is set). On a regular Confluence page-rendered macro there's no modal,
-  // and edit is reached via Confluence's own macro toolbar — the dashboard
-  // affordance would just be a duplicate.
   const isModal = !!context.extension?.modal?.macroMode
-  const onEdit = isModal
-    ? async () => {
-        try {
-          const view = await getView()
-          await view.submit({ action: 'edit' })
-        } catch (err) {
-          console.error('Failed to submit edit intent from viewer:', err)
-        }
-      }
-    : undefined
 
-  ReactDOM.render(React.createElement(AsyncApiViewer, { spec, onEdit }), root)
+  async function closeModal() {
+    try {
+      const view = await getView()
+      await view.close()
+    } catch (err) {
+      console.error('Failed to close modal:', err)
+    }
+  }
+
+  async function renderEditor() {
+    try {
+      // Dynamic import keeps the Studio editor chunk out of the viewer
+      // bundle until the user actually clicks Edit.
+      const [{ default: AsyncApiStudioEditor }] = await Promise.all([
+        import('@/components/Editor/AsyncApiEditor/AsyncApiStudioEditor'),
+      ])
+      ReactDOM.render(
+        React.createElement(AsyncApiStudioEditor, {
+          initialSpec: spec,
+          onSave: async (newSpec: string) => {
+            const diagram: Diagram = {
+              ...(existing ?? {}),
+              diagramType: DiagramType.AsyncApi,
+              code: newSpec,
+              source: DataSource.CustomContent,
+            } as Diagram
+            try {
+              await saveToPlatform(diagram)
+            } catch (err) {
+              console.error('Save failed:', err)
+              throw err
+            }
+            await closeModal()
+          },
+          onCancel: closeModal,
+        }),
+        root!,
+      )
+    } catch (err) {
+      console.error('Failed to swap viewer → editor:', err)
+    }
+  }
+
+  // Render the read-only viewer first. The Edit button (in-modal only)
+  // re-mounts the Studio editor in place.
+  ReactDOM.render(
+    React.createElement(AsyncApiViewer, {
+      spec,
+      onEdit: isModal ? renderEditor : undefined,
+    }),
+    root,
+  )
 
   // Match the metrics-reporting cadence of the other viewers so AsyncAPI
   // macros count toward the same per-space MacroMetrics tally.

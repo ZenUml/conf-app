@@ -69,13 +69,68 @@ export default {
       savedListener: null,
       draftScope: null,
       restoreListener: null,
+      messageListener: null,
     };
+  },
+  created() {
+    // Register the DrawIO postMessage listener BEFORE the iframe begins
+    // loading. The iframe starts fetching as soon as the component
+    // renders to the DOM, and DrawIO inside the iframe emits a one-shot
+    // 'init' message when it's ready. If we wait until after `mounted()`
+    // finishes its awaits (primeCloudId, loadDraft, …) the 'init' can
+    // fire while no listener is attached — the message is dropped,
+    // DrawIO stays waiting for a load action that never comes, and the
+    // user sees an empty canvas. A subsequent Publish then writes that
+    // empty canvas over the customer's real diagram (silent data loss).
+    const loadGraph = (xml) => this.sendToFrame({ action: 'load', xml });
+    this.messageListener = async ({ data }) => {
+      if (!data) {
+        console.warn('Empty message sent to drawio editor.');
+        return;
+      }
+      const payload = (typeof data === 'string') && JSON.parse(data);
+
+      if (payload.event === 'init') {
+        const initialGraphXml = this.graphXml || EMPTY_GRAPH;
+        loadGraph(initialGraphXml);
+      }
+      else if (payload.event === 'autosave') {
+        this.drawioModified = !!payload.modified;
+        if (payload.xml) {
+          this.latestXml = payload.xml;
+          if (this.drawioModified && this.draftSaver) {
+            this.draftSaver.save({
+              code: payload.xml,
+              title: this.$store?.state?.diagram?.title || '',
+            });
+          }
+        }
+      }
+      else if (payload.event === 'save') {
+        this.drawioModified = false;
+        // Persist the full <mxfile> wrapper so multi-page diagrams keep
+        // every page. Previously we extracted the first <mxGraphModel>
+        // and dropped every page after Page-1. Legacy records stored as
+        // raw <mxGraphModel> still open — DrawIO's embed setFileData
+        // and the GraphViewer used in the read path both accept either
+        // <mxfile> or raw <mxGraphModel>.
+        window.graphXml = payload.xml;
+        await window.ensureTitle();
+        await this.saveGraphAndExit(window.graphXml);
+      }
+      // Note: noExitBtn=1 in the iframe URL suppresses DrawIO's standalone
+      // Exit button, so we no longer receive payload.event === 'exit'.
+      // The Atlassian header X is the canonical close, and view.onClose
+      // autosaves a draft via setupCloseGuard below.
+    };
+    window.addEventListener('message', this.messageListener);
   },
   beforeUnmount() {
     this.closeGuardOff?.();
     this.draftSaver?.flush();
     if (this.savedListener) EventBus.$off('saved', this.savedListener);
     if (this.restoreListener) EventBus.$off('draft-restore', this.restoreListener);
+    if (this.messageListener) window.removeEventListener('message', this.messageListener);
   },
   async mounted() {
     await primeCloudId();
@@ -125,49 +180,6 @@ export default {
       }
     };
     EventBus.$on('draft-restore', this.restoreListener);
-		const loadGraph = (xml) => this.sendToFrame({action: 'load', xml});
-
-    //interaction protocol with embeded Drawio frame
-		addEventListener('message', async ({data}) => {
-      if(!data) {
-        console.warn('Empty message sent to drawio editor.');
-        return;
-      }
-			const payload = (typeof data === 'string') && JSON.parse(data);
-
-			if(payload.event === 'init') {
-				const initialGraphXml = this.graphXml || EMPTY_GRAPH;
-				loadGraph(initialGraphXml);
-			}
-			else if(payload.event === 'autosave') {
-				this.drawioModified = !!payload.modified;
-				if (payload.xml) {
-					this.latestXml = payload.xml;
-					if (this.drawioModified && this.draftSaver) {
-						this.draftSaver.save({
-							code: payload.xml,
-							title: this.$store?.state?.diagram?.title || '',
-						});
-					}
-				}
-			}
-			else if(payload.event === 'save') {
-				this.drawioModified = false;
-				// Persist the full <mxfile> wrapper so multi-page diagrams keep
-				// every page. Previously we extracted the first <mxGraphModel>
-				// and dropped every page after Page-1. Legacy records stored as
-				// raw <mxGraphModel> still open — DrawIO's embed setFileData
-				// and the GraphViewer used in the read path both accept either
-				// <mxfile> or raw <mxGraphModel>.
-				window.graphXml = payload.xml;
-				await window.ensureTitle();
-				await this.saveGraphAndExit(window.graphXml);
-			}
-			// Note: noExitBtn=1 in the iframe URL suppresses DrawIO's standalone
-			// Exit button, so we no longer receive payload.event === 'exit'.
-			// The Atlassian header X is the canonical close, and view.onClose
-			// autosaves a draft via setupCloseGuard above.
-		})
   }
 }
-</script> 
+</script>

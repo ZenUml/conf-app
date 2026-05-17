@@ -239,7 +239,16 @@ async function openView(doc: AsyncApiDoc) {
         diagramType: 'asyncapi',
         customContentId: doc.contentId,
       },
-      onClose: () => loadDocuments(true),
+      // The viewer modal exposes an "Edit" button that calls
+      // view.submit({ action: 'edit' }). When that happens we close the
+      // viewer (Forge does this automatically) and reopen as an editor.
+      onClose: (payload: { action?: string } | undefined) => {
+        if (payload?.action === 'edit') {
+          void openEdit(doc)
+        } else {
+          void loadDocuments(true)
+        }
+      },
     })
   } catch (err) {
     console.error('Failed to open View modal:', err)

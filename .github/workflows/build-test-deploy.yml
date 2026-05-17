@@ -56,6 +56,13 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
       - run: pnpm test:unit
+      # Verify the asyncapi variant builds. lite/full/diagramly are already
+      # exercised by their respective staging-deploy jobs; asyncapi has no
+      # staging-deploy job yet (PR #2 wires that up after Studio assets land).
+      - name: Verify asyncapi build
+        run: pnpm build:asyncapi
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
   
   staging-lite:
     name: "Deploy: Lite"

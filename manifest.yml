@@ -217,6 +217,20 @@ modules:
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/diagram_macro_icon.png
+    # AsyncAPI macro: ships only with the asyncapi variant; lite/full/diagramly
+    # strip this entry via manifestEdits in scripts/forge-wizard.mjs.
+    - key: zenuml-asyncapi-macro
+      title: AsyncAPI Spec
+      description: Create an AsyncAPI Spec. ${APP_LABEL}
+      resource: main
+      config:
+        resource: main
+        viewportSize: max
+      adfExport:
+        function: exportMacro
+      resolver:
+        endpoint: remote-connect
+      icon: resource:main;image/openapi_macro_icon.png
   trigger:
     - key: remote-installed-trigger
       endpoint: remote-installed-endpoint
@@ -266,6 +280,13 @@ modules:
       route: zenuml-dashboard
       resolver:
         endpoint: remote-connect
+  confluence:spacePage: #Note: AsyncAPI variant only — appears in each Confluence space's sidebar. Mirrors AsyncAPI-Conf-V2's spacePage. Other variants strip this via manifestEdits in scripts/forge-wizard.mjs.
+    - key: zenuml-asyncapi-dashboard-page
+      resource: main
+      title: My API Documents
+      route: zenuml-asyncapi-dashboard
+      resolver:
+        endpoint: remote-connect
   confluence:contentBylineItem: #Note: This module is applicable for "Diagramly for Confluence", not "ZenUML for Confluence"
     - key: zenuml-byline-aiaide
       resource: main
@@ -303,6 +324,20 @@ modules:
       bodyType: raw
       indexing: true
       migratedFromConnect: true
+    # AsyncAPI custom content: ships only with the asyncapi variant.
+    # lite/full/diagramly strip this entry via manifestEdits.
+    - key: zenuml-content-asyncapi
+      supportedContainerTypes:
+        - space
+        - page
+        - blogpost
+      supportedChildTypes:
+        - attachment
+        - comment
+      title: AsyncAPI Spec
+      resource: main
+      bodyType: raw
+      indexing: true
   function:
     - key: exportMacro
       handler: export.handler

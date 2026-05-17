@@ -25,6 +25,7 @@ import { getView, getContext as initForgeContext, isInserting } from '@/model/gl
 import { setupCloseGuard } from "@/utils/closeGuard";
 import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
 import EventBus from "@/EventBus";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 
 const EMPTY_GRAPH = `<mxfile>
   <diagram name="Page-1">
@@ -45,7 +46,8 @@ export default {
   props: {
     graphXml: String,
     saveGraphAndExit: Function,
-    doc: Object
+    doc: Object,
+    customContentId: { type: String, default: undefined }
   },
   methods: {
     sendToFrame(data) {
@@ -91,6 +93,19 @@ export default {
       const payload = (typeof data === 'string') && JSON.parse(data);
 
       if (payload.event === 'init') {
+        // Telemetry: existing macro (customContentId set) but graphXml is
+        // falsy at init — would have loaded EMPTY_GRAPH over real content
+        // before the listener-relocation fix. Should fire ~zero times now;
+        // any occurrences indicate a residual wipe-risk path (e.g.
+        // decompress fail, partial customContent body) that needs handling.
+        if (this.customContentId && !this.graphXml) {
+          trackAnalyticsEvent('graph_editor_init_empty', {
+            feature_area: 'macro',
+            surface: 'editor',
+            macro_type: 'graph',
+            content_id: this.customContentId,
+          });
+        }
         const initialGraphXml = this.graphXml || EMPTY_GRAPH;
         loadGraph(initialGraphXml);
       }

@@ -163,7 +163,7 @@ async function initializeMacro() {
     window.graphXml = graphXml;
   }
 
-  const contentProps = { graphXml, saveGraphAndExit, doc };
+  const contentProps = { graphXml, saveGraphAndExit, doc, customContentId };
   const paywalled = await tryPageEditorPaywall({
     doc: doc ?? NULL_DIAGRAM,
     content: ForgeGraphEditor,

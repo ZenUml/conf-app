@@ -75,4 +75,6 @@ export type AnalyticsEventName =
   | "feedback_link_clicked"
   | "feature_flags_fetch_failed"
   | "attachment_create_failed"
-  | "custom_content_update_failed";
+  | "custom_content_update_failed"
+  | "graph_editor_init_empty"
+  | "editor_load_empty_active_field";

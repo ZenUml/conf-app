@@ -108,6 +108,30 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       doc = customContent?.value;
     }
 
+    // Capture the active field for wipe-precursor telemetry BEFORE any
+    // default-value backfill (e.g. plantUmlCode default below). Whether we
+    // actually emit the event is decided later after `isEditorMode()` so
+    // we don't pollute the signal with viewer page loads.
+    let wipePrecursorMacroType: MacroTypeValue | null = null;
+    let wipePrecursorActiveFieldEmpty = false;
+    if (customContentId && doc) {
+      const loadedDoc = doc;
+      let activeField: string | undefined | null;
+      if (loadedDoc.diagramType === DiagramType.Mermaid) {
+        wipePrecursorMacroType = 'mermaid';
+        activeField = loadedDoc.mermaidCode;
+      } else if (loadedDoc.diagramType === DiagramType.PlantUml) {
+        wipePrecursorMacroType = 'plantuml';
+        activeField = loadedDoc.plantUmlCode;
+      } else if (loadedDoc.diagramType === DiagramType.Sequence) {
+        wipePrecursorMacroType = 'sequence';
+        activeField = loadedDoc.code;
+      }
+      // Treat undefined/null the same as "" — partial/corrupt loads (field
+      // absent) are the same wipe-risk shape as explicit empty string.
+      wipePrecursorActiveFieldEmpty = !activeField;
+    }
+
     // Backfill default PlantUML DSL for existing diagrams created before PlantUML support
     if (!doc.plantUmlCode) {
       doc = { ...doc, plantUmlCode: Example.PlantUml };
@@ -119,7 +143,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       const macroUuid = context.extension?.config?.uuid || uuidv4();
       const isDialog = !!context.extension?.modal;
       const isMacroConfig = !!context.extension?.macro?.isConfiguring || !!context.extension?.macro?.isInserting;
-      
+
       if (isDialog || isMacroConfig) {
         // Check if journey was passed from parent (for modals opened from viewer)
         const modalContext = context.extension?.modal;
@@ -130,9 +154,21 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           startEditJourney(macroUuid, source);
         }
       }
-      
+
       // Ensure session is initialized
       getOrCreateSession();
+
+      // Wipe-precursor telemetry: fire only in editor mode so the signal
+      // isn't drowned by viewer page-view volume. The captured state above
+      // reflects the RAW loaded doc before any backfill.
+      if (customContentId && wipePrecursorMacroType && wipePrecursorActiveFieldEmpty) {
+        trackAnalyticsEvent('editor_load_empty_active_field', {
+          feature_area: 'macro',
+          surface: 'editor',
+          macro_type: wipePrecursorMacroType,
+          content_id: customContentId,
+        });
+      }
     }
 
     // Hide skeleton loader before mounting the actual content

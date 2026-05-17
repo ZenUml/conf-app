@@ -112,6 +112,13 @@ async function initializeMacro() {
 export default initializeMacro();
 
 EventBus.$on('edit', async () => {
+  const ctx = await initForgeContext();
+  // Forward the macro's customContentId so the editor modal can load the
+  // right diagram via context.extension.modal.customContentId (matches the
+  // sequence-editor pattern in forgeIndex.ts). Without this, viewer-launched
+  // edits arrive at forge-swagger-editor.ts with no customContentId and are
+  // mistakenly treated as new-macro sessions.
+  const customContentId = ctx.extension?.config?.customContentId;
   await openModal({
     resource: 'main',
     onClose: (payload: any) => {
@@ -121,6 +128,7 @@ EventBus.$on('edit', async () => {
     size: 'fullscreen',
     context: {
       macroMode: 'editor',
+      ...(customContentId && { customContentId }),
     },
   });
 });

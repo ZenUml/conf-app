@@ -26,14 +26,10 @@ import { createApp } from 'vue';
 import SyntaxErrorBox from "@/components/SyntaxErrorBox.vue";
 import { validateOpenApiSpecForStore } from '@/utils/openapi/validate';
 import { debounce } from 'lodash';
-import { useCustomerSuccessService, MACROS_LIMIT, getUpgradeContext } from '@/composables/useCustomerSuccessService';
-import { isPageEditorEditBlocked, isPageEditorCreateBlocked } from '@/utils/paywall/preEditGate';
-import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking';
-import { mountRoot } from '@/mount-root';
+import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
 
 installRestoreDraftBanner();
-import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
 import SwaggerForgeEditorShell from '@/components/OpenApi/SwaggerForgeEditorShell.vue';
 
 const debouncedValidateOpenApi = debounce(async (spec: string) => {
@@ -251,96 +247,22 @@ async function initializeMacro() {
     }, 300); // Using 300ms to ensure everything is properly set up
   };
 
-  const customerSuccess = useCustomerSuccessService();
-  await customerSuccess.initialize();
-
-  if (isPageEditorEditBlocked(customContentId, customerSuccess.shouldBlockActions.value)) {
-    let spaceKey = '';
-    try {
-      spaceKey = (await globals.apWrapper.getCurrentSpace())?.key || '';
-    } catch (error) {
-      console.debug('Could not resolve current space for page-editor paywall gate', error);
-    }
-
-    trackUpgradeEvent(UpgradeEventName.PAYWALL_BLOCKED_EDIT, {
-      ui_component: UIComponent.VIEWER_NOTICE,
-      action_type: 'page_editor',
-      ...getUpgradeContext(),
-    });
-
-    trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
-      ui_component: UIComponent.VIEWER_NOTICE,
-      action_type: 'page_editor',
-      ...getUpgradeContext(),
-    });
-
-    mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
-      editor: SwaggerForgeEditorShell,
-      editorProps: {
-        onMountedBootstrap: async () => {
-          const root = document.getElementById('openapi-bootstrap-root');
-          bootstrapSwaggerUi(root);
-          await mountEditorDocument();
-        },
+  const paywalled = await tryPageEditorPaywall({
+    doc: NULL_DIAGRAM,
+    content: SwaggerForgeEditorShell,
+    contentProps: {
+      onMountedBootstrap: async () => {
+        bootstrapSwaggerUi(document.getElementById('openapi-bootstrap-root'));
+        await mountEditorDocument();
       },
-      macrosCreated: customerSuccess.macrosCreated.value,
-      macrosLimit: MACROS_LIMIT,
-      upgradeUrl: customerSuccess.upgradeUrl.value,
-      enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
-      macroKind: 'openapi',
-      spaceKey,
-      onClose: async () => {
-        await (await getView()).close();
-      },
-    });
-    return;
+    },
+    macroKind: 'openapi',
+    customContentId,
+  });
+  if (!paywalled) {
+    bootstrapSwaggerUi(document.getElementById('app'));
+    await mountEditorDocument();
   }
-
-  // Pre-create paywall gate: block new-macro creation in saturated spaces
-  if (!customContentId && isPageEditorCreateBlocked(customerSuccess.shouldBlockActions.value)) {
-    let spaceKey = '';
-    try {
-      spaceKey = (await globals.apWrapper.getCurrentSpace())?.key || '';
-    } catch (error) {
-      console.debug('Could not resolve current space for page-editor create paywall gate', error);
-    }
-
-    trackUpgradeEvent(UpgradeEventName.PAYWALL_BLOCKED_CREATE, {
-      ui_component: UIComponent.VIEWER_NOTICE,
-      action_type: 'page_editor_create',
-      ...getUpgradeContext(),
-    });
-
-    trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
-      ui_component: UIComponent.VIEWER_NOTICE,
-      action_type: 'page_editor_create',
-      ...getUpgradeContext(),
-    });
-
-    mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
-      editor: SwaggerForgeEditorShell,
-      editorProps: {
-        onMountedBootstrap: async () => {
-          const root = document.getElementById('openapi-bootstrap-root');
-          bootstrapSwaggerUi(root);
-          await mountEditorDocument();
-        },
-      },
-      macrosCreated: customerSuccess.macrosCreated.value,
-      macrosLimit: MACROS_LIMIT,
-      upgradeUrl: customerSuccess.upgradeUrl.value,
-      enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
-      macroKind: 'openapi',
-      spaceKey,
-      onClose: async () => {
-        await (await getView()).close();
-      },
-    });
-    return;
-  }
-
-  bootstrapSwaggerUi(document.getElementById('app'));
-  await mountEditorDocument();
 }
 
 

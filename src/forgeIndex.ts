@@ -16,13 +16,10 @@ import { handleGetStartedRoute } from './routes/getStarted';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, getEditJourneyStartTime, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
-import { useCustomerSuccessService, MACROS_LIMIT, getUpgradeContext } from '@/composables/useCustomerSuccessService';
-import { isPageEditorEditBlocked, isPageEditorCreateBlocked } from '@/utils/paywall/preEditGate';
-import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking';
+import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM } from '@/model/Diagram/Diagram';
-import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -149,115 +146,41 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
 
     if(isSequence) {
-      // Pre-edit paywall gate: block existing-macro edits in saturated spaces
-      if (editable && customContentId) {
-        const customerSuccess = useCustomerSuccessService();
-        await customerSuccess.initialize();
+      const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';
+      const fullscreenMode = await isFullscreenMode();
 
-        if (isPageEditorEditBlocked(customContentId, customerSuccess.shouldBlockActions.value)) {
-          let spaceKey = '';
-          try {
-            spaceKey = (await globals.apWrapper.getCurrentSpace())?.key || '';
-          } catch (e) {
-            console.debug('Could not resolve current space for page-editor paywall gate', e);
-          }
-
-          trackUpgradeEvent(UpgradeEventName.PAYWALL_BLOCKED_EDIT, {
-            ui_component: UIComponent.VIEWER_NOTICE,
-            action_type: 'page_editor',
-            ...getUpgradeContext(),
-          });
-
-          trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
-            ui_component: UIComponent.VIEWER_NOTICE,
-            action_type: 'page_editor',
-            ...getUpgradeContext(),
-          });
-
-          const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';
-          // Mount the editor + paywall together so the fullscreen Forge iframe is
-          // populated with the diagram the user wanted to edit. Save remains gated
-          // by `shouldBlockActions` in the persistence layer; the modal sits on top
-          // as the visible reminder. Continue editing now just dismisses the modal.
-          // @ts-ignore - Workspace's Split() helper checks window.split
-          window.split = true;
-          const fullscreenMode = await isFullscreenMode();
-          const Workspace = (await import('@/components/Workspace.vue')).default;
-          // @ts-ignore - doc may be a partial spread type; same suppression as the happy-path mount below
-          mountRoot(doc ?? NULL_DIAGRAM, PageEditorPaywallGate, {
-            editor: Workspace,
-            editorProps: { autoResize: !fullscreenMode },
-            macrosCreated: customerSuccess.macrosCreated.value,
-            macrosLimit: MACROS_LIMIT,
-            upgradeUrl: customerSuccess.upgradeUrl.value,
-            enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
-            macroKind,
-            spaceKey,
-            onClose: async () => {
-              await (await getView()).close();
-            },
-          });
-          return;
-        }
-      }
-
-      // Pre-create paywall gate: block new-macro creation in saturated spaces
-      if (editable && !customContentId) {
-        const customerSuccess = useCustomerSuccessService();
-        await customerSuccess.initialize();
-
-        if (isPageEditorCreateBlocked(customerSuccess.shouldBlockActions.value)) {
-          let spaceKey = '';
-          try {
-            spaceKey = (await globals.apWrapper.getCurrentSpace())?.key || '';
-          } catch (e) {
-            console.debug('Could not resolve current space for page-editor create paywall gate', e);
-          }
-
-          trackUpgradeEvent(UpgradeEventName.PAYWALL_BLOCKED_CREATE, {
-            ui_component: UIComponent.VIEWER_NOTICE,
-            action_type: 'page_editor_create',
-            ...getUpgradeContext(),
-          });
-
-          trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
-            ui_component: UIComponent.VIEWER_NOTICE,
-            action_type: 'page_editor_create',
-            ...getUpgradeContext(),
-          });
-
-          const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';
-          // @ts-ignore - Workspace's Split() helper checks window.split
-          window.split = true;
-          const fullscreenMode = await isFullscreenMode();
-          const Workspace = (await import('@/components/Workspace.vue')).default;
-          // @ts-ignore - doc may be a partial spread type; same suppression as the happy-path mount below
-          mountRoot(doc ?? NULL_DIAGRAM, PageEditorPaywallGate, {
-            editor: Workspace,
-            editorProps: { autoResize: !fullscreenMode },
-            macrosCreated: customerSuccess.macrosCreated.value,
-            macrosLimit: MACROS_LIMIT,
-            upgradeUrl: customerSuccess.upgradeUrl.value,
-            enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
-            macroKind,
-            spaceKey,
-            onClose: async () => {
-              await (await getView()).close();
-            },
-          });
-          return;
-        }
-      }
-
+      // Editor paywall: mount Workspace under PaywallGate so the iframe is
+      // never blank; save remains gated in the persistence layer.
       if (editable) {
-        // @ts-ignore - Enable splitbar for editor mode (Workspace.vue checks window.split)
+        // @ts-ignore - Workspace's Split() helper checks window.split
         window.split = true;
+        const Workspace = (await import('@/components/Workspace.vue')).default;
+        if (await tryPageEditorPaywall({
+          // @ts-ignore - doc may be a partial spread type; matches the happy-path mount below
+          doc: doc ?? NULL_DIAGRAM,
+          content: Workspace,
+          contentProps: { autoResize: !fullscreenMode },
+          macroKind,
+          customContentId,
+        })) return;
       }
-      const component = editable 
+
+      // Fullscreen viewer paywall: blocking modal over the read-only diagram.
+      // Fires only when the user clicked Fullscreen on a saturated Lite space.
+      if (!editable && fullscreenMode) {
+        const DiagramPortal = (await import('@/components/DiagramPortal.vue')).default;
+        if (await tryFullscreenViewerPaywall({
+          // @ts-ignore - doc may be a partial spread type; matches the happy-path mount below
+          doc,
+          content: DiagramPortal,
+          contentProps: { autoResize: false },
+          macroKind,
+        })) return;
+      }
+
+      const component = editable
       ? (await import("@/components/Workspace.vue")).default
       : (await import("@/components/DiagramPortal.vue")).default;
-
-      const fullscreenMode = await isFullscreenMode();
 
       //@ts-ignore
       mountRoot(doc, component, { autoResize: !editable && !fullscreenMode });

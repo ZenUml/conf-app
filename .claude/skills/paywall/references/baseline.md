@@ -10,6 +10,36 @@ When you run the A/B Impact Analysis, after computing the per-tenant and group-a
 
 ---
 
+## 2026-05-16 (last 7 days)
+
+| Group | tenants | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|---------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| **A** | 5 (vin3s¹, colesgroup, airwallex, linemanwongnai, mcoproduct) | 414 | 339 | 753 | 84 | 1,263 | 38,331 | **55.0%** | 4.9 |
+| **B** | 6 (hktdc, myntfintech, woolworths-agile², appculqi, economical, alterric) | 129 | 1 | 130 | 33 | 374 | ~8,442 | **99.2%** | 3.9 |
+
+Per-tenant breakdown:
+
+| Group | Domain | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |
+|-------|--------|-------|-----------|----------|------------|------------|-------|--------------|------------|
+| A | vin3s¹ | 221 | 197 | 418 | 32 | 354 | 23,298 | 52.9% | 6.9 |
+| A | colesgroup | 44 | 60 | 104 | 14 | 343 | 4,282 | 42.3% | 3.1 |
+| A | airwallex | 51 | 25 | 76 | 17 | 213 | 4,437 | 67.1% | 3.0 |
+| A | linemanwongnai | 60 | 27 | 87 | 14 | 152 | 2,575 | 69.0% | 4.3 |
+| A | mcoproduct | 38 | 30 | 68 | 7 | 201 | 3,739 | 55.9% | 5.4 |
+| B | myntfintech | 29 | 0 | 29 | 9 | 75 | 2,145 | 100% | 3.2 |
+| B | hktdc | 21 | 0 | 21 | 5 | 63 | 4,161 | 100% | 4.2 |
+| B | alterric | 27 | 0 | 27 | 2 | 10 | — | 100% | 13.5 |
+| B | woolworths-agile² | 22 | 1 | 23 | 7 | 105 | 742 | 95.7% | 3.1 |
+| B | appculqi | 15 | 0 | 15 | 5 | 42 | 637 | 100% | 3.0 |
+| B | economical | 15 | 0 | 15 | 5 | 79 | 757 | 100% | 3.0 |
+
+**Reading:** 44.2pp gap (99.2%→55.0%) — widened +3.0pp vs 2026-05-15 (41.2pp). saves/user gap inverted: A=4.9 vs B=3.9 (A now 26% higher), but this is driven by Group B declining (-0.5) rather than Group A worsening (+0.5) — likely day-of-week or Group B holiday variation, not paywall signal. **colesgroup continues degrading: 48.1%→42.3%** — third consecutive drop, now firmly in heavy-friction zone; DNLT (278 macros) is the only active trigger space with all 25 triggers and continuations there. **airwallex dropped 77.1%→67.1%**: APA (650 macros) drove 10 of 15 triggers today, AA another 5 — more edit activity in over-threshold spaces this week. **linemanwongnai steady at 69%** but strong advocacy: 4 copies in 1 day = 40% intent_capture_rate — top outreach priority. **vin3s (partial shock window)**: 52.9% success_rate; first truly clean 7-day window from 2026-05-18.
+
+> ¹ **vin3s:** Rollout shock window (enrolled 2026-05-04, shock ended 2026-05-11). Last 7 days still straddles May 9–11 shock period. Re-baseline from 2026-05-18 (first clean 7-day window).
+> ² **woolworths-agile:** Persistent anomalous triggers despite not being on CSS (known issue, see anomalies.md).
+
+---
+
 ## 2026-05-15 (last 7 days)
 
 | Group | tenants | saves | triggered | attempts | save_users | view_users | views | success_rate | saves/user |

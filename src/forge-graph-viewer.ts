@@ -52,6 +52,7 @@ import { getContext as initForgeContext, openModal } from './model/globals/forge
 import store from "@/model/store2";
 import GraphExample from '@/model/Graph/GraphExample';
 import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
 
 async function loadDiagram() {
   const context = await initForgeContext();
@@ -68,9 +69,16 @@ async function loadDiagram() {
   window.diagram = doc ?? NULL_DIAGRAM;
   console.log('loadDiagram - window.diagram', window.diagram);
 
-  mountRoot(doc ?? NULL_DIAGRAM, ForgeGraphViewer, {
-    graphXml: doc?.graphXml
+  const contentProps = { graphXml: doc?.graphXml };
+  const paywalled = await tryFullscreenViewerPaywall({
+    doc,
+    content: ForgeGraphViewer,
+    contentProps,
+    macroKind: 'graph',
   });
+  if (!paywalled) {
+    mountRoot(doc ?? NULL_DIAGRAM, ForgeGraphViewer, contentProps);
+  }
 
   let graphXml = doc?.graphXml;
   if (doc?.compressed) {

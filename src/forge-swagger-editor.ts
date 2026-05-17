@@ -175,7 +175,13 @@ async function initializeMacro() {
   
   // Ensure session is initialized
   getOrCreateSession();
-  const customContentId = context.extension?.config?.customContentId;
+  // Resolve customContentId from both `config` (page-editor launches) and
+  // `modal` (viewer-launched edits forward it via the modal payload), matching
+  // forgeIndex.ts. Without the modal fallback, edits opened from the OpenAPI
+  // viewer would be treated as new-macro sessions and never fire the
+  // load-time wipe-precursor telemetry below.
+  const customContentId = context.extension?.config?.customContentId
+    || context.extension?.modal?.customContentId;
 
   const mountEditorDocument = async () => {
     if (openApiDocumentHydrated) {
@@ -194,6 +200,18 @@ async function initializeMacro() {
 
     // @ts-ignore
     window.diagram = doc;
+
+    // Telemetry: existing macro (customContentId set) loaded with an empty
+    // spec. Wipe-precursor signal aligned with the cross-editor event in
+    // forgeIndex.ts and graph_editor_init_empty in ForgeGraphEditor.vue.
+    if (customContentId && !doc?.code) {
+      trackAnalyticsEvent('editor_load_empty_active_field', {
+        feature_area: 'macro',
+        surface: 'editor',
+        macro_type: 'openapi',
+        content_id: customContentId,
+      });
+    }
 
     console.log('-------------- loaded spec:', doc?.code);
     // eslint-disable-next-line

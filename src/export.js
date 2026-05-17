@@ -198,6 +198,21 @@ export const handler = async (payload) => {
 
     if (!attachmentsData?.results?.length) {
       console.debug(`Export: ${attachmentName} not found on page ${pageId}`);
+
+      // AsyncAPI specs are text — the viewer doesn't generate a PNG
+      // attachment, so the standard image-export path always misses. Fall
+      // back to embedding the raw spec as a code block. Ported from
+      // AsyncAPI-Conf-V2/src/backend/export.js (buildSpecDocument).
+      const specDoc = await buildAsyncApiSpecFallback(customContentId);
+      if (specDoc) {
+        await trackExportEvent('macro_export_succeeded', {
+          ...joinKeyProps(ctx),
+          export_path: 'asyncapi_spec_fallback',
+          ...fallbackProps(fallbackInfo),
+        });
+        return specDoc;
+      }
+
       await trackExportEvent('macro_export_failed', {
         ...joinKeyProps(ctx),
         failure_reason: 'attachment_not_found',
@@ -260,6 +275,55 @@ function createErrorDocument(message) {
       }
     ]
   };
+}
+
+// AsyncAPI fallback: when no rendered PNG attachment exists, embed the raw
+// spec as a code block. Only triggers for AsyncAPI custom content; other
+// macros keep the existing "image not yet generated" error path.
+async function buildAsyncApiSpecFallback(customContentId) {
+  try {
+    const response = await api
+      .asApp()
+      .requestConfluence(route`/wiki/api/v2/custom-content/${customContentId}?body-format=raw`);
+    if (!response.ok) {
+      console.debug(`Export AsyncAPI fallback: custom-content lookup ${response.status}`);
+      return null;
+    }
+    const customContent = await response.json();
+    const rawValue = customContent?.body?.raw?.value;
+    if (!rawValue) return null;
+
+    let parsed;
+    try {
+      parsed = JSON.parse(rawValue);
+    } catch (e) {
+      console.debug('Export AsyncAPI fallback: custom-content body is not JSON', e?.message);
+      return null;
+    }
+
+    // Only fall back for AsyncAPI; let other diagram types keep the
+    // "image not yet generated" error so users know to re-render.
+    if (parsed?.diagramType !== 'AsyncAPI') return null;
+
+    const spec = parsed?.code;
+    if (typeof spec !== 'string' || spec.trim().length === 0) return null;
+
+    const title = parsed?.title || customContent?.title || 'AsyncAPI Specification';
+    const MAX = 40000;
+    const text = spec.length > MAX ? `${spec.slice(0, MAX)}\n\n# (truncated for export)` : spec;
+
+    return {
+      type: 'doc',
+      version: 1,
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: title, marks: [{ type: 'strong' }] }] },
+        { type: 'codeBlock', attrs: { language: 'yaml' }, content: [{ type: 'text', text }] },
+      ],
+    };
+  } catch (e) {
+    console.warn('Export AsyncAPI fallback failed:', e?.message);
+    return null;
+  }
 }
 
 function createMediaDocument(downloadLink) {

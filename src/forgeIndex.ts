@@ -337,7 +337,11 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       await import(editable ? "@/forge-graph-editor" : "@/forge-graph-viewer");
     } else if(isEmbed) {
       await import(editable ? "@/forge-embed-editor" : "@/forge-embed-viewer");
-    } else if(isAsyncApi) {
+    } else if(isAsyncApi && import.meta.env.PRODUCT_TYPE === 'asyncapi') {
+      // Build-time literal: Vite replaces PRODUCT_TYPE via `define` so
+      // non-asyncapi variants short-circuit and dead-code-eliminate the
+      // dynamic import. Keeps @asyncapi/parser (which pulls in Node `fs`)
+      // out of the lite/full/diagramly dependency graph entirely.
       await import(editable ? "@/forge-asyncapi-editor" : "@/forge-asyncapi-viewer");
     } else {
       await import(editable ? "@/forge-swagger-editor" : "@/forge-swagger-ui");

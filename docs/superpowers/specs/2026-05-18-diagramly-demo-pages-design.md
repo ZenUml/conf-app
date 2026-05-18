@@ -47,28 +47,42 @@ This spec uses the terms defined in `CONTEXT.md`: [[Demo page]] (we create one, 
 ```
 Forge App (diagramly build only)
 │
-├─ Custom UI admin route — /admin/create-demo-page
-│    Gated: Confluence site admin only.
-│    UI: space-key input + "Create demo page" button.
-│    → invokes createDemoPageFn via @forge/bridge invokeRemote
+├─ confluence:globalPage module entry (manifest)
+│    key: diagramly-admin-create-demo-page
+│    title: "Diagramly Admin — Create demo page"
+│    route: zenuml-admin-create-demo-page
+│    Visible in the Confluence Apps menu; nominally to all users
+│    but the function rejects non-admins server-side.
+│    Custom UI page renders the space-key input + "Create demo page" button.
+│    → invokes createDemoPageFn via @forge/bridge `invoke` (local resolver,
+│      NOT invokeRemote — the function runs inside the Forge runtime, not in
+│      a Cloudflare Worker remote).
 │
-└─ Forge function: createDemoPageFn
-       1. storage.get(`demo-page:<spaceKey>`) → if present, return existing { pageId, createdAt }
-       2. Build hardcoded ADF body (4 macros)
-       3. requestConfluence asApp POST /wiki/api/v2/pages
-       4. storage.set(`demo-page:<spaceKey>`, { pageId, createdAt, source: 'manual' })
-       5. Log structured success line
-       6. On API failure: do NOT write any marker; surface error to the admin UI
+└─ Forge function: createDemoPageFn (declared as a resolver in manifest)
+       1. Verify caller is a site admin (see Authorization below). Reject 403 on fail.
+       2. Resolve spaceKey → spaceId: asUser GET /wiki/api/v2/spaces?keys=<spaceKey>.
+          Require exactly one result with type=global, status=current.
+          Reject 404 if missing, 400 if not global/current.
+       3. storage.get(`demo-page:<spaceKey>`) → if present, return existing { pageId, createdAt }.
+       4. Build hardcoded ADF body (4 macros).
+       5. asApp POST /wiki/api/v2/pages with the resolved spaceId.
+       6. storage.set(`demo-page:<spaceKey>`, { pageId, createdAt, source: 'manual' }).
+       7. Log structured success line.
+       8. On any API failure after step 1 but before step 6 succeeds: do NOT write any
+          marker; surface the error to the admin UI.
 ```
 
 The function is the only place where work happens. The button is a thin UI shell that calls it.
+
+**Invocation mechanism — to disambiguate:** the function runs as a Forge resolver inside the Forge runtime, *not* as a remote Cloudflare Worker endpoint. The Custom UI calls it via `@forge/bridge`'s `invoke('createDemoPage', { spaceKey })`, which targets a resolver declared in `manifest.yml`'s `function:` modules. No Cloudflare backend code is added in this slice.
 
 ### Components
 
 | Component | Location | Responsibility |
 |---|---|---|
-| Admin route | `src/components/Admin/CreateDemoPage.vue` (or smallest matching existing pattern) | Site-admin-gated input + button. Calls `createDemoPageFn`. Renders success (with pageId / link) or error. |
-| `createDemoPageFn` | `src/forge/createDemoPage.ts` | The whole flow: idempotency check, page build, asApp POST, marker write, log. |
+| Admin manifest entry | `manifest.yml` `modules.confluence:globalPage` entry `diagramly-admin-create-demo-page` (route `zenuml-admin-create-demo-page`); stripped from lite and full by CI `yq` | Adds an entry to the Confluence Apps menu reachable as `<site>/wiki/apps/<app-id>/zenuml-admin-create-demo-page`. |
+| Admin Custom UI page | `src/components/Admin/CreateDemoPage.vue`, wired into `src/forgeIndex.ts` route table | Renders space-key input + "Create demo page" button. On submit, calls `invoke('createDemoPage', { spaceKey })` via `@forge/bridge`. Renders success (pageId + link) or the function's error. |
+| `createDemoPage` resolver | `src/forge/createDemoPage.ts`, declared as `function:` module + resolver in `manifest.yml` | The whole flow: admin check, space resolution, idempotency check, ADF build, asApp POST, marker write, structured log. |
 | `demoPageContent` | `src/forge/demoPageContent.ts` | Hardcoded ADF body, exported as a constant. Separated so content review is independent of plumbing. |
 
 ### Page content
@@ -79,7 +93,15 @@ The function is the only place where work happens. The button is a thin UI shell
 
 The ADF JSON lives in `demoPageContent.ts` as a single exported constant.
 
-**Open during implementation:** the Mermaid renderer is reached through the same `zenuml-sequence-macro` key with a Mermaid `bodyType` payload. The exact body shape needs to be verified by hand against a live page before we commit to the constant. This is a hard precondition — we don't ship the button until all four macros render correctly on a manually-created tunnel page.
+**Open during implementation:** the Mermaid renderer is reached through the same `zenuml-sequence-macro` key with a Mermaid `bodyType` payload. The exact body shape needs to be verified by hand against a live page before we commit to the constant.
+
+**Macro-rendering gate (enforced via PR checklist, not the spec).** Because "all four macros render" is the actual product validation for this slice, the PR is blocked on a checklist item the reviewer ticks off:
+
+- [ ] Created a demo page on `dia-dev.atlassian.net` via the tunneled admin button.
+- [ ] Attached the resulting page URL to the PR description.
+- [ ] Attached one screenshot per macro (Sequence, Flowchart/Mermaid, Graph/DrawIO, OpenAPI) showing it rendered, not in an error state.
+
+The checklist is added to the PR template under a "Demo-page validation" section, gated by the file path of this spec. Reviewers reject PRs missing any of the four screenshots.
 
 ### Idempotency contract
 
@@ -103,9 +125,18 @@ If the `yq` strip is later found to be unreliable in practice, we add a runtime 
 
 ### Authorization
 
-The admin route is only visible to Confluence **site admins**. The function additionally checks the caller's site-admin status server-side before doing anything (defense in depth — a hidden UI route alone is not an authorization model). Implementation: use `requestConfluence` with the user token to fetch the current user's site permissions; reject with 403 if not site admin.
+The `confluence:globalPage` module is technically visible to all signed-in users via the Apps menu, so the server-side check is the only real authorization boundary. We do not rely on UI gating.
 
-This matters: `createDemoPage` runs `asApp` and can write a page anywhere in the space. We cannot let an arbitrary authenticated user trigger it.
+**Server-side admin check (load-bearing — implement exactly this):**
+
+1. Get the caller's accountId from the resolver context (`context.accountId` provided by `@forge/resolver`).
+2. Call `requestConfluence` `asUser` `GET /wiki/rest/api/user/memberof?accountId={accountId}&start=0&limit=200`. (The v2 user-groups endpoint is still experimental at time of writing; v1 `/wiki/rest/api/user/memberof` is the stable choice.)
+3. Inspect `results[].name`. The caller is authorized iff at least one group has `name === 'site-admins'` OR `name === 'confluence-administrators'`.
+4. Fail closed on any of: non-2xx response, network error, missing/empty `results` field, no admin group match. Return 403 to the UI with a generic "not authorized" message — do not leak the group names checked.
+
+**Scopes required:** `read:confluence-user` (already in `manifest.yml`).
+
+`createDemoPage` runs `asApp` and can write a page anywhere in the space. The admin check is therefore the only thing standing between an authenticated user and arbitrary `asApp` page creation. If this check is wrong, the slice is unsafe to ship. Treat it accordingly in review.
 
 ### Error handling
 
@@ -167,9 +198,8 @@ These test what the function *does*, not the order in which it does it.
 
 ## Open questions to resolve during implementation
 
-1. The exact Mermaid macro payload — needs hand-verification on a real page before the ADF constant is finalized.
-2. Which existing admin surface to mount the button on. Smallest footprint wins; if no surface fits cleanly, add a new minimal one.
-3. Exact site-admin check API — there are a few candidates in the Confluence REST API; pick whichever returns a clean boolean.
+1. The exact Mermaid macro payload — needs hand-verification on a real page before the ADF constant is finalized. Tracked by the macro-rendering PR-checklist gate above.
+2. Whether `confluence:globalPage` `route` paths can be CI-stripped cleanly via `yq` (delete by `key`) without leaving dangling `function:` references for lite/full. Confirm by inspecting the post-CI `manifest.yml` artifact for both variants.
 
 ## Follow-up slices (sketch only, in suggested order)
 

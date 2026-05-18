@@ -267,6 +267,10 @@ modules:
       title: Get Started
       resource: main
       useAsGetStarted: true
+    - key: diagramly-admin-create-demo-page
+      title: "Diagramly Admin — Create demo page"
+      resource: main
+      route: zenuml-admin-create-demo-page
   confluence:globalPage: #Note: This module is applicable for "ZenUML for Confluence", not Diagramly for Confluence
     - key: zenuml-dashboard-page
       resource: main
@@ -319,6 +323,8 @@ modules:
       handler: export.handler
     - key: pageCaptureFn
       handler: page-capture.handler
+    - key: createDemoPage
+      handler: createDemoPage.handler
 
 resources:
   - key: main

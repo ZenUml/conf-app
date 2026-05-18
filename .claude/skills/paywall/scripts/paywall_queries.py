@@ -347,6 +347,17 @@ DAILY_EVENTS = [
     "macro_create_succeeded",
 ]
 
+# Subset of DAILY_EVENTS where unique-user counts (in addition to event totals)
+# materially change outreach interpretation. Without these, you cannot tell
+# "10 distinct users hit the paywall" from "1 user hit it 10 times" — and the
+# right outreach action is very different in each case.
+DAILY_EVENTS_UNIQUE = [
+    "paywall_triggered",
+    "advocacy_message_copied",
+    "paywall_continued_editing",
+    "macro_save_succeeded",
+]
+
 PER_SPACE_EVENTS = [
     "paywall_triggered",
     "macro_save_succeeded",
@@ -366,20 +377,30 @@ AB_EVENTS_UNIQUE = [
 ]
 
 
-def run_daily(secret: str, window_days: int, measurement: str) -> dict[str, dict[str, int]]:
+def run_daily(secret: str, window_days: int) -> dict[str, dict[str, int]]:
+    # Always returns BOTH total (event counts) and unique (period-unique users)
+    # for the key events. Unique variants use the `__unique` suffix.
+    # Rationale: event counts alone hide the difference between "broad-base
+    # friction" (many users, few clicks each) and "one frustrated power user
+    # repeatedly hitting the wall" — and outreach decisions depend on which.
     from_date, to_date = date_range(window_days)
+    work: list[tuple[str, str]] = (
+        [(e, "total") for e in DAILY_EVENTS]
+        + [(e, "unique") for e in DAILY_EVENTS_UNIQUE]
+    )
     results: dict[str, dict[str, int]] = {}
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {
             pool.submit(
                 call_event, secret, e, from_date, to_date,
-                "client_domain", None, measurement,
-            ): e
-            for e in DAILY_EVENTS
+                "client_domain", None, m,
+            ): (e, m)
+            for e, m in work
         }
         for fut in as_completed(futures):
-            event = futures[fut]
-            results[event] = fut.result()
+            event, m = futures[fut]
+            key = event if m == "total" else f"{event}__unique"
+            results[key] = fut.result()
     return results
 
 
@@ -474,10 +495,8 @@ def main(argv: list[str]) -> int:
 
     daily = sub.add_parser("daily", help="Q1–Q4 daily monitoring queries")
     daily.add_argument("--window-days", type=int, default=1)
-    daily.add_argument(
-        "--measurement", choices=["total", "unique"], default="total",
-        help="total = event counts (segmentation API); unique = period-unique users (JQL)",
-    )
+    # `daily` always returns both event totals and unique-user counts.
+    # Unique variants appear in output with the `__unique` suffix.
 
     per_space = sub.add_parser("per-space", help="Q5 per-space breakdown for one domain")
     per_space.add_argument("domain")
@@ -507,7 +526,7 @@ def main(argv: list[str]) -> int:
     secret = load_api_secret()
 
     if args.cmd == "daily":
-        out = run_daily(secret, args.window_days, args.measurement)
+        out = run_daily(secret, args.window_days)
     elif args.cmd == "per-space":
         out = run_per_space(secret, args.domain, args.window_days, args.measurement)
     elif args.cmd == "per-space-all":

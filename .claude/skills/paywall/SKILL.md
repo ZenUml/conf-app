@@ -89,6 +89,10 @@ Prefer `scripts/paywall_queries.py` over hand-built Mixpanel payloads. It centra
 # macro_save_succeeded, macro_save_failed, paywall_continued_editing,
 # macro_create_succeeded — all broken down by client_domain). Q2 was
 # removed from the script 2026-05-12; see Q2 below.
+#
+# Returns BOTH event totals and unique-user counts. Unique-variant keys
+# have a `__unique` suffix, e.g. `paywall_triggered__unique`. Use both:
+# events answer "how much pressure", unique answers "how many people".
 python3 .claude/skills/paywall/scripts/paywall_queries.py daily
 
 # Q5 for ALL CSS customer domains in one batch — 4 JQL calls total instead
@@ -169,18 +173,18 @@ When `paywall_continued_editing` is high for a tenant, the per-space split tells
 
 For customer domains on CSS: **read the live CSS flag from Step 1** to get the current list. Do not rely on any hardcoded list here — it goes stale as new tenants are enrolled. Exclude internal sites: zenuml, zenuml-stg, zenuml-connect, lite-stg.
 
-| Domain | triggered | modal_shown | advocacy_copies | intent_capture_rate | saves | creates | friction | continued | note |
-|--------|-----------|-------------|-----------------|---------------------|-------|---------|----------|-----------|------|
+| Domain | triggered (events / users) | advocacy (events / users) | intent_capture_rate | saves (events / users) | creates | friction | continued (events / users) | note |
+|--------|-----------------------------|----------------------------|---------------------|-------------------------|---------|----------|-----------------------------|------|
 
-- `triggered` = `paywall_triggered`
-- `advocacy_copies` = `advocacy_message_copied` (successful clipboard copy from the paywall modal — sole in-modal intent signal)
-- `intent_capture_rate` = `advocacy_copies / triggered` when `triggered > 0`, else `—`. **Can exceed 100%** — a single user may copy the message multiple times (e.g., to multiple recipients). This is the strongest intent signal possible, not a data error. A domain with `intent_capture_rate > 100%` should be the top outreach priority for that day.
-- `saves` = `macro_save_succeeded` (edits of existing diagrams)
-- `creates` = `macro_create_succeeded` (first-time saves of new diagrams)
-- `friction` = triggered / (triggered + saves) — add as a note if > 50%
-- `continued` = `paywall_continued_editing`
-- `note` — flag high `intent_capture_rate` (users copying the advocacy message), zero copies with high triggers (message may not be landing), or domains in Q1/Q4 but not on CSS (anomaly / enrollment candidate)
-- Lead the PushNotification summary with **intent highlights** (top domains by `advocacy_copies` or `intent_capture_rate`) — there is no separate “marketplace vs enterprise” conversion column anymore
+- `triggered` = `paywall_triggered` total / `paywall_triggered__unique`. Show both as `events / users` (e.g. `13 / 10`). Render the unique-user count as the primary outreach signal — it tells you whether the friction is **broad-base** (many users) or **concentrated** (one frustrated power user).
+- `advocacy` = `advocacy_message_copied` total / `advocacy_message_copied__unique`. The user count is the de-duplicated advocate count; the event count tells you how motivated each one was (multiple copies = sending to multiple recipients).
+- `intent_capture_rate` = `advocacy_copies / triggered` (events). **Can exceed 100%** — a single user may copy multiple times. This is the strongest intent signal possible, not a data error.
+- `saves` = `macro_save_succeeded` total / `macro_save_succeeded__unique` (edits of existing diagrams).
+- `creates` = `macro_create_succeeded` (events only — unique not currently fetched for creates).
+- `friction` = triggered_events / (triggered_events + saves_events). Add as a note if > 50%.
+- `continued` = `paywall_continued_editing` total / `paywall_continued_editing__unique`. High events but low users → one user repeatedly bouncing; high on both → broad cohort affected.
+- `note` — flag the **kind** of friction in plain English: `broad-base` (many users, few events each) vs `concentrated` (few users, many events each). Also flag high `intent_capture_rate`, zero advocacy with high triggers, or domains in Q1/Q4 but not on CSS (anomaly / enrollment candidate).
+- Lead the PushNotification summary with **breadth × intent**: highest-priority is a tenant with both many unique trigger users AND advocacy copies (org-wide pain + motivated advocate). Concentrated power-user friction is lower priority — fix one person's blocker rather than reach the buyer.
 - Flag any domain that appears in Q1 or Q4 results but is NOT in the CSS list — that's an anomaly or CSS enrollment candidate
 
 > **Before flagging anything as anomalous, run the Interpretation lens** (top of this skill). For tenant-specific geographies and the holiday-vs-paywall-regression worked example, read `private/paywall/interpretation.md` — only load it when you actually have an anomaly to interpret, not on every run.

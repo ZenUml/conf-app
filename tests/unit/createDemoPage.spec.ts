@@ -17,7 +17,7 @@ vi.mock('@forge/api', () => ({
   storage: { get: storageGet, set: storageSet },
 }));
 
-import { handler } from '../../src/createDemoPage';
+import { createDemoPageImpl } from '../../src/createDemoPage';
 
 function makeResponse(body: unknown, status = 200) {
   return {
@@ -29,7 +29,7 @@ function makeResponse(body: unknown, status = 200) {
 }
 
 function callHandler(payload: { spaceKey: string }, accountId = 'user-1') {
-  return handler({ payload, context: { accountId, cloudId: 'cloud-1' } } as any);
+  return createDemoPageImpl({ payload, context: { accountId, cloudId: 'cloud-1' } });
 }
 
 describe('createDemoPage — authorization', () => {
@@ -81,6 +81,27 @@ describe('createDemoPage — authorization', () => {
     const result = await callHandler({ spaceKey: 'DEMO' });
 
     expect(result).not.toMatchObject({ status: 403 });
+  });
+
+  it('accepts the legacy confluence-administrators group name', async () => {
+    asUserRequest.mockResolvedValueOnce(
+      makeResponse({ results: [{ name: 'confluence-administrators' }] }),
+    );
+    storageGet.mockResolvedValueOnce(undefined);
+
+    const result = await callHandler({ spaceKey: 'DEMO' });
+
+    expect(result).not.toMatchObject({ status: 403 });
+  });
+
+  it('rejects look-alike groups that do not match the admin regex', async () => {
+    asUserRequest.mockResolvedValueOnce(
+      makeResponse({ results: [{ name: 'site-admins-fake' }, { name: 'confluence-admin' }] }),
+    );
+
+    const result = await callHandler({ spaceKey: 'DEMO' });
+
+    expect(result).toEqual({ ok: false, status: 403, error: 'not_authorized' });
   });
 });
 

@@ -1,10 +1,11 @@
 import api, { route, storage } from '@forge/api';
+import Resolver from '@forge/resolver';
 import { DEMO_PAGE_ADF, DEMO_PAGE_TITLE } from './demoPageContent';
 
 type Payload = { spaceKey: string };
 type Context = { accountId: string; cloudId: string };
 
-const ADMIN_GROUP_RE = /^(site-admins|confluence-admins(-.+)?)$/;
+const ADMIN_GROUP_RE = /^(site-admins|confluence-admins(-.+)?|confluence-administrators)$/;
 
 type ResolvedSpace = { id: string; key: string };
 type SpaceResolutionResult =
@@ -47,13 +48,13 @@ async function isCallerSiteAdmin(accountId: string): Promise<boolean> {
   }
 }
 
-export const handler = async ({
+export async function createDemoPageImpl({
   payload,
   context,
 }: {
   payload: Payload;
   context: Context;
-}) => {
+}) {
   if (!(await isCallerSiteAdmin(context.accountId))) {
     return { ok: false, status: 403, error: 'not_authorized' };
   }
@@ -115,4 +116,11 @@ export const handler = async ({
   );
 
   return { ok: true, pageId: created.id, createdAt };
-};
+}
+
+const resolver = new Resolver();
+resolver.define('createDemoPage', ({ payload, context }) =>
+  createDemoPageImpl({ payload: payload as Payload, context: context as Context }),
+);
+
+export const handler = resolver.getDefinitions();

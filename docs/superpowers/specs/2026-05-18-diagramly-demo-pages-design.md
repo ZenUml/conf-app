@@ -47,12 +47,15 @@ This spec uses the terms defined in `CONTEXT.md`: [[Demo page]] (we create one, 
 ```
 Forge App (diagramly build only)
 │
-├─ confluence:globalPage module entry (manifest)
+├─ confluence:globalSettings module entry (manifest)
 │    key: diagramly-admin-create-demo-page
 │    title: "Diagramly Admin — Create demo page"
 │    route: zenuml-admin-create-demo-page
-│    Visible in the Confluence Apps menu; nominally to all users
-│    but the function rejects non-admins server-side.
+│    Module type chosen deliberately: Confluence renders globalSettings
+│    entries only in the "Manage apps" admin surface, which Confluence
+│    itself gates to space/site admins. This is platform-level admin
+│    gating rather than convention-only gating (globalPage would expose
+│    the link in the general Apps menu to everyone signed in).
 │    Custom UI page renders the space-key input + "Create demo page" button.
 │    → invokes createDemoPageFn via @forge/bridge `invoke` (local resolver,
 │      NOT invokeRemote — the function runs inside the Forge runtime, not in
@@ -80,7 +83,7 @@ The function is the only place where work happens. The button is a thin UI shell
 
 | Component | Location | Responsibility |
 |---|---|---|
-| Admin manifest entry | `manifest.yml` `modules.confluence:globalPage` entry `diagramly-admin-create-demo-page` (route `zenuml-admin-create-demo-page`); stripped from lite and full by CI `yq` | Adds an entry to the Confluence Apps menu reachable as `<site>/wiki/apps/<app-id>/zenuml-admin-create-demo-page`. |
+| Admin manifest entry | `manifest.yml` `modules."confluence:globalSettings"` entry `diagramly-admin-create-demo-page` (route `zenuml-admin-create-demo-page`); stripped from lite and full by key-specific CI `yq` | Adds an entry to Confluence "Manage apps" admin surface (admin-gated by Confluence). Reachable at `<site>/wiki/plugins/servlet/ac/<app-id>/zenuml-admin-create-demo-page`. |
 | Admin Custom UI page | `src/components/Admin/CreateDemoPage.vue`, wired into `src/forgeIndex.ts` route table | Renders space-key input + "Create demo page" button. On submit, calls `invoke('createDemoPage', { spaceKey })` via `@forge/bridge`. Renders success (pageId + link) or the function's error. |
 | `createDemoPage` resolver | `src/forge/createDemoPage.ts`, declared as `function:` module + resolver in `manifest.yml` | The whole flow: admin check, space resolution, idempotency check, ADF build, asApp POST, marker write, structured log. |
 | `demoPageContent` | `src/forge/demoPageContent.ts` | Hardcoded ADF body, exported as a constant. Separated so content review is independent of plumbing. |
@@ -117,26 +120,60 @@ The Forge KV marker is the single source of truth. The page itself is not consul
 
 There is no `pending` state. With a single manual caller, the race-condition surface (two callers writing the marker mid-flight) does not exist; building a state machine to guard against it would be YAGNI. Two simultaneous clicks of the button at worst create one duplicate page in a year of operator usage; we accept that and treat duplicate cleanup as a manual operation.
 
-### Variant gating
+### Variant gating — CI changes required
 
-Diagramly-only. **One layer, deliberately**: CI removes the admin route, the function module, and any related manifest entries from `manifest.yml` for the lite and full builds, using the same `yq` pattern already used to strip `licensing` for lite. No runtime guard — if the manifest doesn't declare the function, Forge cannot invoke it. The `yq` strip is the load-bearing protection; doubling up with a runtime PRODUCT_TYPE check would be belt-and-braces with no real failure mode it actually catches.
+Diagramly-only. **One layer, deliberately**: CI strips the entries from `manifest.yml` for lite and full builds. No runtime guard — if the manifest doesn't declare the module, Forge cannot invoke it.
 
-If the `yq` strip is later found to be unreliable in practice, we add a runtime guard then — not preemptively.
+**Critical: the current CI strip is type-wide and would delete our new diagramly entry from the diagramly build.** Both `.github/workflows/staging-deploy.yml` and `.github/workflows/release.yml` currently run, for diagramly:
+
+```
+yq eval 'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"])' -i manifest.yml
+```
+
+That removes ALL `globalSettings` and `globalPage` entries, which today is correct (the existing `zenuml-get-started-settings` and `zenuml-dashboard-page` entries are ZenUML-only). After this slice, it would also wipe out our new diagramly admin entry. This must be changed as part of the implementation.
+
+Replace the diagramly-variant strip with key-specific deletions:
+
+```
+yq eval '
+  del(.modules."confluence:globalSettings"[] | select(.key == "zenuml-get-started-settings"))
+  | del(.modules."confluence:globalPage"[]   | select(.key == "zenuml-dashboard-page"))
+' -i manifest.yml
+```
+
+This keeps `diagramly-admin-create-demo-page` for the diagramly build while still removing the ZenUML-only entries.
+
+For the lite and full builds, the strip must remove the new entry along with the same ZenUML entries:
+
+```
+yq eval '
+  del(.modules."confluence:globalSettings"[] | select(.key == "diagramly-admin-create-demo-page"))
+  | del(.modules.function[] | select(.key == "createDemoPage"))
+' -i manifest.yml
+```
+
+(The lite/full strip also has to drop the `function:` module entry by key — leaving a dangling `function:` reference when the UI module is gone would fail manifest validation.)
+
+Both workflow changes must land in the same PR as the manifest change. The PR-checklist gate explicitly requires the reviewer to confirm: lite/full post-CI `manifest.yml` artifacts contain no reference to `diagramly-admin-create-demo-page` or `createDemoPage`; diagramly post-CI artifact contains both.
 
 ### Authorization
 
-The `confluence:globalPage` module is technically visible to all signed-in users via the Apps menu, so the server-side check is the only real authorization boundary. We do not rely on UI gating.
+The `confluence:globalSettings` module is platform-gated to space/site admins — Confluence only renders the link in "Manage apps" to users with that permission. We treat that as the primary gate, plus a server-side defense-in-depth check.
 
 **Server-side admin check (load-bearing — implement exactly this):**
 
-1. Get the caller's accountId from the resolver context (`context.accountId` provided by `@forge/resolver`).
-2. Call `requestConfluence` `asUser` `GET /wiki/rest/api/user/memberof?accountId={accountId}&start=0&limit=200`. (The v2 user-groups endpoint is still experimental at time of writing; v1 `/wiki/rest/api/user/memberof` is the stable choice.)
-3. Inspect `results[].name`. The caller is authorized iff at least one group has `name === 'site-admins'` OR `name === 'confluence-administrators'`.
-4. Fail closed on any of: non-2xx response, network error, missing/empty `results` field, no admin group match. Return 403 to the UI with a generic "not authorized" message — do not leak the group names checked.
+1. Get the caller's `accountId` from the resolver context (`context.accountId` provided by `@forge/resolver`).
+2. Call `requestConfluence` `asUser` `GET /wiki/rest/api/user/memberof?accountId={accountId}&start=0&limit=200`. (The v1 endpoint is the stable choice; v2 user-groups is still experimental at time of writing.)
+3. Inspect `results[].name`. The caller is authorized iff at least one group name satisfies:
+   - exactly `site-admins` (Atlassian org-level admin, stable across Cloud), OR
+   - matches the regex `^confluence-admins(?:-.+)?$` (covers both the legacy `confluence-administrators` shape on older sites and the Cloud-default `confluence-admins-<siteName>` shape).
+4. Fail closed on any of: non-2xx response, network error, missing/empty `results` field, no group match. Return 403 to the UI with a generic "not authorized" message — do not leak the group names checked.
+
+**Live-validation step (gating before merge).** Group naming on Confluence Cloud is not perfectly uniform across tenants. The PR-checklist gate requires the implementer to attach the actual `results[].name` list from `dia-dev.atlassian.net` for a known-admin user, captured by a one-off `forge tunnel`-side log. If the actual admin group's name does not match the regex, the spec is updated and the check broadened before the slice ships.
 
 **Scopes required:** `read:confluence-user` (already in `manifest.yml`).
 
-`createDemoPage` runs `asApp` and can write a page anywhere in the space. The admin check is therefore the only thing standing between an authenticated user and arbitrary `asApp` page creation. If this check is wrong, the slice is unsafe to ship. Treat it accordingly in review.
+`createDemoPage` runs `asApp` and can write a page anywhere in the space. The platform module-type gating plus this server-side check are jointly the only thing standing between an authenticated user and arbitrary `asApp` page creation. If either is wrong, the slice is unsafe to ship.
 
 ### Error handling
 

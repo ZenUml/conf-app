@@ -1,4 +1,5 @@
 import api, { route, storage } from '@forge/api';
+import { DEMO_PAGE_ADF, DEMO_PAGE_TITLE } from './demoPageContent';
 
 type Payload = { spaceKey: string };
 type Context = { accountId: string; cloudId: string };
@@ -71,6 +72,47 @@ export const handler = async ({
     return { ok: true, alreadyExists: true, pageId: existing.pageId, createdAt: existing.createdAt };
   }
 
-  // Subsequent tasks add: POST, marker write, log.
-  return { ok: false, status: 501, error: 'not_implemented', spaceId: space.id };
+  const res = await api.asApp().requestConfluence(route`/wiki/api/v2/pages`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json',
+    },
+    body: JSON.stringify({
+      spaceId: space.id,
+      status: 'current',
+      title: DEMO_PAGE_TITLE,
+      body: {
+        representation: 'atlas_doc_format',
+        value: JSON.stringify(DEMO_PAGE_ADF),
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    let detail = '';
+    try {
+      detail = await res.text();
+    } catch {
+      /* ignore */
+    }
+    return { ok: false, status: res.status, error: 'create_failed', detail };
+  }
+
+  const created = (await res.json()) as { id: string };
+  const createdAt = new Date().toISOString();
+  await storage.set(markerKey, { pageId: created.id, createdAt, source: 'manual' });
+
+  console.log(
+    JSON.stringify({
+      event: 'demo_page_created',
+      cloudId: context.cloudId,
+      spaceKey: space.key,
+      pageId: created.id,
+      source: 'manual',
+      createdAt,
+    }),
+  );
+
+  return { ok: true, pageId: created.id, createdAt };
 };

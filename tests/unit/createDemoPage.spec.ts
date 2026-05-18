@@ -138,6 +138,7 @@ describe('createDemoPage — space resolution', () => {
       ),
     );
     storageGet.mockResolvedValueOnce(undefined);
+    asAppRequest.mockResolvedValueOnce(makeResponse({ id: '5001' }));
 
     await callHandler({ spaceKey: 'DEMO' });
 
@@ -197,5 +198,86 @@ describe('createDemoPage — idempotency', () => {
     await callHandler({ spaceKey: 'DEMO' });
 
     expect(storageGet).toHaveBeenCalledWith('demo-page:DEMO');
+  });
+});
+
+describe('createDemoPage — page creation', () => {
+  beforeEach(() => {
+    asUserRequest.mockReset();
+    asAppRequest.mockReset();
+    storageGet.mockReset();
+    storageSet.mockReset();
+
+    asUserRequest.mockImplementation((url: string) => {
+      if (url.includes('/wiki/rest/api/user/memberof')) {
+        return Promise.resolve(makeResponse({ results: [{ name: 'site-admins' }] }));
+      }
+      if (url.includes('/wiki/api/v2/spaces')) {
+        return Promise.resolve(
+          makeResponse({
+            results: [{ id: '222', key: 'DEMO', type: 'global', status: 'current' }],
+          }),
+        );
+      }
+      return Promise.resolve(makeResponse({}, 500));
+    });
+
+    storageGet.mockResolvedValue(undefined);
+  });
+
+  it('POSTs to /wiki/api/v2/pages with the resolved spaceId, canonical title, and ADF body', async () => {
+    asAppRequest.mockResolvedValueOnce(makeResponse({ id: '5001' }, 200));
+
+    await callHandler({ spaceKey: 'DEMO' });
+
+    expect(asAppRequest).toHaveBeenCalledTimes(1);
+    const [url, init] = asAppRequest.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/wiki/api/v2/pages');
+    expect(init.method).toBe('POST');
+    const body = JSON.parse(String(init.body));
+    expect(body.spaceId).toBe('222');
+    expect(body.status).toBe('current');
+    expect(body.title).toBe('Welcome to Diagramly — Try it out');
+    expect(body.body.representation).toBe('atlas_doc_format');
+    expect(typeof body.body.value).toBe('string');
+    const adf = JSON.parse(body.body.value);
+    expect(adf.type).toBe('doc');
+  });
+
+  it('writes the marker on a successful create', async () => {
+    asAppRequest.mockResolvedValueOnce(makeResponse({ id: '5001' }));
+
+    const result = await callHandler({ spaceKey: 'DEMO' });
+
+    expect(storageSet).toHaveBeenCalledWith(
+      'demo-page:DEMO',
+      expect.objectContaining({ pageId: '5001', source: 'manual' }),
+    );
+    expect(result).toMatchObject({ ok: true, pageId: '5001' });
+  });
+
+  it('does NOT write the marker when the create POST fails', async () => {
+    asAppRequest.mockResolvedValueOnce(makeResponse({ message: 'rate limited' }, 429));
+
+    const result = await callHandler({ spaceKey: 'DEMO' });
+
+    expect(storageSet).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: false, status: 429 });
+  });
+
+  it('emits a structured success log line', async () => {
+    asAppRequest.mockResolvedValueOnce(makeResponse({ id: '5001' }));
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await callHandler({ spaceKey: 'DEMO' });
+
+    const logged = logSpy.mock.calls.map(c => c.join(' ')).join('\n');
+    expect(logged).toContain('"event":"demo_page_created"');
+    expect(logged).toContain('"spaceKey":"DEMO"');
+    expect(logged).toContain('"pageId":"5001"');
+    expect(logged).toContain('"source":"manual"');
+    expect(logged).toContain('"cloudId":"cloud-1"');
+
+    logSpy.mockRestore();
   });
 });

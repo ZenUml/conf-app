@@ -62,17 +62,32 @@ jobs:
           name: manifest-lite-staging
           path: manifest.yml
 
-      # Diagramly: remove dashboard and embed macro
-      - name: Remove dashboard from manifest
+      # Diagramly: remove ZenUML-only dashboard/get-started entries (keep diagramly admin entry) and the embed macro
+      - name: Remove ZenUML-only globalSettings/globalPage entries from Diagramly manifest
         if: inputs.variant == 'diagramly'
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"])' -i manifest.yml
+          cmd: |
+            yq eval '
+              del(.modules."confluence:globalSettings"[] | select(.key == "zenuml-get-started-settings"))
+              | del(.modules."confluence:globalPage"[]   | select(.key == "zenuml-dashboard-page"))
+            ' -i manifest.yml
       - name: Remove embed macro from manifest
         if: inputs.variant == 'diagramly'
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))' -i manifest.yml
+
+      # Lite/Full: strip the diagramly-only admin module + its function entry
+      - name: Remove diagramly admin module from Lite/Full manifest
+        if: inputs.variant != 'diagramly'
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval '
+              del(.modules."confluence:globalSettings"[] | select(.key == "diagramly-admin-create-demo-page"))
+              | del(.modules.function[] | select(.key == "createDemoPage"))
+            ' -i manifest.yml
 
       # Forge deploy (all variants)
       - name: Deploy to Forge Staging

@@ -61,16 +61,29 @@ jobs:
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules["confluence:contentBylineItem"])' -i manifest.yml
-      - name: Remove globalSettings and globalPage for Diagramly
+      - name: Remove ZenUML-only globalSettings/globalPage entries from Diagramly
         if: ${{ steps.properties.outputs.license == 'diagramly' }}
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"])' -i manifest.yml
+          cmd: |
+            yq eval '
+              del(.modules."confluence:globalSettings"[] | select(.key == "zenuml-get-started-settings"))
+              | del(.modules."confluence:globalPage"[]   | select(.key == "zenuml-dashboard-page"))
+            ' -i manifest.yml
       - name: Remove embed macro for Diagramly
         if: ${{ steps.properties.outputs.license == 'diagramly' }}
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))' -i manifest.yml
+      - name: Remove diagramly admin module from Lite/Full
+        if: ${{ steps.properties.outputs.license != 'diagramly' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval '
+              del(.modules."confluence:globalSettings"[] | select(.key == "diagramly-admin-create-demo-page"))
+              | del(.modules.function[] | select(.key == "createDemoPage"))
+            ' -i manifest.yml
       - name: Remove licensing for Lite
         if: ${{ steps.properties.outputs.license == 'lite' }}
         uses: mikefarah/yq@master

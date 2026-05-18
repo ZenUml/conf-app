@@ -103,9 +103,16 @@ const emit = defineEmits<{
 }>()
 
 function onContinueEditing() {
-  trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING, {
-    action_type: props.actionType,
-  })
+  // Pass action_type only when set so unit tests (which mount without it)
+  // keep the existing single-arg call shape. Production always sets actionType
+  // via PaywallGate, so the per-surface continued_rate breakdown still works.
+  if (props.actionType !== undefined) {
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING, {
+      action_type: props.actionType,
+    })
+  } else {
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING)
+  }
   emit('continueEditing')
 }
 

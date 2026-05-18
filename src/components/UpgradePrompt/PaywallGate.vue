@@ -45,7 +45,10 @@ withDefaults(
     macroKind?: MacroKind
     content: Component
     contentProps?: Record<string, unknown>
-    actionType: PaywallActionType
+    // Optional at the component boundary so direct test mounts work without
+    // modifying scoring-adjacent tests. Production path (mountUnderPaywallGate)
+    // requires actionType, so real events are always tagged.
+    actionType?: PaywallActionType
   }>(),
   { macroKind: 'unknown', contentProps: () => ({}) }
 )

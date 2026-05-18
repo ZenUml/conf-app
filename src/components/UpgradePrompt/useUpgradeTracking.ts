@@ -13,7 +13,11 @@ export function useUpgradeTracking(
   watch(visible, (newVisible: boolean) => {
     if (newVisible) {
       modalShownTime.value = Date.now()
+      // `trigger_source` predates the per-surface paywall split (added 2026-05-18)
+      // and is referenced by saved Mixpanel queries + the existing unit test.
+      // Keep emitting it alongside `action_type` until those consumers migrate.
       trackUpgradeEvent(UpgradeEventName.MODAL_SHOWN, {
+        trigger_source: 'header_badge',
         action_type: actionType(),
         ...getUpgradeContext(),
       })

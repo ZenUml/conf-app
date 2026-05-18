@@ -209,7 +209,9 @@ Project-wide table breaking down `paywall_continued_editing / paywall_triggered`
 | `page_editor_create` (new macro) | … | … | … | new-create attempts past limit |
 | `fullscreen_viewer` (read-only) | … | … | … | fullscreen view of a saturated space |
 
-> **Data availability:** `action_type` was added to `paywall_continued_editing` (and `upgrade_modal_shown` / `upgrade_modal_dismissed` / `advocacy_message_copied`) on 2026-05-18. **For windows before that date, the breakdown shows 0% across all surfaces** — the property doesn't exist on historical events. From 2026-05-18 onward, every row should populate. If `fullscreen_viewer` continued_rate is materially lower than `page_editor`, that's expected — there's nothing to "continue editing" in a read-only viewer; users either dismiss the modal to keep looking or close the viewer entirely.
+> **Data availability:** `action_type` was added to `paywall_continued_editing` (and `upgrade_modal_shown` / `upgrade_modal_dismissed` / `advocacy_message_copied`) on 2026-05-18. **For windows before that date, the breakdown shows 0% across all surfaces** — the property doesn't exist on historical events. From 2026-05-18 onward, every production-path event populates `action_type` (via `mountUnderPaywallGate`). If `fullscreen_viewer` continued_rate is materially lower than `page_editor`, that's expected — there's nothing to "continue editing" in a read-only viewer; users either dismiss the modal to keep looking or close the viewer entirely.
+>
+> **Note on `trigger_source` (legacy):** The `upgrade_modal_shown` event continues to emit `trigger_source: 'header_badge'` alongside the new `action_type` to keep saved Mixpanel queries and the existing unit test working. Prefer `action_type` for any new analysis; treat `trigger_source` as deprecated and remove once saved queries have migrated.
 
 Query (insights, last 1 day):
 - metric A: `paywall_triggered` total, breakdown by `action_type`

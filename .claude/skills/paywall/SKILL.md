@@ -51,7 +51,7 @@ Numbers don't speak for themselves. Before flagging any anomaly — zero paywall
 - **Data settling** for the most recent day — late events trickle in for ~24h.
 - **Sub-threshold trigger** if `paywall_triggered` fires for a space `metrics-inspect` shows under 100 macros — suspect a count-source mismatch, not a paywall regression.
 
-When you hit a suspicious anomaly, consult `references/interpretation.md` — it has the tenant geography table, holiday calendar, and the linemanwongnai/Golden Week worked example. Read it on demand rather than carrying it through every run.
+When you hit a suspicious anomaly, consult `private/paywall/interpretation.md` — it has the tenant geography table, holiday calendar, and a Golden Week worked example. Read it on demand rather than carrying it through every run.
 
 ---
 
@@ -63,7 +63,7 @@ Run from the `conf-app` project root:
 python3 .claude/skills/paywall/scripts/css_flag.py get
 ```
 
-Output is a JSON object — `{"zenuml-stg":true,"linemanwongnai":true,...}` — keys are subdomain prefixes. The script bakes in `--remote` and the namespace ID, so the common local-Miniflare and stderr-redirection footguns can't be hit; read the script header for details if you need them.
+Output is a JSON object — `{"zenuml-stg":true,"tenant-a":true,...}` — keys are subdomain prefixes. The script bakes in `--remote` and the namespace ID, so the common local-Miniflare and stderr-redirection footguns can't be hit; read the script header for details if you need them.
 
 **Authentication:** the wrapper relies on `npx wrangler` being authenticated. If you get `401 Unauthorized`, run `npx wrangler login` in an interactive terminal or export `CLOUDFLARE_API_TOKEN` with Workers KV read (and write if updating CSS). Until auth works, skip the "on CSS?" column and state clearly that the CSS list was unavailable — do not infer enrollment from Mixpanel alone.
 
@@ -94,8 +94,12 @@ python3 .claude/skills/paywall/scripts/paywall_queries.py daily
 # Q5 for ALL CSS customer domains in one batch — 4 JQL calls total instead
 # of N×4 segmentation calls. Read CSS domains from Step 1, exclude internals.
 # Output: {event: {domain: {space: count}}}
+# Pass the live CSS list (subdomain prefixes); never hardcode tenant names here.
+CSS_DOMAINS=$(python3 .claude/skills/paywall/scripts/css_flag.py get \
+  | jq -r 'to_entries[] | select(.value==true) | .key' \
+  | grep -vE '^(zenuml|zenuml-stg|zenuml-connect|lite-stg)$')
 python3 .claude/skills/paywall/scripts/paywall_queries.py per-space-all \
-  --domains colesgroup linemanwongnai mcoproduct airwallex xendit vin3s zeptonow
+  --domains $CSS_DOMAINS
 
 # Q5 for a single domain (use only when debugging one tenant, not for daily run)
 python3 .claude/skills/paywall/scripts/paywall_queries.py per-space <domain>
@@ -151,9 +155,9 @@ python3 .claude/skills/paywall/scripts/paywall_queries.py per-space-all \
 
 Output: `{event: {domain: {space: count}}}`. From this output, focus only on domains where triggered > 0 OR saves > 10 OR creates > 0. Wall time ≈ the slowest single segmentation call rather than N×4 sequential batches.
 
-Cross-reference space keys against metrics-inspect (`curl https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>`) to get each space's macro count. This catches the pattern where a tenant has heavy spaces (>100 macros) but saves happen in light spaces — which explains zero blocks despite high activity (e.g. mcoproduct: saves all in space MA=52 macros, while TMAB=1546 sits untouched by editors).
+Cross-reference space keys against metrics-inspect (`curl https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>`) to get each space's macro count. This catches the pattern where a tenant has heavy spaces (>100 macros) but saves happen in light spaces — which explains zero blocks despite high activity. See `private/paywall/runbook.md` for the canonical case study (heavy-space-but-light-saves).
 
-For the `mcoproduct` case where `paywall_continued_editing` is high, the per-space split tells you which space the bouncing user is on — the script already includes that event.
+When `paywall_continued_editing` is high for a tenant, the per-space split tells you which space the bouncing user is on — the script already includes that event. See `private/paywall/runbook.md` for a worked case where this concentrates in a single user/space pair.
 
 **MCP fallback for Q5.** If you cannot run the script, build the equivalent Insights query manually: metrics `paywall_triggered`, `macro_save_succeeded`, `macro_create_succeeded`, `paywall_continued_editing`, each with `filters: [{propertyName: "client_domain", operator: "equals", value: "<domain>"}]` — note `filters` is a plural array, not `filter: {...}`. Breakdown by `confluence_space`. Sanity check: every space key in the result should plausibly belong to the target tenant; a foreign key means the filter was ignored.
 
@@ -177,7 +181,7 @@ For customer domains on CSS: **read the live CSS flag from Step 1** to get the c
 - Lead the PushNotification summary with **intent highlights** (top domains by `advocacy_copies` or `intent_capture_rate`) — there is no separate “marketplace vs enterprise” conversion column anymore
 - Flag any domain that appears in Q1 or Q4 results but is NOT in the CSS list — that's an anomaly or CSS enrollment candidate
 
-> **Before flagging anything as anomalous, run the Interpretation lens** (top of this skill). For tenant-specific geographies and the holiday-vs-paywall-regression worked example, read `references/interpretation.md` — only load it when you actually have an anomaly to interpret, not on every run.
+> **Before flagging anything as anomalous, run the Interpretation lens** (top of this skill). For tenant-specific geographies and the holiday-vs-paywall-regression worked example, read `private/paywall/interpretation.md` — only load it when you actually have an anomaly to interpret, not on every run.
 
 ### Per-space sub-table (for domains with blocks, saves > 10, or creates > 0)
 
@@ -191,7 +195,7 @@ For customer domains on CSS: **read the live CSS flag from Step 1** to get the c
 
 ### Non-CSS domains in the results
 
-If a domain appears in Q1/Q2/Q3/Q4 results but is **not** in the CSS flag, check `references/anomalies.md` before treating it as a new finding. The reference file lists known persistent anomalies (woolworths-agile, 99dotco, etc.) with first-seen dates. If the domain is new, add a row to that file — don't re-investigate every day. Genuinely new + persistent (3+ days) anomalies are worth a code-path investigation, since they suggest the CSS flag check is being bypassed.
+If a domain appears in Q1/Q2/Q3/Q4 results but is **not** in the CSS flag, check `private/paywall/anomalies.md` before treating it as a new finding. The reference file lists known persistent anomalies with first-seen dates. If the domain is new, add a row to that file — don't re-investigate every day. Genuinely new + persistent (3+ days) anomalies are worth a code-path investigation, since they suggest the CSS flag check is being bypassed.
 
 ### PushNotification
 
@@ -216,7 +220,7 @@ curl -s "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>"
 npx wrangler d1 execute conf-zenuml-prod --remote --command "
 SELECT clientDomain, MIN(timestamp) as first_install
 FROM ClientInstallation
-WHERE clientDomain IN ('zenuml-stg','linemanwongnai','zeptonow','zenuml-connect','zenuml')
+WHERE clientDomain IN ('zenuml-stg','tenant-a','tenant-b','zenuml-connect','zenuml')
 GROUP BY clientDomain"
 
 # 3. Recent Confluence activity — UserBehaviorEvent uses FULL hostname (with .atlassian.net)
@@ -224,7 +228,7 @@ GROUP BY clientDomain"
 npx wrangler d1 execute conf-zenuml-prod --remote --command "
 SELECT clientDomain, action, COUNT(*) as count
 FROM UserBehaviorEvent
-WHERE clientDomain IN ('linemanwongnai.atlassian.net','zeptonow.atlassian.net')
+WHERE clientDomain IN ('tenant-a.atlassian.net','tenant-b.atlassian.net')
 AND createdAt >= date('now', '-30 days')
 GROUP BY clientDomain, action"
 
@@ -235,10 +239,10 @@ GROUP BY clientDomain, action"
 ```
 
 > **CRITICAL — D1 clientDomain format mismatch:**
-> - `ClientInstallation` stores **subdomain prefix** (`linemanwongnai`)
-> - `UserBehaviorEvent` and `DailyBehaviorCounter` store **full hostname** (`linemanwongnai.atlassian.net`)
+> - `ClientInstallation` stores **subdomain prefix** (e.g. `tenant-a`)
+> - `UserBehaviorEvent` and `DailyBehaviorCounter` store **full hostname** (e.g. `tenant-a.atlassian.net`)
 >
-> Always use full hostname when querying `UserBehaviorEvent`/`DailyBehaviorCounter`. Using the subdomain prefix silently returns 0 rows — no error, just wrong data. When in doubt, verify with `LIKE '%linemanwongnai%'` first.
+> Always use full hostname when querying `UserBehaviorEvent`/`DailyBehaviorCounter`. Using the subdomain prefix silently returns 0 rows — no error, just wrong data. When in doubt, verify with `LIKE '%<partial-domain>%'` first.
 
 The metrics-inspect response structure is `d['spaces'][spaceKey]['data']['total']` — NOT `d['data']['total']`. Parse with:
 ```python
@@ -281,10 +285,10 @@ CSS is JSON — read, parse, add key, write back through `scripts/css_flag.py`:
 
 ```bash
 python3 .claude/skills/paywall/scripts/css_flag.py get
-# → {"zenuml-stg":true,"linemanwongnai":true,...}
+# → {"zenuml-stg":true,"tenant-a":true,...}
 
 python3 .claude/skills/paywall/scripts/css_flag.py put \
-  '{"zenuml-stg":true,"linemanwongnai":true,"newdomain":true}'
+  '{"zenuml-stg":true,"tenant-a":true,"newdomain":true}'
 ```
 
 The wrapper validates that the payload is a JSON object before writing — guards against a malformed CSS flag silently breaking the paywall for everyone.
@@ -306,30 +310,11 @@ Periodic comparison: are paywall-affected tenants editing less than comparable u
 
 ### Group definitions
 
-**Group A (treatment — paywall on).** CSS-enrolled tenants with ≥1 space ≥100 macros and a working baseline of edits in the last 7d. Refresh as enrollments change. Skip any tenant currently in a regional holiday (see `references/interpretation.md`) and skip newly enrolled tenants for 7 days post-enrollment (rollout shock dominates early days).
-
-| Domain | top space (macros) | spaces ≥100 | rationale |
-|--------|--------------------|--------------|-----------|
-| colesgroup | AGWS=1080 | 8 | High-volume editor, large surface area |
-| airwallex | APA=650 | 7 | High-volume editor, multi-space |
-| linemanwongnai | (varies) | 5+ | Normal week. Skip during JP Golden Week (Apr 29 → May 6) |
-| vin3s | (varies) | 5+ | Heaviest-volume CSS tenant (185 saves/wk, 40 creates/day). Enrolled 2026-05-04 — rollout shock ended 2026-05-11; re-baseline from 2026-05-18 (first clean 7-day window) |
-| mcoproduct | TMAB=1546 | 1+ | Edit volume concentrated in 1–2 power users; saves/user often >10 |
-
-Currently too low-volume to count: xendit (0 paywall events even with high save volume — active spaces below threshold), zeptonow (only 16 attempts/wk).
+**Group A (treatment — paywall on).** CSS-enrolled tenants with ≥1 space ≥100 macros and a working baseline of edits in the last 7d. Refresh as enrollments change. Skip any tenant currently in a regional holiday (see `private/paywall/interpretation.md`) and skip newly enrolled tenants for 7 days post-enrollment (rollout shock dominates early days).
 
 **Group B (control — paywall off).** Comparable tenants NOT on CSS, with ≥1 space ≥100 macros AND save volume of the same order as Group A. The macro-count requirement matters: a control tenant with no spaces over the threshold would never trigger the paywall even if enrolled — there's nothing to compare.
 
-| Domain | top space (macros) | spaces ≥100 | saves/wk |
-|--------|--------------------|--------------|----------|
-| myntfintech | GCASHPRODUCTS=224, MARCHI=188 | 2 | ~43 |
-| hktdc | EOP=223 | 1 | ~48 |
-| alterric | DA=176 | 1 | ~23 |
-| woolworths-agile | WIQ=145 | 1 | ~32 (sometimes fires anomalous paywall events — known issue) |
-| appculqi | CR=194, UPI=136 | 2 | ~34 |
-| economical | PA=241 | 1 | ~25 |
-
-> **Excluded controls:** zayogroup (60 total macros, 0 spaces ≥100 — zero paywall surface area). syscobt, creditacceptance, mainspringenergy (high save volume but no spaces ≥100 — same disqualification). suncoragilecoe (qualifies on macro count but redundant with alterric in size band). **aegisepdev** qualifies on macro count (top space=599, 2 spaces ≥100) and has very high save volume (~94/wk) but is excluded because a 5-editor team with ~19 saves/user is not representative — it inflates Group B's saves/user metric and hides the paywall's true productivity impact. If you want a "high-volume control" reading, run aegisepdev as a one-off comparison rather than aggregating it into Group B.
+> **Current Group A and Group B cohort tables (with per-tenant rationale, excluded controls, and low-volume exemptions) live in `private/paywall/runbook.md`.** Refresh that file when enrollments or volume bands change — no edits to this SKILL.md needed.
 
 ### Step A1: Run the comparison queries
 
@@ -371,12 +356,12 @@ Definitions:
 
 **Known confounds:**
 - **Selection bias:** Group A tenants were enrolled because they were larger/more active. They have proportionally more passive viewers than Group B, which inflates `view_users` and depresses conversion ratios independently of the paywall.
-- **Regional holidays:** Always check Group A tenants against `references/interpretation.md`. A tenant in JP Golden Week or SG Labour Day can drop edits to zero — that's not a paywall effect.
+- **Regional holidays:** Always check Group A tenants against `private/paywall/interpretation.md`. A tenant in JP Golden Week or SG Labour Day can drop edits to zero — that's not a paywall effect.
 - **Newly enrolled tenants:** Hold for 7 days. Day 1 looks dramatic but isn't a steady-state read.
 
 ### Baseline snapshots
 
-Snapshots from prior A/B runs live in `references/baseline.md` (most recent at top). After each weekly A/B run:
+Snapshots from prior A/B runs live in `private/paywall/baseline.md` (most recent at top). After each weekly A/B run:
 
 1. Read the most recent snapshot to compute Δ versus today.
 2. Prepend today's snapshot to that file (don't overwrite — the longitudinal record is the point).
@@ -401,7 +386,7 @@ Output columns: `Installation ID | Environment | Site | Atlassian apps | App ver
 
 If a tenant shows `Status: Out-of-date`, that's a real version drift case — they need a Forge upgrade. This typically only happens when a major version bump (new permissions/scopes) is pending admin consent.
 
-> **Note on event-name cutover (2026-04-28 → 2026-04-29):** The rename `upgrade_action_blocked` → `paywall_triggered` was merged to master via PR #1051 (commit 4d4d8cb2) on 2026-04-28, then auto-distributed by Forge as a minor-version code update (no major bump, no admin consent — see [Forge minor versions](https://developer.atlassian.com/platform/forge/versions)). Result is a clean date cutover: events emitted **on or before 2026-04-28 are stored as `upgrade_action_blocked`**, events **on or after 2026-04-29 use `paywall_triggered`**. Per-tenant differences in which name appears (e.g. `linemanwongnai` showing only the old name, `vin3s` showing only the new name) reflect *which days that tenant happened to have edit-block events*, not version drift. **Always query both event names for windows that span the cutover date**; for windows entirely after 2026-04-29, `paywall_triggered` alone is sufficient.
+> **Note on event-name cutover (2026-04-28 → 2026-04-29):** The rename `upgrade_action_blocked` → `paywall_triggered` was merged to master via PR #1051 (commit 4d4d8cb2) on 2026-04-28, then auto-distributed by Forge as a minor-version code update (no major bump, no admin consent — see [Forge minor versions](https://developer.atlassian.com/platform/forge/versions)). Result is a clean date cutover: events emitted **on or before 2026-04-28 are stored as `upgrade_action_blocked`**, events **on or after 2026-04-29 use `paywall_triggered`**. Per-tenant differences in which name appears reflect *which days that tenant happened to have edit-block events*, not version drift (see `private/paywall/runbook.md` for observed examples). **Always query both event names for windows that span the cutover date**; for windows entirely after 2026-04-29, `paywall_triggered` alone is sufficient.
 
 ### Debugging a specific tenant
 
@@ -411,9 +396,9 @@ If a user reports they're not seeing the paywall, check in order:
 2. **Is their domain on CSS?** If not, they'll never see the paywall regardless of macro count.
 3. **Are they on Lite?** Paywall logic short-circuits to `false` for Full/Diagramly. Check Mixpanel `product_type` property on their `macro_viewed` events.
 4. **Per-space macro count ≥ 100?** Paywall is per-space, not per-tenant. A tenant with 5,000 total macros across 100 spaces won't trigger if no single space crosses the threshold. Check `metrics-inspect` and look at top spaces by `total`.
-5. **Are users actually trying to EDIT macros in over-threshold spaces?** Paywall fires on edit click (`paywall_triggered`), NOT on viewing. View-only users in a 1,000-macro space generate zero paywall events. Cross-check `macro_viewed` against `macro_save_succeeded` filtered by `client_domain` (and ideally `confluence_space`). **If edit activity collapses on a specific date while views only partially drop, suspect a regional holiday in the tenant's primary engineering geography** — see `references/interpretation.md` for the geography table and worked example.
+5. **Are users actually trying to EDIT macros in over-threshold spaces?** Paywall fires on edit click (`paywall_triggered`), NOT on viewing. View-only users in a 1,000-macro space generate zero paywall events. Cross-check `macro_viewed` against `macro_save_succeeded` filtered by `client_domain` (and ideally `confluence_space`). **If edit activity collapses on a specific date while views only partially drop, suspect a regional holiday in the tenant's primary engineering geography** — see `private/paywall/interpretation.md` for the geography table and worked example.
 6. **Is their space licensed?** Check KV: `license:{cloudId}:{spaceKey}`.
-7. **Sub-threshold trigger discrepancy?** If `paywall_triggered` fires for a space that `metrics-inspect` shows below 100 macros, suspect a count methodology gap: `metrics-inspect` shows live macro counts, but the frontend paywall check in `useCustomerSuccessService.ts` may use a cached or differently-computed count. Observed cases: vin3s VE (83 macros, 19 triggers on 2026-05-11), vin3s VLEARN (89 macros, 2 triggers), zeptonow Engineerin (25 macros, 3 triggers). Reconcile by adding a debug log in `useCustomerSuccessService.ts` to emit the raw count seen at trigger time.
+7. **Sub-threshold trigger discrepancy?** If `paywall_triggered` fires for a space that `metrics-inspect` shows below 100 macros, suspect a count methodology gap: `metrics-inspect` shows live macro counts, but the frontend paywall check in `useCustomerSuccessService.ts` may use a cached or differently-computed count. See `private/paywall/runbook.md` for observed cases. Reconcile by adding a debug log in `useCustomerSuccessService.ts` to emit the raw count seen at trigger time.
 
 For local simulation, use localStorage overrides:
 ```js

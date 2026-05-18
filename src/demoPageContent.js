@@ -1,10 +1,13 @@
 export const DEMO_PAGE_TITLE = 'Welcome to Diagramly — Try it out';
 
+// Keys must be present in the post-CI diagramly manifest. zenuml-embed-macro
+// is intentionally NOT included — CI strips it from the diagramly build
+// (.github/workflows/staging-deploy.yml + release.yml), so referencing it
+// from the demo body would render "Missing macro" in production.
 export const MACRO_KEYS = [
   'gpt-diagram-macro',
   'zenuml-graph-macro',
   'zenuml-openapi-macro',
-  'zenuml-embed-macro',
 ];
 
 const paragraph = (text) => ({
@@ -35,6 +38,12 @@ const extension = (extensionKey, bodyType, body) => ({
   },
 });
 
+// Open issue: these macros render their default sample content, not the body
+// passed here. They're custom-content-backed — they expect a custom-content
+// object ID in attrs, not inline body. Confirmed during live tunnel test on
+// diagramly.atlassian.net. Follow-up slice will create per-diagram custom
+// content first and reference the IDs from here.
+
 const SEQUENCE_BODY = `A.method() {
   B.process()
   return result
@@ -64,8 +73,6 @@ paths:
         '200':
           description: OK`;
 
-const EMBED_BODY = `https://app.zenuml.com/`;
-
 export const DEMO_PAGE_ADF = {
   type: 'doc',
   version: 1,
@@ -91,10 +98,6 @@ export const DEMO_PAGE_ADF = {
     heading(2, 'OpenAPI / Swagger'),
     paragraph('Render an API spec inline.'),
     extension('zenuml-openapi-macro', 'openapi', OPENAPI_BODY),
-
-    heading(2, 'Embed an existing diagram'),
-    paragraph('Embed a diagram from app.zenuml.com or another source.'),
-    extension('zenuml-embed-macro', 'embed', EMBED_BODY),
 
     heading(2, 'Not for you?'),
     paragraph('Delete this page if you would rather not see it — Diagramly will not recreate it.'),

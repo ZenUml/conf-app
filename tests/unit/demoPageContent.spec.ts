@@ -17,11 +17,16 @@ describe('demoPageContent', () => {
     expect(roundTrip).toEqual(DEMO_PAGE_ADF);
   });
 
-  it('references all four macro keys', () => {
+  it('references every macro key in MACRO_KEYS', () => {
     const serialized = JSON.stringify(DEMO_PAGE_ADF);
     for (const key of MACRO_KEYS) {
       expect(serialized).toContain(key);
     }
+  });
+
+  it('does NOT reference zenuml-embed-macro (stripped from diagramly build by CI)', () => {
+    const serialized = JSON.stringify(DEMO_PAGE_ADF);
+    expect(serialized).not.toContain('zenuml-embed-macro');
   });
 
   it('extension blocks declare extensionType, extensionKey, and macroParams.bodyType.value', () => {
@@ -36,14 +41,16 @@ describe('demoPageContent', () => {
     }
   });
 
-  it('macro keys match the diagramly-build manifest', () => {
+  it('macro keys match the diagramly-build manifest (after CI strip)', () => {
     // The diagramly build is the lite-variant manifest with LITE_KEY_SUFFIX=''
     // and SEQUENCE_MACRO_KEY='gpt-diagram-macro' (see package.json forge:deploy:diagramly:*).
+    // zenuml-embed-macro is stripped from the diagramly build by CI
+    // (.github/workflows/staging-deploy.yml + release.yml), so it must NOT
+    // appear here even though it exists in the unstripped manifest.
     expect(MACRO_KEYS).toEqual([
       'gpt-diagram-macro',
       'zenuml-graph-macro',
       'zenuml-openapi-macro',
-      'zenuml-embed-macro',
     ]);
   });
 });

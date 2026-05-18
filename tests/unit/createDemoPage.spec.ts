@@ -83,3 +83,66 @@ describe('createDemoPage — authorization', () => {
     expect(result).not.toMatchObject({ status: 403 });
   });
 });
+
+describe('createDemoPage — space resolution', () => {
+  beforeEach(() => {
+    asUserRequest.mockReset();
+    asAppRequest.mockReset();
+    storageGet.mockReset();
+    storageSet.mockReset();
+    asUserRequest.mockImplementation((url: string) => {
+      if (url.includes('/wiki/rest/api/user/memberof')) {
+        return Promise.resolve(makeResponse({ results: [{ name: 'site-admins' }] }));
+      }
+      return Promise.resolve(makeResponse({ results: [] }, 500));
+    });
+  });
+
+  it('returns 404 when the space key resolves to zero spaces', async () => {
+    asUserRequest.mockImplementationOnce(() =>
+      Promise.resolve(makeResponse({ results: [{ name: 'site-admins' }] })),
+    );
+    asUserRequest.mockImplementationOnce(() =>
+      Promise.resolve(makeResponse({ results: [] })),
+    );
+
+    const result = await callHandler({ spaceKey: 'NOPE' });
+    expect(result).toMatchObject({ ok: false, status: 404, error: 'space_not_found' });
+  });
+
+  it('returns 400 when the resolved space is archived or non-global', async () => {
+    asUserRequest.mockImplementationOnce(() =>
+      Promise.resolve(makeResponse({ results: [{ name: 'site-admins' }] })),
+    );
+    asUserRequest.mockImplementationOnce(() =>
+      Promise.resolve(
+        makeResponse({
+          results: [{ id: '111', key: 'OLD', type: 'global', status: 'archived' }],
+        }),
+      ),
+    );
+
+    const result = await callHandler({ spaceKey: 'OLD' });
+    expect(result).toMatchObject({ ok: false, status: 400, error: 'space_not_eligible' });
+  });
+
+  it('calls /wiki/api/v2/spaces?keys=<spaceKey> with the supplied key', async () => {
+    asUserRequest.mockImplementationOnce(() =>
+      Promise.resolve(makeResponse({ results: [{ name: 'site-admins' }] })),
+    );
+    asUserRequest.mockImplementationOnce(() =>
+      Promise.resolve(
+        makeResponse({
+          results: [{ id: '222', key: 'DEMO', type: 'global', status: 'current' }],
+        }),
+      ),
+    );
+    storageGet.mockResolvedValueOnce(undefined);
+
+    await callHandler({ spaceKey: 'DEMO' });
+
+    const urls = asUserRequest.mock.calls.map(c => c[0] as string);
+    expect(urls[1]).toContain('/wiki/api/v2/spaces');
+    expect(urls[1]).toContain('keys=DEMO');
+  });
+});

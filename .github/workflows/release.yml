@@ -68,7 +68,7 @@ jobs:
           cmd: |
             yq eval '
               del(.modules."confluence:globalSettings"[] | select(.key == "zenuml-get-started-settings"))
-              | del(.modules."confluence:globalPage"[]   | select(.key == "zenuml-dashboard-page"))
+              | del(.modules."confluence:globalPage")
             ' -i manifest.yml
       - name: Remove embed macro for Diagramly
         if: ${{ steps.properties.outputs.license == 'diagramly' }}

@@ -63,7 +63,7 @@ async function initializeCriticalPath() {
     // Check if this is a global settings route
     const context = await initForgeContext();
     if (context.extension?.type === 'confluence:globalSettings') {
-      if (context.extension?.key === 'diagramly-admin-create-demo-page') {
+      if (context.moduleKey === 'diagramly-admin-create-demo-page') {
         await handleCreateDemoPageRoute();
       } else {
         await handleGetStartedRoute();

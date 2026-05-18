@@ -2,26 +2,16 @@ import api, { route, storage } from '@forge/api';
 import Resolver from '@forge/resolver';
 import { DEMO_PAGE_ADF, DEMO_PAGE_TITLE } from './demoPageContent';
 
-type Payload = { spaceKey: string };
-type Context = { accountId: string; cloudId: string };
-
 const ADMIN_GROUP_RE = /^(site-admins|confluence-admins(-.+)?|confluence-administrators)$/;
 
-type ResolvedSpace = { id: string; key: string };
-type SpaceResolutionResult =
-  | { ok: true; space: ResolvedSpace }
-  | { ok: false; status: 404 | 400 | 500; error: string };
-
-async function resolveSpace(spaceKey: string): Promise<SpaceResolutionResult> {
+async function resolveSpace(spaceKey) {
   try {
     const res = await api
       .asUser()
       .requestConfluence(route`/wiki/api/v2/spaces?keys=${spaceKey}`);
     if (!res.ok) return { ok: false, status: 500, error: 'space_lookup_failed' };
-    const body = (await res.json()) as {
-      results?: Array<{ id: string; key: string; type?: string; status?: string }>;
-    };
-    const hit = body.results?.[0];
+    const body = await res.json();
+    const hit = body && body.results && body.results[0];
     if (!hit) return { ok: false, status: 404, error: 'space_not_found' };
     if (hit.type !== 'global' || hit.status !== 'current') {
       return { ok: false, status: 400, error: 'space_not_eligible' };
@@ -32,7 +22,7 @@ async function resolveSpace(spaceKey: string): Promise<SpaceResolutionResult> {
   }
 }
 
-async function isCallerSiteAdmin(accountId: string): Promise<boolean> {
+async function isCallerSiteAdmin(accountId) {
   try {
     const res = await api
       .asUser()
@@ -40,21 +30,15 @@ async function isCallerSiteAdmin(accountId: string): Promise<boolean> {
         route`/wiki/rest/api/user/memberof?accountId=${accountId}&start=0&limit=200`,
       );
     if (!res.ok) return false;
-    const body = (await res.json()) as { results?: Array<{ name?: string }> };
-    const groups = body?.results ?? [];
-    return groups.some(g => typeof g?.name === 'string' && ADMIN_GROUP_RE.test(g.name));
+    const body = await res.json();
+    const groups = (body && body.results) || [];
+    return groups.some(g => g && typeof g.name === 'string' && ADMIN_GROUP_RE.test(g.name));
   } catch {
     return false;
   }
 }
 
-export async function createDemoPageImpl({
-  payload,
-  context,
-}: {
-  payload: Payload;
-  context: Context;
-}) {
+export async function createDemoPageImpl({ payload, context }) {
   if (!(await isCallerSiteAdmin(context.accountId))) {
     return { ok: false, status: 403, error: 'not_authorized' };
   }
@@ -66,9 +50,7 @@ export async function createDemoPageImpl({
   const { space } = resolved;
 
   const markerKey = `demo-page:${space.key}`;
-  const existing = (await storage.get(markerKey)) as
-    | { pageId: string; createdAt: string; source: 'manual' }
-    | undefined;
+  const existing = await storage.get(markerKey);
   if (existing) {
     return { ok: true, alreadyExists: true, pageId: existing.pageId, createdAt: existing.createdAt };
   }
@@ -100,7 +82,7 @@ export async function createDemoPageImpl({
     return { ok: false, status: res.status, error: 'create_failed', detail };
   }
 
-  const created = (await res.json()) as { id: string };
+  const created = await res.json();
   const createdAt = new Date().toISOString();
   await storage.set(markerKey, { pageId: created.id, createdAt, source: 'manual' });
 
@@ -120,7 +102,7 @@ export async function createDemoPageImpl({
 
 const resolver = new Resolver();
 resolver.define('createDemoPage', ({ payload, context }) =>
-  createDemoPageImpl({ payload: payload as Payload, context: context as Context }),
+  createDemoPageImpl({ payload, context }),
 );
 
 export const handler = resolver.getDefinitions();

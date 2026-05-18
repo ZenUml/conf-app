@@ -5,24 +5,20 @@ export const MACRO_KEYS = [
   'zenuml-graph-macro',
   'zenuml-openapi-macro',
   'zenuml-embed-macro',
-] as const;
+];
 
-const paragraph = (text: string) => ({
+const paragraph = (text) => ({
   type: 'paragraph',
   content: [{ type: 'text', text }],
 });
 
-const heading = (level: 1 | 2, text: string) => ({
+const heading = (level, text) => ({
   type: 'heading',
   attrs: { level },
   content: [{ type: 'text', text }],
 });
 
-const extension = (
-  extensionKey: string,
-  bodyType: 'sequence' | 'mermaid' | 'graph' | 'openapi' | 'embed',
-  body: string,
-) => ({
+const extension = (extensionKey, bodyType, body) => ({
   type: 'extension',
   attrs: {
     extensionType: 'com.atlassian.confluence.macro.core',
@@ -103,4 +99,4 @@ export const DEMO_PAGE_ADF = {
     heading(2, 'Not for you?'),
     paragraph('Delete this page if you would rather not see it — Diagramly will not recreate it.'),
   ],
-} as const;
+};

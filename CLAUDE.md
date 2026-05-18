@@ -38,6 +38,35 @@ All three variants (lite, full, diagramly) are **Forge-only** in production. The
 
 **Only exception:** `manifest.yml` must keep the `app.connect` / Connect key / modules entries — Atlassian's Forge-from-Connect migration requires these to stay so that upgrade paths from legacy Connect installs still work. Don't remove those.
 
+## Client privacy — no client names in public files
+
+**Policy:** The names of specific Confluence client tenants (e.g. customer subdomain prefixes like `colesgroup`, full hostnames like `tenant.atlassian.net`, customer-named page titles, customer-specific `cloudId`s) **MUST NOT appear in any file checked into this public repo** — code, docs, comments, JSDoc, help text, fixtures, snapshots, ADRs, research specs, runbook examples. The public repo is intended to be open to anyone with the link; client identities are not.
+
+**Where client-naming artifacts go:** The private companion repo `ZenUml/conf-app-private` is mounted as a git submodule at `private/`. Anything that names a real tenant lives there.
+
+| Artifact | Public path | Private path |
+|---|---|---|
+| Per-customer paywall data, anomalies, interpretation, runbook examples | — | `private/paywall/*.md` |
+| Research / design specs that reference real tenants | — | `private/research/<date>-<slug>.md` |
+| Operations data (customer lists, migration trackers) | — | `private/operations/*` |
+| Per-feature growth contracts (may reference tenants in baselines) | — | `private/growth/*.yml` |
+
+**When writing new code or docs:**
+- Use generic placeholders (`tenant-a`, `tenant-b`, `example-tenant`, `example.atlassian.net`, `example-one`, `example-two`) in any pedagogical example, JSDoc, or help text.
+- For operational scripts that need to enumerate real domains, read them from the live KV/D1 source at runtime — never hardcode (see `.claude/skills/paywall/SKILL.md` for the `jq` pattern that pulls from `CUSTOMER_SUCCESS_SERVICE`).
+- If a public-side doc legitimately needs to reference a worked example with a real tenant, put the example in a corresponding `private/<area>/<file>.md` and link to it from the public doc with a one-line summary that names no tenant.
+- The `.gitignore` already excludes `/page-snapshot.yml`, `/paywall-snap-*.yml`, `/spotcheck-*.yml` at repo root — these often capture real page content and must stay local.
+
+**Discovery:** Before committing, sanity-check with a grep:
+```bash
+grep -rE '[a-z0-9][a-z0-9-]+\.atlassian\.net' --exclude-dir=private --exclude-dir=node_modules --exclude-dir=.git \
+  --include='*.md' --include='*.ts' --include='*.vue' --include='*.js' --include='*.py' --include='*.json' --include='*.yml' . \
+  | grep -ivE '(zenuml|whimet|lite-stg|lite-dev|dia-stg|full-stg|peng-dev|example|tenant|foo|my-site|your-site|drawio|ecosystem|<)'
+```
+Expected output: empty. Any hits are likely real customer hostnames and should be moved to `private/` or replaced with a placeholder.
+
+**Why this matters:** Historical violations of this policy (paywall references, customer lists in `operations/`, per-tenant research specs) were migrated to `private/` in #108. The cleanup found ~47 distinct customer names across 15+ files. Re-introducing client names into the public repo undoes that work and exposes customer relationships.
+
 ## Development Commands
 
 ### Building and Testing
@@ -359,7 +388,7 @@ The `AnalyticsEventFact` schema has richer columns than the legacy `UserBehavior
 
 - **D1 `conf-zenuml-prod`** — tenant activity (`AnalyticsEventFact` since 2026-05-02; `UserBehaviorEvent` for ≤ 2026-05-01), install records (`ForgeInstallation`, `ClientInstallation`), content data
 - **Mixpanel** — macro view counts (`macro_viewed`), filtered by `client_domain` property. **Project ID: `3373228`** (the `Diagramly.Ai` project; conf-app shares this single project — there is no separate one). Query via `mcp__mixpanel__Run-Query` with `project_id=3373228`, or via JQL using `API_Secret` from `.env.mixpanel`. Project display timezone is UTC+7, so hourly buckets need conversion when joining to D1 (which is UTC).
-- **KV metrics-inspect** — macro counts per space: `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<subdomain>` (subdomain prefix only, e.g. `linemanwongnai` — not the full hostname)
+- **KV metrics-inspect** — macro counts per space: `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<subdomain>` (subdomain prefix only, e.g. `example-tenant` — not the full hostname)
 
 ### clientDomain format
 
@@ -367,9 +396,9 @@ Two stores, two conventions — always match the store's form:
 
 | Store | Form | Example |
 |---|---|---|
-| KV flags | subdomain prefix | `linemanwongnai` |
-| D1 (`AnalyticsEventFact`, `UserBehaviorEvent`) | full hostname | `linemanwongnai.atlassian.net` |
-| Mixpanel — all events (frontend + backend) | **subdomain prefix** | `linemanwongnai` |
+| KV flags | subdomain prefix | `example-tenant` |
+| D1 (`AnalyticsEventFact`, `UserBehaviorEvent`) | full hostname | `example-tenant.atlassian.net` |
+| Mixpanel — all events (frontend + backend) | **subdomain prefix** | `example-tenant` |
 
 Frontend source: `getSubdomain()` in `src/utils/ContextParameters/ContextParameters.ts:42-45`.
 Backend source: regex on hostname in `src/export.js:34` (fixed 2026-05-16 to match frontend format).

@@ -488,7 +488,7 @@ def main(argv: list[str]) -> int:
     per_space_all.add_argument(
         "--domains", nargs="+", required=True,
         metavar="DOMAIN",
-        help="CSS customer domain prefixes, e.g. --domains colesgroup vin3s linemanwongnai",
+        help="CSS customer domain prefixes, e.g. --domains example-one example-two example-three",
     )
     per_space_all.add_argument("--window-days", type=int, default=1)
 

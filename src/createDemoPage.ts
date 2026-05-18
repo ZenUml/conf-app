@@ -63,6 +63,14 @@ export const handler = async ({
   }
   const { space } = resolved;
 
-  // Subsequent tasks add: idempotency, POST, marker write, log.
+  const markerKey = `demo-page:${space.key}`;
+  const existing = (await storage.get(markerKey)) as
+    | { pageId: string; createdAt: string; source: 'manual' }
+    | undefined;
+  if (existing) {
+    return { ok: true, alreadyExists: true, pageId: existing.pageId, createdAt: existing.createdAt };
+  }
+
+  // Subsequent tasks add: POST, marker write, log.
   return { ok: false, status: 501, error: 'not_implemented', spaceId: space.id };
 };

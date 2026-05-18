@@ -146,3 +146,56 @@ describe('createDemoPage — space resolution', () => {
     expect(urls[1]).toContain('keys=DEMO');
   });
 });
+
+describe('createDemoPage — idempotency', () => {
+  beforeEach(() => {
+    asUserRequest.mockReset();
+    asAppRequest.mockReset();
+    storageGet.mockReset();
+    storageSet.mockReset();
+
+    asUserRequest.mockImplementation((url: string) => {
+      if (url.includes('/wiki/rest/api/user/memberof')) {
+        return Promise.resolve(makeResponse({ results: [{ name: 'site-admins' }] }));
+      }
+      if (url.includes('/wiki/api/v2/spaces')) {
+        return Promise.resolve(
+          makeResponse({
+            results: [{ id: '222', key: 'DEMO', type: 'global', status: 'current' }],
+          }),
+        );
+      }
+      return Promise.resolve(makeResponse({}, 500));
+    });
+  });
+
+  it('returns the stored marker without POSTing when marker is present', async () => {
+    storageGet.mockResolvedValueOnce({
+      pageId: '999',
+      createdAt: '2026-05-18T00:00:00.000Z',
+      source: 'manual',
+    });
+
+    const result = await callHandler({ spaceKey: 'DEMO' });
+
+    expect(result).toMatchObject({
+      ok: true,
+      alreadyExists: true,
+      pageId: '999',
+    });
+    expect(asAppRequest).not.toHaveBeenCalled();
+    expect(storageSet).not.toHaveBeenCalled();
+  });
+
+  it('looks up the marker under the per-space key', async () => {
+    storageGet.mockResolvedValueOnce({
+      pageId: '999',
+      createdAt: '2026-05-18T00:00:00.000Z',
+      source: 'manual',
+    });
+
+    await callHandler({ spaceKey: 'DEMO' });
+
+    expect(storageGet).toHaveBeenCalledWith('demo-page:DEMO');
+  });
+});

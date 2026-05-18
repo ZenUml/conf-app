@@ -1,213 +1,181 @@
-# Diagramly Demo Pages — Design Spec
+# Diagramly Demo Pages — v1 Plumbing Spike Spec
 
 **Date:** 2026-05-18
 **Branch:** `feature/diagramly-engagement`
 **Status:** Approved for implementation planning
+**Revision:** v2 — narrowed after adversarial review (see "Why this is a plumbing spike, not auto-onboarding v1" below).
 
 ## Purpose
 
-Ship the first vertical slice of the Diagramly auto-onboarding work described in `CONTEXT.md`: an automatically created Confluence page that introduces Diagramly to a tenant's space, containing pre-built try-it-now macros. The goal is to validate the create-page-`asApp` plumbing end-to-end against a real diagramly site via `forge tunnel` before adding any of the more expensive pieces (AI generation, suitability classifier, banner, publication-decision branching).
+Validate, end-to-end against a real diagramly site via `forge tunnel`, that we can create a Confluence demo page `asApp` from Diagramly code. That's it. This slice deliberately does NOT ship the auto-onboarding behavior described in `CONTEXT.md`. It is the *first* of several slices toward that goal, and its job is to de-risk the plumbing — Forge function, `asApp` request, custom-content macros rendering inside the created page — before we add the parts that depend on it.
+
+## Why this is a plumbing spike, not auto-onboarding v1
+
+`CONTEXT.md` is explicit: "we explicitly do not fall back to a generic demo, because the proposition is 'we read your content'" and "A bad demo is worse than no demo." Hardcoded content auto-created on install therefore directly contradicts the product thesis. We cannot ship the auto path until the [[Generated demo]] pipeline exists.
+
+`CONTEXT.md` also says the demo page and the onboarding banner are paired — "the page is the artifact, the banner is how anyone finds it." Auto-creating a page without the banner gives us an artifact no non-admin will ever discover.
+
+Conclusion: v1 is **operator-triggered, manual, hardcoded**. An operator (us) clicks a button on a hand-picked dev or pilot tenant to verify the page renders and the Atlassian-side plumbing works. We will not auto-create anything from an install event in this slice.
 
 ## Scope of this slice
 
 In scope:
 
-- A Forge function that creates a single hardcoded demo page in a target Confluence space, using `asApp` credentials.
-- Two callers for that function:
-  1. An install/upgrade trigger that fires on `avi:forge:installed:app` and `avi:forge:upgraded:app`, gated by a per-(cloudId, spaceKey) allowlist in Forge KV.
-  2. A manual admin button (Custom UI) that bypasses the allowlist — used for forge-tunnel testing and operator-driven backfill on existing tenants.
-- Forge-KV idempotency marker per (installation, spaceKey) so re-installs and re-clicks do not duplicate, and so deleting the page in Confluence is treated as opt-out.
-- Variant gating to the diagramly build only (lite and full builds do not ship this module).
+- A single Forge function `createDemoPage` that creates one hardcoded Confluence page in a target space using `asApp`.
+- One caller: a Custom UI admin button (Confluence-site-admin gated) that takes a space key and invokes the function.
+- A Forge-KV idempotency marker per (installation, spaceKey) so the button is safe to click twice and so deleting the page is treated as opt-out.
+- Variant gating to the diagramly build only via CI build-time strip (lite and full builds do not include the function or the button).
+- A structured log line per successful create (`{cloudId, spaceKey, pageId, source: 'manual', createdAt}`) emitted to the Forge console — minimum observability without committing to a D1 schema yet.
 
-Out of scope (these are deliberate cuts against CONTEXT.md; each is a follow-up slice):
+Out of scope (each is a separate follow-up slice):
 
-- AI-generated, space-tailored content (`Generated demo` term in `CONTEXT.md`). This slice uses static content only.
-- Space scan / `Suitable space` classifier. The KV allowlist is the only gate.
-- Account scan and publication-decision branching (4 outcomes). This slice only implements the `publish_page_only` equivalent.
-- The onboarding banner (`confluence:pageBanner` module).
-- A structured D1 analytics event for "demo page published". This slice logs to Sentry / Forge console only.
-- Automated backfill of the existing ~13 diagramly tenants. The admin button supports operator-driven backfill, one tenant at a time.
+- Install/upgrade trigger and any auto-create path. This requires the banner and the AI generation to be in place first (`CONTEXT.md` makes this conditional).
+- The onboarding banner (`confluence:pageBanner`). Pair this with the install trigger when both ship together.
+- AI-generated, space-tailored content. Until this exists, only operator-approved manual creates are appropriate.
+- Space scan / `Suitable space` classifier. No automated decision-making.
+- Enrollment allowlist KV. Without an auto path, there is nothing to enroll into.
+- Account scan, publication-decision branching, full pipeline state machine.
+- Automated backfill of existing tenants. The button covers operator-driven backfill.
+- D1 analytics event for "demo page published". Forge-console log is enough until we have a backfill story.
 
 ## Domain terminology
 
-This spec uses the terms defined in `CONTEXT.md`: [[Demo page]], [[Suitable space]] (referenced only to say we're skipping it), [[Async onboarding pipeline]] (this slice is the bare minimum of phase 2 without the per-space loop), [[Opt-out signal]] (honored via the persistent storage marker).
+This spec uses the terms defined in `CONTEXT.md`: [[Demo page]] (we create one, manually), [[Opt-out signal]] (honored via the storage marker), [[Async onboarding pipeline]] (deferred entirely). [[Suitable space]] and [[Generated demo]] are explicitly NOT implemented here.
 
 ## Architecture
 
 ```
-Forge App (diagramly variant only)
+Forge App (diagramly build only)
 │
-├─ Trigger module: demoPageInstallTrigger
-│    events: avi:forge:installed:app, avi:forge:upgraded:app
-│    → invokes demoPageTriggerFn
+├─ Custom UI admin route — /admin/create-demo-page
+│    Gated: Confluence site admin only.
+│    UI: space-key input + "Create demo page" button.
+│    → invokes createDemoPageFn via @forge/bridge invokeRemote
 │
-├─ Custom UI admin button (dev/admin route)
-│    → invokes demoPageManualFn via @forge/bridge
-│
-└─ Shared core: createDemoPage({ cloudId, spaceKey, source })
-       1. PRODUCT_TYPE !== 'diagramly' → no-op
-       2. storage.get(`demo-page:<spaceKey>`) → if present, no-op
-       3. storage.set(`demo-page:<spaceKey>`, { status: 'pending' })
-       4. Build hardcoded ADF body (4 macros)
-       5. requestConfluence asApp POST /wiki/api/v2/pages
-       6. storage.set(`demo-page:<spaceKey>`, { pageId, createdAt, source })
-       7. On failure: Sentry-log; leave pending marker so we don't double-create
+└─ Forge function: createDemoPageFn
+       1. storage.get(`demo-page:<spaceKey>`) → if present, return existing { pageId, createdAt }
+       2. Build hardcoded ADF body (4 macros)
+       3. requestConfluence asApp POST /wiki/api/v2/pages
+       4. storage.set(`demo-page:<spaceKey>`, { pageId, createdAt, source: 'manual' })
+       5. Log structured success line
+       6. On API failure: do NOT write any marker; surface error to the admin UI
 ```
 
-`createDemoPage` is the single code path that performs the work. Both callers reduce to "decide whether to call it, and with which spaceKey".
+The function is the only place where work happens. The button is a thin UI shell that calls it.
 
 ### Components
 
 | Component | Location | Responsibility |
 |---|---|---|
-| `demoPageInstallTrigger` | `manifest.yml` (module) | Forge trigger module wiring install/upgrade events to the trigger function. |
-| `demoPageTriggerFn` | `src/forge/demoPageTrigger.ts` (Forge function) | Loop over enrolled (spaceKey) entries from Forge KV for this installation. For each, call `createDemoPage` with `source: 'install'`. |
-| `demoPageManualFn` | `src/forge/demoPageManual.ts` (Forge function, invoked from Custom UI) | Take a spaceKey argument from the admin button. Bypass the allowlist. Call `createDemoPage` with `source: 'manual'`. |
-| `createDemoPage` | `src/forge/createDemoPage.ts` | Shared core. Idempotency, gating, page creation. |
-| `demoPageContent` | `src/forge/demoPageContent.ts` | The hardcoded ADF body (kept separate so reviewing/testing the content does not pull in the function plumbing). |
-| Admin button UI | `src/components/Admin/CreateDemoPage.vue` (or similar) | A Custom UI button + space-key input. Hidden behind an admin route; not visible to end users. |
-
-### Data flow
-
-**Install path:**
-
-```
-Atlassian fires avi:forge:installed:app
-  → Forge invokes demoPageTriggerFn (asApp)
-    → for each Forge-KV key matching `demo-page-enroll:*`:
-        spaceKey ← key suffix
-        createDemoPage({ cloudId, spaceKey, source: 'install' })
-```
-
-**Manual path:**
-
-```
-Admin opens admin route in Confluence
-  → Clicks "Create demo page", supplies spaceKey
-    → @forge/bridge invokeRemote → demoPageManualFn
-      → createDemoPage({ cloudId, spaceKey, source: 'manual' })
-```
+| Admin route | `src/components/Admin/CreateDemoPage.vue` (or smallest matching existing pattern) | Site-admin-gated input + button. Calls `createDemoPageFn`. Renders success (with pageId / link) or error. |
+| `createDemoPageFn` | `src/forge/createDemoPage.ts` | The whole flow: idempotency check, page build, asApp POST, marker write, log. |
+| `demoPageContent` | `src/forge/demoPageContent.ts` | Hardcoded ADF body, exported as a constant. Separated so content review is independent of plumbing. |
 
 ### Page content
 
-- Title: `Welcome to Diagramly — Try it out` (canonical; same across all tenants).
-- Placement: top-level page in the target space, no parent. Author shown is the Diagramly app (because we create `asApp`).
-- Body structure:
-  1. H1 "Welcome 👋" + one paragraph introducing Diagramly.
-  2. Four sections — one per macro type — each containing:
-     - H2 heading naming the diagram type (Sequence, Flowchart, Graph, OpenAPI).
-     - One-line intro.
-     - The macro itself (`zenuml-sequence-macro`, Mermaid-via-sequence-macro, `zenuml-graph-macro`, `zenuml-openapi-macro`) with starter content.
-     - A tip line referencing the Aide byline item.
-  3. Footer: documentation link + "Delete this page if you'd rather not see it" — anchors the opt-out behavior in the content the user actually sees.
+- Title: `Welcome to Diagramly — Try it out`.
+- Placement: top-level page in the target space, no parent. Author shown is the Diagramly app (`asApp`).
+- Body: H1 welcome + four H2 sections, one per macro type (Sequence, Flowchart, Graph, OpenAPI), each containing the macro with starter content and a one-line tip referencing the Aide byline item. Footer: docs link + a sentence noting the user can delete the page if they don't want it (which anchors opt-out in the page itself).
 
-The ADF JSON lives in `demoPageContent.ts` as a single exported constant. We can unit-test that it is valid JSON, that the four macro keys match `manifest.yml`, and that the title is the canonical string.
+The ADF JSON lives in `demoPageContent.ts` as a single exported constant.
+
+**Open during implementation:** the Mermaid renderer is reached through the same `zenuml-sequence-macro` key with a Mermaid `bodyType` payload. The exact body shape needs to be verified by hand against a live page before we commit to the constant. This is a hard precondition — we don't ship the button until all four macros render correctly on a manually-created tunnel page.
 
 ### Idempotency contract
 
 The Forge KV marker is the single source of truth. The page itself is not consulted.
 
-- Key: `demo-page:<spaceKey>` (per-installation scope, so `cloudId` is implicit).
-- Values:
-  - `{ status: 'pending' }` — set before the create call. Blocks retries even if the create fails mid-flight.
-  - `{ pageId, createdAt, source }` — set on success.
+- Key: `demo-page:<spaceKey>` (per-installation scope, so `cloudId` is implicit in the namespace).
+- Value: `{ pageId, createdAt, source }`.
 - Rules:
-  - Marker present (any value) → `createDemoPage` returns without doing anything.
-  - Marker absent → write `pending`, attempt create, finalize.
-- Opt-out semantics: if the user deletes the page in Confluence, the marker remains. We will not recreate. This is the [[Opt-out signal]] from `CONTEXT.md`.
-- Recovery: an operator can `forge storage del demo-page:<spaceKey>` to allow recreation (or use a hidden "Reset" affordance on the admin page — TBD whether this ships in v1).
+  - Marker present → return existing info. No POST. No-op.
+  - Marker absent → POST `/wiki/api/v2/pages`. On 2xx, write marker.
+  - Marker absent + POST fails → no marker written; the next click can retry. This is intentional: a transient 429 or 5xx must not become a silent permanent opt-out.
+- Opt-out semantics: if the user deletes the page in Confluence, the marker remains, and we will not recreate from the button. Operator can intentionally clear via `forge storage del demo-page:<spaceKey>` to allow recreation. This is consistent with `CONTEXT.md`'s [[Opt-out signal]].
 
-### KV semantics
-
-Two Forge-KV key spaces, both per-installation:
-
-| Key | Purpose | Written by | Read by |
-|---|---|---|---|
-| `demo-page:<spaceKey>` | Idempotency marker | `createDemoPage` | `createDemoPage` |
-| `demo-page-enroll:<spaceKey>` | Allowlist (only for the install/upgrade trigger path) | Operator runs `forge storage set demo-page-enroll:<spaceKey> enrolled` per enrolled space in v1 (an admin REST endpoint is a follow-up) | `demoPageTriggerFn` |
-
-Value of `demo-page-enroll:<spaceKey>` is `'enrolled'` in v1. We can extend to `{ enrolledAt, enrolledBy, notes }` later without changing the read path (treat any truthy value as enrolled).
-
-The manual path does not read the enrollment KV — by design, so it stays useful for development and operator backfill without polluting the enrollment list.
+There is no `pending` state. With a single manual caller, the race-condition surface (two callers writing the marker mid-flight) does not exist; building a state machine to guard against it would be YAGNI. Two simultaneous clicks of the button at worst create one duplicate page in a year of operator usage; we accept that and treat duplicate cleanup as a manual operation.
 
 ### Variant gating
 
-Diagramly-only. Two layers:
+Diagramly-only. **One layer, deliberately**: CI removes the admin route, the function module, and any related manifest entries from `manifest.yml` for the lite and full builds, using the same `yq` pattern already used to strip `licensing` for lite. No runtime guard — if the manifest doesn't declare the function, Forge cannot invoke it. The `yq` strip is the load-bearing protection; doubling up with a runtime PRODUCT_TYPE check would be belt-and-braces with no real failure mode it actually catches.
 
-1. **Runtime guard** at the entry of `createDemoPage`: read the Forge env variable `PRODUCT_TYPE` (declared in `manifest.yml` `environment.variables`, default `lite`; CI sets it per variant build). If `!== 'diagramly'`, return early. Defense-in-depth in case the manifest module accidentally ships in a non-diagramly build.
-2. **Build-time strip**: CI removes the trigger module, the manual function module, and the admin route from `manifest.yml` for the lite and full builds using `yq` (same pattern used today to strip `licensing` for lite, and to strip Connect-only modules per variant).
+If the `yq` strip is later found to be unreliable in practice, we add a runtime guard then — not preemptively.
+
+### Authorization
+
+The admin route is only visible to Confluence **site admins**. The function additionally checks the caller's site-admin status server-side before doing anything (defense in depth — a hidden UI route alone is not an authorization model). Implementation: use `requestConfluence` with the user token to fetch the current user's site permissions; reject with 403 if not site admin.
+
+This matters: `createDemoPage` runs `asApp` and can write a page anywhere in the space. We cannot let an arbitrary authenticated user trigger it.
 
 ### Error handling
 
-- `createDemoPage` failures are caught and logged via Sentry (`captureError`) plus the Forge console. The pending marker is left in place to prevent duplicate-create on retry.
-- The trigger function iterates over enrolled spaces with `for...of` and a try/catch per space, so one failing space does not block the others.
-- Confluence API errors (403, 404 space, rate limit) are logged with `cloudId` and `spaceKey` for diagnosability.
+- On `requestConfluence` failure (4xx, 5xx, network): return `{ ok: false, error: <code + message> }` to the admin UI. No marker is written. The admin can retry.
+- On marker-write failure after a successful create: log a Sentry error with the `pageId` so an operator can either reconcile manually or accept that a duplicate may be created on the next click. This is the single remaining failure mode and is acceptable for a manual button used a few times a year.
+- The admin UI surfaces failures directly so the operator sees them.
 
 ### Permissions
 
-Already in `manifest.yml` scopes (no new approvals needed):
+Already in `manifest.yml` scopes:
 
 - `write:page:confluence` — create the page.
-- `read:space:confluence` — verify the space exists before creating (optional but recommended).
-- `read:app-system-token` — receive the `asApp` token at the trigger endpoint.
+- `read:user:confluence` + `read:confluence-user` — check the caller is a site admin.
+
+No new approvals required.
 
 ## Testing strategy
 
-### Forge-tunnel inner loop (manual path)
+The whole point of v1 is the forge-tunnel test. Test plan reflects that.
 
-The primary inner loop. Fast feedback.
+### Forge-tunnel manual test (the primary test, run before merging)
 
-1. `pnpm forge:tunnel` (diagramly variant) pointing at a diagramly dev site (e.g. `dia-dev.atlassian.net`).
-2. Open the admin route in the dev site → enter a test space key → click **Create demo page**.
-3. Verify the page appears in that space with the canonical title and four rendered macros.
-4. Click the button again → verify no duplicate page is created (marker check).
-5. Delete the page in Confluence → click the button again → verify still no recreate (opt-out honored).
-6. Reset via `forge storage del demo-page:<spaceKey>` → click create → verify recreation works.
+1. `pnpm forge:tunnel` (diagramly variant) pointing at `dia-dev.atlassian.net`.
+2. Log into the dev site as a site admin. Open the admin route.
+3. Enter a test space key → click **Create demo page**.
+4. Open the created page in Confluence. Verify: title is canonical; four macro placeholders render their content correctly (Sequence, Flowchart via Mermaid, Graph via DrawIO, OpenAPI). This step is the actual product validation — if a macro fails to render, we stop and fix before shipping.
+5. Click the button again with the same space key → verify the response shows the existing pageId (idempotent, no duplicate).
+6. Delete the page in Confluence → click the button again → verify still no recreate (opt-out honored).
+7. Reset via `forge storage del demo-page:<spaceKey>` → click create → verify recreation works.
 
-### Forge-tunnel install path
-
-The full integration check, run before merging.
-
-1. With the tunnel running, set Forge KV: `forge storage set demo-page-enroll:<spaceKeyA> enrolled` for one space; leave a second space `<spaceKeyB>` un-enrolled.
-2. Bump the app version and reinstall the diagramly app on the dev site (this re-fires `avi:forge:installed:app`).
-3. Verify `<spaceKeyA>` gets a demo page; `<spaceKeyB>` does not.
-4. Reinstall again → verify no duplicate in `<spaceKeyA>` (marker still terminal).
+The test is documented in the spec, the implementation plan reuses the steps, and the PR description references this checklist. We do not automate it in v1.
 
 ### Unit tests
 
-In `tests/unit/`:
+Two boundary-level tests in `tests/unit/`:
 
-- `demoPageContent.spec.ts` — ADF is valid JSON, contains the canonical title, references the four macro keys defined in `manifest.yml`.
-- `createDemoPage.spec.ts` — mocks the Forge KV + `requestConfluence`. Asserts: variant guard short-circuits, marker-present short-circuits, marker is written `pending → finalized`, failure leaves `pending` marker.
-- `demoPageTrigger.spec.ts` — iterates enrolled keys, calls `createDemoPage` for each, handles per-space failures without stopping the loop.
+- `createDemoPage.spec.ts` — given Forge KV stub:
+  - **Marker absent**: function POSTs to `/wiki/api/v2/pages` with the expected `spaceId`, title, and a body containing the four expected macro keys; on 2xx, writes the marker with the returned `pageId`.
+  - **Marker present**: function does NOT POST; returns the stored marker.
+  - **POST fails**: no marker is written; error propagates.
+  - **Caller is not site admin**: function rejects before any work.
+- `demoPageContent.spec.ts` — the ADF constant parses as valid JSON, has the canonical title, and references the four macro keys declared in `manifest.yml` (typo-safety).
+
+These test what the function *does*, not the order in which it does it.
 
 ### What we explicitly do not test in v1
 
-- The hardcoded ADF actually rendering correctly on Confluence — covered by manual tunnel test, not automated.
-- Banner display, AI-generated content, suitability classifier — out of scope.
+- Install/upgrade trigger path — we are not building it.
+- Macro rendering correctness — covered by manual tunnel test step 4, not automated.
+- Banner module behavior — out of scope entirely.
 
 ## Success criteria
 
-- A diagramly dev site, with one space enrolled in `demo-page-enroll`, gets exactly one demo page on (re)install.
-- The page contains four rendered macros (Sequence, Flowchart, Graph, OpenAPI) with starter content.
-- Re-install does not duplicate; deletion is not recreated.
-- Lite and full builds ship without the trigger or the function — confirmed by inspecting their built `manifest.yml`.
-- Unit tests pass; no regressions in existing tests.
+- On a diagramly dev site, a site admin can click the admin button, enter a space key, and see a demo page created in that space within seconds.
+- The created page renders all four macros with starter content.
+- Re-clicking the button does not duplicate; deleting the page does not recreate it on the next click.
+- Lite and full builds (inspect the post-CI `manifest.yml` artifact) contain no reference to the function or admin route.
+- Unit tests pass; no regressions.
 
 ## Open questions to resolve during implementation
 
-1. Exact admin route — does it live under an existing admin surface (e.g., `/admin/metrics-inspect`) or a new one? Pick the smallest possible footprint.
-2. Whether to ship a "Reset" affordance in v1 or rely on `forge storage del` from the CLI. Lean toward CLI-only in v1.
-3. Mermaid macro key — the Mermaid renderer goes through the same `zenuml-sequence-macro`, so the demo body needs the right `bodyType` payload to render as a flowchart. Confirm during implementation.
-4. Whether `demo-page-enroll:*` can hold non-`spaceKey` keys we'd want to ignore (defensive parsing).
+1. The exact Mermaid macro payload — needs hand-verification on a real page before the ADF constant is finalized.
+2. Which existing admin surface to mount the button on. Smallest footprint wins; if no surface fits cleanly, add a new minimal one.
+3. Exact site-admin check API — there are a few candidates in the Confluence REST API; pick whichever returns a clean boolean.
 
-## Follow-up slices (sketch only)
+## Follow-up slices (sketch only, in suggested order)
 
-These are the next bites against `CONTEXT.md`, in roughly the order they unblock value:
-
-1. **Banner module** — pair the page with the discoverability surface that gets non-admin readers to it.
-2. **D1 analytics event** for "demo page published" — unlock the success-metrics funnel described in `CONTEXT.md`.
-3. **Space scan + suitability classifier** — replace the manual `demo-page-enroll` allowlist with an automated decision.
-4. **AI-generated content** — replace `demoPageContent.ts` with the [[Generated demo]] pipeline.
-5. **Publication decision** — branch on `publish_both | publish_page_only | banner_only | skip`.
-6. **Automated backfill** of the existing 13 tenants, gated behind a kill switch.
+1. **Banner + install trigger together** — once the page is the artifact and we have a discoverability surface to pair it with, we can wire the install/upgrade trigger and an enrollment surface (likely Cloudflare KV, to match the team's existing rollout conventions for the paywall and CSS flag). This pair is what `CONTEXT.md` actually describes as the auto-onboarding behavior.
+2. **D1 analytics event** for "demo page published" — unlocks the success-metrics funnel.
+3. **AI-generated content** — replace `demoPageContent.ts` with the [[Generated demo]] pipeline. This is the precondition for moving from operator-triggered to auto.
+4. **Space scan + suitability classifier** — replace operator judgement with an automated [[Suitable space]] decision.
+5. **Publication-decision branching** — `publish_both | publish_page_only | banner_only | skip`.
+6. **Automated backfill** of existing tenants behind a kill switch.

@@ -163,7 +163,9 @@ When `paywall_continued_editing` is high for a tenant, the per-space split tells
 
 ### Build the monitoring table
 
-**Output format: always render as a markdown table — never as a bullet list or prose.** One row per customer CSS domain (exclude internal sites). The table must appear verbatim in your response under the heading "Step 2: Daily Monitoring Table (last 1 day)".
+**Output format: always render as a markdown table — never as a bullet list or prose.** One row per customer CSS domain (exclude internal sites). The table must appear verbatim in your response under the heading "Step 2: Daily Monitoring Table (last 24h, ending now)".
+
+> **Window semantics (corrected 2026-05-18):** `paywall_queries.py daily --window-days 1` returns events for **today only** (partial day rolling up to the moment the query runs — typically 6-18h of data). Mixpanel ingestion lag is ~5-10 min so today's numbers are fresh enough to monitor "as of now". Earlier behaviour was yesterday-only, which created a 24h blind spot — fixed in `date_range()`. Partial-day numbers will be lower than full-day totals; don't compare a 14:00-run snapshot to a previous-day total without scaling.
 
 For customer domains on CSS: **read the live CSS flag from Step 1** to get the current list. Do not rely on any hardcoded list here — it goes stale as new tenants are enrolled. Exclude internal sites: zenuml, zenuml-stg, zenuml-connect, lite-stg.
 

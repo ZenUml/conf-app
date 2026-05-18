@@ -326,10 +326,15 @@ def call_event(
 
 
 def date_range(window_days: int) -> tuple[str, str]:
+    # window_days=1 → today only (last ~24h rolling, includes partial day).
+    # window_days=N → N days ending today inclusive.
+    # Trade-off: Mixpanel ingestion lag is ~5-10min, so today's data is fresh
+    # enough to monitor "as of now". Earlier behavior used yesterday-only,
+    # which created a 24h blind spot for daily monitoring.
     today = dt.date.today()
     return (
-        (today - dt.timedelta(days=window_days)).isoformat(),
-        (today - dt.timedelta(days=1)).isoformat(),
+        (today - dt.timedelta(days=window_days - 1)).isoformat(),
+        today.isoformat(),
     )
 
 

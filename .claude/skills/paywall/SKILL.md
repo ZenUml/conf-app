@@ -89,6 +89,10 @@ Prefer `scripts/paywall_queries.py` over hand-built Mixpanel payloads. It centra
 # macro_save_succeeded, macro_save_failed, paywall_continued_editing,
 # macro_create_succeeded — all broken down by client_domain). Q2 was
 # removed from the script 2026-05-12; see Q2 below.
+#
+# Returns BOTH event totals and unique-user counts. Unique-variant keys
+# have a `__unique` suffix, e.g. `paywall_triggered__unique`. Use both:
+# events answer "how much pressure", unique answers "how many people".
 python3 .claude/skills/paywall/scripts/paywall_queries.py daily
 
 # Q5 for ALL CSS customer domains in one batch — 4 JQL calls total instead
@@ -163,22 +167,24 @@ When `paywall_continued_editing` is high for a tenant, the per-space split tells
 
 ### Build the monitoring table
 
-**Output format: always render as a markdown table — never as a bullet list or prose.** One row per customer CSS domain (exclude internal sites). The table must appear verbatim in your response under the heading "Step 2: Daily Monitoring Table (last 1 day)".
+**Output format: always render as a markdown table — never as a bullet list or prose.** One row per customer CSS domain (exclude internal sites). The table must appear verbatim in your response under the heading "Step 2: Daily Monitoring Table (last 24h, ending now)".
+
+> **Window semantics (corrected 2026-05-18):** `paywall_queries.py daily --window-days 1` returns events for **today only** (partial day rolling up to the moment the query runs — typically 6-18h of data). Mixpanel ingestion lag is ~5-10 min so today's numbers are fresh enough to monitor "as of now". Earlier behaviour was yesterday-only, which created a 24h blind spot — fixed in `date_range()`. Partial-day numbers will be lower than full-day totals; don't compare a 14:00-run snapshot to a previous-day total without scaling.
 
 For customer domains on CSS: **read the live CSS flag from Step 1** to get the current list. Do not rely on any hardcoded list here — it goes stale as new tenants are enrolled. Exclude internal sites: zenuml, zenuml-stg, zenuml-connect, lite-stg.
 
-| Domain | triggered | modal_shown | advocacy_copies | intent_capture_rate | saves | creates | friction | continued | note |
-|--------|-----------|-------------|-----------------|---------------------|-------|---------|----------|-----------|------|
+| Domain | triggered (events / users) | advocacy (events / users) | intent_capture_rate | saves (events / users) | creates | friction | continued (events / users) | note |
+|--------|-----------------------------|----------------------------|---------------------|-------------------------|---------|----------|-----------------------------|------|
 
-- `triggered` = `paywall_triggered`
-- `advocacy_copies` = `advocacy_message_copied` (successful clipboard copy from the paywall modal — sole in-modal intent signal)
-- `intent_capture_rate` = `advocacy_copies / triggered` when `triggered > 0`, else `—`. **Can exceed 100%** — a single user may copy the message multiple times (e.g., to multiple recipients). This is the strongest intent signal possible, not a data error. A domain with `intent_capture_rate > 100%` should be the top outreach priority for that day.
-- `saves` = `macro_save_succeeded` (edits of existing diagrams)
-- `creates` = `macro_create_succeeded` (first-time saves of new diagrams)
-- `friction` = triggered / (triggered + saves) — add as a note if > 50%
-- `continued` = `paywall_continued_editing`
-- `note` — flag high `intent_capture_rate` (users copying the advocacy message), zero copies with high triggers (message may not be landing), or domains in Q1/Q4 but not on CSS (anomaly / enrollment candidate)
-- Lead the PushNotification summary with **intent highlights** (top domains by `advocacy_copies` or `intent_capture_rate`) — there is no separate “marketplace vs enterprise” conversion column anymore
+- `triggered` = `paywall_triggered` total / `paywall_triggered__unique`. Show both as `events / users` (e.g. `13 / 10`). Render the unique-user count as the primary outreach signal — it tells you whether the friction is **broad-base** (many users) or **concentrated** (one frustrated power user).
+- `advocacy` = `advocacy_message_copied` total / `advocacy_message_copied__unique`. The user count is the de-duplicated advocate count; the event count tells you how motivated each one was (multiple copies = sending to multiple recipients).
+- `intent_capture_rate` = `advocacy_copies / triggered` (events). **Can exceed 100%** — a single user may copy multiple times. This is the strongest intent signal possible, not a data error.
+- `saves` = `macro_save_succeeded` total / `macro_save_succeeded__unique` (edits of existing diagrams).
+- `creates` = `macro_create_succeeded` (events only — unique not currently fetched for creates).
+- `friction` = triggered_events / (triggered_events + saves_events). Add as a note if > 50%.
+- `continued` = `paywall_continued_editing` total / `paywall_continued_editing__unique`. High events but low users → one user repeatedly bouncing; high on both → broad cohort affected.
+- `note` — flag the **kind** of friction in plain English: `broad-base` (many users, few events each) vs `concentrated` (few users, many events each). Also flag high `intent_capture_rate`, zero advocacy with high triggers, or domains in Q1/Q4 but not on CSS (anomaly / enrollment candidate).
+- Lead the PushNotification summary with **breadth × intent**: highest-priority is a tenant with both many unique trigger users AND advocacy copies (org-wide pain + motivated advocate). Concentrated power-user friction is lower priority — fix one person's blocker rather than reach the buyer.
 - Flag any domain that appears in Q1 or Q4 results but is NOT in the CSS list — that's an anomaly or CSS enrollment candidate
 
 > **Before flagging anything as anomalous, run the Interpretation lens** (top of this skill). For tenant-specific geographies and the holiday-vs-paywall-regression worked example, read `private/paywall/interpretation.md` — only load it when you actually have an anomaly to interpret, not on every run.
@@ -192,6 +198,25 @@ For customer domains on CSS: **read the live CSS flag from Step 1** to get the c
 - Highlight spaces where macros ≥ 100 and triggered = 0 — these are latent paywall spaces where users edit but haven't hit a blocked user yet (or are view-only)
 - Highlight spaces where macros ≥ 100 and triggered > 0 — active paywall spaces
 - **Creates are gated as of 2026-05-15** (PR #89, `paywall_blocked_create` event). Before that date, creates bypassed the paywall; in any window crossing 2026-05-15, expect `paywall_triggered` for creates to ramp in. Spaces where `creates > 0` and `triggered > 0` are no longer "self-ratcheting" — both edits and creates are now blocked when the space is over the limit. Strategy details: `docs/paywall-strategy.md`.
+
+### Continued-rate by surface (added 2026-05-18)
+
+Project-wide table breaking down `paywall_continued_editing / paywall_triggered` by `action_type`. Each surface has a different psychological cost — the user wants to know which surfaces the user "powers through" vs which they actually bounce off.
+
+| Surface (`action_type`) | triggered | continued | continued_rate | meaning |
+|---|---:|---:|---:|---|
+| `page_editor` (edit existing) | … | … | … | edit attempts past 100-macro limit |
+| `page_editor_create` (new macro) | … | … | … | new-create attempts past limit |
+| `fullscreen_viewer` (read-only) | … | … | … | fullscreen view of a saturated space |
+
+> **Data availability:** `action_type` was added to `paywall_continued_editing` (and `upgrade_modal_shown` / `upgrade_modal_dismissed` / `advocacy_message_copied`) on 2026-05-18. **For windows before that date, the breakdown shows 0% across all surfaces** — the property doesn't exist on historical events. From 2026-05-18 onward, every production-path event populates `action_type` (via `mountUnderPaywallGate`). If `fullscreen_viewer` continued_rate is materially lower than `page_editor`, that's expected — there's nothing to "continue editing" in a read-only viewer; users either dismiss the modal to keep looking or close the viewer entirely.
+>
+> **Note on `trigger_source` (legacy):** The `upgrade_modal_shown` event continues to emit `trigger_source: 'header_badge'` alongside the new `action_type` to keep saved Mixpanel queries and the existing unit test working. Prefer `action_type` for any new analysis; treat `trigger_source` as deprecated and remove once saved queries have migrated.
+
+Query (insights, last 1 day):
+- metric A: `paywall_triggered` total, breakdown by `action_type`
+- metric B: `paywall_continued_editing` total, breakdown by `action_type`
+- compute B/A per row
 
 ### Non-CSS domains in the results
 

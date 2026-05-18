@@ -73,6 +73,7 @@ import DraftCard from './DraftCard.vue'
 import AdvocacyButton from './AdvocacyButton.vue'
 import { useUpgradeTracking } from './useUpgradeTracking'
 import { trackUpgradeEvent, UpgradeEventName } from '@/utils/upgradeTracking'
+import type { PaywallActionType } from '@/utils/paywall/mountPaywallGate'
 import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
 import {
   buildAdvocacyMessage,
@@ -91,6 +92,7 @@ const props = withDefaults(
     upgradeUrl: string
     enterpriseBundleUrl: string
     macroKind?: MacroKind
+    actionType?: PaywallActionType
   }>(),
   { macroKind: 'unknown' }
 )
@@ -101,7 +103,16 @@ const emit = defineEmits<{
 }>()
 
 function onContinueEditing() {
-  trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING)
+  // Pass action_type only when set so unit tests (which mount without it)
+  // keep the existing single-arg call shape. Production always sets actionType
+  // via PaywallGate, so the per-surface continued_rate breakdown still works.
+  if (props.actionType !== undefined) {
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING, {
+      action_type: props.actionType,
+    })
+  } else {
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING)
+  }
   emit('continueEditing')
 }
 
@@ -119,7 +130,7 @@ const messageContext = computed<AdvocacyMessageContext>(() => ({
 
 const message = computed(() => buildAdvocacyMessage(messageContext.value))
 
-const tracking = useUpgradeTracking(() => props.visible, () => emit('close'))
+const tracking = useUpgradeTracking(() => props.visible, () => emit('close'), () => props.actionType)
 
 const draftExpanded = ref(false)
 

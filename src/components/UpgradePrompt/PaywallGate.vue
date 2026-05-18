@@ -24,6 +24,7 @@
     :upgrade-url="upgradeUrl"
     :enterprise-bundle-url="enterpriseBundleUrl"
     :macro-kind="macroKind"
+    :action-type="actionType"
     @close="onClose"
     @continue-editing="onContinueEditing"
   />
@@ -33,6 +34,7 @@
 import { ref, type Component } from 'vue'
 import UpgradePrompt from '@/components/UpgradePrompt/UpgradePrompt.vue'
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage'
+import type { PaywallActionType } from '@/utils/paywall/mountPaywallGate'
 
 withDefaults(
   defineProps<{
@@ -43,6 +45,10 @@ withDefaults(
     macroKind?: MacroKind
     content: Component
     contentProps?: Record<string, unknown>
+    // Optional at the component boundary so direct test mounts work without
+    // modifying scoring-adjacent tests. Production path (mountUnderPaywallGate)
+    // requires actionType, so real events are always tagged.
+    actionType?: PaywallActionType
   }>(),
   { macroKind: 'unknown', contentProps: () => ({}) }
 )

@@ -41,6 +41,8 @@ async function resolveSpaceKey(logTag: string): Promise<string> {
  * Caller is responsible for firing the upstream tracking events (PAYWALL_*)
  * since their event names / ui_components differ per surface.
  */
+export type PaywallActionType = 'page_editor' | 'page_editor_create' | 'fullscreen_viewer';
+
 export async function mountUnderPaywallGate(opts: {
   doc: Diagram;
   content: Component;
@@ -48,6 +50,7 @@ export async function mountUnderPaywallGate(opts: {
   macroKind: MacroKind;
   customerSuccess: CustomerSuccess;
   logTag: string;
+  actionType: PaywallActionType;
 }): Promise<void> {
   const spaceKey = await resolveSpaceKey(opts.logTag);
   mountRoot(opts.doc, PaywallGate, {
@@ -59,6 +62,7 @@ export async function mountUnderPaywallGate(opts: {
     enterpriseBundleUrl: opts.customerSuccess.enterpriseBundleUrl.value,
     macroKind: opts.macroKind,
     spaceKey,
+    actionType: opts.actionType,
     onClose: async () => {
       await (await getView()).close();
     },
@@ -102,6 +106,7 @@ export async function tryFullscreenViewerPaywall(opts: {
     macroKind: opts.macroKind,
     customerSuccess,
     logTag: 'fullscreen-viewer',
+    actionType: 'fullscreen_viewer',
   });
   return true;
 }
@@ -154,6 +159,7 @@ export async function tryPageEditorPaywall(opts: {
     macroKind: opts.macroKind,
     customerSuccess,
     logTag: editBlocked ? 'page-editor' : 'page-editor-create',
+    actionType,
   });
   return true;
 }

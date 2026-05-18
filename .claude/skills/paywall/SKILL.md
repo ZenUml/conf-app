@@ -199,6 +199,23 @@ For customer domains on CSS: **read the live CSS flag from Step 1** to get the c
 - Highlight spaces where macros ≥ 100 and triggered > 0 — active paywall spaces
 - **Creates are gated as of 2026-05-15** (PR #89, `paywall_blocked_create` event). Before that date, creates bypassed the paywall; in any window crossing 2026-05-15, expect `paywall_triggered` for creates to ramp in. Spaces where `creates > 0` and `triggered > 0` are no longer "self-ratcheting" — both edits and creates are now blocked when the space is over the limit. Strategy details: `docs/paywall-strategy.md`.
 
+### Continued-rate by surface (added 2026-05-18)
+
+Project-wide table breaking down `paywall_continued_editing / paywall_triggered` by `action_type`. Each surface has a different psychological cost — the user wants to know which surfaces the user "powers through" vs which they actually bounce off.
+
+| Surface (`action_type`) | triggered | continued | continued_rate | meaning |
+|---|---:|---:|---:|---|
+| `page_editor` (edit existing) | … | … | … | edit attempts past 100-macro limit |
+| `page_editor_create` (new macro) | … | … | … | new-create attempts past limit |
+| `fullscreen_viewer` (read-only) | … | … | … | fullscreen view of a saturated space |
+
+> **Data availability:** `action_type` was added to `paywall_continued_editing` (and `upgrade_modal_shown` / `upgrade_modal_dismissed` / `advocacy_message_copied`) on 2026-05-18. **For windows before that date, the breakdown shows 0% across all surfaces** — the property doesn't exist on historical events. From 2026-05-18 onward, every row should populate. If `fullscreen_viewer` continued_rate is materially lower than `page_editor`, that's expected — there's nothing to "continue editing" in a read-only viewer; users either dismiss the modal to keep looking or close the viewer entirely.
+
+Query (insights, last 1 day):
+- metric A: `paywall_triggered` total, breakdown by `action_type`
+- metric B: `paywall_continued_editing` total, breakdown by `action_type`
+- compute B/A per row
+
 ### Non-CSS domains in the results
 
 If a domain appears in Q1/Q2/Q3/Q4 results but is **not** in the CSS flag, check `private/paywall/anomalies.md` before treating it as a new finding. The reference file lists known persistent anomalies with first-seen dates. If the domain is new, add a row to that file — don't re-investigate every day. Genuinely new + persistent (3+ days) anomalies are worth a code-path investigation, since they suggest the CSS flag check is being bypassed.

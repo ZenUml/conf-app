@@ -24,6 +24,7 @@
     :upgrade-url="upgradeUrl"
     :enterprise-bundle-url="enterpriseBundleUrl"
     :macro-kind="macroKind"
+    :action-type="actionType"
     @close="onClose"
     @continue-editing="onContinueEditing"
   />
@@ -33,6 +34,7 @@
 import { ref, type Component } from 'vue'
 import UpgradePrompt from '@/components/UpgradePrompt/UpgradePrompt.vue'
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage'
+import type { PaywallActionType } from '@/utils/paywall/mountPaywallGate'
 
 withDefaults(
   defineProps<{
@@ -43,6 +45,7 @@ withDefaults(
     macroKind?: MacroKind
     content: Component
     contentProps?: Record<string, unknown>
+    actionType: PaywallActionType
   }>(),
   { macroKind: 'unknown', contentProps: () => ({}) }
 )

@@ -73,6 +73,7 @@ import DraftCard from './DraftCard.vue'
 import AdvocacyButton from './AdvocacyButton.vue'
 import { useUpgradeTracking } from './useUpgradeTracking'
 import { trackUpgradeEvent, UpgradeEventName } from '@/utils/upgradeTracking'
+import type { PaywallActionType } from '@/utils/paywall/mountPaywallGate'
 import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
 import {
   buildAdvocacyMessage,
@@ -91,6 +92,7 @@ const props = withDefaults(
     upgradeUrl: string
     enterpriseBundleUrl: string
     macroKind?: MacroKind
+    actionType?: PaywallActionType
   }>(),
   { macroKind: 'unknown' }
 )
@@ -101,7 +103,9 @@ const emit = defineEmits<{
 }>()
 
 function onContinueEditing() {
-  trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING)
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING, {
+    action_type: props.actionType,
+  })
   emit('continueEditing')
 }
 
@@ -119,7 +123,7 @@ const messageContext = computed<AdvocacyMessageContext>(() => ({
 
 const message = computed(() => buildAdvocacyMessage(messageContext.value))
 
-const tracking = useUpgradeTracking(() => props.visible, () => emit('close'))
+const tracking = useUpgradeTracking(() => props.visible, () => emit('close'), () => props.actionType)
 
 const draftExpanded = ref(false)
 

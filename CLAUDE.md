@@ -40,7 +40,7 @@ All three variants (lite, full, diagramly) are **Forge-only** in production. The
 
 ## Client privacy — no client names in public files
 
-**Policy:** The names of specific Confluence client tenants (e.g. customer subdomain prefixes like `colesgroup`, full hostnames like `tenant.atlassian.net`, customer-named page titles, customer-specific `cloudId`s) **MUST NOT appear in any file checked into this public repo** — code, docs, comments, JSDoc, help text, fixtures, snapshots, ADRs, research specs, runbook examples. The public repo is intended to be open to anyone with the link; client identities are not.
+**Policy:** The names of specific Confluence client tenants (i.e. customer subdomain prefixes, full hostnames matching `<customer>.atlassian.net`, customer-named page titles, customer-specific `cloudId`s) **MUST NOT appear in any file checked into this public repo** — code, docs, comments, JSDoc, help text, fixtures, snapshots, ADRs, research specs, runbook examples. The public repo is intended to be open to anyone with the link; client identities are not.
 
 **Where client-naming artifacts go:** The private companion repo `ZenUml/conf-app-private` is mounted as a git submodule at `private/`. Anything that names a real tenant lives there.
 

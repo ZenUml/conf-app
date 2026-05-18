@@ -359,7 +359,7 @@ The `AnalyticsEventFact` schema has richer columns than the legacy `UserBehavior
 
 - **D1 `conf-zenuml-prod`** — tenant activity (`AnalyticsEventFact` since 2026-05-02; `UserBehaviorEvent` for ≤ 2026-05-01), install records (`ForgeInstallation`, `ClientInstallation`), content data
 - **Mixpanel** — macro view counts (`macro_viewed`), filtered by `client_domain` property. **Project ID: `3373228`** (the `Diagramly.Ai` project; conf-app shares this single project — there is no separate one). Query via `mcp__mixpanel__Run-Query` with `project_id=3373228`, or via JQL using `API_Secret` from `.env.mixpanel`. Project display timezone is UTC+7, so hourly buckets need conversion when joining to D1 (which is UTC).
-- **KV metrics-inspect** — macro counts per space: `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<subdomain>` (subdomain prefix only, e.g. `linemanwongnai` — not the full hostname)
+- **KV metrics-inspect** — macro counts per space: `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<subdomain>` (subdomain prefix only, e.g. `example-tenant` — not the full hostname)
 
 ### clientDomain format
 
@@ -367,9 +367,9 @@ Two stores, two conventions — always match the store's form:
 
 | Store | Form | Example |
 |---|---|---|
-| KV flags | subdomain prefix | `linemanwongnai` |
-| D1 (`AnalyticsEventFact`, `UserBehaviorEvent`) | full hostname | `linemanwongnai.atlassian.net` |
-| Mixpanel — all events (frontend + backend) | **subdomain prefix** | `linemanwongnai` |
+| KV flags | subdomain prefix | `example-tenant` |
+| D1 (`AnalyticsEventFact`, `UserBehaviorEvent`) | full hostname | `example-tenant.atlassian.net` |
+| Mixpanel — all events (frontend + backend) | **subdomain prefix** | `example-tenant` |
 
 Frontend source: `getSubdomain()` in `src/utils/ContextParameters/ContextParameters.ts:42-45`.
 Backend source: regex on hostname in `src/export.js:34` (fixed 2026-05-16 to match frontend format).

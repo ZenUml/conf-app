@@ -4,7 +4,7 @@ import { response } from "./OkResponse";
 interface Env {
   EVENT_BUCKET?: R2Bucket;
   PAGE_CAPTURE_SECRET?: string;
-  /** Comma-separated Atlassian subdomain prefixes to capture (e.g. "colesgroup,airwallex"). Empty = capture all. */
+  /** Comma-separated Atlassian subdomain prefixes to capture (e.g. "example-one,example-two"). Empty = capture all. */
   PAGE_CAPTURE_ALLOWED_DOMAINS?: string;
   DB?: D1Database;
 }
@@ -72,7 +72,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   // Domain allowlist check: if PAGE_CAPTURE_ALLOWED_DOMAINS is configured, only
-  // capture pages from those Atlassian subdomains (e.g. "colesgroup,airwallex").
+  // capture pages from those Atlassian subdomains (e.g. "example-one,example-two").
   const allowedDomains = env.PAGE_CAPTURE_ALLOWED_DOMAINS
     ? env.PAGE_CAPTURE_ALLOWED_DOMAINS.split(",").map((d) => d.trim()).filter(Boolean)
     : [];

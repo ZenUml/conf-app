@@ -8,7 +8,7 @@ Usage:
 
     css_flag.py put '<json>'
         Overwrite the CSS flag with the supplied JSON string.
-        Example: css_flag.py put '{"vin3s":true,"zeptonow":true,...}'
+        Example: css_flag.py put '{"example-one":true,"example-two":true,...}'
 
 Why this exists (read before "improving"): every wrangler KV call
 needs --remote, otherwise wrangler defaults to local Miniflare
@@ -61,7 +61,7 @@ def put_flag(payload: str) -> None:
     # Validate before writing.
     parsed = json.loads(payload)
     if not isinstance(parsed, dict):
-        sys.exit("error: CSS flag must be a JSON object (e.g. {\"vin3s\":true})")
+        sys.exit("error: CSS flag must be a JSON object (e.g. {\"example-one\":true})")
     subprocess.run(
         [
             "npx",

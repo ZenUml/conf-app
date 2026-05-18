@@ -106,7 +106,7 @@ Full audit results in `docs/superpowers/specs/2026-05-12-pdf-export-paywall-stra
 
 ## 4. Rollout mechanism (friction funnel)
 
-The friction funnel is shipped to **all Lite tenants on the CSS flag** — not the entire Lite cohort. CSS is a Cloudflare KV map keyed by subdomain prefix (e.g. `linemanwongnai`, not `linemanwongnai.atlassian.net`).
+The friction funnel is shipped to **all Lite tenants on the CSS flag** — not the entire Lite cohort. CSS is a Cloudflare KV map keyed by subdomain prefix (e.g. `tenant-a`, not `tenant-a.atlassian.net`).
 
 | Resource | Value |
 |---|---|

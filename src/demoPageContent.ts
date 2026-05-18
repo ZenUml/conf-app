@@ -76,7 +76,7 @@ export const DEMO_PAGE_ADF = {
   content: [
     heading(1, 'Welcome 👋'),
     paragraph(
-      'This page was created by Diagramly so you can try the four diagram types we support. Edit any macro to play with the source.',
+      'This page was created by Diagramly so you can try the diagram types we support. Edit any macro to play with the source.',
     ),
 
     heading(2, 'Sequence diagram (ZenUML)'),

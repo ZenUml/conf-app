@@ -24,6 +24,18 @@ describe('demoPageContent', () => {
     }
   });
 
+  it('extension blocks declare extensionType, extensionKey, and macroParams.bodyType.value', () => {
+    const extensions = (DEMO_PAGE_ADF.content as Array<{ type: string; attrs?: any }>).filter(
+      node => node.type === 'extension',
+    );
+    expect(extensions.length).toBeGreaterThan(0);
+    for (const ext of extensions) {
+      expect(ext.attrs.extensionType).toBe('com.atlassian.confluence.macro.core');
+      expect(typeof ext.attrs.extensionKey).toBe('string');
+      expect(typeof ext.attrs.parameters.macroParams.bodyType.value).toBe('string');
+    }
+  });
+
   it('macro keys match the diagramly-build manifest', () => {
     // The diagramly build is the lite-variant manifest with LITE_KEY_SUFFIX=''
     // and SEQUENCE_MACRO_KEY='gpt-diagram-macro' (see package.json forge:deploy:diagramly:*).

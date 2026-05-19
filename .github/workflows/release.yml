@@ -86,24 +86,28 @@ jobs:
         run: |
           pnpm forge:deploy:disable-analytics
           pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
+          pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-lite.zenuml.com" -e production
           pnpm forge:deploy:lite:prod
       - name: Deploy "ZenUML for Confluence Full" to Forge Production
         if: ${{ steps.properties.outputs.license == 'full' }}
         run: |
           pnpm forge:deploy:disable-analytics
           APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
+          APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-full.zenuml.com" -e production
           pnpm forge:deploy:full:prod
       - name: Deploy "Diagramly for Confluence" to Forge Production
         if: ${{ steps.properties.outputs.license == 'diagramly' }}
         run: |
           pnpm forge:deploy:disable-analytics
           APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
+          APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-lite.zenuml.com" -e production
           pnpm forge:deploy:diagramly:prod
       - name: Deploy "ZenUML for Confluence Full" to Forge Production
         if: ${{ steps.properties.outputs.variant == 'full' }}
         run: |
           pnpm forge:deploy:disable-analytics
           APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
+          APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-full.zenuml.com" -e production
           pnpm forge:deploy:full:prod
       - name: Set PAGE_CAPTURE_SECRET in Forge Production
         if: ${{ vars.PAGE_CAPTURE_SECRET != '' }}

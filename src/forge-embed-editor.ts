@@ -24,12 +24,22 @@ async function saveEmbedAndExit(_customContentId: string) {
   
   const isNew = !macroData?.uuid;
 
+  // Tag analytics with the just-saved customContent id; relying on central
+  // Forge-context enrichment here would record the stale source id on copies
+  // and null on first saves (context not yet refreshed).
+  const savedIdProps = {
+    content_id: id,
+    custom_content_id: id,
+    attachment_name: `zenuml-${id}.png`,
+  };
+
   if (isNew) {
     trackAnalyticsEvent("macro_create_succeeded", {
       feature_area: "macro",
       surface: "editor",
       macro_type: "embed",
       operation_mode: "create",
+      ...savedIdProps,
     });
   } else {
     trackAnalyticsEvent("macro_save_succeeded", {
@@ -37,6 +47,7 @@ async function saveEmbedAndExit(_customContentId: string) {
       surface: "editor",
       macro_type: "embed",
       operation_mode: "edit",
+      ...savedIdProps,
     });
   }
   

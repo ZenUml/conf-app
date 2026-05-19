@@ -79,6 +79,19 @@ describe('Persistence', function () {
     );
   })
 
+  it('macro_create_succeeded carries content_id, custom_content_id, attachment_name from the freshly saved customContent', async () => {
+    mockIsInContentEditOrContentCreate.mockReturnValue(false);
+    await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "macro_create_succeeded",
+      expect.objectContaining({
+        content_id: "mocked_custom_content_id",
+        custom_content_id: "mocked_custom_content_id",
+        attachment_name: "zenuml-mocked_custom_content_id.png",
+      })
+    );
+  })
+
   it('should fire macro_save_succeeded for an existing diagram', async () => {
     mockIsInContentEditOrContentCreate.mockReturnValue(false);
     await saveToPlatform({ ...NULL_DIAGRAM, id: 'existing-id', diagramType: DiagramType.Sequence }, mockApWrapper);
@@ -87,6 +100,27 @@ describe('Persistence', function () {
       expect.objectContaining({
         macro_type: expect.any(String),
         operation_mode: "edit",
+      })
+    );
+  })
+
+  // Copies enter the macro_save_succeeded branch because diagram.id is set to
+  // the SOURCE customContentId, but CustomContentStorageProvider.save() creates
+  // a brand new record with a DIFFERENT id. Analytics must tag the new id, not
+  // the source id from context. Without the explicit override, central
+  // enrichment would join the event to the wrong customContent.
+  it('macro_save_succeeded for a copied diagram tags the freshly saved id, not the source id', async () => {
+    mockIsInContentEditOrContentCreate.mockReturnValue(false);
+    await saveToPlatform(
+      { ...NULL_DIAGRAM, id: 'source-id', isCopy: true, diagramType: DiagramType.Sequence } as any,
+      mockApWrapper
+    );
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "macro_save_succeeded",
+      expect.objectContaining({
+        content_id: "mocked_custom_content_id",
+        custom_content_id: "mocked_custom_content_id",
+        attachment_name: "zenuml-mocked_custom_content_id.png",
       })
     );
   })

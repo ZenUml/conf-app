@@ -42,12 +42,27 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
     };
     const macroType: MacroTypeValue = DIAGRAM_TYPE_TO_MACRO_TYPE[diagram.diagramType] ?? 'none';
 
+    // Always identify analytics by the actually-saved customContent.id, not by
+    // whatever the Forge context currently advertises: for first save the context
+    // hasn't been refreshed yet, and for copies the context still points at the
+    // source customContent (ApWrapper2.getCustomContentByIdV2 sets diagram.isCopy
+    // but keeps diagram.id = source id, so the save creates a fresh record with
+    // a different id). Without this override, central enrichment would join save
+    // events to the wrong customContent.
+    const savedId = String(customContent.id);
+    const savedIdProps = {
+      content_id: savedId,
+      custom_content_id: savedId,
+      attachment_name: `zenuml-${savedId}.png`,
+    };
+
     if (isNew) {
       trackAnalyticsEvent("macro_create_succeeded", {
         feature_area: "macro",
         surface: "editor",
         macro_type: macroType,
         operation_mode: "create",
+        ...savedIdProps,
       });
     } else {
       trackAnalyticsEvent("macro_save_succeeded", {
@@ -55,6 +70,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
         surface: "editor",
         macro_type: macroType,
         operation_mode: "edit",
+        ...savedIdProps,
       });
     }
   }

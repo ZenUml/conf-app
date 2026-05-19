@@ -40,12 +40,12 @@ export type AnalyticsProperties = {
   feedback_value?: FeedbackValue;
   feedback_score?: number;
   // Content
-  content_id?: string | null;
+  content_id?: string;
   content_type?: string;
   content_status?: string;
-  page_id?: string | null;
-  custom_content_id?: string | null;
-  attachment_name?: string | null;
+  page_id?: string;
+  custom_content_id?: string;
+  attachment_name?: string;
   space_admin_count?: number;
   // Error
   error_code?: string;

@@ -79,6 +79,19 @@ describe('Persistence', function () {
     );
   })
 
+  it('macro_create_succeeded carries content_id, custom_content_id, attachment_name from the freshly saved customContent', async () => {
+    mockIsInContentEditOrContentCreate.mockReturnValue(false);
+    await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "macro_create_succeeded",
+      expect.objectContaining({
+        content_id: "mocked_custom_content_id",
+        custom_content_id: "mocked_custom_content_id",
+        attachment_name: "zenuml-mocked_custom_content_id.png",
+      })
+    );
+  })
+
   it('should fire macro_save_succeeded for an existing diagram', async () => {
     mockIsInContentEditOrContentCreate.mockReturnValue(false);
     await saveToPlatform({ ...NULL_DIAGRAM, id: 'existing-id', diagramType: DiagramType.Sequence }, mockApWrapper);

@@ -43,11 +43,18 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
     const macroType: MacroTypeValue = DIAGRAM_TYPE_TO_MACRO_TYPE[diagram.diagramType] ?? 'none';
 
     if (isNew) {
+      // The Forge context's extension.config.customContentId is the OLD id (or
+      // undefined for first save); customContent.id is the freshly created one.
+      // Pass it explicitly so the event can be joined to the saved diagram.
+      const newId = String(customContent.id);
       trackAnalyticsEvent("macro_create_succeeded", {
         feature_area: "macro",
         surface: "editor",
         macro_type: macroType,
         operation_mode: "create",
+        content_id: newId,
+        custom_content_id: newId,
+        attachment_name: `zenuml-${newId}.png`,
       });
     } else {
       trackAnalyticsEvent("macro_save_succeeded", {

@@ -104,6 +104,27 @@ describe('Persistence', function () {
     );
   })
 
+  // Copies enter the macro_save_succeeded branch because diagram.id is set to
+  // the SOURCE customContentId, but CustomContentStorageProvider.save() creates
+  // a brand new record with a DIFFERENT id. Analytics must tag the new id, not
+  // the source id from context. Without the explicit override, central
+  // enrichment would join the event to the wrong customContent.
+  it('macro_save_succeeded for a copied diagram tags the freshly saved id, not the source id', async () => {
+    mockIsInContentEditOrContentCreate.mockReturnValue(false);
+    await saveToPlatform(
+      { ...NULL_DIAGRAM, id: 'source-id', isCopy: true, diagramType: DiagramType.Sequence } as any,
+      mockApWrapper
+    );
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "macro_save_succeeded",
+      expect.objectContaining({
+        content_id: "mocked_custom_content_id",
+        custom_content_id: "mocked_custom_content_id",
+        attachment_name: "zenuml-mocked_custom_content_id.png",
+      })
+    );
+  })
+
   it('should NOT fire analytics for Embed diagram type', async () => {
     mockIsInContentEditOrContentCreate.mockReturnValue(false);
     await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Embed }, mockApWrapper);

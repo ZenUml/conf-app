@@ -69,7 +69,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/export.js"],
+    files: ["src/export.js", "src/page-capture.js"],
     languageOptions: {
       globals: {
         process: "readonly",

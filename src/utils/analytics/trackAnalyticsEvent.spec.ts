@@ -120,6 +120,78 @@ describe("trackAnalyticsEvent", () => {
     );
   });
 
+  it("auto-enriches page_id, content_id, custom_content_id, attachment_name from forgeContext", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+      extension: {
+        content: { id: "page-789" },
+        config: { customContentId: "cc-456" },
+      },
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({
+        page_id: "page-789",
+        content_id: "page-789",
+        custom_content_id: "cc-456",
+        attachment_name: "zenuml-cc-456.png",
+      })
+    );
+  });
+
+  it("falls back to extension.modal.customContentId when extension.config is missing", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+      extension: {
+        content: { id: "page-789" },
+        modal: { customContentId: "cc-from-modal" },
+      },
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({
+        custom_content_id: "cc-from-modal",
+        attachment_name: "zenuml-cc-from-modal.png",
+      })
+    );
+  });
+
+  it("sets page_id, custom_content_id, attachment_name to null when forgeContext fields are missing", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({
+        page_id: null,
+        content_id: null,
+        custom_content_id: null,
+        attachment_name: null,
+      })
+    );
+  });
+
   it("caller-supplied properties override auto-enriched values", async () => {
     await _awaitableTrackAnalyticsEvent("macro_viewed", {
       feature_area: "macro",

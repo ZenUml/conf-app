@@ -139,9 +139,36 @@ describe("trackAnalyticsEvent", () => {
       "macro_viewed",
       expect.objectContaining({
         page_id: "page-789",
-        content_id: "page-789",
+        content_id: "cc-456",
         custom_content_id: "cc-456",
         attachment_name: "zenuml-cc-456.png",
+      })
+    );
+  });
+
+  // content_id has a legacy meaning across the codebase: customContentId, not pageId
+  // (see forgeIndex.ts, forge-swagger-editor.ts, ForgeGraphEditor.vue). Auto-enrichment
+  // must not alias content_id to page_id, or the dimension's meaning diverges by call path.
+  it("does NOT populate content_id with page_id when only page context is available", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+      extension: {
+        content: { id: "page-789" },
+      },
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({
+        page_id: "page-789",
+        content_id: null,
+        custom_content_id: null,
       })
     );
   });

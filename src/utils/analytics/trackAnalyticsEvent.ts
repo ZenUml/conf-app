@@ -142,7 +142,7 @@ export async function _awaitableTrackAnalyticsEvent(
       app_version: callerProps.app_version ?? import.meta.env.VITE_APP_VERSION,
       app_commit: callerProps.app_commit ?? import.meta.env.VITE_APP_COMMIT,
       page_id: callerProps.page_id ?? contentIds.page_id,
-      content_id: callerProps.content_id ?? contentIds.page_id,
+      content_id: callerProps.content_id ?? contentIds.custom_content_id,
       custom_content_id:
         callerProps.custom_content_id ?? contentIds.custom_content_id,
       attachment_name: callerProps.attachment_name ?? contentIds.attachment_name,

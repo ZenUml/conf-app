@@ -16,6 +16,13 @@ const PAGE_CAPTURE_SECRET = process.env.PAGE_CAPTURE_SECRET;
  * @param {object} context - Forge invocation context (contains cloudId, siteUrl, …)
  */
 export const handler = async (event, context) => {
+  // Kill switch: set Forge variable PAGE_CAPTURE_ENABLED=false (per app, per env)
+  // to short-circuit before the requestConfluence call when the Forge function
+  // quota is under pressure. Default (unset / any other value) leaves capture on.
+  if (process.env.PAGE_CAPTURE_ENABLED === 'false') {
+    return;
+  }
+
   const content = event?.content;
   const cloudId =
     event?.cloudId ??

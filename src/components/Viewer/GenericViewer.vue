@@ -65,6 +65,24 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
                 </svg>
               </button>
+              <OverflowMenu trigger-label="More">
+                <template #default="{ close }">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    class="overflow-menu-item"
+                    :disabled="isDownloadingDebug"
+                    @click="onDownloadDebugInfo(close)"
+                  >
+                    <span class="overflow-menu-item-icon">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M9 4.5a3 3 0 0 1 6 0M5 8h14M7 8v6a5 5 0 0 0 10 0V8M4 11h3M17 11h3M5 17l-1.5 2M19 17l1.5 2M12 14v6m0 0-2.25-2.25M12 20l2.25-2.25" />
+                      </svg>
+                    </span>
+                    <span>Download debug info</span>
+                  </button>
+                </template>
+              </OverflowMenu>
             </div>
 
           </div>
@@ -88,7 +106,10 @@ import globals from '@/model/globals';
 import {DataSource} from "@/model/Diagram/Diagram";
 import { getCodeFromDiagram } from "@/model/Diagram/DiagramTypeConfig";
 import ExportModal from '@/components/ExportModal/ExportModal.vue'
+import OverflowMenu from '@/components/Viewer/OverflowMenu.vue'
 import { toast } from '@/utils/toast'
+import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
+import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 
@@ -99,11 +120,13 @@ export default {
     canUserEdit: true,
     isHovering: false,
     showExportModal: false,
+    isDownloadingDebug: false,
   }),
   components: {
     Debug,
     ErrorBoundary,
     ExportModal,
+    OverflowMenu,
   },
   computed: {
     ...mapState({diagramType: state => state.diagram.diagramType, diagram: state => state.diagram }),
@@ -189,6 +212,36 @@ export default {
       } catch (error) {
         console.error('copyCode failed', error);
         toast({ message: 'Failed to copy code', duration: 2000 });
+      }
+    },
+    async onDownloadDebugInfo(closeMenu) {
+      if (this.isDownloadingDebug) return;
+      this.isDownloadingDebug = true;
+      try {
+        const provider = new MacroIdProvider(globals.apWrapper);
+        const apRequest = (url) => globals.apWrapper.request(url);
+        const { bundle, serialisedSize } = await buildAndDownloadDebugBundle(
+          { diagram: this.diagram, diagramType: this.diagramType },
+          {
+            apRequest,
+            getCustomContentId: () => provider.getId().then(v => v ?? null),
+            getMacroUuid:       () => provider.getUuid().then(v => v ?? null),
+          },
+        );
+        trackEvent('debug_bundle_downloaded', 'click', this.diagramType, {
+          diagram_type:           bundle.identity.diagramType,
+          product_type:           bundle.identity.productType,
+          had_custom_content_id:  !!bundle.identity.customContentId,
+          latest_version_number:  bundle.saved.latest?.versionNumber ?? null,
+          error_count:            bundle.errors.length,
+          bundle_size_bytes:      serialisedSize,
+        });
+      } catch (err) {
+        console.error('[debug-bundle] failed', err);
+        toast({ message: 'Could not produce debug bundle. Please retry.', duration: 3000 });
+      } finally {
+        this.isDownloadingDebug = false;
+        if (typeof closeMenu === 'function') closeMenu();
       }
     },
     async copyLink() {

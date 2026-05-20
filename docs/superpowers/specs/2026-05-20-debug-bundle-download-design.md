@@ -9,7 +9,7 @@
 
 ## 1. Problem
 
-When a customer reports a hard-to-reproduce issue with a diagram macro — the canonical example being Sophie's empty-wipe data loss (see `private/research/2026-05-17-graph-empty-wipe-data-loss-fix.md`) — we have limited evidence to diagnose what happened. The §6.1–6.3 fix in that research spec prevents that specific class of wipe and adds two new instrumented events (`empty_content_loaded`, `empty_save_blocked`), but it only covers wipes we already know about. For the next unknown-unknown class of incident, we want a way for any user — customer or support engineer — to capture the macro's current state and recent saved versions in one click and send the resulting file to us.
+When a customer reports a hard-to-reproduce issue with a diagram macro — the canonical example being the empty-wipe data-loss incident (see `private/research/2026-05-17-graph-empty-wipe-data-loss-fix.md`) — we have limited evidence to diagnose what happened. The §6.1–6.3 fix in that research spec prevents that specific class of wipe and adds two new instrumented events (`empty_content_loaded`, `empty_save_blocked`), but it only covers wipes we already know about. For the next unknown-unknown class of incident, we want a way for any user — customer or support engineer — to capture the macro's current state and recent saved versions in one click and send the resulting file to us.
 
 Today's gaps the bundle fills:
 - `view_macro` (now `macro_viewed`) is missing `custom_content_id` on every event we've inspected — we cannot join Mixpanel back to specific affected diagrams without contortions.
@@ -269,4 +269,17 @@ E2E coverage spans all 4 macro types deliberately. A single test does not struct
 1. **Exact `active`-field key per diagramType.** §6.2 lists the expected keys; verify by reading `src/model/ContentProvider/CustomContentStorageProvider.ts` before implementing `extractActiveField`. Mismatches will silently produce empty `active` strings.
 2. **Popover primitive.** Confirm no equivalent popover/menu component already exists in this repo's components before adding `OverflowMenu.vue`. If one exists, reuse it. If not, implement minimally — click-outside-to-close, `Esc`-to-close, anchored to a parent element. Don't introduce a new dependency for this.
 3. **Forge `requestConfluence` rate limiting.** Four sequential GETs (latest + 3 prior) for a customContent with a long history could hit per-second limits. Implementer should verify behavior on a content with N=10+ versions; if rate-limited, add a small inter-request delay or use `Promise.allSettled` with concurrency 2.
-4. **PDF / non-UTF8 bodies.** The OpenAPI macro can hold a large spec; sequence diagrams can hold non-ASCII text. Confirm `JSON.stringify` + Blob handles all expected payloads; spot-check Chinese-character mermaid code (we have wipe data for `"台貨大肚-系統流程"` in the research spec).
+4. **Large or non-UTF8 bodies.** The OpenAPI macro can hold a large spec; sequence and mermaid diagrams routinely hold non-ASCII titles and content. Confirm `JSON.stringify` + Blob handles all expected payloads; spot-check non-ASCII mermaid code (the research spec referenced in §1 contains real examples to use during implementation).
+
+## 12. Handling received bundles (operational policy)
+
+A downloaded bundle on the customer's machine is the customer's own data and is out of scope for this repo's privacy policy. Once we receive a bundle through a support channel, the data sits with us, and the policy in `CLAUDE.md` ("client names / titles MUST NOT appear in any file checked into this public repo") applies fully to anything we do with it next.
+
+Rules for received bundles:
+
+1. **Do not commit a received bundle to any repo.** Not this public repo, and not `private/` either — `private/` is still git-tracked. Keep received bundles in a non-tracked location (local `/tmp/zenuml-debug-bundles/`, a private Drive folder, or the support ticket attachment itself). Add `/zenuml-debug-*.json` to root `.gitignore` as belt-and-braces.
+2. **Do not quote bundle contents verbatim in public artifacts.** No customer titles, page IDs, hostnames, or diagram contents in public GitHub issues, PR descriptions, commit messages, code comments, test fixtures, snapshots, or unit test inputs. Use placeholder values (`example-tenant`, `example.atlassian.net`, `example diagram`) when illustrating a finding from a bundle in any public artifact.
+3. **Retention.** Delete the local copy of a received bundle when the support case closes or within 30 days, whichever is sooner. The bundle is evidence for the active investigation; once that investigation is closed, it no longer has operational value and represents only privacy exposure.
+4. **Internal sharing.** When a bundle has to be looked at by a colleague to diagnose, share it as a file attachment in a private channel (DM, private Slack channel, ticket). Do not paste contents inline into anywhere — even an "internal" team channel — without first stripping titles and diagram bodies down to the structural identifiers (sha256s, byte lengths, IDs).
+
+This section is operational guidance, not implementation work. It informs how the team handles the artifacts the new feature produces.

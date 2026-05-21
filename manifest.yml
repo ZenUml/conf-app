@@ -181,6 +181,8 @@ modules:
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/diagram_macro_icon.png
+      unlicensedAccess:
+        - unlicensed
     - key: zenuml-openapi-macro${LITE_KEY_SUFFIX}
       title: OpenAPI / Swagger${LITE_TITLE_SUFFIX}
       description: Create an OpenAPI / Swagger Spec. ${APP_LABEL}
@@ -193,6 +195,8 @@ modules:
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/openapi_macro_icon.png
+      unlicensedAccess:
+        - unlicensed
     - key: zenuml-graph-macro${LITE_KEY_SUFFIX}
       title: Graph (DrawIO)${LITE_TITLE_SUFFIX}
       description: Create a Graph powered by DrawIO. ${APP_LABEL}
@@ -205,6 +209,8 @@ modules:
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/graph_macro_icon.png
+      unlicensedAccess:
+        - unlicensed
     - key: zenuml-embed-macro${LITE_KEY_SUFFIX}
       title: Embed a Diagram, Graph or API Spec${LITE_TITLE_SUFFIX}
       description: Embed an existing Diagram, Graph or API Spec. ${APP_LABEL}
@@ -217,6 +223,8 @@ modules:
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/diagram_macro_icon.png
+      unlicensedAccess:
+        - unlicensed
   trigger:
     - key: remote-installed-trigger
       endpoint: remote-installed-endpoint

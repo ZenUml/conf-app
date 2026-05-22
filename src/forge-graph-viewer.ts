@@ -53,6 +53,7 @@ import store from "@/model/store2";
 import GraphExample from '@/model/Graph/GraphExample';
 import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
+import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 
 async function loadDiagram() {
   const context = await initForgeContext();
@@ -64,6 +65,11 @@ async function loadDiagram() {
     const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
+    if (!doc) {
+      // ZEN-1170 telemetry: probe page children for a recovery candidate,
+      // report to Mixpanel, then fall through to NULL_DIAGRAM. Read-only.
+      void reportOrphanObserved(globals.apWrapper, context.extension?.content?.id, customContentId, 'graph');
+    }
   }
   store.state.diagram = doc ?? NULL_DIAGRAM;
   window.diagram = doc ?? NULL_DIAGRAM;

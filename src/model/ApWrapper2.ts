@@ -280,11 +280,18 @@ export default class ApWrapper2 implements IApWrapper {
 
   async getCustomContentByIdV2(id: string): Promise<ICustomContentV2 | undefined> {
     const customContent = await this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`);
-    if (!customContent) {
-      throw Error(`Failed to load custom content by id ${id}`);
+    // forgeRequest returns the parsed JSON body regardless of HTTP status —
+    // a 404 surfaces as { errors: [{ status: 404, code: 'NOT_FOUND', … }] }
+    // (truthy but missing body.raw.value). Previously the next line crashed
+    // with TypeError → viewer iframe collapsed to 0 height (ZEN-1170). Treat
+    // any non-success shape as "not found" so callers fall through to
+    // NULL_DIAGRAM / fallback paths instead of vanishing.
+    const rawValue = customContent?.body?.raw?.value;
+    if (!rawValue || customContent?.errors) {
+      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
+      return undefined;
     }
-    //@ts-ignore
-    let diagram = JSON.parse(customContent.body.raw.value);
+    let diagram = JSON.parse(rawValue);
     diagram.source = DataSource.CustomContent;
     const count = (await this._page.countMacros((m) => {
       //TODO: filter by macro type

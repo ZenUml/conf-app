@@ -106,6 +106,14 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
       console.debug('Loaded custom content', customContent);
       doc = customContent?.value;
+      // ZEN-1170: when the referenced customContent fails to load (404, deleted,
+      // restricted space), fall through to an empty doc so the backfill and
+      // per-macro-type dispatch below don't crash on `doc.plantUmlCode`.
+      // Graph/embed/openapi viewers re-fetch from their own modules; for
+      // sequence the user sees an empty editor surface, not a 0-height iframe.
+      if (!doc) {
+        doc = { ...NULL_DIAGRAM };
+      }
     }
 
     // Capture the active field for wipe-precursor telemetry BEFORE any

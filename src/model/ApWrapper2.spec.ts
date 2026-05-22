@@ -168,6 +168,54 @@ describe('ApWrapper2', () => {
     });
   });
 
+  describe('getCustomContentByIdV2', () => {
+    // ZEN-1170 regression. Reproduced on lite-dev 2026-05-22 by creating a
+    // page whose graph macro pointed at customContentId 999999999998 (which
+    // does not exist). Direct evidence (private/zen-1170/repro-defect-2.mjs):
+    //   GET /api/v2/custom-content/<id>?body-format=raw → HTTP 404
+    //   Response body: {"errors":[{"status":404,"code":"NOT_FOUND", ...}]}
+    //   Forge bridge parses .json() regardless of status, so the wrapper
+    //   received the truthy { errors: [...] } object and crashed with
+    //   "TypeError: Cannot read properties of undefined (reading 'raw')" at
+    //   getCustomContentByIdV2 → iframe height collapsed to 0 px.
+    it('returns the parsed diagram value on success', async () => {
+      const apiResponse = {
+        id: '321',
+        body: { raw: { value: JSON.stringify({ code: 'A.method', diagramType: 'sequence' }) } },
+      };
+      vi.mocked(forgeRequest).mockResolvedValueOnce(apiResponse);
+
+      const result = await wrapper.getCustomContentByIdV2('321');
+
+      expect(result?.id).toBe('321');
+      expect(result?.value?.code).toBe('A.method');
+      expect(forgeRequest).toHaveBeenCalledWith(
+        '/wiki/api/v2/custom-content/321?body-format=raw',
+        'GET',
+        undefined,
+      );
+    });
+
+    it('returns undefined when the v2 API responds 404 with an errors array', async () => {
+      // Exact body shape captured from lite-dev on 2026-05-22.
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        errors: [{ status: 404, code: 'NOT_FOUND', title: 'Custom content with id not found: [999999999998]', detail: null }],
+      });
+
+      const result = await wrapper.getCustomContentByIdV2('999999999998');
+
+      expect(result).toBeUndefined();
+    });
+
+    it('returns undefined when body.raw.value is missing (any non-success shape)', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '999' });
+
+      const result = await wrapper.getCustomContentByIdV2('999');
+
+      expect(result).toBeUndefined();
+    });
+  });
+
   describe('isVersionConflict (via updateCustomContentV2 behavior)', () => {
     it('should detect version conflict from error message', async () => {
       const content = buildContent(3);

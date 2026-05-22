@@ -19,9 +19,17 @@ import EventBus from "./EventBus";
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
+import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
 
 // Track editor session start time
 const editorStartTime = Date.now();
+
+// ZEN-1170 Defect 2b: captured at editor open so the save callback can
+// detect when the persisted id no longer matches the macro's stale config
+// id, and submit a fresh customContentId via view.submit() to repair the
+// macro XML for future visits.
+let originalCustomContentId: string | undefined;
+let recoveryPageId: string | undefined;
 
 const EMPTY_GRAPH = `<mxfile>
   <diagram name="Page-1">
@@ -49,9 +57,19 @@ async function saveGraphAndExit(graphXml: string) {
     endEditJourney('saved');
   }
   
+  // ZEN-1170 Defect 2b: if the macro's stored customContentId points at the
+  // dead orphan but we just saved against the recovered sibling id, also
+  // submit the new id back to the macro config so future viewers don't need
+  // to re-probe. view.submit({config:...}) is valid in the macro-config
+  // editor view (it's how the inserting branch below has always worked).
+  const macroNeedsRepair = !!(originalCustomContentId && id && id !== originalCustomContentId);
+
   setTimeout(async () => {
-    if(await isInserting()) {
+    if(await isInserting() || macroNeedsRepair) {
       await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
+      if (macroNeedsRepair && originalCustomContentId) {
+        reportOrphanMacroRepaired(recoveryPageId, originalCustomContentId, id, 'graph');
+      }
     } else {
       await (await getView()).close();
     }
@@ -131,6 +149,9 @@ async function initializeMacro() {
   // Ensure session is initialized
   getOrCreateSession();
   const customContentId = context.extension?.config?.customContentId;
+  // Capture for the save callback (Defect 2b repair detection).
+  originalCustomContentId = customContentId;
+  recoveryPageId = context.extension?.content?.id;
 
   let doc: Diagram | undefined;
   if (!customContentId) {
@@ -140,9 +161,17 @@ async function initializeMacro() {
       isNew: true,
     } as Diagram;
   } else {
-    const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-    console.log('loadDiagram - customContent', customContent);
-    doc = customContent?.value;
+    const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId);
+    console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
+    doc = loaded.customContent?.value;
+    if (loaded.recoveredFromOrphanId && doc) {
+      reportOrphanObserved(recoveryPageId, customContentId, 'graph', loaded.probeResult, {
+        recoveryUsed: true,
+        recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+      });
+    } else if (!doc) {
+      reportOrphanObserved(recoveryPageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false });
+    }
   }
 
   store.state.diagram = doc ?? NULL_DIAGRAM;

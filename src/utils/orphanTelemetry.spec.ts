@@ -1,31 +1,31 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { reportOrphanObserved } from './orphanTelemetry';
+import { reportOrphanObserved, reportOrphanMacroRepaired, type ProbeResult } from './orphanTelemetry';
 import { trackEvent } from '@/utils/window';
 
 vi.mock('@/utils/window', () => ({
   trackEvent: vi.fn(),
 }));
 
-function fakeApWrapper(overrides: Partial<{ recoverable: boolean | 'probe_failed'; candidateCount: number; pageChildrenTotal: number; truncated: boolean; probeError: string }> = {}) {
-  const probeOrphanRecovery = vi.fn().mockResolvedValue({
-    recoverable: overrides.recoverable ?? false,
-    candidateCount: overrides.candidateCount ?? 0,
-    pageChildrenTotal: overrides.pageChildrenTotal ?? 0,
-    ...(overrides.truncated && { truncated: true }),
-    ...(overrides.probeError && { probeError: overrides.probeError }),
-  });
-  return { probeOrphanRecovery } as any;
+function probeOk(overrides: Partial<ProbeResult> = {}): ProbeResult {
+  return {
+    recoverable: false,
+    candidateCount: 0,
+    pageChildrenTotal: 0,
+    ...overrides,
+  } as ProbeResult;
 }
 
 describe('reportOrphanObserved', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('fires customcontent_orphan_observed with the probe result', async () => {
-    const apWrapper = fakeApWrapper({ recoverable: true, candidateCount: 1, pageChildrenTotal: 3 });
+  it('fires customcontent_orphan_observed with the supplied probe result and recovery_used=false by default', () => {
+    reportOrphanObserved(
+      '5553291265',
+      '3916300417',
+      'graph',
+      probeOk({ recoverable: true, candidateCount: 1, pageChildrenTotal: 1, candidateIds: ['5553291585'] }),
+    );
 
-    await reportOrphanObserved(apWrapper, '5553291265', '3916300417', 'graph');
-
-    expect(apWrapper.probeOrphanRecovery).toHaveBeenCalledWith('5553291265', '3916300417');
     expect(trackEvent).toHaveBeenCalledTimes(1);
     expect(trackEvent).toHaveBeenCalledWith(
       '3916300417',
@@ -36,15 +36,39 @@ describe('reportOrphanObserved', () => {
         page_id: '5553291265',
         recoverable: 'true',
         candidate_count: 1,
-        page_children_total: 3,
+        page_children_total: 1,
+        recovery_used: false,
       }),
     );
   });
 
-  it('records probe failure details when the probe could not run', async () => {
-    const apWrapper = fakeApWrapper({ recoverable: 'probe_failed', probeError: 'network down' });
+  it('reports recovery_used=true with the recovered_id when the caller applied recovery', () => {
+    reportOrphanObserved(
+      '5553291265',
+      '3916300417',
+      'graph',
+      probeOk({ recoverable: true, candidateCount: 1, pageChildrenTotal: 1, candidateIds: ['5553291585'] }),
+      { recoveryUsed: true, recoveredId: '5553291585' },
+    );
 
-    await reportOrphanObserved(apWrapper, '5553291265', '3916300417', 'sequence');
+    expect(trackEvent).toHaveBeenCalledWith(
+      '3916300417',
+      'customcontent_orphan_observed',
+      'warning',
+      expect.objectContaining({
+        recovery_used: true,
+        recovered_id: '5553291585',
+      }),
+    );
+  });
+
+  it('records probe failure details when the probe could not run', () => {
+    reportOrphanObserved(
+      '5553291265',
+      '3916300417',
+      'sequence',
+      probeOk({ recoverable: 'probe_failed', probeError: 'network down' }),
+    );
 
     expect(trackEvent).toHaveBeenCalledWith(
       '3916300417',
@@ -53,16 +77,14 @@ describe('reportOrphanObserved', () => {
       expect.objectContaining({
         recoverable: 'probe_failed',
         probe_error: 'network down',
+        recovery_used: false,
       }),
     );
   });
 
-  it('skips the probe and reports probe_skipped_no_page_id when pageId is missing', async () => {
-    const apWrapper = fakeApWrapper();
+  it('reports probe_skipped_no_page_id when pageId is missing', () => {
+    reportOrphanObserved(undefined, '3916300417', 'openapi', probeOk());
 
-    await reportOrphanObserved(apWrapper, undefined, '3916300417', 'openapi');
-
-    expect(apWrapper.probeOrphanRecovery).not.toHaveBeenCalled();
     expect(trackEvent).toHaveBeenCalledWith(
       '3916300417',
       'customcontent_orphan_observed',
@@ -70,15 +92,63 @@ describe('reportOrphanObserved', () => {
       expect.objectContaining({
         diagram_kind: 'openapi',
         recoverable: 'probe_skipped_no_page_id',
+        recovery_used: false,
       }),
     );
   });
 
-  it('never throws even if probeOrphanRecovery rejects', async () => {
-    const apWrapper = {
-      probeOrphanRecovery: vi.fn().mockRejectedValue(new Error('boom')),
-    } as any;
+  it('reports probe_skipped_no_page_id when probeResult is missing', () => {
+    reportOrphanObserved('5553291265', '3916300417', 'embed', undefined);
 
-    await expect(reportOrphanObserved(apWrapper, '1', '2', 'embed')).resolves.toBeUndefined();
+    expect(trackEvent).toHaveBeenCalledWith(
+      '3916300417',
+      'customcontent_orphan_observed',
+      'warning',
+      expect.objectContaining({
+        recoverable: 'probe_skipped_no_page_id',
+        recovery_used: false,
+      }),
+    );
+  });
+
+  it('never throws even if trackEvent throws under it', () => {
+    vi.mocked(trackEvent).mockImplementationOnce(() => { throw new Error('boom'); });
+    expect(() => reportOrphanObserved('p', 'o', 'graph', probeOk())).not.toThrow();
+  });
+});
+
+describe('reportOrphanMacroRepaired', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('fires customcontent_orphan_macro_repaired with old/new ids and diagram_kind', () => {
+    reportOrphanMacroRepaired('5553291265', '3916300417', '5553291585', 'graph');
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      '3916300417',
+      'customcontent_orphan_macro_repaired',
+      'info',
+      expect.objectContaining({
+        diagram_kind: 'graph',
+        page_id: '5553291265',
+        old_custom_content_id: '3916300417',
+        new_custom_content_id: '5553291585',
+      }),
+    );
+  });
+
+  it('omits page_id when it is undefined', () => {
+    reportOrphanMacroRepaired(undefined, '3916300417', '5553291585', 'sequence');
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      '3916300417',
+      'customcontent_orphan_macro_repaired',
+      'info',
+      expect.not.objectContaining({ page_id: expect.anything() }),
+    );
+  });
+
+  it('never throws even if trackEvent throws under it', () => {
+    vi.mocked(trackEvent).mockImplementationOnce(() => { throw new Error('boom'); });
+    expect(() => reportOrphanMacroRepaired('p', 'o', 'n', 'graph')).not.toThrow();
   });
 });

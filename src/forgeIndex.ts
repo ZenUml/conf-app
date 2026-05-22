@@ -20,7 +20,14 @@ import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywal
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM } from '@/model/Diagram/Diagram';
-import { reportOrphanObserved } from '@/utils/orphanTelemetry';
+import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
+
+// ZEN-1170 Defect 2b: captured during load so the save event handler can
+// detect when the persisted id differs from the macro's stale config id and
+// repair the macro XML via view.submit({config:...}). See forge-graph-editor.ts
+// for the same pattern in the graph/embed/openapi editors.
+let originalCustomContentId: string | undefined;
+let recoveryPageId: string | undefined;
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -95,6 +102,8 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 
     let doc;
     const customContentId = context.extension?.config?.customContentId || context.extension.modal?.customContentId;
+    originalCustomContentId = customContentId;
+    recoveryPageId = context.extension?.content?.id;
     if(!customContentId) {
       doc = {
         diagramType: DiagramType.Sequence,
@@ -104,16 +113,26 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         isNew: true
       }
     } else {
-      const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-      console.debug('Loaded custom content', customContent);
-      doc = customContent?.value;
-      // ZEN-1170: when the referenced customContent fails to load (404, deleted,
-      // restricted space), fall through to an empty doc so the backfill and
-      // per-macro-type dispatch below don't crash on `doc.plantUmlCode`.
-      // Graph/embed/openapi viewers re-fetch from their own modules; for
-      // sequence the user sees an empty editor surface, not a 0-height iframe.
-      if (!doc) {
-        void reportOrphanObserved(globals.apWrapper, context.extension?.content?.id, customContentId, 'sequence');
+      const pageId = context.extension?.content?.id;
+      const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(pageId, customContentId);
+      console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
+      doc = loaded.customContent?.value;
+      if (loaded.recoveredFromOrphanId && doc) {
+        // ZEN-1170 Defect 2b: rendered the recovered sibling CC. doc.id is
+        // now the recovered CC's actual id so the editor's save() will PUT
+        // to it instead of creating a duplicate.
+        reportOrphanObserved(pageId, customContentId, 'sequence', loaded.probeResult, {
+          recoveryUsed: true,
+          recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+        });
+      } else if (!doc) {
+        // ZEN-1170: the referenced customContent failed to load AND no page
+        // child was a confident match — fall through to an empty doc so the
+        // backfill and per-macro-type dispatch below don't crash on
+        // `doc.plantUmlCode`. Graph/embed/openapi viewers re-fetch from
+        // their own modules; for sequence the user sees an empty editor
+        // surface, not a 0-height iframe.
+        reportOrphanObserved(pageId, customContentId, 'sequence', loaded.probeResult, { recoveryUsed: false });
         doc = { ...NULL_DIAGRAM };
       }
     }
@@ -419,11 +438,23 @@ EventBus.$on('save', async () => {
     endEditJourney('saved');
   }
 
+  // ZEN-1170 Defect 2b: repair stale macro XML when we saved against the
+  // recovered sibling id. view.submit({config:...}) is the same path used
+  // for inserts — valid in the macro-config editor view.
+  const macroNeedsRepair = !!(originalCustomContentId && id && id !== originalCustomContentId);
+  const diagramKindForRepair =
+    store.state.diagram?.diagramType === DiagramType.Mermaid ? 'sequence'
+    : store.state.diagram?.diagramType === DiagramType.PlantUml ? 'sequence'
+    : 'sequence';
+
   // Give some time for track event to be sent out. We are not using a more reliable way to track event because
   // we don't want to block dialog close for too long.
   setTimeout(async () => {
-    if(await isInserting()) {
+    if(await isInserting() || macroNeedsRepair) {
       await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
+      if (macroNeedsRepair && originalCustomContentId) {
+        reportOrphanMacroRepaired(recoveryPageId, originalCustomContentId, id, diagramKindForRepair);
+      }
     } else {
       await (await getView()).close();
     }

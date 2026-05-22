@@ -19,12 +19,17 @@ async function loadDiagram() {
   const customContentId = context.extension?.config?.customContentId;
   if(!customContentId) {
   } else {
-    const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-    console.log('loadDiagram - customContent', customContent);
-    doc = customContent?.value;
-    if (!doc) {
-      // ZEN-1170 telemetry: probe page children for a recovery candidate.
-      void reportOrphanObserved(globals.apWrapper, context.extension?.content?.id, customContentId, 'embed');
+    const pageId = context.extension?.content?.id;
+    const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(pageId, customContentId);
+    console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
+    doc = loaded.customContent?.value;
+    if (loaded.recoveredFromOrphanId && doc) {
+      reportOrphanObserved(pageId, customContentId, 'embed', loaded.probeResult, {
+        recoveryUsed: true,
+        recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+      });
+    } else if (!doc) {
+      reportOrphanObserved(pageId, customContentId, 'embed', loaded.probeResult, { recoveryUsed: false });
     }
   }
   store.state.diagram = doc ?? NULL_DIAGRAM;

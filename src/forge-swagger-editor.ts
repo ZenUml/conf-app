@@ -28,6 +28,11 @@ import { validateOpenApiSpecForStore } from '@/utils/openapi/validate';
 import { debounce } from 'lodash';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
+import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
+
+// ZEN-1170 Defect 2b: see forge-graph-editor.ts.
+let originalCustomContentId: string | undefined;
+let recoveryPageId: string | undefined;
 
 installRestoreDraftBanner();
 import SwaggerForgeEditorShell from '@/components/OpenApi/SwaggerForgeEditorShell.vue';
@@ -93,10 +98,17 @@ async function saveOpenApiAndExit() {
     endEditJourney('saved');
   }
 
+  // ZEN-1170 Defect 2b: repair stale macro XML when we saved against the
+  // recovered sibling id (see forge-graph-editor.ts).
+  const macroNeedsRepair = !!(originalCustomContentId && id && id !== originalCustomContentId);
+
   /* eslint-disable no-undef */
   setTimeout(async () => {
-    if(await isInserting()) {
+    if(await isInserting() || macroNeedsRepair) {
       await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
+      if (macroNeedsRepair && originalCustomContentId) {
+        reportOrphanMacroRepaired(recoveryPageId, originalCustomContentId, id, 'openapi');
+      }
     } else {
       await (await getView()).close();
     }
@@ -182,6 +194,8 @@ async function initializeMacro() {
   // load-time wipe-precursor telemetry below.
   const customContentId = context.extension?.config?.customContentId
     || context.extension?.modal?.customContentId;
+  originalCustomContentId = customContentId;
+  recoveryPageId = context.extension?.content?.id;
 
   const mountEditorDocument = async () => {
     if (openApiDocumentHydrated) {
@@ -192,9 +206,17 @@ async function initializeMacro() {
     let doc: Diagram | undefined;
     if (!customContentId) {
     } else {
-      const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-      console.log('loadDiagram - customContent', customContent);
-      doc = customContent?.value;
+      const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId);
+      console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
+      doc = loaded.customContent?.value;
+      if (loaded.recoveredFromOrphanId && doc) {
+        reportOrphanObserved(recoveryPageId, customContentId, 'openapi', loaded.probeResult, {
+          recoveryUsed: true,
+          recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+        });
+      } else if (!doc) {
+        reportOrphanObserved(recoveryPageId, customContentId, 'openapi', loaded.probeResult, { recoveryUsed: false });
+      }
     }
     store.state.diagram = doc ?? NULL_DIAGRAM;
 

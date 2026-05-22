@@ -13,6 +13,11 @@ import store from "@/model/store2";
 import uuidv4 from "@/utils/uuid";
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
+import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
+
+// ZEN-1170 Defect 2b: see forge-graph-editor.ts.
+let originalCustomContentId: string | undefined;
+let recoveryPageId: string | undefined;
 
 async function saveEmbedAndExit(_customContentId: string) {
   const macroData = await globals.apWrapper.getMacroData();
@@ -56,9 +61,16 @@ async function saveEmbedAndExit(_customContentId: string) {
     endEditJourney('saved');
   }
   
+  // ZEN-1170 Defect 2b: repair stale macro XML when we saved against the
+  // recovered sibling id (see forge-graph-editor.ts).
+  const macroNeedsRepair = !!(originalCustomContentId && id && id !== originalCustomContentId);
+
   setTimeout(async () => {
-    if(await isInserting()) {
+    if(await isInserting() || macroNeedsRepair) {
       await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
+      if (macroNeedsRepair && originalCustomContentId) {
+        reportOrphanMacroRepaired(recoveryPageId, originalCustomContentId, id, 'embed');
+      }
     } else {
       await (await getView()).close();
     }
@@ -91,14 +103,24 @@ async function initializeMacro() {
   // Ensure session is initialized
   getOrCreateSession();
   const customContentId = context.extension?.config?.customContentId;
+  originalCustomContentId = customContentId;
+  recoveryPageId = context.extension?.content?.id;
 
   let doc: Diagram | undefined;
   if (!customContentId) {
     doc = { diagramType: DiagramType.Embed, isNew: true } as Diagram;
   } else {
-    const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-    console.log('loadDiagram - customContent', customContent);
-    doc = customContent?.value;
+    const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId);
+    console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
+    doc = loaded.customContent?.value;
+    if (loaded.recoveredFromOrphanId && doc) {
+      reportOrphanObserved(recoveryPageId, customContentId, 'embed', loaded.probeResult, {
+        recoveryUsed: true,
+        recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+      });
+    } else if (!doc) {
+      reportOrphanObserved(recoveryPageId, customContentId, 'embed', loaded.probeResult, { recoveryUsed: false });
+    }
   }
 
   store.state.diagram = doc ?? NULL_DIAGRAM;

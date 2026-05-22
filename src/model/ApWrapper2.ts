@@ -323,6 +323,68 @@ export default class ApWrapper2 implements IApWrapper {
     return <ICustomContentV2>assign;
   }
 
+  // ZEN-1170 read-only probe. When a viewer's customContentId can no longer
+  // be loaded (404, deleted, restricted) we list the host page's own
+  // custom-content children and look for one whose stored `body.id` equals
+  // the orphan id — that's the surviving sibling created by the historical
+  // cross-page-copy → dedupe flow. The result is reported to Mixpanel so we
+  // can estimate fleet-wide recoverability before shipping any auto-repair.
+  //
+  // No writes. No state changes. Safe to call from any viewer entry.
+  async probeOrphanRecovery(
+    pageId: string,
+    orphanId: string,
+  ): Promise<{
+    recoverable: boolean | 'probe_failed';
+    candidateCount: number;
+    pageChildrenTotal: number;
+    truncated?: boolean;
+    probeError?: string;
+  }> {
+    const limit = 250;
+    const type = this.getCustomContentType();
+    const url = `/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(type)}&body-format=raw&limit=${limit}`;
+    try {
+      const response = await this.makeRequest(url);
+      if (response?.errors) {
+        return {
+          recoverable: 'probe_failed',
+          candidateCount: 0,
+          pageChildrenTotal: 0,
+          probeError: JSON.stringify(response.errors),
+        };
+      }
+      const results: Array<any> = Array.isArray(response?.results) ? response.results : [];
+      let candidateCount = 0;
+      for (const child of results) {
+        const rawValue = child?.body?.raw?.value;
+        if (!rawValue) continue;
+        try {
+          const body = JSON.parse(rawValue);
+          if (body?.id && String(body.id) === String(orphanId)) {
+            candidateCount++;
+          }
+        } catch {
+          // malformed body — counted in total but not as a match
+        }
+      }
+      const truncated = results.length >= limit && Boolean(response?._links?.next);
+      return {
+        recoverable: candidateCount > 0,
+        candidateCount,
+        pageChildrenTotal: results.length,
+        ...(truncated && { truncated: true }),
+      };
+    } catch (e: any) {
+      return {
+        recoverable: 'probe_failed',
+        candidateCount: 0,
+        pageChildrenTotal: 0,
+        probeError: e?.message ? String(e.message) : String(e),
+      };
+    }
+  }
+
   async getCustomContentVersionBeforeDate(id: string, date: string): Promise<ICustomContentV2 | undefined> {
     const customContent = await this.getCustomContentRawV2(id, 'include-versions=true');
     const descendingVersions = customContent?.versions?.results.sort((a, b) => b.number - a.number);

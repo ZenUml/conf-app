@@ -20,6 +20,7 @@ import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywal
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM } from '@/model/Diagram/Diagram';
+import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -112,6 +113,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       // Graph/embed/openapi viewers re-fetch from their own modules; for
       // sequence the user sees an empty editor surface, not a 0-height iframe.
       if (!doc) {
+        void reportOrphanObserved(globals.apWrapper, context.extension?.content?.id, customContentId, 'sequence');
         doc = { ...NULL_DIAGRAM };
       }
     }

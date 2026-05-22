@@ -15,6 +15,7 @@ import macroMetrics from "@/services/MacroMetrics";
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import store from "@/model/store2";
 import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
 
 // @ts-ignore
@@ -58,6 +59,10 @@ async function loadDiagram() {
     const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
+    if (!doc) {
+      // ZEN-1170 telemetry: probe page children for a recovery candidate.
+      void reportOrphanObserved(globals.apWrapper, context.extension?.content?.id, customContentId, 'openapi');
+    }
   }
   store.state.diagram = doc ?? NULL_DIAGRAM;
   window.diagram = doc ?? NULL_DIAGRAM;

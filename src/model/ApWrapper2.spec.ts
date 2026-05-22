@@ -225,8 +225,11 @@ describe('ApWrapper2', () => {
     const orphanId = '3916300417';
     const pageId = '5553291265';
     // Mirrors getCustomContentTypePrefix() under the spec's forgeGlobal mock
-    // (isDiagramly=false, isLite=false) joined to getContentKey()'s default.
-    const type = 'ac:com.zenuml.confluence-addon:zenuml-content-sequence';
+    // (isDiagramly=false, isLite=false). The probe queries BOTH types so a
+    // Connect-era graph orphan (saved under zenuml-content-graph) is found
+    // even when the current entry is the sequence path.
+    const sequenceType = 'ac:com.zenuml.confluence-addon:zenuml-content-sequence';
+    const graphType = 'ac:com.zenuml.confluence-addon:zenuml-content-graph';
 
     function childWith(id: string, bodyId: string) {
       return {
@@ -235,13 +238,17 @@ describe('ApWrapper2', () => {
       };
     }
 
-    it('reports recoverable when a page child body.id matches the orphan id', async () => {
-      vi.mocked(forgeRequest).mockResolvedValueOnce({
-        results: [
-          childWith('5553291584', 'unrelated-id'),
-          childWith('5553291585', orphanId),
-        ],
-      });
+    const emptyPage = { results: [] };
+
+    it('reports recoverable when a sequence-type child body.id matches the orphan id', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({
+          results: [
+            childWith('5553291584', 'unrelated-id'),
+            childWith('5553291585', orphanId),
+          ],
+        })
+        .mockResolvedValueOnce(emptyPage);
 
       const result = await wrapper.probeOrphanRecovery(pageId, orphanId);
 
@@ -250,20 +257,46 @@ describe('ApWrapper2', () => {
       expect(result.pageChildrenTotal).toBe(2);
       expect(result.probeError).toBeUndefined();
       expect(forgeRequest).toHaveBeenCalledWith(
-        `/wiki/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(type)}&body-format=raw&limit=250`,
+        `/wiki/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(sequenceType)}&body-format=raw&limit=250`,
+        'GET',
+        undefined,
+      );
+      expect(forgeRequest).toHaveBeenCalledWith(
+        `/wiki/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(graphType)}&body-format=raw&limit=250`,
         'GET',
         undefined,
       );
     });
 
-    it('reports not recoverable when no child body.id matches', async () => {
-      vi.mocked(forgeRequest).mockResolvedValueOnce({
-        results: [
-          childWith('a', 'x'),
-          childWith('b', 'y'),
-          childWith('c', 'z'),
-        ],
-      });
+    // Customer ZEN-1170: gip-onshore page 5553291265 had orphan child CC
+    // 5553291585 stored under the legacy `zenuml-content-graph` type. A
+    // sequence-only probe would have reported recoverable=false on the
+    // single case we already know is fixable. This test guards against
+    // that regression.
+    it('reports recoverable for a Connect-era graph-type orphan (customer scenario)', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(emptyPage)
+        .mockResolvedValueOnce({
+          results: [childWith('5553291585', orphanId)],
+        });
+
+      const result = await wrapper.probeOrphanRecovery(pageId, orphanId);
+
+      expect(result.recoverable).toBe(true);
+      expect(result.candidateCount).toBe(1);
+      expect(result.pageChildrenTotal).toBe(1);
+    });
+
+    it('reports not recoverable when no child body.id matches across either type', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({
+          results: [
+            childWith('a', 'x'),
+            childWith('b', 'y'),
+            childWith('c', 'z'),
+          ],
+        })
+        .mockResolvedValueOnce(emptyPage);
 
       const result = await wrapper.probeOrphanRecovery(pageId, orphanId);
 
@@ -273,7 +306,9 @@ describe('ApWrapper2', () => {
     });
 
     it('reports not recoverable with zero children for an empty page', async () => {
-      vi.mocked(forgeRequest).mockResolvedValueOnce({ results: [] });
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(emptyPage)
+        .mockResolvedValueOnce(emptyPage);
 
       const result = await wrapper.probeOrphanRecovery(pageId, orphanId);
 
@@ -282,10 +317,12 @@ describe('ApWrapper2', () => {
       expect(result.pageChildrenTotal).toBe(0);
     });
 
-    it('reports probe_failed when the listing API responds with an errors array', async () => {
-      vi.mocked(forgeRequest).mockResolvedValueOnce({
-        errors: [{ status: 403, code: 'FORBIDDEN', title: 'Access denied', detail: null }],
-      });
+    it('reports probe_failed when any listing API responds with an errors array', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(emptyPage)
+        .mockResolvedValueOnce({
+          errors: [{ status: 403, code: 'FORBIDDEN', title: 'Access denied', detail: null }],
+        });
 
       const result = await wrapper.probeOrphanRecovery(pageId, orphanId);
 
@@ -303,12 +340,14 @@ describe('ApWrapper2', () => {
     });
 
     it('counts but does not match children with malformed body JSON', async () => {
-      vi.mocked(forgeRequest).mockResolvedValueOnce({
-        results: [
-          { id: 'a', body: { raw: { value: 'not-json' } } },
-          childWith('b', orphanId),
-        ],
-      });
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({
+          results: [
+            { id: 'a', body: { raw: { value: 'not-json' } } },
+            childWith('b', orphanId),
+          ],
+        })
+        .mockResolvedValueOnce(emptyPage);
 
       const result = await wrapper.probeOrphanRecovery(pageId, orphanId);
 
@@ -319,10 +358,12 @@ describe('ApWrapper2', () => {
 
     it('flags truncated when results hit the limit and a next link exists', async () => {
       const results = Array.from({ length: 250 }, (_, i) => childWith(`c${i}`, 'noop'));
-      vi.mocked(forgeRequest).mockResolvedValueOnce({
-        results,
-        _links: { next: '/wiki/api/v2/pages/.../custom-content?cursor=...' },
-      });
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({
+          results,
+          _links: { next: '/wiki/api/v2/pages/.../custom-content?cursor=...' },
+        })
+        .mockResolvedValueOnce(emptyPage);
 
       const result = await wrapper.probeOrphanRecovery(pageId, orphanId);
 

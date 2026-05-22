@@ -341,38 +341,59 @@ export default class ApWrapper2 implements IApWrapper {
     truncated?: boolean;
     probeError?: string;
   }> {
+    // The Forge save path stores everything under one type, but historical
+    // (Connect-era) graph custom content still lives under the dedicated
+    // `zenuml-content-graph` type — so a graph macro whose orphan survivor
+    // was created back then is invisible to a sequence-typed listing. Probe
+    // both lite/full types; diagramly only has its own single type.
     const limit = 250;
-    const type = this.getCustomContentType();
-    const url = `/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(type)}&body-format=raw&limit=${limit}`;
+    const typesToProbe = forgeGlobal.isDiagramly
+      ? [this.customContentType('gpt-custom-content-key')]
+      : [
+          this.customContentType('zenuml-content-sequence'),
+          this.customContentType('zenuml-content-graph'),
+        ];
     try {
-      const response = await this.makeRequest(url);
-      if (response?.errors) {
+      const responses = await Promise.all(
+        typesToProbe.map(t =>
+          this.makeRequest(`/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(t)}&body-format=raw&limit=${limit}`),
+        ),
+      );
+      const errored = responses.find(r => r?.errors);
+      if (errored) {
         return {
           recoverable: 'probe_failed',
           candidateCount: 0,
           pageChildrenTotal: 0,
-          probeError: JSON.stringify(response.errors),
+          probeError: JSON.stringify(errored.errors),
         };
       }
-      const results: Array<any> = Array.isArray(response?.results) ? response.results : [];
       let candidateCount = 0;
-      for (const child of results) {
-        const rawValue = child?.body?.raw?.value;
-        if (!rawValue) continue;
-        try {
-          const body = JSON.parse(rawValue);
-          if (body?.id && String(body.id) === String(orphanId)) {
-            candidateCount++;
+      let pageChildrenTotal = 0;
+      let truncated = false;
+      for (const response of responses) {
+        const results: Array<any> = Array.isArray(response?.results) ? response.results : [];
+        pageChildrenTotal += results.length;
+        if (results.length >= limit && response?._links?.next) {
+          truncated = true;
+        }
+        for (const child of results) {
+          const rawValue = child?.body?.raw?.value;
+          if (!rawValue) continue;
+          try {
+            const body = JSON.parse(rawValue);
+            if (body?.id && String(body.id) === String(orphanId)) {
+              candidateCount++;
+            }
+          } catch {
+            // malformed body — counted in total but not as a match
           }
-        } catch {
-          // malformed body — counted in total but not as a match
         }
       }
-      const truncated = results.length >= limit && Boolean(response?._links?.next);
       return {
         recoverable: candidateCount > 0,
         candidateCount,
-        pageChildrenTotal: results.length,
+        pageChildrenTotal,
         ...(truncated && { truncated: true }),
       };
     } catch (e: any) {

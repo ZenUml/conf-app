@@ -668,8 +668,21 @@ export class ConfluenceEditorPage {
       console.log(`📸 Screenshot saved: debug-${timestamp}-01-after-wait.png`);
     } catch (e) { console.log('⚠ Screenshot failed:', e); }
     
+    if (testConfig.isForge || testConfig.isLite) {
+      await this.closeGenerationPromptForge(timestamp);
+    } else {
+      await this.closeGenerationPromptConnect(timestamp);
+    }
+  }
+
+  /**
+   * Close GenerationPrompt for Forge variant
+   */
+  private async closeGenerationPromptForge(timestamp: number): Promise<void> {
+    console.log('🔧 Using Forge variant logic');
+    
     // First, verify the iframe exists and is loaded
-    console.log('⏳ Checking if iframe exists...');
+    console.log('⏳ Checking if Forge modal and iframe exist...');
     const modal = this.page.getByTestId('custom-ui-modal-dialog');
     const iframeLocator = modal.locator('[data-testid="hosted-resources-iframe"]');
     
@@ -679,57 +692,57 @@ export class ConfluenceEditorPage {
       .catch(() => false);
     
     if (!iframeAttached) {
-      console.log('❌ Iframe not attached to DOM');
+      console.log('❌ Forge iframe not attached to DOM');
       try {
         await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-no-iframe.png`, fullPage: true });
         console.log(`📸 Screenshot saved: debug-${timestamp}-02-no-iframe.png`);
       } catch (e) { console.log('⚠ Screenshot failed:', e); }
       return;
     }
-    console.log('✓ Iframe attached to DOM');
+    console.log('✓ Forge iframe attached to DOM');
     
     // Wait for iframe to be visible
     const iframeVisible = await iframeLocator.isVisible({ timeout: 5000 }).catch(() => false);
     if (!iframeVisible) {
-      console.log('❌ Iframe not visible');
+      console.log('❌ Forge iframe not visible');
       return;
     }
-    console.log('✓ Iframe visible');
+    console.log('✓ Forge iframe visible');
     
     // Get the frame content
     const frame = iframeLocator.contentFrame();
     
     // Wait for frame body to be attached - this is critical
-    console.log('⏳ Waiting for iframe body to be attached (up to 30s)...');
+    console.log('⏳ Waiting for Forge iframe body to be attached (up to 30s)...');
     const bodyAttached = await frame.locator('body').waitFor({ state: 'attached', timeout: 30000 })
       .then(() => true)
       .catch((err) => {
-        console.log('❌ Body attach failed:', err.message);
+        console.log('❌ Forge body attach failed:', err.message);
         return false;
       });
     
     if (!bodyAttached) {
-      console.log('❌ Frame body not attached after 30s');
+      console.log('❌ Forge frame body not attached after 30s');
       try {
         await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-body-not-attached.png`, fullPage: true });
         console.log(`📸 Screenshot saved: debug-${timestamp}-02-body-not-attached.png`);
       } catch (e) { console.log('⚠ Screenshot failed:', e); }
       return;
     }
-    console.log('✓ Frame body attached');
+    console.log('✓ Forge frame body attached');
     
     // Wait for body to be visible
-    console.log('⏳ Waiting for iframe body to be visible...');
+    console.log('⏳ Waiting for Forge iframe body to be visible...');
     const bodyVisible = await frame.locator('body').isVisible({ timeout: 10000 }).catch(() => false);
     
     if (!bodyVisible) {
-      console.log('❌ Frame body not visible');
+      console.log('❌ Forge frame body not visible');
       return;
     }
-    console.log('✓ Frame body visible');
+    console.log('✓ Forge frame body visible');
     
     // Wait a bit more for content to render
-    console.log('⏳ Waiting 3s for iframe content to render...');
+    console.log('⏳ Waiting 3s for Forge iframe content to render...');
     await this.page.waitForTimeout(3000);
     
     // 📸 Screenshot 2: Frame accessible
@@ -737,6 +750,76 @@ export class ConfluenceEditorPage {
       await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-frame-accessible.png`, fullPage: true });
       console.log(`📸 Screenshot saved: debug-${timestamp}-02-frame-accessible.png`);
     } catch (e) { console.log('⚠ Screenshot failed:', e); }
+    
+    // Now process the GenerationPrompt dialog
+    await this.processGenerationPrompt(frame, timestamp);
+  }
+
+  /**
+   * Close GenerationPrompt for Connect variant
+   */
+  private async closeGenerationPromptConnect(timestamp: number): Promise<void> {
+    console.log('🔧 Using Connect variant logic');
+    
+    // For Connect, the iframe is directly in the dialog
+    console.log('⏳ Checking if Connect dialog iframe exists...');
+    const iframeLocator = this.page.locator('[role="dialog"] iframe');
+    
+    // Wait for iframe to be attached
+    const iframeAttached = await iframeLocator.waitFor({ state: 'attached', timeout: 10000 })
+      .then(() => true)
+      .catch(() => false);
+    
+    if (!iframeAttached) {
+      console.log('❌ Connect iframe not attached to DOM');
+      try {
+        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-no-iframe.png`, fullPage: true });
+        console.log(`📸 Screenshot saved: debug-${timestamp}-02-no-iframe.png`);
+      } catch (e) { console.log('⚠ Screenshot failed:', e); }
+      return;
+    }
+    console.log('✓ Connect iframe attached to DOM');
+    
+    // Get the frame content
+    const frame = iframeLocator.contentFrame();
+    
+    // Wait for frame body
+    console.log('⏳ Waiting for Connect iframe body to be attached (up to 30s)...');
+    const bodyAttached = await frame.locator('body').waitFor({ state: 'attached', timeout: 30000 })
+      .then(() => true)
+      .catch((err) => {
+        console.log('❌ Connect body attach failed:', err.message);
+        return false;
+      });
+    
+    if (!bodyAttached) {
+      console.log('❌ Connect frame body not attached after 30s');
+      try {
+        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-body-not-attached.png`, fullPage: true });
+        console.log(`📸 Screenshot saved: debug-${timestamp}-02-body-not-attached.png`);
+      } catch (e) { console.log('⚠ Screenshot failed:', e); }
+      return;
+    }
+    console.log('✓ Connect frame body attached');
+    
+    // Wait for content to render
+    console.log('⏳ Waiting 3s for Connect iframe content to render...');
+    await this.page.waitForTimeout(3000);
+    
+    // 📸 Screenshot 2: Frame accessible
+    try {
+      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-frame-accessible.png`, fullPage: true });
+      console.log(`📸 Screenshot saved: debug-${timestamp}-02-frame-accessible.png`);
+    } catch (e) { console.log('⚠ Screenshot failed:', e); }
+    
+    // Now process the GenerationPrompt dialog
+    await this.processGenerationPrompt(frame, timestamp);
+  }
+
+  /**
+   * Process the GenerationPrompt dialog (common logic for both Forge and Connect)
+   */
+  private async processGenerationPrompt(frame: any, timestamp: number): Promise<void> {
     
     // ═══ DEBUG: Dump all text content in the iframe ═══
     try {
@@ -765,7 +848,7 @@ export class ConfluenceEditorPage {
       for (let i = 0; i < headings.length; i++) {
         const heading = headings[i];
         const text = await heading.textContent().catch(() => '(error)');
-        const tagName = await heading.evaluate(el => el.tagName).catch(() => '?');
+        const tagName = await heading.evaluate((el: HTMLElement) => el.tagName).catch(() => '?');
         console.log(`  [${i}] <${tagName}> "${text?.trim()}"`);
       }
       

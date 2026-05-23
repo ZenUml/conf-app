@@ -24,14 +24,17 @@ import { onRequest } from './forge-custom-content';
 
 type PreparedCall = { sql: string; binds: unknown[] };
 
-function makeDB(opts: { rowExists: boolean }) {
+function makeDB(opts: { rowExists: boolean; versionExists?: boolean }) {
   const calls: PreparedCall[] = [];
   const prepare = vi.fn((sql: string) => {
     const stmt = {
       bind: (...binds: unknown[]) => {
         calls.push({ sql, binds });
         return {
-          first: async () => null,
+          first: async () =>
+            sql.startsWith('SELECT versionNumber FROM CustomContentVersion') && opts.versionExists
+              ? { versionNumber: 2 }
+              : null,
           all: async () => ({
             results: sql.startsWith('SELECT contentId FROM CustomContent') && opts.rowExists
               ? [{ contentId: 'cc-1' }]
@@ -102,6 +105,31 @@ describe('forge-custom-content createOrUpdateContent', () => {
     expect(updateCall!.binds[5]).toBe(''); // macroUuid coerced to ''
     expect(updateCall!.binds[6]).toBe(''); // diagramType coerced to ''
     // The SQL itself is what guarantees no wipe — NULLIF('','') → NULL → COALESCE keeps existing.
+  });
+
+  it('still UPDATEs CustomContent when the version row already exists (idempotent retry)', async () => {
+    const db = makeDB({ rowExists: true, versionExists: true });
+    const env = { DB: { prepare: db.prepare }, FORGE_CONTEXT };
+    const req = makeRequest({
+      contentId: 'cc-1',
+      macroUuid: 'local-id-retry',
+      diagramType: 'sequence',
+    });
+
+    const res = await onRequest({ request: req, env } as any);
+    expect(res.status).toBe(200);
+
+    // Pre-fix: version-gate skipped createOrUpdateContent entirely on retries,
+    // leaving macroUuid/diagramType stale. Now the UPDATE must still fire.
+    const updateCall = db.calls.find((c) => c.sql.startsWith('UPDATE CustomContent'));
+    expect(updateCall).toBeDefined();
+    expect(updateCall!.binds[5]).toBe('local-id-retry');
+    expect(updateCall!.binds[6]).toBe('sequence');
+
+    // And no duplicate INSERT into CustomContentVersion (createVersion is
+    // idempotent — bails on existingVersion before the INSERT INTO …VERSION).
+    const versionInsert = db.calls.find((c) => c.sql.startsWith('INSERT INTO CustomContentVersion'));
+    expect(versionInsert).toBeUndefined();
   });
 
   it('writes macroUuid + diagramType on INSERT for a fresh row', async () => {

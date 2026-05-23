@@ -21,10 +21,13 @@ export const onRequest = async ({ request, env }) => {
 
     const customContent = await getCustomContentFromConfluenceForForge(apiBaseUrl, body.contentId, forgeOAuthUser);
 
-    const versionResult = await createVersion(env, customContent, forgeAppId);
-    if(versionResult) {
-      await createOrUpdateContent(env, customContent, forgeAppId, body.macroUuid, body.diagramType);
-    }
+    // Version insert is idempotent (skips when the version row is already
+    // recorded); the CustomContent upsert must run unconditionally so the
+    // macroUuid/diagramType backfill still happens on retries, and so we
+    // recover from prior requests that inserted the version but failed
+    // before completing the CustomContent write.
+    await createVersion(env, customContent, forgeAppId);
+    await createOrUpdateContent(env, customContent, forgeAppId, body.macroUuid, body.diagramType);
 
     // Update ForgeInstallation with clientDomain if provided
     if (body.clientDomain) {

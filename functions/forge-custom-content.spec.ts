@@ -132,6 +132,31 @@ describe('forge-custom-content createOrUpdateContent', () => {
     expect(versionInsert).toBeUndefined();
   });
 
+  it('uses INSERT OR IGNORE for CustomContentVersion so concurrent duplicates do not 500 the request', async () => {
+    const db = makeDB({ rowExists: true, versionExists: false });
+    const env = { DB: { prepare: db.prepare }, FORGE_CONTEXT };
+    const req = makeRequest({
+      contentId: 'cc-1',
+      macroUuid: 'local-id-concurrent',
+      diagramType: 'sequence',
+    });
+
+    const res = await onRequest({ request: req, env } as any);
+    expect(res.status).toBe(200);
+
+    // The SQL clause itself is the race-safety contract: without OR IGNORE,
+    // a concurrent duplicate insert would throw and skip the backfill below.
+    const versionInsert = db.calls.find((c) =>
+      c.sql.startsWith('INSERT OR IGNORE INTO CustomContentVersion'),
+    );
+    expect(versionInsert).toBeDefined();
+
+    // And the CustomContent UPDATE still runs (no version-gate, no race-poison).
+    const updateCall = db.calls.find((c) => c.sql.startsWith('UPDATE CustomContent'));
+    expect(updateCall).toBeDefined();
+    expect(updateCall!.binds[5]).toBe('local-id-concurrent');
+  });
+
   it('writes macroUuid + diagramType on INSERT for a fresh row', async () => {
     const db = makeDB({ rowExists: false });
     const env = { DB: { prepare: db.prepare }, FORGE_CONTEXT };

@@ -54,7 +54,12 @@ async function createVersion(env, data, appId) {
     return;
   }
 
-  const result = await env.DB.prepare( "INSERT INTO CustomContentVersion (contentId, body, authorId, createdAt, versionNumber, appId, title, message, minorEdit) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)" )
+  // INSERT OR IGNORE makes this race-safe against concurrent duplicate
+  // saves: if two requests for the same (contentId, versionNumber, appId)
+  // pass the SELECT and both reach the INSERT, the loser becomes a silent
+  // no-op instead of bubbling a unique-constraint error up to onRequest —
+  // which would otherwise return 500 and skip the CustomContent backfill.
+  const result = await env.DB.prepare( "INSERT OR IGNORE INTO CustomContentVersion (contentId, body, authorId, createdAt, versionNumber, appId, title, message, minorEdit) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)" )
   .bind(data.id, JSON.stringify(data.body), data.authorId, data.createdAt, data.version.number, appId, data.title || '', data.version.message || '', data.version.minorEdit ? 1 : 0)
   .run();
   console.log('create version result:', result);

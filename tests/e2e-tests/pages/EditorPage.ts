@@ -859,6 +859,30 @@ export class ConfluenceEditorPage {
     console.log(`\n🔍 Capturing frame content: ${filePrefix}`);
     
     try {
+      // Try to get the iframe URL
+      let iframeUrl = '(unknown)';
+      try {
+        // Get all iframes on the page and find the one that matches our frame
+        const allFrames = this.page.frames();
+        console.log(`  📊 Total frames on page: ${allFrames.length}`);
+        
+        for (let i = 0; i < allFrames.length; i++) {
+          const f = allFrames[i];
+          const url = f.url();
+          console.log(`  [${i}] Frame URL: ${url}`);
+        }
+        
+        // Try to evaluate in the frame to get its location
+        iframeUrl = await frame.evaluate(() => window.location.href).catch((err: Error) => {
+          console.log(`  ⚠ Could not get frame URL via evaluate: ${err.message}`);
+          return '(evaluation failed)';
+        });
+      } catch (err) {
+        console.log(`  ⚠ Could not enumerate frames: ${err}`);
+      }
+      
+      console.log(`  🌐 Target iframe URL: ${iframeUrl}`);
+      
       // Try to get the HTML content
       const htmlContent = await frame.locator('body').innerHTML({ timeout: 5000 }).catch((err: Error) => {
         console.log(`  ⚠ Could not get innerHTML: ${err.message}`);
@@ -909,6 +933,10 @@ export class ConfluenceEditorPage {
         `FRAME CONTENT REPORT: ${filePrefix}`,
         `Timestamp: ${new Date().toISOString()}`,
         '═══════════════════════════════════════════════════════',
+        '',
+        '🌐 IFRAME URL:',
+        '---------------------------------------------------',
+        iframeUrl,
         '',
         '📝 VISIBLE TEXT (first 2000 chars):',
         '---------------------------------------------------',

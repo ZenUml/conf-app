@@ -75,19 +75,6 @@ jobs:
           cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))' -i manifest.yml
 
       # Forge deploy (all variants)
-      # TODO(ZEN-1170-followup, 2026-05-22): The pnpm scripts at
-      # forge:deploy:{lite,full,diagramly}:{staging,prod} in package.json
-      # currently pass --no-verify to `forge deploy`. This was added because
-      # Atlassian retired several developer.atlassian.com openapi spec URLs
-      # that @forge/lint unconditionally fetches at startup (HTTP 404 size 0
-      # on bitbucket/swagger.json, confluence/openapi-v2.v3.json,
-      # jira/{platform,service-desk,software}/swagger.v3.json). Affects both
-      # @forge/cli@12.14.0 and @forge/cli@12.20.1. Prod scripts also use
-      # --no-verify (added in the follow-up after staging worked) so the
-      # ZEN-1170 crash fix can ship today. Revert --no-verify on BOTH
-      # staging and prod scripts when Atlassian either restores the URLs or
-      # ships a CLI that doesn't fetch them. Recheck scheduled for the next
-      # morning.
       - name: Deploy to Forge Staging
         env:
           MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}

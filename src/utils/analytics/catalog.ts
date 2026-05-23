@@ -77,4 +77,5 @@ export type AnalyticsEventName =
   | "attachment_create_failed"
   | "custom_content_update_failed"
   | "graph_editor_init_empty"
-  | "editor_load_empty_active_field";
+  | "editor_load_empty_active_field"
+  | "swagger_editor_config_empty_with_modal";

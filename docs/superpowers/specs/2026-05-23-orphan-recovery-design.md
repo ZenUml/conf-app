@@ -326,16 +326,36 @@ The helper centralizes three concerns that are otherwise repeated 8 times:
 
 Editor entries additionally need `originalCustomContentId` and `recoveryPageId` for Slice 2's repair detection — these are returned by the helper, so editor entries don't capture them separately.
 
-**Note on swagger's `extension.modal.customContentId` fallback.** The
-swagger editor currently reads `extension.config.customContentId ||
-extension.modal.customContentId` because Forge's editor iframe wiring
-for the OpenAPI module historically lost `extension.config` (§7 of the
-dev site). We do **not** include that fallback in this shared helper —
-it would be a runtime no-op for non-swagger entries and a category-3
-modal.context anti-pattern (§4 of this spec) for any future code that
-reads the helper as canonical. Swagger keeps the workaround at its own
-entry point with a `// @workaround` comment that unwraps the modal
-value before calling the helper.
+**Note on the `extension.modal.customContentId` fallback (swagger and
+sequence editors).** Two editors currently read
+`extension.config.customContentId || extension.modal.customContentId`:
+`forge-swagger-editor.ts:196` and `forgeIndex.ts:102`. The original
+justification (dev-site §7) was that `extension.config` is sometimes
+unreliable in viewer-spawned modal-editor iframes — without the
+fallback, edits would be treated as new-macro sessions.
+
+**Empirical verification (forge tunnel on lite-dev, 2026-05-23):** for
+the OpenAPI macro tested, `extension.config.customContentId` was set
+correctly in the modal-editor context (`isConfiguring: false`), and the
+fallback never fired (`source: 'config'`). The original justification
+is not borne out by the current Forge platform behavior.
+
+**Caveat: no source-tracking telemetry exists.** None of the existing
+Mixpanel events distinguish "resolved from config" vs "resolved from
+modal fallback". We can't go back and verify whether the fallback was
+ever load-bearing in production. The empirical test covers one case
+(one macro, one site, one day) — not enough to remove the fallback
+without risk.
+
+**Plan (this spec):**
+1. Slice 1 ships the shared helper without the fallback. The two
+   editors (swagger, sequence) keep their existing fallback line for
+   safety.
+2. Slice 1 also adds **modal-fallback observability** (§5.7 below) —
+   a Mixpanel event that fires only when the fallback would be
+   load-bearing. Zero hits over the observation window = safe to remove.
+3. A **separate release** (post-Slice-2, post-observation) removes
+   the fallback from both files. Tracked as future work in §9.
 
 ### 5.3 Plumbing — 8 single-line call sites
 
@@ -417,7 +437,61 @@ Two changes:
    - A short paragraph "Why we don't pass `recoveredId` via modal
      context" referencing §4's three-category table.
 
-### 5.7 Tests
+### 5.7 Modal-fallback observability
+
+In both files that still carry the fallback, add a single tracked event
+that fires only when the fallback would be load-bearing — i.e., when
+`extension.config.customContentId` is undefined AND
+`extension.modal.customContentId` is set:
+
+```ts
+const configId = context.extension?.config?.customContentId;
+const modalId = context.extension?.modal?.customContentId;
+const customContentId = configId || modalId;
+
+// Slice 1 observability: detect cases where the fallback is actually
+// the load-bearing source. If this event never fires for ≥1 week in
+// production, the fallback can be removed in a separate release
+// (see §9 future work).
+if (!configId && modalId) {
+  trackAnalyticsEvent('custom_content_id_modal_fallback_used', {
+    feature_area: 'macro',
+    surface: 'editor',
+    macro_type: 'openapi', // 'sequence' for forgeIndex.ts
+    content_id: modalId,
+  });
+}
+```
+
+Files to instrument:
+- `src/forge-swagger-editor.ts` — `macro_type: 'openapi'`
+- `src/forgeIndex.ts` (the sequence-editor branch around line 102) —
+  `macro_type: 'sequence'`
+
+Mixpanel event: `custom_content_id_modal_fallback_used`
+Properties:
+- `feature_area: 'macro'`
+- `surface: 'editor'`
+- `macro_type: 'openapi' | 'sequence'`
+- `content_id: <the modalId>`
+
+**Interpretation:**
+- **Zero events over the observation window** → the fallback was never
+  load-bearing in the observed period. Safe to remove (separate release,
+  per §9). The empirical test on lite-dev that prompted this work then
+  has corroborating production data.
+- **Non-zero events** → the fallback IS load-bearing for some users /
+  scenarios. The original commit claim was correct; do not remove the
+  fallback. Investigate why `extension.config` is empty in those cases
+  (specific module type? specific Confluence build? race condition with
+  Forge platform initialization?).
+
+The event is intentionally small-surface — single firing condition,
+single new event name — so it's easy to query (`Mixpanel: events where
+name = custom_content_id_modal_fallback_used`) and easy to roll back if
+it generates more volume than expected.
+
+### 5.8 Tests
 
 - Unit tests for `loadCustomContentWithOrphanRecovery` in
   `ApWrapper2.spec.ts`:
@@ -629,6 +703,37 @@ modal-editor context.
   the Slice-1 telemetry-only behavior.
 
 ## 9. Open questions / future work
+
+### Future release — remove the `extension.modal.customContentId` fallback
+
+Two files carry the fallback today: `src/forge-swagger-editor.ts:196`
+and `src/forgeIndex.ts:102`. Slice 1 §5.7 ships observability
+(`custom_content_id_modal_fallback_used` Mixpanel event) to detect
+whether the fallback is ever the load-bearing source in production.
+
+**Removal criteria** (must be true before opening the cleanup PR):
+- Observation window of **at least 7 days** with the
+  observability event live in production for the lite variant.
+- **Zero** `custom_content_id_modal_fallback_used` events in that
+  window for both `macro_type: 'openapi'` and `macro_type: 'sequence'`.
+- No new related orphan-recovery issues opened against either editor
+  in that window.
+
+**Cleanup PR scope** (when criteria met):
+- Remove the `|| extension.modal.customContentId` from both files.
+- Remove the observability event (the data has been collected).
+- Update dev-site §7 to reflect the verified absence of the
+  platform quirk.
+- Add a CHANGELOG note.
+
+**If criteria not met**: leave the fallback in place. Update the
+inline comment in both files to record the date and Mixpanel event
+count that justify keeping it. Re-evaluate after a Forge platform
+release that might affect editor iframe context wiring.
+
+### Other open items
+
+
 
 - **Does the Slice 1 telemetry rate suggest Slice 2 urgency?**
   Decide based on real `recovery_used: true` volume after the

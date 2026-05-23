@@ -402,6 +402,17 @@ EventBus.$on('save', async () => {
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
   store.state.diagram.isNew = false;
 
+  // Captured before save runs. After save, if the returned id differs from
+  // sourceId, the save forked a new custom content (cross-page-copy / same-
+  // page-duplicate path in CustomContentStorageProvider.save) and the macro
+  // params must be rewritten via view.submit, else the page still points at
+  // the source content while the new one sits orphaned.
+  // The truthy-guard on sourceId is load-failure protection: a degraded load
+  // (404/restricted custom content) mounts NULL_DIAGRAM with id=''; saves
+  // there always return a new id, but writing it back would repoint the
+  // macro at a blank new record.
+  const sourceId = store.state.diagram.id ? String(store.state.diagram.id) : '';
+
   let id: string;
   try {
     id = await saveToPlatform(store.state.diagram);
@@ -415,10 +426,6 @@ EventBus.$on('save', async () => {
     // Do NOT close the dialog — let the user retry
     return;
   }
-
-  // Notify editors so they can clear their localStorage drafts now that the
-  // diagram is durably persisted.
-  EventBus.$emit('saved', id);
 
   const preservedTheme = sessionStorage.getItem(`${location.hostname}-preserve-zenuml-conf-theme`);
   if (isNewSequence && preservedTheme) {
@@ -434,14 +441,40 @@ EventBus.$on('save', async () => {
   // Give some time for track event to be sent out. We are not using a more reliable way to track event because
   // we don't want to block dialog close for too long.
   setTimeout(async () => {
-    if(await isInserting()) {
-      await (await getView()).submit({config: {
-        customContentId: id,
-        updatedAt: new Date().toISOString(),
-        ...(originalConfigUuid && { uuid: originalConfigUuid }),
-      }});
-    } else {
-      await (await getView()).close();
+    // Writeback the new customContentId when (a) inserting a fresh macro or
+    // (b) the save returned a different id than what loaded (the cross-page
+    // -copy / same-page-duplicate POST branch). Without (b) the macro on
+    // the page stays pointed at the source id while the freshly created
+    // custom content sits orphaned.
+    const idChanged = !!sourceId && !!id && id !== sourceId;
+    const needsWriteback = (await isInserting()) || idChanged;
+    try {
+      if (needsWriteback) {
+        await (await getView()).submit({config: {
+          customContentId: id,
+          updatedAt: new Date().toISOString(),
+          ...(originalConfigUuid && { uuid: originalConfigUuid }),
+        }});
+      } else {
+        await (await getView()).close();
+      }
+      // Only clear the local draft after the macro state is durable on the
+      // page. If view.submit throws below, the backend POST has succeeded
+      // but the macro still points at the source content; keeping the draft
+      // around preserves the user's recovery anchor for a retry.
+      EventBus.$emit('saved', id);
+    } catch (error) {
+      // view.submit throws on MACRO_NOT_FOUND etc. The backend POST already
+      // succeeded, so without writeback the page still points at the source
+      // content; surface this as a save_failed signal so we can detect it.
+      // The 'saved' event is intentionally NOT emitted here so the local
+      // draft survives as a retry anchor.
+      console.error('view.submit/close failed after save', error);
+      trackEvent('save_failed', 'view_submit_failed', 'error', {
+        error_message: String((error as any)?.message || error).substring(0, 500),
+        new_custom_content_id: id,
+        writeback_required: String(needsWriteback),
+      });
     }
   }, 500);
 });

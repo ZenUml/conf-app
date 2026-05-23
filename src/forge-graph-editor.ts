@@ -48,23 +48,46 @@ async function saveGraphAndExit(graphXml: string) {
     diagramType: DiagramType.Graph,
     source: DataSource.CustomContent
   };
-  
+
+  // Captured before save. If the returned id differs from sourceId, the save
+  // forked a new custom content (cross-page-copy / same-page-duplicate path)
+  // and the macro params must be rewritten via view.submit, else the page
+  // still points at the source content while the new one sits orphaned.
+  // The truthy-guard is load-failure protection (NULL_DIAGRAM fallback).
+  const sourceId = diagram?.id ? String(diagram.id) : '';
+
   const id = await saveToPlatform(diagram);
-  
+
   // End journey on save
   if (getEditJourneyId()) {
     endEditJourney('saved');
   }
-  
+
   setTimeout(async () => {
-    if(await isInserting()) {
-      await (await getView()).submit({config: {
-        customContentId: id,
-        updatedAt: new Date().toISOString(),
-        ...(originalConfigUuid && { uuid: originalConfigUuid }),
-      }});
-    } else {
-      await (await getView()).close();
+    const idChanged = !!sourceId && !!id && id !== sourceId;
+    const needsWriteback = (await isInserting()) || idChanged;
+    try {
+      if (needsWriteback) {
+        await (await getView()).submit({config: {
+          customContentId: id,
+          updatedAt: new Date().toISOString(),
+          ...(originalConfigUuid && { uuid: originalConfigUuid }),
+        }});
+      } else {
+        await (await getView()).close();
+      }
+      // Notify draft listeners (ForgeGraphEditor.vue subscribes to 'saved')
+      // only after the macro state is durable. If submit throws below, the
+      // local draft survives as a retry anchor.
+      EventBus.$emit('saved', id);
+    } catch (error) {
+      console.error('view.submit/close failed after graph save', error);
+      trackEvent('save_failed', 'view_submit_failed', 'error', {
+        error_message: String((error as any)?.message || error).substring(0, 500),
+        new_custom_content_id: id,
+        writeback_required: String(needsWriteback),
+        macro_type: 'graph',
+      });
     }
   }, 500);
 }

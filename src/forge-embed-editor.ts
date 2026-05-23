@@ -25,7 +25,7 @@ async function saveEmbedAndExit(_customContentId: string) {
     diagramType: DiagramType.Embed,
     source: DataSource.CustomContent,
   } as Diagram);
-  
+
   const isNew = !macroData?.uuid;
 
   // Tag analytics with the just-saved customContent id; relying on central
@@ -60,6 +60,13 @@ async function saveEmbedAndExit(_customContentId: string) {
     endEditJourney('saved');
   }
   
+  // NOTE: Embed has a separate, pre-existing bug where saveToPlatform is
+  // called with no selected content id (the _customContentId parameter is
+  // ignored) and always POSTs an empty {diagramType:Embed} record. Applying
+  // the cross-page-copy writeback pattern here would repoint the macro at
+  // that empty record. Embed needs its own fix that submits the selected
+  // content id (or a clone) instead of an empty placeholder. Out of scope
+  // for the cross-page-copy fix; see follow-up.
   setTimeout(async () => {
     if(await isInserting()) {
       await (await getView()).submit({config: {

@@ -188,13 +188,25 @@ async function initializeMacro() {
   
   // Ensure session is initialized
   getOrCreateSession();
-  // Resolve customContentId from both `config` (page-editor launches) and
-  // `modal` (viewer-launched edits forward it via the modal payload), matching
-  // forgeIndex.ts. Without the modal fallback, edits opened from the OpenAPI
-  // viewer would be treated as new-macro sessions and never fire the
-  // load-time wipe-precursor telemetry below.
-  const customContentId = context.extension?.config?.customContentId
-    || context.extension?.modal?.customContentId;
+  // Read customContentId from extension.config only.
+  //
+  // Until ZEN-1170 (2026-05-23), this read fell through to
+  // `extension.modal.customContentId` when config was empty — a
+  // defensive workaround copied from forgeIndex.ts. Forge-tunnel
+  // verification on lite-dev (one OpenAPI macro, modal-editor context,
+  // `isConfiguring: false`) showed `extension.config.customContentId`
+  // resolves correctly; the fallback never fired. The safety-net
+  // tracking below catches any regression — if it ever fires in prod,
+  // restore the `|| extension.modal.customContentId` and investigate.
+  const customContentId = context.extension?.config?.customContentId;
+  if (!customContentId && context.extension?.modal?.customContentId) {
+    trackAnalyticsEvent('swagger_editor_config_empty_with_modal', {
+      feature_area: 'macro',
+      surface: 'editor',
+      macro_type: 'openapi',
+      content_id: String(context.extension.modal.customContentId),
+    });
+  }
 
   const mountEditorDocument = async () => {
     if (openApiDocumentHydrated) {

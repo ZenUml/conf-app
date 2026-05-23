@@ -421,6 +421,7 @@ EventBus.$on('save', async () => {
     trackEvent('save_failed', 'save_failed', 'error', {
       error_message: String((error as any)?.message || error).substring(0, 500),
       http_status: (error as any)?.status || (error as any)?.statusCode || 'unknown',
+      macro_type: store.state.diagram.diagramType as MacroTypeValue,
     });
     toast({ message: 'Failed to save. Please try again.', duration: 5000 });
     // Do NOT close the dialog — let the user retry
@@ -474,6 +475,7 @@ EventBus.$on('save', async () => {
         error_message: String((error as any)?.message || error).substring(0, 500),
         new_custom_content_id: id,
         writeback_required: String(needsWriteback),
+        macro_type: store.state.diagram.diagramType as MacroTypeValue,
       });
     }
   }, 500);

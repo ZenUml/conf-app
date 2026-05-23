@@ -65,6 +65,18 @@ the team's internal docs match reality.
 - Mutating the macro XML from any path other than the macro-config
   editor (e.g., REST patch of the page body's ADF). Out of scope for
   cost/fragility reasons.
+- **Embed macro recovery.** D1 inspection (2026-05-23) shows only 3
+  `diagramType='embed'` rows across the entire production mirror, and
+  every one has body `{"diagramType":"embed","source":"custom-content"}`
+  with no `graphXml`/`code`/`mermaidCode`. The save path
+  (`forge-embed-editor.ts:24`) passes a minimal stub to `saveToPlatform`,
+  the resulting CC body has no `id` field for the recovery probe to
+  match against, and `loadForgeViewerComponent('embed')` is documented
+  to return `undefined`. Embed is effectively broken in production,
+  independent of this design — recovery wouldn't help it. Embed is
+  therefore excluded from the shared helper's call sites in Slice 1.
+  A separate effort to repair or remove the embed feature is tracked
+  outside this spec.
 
 ## 3. Architecture overview
 
@@ -192,6 +204,49 @@ Behavior:
 The `candidateIds` array is added to `probeOrphanRecovery`'s return so
 the loader can select the unique candidate without re-iterating.
 
+**Internal structure** — the method is split into two for readability and
+recovery-branch isolation:
+
+```ts
+async loadCustomContentWithOrphanRecovery(pageId, customContentId) {
+  // Step 1: try the direct id.
+  const direct = await this.getCustomContentByIdV2(customContentId);
+  if (direct) return { customContent: direct };
+
+  // Step 2: direct failed → recovery.
+  return this.attemptOrphanRecovery(pageId, customContentId);
+}
+
+private async attemptOrphanRecovery(pageId, orphanId) {
+  if (!pageId) return { customContent: undefined };
+
+  const probeResult = await this.probeOrphanRecovery(pageId, orphanId);
+  if (probeResult.recoverable !== true
+      || probeResult.candidateCount !== 1
+      || !probeResult.candidateIds?.[0]) {
+    return { customContent: undefined, probeResult };
+  }
+
+  const recovered = await this.getCustomContentByIdV2(probeResult.candidateIds[0]);
+  if (!recovered) return { customContent: undefined, probeResult };
+
+  return { customContent: recovered, recoveredFromOrphanId: orphanId, probeResult };
+}
+```
+
+Top method reads as the algorithm ("try direct, else recover"); the
+recovery method is self-contained and independently testable. Happy
+path is still one fetch.
+
+**Rejected alternative**: "resolve final id, then one unified fetch".
+This would require knowing whether the direct id exists *without*
+fetching it. The probe could in principle tell us by listing page
+children, but (a) the probe is more expensive than a direct fetch, and
+(b) cross-page CCs (`isCopy='cross-page'`) wouldn't appear in the
+host-page children list. Probe-first would slow down every happy-path
+render and would break cross-page diagrams. Not worth the duplicate-call
+savings, which only happen in the orphan branch anyway.
+
 In `src/model/globals/forgeGlobal.ts`:
 
 ```ts
@@ -228,9 +283,7 @@ export async function loadMacroDocumentWithRecovery(
   kind: MacroKind,
 ): Promise<LoadedMacroDocument> {
   const context = await getContext();
-  const customContentId =
-    context.extension?.config?.customContentId
-    || context.extension?.modal?.customContentId;
+  const customContentId = context.extension?.config?.customContentId;
   const pageId = context.extension?.content?.id;
 
   if (!customContentId) {
@@ -265,29 +318,42 @@ export async function loadMacroDocumentWithRecovery(
 }
 ```
 
-The helper centralizes four concerns that are otherwise repeated 8 times:
+The helper centralizes three concerns that are otherwise repeated 8 times:
 
-1. Reading `customContentId` from `extension.config` with the `extension.modal` fallback (the swagger-style defensive read).
-2. Reading `pageId` from `extension.content.id`.
-3. Calling `loadCustomContentWithOrphanRecovery` and unwrapping its result.
-4. Emitting `reportOrphanObserved` with the correct payload variant.
+1. Reading `customContentId` from `extension.config` and `pageId` from `extension.content.id`.
+2. Calling `loadCustomContentWithOrphanRecovery` and unwrapping its result.
+3. Emitting `reportOrphanObserved` with the correct payload variant.
 
 Editor entries additionally need `originalCustomContentId` and `recoveryPageId` for Slice 2's repair detection — these are returned by the helper, so editor entries don't capture them separately.
 
+**Note on swagger's `extension.modal.customContentId` fallback.** The
+swagger editor currently reads `extension.config.customContentId ||
+extension.modal.customContentId` because Forge's editor iframe wiring
+for the OpenAPI module historically lost `extension.config` (§7 of the
+dev site). We do **not** include that fallback in this shared helper —
+it would be a runtime no-op for non-swagger entries and a category-3
+modal.context anti-pattern (§4 of this spec) for any future code that
+reads the helper as canonical. Swagger keeps the workaround at its own
+entry point with a `// @workaround` comment that unwraps the modal
+value before calling the helper.
+
 ### 5.3 Plumbing — 8 single-line call sites
 
-The same five files as PR #120, but each loader site collapses to one call:
+The viewer + editor entries (embed excluded — see §2):
 
 | File | Surface | Call |
 |---|---|---|
-| `src/forge-embed-viewer.ts` | Embed viewer | `await loadMacroDocumentWithRecovery('embed')` |
 | `src/forge-graph-viewer.ts` | Graph viewer | `await loadMacroDocumentWithRecovery('graph')` |
 | `src/forge-swagger-ui.ts` | OpenAPI viewer | `await loadMacroDocumentWithRecovery('openapi')` |
 | `src/forgeIndex.ts` (viewer branch) | Sequence/Mermaid/PlantUML viewer | `await loadMacroDocumentWithRecovery('sequence')` |
-| `src/forge-embed-editor.ts` | Embed editor | same call; captures `originalCustomContentId`, `recoveryPageId` |
-| `src/forge-graph-editor.ts` | Graph editor | same |
-| `src/forge-swagger-editor.ts` | OpenAPI editor | same |
+| `src/forge-graph-editor.ts` | Graph editor | same call; captures `originalCustomContentId`, `recoveryPageId` |
+| `src/forge-swagger-editor.ts` | OpenAPI editor | same (swagger unwraps `extension.modal.customContentId` workaround locally before calling the helper) |
 | `src/forgeIndex.ts` (editor branch) | Sequence/Mermaid/PlantUML editor | same |
+
+`src/forge-embed-viewer.ts` and `src/forge-embed-editor.ts` are
+intentionally **not** updated — embed is excluded from recovery (see
+§2). They keep their existing main-branch behavior, which already
+fires `reportOrphanObserved` with `recoveryUsed: false` semantics.
 
 Each site falls through to `NULL_DIAGRAM` when `doc` is undefined. No
 per-site telemetry, no per-site recovery branching — all centralized in

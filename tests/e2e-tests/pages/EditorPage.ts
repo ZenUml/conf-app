@@ -668,32 +668,69 @@ export class ConfluenceEditorPage {
       console.log(`📸 Screenshot saved: debug-${timestamp}-01-after-wait.png`);
     } catch (e) { console.log('⚠ Screenshot failed:', e); }
     
-    // Try to get the macro editor frame using the standard method
-    let frame;
-    try {
-      frame = this.getMacroEditorFrame();
-      console.log('✓ getMacroEditorFrame() returned a frame locator');
-    } catch (error) {
-      console.log('❌ getMacroEditorFrame() failed:', error);
-      return;
-    }
+    // First, verify the iframe exists and is loaded
+    console.log('⏳ Checking if iframe exists...');
+    const modal = this.page.getByTestId('custom-ui-modal-dialog');
+    const iframeLocator = modal.locator('[data-testid="hosted-resources-iframe"]');
     
-    // Check if the frame body is accessible
-    console.log('⏳ Checking if frame body is accessible...');
-    const bodyAccessible = await frame.locator('body').isVisible({ timeout: 15000 }).catch(() => false);
+    // Wait for iframe to be attached to DOM
+    const iframeAttached = await iframeLocator.waitFor({ state: 'attached', timeout: 10000 })
+      .then(() => true)
+      .catch(() => false);
     
-    if (!bodyAccessible) {
-      console.log('❌ Frame body not accessible - iframe may not have loaded');
+    if (!iframeAttached) {
+      console.log('❌ Iframe not attached to DOM');
       try {
-        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-body-not-accessible.png`, fullPage: true });
-        console.log(`📸 Screenshot saved: debug-${timestamp}-02-body-not-accessible.png`);
+        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-no-iframe.png`, fullPage: true });
+        console.log(`📸 Screenshot saved: debug-${timestamp}-02-no-iframe.png`);
       } catch (e) { console.log('⚠ Screenshot failed:', e); }
       return;
     }
-    console.log('✓ Frame body is accessible');
+    console.log('✓ Iframe attached to DOM');
+    
+    // Wait for iframe to be visible
+    const iframeVisible = await iframeLocator.isVisible({ timeout: 5000 }).catch(() => false);
+    if (!iframeVisible) {
+      console.log('❌ Iframe not visible');
+      return;
+    }
+    console.log('✓ Iframe visible');
+    
+    // Get the frame content
+    const frame = iframeLocator.contentFrame();
+    
+    // Wait for frame body to be attached - this is critical
+    console.log('⏳ Waiting for iframe body to be attached (up to 30s)...');
+    const bodyAttached = await frame.locator('body').waitFor({ state: 'attached', timeout: 30000 })
+      .then(() => true)
+      .catch((err) => {
+        console.log('❌ Body attach failed:', err.message);
+        return false;
+      });
+    
+    if (!bodyAttached) {
+      console.log('❌ Frame body not attached after 30s');
+      try {
+        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-body-not-attached.png`, fullPage: true });
+        console.log(`📸 Screenshot saved: debug-${timestamp}-02-body-not-attached.png`);
+      } catch (e) { console.log('⚠ Screenshot failed:', e); }
+      return;
+    }
+    console.log('✓ Frame body attached');
+    
+    // Wait for body to be visible
+    console.log('⏳ Waiting for iframe body to be visible...');
+    const bodyVisible = await frame.locator('body').isVisible({ timeout: 10000 }).catch(() => false);
+    
+    if (!bodyVisible) {
+      console.log('❌ Frame body not visible');
+      return;
+    }
+    console.log('✓ Frame body visible');
     
     // Wait a bit more for content to render
-    await this.page.waitForTimeout(2000);
+    console.log('⏳ Waiting 3s for iframe content to render...');
+    await this.page.waitForTimeout(3000);
     
     // 📸 Screenshot 2: Frame accessible
     try {
@@ -718,12 +755,13 @@ export class ConfluenceEditorPage {
         const isVisible = await btn.isVisible().catch(() => false);
         const text = await btn.textContent().catch(() => '(error)');
         const ariaLabel = await btn.getAttribute('aria-label').catch(() => null);
-        console.log(`  [${i}] visible=${isVisible} text="${text?.trim()}" aria-label="${ariaLabel}"`);
+        const className = await btn.getAttribute('class').catch(() => null);
+        console.log(`  [${i}] visible=${isVisible} text="${text?.trim()}" aria-label="${ariaLabel}" class="${className?.substring(0, 50)}..."`);
       }
       
       // Get all headings
-      const headings = await frame.locator('h1, h2, h3, h4, h5, h6').all();
-      console.log(`\n📋 Found ${headings.length} headings:`);
+      const headings = await frame.locator('h1, h2, h3, h4, h5, h6, div.text-xl').all();
+      console.log(`\n📋 Found ${headings.length} headings/titles:`);
       for (let i = 0; i < headings.length; i++) {
         const heading = headings[i];
         const text = await heading.textContent().catch(() => '(error)');
@@ -731,85 +769,74 @@ export class ConfluenceEditorPage {
         console.log(`  [${i}] <${tagName}> "${text?.trim()}"`);
       }
       
-      // Get all divs with text content (first 20)
-      const divs = await frame.locator('div').all();
-      console.log(`\n📦 Found ${divs.length} divs (showing first 20 with text):`);
-      let divCount = 0;
-      for (let i = 0; i < divs.length && divCount < 20; i++) {
-        const div = divs[i];
-        const text = await div.textContent().catch(() => '');
-        if (text && text.trim().length > 0 && text.trim().length < 200) {
-          console.log(`  [${i}] "${text.trim()}"`);
-          divCount++;
-        }
-      }
-      
     } catch (error) {
       console.error('❌ Error dumping iframe content:', error);
       try {
-        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-05-dump-error.png`, fullPage: true });
-        console.log(`📸 Screenshot saved: debug-${timestamp}-05-dump-error.png`);
+        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-03-dump-error.png`, fullPage: true });
+        console.log(`📸 Screenshot saved: debug-${timestamp}-03-dump-error.png`);
       } catch (e) { console.log('⚠ Screenshot failed:', e); }
     }
     
     console.log('═══════════════════════════════════════════════════════\n');
     // ═══ END DEBUG ═══
     
-    // 📸 Screenshot 5: After content dump
+    // 📸 Screenshot 3: After content dump
     try {
-      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-05-after-dump.png`, fullPage: true });
-      console.log(`📸 Screenshot saved: debug-${timestamp}-05-after-dump.png`);
+      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-03-after-dump.png`, fullPage: true });
+      console.log(`📸 Screenshot saved: debug-${timestamp}-03-after-dump.png`);
     } catch (e) { console.log('⚠ Screenshot failed:', e); }
     
     // Check if the GenerationPrompt dialog is visible by looking for its heading
-    const promptHeading = frame.locator('text=ZenUML diagram').first();
+    // The heading is a div with class "text-xl font-semibold" containing "ZenUML diagram"
+    const promptHeading = frame.locator('div.text-xl:has-text("ZenUML diagram")').first();
     const isPromptVisible = await promptHeading.isVisible({ timeout: 3000 }).catch(() => false);
     
     if (!isPromptVisible) {
       console.log('✓ GenerationPrompt dialog not visible (may not be Lite variant or AI_TITLE not enabled)');
       try {
-        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-06-no-prompt.png`, fullPage: true });
-        console.log(`📸 Screenshot saved: debug-${timestamp}-06-no-prompt.png`);
+        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-04-no-prompt.png`, fullPage: true });
+        console.log(`📸 Screenshot saved: debug-${timestamp}-04-no-prompt.png`);
       } catch (e) { console.log('⚠ Screenshot failed:', e); }
       return;
     }
     
     console.log('✓ GenerationPrompt dialog detected');
     
-    // 📸 Screenshot 6: GenerationPrompt detected
+    // 📸 Screenshot 4: GenerationPrompt detected
     try {
-      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-06-prompt-detected.png`, fullPage: true });
-      console.log(`📸 Screenshot saved: debug-${timestamp}-06-prompt-detected.png`);
+      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-04-prompt-detected.png`, fullPage: true });
+      console.log(`📸 Screenshot saved: debug-${timestamp}-04-prompt-detected.png`);
     } catch (e) { console.log('⚠ Screenshot failed:', e); }
     
-    // Strategy 1: Find button by text content (most reliable based on screenshot)
-    let openEditorButton = frame.locator('button').filter({ hasText: 'Open Editor' }).first();
+    // Find the "Open Editor" button - it's the first button after "Manual Mode" text
+    // Strategy 1: Find button with exact text "Open Editor" (with trimming)
+    let openEditorButton = frame.locator('button').filter({ hasText: /^\s*Open Editor\s*$/ }).first();
     let isButtonVisible = await openEditorButton.isVisible({ timeout: 2000 }).catch(() => false);
-    console.log(`  [debug] Strategy 1 (filter hasText): ${isButtonVisible ? 'found' : 'not found'}`);
+    console.log(`  [debug] Strategy 1 (regex filter): ${isButtonVisible ? 'found' : 'not found'}`);
     
     if (!isButtonVisible) {
-      // Strategy 2: Try exact text match with getByText
-      console.log('  [debug] Trying getByText...');
-      openEditorButton = frame.getByText('Open Editor', { exact: true }).first();
+      // Strategy 2: Find button by text content containing "Open Editor"
+      console.log('  [debug] Trying contains text...');
+      openEditorButton = frame.locator('button:has-text("Open Editor")').first();
       isButtonVisible = await openEditorButton.isVisible({ timeout: 1000 }).catch(() => false);
-      console.log(`  [debug] Strategy 2 (getByText): ${isButtonVisible ? 'found' : 'not found'}`);
+      console.log(`  [debug] Strategy 2 (has-text): ${isButtonVisible ? 'found' : 'not found'}`);
     }
     
     if (!isButtonVisible) {
-      // Strategy 3: Try role-based selector
-      console.log('  [debug] Trying role-based selector...');
-      openEditorButton = frame.getByRole('button', { name: /open editor/i }).first();
+      // Strategy 3: Find the button after "Manual Mode" heading
+      console.log('  [debug] Trying to find button after Manual Mode...');
+      const manualModeSection = frame.locator('text=Manual Mode').locator('..');
+      openEditorButton = manualModeSection.locator('~ button').first();
       isButtonVisible = await openEditorButton.isVisible({ timeout: 1000 }).catch(() => false);
-      console.log(`  [debug] Strategy 3 (getByRole): ${isButtonVisible ? 'found' : 'not found'}`);
+      console.log(`  [debug] Strategy 3 (after Manual Mode): ${isButtonVisible ? 'found' : 'not found'}`);
     }
     
     if (!isButtonVisible) {
-      // Strategy 4: Find any button in the Manual Mode section
-      console.log('  [debug] Trying to find button in Manual Mode section...');
-      const manualModeSection = frame.locator('text=Manual Mode').locator('..').locator('..');
-      openEditorButton = manualModeSection.locator('button').first();
+      // Strategy 4: Find any button with the specific styling
+      console.log('  [debug] Trying to find button by class...');
+      openEditorButton = frame.locator('button.\\!bg-gray-100.\\!text-slate-600').first();
       isButtonVisible = await openEditorButton.isVisible({ timeout: 1000 }).catch(() => false);
-      console.log(`  [debug] Strategy 4 (Manual Mode section): ${isButtonVisible ? 'found' : 'not found'}`);
+      console.log(`  [debug] Strategy 4 (by class): ${isButtonVisible ? 'found' : 'not found'}`);
     }
     
     if (isButtonVisible) {

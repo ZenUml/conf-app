@@ -678,6 +678,9 @@ export class ConfluenceEditorPage {
       return;
     }
     
+    // 🔍 DEBUG: Capture frame content immediately after getting frame locator
+    await this.captureFrameContent(frame, `debug-${timestamp}-00-frame-initial`);
+    
     // Wait for frame body to be accessible (with a reasonable timeout)
     console.log('⏳ Waiting for iframe body to be accessible (up to 30s)...');
     const bodyAccessible = await frame.locator('body').waitFor({ state: 'attached', timeout: 30000 })
@@ -693,15 +696,23 @@ export class ConfluenceEditorPage {
         await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-body-not-accessible.png`, fullPage: true });
         console.log(`📸 Screenshot saved: debug-${timestamp}-02-body-not-accessible.png`);
       } catch (e) { console.log('⚠ Screenshot failed:', e); }
+      // 🔍 DEBUG: Try to capture whatever we can from the frame
+      await this.captureFrameContent(frame, `debug-${timestamp}-02-body-not-accessible`);
       return;
     }
     console.log('✓ Frame body accessible');
+    
+    // 🔍 DEBUG: Capture frame content after body is accessible
+    await this.captureFrameContent(frame, `debug-${timestamp}-01-body-accessible`);
     
     // Wait a bit more for content to render
     console.log('⏳ Waiting 3s for iframe content to render...');
     await this.page.waitForTimeout(3000);
     
-    // 📸 Screenshot 2: Frame accessible
+    // � DEBUG: Capture frame content after render wait
+    await this.captureFrameContent(frame, `debug-${timestamp}-02-after-render-wait`);
+    
+    // �📸 Screenshot 2: Frame accessible
     try {
       await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-frame-accessible.png`, fullPage: true });
       console.log(`📸 Screenshot saved: debug-${timestamp}-02-frame-accessible.png`);
@@ -835,6 +846,108 @@ export class ConfluenceEditorPage {
     }
     
     console.log('═══════════════════════════════════════════════════════\n');
+  }
+
+  /**
+   * Captures and saves the frame's HTML content and visible text to a file for debugging.
+   * This helps diagnose iframe loading issues by showing what's actually in the frame.
+   * 
+   * @param frame - The frame locator to capture content from
+   * @param filePrefix - Prefix for the output file (e.g., "debug-123-step1")
+   */
+  private async captureFrameContent(frame: any, filePrefix: string): Promise<void> {
+    console.log(`\n🔍 Capturing frame content: ${filePrefix}`);
+    
+    try {
+      // Try to get the HTML content
+      const htmlContent = await frame.locator('body').innerHTML({ timeout: 5000 }).catch((err: Error) => {
+        console.log(`  ⚠ Could not get innerHTML: ${err.message}`);
+        return null;
+      });
+      
+      // Try to get all visible text
+      const visibleText = await frame.locator('body').textContent({ timeout: 5000 }).catch((err: Error) => {
+        console.log(`  ⚠ Could not get textContent: ${err.message}`);
+        return null;
+      });
+      
+      // Try to get all button texts
+      const buttons = await frame.locator('button').all().catch(() => []);
+      const buttonTexts: string[] = [];
+      for (const btn of buttons) {
+        const text = await btn.textContent().catch(() => null);
+        const visible = await btn.isVisible().catch(() => false);
+        if (text) {
+          buttonTexts.push(`${visible ? '✓' : '✗'} "${text.trim()}"`);
+        }
+      }
+      
+      // Try to get all input fields
+      const inputs = await frame.locator('input, textarea').all().catch(() => []);
+      const inputInfo: string[] = [];
+      for (const input of inputs) {
+        const type = await input.getAttribute('type').catch(() => 'unknown');
+        const placeholder = await input.getAttribute('placeholder').catch(() => '');
+        const visible = await input.isVisible().catch(() => false);
+        inputInfo.push(`${visible ? '✓' : '✗'} type="${type}" placeholder="${placeholder}"`);
+      }
+      
+      // Try to get all headings
+      const headings = await frame.locator('h1, h2, h3, h4, h5, h6, div.text-xl, div.text-lg').all().catch(() => []);
+      const headingTexts: string[] = [];
+      for (const heading of headings) {
+        const text = await heading.textContent().catch(() => null);
+        const visible = await heading.isVisible().catch(() => false);
+        if (text) {
+          headingTexts.push(`${visible ? '✓' : '✗'} "${text.trim()}"`);
+        }
+      }
+      
+      // Compile the report
+      const report = [
+        '═══════════════════════════════════════════════════════',
+        `FRAME CONTENT REPORT: ${filePrefix}`,
+        `Timestamp: ${new Date().toISOString()}`,
+        '═══════════════════════════════════════════════════════',
+        '',
+        '📝 VISIBLE TEXT (first 2000 chars):',
+        '---------------------------------------------------',
+        visibleText ? visibleText.substring(0, 2000) : '(no text content)',
+        '',
+        '🔘 BUTTONS:',
+        '---------------------------------------------------',
+        buttonTexts.length > 0 ? buttonTexts.join('\n') : '(no buttons found)',
+        '',
+        '📋 INPUT FIELDS:',
+        '---------------------------------------------------',
+        inputInfo.length > 0 ? inputInfo.join('\n') : '(no inputs found)',
+        '',
+        '📌 HEADINGS:',
+        '---------------------------------------------------',
+        headingTexts.length > 0 ? headingTexts.join('\n') : '(no headings found)',
+        '',
+        '🌐 HTML CONTENT (first 5000 chars):',
+        '---------------------------------------------------',
+        htmlContent ? htmlContent.substring(0, 5000) : '(no HTML content)',
+        '',
+        '═══════════════════════════════════════════════════════',
+      ].join('\n');
+      
+      // Save to file
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const outputPath = path.join('screenshots', `${filePrefix}-content.txt`);
+      
+      // Ensure screenshots directory exists
+      await fs.mkdir('screenshots', { recursive: true }).catch(() => {});
+      
+      await fs.writeFile(outputPath, report, 'utf-8');
+      console.log(`  ✓ Frame content saved to: ${outputPath}`);
+      console.log(`  📊 Summary: ${buttonTexts.length} buttons, ${inputInfo.length} inputs, ${headingTexts.length} headings`);
+      
+    } catch (error) {
+      console.log(`  ❌ Failed to capture frame content: ${error}`);
+    }
   }
 
   /**

@@ -62,3 +62,28 @@ done
 ```
 Then run `FORGE_DISABLE_ANALYTICS=true FORGE_EMAIL=<you> FORGE_API_TOKEN=<token> pnpm exec forge lint`.
 If all URLs are 200 and lint passes, revert per the steps in PR #116 description.
+
+---
+
+## 2026-05-23 — Recheck (developer workstation) — REVERTED
+
+Polled all 5 URLs from a developer workstation. Results:
+
+| URL | HTTP status | Size | Body |
+|-----|-------------|------|------|
+| `.../bitbucket/swagger.json` | **200** | 949538 | valid `{"swagger": "2.0", ...}` |
+| `.../confluence/openapi-v2.v3.json` | **200** | 597164 | valid `{"openapi":"3.0.3", ...}` |
+| `.../jira/platform/swagger-v3.v3.json` | **200** | 2446932 | valid JSON |
+| `.../jira/service-desk/swagger.v3.json` | **200** | 359722 | valid JSON |
+| `.../jira/software/swagger.v3.json` | **200** | 658032 | valid JSON |
+
+**`forge lint`:** Completed successfully — `0 errors, 4 warnings`. The 4 warnings are
+pre-existing deprecated egress permission entries in `manifest.yml`, unrelated to the
+ZEN-1170 OpenAPI fetch crash.
+
+**Decision:** Revert. Both revert conditions met (all 5 URLs return HTTP 200 with valid
+JSON AND `forge lint` succeeds).
+
+**Action taken:** Removed `--no-verify` from all 6 deploy scripts in `package.json`
+(`forge:deploy:{lite,full,diagramly}:{staging,prod}`) and removed the corresponding
+TODO block in `.github/workflows/staging-deploy.yml`.

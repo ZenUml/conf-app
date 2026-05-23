@@ -372,6 +372,121 @@ describe('ApWrapper2', () => {
     });
   });
 
+  // ZEN-1170 Defect 2b. The viewer's referenced customContentId is dead
+  // (404, deleted, restricted) but a sibling custom content on the same page
+  // has `body.id` matching the orphan id — the surviving copy from a
+  // historical cross-page-copy → dedupe flow. loadCustomContentWithOrphanRecovery
+  // composes direct fetch + probe + recovery-fetch into one call.
+  describe('loadCustomContentWithOrphanRecovery', () => {
+    const orphanId = '3916300417';
+    const recoveredId = '5553291585';
+    const pageId = '5553291265';
+
+    function childWith(id: string, bodyId: string) {
+      return {
+        id,
+        body: { raw: { value: JSON.stringify({ id: bodyId, code: 'A.method', diagramType: 'sequence' }) } },
+      };
+    }
+
+    function happyCustomContent(id: string) {
+      return {
+        id,
+        pageId,
+        body: { raw: { value: JSON.stringify({ code: 'B.method', diagramType: 'sequence' }) } },
+      };
+    }
+
+    it('returns the requested CC directly on happy path (no recovery)', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce(happyCustomContent('123'));
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, '123');
+
+      expect(result.customContent?.id).toBe('123');
+      expect(result.recoveredFromOrphanId).toBeUndefined();
+      expect(result.probeResult).toBeUndefined();
+      expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
+    });
+
+    it('recovers a single page-child whose body.id matches the orphan id', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ errors: [{ status: 404, code: 'NOT_FOUND' }] })
+        .mockResolvedValueOnce({ results: [childWith(recoveredId, orphanId)] })
+        .mockResolvedValueOnce({ results: [] })
+        .mockResolvedValueOnce(happyCustomContent(recoveredId));
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.customContent?.id).toBe(recoveredId);
+      expect(result.recoveredFromOrphanId).toBe(orphanId);
+      expect(result.probeResult?.recoverable).toBe(true);
+      expect(result.probeResult?.candidateCount).toBe(1);
+    });
+
+    it('does not recover when probe finds multiple matching candidates (ambiguous)', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ errors: [{ status: 404, code: 'NOT_FOUND' }] })
+        .mockResolvedValueOnce({ results: [childWith('aaa', orphanId), childWith('bbb', orphanId)] })
+        .mockResolvedValueOnce({ results: [] });
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.customContent).toBeUndefined();
+      expect(result.recoveredFromOrphanId).toBeUndefined();
+      expect(result.probeResult?.candidateCount).toBe(2);
+    });
+
+    it('returns undefined when probe finds no candidates', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ errors: [{ status: 404, code: 'NOT_FOUND' }] })
+        .mockResolvedValueOnce({ results: [] })
+        .mockResolvedValueOnce({ results: [] });
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.customContent).toBeUndefined();
+      expect(result.recoveredFromOrphanId).toBeUndefined();
+      expect(result.probeResult?.recoverable).toBe(false);
+    });
+
+    it('returns undefined and surfaces the probe error when the listing API fails', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ errors: [{ status: 404, code: 'NOT_FOUND' }] })
+        .mockResolvedValueOnce({ errors: [{ status: 403, code: 'FORBIDDEN' }] })
+        .mockResolvedValueOnce({ results: [] });
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.customContent).toBeUndefined();
+      expect(result.recoveredFromOrphanId).toBeUndefined();
+      expect(result.probeResult?.recoverable).toBe('probe_failed');
+    });
+
+    it('returns undefined when the recovered-CC fetch itself fails (race/permission edge)', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ errors: [{ status: 404, code: 'NOT_FOUND' }] })
+        .mockResolvedValueOnce({ results: [childWith(recoveredId, orphanId)] })
+        .mockResolvedValueOnce({ results: [] })
+        .mockResolvedValueOnce({ errors: [{ status: 404, code: 'NOT_FOUND' }] });
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.customContent).toBeUndefined();
+      expect(result.recoveredFromOrphanId).toBeUndefined();
+      expect(result.probeResult?.candidateCount).toBe(1);
+    });
+
+    it('returns undefined without probing when pageId is undefined', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ errors: [{ status: 404, code: 'NOT_FOUND' }] });
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(undefined, orphanId);
+
+      expect(result.customContent).toBeUndefined();
+      expect(result.probeResult).toBeUndefined();
+      expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
+    });
+  });
+
   describe('isVersionConflict (via updateCustomContentV2 behavior)', () => {
     it('should detect version conflict from error message', async () => {
       const content = buildContent(3);

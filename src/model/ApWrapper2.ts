@@ -332,6 +332,7 @@ export default class ApWrapper2 implements IApWrapper {
     recoverable: boolean | 'probe_failed';
     candidateCount: number;
     pageChildrenTotal: number;
+    candidateIds?: string[];
     truncated?: boolean;
     probeError?: string;
   }> {
@@ -362,7 +363,7 @@ export default class ApWrapper2 implements IApWrapper {
           probeError: JSON.stringify(errored.errors),
         };
       }
-      let candidateCount = 0;
+      const candidateIds: string[] = [];
       let pageChildrenTotal = 0;
       let truncated = false;
       for (const response of responses) {
@@ -376,8 +377,8 @@ export default class ApWrapper2 implements IApWrapper {
           if (!rawValue) continue;
           try {
             const body = JSON.parse(rawValue);
-            if (body?.id && String(body.id) === String(orphanId)) {
-              candidateCount++;
+            if (body?.id && String(body.id) === String(orphanId) && child?.id) {
+              candidateIds.push(String(child.id));
             }
           } catch {
             // malformed body — counted in total but not as a match
@@ -385,9 +386,10 @@ export default class ApWrapper2 implements IApWrapper {
         }
       }
       return {
-        recoverable: candidateCount > 0,
-        candidateCount,
+        recoverable: candidateIds.length > 0,
+        candidateCount: candidateIds.length,
         pageChildrenTotal,
+        ...(candidateIds.length > 0 && { candidateIds }),
         ...(truncated && { truncated: true }),
       };
     } catch (e: any) {
@@ -398,6 +400,56 @@ export default class ApWrapper2 implements IApWrapper {
         probeError: e?.message ? String(e.message) : String(e),
       };
     }
+  }
+
+  // ZEN-1170 Defect 2b. Read-OR-recover for the macro's referenced CC.
+  // - On happy path: returns the requested CC, no recovery marker.
+  // - When the requested CC 404s AND the page has exactly one custom-content
+  //   child whose body.id matches the orphan id: fetch that child and return
+  //   it with `recoveredFromOrphanId` set, so callers can render/edit/save
+  //   against the surviving sibling. Ambiguous matches (>1 candidates) are
+  //   intentionally not auto-recovered.
+  //
+  // Known limitation: after a successful save of the recovered sibling the
+  // sibling's body.id is updated to its own CC id (no longer matches the orphan
+  // id). If view.submit then fails (macro XML not repaired), a subsequent open
+  // will fail to locate the sibling via the probe. The editor's try/catch
+  // preserves the local draft as a retry anchor; a full fix requires storing
+  // the orphan id in a stable separate body field. Tracked as follow-up.
+  async loadCustomContentWithOrphanRecovery(
+    pageId: string | undefined,
+    customContentId: string,
+  ): Promise<{
+    customContent: ICustomContentV2 | undefined;
+    recoveredFromOrphanId?: string;
+    probeResult?: Awaited<ReturnType<ApWrapper2['probeOrphanRecovery']>>;
+  }> {
+    const direct = await this.getCustomContentByIdV2(customContentId);
+    if (direct) {
+      return { customContent: direct };
+    }
+    if (!pageId) {
+      return { customContent: undefined };
+    }
+
+    const probeResult = await this.probeOrphanRecovery(pageId, customContentId);
+    // Refuse recovery when the page-child listing was truncated: we can only
+    // confirm unambiguous (single-candidate) recovery when the full list is
+    // known. Truncated = first 250 results had 1 match, but more pages exist
+    // → ambiguity not resolvable without following pagination.
+    if (probeResult.recoverable !== true || probeResult.candidateCount !== 1 || !probeResult.candidateIds?.[0] || probeResult.truncated) {
+      return { customContent: undefined, probeResult };
+    }
+    const recoveredId = probeResult.candidateIds[0];
+    const recovered = await this.getCustomContentByIdV2(recoveredId);
+    if (!recovered) {
+      return { customContent: undefined, probeResult };
+    }
+    return {
+      customContent: recovered,
+      recoveredFromOrphanId: customContentId,
+      probeResult,
+    };
   }
 
   async getCustomContentVersionBeforeDate(id: string, date: string): Promise<ICustomContentV2 | undefined> {

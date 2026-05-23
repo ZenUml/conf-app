@@ -274,6 +274,51 @@ export default class ApWrapper2 implements IApWrapper {
 
   async getCustomContentByIdV2(id: string): Promise<ICustomContentV2 | undefined> {
     const customContent = await this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`);
+    return this.parseCustomContentByIdV2Response(id, customContent);
+  }
+
+  // ZEN-1170 Defect 2b. Distinguish "the CC genuinely doesn't exist" (404 /
+  // NOT_FOUND) from "the request failed for some other reason" (403, 5xx,
+  // malformed response, thrown). Recovery is only safe in the first case —
+  // probing and rewriting a sibling on top of a transient failure would
+  // cause false repairs. Returns a structured result so the loader can
+  // decide whether to probe.
+  private async fetchCustomContentByIdV2WithStatus(id: string): Promise<{
+    customContent: ICustomContentV2 | undefined;
+    status: 'ok' | 'not_found' | 'other_error';
+    errorDetail?: string;
+  }> {
+    let rawResponse: any;
+    try {
+      rawResponse = await this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`);
+    } catch (e: any) {
+      return { customContent: undefined, status: 'other_error', errorDetail: e?.message ? String(e.message) : String(e) };
+    }
+    const errors = rawResponse?.errors;
+    if (Array.isArray(errors) && errors.length > 0) {
+      // Strict 404 detection: every error in the array must be a true 404
+      // (status === 404 AND code === 'NOT_FOUND'). A mixed array — or a
+      // single error with mismatched status/code — must be treated as
+      // 'other_error' so recovery does not trigger and the write path
+      // does not fall through to create on transient failures.
+      const allStrictNotFound = errors.every(
+        (err: any) => err?.status === 404 && err?.code === 'NOT_FOUND',
+      );
+      const status: 'not_found' | 'other_error' = allStrictNotFound ? 'not_found' : 'other_error';
+      // Telemetry for non-success shapes preserved from the legacy parsing path.
+      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
+      return { customContent: undefined, status, errorDetail: JSON.stringify(errors) };
+    }
+    if (!rawResponse?.body?.raw?.value) {
+      // Truthy response but no parseable body — unexpected shape, not a 404.
+      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
+      return { customContent: undefined, status: 'other_error', errorDetail: 'malformed_or_empty_response' };
+    }
+    const parsed = await this.parseCustomContentByIdV2Response(id, rawResponse);
+    return { customContent: parsed, status: parsed ? 'ok' : 'other_error' };
+  }
+
+  private async parseCustomContentByIdV2Response(id: string, customContent: any): Promise<ICustomContentV2 | undefined> {
     // forgeRequest returns the parsed JSON body regardless of HTTP status —
     // a 404 surfaces as { errors: [{ status: 404, code: 'NOT_FOUND', … }] }
     // (truthy but missing body.raw.value). Previously the next line crashed
@@ -409,13 +454,11 @@ export default class ApWrapper2 implements IApWrapper {
   //   it with `recoveredFromOrphanId` set, so callers can render/edit/save
   //   against the surviving sibling. Ambiguous matches (>1 candidates) are
   //   intentionally not auto-recovered.
-  //
-  // Known limitation: after a successful save of the recovered sibling the
-  // sibling's body.id is updated to its own CC id (no longer matches the orphan
-  // id). If view.submit then fails (macro XML not repaired), a subsequent open
-  // will fail to locate the sibling via the probe. The editor's try/catch
-  // preserves the local draft as a retry anchor; a full fix requires storing
-  // the orphan id in a stable separate body field. Tracked as follow-up.
+  // - Other direct-fetch failures (403, 5xx, malformed, thrown) do NOT
+  //   trigger recovery: a transient error must not allow a sibling to be
+  //   picked and (in config surface) later rewrite the macro XML. The
+  //   `direct_fetch_status` is included in the result so callers / tests
+  //   can verify the gate.
   async loadCustomContentWithOrphanRecovery(
     pageId: string | undefined,
     customContentId: string,
@@ -423,32 +466,45 @@ export default class ApWrapper2 implements IApWrapper {
     customContent: ICustomContentV2 | undefined;
     recoveredFromOrphanId?: string;
     probeResult?: Awaited<ReturnType<ApWrapper2['probeOrphanRecovery']>>;
+    directFetchStatus?: 'ok' | 'not_found' | 'other_error';
   }> {
-    const direct = await this.getCustomContentByIdV2(customContentId);
-    if (direct) {
-      return { customContent: direct };
+    const direct = await this.fetchCustomContentByIdV2WithStatus(customContentId);
+    if (direct.status === 'ok' && direct.customContent) {
+      return { customContent: direct.customContent, directFetchStatus: 'ok' };
+    }
+    if (direct.status !== 'not_found') {
+      // Transient / 403 / 5xx / malformed — refuse to probe. Probing here
+      // could surface a sibling for a CC that's only briefly unavailable
+      // and (in config surface) later cause an incorrect macro XML rewrite.
+      return { customContent: undefined, directFetchStatus: direct.status };
     }
     if (!pageId) {
-      return { customContent: undefined };
+      return { customContent: undefined, directFetchStatus: 'not_found' };
     }
 
     const probeResult = await this.probeOrphanRecovery(pageId, customContentId);
-    // Refuse recovery when the page-child listing was truncated: we can only
-    // confirm unambiguous (single-candidate) recovery when the full list is
-    // known. Truncated = first 250 results had 1 match, but more pages exist
-    // → ambiguity not resolvable without following pagination.
-    if (probeResult.recoverable !== true || probeResult.candidateCount !== 1 || !probeResult.candidateIds?.[0] || probeResult.truncated) {
-      return { customContent: undefined, probeResult };
+    // Refuse recovery when the listing was truncated: a single match on the
+    // first page is not globally unambiguous if additional pages exist. Auto-
+    // repair against a non-unique sibling would silently rewrite the macro XML
+    // to the wrong custom content id. Surface via telemetry instead.
+    if (
+      probeResult.truncated ||
+      probeResult.recoverable !== true ||
+      probeResult.candidateCount !== 1 ||
+      !probeResult.candidateIds?.[0]
+    ) {
+      return { customContent: undefined, probeResult, directFetchStatus: 'not_found' };
     }
     const recoveredId = probeResult.candidateIds[0];
     const recovered = await this.getCustomContentByIdV2(recoveredId);
     if (!recovered) {
-      return { customContent: undefined, probeResult };
+      return { customContent: undefined, probeResult, directFetchStatus: 'not_found' };
     }
     return {
       customContent: recovered,
       recoveredFromOrphanId: customContentId,
       probeResult,
+      directFetchStatus: 'not_found',
     };
   }
 
@@ -825,20 +881,53 @@ export default class ApWrapper2 implements IApWrapper {
 
   async saveCustomContentV2(customContentId: string, value: Diagram): Promise<ICustomContentResponseBodyV2> {
     let result;
-    // TODO: Do we really need to check whether it exists?
-    const existing = await this.getCustomContentByIdV2(customContentId);
+    // ZEN-1170 Defect 2b: use status-aware fetch so the existence check
+    // distinguishes a genuine 404 (legitimate "create new") from transient
+    // failures (403, 5xx, malformed, thrown). Falling through to create on
+    // a transient failure would orphan the user's edits when the macro
+    // config still references the old CC id.
+    const direct = await this.fetchCustomContentByIdV2WithStatus(customContentId);
+    if (direct.status === 'other_error') {
+      const err = new Error(
+        `saveCustomContentV2: existence check for ${customContentId} failed: ${direct.errorDetail || 'unknown'}`,
+      );
+      trackEvent('save_existence_check_failed', 'save_existence_check_failed', 'error', {
+        custom_content_id: customContentId,
+        detail: direct.errorDetail || '',
+      });
+      throw err;
+    }
+    const existing = direct.customContent;
     const pageId = await this._getCurrentPageId();
     const count = (await this._page.countMacros((m) => {
       return m?.customContentId === customContentId //new forge custom content
         || m?.customContentId?.value === customContentId;
     }));
 
-    // pageId is absent when editing in custom content list page;
-    // Make sure we don't update custom content on a different page
-    // and there is only one macro linked to the custom content on the current page.
-    if (existing && (!pageId || (String(pageId) === String(existing?.pageId) && count === 1))) {
+    // ZEN-1170 Defect 2b: when the diagram was loaded via orphan-sibling
+    // recovery, the macro XML still references the dead orphan id, so no
+    // macro on the page references this CC yet (count === 0). We still
+    // want to update this CC in-place (rather than creating a third
+    // record), AND preserve body.id = orphanId so future probe-based
+    // recovery still finds this CC even if the macro-config repair via
+    // view.submit doesn't land. saveValue carries the orphan id back into
+    // the serialized body — but the UI/control-plane flags themselves
+    // (recoveredFromOrphan, recoveredFromOrphanId) must NOT be persisted,
+    // or every future direct fetch would parse them out of the body and
+    // treat the (now-repaired) CC as still-recovered indefinitely. Strip
+    // them before serializing.
+    const recoveredFromOrphanId = value.recoveredFromOrphanId;
+    const samePage = !pageId || String(pageId) === String(existing?.pageId);
+    const countAllowsUpdate = recoveredFromOrphanId ? (count <= 1) : (count === 1);
+    let saveValue: Diagram = value;
+    if (recoveredFromOrphanId) {
+      const { recoveredFromOrphan: _f, recoveredFromOrphanId: _id, ...bodyOnly } = value as any;
+      saveValue = { ...bodyOnly, id: recoveredFromOrphanId };
+    }
+
+    if (existing && samePage && countAllowsUpdate) {
       try {
-        result = await this.updateCustomContentV2(existing, value);
+        result = await this.updateCustomContentV2(existing, saveValue);
       } catch (error) {
         trackEvent('update_custom_content_error', 'update_custom_content_error', 'error', this.buildStructuredErrorProps(error));
         throw error;
@@ -850,7 +939,7 @@ export default class ApWrapper2 implements IApWrapper {
       if (String(pageId) !== String(existing?.pageId)) {
         console.warn(`Detected copied macro on page ${pageId} (current) and ${existing?.pageId}.`);
       }
-      result = await this.createCustomContentV2(value);
+      result = await this.createCustomContentV2(saveValue);
     }
     return result;
   }

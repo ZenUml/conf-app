@@ -18,6 +18,20 @@
           <div class="viewer-edge-top">
             <div class="viewer-title-area">
               <span v-if="isEmbedded" class="viewer-embed-chip" title="Content is embedded from another page">EMBED</span>
+              <!--
+                ZEN-1170 Defect 2b: visible chip + tooltip when the diagram was
+                loaded via orphan-sibling recovery. The disabled Edit button's
+                title alone wouldn't surface on touch / for keyboard users —
+                this chip is always visible and keyboard-focusable.
+              -->
+              <span
+                v-if="diagram.recoveredFromOrphan"
+                class="viewer-recovered-chip"
+                role="status"
+                aria-label="Diagram recovered from a backup. To save changes, edit the page (top-right) and edit this macro."
+                tabindex="0"
+                :title="recoveredFromOrphanMessage"
+              >RECOVERED</span>
               <span class="viewer-title" :title="title">{{ title }}</span>
             </div>
             <div class="viewer-top-actions">
@@ -34,6 +48,22 @@
                 <span>Fullscreen</span>
               </button>
             </div>
+          </div>
+
+          <!--
+            ZEN-1170 Defect 2b recovery banner. Always-visible, accessible
+            explanation of how to actually edit the macro when its
+            customContentId is dead. Sits above the canvas so it's noticed
+            even by users who skip the disabled Edit button.
+          -->
+          <div
+            v-if="diagram.recoveredFromOrphan"
+            class="viewer-recovered-banner"
+            role="status"
+            data-testid="recovered-banner"
+          >
+            <strong>This diagram was recovered from a backup.</strong>
+            To save changes, click <em>Edit</em> on the page (top right of Confluence), then click <em>Edit</em> on this macro.
           </div>
 
           <!-- Canvas + bottom-edge pill -->
@@ -127,7 +157,19 @@ export default {
       const isCustomContent = this.diagram.source === DataSource.CustomContent;
       return this.canUserEdit && isCustomContent;
     },
+    recoveredFromOrphanMessage() {
+      return 'This diagram was recovered from a backup. To save changes, click Edit on the page (top right), then click Edit on this macro.';
+    },
     editDisabledReason() {
+      // ZEN-1170 Defect 2b: when the diagram was loaded via orphan-sibling
+      // recovery, the macro XML still references the dead customContentId.
+      // Our in-viewer Edit opens a modal where view.submit({config}) can't
+      // persist back to the macro — saves would silently create orphans.
+      // Steer the user to Confluence's page editor where the macro-config
+      // surface (isConfiguring=true) can actually persist the repair.
+      if (this.diagram.recoveredFromOrphan) {
+        return this.recoveredFromOrphanMessage;
+      }
       if (!this.diagram.isCopy) return null;
       return this.diagram.copyReason === 'cross-page'
         ? 'This diagram lives on another page. Edit it there to keep both in sync.'
@@ -270,6 +312,35 @@ export default {
   background: #F3F4F6;
   border-radius: 4px;
   text-transform: uppercase;
+}
+.viewer-recovered-chip {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: #92400E;
+  background: #FEF3C7;
+  border-radius: 4px;
+  text-transform: uppercase;
+  outline-offset: 2px;
+}
+.viewer-recovered-chip:focus-visible {
+  outline: 2px solid #D97706;
+}
+.viewer-recovered-banner {
+  margin: 6px 8px 4px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #92400E;
+  background: #FEF3C7;
+  border: 1px solid #FDE68A;
+  border-radius: 6px;
+  line-height: 1.4;
+}
+.viewer-recovered-banner em {
+  font-style: normal;
+  font-weight: 600;
 }
 
 .viewer-top-actions {

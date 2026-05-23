@@ -1,5 +1,5 @@
 import globals from '@/model/globals';
-import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isFullscreenMode } from '@/model/globals/forgeGlobal';
+import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isConfiguring, isFullscreenMode } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
 import { toast } from '@/utils/toast';
@@ -121,6 +121,8 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
       doc = loaded.customContent?.value;
       if (loaded.recoveredFromOrphanId && doc) {
+        doc.recoveredFromOrphan = true;
+        doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
         reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, {
           recoveryUsed: true,
           recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
@@ -451,7 +453,12 @@ EventBus.$on('save', async () => {
   }
 
   // ZEN-1170 Defect 2b: repair stale macro XML when we saved against the
-  // recovered sibling id.
+  // recovered sibling id. view.submit({config:...}) only persists back to
+  // the macro XML in surfaces where the parent is the macro-config editor —
+  // i.e. inserting a new macro or editing via the in-page "edit macro params"
+  // affordance (isConfiguring). In viewer-launched modals the submitted
+  // payload is forwarded to onClose and discarded, so repair would be a
+  // no-op and the telemetry event would be misleading. Gate accordingly.
   const macroNeedsRepair = !!(originalCustomContentId && id && id !== originalCustomContentId);
 
   // Give some time for track event to be sent out. We are not using a more reliable way to track event because
@@ -461,8 +468,11 @@ EventBus.$on('save', async () => {
     // (b) the save returned a different id (cross-page-copy / same-page-
     // duplicate POST branch), or (c) we recovered from an orphan and must
     // repoint the macro at the recovered sibling id.
+    const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
+    const repairWillPersist = inserting || configuring;
+    const attemptRepair = repairWillPersist && macroNeedsRepair;
     const idChanged = !!sourceId && !!id && id !== sourceId;
-    const needsWriteback = (await isInserting()) || idChanged || macroNeedsRepair;
+    const needsWriteback = inserting || idChanged || attemptRepair;
     try {
       if (needsWriteback) {
         await (await getView()).submit({config: {
@@ -470,7 +480,7 @@ EventBus.$on('save', async () => {
           updatedAt: new Date().toISOString(),
           ...(originalConfigUuid && { uuid: originalConfigUuid }),
         }});
-        if (macroNeedsRepair && originalCustomContentId) {
+        if (attemptRepair && originalCustomContentId) {
           reportOrphanMacroRepaired(recoveryPageId, originalCustomContentId, id, 'sequence');
         }
       } else {

@@ -105,6 +105,58 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
+  // ZEN-1170 Defect 2b: when the diagram was loaded via orphan-sibling
+  // recovery, the in-viewer Edit button must steer the user to Confluence's
+  // page editor (where the macro-config surface can actually persist a
+  // customContentId repair via view.submit({config})). Our modal-launched
+  // edit flow would silently create orphan CCs on save.
+  describe('recovered-from-orphan edit gating', () => {
+    it('disables the Edit button with a recovery-specific tooltip when diagram.recoveredFromOrphan is true', async () => {
+      store.state.diagram.recoveredFromOrphan = true
+      const wrapper = mountViewer()
+      await wrapper.vm.$nextTick()
+      const editBtn = wrapper.find('button[aria-label="Edit"]')
+      expect(editBtn.exists()).toBe(true)
+      expect(editBtn.attributes('disabled')).toBeDefined()
+      const tooltip = editBtn.attributes('title') || ''
+      expect(tooltip).toContain('recovered from a backup')
+      expect(tooltip).toContain('Edit on the page')
+    })
+
+    it('leaves the Edit button enabled when recoveredFromOrphan is not set', async () => {
+      store.state.diagram.recoveredFromOrphan = false
+      const wrapper = mountViewer()
+      await wrapper.vm.$nextTick()
+      const editBtn = wrapper.find('button[aria-label="Edit"]')
+      expect(editBtn.attributes('disabled')).toBeUndefined()
+    })
+
+    // Visible affordance (not just disabled-button tooltip): the recovery
+    // chip and banner must render so touch / keyboard users discover the
+    // repair path without hovering a disabled button.
+    it('renders a visible RECOVERED chip and explanatory banner when recoveredFromOrphan is true', async () => {
+      store.state.diagram.recoveredFromOrphan = true
+      const wrapper = mountViewer()
+      await wrapper.vm.$nextTick()
+      const chip = wrapper.find('.viewer-recovered-chip')
+      expect(chip.exists()).toBe(true)
+      expect(chip.text()).toBe('RECOVERED')
+      expect(chip.attributes('tabindex')).toBe('0')
+      const banner = wrapper.find('[data-testid="recovered-banner"]')
+      expect(banner.exists()).toBe(true)
+      expect(banner.text()).toContain('recovered from a backup')
+      expect(banner.text()).toContain('Edit')
+    })
+
+    it('does not render the recovered chip or banner when recoveredFromOrphan is not set', async () => {
+      store.state.diagram.recoveredFromOrphan = false
+      const wrapper = mountViewer()
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.viewer-recovered-chip').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="recovered-banner"]').exists()).toBe(false)
+    })
+  })
+
   describe('bottom-edge pill actions', () => {
     it('shows the four expected actions for a custom-content diagram', () => {
       const wrapper = mountViewer()

@@ -483,7 +483,223 @@ describe('ApWrapper2', () => {
 
       expect(result.customContent).toBeUndefined();
       expect(result.probeResult).toBeUndefined();
+      expect(result.directFetchStatus).toBe('not_found');
       expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
+    });
+
+    // ZEN-1170 Defect 2b safety: recovery must NOT trigger on transient
+    // failures (403 / 5xx / malformed). Probing a sibling and (in config
+    // surface) rewriting the macro XML on top of a brief outage would
+    // cause incorrect repairs.
+    it('does not probe or recover on a 403 direct-fetch (transient permission failure)', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ errors: [{ status: 403, code: 'FORBIDDEN' }] });
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.customContent).toBeUndefined();
+      expect(result.recoveredFromOrphanId).toBeUndefined();
+      expect(result.probeResult).toBeUndefined();
+      expect(result.directFetchStatus).toBe('other_error');
+      // No probe, no recovered fetch — only the direct fetch.
+      expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
+    });
+
+    it('does not probe or recover on a 500 direct-fetch (transient server error)', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ errors: [{ status: 500, code: 'INTERNAL_SERVER_ERROR' }] });
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.customContent).toBeUndefined();
+      expect(result.directFetchStatus).toBe('other_error');
+      expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
+    });
+
+    it('does not probe or recover when the direct fetch throws (network error)', async () => {
+      vi.mocked(forgeRequest).mockRejectedValueOnce(new Error('network down'));
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.customContent).toBeUndefined();
+      expect(result.directFetchStatus).toBe('other_error');
+      expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
+    });
+
+    it('does not probe or recover when the direct fetch returns a malformed body', async () => {
+      // Truthy response but no errors AND no body.raw.value → unexpected shape.
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: 'whatever', someUnexpected: 'shape' });
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.customContent).toBeUndefined();
+      expect(result.directFetchStatus).toBe('other_error');
+      expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
+    });
+
+    // Strict 404 detection — guard against mismatched / mixed error payloads
+    // looking like a 404 when they aren't.
+    it('treats {status: 403, code: NOT_FOUND} as other_error (status/code mismatch)', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ errors: [{ status: 403, code: 'NOT_FOUND' }] });
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.directFetchStatus).toBe('other_error');
+      expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
+    });
+
+    it('treats {status: 404, code: FORBIDDEN} as other_error (status/code mismatch)', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ errors: [{ status: 404, code: 'FORBIDDEN' }] });
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.directFetchStatus).toBe('other_error');
+      expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
+    });
+
+    it('treats {status: 429, code: RATE_LIMITED} as other_error', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ errors: [{ status: 429, code: 'RATE_LIMITED' }] });
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.directFetchStatus).toBe('other_error');
+      expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
+    });
+
+    it('treats a mixed errors array (one strict 404 + one transient) as other_error', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        errors: [
+          { status: 404, code: 'NOT_FOUND' },
+          { status: 500, code: 'INTERNAL_SERVER_ERROR' },
+        ],
+      });
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.directFetchStatus).toBe('other_error');
+      expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
+    });
+  });
+
+  // ZEN-1170 Defect 2b: when a diagram was loaded via orphan-sibling
+  // recovery (diagram.recoveredFromOrphanId set), saveCustomContentV2 must
+  // update the recovered CC in-place rather than creating a third record,
+  // AND preserve body.id = orphanId so future probes still find this CC
+  // even if the macro-config repair via view.submit doesn't land.
+  describe('saveCustomContentV2 — orphan recovery save path', () => {
+    const orphanId = '3916300417';
+    const recoveredId = '5553291585';
+
+    it('updates the recovered CC in-place when recoveredFromOrphanId is set and macro count is 0', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({
+          id: recoveredId,
+          pageId: '456',
+          type: 'ac:com.zenuml.confluence-addon:zenuml-content-sequence',
+          status: 'current',
+          version: { number: 2 },
+          body: { raw: { value: JSON.stringify({ code: 'old-code', diagramType: 'sequence', id: orphanId }) } },
+        })
+        .mockResolvedValueOnce({ id: recoveredId, version: { number: 3 } });
+
+      const valueWithRecovery: any = {
+        id: recoveredId,
+        recoveredFromOrphanId: orphanId,
+        code: 'new-code',
+        diagramType: 'sequence',
+        source: 'custom-content',
+      };
+
+      const result = await wrapper.saveCustomContentV2(recoveredId, valueWithRecovery);
+
+      expect(result?.id).toBe(recoveredId);
+      const updateCall = vi.mocked(forgeRequest).mock.calls[1];
+      expect(updateCall[0]).toBe(`/wiki/api/v2/custom-content/${recoveredId}`);
+      expect(updateCall[1]).toBe('PUT');
+      // The serialized body must carry id = orphanId (preserved), not recoveredId.
+      // This is the marker future probe-based recovery uses to find this CC
+      // if the macro-config repair via view.submit hasn't landed.
+      const putPayload = updateCall[2] as any;
+      const serializedBody = JSON.parse(putPayload.body.value);
+      expect(serializedBody.id).toBe(orphanId);
+      expect(serializedBody.code).toBe('new-code');
+    });
+
+    it('falls through to create when recoveredFromOrphanId is set but existing fetch returns not_found', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ errors: [{ status: 404, code: 'NOT_FOUND' }] })
+        .mockResolvedValueOnce({ id: 'new-id', version: { number: 1 } });
+
+      const valueWithRecovery: any = {
+        id: recoveredId,
+        recoveredFromOrphanId: orphanId,
+        code: 'edits',
+        diagramType: 'sequence',
+        source: 'custom-content',
+      };
+
+      const result = await wrapper.saveCustomContentV2(recoveredId, valueWithRecovery);
+
+      expect(result?.id).toBe('new-id');
+      const createCall = vi.mocked(forgeRequest).mock.calls[1];
+      expect(createCall[0]).toBe('/wiki/api/v2/custom-content');
+      expect(createCall[1]).toBe('POST');
+      // Even on create, the body preserves id = orphanId so the newly-created
+      // CC is recoverable via probe on future visits.
+      const serializedBody = JSON.parse((createCall[2] as any).body.value);
+      expect(serializedBody.id).toBe(orphanId);
+    });
+
+    it('throws when existence check returns other_error (transient failure must not silently create)', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ errors: [{ status: 500, code: 'INTERNAL_SERVER_ERROR' }] });
+
+      const value: any = {
+        id: recoveredId,
+        code: 'edits',
+        diagramType: 'sequence',
+        source: 'custom-content',
+      };
+
+      await expect(wrapper.saveCustomContentV2(recoveredId, value)).rejects.toThrow(/existence check/);
+      expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
+    });
+
+    // ZEN-1170 Defect 2b regression: the UI/control-plane flags
+    // (recoveredFromOrphan, recoveredFromOrphanId) must NOT be persisted in
+    // the CC body. Otherwise every future direct fetch would parse them
+    // out and treat the (now-repaired) CC as still-recovered indefinitely
+    // — the viewer would keep disabling Edit, the save path would keep
+    // overriding body.id to the old orphan id, and the macro would never
+    // exit the "recovered" UX state.
+    it('strips recoveredFromOrphan and recoveredFromOrphanId from the persisted body', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({
+          id: recoveredId,
+          pageId: '456',
+          type: 'ac:com.zenuml.confluence-addon:zenuml-content-sequence',
+          status: 'current',
+          version: { number: 2 },
+          body: { raw: { value: JSON.stringify({ code: 'old', diagramType: 'sequence', id: orphanId }) } },
+        })
+        .mockResolvedValueOnce({ id: recoveredId, version: { number: 3 } });
+
+      const valueWithFlags: any = {
+        id: recoveredId,
+        recoveredFromOrphan: true,
+        recoveredFromOrphanId: orphanId,
+        code: 'new',
+        diagramType: 'sequence',
+        source: 'custom-content',
+      };
+
+      await wrapper.saveCustomContentV2(recoveredId, valueWithFlags);
+
+      const updateCall = vi.mocked(forgeRequest).mock.calls[1];
+      const serializedBody = JSON.parse((updateCall[2] as any).body.value);
+      // body.id is preserved as the orphan id (the recovery marker)
+      expect(serializedBody.id).toBe(orphanId);
+      // But the control-plane flags themselves are stripped — they're a
+      // load-time UI state, not part of the diagram's persisted identity.
+      expect(serializedBody.recoveredFromOrphan).toBeUndefined();
+      expect(serializedBody.recoveredFromOrphanId).toBeUndefined();
     });
   });
 

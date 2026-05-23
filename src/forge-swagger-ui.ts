@@ -61,6 +61,8 @@ async function loadDiagram() {
     console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
     if (loaded.recoveredFromOrphanId && doc) {
+      doc.recoveredFromOrphan = true;
+      doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
       reportOrphanObserved(pageId, customContentId, 'openapi', loaded.probeResult, {
         recoveryUsed: true,
         recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,

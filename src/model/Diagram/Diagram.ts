@@ -42,6 +42,22 @@ export class Diagram {
   id?: string; // custom content id or content property id or uuid
   isCopy?: boolean;
   copyReason?: 'cross-page' | 'same-page-duplicate';
+  // ZEN-1170 Defect 2b: set when this diagram was loaded via the orphan-
+  // sibling recovery path (the macro's stored customContentId 404s but a
+  // page-child CC with matching body.id was used instead). The in-viewer
+  // Edit button is gated off because view.submit({config}) in the modal
+  // flow doesn't persist back to the macro XML; saves from that flow would
+  // silently create an orphan. The user must edit via Confluence's page
+  // editor (gear icon / macro toolbar) where isConfiguring=true and repair
+  // can persist.
+  recoveredFromOrphan?: boolean;
+  // ZEN-1170 Defect 2b: the original (dead) customContentId the macro XML
+  // references. Threaded through save so saveCustomContentV2 can update
+  // the recovered sibling in-place (bypass the count===1 guard that
+  // assumes a referring macro exists) AND preserve body.id = this value
+  // so future probe-based recovery still finds the CC even if the
+  // macro-config repair via view.submit doesn't land.
+  recoveredFromOrphanId?: string;
   diagramType: DiagramType = DiagramType.Unknown;
   code?: string = '';
   title?: string = '';

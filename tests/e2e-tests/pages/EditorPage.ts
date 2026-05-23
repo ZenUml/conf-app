@@ -654,87 +654,51 @@ export class ConfluenceEditorPage {
   async closeGenerationPromptIfVisible(): Promise<void> {
     const timestamp = Date.now();
     console.log('\n═══════════════════════════════════════════════════════');
-    console.log('DEBUG: Checking for macro editor iframe');
+    console.log('DEBUG: Checking for GenerationPrompt dialog');
+    console.log(`Config: isLite=${testConfig.isLite}, isForge=${testConfig.isForge}`);
     console.log('═══════════════════════════════════════════════════════');
     
     // Give the macro editor more time to initialize (especially in CI)
-    console.log('⏳ Waiting 3s for macro editor to initialize...');
-    await this.page.waitForTimeout(3000);
+    console.log('⏳ Waiting 5s for macro editor to fully load...');
+    await this.page.waitForTimeout(5000);
     
-    // 📸 Screenshot 1: Initial page state
+    // 📸 Screenshot 1: Initial state after wait
     try {
-      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-01-initial.png`, fullPage: true });
-      console.log(`📸 Screenshot saved: debug-${timestamp}-01-initial.png`);
+      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-01-after-wait.png`, fullPage: true });
+      console.log(`📸 Screenshot saved: debug-${timestamp}-01-after-wait.png`);
     } catch (e) { console.log('⚠ Screenshot failed:', e); }
     
-    // First, check if the modal dialog exists at all
-    const modal = this.page.getByTestId('custom-ui-modal-dialog');
-    const modalExists = await modal.isVisible({ timeout: 10000 }).catch(() => false);
+    // Try to get the macro editor frame using the standard method
+    let frame;
+    try {
+      frame = this.getMacroEditorFrame();
+      console.log('✓ getMacroEditorFrame() returned a frame locator');
+    } catch (error) {
+      console.log('❌ getMacroEditorFrame() failed:', error);
+      return;
+    }
     
-    if (!modalExists) {
-      console.log('❌ Modal dialog not found - macro editor may not have opened');
+    // Check if the frame body is accessible
+    console.log('⏳ Checking if frame body is accessible...');
+    const bodyAccessible = await frame.locator('body').isVisible({ timeout: 15000 }).catch(() => false);
+    
+    if (!bodyAccessible) {
+      console.log('❌ Frame body not accessible - iframe may not have loaded');
       try {
-        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-no-modal.png`, fullPage: true });
-        console.log(`📸 Screenshot saved: debug-${timestamp}-02-no-modal.png`);
+        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-body-not-accessible.png`, fullPage: true });
+        console.log(`📸 Screenshot saved: debug-${timestamp}-02-body-not-accessible.png`);
       } catch (e) { console.log('⚠ Screenshot failed:', e); }
       return;
     }
-    console.log('✓ Modal dialog found');
-    
-    // 📸 Screenshot 2: Modal found
-    try {
-      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-modal-found.png`, fullPage: true });
-      console.log(`📸 Screenshot saved: debug-${timestamp}-02-modal-found.png`);
-    } catch (e) { console.log('⚠ Screenshot failed:', e); }
-    
-    // Check if the hosted-resources-iframe exists
-    const iframeLocator = modal.locator('[data-testid="hosted-resources-iframe"]');
-    const iframeExists = await iframeLocator.isVisible({ timeout: 10000 }).catch(() => false);
-    
-    if (!iframeExists) {
-      console.log('❌ hosted-resources-iframe not found in modal');
-      try {
-        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-03-no-iframe.png`, fullPage: true });
-        console.log(`📸 Screenshot saved: debug-${timestamp}-03-no-iframe.png`);
-      } catch (e) { console.log('⚠ Screenshot failed:', e); }
-      return;
-    }
-    console.log('✓ hosted-resources-iframe found');
-    
-    // 📸 Screenshot 3: Iframe found
-    try {
-      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-03-iframe-found.png`, fullPage: true });
-      console.log(`📸 Screenshot saved: debug-${timestamp}-03-iframe-found.png`);
-    } catch (e) { console.log('⚠ Screenshot failed:', e); }
-    
-    // Now try to get the frame content
-    const frame = iframeLocator.contentFrame();
-    
-    // Wait for frame to be ready by checking if body exists
-    console.log('⏳ Waiting for iframe body to attach (up to 20s)...');
-    const bodyExists = await frame.locator('body').waitFor({ state: 'attached', timeout: 20000 })
-      .then(() => true)
-      .catch(() => false);
-    
-    if (!bodyExists) {
-      console.log('❌ Frame body not attached after 20s - iframe may not have loaded');
-      try {
-        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-04-body-not-attached.png`, fullPage: true });
-        console.log(`📸 Screenshot saved: debug-${timestamp}-04-body-not-attached.png`);
-      } catch (e) { console.log('⚠ Screenshot failed:', e); }
-      console.log('═══════════════════════════════════════════════════════\n');
-      return;
-    }
-    console.log('✓ Frame body attached');
+    console.log('✓ Frame body is accessible');
     
     // Wait a bit more for content to render
-    console.log('⏳ Waiting 2s for iframe content to render...');
     await this.page.waitForTimeout(2000);
     
-    // 📸 Screenshot 4: Frame body attached
+    // 📸 Screenshot 2: Frame accessible
     try {
-      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-04-body-attached.png`, fullPage: true });
-      console.log(`📸 Screenshot saved: debug-${timestamp}-04-body-attached.png`);
+      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-frame-accessible.png`, fullPage: true });
+      console.log(`📸 Screenshot saved: debug-${timestamp}-02-frame-accessible.png`);
     } catch (e) { console.log('⚠ Screenshot failed:', e); }
     
     // ═══ DEBUG: Dump all text content in the iframe ═══

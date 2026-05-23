@@ -636,10 +636,12 @@ export class ConfluenceEditorPage {
    */
   getMacroEditorFrame() {
     if (testConfig.isForge || testConfig.isLite) {
+      console.debug("getMacroEditorFrame forge")
       return this.page.getByTestId('custom-ui-modal-dialog')
         .locator('[data-testid="hosted-resources-iframe"]')
         .contentFrame();
     }
+    console.debug("getMacroEditorFrame connect")
     return this.page.locator('[role="dialog"] iframe').contentFrame();
   }
 
@@ -673,6 +675,24 @@ export class ConfluenceEditorPage {
     try {
       frame = this.getMacroEditorFrame();
       console.log('✓ getMacroEditorFrame() returned a frame locator');
+      
+      // 🔍 DEBUG: Get the iframe element's src attribute
+      try {
+        // For Forge variant
+        if (testConfig.isForge || testConfig.isLite) {
+          const modal = this.page.getByTestId('custom-ui-modal-dialog');
+          const iframeElement = modal.locator('[data-testid="hosted-resources-iframe"]');
+          const src = await iframeElement.getAttribute('src').catch(() => null);
+          console.log(`🌐 getMacroEditorFrame iframe src (Forge): ${src || '(no src attribute)'}`);
+        } else {
+          // For Connect variant
+          const iframeElement = this.page.locator('[role="dialog"] iframe');
+          const src = await iframeElement.getAttribute('src').catch(() => null);
+          console.log(`🌐 getMacroEditorFrame iframe src (Connect): ${src || '(no src attribute)'}`);
+        }
+      } catch (err) {
+        console.log(`⚠ Could not get iframe src: ${err}`);
+      }
     } catch (error) {
       console.log('❌ getMacroEditorFrame() failed:', error);
       return;
@@ -859,10 +879,9 @@ export class ConfluenceEditorPage {
     console.log(`\n🔍 Capturing frame content: ${filePrefix}`);
     
     try {
-      // Try to get the iframe URL
+      // Try to get the iframe URL by enumerating all frames
       let iframeUrl = '(unknown)';
       try {
-        // Get all iframes on the page and find the one that matches our frame
         const allFrames = this.page.frames();
         console.log(`  📊 Total frames on page: ${allFrames.length}`);
         
@@ -871,17 +890,9 @@ export class ConfluenceEditorPage {
           const url = f.url();
           console.log(`  [${i}] Frame URL: ${url}`);
         }
-        
-        // Try to evaluate in the frame to get its location
-        iframeUrl = await frame.evaluate(() => window.location.href).catch((err: Error) => {
-          console.log(`  ⚠ Could not get frame URL via evaluate: ${err.message}`);
-          return '(evaluation failed)';
-        });
       } catch (err) {
         console.log(`  ⚠ Could not enumerate frames: ${err}`);
       }
-      
-      console.log(`  🌐 Target iframe URL: ${iframeUrl}`);
       
       // Try to get the HTML content
       const htmlContent = await frame.locator('body').innerHTML({ timeout: 5000 }).catch((err: Error) => {
@@ -933,10 +944,6 @@ export class ConfluenceEditorPage {
         `FRAME CONTENT REPORT: ${filePrefix}`,
         `Timestamp: ${new Date().toISOString()}`,
         '═══════════════════════════════════════════════════════',
-        '',
-        '🌐 IFRAME URL:',
-        '---------------------------------------------------',
-        iframeUrl,
         '',
         '📝 VISIBLE TEXT (first 2000 chars):',
         '---------------------------------------------------',

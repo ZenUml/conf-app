@@ -676,7 +676,7 @@ export class ConfluenceEditorPage {
       frame = this.getMacroEditorFrame();
       console.log('✓ getMacroEditorFrame() returned a frame locator');
       
-      // 🔍 DEBUG: Get the iframe element's src attribute
+      // 🔍 DEBUG: Get the iframe element's src attribute and find the actual Frame object
       try {
         // For Forge variant
         if (testConfig.isForge || testConfig.isLite) {
@@ -684,6 +684,36 @@ export class ConfluenceEditorPage {
           const iframeElement = modal.locator('[data-testid="hosted-resources-iframe"]');
           const src = await iframeElement.getAttribute('src').catch(() => null);
           console.log(`🌐 getMacroEditorFrame iframe src (Forge): ${src || '(no src attribute)'}`);
+          
+          // Find the actual Frame object from page.frames()
+          const allFrames = this.page.frames();
+          console.log(`📊 Total frames on page: ${allFrames.length}`);
+          for (let i = 0; i < allFrames.length; i++) {
+            const f = allFrames[i];
+            const url = f.url();
+            console.log(`  [${i}] Frame URL: ${url}`);
+            
+            // The Forge app frame URL contains the app ID and CDN pattern
+            if (url.includes('cdn.prod.atlassian-dev.net') || url.includes('cdn.stg.atlassian-dev.net')) {
+              console.log(`  ✓ Found Forge app frame at index ${i}`);
+              
+              // Try to access this frame directly
+              try {
+                const title = await f.title();
+                console.log(`  📄 Frame title: ${title}`);
+                
+                const bodyText = await f.locator('body').textContent({ timeout: 5000 }).catch(() => null);
+                if (bodyText) {
+                  console.log(`  ✓ Frame body accessible, text length: ${bodyText.length}`);
+                  console.log(`  📝 First 200 chars: ${bodyText.substring(0, 200)}`);
+                } else {
+                  console.log(`  ❌ Frame body not accessible`);
+                }
+              } catch (err) {
+                console.log(`  ⚠ Error accessing frame: ${err}`);
+              }
+            }
+          }
         } else {
           // For Connect variant
           const iframeElement = this.page.locator('[role="dialog"] iframe');

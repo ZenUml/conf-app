@@ -24,12 +24,12 @@ test.describe('AI Repair - Mermaid', () => {
     testBase = new DiagramTestHelper(page, editorPage);
     
     // Enable AI Repair BEFORE creating the page
-    await testBase.enableAiRepair();
+    //await testBase.enableAiRepair();
     
     await testBase.createPageWithDiagramMacro('AI Repair Mermaid Test');
     
     // Close GenerationPrompt if it appears
-    await editorPage.closeGenerationPromptIfVisible();
+   // await editorPage.closeGenerationPromptIfVisible();
   });
 
   test('should apply AI repair to fix Mermaid syntax error', async ({ page }) => {

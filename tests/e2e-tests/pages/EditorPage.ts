@@ -652,27 +652,90 @@ export class ConfluenceEditorPage {
    * 3. isLite = true (Lite variant)
    */
   async closeGenerationPromptIfVisible(): Promise<void> {
-    const frame = this.getMacroEditorFrame();
-    
-    // Wait for the frame to be ready
-    await this.page.waitForTimeout(2000);
-    
-    // ═══ DEBUG: Dump all text content in the iframe ═══
+    const timestamp = Date.now();
     console.log('\n═══════════════════════════════════════════════════════');
-    console.log('DEBUG: Dumping iframe content');
+    console.log('DEBUG: Checking for macro editor iframe');
     console.log('═══════════════════════════════════════════════════════');
     
+    // 📸 Screenshot 1: Initial page state
     try {
-      // Get all text content from the iframe body
-      const bodyText = await frame.locator('body').textContent();
-      console.log('📄 Full body text content:');
+      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-01-initial.png`, fullPage: true });
+      console.log(`📸 Screenshot saved: debug-${timestamp}-01-initial.png`);
+    } catch (e) { console.log('⚠ Screenshot failed:', e); }
+    
+    // First, check if the modal dialog exists at all
+    const modal = this.page.getByTestId('custom-ui-modal-dialog');
+    const modalExists = await modal.isVisible({ timeout: 5000 }).catch(() => false);
+    
+    if (!modalExists) {
+      console.log('❌ Modal dialog not found - macro editor may not have opened');
+      try {
+        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-no-modal.png`, fullPage: true });
+        console.log(`📸 Screenshot saved: debug-${timestamp}-02-no-modal.png`);
+      } catch (e) { console.log('⚠ Screenshot failed:', e); }
+      return;
+    }
+    console.log('✓ Modal dialog found');
+    
+    // 📸 Screenshot 2: Modal found
+    try {
+      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-02-modal-found.png`, fullPage: true });
+      console.log(`📸 Screenshot saved: debug-${timestamp}-02-modal-found.png`);
+    } catch (e) { console.log('⚠ Screenshot failed:', e); }
+    
+    // Check if the hosted-resources-iframe exists
+    const iframeLocator = modal.locator('[data-testid="hosted-resources-iframe"]');
+    const iframeExists = await iframeLocator.isVisible({ timeout: 5000 }).catch(() => false);
+    
+    if (!iframeExists) {
+      console.log('❌ hosted-resources-iframe not found in modal');
+      try {
+        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-03-no-iframe.png`, fullPage: true });
+        console.log(`📸 Screenshot saved: debug-${timestamp}-03-no-iframe.png`);
+      } catch (e) { console.log('⚠ Screenshot failed:', e); }
+      return;
+    }
+    console.log('✓ hosted-resources-iframe found');
+    
+    // 📸 Screenshot 3: Iframe found
+    try {
+      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-03-iframe-found.png`, fullPage: true });
+      console.log(`📸 Screenshot saved: debug-${timestamp}-03-iframe-found.png`);
+    } catch (e) { console.log('⚠ Screenshot failed:', e); }
+    
+    // Now try to get the frame content
+    const frame = iframeLocator.contentFrame();
+    
+    // Wait for frame to be ready by checking if body exists
+    const bodyExists = await frame.locator('body').waitFor({ state: 'attached', timeout: 10000 })
+      .then(() => true)
+      .catch(() => false);
+    
+    if (!bodyExists) {
+      console.log('❌ Frame body not attached after 10s - iframe may not have loaded');
+      try {
+        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-04-body-not-attached.png`, fullPage: true });
+        console.log(`📸 Screenshot saved: debug-${timestamp}-04-body-not-attached.png`);
+      } catch (e) { console.log('⚠ Screenshot failed:', e); }
+      console.log('═══════════════════════════════════════════════════════\n');
+      return;
+    }
+    console.log('✓ Frame body attached');
+    
+    // 📸 Screenshot 4: Frame body attached
+    try {
+      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-04-body-attached.png`, fullPage: true });
+      console.log(`📸 Screenshot saved: debug-${timestamp}-04-body-attached.png`);
+    } catch (e) { console.log('⚠ Screenshot failed:', e); }
+    
+    // ═══ DEBUG: Dump all text content in the iframe ═══
+    try {
+      // Get all text content from the iframe body with shorter timeout
+      const bodyText = await frame.locator('body').textContent({ timeout: 5000 });
+      console.log('\n📄 Full body text content:');
       console.log('---');
       console.log(bodyText);
       console.log('---');
-      
-      // Get all visible elements with text
-      const allElements = await frame.locator('*').all();
-      console.log(`\n🔍 Found ${allElements.length} elements in iframe`);
       
       // Get all buttons
       const buttons = await frame.locator('button').all();
@@ -710,10 +773,20 @@ export class ConfluenceEditorPage {
       
     } catch (error) {
       console.error('❌ Error dumping iframe content:', error);
+      try {
+        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-05-dump-error.png`, fullPage: true });
+        console.log(`📸 Screenshot saved: debug-${timestamp}-05-dump-error.png`);
+      } catch (e) { console.log('⚠ Screenshot failed:', e); }
     }
     
     console.log('═══════════════════════════════════════════════════════\n');
     // ═══ END DEBUG ═══
+    
+    // 📸 Screenshot 5: After content dump
+    try {
+      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-05-after-dump.png`, fullPage: true });
+      console.log(`📸 Screenshot saved: debug-${timestamp}-05-after-dump.png`);
+    } catch (e) { console.log('⚠ Screenshot failed:', e); }
     
     // Check if the GenerationPrompt dialog is visible by looking for its heading
     const promptHeading = frame.locator('text=ZenUML diagram').first();
@@ -721,10 +794,20 @@ export class ConfluenceEditorPage {
     
     if (!isPromptVisible) {
       console.log('✓ GenerationPrompt dialog not visible (may not be Lite variant or AI_TITLE not enabled)');
+      try {
+        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-06-no-prompt.png`, fullPage: true });
+        console.log(`📸 Screenshot saved: debug-${timestamp}-06-no-prompt.png`);
+      } catch (e) { console.log('⚠ Screenshot failed:', e); }
       return;
     }
     
     console.log('✓ GenerationPrompt dialog detected');
+    
+    // 📸 Screenshot 6: GenerationPrompt detected
+    try {
+      await this.page.screenshot({ path: `screenshots/debug-${timestamp}-06-prompt-detected.png`, fullPage: true });
+      console.log(`📸 Screenshot saved: debug-${timestamp}-06-prompt-detected.png`);
+    } catch (e) { console.log('⚠ Screenshot failed:', e); }
     
     // Strategy 1: Try to find button by exact text "Open Editor"
     let openEditorButton = frame.locator('button:has-text("Open Editor")').first();
@@ -748,8 +831,21 @@ export class ConfluenceEditorPage {
     if (isButtonVisible) {
       const buttonText = await openEditorButton.textContent();
       console.log(`✓ Found button: "${buttonText}", clicking...`);
+      
+      // 📸 Screenshot 7: Before clicking button
+      try {
+        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-07-before-click.png`, fullPage: true });
+        console.log(`📸 Screenshot saved: debug-${timestamp}-07-before-click.png`);
+      } catch (e) { console.log('⚠ Screenshot failed:', e); }
+      
       await openEditorButton.click();
       await this.page.waitForTimeout(1000);
+      
+      // 📸 Screenshot 8: After clicking button
+      try {
+        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-08-after-click.png`, fullPage: true });
+        console.log(`📸 Screenshot saved: debug-${timestamp}-08-after-click.png`);
+      } catch (e) { console.log('⚠ Screenshot failed:', e); }
       
       // Verify the dialog is closed
       const isStillVisible = await promptHeading.isVisible({ timeout: 1000 }).catch(() => false);
@@ -758,16 +854,22 @@ export class ConfluenceEditorPage {
         // Try pressing Escape as fallback
         await this.page.keyboard.press('Escape');
         await this.page.waitForTimeout(500);
+        
+        // 📸 Screenshot 9: After escape
+        try {
+          await this.page.screenshot({ path: `screenshots/debug-${timestamp}-09-after-escape.png`, fullPage: true });
+          console.log(`📸 Screenshot saved: debug-${timestamp}-09-after-escape.png`);
+        } catch (e) { console.log('⚠ Screenshot failed:', e); }
       } else {
         console.log('✓ GenerationPrompt dialog closed successfully');
       }
     } else {
       console.warn('⚠ Could not find Open Editor button in GenerationPrompt dialog');
-      // Take a screenshot for debugging
+      // 📸 Screenshot: Button not found
       try {
-        await this.page.screenshot({ path: `screenshots/generation-prompt-${Date.now()}.png` });
-        console.log('  [debug] Screenshot saved');
-      } catch { /* ignore */ }
+        await this.page.screenshot({ path: `screenshots/debug-${timestamp}-07-button-not-found.png`, fullPage: true });
+        console.log(`📸 Screenshot saved: debug-${timestamp}-07-button-not-found.png`);
+      } catch (e) { console.log('⚠ Screenshot failed:', e); }
     }
   }
 

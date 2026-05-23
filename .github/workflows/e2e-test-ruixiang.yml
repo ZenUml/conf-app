@@ -112,8 +112,8 @@ jobs:
         if: github.event_name == 'push'
         working-directory: tests/e2e-tests
         #run: pnpm test:ai-repair
-        run: pnpm exec playwright test tests/e2e-tests/tests/ai-repair/mermaid.spec.ts
-        #run: pnpm exec playwright test tests/syntax-validation/plantuml.spec.ts
+        #run: pnpm exec playwright test tests/e2e-tests/tests/ai-repair/mermaid.spec.ts
+        run: pnpm exec playwright test tests/syntax-validation/plantuml.spec.ts
         env:
           APP: zenuml-lite@stg
           CI: true

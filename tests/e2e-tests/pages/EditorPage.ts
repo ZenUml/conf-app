@@ -657,6 +657,10 @@ export class ConfluenceEditorPage {
     console.log('DEBUG: Checking for macro editor iframe');
     console.log('═══════════════════════════════════════════════════════');
     
+    // Give the macro editor more time to initialize (especially in CI)
+    console.log('⏳ Waiting 3s for macro editor to initialize...');
+    await this.page.waitForTimeout(3000);
+    
     // 📸 Screenshot 1: Initial page state
     try {
       await this.page.screenshot({ path: `screenshots/debug-${timestamp}-01-initial.png`, fullPage: true });
@@ -665,7 +669,7 @@ export class ConfluenceEditorPage {
     
     // First, check if the modal dialog exists at all
     const modal = this.page.getByTestId('custom-ui-modal-dialog');
-    const modalExists = await modal.isVisible({ timeout: 5000 }).catch(() => false);
+    const modalExists = await modal.isVisible({ timeout: 10000 }).catch(() => false);
     
     if (!modalExists) {
       console.log('❌ Modal dialog not found - macro editor may not have opened');
@@ -685,7 +689,7 @@ export class ConfluenceEditorPage {
     
     // Check if the hosted-resources-iframe exists
     const iframeLocator = modal.locator('[data-testid="hosted-resources-iframe"]');
-    const iframeExists = await iframeLocator.isVisible({ timeout: 5000 }).catch(() => false);
+    const iframeExists = await iframeLocator.isVisible({ timeout: 10000 }).catch(() => false);
     
     if (!iframeExists) {
       console.log('❌ hosted-resources-iframe not found in modal');
@@ -707,12 +711,13 @@ export class ConfluenceEditorPage {
     const frame = iframeLocator.contentFrame();
     
     // Wait for frame to be ready by checking if body exists
-    const bodyExists = await frame.locator('body').waitFor({ state: 'attached', timeout: 10000 })
+    console.log('⏳ Waiting for iframe body to attach (up to 20s)...');
+    const bodyExists = await frame.locator('body').waitFor({ state: 'attached', timeout: 20000 })
       .then(() => true)
       .catch(() => false);
     
     if (!bodyExists) {
-      console.log('❌ Frame body not attached after 10s - iframe may not have loaded');
+      console.log('❌ Frame body not attached after 20s - iframe may not have loaded');
       try {
         await this.page.screenshot({ path: `screenshots/debug-${timestamp}-04-body-not-attached.png`, fullPage: true });
         console.log(`📸 Screenshot saved: debug-${timestamp}-04-body-not-attached.png`);
@@ -721,6 +726,10 @@ export class ConfluenceEditorPage {
       return;
     }
     console.log('✓ Frame body attached');
+    
+    // Wait a bit more for content to render
+    console.log('⏳ Waiting 2s for iframe content to render...');
+    await this.page.waitForTimeout(2000);
     
     // 📸 Screenshot 4: Frame body attached
     try {
@@ -809,23 +818,34 @@ export class ConfluenceEditorPage {
       console.log(`📸 Screenshot saved: debug-${timestamp}-06-prompt-detected.png`);
     } catch (e) { console.log('⚠ Screenshot failed:', e); }
     
-    // Strategy 1: Try to find button by exact text "Open Editor"
-    let openEditorButton = frame.locator('button:has-text("Open Editor")').first();
-    let isButtonVisible = await openEditorButton.isVisible({ timeout: 1000 }).catch(() => false);
+    // Strategy 1: Find button by text content (most reliable based on screenshot)
+    let openEditorButton = frame.locator('button').filter({ hasText: 'Open Editor' }).first();
+    let isButtonVisible = await openEditorButton.isVisible({ timeout: 2000 }).catch(() => false);
+    console.log(`  [debug] Strategy 1 (filter hasText): ${isButtonVisible ? 'found' : 'not found'}`);
     
     if (!isButtonVisible) {
-      // Strategy 2: Try case-insensitive role-based selector
-      console.log('  [debug] Trying role-based selector with regex...');
-      openEditorButton = frame.getByRole('button', { name: /open editor/i }).first();
+      // Strategy 2: Try exact text match with getByText
+      console.log('  [debug] Trying getByText...');
+      openEditorButton = frame.getByText('Open Editor', { exact: true }).first();
       isButtonVisible = await openEditorButton.isVisible({ timeout: 1000 }).catch(() => false);
+      console.log(`  [debug] Strategy 2 (getByText): ${isButtonVisible ? 'found' : 'not found'}`);
     }
     
     if (!isButtonVisible) {
-      // Strategy 3: Try to find any button in the Manual Mode section
+      // Strategy 3: Try role-based selector
+      console.log('  [debug] Trying role-based selector...');
+      openEditorButton = frame.getByRole('button', { name: /open editor/i }).first();
+      isButtonVisible = await openEditorButton.isVisible({ timeout: 1000 }).catch(() => false);
+      console.log(`  [debug] Strategy 3 (getByRole): ${isButtonVisible ? 'found' : 'not found'}`);
+    }
+    
+    if (!isButtonVisible) {
+      // Strategy 4: Find any button in the Manual Mode section
       console.log('  [debug] Trying to find button in Manual Mode section...');
       const manualModeSection = frame.locator('text=Manual Mode').locator('..').locator('..');
       openEditorButton = manualModeSection.locator('button').first();
       isButtonVisible = await openEditorButton.isVisible({ timeout: 1000 }).catch(() => false);
+      console.log(`  [debug] Strategy 4 (Manual Mode section): ${isButtonVisible ? 'found' : 'not found'}`);
     }
     
     if (isButtonVisible) {

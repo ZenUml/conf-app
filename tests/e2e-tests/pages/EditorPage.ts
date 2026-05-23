@@ -657,6 +657,64 @@ export class ConfluenceEditorPage {
     // Wait for the frame to be ready
     await this.page.waitForTimeout(2000);
     
+    // ═══ DEBUG: Dump all text content in the iframe ═══
+    console.log('\n═══════════════════════════════════════════════════════');
+    console.log('DEBUG: Dumping iframe content');
+    console.log('═══════════════════════════════════════════════════════');
+    
+    try {
+      // Get all text content from the iframe body
+      const bodyText = await frame.locator('body').textContent();
+      console.log('📄 Full body text content:');
+      console.log('---');
+      console.log(bodyText);
+      console.log('---');
+      
+      // Get all visible elements with text
+      const allElements = await frame.locator('*').all();
+      console.log(`\n🔍 Found ${allElements.length} elements in iframe`);
+      
+      // Get all buttons
+      const buttons = await frame.locator('button').all();
+      console.log(`\n🔘 Found ${buttons.length} buttons:`);
+      for (let i = 0; i < buttons.length; i++) {
+        const btn = buttons[i];
+        const isVisible = await btn.isVisible().catch(() => false);
+        const text = await btn.textContent().catch(() => '(error)');
+        const ariaLabel = await btn.getAttribute('aria-label').catch(() => null);
+        console.log(`  [${i}] visible=${isVisible} text="${text?.trim()}" aria-label="${ariaLabel}"`);
+      }
+      
+      // Get all headings
+      const headings = await frame.locator('h1, h2, h3, h4, h5, h6').all();
+      console.log(`\n📋 Found ${headings.length} headings:`);
+      for (let i = 0; i < headings.length; i++) {
+        const heading = headings[i];
+        const text = await heading.textContent().catch(() => '(error)');
+        const tagName = await heading.evaluate(el => el.tagName).catch(() => '?');
+        console.log(`  [${i}] <${tagName}> "${text?.trim()}"`);
+      }
+      
+      // Get all divs with text content (first 20)
+      const divs = await frame.locator('div').all();
+      console.log(`\n📦 Found ${divs.length} divs (showing first 20 with text):`);
+      let divCount = 0;
+      for (let i = 0; i < divs.length && divCount < 20; i++) {
+        const div = divs[i];
+        const text = await div.textContent().catch(() => '');
+        if (text && text.trim().length > 0 && text.trim().length < 200) {
+          console.log(`  [${i}] "${text.trim()}"`);
+          divCount++;
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ Error dumping iframe content:', error);
+    }
+    
+    console.log('═══════════════════════════════════════════════════════\n');
+    // ═══ END DEBUG ═══
+    
     // Check if the GenerationPrompt dialog is visible by looking for its heading
     const promptHeading = frame.locator('text=ZenUML diagram').first();
     const isPromptVisible = await promptHeading.isVisible({ timeout: 3000 }).catch(() => false);

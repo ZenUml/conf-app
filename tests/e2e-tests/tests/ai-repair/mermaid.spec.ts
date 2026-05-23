@@ -14,7 +14,7 @@ import { DiagramTestHelper } from '../../helpers/DiagramTestHelper.js';
 
 test.describe('AI Repair - Mermaid', () => {
   // Disable retries for this test suite
-  //test.describe.configure({ retries: 0 });
+  test.describe.configure({ retries: 0 });
 
   let editorPage: ConfluenceEditorPage;
   let testBase: DiagramTestHelper;

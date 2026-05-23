@@ -65,8 +65,14 @@ async function getContent(env, data, appId) {
 
 async function createOrUpdateContent(env, data, appId, macroUuid, diagramType) {
   if(await getContent(env, data, appId)) {
-    const result = await env.DB.prepare( "UPDATE CustomContent SET latestVersionNumber=?1, body=?2, createdAt=?3, title=?4, status=?5 WHERE contentId=?6 AND appId=?7 AND spaceId=?8" )
-    .bind(data.version.number, JSON.stringify(data.body), data.createdAt, data.title || '', data.status || '', data.id, appId, data.spaceId)
+    // COALESCE(NULLIF(?, ''), existing) — backfill macroUuid/diagramType from
+    // the request when non-empty, keep the existing value otherwise. Without
+    // this, every UPDATE silently drops the identity payload sent by
+    // Persistence.ts and existing rows stay misaligned with Mixpanel forever.
+    const result = await env.DB.prepare(
+      "UPDATE CustomContent SET latestVersionNumber=?1, body=?2, createdAt=?3, title=?4, status=?5, macroUuid = COALESCE(NULLIF(?6, ''), macroUuid), diagramType = COALESCE(NULLIF(?7, ''), diagramType) WHERE contentId=?8 AND appId=?9 AND spaceId=?10"
+    )
+    .bind(data.version.number, JSON.stringify(data.body), data.createdAt, data.title || '', data.status || '', macroUuid || '', diagramType || '', data.id, appId, data.spaceId)
     .run();
     console.log('update content result:', result);
     return;

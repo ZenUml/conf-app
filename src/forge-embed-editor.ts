@@ -1,5 +1,5 @@
 import globals from "@/model/globals";
-import { getView, getContext as initForgeContext, isInserting } from './model/globals/forgeGlobal';
+import forgeGlobal, { getView, getContext as initForgeContext, isInserting } from './model/globals/forgeGlobal';
 import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import MacroUtil from "@/model/MacroUtil";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
@@ -13,6 +13,10 @@ import store from "@/model/store2";
 import uuidv4 from "@/utils/uuid";
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
+
+// Captured at editor open from extension.config.uuid; forwarded back through
+// view.submit's replace-semantics so Connect-era guestParams.uuid survives.
+let originalConfigUuid: string | undefined;
 
 async function saveEmbedAndExit(_customContentId: string) {
   const macroData = await globals.apWrapper.getMacroData();
@@ -58,7 +62,11 @@ async function saveEmbedAndExit(_customContentId: string) {
   
   setTimeout(async () => {
     if(await isInserting()) {
-      await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
+      await (await getView()).submit({config: {
+        customContentId: id,
+        updatedAt: new Date().toISOString(),
+        ...(originalConfigUuid && { uuid: originalConfigUuid }),
+      }});
     } else {
       await (await getView()).close();
     }
@@ -71,9 +79,14 @@ async function exit() {
 
 async function initializeMacro() {
   const context = await initForgeContext();
-  
+
+  originalConfigUuid = context.extension?.config?.uuid;
+
   // Start journey tracking
-  const macroUuid = context.extension?.config?.uuid || uuidv4();
+  const macroUuid =
+    forgeGlobal.forgeContext?.localId
+    || context.extension?.config?.uuid
+    || uuidv4();
   const isDialog = !!context.extension?.modal;
   const isMacroConfig = !!context.extension?.macro?.isConfiguring || !!context.extension?.macro?.isInserting;
   

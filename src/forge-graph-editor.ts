@@ -1,5 +1,5 @@
 import globals from "@/model/globals";
-import { getView, getContext as initForgeContext, isInserting } from './model/globals/forgeGlobal';
+import forgeGlobal, { getView, getContext as initForgeContext, isInserting } from './model/globals/forgeGlobal';
 import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import { decompress } from "@/utils/compress";
 import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
@@ -22,6 +22,13 @@ import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 
 // Track editor session start time
 const editorStartTime = Date.now();
+
+// Captured at editor open from extension.config.uuid. On Connect-era macros
+// this is a pre-existing identifier we forward back through view.submit so the
+// replace-semantics of {config: …} doesn't wipe the historical breadcrumb.
+// Fresh inserts have no value to preserve, so this stays undefined and the
+// spread below contributes nothing.
+let originalConfigUuid: string | undefined;
 
 const EMPTY_GRAPH = `<mxfile>
   <diagram name="Page-1">
@@ -51,7 +58,11 @@ async function saveGraphAndExit(graphXml: string) {
   
   setTimeout(async () => {
     if(await isInserting()) {
-      await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
+      await (await getView()).submit({config: {
+        customContentId: id,
+        updatedAt: new Date().toISOString(),
+        ...(originalConfigUuid && { uuid: originalConfigUuid }),
+      }});
     } else {
       await (await getView()).close();
     }
@@ -111,9 +122,16 @@ async function exit() {
 
 async function initializeMacro() {
   const context = await initForgeContext();
-  
+
+  // Snapshot the legacy guestParams.uuid (if any) so saveGraphAndExit can
+  // forward it back through view.submit's replace-semantics.
+  originalConfigUuid = context.extension?.config?.uuid;
+
   // Start journey tracking
-  const macroUuid = context.extension?.config?.uuid || uuidv4();
+  const macroUuid =
+    forgeGlobal.forgeContext?.localId
+    || context.extension?.config?.uuid
+    || uuidv4();
   const isDialog = !!context.extension?.modal;
   const isMacroConfig = !!context.extension?.macro?.isConfiguring || !!context.extension?.macro?.isInserting;
   

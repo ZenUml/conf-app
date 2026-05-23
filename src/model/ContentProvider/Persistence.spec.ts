@@ -3,12 +3,12 @@ import {NULL_DIAGRAM, DiagramType} from "@/model/Diagram/Diagram";
 import {vi} from "vitest";
 import ApWrapper2 from "../ApWrapper2";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { syncCustomContent } from "@/services/CustomContent";
+import forgeGlobal from "@/model/globals/forgeGlobal";
 
 global.fetch = () => Promise.resolve(new Response("mock fetch success"));
 
 const mockSave = vi.fn(() => ({id: "mocked_custom_content_id"}));
-const mockSaveMacro = vi.fn();
-const mockIsInContentEditOrContentCreate = vi.fn();
 const mockGetMacroData = async () => {
   return {
     "uuid": "uuid_from_macro_data"
@@ -18,12 +18,14 @@ const mockGetMacroData = async () => {
 //@ts-ignore
 const mockApWrapper: ApWrapper2 = {
   getMacroData: mockGetMacroData,
-  saveMacro: mockSaveMacro,
-  isInContentEditOrContentCreate: mockIsInContentEditOrContentCreate
 };
 
 vi.mock("@/utils/analytics/trackAnalyticsEvent", () => ({
   trackAnalyticsEvent: vi.fn(),
+}));
+
+vi.mock("@/services/CustomContent", () => ({
+  syncCustomContent: vi.fn(),
 }));
 
 vi.mock("@/model/ContentProvider/CustomContentStorageProvider", () => {
@@ -34,40 +36,51 @@ vi.mock("@/model/ContentProvider/CustomContentStorageProvider", () => {
   }
 })
 
-vi.mock('@/utils/uuid', () => {
-  return {
-    default: 'random_uuid'
-  }
-})
-
 describe('Persistence', function () {
 
   beforeEach(() => {
-    mockSaveMacro.mockClear();
-    mockIsInContentEditOrContentCreate.mockClear();
     mockSave.mockClear();
     vi.mocked(trackAnalyticsEvent).mockClear();
+    vi.mocked(syncCustomContent).mockClear();
+    // Reset Forge context so each test starts from a known baseline.
+    (forgeGlobal as any).forgeContext = undefined;
   });
 
-  it('should save the diagram in content edit mode', async () => {
-    mockIsInContentEditOrContentCreate.mockReturnValue(true);
-    await saveToPlatform(NULL_DIAGRAM, mockApWrapper);
-    expect(mockSave).toBeCalledWith(NULL_DIAGRAM);
-    expect(mockSaveMacro).toBeCalledWith(expect.objectContaining({
-      "uuid": "uuid_from_macro_data",
-      "customContentId": "mocked_custom_content_id"
-    }), '')
+  it('forwards forgeContext.localId to syncCustomContent as the macroUuid', async () => {
+    (forgeGlobal as any).forgeContext = { localId: 'forge-local-id' };
+    await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper);
+    expect(syncCustomContent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'mocked_custom_content_id' }),
+      DiagramType.Sequence,
+      'forge-local-id',
+    );
   })
 
-  it('should not save macro in content view mode', async () => {
-    mockIsInContentEditOrContentCreate.mockReturnValue(false);
-    await saveToPlatform(NULL_DIAGRAM, mockApWrapper);
-    expect(mockSave).toBeCalledWith(NULL_DIAGRAM);
-    expect(mockSaveMacro.mock.calls.length).toBe(0);
+  it('falls back to legacy guestParams.uuid when forge localId is absent', async () => {
+    (forgeGlobal as any).forgeContext = { localId: undefined };
+    await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper);
+    expect(syncCustomContent).toHaveBeenCalledWith(
+      expect.anything(),
+      DiagramType.Sequence,
+      'uuid_from_macro_data',
+    );
+  })
+
+  it('falls back to empty string when neither localId nor legacy uuid is set', async () => {
+    (forgeGlobal as any).forgeContext = { localId: undefined };
+    const wrapperWithoutLegacyUuid = {
+      ...mockApWrapper,
+      getMacroData: async () => ({}),
+    } as ApWrapper2;
+    await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, wrapperWithoutLegacyUuid);
+    expect(syncCustomContent).toHaveBeenCalledWith(
+      expect.anything(),
+      DiagramType.Sequence,
+      '',
+    );
   })
 
   it('should fire macro_create_succeeded for a new diagram', async () => {
-    mockIsInContentEditOrContentCreate.mockReturnValue(false);
     // NULL_DIAGRAM has id: '' so isNew = true
     await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper);
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
@@ -80,7 +93,6 @@ describe('Persistence', function () {
   })
 
   it('macro_create_succeeded carries content_id, custom_content_id, attachment_name from the freshly saved customContent', async () => {
-    mockIsInContentEditOrContentCreate.mockReturnValue(false);
     await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper);
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "macro_create_succeeded",
@@ -93,7 +105,6 @@ describe('Persistence', function () {
   })
 
   it('should fire macro_save_succeeded for an existing diagram', async () => {
-    mockIsInContentEditOrContentCreate.mockReturnValue(false);
     await saveToPlatform({ ...NULL_DIAGRAM, id: 'existing-id', diagramType: DiagramType.Sequence }, mockApWrapper);
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "macro_save_succeeded",
@@ -110,7 +121,6 @@ describe('Persistence', function () {
   // the source id from context. Without the explicit override, central
   // enrichment would join the event to the wrong customContent.
   it('macro_save_succeeded for a copied diagram tags the freshly saved id, not the source id', async () => {
-    mockIsInContentEditOrContentCreate.mockReturnValue(false);
     await saveToPlatform(
       { ...NULL_DIAGRAM, id: 'source-id', isCopy: true, diagramType: DiagramType.Sequence } as any,
       mockApWrapper
@@ -126,7 +136,6 @@ describe('Persistence', function () {
   })
 
   it('should NOT fire analytics for Embed diagram type', async () => {
-    mockIsInContentEditOrContentCreate.mockReturnValue(false);
     await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Embed }, mockApWrapper);
     expect(trackAnalyticsEvent).not.toHaveBeenCalled();
   })

@@ -87,12 +87,6 @@ export default class ApWrapper2 implements IApWrapper {
     return Promise.resolve(undefined);
   }
 
-  saveMacro(params: IMacroData, _body: string) {
-    if (forgeGlobal.view?.submit) {
-      forgeGlobal.view.submit(params);
-    }
-  }
-
   // All document types will be using the same content key.
   // Old documents that uses the old content key will not be migrated.
   // We may migrate them in the future.

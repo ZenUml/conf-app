@@ -18,7 +18,6 @@ export interface IApWrapper {
   // Macro APIs
   getMacroData(): Promise<IMacroData | undefined>;
   getMacroBody(): Promise<string | undefined>;
-  saveMacro(params: IMacroData, body: string): void;
 
   getCustomContent(): Promise<ICustomContent | undefined>;
   getCustomContentById(id: string): Promise<ICustomContent | undefined>;

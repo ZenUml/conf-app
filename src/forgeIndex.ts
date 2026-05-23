@@ -1,5 +1,5 @@
 import globals from '@/model/globals';
-import { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isFullscreenMode } from '@/model/globals/forgeGlobal';
+import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isFullscreenMode } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
 import { toast } from '@/utils/toast';
@@ -24,6 +24,11 @@ import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 
 // Track editor session start time
 const editorStartTime = Date.now();
+
+// Captured at editor open from extension.config.uuid; the 'save' EventBus
+// handler reads it back to forward through view.submit's replace-semantics
+// so Connect-era guestParams.uuid survives.
+let originalConfigUuid: string | undefined;
 
 // Initialize critical path rendering first
 async function initializeCriticalPath() {
@@ -150,7 +155,11 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // Start journey tracking for editor mode
     const editable = await isEditorMode();
     if (editable) {
-      const macroUuid = context.extension?.config?.uuid || uuidv4();
+      originalConfigUuid = context.extension?.config?.uuid;
+      const macroUuid =
+        forgeGlobal.forgeContext?.localId
+        || context.extension?.config?.uuid
+        || uuidv4();
       const isDialog = !!context.extension?.modal;
       const isMacroConfig = !!context.extension?.macro?.isConfiguring || !!context.extension?.macro?.isInserting;
 
@@ -349,7 +358,10 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
 
 EventBus.$on('edit', async(params: any) => {
   const context = await initForgeContext();
-  const macroUuid = context.extension?.config?.uuid || uuidv4();
+  const macroUuid =
+    forgeGlobal.forgeContext?.localId
+    || context.extension?.config?.uuid
+    || uuidv4();
   // Forward the macro's customContentId so the modal can load the right diagram
   // and the pre-edit paywall gate can fire. Without this the modal opens a blank
   // new diagram and the paywall check is skipped entirely.
@@ -423,7 +435,11 @@ EventBus.$on('save', async () => {
   // we don't want to block dialog close for too long.
   setTimeout(async () => {
     if(await isInserting()) {
-      await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
+      await (await getView()).submit({config: {
+        customContentId: id,
+        updatedAt: new Date().toISOString(),
+        ...(originalConfigUuid && { uuid: originalConfigUuid }),
+      }});
     } else {
       await (await getView()).close();
     }
@@ -485,7 +501,10 @@ EventBus.$on('exit', async (showWarning: boolean) => {
 
 EventBus.$on('fullscreen', async () => {
   const context = await initForgeContext();
-  const macroUuid = context.extension?.config?.uuid || uuidv4();
+  const macroUuid =
+    forgeGlobal.forgeContext?.localId
+    || context.extension?.config?.uuid
+    || uuidv4();
 
   await openModal({
     resource: 'main',

@@ -4,11 +4,6 @@ export default class MockApConfluence {
   public key: any
   private contentProperty: any
 
-  saveMacro(params: any, body: any) {
-    this.macroParams = params
-    this.macroBody = body
-  }
-
   getMacroData(cb: (arg0: any) => void) {
     if (!this.macroParams) {
       let customContentId;

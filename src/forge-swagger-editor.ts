@@ -17,7 +17,7 @@ import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from '@/utils/window';
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
-import { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
+import forgeGlobal, { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
 import store from "@/model/store2";
 import { showCloseWithoutSavingDialog } from './utils/modalService';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
@@ -31,6 +31,10 @@ import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
 
 installRestoreDraftBanner();
 import SwaggerForgeEditorShell from '@/components/OpenApi/SwaggerForgeEditorShell.vue';
+
+// Captured at editor open from extension.config.uuid; forwarded back through
+// view.submit's replace-semantics so Connect-era guestParams.uuid survives.
+let originalConfigUuid: string | undefined;
 
 const debouncedValidateOpenApi = debounce(async (spec: string) => {
   if (!spec) {
@@ -96,7 +100,11 @@ async function saveOpenApiAndExit() {
   /* eslint-disable no-undef */
   setTimeout(async () => {
     if(await isInserting()) {
-      await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
+      await (await getView()).submit({config: {
+        customContentId: id,
+        updatedAt: new Date().toISOString(),
+        ...(originalConfigUuid && { uuid: originalConfigUuid }),
+      }});
     } else {
       await (await getView()).close();
     }
@@ -156,9 +164,14 @@ async function exit() {
 
 async function initializeMacro() {
   const context = await initForgeContext();
-  
+
+  originalConfigUuid = context.extension?.config?.uuid;
+
   // Start journey tracking
-  const macroUuid = context.extension?.config?.uuid || uuidv4();
+  const macroUuid =
+    forgeGlobal.forgeContext?.localId
+    || context.extension?.config?.uuid
+    || uuidv4();
   const isDialog = !!context.extension?.modal;
   const isMacroConfig = !!context.extension?.macro?.isConfiguring || !!context.extension?.macro?.isInserting;
   

@@ -38,7 +38,7 @@ FORGE_EMAIL=<your-email>
 FORGE_API_TOKEN=<token>
 ```
 
-These reuse the same env-var names the Forge CLI documents (see `CLAUDE.md` › "Forge CLI auth troubleshooting") — same token works for both.
+These reuse the same env-var names the Forge CLI documents (see [docs/debugging/forge-cli-auth.md](../../../docs/debugging/forge-cli-auth.md)) — same token works for both.
 
 ## Usage
 

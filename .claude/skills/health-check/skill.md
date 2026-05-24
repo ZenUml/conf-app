@@ -30,8 +30,15 @@ Run a quick health check by querying Mixpanel for key event volumes across multi
 | `macro_viewed` | `view_macro` | Macro rendered on a page | Should never be zero in past day |
 | `macro_create_succeeded` | `create_macro_end` | User created a new macro | Low volume is normal; zero for a week is concerning |
 | `macro_save_succeeded` | `edit_macro_end` | User edited an existing macro | Low volume is normal |
-| `save_failed` | *(was `unexpected_error` — now split)* | Save operation failed | Any spike vs previous period is a red flag |
-| `macro_save_failed` | *(was `update_custom_content_error`)* | Custom content save failed | Any spike means backend issues |
+| `save_failed` | — | Forge editor save path threw | Any spike is a red flag |
+| `update_custom_content_error` | — | Custom content PUT failed after retries (`ApWrapper2`) | Any spike means backend issues |
+| `save_existence_check_failed` | — | Pre-save GET to verify CC exists failed | Any occurrence is suspicious |
+| `load_macro` | — | `CompositeContentProvider` threw on load | Any spike means macros fail to open |
+| `load_custom_content` | — | `ApWrapper2` CC fetch threw | Any spike means content unreadable |
+| `render_failed` | — | Diagram render threw in Mermaid/Sequence/PlantUML component; `event_category` = diagram type | Any spike vs previous period is a red flag |
+| `customcontent_orphan_observed` | — | Orphan CC detected; query **total** and **`recovery_used=false`** separately | Rising unrecovered count means data loss risk |
+| `load_custom_content_v2_missing` | — | CC ID resolved to nothing (warning-level precursor to orphan) | Track alongside orphan total — a spike here without a matching orphan spike = gap in orphan detection |
+| `attachment_upload_failed` | — | PNG attachment write failed | Any spike means export broken |
 
 ## Execution Steps
 
@@ -148,24 +155,54 @@ Same pattern as Query 2 (two sub-queries per window). Current week uses `{ "unit
 
 ### Query 4: Error events — today, 1d (current + previous), 1w (current + previous)
 
-Legacy `unexpected_error` and `update_custom_content_error` are gone from the catalog. Use `save_failed` (general save failure) and `macro_save_failed` (custom content save failure).
+Errors are split into four groups. Run each group as a single Mixpanel query (multiple `metrics` entries), so the full error picture is 4 queries × 3 time windows = 12 queries total. Collapse into the pattern used for activity: today (hourly) + current period + previous period.
 
-**Today errors (hourly):**
+**Group A — Save errors:** `save_failed`, `update_custom_content_error`, `save_existence_check_failed`
+
+**Group B — Load errors:** `load_macro`, `load_custom_content`
+
+**Group C — Render errors:** `render_failed` (break down by `event_category` to see which diagram type)
+
+**Group D — Orphan errors:** three separate metrics queries:
+- Total orphan observations: `customcontent_orphan_observed` (no extra filter)
+- Unrecovered orphans: `customcontent_orphan_observed` with filter `recovery_used = false`
+- CC ID missing: `load_custom_content_v2_missing` (precursor — CC resolved to nothing)
+
+**Group E — Export errors:** `attachment_upload_failed`
+
+**Example — Save errors today (hourly):**
 ```json
 {
-  "name": "Health: Errors today (hourly)",
+  "name": "Health: Save errors today (hourly)",
   "chartType": "line",
   "unit": "hour",
   "dateRange": { "type": "relative", "range": "today" },
   "metrics": [
     { "eventName": "save_failed", "measurement": { "type": "basic", "math": "total" } },
-    { "eventName": "macro_save_failed", "measurement": { "type": "basic", "math": "total" } }
+    { "eventName": "update_custom_content_error", "measurement": { "type": "basic", "math": "total" } },
+    { "eventName": "save_existence_check_failed", "measurement": { "type": "basic", "math": "total" } }
   ],
   "filters": [ ...global filters... ]
 }
 ```
 
-For 1d and 1w error comparisons, follow the same current+previous pattern as queries 2-3.
+**Example — Orphan errors (unrecovered), 1d:**
+```json
+{
+  "name": "Health: Orphan unrecovered 1d",
+  "chartType": "table",
+  "dateRange": { "type": "relative", "range": { "unit": "day", "value": 1 } },
+  "metrics": [
+    { "eventName": "customcontent_orphan_observed", "measurement": { "type": "basic", "math": "total" } }
+  ],
+  "filters": [
+    ...global filters...,
+    { "type": "boolean", "propertyName": "recovery_used", "operator": "equals", "value": false }
+  ]
+}
+```
+
+For 1d and 1w comparisons, follow the same current+previous pattern as queries 2-3. Run all error group queries in parallel.
 
 ### Step 0: Announce the check plan
 
@@ -184,11 +221,12 @@ Note: querying both legacy and canonical event names (migration deployed 2026-04
 3. Previous day ({yesterday}) — activity totals for comparison
 4. Past 1 week — activity totals by category
 5. Previous week ({prev_week_start} to {prev_week_end}) — activity totals for comparison
-6. Today hourly — save_failed, macro_save_failed
-7. Past 1 day — error totals
-8. Previous day ({yesterday}) — error totals for comparison
-9. Past 1 week — error totals
-10. Previous week ({prev_week_start} to {prev_week_end}) — error totals for comparison
+6. Today hourly — save errors (save_failed, update_custom_content_error, save_existence_check_failed)
+7. Today hourly — load errors (load_macro, load_custom_content)
+8. Today hourly — render errors (render_failed by event_category)
+9. Today hourly — orphan total + unrecovered
+10. Past 1 day — all error groups (current + previous day)
+11. Past 1 week — all error groups (current + previous week)
 
 Running all queries now...
 ```
@@ -260,12 +298,18 @@ Present a summary table, then flag any of these conditions:
 
 | Condition | Severity | What it means |
 |-----------|----------|---------------|
-| `macro_viewed` + `view_macro` = 0 in past day | CRITICAL | App may be completely down |
-| combined views dropped >50% vs previous period | WARNING | Possible outage or tracking regression |
-| combined views dropped >50% vs same time last week | WARNING | Could be seasonal, but investigate |
-| `save_failed` or `macro_save_failed` > 2x previous period | WARNING | New bug or backend issue introduced |
-| `macro_create_succeeded` + `create_macro_end` = 0 for past week | INFO | Low activity but possibly normal for small user base |
-| Any `event_category` that had volume before but now shows 0 | WARNING | Specific diagram type may be broken |
+| `macro_viewed` = 0 in past day | CRITICAL | App may be completely down |
+| Views dropped >50% vs previous period | WARNING | Possible outage or tracking regression |
+| Views dropped >50% vs same time last week | WARNING | Could be seasonal, but investigate |
+| Any save error (`save_failed`, `update_custom_content_error`, `save_existence_check_failed`) > 2× previous period | WARNING | New bug or backend issue introduced |
+| Any load error (`load_macro`, `load_custom_content`) > 0 in past day | WARNING | Macros failing to open |
+| `render_failed` > 0 in past day | WARNING | Diagram rendering broken for at least one type — check `event_category` breakdown |
+| `customcontent_orphan_observed` with `recovery_used=false` > 0 in past day | INFO | Unrecovered orphan: user saw a blank macro; actionable if rising trend |
+| `customcontent_orphan_observed` with `recovery_used=false` rising week-over-week | WARNING | Orphan recovery is degrading — data loss risk |
+| `load_custom_content_v2_missing` spike without matching spike in `customcontent_orphan_observed` | WARNING | Orphan detection gap — missing CCs not reaching the orphan recovery path |
+| `attachment_upload_failed` > 2× previous period | WARNING | PNG export broken |
+| `macro_create_succeeded` = 0 for past week | INFO | Low activity but possibly normal for small user base |
+| Any diagram type that had `macro_viewed` volume before but now shows 0 | WARNING | Specific diagram type may be broken |
 
 ### Output format
 
@@ -290,11 +334,11 @@ Peak hour: {time} with {N} total views
 | ...    | ...      | ...                | ...       | ...    |
 
 ### Errors
-| Window | save_failed | macro_save_failed | vs previous |
-|--------|-------------|-------------------|-------------|
-| Today  | 3           | 0                 | —           |
-| 1 day  | 5           | 1                 | +2 / +1     |
-| 1 week | 12          | 3                 | -5 / +1     |
+| Window | save_failed | update_cc_error | existence_check | load_macro | load_cc | render_failed | orphan (total/unrecovered) | attach_upload_failed | vs prev |
+|--------|-------------|-----------------|-----------------|------------|---------|---------------|---------------------------|----------------------|---------|
+| Today  | 3           | 0               | 0               | 1          | 0       | 0             | 5 / 2                     | 0                    | —       |
+| 1 day  | 5           | 1               | 0               | 2          | 0       | 0             | 12 / 4                    | 0                    | +2      |
+| 1 week | 12          | 3               | 1               | 4          | 0       | 0             | 60 / 10                   | 1                    | -5      |
 
 ### Flags
 - ✅ No critical issues (or list flags)
@@ -304,7 +348,8 @@ Peak hour: {time} with {N} total views
 
 - **Event migration complete (as of 2026-05-05)**: Events were renamed to canonical form on 2026-04-27. Legacy names (`view_macro`, `create_macro_end`, `edit_macro_end`) returned zero for both today and yesterday as of 2026-05-06 — the migration is done. Queries can now use canonical names only (`macro_viewed`, `macro_create_succeeded`, `macro_save_succeeded`). Keep the dual-query approach only if you need historical data before Apr 27; for current health checks, canonical queries alone are sufficient.
 - **Property rename: `event_category` → `macro_type`**: Legacy events used `event_category` for the diagram type breakdown. New canonical events use `macro_type` instead. The values are identical (`sequence`, `mermaid`, `plantuml`, `graph`, `openapi`, `embed`). Use `event_category` breakdown for legacy queries and `macro_type` breakdown for canonical queries; sum per-category totals.
-- **`unexpected_error` / `update_custom_content_error` are gone**: These old error event names are no longer in the Mixpanel catalog. Use `save_failed` (general) and `macro_save_failed` (custom content) instead.
+- **`update_custom_content_error` is still live**: Despite an earlier note saying it was gone, this event is still fired in `ApWrapper2.ts` on CC PUT failure after retries. Include it in save-error queries.
+- **`render_failed` is new (added 2026-05-24)**: Tracking was added to `Mermaid.vue`, `Sequence.vue`, and `PlantUml.vue` on this date — no historical data exists before then. Don't flag zero 1w counts as a gap.
 - **No 5-minute window**: Mixpanel's smallest query granularity via the MCP tool is hourly. Today's hourly chart is the closest to real-time. Mixpanel also has ~5-10 min ingestion delay.
 - **`timeComparison` not in API response**: The Mixpanel `timeComparison` parameter creates visual comparisons in the UI but delta values are not returned in the Run-Query API response. Use explicit previous-period queries instead.
 - **Forge graph macro_viewed missing**: `macro_viewed` (and legacy `view_macro`) for graph type on Forge is not tracked (known bug in `forge-graph-viewer.ts`). Don't flag missing graph views as an anomaly.

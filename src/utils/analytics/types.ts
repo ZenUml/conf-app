@@ -43,6 +43,10 @@ export type AnalyticsProperties = {
   content_id?: string;
   content_type?: string;
   content_status?: string;
+  page_id?: string;
+  custom_content_id?: string;
+  attachment_name?: string;
+  space_admin_count?: number;
   // Error
   error_code?: string;
   error_name?: string;

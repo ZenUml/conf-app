@@ -1,102 +1,36 @@
-# Upgrade Tracking Events - Quick Reference
+# Upgrade Tracking Events — Quick Reference
 
-| Scenario | `event_label` | `action` | `product_option` | `ui_component` | `cta_position` |
-|----------|---------------|----------|------------------|----------------|----------------|
-| Tooltip → Marketplace | `upgrade_cta_clicked` | `click` | `marketplace` | `tooltip` | `primary` |
-| Tooltip → Enterprise | `upgrade_cta_clicked` | `click` | `enterprise_bundle` | `tooltip` | `secondary` |
-| Header Badge Click | `upgrade_cta_clicked` | `click` | `marketplace` | `header_badge` | - |
-| Header Badge Hover | `upgrade_prompt_hovered` | `hover` | - | `header_badge` | - |
-| Banner → Marketplace | `upgrade_cta_clicked` | `click` | `marketplace` | `banner` | - |
-| Banner → Enterprise | `upgrade_cta_clicked` | `click` | `enterprise_bundle` | `banner` | - |
-| Viewer Notice → Marketplace (Lite only) | `upgrade_cta_clicked` | `click` | `marketplace` | `viewer_notice` | - |
-| Viewer Notice → Enterprise (Lite only) | `upgrade_cta_clicked` | `click` | `enterprise_bundle` | `viewer_notice` | - |
-| Feature Enabled | `upgrade_feature_enabled` | `system` | - | - | - |
+Canonical event names match `src/utils/analytics/catalog.ts` and `src/utils/upgradeTracking.ts`.
 
----
+## Lite paywall (current modal)
 
-## Enum Values Reference
+The paywall modal (`UpgradePrompt.vue`) is **advocacy-only**. In-modal intent is captured when the user successfully copies the templated message.
 
-### `product_option`
-- `marketplace` - Atlassian Marketplace upgrade
-- `enterprise_bundle` - Enterprise Bundle (Stripe)
-- `unknown` - Not applicable or unknown
+| Scenario | Mixpanel `event` / name | Notes |
+|----------|-------------------------|--------|
+| Modal shown | `upgrade_modal_shown` | `trigger_source`, upgrade context from `getUpgradeContext()` |
+| User copies advocacy text (clipboard succeeds) | `advocacy_message_copied` | `ui_component: modal` |
+| User toggles draft preview | `advocacy_draft_preview_clicked` | `ui_component: modal`, `expanded` |
+| Modal dismissed (backdrop / Escape / flow that calls close) | `upgrade_modal_dismissed` | `time_spent` (seconds) |
+| Continue without upgrading | `paywall_continued_editing` | Footer CTA |
 
-### `ui_component`
-- `header_badge` - Header "Upgrade" or "Action Required" badge
-- `tooltip` - Hover tooltip on Action Required badge
-- `banner` - Warning banner in editor
-- `viewer_notice` - Notice in viewer for non-admins (Lite version only)
+## Viewer / editor (not the modal)
 
-### `cta_position`
-- `primary` - Primary/recommended option (left column, blue)
-- `secondary` - Secondary/alternative option (right column, gray)
+| Scenario | Event |
+|----------|--------|
+| Clicks **Upgrade** in viewer header (Lite) | `paywall_triggered` with `action_type: header_badge`, `ui_component: viewer_notice` |
+| Blocked at edit gate | `paywall_blocked_edit` / `paywall_triggered` per entry point |
 
----
+## Session / tenant signals
 
-## SQL Query Examples
+| Scenario | Event |
+|----------|--------|
+| CSS flag enabled or paid space detected | `upgrade_feature_enabled` (from `useCustomerSuccessService.ts`) |
 
-### Count clicks by product option
-```sql
-SELECT
-  product_option,
-  COUNT(*) as clicks
-FROM events
-WHERE event_label = 'upgrade_cta_clicked'
-GROUP BY product_option;
-```
+## `UIComponent` enum
 
-### Count clicks by UI location
-```sql
-SELECT
-  ui_component,
-  COUNT(*) as clicks
-FROM events
-WHERE event_label = 'upgrade_cta_clicked'
-GROUP BY ui_component
-ORDER BY clicks DESC;
-```
+- `header_badge`, `tooltip`, `viewer_notice`, `banner`, `modal` — see `src/utils/upgradeTracking.ts`
 
-### Analyze conversion by macro usage stage
-```sql
-SELECT
-  CASE
-    WHEN macro_usage_pct < 90 THEN '85-89%'
-    WHEN macro_usage_pct < 95 THEN '90-94%'
-    WHEN macro_usage_pct < 100 THEN '95-99%'
-    ELSE '100%+'
-  END as usage_stage,
-  COUNT(*) as clicks,
-  AVG(macro_count) as avg_macros
-FROM events
-WHERE event_label = 'upgrade_cta_clicked'
-GROUP BY usage_stage
-ORDER BY usage_stage;
-```
+## Legacy SQL examples
 
-### Compare Marketplace vs Enterprise Bundle performance
-```sql
-SELECT
-  product_option,
-  ui_component,
-  COUNT(*) as clicks,
-  AVG(macro_usage_pct) as avg_usage
-FROM events
-WHERE event_label = 'upgrade_cta_clicked'
-  AND product_option IN ('marketplace', 'enterprise_bundle')
-GROUP BY product_option, ui_component
-ORDER BY clicks DESC;
-```
-
----
-
-## Implementation Reference
-
-```typescript
-// Example: Track Marketplace click from tooltip
-trackUpgradeEvent(UpgradeEventName.CTA_CLICKED, {
-  product_option: ProductOption.MARKETPLACE,
-  ui_component: UIComponent.TOOLTIP,
-  cta_position: 'primary',
-  ...getUpgradeContext(),  // Adds macro_count, macro_limit, macro_usage_pct
-})
-```
+Historical dashboards may still reference removed event names from older app versions. Prefer Mixpanel Lexicon / Insights for current production names.

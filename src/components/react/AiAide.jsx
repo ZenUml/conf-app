@@ -142,35 +142,12 @@ const FormDefaultExample = () => {
     []
   );
 
-  const handleExit = React.useCallback(() => {
+  const handleExit = React.useCallback(async () => {
     try {
-      if (window && (window).AP && (window).AP.dialog && typeof (window).AP.dialog.close === 'function') {
-        (window).AP.dialog.close();
-        return;
-      }
+      const { view } = await import('@forge/bridge');
+      await view.submit();
     } catch (e) {
-      // ignore and fallback
-    }
-    // Try Forge Bridge `view.close()` when available
-    try {
-      import('@forge/bridge').then(({ view }) => {
-        if (view && typeof view.close === 'function') {
-          view.close();
-        }
-      }).catch(() => {
-        // fallback to postMessage
-        if (window.parent && window.parent !== window) {
-          window.parent.postMessage({ type: 'zenuml:closeModal' }, '*');
-        }
-      });
-    } catch (e) {
-      try {
-        if (window.parent && window.parent !== window) {
-          window.parent.postMessage({ type: 'zenuml:closeModal' }, '*');
-        }
-      } catch (e2) {
-        console.warn('Unable to close modal programmatically', e2);
-      }
+      console.error('Failed to close AI aide', e);
     }
   }, []);
 

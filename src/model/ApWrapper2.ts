@@ -18,6 +18,8 @@ import {Attachment} from './ConfluenceTypes';
 import { loadAllPaginatedData } from '@/utils/requestUtil';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import {forgeRequest} from '@/utils/requestUtil';
+import { SpaceAdmin } from './SpaceAdmin';
+import SpaceAdminResolver from './permissions/SpaceAdminResolver';
 
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
 const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
@@ -32,10 +34,12 @@ export default class ApWrapper2 implements IApWrapper {
   baseUrl: string | undefined;
   locationTarget: LocationTarget | undefined;
   license: ILicense | undefined;
+  private readonly spaceAdminResolver: SpaceAdminResolver;
 
   constructor() {
     this.versionType = this.isLite() ? VersionType.Lite : VersionType.Full;
     this._page = new AtlasPage();
+    this.spaceAdminResolver = new SpaceAdminResolver(this);
   }
 
   async initializeContext(): Promise<void> {
@@ -81,12 +85,6 @@ export default class ApWrapper2 implements IApWrapper {
 
   getContentProperty(_key: any): Promise<IContentProperty | undefined> {
     return Promise.resolve(undefined);
-  }
-
-  saveMacro(params: IMacroData, _body: string) {
-    if (forgeGlobal.view?.submit) {
-      forgeGlobal.view.submit(params);
-    }
   }
 
   // All document types will be using the same content key.
@@ -254,9 +252,10 @@ export default class ApWrapper2 implements IApWrapper {
     console.debug(`Found ${count} macros on page`);
 
     const pageId = await this._page.getPageId();
-    let isCrossPageCopy = pageId && String(pageId) !== String(customContent?.container?.id);
+    let isCrossPageCopy = pageId && customContent?.container?.id && String(pageId) !== String(customContent.container.id);
     if (isCrossPageCopy || count > 1) {
       diagram.isCopy = true;
+      diagram.copyReason = isCrossPageCopy ? 'cross-page' : 'same-page-duplicate';
       console.warn(`Detected copied macro - ID: ${id}, Cross-page copy: ${isCrossPageCopy}, Instances on page: ${count}, Source page: ${customContent?.container?.id}, Current page: ${pageId}`);
       if (isCrossPageCopy) {
         trackEvent('cross_page', 'duplication_detect', 'warning');
@@ -266,6 +265,7 @@ export default class ApWrapper2 implements IApWrapper {
       }
     } else {
       diagram.isCopy = false;
+      diagram.copyReason = undefined;
     }
     diagram.id = id;
     let assign = <unknown>Object.assign({}, customContent, {value: diagram});
@@ -274,11 +274,18 @@ export default class ApWrapper2 implements IApWrapper {
 
   async getCustomContentByIdV2(id: string): Promise<ICustomContentV2 | undefined> {
     const customContent = await this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`);
-    if (!customContent) {
-      throw Error(`Failed to load custom content by id ${id}`);
+    // forgeRequest returns the parsed JSON body regardless of HTTP status —
+    // a 404 surfaces as { errors: [{ status: 404, code: 'NOT_FOUND', … }] }
+    // (truthy but missing body.raw.value). Previously the next line crashed
+    // with TypeError → viewer iframe collapsed to 0 height (ZEN-1170). Treat
+    // any non-success shape as "not found" so callers fall through to
+    // NULL_DIAGRAM / fallback paths instead of vanishing.
+    const rawValue = customContent?.body?.raw?.value;
+    if (!rawValue || customContent?.errors) {
+      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
+      return undefined;
     }
-    //@ts-ignore
-    let diagram = JSON.parse(customContent.body.raw.value);
+    let diagram = JSON.parse(rawValue);
     diagram.source = DataSource.CustomContent;
     const count = (await this._page.countMacros((m) => {
       //TODO: filter by macro type
@@ -287,9 +294,13 @@ export default class ApWrapper2 implements IApWrapper {
     console.debug(`Found ${count} macros on page`);
 
     const pageId = await this._page.getPageId();
-    let isCrossPageCopy = pageId && pageId !== String(customContent?.pageId);
+    // Require both sides present — undefined pageId on the custom content
+    // (e.g. content created via REST API without a container) previously
+    // caused a false-positive isCopy=true (issue #80).
+    let isCrossPageCopy = pageId && customContent?.pageId && pageId !== String(customContent.pageId);
     if (isCrossPageCopy || count > 1) {
       diagram.isCopy = true;
+      diagram.copyReason = isCrossPageCopy ? 'cross-page' : 'same-page-duplicate';
       console.warn(`Detected copied macro - ID: ${id}, Cross-page copy: ${isCrossPageCopy}, Instances on page: ${count}, Source page: ${customContent?.pageId}, Current page: ${pageId}`);
       if (isCrossPageCopy) {
         trackEvent('cross_page', 'duplication_detect', 'warning');
@@ -299,10 +310,94 @@ export default class ApWrapper2 implements IApWrapper {
       }
     } else {
       diagram.isCopy = false;
+      diagram.copyReason = undefined;
     }
     diagram.id = id;
     let assign = <unknown>Object.assign({}, customContent, {value: diagram});
     return <ICustomContentV2>assign;
+  }
+
+  // ZEN-1170 read-only probe. When a viewer's customContentId can no longer
+  // be loaded (404, deleted, restricted) we list the host page's own
+  // custom-content children and look for one whose stored `body.id` equals
+  // the orphan id — that's the surviving sibling created by the historical
+  // cross-page-copy → dedupe flow. The result is reported to Mixpanel so we
+  // can estimate fleet-wide recoverability before shipping any auto-repair.
+  //
+  // No writes. No state changes. Safe to call from any viewer entry.
+  async probeOrphanRecovery(
+    pageId: string,
+    orphanId: string,
+  ): Promise<{
+    recoverable: boolean | 'probe_failed';
+    candidateCount: number;
+    pageChildrenTotal: number;
+    truncated?: boolean;
+    probeError?: string;
+  }> {
+    // The Forge save path stores everything under one type, but historical
+    // (Connect-era) graph custom content still lives under the dedicated
+    // `zenuml-content-graph` type — so a graph macro whose orphan survivor
+    // was created back then is invisible to a sequence-typed listing. Probe
+    // both lite/full types; diagramly only has its own single type.
+    const limit = 250;
+    const typesToProbe = forgeGlobal.isDiagramly
+      ? [this.customContentType('gpt-custom-content-key')]
+      : [
+          this.customContentType('zenuml-content-sequence'),
+          this.customContentType('zenuml-content-graph'),
+        ];
+    try {
+      const responses = await Promise.all(
+        typesToProbe.map(t =>
+          this.makeRequest(`/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(t)}&body-format=raw&limit=${limit}`),
+        ),
+      );
+      const errored = responses.find(r => r?.errors);
+      if (errored) {
+        return {
+          recoverable: 'probe_failed',
+          candidateCount: 0,
+          pageChildrenTotal: 0,
+          probeError: JSON.stringify(errored.errors),
+        };
+      }
+      let candidateCount = 0;
+      let pageChildrenTotal = 0;
+      let truncated = false;
+      for (const response of responses) {
+        const results: Array<any> = Array.isArray(response?.results) ? response.results : [];
+        pageChildrenTotal += results.length;
+        if (results.length >= limit && response?._links?.next) {
+          truncated = true;
+        }
+        for (const child of results) {
+          const rawValue = child?.body?.raw?.value;
+          if (!rawValue) continue;
+          try {
+            const body = JSON.parse(rawValue);
+            if (body?.id && String(body.id) === String(orphanId)) {
+              candidateCount++;
+            }
+          } catch {
+            // malformed body — counted in total but not as a match
+          }
+        }
+      }
+      return {
+        recoverable: candidateCount > 0,
+        candidateCount,
+        pageChildrenTotal,
+        ...(truncated && { truncated: true }),
+      };
+    } catch (e: any) {
+      return {
+        recoverable: 'probe_failed',
+        candidateCount: 0,
+        pageChildrenTotal: 0,
+        probeError: e?.message ? String(e.message) : String(e),
+      };
+    }
   }
 
   async getCustomContentVersionBeforeDate(id: string, date: string): Promise<ICustomContentV2 | undefined> {
@@ -713,10 +808,10 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   isDisplayMode() {
-    if (forgeGlobal.forgeContext?.extension?.modal) {
-      return false;
-    }
-    return true;
+    const modal = forgeGlobal.forgeContext?.extension?.modal;
+    if (!modal) return true;
+    // fullscreen is a viewer context, not an editor — still display mode
+    return modal.macroMode === 'fullscreen';
   }
 
   async getCustomContent(): Promise<ICustomContent | undefined> {
@@ -763,6 +858,10 @@ export default class ApWrapper2 implements IApWrapper {
 
   async getCurrentSpace(): Promise<ISpace> {
     return this.currentSpace || (this.currentSpace = forgeGlobal.forgeContext?.extension?.space || {key: await this._page.getSpaceKey()});
+  }
+
+  async getCurrentSpaceAdmins(): Promise<SpaceAdmin[]> {
+    return this.spaceAdminResolver.getSpaceAdmins(await this.getCurrentSpace());
   }
 
   async _getCurrentPageId(): Promise<string> {

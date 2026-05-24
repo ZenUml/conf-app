@@ -41,6 +41,8 @@ jobs:
           environment: stg
           vite-mixpanel-token: ${{ vars.VITE_MIXPANEL_TOKEN }}
           sentry-dsn: ${{ vars.SENTRY_DSN }}
+          page-capture-secret: ${{ vars.PAGE_CAPTURE_SECRET }}
+          page-capture-allowed-domains: ${{ vars.PAGE_CAPTURE_ALLOWED_DOMAINS_STG }}
 
       # Lite: remove contentBylineItem and licensing
       - name: Remove contentBylineItem from manifest
@@ -55,7 +57,7 @@ jobs:
           cmd: yq eval 'del(.app.licensing)' -i manifest.yml
       - name: Upload final manifest
         if: inputs.variant == 'lite'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: manifest-lite-staging
           path: manifest.yml
@@ -74,9 +76,41 @@ jobs:
 
       # Forge deploy (all variants)
       - name: Deploy to Forge Staging
+        env:
+          MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}
         run: |
           pnpm forge:deploy:disable-analytics
+          case "${{ inputs.variant }}" in
+            full)
+              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
+              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-full.zenuml.com" -e staging
+              ;;
+            diagramly)
+              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
+              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
+              ;;
+            *)
+              pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
+              pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
+              ;;
+          esac
           pnpm forge:deploy:${{ inputs.variant }}:staging
+      - name: Set PAGE_CAPTURE_SECRET in Forge Staging
+        if: ${{ vars.PAGE_CAPTURE_SECRET != '' }}
+        run: |
+          case "${{ inputs.variant }}" in
+            lite)
+              pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e staging
+              ;;
+            full)
+              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e staging
+              ;;
+            diagramly)
+              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e staging
+              ;;
+          esac
+        env:
+          PAGE_CAPTURE_SECRET: ${{ vars.PAGE_CAPTURE_SECRET }}
       - name: Install Lite to lite-stg.atlassian.net
         if: inputs.variant == 'lite'
         run: pnpm forge:install:lite:staging || pnpm forge:upgrade:lite:staging

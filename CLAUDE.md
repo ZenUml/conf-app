@@ -9,6 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **D1** — Cloudflare D1 database (SQLite-compatible, used for backend storage)
 - **pw** — Playwright (E2E test runner)
 - **client** / **tenant** — interchangeable; both refer to a Confluence Cloud site (one Atlassian instance that has installed the add-on)
+- **spot check** — ad hoc, AI-driven, ephemeral verification of a specific behavior; see the [Spot Checks](#spot-checks) section for full definition
 
 ## Project Overview
 
@@ -36,6 +37,35 @@ All three variants (lite, full, diagramly) are **Forge-only** in production. The
 - DrawIO assets (`public/drawio/`, ~155 MB) are bundled per-variant and loaded via **relative** URLs (`./drawio/index.html`, `./drawio/js/...`) so they resolve against the variant's own Forge CDN host (e.g. `*.cdn.prod.atlassian-dev.net/<app-id>/drawio/...`). Refs: `src/components/DrawIoExtension/ForgeGraphEditor.vue`, `src/forge-graph-viewer.ts`, `src/components/Viewer/ForgeGraphViewerEmbed.vue`. Don't reintroduce absolute `conf-full.zenuml.com/drawio/...` URLs — they will break in environments where that host isn't reachable.
 
 **Only exception:** `manifest.yml` must keep the `app.connect` / Connect key / modules entries — Atlassian's Forge-from-Connect migration requires these to stay so that upgrade paths from legacy Connect installs still work. Don't remove those.
+
+## Client privacy — no client names in public files
+
+**Policy:** The names of specific Confluence client tenants (i.e. customer subdomain prefixes, full hostnames matching `<customer>.atlassian.net`, customer-named page titles, customer-specific `cloudId`s) **MUST NOT appear in any file checked into this public repo** — code, docs, comments, JSDoc, help text, fixtures, snapshots, ADRs, research specs, runbook examples. The public repo is intended to be open to anyone with the link; client identities are not.
+
+**Where client-naming artifacts go:** The private companion repo `ZenUml/conf-app-private` is mounted as a git submodule at `private/`. Anything that names a real tenant lives there.
+
+| Artifact | Public path | Private path |
+|---|---|---|
+| Per-customer paywall data, anomalies, interpretation, runbook examples | — | `private/paywall/*.md` |
+| Research / design specs that reference real tenants | — | `private/research/<date>-<slug>.md` |
+| Operations data (customer lists, migration trackers) | — | `private/operations/*` |
+| Per-feature growth contracts (may reference tenants in baselines) | — | `private/growth/*.yml` |
+
+**When writing new code or docs:**
+- Use generic placeholders (`tenant-a`, `tenant-b`, `example-tenant`, `example.atlassian.net`, `example-one`, `example-two`) in any pedagogical example, JSDoc, or help text.
+- For operational scripts that need to enumerate real domains, read them from the live KV/D1 source at runtime — never hardcode (see `.claude/skills/paywall/SKILL.md` for the `jq` pattern that pulls from `CUSTOMER_SUCCESS_SERVICE`).
+- If a public-side doc legitimately needs to reference a worked example with a real tenant, put the example in a corresponding `private/<area>/<file>.md` and link to it from the public doc with a one-line summary that names no tenant.
+- The `.gitignore` already excludes `/page-snapshot.yml`, `/paywall-snap-*.yml`, `/spotcheck-*.yml` at repo root — these often capture real page content and must stay local.
+
+**Discovery:** Before committing, sanity-check with a grep:
+```bash
+grep -rE '[a-z0-9][a-z0-9-]+\.atlassian\.net' --exclude-dir=private --exclude-dir=node_modules --exclude-dir=.git \
+  --include='*.md' --include='*.ts' --include='*.vue' --include='*.js' --include='*.py' --include='*.json' --include='*.yml' . \
+  | grep -ivE '(zenuml|whimet|lite-stg|lite-dev|dia-stg|full-stg|peng-dev|example|tenant|foo|my-site|your-site|drawio|ecosystem|<)'
+```
+Expected output: empty. Any hits are likely real customer hostnames and should be moved to `private/` or replaced with a placeholder.
+
+**Why this matters:** Historical violations of this policy (paywall references, customer lists in `operations/`, per-tenant research specs) were migrated to `private/` in #108. The cleanup found ~47 distinct customer names across 15+ files. Re-introducing client names into the public repo undoes that work and exposes customer relationships.
 
 ## Development Commands
 
@@ -233,16 +263,30 @@ wrangler d1 migrations apply zenuml-for-confluence --remote
 
 ## Git Workflow
 
-**Never commit directly to `master`** unless explicitly told to. Always create a feature branch for new work:
+**Never commit directly to `main`** unless explicitly told to. Always create a feature branch for new work.
 
+**Exception:** Changes to `.md` files only (docs, CLAUDE.md, README, etc.) may be committed directly to `main`.
+
+### Starting work on an issue
+
+When beginning a fix or feature, check the current branch state first:
+
+**If on `main`:**
 ```bash
-git checkout -b <branch-name>
-# ... make changes ...
-git push origin <branch-name>
-# then open a PR
+git checkout -b <feature-branch-name>
 ```
 
-The only exception is trivial config/doc changes when the user explicitly says to push to master.
+**If on a different feature branch:**
+1. Check if the branch is clean: `git status`
+2. **If clean** — switch back to main, pull, then create the new branch:
+   ```bash
+   git checkout main && git pull && git checkout -b <feature-branch-name>
+   ```
+3. **If dirty (uncommitted changes)** — stop and present these options:
+   1. Commit the current changes first, then switch to the new branch
+   2. Use a git worktree so both branches can coexist: `git worktree add ../conf-app-<feature> -b <feature-branch-name>`
+
+Always use the `/superpowers:using-git-worktrees` skill when choosing option 2.
 
 ## Browser Automation and Forge Iframes
 
@@ -268,11 +312,47 @@ E2E tests must fail immediately with a clear error when a precondition is not me
 
 This prevents slow CI feedback (a single missing macro caused 6 × 60s = ~6 min of wasted waiting across parallel tests).
 
-## Integration Testing
+## Spot Checks
 
-1. Run `pnpm start:sit` to start both frontend and backend
-2. Use `pnpm forge:tunnel` to expose via Forge tunnel
-3. Test functionality in a Confluence instance
+A **spot check** is an ad hoc, AI-driven, ephemeral verification of a specific behavior. It is not a pre-written test case and not meant for long-term use. Use it after developing a feature, fixing a bug, or reproducing an issue — to confirm the specific behavior works as expected.
+
+**What it is NOT:** a pre-written `.spec.ts` file, a comprehensive regression test, or a repeatable automated test.
+
+**Key principles:**
+- **Lightweight**: reuse what already exists. If a page with the relevant macro is already available, use it — don't create a new one. If you know which macro has the issue, navigate to it directly.
+- **AI-driven**: use Playwright MCP (`mcp__playwright__*`) to improvise the test steps — it is the only tool that can reach inside Forge iframes (see [Browser Automation and Forge Iframes](#browser-automation-and-forge-iframes)). Claude in Chrome can only be used for interactions outside the iframe (e.g., Confluence page navigation, checking page-level elements). No script is checked in.
+- **Ephemeral**: the test steps are not saved for future use.
+- **Targeted**: verify the specific behavior being checked, not a comprehensive regression.
+
+**Choosing the environment:**
+
+| Situation | Target environment |
+|-----------|-------------------|
+| New feature not yet deployed | Forge Tunnel → `lite-dev.atlassian.net` |
+| Deployed to staging / failing pipeline | Staging site (e.g. `zenuml-lite@stg`) |
+| Reproducing a production issue | Production site directly |
+| Validating the test workflow itself | Any appropriate env |
+
+**Verification methods — use whichever the behavior requires:**
+
+| Signal | How |
+|--------|-----|
+| UI behavior | Playwright MCP (`mcp__playwright__*`) driving a real browser |
+| Analytics events | Intercept requests to `api.mixpanel.com` via Playwright, or query via `mcp__mixpanel__Run-Query` with `project_id=3373228` |
+| Forge logs | `forge logs --environment staging` / `forge logs --environment production` |
+| Cloudflare Workers logs | `wrangler pages deployment tail --project-name <project>` |
+| D1 database state | `wrangler d1 execute <db> --remote --command "SELECT ..."` |
+| R2 object storage | `wrangler r2 object get <bucket>/<key>` |
+
+Mix methods freely — a single spot check might drive the browser, then query D1 to confirm the record was written, then check Mixpanel to confirm the event fired.
+
+**Workflow:**
+1. Write a brief test plan first (before touching the browser or running any queries): the specific behavior being verified, the target page/macro or data path, and the expected observable signal for each assertion.
+2. Navigate to the target Confluence site if UI interaction is needed (app profiles in `tests/e2e-tests/config/apps.ts`). Log in if needed (credentials from `.env.forge.local` or environment).
+3. Reuse an existing page with the relevant macro — only create a new page if none exists.
+4. Execute the plan using whichever verification methods apply. Assert the expected outcome at each step.
+
+**Trigger phrases:** "run a spot check on X", "spot check zenuml-lite@stg", "spot check this fix", "spot check on staging", "verify on staging".
 
 ## Key Dependencies
 
@@ -292,31 +372,62 @@ This prevents slow CI feedback (a single missing macro caused 6 × 60s = ~6 min 
 
 | Event | Storage | Purpose |
 |-------|---------|---------|
-| `page_viewed`, `page_updated` | D1 `UserBehaviorEvent` (full hostname as `clientDomain`, e.g. `linemanwongnai.atlassian.net`) | Tenant activity signal — fires for any Confluence page with the macro installed, NOT specific to macro views |
-| `view_macro` | Mixpanel only | Actual macro view counts; use for paywall/engagement analysis |
+| `page_viewed`, `page_updated` | D1 `AnalyticsEventFact` (full hostname as `clientDomain`). Replaced `UserBehaviorEvent` on 2026-05-02; older rows still live in `UserBehaviorEvent` for May 1 and earlier. | Tenant activity signal — fires for any Confluence page with the macro installed, NOT specific to macro views |
+| `macro_viewed` (renamed from `view_macro` on 2026-04-28) | Mixpanel only | Actual macro view counts; use for paywall/engagement analysis |
 | Install/uninstall lifecycle | R2 `atlassian-events` bucket (`{domain}/lifecycle/{isoDate}.json`) | Forge install events |
 
 > Mixpanel tracking for `page_viewed`/`page_updated` is intentionally commented out in `functions/forge-user-behavior.ts:62`.
 
 ### Interpreting `page_viewed` in D1
 
-`page_viewed` fires whenever a user views any Confluence page on a site where our macro is installed. It does **not** mean the user viewed one of our macros. Use it to determine whether a **tenant is active on Confluence** (i.e., people are using the product at all). For macro-specific engagement, use Mixpanel `view_macro`.
+`page_viewed` fires whenever a user views any Confluence page on a site where our macro is installed. It does **not** mean the user viewed one of our macros. Use it to determine whether a **tenant is active on Confluence** (i.e., people are using the product at all). For macro-specific engagement, use Mixpanel `macro_viewed`.
+
+The `AnalyticsEventFact` schema has richer columns than the legacy `UserBehaviorEvent` (key fields: `eventTime`, `eventDate`, `cloudId`, `macroUuid`, `diagramType`, `eventCategory`, `eventSource`, `appVersion`, `r2Key`). Aggregate views: `AnalyticsDailyEventSummary`, `AnalyticsWeeklyClientActivity`, `AnalyticsDailyCsat`.
 
 ### Key analytics sources
 
-- **D1 `conf-zenuml-prod`** — tenant activity (`UserBehaviorEvent`), install records (`ForgeInstallation`, `ClientInstallation`), content data
-- **Mixpanel** — macro view counts (`view_macro`), filtered by `client_domain` property
-- **KV metrics-inspect** — macro counts per space: `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<subdomain>`
+- **D1 `conf-zenuml-prod`** — tenant activity (`AnalyticsEventFact` since 2026-05-02; `UserBehaviorEvent` for ≤ 2026-05-01), install records (`ForgeInstallation`, `ClientInstallation`), content data
+- **Mixpanel** — macro view counts (`macro_viewed`), filtered by `client_domain` property. **Project ID: `3373228`** (the `Diagramly.Ai` project; conf-app shares this single project — there is no separate one). Query via `mcp__mixpanel__Run-Query` with `project_id=3373228`, or via JQL using `API_Secret` from `.env.mixpanel`. Project display timezone is UTC+7, so hourly buckets need conversion when joining to D1 (which is UTC).
+- **KV metrics-inspect** — macro counts per space: `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<subdomain>` (subdomain prefix only, e.g. `example-tenant` — not the full hostname)
 
-### clientDomain format mismatch
+### clientDomain format
 
-KV flags use the **subdomain prefix** (`linemanwongnai`) but D1 `UserBehaviorEvent` stores the **full hostname** (`linemanwongnai.atlassian.net`). Always use full hostname when querying D1.
+Two stores, two conventions — always match the store's form:
 
-## File Structure Notes
+| Store | Form | Example |
+|---|---|---|
+| KV flags | subdomain prefix | `example-tenant` |
+| D1 (`AnalyticsEventFact`, `UserBehaviorEvent`) | full hostname | `example-tenant.atlassian.net` |
+| Mixpanel — all events (frontend + backend) | **subdomain prefix** | `example-tenant` |
 
-- `src/` - Frontend source code
-- `functions/` - Cloudflare Workers backend
-- `public/` - Static assets and DrawIO integration
-- `manifest.yml` - Forge app manifest
-- `tests/` - Unit and E2E tests
-- `docs/` - Project documentation
+Frontend source: `getSubdomain()` in `src/utils/ContextParameters/ContextParameters.ts:42-45`.
+Backend source: regex on hostname in `src/export.js:34` (fixed 2026-05-16 to match frontend format).
+
+### Paywall / upgrade event mapping
+
+The Lite paywall modal (`UpgradePrompt.vue`) is advocacy-only: there are no in-modal Marketplace or Enterprise Bundle CTAs. **Intent capture** is `advocacy_message_copied` when the user successfully copies the templated upgrade request.
+
+| User action | Event fired | Key property |
+|-------------|-------------|--------------|
+| Clicks **"Upgrade" button in the viewer header** | `paywall_triggered` | `action_type: "header_badge"` (and `ui_component: "viewer_notice"`) |
+| Hits a per-space limit while editing | `paywall_triggered` / `paywall_blocked_edit` | `action_type` set accordingly |
+| Upgrade modal becomes visible (any path) | `upgrade_modal_shown` | `trigger_source` |
+| Copies advocacy message inside the modal (clipboard succeeds) | `advocacy_message_copied` | `ui_component: "modal"` |
+| Dismisses the modal | `upgrade_modal_dismissed` | `time_spent` |
+
+Use `paywall_triggered` filtered by `action_type="header_badge"` for header Upgrade clicks — not modal copy events. Sources: `src/utils/upgradeTracking.ts`, `src/components/Viewer/GenericViewer.vue` (header → `paywall_triggered`), `src/components/UpgradePrompt/useUpgradeTracking.ts` (modal events).
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as GitHub issues on `ZenUml/conf-app` — use the `gh` CLI for all operations. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles, names verbatim: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: `CONTEXT.md` + `docs/adr/` at the repo root (created lazily by `/grill-with-docs` as terms and decisions crystallise). See `docs/agents/domain.md`.
+

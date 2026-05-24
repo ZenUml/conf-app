@@ -9,6 +9,8 @@ import macroMetrics from '@/services/MacroMetrics';
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import store from "@/model/store2";
 import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
+import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 
 async function loadDiagram() {
   const context = await initForgeContext();
@@ -20,20 +22,30 @@ async function loadDiagram() {
     const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
+    if (!doc) {
+      // ZEN-1170 telemetry: probe page children for a recovery candidate.
+      void reportOrphanObserved(globals.apWrapper, context.extension?.content?.id, customContentId, 'embed');
+    }
   }
   store.state.diagram = doc ?? NULL_DIAGRAM;
   window.diagram = doc ?? NULL_DIAGRAM;
   console.log('loadDiagram - window.diagram', window.diagram);
 
-  mountRoot(doc ?? NULL_DIAGRAM, ForgeEmbedViewer, {
-    diagramType: doc?.diagramType,
-    doc: doc
+  const contentProps = { diagramType: doc?.diagramType, doc };
+  const paywalled = await tryFullscreenViewerPaywall({
+    doc,
+    content: ForgeEmbedViewer,
+    contentProps,
+    macroKind: 'embed',
   });
+  if (!paywalled) {
+    mountRoot(doc ?? NULL_DIAGRAM, ForgeEmbedViewer, contentProps);
+  }
 
   setTimeout(async function () {
     try {
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
-        await createAttachmentIfContentChanged(doc?.code || doc?.graphXml || doc?.mermaidCode || '');
+        await createAttachmentIfContentChanged(doc?.code || doc?.graphXml || doc?.mermaidCode || '', doc?.diagramType ?? 'embed');
       } else {
         console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");
       }
@@ -75,7 +87,7 @@ EventBus.$on('edit', async () => {
       console.log('onClose called with', payload);
       location.reload();
     },
-    size: 'max',
+    size: 'fullscreen',
     context: {
       macroMode: 'editor',
     },

@@ -1,17 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { ref } from 'vue'
 
 vi.mock('@/utils/upgradeTracking', () => ({
   trackUpgradeEvent: vi.fn(),
   UpgradeEventName: {
     MODAL_SHOWN: 'upgrade_modal_shown',
-    CTA_CLICKED: 'upgrade_cta_clicked',
     MODAL_DISMISSED: 'upgrade_modal_dismissed',
-    SLIDER_CHANGED: 'upgrade_slider_changed',
-  },
-  ProductOption: {
-    MARKETPLACE: 'marketplace',
-    ENTERPRISE_BUNDLE: 'enterprise_bundle',
+    PAYWALL_CONTINUED_EDITING: 'paywall_continued_editing',
+    ADVOCACY_MESSAGE_COPIED: 'advocacy_message_copied',
+    ADVOCACY_DRAFT_PREVIEW_CLICKED: 'advocacy_draft_preview_clicked',
   },
   UIComponent: {
     MODAL: 'modal',
@@ -19,10 +17,14 @@ vi.mock('@/utils/upgradeTracking', () => ({
 }))
 
 vi.mock('@/composables/useCustomerSuccessService', () => ({
+  useCustomerSuccessService: () => ({
+    spaceKey: ref('engineering-architecture'),
+  }),
   getUpgradeContext: () => ({
     macro_count: 100,
     macro_limit: 100,
     macro_usage_pct: 100,
+    space_key: 'engineering-architecture',
   }),
 }))
 
@@ -32,11 +34,10 @@ vi.mock('@/model/globals/forgeGlobal', () => ({
 
 import UpgradePrompt from '@/components/UpgradePrompt/UpgradePrompt.vue'
 import { trackUpgradeEvent } from '@/utils/upgradeTracking'
-import { openUrl } from '@/model/globals/forgeGlobal'
 
 const baseProps = {
   visible: true,
-  macrosCreated: 100,
+  macrosCreated: 105,
   macrosLimit: 100,
   upgradeUrl: 'https://marketplace.example/upgrade',
   enterpriseBundleUrl: 'https://stripe.example/bundle',
@@ -46,11 +47,11 @@ describe('UpgradePrompt', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     document.body.innerHTML = ''
-    ;(openUrl as any).mockResolvedValue(undefined)
   })
 
   afterEach(() => {
     document.body.innerHTML = ''
+    vi.useRealTimers()
   })
 
   it('tracks upgrade_modal_shown when mounted already visible', () => {
@@ -70,95 +71,197 @@ describe('UpgradePrompt', () => {
     wrapper.unmount()
   })
 
-  it('tracks marketplace CTA clicks with product_option=marketplace', async () => {
+  it('draft card is collapsed by default and shows the toggle button', () => {
     const wrapper = mount(UpgradePrompt, {
       props: baseProps,
       attachTo: document.body,
     })
 
-    const marketplaceButton = Array.from(document.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Upgrade →')
-    ) as HTMLButtonElement | undefined
+    expect(document.querySelector('[data-testid="advocacy-draft-body"]')).toBeNull()
+    const toggle = document.querySelector('[data-testid="draft-toggle-btn"]') as HTMLButtonElement
+    expect(toggle).toBeTruthy()
+    expect(toggle.textContent).toContain('Preview the draft before you copy')
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
 
-    expect(marketplaceButton).toBeTruthy()
-    marketplaceButton?.click()
+    wrapper.unmount()
+  })
+
+  it('renders the draft card with interpolated values after expanding the toggle', async () => {
+    const wrapper = mount(UpgradePrompt, {
+      props: baseProps,
+      attachTo: document.body,
+    })
+
+    const toggle = document.querySelector('[data-testid="draft-toggle-btn"]') as HTMLButtonElement
+    toggle.click()
     await Promise.resolve()
 
     expect(trackUpgradeEvent).toHaveBeenCalledWith(
-      'upgrade_cta_clicked',
+      'advocacy_draft_preview_clicked',
       expect.objectContaining({
-        product_option: 'marketplace',
-        cta_position: 'primary',
         ui_component: 'modal',
+        expanded: true,
+        macro_count: 100,
       })
     )
-    expect(openUrl).toHaveBeenCalledWith(baseProps.upgradeUrl)
+
+    const draftBody = document.querySelector('[data-testid="advocacy-draft-body"]') as HTMLElement
+    expect(draftBody).toBeTruthy()
+    expect(draftBody.textContent).toContain('engineering-architecture')
+    expect(draftBody.textContent).toContain('105')
+    expect(draftBody.textContent).toContain('100 macros')
+    expect(draftBody.textContent).toContain('https://marketplace.example/upgrade')
+    expect(draftBody.textContent).toContain('https://stripe.example/bundle')
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
 
     wrapper.unmount()
   })
 
-  it('tracks enterprise CTA clicks with product_option=enterprise_bundle', async () => {
+  it('tracks advocacy_draft_preview_clicked with expanded false when collapsing the draft', async () => {
     const wrapper = mount(UpgradePrompt, {
       props: baseProps,
       attachTo: document.body,
     })
 
-    const enterpriseButton = Array.from(document.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Get Bundle →')
-    ) as HTMLButtonElement | undefined
-
-    expect(enterpriseButton).toBeTruthy()
-    enterpriseButton?.click()
+    const toggle = document.querySelector('[data-testid="draft-toggle-btn"]') as HTMLButtonElement
+    toggle.click()
     await Promise.resolve()
+    vi.mocked(trackUpgradeEvent).mockClear()
+
+    toggle.click()
+    await Promise.resolve()
+
+    expect(trackUpgradeEvent).toHaveBeenCalledTimes(1)
+    expect(trackUpgradeEvent).toHaveBeenCalledWith(
+      'advocacy_draft_preview_clicked',
+      expect.objectContaining({
+        ui_component: 'modal',
+        expanded: false,
+        macro_count: 100,
+      })
+    )
+
+    wrapper.unmount()
+  })
+
+  it('copies the templated message to the clipboard on advocacy button click and fires advocacy_message_copied', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+
+    const wrapper = mount(UpgradePrompt, {
+      props: baseProps,
+      attachTo: document.body,
+    })
+
+    const button = document.querySelector('[data-testid="advocacy-copy-btn"]') as HTMLButtonElement
+    expect(button).toBeTruthy()
+    expect(button.textContent).toContain('Copy upgrade request')
+
+    button.click()
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(writeText).toHaveBeenCalledTimes(1)
+    const copiedMessage = writeText.mock.calls[0][0]
+    expect(copiedMessage).toContain('engineering-architecture')
+    expect(copiedMessage).toContain('105 of 100 macros')
+    expect(copiedMessage).toContain('https://marketplace.example/upgrade')
+    expect(copiedMessage).toContain('https://stripe.example/bundle')
+    expect(copiedMessage).toContain('$299/yr/space')
+    expect(copiedMessage).toContain('ZenUML for Confluence Lite')
 
     expect(trackUpgradeEvent).toHaveBeenCalledWith(
-      'upgrade_cta_clicked',
+      'advocacy_message_copied',
       expect.objectContaining({
-        product_option: 'enterprise_bundle',
-        cta_position: 'secondary',
         ui_component: 'modal',
+        macro_count: 100,
+        space_key: 'engineering-architecture',
       })
     )
-    expect(openUrl).toHaveBeenCalledWith(baseProps.enterpriseBundleUrl)
 
     wrapper.unmount()
   })
 
-  // Regression: in editor-modal context, the parent's @close handler calls
-  // view.close() which tears down the iframe before router.open() completes.
-  // CTA clicks must NOT emit 'close' synchronously — that races with openUrl
-  // and silently drops the external-nav security dialog.
-  it('does NOT emit close on Get Bundle CTA click', async () => {
+  it('shows copied state for 2 seconds then reverts to default', async () => {
+    vi.useFakeTimers()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+
     const wrapper = mount(UpgradePrompt, {
       props: baseProps,
       attachTo: document.body,
     })
 
-    const enterpriseButton = Array.from(document.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Get Bundle →')
-    ) as HTMLButtonElement | undefined
+    const button = () =>
+      document.querySelector('[data-testid="advocacy-copy-btn"]') as HTMLButtonElement
+    button().click()
+    // Allow the async clipboard promise to resolve.
+    await vi.advanceTimersByTimeAsync(0)
 
-    enterpriseButton?.click()
-    await Promise.resolve()
+    expect(button().textContent).toContain('Copied')
 
-    expect(wrapper.emitted('close')).toBeFalsy()
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(button().textContent).toContain('Copy upgrade request')
+
     wrapper.unmount()
   })
 
-  it('does NOT emit close on Marketplace Upgrade CTA click', async () => {
+  it('falls back to the manual textarea when clipboard write fails', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('blocked'))
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+    // Simulate execCommand also failing.
+    document.execCommand = vi.fn().mockReturnValue(false)
+
     const wrapper = mount(UpgradePrompt, {
       props: baseProps,
       attachTo: document.body,
     })
 
-    const marketplaceButton = Array.from(document.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Upgrade →')
-    ) as HTMLButtonElement | undefined
+    const button = document.querySelector('[data-testid="advocacy-copy-btn"]') as HTMLButtonElement
+    button.click()
+    await new Promise((r) => setTimeout(r, 0))
 
-    marketplaceButton?.click()
+    const fallback = document.querySelector(
+      '[data-testid="advocacy-fallback-textarea"]'
+    ) as HTMLTextAreaElement
+    expect(fallback).toBeTruthy()
+    expect(fallback.value).toContain('engineering-architecture')
+
+    // Tracking event should NOT fire on failure.
+    const advocacyCalls = (trackUpgradeEvent as any).mock.calls.filter(
+      (c: unknown[]) => c[0] === 'advocacy_message_copied'
+    )
+    expect(advocacyCalls.length).toBe(0)
+
+    wrapper.unmount()
+  })
+
+  it('emits continueEditing and tracks paywall_continued_editing on footer button click', async () => {
+    const wrapper = mount(UpgradePrompt, {
+      props: baseProps,
+      attachTo: document.body,
+    })
+
+    const continueButton = document.querySelector(
+      '[data-testid="continue-editing-btn"]'
+    ) as HTMLButtonElement
+    continueButton.click()
     await Promise.resolve()
 
-    expect(wrapper.emitted('close')).toBeFalsy()
+    expect(trackUpgradeEvent).toHaveBeenCalledWith('paywall_continued_editing')
+    expect(wrapper.emitted('continueEditing')).toBeTruthy()
+
     wrapper.unmount()
   })
 })

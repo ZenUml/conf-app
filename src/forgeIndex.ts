@@ -1,5 +1,5 @@
 import globals from '@/model/globals';
-import { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isFullscreenMode } from '@/model/globals/forgeGlobal';
+import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isFullscreenMode } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
 import { toast } from '@/utils/toast';
@@ -16,14 +16,19 @@ import { handleGetStartedRoute } from './routes/getStarted';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, getEditJourneyStartTime, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
-import { useCustomerSuccessService, MACROS_LIMIT, getUpgradeContext } from '@/composables/useCustomerSuccessService';
-import { isPageEditorEditBlocked } from '@/utils/paywall/preEditGate';
-import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking';
+import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM } from '@/model/Diagram/Diagram';
-import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
+import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 
 // Track editor session start time
 const editorStartTime = Date.now();
+
+// Captured at editor open from extension.config.uuid; the 'save' EventBus
+// handler reads it back to forward through view.submit's replace-semantics
+// so Connect-era guestParams.uuid survives.
+let originalConfigUuid: string | undefined;
 
 // Initialize critical path rendering first
 async function initializeCriticalPath() {
@@ -107,6 +112,39 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
       console.debug('Loaded custom content', customContent);
       doc = customContent?.value;
+      // ZEN-1170: when the referenced customContent fails to load (404, deleted,
+      // restricted space), fall through to an empty doc so the backfill and
+      // per-macro-type dispatch below don't crash on `doc.plantUmlCode`.
+      // Graph/embed/openapi viewers re-fetch from their own modules; for
+      // sequence the user sees an empty editor surface, not a 0-height iframe.
+      if (!doc) {
+        void reportOrphanObserved(globals.apWrapper, context.extension?.content?.id, customContentId, 'sequence');
+        doc = { ...NULL_DIAGRAM };
+      }
+    }
+
+    // Capture the active field for wipe-precursor telemetry BEFORE any
+    // default-value backfill (e.g. plantUmlCode default below). Whether we
+    // actually emit the event is decided later after `isEditorMode()` so
+    // we don't pollute the signal with viewer page loads.
+    let wipePrecursorMacroType: MacroTypeValue | null = null;
+    let wipePrecursorActiveFieldEmpty = false;
+    if (customContentId && doc) {
+      const loadedDoc = doc;
+      let activeField: string | undefined | null;
+      if (loadedDoc.diagramType === DiagramType.Mermaid) {
+        wipePrecursorMacroType = 'mermaid';
+        activeField = loadedDoc.mermaidCode;
+      } else if (loadedDoc.diagramType === DiagramType.PlantUml) {
+        wipePrecursorMacroType = 'plantuml';
+        activeField = loadedDoc.plantUmlCode;
+      } else if (loadedDoc.diagramType === DiagramType.Sequence) {
+        wipePrecursorMacroType = 'sequence';
+        activeField = loadedDoc.code;
+      }
+      // Treat undefined/null the same as "" — partial/corrupt loads (field
+      // absent) are the same wipe-risk shape as explicit empty string.
+      wipePrecursorActiveFieldEmpty = !activeField;
     }
 
     // Backfill default PlantUML DSL for existing diagrams created before PlantUML support
@@ -117,10 +155,14 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // Start journey tracking for editor mode
     const editable = await isEditorMode();
     if (editable) {
-      const macroUuid = context.extension?.config?.uuid || uuidv4();
+      originalConfigUuid = context.extension?.config?.uuid;
+      const macroUuid =
+        forgeGlobal.forgeContext?.localId
+        || context.extension?.config?.uuid
+        || uuidv4();
       const isDialog = !!context.extension?.modal;
       const isMacroConfig = !!context.extension?.macro?.isConfiguring || !!context.extension?.macro?.isInserting;
-      
+
       if (isDialog || isMacroConfig) {
         // Check if journey was passed from parent (for modals opened from viewer)
         const modalContext = context.extension?.modal;
@@ -131,9 +173,21 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           startEditJourney(macroUuid, source);
         }
       }
-      
+
       // Ensure session is initialized
       getOrCreateSession();
+
+      // Wipe-precursor telemetry: fire only in editor mode so the signal
+      // isn't drowned by viewer page-view volume. The captured state above
+      // reflects the RAW loaded doc before any backfill.
+      if (customContentId && wipePrecursorMacroType && wipePrecursorActiveFieldEmpty) {
+        trackAnalyticsEvent('editor_load_empty_active_field', {
+          feature_area: 'macro',
+          surface: 'editor',
+          macro_type: wipePrecursorMacroType,
+          content_id: customContentId,
+        });
+      }
     }
 
     // Hide skeleton loader before mounting the actual content
@@ -147,65 +201,71 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
 
     if(isSequence) {
-      // Pre-edit paywall gate: block existing-macro edits in saturated spaces
-      if (editable && customContentId) {
-        const customerSuccess = useCustomerSuccessService();
-        await customerSuccess.initialize();
+      const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';
+      const fullscreenMode = await isFullscreenMode();
 
-        if (isPageEditorEditBlocked(customContentId, customerSuccess.shouldBlockActions.value)) {
-          let spaceKey = '';
-          try {
-            spaceKey = (await globals.apWrapper.getCurrentSpace())?.key || '';
-          } catch (e) {
-            console.debug('Could not resolve current space for page-editor paywall gate', e);
-          }
-
-          trackUpgradeEvent(UpgradeEventName.PAYWALL_BLOCKED_EDIT, {
-            ui_component: UIComponent.VIEWER_NOTICE,
-            action_type: 'page_editor',
-            ...getUpgradeContext(),
-          });
-
-          trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
-            ui_component: UIComponent.VIEWER_NOTICE,
-            action_type: 'page_editor',
-            ...getUpgradeContext(),
-          });
-
-          mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
-            macrosCreated: customerSuccess.macrosCreated.value,
-            macrosLimit: MACROS_LIMIT,
-            upgradeUrl: customerSuccess.upgradeUrl.value,
-            enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
-            spaceKey,
-            onClose: async () => {
-              await (await getView()).close();
-            },
-            onContinueEditing: async () => {
-              // @ts-ignore - Enable splitbar for editor mode
-              window.split = true;
-              const component = (await import("@/components/Workspace.vue")).default;
-              const fullscreenMode = await isFullscreenMode();
-              //@ts-ignore
-              mountRoot(doc, component, { autoResize: !fullscreenMode });
-            },
-          });
-          return;
-        }
-      }
-
+      // Editor paywall: mount Workspace under PaywallGate so the iframe is
+      // never blank; save remains gated in the persistence layer.
       if (editable) {
-        // @ts-ignore - Enable splitbar for editor mode (Workspace.vue checks window.split)
+        // @ts-ignore - Workspace's Split() helper checks window.split
         window.split = true;
+        const Workspace = (await import('@/components/Workspace.vue')).default;
+        if (await tryPageEditorPaywall({
+          // @ts-ignore - doc may be a partial spread type; matches the happy-path mount below
+          doc: doc ?? NULL_DIAGRAM,
+          content: Workspace,
+          contentProps: { autoResize: !fullscreenMode },
+          macroKind,
+          customContentId,
+        })) return;
       }
-      const component = editable 
+
+      // Fullscreen viewer paywall: blocking modal over the read-only diagram.
+      // Fires only when the user clicked Fullscreen on a saturated Lite space.
+      if (!editable && fullscreenMode) {
+        const DiagramPortal = (await import('@/components/DiagramPortal.vue')).default;
+        if (await tryFullscreenViewerPaywall({
+          // @ts-ignore - doc may be a partial spread type; matches the happy-path mount below
+          doc,
+          content: DiagramPortal,
+          contentProps: { autoResize: false },
+          macroKind,
+        })) return;
+      }
+
+      const component = editable
       ? (await import("@/components/Workspace.vue")).default
       : (await import("@/components/DiagramPortal.vue")).default;
 
-      const fullscreenMode = await isFullscreenMode();
-
       //@ts-ignore
       mountRoot(doc, component, { autoResize: !editable && !fullscreenMode });
+
+      if (!editable) {
+        trackAnalyticsEvent("macro_viewed", {
+          feature_area: "macro",
+          surface: "viewer",
+          macro_type: doc.diagramType,
+          entry_point: "page_view",
+        });
+      } else {
+        const isNew = !customContentId;
+        const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';
+        if (isNew) {
+          trackAnalyticsEvent("macro_create_started", {
+            feature_area: "macro",
+            surface: "editor",
+            macro_type: macroType,
+            entry_point: "page_editor",
+          });
+        } else {
+          trackAnalyticsEvent("macro_edit_opened", {
+            feature_area: "macro",
+            surface: "editor",
+            macro_type: macroType,
+            entry_point: "macro_toolbar",
+          });
+        }
+      }
     } else if(isGraph) {
       await import(editable ? "@/forge-graph-editor" : "@/forge-graph-viewer");
     } else if(isEmbed) {
@@ -251,7 +311,7 @@ async function createAttachment(code: string, diagramType: DiagramType) {
   try {
     if (globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
       const createAttachmentIfContentChanged = await createAttachmentIfContentChangedPromise;
-      await createAttachmentIfContentChanged(code);
+      await createAttachmentIfContentChanged(code, diagramType);
     } else {
       console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");
     }
@@ -298,7 +358,14 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
 
 EventBus.$on('edit', async(params: any) => {
   const context = await initForgeContext();
-  const macroUuid = context.extension?.config?.uuid || uuidv4();
+  const macroUuid =
+    forgeGlobal.forgeContext?.localId
+    || context.extension?.config?.uuid
+    || uuidv4();
+  // Forward the macro's customContentId so the modal can load the right diagram
+  // and the pre-edit paywall gate can fire. Without this the modal opens a blank
+  // new diagram and the paywall check is skipped entirely.
+  const customContentId = context.extension?.config?.customContentId;
   const journeyId = startEditJourney(macroUuid, 'dialog');
   const journeyStartTime = getEditJourneyStartTime();
   
@@ -309,9 +376,10 @@ EventBus.$on('edit', async(params: any) => {
       endEditJourney('cancelled');
       location.reload();
     },
-    size: 'max',
+    size: 'fullscreen',
     context: {
       macroMode: 'editor',
+      ...(customContentId && { customContentId }),
       journey_id: journeyId,
       journey_start_time: journeyStartTime,
       macro_uuid: macroUuid,
@@ -322,11 +390,28 @@ EventBus.$on('edit', async(params: any) => {
 });
 
 
+// Install the singleton "Restore unsaved changes" banner. It listens for
+// 'draft-available' on EventBus and renders a fixed-position banner at the
+// top of the page; each editor's mount logic emits the event on reopen.
+import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
+installRestoreDraftBanner();
+
 EventBus.$on('save', async () => {
   console.log('save', store.state.diagram);
 
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
   store.state.diagram.isNew = false;
+
+  // Captured before save runs. After save, if the returned id differs from
+  // sourceId, the save forked a new custom content (cross-page-copy / same-
+  // page-duplicate path in CustomContentStorageProvider.save) and the macro
+  // params must be rewritten via view.submit, else the page still points at
+  // the source content while the new one sits orphaned.
+  // The truthy-guard on sourceId is load-failure protection: a degraded load
+  // (404/restricted custom content) mounts NULL_DIAGRAM with id=''; saves
+  // there always return a new id, but writing it back would repoint the
+  // macro at a blank new record.
+  const sourceId = store.state.diagram.id ? String(store.state.diagram.id) : '';
 
   let id: string;
   try {
@@ -336,6 +421,7 @@ EventBus.$on('save', async () => {
     trackEvent('save_failed', 'save_failed', 'error', {
       error_message: String((error as any)?.message || error).substring(0, 500),
       http_status: (error as any)?.status || (error as any)?.statusCode || 'unknown',
+      macro_type: store.state.diagram.diagramType as MacroTypeValue,
     });
     toast({ message: 'Failed to save. Please try again.', duration: 5000 });
     // Do NOT close the dialog — let the user retry
@@ -356,10 +442,41 @@ EventBus.$on('save', async () => {
   // Give some time for track event to be sent out. We are not using a more reliable way to track event because
   // we don't want to block dialog close for too long.
   setTimeout(async () => {
-    if(await isInserting()) {
-      await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
-    } else {
-      await (await getView()).close();
+    // Writeback the new customContentId when (a) inserting a fresh macro or
+    // (b) the save returned a different id than what loaded (the cross-page
+    // -copy / same-page-duplicate POST branch). Without (b) the macro on
+    // the page stays pointed at the source id while the freshly created
+    // custom content sits orphaned.
+    const idChanged = !!sourceId && !!id && id !== sourceId;
+    const needsWriteback = (await isInserting()) || idChanged;
+    try {
+      if (needsWriteback) {
+        await (await getView()).submit({config: {
+          customContentId: id,
+          updatedAt: new Date().toISOString(),
+          ...(originalConfigUuid && { uuid: originalConfigUuid }),
+        }});
+      } else {
+        await (await getView()).close();
+      }
+      // Only clear the local draft after the macro state is durable on the
+      // page. If view.submit throws below, the backend POST has succeeded
+      // but the macro still points at the source content; keeping the draft
+      // around preserves the user's recovery anchor for a retry.
+      EventBus.$emit('saved', id);
+    } catch (error) {
+      // view.submit throws on MACRO_NOT_FOUND etc. The backend POST already
+      // succeeded, so without writeback the page still points at the source
+      // content; surface this as a save_failed signal so we can detect it.
+      // The 'saved' event is intentionally NOT emitted here so the local
+      // draft survives as a retry anchor.
+      console.error('view.submit/close failed after save', error);
+      trackEvent('save_failed', 'view_submit_failed', 'error', {
+        error_message: String((error as any)?.message || error).substring(0, 500),
+        new_custom_content_id: id,
+        writeback_required: String(needsWriteback),
+        macro_type: store.state.diagram.diagramType as MacroTypeValue,
+      });
     }
   }, 500);
 });
@@ -419,15 +536,18 @@ EventBus.$on('exit', async (showWarning: boolean) => {
 
 EventBus.$on('fullscreen', async () => {
   const context = await initForgeContext();
-  const macroUuid = context.extension?.config?.uuid || uuidv4();
-  
+  const macroUuid =
+    forgeGlobal.forgeContext?.localId
+    || context.extension?.config?.uuid
+    || uuidv4();
+
   await openModal({
     resource: 'main',
     onClose: (payload: any) => {
       console.log('onClose called with', payload);
       location.reload();
     },
-    size: 'max',
+    size: 'fullscreen',
     context: {
       macroMode: 'fullscreen',
       macro_uuid: macroUuid,

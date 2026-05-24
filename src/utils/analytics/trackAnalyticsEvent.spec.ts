@@ -30,6 +30,10 @@ const mockGlobals = {
   apWrapper: {
     currentUser: { atlassianAccountId: "user-123" },
     getMacroData: vi.fn().mockResolvedValue({ uuid: "fallback-uuid" }),
+    getCurrentSpaceAdmins: vi.fn().mockResolvedValue([
+      { type: "user", id: "user-999", displayName: "Alice Admin" },
+      { type: "user", id: "user-123", displayName: "Bob Builder" },
+    ]),
   },
 };
 
@@ -100,6 +104,118 @@ describe("trackAnalyticsEvent", () => {
     expect(mixpanel.track).toHaveBeenCalledWith(
       "macro_viewed",
       expect.objectContaining({ macro_uuid: "macro-abc" })
+    );
+  });
+
+  it("adds the space admin count for macro_viewed", async () => {
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    expect(mockGlobals.apWrapper.getCurrentSpaceAdmins).toHaveBeenCalled();
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({ space_admin_count: 2 })
+    );
+  });
+
+  it("auto-enriches page_id, content_id, custom_content_id, attachment_name from forgeContext", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+      extension: {
+        content: { id: "page-789" },
+        config: { customContentId: "cc-456" },
+      },
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({
+        page_id: "page-789",
+        content_id: "cc-456",
+        custom_content_id: "cc-456",
+        attachment_name: "zenuml-cc-456.png",
+      })
+    );
+  });
+
+  // content_id has a legacy meaning across the codebase: customContentId, not pageId
+  // (see forgeIndex.ts, forge-swagger-editor.ts, ForgeGraphEditor.vue). Auto-enrichment
+  // must not alias content_id to page_id, or the dimension's meaning diverges by call path.
+  it("does NOT populate content_id with page_id when only page context is available", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+      extension: {
+        content: { id: "page-789" },
+      },
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({
+        page_id: "page-789",
+        content_id: null,
+        custom_content_id: null,
+      })
+    );
+  });
+
+  it("falls back to extension.modal.customContentId when extension.config is missing", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+      extension: {
+        content: { id: "page-789" },
+        modal: { customContentId: "cc-from-modal" },
+      },
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({
+        custom_content_id: "cc-from-modal",
+        attachment_name: "zenuml-cc-from-modal.png",
+      })
+    );
+  });
+
+  it("sets page_id, custom_content_id, attachment_name to null when forgeContext fields are missing", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({
+        page_id: null,
+        content_id: null,
+        custom_content_id: null,
+        attachment_name: null,
+      })
     );
   });
 

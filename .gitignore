@@ -48,6 +48,11 @@ test-results/
 .worktree/
 .mcp.json
 
+# Local runtime / agent cruft
+.claude/scheduled_tasks.lock
+.claude/skills/**/__pycache__/
+.codex/
+
 # Local Mixpanel exports — raw production telemetry, never commit
 mixpanel-export*
 
@@ -56,3 +61,9 @@ credentials.json
 .dev.vars
 scripts/dev-config/
 scripts/confluence_domain_migration/
+.worktrees
+
+# Personal spotcheck / debugging snapshots — never commit (may contain customer names)
+/page-snapshot.yml
+/paywall-snap-*.yml
+/spotcheck-*.yml

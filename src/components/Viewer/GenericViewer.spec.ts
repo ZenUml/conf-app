@@ -1,378 +1,132 @@
 import { mount } from '@vue/test-utils'
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { vi, describe, it, expect, beforeEach } from 'vitest'
 import GenericViewer from '@/components/Viewer/GenericViewer.vue'
 import store from '@/model/store2'
 import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
-import * as upgradeTracking from '@/utils/upgradeTracking'
 
-// Mock globals
 vi.mock('@/model/globals', () => ({
   default: {
     apWrapper: {
-      isLite: vi.fn(() => false),
       canUserEdit: vi.fn(() => Promise.resolve(true)),
       isDisplayMode: vi.fn(() => true),
       _getCurrentUser: vi.fn(() => Promise.resolve({ atlassianAccountId: 'test-user-id' })),
-      getCurrentSpace: vi.fn(() => Promise.resolve({ key: 'TEST' }))
+      getCurrentSpace: vi.fn(() => Promise.resolve({ key: 'TEST' })),
+      getAndPrintContentVersions: vi.fn(() => Promise.resolve([])),
     }
   }
 }))
 
-// Mock macro metrics service
-vi.mock('@/services/MacroMetrics', () => ({
-  default: {
-    getMacroMetrics: vi.fn(() => Promise.resolve({ total: 75 }))
-  }
+vi.mock('@forge/bridge', () => ({
+  requestConfluence: vi.fn(() => Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve({ _links: { base: 'https://example.atlassian.net/wiki', webui: '/spaces/TEST/pages/123' } })
+  })),
+  // copyLink uses a dynamic import; vitest still routes that through this mock factory.
 }))
 
-// Mock feature flags
-vi.mock('@/apis/featureFlags', () => ({
-  default: vi.fn(() => Promise.resolve({ CUSTOMER_SUCCESS_SERVICE: true }))
-}))
-
-// Mock context parameters
-vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
-  getClientDomain: vi.fn(() => 'test.atlassian.net')
-}))
-
-// Mock upgrade tracking
-vi.mock('@/utils/upgradeTracking', () => ({
-  trackUpgradeEvent: vi.fn(),
-  UpgradeEventName: {
-    MODAL_SHOWN: 'modal_shown',
-    PAYWALL_TRIGGERED: 'paywall_triggered',
-    CTA_CLICKED: 'cta_clicked'
-  },
-  UIComponent: {
-    VIEWER_NOTICE: 'viewer_notice',
-    TOOLTIP: 'tooltip'
-  },
-  ProductOption: {
-    MARKETPLACE: 'marketplace',
-    ENTERPRISE_BUNDLE: 'enterprise_bundle'
-  }
-}))
-
-// Mock window.trackEvent
 vi.mock('@/utils/window', () => ({
   trackEvent: vi.fn(),
-  getUrlParam: vi.fn()
+  getUrlParam: vi.fn(),
 }))
 
-// Mock diagram likes service
-vi.mock('@/services/DiagramLikes', () => ({
-  toggleDiagramLike: vi.fn(() => Promise.resolve()),
-  getDiagramLikes: vi.fn(() => Promise.resolve([]))  // Returns array of likes
+vi.mock('@/utils/toast', () => ({
+  toast: vi.fn(),
 }))
 
-// Mock useCustomerSuccessService to control spacePaid and macrosCreated.
-// Use plain values (not refs) so Vue Options API data() treats them as reactive primitives.
-vi.mock('@/composables/useCustomerSuccessService', () => {
-  return {
-    useCustomerSuccessService: vi.fn(() => ({
-      macrosCreated: 0,
-      severity: 'none',
-      shouldBlockActions: false,
-      upgradeUrl: 'https://marketplace.atlassian.com',
-      enterpriseBundleUrl: 'https://zenuml.com/enterprise',
-      initialize: vi.fn(),
-      spacePaid: false,
-    })),
-    MACROS_LIMIT: 100,
-    getUpgradeContext: vi.fn(() => ({}))
-  }
-})
+const mountViewer = () => mount(GenericViewer, { global: { plugins: [store] } })
 
-describe('GenericViewer - Upgrade Features', () => {
-  let macroMetrics: any
-  let featureFlags: any
-
-  beforeEach(async () => {
-    // Reset all mocks before each test
+describe('GenericViewer (chrome-less)', () => {
+  beforeEach(() => {
     vi.clearAllMocks()
-
-    // Reset store state
     store.commit('updateDiagramType', DiagramType.Sequence)
     store.state.diagram.source = DataSource.CustomContent
     store.state.diagram.isCopy = false
-
-    // Get mocked modules
-    macroMetrics = await import('@/services/MacroMetrics')
-    featureFlags = await import('@/apis/featureFlags')
-
-    // Clear localStorage mocks
-    delete localStorage.mockMacroCount
-    delete localStorage.mockCSSEnabled
+    store.state.diagram.title = 'Login flow'
+    store.state.diagram.id = 'content-123'
   })
 
-  afterEach(() => {
-    // Clean up
-    delete localStorage.mockMacroCount
-    delete localStorage.mockCSSEnabled
-  })
-
-  describe('isLite Detection', () => {
-    it('should show upgrade button when isLite() returns true', async () => {
-      const globals = await import('@/model/globals')
-      globals.default.apWrapper.isLite = vi.fn(() => true)
-
+  describe('layout', () => {
+    it('renders the viewer frame with the title and the slot content', () => {
       const wrapper = mount(GenericViewer, {
-        global: {
-          plugins: [store]
-        }
+        global: { plugins: [store] },
+        slots: { default: '<div class="diagram-stub">slot</div>' },
       })
-
-      await wrapper.vm.$nextTick()
-      
-      // Set macro count to ensure button shows (> 50)
-      const vm = wrapper.vm as any
-      vm.macrosCreated = 75
-      await wrapper.vm.$nextTick()
-
-      // Find the upgrade button
-      const upgradeButton = wrapper.find('button[title="Upgrade to unlock unlimited diagrams"]')
-      expect(upgradeButton.exists()).toBe(true)
-      expect(upgradeButton.text()).toContain('Upgrade')
+      expect(wrapper.find('.viewer-frame').exists()).toBe(true)
+      expect(wrapper.find('.viewer-title').text()).toBe('Login flow')
+      expect(wrapper.find('.diagram-stub').exists()).toBe(true)
+      expect(wrapper.find('.screen-capture-content').exists()).toBe(true)
     })
 
-    it('should hide upgrade button when isLite() returns false', async () => {
-      const globals = await import('@/model/globals')
-      globals.default.apWrapper.isLite = vi.fn(() => false)
-
-      const wrapper = mount(GenericViewer, {
-        global: {
-          plugins: [store]
-        }
-      })
-
-      await wrapper.vm.$nextTick()
-
-      // Upgrade button should not exist
-      const upgradeButton = wrapper.find('button[title="Upgrade to unlock unlimited diagrams"]')
-      expect(upgradeButton.exists()).toBe(false)
+    it('falls back to a default title when the diagram has no title', () => {
+      store.state.diagram.title = ''
+      const wrapper = mountViewer()
+      expect(wrapper.find('.viewer-title').text()).toBe('Untitled diagram')
     })
 
-    it('should hide upgrade button when macro count is 50 or less', async () => {
-      const globals = await import('@/model/globals')
-      globals.default.apWrapper.isLite = vi.fn(() => true)
+    it('reveals top + bottom edges on mouseenter and hides on mouseleave', async () => {
+      const wrapper = mountViewer()
+      const surface = wrapper.find('.viewer-surface')
+      expect(surface.classes()).not.toContain('viewer-surface--hover')
 
+      await surface.trigger('mouseenter')
+      expect(surface.classes()).toContain('viewer-surface--hover')
+
+      await surface.trigger('mouseleave')
+      expect(surface.classes()).not.toContain('viewer-surface--hover')
+    })
+
+    it('skips the viewer chrome when hideHeader is true', () => {
       const wrapper = mount(GenericViewer, {
-        global: {
-          plugins: [store]
-        }
+        global: { plugins: [store] },
+        props: { hideHeader: true },
+        slots: { default: '<div class="diagram-stub" />' },
       })
-
-      await wrapper.vm.$nextTick()
-
-      const vm = wrapper.vm as any
-      // Set macro count to 50 or less
-      vm.macrosCreated = 50
-      await wrapper.vm.$nextTick()
-
-      // Upgrade button should not exist because macrosCreated <= 50
-      const upgradeButton = wrapper.find('button[title="Upgrade to unlock unlimited diagrams"]')
-      expect(upgradeButton.exists()).toBe(false)
+      expect(wrapper.find('.viewer-frame').exists()).toBe(false)
+      expect(wrapper.find('.screen-capture-content').exists()).toBe(true)
+      expect(wrapper.find('.diagram-stub').exists()).toBe(true)
     })
   })
 
-  describe('Upgrade Modal Interaction', () => {
-    it('should open upgrade modal when upgrade button is clicked', async () => {
-      const globals = await import('@/model/globals')
-      globals.default.apWrapper.isLite = vi.fn(() => true)
-
-      const wrapper = mount(GenericViewer, {
-        global: {
-          plugins: [store]
-        }
-      })
-
+  describe('top-edge actions', () => {
+    it('emits edit on the EventBus when Edit is clicked', async () => {
+      const spy = vi.spyOn(EventBus, '$emit')
+      const wrapper = mountViewer()
       await wrapper.vm.$nextTick()
-      
-      // Set macro count to ensure button shows (> 50)
-      const vm = wrapper.vm as any
-      vm.macrosCreated = 75
-      await wrapper.vm.$nextTick()
-
-      // Pre-condition: modal is not shown
-      expect(vm.showUpgradeModal).toBe(false)
-
-      // Click upgrade button
-      const upgradeButton = wrapper.find('button[title="Upgrade to unlock unlimited diagrams"]')
-      await upgradeButton.trigger('click')
-
-      // Modal should be shown
-      expect(vm.showUpgradeModal).toBe(true)
+      await wrapper.find('button[aria-label="Edit"]').trigger('click')
+      expect(spy).toHaveBeenCalledWith('edit')
     })
 
-    it('should pass correct props to UpgradePrompt component', async () => {
-      const globals = await import('@/model/globals')
-      globals.default.apWrapper.isLite = vi.fn(() => true)
-
-      const wrapper = mount(GenericViewer, {
-        global: {
-          plugins: [store]
-        }
-      })
-
-      await wrapper.vm.$nextTick()
-      
-      // Set macro count to ensure button shows (> 50)
-      const vm = wrapper.vm as any
-      vm.macrosCreated = 75
-      await wrapper.vm.$nextTick()
-
-      // Click upgrade button to show modal
-      const upgradeButton = wrapper.find('button[title="Upgrade to unlock unlimited diagrams"]')
-      await upgradeButton.trigger('click')
-      await wrapper.vm.$nextTick()
-
-      // Check if the modal is shown via component state
-      expect(vm.showUpgradeModal).toBe(true)
-      // Check that the component has the reactive values (they are refs from the composable)
-      expect(vm.macrosCreated).toBeDefined()
-      expect(vm.MACROS_LIMIT).toBe(100)
-      expect(vm.upgradeUrl).toBeDefined()
-      expect(vm.enterpriseBundleUrl).toBeDefined()
+    it('emits fullscreen on the EventBus when Fullscreen is clicked', async () => {
+      const spy = vi.spyOn(EventBus, '$emit')
+      const wrapper = mountViewer()
+      await wrapper.find('button[aria-label="Fullscreen"]').trigger('click')
+      expect(spy).toHaveBeenCalledWith('fullscreen')
     })
   })
 
-  describe('Action Blocking (Customer Success Service)', () => {
-    it('should verify edit() method respects shouldBlockActions computed property', async () => {
-      const globals = await import('@/model/globals')
-      globals.default.apWrapper.isLite = vi.fn(() => true)
-
-      const wrapper = mount(GenericViewer, {
-        global: {
-          plugins: [store]
-        }
-      })
-
-      await wrapper.vm.$nextTick()
-
-      const vm = wrapper.vm as any
-
-      // Test the edit() method's blocking logic
-      // The method checks: if (this.shouldBlockActions) { block } else { allow }
-
-      // Store original state
-      const originalMacros = vm.macrosCreated
-
-      // Mock EventBus.$emit
-      const eventBusSpy = vi.spyOn(EventBus, '$emit')
-
-      // Test 1: Set macros to trigger blocking (>= 100)
-      vm.macrosCreated = 150
-      await wrapper.vm.$nextTick()
-
-      // Call edit method directly
-      vm.edit()
-
-      // Should block because: macros (150) >= 100 && isLite (true) && CSS enabled (true from mock)
-      const wasBlocked = !eventBusSpy.mock.calls.some(call => call[0] === 'edit')
-
-      if (wasBlocked) {
-        expect(vm.showUpgradeModal).toBe(true)
-        expect(upgradeTracking.trackUpgradeEvent).toHaveBeenCalledWith(
-          upgradeTracking.UpgradeEventName.PAYWALL_TRIGGERED,
-          expect.objectContaining({
-            ui_component: upgradeTracking.UIComponent.VIEWER_NOTICE,
-            action_type: 'edit'
-          })
-        )
-      }
-
-      // Restore
-      vm.macrosCreated = originalMacros
+  describe('bottom-edge pill actions', () => {
+    it('shows the four expected actions for a custom-content diagram', () => {
+      const wrapper = mountViewer()
+      const labels = wrapper.findAll('.viewer-edge-bottom-pill .viewer-pill-btn')
+        .map(b => b.attributes('aria-label'))
+      expect(labels).toEqual(['Copy code', 'Export PNG', 'Versions', 'Copy link'])
     })
 
-    it('should allow edit when macros < 100 (under limit)', async () => {
-      const globals = await import('@/model/globals')
-      globals.default.apWrapper.isLite = vi.fn(() => true)
-
-      const wrapper = mount(GenericViewer, {
-        global: {
-          plugins: [store]
-        }
-      })
-
-      await wrapper.vm.$nextTick()
-
-      const vm = wrapper.vm as any
-
-      // Set macros to be under limit
-      vm.macrosCreated = 50
-      await wrapper.vm.$nextTick()
-
-      // Mock EventBus.$emit
-      const eventBusSpy = vi.spyOn(EventBus, '$emit')
-
-      // Call edit method
-      vm.edit()
-
-      // Should allow because macros < 100
-      expect(eventBusSpy).toHaveBeenCalledWith('edit')
-      expect(vm.showUpgradeModal).toBe(false)
+    it('hides the Versions button when the diagram is not custom content', () => {
+      store.state.diagram.source = DataSource.MacroBody
+      const wrapper = mountViewer()
+      const labels = wrapper.findAll('.viewer-edge-bottom-pill .viewer-pill-btn')
+        .map(b => b.attributes('aria-label'))
+      expect(labels).toEqual(['Copy code', 'Export PNG', 'Copy link'])
     })
 
-    it('should not block when isLite is false (Full version)', async () => {
-      const globals = await import('@/model/globals')
-      globals.default.apWrapper.isLite = vi.fn(() => false)
-
-      const wrapper = mount(GenericViewer, {
-        global: {
-          plugins: [store]
-        }
-      })
-
-      await wrapper.vm.$nextTick()
-
+    it('opens the export modal when Export PNG is clicked', async () => {
+      const wrapper = mountViewer()
       const vm = wrapper.vm as any
-
-      // Even with high macro count
-      vm.macrosCreated = 150
-      await wrapper.vm.$nextTick()
-
-      // Mock EventBus.$emit
-      const eventBusSpy = vi.spyOn(EventBus, '$emit')
-
-      // Call edit method
-      vm.edit()
-
-      // Should allow because isLite = false (shouldBlockActions checks isLite)
-      expect(eventBusSpy).toHaveBeenCalledWith('edit')
-    })
-  })
-
-  describe('Upgrade Modal Close', () => {
-    it('should close upgrade modal when explicitly set to false', async () => {
-      const globals = await import('@/model/globals')
-      globals.default.apWrapper.isLite = vi.fn(() => true)
-
-      const wrapper = mount(GenericViewer, {
-        global: {
-          plugins: [store]
-        }
-      })
-
-      await wrapper.vm.$nextTick()
-
-      // Set macro count to ensure button shows (> 50)
-      const vm = wrapper.vm as any
-      vm.macrosCreated = 75
-      await wrapper.vm.$nextTick()
-
-      // Open modal
-      const upgradeButton = wrapper.find('button[title="Upgrade to unlock unlimited diagrams"]')
-      await upgradeButton.trigger('click')
-      expect(vm.showUpgradeModal).toBe(true)
-
-      // Simulate closing the modal (in the real component, UpgradePrompt emits @close)
-      vm.showUpgradeModal = false
-      await wrapper.vm.$nextTick()
-
-      // Modal should be closed
-      expect(vm.showUpgradeModal).toBe(false)
+      expect(vm.showExportModal).toBe(false)
+      await wrapper.find('button[aria-label="Export PNG"]').trigger('click')
+      expect(vm.showExportModal).toBe(true)
     })
   })
 

@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Fullscreen Bridge Modal — Rerun Execution</title>
+<style>
+  :root {
+    --bg: #fafbfc;
+    --surface: #fff;
+    --surface-2: #f6f8fa;
+    --border: #d8dce0;
+    --border-strong: #b9bfc6;
+    --text: #1f2328;
+    --muted: #57606a;
+    --muted-2: #6e7781;
+    --accent: #0969da;
+    --pass: #1a7f37;
+    --pass-bg: #dafbe1;
+    --fail: #cf222e;
+    --fail-bg: #ffebe9;
+    --blocked: #bf6500;
+    --blocked-bg: #fff4cf;
+    --pending: #57606a;
+    --pending-bg: #f6f8fa;
+    --na: #6f42c1;
+    --na-bg: #f3eaff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--text); background: var(--bg); }
+  header.page-head { padding: 18px 24px; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; }
+  header.page-head h1 { margin: 0 0 4px 0; font-size: 22px; }
+  header.page-head .sub { color: var(--muted); font-size: 13px; }
+  header.page-head .sub code { background: var(--pending-bg); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  .progress-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  .progress-row .label { color: var(--muted); font-size: 12px; }
+  .progress-bar { width: 240px; height: 8px; background: var(--pending-bg); border-radius: 4px; overflow: hidden; }
+  .progress-bar > span { display: block; height: 100%; background: var(--pass); transition: width .25s; }
+  .pill { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 18px; }
+  .pill.pass { color: var(--pass); background: var(--pass-bg); border: 1px solid #a6e9b9; }
+  .pill.fail { color: var(--fail); background: var(--fail-bg); border: 1px solid #ffc8c2; }
+  .pill.blocked { color: var(--blocked); background: var(--blocked-bg); border: 1px solid #ffe5a3; }
+  .pill.pending { color: var(--pending); background: var(--pending-bg); border: 1px solid var(--border); }
+  .pill.na { color: var(--na); background: var(--na-bg); border: 1px solid #d8c4f4; }
+  .pill-btn { background: transparent; border: none; padding: 0; cursor: pointer; }
+  .actions { margin-left: auto; display: flex; gap: 8px; }
+  .actions button { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .actions button:hover { border-color: var(--border-strong); }
+  .actions button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .actions button.primary:hover { background: #054da7; }
+  main { padding: 0 24px 32px; max-width: 1600px; margin: 0 auto; }
+
+  /* Section */
+  details.section { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-top: 16px; overflow: hidden; }
+  details.section[open] { border-color: var(--border-strong); }
+  details.section > summary { padding: 12px 16px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+  details.section:not([open]) > summary { border-bottom: none; }
+  details.section > summary .sect-stats { color: var(--muted); font-size: 12px; font-weight: normal; margin-left: auto; }
+
+  /* Cases list — each case is a card */
+  .cases-list { display: flex; flex-direction: column; }
+  .case { padding: 16px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 20px 24px; align-items: start; }
+  .case:last-child { border-bottom: none; }
+
+  /* Left column: meta header + screenshot hero */
+  .case-main { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .case-header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .case-id { font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace; color: var(--muted-2); font-size: 12px; background: var(--pending-bg); border: 1px solid var(--border); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+  .case-action { font-weight: 600; font-size: 14px; color: var(--text); }
+  .case-expected { color: var(--muted); font-size: 12.5px; line-height: 1.55; margin: 0; }
+  .case-expected strong { color: var(--text); font-weight: 500; }
+
+  /* Screenshot hero */
+  .case-shots { background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 10px; min-height: 80px; }
+  .case-shots .thumbs { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+  .case-shots .thumbs a { display: block; max-width: 100%; }
+  .case-shots .thumbs a img {
+    height: auto;
+    max-height: 480px;
+    width: 100%;
+    max-width: 100%;
+    object-fit: contain;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: zoom-in;
+    background: #fff;
+    transition: border-color .15s, box-shadow .15s;
+    display: block;
+  }
+  /* When more than one screenshot, show them side-by-side and slightly smaller */
+  .case-shots .thumbs.multi a { flex: 1 1 320px; min-width: 280px; }
+  .case-shots .thumbs.multi a img { max-height: 340px; }
+  .case-shots .thumbs a img:hover { border-color: var(--accent); box-shadow: 0 2px 10px rgba(0,0,0,.14); }
+  .case-shots .no-shots {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 12px; font-style: italic;
+    padding: 20px; min-height: 60px;
+    border: 1px dashed var(--border); border-radius: 4px; background: #fff;
+  }
+
+  /* Right column: status, last run, notes */
+  .case-side { display: flex; flex-direction: column; gap: 10px; }
+  .case-status-row { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+  .case-last-run { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+  .case-last-run-label { color: var(--muted-2); font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; display: block; margin-bottom: 1px; }
+  .case-notes-label { color: var(--muted-2); font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+  .case-notes textarea {
+    width: 100%;
+    min-height: 90px;
+    resize: vertical;
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.55;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
+  }
+  .case-notes textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+  .case-notes textarea::placeholder { color: var(--muted-2); }
+
+  /* Narrow viewport — stack side under main */
+  @media (max-width: 980px) {
+    .case { grid-template-columns: minmax(0, 1fr); }
+    .case-side { flex-direction: row; flex-wrap: wrap; align-items: flex-start; }
+    .case-status-row { flex: 0 0 auto; }
+    .case-notes { flex: 1 1 320px; min-width: 240px; }
+  }
+
+  /* Lightbox */
+  #lightbox { display: none; position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.82); align-items: center; justify-content: center; cursor: zoom-out; }
+  #lightbox.open { display: flex; }
+  #lightbox img { max-width: 96vw; max-height: 92vh; border-radius: 6px; box-shadow: 0 8px 40px rgba(0,0,0,.6); pointer-events: none; }
+  #lightbox-close { position: absolute; top: 16px; right: 20px; background: none; border: none; color: #fff; font-size: 28px; cursor: pointer; line-height: 1; opacity: .8; }
+  #lightbox-close:hover { opacity: 1; }
+  footer.summary { margin: 20px 24px 24px; color: var(--muted); font-size: 12px; max-width: 1600px; margin-left: auto; margin-right: auto; }
+  .legend { margin-right: 8px; }
+  .alert { padding: 12px 16px; background: var(--fail-bg); border: 1px solid #ffc8c2; border-radius: 6px; color: var(--fail); margin: 16px 0; }
+  .info { padding: 12px 16px; background: var(--na-bg); border: 1px solid #d8c4f4; border-radius: 6px; color: var(--na); margin: 16px 0; }
+</style>
+</head>
+<body>
+<div id="lightbox" role="dialog" aria-modal="true">
+  <button id="lightbox-close" aria-label="Close">✕</button>
+  <img id="lightbox-img" src="" alt="" />
+</div>
+<header class="page-head">
+  <h1>Fullscreen Bridge Modal — Rerun Execution</h1>
+  <div class="sub" id="rerun-sub">Loading baseline…</div>
+  <div class="progress-row">
+    <div class="label">Progress</div>
+    <div class="progress-bar"><span id="bar"></span></div>
+    <div class="pill pass" id="cnt-pass">0 pass</div>
+    <div class="pill fail" id="cnt-fail">0 fail</div>
+    <div class="pill blocked" id="cnt-blocked">0 blocked</div>
+    <div class="pill pending" id="cnt-pending">0 pending</div>
+    <div class="actions">
+      <a href="fullscreen-test-plan.html"><button type="button">← Baseline</button></a>
+      <button id="expand-all" type="button">Expand all</button>
+      <button id="collapse-all" type="button">Collapse all</button>
+      <button id="reset-all" type="button">Reset</button>
+      <button id="export-json" type="button" class="primary">Export run</button>
+    </div>
+  </div>
+</header>
+<main>
+  <div id="status"></div>
+  <div id="content"></div>
+</main>
+<footer class="summary">
+  <span class="legend"><span class="pill pending">pending</span> not run</span> ·
+  <span class="legend"><span class="pill pass">pass</span> verified</span> ·
+  <span class="legend"><span class="pill fail">fail</span> regression</span> ·
+  <span class="legend"><span class="pill blocked">blocked</span> can't run yet</span> ·
+  <span class="legend">Embed memo: each case must include <code>![](docs/screenshots/&lt;file&gt;.png)</code> for evidence</span>
+</footer>
+
+<script>
+const BASELINE_STORAGE = 'fullscreen-poc-test-plan-v1';
+const STATUSES = ['pending', 'pass', 'fail', 'blocked'];
+const STATUS_LABEL = { pending: 'pending', pass: 'pass', fail: 'fail', blocked: 'blocked' };
+
+// Persistence: /api/rerun-data (Vite dev plugin) → docs/fullscreen-test-rerun-data.json.
+// Falls back to localStorage when the API is unavailable (static hosting).
+let _file = null; // { state, snapshot } — in-memory mirror of the JSON file
+async function loadFile() {
+  try {
+    const r = await fetch('/api/rerun-data');
+    if (!r.ok) throw new Error('api unavailable');
+    _file = await r.json();
+  } catch {
+    _file = null;
+  }
+  return _file;
+}
+function saveFile() {
+  if (!_file) return;
+  fetch('/api/rerun-data', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(_file),
+  }).catch(() => {});
+}
+// localStorage shims for the baseline page (still uses localStorage)
+function loadJSON(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } }
+
+let state = {};
+let snapshot = null;
+
+function getCase(key) { return state[key] || { status: 'pending', notes: '', lastRun: null }; }
+function nextStatus(s) { return STATUSES[(STATUSES.indexOf(s) + 1) % STATUSES.length]; }
+function fmtTs(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return d.toLocaleString('en-AU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+function caseKey(sid, idx) { return sid + ':' + idx; }
+
+// Parse markdown-style image references and render clickable thumbnails.
+// Same convention as the baseline test plan: ![](docs/screenshots/foo.png)
+// or bare *.png paths. Broken images self-remove via onerror.
+function renderThumbs(container, notes) {
+  if (!container) return;
+  container.innerHTML = '';
+  if (!notes) return;
+  const seen = new Set();
+  const md = /!\[[^\]]*\]\(([^)\s]+)\)/g;
+  const bare = /(?:^|\s)((?:[\w./-]+)\.(?:png|jpg|jpeg|gif|webp))/gi;
+  const paths = [];
+  let m;
+  while ((m = md.exec(notes))) paths.push(m[1]);
+  while ((m = bare.exec(notes))) paths.push(m[1]);
+  for (const p of paths) {
+    if (seen.has(p)) continue;
+    seen.add(p);
+    const href = p.startsWith('http') || p.startsWith('/') ? p : '/' + p.replace(/^\.\//, '');
+    const a = document.createElement('a');
+    a.href = href; a.target = '_blank'; a.rel = 'noopener';
+    const img = document.createElement('img');
+    img.src = href; img.alt = p; img.loading = 'lazy';
+    img.onerror = () => a.remove();
+    a.appendChild(img);
+    container.appendChild(a);
+  }
+  // Mark multi for CSS sizing tweak
+  if (container.children.length > 1) container.classList.add('multi');
+  else container.classList.remove('multi');
+}
+
+// Show a friendly placeholder when no screenshots are referenced.
+function syncShotsPlaceholder(shotsRoot, thumbs) {
+  let placeholder = shotsRoot.querySelector('.no-shots');
+  if (thumbs.children.length === 0) {
+    if (!placeholder) {
+      placeholder = document.createElement('div');
+      placeholder.className = 'no-shots';
+      placeholder.textContent = 'Add ![](docs/screenshots/<name>.png) in notes to attach evidence.';
+      shotsRoot.appendChild(placeholder);
+    }
+  } else if (placeholder) {
+    placeholder.remove();
+  }
+}
+
+// Fetch baseline PLAN by parsing it out of the baseline HTML page.
+// Avoids duplicating the case-list literal across two pages.
+async function loadBaselinePlan() {
+  const res = await fetch('fullscreen-test-plan.html');
+  const html = await res.text();
+  const match = html.match(/const PLAN = (\[[\s\S]*?\n\]);/);
+  if (!match) throw new Error('Could not find PLAN literal in baseline');
+  // The PLAN literal uses object-shorthand JS, not strict JSON. Function() parses it.
+  return Function('return ' + match[1])();
+}
+
+// Sections to exclude from the rerun. Embed is out of scope per the user's
+// standing direction; the embed macro has a pre-existing rendering bug
+// ("Unknown diagram type: embed") and is being skipped while that's worked
+// on separately.
+const EXCLUDE_SECTION_IDS = new Set(['embed-create', 'embed-edit']);
+
+async function ensureSnapshot() {
+  if (snapshot) return snapshot;
+  const baselinePlan = await loadBaselinePlan();
+  const baselineState = loadJSON(BASELINE_STORAGE) || {};
+  const filtered = [];
+  for (const section of baselinePlan) {
+    if (EXCLUDE_SECTION_IDS.has(section.id)) continue;
+    const passing = section.cases
+      .map((c, idx) => ({ c, idx }))
+      .filter(({ c }) => !/^Embed\s*[—–-]/i.test(c.a))
+      .filter(({ idx }) => baselineState[caseKey(section.id, idx)]?.status === 'pass');
+    if (passing.length === 0) continue;
+    filtered.push({
+      id: section.id,
+      title: section.title,
+      cases: passing.map(({ c, idx }) => ({ a: c.a, e: c.e, baselineIdx: idx })),
+    });
+  }
+  snapshot = {
+    createdAt: Date.now(),
+    derivedFrom: BASELINE_STORAGE,
+    sections: filtered,
+    totalCases: filtered.reduce((sum, s) => sum + s.cases.length, 0),
+    excludedSectionIds: Array.from(EXCLUDE_SECTION_IDS),
+  };
+  _file.snapshot = snapshot;
+  saveFile();
+  return snapshot;
+}
+
+function renderHead() {
+  const sub = document.getElementById('rerun-sub');
+  const created = new Date(snapshot.createdAt);
+  sub.innerHTML = `Re-running <strong>${snapshot.totalCases}</strong> cases that passed in the baseline at
+    <code>${created.toLocaleString('en-AU')}</code>.
+    Click any status pill to cycle: pending → pass → fail → blocked.
+    <strong>Every case must record at least one screenshot</strong> via markdown
+    <code>![](docs/screenshots/&lt;name&gt;.png)</code> — pre-filled placeholders are below.`;
+}
+
+function render() {
+  const root = document.getElementById('content');
+  root.innerHTML = '';
+  let totalPass = 0, totalFail = 0, totalBlocked = 0, totalPending = 0;
+
+  for (const section of snapshot.sections) {
+    const det = document.createElement('details');
+    det.className = 'section';
+    det.open = true;
+    const sum = document.createElement('summary');
+    const title = document.createElement('span'); title.textContent = section.title;
+    const stats = document.createElement('span'); stats.className = 'sect-stats';
+    sum.appendChild(title); sum.appendChild(stats);
+    det.appendChild(sum);
+
+    const list = document.createElement('div');
+    list.className = 'cases-list';
+    let sectPass = 0, sectFail = 0, sectBlocked = 0, sectPending = 0;
+
+    section.cases.forEach((c, rerunIdx) => {
+      const key = caseKey(section.id, rerunIdx);
+      const cs = getCase(key);
+      if (cs.status === 'pass') { sectPass++; totalPass++; }
+      else if (cs.status === 'fail') { sectFail++; totalFail++; }
+      else if (cs.status === 'blocked') { sectBlocked++; totalBlocked++; }
+      else { sectPending++; totalPending++; }
+
+      const idLabel = `${section.id.slice(0,3)}-${(rerunIdx+1).toString().padStart(2,'0')}`;
+      const suggestedShot = `rerun-${section.id}-${rerunIdx}`;
+
+      const card = document.createElement('div');
+      card.className = 'case';
+      card.innerHTML = `
+        <div class="case-main">
+          <div class="case-header">
+            <span class="case-id"></span>
+            <span class="case-action"></span>
+          </div>
+          <p class="case-expected"><strong>Expected:</strong> <span class="case-expected-text"></span></p>
+          <div class="case-shots">
+            <div class="thumbs"></div>
+          </div>
+        </div>
+        <div class="case-side">
+          <div class="case-status-row">
+            <button class="pill-btn" type="button" aria-label="Cycle status">
+              <span class="pill ${cs.status}">${STATUS_LABEL[cs.status]}</span>
+            </button>
+            <div class="case-last-run-wrap">
+              <span class="case-last-run-label">Last run</span>
+              <span class="case-last-run">${fmtTs(cs.lastRun)}</span>
+            </div>
+          </div>
+          <div class="case-notes">
+            <label class="case-notes-label" for="ta-${key.replace(/[^a-z0-9-]/gi,'_')}">Notes &amp; evidence</label>
+            <textarea id="ta-${key.replace(/[^a-z0-9-]/gi,'_')}"></textarea>
+          </div>
+        </div>
+      `;
+      card.querySelector('.case-id').textContent = idLabel;
+      card.querySelector('.case-action').textContent = c.a;
+      card.querySelector('.case-expected-text').textContent = c.e;
+
+      const ta = card.querySelector('textarea');
+      const thumbs = card.querySelector('.thumbs');
+      const shotsRoot = card.querySelector('.case-shots');
+      ta.placeholder = `Notes + ![](docs/screenshots/${suggestedShot}.png)`;
+      ta.value = cs.notes || '';
+      renderThumbs(thumbs, ta.value);
+      syncShotsPlaceholder(shotsRoot, thumbs);
+
+      ta.addEventListener('input', () => {
+        const cur = getCase(key);
+        cur.notes = ta.value;
+        cur.lastRun = Date.now();
+        state[key] = cur; _file.state = state; saveFile();
+        card.querySelector('.case-last-run').textContent = fmtTs(cur.lastRun);
+        renderThumbs(thumbs, ta.value);
+        syncShotsPlaceholder(shotsRoot, thumbs);
+      });
+      card.querySelector('.pill-btn').addEventListener('click', () => {
+        const cur = getCase(key);
+        cur.status = nextStatus(cur.status);
+        cur.lastRun = Date.now();
+        state[key] = cur; _file.state = state; saveFile();
+        render();
+      });
+
+      list.appendChild(card);
+    });
+
+    const parts = [];
+    if (sectPass) parts.push(`${sectPass} pass`);
+    if (sectFail) parts.push(`${sectFail} fail`);
+    if (sectBlocked) parts.push(`${sectBlocked} blocked`);
+    if (sectPending) parts.push(`${sectPending} pending`);
+    stats.textContent = parts.join(' · ');
+
+    det.appendChild(list);
+    root.appendChild(det);
+  }
+
+  const total = totalPass + totalFail + totalBlocked + totalPending;
+  const pct = total ? Math.round(((totalPass + totalFail + totalBlocked) / total) * 100) : 0;
+  document.getElementById('bar').style.width = pct + '%';
+  const cnt = (id, n) => document.getElementById(id).textContent = `${n} ${id.replace('cnt-','')}`;
+  cnt('cnt-pass', totalPass); cnt('cnt-fail', totalFail);
+  cnt('cnt-blocked', totalBlocked); cnt('cnt-pending', totalPending);
+}
+
+document.getElementById('expand-all').addEventListener('click', () =>
+  document.querySelectorAll('details').forEach(d => d.open = true));
+document.getElementById('collapse-all').addEventListener('click', () =>
+  document.querySelectorAll('details').forEach(d => d.open = false));
+document.getElementById('reset-all').addEventListener('click', () => {
+  if (!confirm('Reset rerun statuses and notes? (snapshot of cases is preserved.)')) return;
+  state = {}; _file.state = state; saveFile(); render();
+});
+document.getElementById('export-json').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify({ snapshot, state }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `fullscreen-rerun-${new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')}.json`;
+  a.click();
+});
+
+// Lightbox
+const lb = document.getElementById('lightbox');
+const lbImg = document.getElementById('lightbox-img');
+function openLightbox(src, alt) { lbImg.src = src; lbImg.alt = alt || ''; lb.classList.add('open'); }
+function closeLightbox() { lb.classList.remove('open'); lbImg.src = ''; }
+lb.addEventListener('click', e => { if (e.target === lb || e.target.id === 'lightbox-close') closeLightbox(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+
+// Override thumbnail clicks to open lightbox instead of new tab
+document.addEventListener('click', e => {
+  const img = e.target.closest('.case-shots .thumbs a img');
+  if (!img) return;
+  e.preventDefault();
+  openLightbox(img.src, img.alt);
+}, true);
+
+// Demo / standalone preview: when this file is opened outside the codebase
+// (no baseline page reachable), seed a small in-memory snapshot so the layout
+// can be inspected without a live test run.
+async function maybeSeedDemo() {
+  try {
+    const head = await fetch('fullscreen-test-plan.html', { method: 'HEAD' });
+    if (head.ok) return false;
+  } catch { /* fall through */ }
+  snapshot = {
+    createdAt: Date.now() - 60_000 * 60,
+    derivedFrom: BASELINE_STORAGE,
+    totalCases: 4,
+    excludedSectionIds: [],
+    sections: [
+      {
+        id: 'cross-cutting', title: 'Cross-cutting modal chrome',
+        cases: [
+          { a: 'Bridge modal renders at 100vw × 100vh', e: 'role=dialog or modal iframe rect equals viewport (verified at 1920×835: 0,0,1920,835)', baselineIdx: 0 },
+          { a: 'Atlassian header is the only close affordance', e: 'Single X button in the header (~70px tall). No additional Close inside our iframe content.', baselineIdx: 1 },
+        ],
+      },
+      {
+        id: 'sequence-create', title: 'Sequence — Create flow',
+        cases: [
+          { a: 'Insert macro from create menu opens editor', e: 'Editor mounts inside the bridge modal; default sample diagram visible; title input focused.', baselineIdx: 0 },
+          { a: 'Publish closes modal and inserts diagram', e: 'Modal closes; the diagram appears in-page at its preview size; no console errors.', baselineIdx: 1 },
+        ],
+      },
+    ],
+  };
+  // Seed demo state with example notes + screenshot references so the layout
+  // shows real evidence panels when this file is opened standalone.
+  const demoState = {
+    'cross-cutting:0': {
+      status: 'pass',
+      lastRun: Date.now() - 1000 * 60 * 12,
+      notes: '[aria-modal="true"] rect=0,0,1920×835 (100vw×100vh). Editor iframe at 0,70,1920×765 (70px Atlassian header).\n\n![](docs/screenshots/rerun-cross-cutting-0.png)',
+    },
+    'cross-cutting:1': {
+      status: 'pass',
+      lastRun: Date.now() - 1000 * 60 * 11,
+      notes: 'Single "Close Modal" button found at (1864,24) in Atlassian header. No close button inside editor iframe.\n\n![](docs/screenshots/rerun-cross-cutting-1.png)',
+    },
+    'sequence-create:0': {
+      status: 'pass',
+      lastRun: Date.now() - 1000 * 60 * 8,
+      notes: 'Editor mounted, sample diagram visible, title input received focus on open.\n\n![](docs/screenshots/rerun-sequence-create-0.png)',
+    },
+    'sequence-create:1': {
+      status: 'fail',
+      lastRun: Date.now() - 1000 * 60 * 4,
+      notes: 'Modal closed cleanly but inserted diagram briefly flashed at 0×0 before resolving to preview size — tracking in DIA-1421.\n\n![](docs/screenshots/rerun-sequence-create-1.png)',
+    },
+  };
+  _file = { state: demoState, snapshot: null };
+  state = demoState;
+  return true;
+}
+
+(async function init() {
+  try {
+    // Load persisted data from the JSON file (Vite dev middleware).
+    const file = await loadFile();
+    if (file) {
+      state = file.state || {};
+      snapshot = file.snapshot || null;
+    }
+    const seeded = await maybeSeedDemo();
+    if (!seeded) await ensureSnapshot();
+    if (!snapshot.totalCases) {
+      document.getElementById('status').innerHTML =
+        '<div class="alert">No cases marked <code>pass</code> in baseline storage. Open the baseline first and run some tests, then come back here.</div>';
+      return;
+    }
+    renderHead();
+    render();
+  } catch (e) {
+    document.getElementById('status').innerHTML =
+      `<div class="alert">Failed to derive case list: ${e.message}. Make sure this page is served from the same origin as <code>fullscreen-test-plan.html</code>.</div>`;
+    console.error(e);
+  }
+})();
+</script>
+</body>
+</html>

@@ -7,6 +7,9 @@ pages_build_output_dir = "dist"
 [vars]
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
 ENVIRONMENT = "development"  # Set to "development" for local development
+# PAGE_CAPTURE_ALLOWED_DOMAINS is intentionally not set in shared dev config.
+# For local wrangler pages dev: set via personal wrangler-{name}.toml or --var flag.
+# Unset = no allowlist = capture all sites (acceptable for local dev).
 
 # JOINT-DEBUG
 NGROK_AUTHTOKEN = "2piBMy4QpL0xxxxx"

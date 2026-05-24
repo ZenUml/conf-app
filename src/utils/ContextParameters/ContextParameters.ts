@@ -1,21 +1,32 @@
 // https://developer.atlassian.com/cloud/confluence/context-parameters/
-// xdm_e: the base URL of the host application, used for the JavaScript bridge (xdm - cross domain message)
 import forgeGlobal from '@/model/globals/forgeGlobal';
 
 export function getClientDomain() {
+  // Dev sandbox fallback — `xdm_e` and `initialContext.currentPageUrl` are
+  // never set when running on http://127.0.0.1:8080/, so the upgrade URL
+  // would otherwise read `?domain=` with an empty value. Allow tests / the
+  // sandbox to inject a domain via localStorage.
+  try {
+    const mocked = window.localStorage?.getItem('mockClientDomain');
+    if (mocked) return mocked;
+  } catch {
+    // localStorage may be unavailable (private browsing, restrictive iframe);
+    // fall through to the production resolution path.
+  }
   return getSubdomain(getBaseUrl());
 }
 
 export function getBaseUrl() {
-  let url = getUrlParam('xdm_e');
-
-  //@ts-ignore
-  if(!url && window.initialContext?.currentPageUrl) {
-    //@ts-ignore
-    url = new URL(window.initialContext?.currentPageUrl).origin; //in macro editor
+  const location = forgeGlobal.forgeContext?.siteUrl || forgeGlobal.forgeContext?.extension?.location;
+  if (!location) {
+    return '';
   }
 
-  return url.toLowerCase();
+  try {
+    return new URL(location).origin.toLowerCase();
+  } catch {
+    return '';
+  }
 }
 
 export function getSpaceKey() {

@@ -17,7 +17,7 @@
           </div>
         </div>
         <div id="workspace-right" class="diagram overflow-auto" style="overflow: auto;">
-          <DiagramPortal />
+          <DiagramPortal :hide-header="true" />
         </div>
       </div>
       <div id="syntax-error-box" class="sticky bottom-0 left-0 right-0 z-[1000] bg-white flex-shrink-0" style="position: sticky !important;">

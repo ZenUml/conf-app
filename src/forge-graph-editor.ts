@@ -1,5 +1,5 @@
 import globals from "@/model/globals";
-import { getView, getContext as initForgeContext, isInserting } from './model/globals/forgeGlobal';
+import forgeGlobal, { getView, getContext as initForgeContext, isInserting } from './model/globals/forgeGlobal';
 import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import { decompress } from "@/utils/compress";
 import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
@@ -8,20 +8,27 @@ import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from "@/utils/window";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { mountRoot } from "@/mount-root";
+import { installRestoreDraftBanner } from "@/utils/restoreDraftBanner";
 import ForgeGraphEditor from "@/components/DrawIoExtension/ForgeGraphEditor.vue";
+
+installRestoreDraftBanner();
 import { Diagram, DiagramType, DataSource, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
 import { showCloseWithoutSavingDialog } from './utils/modalService';
 import EventBus from "./EventBus";
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
-import { useCustomerSuccessService, MACROS_LIMIT, getUpgradeContext } from '@/composables/useCustomerSuccessService';
-import { isPageEditorEditBlocked } from '@/utils/paywall/preEditGate';
-import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking';
-import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
+import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 
 // Track editor session start time
 const editorStartTime = Date.now();
+
+// Captured at editor open from extension.config.uuid. On Connect-era macros
+// this is a pre-existing identifier we forward back through view.submit so the
+// replace-semantics of {config: …} doesn't wipe the historical breadcrumb.
+// Fresh inserts have no value to preserve, so this stays undefined and the
+// spread below contributes nothing.
+let originalConfigUuid: string | undefined;
 
 const EMPTY_GRAPH = `<mxfile>
   <diagram name="Page-1">
@@ -41,19 +48,46 @@ async function saveGraphAndExit(graphXml: string) {
     diagramType: DiagramType.Graph,
     source: DataSource.CustomContent
   };
-  
+
+  // Captured before save. If the returned id differs from sourceId, the save
+  // forked a new custom content (cross-page-copy / same-page-duplicate path)
+  // and the macro params must be rewritten via view.submit, else the page
+  // still points at the source content while the new one sits orphaned.
+  // The truthy-guard is load-failure protection (NULL_DIAGRAM fallback).
+  const sourceId = diagram?.id ? String(diagram.id) : '';
+
   const id = await saveToPlatform(diagram);
-  
+
   // End journey on save
   if (getEditJourneyId()) {
     endEditJourney('saved');
   }
-  
+
   setTimeout(async () => {
-    if(await isInserting()) {
-      await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
-    } else {
-      await (await getView()).close();
+    const idChanged = !!sourceId && !!id && id !== sourceId;
+    const needsWriteback = (await isInserting()) || idChanged;
+    try {
+      if (needsWriteback) {
+        await (await getView()).submit({config: {
+          customContentId: id,
+          updatedAt: new Date().toISOString(),
+          ...(originalConfigUuid && { uuid: originalConfigUuid }),
+        }});
+      } else {
+        await (await getView()).close();
+      }
+      // Notify draft listeners (ForgeGraphEditor.vue subscribes to 'saved')
+      // only after the macro state is durable. If submit throws below, the
+      // local draft survives as a retry anchor.
+      EventBus.$emit('saved', id);
+    } catch (error) {
+      console.error('view.submit/close failed after graph save', error);
+      trackEvent('save_failed', 'view_submit_failed', 'error', {
+        error_message: String((error as any)?.message || error).substring(0, 500),
+        new_custom_content_id: id,
+        writeback_required: String(needsWriteback),
+        macro_type: 'graph',
+      });
     }
   }, 500);
 }
@@ -111,9 +145,16 @@ async function exit() {
 
 async function initializeMacro() {
   const context = await initForgeContext();
-  
+
+  // Snapshot the legacy guestParams.uuid (if any) so saveGraphAndExit can
+  // forward it back through view.submit's replace-semantics.
+  originalConfigUuid = context.extension?.config?.uuid;
+
   // Start journey tracking
-  const macroUuid = context.extension?.config?.uuid || uuidv4();
+  const macroUuid =
+    forgeGlobal.forgeContext?.localId
+    || context.extension?.config?.uuid
+    || uuidv4();
   const isDialog = !!context.extension?.modal;
   const isMacroConfig = !!context.extension?.macro?.isConfiguring || !!context.extension?.macro?.isInserting;
   
@@ -132,100 +173,56 @@ async function initializeMacro() {
   getOrCreateSession();
   const customContentId = context.extension?.config?.customContentId;
 
-  const mountEditor = async () => {
-    let doc: Diagram | undefined;
-    if(!customContentId) {
-      doc = {
-        diagramType: DiagramType.Graph,
-        graphXml: EMPTY_GRAPH,
-        isNew: true
-      } as Diagram;
-    } else {
-      const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-      console.log('loadDiagram - customContent', customContent);
-      doc = customContent?.value;
-    }
-
-    store.state.diagram = doc ?? NULL_DIAGRAM;
-    window.diagram = doc ?? NULL_DIAGRAM;
-    console.log('loadDiagram - window.diagram', window.diagram);
-
-    let graphXml = doc?.graphXml;
-    if (doc?.compressed) {
-      trackEvent("compressed_field_editor", "load", "warning");
-      if (!graphXml?.startsWith("<mxGraphModel")) {
-        graphXml = decompress(doc.graphXml);
-        trackEvent("compressed_content_editor", "load", "warning");
-      }
-    }
-
-    if (graphXml) {
-      // @ts-ignore
-      window.graphXml = graphXml;
-    }
-
-    mountRoot(doc ?? NULL_DIAGRAM, ForgeGraphEditor, {
-      graphXml,
-      saveGraphAndExit,
-      doc
-    });
-
-    // Track begin event (create or edit)
-    const isNew = await MacroUtil.isCreateNew();
-    if (isNew) {
-      trackAnalyticsEvent("macro_create_started", {
-        feature_area: "macro",
-        surface: "editor",
-        macro_type: "graph",
-        entry_point: "page_editor",
-      });
-    } else {
-      trackAnalyticsEvent("macro_edit_opened", {
-        feature_area: "macro",
-        surface: "editor",
-        macro_type: "graph",
-        entry_point: "macro_toolbar",
-      });
-    }
-  };
-
-  const customerSuccess = useCustomerSuccessService();
-  await customerSuccess.initialize();
-
-  if (isPageEditorEditBlocked(customContentId, customerSuccess.shouldBlockActions.value)) {
-    let spaceKey = '';
-    try {
-      spaceKey = (await globals.apWrapper.getCurrentSpace())?.key || '';
-    } catch (error) {
-      console.debug('Could not resolve current space for page-editor paywall gate', error);
-    }
-
-    trackUpgradeEvent(UpgradeEventName.PAYWALL_BLOCKED_EDIT, {
-      ui_component: UIComponent.VIEWER_NOTICE,
-      action_type: 'page_editor',
-      ...getUpgradeContext(),
-    });
-
-    trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
-      ui_component: UIComponent.VIEWER_NOTICE,
-      action_type: 'page_editor',
-      ...getUpgradeContext(),
-    });
-
-    mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
-      macrosCreated: customerSuccess.macrosCreated.value,
-      macrosLimit: MACROS_LIMIT,
-      upgradeUrl: customerSuccess.upgradeUrl.value,
-      enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
-      spaceKey,
-      onContinueEditing: () => {
-        void mountEditor();
-      },
-    });
-    return;
+  let doc: Diagram | undefined;
+  if (!customContentId) {
+    doc = {
+      diagramType: DiagramType.Graph,
+      graphXml: EMPTY_GRAPH,
+      isNew: true,
+    } as Diagram;
+  } else {
+    const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
+    console.log('loadDiagram - customContent', customContent);
+    doc = customContent?.value;
   }
 
-  await mountEditor();
+  store.state.diagram = doc ?? NULL_DIAGRAM;
+  window.diagram = doc ?? NULL_DIAGRAM;
+  console.log('loadDiagram - window.diagram', window.diagram);
+
+  let graphXml = doc?.graphXml;
+  if (doc?.compressed) {
+    trackEvent('compressed_field_editor', 'load', 'warning');
+    if (!graphXml?.startsWith('<mxGraphModel')) {
+      graphXml = decompress(doc.graphXml);
+      trackEvent('compressed_content_editor', 'load', 'warning');
+    }
+  }
+
+  if (graphXml) {
+    // @ts-ignore
+    window.graphXml = graphXml;
+  }
+
+  const contentProps = { graphXml, saveGraphAndExit, doc, customContentId };
+  const paywalled = await tryPageEditorPaywall({
+    doc: doc ?? NULL_DIAGRAM,
+    content: ForgeGraphEditor,
+    contentProps,
+    macroKind: 'graph',
+    customContentId,
+  });
+  if (!paywalled) {
+    mountRoot(doc ?? NULL_DIAGRAM, ForgeGraphEditor, contentProps);
+  }
+
+  const isNew = await MacroUtil.isCreateNew();
+  trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_opened', {
+    feature_area: 'macro',
+    surface: 'editor',
+    macro_type: 'graph',
+    entry_point: isNew ? 'page_editor' : 'macro_toolbar',
+  });
 }
 
 export default initializeMacro(); 

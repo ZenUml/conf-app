@@ -43,6 +43,47 @@ All three variants use the **Forge modal** pattern:
 Lite appends " Lite" to macro names. Diagramly and Full do not.
 Staging apps append " (Staging)" — this is fine, matching handles it automatically.
 
+### Disambiguating Full vs Diagramly when both are installed
+
+Production site `zenuml.atlassian.net` has **all three apps installed side-by-side**, so the Diagram macro appears in the macro browser as:
+
+| # | Name (search match) | Description (disambiguator) | Module key |
+|---|---------------------|------------------------------|------------|
+| 1 | `Diagram (Mermaid, PlantUML & ZenUML)` | `Diagramly for Confluence` | `gpt-diagram-macro` |
+| 2 | `Diagram (Mermaid, PlantUML & ZenUML)` | `ZenUML for Confluence` | `zenuml-sequence-macro` |
+| 3 | `Diagram (Mermaid, PlantUML & ZenUML) Lite` | `ZenUML for Confluence Lite` | `zenuml-sequence-macro-lite` |
+
+Full and Diagramly share the exact same display name, so `.filter({ hasText: 'Diagram (Mermaid' }).filter({ hasNotText: 'Lite' }).first()` non-deterministically picks one — usually the wrong one. Always disambiguate by **description text** when targeting a specific variant:
+
+| Variant | Filter chain (use these exact filters) |
+|---------|----------------------------------------|
+| Lite | `.filter({ hasText: 'Diagram (Mermaid' }).filter({ hasText: 'Lite' })` |
+| Full | `.filter({ hasText: 'Diagram (Mermaid' }).filter({ hasText: 'ZenUML for Confluence' }).filter({ hasNotText: 'Lite' })` |
+| Diagramly | `.filter({ hasText: 'Diagram (Mermaid' }).filter({ hasText: 'Diagramly for Confluence' })` |
+
+**Verification before clicking**: when in doubt, enumerate the options first and confirm which index matches your target — the wrong variant produces a successful save with the wrong app's bundle, debug bar, and D1 row. The toolbar version label (e.g. `…-full:e34a…` vs `…-diagramly:e34a…`) is the after-the-fact tell.
+
+Same disambiguation applies to **Graph (DrawIO)** and **OpenAPI** macros — on multi-install sites, expect 2–3 entries per macro type; pick by description text. If a variant's macro browser entry isn't observable, the app likely isn't installed on that site.
+
+## Page title format (required)
+
+Whenever this skill **creates a new Confluence page**, set the **page title** to:
+
+```text
+Smoke Test <lite|full|diagramly> <YYYY-MM-DD HH:mm> (<short label>)
+```
+
+| Part | Meaning |
+|------|---------|
+| `Smoke Test` | Fixed prefix so runs are easy to search in Confluence. |
+| Product (`lite`, `full`, or `diagramly`) | Forge **variant** for this run — must match the smoke-test variant. |
+| `<YYYY-MM-DD HH:mm>` | **Local** date and time, 24-hour clock, minutes zero-padded. Example: `2026-05-11 14:30`. |
+| `<short label>` | Macro slot from the table below: `Sequence`, `Mermaid`, `PlantUML`, `Graph`, `OpenAPI`. |
+
+**Example:** `Smoke Test diagramly 2026-05-11 14:30 (Graph)`.
+
+If Confluence reports a **duplicate title** (same variant + same minute), append **seconds** (`YYYY-MM-DD HH:mm:ss`) or a short random suffix, then retry.
+
 ## Critical Playwright MCP Behaviors (learned from testing)
 
 **Forge iframe elements are exposed in the a11y tree** — after `browser_snapshot`, iframe
@@ -107,17 +148,17 @@ repositioning problems. The slash menu always works reliably on a fresh/empty ed
 
 **Macro list — create one page for each:**
 
-| # | Macro | Search term | Tab / action | Page title (with unique timestamp) |
-|---|-------|-------------|--------------|-----------------------------------|
-| 1 | Diagram Lite — Sequence (ZenUML) | `zenuml` | Click "Sequence" tab | `Smoke Test {random6digits} (Sequence)` |
-| 2 | Diagram Lite — Mermaid | `zenuml` | Click "Mermaid" tab | `Smoke Test {random6digits} (Mermaid)` |
-| 3 | Diagram Lite — PlantUML | `zenuml` | Click "PlantUML" tab | `Smoke Test {random6digits} (PlantUML)` |
-| 4 | Graph (DrawIO) Lite | `graph` | Wait 8s, title = "Name your graph…" | `Smoke Test {random6digits} (Graph)` |
-| 5 | OpenAPI Lite | `openapi` | Wait 5s, title = "Title" | `Smoke Test {random6digits} (OpenAPI)` |
+| # | Macro | Search term | Tab / action | Page title (see § Page title format) |
+|---|-------|-------------|--------------|----------------------------------------|
+| 1 | Diagram Lite — Sequence (ZenUML) | `zenuml` | Click "Sequence" tab | `Smoke Test <variant> <YYYY-MM-DD HH:mm> (Sequence)` |
+| 2 | Diagram Lite — Mermaid | `zenuml` | Click "Mermaid" tab | `Smoke Test <variant> <YYYY-MM-DD HH:mm> (Mermaid)` |
+| 3 | Diagram Lite — PlantUML | `zenuml` | Click "PlantUML" tab | `Smoke Test <variant> <YYYY-MM-DD HH:mm> (PlantUML)` |
+| 4 | Graph (DrawIO) Lite | `graph` | Wait 8s, title = "Name your graph…" | `Smoke Test <variant> <YYYY-MM-DD HH:mm> (Graph)` |
+| 5 | OpenAPI Lite | `openapi` | Wait 5s, title = "Title" | `Smoke Test <variant> <YYYY-MM-DD HH:mm> (OpenAPI)` |
 
 For Full/Diagramly variants, macro names do not include "Lite" — adjust the search match accordingly.
 
-**Important:** Each page title includes a 6-digit timestamp suffix to ensure uniqueness and prevent Confluence publish conflicts from duplicate titles.
+**Important:** Each page title includes **product type** (`lite` / `full` / `diagramly`) and **datetime** (`YYYY-MM-DD HH:mm`) per § Page title format. Add seconds only if Confluence rejects a duplicate.
 
 **For each macro, repeat this flow:**
 
@@ -127,21 +168,27 @@ For Full/Diagramly variants, macro names do not include "Lite" — adjust the se
 browser_navigate url="https://{domain}/wiki/create-content/page?spaceKey={spaceKey}&parentPageId={parentPageId}"
 ```
 
-Wait 3s, then set the page title via evaluate (more reliable than snapshot+type):
+Wait 3s, then set the page title via evaluate (more reliable than snapshot+type). Substitute `{variant}` (`lite` \| `full` \| `diagramly`) and `{macro label}` (`Sequence`, `Mermaid`, etc.) for the current macro:
 ```
 browser_evaluate function="() => {
   const t = document.querySelector('[placeholder=\"Give this page a title\"]');
   if (!t) return 'not found';
   t.focus();
   const s = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-  const timestamp = Date.now().toString().slice(-6);  // last 6 digits of milliseconds
-  s.call(t, 'Smoke Test ' + timestamp + ' ({macro name})');
+  const pad = (n) => String(n).padStart(2, '0');
+  const d = new Date();
+  const stamp = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  const variant = '{variant}';  // lite | full | diagramly — must match this smoke-test run
+  const macroLabel = '{macro label}';  // e.g. Mermaid, Graph
+  s.call(t, 'Smoke Test ' + variant + ' ' + stamp + ' (' + macroLabel + ')');
   t.dispatchEvent(new Event('input', { bubbles: true }));
   return 'set';
 }"
 ```
 
-**Note:** Each page title must be unique to avoid Confluence publishing conflicts. The timestamp suffix ensures uniqueness.
+If publish fails with duplicate title, re-run evaluate with `stamp` including seconds: append `':' + pad(d.getSeconds())` inside the datetime string.
+
+**Note:** Uniqueness comes from variant + minute-level timestamp; use seconds only on collision.
 
 #### Open slash menu, browse, and insert macro — all in one script
 
@@ -171,9 +218,17 @@ browser_run_code code="async (page) => {
   await input.dispatchEvent('change');
   await page.waitForTimeout(2000);
 
-  // Click matching option — Lite: include 'Lite'; Full/Diagramly: exclude 'Lite'
+  // Click matching option — disambiguate by description text (see "Disambiguating Full vs Diagramly" above):
+  //   Lite:      .filter({ hasText: 'Lite' })
+  //   Full:      .filter({ hasText: 'ZenUML for Confluence' }).filter({ hasNotText: 'Lite' })
+  //   Diagramly: .filter({ hasText: 'Diagramly for Confluence' })
+  // The example below targets Full — substitute the line for the variant you are testing.
   const options = dialog.locator('[role=option], [role=gridcell] button');
-  const match = options.filter({ hasText: 'Diagram (Mermaid' }).filter({ hasNotText: 'Lite' }).first();
+  const match = options
+    .filter({ hasText: 'Diagram (Mermaid' })
+    .filter({ hasText: 'ZenUML for Confluence' })
+    .filter({ hasNotText: 'Lite' })
+    .first();
   await match.click();
   await page.waitForTimeout(500);
   // REQUIRED: Browse dialog selects on click but needs Insert button to confirm
@@ -199,7 +254,7 @@ browser_run_code code="async (page) => {
 ```
 
 Change `tab: 'Sequence'` → `'Mermaid'` or `'PlantUML'` and title accordingly per macro.
-For **Lite** variant, change the `filter({ hasNotText: 'Lite' })` to `filter({ hasText: 'Lite' })`.
+Swap the variant filter chain per the per-variant recipe in the snippet comments — always include the description-text filter when running on a multi-install site like `zenuml.atlassian.net` (production) where Full and Diagramly share the same display name.
 
 **For Graph (DrawIO):**
 
@@ -219,9 +274,16 @@ browser_run_code code="async (page) => {
   await input.dispatchEvent('change');
   await page.waitForTimeout(2000);
 
-  // Lite: include 'Lite'; Full/Diagramly: exclude 'Lite'
+  // Disambiguate variants by description text on multi-install sites (e.g. zenuml.atlassian.net prod):
+  //   Lite:      .filter({ hasText: 'Lite' })
+  //   Full:      .filter({ hasText: 'ZenUML for Confluence' }).filter({ hasNotText: 'Lite' })
+  //   Diagramly: .filter({ hasText: 'Diagramly for Confluence' })
+  // Example below targets Full.
   const match = dialog.locator('[role=option], [role=gridcell] button')
-    .filter({ hasText: 'Graph (DrawIO)' }).filter({ hasNotText: 'Lite' }).first();
+    .filter({ hasText: 'Graph (DrawIO)' })
+    .filter({ hasText: 'ZenUML for Confluence' })
+    .filter({ hasNotText: 'Lite' })
+    .first();
   await match.click();
   await page.waitForTimeout(500);
   await page.getByTestId('ModalElementBrowser__insert-button').click();
@@ -259,8 +321,16 @@ browser_run_code code="async (page) => {
   await input.dispatchEvent('change');
   await page.waitForTimeout(2000);
 
+  // Disambiguate variants by description text on multi-install sites (e.g. zenuml.atlassian.net prod):
+  //   Lite:      .filter({ hasText: 'Lite' })
+  //   Full:      .filter({ hasText: 'ZenUML for Confluence' }).filter({ hasNotText: 'Lite' })
+  //   Diagramly: .filter({ hasText: 'Diagramly for Confluence' })
+  // Example below targets Full.
   const match = dialog.locator('[role=option], [role=gridcell] button')
-    .filter({ hasText: 'OpenAPI' }).filter({ hasNotText: 'Lite' }).first();
+    .filter({ hasText: 'OpenAPI' })
+    .filter({ hasText: 'ZenUML for Confluence' })
+    .filter({ hasNotText: 'Lite' })
+    .first();
   await match.click();
   await page.waitForTimeout(500);
   await page.getByTestId('ModalElementBrowser__insert-button').click();

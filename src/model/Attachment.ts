@@ -2,7 +2,7 @@ import * as htmlToImage from 'html-to-image';
 import md5 from 'md5';
 import {trackEvent} from '@/utils/window';
 import global from '@/model/globals';
-import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
+import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import {forgeRequest} from '@/utils/requestUtil';
 import type { Attachment } from '@/model/ConfluenceTypes';
 
@@ -45,6 +45,20 @@ interface ExportResultMessageData {
   data: Blob;
 }
 
+/**
+ * Join keys + diagnostic context shared by every `attachment_upload_*` event.
+ * Mirrors the backend `joinKeyProps()` in src/export.js so analysts can
+ * left-join uploads → exports on (cloud_id, custom_content_id, page_id).
+ */
+interface UploadContext {
+  page_id: string | undefined;
+  custom_content_id: string | undefined;
+  cloud_id: string | undefined;
+  attachment_name: string | undefined;
+  content_hash: string | undefined;
+  diagram_type: string | undefined;
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -55,8 +69,15 @@ async function getIdentifier(): Promise<string | undefined> {
 }
 
 /**
- * Make requests in both Forge and Connect modes.
- * Handles multipart/form-data differently for file uploads.
+ * Read the cloud_id from the Forge context if it has loaded.
+ * Safe to call before `initForgeContext()` resolves — returns undefined.
+ */
+function getCloudId(): string | undefined {
+  return forgeGlobal.forgeContext?.cloudId;
+}
+
+/**
+ * Handles multipart/form-data differently for Forge file uploads.
  */
 async function makeRequest(requestConfig: RequestConfig): Promise<ApiResponse> {
   if (requestConfig.contentType === 'multipart/form-data') {
@@ -71,7 +92,16 @@ async function makeRequest(requestConfig: RequestConfig): Promise<ApiResponse> {
       method: requestConfig.type,
       body: formData
     });
-    return { body: await response.text() };
+    const body = await response.text();
+    // Previously this returned the body unconditionally, so a 401/403/500 from
+    // Confluence flowed through as "succeeded" and only blew up later when the
+    // caller tried to JSON.parse a non-JSON body (the 24% `Error` and 5%
+    // `SyntaxError` events we see in `attachment_upload_failed`). Surface the
+    // HTTP status as a typed error so the analytics catch can label it.
+    if (!response.ok) {
+      throw new AttachmentUploadHttpError(response.status, body);
+    }
+    return { body };
   } else {
     return await forgeRequest(`/wiki${requestConfig.url}`, requestConfig.type, requestConfig.data);
   }
@@ -127,6 +157,37 @@ function toPng(): Promise<Blob | null | undefined> {
   } finally {
     trackEvent('toPng', 'convert_to_png', 'export');
   }
+}
+
+/**
+ * Build the upload-event context once per `createAttachmentIfContentChanged`
+ * invocation. Any field can be undefined if its source hasn't loaded yet —
+ * the analyst should still get whatever partial context we have.
+ */
+async function buildUploadContext(
+  contentHash: string,
+  diagramType: string | undefined
+): Promise<UploadContext> {
+  let pageId: string | undefined;
+  let customContentId: string | undefined;
+  try {
+    pageId = await global.apWrapper._getCurrentPageId();
+  } catch {
+    pageId = undefined;
+  }
+  try {
+    customContentId = await getIdentifier();
+  } catch {
+    customContentId = undefined;
+  }
+  return {
+    page_id: pageId,
+    custom_content_id: customContentId,
+    cloud_id: getCloudId(),
+    attachment_name: customContentId ? `zenuml-${customContentId}.png` : undefined,
+    content_hash: contentHash,
+    diagram_type: diagramType,
+  };
 }
 
 // ============================================================================
@@ -189,10 +250,6 @@ function buildPutRequestToUpdateAttachmentProperties(
 // Attachment Name & Link Functions
 // ============================================================================
 
-/**
- * Generate attachment filename from identifier.
- * uuid in Connect mode, customContentId in Forge mode.
- */
 function attachmentNameByIdentifier(id: string): string {
   return `zenuml-${id}.png`;
 }
@@ -215,6 +272,66 @@ export async function getAttachmentDownloadLink(
 // ============================================================================
 // Attachment CRUD Operations
 // ============================================================================
+
+/**
+ * Thrown when the Confluence v1 attachment API rejects the upload because the
+ * page is still a draft.  The API returns HTTP 200 with a body like:
+ *   {"statusCode":404,"message":"No content found … status : draft"}
+ * We surface this as a typed error so the outer catch can handle it without
+ * re-throwing (draft pages are expected — not a bug).
+ */
+class DraftPageError extends Error {
+  constructor(body: string) {
+    super(`Attachment upload skipped — page is a draft: ${body}`);
+    this.name = 'DraftPageError';
+  }
+}
+
+/**
+ * Thrown when the Confluence attachment API responds with a non-2xx HTTP
+ * status — either reported directly on the `Response` object, or wrapped in
+ * the response body (`{"statusCode": 403, ...}`).  Carrying the status as a
+ * structured field lets the analytics catch label these uniformly as
+ * `http_403` / `http_401` / etc. instead of opaque `Error` / `UnknownError`,
+ * which made the upload-failure data unusable in Mixpanel.
+ */
+class AttachmentUploadHttpError extends Error {
+  constructor(public readonly status: number, body: string) {
+    super(`Confluence attachment API returned ${status}: ${body.slice(0, 200)}`);
+    this.name = 'AttachmentUploadHttpError';
+  }
+}
+
+/**
+ * Pull an HTTP status out of an arbitrary thrown value.  Covers three shapes
+ * we see in production:
+ *   1. `AttachmentUploadHttpError.status` (our typed error)
+ *   2. `e.status` (Forge bridge surface on some failures)
+ *   3. `e.xhr.status` (legacy XHR-style error)
+ * Returns undefined when no status is recoverable.
+ */
+function extractHttpStatus(e: unknown): number | undefined {
+  if (e instanceof AttachmentUploadHttpError) return e.status;
+  const obj = e as { status?: unknown; xhr?: { status?: unknown } } | null | undefined;
+  const candidate = obj?.status ?? obj?.xhr?.status;
+  return typeof candidate === 'number' ? candidate : undefined;
+}
+
+/**
+ * Build a stable, low-cardinality label for the `event_label` field on
+ * `attachment_upload_failed`.  Mixpanel aggregates on this — keep it bucketed,
+ * not free-form strings.  Examples:
+ *   - `http_403`        — Confluence rejected the upload (permissions, etc.)
+ *   - `http_404`        — page or content gone
+ *   - `SyntaxError`     — body wasn't JSON (Confluence returned HTML/error page)
+ *   - `non_error_thrown` — something other than an Error was thrown
+ *   - `Error`           — fallback (anonymous Error with no useful name)
+ */
+function buildFailureLabel(e: unknown, httpStatus: number | undefined): string {
+  if (typeof httpStatus === 'number') return `http_${httpStatus}`;
+  if (e instanceof Error) return e.name || 'Error';
+  return 'non_error_thrown';
+}
 
 /**
  * Try to get existing attachment for current macro.
@@ -246,12 +363,12 @@ async function uploadAttachment2(
 /**
  * Create a function that uploads a new version of an existing attachment.
  */
-function uploadNewVersionOfAttachment(hash: string): () => Promise<AttachmentMeta> {
+function uploadNewVersionOfAttachment(hash: string, ctx: UploadContext): () => Promise<AttachmentMeta> {
   return async () => {
     const attachment = await tryGetAttachment() as AttachmentWithLinks;
     const attachmentId = attachment.id;
     const versionNumber = attachment.version.number + 1;
-    trackEvent('version:' + versionNumber, 'upload_attachment', 'export');
+    trackEvent('version:' + versionNumber, 'upload_attachment', 'export', ctx);
     await uploadAttachment2(hash, (pageId: string) => {
       return buildAttachmentBasePath(pageId) + '/' + attachmentId + '/data';
     });
@@ -262,11 +379,24 @@ function uploadNewVersionOfAttachment(hash: string): () => Promise<AttachmentMet
 /**
  * Create a function that uploads a new attachment.
  */
-function uploadNewAttachment(hash: string): () => Promise<AttachmentMeta> {
+function uploadNewAttachment(hash: string, ctx: UploadContext): () => Promise<AttachmentMeta> {
   return async () => {
-    trackEvent('version:1', 'upload_attachment', 'export');
+    trackEvent('version:1', 'upload_attachment', 'export', ctx);
     const response = await uploadAttachment2(hash, buildAttachmentBasePath);
     const parsed = JSON.parse(response.body);
+    // Option B: Confluence v1 wraps a 404 in a 200 body when the page is a draft.
+    // Body: {"statusCode":404,"message":"No content found … status : draft"}
+    if (parsed.statusCode === 404 && String(parsed.message ?? '').includes('status : draft')) {
+      throw new DraftPageError(response.body);
+    }
+    // Generalisation of the above: any wrapped 4xx/5xx in a 200 body should be
+    // surfaced as an HTTP error rather than falling through to the opaque
+    // "no results" branch. Production logs show 403 bodies like
+    //   {"statusCode":403,"data":{"authorized":true,...}}
+    // which we want labelled `http_403`, not `Error`.
+    if (typeof parsed.statusCode === 'number' && parsed.statusCode >= 400) {
+      throw new AttachmentUploadHttpError(parsed.statusCode, response.body);
+    }
     const results = parsed.results ?? parsed.data?.results;
     if (!results?.length) {
       throw new Error(`Upload succeeded but response has no results: ${response.body}`);
@@ -300,13 +430,41 @@ async function updateAttachmentProperties(attachmentMeta: AttachmentMeta): Promi
  *
  * Guards against concurrent execution to prevent 409/503 errors when
  * multiple 'diagramLoaded' events fire simultaneously.
+ *
+ * `diagramType` is optional — when callers pass it (zenuml/mermaid/graph/openapi/embed)
+ * it flows into the analytics events so we can correlate per diagram type.
+ *
+ * Emits the following events alongside the existing `upload_attachment`:
+ *   - `attachment_upload_succeeded` (event_label: 'created' | 'updated', plus version_number)
+ *   - `attachment_upload_skipped`   (event_label: 'concurrent' | 'unchanged' | 'draft_page')
+ *   - `attachment_upload_failed`    (event_label: failure reason, plus error fields)
+ * Each carries the same join keys (page_id, custom_content_id, cloud_id, ...)
+ * used by the backend `macro_export_*` events in src/export.js.
+ *
+ * `_succeeded` gives us a denominator. Without it we only saw `_failed` (n=2,543/14d)
+ * and `_skipped` (n=99,338/14d) — no way to compute a true upload failure rate, and
+ * `_skipped(unchanged)` was a confusing proxy because it inflates with every page view.
  */
-async function createAttachmentIfContentChanged(content: string): Promise<void> {
+async function createAttachmentIfContentChanged(content: string, diagramType?: string): Promise<void> {
+  const hash = md5(content);
+  const ctx = await buildUploadContext(hash, diagramType);
+
   // Ensure this method will NOT be called multiple times at the same time.
   // There's an issue when diagram is edited through page edit, multiple 'diagramLoaded'
   // events are fired afterwards, thus multiple calls to this method at (almost) same time,
   // caused 409 or 503 error.
   if (window.createAttachmentInProgress) {
+    trackEvent('concurrent', 'attachment_upload_skipped', 'export', ctx);
+    return;
+  }
+
+  // Option A: skip if the page is still a draft.
+  // `isDisplayMode()` in ApWrapper2 returns true for inline-preview iframes (not modal),
+  // so callers fire this function before the user has published the page.
+  // The v1 attachment API only accepts status=current pages — a draft page returns a
+  // wrapped 404 body, causing a misleading "no results" error downstream.
+  if (forgeGlobal.forgeContext?.extension?.content?.status === 'draft') {
+    trackEvent('draft_page', 'attachment_upload_skipped', 'export', ctx);
     return;
   }
 
@@ -314,11 +472,50 @@ async function createAttachmentIfContentChanged(content: string): Promise<void> 
 
   try {
     const attachment = await tryGetAttachment();
-    const hash = md5(content);
     if (!attachment || hash !== attachment.comment) {
-      const attachmentMeta = await (attachment ? uploadNewVersionOfAttachment(hash) : uploadNewAttachment(hash))();
+      const isUpdate = Boolean(attachment);
+      const attachmentMeta = await (attachment ? uploadNewVersionOfAttachment(hash, ctx) : uploadNewAttachment(hash, ctx))();
       await updateAttachmentProperties(attachmentMeta);
+      // Success path — gives us a denominator for `_failed` and tells the
+      // `created` vs `updated` story. Emit AFTER updateAttachmentProperties
+      // so it really did land end-to-end, not just the upload POST.
+      trackEvent(isUpdate ? 'updated' : 'created', 'attachment_upload_succeeded', 'export', {
+        ...ctx,
+        version_number: attachmentMeta.versionNumber,
+        attachment_id: attachmentMeta.attachmentId,
+      });
+    } else {
+      // Already up to date — this is the expected steady-state for an existing macro.
+      // Emit so we can prove upload coverage exists when investigating `attachment_not_found`.
+      trackEvent('unchanged', 'attachment_upload_skipped', 'export', ctx);
     }
+  } catch (e: any) {
+    // Option B: DraftPageError means the v1 API confirmed the page is a draft —
+    // non-fatal, no re-throw. Emit the skip event so analysts can correlate.
+    if (e instanceof DraftPageError) {
+      trackEvent('draft_page', 'attachment_upload_skipped', 'export', ctx);
+      return;
+    }
+    // The function still throws (callers wrap this in try/catch already), but we
+    // now record the failure with full join-key context so it can be correlated
+    // with the backend `macro_export_failed` event.
+    //
+    // event_label is the headline grouping in Mixpanel — it MUST be low
+    // cardinality. Prior version emitted `e.name` which collapsed 70% of fails
+    // to `UnknownError` (any non-Error throwable) and another 24% to bare
+    // `Error` (anonymous `new Error(...)`), losing the HTTP status hidden in
+    // the message. Use `http_<status>` when we can recover it.
+    const httpStatus = extractHttpStatus(e);
+    const errorName = (e instanceof Error && e.name) ? e.name : (e == null ? 'null' : typeof e);
+    const errorMessage = String((e as { message?: unknown })?.message ?? e ?? '').slice(0, 200);
+    const label = buildFailureLabel(e, httpStatus);
+    trackEvent(label, 'attachment_upload_failed', 'export', {
+      ...ctx,
+      error_name: errorName,
+      error_message: errorMessage,
+      http_status: httpStatus,
+    });
+    throw e;
   } finally {
     window.createAttachmentInProgress = false;
   }

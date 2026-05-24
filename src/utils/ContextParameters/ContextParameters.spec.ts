@@ -23,9 +23,9 @@ describe('ContextParameters', () => {
     expect(getSubdomain(baseUrl)).toBe(subdomain)
   })
 
-  it('should return client domain', () => {
-    const query = '?version=2022.07&spaceKey=ZS&pageId=121504351&pageVersion=17&macroId=c43e14c1-6db6-41b2-9f04-ad6065acf4ba&uuid=41af36e0-925f-42bc-9f07-4c73980cc39c&outputType=display&addonKey=com.zenuml.confluence-addon&contentKey=zenuml-content-graph&xdm_e=https%3A%2F%2Fzenuml-stg.atlassian.net&xdm_c=channel-com.zenuml.confluence-addon__zenuml-graph-macro8557314653811711875&cp=%2Fwiki&xdm_deprecated_addon_key_do_not_use=com.zenuml.confluence-addon&lic=none&cv=1000.0.0-19ac9bc0de8a';
-    setUpWindowLocation(query);
+  it('should return client domain from Forge context', () => {
+    setUpWindowLocation('?spaceKey=ZS');
+    vi.mocked(forgeGlobal).forgeContext = { extension: { location: 'https://zenuml-stg.atlassian.net/wiki/spaces/ZS/pages/1' } } as any;
     expect(getClientDomain()).toBe('zenuml-stg');
     expect(getSpaceKey()).toBe('ZS')
   })
@@ -33,14 +33,14 @@ describe('ContextParameters', () => {
   describe('getSpaceKey resolution order', () => {
     beforeEach(() => {
       // Reset window location to no spaceKey param
-      setUpWindowLocation('?xdm_e=https%3A%2F%2Fzenuml-stg.atlassian.net');
+      setUpWindowLocation('');
       // Reset initialContext
       (window as any).initialContext = undefined;
       vi.mocked(forgeGlobal).forgeContext = null as any;
     });
 
     it('should resolve space key from URL param (source 1)', () => {
-      setUpWindowLocation('?spaceKey=URL_SPACE&xdm_e=https%3A%2F%2Fzenuml-stg.atlassian.net');
+      setUpWindowLocation('?spaceKey=URL_SPACE');
       (window as any).initialContext = { currentSpace: { key: 'INITIAL_SPACE' } };
       vi.mocked(forgeGlobal).forgeContext = { extension: { space: { key: 'FORGE_SPACE' } } } as any;
       expect(getSpaceKey()).toBe('URL_SPACE');

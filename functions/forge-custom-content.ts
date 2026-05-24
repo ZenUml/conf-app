@@ -21,10 +21,13 @@ export const onRequest = async ({ request, env }) => {
 
     const customContent = await getCustomContentFromConfluenceForForge(apiBaseUrl, body.contentId, forgeOAuthUser);
 
-    const versionResult = await createVersion(env, customContent, forgeAppId);
-    if(versionResult) {
-      await createOrUpdateContent(env, customContent, forgeAppId, body.macroUuid, body.diagramType);
-    }
+    // Version insert is idempotent (skips when the version row is already
+    // recorded); the CustomContent upsert must run unconditionally so the
+    // macroUuid/diagramType backfill still happens on retries, and so we
+    // recover from prior requests that inserted the version but failed
+    // before completing the CustomContent write.
+    await createVersion(env, customContent, forgeAppId);
+    await createOrUpdateContent(env, customContent, forgeAppId, body.macroUuid, body.diagramType);
 
     // Update ForgeInstallation with clientDomain if provided
     if (body.clientDomain) {
@@ -51,7 +54,12 @@ async function createVersion(env, data, appId) {
     return;
   }
 
-  const result = await env.DB.prepare( "INSERT INTO CustomContentVersion (contentId, body, authorId, createdAt, versionNumber, appId, title, message, minorEdit) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)" )
+  // INSERT OR IGNORE makes this race-safe against concurrent duplicate
+  // saves: if two requests for the same (contentId, versionNumber, appId)
+  // pass the SELECT and both reach the INSERT, the loser becomes a silent
+  // no-op instead of bubbling a unique-constraint error up to onRequest —
+  // which would otherwise return 500 and skip the CustomContent backfill.
+  const result = await env.DB.prepare( "INSERT OR IGNORE INTO CustomContentVersion (contentId, body, authorId, createdAt, versionNumber, appId, title, message, minorEdit) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)" )
   .bind(data.id, JSON.stringify(data.body), data.authorId, data.createdAt, data.version.number, appId, data.title || '', data.version.message || '', data.version.minorEdit ? 1 : 0)
   .run();
   console.log('create version result:', result);
@@ -65,8 +73,14 @@ async function getContent(env, data, appId) {
 
 async function createOrUpdateContent(env, data, appId, macroUuid, diagramType) {
   if(await getContent(env, data, appId)) {
-    const result = await env.DB.prepare( "UPDATE CustomContent SET latestVersionNumber=?1, body=?2, createdAt=?3, title=?4, status=?5 WHERE contentId=?6 AND appId=?7 AND spaceId=?8" )
-    .bind(data.version.number, JSON.stringify(data.body), data.createdAt, data.title || '', data.status || '', data.id, appId, data.spaceId)
+    // COALESCE(NULLIF(?, ''), existing) — backfill macroUuid/diagramType from
+    // the request when non-empty, keep the existing value otherwise. Without
+    // this, every UPDATE silently drops the identity payload sent by
+    // Persistence.ts and existing rows stay misaligned with Mixpanel forever.
+    const result = await env.DB.prepare(
+      "UPDATE CustomContent SET latestVersionNumber=?1, body=?2, createdAt=?3, title=?4, status=?5, macroUuid = COALESCE(NULLIF(?6, ''), macroUuid), diagramType = COALESCE(NULLIF(?7, ''), diagramType) WHERE contentId=?8 AND appId=?9 AND spaceId=?10"
+    )
+    .bind(data.version.number, JSON.stringify(data.body), data.createdAt, data.title || '', data.status || '', macroUuid || '', diagramType || '', data.id, appId, data.spaceId)
     .run();
     console.log('update content result:', result);
     return;

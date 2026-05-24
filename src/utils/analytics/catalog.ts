@@ -59,11 +59,12 @@ export type AnalyticsEventName =
   | "ai_editor_opened"
   | "ai_feedback_submitted"
   | "upgrade_modal_shown"
-  | "upgrade_cta_clicked"
   | "paywall_triggered"
+  | "paywall_blocked_create"
   | "upgrade_modal_dismissed"
-  | "upgrade_slider_changed"
   | "upgrade_feature_enabled"
+  | "advocacy_message_copied"
+  | "advocacy_draft_preview_clicked"
   | "content_sync_requested"
   | "content_sync_succeeded"
   | "content_sync_failed"
@@ -74,4 +75,7 @@ export type AnalyticsEventName =
   | "feedback_link_clicked"
   | "feature_flags_fetch_failed"
   | "attachment_create_failed"
-  | "custom_content_update_failed";
+  | "custom_content_update_failed"
+  | "graph_editor_init_empty"
+  | "editor_load_empty_active_field"
+  | "swagger_editor_config_empty_with_modal";

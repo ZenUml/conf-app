@@ -1,5 +1,8 @@
 export type MacroType = 'sequence' | 'graph' | 'openapi' | 'embed' | 'mermaid';
 
+/** Same axis as `PRODUCT_TYPE` in Vite / `scripts/forge-wizard.mjs` (`lite` | `full` | `diagramly`). */
+export type ProductType = 'lite' | 'full' | 'diagramly';
+
 export interface AppProfile {
   /** Unique identifier: <app>@<env> */
   id: string;
@@ -13,6 +16,8 @@ export interface AppProfile {
   parentPageName: string;
   /** Whether this is the Lite variant */
   isLite: boolean;
+  /** Build / Forge product variant — mirrors `PRODUCT_TYPE`. */
+  productType: ProductType;
   /** Whether this is a Forge app (vs Connect) */
   isForge: boolean;
   /** Supported macro types for this app */
@@ -49,6 +54,24 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     parentPageId: '524297',
     parentPageName: 'Before release test pages',
     isLite: true,
+    productType: 'lite',
+    isForge: true,
+    macros: ALL_MACROS,
+    renderMacros: ALL_MACROS,
+    addonKey: 'com.zenuml.confluence-addon-lite',
+    sequenceMacroKey: 'zenuml-sequence-macro-lite',
+    customContentKey: 'zenuml-content-sequence',
+    appLabel: 'ZenUML for Confluence',
+  },
+  'zenuml-lite@dev': {
+    id: 'zenuml-lite@dev',
+    domain: 'lite-dev.atlassian.net',
+    spaceKey: 'SD',
+    // Space homepage (id 196866) — stable parent for test pages.
+    parentPageId: '196866',
+    parentPageName: 'Software Development',
+    isLite: true,
+    productType: 'lite',
     isForge: true,
     macros: ALL_MACROS,
     renderMacros: ALL_MACROS,
@@ -64,6 +87,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     parentPageId: '229492',
     parentPageName: 'Software Development',
     isLite: false,
+    productType: 'full',
     isForge: true,
     macros: ALL_MACROS,
     renderMacros: ALL_MACROS,
@@ -79,6 +103,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     parentPageId: '1736705',
     parentPageName: 'Test pages',
     isLite: false,
+    productType: 'diagramly',
     isForge: true,
     macros: NO_EMBED,
     // graph/openapi/embed macro keys collide with Full Connect on this shared site.
@@ -97,6 +122,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     parentPageId: '247136259',
     parentPageName: 'Test pages',
     isLite: true,
+    productType: 'lite',
     isForge: true,
     macros: ALL_MACROS,
     renderMacros: ALL_MACROS,
@@ -112,6 +138,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     parentPageId: '247136259',
     parentPageName: 'Test pages',
     isLite: false,
+    productType: 'full',
     isForge: true,
     macros: ALL_MACROS,
     renderMacros: ALL_MACROS,
@@ -131,6 +158,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     parentPageId: '247136259',
     parentPageName: 'Test pages',
     isLite: false,
+    productType: 'diagramly',
     isForge: true,
     macros: NO_EMBED,
     renderMacros: NO_EMBED,

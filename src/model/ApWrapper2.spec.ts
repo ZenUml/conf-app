@@ -168,6 +168,210 @@ describe('ApWrapper2', () => {
     });
   });
 
+  describe('getCustomContentByIdV2', () => {
+    // ZEN-1170 regression. Reproduced on lite-dev 2026-05-22 by creating a
+    // page whose graph macro pointed at customContentId 999999999998 (which
+    // does not exist). Direct evidence (private/zen-1170/repro-defect-2.mjs):
+    //   GET /api/v2/custom-content/<id>?body-format=raw → HTTP 404
+    //   Response body: {"errors":[{"status":404,"code":"NOT_FOUND", ...}]}
+    //   Forge bridge parses .json() regardless of status, so the wrapper
+    //   received the truthy { errors: [...] } object and crashed with
+    //   "TypeError: Cannot read properties of undefined (reading 'raw')" at
+    //   getCustomContentByIdV2 → iframe height collapsed to 0 px.
+    it('returns the parsed diagram value on success', async () => {
+      const apiResponse = {
+        id: '321',
+        body: { raw: { value: JSON.stringify({ code: 'A.method', diagramType: 'sequence' }) } },
+      };
+      vi.mocked(forgeRequest).mockResolvedValueOnce(apiResponse);
+
+      const result = await wrapper.getCustomContentByIdV2('321');
+
+      expect(result?.id).toBe('321');
+      expect(result?.value?.code).toBe('A.method');
+      expect(forgeRequest).toHaveBeenCalledWith(
+        '/wiki/api/v2/custom-content/321?body-format=raw',
+        'GET',
+        undefined,
+      );
+    });
+
+    it('returns undefined when the v2 API responds 404 with an errors array', async () => {
+      // Exact body shape captured from lite-dev on 2026-05-22.
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        errors: [{ status: 404, code: 'NOT_FOUND', title: 'Custom content with id not found: [999999999998]', detail: null }],
+      });
+
+      const result = await wrapper.getCustomContentByIdV2('999999999998');
+
+      expect(result).toBeUndefined();
+    });
+
+    it('returns undefined when body.raw.value is missing (any non-success shape)', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '999' });
+
+      const result = await wrapper.getCustomContentByIdV2('999');
+
+      expect(result).toBeUndefined();
+    });
+  });
+
+  // ZEN-1170 telemetry. When getCustomContentByIdV2 returns undefined the
+  // viewer falls through to NULL_DIAGRAM (PR #115); we probe the page's
+  // own custom-content children for a body whose embedded `id` matches the
+  // orphan id, so we can report fleet-wide recoverability *before* shipping
+  // any auto-repair logic. Read-only — no writes, no recovery yet.
+  describe('probeOrphanRecovery', () => {
+    const orphanId = '3916300417';
+    const pageId = '5553291265';
+    // Mirrors getCustomContentTypePrefix() under the spec's forgeGlobal mock
+    // (isDiagramly=false, isLite=false). The probe queries BOTH types so a
+    // Connect-era graph orphan (saved under zenuml-content-graph) is found
+    // even when the current entry is the sequence path.
+    const sequenceType = 'ac:com.zenuml.confluence-addon:zenuml-content-sequence';
+    const graphType = 'ac:com.zenuml.confluence-addon:zenuml-content-graph';
+
+    function childWith(id: string, bodyId: string) {
+      return {
+        id,
+        body: { raw: { value: JSON.stringify({ id: bodyId, code: 'A.method', diagramType: 'sequence' }) } },
+      };
+    }
+
+    const emptyPage = { results: [] };
+
+    it('reports recoverable when a sequence-type child body.id matches the orphan id', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({
+          results: [
+            childWith('5553291584', 'unrelated-id'),
+            childWith('5553291585', orphanId),
+          ],
+        })
+        .mockResolvedValueOnce(emptyPage);
+
+      const result = await wrapper.probeOrphanRecovery(pageId, orphanId);
+
+      expect(result.recoverable).toBe(true);
+      expect(result.candidateCount).toBe(1);
+      expect(result.pageChildrenTotal).toBe(2);
+      expect(result.probeError).toBeUndefined();
+      expect(forgeRequest).toHaveBeenCalledWith(
+        `/wiki/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(sequenceType)}&body-format=raw&limit=250`,
+        'GET',
+        undefined,
+      );
+      expect(forgeRequest).toHaveBeenCalledWith(
+        `/wiki/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(graphType)}&body-format=raw&limit=250`,
+        'GET',
+        undefined,
+      );
+    });
+
+    // Customer ZEN-1170: gip-onshore page 5553291265 had orphan child CC
+    // 5553291585 stored under the legacy `zenuml-content-graph` type. A
+    // sequence-only probe would have reported recoverable=false on the
+    // single case we already know is fixable. This test guards against
+    // that regression.
+    it('reports recoverable for a Connect-era graph-type orphan (customer scenario)', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(emptyPage)
+        .mockResolvedValueOnce({
+          results: [childWith('5553291585', orphanId)],
+        });
+
+      const result = await wrapper.probeOrphanRecovery(pageId, orphanId);
+
+      expect(result.recoverable).toBe(true);
+      expect(result.candidateCount).toBe(1);
+      expect(result.pageChildrenTotal).toBe(1);
+    });
+
+    it('reports not recoverable when no child body.id matches across either type', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({
+          results: [
+            childWith('a', 'x'),
+            childWith('b', 'y'),
+            childWith('c', 'z'),
+          ],
+        })
+        .mockResolvedValueOnce(emptyPage);
+
+      const result = await wrapper.probeOrphanRecovery(pageId, orphanId);
+
+      expect(result.recoverable).toBe(false);
+      expect(result.candidateCount).toBe(0);
+      expect(result.pageChildrenTotal).toBe(3);
+    });
+
+    it('reports not recoverable with zero children for an empty page', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(emptyPage)
+        .mockResolvedValueOnce(emptyPage);
+
+      const result = await wrapper.probeOrphanRecovery(pageId, orphanId);
+
+      expect(result.recoverable).toBe(false);
+      expect(result.candidateCount).toBe(0);
+      expect(result.pageChildrenTotal).toBe(0);
+    });
+
+    it('reports probe_failed when any listing API responds with an errors array', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(emptyPage)
+        .mockResolvedValueOnce({
+          errors: [{ status: 403, code: 'FORBIDDEN', title: 'Access denied', detail: null }],
+        });
+
+      const result = await wrapper.probeOrphanRecovery(pageId, orphanId);
+
+      expect(result.recoverable).toBe('probe_failed');
+      expect(result.probeError).toContain('FORBIDDEN');
+    });
+
+    it('reports probe_failed when forgeRequest throws', async () => {
+      vi.mocked(forgeRequest).mockRejectedValueOnce(new Error('network down'));
+
+      const result = await wrapper.probeOrphanRecovery(pageId, orphanId);
+
+      expect(result.recoverable).toBe('probe_failed');
+      expect(result.probeError).toContain('network down');
+    });
+
+    it('counts but does not match children with malformed body JSON', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({
+          results: [
+            { id: 'a', body: { raw: { value: 'not-json' } } },
+            childWith('b', orphanId),
+          ],
+        })
+        .mockResolvedValueOnce(emptyPage);
+
+      const result = await wrapper.probeOrphanRecovery(pageId, orphanId);
+
+      expect(result.recoverable).toBe(true);
+      expect(result.candidateCount).toBe(1);
+      expect(result.pageChildrenTotal).toBe(2);
+    });
+
+    it('flags truncated when results hit the limit and a next link exists', async () => {
+      const results = Array.from({ length: 250 }, (_, i) => childWith(`c${i}`, 'noop'));
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({
+          results,
+          _links: { next: '/wiki/api/v2/pages/.../custom-content?cursor=...' },
+        })
+        .mockResolvedValueOnce(emptyPage);
+
+      const result = await wrapper.probeOrphanRecovery(pageId, orphanId);
+
+      expect(result.truncated).toBe(true);
+      expect(result.pageChildrenTotal).toBe(250);
+    });
+  });
+
   describe('isVersionConflict (via updateCustomContentV2 behavior)', () => {
     it('should detect version conflict from error message', async () => {
       const content = buildContent(3);

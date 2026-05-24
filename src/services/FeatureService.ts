@@ -1,4 +1,4 @@
-import { FeatureFlag, FeatureFlags, FeatureContext, FeatureEvaluationResult } from '../types/feature-flags';
+import { FeatureFlags, FeatureContext, FeatureEvaluationResult } from '../types/feature-flags';
 import { getClientDomain } from '@/utils/ContextParameters/ContextParameters';
 
 export class FeatureService {
@@ -17,46 +17,26 @@ export class FeatureService {
     }
 
     const feature = this.flags?.flags[featureName];
-    if (!feature) {
-      const result = { enabled: false, reason: 'DISABLED' as const };
-      await this.recordEvaluation(featureName, context, result);
-      return result;
-    }
-
-    if (!feature.enabled) {
-      const result = { enabled: false, reason: 'DISABLED' as const };
-      await this.recordEvaluation(featureName, context, result);
-      return result;
+    if (!feature?.enabled) {
+      return this.recordedEvaluation(featureName, context, { enabled: false, reason: 'DISABLED' as const });
     }
 
     const clientDomain = context?.clientDomain || getClientDomain();
     if (!clientDomain) {
-      const result = { enabled: feature.rules.default, reason: 'DEFAULT' as const };
-      await this.recordEvaluation(featureName, context, result);
-      return result;
+      return this.recordedEvaluation(featureName, context, { enabled: feature.rules.default, reason: 'DEFAULT' as const });
     }
 
     // Check domain rules
     if (feature.rules.domains) {
       if (feature.rules.domains.exclude?.includes(clientDomain)) {
-        const result = { enabled: false, reason: 'DOMAIN_EXCLUDE' as const };
-        await this.recordEvaluation(featureName, context, result);
-        return result;
+        return this.recordedEvaluation(featureName, context, { enabled: false, reason: 'DOMAIN_EXCLUDE' as const });
       }
       if (feature.rules.domains.include?.includes(clientDomain)) {
-        const result = { enabled: true, reason: 'DOMAIN_INCLUDE' as const };
-        await this.recordEvaluation(featureName, context, result);
-        return result;
+        return this.recordedEvaluation(featureName, context, { enabled: true, reason: 'DOMAIN_INCLUDE' as const });
       }
     }
 
-    const result = { enabled: feature.rules.default, reason: 'DEFAULT' as const };
-    try {
-      await this.recordEvaluation(featureName, context, result);
-    } catch (error) {
-      console.error('Failed to record feature evaluation:', error);
-    }
-    return result;
+    return this.recordedEvaluation(featureName, context, { enabled: feature.rules.default, reason: 'DEFAULT' as const });
   }
 
   private async loadFlags(): Promise<void> {
@@ -78,6 +58,15 @@ export class FeatureService {
         flags: {}
       };
     }
+  }
+
+  private async recordedEvaluation(
+    featureName: string,
+    context: FeatureContext | undefined,
+    result: FeatureEvaluationResult
+  ): Promise<FeatureEvaluationResult> {
+    await this.recordEvaluation(featureName, context, result);
+    return result;
   }
 
   private async recordEvaluation(

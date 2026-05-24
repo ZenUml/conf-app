@@ -15,6 +15,8 @@ import macroMetrics from "@/services/MacroMetrics";
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import store from "@/model/store2";
 import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { reportOrphanObserved } from '@/utils/orphanTelemetry';
+import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
 
 // @ts-ignore
 window.SwaggerUIBundle = SwaggerUIBundle;
@@ -57,6 +59,10 @@ async function loadDiagram() {
     const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
+    if (!doc) {
+      // ZEN-1170 telemetry: probe page children for a recovery candidate.
+      void reportOrphanObserved(globals.apWrapper, context.extension?.content?.id, customContentId, 'openapi');
+    }
   }
   store.state.diagram = doc ?? NULL_DIAGRAM;
   window.diagram = doc ?? NULL_DIAGRAM;
@@ -69,7 +75,7 @@ async function loadDiagram() {
   setTimeout(async function () {
     try {
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
-        await createAttachmentIfContentChanged(doc?.code ?? '');
+        await createAttachmentIfContentChanged(doc?.code ?? '', 'openapi');
       } else {
         console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");
       }
@@ -91,8 +97,18 @@ async function initializeMacro() {
     entry_point: "page_view",
   });
 
-  // Initialize with empty doc, will be loaded in loadDiagram
-  mountRoot(NULL_DIAGRAM, OpenApiViewer);
+  // Initialize with empty doc, will be loaded in loadDiagram.
+  // Fullscreen viewer paywall wraps OpenApiViewer underneath the modal
+  // when triggered; #swagger-ui still lives inside OpenApiViewer's
+  // template, so initSwaggerUi() resolves it after the wrapped mount.
+  const paywalled = await tryFullscreenViewerPaywall({
+    doc: NULL_DIAGRAM,
+    content: OpenApiViewer,
+    macroKind: 'openapi',
+  });
+  if (!paywalled) {
+    mountRoot(NULL_DIAGRAM, OpenApiViewer);
+  }
   initSwaggerUi();
 
   await loadDiagram();
@@ -101,15 +117,23 @@ async function initializeMacro() {
 export default initializeMacro();
 
 EventBus.$on('edit', async () => {
+  const ctx = await initForgeContext();
+  // Forward the macro's customContentId so the editor modal can load the
+  // right diagram via context.extension.modal.customContentId (matches the
+  // sequence-editor pattern in forgeIndex.ts). Without this, viewer-launched
+  // edits arrive at forge-swagger-editor.ts with no customContentId and are
+  // mistakenly treated as new-macro sessions.
+  const customContentId = ctx.extension?.config?.customContentId;
   await openModal({
     resource: 'main',
     onClose: (payload: any) => {
       console.log('onClose called with', payload);
       location.reload();
     },
-    size: 'max',
+    size: 'fullscreen',
     context: {
       macroMode: 'editor',
+      ...(customContentId && { customContentId }),
     },
   });
 });

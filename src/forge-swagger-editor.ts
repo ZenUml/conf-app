@@ -17,7 +17,8 @@ import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from '@/utils/window';
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
-import { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
+import forgeGlobal, { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
+import EventBus from './EventBus';
 import store from "@/model/store2";
 import { showCloseWithoutSavingDialog } from './utils/modalService';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
@@ -26,11 +27,15 @@ import { createApp } from 'vue';
 import SyntaxErrorBox from "@/components/SyntaxErrorBox.vue";
 import { validateOpenApiSpecForStore } from '@/utils/openapi/validate';
 import { debounce } from 'lodash';
-import { useCustomerSuccessService, MACROS_LIMIT, getUpgradeContext } from '@/composables/useCustomerSuccessService';
-import { isPageEditorEditBlocked } from '@/utils/paywall/preEditGate';
-import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking';
-import { mountRoot } from '@/mount-root';
-import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
+import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
+import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
+
+installRestoreDraftBanner();
+import SwaggerForgeEditorShell from '@/components/OpenApi/SwaggerForgeEditorShell.vue';
+
+// Captured at editor open from extension.config.uuid; forwarded back through
+// view.submit's replace-semantics so Connect-era guestParams.uuid survives.
+let originalConfigUuid: string | undefined;
 
 const debouncedValidateOpenApi = debounce(async (spec: string) => {
   if (!spec) {
@@ -42,6 +47,35 @@ const debouncedValidateOpenApi = debounce(async (spec: string) => {
 
 // Track editor session start time
 const editorStartTime = Date.now();
+
+let swaggerReactMounted = false;
+let openApiDocumentHydrated = false;
+
+function bootstrapSwaggerUi(mountEl: HTMLElement | null) {
+  if (!mountEl) {
+    console.error('OpenAPI editor: missing DOM mount element');
+    return;
+  }
+  if (swaggerReactMounted) {
+    return;
+  }
+  swaggerReactMounted = true;
+
+  ReactDOM.render(
+    React.createElement(SwaggerEditor as any, { saveAndExit: saveOpenApiAndExit, exit: exit }),
+    mountEl,
+  );
+
+  const editor = SwaggerEditorBundle({
+    dom_id: '#swagger-editor',
+    presets: [],
+    plugins: [SpecListener],
+  });
+
+  // eslint-disable-next-line
+  // @ts-ignore
+  window.editor = editor;
+}
 
 async function saveOpenApiAndExit() {
   const code = window.specContent;
@@ -55,10 +89,19 @@ async function saveOpenApiAndExit() {
   console.log('saveOpenApiAndExit - diagram', JSON.stringify(diagram, null, 2));
   // @ts-ignore
   window.diagram = Object.assign(window.diagram || {}, diagram);
+
+  // Captured before save. If the returned id differs from sourceId, the save
+  // forked a new custom content (cross-page-copy / same-page-duplicate path)
+  // and the macro params must be rewritten via view.submit, else the page
+  // still points at the source content while the new one sits orphaned.
+  // The truthy-guard is load-failure protection (NULL_DIAGRAM fallback).
+  // @ts-ignore
+  const sourceId = window.diagram?.id ? String(window.diagram.id) : '';
+
   // @ts-ignore
   const id = await saveToPlatform(window.diagram);
   console.log('saveOpenApiAndExit - id', id);
-  
+
   // End journey on save
   if (getEditJourneyId()) {
     endEditJourney('saved');
@@ -66,10 +109,30 @@ async function saveOpenApiAndExit() {
 
   /* eslint-disable no-undef */
   setTimeout(async () => {
-    if(await isInserting()) {
-      await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
-    } else {
-      await (await getView()).close();
+    const idChanged = !!sourceId && !!id && id !== sourceId;
+    const needsWriteback = (await isInserting()) || idChanged;
+    try {
+      if (needsWriteback) {
+        await (await getView()).submit({config: {
+          customContentId: id,
+          updatedAt: new Date().toISOString(),
+          ...(originalConfigUuid && { uuid: originalConfigUuid }),
+        }});
+      } else {
+        await (await getView()).close();
+      }
+      // Notify draft listeners (react/Header.tsx subscribes to 'saved')
+      // only after the macro state is durable. If submit throws below, the
+      // local draft survives as a retry anchor.
+      EventBus.$emit('saved', id);
+    } catch (error) {
+      console.error('view.submit/close failed after openapi save', error);
+      trackEvent('save_failed', 'view_submit_failed', 'error', {
+        error_message: String((error as any)?.message || error).substring(0, 500),
+        new_custom_content_id: id,
+        writeback_required: String(needsWriteback),
+        macro_type: 'openapi',
+      });
     }
   }, 500);
 }
@@ -127,9 +190,14 @@ async function exit() {
 
 async function initializeMacro() {
   const context = await initForgeContext();
-  
+
+  originalConfigUuid = context.extension?.config?.uuid;
+
   // Start journey tracking
-  const macroUuid = context.extension?.config?.uuid || uuidv4();
+  const macroUuid =
+    forgeGlobal.forgeContext?.localId
+    || context.extension?.config?.uuid
+    || uuidv4();
   const isDialog = !!context.extension?.modal;
   const isMacroConfig = !!context.extension?.macro?.isConfiguring || !!context.extension?.macro?.isInserting;
   
@@ -146,11 +214,34 @@ async function initializeMacro() {
   
   // Ensure session is initialized
   getOrCreateSession();
+  // Read customContentId from extension.config only.
+  //
+  // Until ZEN-1170 (2026-05-23), this read fell through to
+  // `extension.modal.customContentId` when config was empty — a
+  // defensive workaround copied from forgeIndex.ts. Forge-tunnel
+  // verification on lite-dev (one OpenAPI macro, modal-editor context,
+  // `isConfiguring: false`) showed `extension.config.customContentId`
+  // resolves correctly; the fallback never fired. The safety-net
+  // tracking below catches any regression — if it ever fires in prod,
+  // restore the `|| extension.modal.customContentId` and investigate.
   const customContentId = context.extension?.config?.customContentId;
+  if (!customContentId && context.extension?.modal?.customContentId) {
+    trackAnalyticsEvent('swagger_editor_config_empty_with_modal', {
+      feature_area: 'macro',
+      surface: 'editor',
+      macro_type: 'openapi',
+      content_id: String(context.extension.modal.customContentId),
+    });
+  }
 
-  const mountEditor = async () => {
+  const mountEditorDocument = async () => {
+    if (openApiDocumentHydrated) {
+      return;
+    }
+    openApiDocumentHydrated = true;
+
     let doc: Diagram | undefined;
-    if(!customContentId) {
+    if (!customContentId) {
     } else {
       const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
       console.log('loadDiagram - customContent', customContent);
@@ -161,11 +252,23 @@ async function initializeMacro() {
     // @ts-ignore
     window.diagram = doc;
 
-    console.log('-------------- loaded spec:', doc?.code)
+    // Telemetry: existing macro (customContentId set) loaded with an empty
+    // spec. Wipe-precursor signal aligned with the cross-editor event in
+    // forgeIndex.ts and graph_editor_init_empty in ForgeGraphEditor.vue.
+    if (customContentId && !doc?.code) {
+      trackAnalyticsEvent('editor_load_empty_active_field', {
+        feature_area: 'macro',
+        surface: 'editor',
+        macro_type: 'openapi',
+        content_id: customContentId,
+      });
+    }
+
+    console.log('-------------- loaded spec:', doc?.code);
     // eslint-disable-next-line
     // @ts-ignore
     window.updateSpec(doc?.code || OpenApiExample);
-    console.log('-------------- updateSpec with:', doc?.code)
+    console.log('-------------- updateSpec with:', doc?.code);
 
     // Initialize spec listeners for validation and store sync
     window.specListeners = window.specListeners || [];
@@ -190,18 +293,18 @@ async function initializeMacro() {
     // Track begin event (create or edit)
     const isNew = await MacroUtil.isCreateNew();
     if (isNew) {
-      trackAnalyticsEvent("macro_create_started", {
-        feature_area: "macro",
-        surface: "editor",
-        macro_type: "openapi",
-        entry_point: "page_editor",
+      trackAnalyticsEvent('macro_create_started', {
+        feature_area: 'macro',
+        surface: 'editor',
+        macro_type: 'openapi',
+        entry_point: 'page_editor',
       });
     } else {
-      trackAnalyticsEvent("macro_edit_opened", {
-        feature_area: "macro",
-        surface: "editor",
-        macro_type: "openapi",
-        entry_point: "macro_toolbar",
+      trackAnalyticsEvent('macro_edit_opened', {
+        feature_area: 'macro',
+        surface: 'editor',
+        macro_type: 'openapi',
+        entry_point: 'macro_toolbar',
       });
     }
 
@@ -213,46 +316,22 @@ async function initializeMacro() {
     }, 300); // Using 300ms to ensure everything is properly set up
   };
 
-  const customerSuccess = useCustomerSuccessService();
-  await customerSuccess.initialize();
-
-  if (isPageEditorEditBlocked(customContentId, customerSuccess.shouldBlockActions.value)) {
-    let spaceKey = '';
-    try {
-      spaceKey = (await globals.apWrapper.getCurrentSpace())?.key || '';
-    } catch (error) {
-      console.debug('Could not resolve current space for page-editor paywall gate', error);
-    }
-
-    trackUpgradeEvent(UpgradeEventName.PAYWALL_BLOCKED_EDIT, {
-      ui_component: UIComponent.VIEWER_NOTICE,
-      action_type: 'page_editor',
-      ...getUpgradeContext(),
-    });
-
-    trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
-      ui_component: UIComponent.VIEWER_NOTICE,
-      action_type: 'page_editor',
-      ...getUpgradeContext(),
-    });
-
-    mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
-      macrosCreated: customerSuccess.macrosCreated.value,
-      macrosLimit: MACROS_LIMIT,
-      upgradeUrl: customerSuccess.upgradeUrl.value,
-      enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
-      spaceKey,
-      onClose: async () => {
-        await (await getView()).close();
+  const paywalled = await tryPageEditorPaywall({
+    doc: NULL_DIAGRAM,
+    content: SwaggerForgeEditorShell,
+    contentProps: {
+      onMountedBootstrap: async () => {
+        bootstrapSwaggerUi(document.getElementById('openapi-bootstrap-root'));
+        await mountEditorDocument();
       },
-      onContinueEditing: () => {
-        void mountEditor();
-      },
-    });
-    return;
+    },
+    macroKind: 'openapi',
+    customContentId,
+  });
+  if (!paywalled) {
+    bootstrapSwaggerUi(document.getElementById('app'));
+    await mountEditorDocument();
   }
-
-  await mountEditor();
 }
 
 
@@ -260,30 +339,4 @@ async function initializeMacro() {
 // @ts-ignore
 window.SwaggerEditorBundle = SwaggerEditorBundle;
 
-function onload() {
-  console.log('swagger-editor - window.onload');
-
-  ReactDOM.render(
-    React.createElement(SwaggerEditor as any, { saveAndExit: saveOpenApiAndExit, exit: exit }),
-    document.getElementById('app')
-  );
-  
-  // Build a system
-  const editor = SwaggerEditorBundle({
-    dom_id: '#swagger-editor',
-    // layout: 'StandaloneLayout',
-    presets: [
-      // SwaggerEditorStandalonePreset
-    ],
-    plugins: [SpecListener],
-    // url: 'https://raw.githubusercontent.com/OAI/OpenAPI-Specification/main/examples/v3.0/uspto.json'
-  })
-
-  // eslint-disable-next-line
-  // @ts-ignore
-  window.editor = editor
-
-  initializeMacro();
-}
-
-onload();
+void initializeMacro();

@@ -29,7 +29,6 @@
         <div class="w-80 flex-shrink-0 px-4 py-3 bg-white">
           <div class="flex items-center justify-end space-x-2">
             <publish-button :save-and-exit="saveAndExit" />
-            <close-button :exit="exit" />
           </div>
         </div>
 
@@ -86,7 +85,6 @@
           </div>
           <div id="workspace-right"
             class="flex-grow h-full bg-white border-t">
-            <!-- Dynamic preview component for Forge mode -->
             <component 
               v-if="previewComponent && picked"
               :is="previewComponent"
@@ -97,15 +95,6 @@
               :hideHeader="true"
               class="w-full h-full"
             />
-            <!-- Fallback iframe for Connect mode -->
-            <iframe 
-              v-else-if="previewSrc"
-              id='embedded-viewer'
-              :src='previewSrc'
-              width='100%'
-              height='100%'>
-            </iframe>
-            <!-- Loading state -->
             <div v-else class="flex items-center justify-center h-full text-gray-500">
               Select a document to preview
             </div>
@@ -118,17 +107,16 @@
 
 <script>
 import PublishButton from "@/components/PublishButton.vue";
-import CloseButton from "@/components/CloseButton.vue";
 import { DiagramType, getDiagramData } from "@/model/Diagram/Diagram";
-import { getViewerUrl, loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
+import { loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
 import { AtlasPage } from "@/model/page/AtlasPage";
-import { MacroIdProvider } from "@/model/ContentProvider/MacroIdProvider";
-import { CustomContentStorageProvider } from "@/model/ContentProvider/CustomContentStorageProvider";
-import ApWrapper2 from "@/model/ApWrapper2";
 import _ from 'lodash';
 import { trackEvent } from "@/utils/window";
 import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
+import globals from '@/model/globals';
+import { setupCloseGuard } from "@/utils/closeGuard";
+import { primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
 
 export default {
   name: 'DocumentList', // for embed-editor
@@ -140,7 +128,9 @@ export default {
       docTypeFilter: '',
       baseUrl: '',
       filterKeyword: '',
-      previewComponentCache: {} // Cache for loaded components
+      previewComponentCache: {}, // Cache for loaded components
+      sessionOriginalPickedId: null,
+      closeGuardOff: null,
     };
   },
   computed: {
@@ -178,26 +168,15 @@ export default {
       console.debug(`filteredPageList:`, sorted);
       return sorted;
     },
-    previewSrc() {
-      if (!this.picked) return;
-      return `${getViewerUrl(this.picked.value.diagramType)}${window.location.search || '?'}&rendered.for=custom-content-native&content.id=${this.picked.id}&embedded=true`;
-    },
     previewComponent() {
       if (!this.picked || !this.picked.value?.diagramType) return null;
-      
-      // Check if we're in Forge mode
-      if (window.forgeGlobal?.isForge) {
-        // Return cached component if available
-        return this.previewComponentCache[this.picked.value.diagramType] || null;
-      }
-      
-      return null;
+      return this.previewComponentCache[this.picked.value.diagramType] || null;
     },
     saveAndExit: function () {
       const that = this;
       return function () {
         window.picked = that.picked;
-        EventBus.$emit(window.forgeGlobal?.isForge ? 'save-embed' : 'save', that.picked);
+        EventBus.$emit('save-embed', that.picked);
       }
     },
     exit: function () {
@@ -218,22 +197,41 @@ export default {
     picked: {
       async handler(newPicked) {
         console.log('DocumentList - picked', newPicked);
-        if (newPicked && newPicked.value?.diagramType && window.forgeGlobal?.isForge) {
-          // Load the preview component when picked item changes
+        // Capture the initial selection as the baseline for dirty-state detection.
+        // `picked` is set asynchronously by initializeForForge/Connect, so we can't
+        // capture in mounted(); the first non-empty value is our baseline.
+        if (newPicked?.id && this.sessionOriginalPickedId === null) {
+          this.sessionOriginalPickedId = newPicked.id;
+        }
+        if (newPicked && newPicked.value?.diagramType) {
           await this.getPreviewComponentForForge(newPicked.value.diagramType);
         }
       },
       immediate: true
     }
   },
+  async mounted() {
+    await primeCloudId();
+    this._draftScope = 'new:embed';
+    this.closeGuardOff = setupCloseGuard(() => {
+      if (this.sessionOriginalPickedId === null) return;
+      if (this.picked?.id === this.sessionOriginalPickedId) return;
+      const cloudId = getCachedCloudId();
+      if (cloudId && this.picked?.id) {
+        // For embed, the "code" payload is just the selected id. The next
+        // mount can offer to restore by pre-selecting it.
+        saveDraftSync(this._draftScope, cloudId, {
+          code: String(this.picked.id),
+          title: '',
+        });
+      }
+    });
+  },
+  beforeUnmount() {
+    this.closeGuardOff?.();
+  },
   async created() {
-    if (window.forgeGlobal?.isForge) {
-      // Forge mode: Use Forge context and API
-      await this.initializeForForge();
-    } else {
-      // Connect mode: Use Connect providers
-      await this.initializeForConnect();
-    }
+    await this.initializeForForge();
 
     try {
       const atlasPage = new AtlasPage();
@@ -272,19 +270,7 @@ export default {
       this.customContentList = await globals.apWrapper.searchCustomContentForge();
       console.debug(`Forge mode - loaded custom content list:`, this.customContentList);
     },
-    
-    async initializeForConnect() {
-      // Connect mode: Use Connect providers
-      const apWrapper = new ApWrapper2();
-      const idProvider = new MacroIdProvider(apWrapper);
-      const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
-      const customContentId = await idProvider.getId();
-      console.debug(`Connect mode - picked custom content id: ${customContentId}`);
-      this.customContentList = await customContentStorageProvider.getCustomContentList();
-      this.picked = this.customContentList.filter(customContentItem => customContentItem?.id === customContentId)[0];
-      console.debug(`Connect mode - picked custom content:`, this.picked);
-    },
-    
+
     setFilter(docType) {
       this.docTypeFilter = docType;
     },
@@ -292,9 +278,7 @@ export default {
       // Update the picked document
       this.picked = customContentItem;
       
-      // Update the store state for Forge mode
-      if (window.forgeGlobal?.isForge && this.$store) {
-        // Convert the custom content item to diagram format and update store
+      if (this.$store) {
         const diagram = {
           id: customContentItem.id,
           title: customContentItem.title,
@@ -303,16 +287,13 @@ export default {
           mermaidCode: customContentItem.value.mermaidCode,
           graphXml: customContentItem.value.graphXml,
           isNew: false,
-          // Add any other properties that might be needed
           ...customContentItem.value
         };
-        
-        // Update the store state
+
         this.$store.state.diagram = diagram;
-        
-        // Also update window.diagram for compatibility
+
         window.diagram = diagram;
-        
+
         console.log('DocumentList: Updated store with selected document', diagram);
       }
     },
@@ -331,7 +312,6 @@ export default {
   },
   components: {
     PublishButton,
-    CloseButton,
   }
 }
 </script>

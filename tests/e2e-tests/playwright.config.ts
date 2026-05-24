@@ -68,6 +68,17 @@ export default defineConfig({
       timeout: 300000,
     },
     {
+      // Fullscreen bridge modal coverage — ports the manual test plan in
+      // docs/fullscreen-test-plan.html (66 cases) into Playwright. Same
+      // auth flow as `insert`, separate project so a partial run can target
+      // just these specs (e.g. for branch deploy verification).
+      name: 'fullscreen',
+      testMatch: 'fullscreen/**/*.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['auth'],
+      timeout: 300000,
+    },
+    {
       name: 'ai-repair',
       testMatch: 'ai-repair/**/*.spec.ts',
       use: { ...devices['Desktop Chrome'] },

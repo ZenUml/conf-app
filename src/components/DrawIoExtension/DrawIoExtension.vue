@@ -1,13 +1,11 @@
 <template>
-  <div class="absolute top-0 left-0">
-    <DrawIoHeader
-      ref="headerRef"
-      :title="title"
-      :error="titleError"
-      @titleChange="handleTitleChange"
-      @titleConfirm="handleTitleConfirm"
-    />
-  </div>
+  <DrawIoHeader
+    ref="headerRef"
+    :title="title"
+    :error="titleError"
+    @titleChange="handleTitleChange"
+    @titleConfirm="handleTitleConfirm"
+  />
 </template>
 
 <script lang="ts">

@@ -18,6 +18,8 @@ environment:
       default: ZenUML for Confluence Lite
     - key: DIAGRAMLY_BASE_URL
       default: https://staging.diagramly.ai
+    - key: PAGE_CAPTURE_SECRET
+      default: ""
 
 app:
   id: ari:cloud:ecosystem::app/${APP_ID}
@@ -36,6 +38,7 @@ remotes:
     baseUrl: ${BACKEND_API_BASE_URL}
     operations:
       - compute
+      - fetch
     auth:
       appSystemToken:
         enabled: true
@@ -137,6 +140,9 @@ permissions:
       backend:
         - https://zenuml.com
         - https://*.zenuml.com
+        - https://*.mixpanel.com
+        - https://*.pages.dev
+        - remote: connect
         - remote: diagramly
       client:
         - https://zenuml.com
@@ -169,48 +175,56 @@ modules:
       resource: main
       config:
         resource: main
-        viewportSize: max
+        viewportSize: fullscreen
       adfExport:
         function: exportMacro
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/diagram_macro_icon.png
+      unlicensedAccess:
+        - unlicensed
     - key: zenuml-openapi-macro${LITE_KEY_SUFFIX}
       title: OpenAPI / Swagger${LITE_TITLE_SUFFIX}
       description: Create an OpenAPI / Swagger Spec. ${APP_LABEL}
       resource: main
       config:
         resource: main
-        viewportSize: max
+        viewportSize: fullscreen
       adfExport:
         function: exportMacro
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/openapi_macro_icon.png
+      unlicensedAccess:
+        - unlicensed
     - key: zenuml-graph-macro${LITE_KEY_SUFFIX}
       title: Graph (DrawIO)${LITE_TITLE_SUFFIX}
       description: Create a Graph powered by DrawIO. ${APP_LABEL}
       resource: main
       config:
         resource: main
-        viewportSize: max
+        viewportSize: fullscreen
       adfExport:
         function: exportMacro
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/graph_macro_icon.png
+      unlicensedAccess:
+        - unlicensed
     - key: zenuml-embed-macro${LITE_KEY_SUFFIX}
       title: Embed a Diagram, Graph or API Spec${LITE_TITLE_SUFFIX}
       description: Embed an existing Diagram, Graph or API Spec. ${APP_LABEL}
       resource: main
       config:
         resource: main
-        viewportSize: max
+        viewportSize: fullscreen
       adfExport:
         function: exportMacro
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/diagram_macro_icon.png
+      unlicensedAccess:
+        - unlicensed
   trigger:
     - key: remote-installed-trigger
       endpoint: remote-installed-endpoint
@@ -221,6 +235,10 @@ modules:
       endpoint: remote-page-behavior-endpoint
       events:
         - avi:confluence:viewed:page
+        - avi:confluence:updated:page
+    - key: page-content-capture-trigger
+      function: pageCaptureFn
+      events:
         - avi:confluence:updated:page
   endpoint:
     - key: remote-connect
@@ -296,6 +314,8 @@ modules:
   function:
     - key: exportMacro
       handler: export.handler
+    - key: pageCaptureFn
+      handler: page-capture.handler
 
 resources:
   - key: main

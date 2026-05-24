@@ -7,20 +7,6 @@
   <script type="text/javascript" src="./js/dom-to-image.min.js?version=2022.02"></script>
   <script type="text/javascript" src="./js/md5.js"></script>
 
-	<!-- Mixpanel (for Forge Addon) -->
-	<script type="text/javascript">
-		const MIXPANEL_CUSTOM_LIB_URL = 'https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js';
-		
-		(function (f, b) { if (!b.__SV) { var e, g, i, h; window.mixpanel = b; b._i = []; b.init = function (e, f, c) { function g(a, d) { var b = d.split("."); 2 == b.length && ((a = a[b[0]]), (d = b[1])); a[d] = function () { a.push([d].concat(Array.prototype.slice.call(arguments, 0))); }; } var a = b; "undefined" !== typeof c ? (a = b[c] = []) : (c = "mixpanel"); a.people = a.people || []; a.toString = function (a) { var d = "mixpanel"; "mixpanel" !== c && (d += "." + c); a || (d += " (stub)"); return d; }; a.people.toString = function () { return a.toString(1) + ".people (stub)"; }; i = "disable time_event track track_pageview track_links track_forms track_with_groups add_group set_group remove_group register register_once alias unregister identify name_tag set_config reset opt_in_tracking opt_out_tracking has_opted_in_tracking has_opted_out_tracking clear_opt_in_out_tracking start_batch_senders people.set people.set_once people.unset people.increment people.append people.union people.track_charge people.clear_charges people.delete_user people.remove".split( " "); for (h = 0; h < i.length; h++) g(a, i[h]); var j = "set set_once union unset remove delete".split(" "); a.get_group = function () { function b(c) { d[c] = function () { call2_args = arguments; call2 = [c].concat(Array.prototype.slice.call(call2_args, 0)); a.push([e, call2]); }; } for ( var d = {}, e = ["get_group"].concat( Array.prototype.slice.call(arguments, 0)), c = 0; c < j.length; c++) b(j[c]); return d; }; b._i.push([e, f, c]); }; b.__SV = 1.2; e = f.createElement("script"); e.type = "text/javascript"; e.async = !0; e.src = "undefined" !== typeof MIXPANEL_CUSTOM_LIB_URL ? MIXPANEL_CUSTOM_LIB_URL : "file:" === f.location.protocol && "//cdn.mxpnl.com/libs/mixpanel-2-latest.min.js".match(/^\/\//) ? "https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js" : "//cdn.mxpnl.com/libs/mixpanel-2-latest.min.js"; g = f.getElementsByTagName("script")[0]; g.parentNode.insertBefore(e, g); } })(document, window.mixpanel || []);
-
-
-		mixpanel.init('78617e65fdba543d752fb7f6483d55f4', {
-			debug: true, track_pageview: false, autocapture: false, persistence: 'localStorage',
-			record_sessions_percent: 5,
-			record_heatmap_data: true,
-		 });
-	</script>
-
   <!-- TODO: load DrawIO scripts for Graph macro only -->
 	<!-- Load common.css explicitly so we can disable mxClient.js's auto-load.
 	     mxClient.js (line 9) hard-codes `mxClient.link("stylesheet","mxgraph/css/common.css")`
@@ -42,6 +28,43 @@
 	<script type="text/javascript" src="/drawio/js/grapheditor/Init.js"></script>
 	<script type="text/javascript" src="/drawio/js/grapheditor/Graph.js"></script>
 	<script type="text/javascript" src="/drawio/js/grapheditor/Shapes.js"></script>
+	<script type="text/javascript">
+		// These globals must be defined BEFORE the Editor / GraphViewer scripts
+		// below — they read them at module-load time (bare references, not
+		// window.* lookups), so a missing binding throws ReferenceError and the
+		// viewer iframe goes blank.
+		//   - uiTheme: grapheditor/Editor.js:243 (Editor.currentTheme = uiTheme;)
+		//   - urlParams: diagramly/GraphViewer.js:23, grapheditor/Editor.js:207
+		//   - SHAPES_PATH / STENCIL_PATH / IMAGE_PATH / STYLE_PATH:
+		//     diagramly/Editor.js:~7920 stencil-library map
+		var uiTheme = '';
+		var SHAPES_PATH = './drawio/shapes';
+		var STENCIL_PATH = './drawio/stencils';
+		var IMAGE_PATH = './drawio/images';
+		var STYLE_PATH = './drawio/styles';
+		var urlParams = (function (url) {
+			var result = {};
+			var idx = url.lastIndexOf('?');
+			if (idx > 0) {
+				var params = url.substring(idx + 1).split('&');
+				for (var i = 0; i < params.length; i++) {
+					var eq = params[i].indexOf('=');
+					if (eq > 0) result[params[i].substring(0, eq)] = params[i].substring(eq + 1);
+				}
+			}
+			return result;
+		})(window.location.href);
+	</script>
+	<!-- Editor + EditorUi + diagramly extensions + GraphViewer power the
+	     multi-page viewer (prev / "X / Y" / next toolbar). GraphViewer.js
+	     references Editor and EditorUi globals at module-load time, and uses
+	     Editor.extractGraphModel + Editor.parseDiagramNode (defined in
+	     diagramly/Editor.js) at runtime to walk <mxfile> pages. Without these
+	     the official drawio Confluence plugin's page-nav UX can't render. -->
+	<script type="text/javascript" src="/drawio/js/grapheditor/Editor.js"></script>
+	<script type="text/javascript" src="/drawio/js/grapheditor/EditorUi.js"></script>
+	<script type="text/javascript" src="/drawio/js/diagramly/Editor.js"></script>
+	<script type="text/javascript" src="/drawio/js/diagramly/GraphViewer.js"></script>
 	<!-- Pre-load shape JS files. mxStencilRegistry.getStencil() falls back to
 	     loading these via XHR + eval(), which the Forge CSP blocks
 	     ("'unsafe-eval' is not an allowed source of script"). Loading them via
@@ -54,16 +77,10 @@
 	<script type="text/javascript" src="/drawio/shapes/mxAWS3D.js"></script>
 	<script type="text/javascript" src="/drawio/shapes/mxAWS4.js"></script>
 	<script type="text/javascript">
-		// Use relative paths. Vite rewrites the leading "/" on <script src> at
-		// build time so the script tags above resolve correctly inside the Forge
-		// iframe (which uses a path of the form <host>/<app-id>/<install>/<res>/main/_ctx_<…>/).
-		// JS string constants are NOT rewritten by Vite, so we set them to the
-		// already-relative form that the runtime expects — matching the URLs that
-		// the loaded mxClient/Graph scripts resolve from.
-		var SHAPES_PATH = './drawio/shapes';
-		var STENCIL_PATH = './drawio/stencils';
-		var IMAGE_PATH = './drawio/images';
-		var STYLE_PATH = './drawio/styles';
+		// SHAPES_PATH / STENCIL_PATH / IMAGE_PATH / STYLE_PATH / urlParams are
+		// defined earlier (above the Editor scripts) — they have to exist BEFORE
+		// those scripts evaluate. This block only configures the stencil
+		// registry, which depends on Graph.js having loaded.
 
 		// Forge CSP forbids "unsafe-eval", which breaks mxStencilRegistry's
 		// fallback path that loads shape .js files via XHR + eval(). Disable that
@@ -127,25 +144,6 @@
 			L['rackGeneral'] = [SHAPES_PATH + '/rack/mxRack.js', STENCIL_PATH + '/rack/general.xml'];
 			L['rackF5'] = [STENCIL_PATH + '/rack/f5.xml'];
 		})();
-
-		var urlParams = (function (url) {
-			var result = new Object();
-			var idx = url.lastIndexOf('?');
-
-			if (idx > 0) {
-				var params = url.substring(idx + 1).split('&');
-
-				for (var i = 0; i < params.length; i++) {
-					idx = params[i].indexOf('=');
-
-					if (idx > 0) {
-						result[params[i].substring(0, idx)] = params[i].substring(idx + 1);
-					}
-				}
-			}
-
-			return result;
-		})(window.location.href);
 
 	</script>
 

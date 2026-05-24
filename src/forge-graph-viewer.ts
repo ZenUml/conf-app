@@ -52,6 +52,8 @@ import { getContext as initForgeContext, openModal } from './model/globals/forge
 import store from "@/model/store2";
 import GraphExample from '@/model/Graph/GraphExample';
 import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
+import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 
 async function loadDiagram() {
   const context = await initForgeContext();
@@ -63,14 +65,26 @@ async function loadDiagram() {
     const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
+    if (!doc) {
+      // ZEN-1170 telemetry: probe page children for a recovery candidate,
+      // report to Mixpanel, then fall through to NULL_DIAGRAM. Read-only.
+      void reportOrphanObserved(globals.apWrapper, context.extension?.content?.id, customContentId, 'graph');
+    }
   }
   store.state.diagram = doc ?? NULL_DIAGRAM;
   window.diagram = doc ?? NULL_DIAGRAM;
   console.log('loadDiagram - window.diagram', window.diagram);
 
-  mountRoot(doc ?? NULL_DIAGRAM, ForgeGraphViewer, {
-    graphXml: doc?.graphXml
+  const contentProps = { graphXml: doc?.graphXml };
+  const paywalled = await tryFullscreenViewerPaywall({
+    doc,
+    content: ForgeGraphViewer,
+    contentProps,
+    macroKind: 'graph',
   });
+  if (!paywalled) {
+    mountRoot(doc ?? NULL_DIAGRAM, ForgeGraphViewer, contentProps);
+  }
 
   let graphXml = doc?.graphXml;
   if (doc?.compressed) {
@@ -87,7 +101,7 @@ async function loadDiagram() {
   setTimeout(async function () {
     try {
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
-        await createAttachmentIfContentChanged(graphXml ?? '');
+        await createAttachmentIfContentChanged(graphXml ?? '', 'graph');
       } else {
         console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");
       }
@@ -104,6 +118,7 @@ async function initializeMacro() {
   try {
     // Load DrawIO scripts first
     // await loadDrawIOScripts();
+    await globals.apWrapper.initializeContext();
     trackAnalyticsEvent("macro_viewed", {
       feature_area: "macro",
       surface: "viewer",
@@ -126,10 +141,9 @@ EventBus.$on('edit', async () => {
       console.log('onClose called with', payload);
       location.reload();
     },
-    size: 'max',
+    size: 'fullscreen',
     context: {
       macroMode: 'editor',
     },
   });
 });
-

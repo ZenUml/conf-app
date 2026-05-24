@@ -1,7 +1,7 @@
 /**
  * Regression test: viewer's Edit button must fire EventBus 'edit' directly,
  * without showing a paywall dialog. The paywall gate lives in the editor
- * (forgeIndex.ts → isPageEditorEditBlocked → PageEditorPaywallGate), not here.
+ * (forgeIndex.ts → isPageEditorEditBlocked → PaywallGate), not here.
  *
  * The bug (reproduced at zenuml.atlassian.net/wiki/spaces/ZEN/pages/1806270487/PVT+Lite):
  * Clicking "Continue editing without upgrading" in the viewer paywall dialog did nothing
@@ -43,7 +43,6 @@ vi.mock('@/utils/upgradeTracking', () => ({
   trackUpgradeEvent: vi.fn(),
   UpgradeEventName: { PAYWALL_TRIGGERED: 'paywall_triggered', PAYWALL_BLOCKED_EDIT: 'paywall_blocked_edit' },
   UIComponent: { VIEWER_NOTICE: 'viewer_notice' },
-  ProductOption: { MARKETPLACE: 'marketplace', ENTERPRISE_BUNDLE: 'enterprise_bundle' },
 }))
 
 vi.mock('@/utils/window', () => ({ trackEvent: vi.fn(), getUrlParam: vi.fn() }))
@@ -87,35 +86,78 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
     vm.edit()
 
     expect(editSpy).toHaveBeenCalledWith('edit')
-    expect(vm.showUpgradeModal).toBe(false)  // no viewer-level paywall dialog
+    // viewer has no viewer-level paywall state at all — showUpgradeModal is gone
+    expect(vm.showUpgradeModal).toBeUndefined()
   })
 
-  it('Upgrade badge opens the upgrade modal without firing edit', async () => {
+  it('viewer has no openUpgradeModal — paywall gating moved to editor (forgeIndex)', async () => {
+    const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
+
+    const vm = wrapper.vm as any
+
+    // The redesign intentionally removed the viewer-level paywall dialog.
+    // openUpgradeModal / showUpgradeModal / onContinueEditing no longer exist here;
+    // the gate lives in forgeIndex.ts → isPageEditorEditBlocked → PaywallGate.
+    expect(vm.openUpgradeModal).toBeUndefined()
+    expect(vm.showUpgradeModal).toBeUndefined()
+    expect(vm.onContinueEditing).toBeUndefined()
+  })
+
+  it('viewer edit() always fires EventBus without any paywall interception', async () => {
     const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
     await wrapper.vm.$nextTick()
 
     const editSpy = vi.spyOn(EventBus, '$emit')
     const vm = wrapper.vm as any
 
-    vm.openUpgradeModal()
+    vm.edit()
 
-    expect(vm.showUpgradeModal).toBe(true)
-    expect(editSpy).not.toHaveBeenCalledWith('edit')
+    // Direct EventBus emission, no modal state changes
+    expect(editSpy).toHaveBeenCalledWith('edit')
+    expect(editSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('Continue editing from Upgrade badge just closes the modal', async () => {
+  it('Edit button is shown but disabled with cross-page tooltip when isCopy=true copyReason=cross-page', async () => {
+    store.state.diagram.isCopy = true
+    ;(store.state.diagram as any).copyReason = 'cross-page'
     const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
     await wrapper.vm.$nextTick()
 
-    const editSpy = vi.spyOn(EventBus, '$emit')
     const vm = wrapper.vm as any
+    expect(vm.editDisabledReason).toContain('another page')
 
-    vm.openUpgradeModal()
-    expect(vm.showUpgradeModal).toBe(true)
+    const btn = wrapper.find('button[aria-label="Edit"]')
+    expect(btn.exists()).toBe(true)
+    expect(btn.attributes('disabled')).toBeDefined()
+    expect(btn.attributes('title')).toContain('another page')
+  })
 
-    vm.onContinueEditing()
+  it('Edit button is shown but disabled with duplicate tooltip when isCopy=true copyReason=same-page-duplicate', async () => {
+    store.state.diagram.isCopy = true
+    ;(store.state.diagram as any).copyReason = 'same-page-duplicate'
+    const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
 
-    expect(vm.showUpgradeModal).toBe(false)
-    expect(editSpy).not.toHaveBeenCalledWith('edit')  // no edit from upgrade badge
+    const vm = wrapper.vm as any
+    expect(vm.editDisabledReason).toContain('multiple copies')
+
+    const btn = wrapper.find('button[aria-label="Edit"]')
+    expect(btn.exists()).toBe(true)
+    expect(btn.attributes('disabled')).toBeDefined()
+    expect(btn.attributes('title')).toContain('multiple copies')
+  })
+
+  it('Edit button is shown and enabled when isCopy=false', async () => {
+    store.state.diagram.isCopy = false
+    const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
+
+    const vm = wrapper.vm as any
+    expect(vm.editDisabledReason).toBeNull()
+
+    const btn = wrapper.find('button[aria-label="Edit"]')
+    expect(btn.exists()).toBe(true)
+    expect(btn.attributes('disabled')).toBeUndefined()
   })
 })

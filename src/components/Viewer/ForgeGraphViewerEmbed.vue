@@ -1,7 +1,39 @@
 <template>
   <div id="forge-graph-viewer-embed">
-    <generic-viewer :hideHeader="hideHeader">
+    <!-- :wide="true" forces viewer-frame--wide (width:100%) so graph.fit() has
+         a fixed container to fit to. Without it, the fit-content frame wraps
+         to the SVG's natural width and the diagram still overflows. See
+         ZEN-1168 follow-up. -->
+    <generic-viewer :wide="true" :hideHeader="hideHeader">
       <div ref="graphContainer" style="width:100%;height:100%;"></div>
+      <template v-if="pageCount > 1" #pill-prefix>
+        <button
+          @click="goToPage(currentPage - 1)"
+          :disabled="currentPage <= 0"
+          title="Previous page"
+          aria-label="Previous page"
+          class="viewer-pill-btn"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+          </svg>
+        </button>
+        <span class="viewer-pill-page-indicator" aria-live="polite">
+          {{ currentPage + 1 }} / {{ pageCount }}
+        </span>
+        <button
+          @click="goToPage(currentPage + 1)"
+          :disabled="currentPage >= pageCount - 1"
+          title="Next page"
+          aria-label="Next page"
+          class="viewer-pill-btn"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </button>
+        <span class="viewer-pill-divider" aria-hidden="true"></span>
+      </template>
     </generic-viewer>
   </div>
 </template>
@@ -68,7 +100,10 @@ export default {
   data() {
     return {
       loading: true,
-      error: null
+      error: null,
+      graphViewer: null,
+      currentPage: 0,
+      pageCount: 0,
     }
   },
   async mounted() {
@@ -90,56 +125,46 @@ export default {
     },
     
     initGraph() {
-      const setGraphStyle = (styleUrl, graph) => {
-        const req = mxUtils.load(styleUrl);
-        const root = req.getDocumentElement();
-        const dec = new mxCodec(root.ownerDocument);
-        dec.decode(root, graph.stylesheet);
-      }
-
-      const setGraphXml = (data, graph) => {
-        const xmlDoc = mxUtils.parseXml(data);
-        const codec = new mxCodec(xmlDoc);
-        codec.decode(xmlDoc.documentElement, graph.getModel());
-      }
-
-      // Get the graph XML from props or document
       let graphXml = this.graphXml || this.doc?.value?.graphXml || this.doc?.graphXml;
-      console.log('ForgeGraphViewerEmbed: original graphXml', graphXml);
-      
-      // Handle compressed diagrams
+
+      // Legacy compressed records — flag still controls decompression.
       if (this.doc?.compressed || this.doc?.value?.compressed) {
         trackEvent('compressed_field_viewer', 'load', 'warning');
         if (!graphXml?.startsWith('<mxGraphModel')) {
           graphXml = decompress(graphXml);
           trackEvent('compressed_content_viewer', 'load', 'warning');
-          console.log('ForgeGraphViewerEmbed: decompressed graphXml', graphXml);
         }
       }
-      
-      if (this.$refs.graphContainer && graphXml && window.Graph) {
-        try {
-          // @ts-ignore
-          const graph = new window.Graph(this.$refs.graphContainer);
-          graph.resizeContainer = true;
-          graph.setEnabled(false);
-          // @ts-ignore
-          setGraphStyle('./drawio/styles/default.xml', graph);
-          // @ts-ignore
-          setGraphXml(graphXml, graph);
-          
-          this.loading = false;
-          console.log('ForgeGraphViewerEmbed: Graph initialized successfully');
-        } catch (error) {
-          console.error('Failed to initialize graph:', error);
-          this.error = 'Failed to initialize graph';
-          this.loading = false;
-        }
-      } else {
-        console.error('Missing required data for graph initialization');
-        this.error = 'Missing graph data';
+
+      if (!this.$refs.graphContainer || !graphXml || !window.GraphViewer) {
+        this.error = !window.GraphViewer ? 'Graph viewer not loaded' : 'Missing graph data';
+        this.loading = false;
+        return;
+      }
+
+      try {
+        // GraphViewer accepts either <mxfile> (multi-page) or raw <mxGraphModel>
+        // (legacy single-page) via its Editor.extractGraphModel pipeline.
+        // No 'toolbar' config — page nav is rendered into the GenericViewer
+        // bottom pill via the #pill-prefix slot above.
+        const xmlNode = mxUtils.parseXml(graphXml).documentElement;
+        this.graphViewer = new window.GraphViewer(this.$refs.graphContainer, xmlNode, {
+          'auto-fit': true,
+          'border': 10,
+        });
+        this.pageCount = this.graphViewer.diagrams?.length || 0;
+        this.currentPage = this.graphViewer.currentPage || 0;
+        this.loading = false;
+      } catch (error) {
+        console.error('Failed to initialize graph viewer:', error);
+        this.error = 'Failed to initialize graph';
         this.loading = false;
       }
+    },
+    goToPage(index) {
+      if (!this.graphViewer || index < 0 || index >= this.pageCount) return;
+      this.graphViewer.selectPage(index);
+      this.currentPage = index;
     }
   },
   watch: {
@@ -180,4 +205,24 @@ export default {
   font-size: 16px;
   color: #d32f2f;
 }
-</style> 
+
+.viewer-pill-page-indicator {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: #44546f;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.viewer-pill-divider {
+  display: inline-block;
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: rgba(9, 30, 66, 0.14);
+  align-self: center;
+}
+</style>

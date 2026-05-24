@@ -31,11 +31,19 @@ inputs:
   sentry-dsn:
     description: 'Sentry DSN synced to Cloudflare Pages as SENTRY_DSN'
     required: true
+  page-capture-secret:
+    description: 'Shared secret for forge-page-capture endpoint (PAGE_CAPTURE_SECRET). If empty, the secret is not updated on Cloudflare Pages.'
+    required: false
+    default: ''
+  page-capture-allowed-domains:
+    description: 'Comma-separated Atlassian subdomain prefixes to capture (PAGE_CAPTURE_ALLOWED_DOMAINS). If empty, the value is not updated on Cloudflare Pages.'
+    required: false
+    default: ''
 runs:
   using: 'composite'
   steps:
     - name: Setup pnpm
-      uses: pnpm/action-setup@v4
+      uses: pnpm/action-setup@v5
       with:
         version: 10.x
     - uses: actions/setup-node@v5
@@ -58,12 +66,21 @@ runs:
       run: |
         printf '%s' "$VITE_MIXPANEL_TOKEN" | npx wrangler pages secret put MIXPANEL_TOKEN --project-name=${{ inputs.project }}
         printf '%s' "$SENTRY_DSN" | npx wrangler pages secret put SENTRY_DSN --project-name=${{ inputs.project }}
+        if [ -n "$PAGE_CAPTURE_SECRET" ]; then
+          printf '%s' "$PAGE_CAPTURE_SECRET" | npx wrangler pages secret put PAGE_CAPTURE_SECRET --project-name=${{ inputs.project }}
+        fi
+        # PAGE_CAPTURE_ALLOWED_DOMAINS is a plain (non-secret) Pages var — injected into
+        # wrangler.toml [vars] in the "Prepare wrangler config" step below.
+        # Delete any pre-existing secret with the same name so the plain var isn't shadowed.
+        echo y | npx wrangler pages secret delete PAGE_CAPTURE_ALLOWED_DOMAINS --project-name=${{ inputs.project }} 2>/dev/null || true
       shell: bash
       env:
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
         VITE_MIXPANEL_TOKEN: ${{ inputs.vite-mixpanel-token }}
         SENTRY_DSN: ${{ inputs.sentry-dsn }}
+        PAGE_CAPTURE_SECRET: ${{ inputs.page-capture-secret }}
+        PAGE_CAPTURE_ALLOWED_DOMAINS: ${{ inputs.page-capture-allowed-domains }}
     - name: Prepare wrangler config
       run: |
         # Select the appropriate config file based on environment
@@ -77,20 +94,30 @@ runs:
         
         # Create wrangler.toml with the project name replaced
         sed "s/name=\"conf-${{ inputs.environment }}\"/name=\"${{ inputs.project }}\"/" "$CONFIG_FILE" > wrangler.toml
+
+        # Inject PAGE_CAPTURE_ALLOWED_DOMAINS into [vars] and [env.production.vars] sections as a plain var.
+        # Sourced from GitHub Actions vars (PAGE_CAPTURE_ALLOWED_DOMAINS_STG / _PROD) so the
+        # tenant allowlist can be updated without a source PR.
+        if [ -n "$PAGE_CAPTURE_ALLOWED_DOMAINS" ]; then
+          sed -i "/^\[vars\]$/a PAGE_CAPTURE_ALLOWED_DOMAINS = \"$PAGE_CAPTURE_ALLOWED_DOMAINS\"" wrangler.toml
+          sed -i "/^\[env\.production\.vars\]$/a PAGE_CAPTURE_ALLOWED_DOMAINS = \"$PAGE_CAPTURE_ALLOWED_DOMAINS\"" wrangler.toml
+        fi
         cat wrangler.toml
       shell: bash
+      env:
+        PAGE_CAPTURE_ALLOWED_DOMAINS: ${{ inputs.page-capture-allowed-domains }}
     - name: Run D1 Migrations
-      uses: cloudflare/wrangler-action@v3
-      with:
-        apiToken: ${{ inputs.cloudflare-api-token }}
-        accountId: ${{ inputs.cloudflare-account-id }}
-        command: d1 migrations apply DB --remote --env production
+      run: pnpm exec wrangler d1 migrations apply DB --remote --env production
+      shell: bash
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
     - name: Publish
-      uses: cloudflare/wrangler-action@v3
-      with:
-        apiToken: ${{ inputs.cloudflare-api-token }}
-        accountId: ${{ inputs.cloudflare-account-id }}
-        command: pages deploy dist --branch production --project-name=${{ inputs.project }}
+      run: pnpm exec wrangler pages deploy dist --branch production --project-name=${{ inputs.project }}
+      shell: bash
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
     - name: Cleanup
       if: always()
       run: rm -f wrangler.toml

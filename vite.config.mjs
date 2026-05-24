@@ -24,6 +24,24 @@ process.env.VITE_APP_GIT_TAG = execSync(`git describe --tags --always --abbrev=0
 const appVersion = process.env.VITE_APP_VERSION || process.env.VITE_APP_GIT_TAG || 'dev'
 console.log(`Building ${appVersion} (${process.env.VITE_APP_GIT_HASH}) on ${process.env.VITE_APP_GIT_BRANCH}`)
 
+// Mixpanel token: CI passes via process.env (set from `vars.VITE_MIXPANEL_TOKEN`
+// in staging-deploy.yml / release.yml). Local dev builds don't have that env var
+// set, which would leave `mixpanel.init("")` in the bundle and drop all events.
+// Fall back to reading `Token=` from .env.mixpanel (gitignored, each dev has
+// their own copy) so `pnpm build:lite` from a clean shell still produces a
+// bundle that emits analytics.
+const mixpanelToken = (() => {
+  if (process.env.VITE_MIXPANEL_TOKEN) return process.env.VITE_MIXPANEL_TOKEN
+  try {
+    const m = fs.readFileSync(path.resolve(__dirname, '.env.mixpanel'), 'utf8').match(/^Token=(.+)$/m)
+    if (m?.[1]) return m[1].trim()
+  } catch {}
+  return ''
+})()
+if (!mixpanelToken) {
+  console.warn('[vite] VITE_MIXPANEL_TOKEN is empty — analytics events will be dropped. Set the env var or populate .env.mixpanel.')
+}
+
 // Dev-only HTML entries — driven by `src/{test-viewer,viewerPreview,sandbox}.ts`.
 // Each ships a sandbox/preview UI (`localStorage.mock*` flags, sandbox-preset
 // catalog, etc.) that has no place in a production bundle. Excluding them
@@ -53,7 +71,7 @@ export default defineConfig(({ command }) => ({
   base: './',
   define: {
     'import.meta.env.PRODUCT_TYPE': JSON.stringify(process.env.PRODUCT_TYPE || 'full'),
-    'import.meta.env.VITE_MIXPANEL_TOKEN': JSON.stringify(process.env.VITE_MIXPANEL_TOKEN || ''),
+    'import.meta.env.VITE_MIXPANEL_TOKEN': JSON.stringify(mixpanelToken),
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
     'import.meta.env.VITE_APP_COMMIT': JSON.stringify(process.env.VITE_APP_GIT_HASH || 'unknown'),
   },
@@ -106,7 +124,27 @@ export default defineConfig(({ command }) => ({
         },
       },
     },
-  }), copy({
+  }),
+  // Dev-only: serve sandbox.html at "/" so engineers landing on
+  // http://127.0.0.1:8080/ get the test-case index instead of the Forge
+  // app entry (which only renders meaningfully inside a Confluence iframe).
+  // index.html itself is unchanged — production build still uses it.
+  {
+    name: 'dev-root-to-sandbox',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        // Show sandbox cards at the root and at the bare /index.html.
+        // Sandbox cards link to ./index.html?sandbox=<id>... — those (with a
+        // query string) pass through unchanged so the actual Forge app mounts.
+        if (req.url === '/' || req.url === '/index.html') {
+          req.url = '/sandbox.html';
+        }
+        next();
+      });
+    },
+  },
+  copy({
     targets: [
       { src: 'node_modules/@zenuml/core/dist/fonts', dest: 'dist' },
       // Mermaid is loaded at runtime from /vendor/mermaid/ via dynamic URL
@@ -121,7 +159,71 @@ export default defineConfig(({ command }) => ({
     open: false,
     gzipSize: true,
     brotliSize: true,
-  })] : [])],
+  })] : []),
+  // Dev-only plugin: serve /vendor/mermaid/* from node_modules/mermaid/dist/*.
+  // The runtime loads mermaid via a dynamic URL import (src/utils/mermaid/loadMermaid.ts)
+  // resolved against document.baseURI. rollup-plugin-copy puts the assets in dist/
+  // for production, but Vite's dev server doesn't serve from dist/, so without
+  // this middleware /vendor/mermaid/mermaid.esm.min.mjs hits the SPA fallback
+  // (200 text/html) and the import fails.
+  {
+    name: 'vendor-mermaid-dev',
+    apply: 'serve',
+    configureServer(server) {
+      const VENDOR_PREFIX = '/vendor/mermaid/';
+      const SOURCE_DIR = path.join(__dirname, 'node_modules', 'mermaid', 'dist');
+      server.middlewares.use((req, res, next) => {
+        if (!req.url || !req.url.startsWith(VENDOR_PREFIX)) return next();
+        const relPath = req.url.slice(VENDOR_PREFIX.length).split('?')[0].split('#')[0];
+        const abs = path.join(SOURCE_DIR, relPath);
+        // Prevent path traversal outside SOURCE_DIR.
+        if (!abs.startsWith(SOURCE_DIR + path.sep)) return next();
+        if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return next();
+        const ext = path.extname(abs);
+        const contentType = ext === '.mjs' || ext === '.js' ? 'application/javascript'
+          : ext === '.json' ? 'application/json'
+          : ext === '.css' ? 'text/css'
+          : 'application/octet-stream';
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'no-cache');
+        fs.createReadStream(abs).pipe(res);
+      });
+    },
+  },
+  // Dev-only plugin: persist rerun test data to docs/fullscreen-test-rerun-data.json
+  // so it survives across sessions without relying on localStorage.
+  {
+    name: 'rerun-data-api',
+    configureServer(server) {
+      const DATA_FILE = path.join(__dirname, 'docs', 'fullscreen-test-rerun-data.json');
+      server.middlewares.use('/api/rerun-data', (req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Cache-Control', 'no-store');
+        if (req.method === 'GET') {
+          try {
+            res.end(fs.existsSync(DATA_FILE) ? fs.readFileSync(DATA_FILE, 'utf8') : '{}');
+          } catch (e) {
+            res.statusCode = 500; res.end(JSON.stringify({ error: e.message }));
+          }
+        } else if (req.method === 'POST') {
+          let body = '';
+          req.on('data', chunk => { body += chunk; });
+          req.on('end', () => {
+            try {
+              JSON.parse(body); // validate
+              fs.writeFileSync(DATA_FILE, body, 'utf8');
+              res.end('{}');
+            } catch (e) {
+              res.statusCode = 400; res.end(JSON.stringify({ error: e.message }));
+            }
+          });
+        } else {
+          res.statusCode = 405; res.end();
+        }
+      });
+    },
+  },
+  ],
   test: {
     environment: 'jsdom',
     globals: true,
@@ -139,6 +241,7 @@ export default defineConfig(({ command }) => ({
       '**/dist/**',
       '**/.worktrees/**',
       '**/.worktree/**',
+      '**/.claude/worktrees/**',
       '**/cypress/**',
       '**/.{idea,git,cache,output,temp}/**',
       '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build}.config.*',
@@ -188,6 +291,6 @@ export default defineConfig(({ command }) => ({
         changeOrigin: true
       }
     },
-    allowedHosts: ['yanhui8080.zenuml.com', '8080.diagramly.net', 'precise-oriented-mink.ngrok-free.app', 'special-lemming-radically.ngrok-free.app'],
+    allowedHosts: ['yanhui8080.zenuml.com', '8080.diagramly.net', 'precise-oriented-mink.ngrok-free.app', 'special-lemming-radically.ngrok-free.app', 'poc-fullscreen-app.zenuml.com'],
   }
 }));

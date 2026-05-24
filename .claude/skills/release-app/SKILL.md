@@ -3,7 +3,8 @@ name: release-app
 description: >
   Release ZenUML Forge apps (lite, full, and/or diagramly) to production via the full CI/CD pipeline.
   Reuses an existing fresh draft release when available (the common case after a recent merge),
-  publishes it to production, and verifies with production smoke tests. Falls back to triggering a
+  publishes it to production, verifies with PVT, then runs a spot check — targeted coverage for
+  what shipped this iteration (not keyword→skill matching alone). Falls back to triggering a
   fresh build via a changelog push only when no recent draft exists.
   Use when the user wants to release, deploy, ship, or push the lite, full, or diagramly Forge app to
   production. Triggers on "release lite", "release full", "release diagramly", "deploy to prod",
@@ -120,44 +121,120 @@ For each variant released, run PVT:
 
 Report PVT results to the user.
 
-### Step 5.5: Focused Feature Test
+### Step 5.5: Spot check (targeted coverage for **this** release)
 
 **This step runs automatically after PVT. Do not skip it.**
 
-1. Find the previous release tag for the variant being released:
-   ```bash
-   gh release list --repo ZenUml/conf-app --exclude-drafts \
-     --limit 10 --json tagName \
-     | jq -r '[.[] | select(.tagName | test("<variant>"))] | .[1].tagName'
-   ```
-   Example result: `v2026.04.301216-lite`
+> See **Spot Checks** in `CLAUDE.md` for the full definition — what a spot check is, environment selection rules, and key principles.
 
-2. Scan commit messages between the previous tag and the new tag:
-   ```bash
-   git fetch --tags
-   git log <prev-tag>..<new-tag> --oneline
-   ```
-   Example result:
-   ```
-   1ee2f655 chore(paywall-skill): move paywall skill from user-level to project
-   8fd921ee feat(paywall): add pre-edit gate with explicit Continue editing button
-   20574271 fix(paywall): emit upgrade_modal_shown for all prompt variants
-   ```
+A **spot check** here is **not** defined as “find a matching `/pvt-*` skill.” It means: **understand what shipped in this iteration** for the variant being released, then **run checks that deliberately exercise those changes** — the smallest set of verification that still covers the delta.
 
-3. Match commit messages (case-insensitive) against the keyword registry:
+#### 1. Establish the release delta
 
-   | Keywords | Sub-skill |
-   |---|---|
-   | `paywall`, `upgrade`, `css`, `persona`, `modal` | `/pvt-paywall` |
-   | `editor`, `editor-ui`, `codemirror` | `/pvt-editor` |
-   | `swagger`, `openapi` | `/pvt-swagger` |
-   | `graph`, `drawio` | `/pvt-drawio` |
+Find the previous **published** tag for this variant, then list commits between old and new tag:
 
-4. For each matched sub-skill: invoke it with the variant as argument (e.g., `/pvt-paywall lite`). Deduplicate — each sub-skill runs at most once per release. Run sequentially. If a matched sub-skill file does not exist (not yet implemented), log a warning (`sub-skill /pvt-X not yet implemented`) and skip it — treat as skipped, not as FAIL.
+```bash
+gh release list --repo ZenUml/conf-app --exclude-drafts \
+  --limit 10 --json tagName \
+  | jq -r '[.[] | select(.tagName | test("<variant>"))] | .[1].tagName'
+```
 
-5. If no keywords match, log "No focused test registered for this release" and proceed to Step 6 — this is not an error.
+```bash
+git fetch --tags
+git log <prev-tag>..<new-tag> --oneline
+```
 
-6. Collect pass/fail from each sub-skill and carry results forward to the Step 6 report.
+Read `git log` output **as product intent**, not just keyword soup: group commits into themes (e.g. paywall modal, fullscreen bridge, DrawIO chrome, OpenAPI viewer, editor modal). Note **which user-visible surfaces** and **macro types** are implicated.
+
+For any commit that is not self-explanatory from the subject line, **read the actual diff** (`git show <sha>`) to understand the specific code change before writing the plan.
+
+**Mandatory triage table — required before you may write the plan or declare N/A.**
+
+For every commit in `git log <prev-tag>..<new-tag> --oneline`, assign one of these categories:
+
+| Category | Criteria | Plan action |
+|---|---|---|
+| `behavioral` | Changes runtime behavior visible to a Confluence user or macro consumer | Must produce at least one `[ ]` assertion in the plan |
+| `instrumentation` | Adds/changes analytics events or properties; no UI change | May produce an assertion (event fires + properties) or be skipped with justification |
+| `infra/test/docs` | CI config, test files, migration scripts, documentation only | Write `Skipped: <subject> — <reason>` |
+
+A commit categorized as `infra/test/docs` or `instrumentation` that has **any** runtime code change (i.e. touches `src/` or `functions/` outside test directories) must be re-categorized as `behavioral` unless `git show <sha>` confirms the runtime path is never reachable from user-facing flows.
+
+**Variant reachability check (per commit):** A `behavioral` commit may still be unreachable in the variant being released — e.g. the embed macro module is removed from the Diagramly manifest, so `src/forge-embed-editor.ts` changes ship in the Diagramly bundle but cannot be triggered through Diagramly. When this applies, the commit stays `behavioral` but the assertion is replaced with `Not testable in <variant> — <reason, e.g. module removed via manifest yq>`. Don't silently drop it; the entry must appear in the triage table and final report.
+
+You may only write `Spot check: N/A — <justification>` if **every** commit in the triage table is assigned `infra/test/docs` and none is `behavioral` or `instrumentation`. If even one commit is `instrumentation`, write a plan entry for it (even if the assertion is "event fires with correct properties") — the N/A path is closed.
+
+The triage table must appear in your response **before** the plan or any N/A declaration. Output it explicitly — it is a required artifact, not internal reasoning.
+
+#### 2. Write the spot check plan — BEFORE touching the browser
+
+**STOP. Do not open the browser, run Playwright, or invoke any `/pvt-*` skill until this plan is written and output in the response.**
+
+The plan is a checklist of **specific, falsifiable assertions** about what you expect to observe in production — one assertion per behavioural or instrumentation change in the delta. Each assertion must name:
+
+1. **The changed behaviour** — derived from reading the commit/diff, not from keyword matching
+2. **The observable signal** — a specific Mixpanel event + property, a named UI element, a network response, etc.
+3. **The method** — how you will verify it (Playwright MCP step, request intercept, curl, etc.)
+
+**Format:**
+
+```
+Spot check plan for v{new-tag}
+
+Commit: <subject>
+  - [ ] <specific observable assertion>  [method]
+  - [ ] <specific observable assertion>  [method]
+
+Commit: <subject>
+  - [ ] <specific observable assertion>  [method]
+
+Skipped: <subject> — <reason, e.g. "test-only change, no production behaviour">
+```
+
+**Example of a good plan entry** (for a commit that adds draft-preview toggle tracking):
+
+```
+Commit: Track paywall advocacy draft preview expand and collapse in Mixpanel
+  - [ ] Clicking draft toggle (expand) fires Mixpanel `advocacy_draft_preview_clicked`
+        with `expanded: true` and `ui_component: "modal"`  [Playwright + request intercept]
+  - [ ] Clicking draft toggle (collapse) fires Mixpanel `advocacy_draft_preview_clicked`
+        with `expanded: false` and `ui_component: "modal"`  [Playwright + request intercept]
+```
+
+**Example of a bad plan entry** (vague; derived from keyword not diff):
+
+```
+Commit: Track paywall advocacy draft preview expand and collapse in Mixpanel
+  - [ ] Run /pvt-paywall  ← BAD: this is a recipe call, not an assertion
+```
+
+**Key rules:**
+- Each `[ ]` must be independently pass/fail checkable — if you cannot state what "pass" looks like before running, the assertion is too vague.
+- `/pvt-*` skills may appear as **method shortcuts** once an assertion is already written (`/pvt-paywall` covers assertions A, B, C), but never as a substitute for writing the assertion first.
+- N/A is only available when **every** commit in the triage table (required in Section 1) is categorized as `infra/test/docs`. If so, write `Spot check: N/A — <one-line justification that references the triage table>` and proceed to Step 6. The triage table must appear in your response before the N/A declaration. A missing triage table means N/A is not available.
+
+#### 3. Execute the plan
+
+- **Variant:** Always pass **the same variant as this release** into skills or instructions (e.g. `/release-app diagramly` → tests target **diagramly**).
+- **Pre-built skills:** Invoke `/pvt-*` skills **when they align** with the plan — they are reusable recipes, not the definition of “spot check.”
+- **Order:** Run planned checks **sequentially**. Deduplicate redundant steps.
+- **Missing skill file:** If you planned to use `/pvt-X` but the skill file does not exist, log `sub-skill /pvt-X not yet implemented`, substitute **manual/custom** steps for that coverage if the delta still requires it — treat missing file as **skipped recipe**, not “no test needed.”
+
+#### 4. Optional keyword hints (secondary)
+
+If helpful when scanning commits quickly, these **hints** often correlate with the listed skills — **do not** treat this table as exhaustive or sufficient on its own:
+
+| Themes (commit / area hints) | Often covered by |
+|---|---|
+| paywall, upgrade, css, persona, modal | `/pvt-paywall` |
+| fullscreen, fullscreen-bridge, viewport, expanded viewer | `/pvt-fullscreen` |
+| editor, editor-ui, codemirror, edit path | `/pvt-edit` |
+| swagger, openapi | `/pvt-swagger` |
+| graph, drawio | `/pvt-drawio` |
+
+#### 5. Collect results for Step 6
+
+Record **pass | fail | skipped** per **planned check** (skill name if used, or short description if custom). If the delta was genuinely tiny (e.g. docs-only), state **“Focused tests: N/A — no product behaviour changed”** with one-line justification — not “no keywords matched.”
 
 ### Step 6: Report
 
@@ -168,10 +245,11 @@ Summarize the release:
 - Draft published: ✓
 - Release workflow: ✓
 - PVT (Mermaid smoke): PASS | FAIL
-- Focused tests:
-  - pvt-paywall: PASS | FAIL — <failing step if FAIL>
-  (one line per invoked sub-skill; omitted if sub-skill was not invoked or not yet implemented)
-  (or: "No focused test registered for this release")
+- Release delta (one line): <themes / surfaces touched>
+- Focused tests (targeted coverage for this delta):
+  - <check 1 — skill or custom>: PASS | FAIL | SKIPPED — <note>
+  - <check 2>: …
+  (or: N/A — docs-only / no product behaviour in this tag — <brief justification>)
 ```
 
 ## Error Handling
@@ -179,7 +257,7 @@ Summarize the release:
 - **Build workflow fails**: Report which job failed, link to the run, stop
 - **Release workflow fails**: Report the failure, link to the run — the draft release was already published so the user may need to investigate manually
 - **PVT fails**: Report which variant failed and the error — this is a post-deploy issue that needs immediate attention
-- **Focused test fails**: Report which sub-skill failed and which step — this is a post-deploy issue. Do NOT roll back or block future releases. The app is already live; investigation is the next action.
+- **Focused test fails**: Report **which planned check** failed (skill name or custom step) and **what** was observed — this is a post-deploy issue. Do NOT roll back or block future releases. The app is already live; investigation is the next action.
 
 ## Important Notes
 

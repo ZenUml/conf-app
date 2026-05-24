@@ -1,11 +1,12 @@
 import globals from "@/model/globals";
-import forgeGlobal, { getView, getContext as initForgeContext, isInserting } from './model/globals/forgeGlobal';
+import forgeGlobal, { getView, getContext as initForgeContext, isInserting, isConfiguring } from './model/globals/forgeGlobal';
 import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import { decompress } from "@/utils/compress";
 import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
 import ApWrapper2 from "@/model/ApWrapper2";
 import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from "@/utils/window";
+import { toast } from '@/utils/toast';
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { mountRoot } from "@/mount-root";
 import { installRestoreDraftBanner } from "@/utils/restoreDraftBanner";
@@ -19,6 +20,7 @@ import EventBus from "./EventBus";
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
+import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -29,6 +31,12 @@ const editorStartTime = Date.now();
 // Fresh inserts have no value to preserve, so this stays undefined and the
 // spread below contributes nothing.
 let originalConfigUuid: string | undefined;
+
+// ZEN-1170 Defect 2b: captured at editor open so the save callback can detect
+// when the persisted id differs from the macro's stale config id and repair
+// the macro XML via view.submit({config:...}).
+let originalCustomContentId: string | undefined;
+let recoveryPageId: string | undefined;
 
 const EMPTY_GRAPH = `<mxfile>
   <diagram name="Page-1">
@@ -56,16 +64,37 @@ async function saveGraphAndExit(graphXml: string) {
   // The truthy-guard is load-failure protection (NULL_DIAGRAM fallback).
   const sourceId = diagram?.id ? String(diagram.id) : '';
 
-  const id = await saveToPlatform(diagram);
+  let id: string;
+  try {
+    id = await saveToPlatform(diagram);
+  } catch (error) {
+    console.error('saveGraphAndExit failed', error);
+    trackEvent('save_failed', 'save_failed', 'error', {
+      error_message: String((error as any)?.message || error).substring(0, 500),
+      http_status: (error as any)?.status || (error as any)?.statusCode || 'unknown',
+    });
+    toast({ message: 'Failed to save. Please try again.', duration: 5000 });
+    // Do NOT end journey, do NOT close — keep editor open so the user can retry.
+    return;
+  }
 
   // End journey on save
   if (getEditJourneyId()) {
     endEditJourney('saved');
   }
 
+  // ZEN-1170 Defect 2b: repair stale macro XML when we saved against the
+  // recovered sibling id. Only fires in surfaces where view.submit({config})
+  // actually persists (insert / isConfiguring). See forgeIndex.ts for the
+  // full rationale on viewer-launched modal contexts being a no-op.
+  const macroNeedsRepair = !!(originalCustomContentId && id && id !== originalCustomContentId);
+
   setTimeout(async () => {
+    const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
+    const repairWillPersist = inserting || configuring;
+    const attemptRepair = repairWillPersist && macroNeedsRepair;
     const idChanged = !!sourceId && !!id && id !== sourceId;
-    const needsWriteback = (await isInserting()) || idChanged;
+    const needsWriteback = inserting || idChanged || attemptRepair;
     try {
       if (needsWriteback) {
         await (await getView()).submit({config: {
@@ -73,6 +102,9 @@ async function saveGraphAndExit(graphXml: string) {
           updatedAt: new Date().toISOString(),
           ...(originalConfigUuid && { uuid: originalConfigUuid }),
         }});
+        if (attemptRepair && originalCustomContentId) {
+          reportOrphanMacroRepaired(recoveryPageId, originalCustomContentId, id, 'graph');
+        }
       } else {
         await (await getView()).close();
       }
@@ -172,6 +204,8 @@ async function initializeMacro() {
   // Ensure session is initialized
   getOrCreateSession();
   const customContentId = context.extension?.config?.customContentId;
+  originalCustomContentId = customContentId;
+  recoveryPageId = context.extension?.content?.id;
 
   let doc: Diagram | undefined;
   if (!customContentId) {
@@ -181,9 +215,19 @@ async function initializeMacro() {
       isNew: true,
     } as Diagram;
   } else {
-    const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-    console.log('loadDiagram - customContent', customContent);
-    doc = customContent?.value;
+    const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId);
+    console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
+    doc = loaded.customContent?.value;
+    if (loaded.recoveredFromOrphanId && doc) {
+      doc.recoveredFromOrphan = true;
+      doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
+      reportOrphanObserved(recoveryPageId, customContentId, 'graph', loaded.probeResult, {
+        recoveryUsed: true,
+        recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+      });
+    } else if (!doc) {
+      reportOrphanObserved(recoveryPageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false });
+    }
   }
 
   store.state.diagram = doc ?? NULL_DIAGRAM;

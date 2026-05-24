@@ -16,8 +16,9 @@ import { Diagram, DataSource, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/
 import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from '@/utils/window';
+import { toast } from '@/utils/toast';
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
-import forgeGlobal, { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
+import forgeGlobal, { getView, getContext as initForgeContext, isInserting, isConfiguring } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus';
 import store from "@/model/store2";
 import { showCloseWithoutSavingDialog } from './utils/modalService';
@@ -29,6 +30,7 @@ import { validateOpenApiSpecForStore } from '@/utils/openapi/validate';
 import { debounce } from 'lodash';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
+import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
 
 installRestoreDraftBanner();
 import SwaggerForgeEditorShell from '@/components/OpenApi/SwaggerForgeEditorShell.vue';
@@ -36,6 +38,12 @@ import SwaggerForgeEditorShell from '@/components/OpenApi/SwaggerForgeEditorShel
 // Captured at editor open from extension.config.uuid; forwarded back through
 // view.submit's replace-semantics so Connect-era guestParams.uuid survives.
 let originalConfigUuid: string | undefined;
+
+// ZEN-1170 Defect 2b: captured at editor open so the save callback can detect
+// when the persisted id differs from the macro's stale config id and repair
+// the macro XML via view.submit({config:...}).
+let originalCustomContentId: string | undefined;
+let recoveryPageId: string | undefined;
 
 const debouncedValidateOpenApi = debounce(async (spec: string) => {
   if (!spec) {
@@ -98,8 +106,20 @@ async function saveOpenApiAndExit() {
   // @ts-ignore
   const sourceId = window.diagram?.id ? String(window.diagram.id) : '';
 
-  // @ts-ignore
-  const id = await saveToPlatform(window.diagram);
+  let id: string;
+  try {
+    // @ts-ignore
+    id = await saveToPlatform(window.diagram);
+  } catch (error) {
+    console.error('saveOpenApiAndExit failed', error);
+    trackEvent('save_failed', 'save_failed', 'error', {
+      error_message: String((error as any)?.message || error).substring(0, 500),
+      http_status: (error as any)?.status || (error as any)?.statusCode || 'unknown',
+    });
+    toast({ message: 'Failed to save. Please try again.', duration: 5000 });
+    // Do NOT end journey, do NOT close — keep editor open so the user can retry.
+    return;
+  }
   console.log('saveOpenApiAndExit - id', id);
 
   // End journey on save
@@ -107,10 +127,19 @@ async function saveOpenApiAndExit() {
     endEditJourney('saved');
   }
 
+  // ZEN-1170 Defect 2b: repair stale macro XML when we saved against the
+  // recovered sibling id. Only fires in surfaces where view.submit({config})
+  // actually persists (insert / isConfiguring). See forgeIndex.ts for the
+  // full rationale on viewer-launched modal contexts being a no-op.
+  const macroNeedsRepair = !!(originalCustomContentId && id && id !== originalCustomContentId);
+
   /* eslint-disable no-undef */
   setTimeout(async () => {
+    const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
+    const repairWillPersist = inserting || configuring;
+    const attemptRepair = repairWillPersist && macroNeedsRepair;
     const idChanged = !!sourceId && !!id && id !== sourceId;
-    const needsWriteback = (await isInserting()) || idChanged;
+    const needsWriteback = inserting || idChanged || attemptRepair;
     try {
       if (needsWriteback) {
         await (await getView()).submit({config: {
@@ -118,6 +147,9 @@ async function saveOpenApiAndExit() {
           updatedAt: new Date().toISOString(),
           ...(originalConfigUuid && { uuid: originalConfigUuid }),
         }});
+        if (attemptRepair && originalCustomContentId) {
+          reportOrphanMacroRepaired(recoveryPageId, originalCustomContentId, id, 'openapi');
+        }
       } else {
         await (await getView()).close();
       }
@@ -225,6 +257,8 @@ async function initializeMacro() {
   // tracking below catches any regression — if it ever fires in prod,
   // restore the `|| extension.modal.customContentId` and investigate.
   const customContentId = context.extension?.config?.customContentId;
+  originalCustomContentId = customContentId;
+  recoveryPageId = context.extension?.content?.id;
   if (!customContentId && context.extension?.modal?.customContentId) {
     trackAnalyticsEvent('swagger_editor_config_empty_with_modal', {
       feature_area: 'macro',
@@ -243,9 +277,19 @@ async function initializeMacro() {
     let doc: Diagram | undefined;
     if (!customContentId) {
     } else {
-      const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-      console.log('loadDiagram - customContent', customContent);
-      doc = customContent?.value;
+      const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId);
+      console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
+      doc = loaded.customContent?.value;
+      if (loaded.recoveredFromOrphanId && doc) {
+        doc.recoveredFromOrphan = true;
+        doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
+        reportOrphanObserved(recoveryPageId, customContentId, 'openapi', loaded.probeResult, {
+          recoveryUsed: true,
+          recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+        });
+      } else if (!doc) {
+        reportOrphanObserved(recoveryPageId, customContentId, 'openapi', loaded.probeResult, { recoveryUsed: false });
+      }
     }
     store.state.diagram = doc ?? NULL_DIAGRAM;
 

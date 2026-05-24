@@ -28,10 +28,15 @@
                 v-if="diagram.recoveredFromOrphan"
                 class="viewer-recovered-chip"
                 role="status"
-                aria-label="Diagram recovered from a backup. To save changes, edit the page (top-right) and edit this macro."
+                aria-label="Diagram recovered from a backup, read-only until you re-save via the page editor."
                 tabindex="0"
                 :title="recoveredFromOrphanMessage"
-              >RECOVERED</span>
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="viewer-recovered-chip-icon" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                </svg>
+                READ-ONLY
+              </span>
               <span class="viewer-title" :title="title">{{ title }}</span>
             </div>
             <div class="viewer-top-actions">
@@ -62,8 +67,13 @@
             role="status"
             data-testid="recovered-banner"
           >
-            <strong>This diagram was recovered from a backup.</strong>
-            To save changes, click <em>Edit</em> on the page (top right of Confluence), then click <em>Edit</em> on this macro.
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-recovered-banner-icon" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+            </svg>
+            <span>
+              Recovered from backup.
+              <span class="viewer-recovered-banner-hint">To save changes, open page editor → edit this macro.</span>
+            </span>
           </div>
 
           <!-- Canvas + bottom-edge pill -->
@@ -313,34 +323,51 @@ export default {
   border-radius: 4px;
   text-transform: uppercase;
 }
+/* Variant A — quiet status row. Neutral chip + thin info strip beneath the
+   header. The previous amber alert read like a critical error; "recovered"
+   is informational, so it should look like metadata, not a warning. */
 .viewer-recovered-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   flex-shrink: 0;
-  padding: 2px 6px;
+  padding: 2px 7px;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.05em;
-  color: #92400E;
-  background: #FEF3C7;
+  color: #4B5563;
+  background: #F3F4F6;
+  border: 1px solid #E5E7EB;
   border-radius: 4px;
   text-transform: uppercase;
   outline-offset: 2px;
 }
+.viewer-recovered-chip-icon {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+}
 .viewer-recovered-chip:focus-visible {
-  outline: 2px solid #D97706;
+  outline: 2px solid #6B7280;
 }
 .viewer-recovered-banner {
-  margin: 6px 8px 4px;
-  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px 7px 19px;
+  background: #F9FAFB;
+  border-bottom: 1px solid #E5E7EB;
+  color: #4B5563;
   font-size: 12px;
-  color: #92400E;
-  background: #FEF3C7;
-  border: 1px solid #FDE68A;
-  border-radius: 6px;
   line-height: 1.4;
 }
-.viewer-recovered-banner em {
-  font-style: normal;
-  font-weight: 600;
+.viewer-recovered-banner-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.viewer-recovered-banner-hint {
+  color: #6B7280;
 }
 
 .viewer-top-actions {

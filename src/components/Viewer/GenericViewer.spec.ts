@@ -133,19 +133,20 @@ describe('GenericViewer (chrome-less)', () => {
 
     // Visible affordance (not just disabled-button tooltip): the recovery
     // chip and banner must render so touch / keyboard users discover the
-    // repair path without hovering a disabled button.
-    it('renders a visible RECOVERED chip and explanatory banner when recoveredFromOrphan is true', async () => {
+    // repair path without hovering a disabled button. Variant A treatment:
+    // a neutral READ-ONLY chip + a thin info-style status row.
+    it('renders a visible READ-ONLY chip and explanatory banner when recoveredFromOrphan is true', async () => {
       store.state.diagram.recoveredFromOrphan = true
       const wrapper = mountViewer()
       await wrapper.vm.$nextTick()
       const chip = wrapper.find('.viewer-recovered-chip')
       expect(chip.exists()).toBe(true)
-      expect(chip.text()).toBe('RECOVERED')
+      expect(chip.text()).toBe('READ-ONLY')
       expect(chip.attributes('tabindex')).toBe('0')
       const banner = wrapper.find('[data-testid="recovered-banner"]')
       expect(banner.exists()).toBe(true)
-      expect(banner.text()).toContain('recovered from a backup')
-      expect(banner.text()).toContain('Edit')
+      expect(banner.text()).toContain('Recovered from backup')
+      expect(banner.text()).toContain('page editor')
     })
 
     it('does not render the recovered chip or banner when recoveredFromOrphan is not set', async () => {

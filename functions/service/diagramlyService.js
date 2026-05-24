@@ -29,19 +29,31 @@ export async function generateDsl(context, title, content, userPrompt, diagramId
   }
 }
 
+// Asynchronous diagram modification - returns jobId for polling
 export async function modifyDiagram(context, diagramCode, errorMessage, diagramType = 'sequence') {
+  const typeInfo = typeMap[diagramType];
+
+  const command = `Please resolve the issue with minimal code modifications. Preserve the original style and comments. Only address the errors; if the code lacks clarity, use the fewest words possible to improve it.`;
+
   const diagramData = {
-    diagramType: typeMap[diagramType].diagramType,
-    languageKey: typeMap[diagramType].languageKey,
-    subTypeKey: typeMap[diagramType].subTypeKey,
     diagramCode,
+    diagramType: typeInfo.diagramType,
+    command,
     errorMessage,
-    command: `Please resolve the issue with minimal code modifications. Preserve the original style and comments. Only address the errors; if the code lacks clarity, use the fewest words possible to improve it.`,
+    teamId: context.teamId,
+    subTypeKey: typeInfo.subTypeKey,
   };
 
-  const diagramResult = await callDiagramly(context, `/api/chat/modify`, diagramData);
+  const result = await callDiagramly(context, `/api/chat/modify-async`, diagramData);
 
-  return { updatedCode: diagramResult.updatedCode };
+  const jobId = result?.jobId || result?.data?.jobId || result?.id;
+
+  if (!jobId) {
+    console.error('[modifyDiagram] No jobId found in response:', result);
+    throw new Error('No jobId returned from Diagramly API');
+  }
+
+  return { jobId };
 }
 
 export async function chat(context, messages) {
@@ -65,7 +77,7 @@ export async function getDiagram(context, diagramId) {
   };
 
   const diagramResult = await callDiagramly(context,`/api/version.versionsById?batch=1&input=${JSON.stringify(input)}`);
-  
+
   if (diagramResult &&
       diagramResult[0]?.result?.data?.json?.versions && diagramResult[0]?.result?.data?.json?.versions.length) {
     const version = diagramResult[0].result.data.json.versions[diagramResult[0]?.result?.data?.json?.versions.length - 1];
@@ -76,7 +88,7 @@ export async function getDiagram(context, diagramId) {
   }
 }
 
-async function callDiagramly(context, uri, payload) {
+export async function callDiagramly(context, uri, payload) {
   const baseUrl = context.env.DIAGRAMLY_BACKEND_API_BASE_URL;
   const url = `${baseUrl}${uri}`;
 
@@ -88,10 +100,6 @@ async function callDiagramly(context, uri, payload) {
     if(!diagramlyApiKey) {
       throw new Error('Diagramly API key is not configured');
     }
-    
-    const maskedApiKey = `${diagramlyApiKey.slice(0, 2)}...${diagramlyApiKey.slice(-2)}`;
-    const requestInfo = `x-external-id: ${userId}, x-team-id: ${teamId}, x-api-key: ${maskedApiKey}`;
-    console.log(`calling Diagramly API ${url} with ${requestInfo}`, payload);
 
     const diagramResponse = await fetch(url, {
       method: payload ? 'POST' : 'GET',
@@ -101,20 +109,30 @@ async function callDiagramly(context, uri, payload) {
         'x-external-id': userId,
         'x-team-id': teamId
       },
-      body: JSON.stringify(payload)
+      body: payload ? JSON.stringify(payload) : undefined
     });
 
     if (!diagramResponse.ok) {
-      throw new Error(`Diagramly API request failed with status ${diagramResponse.status}, body: ${await diagramResponse.text()}`);
+      const errorBody = await diagramResponse.text();
+      console.error('[callDiagramly] API error:', diagramResponse.status, '-', errorBody);
+      throw new Error(`Diagramly API request failed with status ${diagramResponse.status}, body: ${errorBody}`);
     }
 
-    const diagramResult = await diagramResponse.json();
-    console.log('Diagram API response:', JSON.stringify(diagramResult));
+    const responseText = await diagramResponse.text();
+
+    let diagramResult;
+    try {
+      diagramResult = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('[callDiagramly] Failed to parse JSON:', parseError);
+      throw new Error(`Failed to parse Diagramly API response as JSON: ${responseText.substring(0, 200)}`);
+    }
 
     return diagramResult;
 
   } catch (error) {
-    console.error('Error calling Diagramly API:', error);
+    console.error('[callDiagramly] Error:', error.message);
+    throw error;
   }
 }
 
@@ -135,7 +153,7 @@ const getPrompt = (diagramType, title, content, userPrompt) => {
       [${para1}]
       \`\`\`
 
-      Key section or topic for the sequence diagram is [${para2}], ignore irrelevant content. 
+      Key section or topic for the sequence diagram is [${para2}], ignore irrelevant content.
 
     `,
     'mermaid': `
@@ -150,7 +168,7 @@ const getPrompt = (diagramType, title, content, userPrompt) => {
         [${para1}]
         \`\`\`
 
-        Key section or topic for the flow chart is [${para2}], ignore irrelevant content. 
+        Key section or topic for the flow chart is [${para2}], ignore irrelevant content.
 
       `,
   };

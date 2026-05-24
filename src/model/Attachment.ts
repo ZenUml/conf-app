@@ -449,6 +449,20 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
   const hash = md5(content);
   const ctx = await buildUploadContext(hash, diagramType);
 
+  // ZEN-1170 Defect 1: central guard for legacy macros that have no
+  // customContentId yet. getIdentifier() / the attachment naming chain
+  // derives the filename from context.extension.config.customContentId;
+  // without one, every legacy macro on every page would write/lookup
+  // `zenuml-undefined.png` and collide. Skip the entire attachment write
+  // — the next save migrates the macro and subsequent calls write the
+  // correctly-named attachment. Centralised here so embed/swagger/other
+  // viewer call sites are covered without per-caller guards.
+  const macroCustomContentId = forgeGlobal.forgeContext?.extension?.config?.customContentId;
+  if (!macroCustomContentId) {
+    trackEvent('missing_custom_content_id', 'attachment_upload_skipped', 'export', ctx);
+    return;
+  }
+
   // Ensure this method will NOT be called multiple times at the same time.
   // There's an issue when diagram is edited through page edit, multiple 'diagramLoaded'
   // events are fired afterwards, thus multiple calls to this method at (almost) same time,

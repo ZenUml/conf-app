@@ -79,6 +79,12 @@ describe('Attachment', () => {
     mockGetContext.mockResolvedValue({
       extension: { config: { customContentId: 'test-uuid' } }
     });
+    // ZEN-1170 Defect 1: createAttachmentIfContentChanged now reads
+    // forgeGlobal.forgeContext directly to gate on customContentId — set
+    // it here so all existing happy-path tests proceed past the guard.
+    (forgeGlobal as any).forgeContext = {
+      extension: { config: { customContentId: 'test-uuid' } },
+    };
     mockApWrapper._getCurrentPageId.mockResolvedValue('page-123');
     mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
     // Setup DOM
@@ -86,6 +92,7 @@ describe('Attachment', () => {
   });
 
   afterEach(() => {
+    (forgeGlobal as any).forgeContext = undefined;
     delete (window as any).createAttachmentInProgress;
   });
 
@@ -437,7 +444,10 @@ describe('Attachment', () => {
       // Simulate the inline-edit-canvas preview context where isDisplayMode() returns
       // true but the page hasn't been published yet.
       (forgeGlobal as any).forgeContext = {
-        extension: { content: { status: 'draft' } }
+        extension: {
+          content: { status: 'draft' },
+          config: { customContentId: 'test-uuid' },
+        }
       };
 
       await createAttachmentIfContentChanged('test content');
@@ -460,7 +470,10 @@ describe('Attachment', () => {
     it('should skip upload when API returns wrapped draft-page 404 (Option B — body parse)', async () => {
       // Option A guard won't fire because status is not 'draft' in context
       (forgeGlobal as any).forgeContext = {
-        extension: { content: { status: 'current' } }
+        extension: {
+          content: { status: 'current' },
+          config: { customContentId: 'test-uuid' },
+        }
       };
 
       const mockBlob = new Blob(['test'], { type: 'image/png' });

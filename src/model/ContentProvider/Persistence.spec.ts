@@ -1,4 +1,4 @@
-import {saveToPlatform} from "@/model/ContentProvider/Persistence";
+import {saveToPlatform, LegacyLoadBlockedSaveError} from "@/model/ContentProvider/Persistence";
 import {NULL_DIAGRAM, DiagramType} from "@/model/Diagram/Diagram";
 import {vi} from "vitest";
 import ApWrapper2 from "../ApWrapper2";
@@ -139,4 +139,64 @@ describe('Persistence', function () {
     await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Embed }, mockApWrapper);
     expect(trackAnalyticsEvent).not.toHaveBeenCalled();
   })
+
+  // ZEN-1170 Defect 1
+  describe('legacyLoadBlocked sentinel', () => {
+    it('refuses save with LegacyLoadBlockedSaveError when legacyLoadBlocked is true', async () => {
+      const blocked = {
+        ...NULL_DIAGRAM,
+        diagramType: DiagramType.Sequence,
+        legacyLoadBlocked: true,
+      };
+      await expect(saveToPlatform(blocked as any, mockApWrapper)).rejects.toBeInstanceOf(LegacyLoadBlockedSaveError);
+    });
+
+    it('does NOT call storage save when legacyLoadBlocked is true', async () => {
+      const blocked = {
+        ...NULL_DIAGRAM,
+        diagramType: DiagramType.Sequence,
+        legacyLoadBlocked: true,
+      };
+      try { await saveToPlatform(blocked as any, mockApWrapper); } catch {}
+      expect(mockSave).not.toHaveBeenCalled();
+    });
+
+    it('does NOT call syncCustomContent or fire analytics when legacyLoadBlocked is true', async () => {
+      const blocked = {
+        ...NULL_DIAGRAM,
+        diagramType: DiagramType.Sequence,
+        legacyLoadBlocked: true,
+      };
+      try { await saveToPlatform(blocked as any, mockApWrapper); } catch {}
+      expect(syncCustomContent).not.toHaveBeenCalled();
+      expect(trackAnalyticsEvent).not.toHaveBeenCalled();
+    });
+
+    it('still saves normally when legacyLoadBlocked is undefined or false', async () => {
+      await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, legacyLoadBlocked: false } as any, mockApWrapper);
+      expect(mockSave).toHaveBeenCalledTimes(1);
+    });
+
+    // ZEN-1170 Defect 1 regression: when a sequence editor encounters a stale
+    // customContentId AND a legacy storageUuid AND the content-property read
+    // returns 403/5xx/parse-error/unexpected-shape, the editor constructs a
+    // placeholder doc that MUST carry legacyLoadBlocked=true. Persistence
+    // guard refuses save regardless of doc shape (NULL_DIAGRAM-shaped, empty
+    // code, etc).
+    it('regression: mixed-state placeholder doc (NULL_DIAGRAM shape + legacyLoadBlocked) is refused', async () => {
+      const mixedStatePlaceholder = {
+        ...NULL_DIAGRAM,
+        diagramType: DiagramType.Sequence,
+        code: '',
+        mermaidCode: '',
+        plantUmlCode: '',
+        isNew: false,
+        legacyLoadBlocked: true,
+      };
+      await expect(saveToPlatform(mixedStatePlaceholder as any, mockApWrapper))
+        .rejects.toBeInstanceOf(LegacyLoadBlockedSaveError);
+      expect(mockSave).not.toHaveBeenCalled();
+      expect(syncCustomContent).not.toHaveBeenCalled();
+    });
+  });
 });

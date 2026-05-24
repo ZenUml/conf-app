@@ -1,6 +1,6 @@
 import globals from "@/model/globals";
 import forgeGlobal, { getView, getContext as initForgeContext, isInserting, isConfiguring } from './model/globals/forgeGlobal';
-import { saveToPlatform } from "@/model/ContentProvider/Persistence";
+import { saveToPlatform, LegacyLoadBlockedSaveError } from "@/model/ContentProvider/Persistence";
 import { decompress } from "@/utils/compress";
 import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
 import ApWrapper2 from "@/model/ApWrapper2";
@@ -21,6 +21,12 @@ import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId,
 import uuidv4 from '@/utils/uuid';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
+import {
+  reportLegacyContentPropertyRestored,
+  reportLegacyContentPropertyLoadFailed,
+  reportLegacyContentPropertyValueUnexpected,
+  reportLegacyContentPropertyMacroRepaired,
+} from '@/utils/legacyContentPropertyTelemetry';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -68,6 +74,16 @@ async function saveGraphAndExit(graphXml: string) {
   try {
     id = await saveToPlatform(diagram);
   } catch (error) {
+    // ZEN-1170 Defect 1: persistence layer refused save because the legacy
+    // content-property load failed. Retry won't help — direct the user to
+    // refresh / contact support instead.
+    if (error instanceof LegacyLoadBlockedSaveError) {
+      toast({
+        message: 'Legacy diagram content failed to load — saving is disabled to prevent data loss. Please refresh the page or contact support.',
+        duration: 8000,
+      });
+      return;
+    }
     console.error('saveGraphAndExit failed', error);
     trackEvent('save_failed', 'save_failed', 'error', {
       error_message: String((error as any)?.message || error).substring(0, 500),
@@ -88,13 +104,23 @@ async function saveGraphAndExit(graphXml: string) {
   // actually persists (insert / isConfiguring). See forgeIndex.ts for the
   // full rationale on viewer-launched modal contexts being a no-op.
   const macroNeedsRepair = !!(originalCustomContentId && id && id !== originalCustomContentId);
+  // ZEN-1170 Defect 1: legacy-content-property migration. When the editor
+  // mounted a doc loaded from the legacy page content property, the macro
+  // XML still has uuid only (no customContentId). originalCustomContentId
+  // is therefore undefined, so macroNeedsRepair above is false. Detect this
+  // case via window.diagram.source so the same writeback block migrates the
+  // macro XML to a CC-backed shape on first save.
+  const legacyMacroNeedsRepair = !originalCustomContentId
+    && (window.diagram?.source === DataSource.ContentProperty
+        || window.diagram?.source === DataSource.ContentPropertyOld);
 
   setTimeout(async () => {
     const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
     const repairWillPersist = inserting || configuring;
     const attemptRepair = repairWillPersist && macroNeedsRepair;
+    const attemptLegacyMigration = repairWillPersist && legacyMacroNeedsRepair && !!id;
     const idChanged = !!sourceId && !!id && id !== sourceId;
-    const needsWriteback = inserting || idChanged || attemptRepair;
+    const needsWriteback = inserting || idChanged || attemptRepair || attemptLegacyMigration;
     try {
       if (needsWriteback) {
         await (await getView()).submit({config: {
@@ -104,6 +130,9 @@ async function saveGraphAndExit(graphXml: string) {
         }});
         if (attemptRepair && originalCustomContentId) {
           reportOrphanMacroRepaired(recoveryPageId, originalCustomContentId, id, 'graph');
+        }
+        if (attemptLegacyMigration && originalConfigUuid) {
+          reportLegacyContentPropertyMacroRepaired('graph', originalConfigUuid, id, { pageId: recoveryPageId });
         }
       } else {
         await (await getView()).close();
@@ -207,14 +236,17 @@ async function initializeMacro() {
   originalCustomContentId = customContentId;
   recoveryPageId = context.extension?.content?.id;
 
+  // ZEN-1170 Defect 1: storageUuid is the Connect-era macro identity (the key
+  // used when legacy content properties were written). NOT the same as
+  // forgeGlobal.localId, which is Forge's journey id and never appeared in
+  // legacy content-property keys. Conflating the two would query the wrong
+  // key, miss the real legacy body, and (after save) overwrite it with
+  // EMPTY_GRAPH.
+  const storageUuid: string | undefined = context.extension?.config?.uuid;
+
   let doc: Diagram | undefined;
-  if (!customContentId) {
-    doc = {
-      diagramType: DiagramType.Graph,
-      graphXml: EMPTY_GRAPH,
-      isNew: true,
-    } as Diagram;
-  } else {
+  let legacyLoadBlocked = false;
+  if (customContentId) {
     const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId);
     console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
@@ -228,6 +260,67 @@ async function initializeMacro() {
     } else if (!doc) {
       reportOrphanObserved(recoveryPageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false });
     }
+  }
+
+  // ZEN-1170 Defect 1: try the legacy content-property fallback whenever the
+  // custom-content path didn't yield a doc AND a legacy storageUuid exists.
+  // Covers BOTH (a) macros with no customContentId (pure legacy), and (b)
+  // mixed-state macros (stale customContentId 404s but legacy uuid still
+  // points to a real body). On non-404 failure or unexpected value shape,
+  // set the sentinel so the persistence layer refuses to save (which would
+  // otherwise destructively replace the legacy body with EMPTY_GRAPH).
+  if (!doc && storageUuid) {
+    const result = await globals.apWrapper.getContentPropertyV2(
+      `zenuml-graph-macro-${storageUuid}-body`,
+    );
+    if (result.status === 'ok') {
+      const value = result.property.value;
+      if (value && typeof value === 'object') {
+        // See forge-graph-viewer.ts: reuse Defect 2b's recoveredFromOrphan
+        // flag for UI gating; leave `id` undefined so save creates a fresh
+        // CC. The save handler in saveGraphAndExit extends the existing
+        // writeback trigger to fire for this no-original-customContentId
+        // case (see attemptLegacyMigration below).
+        doc = {
+          ...(value as Diagram),
+          diagramType: DiagramType.Graph,
+          source: DataSource.ContentProperty,
+          id: undefined,
+          recoveredFromOrphan: true,
+        };
+        reportLegacyContentPropertyRestored('editor', 'graph', storageUuid, { pageId: recoveryPageId });
+      } else if (typeof value === 'string') {
+        legacyLoadBlocked = true;
+        reportLegacyContentPropertyValueUnexpected('editor', 'graph', storageUuid, 'string');
+      } else {
+        legacyLoadBlocked = true;
+        reportLegacyContentPropertyValueUnexpected('editor', 'graph', storageUuid, value == null ? 'null' : 'other');
+      }
+    } else if (result.status === 'forbidden') {
+      legacyLoadBlocked = true;
+      reportLegacyContentPropertyLoadFailed('editor', 'graph', storageUuid, 'forbidden', { pageId: recoveryPageId });
+    } else if (result.status === 'page_not_found') {
+      // The PAGE itself wasn't reachable — we don't actually know whether
+      // the key exists. Fail closed: never let the editor mount a fresh
+      // placeholder and save over a legacy body we couldn't probe.
+      legacyLoadBlocked = true;
+      reportLegacyContentPropertyLoadFailed('editor', 'graph', storageUuid, 'http', { pageId: recoveryPageId, httpStatus: 404 });
+    } else if (result.status === 'error') {
+      legacyLoadBlocked = true;
+      reportLegacyContentPropertyLoadFailed('editor', 'graph', storageUuid, result.reason, { pageId: recoveryPageId, httpStatus: result.httpStatus });
+    }
+    // status === 'not_found' (200 + empty results) falls through to the
+    // EMPTY_GRAPH branch below as a legitimate "no legacy data, start
+    // fresh" case — the page was reachable and we confirmed no key.
+  }
+
+  if (!doc) {
+    doc = {
+      diagramType: DiagramType.Graph,
+      graphXml: EMPTY_GRAPH,
+      isNew: !legacyLoadBlocked,
+      legacyLoadBlocked: legacyLoadBlocked || undefined,
+    } as Diagram;
   }
 
   store.state.diagram = doc ?? NULL_DIAGRAM;

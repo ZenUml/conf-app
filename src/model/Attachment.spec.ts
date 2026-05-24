@@ -167,6 +167,19 @@ describe('Attachment', () => {
           content_hash: expect.stringContaining('hash-'),
         }),
       );
+      // New attachment → 'created' success event with version 1
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'created',
+        'attachment_upload_succeeded',
+        'export',
+        expect.objectContaining({
+          custom_content_id: 'test-uuid',
+          page_id: 'page-123',
+          attachment_name: 'zenuml-test-uuid.png',
+          version_number: 1,
+          attachment_id: 'attachment-123',
+        }),
+      );
     });
 
     it('should update existing attachment when content hash changes', async () => {
@@ -204,7 +217,45 @@ describe('Attachment', () => {
           attachment_name: 'zenuml-test-uuid.png',
         }),
       );
+      // Existing attachment + content changed → 'updated' success event with bumped version
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'updated',
+        'attachment_upload_succeeded',
+        'export',
+        expect.objectContaining({
+          custom_content_id: 'test-uuid',
+          page_id: 'page-123',
+          version_number: 3,
+          attachment_id: 'attachment-123',
+        }),
+      );
       expect(mockForgeRequest).toHaveBeenCalled(); // updateAttachmentProperties
+    });
+
+    it('should NOT emit attachment_upload_succeeded when the upload throws', async () => {
+      // Regression guard: success must fire only after updateAttachmentProperties
+      // resolves, so a thrown upload doesn't pollute the success denominator.
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const mockBlob = new Blob(['test'], { type: 'image/png' });
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      // Force the upload POST to throw via the multipart path
+      mockRequestConfluence.mockRejectedValue(new Error('network down'));
+
+      await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow('network down');
+
+      // _failed fires, _succeeded does NOT
+      const succeededCalls = mockTrackEvent.mock.calls.filter(
+        (c: unknown[]) => c[1] === 'attachment_upload_succeeded'
+      );
+      expect(succeededCalls).toHaveLength(0);
+      const failedCalls = mockTrackEvent.mock.calls.filter(
+        (c: unknown[]) => c[1] === 'attachment_upload_failed'
+      );
+      expect(failedCalls.length).toBeGreaterThan(0);
+
+      consoleErrorSpy.mockRestore();
     });
 
     it('should skip upload when content hash matches existing attachment', async () => {

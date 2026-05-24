@@ -435,10 +435,15 @@ async function updateAttachmentProperties(attachmentMeta: AttachmentMeta): Promi
  * it flows into the analytics events so we can correlate per diagram type.
  *
  * Emits the following events alongside the existing `upload_attachment`:
+ *   - `attachment_upload_succeeded` (event_label: 'created' | 'updated', plus version_number)
  *   - `attachment_upload_skipped`   (event_label: 'concurrent' | 'unchanged' | 'draft_page')
  *   - `attachment_upload_failed`    (event_label: failure reason, plus error fields)
  * Each carries the same join keys (page_id, custom_content_id, cloud_id, ...)
  * used by the backend `macro_export_*` events in src/export.js.
+ *
+ * `_succeeded` gives us a denominator. Without it we only saw `_failed` (n=2,543/14d)
+ * and `_skipped` (n=99,338/14d) — no way to compute a true upload failure rate, and
+ * `_skipped(unchanged)` was a confusing proxy because it inflates with every page view.
  */
 async function createAttachmentIfContentChanged(content: string, diagramType?: string): Promise<void> {
   const hash = md5(content);
@@ -468,8 +473,17 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
   try {
     const attachment = await tryGetAttachment();
     if (!attachment || hash !== attachment.comment) {
+      const isUpdate = Boolean(attachment);
       const attachmentMeta = await (attachment ? uploadNewVersionOfAttachment(hash, ctx) : uploadNewAttachment(hash, ctx))();
       await updateAttachmentProperties(attachmentMeta);
+      // Success path — gives us a denominator for `_failed` and tells the
+      // `created` vs `updated` story. Emit AFTER updateAttachmentProperties
+      // so it really did land end-to-end, not just the upload POST.
+      trackEvent(isUpdate ? 'updated' : 'created', 'attachment_upload_succeeded', 'export', {
+        ...ctx,
+        version_number: attachmentMeta.versionNumber,
+        attachment_id: attachmentMeta.attachmentId,
+      });
     } else {
       // Already up to date — this is the expected steady-state for an existing macro.
       // Emit so we can prove upload coverage exists when investigating `attachment_not_found`.

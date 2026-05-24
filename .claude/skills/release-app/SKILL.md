@@ -125,9 +125,9 @@ Report PVT results to the user.
 
 **This step runs automatically after PVT. Do not skip it.**
 
-> See **Spot Checks** in `CLAUDE.md` for the full definition — what a spot check is, environment selection rules, and key principles.
+General workflow, environment selection, and verification methods: **spot-check** skill.
 
-A **spot check** here is **not** defined as “find a matching `/pvt-*` skill.” It means: **understand what shipped in this iteration** for the variant being released, then **run checks that deliberately exercise those changes** — the smallest set of verification that still covers the delta.
+Release-specific: a spot check here is **not** defined as “find a matching `/pvt-*` skill.” It means: **understand what shipped in this iteration** for the variant being released, then **run checks that deliberately exercise those changes** — the smallest set of verification that still covers the delta.
 
 #### 1. Establish the release delta
 
@@ -168,13 +168,7 @@ The triage table must appear in your response **before** the plan or any N/A dec
 
 #### 2. Write the spot check plan — BEFORE touching the browser
 
-**STOP. Do not open the browser, run Playwright, or invoke any `/pvt-*` skill until this plan is written and output in the response.**
-
-The plan is a checklist of **specific, falsifiable assertions** about what you expect to observe in production — one assertion per behavioural or instrumentation change in the delta. Each assertion must name:
-
-1. **The changed behaviour** — derived from reading the commit/diff, not from keyword matching
-2. **The observable signal** — a specific Mixpanel event + property, a named UI element, a network response, etc.
-3. **The method** — how you will verify it (Playwright MCP step, request intercept, curl, etc.)
+**STOP.** Follow the **spot-check** skill plan format. Release-specific additions below apply on top of that template.
 
 **Format:**
 
@@ -214,6 +208,8 @@ Commit: Track paywall advocacy draft preview expand and collapse in Mixpanel
 - N/A is only available when **every** commit in the triage table (required in Section 1) is categorized as `infra/test/docs`. If so, write `Spot check: N/A — <one-line justification that references the triage table>` and proceed to Step 6. The triage table must appear in your response before the N/A declaration. A missing triage table means N/A is not available.
 
 #### 3. Execute the plan
+
+Follow the **spot-check** skill execution workflow. Release-specific rules:
 
 - **Variant:** Always pass **the same variant as this release** into skills or instructions (e.g. `/release-app diagramly` → tests target **diagramly**).
 - **Pre-built skills:** Invoke `/pvt-*` skills **when they align** with the plan — they are reusable recipes, not the definition of “spot check.”

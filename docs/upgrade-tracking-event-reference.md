@@ -2,6 +2,8 @@
 
 Canonical event names match `src/utils/analytics/catalog.ts` and `src/utils/upgradeTracking.ts`.
 
+General analytics sources and `clientDomain` conventions: [analytics-reference.md](analytics-reference.md).
+
 ## Lite paywall (current modal)
 
 The paywall modal (`UpgradePrompt.vue`) is **advocacy-only**. In-modal intent is captured when the user successfully copies the templated message.

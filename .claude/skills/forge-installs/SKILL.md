@@ -114,7 +114,7 @@ When the user is asking about a variant's health (not just its distribution), su
 
 ## Auth troubleshooting
 
-If `forge install list` fails with "Not logged in" or keychain errors, no amount of snapshot-diffing helps — the underlying CLI call is dead. The fixes are in `CLAUDE.md` § *Forge CLI auth troubleshooting*:
+If `forge install list` fails with "Not logged in" or keychain errors, no amount of snapshot-diffing helps — the underlying CLI call is dead. See [docs/debugging/forge-cli-auth.md](../../../docs/debugging/forge-cli-auth.md):
 
 1. `pnpm rebuild keytar` (in case the native binding wasn't built)
 2. `security set-keychain-settings ~/Library/Keychains/login.keychain-db` (reset auto-lock)

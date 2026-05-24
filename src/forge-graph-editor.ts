@@ -281,8 +281,18 @@ async function initializeMacro() {
         // CC. The save handler in saveGraphAndExit extends the existing
         // writeback trigger to fire for this no-original-customContentId
         // case (see attemptLegacyMigration below).
+        // Legacy V1 storage compressed graphXml + set compressed: true.
+        // Decompress here so downstream consumers (Vue mount, save path,
+        // attachment writer) all see plain XML uniformly.
+        const restored = value as Diagram & { compressed?: boolean };
+        let graphXml = restored.graphXml;
+        if (restored.compressed && graphXml && !graphXml.startsWith('<mxGraphModel')) {
+          graphXml = decompress(graphXml);
+        }
         doc = {
-          ...(value as Diagram),
+          ...restored,
+          graphXml,
+          compressed: false,
           diagramType: DiagramType.Graph,
           source: DataSource.ContentProperty,
           id: undefined,

@@ -99,20 +99,22 @@ async function loadDiagram() {
       if (result.status === 'ok') {
         const value = result.property.value;
         if (value && typeof value === 'object') {
-          // ZEN-1170 Defect 1: leave `id` undefined so a subsequent save
-          // creates a fresh CustomContent (not a PUT against a bogus id).
-          // The migration flag preserves the legacy origin signal for the
-          // viewer UI gate + the editor's writeback trigger.
-          // ZEN-1170 Defect 1: reuse the Defect 2b `recoveredFromOrphan`
-          // flag so the existing READ-ONLY chip + recovery banner + Edit
-          // disabled-tooltip in GenericViewer all apply identically. The
-          // user-facing meaning is the same: "this was recovered from a
-          // backup; to save changes, open the page editor". The recovery
-          // SOURCE (sibling CC vs legacy content property) is captured in
-          // the telemetry events rather than in the Diagram shape.
-          // `id` left undefined so save creates a fresh CustomContent.
+          // Legacy V1 storage (Connect-era) compressed graphXml and set
+          // `compressed: true` on the property value; the post-Forge CC
+          // path stores plain XML. Decompress here so doc.graphXml is
+          // always plain XML downstream — the Vue mount at L145 reads
+          // `contentProps.graphXml` BEFORE the post-mount window.updateGraph
+          // decompression at L148-155, so without this the viewer mounts
+          // with compressed bytes and renders blank.
+          const restored = value as Diagram & { compressed?: boolean };
+          let graphXml = restored.graphXml;
+          if (restored.compressed && graphXml && !graphXml.startsWith('<mxGraphModel')) {
+            graphXml = decompress(graphXml);
+          }
           doc = {
-            ...(value as Diagram),
+            ...restored,
+            graphXml,
+            compressed: false,
             diagramType: DiagramType.Graph,
             source: DataSource.ContentProperty,
             id: undefined,

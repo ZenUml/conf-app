@@ -30,6 +30,7 @@ const { values: args } = parseArgs({
     title: { type: "string" },
     parent: { type: "string" },
     body: { type: "string" },
+    "raw-property": { type: "string" },
   },
 });
 
@@ -77,11 +78,13 @@ const page = await api("POST", "/rest/api/content", pageReq);
 
 // 3. Write the content property at the legacy key with the diagram body.
 //    Shape mirrors what ContentPropertyStorageProvider expects: value is a
-//    Diagram object containing graphXml.
-const propertyValue = {
-  diagramType: "graph",
-  graphXml,
-};
+//    Diagram object containing graphXml. --raw-property overrides with a
+//    JSON file (used to replicate exact production shapes, e.g. legacy
+//    bodies that have {compressed: true, graphXml: <base64>} and no
+//    diagramType field).
+const propertyValue = args["raw-property"]
+  ? JSON.parse(readFileSync(args["raw-property"], "utf8"))
+  : { diagramType: "graph", graphXml };
 await api("POST", `/rest/api/content/${page.id}/property`, {
   key: propertyKey,
   value: propertyValue,

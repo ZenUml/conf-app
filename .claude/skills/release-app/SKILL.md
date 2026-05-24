@@ -148,6 +148,24 @@ Read `git log` output **as product intent**, not just keyword soup: group commit
 
 For any commit that is not self-explanatory from the subject line, **read the actual diff** (`git show <sha>`) to understand the specific code change before writing the plan.
 
+**Mandatory triage table — required before you may write the plan or declare N/A.**
+
+For every commit in `git log <prev-tag>..<new-tag> --oneline`, assign one of these categories:
+
+| Category | Criteria | Plan action |
+|---|---|---|
+| `behavioral` | Changes runtime behavior visible to a Confluence user or macro consumer | Must produce at least one `[ ]` assertion in the plan |
+| `instrumentation` | Adds/changes analytics events or properties; no UI change | May produce an assertion (event fires + properties) or be skipped with justification |
+| `infra/test/docs` | CI config, test files, migration scripts, documentation only | Write `Skipped: <subject> — <reason>` |
+
+A commit categorized as `infra/test/docs` or `instrumentation` that has **any** runtime code change (i.e. touches `src/` or `functions/` outside test directories) must be re-categorized as `behavioral` unless `git show <sha>` confirms the runtime path is never reachable from user-facing flows.
+
+**Variant reachability check (per commit):** A `behavioral` commit may still be unreachable in the variant being released — e.g. the embed macro module is removed from the Diagramly manifest, so `src/forge-embed-editor.ts` changes ship in the Diagramly bundle but cannot be triggered through Diagramly. When this applies, the commit stays `behavioral` but the assertion is replaced with `Not testable in <variant> — <reason, e.g. module removed via manifest yq>`. Don't silently drop it; the entry must appear in the triage table and final report.
+
+You may only write `Spot check: N/A — <justification>` if **every** commit in the triage table is assigned `infra/test/docs` and none is `behavioral` or `instrumentation`. If even one commit is `instrumentation`, write a plan entry for it (even if the assertion is "event fires with correct properties") — the N/A path is closed.
+
+The triage table must appear in your response **before** the plan or any N/A declaration. Output it explicitly — it is a required artifact, not internal reasoning.
+
 #### 2. Write the spot check plan — BEFORE touching the browser
 
 **STOP. Do not open the browser, run Playwright, or invoke any `/pvt-*` skill until this plan is written and output in the response.**
@@ -193,7 +211,7 @@ Commit: Track paywall advocacy draft preview expand and collapse in Mixpanel
 **Key rules:**
 - Each `[ ]` must be independently pass/fail checkable — if you cannot state what "pass" looks like before running, the assertion is too vague.
 - `/pvt-*` skills may appear as **method shortcuts** once an assertion is already written (`/pvt-paywall` covers assertions A, B, C), but never as a substitute for writing the assertion first.
-- If the delta contains no production behaviour changes (docs-only, test-only, infra-only), write `Spot check: N/A — <one-line justification>` and proceed to Step 6.
+- N/A is only available when **every** commit in the triage table (required in Section 1) is categorized as `infra/test/docs`. If so, write `Spot check: N/A — <one-line justification that references the triage table>` and proceed to Step 6. The triage table must appear in your response before the N/A declaration. A missing triage table means N/A is not available.
 
 #### 3. Execute the plan
 

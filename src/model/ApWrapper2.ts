@@ -24,6 +24,24 @@ import SpaceAdminResolver from './permissions/SpaceAdminResolver';
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
 const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
 
+// ZEN-1170 Defect 1: discriminated result for legacy content-property reads.
+// Viewers can collapse anything non-'ok' to "no content"; editors must
+// distinguish 'not_found' (legitimate new macro — body genuinely doesn't
+// exist) from forbidden/error/page_not_found (unsafe to treat as new —
+// would risk overwriting legacy data on save).
+//
+// CRITICAL: on the V2 endpoint `/pages/{pageId}/properties?key={key}`:
+//   - HTTP 200 + `results: []` = key genuinely not present → 'not_found' (safe)
+//   - HTTP 404                  = PAGE itself not reachable → 'page_not_found' (unsafe)
+// The 404 means we couldn't verify whether the key exists, so the editor
+// must fail closed and refuse to mount a fresh placeholder.
+export type ContentPropertyV2Result =
+  | { status: 'ok'; property: IContentProperty }
+  | { status: 'not_found' }
+  | { status: 'page_not_found' }
+  | { status: 'forbidden' }
+  | { status: 'error'; reason: 'http' | 'parse' | 'thrown'; httpStatus?: number };
+
 export default class ApWrapper2 implements IApWrapper {
   versionType: VersionType;
   _page: AtlasPage;
@@ -87,6 +105,57 @@ export default class ApWrapper2 implements IApWrapper {
     return Promise.resolve(undefined);
   }
 
+  // ZEN-1170 Defect 1: discriminated content-property read used by the Forge
+  // viewer/editor legacy-fallback paths. The legacy `getContentProperty` above
+  // collapses every failure to `undefined`, which is safe for viewer-only
+  // callers but unsafe for editors (a transient 403 would look identical to
+  // "no legacy property" and the user could save over the legacy data).
+  async getContentPropertyV2(key: string): Promise<ContentPropertyV2Result> {
+    // Resolve pageId with the same fallback chain as initializeContext, since
+    // not every Forge entry point calls initializeContext() before reaching
+    // here (e.g. forge-graph-editor.ts). Without this fallback, the editor's
+    // legacy-fallback path would always see status='error' and incorrectly
+    // mount EMPTY_GRAPH with saves blocked instead of restoring the legacy
+    // diagram body.
+    let pageId = this.currentPageId
+      || forgeGlobal.forgeContext?.extension?.content?.id;
+    if (!pageId) {
+      try { pageId = await this._page.getPageId(); } catch { /* fall through */ }
+    }
+    if (!pageId) return { status: 'error', reason: 'thrown' };
+    try {
+      // Use V2 properties endpoint with ?key= filter. The V1 endpoint
+      // (/wiki/rest/api/content/{id}/property/{key}) returns 410 Gone via
+      // Forge's requestConfluence proxy even though it still works for
+      // direct REST clients. V2 supports the same get-by-key shape via
+      // query param + returns a results array.
+      const url = `/wiki/api/v2/pages/${encodeURIComponent(pageId)}/properties?key=${encodeURIComponent(key)}`;
+      const { requestConfluence } = await import('@forge/bridge');
+      const res = await requestConfluence(url);
+      if (res.status === 403) return { status: 'forbidden' };
+      // V2 404 = the PAGE isn't reachable (wrong id, deleted, perms). It is
+      // NOT the same as "key doesn't exist on this page" — that's a 200 with
+      // empty results. Returning 'not_found' here would let editors treat a
+      // failed page lookup as "safe to start fresh" and destructively save
+      // over legacy data on a different page id we never actually probed.
+      if (res.status === 404) return { status: 'page_not_found' };
+      if (!res.ok) return { status: 'error', reason: 'http', httpStatus: res.status };
+      try {
+        const body = (await res.json()) as { results?: Array<{ value?: unknown; version?: { number: number } }> };
+        const first = body.results?.[0];
+        if (!first) return { status: 'not_found' }; // V2 returns 200 with empty results for missing key
+        return {
+          status: 'ok',
+          property: { value: first.value as IContentProperty['value'], version: first.version },
+        };
+      } catch {
+        return { status: 'error', reason: 'parse' };
+      }
+    } catch {
+      return { status: 'error', reason: 'thrown' };
+    }
+  }
+
   // All document types will be using the same content key.
   // Old documents that uses the old content key will not be migrated.
   // We may migrate them in the future.
@@ -139,12 +208,21 @@ export default class ApWrapper2 implements IApWrapper {
 
   async createCustomContentV2(content: Diagram): Promise<ICustomContentResponseBodyV2> {
     const type = this.getCustomContentType();
+    // ZEN-1170: strip UI/control-plane fields before serializing. See
+    // saveCustomContentV2 for the full rationale — these flags drive viewer
+    // chrome and persistence behavior and must never round-trip through
+    // the stored CC body, or the migrated macro stays trapped in the
+    // recovery UI forever. saveCustomContentV2's update branch sanitises
+    // there; this is the direct-create branch (called e.g. by
+    // CustomContentStorageProvider.save when source !== 'custom-content',
+    // which is the Defect 1 legacy-migration path).
+    const { recoveredFromOrphan: _rfo, recoveredFromOrphanId: _rid, legacyLoadBlocked: _llb, ...sanitizedContent } = content as any;
     const data: any = {
       "type": type,
       "pageId": await this._getCurrentPageId(),
       "title": content.title || `Untitled ${new Date().toISOString()}`,
       "body": {
-        "value": JSON.stringify(content),
+        "value": JSON.stringify(sanitizedContent),
         "representation": "raw"
       }
     };
@@ -904,25 +982,32 @@ export default class ApWrapper2 implements IApWrapper {
         || m?.customContentId?.value === customContentId;
     }));
 
+    // ZEN-1170: UI/control-plane fields (recoveredFromOrphan, legacyLoadBlocked,
+    // migratedFromLegacyContentProperty) are set by load paths to drive viewer
+    // chrome and persistence-layer behavior. They must NEVER round-trip through
+    // stored CustomContent body, or every future direct fetch would parse them
+    // back out and trap the (now-repaired) macro in the recovery UI forever
+    // (READ-ONLY banner + disabled Edit). Strip unconditionally before any
+    // create or update. Defect 1: catches legacy-content-property migrations
+    // where source=ContentProperty docs flow through the create branch.
+    // Defect 2b: catches the orphan-recovery branch below as well.
+    const { recoveredFromOrphan: _rfo, legacyLoadBlocked: _llb, ...bodyWithoutUiFlags } = value as any;
+
     // ZEN-1170 Defect 2b: when the diagram was loaded via orphan-sibling
     // recovery, the macro XML still references the dead orphan id, so no
     // macro on the page references this CC yet (count === 0). We still
     // want to update this CC in-place (rather than creating a third
     // record), AND preserve body.id = orphanId so future probe-based
     // recovery still finds this CC even if the macro-config repair via
-    // view.submit doesn't land. saveValue carries the orphan id back into
-    // the serialized body — but the UI/control-plane flags themselves
-    // (recoveredFromOrphan, recoveredFromOrphanId) must NOT be persisted,
-    // or every future direct fetch would parse them out of the body and
-    // treat the (now-repaired) CC as still-recovered indefinitely. Strip
-    // them before serializing.
+    // view.submit doesn't land. recoveredFromOrphanId itself is also
+    // stripped here so future direct fetches don't re-derive the flag.
     const recoveredFromOrphanId = value.recoveredFromOrphanId;
     const samePage = !pageId || String(pageId) === String(existing?.pageId);
     const countAllowsUpdate = recoveredFromOrphanId ? (count <= 1) : (count === 1);
-    let saveValue: Diagram = value;
+    let saveValue: Diagram = bodyWithoutUiFlags as Diagram;
     if (recoveredFromOrphanId) {
-      const { recoveredFromOrphan: _f, recoveredFromOrphanId: _id, ...bodyOnly } = value as any;
-      saveValue = { ...bodyOnly, id: recoveredFromOrphanId };
+      const { recoveredFromOrphanId: _id, ...bodyOnly } = bodyWithoutUiFlags as any;
+      saveValue = { ...bodyOnly, id: recoveredFromOrphanId } as Diagram;
     }
 
     if (existing && samePage && countAllowsUpdate) {

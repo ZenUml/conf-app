@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import ApWrapper2 from './ApWrapper2';
 import { trackEvent } from '@/utils/window';
 import { forgeRequest } from '@/utils/requestUtil';
+import { requestConfluence } from '@forge/bridge';
 
 vi.mock('@/utils/window', () => ({
   trackEvent: vi.fn(),
@@ -726,6 +727,160 @@ describe('ApWrapper2', () => {
         'GET',
         undefined
       );
+    });
+  });
+
+  // ZEN-1170 Defect 1
+  describe('getContentPropertyV2', () => {
+    const reqMock = vi.mocked(requestConfluence);
+
+    function mockResponse(init: { status: number; ok: boolean; json?: () => Promise<unknown> }) {
+      return Promise.resolve({
+        status: init.status,
+        ok: init.ok,
+        json: init.json ?? (() => Promise.resolve({})),
+      } as any);
+    }
+
+    beforeEach(() => {
+      reqMock.mockReset();
+      wrapper.currentPageId = 'page-123';
+    });
+
+    it('returns ok with the object value on 200 (V2 results array, first entry)', async () => {
+      const value = { code: 'A.method', diagramType: 'sequence' };
+      reqMock.mockImplementation(() => mockResponse({
+        status: 200, ok: true,
+        json: () => Promise.resolve({ results: [{ value, version: { number: 7 } }] }),
+      }));
+      const result = await wrapper.getContentPropertyV2('zenuml-sequence-macro-abc-body');
+      expect(result.status).toBe('ok');
+      expect(result.status === 'ok' && result.property.value).toEqual(value);
+      expect(result.status === 'ok' && result.property.version?.number).toBe(7);
+    });
+
+    it('returns ok with the string value on 200 (very-old format, wrapped in V2 results)', async () => {
+      reqMock.mockImplementation(() => mockResponse({
+        status: 200, ok: true,
+        json: () => Promise.resolve({ results: [{ value: 'A.method', version: { number: 1 } }] }),
+      }));
+      const result = await wrapper.getContentPropertyV2('zenuml-sequence-macro-abc-body');
+      expect(result.status).toBe('ok');
+      expect(result.status === 'ok' && result.property.value).toBe('A.method');
+    });
+
+    it('returns not_found when V2 returns 200 with empty results (key not present)', async () => {
+      reqMock.mockImplementation(() => mockResponse({
+        status: 200, ok: true,
+        json: () => Promise.resolve({ results: [] }),
+      }));
+      const result = await wrapper.getContentPropertyV2('zenuml-graph-macro-abc-body');
+      expect(result.status).toBe('not_found');
+    });
+
+    // ZEN-1170 Defect 1 regression: V2 404 means PAGE not reachable, NOT
+    // "key absent on this page". Editor callers must fail closed on this so
+    // a transient page-lookup failure can't be misread as "safe to save
+    // fresh" and destroy legacy data on a different (real) page.
+    it('returns page_not_found on 404 (page itself not reachable) — distinct from not_found', async () => {
+      reqMock.mockImplementation(() => mockResponse({ status: 404, ok: false }));
+      const result = await wrapper.getContentPropertyV2('zenuml-graph-macro-abc-body');
+      expect(result.status).toBe('page_not_found');
+    });
+
+    it('returns forbidden on 403 (must NOT be treated as absence)', async () => {
+      reqMock.mockImplementation(() => mockResponse({ status: 403, ok: false }));
+      const result = await wrapper.getContentPropertyV2('zenuml-graph-macro-abc-body');
+      expect(result.status).toBe('forbidden');
+    });
+
+    it('returns error with http reason on 5xx', async () => {
+      reqMock.mockImplementation(() => mockResponse({ status: 503, ok: false }));
+      const result = await wrapper.getContentPropertyV2('zenuml-graph-macro-abc-body');
+      expect(result.status).toBe('error');
+      expect(result.status === 'error' && result.reason).toBe('http');
+      expect(result.status === 'error' && result.httpStatus).toBe(503);
+    });
+
+    it('returns error with parse reason on malformed JSON', async () => {
+      reqMock.mockImplementation(() => mockResponse({
+        status: 200, ok: true,
+        json: () => Promise.reject(new Error('Unexpected token')),
+      }));
+      const result = await wrapper.getContentPropertyV2('zenuml-graph-macro-abc-body');
+      expect(result.status).toBe('error');
+      expect(result.status === 'error' && result.reason).toBe('parse');
+    });
+
+    it('returns error with thrown reason when requestConfluence throws', async () => {
+      reqMock.mockImplementation(() => Promise.reject(new Error('network')));
+      const result = await wrapper.getContentPropertyV2('zenuml-graph-macro-abc-body');
+      expect(result.status).toBe('error');
+      expect(result.status === 'error' && result.reason).toBe('thrown');
+    });
+
+    it('falls back via _page.getPageId when currentPageId and Forge context are absent (mock returns 456)', async () => {
+      wrapper.currentPageId = undefined;
+      // Use 200 + empty results so the call goes through pageId-fallback and
+      // returns the genuine no-key case (not the new 'page_not_found' for 404).
+      reqMock.mockImplementation(() => mockResponse({
+        status: 200, ok: true,
+        json: () => Promise.resolve({ results: [] }),
+      }));
+      const result = await wrapper.getContentPropertyV2('zenuml-graph-macro-abc-body');
+      expect(result.status).toBe('not_found');
+      expect(reqMock).toHaveBeenCalled();
+    });
+
+    // ZEN-1170 Defect 1 regression: graph editor doesn't call initializeContext()
+    // before invoking this method, so currentPageId is undefined. Without the
+    // pageId-fallback chain, every editor legacy load would falsely return
+    // status='error' and falsely set legacyLoadBlocked=true, blocking save AND
+    // failing to restore the legacy graph body.
+    it('regression: derives pageId from forgeGlobal context when currentPageId is unset', async () => {
+      wrapper.currentPageId = undefined;
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).forgeContext = {
+        extension: { content: { id: 'context-page-789' } },
+      };
+      reqMock.mockImplementation(() => mockResponse({
+        status: 200, ok: true,
+        json: () => Promise.resolve({ results: [] }),
+      }));
+      await wrapper.getContentPropertyV2('zenuml-graph-macro-abc-body');
+      expect(reqMock).toHaveBeenCalledWith(expect.stringContaining('/wiki/api/v2/pages/context-page-789/properties?key='));
+      (forgeGlobalMod.default as any).forgeContext = null;
+    });
+
+    // ZEN-1170 Defect 1 regression: stored DiagramType.Unknown is a valid
+    // enum string ('unknown') so a naive `restored.diagramType ?? ...`
+    // passes it through, the renderer mounts nothing, and a downstream
+    // save would persist CC with type='unknown' that hides the legacy
+    // body. The forgeIndex.ts validity-gate treats Unknown the same as
+    // missing and infers from populated content fields. This test pins
+    // the discriminated-result contract that supports that flow.
+    it('regression: returns ok for stored value with DiagramType.Unknown + mermaidCode (caller infers, not us)', async () => {
+      const value = { diagramType: 'unknown', mermaidCode: 'graph TD; A-->B' };
+      reqMock.mockImplementation(() => mockResponse({
+        status: 200, ok: true,
+        json: () => Promise.resolve({ results: [{ value, version: { number: 1 } }] }),
+      }));
+      const result = await wrapper.getContentPropertyV2('zenuml-sequence-macro-abc-body');
+      expect(result.status).toBe('ok');
+      // We return what was stored; the validity-gate at the caller is
+      // responsible for normalising Unknown → inferred type.
+      expect(result.status === 'ok' && (result.property.value as any).diagramType).toBe('unknown');
+      expect(result.status === 'ok' && (result.property.value as any).mermaidCode).toBe('graph TD; A-->B');
+    });
+
+    it('URL-encodes both pageId and key (V2 endpoint)', async () => {
+      wrapper.currentPageId = 'page/with space';
+      reqMock.mockImplementation(() => mockResponse({
+        status: 200, ok: true,
+        json: () => Promise.resolve({ results: [] }),
+      }));
+      await wrapper.getContentPropertyV2('zenuml-graph-macro-with/slash-body');
+      expect(reqMock).toHaveBeenCalledWith(expect.stringMatching(/\/wiki\/api\/v2\/pages\/page%2Fwith%20space\/properties\?key=zenuml-graph-macro-with%2Fslash-body/));
     });
   });
 });

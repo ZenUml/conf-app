@@ -7,8 +7,29 @@ import { syncCustomContent } from "@/services/CustomContent";
 import globals from '@/model/globals';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import macroMetrics from '@/services/MacroMetrics';
+import { reportSaveRefusedLegacyLoadBlocked } from '@/utils/legacyContentPropertyTelemetry';
+
+// ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
+// the legacyLoadBlocked sentinel. Editor save handlers should catch this
+// and surface a non-destructive UI affordance rather than re-throwing.
+export class LegacyLoadBlockedSaveError extends Error {
+  constructor(message = 'Save refused: legacy content failed to load.') {
+    super(message);
+    this.name = 'LegacyLoadBlockedSaveError';
+  }
+}
 
 export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = globals.apWrapper): Promise<string> {
+  // ZEN-1170 Defect 1: refuse to save when the editor was mounted with a
+  // failed legacy-content-property load. Saving would create fresh custom
+  // content and (via writeback) repoint the macro XML, hiding the legacy
+  // body behind a new id. The UI affordance is informational only — this
+  // is the actual safety boundary.
+  if (diagram.legacyLoadBlocked) {
+    reportSaveRefusedLegacyLoadBlocked(String(diagram.diagramType), diagram.source);
+    throw new LegacyLoadBlockedSaveError();
+  }
+
   console.log('Saving diagram to platform content provider', diagram);
   const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
   const customContent = await customContentStorageProvider.save(diagram);

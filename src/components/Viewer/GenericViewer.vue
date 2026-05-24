@@ -76,6 +76,7 @@
             </span>
           </div>
 
+
           <!-- Canvas + bottom-edge pill -->
           <div class="viewer-canvas">
             <div class="screen-capture-content" :class="{'w-full': wide}">
@@ -165,18 +166,25 @@ export default {
     showEdit() {
       if (import.meta.env.DEV) return true;
       const isCustomContent = this.diagram.source === DataSource.CustomContent;
-      return this.canUserEdit && isCustomContent;
+      // ZEN-1170 Defect 1: legacy-content-property recoveries set
+      // recoveredFromOrphan=true (reusing Defect 2b's UI flag). Without
+      // this clause those docs have source=ContentProperty so showEdit
+      // returns false and the disabled Edit button + tooltip steering the
+      // user to the page editor never appears.
+      return this.canUserEdit && (isCustomContent || this.diagram.recoveredFromOrphan);
     },
     recoveredFromOrphanMessage() {
       return 'This diagram was recovered from a backup. To save changes, click Edit on the page (top right), then click Edit on this macro.';
     },
     editDisabledReason() {
-      // ZEN-1170 Defect 2b: when the diagram was loaded via orphan-sibling
-      // recovery, the macro XML still references the dead customContentId.
+      // ZEN-1170 Defect 2b / Defect 1: when the diagram was loaded via
+      // any recovery path (orphan-sibling CC or legacy page content
+      // property), the macro XML doesn't reference a live customContentId.
       // Our in-viewer Edit opens a modal where view.submit({config}) can't
-      // persist back to the macro — saves would silently create orphans.
+      // persist back to the macro — saves would silently create orphans
+      // (2b) or fail to migrate the macro to the current shape (1).
       // Steer the user to Confluence's page editor where the macro-config
-      // surface (isConfiguring=true) can actually persist the repair.
+      // surface (isConfiguring=true) can actually persist the writeback.
       if (this.diagram.recoveredFromOrphan) {
         return this.recoveredFromOrphanMessage;
       }

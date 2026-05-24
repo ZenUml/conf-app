@@ -51,18 +51,23 @@ import macroMetrics from '@/services/MacroMetrics';
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import store from "@/model/store2";
 import GraphExample from '@/model/Graph/GraphExample';
-import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { DataSource, Diagram, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
+import {
+  reportLegacyContentPropertyRestored,
+  reportLegacyContentPropertyLoadFailed,
+  reportLegacyContentPropertyValueUnexpected,
+} from '@/utils/legacyContentPropertyTelemetry';
 
 async function loadDiagram() {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
   const customContentId = context.extension?.config?.customContentId;
+  const pageId = context.extension?.content?.id;
   if(!customContentId) {
   } else {
-    const pageId = context.extension?.content?.id;
     const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(pageId, customContentId);
     console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
@@ -77,6 +82,54 @@ async function loadDiagram() {
       reportOrphanObserved(pageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false });
     }
   }
+
+  // ZEN-1170 Defect 1: legacy macros (Connect-era) stored their body in a
+  // page content property keyed by config.uuid. The Forge viewer code path
+  // lost that fallback, leaving affected legacy pages with an empty iframe.
+  // Try the legacy property when custom content didn't produce a doc
+  // (whether because customContentId was missing OR because the orphan path
+  // didn't recover anything). Key MUST come from config.uuid, not localId
+  // (those are different identifiers; the legacy writer used config.uuid).
+  if (!doc) {
+    const storageUuid = context.extension?.config?.uuid;
+    if (storageUuid) {
+      const result = await globals.apWrapper.getContentPropertyV2(
+        `zenuml-graph-macro-${storageUuid}-body`,
+      );
+      if (result.status === 'ok') {
+        const value = result.property.value;
+        if (value && typeof value === 'object') {
+          // ZEN-1170 Defect 1: leave `id` undefined so a subsequent save
+          // creates a fresh CustomContent (not a PUT against a bogus id).
+          // The migration flag preserves the legacy origin signal for the
+          // viewer UI gate + the editor's writeback trigger.
+          // ZEN-1170 Defect 1: reuse the Defect 2b `recoveredFromOrphan`
+          // flag so the existing READ-ONLY chip + recovery banner + Edit
+          // disabled-tooltip in GenericViewer all apply identically. The
+          // user-facing meaning is the same: "this was recovered from a
+          // backup; to save changes, open the page editor". The recovery
+          // SOURCE (sibling CC vs legacy content property) is captured in
+          // the telemetry events rather than in the Diagram shape.
+          // `id` left undefined so save creates a fresh CustomContent.
+          doc = {
+            ...(value as Diagram),
+            diagramType: DiagramType.Graph,
+            source: DataSource.ContentProperty,
+            id: undefined,
+            recoveredFromOrphan: true,
+          };
+          reportLegacyContentPropertyRestored('viewer', 'graph', storageUuid, { pageId });
+        } else if (typeof value === 'string') {
+          reportLegacyContentPropertyValueUnexpected('viewer', 'graph', storageUuid, 'string');
+        } else {
+          reportLegacyContentPropertyValueUnexpected('viewer', 'graph', storageUuid, value == null ? 'null' : 'other');
+        }
+      } else if (result.status !== 'not_found') {
+        reportLegacyContentPropertyLoadFailed('viewer', 'graph', storageUuid, result.status === 'forbidden' ? 'forbidden' : result.status === 'error' ? result.reason : 'thrown', { pageId });
+      }
+    }
+  }
+
   store.state.diagram = doc ?? NULL_DIAGRAM;
   window.diagram = doc ?? NULL_DIAGRAM;
   console.log('loadDiagram - window.diagram', window.diagram);
@@ -106,6 +159,11 @@ async function loadDiagram() {
 
   setTimeout(async function () {
     try {
+      // ZEN-1170 Defect 1: the missing-customContentId case is handled
+      // centrally inside createAttachmentIfContentChanged (Attachment.ts)
+      // — it emits the `missing_custom_content_id` skip telemetry and
+      // returns early. Per-callsite fast paths previously here suppressed
+      // that central event, hiding the highest-volume class of skips.
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
         await createAttachmentIfContentChanged(graphXml ?? '', 'graph');
       } else {

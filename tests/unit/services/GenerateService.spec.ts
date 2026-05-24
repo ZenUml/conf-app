@@ -21,7 +21,7 @@ vi.mock('@/model/globals', () => ({
 }));
 
 import { callRemote } from '@/utils/requestUtil';
-import { generateDiagramFromPage, fixDiagram, diagramlyChat } from '@/services/GenerateService';
+import { generateDiagramFromPage, startFixDiagram, diagramlyChat } from '@/services/GenerateService';
 import { DiagramType } from '@/model/Diagram/Diagram';
 
 describe('GenerateService URLs are Forge-clean (no xdm_e, no addonKey)', () => {
@@ -45,8 +45,8 @@ describe('GenerateService URLs are Forge-clean (no xdm_e, no addonKey)', () => {
     expect(url).not.toContain('addonKey');
   });
 
-  it('fixDiagram does not include xdm_e or addonKey query params', async () => {
-    await fixDiagram('content', 'error', DiagramType.Sequence).catch(() => {});
+  it('startFixDiagram does not include xdm_e or addonKey query params', async () => {
+    await startFixDiagram('content', 'error', DiagramType.Sequence).catch(() => {});
     expect(vi.mocked(callRemote)).toHaveBeenCalled();
     const url = vi.mocked(callRemote).mock.calls[0][0] as string;
     expect(url).not.toContain('xdm_e');

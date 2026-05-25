@@ -3,7 +3,7 @@
     <button
       ref="triggerRef"
       type="button"
-      class="viewer-pill-btn overflow-menu-trigger"
+      class="overflow-menu-trigger"
       :class="{ 'overflow-menu-trigger--active': open }"
       :aria-label="triggerLabel"
       :title="triggerLabel"

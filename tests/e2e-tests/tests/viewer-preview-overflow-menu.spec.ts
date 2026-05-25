@@ -17,9 +17,14 @@
  * GenericViewer toolbar markup, or `.viewer-pill-btn` / `.viewer-icon`
  * scoped styling.
  *
- * Run:
- *   pnpm start:local &
- *   npx playwright test tests/viewer-preview-overflow-menu.spec.ts --project=preview
+ * Run (commands must be issued from the directories shown — the project
+ * is defined in `tests/e2e-tests/playwright.config.ts`, not at repo root):
+ *
+ *   # terminal 1, from repo root:
+ *   pnpm start:local
+ *
+ *   # terminal 2, from `tests/e2e-tests/`:
+ *   pnpm test:preview tests/viewer-preview-overflow-menu.spec.ts
  *
  * Future hardening (out of scope for this spec): wire the preview project into
  * CI — either by adding a Playwright `webServer` to the preview config so all

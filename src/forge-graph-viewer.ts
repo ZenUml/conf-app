@@ -176,7 +176,10 @@ async function loadDiagram() {
       // — it emits the `missing_custom_content_id` skip telemetry and
       // returns early. Per-callsite fast paths previously here suppressed
       // that central event, hiding the highest-volume class of skips.
-      if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
+      // Skip attachment write for PNG-recovered docs: CC is confirmed 404,
+      // re-uploading here would stamp stale recovered bytes as the current backup.
+      if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()
+          && doc?.source !== DataSource.PngAttachment) {
         await createAttachmentIfContentChanged(graphXml ?? '', 'graph');
       } else {
         console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");

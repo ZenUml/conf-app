@@ -49,9 +49,12 @@ export async function tryExtractFromPngAttachment(
     const attachments = await globals.apWrapper.getAttachmentsV2(pageId, { filename: attachmentName });
     if (!attachments?.length) return null;
 
-    // _links.download is the Confluence relative path (starts with /wiki/...)
-    const downloadPath = (attachments[0] as any)._links?.download as string | undefined;
-    if (!downloadPath) return null;
+    // _links.download from V2 API is a Confluence-relative path that may or may
+    // not carry the /wiki prefix (e.g. "/download/attachments/..." vs "/wiki/...").
+    // requestConfluence (Forge bridge) requires the /wiki prefix.
+    const rawDownload = (attachments[0] as any)._links?.download as string | undefined;
+    if (!rawDownload) return null;
+    const downloadPath = rawDownload.startsWith('/wiki/') ? rawDownload : `/wiki${rawDownload}`;
 
     // forgeRequest always calls .json(), so use requestConfluence directly for binary
     const { requestConfluence } = await import('@forge/bridge');

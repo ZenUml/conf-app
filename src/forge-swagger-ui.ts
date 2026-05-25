@@ -14,7 +14,7 @@ import {mountRoot} from "@/mount-root";
 import macroMetrics from "@/services/MacroMetrics";
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import store from "@/model/store2";
-import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { DataSource, Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
 
@@ -88,7 +88,10 @@ async function loadDiagram() {
 
   setTimeout(async function () {
     try {
-      if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
+      // Skip attachment write for PNG-recovered docs: CC is confirmed 404,
+      // re-uploading here would stamp stale recovered bytes as the current backup.
+      if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()
+          && doc?.source !== DataSource.PngAttachment) {
         await createAttachmentIfContentChanged(doc?.code ?? '', 'openapi');
       } else {
         console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");

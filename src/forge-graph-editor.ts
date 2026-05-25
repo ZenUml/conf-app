@@ -246,8 +246,10 @@ async function initializeMacro() {
 
   let doc: Diagram | undefined;
   let legacyLoadBlocked = false;
+  let directFetchStatus: string | undefined;
   if (customContentId) {
     const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId);
+    directFetchStatus = loaded.directFetchStatus;
     console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
     if (loaded.recoveredFromOrphanId && doc) {
@@ -322,6 +324,14 @@ async function initializeMacro() {
     // status === 'not_found' (200 + empty results) falls through to the
     // EMPTY_GRAPH branch below as a legitimate "no legacy data, start
     // fresh" case — the page was reachable and we confirmed no key.
+  }
+
+  // Last-resort: extract diagram source embedded in the PNG attachment.
+  // Only on confirmed 404 — transient 403/5xx should fail closed.
+  if (!doc && customContentId && recoveryPageId && !legacyLoadBlocked && directFetchStatus === 'not_found') {
+    const { tryExtractFromPngAttachment } = await import('@/utils/attachmentRecovery');
+    const pngDoc = await tryExtractFromPngAttachment(recoveryPageId, customContentId);
+    if (pngDoc) doc = pngDoc;
   }
 
   if (!doc) {

@@ -289,6 +289,13 @@ async function initializeMacro() {
         });
       } else if (!doc) {
         reportOrphanObserved(recoveryPageId, customContentId, 'openapi', loaded.probeResult, { recoveryUsed: false });
+        // Last-resort: extract diagram source embedded in the PNG attachment.
+        // Only on confirmed 404 — transient 403/5xx should fail closed.
+        if (recoveryPageId && loaded.directFetchStatus === 'not_found') {
+          const { tryExtractFromPngAttachment } = await import('@/utils/attachmentRecovery');
+          const pngDoc = await tryExtractFromPngAttachment(recoveryPageId, customContentId);
+          if (pngDoc) doc = pngDoc;
+        }
       }
     }
     store.state.diagram = doc ?? NULL_DIAGRAM;

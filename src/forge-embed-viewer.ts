@@ -25,6 +25,13 @@ async function loadDiagram() {
     if (!doc) {
       // ZEN-1170 telemetry: probe page children for a recovery candidate.
       void reportOrphanObserved(globals.apWrapper, context.extension?.content?.id, customContentId, 'embed');
+      // Last-resort: extract diagram source embedded in the PNG attachment.
+      const pageId = context.extension?.content?.id;
+      if (pageId) {
+        const { tryExtractFromPngAttachment } = await import('@/utils/attachmentRecovery');
+        const pngDoc = await tryExtractFromPngAttachment(pageId, customContentId);
+        if (pngDoc) doc = pngDoc;
+      }
     }
   }
   store.state.diagram = doc ?? NULL_DIAGRAM;

@@ -132,6 +132,13 @@ async function loadDiagram() {
     }
   }
 
+  // Last-resort: extract diagram source embedded in the PNG attachment.
+  if (!doc && customContentId && pageId) {
+    const { tryExtractFromPngAttachment } = await import('@/utils/attachmentRecovery');
+    const pngDoc = await tryExtractFromPngAttachment(pageId, customContentId);
+    if (pngDoc) doc = pngDoc;
+  }
+
   store.state.diagram = doc ?? NULL_DIAGRAM;
   window.diagram = doc ?? NULL_DIAGRAM;
   console.log('loadDiagram - window.diagram', window.diagram);

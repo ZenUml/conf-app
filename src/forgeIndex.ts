@@ -228,6 +228,15 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       // example/new path below as a legitimate "no legacy data" case.
     }
 
+    // Last-resort: extract diagram source embedded in the PNG attachment.
+    // Gate on !legacyLoadBlocked for the same reason as the NULL_DIAGRAM guard
+    // below: a blocked legacy load must not be silently overridden.
+    if (!doc && customContentId && recoveryPageId && !legacyLoadBlocked) {
+      const { tryExtractFromPngAttachment } = await import('@/utils/attachmentRecovery');
+      const pngDoc = await tryExtractFromPngAttachment(recoveryPageId, customContentId);
+      if (pngDoc) doc = pngDoc;
+    }
+
     // ZEN-1170 (pre-Defect-1 behavior preserved): when CC was attempted but
     // failed AND we have no legacy storageUuid to try AND legacy fallback
     // wasn't blocked, mount the placeholder empty doc so the wipe-precursor

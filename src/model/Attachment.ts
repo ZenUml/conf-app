@@ -216,8 +216,22 @@ function buildPostRequestToUploadAttachment(uri: string, hash: string, file: Fil
 /**
  * Upload an attachment file to Confluence.
  */
-async function uploadAttachment(attachmentName: string, uri: string, hash: string): Promise<ApiResponse> {
-  const blob = await toPng();
+async function uploadAttachment(
+  attachmentName: string,
+  uri: string,
+  hash: string,
+  content?: string,
+  diagramType?: string,
+): Promise<ApiResponse> {
+  let blob = await toPng();
+  if (blob && content !== undefined && diagramType) {
+    try {
+      const { injectDiagramSource } = await import('@/utils/pngMetadata');
+      blob = await injectDiagramSource(blob, diagramType, content);
+    } catch (e) {
+      console.warn('Failed to inject diagram source into PNG attachment', e);
+    }
+  }
   const file = new File([blob!], attachmentName, { type: 'image/png' });
   console.debug('Uploading attachment to', uri);
   return await makeRequest(buildPostRequestToUploadAttachment(uri, hash, file));
@@ -351,19 +365,26 @@ async function tryGetAttachment(): Promise<AttachmentWithLinks | false> {
  */
 async function uploadAttachment2(
   hash: string,
-  fnGetUri: (pageId: string) => string
+  fnGetUri: (pageId: string) => string,
+  content?: string,
+  diagramType?: string,
 ): Promise<ApiResponse> {
   const pageId = await global.apWrapper._getCurrentPageId();
   const identifier = await getIdentifier();
   const attachmentName = attachmentNameByIdentifier(identifier!);
   const uri = fnGetUri(pageId);
-  return await uploadAttachment(attachmentName, uri, hash);
+  return await uploadAttachment(attachmentName, uri, hash, content, diagramType);
 }
 
 /**
  * Create a function that uploads a new version of an existing attachment.
  */
-function uploadNewVersionOfAttachment(hash: string, ctx: UploadContext): () => Promise<AttachmentMeta> {
+function uploadNewVersionOfAttachment(
+  hash: string,
+  ctx: UploadContext,
+  content?: string,
+  diagramType?: string,
+): () => Promise<AttachmentMeta> {
   return async () => {
     const attachment = await tryGetAttachment() as AttachmentWithLinks;
     const attachmentId = attachment.id;
@@ -371,7 +392,7 @@ function uploadNewVersionOfAttachment(hash: string, ctx: UploadContext): () => P
     trackEvent('version:' + versionNumber, 'upload_attachment', 'export', ctx);
     await uploadAttachment2(hash, (pageId: string) => {
       return buildAttachmentBasePath(pageId) + '/' + attachmentId + '/data';
-    });
+    }, content, diagramType);
     return { attachmentId, versionNumber, hash };
   };
 }
@@ -379,10 +400,15 @@ function uploadNewVersionOfAttachment(hash: string, ctx: UploadContext): () => P
 /**
  * Create a function that uploads a new attachment.
  */
-function uploadNewAttachment(hash: string, ctx: UploadContext): () => Promise<AttachmentMeta> {
+function uploadNewAttachment(
+  hash: string,
+  ctx: UploadContext,
+  content?: string,
+  diagramType?: string,
+): () => Promise<AttachmentMeta> {
   return async () => {
     trackEvent('version:1', 'upload_attachment', 'export', ctx);
-    const response = await uploadAttachment2(hash, buildAttachmentBasePath);
+    const response = await uploadAttachment2(hash, buildAttachmentBasePath, content, diagramType);
     const parsed = JSON.parse(response.body);
     // Option B: Confluence v1 wraps a 404 in a 200 body when the page is a draft.
     // Body: {"statusCode":404,"message":"No content found … status : draft"}
@@ -488,7 +514,9 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
     const attachment = await tryGetAttachment();
     if (!attachment || hash !== attachment.comment) {
       const isUpdate = Boolean(attachment);
-      const attachmentMeta = await (attachment ? uploadNewVersionOfAttachment(hash, ctx) : uploadNewAttachment(hash, ctx))();
+      const attachmentMeta = await (attachment
+        ? uploadNewVersionOfAttachment(hash, ctx, content, diagramType)
+        : uploadNewAttachment(hash, ctx, content, diagramType))();
       await updateAttachmentProperties(attachmentMeta);
       // Success path — gives us a denominator for `_failed` and tells the
       // `created` vs `updated` story. Emit AFTER updateAttachmentProperties

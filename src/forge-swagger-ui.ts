@@ -69,6 +69,12 @@ async function loadDiagram() {
       });
     } else if (!doc) {
       reportOrphanObserved(pageId, customContentId, 'openapi', loaded.probeResult, { recoveryUsed: false });
+      // Last-resort: extract diagram source embedded in the PNG attachment.
+      if (pageId) {
+        const { tryExtractFromPngAttachment } = await import('@/utils/attachmentRecovery');
+        const pngDoc = await tryExtractFromPngAttachment(pageId, customContentId);
+        if (pngDoc) doc = pngDoc;
+      }
     }
   }
   store.state.diagram = doc ?? NULL_DIAGRAM;

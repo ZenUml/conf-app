@@ -3,6 +3,7 @@ export enum DataSource {
   ContentProperty = 'content-property',
   ContentPropertyOld = 'content-property-old',
   CustomContent = 'custom-content',
+  PngAttachment = 'png-attachment',
   Example = 'example',
   Unknown = 'unknown',
 }

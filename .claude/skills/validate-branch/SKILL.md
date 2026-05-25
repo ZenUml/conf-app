@@ -49,15 +49,7 @@ After Step 1 passes, exercise the feature against a real Confluence site. This i
 
 #### 2a. Write a spot check plan first
 
-> See **Spot Checks** in `CLAUDE.md` for the full definition — environment selection rules, key principles, and workflow.
-
-Before touching the browser, read the changes and write down:
-- The user-visible behavior the change affects (e.g. "clicking Fullscreen on a multi-page DrawIO diagram should show prev/next page navigation")
-- The target site and a specific Confluence page URL that has the relevant macro
-- 2–4 concrete interactions that exercise that behavior (button clicks, ESC key, form input, etc.)
-- The **expected** outcome of each interaction
-
-Do not skip this. A plan written before opening the browser is a contract — it makes PASS/FAIL unambiguous.
+Use the **spot-check** skill — write the plan (behavior, target site/page, assertions, expected outcomes) **before** touching the browser.
 
 #### 2b. Choose how to test
 
@@ -78,9 +70,9 @@ Use when the branch has been deployed to staging/dev (e.g. a recent push to `fix
 
 #### 2c. Execute the test plan
 
-Use Playwright MCP (`mcp__playwright__*`) — it's the only tool that can reach into Forge cross-origin iframes. Ad-hoc reproduction: use Playwright MCP directly; do not write spec files.
+Follow the **spot-check** skill workflow. Use Playwright MCP (`mcp__playwright__*`) — ad-hoc only; do not write spec files.
 
-For each interaction in your test plan:
+For each `[ ]` assertion in your plan:
 1. Perform the interaction
 2. Take a screenshot
 3. Assert the actual outcome matches the expected outcome
@@ -88,12 +80,10 @@ For each interaction in your test plan:
 If every interaction matches: Step 2 **PASS**.
 If any diverges: Step 2 **FAIL** — include the screenshot path + which assertion failed. Fix the underlying code, then re-run from Step 1.
 
-**Common gotchas:**
+**Common gotchas:** see **spot-check** skill (Forge iframes, paywall presets, version labels). Branch-specific:
 
-- *Tunnel serves stale code.* If you edited code without rebuilding, you'll see old behavior. Re-run `pnpm build:<variant>` and hard-refresh (Cmd+Shift+R).
-- *Wrong site.* A `v2026.…` version tag means you're on a public deploy, not the tunnel or dev site.
-- *Paywall state not reproducible.* Use the `Preset:` dropdown in the macro toolbar (Bystander/Owner/etc.) to force deterministic paywall variants.
-- *Iframe selectors don't resolve from the top frame.* Forge Custom UI lives in a cross-origin iframe. Use `page.frameLocator(...)` or `browser_run_code_unsafe` — not plain CSS selectors from the top frame.
+- *Tunnel serves stale code.* Re-run `pnpm build:<variant>` and hard-refresh (Cmd+Shift+R).
+- *Wrong site.* A `v2026.…` version tag means public deploy, not tunnel/dev.
 
 ## Output
 

@@ -586,6 +586,89 @@ export default class ApWrapper2 implements IApWrapper {
     };
   }
 
+  // ZEN-1170 Defect 1 sibling: cross-page-paste recovery.
+  //
+  // Connect-era macros stored only {uuid, updatedAt} in macro params — no
+  // `customContentId` — because the diagram body was looked up via uuid against
+  // content properties. After Forge-from-Connect migration those params were
+  // preserved verbatim, so any such macro that was never re-edited still has
+  // no customContentId today. When the macro is then copy-pasted to a new
+  // page, the destination page's macro params are a frozen {uuid, updatedAt}
+  // pair AND the destination page has no zenuml-graph-macro-<uuid>-body
+  // property either (content properties don't follow a macro paste) — so
+  // Defect 1's content-property fallback also misses. The data however does
+  // survive as a CustomContent on the SOURCE page, titled with the uuid.
+  //
+  // This fallback resolves the diagram by exact title match on the uuid,
+  // across the legacy custom-content types. Returns the most recent matching
+  // content shaped like getCustomContentByIdV2 — including cross-page copy
+  // detection — so it slots into the same downstream flow.
+  //
+  // Confirmed reproducible 2026-05-25 on a real customer page: 27 distinct
+  // CC records share one uuid title (a Connect-era save flow wrote a new
+  // record each save); limit=250 fetches them all in a single page and the
+  // in-memory sort by version.createdAt picks the most recent.
+  async findLegacyCustomContentByUuid(uuid: string): Promise<ICustomContentV2 | undefined> {
+    if (!uuid) return undefined;
+    const types = forgeGlobal.isDiagramly
+      ? ['gpt-custom-content-key']
+      : CUSTOM_CONTENT_TYPES;
+    try {
+      const responses = await Promise.all(types.map(t => {
+        const params = new URLSearchParams();
+        params.append('type', this.customContentType(t));
+        params.append('title', uuid);
+        params.append('body-format', 'raw');
+        // V2 max page size. The API's `title=` filter is keyword/prefix not
+        // exact match — see defensive c.title === uuid check below — and the
+        // results are unsorted within a page, so paginating cannot be avoided
+        // by sorting. Pulling one big page and picking the newest in-memory
+        // is simpler and avoids _links.next plumbing.
+        params.append('limit', '250');
+        return forgeRequest(`/wiki/api/v2/custom-content?${params.toString()}`);
+      }));
+
+      let best: any | undefined;
+      let bestWhen = 0;
+      for (const r of responses) {
+        for (const c of (r?.results || [])) {
+          if (c?.title !== uuid) continue;
+          const rawValue = c?.body?.raw?.value;
+          if (!rawValue) continue;
+          let parsed: any;
+          try { parsed = JSON.parse(rawValue); } catch { continue; }
+          if (!parsed?.diagramType) continue;
+          const when = new Date(c?.version?.createdAt || 0).getTime();
+          if (!best || when > bestWhen) {
+            best = c;
+            bestWhen = when;
+          }
+        }
+      }
+      if (!best) return undefined;
+
+      const diagram = JSON.parse(best.body.raw.value);
+      diagram.source = DataSource.CustomContent;
+      diagram.id = best.id;
+
+      const currentPageId = await this._page.getPageId();
+      if (currentPageId && best.pageId && String(currentPageId) !== String(best.pageId)) {
+        diagram.isCopy = true;
+        diagram.copyReason = 'cross-page';
+        trackEvent('cross_page', 'duplication_detect', 'warning');
+      } else {
+        diagram.isCopy = false;
+        diagram.copyReason = undefined;
+      }
+
+      return Object.assign({}, best, { value: diagram }) as ICustomContentV2;
+    } catch (e: any) {
+      console.error('findLegacyCustomContentByUuid', e);
+      trackEvent(String(e?.message || e).substring(0, 200), 'find_legacy_custom_content_by_uuid', 'error');
+      return undefined;
+    }
+  }
+
   async getCustomContentVersionBeforeDate(id: string, date: string): Promise<ICustomContentV2 | undefined> {
     const customContent = await this.getCustomContentRawV2(id, 'include-versions=true');
     const descendingVersions = customContent?.versions?.results.sort((a, b) => b.number - a.number);

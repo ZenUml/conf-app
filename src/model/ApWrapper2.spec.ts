@@ -580,6 +580,164 @@ describe('ApWrapper2', () => {
     });
   });
 
+  // ZEN-1170 Defect 1 sibling: cross-page-paste recovery via uuid → CC title.
+  // Connect-era macros stored only {uuid, updatedAt} in macro params. When
+  // copy-pasted, the macro params travel but content properties do not — so
+  // both the customContentId path and the Defect 1 content-property fallback
+  // miss. The diagram however survives as a CustomContent on the SOURCE
+  // page, titled with the uuid. This fallback finds it.
+  //
+  // Real-world verification 2026-05-25 against a customer tenant: 27 distinct
+  // CC records shared the same uuid title (a Connect-era save flow created a
+  // new record each save instead of versioning); limit=250 fetches them all
+  // in one page and version.createdAt sort picks the most recent.
+  describe('findLegacyCustomContentByUuid', () => {
+    const uuid = '6a0a1be1-8d41-47cc-a710-934e9d19480b';
+    const sequenceType = 'ac:com.zenuml.confluence-addon:zenuml-content-sequence';
+    const graphType = 'ac:com.zenuml.confluence-addon:zenuml-content-graph';
+
+    function match(opts: { id: string; pageId: string; title?: string; diagramType?: string; createdAt?: string; extra?: any }) {
+      const body = {
+        diagramType: opts.diagramType ?? 'graph',
+        graphXml: '<mxGraphModel/>',
+        ...(opts.extra || {}),
+      };
+      return {
+        id: opts.id,
+        type: graphType,
+        title: opts.title ?? uuid,
+        pageId: opts.pageId,
+        body: { raw: { value: JSON.stringify(body) } },
+        version: { number: 2, createdAt: opts.createdAt ?? '2024-09-10T00:00:00Z' },
+      };
+    }
+
+    it('returns undefined for an empty uuid (no API calls)', async () => {
+      const result = await wrapper.findLegacyCustomContentByUuid('');
+      expect(result).toBeUndefined();
+      expect(forgeRequest).not.toHaveBeenCalled();
+    });
+
+    it('queries both legacy types with title filter and limit=250', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ results: [] })
+        .mockResolvedValueOnce({ results: [] });
+
+      await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(forgeRequest).toHaveBeenCalledWith(
+        `/wiki/api/v2/custom-content?type=${encodeURIComponent(sequenceType)}&title=${uuid}&body-format=raw&limit=250`,
+      );
+      expect(forgeRequest).toHaveBeenCalledWith(
+        `/wiki/api/v2/custom-content?type=${encodeURIComponent(graphType)}&title=${uuid}&body-format=raw&limit=250`,
+      );
+    });
+
+    it('flags isCopy=true when the resolved content lives on a different page (customer scenario)', async () => {
+      // Customer macro on page 456 (spec's default getPageId mock) is a paste
+      // of a Connect-era macro whose data lives on page 999. Viewer should
+      // render the recovered diagram with the cross-page marker.
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ results: [] })
+        .mockResolvedValueOnce({ results: [match({ id: '3681484960', pageId: '999' })] });
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(result?.id).toBe('3681484960');
+      expect((result?.value as any)?.isCopy).toBe(true);
+      expect((result?.value as any)?.copyReason).toBe('cross-page');
+      expect((result?.value as any)?.diagramType).toBe('graph');
+      expect((result?.value as any)?.source).toBe('custom-content');
+      expect((result?.value as any)?.id).toBe('3681484960');
+    });
+
+    it('does not flag isCopy when the resolved content lives on the current page', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ results: [] })
+        .mockResolvedValueOnce({ results: [match({ id: 'cc1', pageId: '456' })] });
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect((result?.value as any)?.isCopy).toBe(false);
+      expect((result?.value as any)?.copyReason).toBeUndefined();
+    });
+
+    it('picks the most recently versioned match when several exist', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ results: [] })
+        .mockResolvedValueOnce({ results: [
+          match({ id: 'older', pageId: '456', createdAt: '2021-08-01T00:00:00Z' }),
+          match({ id: 'newest', pageId: '456', createdAt: '2024-09-10T00:00:00Z' }),
+          match({ id: 'middle', pageId: '456', createdAt: '2021-12-13T00:00:00Z' }),
+        ] });
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(result?.id).toBe('newest');
+    });
+
+    it('resolves a match from the sequence type when present', async () => {
+      // A Connect-era sequence macro that was migrated to Forge would have
+      // its body under zenuml-content-sequence — the fallback must cover it.
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ results: [match({ id: 'seq1', pageId: '456', diagramType: 'sequence' })] })
+        .mockResolvedValueOnce({ results: [] });
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(result?.id).toBe('seq1');
+      expect((result?.value as any)?.diagramType).toBe('sequence');
+    });
+
+    it('returns undefined when no listing yields a parseable diagram', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ results: [] })
+        .mockResolvedValueOnce({ results: [] });
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(result).toBeUndefined();
+    });
+
+    it('defensively ignores results whose title does not match (the title= filter is keyword/prefix, not exact)', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ results: [] })
+        .mockResolvedValueOnce({ results: [
+          match({ id: 'wrong', pageId: '456', title: 'something-else' }),
+        ] });
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(result).toBeUndefined();
+    });
+
+    it('ignores results with malformed JSON body and results missing diagramType', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ results: [] })
+        .mockResolvedValueOnce({ results: [
+          { id: 'a', title: uuid, pageId: '456', body: { raw: { value: 'not-json' } }, version: { createdAt: '2024-01-01' } },
+          { id: 'b', title: uuid, pageId: '456', body: { raw: { value: JSON.stringify({ noDiagramType: true }) } }, version: { createdAt: '2024-01-01' } },
+        ] });
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(result).toBeUndefined();
+    });
+
+    it('returns undefined and tracks an error event when forgeRequest throws', async () => {
+      vi.mocked(forgeRequest).mockRejectedValue(new Error('network down'));
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(result).toBeUndefined();
+      expect(trackEvent).toHaveBeenCalledWith(
+        expect.stringContaining('network down'),
+        'find_legacy_custom_content_by_uuid',
+        'error',
+      );
+    });
+  });
+
   // ZEN-1170 Defect 2b: when a diagram was loaded via orphan-sibling
   // recovery (diagram.recoveredFromOrphanId set), saveCustomContentV2 must
   // update the recovered CC in-place rather than creating a third record,

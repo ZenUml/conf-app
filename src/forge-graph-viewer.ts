@@ -129,6 +129,27 @@ async function loadDiagram() {
       } else if (result.status !== 'not_found') {
         reportLegacyContentPropertyLoadFailed('viewer', 'graph', storageUuid, result.status === 'forbidden' ? 'forbidden' : result.status === 'error' ? result.reason : 'thrown', { pageId });
       }
+
+      // ZEN-1170 Defect 1 sibling: cross-page-paste recovery. The content
+      // property above lives on THIS page, but a Connect-era macro copy-
+      // pasted to a new page has no property here — its body survives only
+      // as a CustomContent on the SOURCE page, titled with the uuid. This
+      // step finds it by tenant-wide title match and flags isCopy=true so
+      // the viewer renders the cross-page warning.
+      if (!doc) {
+        const recovered = await globals.apWrapper.findLegacyCustomContentByUuid(storageUuid);
+        if (recovered?.value) {
+          doc = recovered.value;
+          doc.recoveredFromOrphan = true;
+          trackEvent(storageUuid, 'legacy_custom_content_by_uuid_restored', 'info', {
+            surface: 'viewer',
+            macro_type: 'graph',
+            recovered_id: String(recovered.id ?? ''),
+            is_copy: doc.isCopy ? 'true' : 'false',
+            ...(pageId && { page_id: pageId }),
+          });
+        }
+      }
     }
   }
 

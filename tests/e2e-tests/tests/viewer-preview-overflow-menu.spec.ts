@@ -1,16 +1,31 @@
 /**
- * OverflowMenu regression — More trigger geometry + Download debug info flow.
+ * OverflowMenu — local regression check for More-trigger geometry + Download
+ * debug info flow.
  *
- * Guards the failure mode where the trigger button renders at 0×0 because of
- * Vue scoped-CSS hashing (the parent's `.viewer-pill-btn` rule cannot pierce
- * the OverflowMenu child component's data-v attribute). A unit test that only
- * inspects DOM presence cannot catch this — the button is in the DOM but has
- * zero clickable area. This test asserts measured geometry, opens the menu,
- * and verifies the bundle download triggers.
+ * Failure mode being guarded: the trigger button can render at 0×0 because of
+ * Vue scoped-CSS hashing (a parent component's `.viewer-pill-btn` rule cannot
+ * pierce a child component's data-v scope hash via `::v-slotted`). A unit
+ * test that only inspects DOM presence cannot catch this — the button is in
+ * the DOM but has zero clickable area. This spec asserts measured geometry,
+ * opens the menu, and verifies the bundle download triggers.
+ *
+ * Status: **local-first**, matching the project convention for all
+ * `viewer-preview-*.spec.ts` specs and the `feedback_local_verification`
+ * project preference. This spec runs against the local Vite dev server and
+ * is NOT gated by default CI workflows (`build-test-deploy`, `e2e-test*`).
+ * Run it manually before pushing any change that touches OverflowMenu,
+ * GenericViewer toolbar markup, or `.viewer-pill-btn` / `.viewer-icon`
+ * scoped styling.
  *
  * Run:
  *   pnpm start:local &
  *   npx playwright test tests/viewer-preview-overflow-menu.spec.ts --project=preview
+ *
+ * Future hardening (out of scope for this spec): wire the preview project into
+ * CI — either by adding a Playwright `webServer` to the preview config so all
+ * preview specs self-bootstrap, or by adding a dedicated workflow that starts
+ * Vite and runs `--project=preview`. Doing so would gate every preview spec,
+ * not just this one.
  */
 
 import { test, expect } from '@playwright/test'

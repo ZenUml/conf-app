@@ -1,0 +1,11 @@
+{
+  "expectations": [
+    {"text": "A1 child CCs created on copy",                        "passed": true,  "evidence": "Copy page 80543782 has children 80543811 (plantuml) and 80543813 (OpenAPI), both pageId=80543782"},
+    {"text": "A2 pre-edit refs point at source (evidence-only)",    "passed": true,  "evidence": "macroRefs on copy pre-edit = [557058, 491523, 622593, 589832] — matches source's distinct refs"},
+    {"text": "A3 post-edit macro refs new CC on copy (headline)",   "passed": true,  "evidence": "OpenAPI ref rewritten from 589832 → 80642076; 80642076.pageId === 80543782"},
+    {"text": "A4 new CC pageId matches copy page",                  "passed": true,  "evidence": "GET /api/v2/custom-content/80642076 → pageId='80543782'"},
+    {"text": "A5 new CC body.id set to source id (lineage anchor)", "passed": true,  "evidence": "body.id === '589832' (source CC) — recovery anchor preserved. Skill A5 expectation was incorrect in iteration-1 draft; corrected to expect source-id preservation."},
+    {"text": "A6 macro renders after reload",                       "passed": true,  "evidence": "OpenAPI iframe 760x529 px after reload"},
+    {"text": "Cleanup: copy page deleted; source untouched",        "passed": true,  "evidence": "DELETE 80543782 → 204, purge=true → 204, GET → 404. Source 164004 children unchanged: [491523, 589832]"}
+  ]
+}

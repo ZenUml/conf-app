@@ -103,15 +103,28 @@ For each variant being released:
 
 If releasing multiple variants, publish them one at a time and wait for each Release workflow to complete before publishing the next.
 
-### Step 4: Wait for Release Workflow
+### Step 4: Wait for the Deploy job (not the whole workflow)
 
-1. The Release workflow triggers automatically when the draft release is published
-2. Monitor with `gh run list --workflow=release.yml -L 1` then `gh run watch <run-id>`
-3. Verify it succeeded — if it failed, report and stop
+The Release workflow has two kinds of jobs:
+
+- **Deploy job** (`v{tag} to production`) — actually publishes to Cloudflare + Forge production. Once this is `success`, **the app is live on prod** and PVT can start.
+- **Smoke Test (Prod) — {variant} / shard 1/2 and 2/2** — Playwright tests that run *after* deploy. These provide additional coverage but are not gating: they exercise the same surfaces PVT will exercise, just from CI.
+
+Find the run and **proceed as soon as the deploy job completes successfully** — do not wait for the smoke shards or the workflow's overall completion:
+
+```bash
+gh run list --repo ZenUml/conf-app --workflow=release.yml -L 1 --json databaseId
+gh run view <run-id> --repo ZenUml/conf-app --json status,jobs \
+  | jq '.jobs[] | select(.name | test("to production$")) | {name, status, conclusion}'
+```
+
+Poll (cheap — ~3–5 min total) until the `* to production` job's `conclusion=success`, then **immediately proceed to Step 5**. Continue monitoring the smoke shards in the background; if any shard later fails, surface it as a post-PVT note, not a block.
+
+If the deploy job itself fails, stop and report — the app is NOT live and PVT would be testing the previous version.
 
 ### Step 5: PVT — Production Validation Testing (MANDATORY)
 
-**This step is NOT optional. Always run it immediately after the release workflow succeeds. Do NOT ask the user whether to run it — just do it.**
+**This step is NOT optional. Run it immediately after the Deploy job (Step 4) reports success — do not wait for the CI smoke shards to finish. Do NOT ask the user whether to run it — just do it.**
 
 For each variant released, run PVT:
 

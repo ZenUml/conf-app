@@ -43,6 +43,19 @@ Errors are grouped by the phase of the macro lifecycle where they occur. All emi
 
 _Avoid_: calling all `*_failed` events "errors" without grouping — they have different severities and owners. AI generation failures (`ai_generation_failed`) and feature-flag fetch failures (`feature_flags_fetch_failed`) are soft degradations, not core errors.
 
+## Tooling gotchas
+
+### `wrangler kv key get` silently reads local storage without `--remote`
+
+In wrangler 4.x, `wrangler kv key get --namespace-id <id>` defaults to **local mode** (a local SQLite store) when run outside a project context, even if the namespace ID is a valid Cloudflare namespace. It returns "Value not found" instead of erroring, making it look like the key doesn't exist.
+
+Always pass `--remote` to read from actual Cloudflare KV:
+
+```bash
+wrangler kv key get <KEY> --namespace-id <NS_ID> --remote
+wrangler kv key list --namespace-id <NS_ID> --remote
+```
+
 ## Flagged ambiguities
 
 - `Sequence` (DiagramType enum value) and "ZenUML" (user-facing brand) refer to the same rendering engine — resolved: prefer "ZenUML" in user-facing text; keep `Sequence` only in code that references the enum.

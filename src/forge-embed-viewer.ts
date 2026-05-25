@@ -8,7 +8,7 @@ import {mountRoot} from "@/mount-root";
 import macroMetrics from '@/services/MacroMetrics';
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import store from "@/model/store2";
-import { Diagram, NULL_DIAGRAM, getDiagramData } from "@/model/Diagram/Diagram";
+import { Diagram, NULL_DIAGRAM, getDiagramData, DataSource } from "@/model/Diagram/Diagram";
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 
@@ -17,17 +17,20 @@ async function loadDiagram() {
 
   let doc: Diagram | undefined;
   const customContentId = context.extension?.config?.customContentId;
+  const pageId = context.extension?.content?.id;
   if(!customContentId) {
   } else {
-    const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-    console.log('loadDiagram - customContent', customContent);
-    doc = customContent?.value;
-    if (!doc) {
-      // ZEN-1170 telemetry: probe page children for a recovery candidate.
-      void reportOrphanObserved(globals.apWrapper, context.extension?.content?.id, customContentId, 'embed');
+    const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(pageId, customContentId);
+    console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
+    doc = loaded.customContent?.value;
+    if (loaded.recoveredFromOrphanId && doc) {
+      doc.recoveredFromOrphan = true;
+      doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
+    } else if (!doc) {
+      reportOrphanObserved(pageId, customContentId, 'embed', loaded.probeResult, { recoveryUsed: false });
       // Last-resort: extract diagram source embedded in the PNG attachment.
-      const pageId = context.extension?.content?.id;
-      if (pageId) {
+      // Only on confirmed 404 — transient 403/5xx should fail closed.
+      if (pageId && loaded.directFetchStatus === 'not_found') {
         const { tryExtractFromPngAttachment } = await import('@/utils/attachmentRecovery');
         const pngDoc = await tryExtractFromPngAttachment(pageId, customContentId);
         if (pngDoc) doc = pngDoc;
@@ -51,7 +54,11 @@ async function loadDiagram() {
 
   setTimeout(async function () {
     try {
-      if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
+      // Skip attachment write for PNG-recovered docs: the custom content is a
+      // confirmed 404, so re-uploading a PNG here would write stale content as
+      // the current attachment rather than waiting for the user to save a fix.
+      if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()
+          && doc?.source !== DataSource.PngAttachment) {
         await createAttachmentIfContentChanged(doc ? getDiagramData(doc) : '', doc?.diagramType ?? 'embed');
       } else {
         console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");

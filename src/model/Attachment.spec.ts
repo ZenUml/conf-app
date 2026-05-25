@@ -269,7 +269,7 @@ describe('Attachment', () => {
       const existingAttachment = {
         id: 'attachment-123',
         version: { number: 2 },
-        comment: md5('test content')
+        comment: `${md5('test content')}|itxt:v1`
       };
       // tryGetAttachment calls getAttachmentsV2 with the pageId and filename
       // It's called once in createAttachmentIfContentChanged

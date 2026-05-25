@@ -70,7 +70,8 @@ async function loadDiagram() {
     } else if (!doc) {
       reportOrphanObserved(pageId, customContentId, 'openapi', loaded.probeResult, { recoveryUsed: false });
       // Last-resort: extract diagram source embedded in the PNG attachment.
-      if (pageId) {
+      // Only on confirmed 404 — transient 403/5xx should fail closed.
+      if (pageId && loaded.directFetchStatus === 'not_found') {
         const { tryExtractFromPngAttachment } = await import('@/utils/attachmentRecovery');
         const pngDoc = await tryExtractFromPngAttachment(pageId, customContentId);
         if (pngDoc) doc = pngDoc;

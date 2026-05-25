@@ -8,7 +8,7 @@ import {mountRoot} from "@/mount-root";
 import macroMetrics from '@/services/MacroMetrics';
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import store from "@/model/store2";
-import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { Diagram, NULL_DIAGRAM, getDiagramData } from "@/model/Diagram/Diagram";
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 
@@ -52,7 +52,7 @@ async function loadDiagram() {
   setTimeout(async function () {
     try {
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
-        await createAttachmentIfContentChanged(doc?.code || doc?.graphXml || doc?.mermaidCode || '', doc?.diagramType ?? 'embed');
+        await createAttachmentIfContentChanged(doc ? getDiagramData(doc) : '', doc?.diagramType ?? 'embed');
       } else {
         console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");
       }

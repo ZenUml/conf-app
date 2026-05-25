@@ -113,6 +113,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 
     let doc: Diagram | undefined;
     let legacyLoadBlocked = false;
+    let customContentDirectFetchStatus: string | undefined;
     const customContentId = context.extension?.config?.customContentId || context.extension.modal?.customContentId;
     originalCustomContentId = customContentId;
     recoveryPageId = context.extension?.content?.id;
@@ -121,6 +122,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const storageUuid: string | undefined = context.extension?.config?.uuid;
     if (customContentId) {
       const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId);
+      customContentDirectFetchStatus = loaded.directFetchStatus;
       console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
       doc = loaded.customContent?.value;
       if (loaded.recoveredFromOrphanId && doc) {
@@ -231,7 +233,10 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // Last-resort: extract diagram source embedded in the PNG attachment.
     // Gate on !legacyLoadBlocked for the same reason as the NULL_DIAGRAM guard
     // below: a blocked legacy load must not be silently overridden.
-    if (!doc && customContentId && recoveryPageId && !legacyLoadBlocked) {
+    // Also gate on directFetchStatus === 'not_found': only attempt recovery
+    // when CC returned a confirmed 404. Transient 403/5xx failures should
+    // fail closed — content may still be accessible on retry.
+    if (!doc && customContentId && recoveryPageId && !legacyLoadBlocked && customContentDirectFetchStatus === 'not_found') {
       const { tryExtractFromPngAttachment } = await import('@/utils/attachmentRecovery');
       const pngDoc = await tryExtractFromPngAttachment(recoveryPageId, customContentId);
       if (pngDoc) doc = pngDoc;

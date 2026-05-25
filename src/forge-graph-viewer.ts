@@ -64,11 +64,13 @@ async function loadDiagram() {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
+  let directFetchStatus: string | undefined;
   const customContentId = context.extension?.config?.customContentId;
   const pageId = context.extension?.content?.id;
   if(!customContentId) {
   } else {
     const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(pageId, customContentId);
+    directFetchStatus = loaded.directFetchStatus;
     console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
     if (loaded.recoveredFromOrphanId && doc) {
@@ -133,7 +135,8 @@ async function loadDiagram() {
   }
 
   // Last-resort: extract diagram source embedded in the PNG attachment.
-  if (!doc && customContentId && pageId) {
+  // Only on confirmed 404 — transient 403/5xx should fail closed.
+  if (!doc && customContentId && pageId && directFetchStatus === 'not_found') {
     const { tryExtractFromPngAttachment } = await import('@/utils/attachmentRecovery');
     const pngDoc = await tryExtractFromPngAttachment(pageId, customContentId);
     if (pngDoc) doc = pngDoc;

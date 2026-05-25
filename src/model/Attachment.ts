@@ -512,11 +512,14 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
 
   try {
     const attachment = await tryGetAttachment();
-    if (!attachment || hash !== attachment.comment) {
+    // Append a version token so existing attachments that pre-date iTXt
+    // injection get one forced re-upload to embed the diagram source.
+    const metaKey = `${hash}|itxt:v1`;
+    if (!attachment || metaKey !== attachment.comment) {
       const isUpdate = Boolean(attachment);
       const attachmentMeta = await (attachment
-        ? uploadNewVersionOfAttachment(hash, ctx, content, diagramType)
-        : uploadNewAttachment(hash, ctx, content, diagramType))();
+        ? uploadNewVersionOfAttachment(metaKey, ctx, content, diagramType)
+        : uploadNewAttachment(metaKey, ctx, content, diagramType))();
       await updateAttachmentProperties(attachmentMeta);
       // Success path — gives us a denominator for `_failed` and tells the
       // `created` vs `updated` story. Emit AFTER updateAttachmentProperties

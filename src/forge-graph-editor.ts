@@ -112,7 +112,18 @@ async function saveGraphAndExit(graphXml: string) {
   // macro XML to a CC-backed shape on first save.
   const legacyMacroNeedsRepair = !originalCustomContentId
     && (window.diagram?.source === DataSource.ContentProperty
-        || window.diagram?.source === DataSource.ContentPropertyOld);
+        || window.diagram?.source === DataSource.ContentPropertyOld
+        // PR #139 same-page recovery: my findLegacyCustomContentByUuid
+        // fallback may resolve a CC on the SAME page (rare — Connect-era
+        // macro on its original page where the CC was migrated). In that
+        // case save updates the recovered CC in place (id unchanged ⇒
+        // idChanged is false), so without this writeback the macro params
+        // would stay uuid-only and every future view would re-trigger the
+        // tenant-wide title search. Cross-page recovery (the common case)
+        // already triggers writeback via the idChanged path (isCopy=true
+        // forks to a new CC), so this only kicks in for same-page hits.
+        || (window.diagram?.source === DataSource.CustomContent
+            && !!(window.diagram as any)?.recoveredFromOrphan));
 
   setTimeout(async () => {
     const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
@@ -322,6 +333,33 @@ async function initializeMacro() {
     // status === 'not_found' (200 + empty results) falls through to the
     // EMPTY_GRAPH branch below as a legitimate "no legacy data, start
     // fresh" case — the page was reachable and we confirmed no key.
+  }
+
+  // ZEN-1170 Defect 1 sibling (PR #139): cross-page-paste recovery via
+  // uuid → CC title. The content-property step above only checks THIS
+  // page; a Connect-era macro copy-pasted to a new page has no property
+  // here — its body survives only as a CustomContent on the SOURCE page,
+  // titled with the uuid. Without this fallback the editor would mount
+  // EMPTY_GRAPH and the user's first save would silently wipe out the
+  // recovered diagram the viewer is still showing (PR #139 viewer step 3).
+  if (!doc && storageUuid) {
+    const recovered = await globals.apWrapper.findLegacyCustomContentByUuid(storageUuid);
+    if (recovered?.value) {
+      doc = recovered.value;
+      doc.recoveredFromOrphan = true;
+      // Step 2 may have set legacyLoadBlocked if its property check was
+      // indeterminate (403/page-not-found/parse-error). Clear it: step 3
+      // found a real CC on a different storage layer — saving creates a
+      // new CC, it cannot overwrite the content property we couldn't read.
+      legacyLoadBlocked = false;
+      trackEvent(storageUuid, 'legacy_custom_content_by_uuid_restored', 'info', {
+        surface: 'editor',
+        macro_type: 'graph',
+        recovered_id: String(recovered.id ?? ''),
+        is_copy: doc.isCopy ? 'true' : 'false',
+        ...(recoveryPageId && { page_id: recoveryPageId }),
+      });
+    }
   }
 
   if (!doc) {

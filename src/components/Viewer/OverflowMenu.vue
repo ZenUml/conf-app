@@ -90,9 +90,33 @@ export default {
   display: inline-flex;
 }
 
+.overflow-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  color: #6B7280;
+  border: none;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+.overflow-menu-trigger:hover {
+  background: #F3F4F6;
+  color: #374151;
+}
+
 .overflow-menu-trigger--active {
   background: #F3F4F6;
   color: #374151;
+}
+
+.overflow-menu-trigger > .viewer-icon {
+  width: 16px;
+  height: 16px;
 }
 
 .overflow-menu-popover {

@@ -29,10 +29,16 @@ export function reportOrphanObserved(
 ): void {
   try {
     if (!pageId || !probeResult) {
+      // Two distinct reasons we couldn't probe:
+      //   - no_page_id:       context.extension.content.id was undefined at call time
+      //   - no_probe_result:  pageId was present but loadCustomContentWithOrphanRecovery
+      //                       refused to probe (transient direct-fetch error: 403/5xx/parse).
+      //                       The CC may still exist — don't conflate with true orphans.
       trackEvent(orphanId, 'customcontent_orphan_observed', 'warning', {
         diagram_kind: diagramKind,
-        recoverable: 'probe_skipped_no_page_id',
+        recoverable: !pageId ? 'probe_skipped_no_page_id' : 'probe_skipped_no_probe_result',
         recovery_used: false,
+        ...(pageId && { page_id: pageId }),
       });
       return;
     }

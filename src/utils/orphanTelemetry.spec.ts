@@ -77,7 +77,7 @@ describe('reportOrphanObserved', () => {
     );
   });
 
-  it('skips detailed tracking and reports probe_skipped_no_page_id when pageId is missing', () => {
+  it('reports probe_skipped_no_page_id and omits page_id when pageId is missing', () => {
     const probe = fakeProbe();
 
     reportOrphanObserved(undefined, '3916300417', 'openapi', probe);
@@ -92,9 +92,11 @@ describe('reportOrphanObserved', () => {
         recovery_used: false,
       }),
     );
+    const call = vi.mocked(trackEvent).mock.calls[0];
+    expect(call[3]).not.toHaveProperty('page_id');
   });
 
-  it('skips detailed tracking and reports probe_skipped_no_page_id when probeResult is undefined', () => {
+  it('reports probe_skipped_no_probe_result and keeps page_id when probeResult is undefined', () => {
     reportOrphanObserved('page1', 'orphan1', 'embed', undefined);
 
     expect(trackEvent).toHaveBeenCalledWith(
@@ -102,7 +104,9 @@ describe('reportOrphanObserved', () => {
       'customcontent_orphan_observed',
       'warning',
       expect.objectContaining({
-        recoverable: 'probe_skipped_no_page_id',
+        recoverable: 'probe_skipped_no_probe_result',
+        page_id: 'page1',
+        recovery_used: false,
       }),
     );
   });

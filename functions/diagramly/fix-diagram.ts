@@ -1,7 +1,7 @@
 import { response, OkResponse } from "../OkResponse";
 import { modifyDiagram } from "../service/diagramlyService";
 
-export const onRequest = async ({ request, env }) => {
+export const onRequest = async ({ request, env }: { request: Request; env: any }) => {
   try {
     const body: {
       diagramCode: string;
@@ -27,9 +27,10 @@ export const onRequest = async ({ request, env }) => {
       body.errorMessage,
       body.diagramType
     );
+
     return OkResponse(result);
-  } catch (e) {
-    console.log(`Error: ${e}`);
-    return response(500, e);
+  } catch (e: any) {
+    console.error('[fix-diagram] Error:', e.message);
+    return response(500, e.message || 'Internal server error');
   }
 };

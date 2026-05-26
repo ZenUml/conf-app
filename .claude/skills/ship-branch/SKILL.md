@@ -1,6 +1,9 @@
 ---
 name: ship-branch
-description: Ship the current branch from local validation through to merged on main with staging deployed and draft releases created. Orchestrates validate-branch, submit-branch, and land-pr in sequence. Use when the user says "ship", "ship it", "ship this branch", "merge this", or wants to go from local branch to merged in one command. Stops at the first failure. Does NOT deploy to production — use /release-app after shipping.
+description: Create a branch, run local validation, create a PR and **merge** on main 
+  with staging deployed and draft releases created. Use when the user says "ship", "ship it", "ship this branch",
+  "merge this", or wants to go from local branch to merged in one command. Stops at the first failure. 
+  Does NOT deploy to production — use /release-app after shipping.
 ---
 
 # Ship Branch
@@ -24,6 +27,10 @@ land-pr → BLOCKED → stop, report
 ```
 
 ## Steps
+
+### Step 0: Create branch
+
+If the current branch is main, create a new branch from it.
 
 ### Step 1: Validate locally
 

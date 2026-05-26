@@ -43,6 +43,28 @@ All three variants use the **Forge modal** pattern:
 Lite appends " Lite" to macro names. Diagramly and Full do not.
 Staging apps append " (Staging)" — this is fine, matching handles it automatically.
 
+### Disambiguating Full vs Diagramly when both are installed
+
+Production site `zenuml.atlassian.net` has **all three apps installed side-by-side**, so the Diagram macro appears in the macro browser as:
+
+| # | Name (search match) | Description (disambiguator) | Module key |
+|---|---------------------|------------------------------|------------|
+| 1 | `Diagram (Mermaid, PlantUML & ZenUML)` | `Diagramly for Confluence` | `gpt-diagram-macro` |
+| 2 | `Diagram (Mermaid, PlantUML & ZenUML)` | `ZenUML for Confluence` | `zenuml-sequence-macro` |
+| 3 | `Diagram (Mermaid, PlantUML & ZenUML) Lite` | `ZenUML for Confluence Lite` | `zenuml-sequence-macro-lite` |
+
+Full and Diagramly share the exact same display name, so `.filter({ hasText: 'Diagram (Mermaid' }).filter({ hasNotText: 'Lite' }).first()` non-deterministically picks one — usually the wrong one. Always disambiguate by **description text** when targeting a specific variant:
+
+| Variant | Filter chain (use these exact filters) |
+|---------|----------------------------------------|
+| Lite | `.filter({ hasText: 'Diagram (Mermaid' }).filter({ hasText: 'Lite' })` |
+| Full | `.filter({ hasText: 'Diagram (Mermaid' }).filter({ hasText: 'ZenUML for Confluence' }).filter({ hasNotText: 'Lite' })` |
+| Diagramly | `.filter({ hasText: 'Diagram (Mermaid' }).filter({ hasText: 'Diagramly for Confluence' })` |
+
+**Verification before clicking**: when in doubt, enumerate the options first and confirm which index matches your target — the wrong variant produces a successful save with the wrong app's bundle, debug bar, and D1 row. The toolbar version label (e.g. `…-full:e34a…` vs `…-diagramly:e34a…`) is the after-the-fact tell.
+
+Same disambiguation applies to **Graph (DrawIO)** and **OpenAPI** macros — on multi-install sites, expect 2–3 entries per macro type; pick by description text. If a variant's macro browser entry isn't observable, the app likely isn't installed on that site.
+
 ## Page title format (required)
 
 Whenever this skill **creates a new Confluence page**, set the **page title** to:
@@ -196,9 +218,17 @@ browser_run_code code="async (page) => {
   await input.dispatchEvent('change');
   await page.waitForTimeout(2000);
 
-  // Click matching option — Lite: include 'Lite'; Full/Diagramly: exclude 'Lite'
+  // Click matching option — disambiguate by description text (see "Disambiguating Full vs Diagramly" above):
+  //   Lite:      .filter({ hasText: 'Lite' })
+  //   Full:      .filter({ hasText: 'ZenUML for Confluence' }).filter({ hasNotText: 'Lite' })
+  //   Diagramly: .filter({ hasText: 'Diagramly for Confluence' })
+  // The example below targets Full — substitute the line for the variant you are testing.
   const options = dialog.locator('[role=option], [role=gridcell] button');
-  const match = options.filter({ hasText: 'Diagram (Mermaid' }).filter({ hasNotText: 'Lite' }).first();
+  const match = options
+    .filter({ hasText: 'Diagram (Mermaid' })
+    .filter({ hasText: 'ZenUML for Confluence' })
+    .filter({ hasNotText: 'Lite' })
+    .first();
   await match.click();
   await page.waitForTimeout(500);
   // REQUIRED: Browse dialog selects on click but needs Insert button to confirm
@@ -224,7 +254,7 @@ browser_run_code code="async (page) => {
 ```
 
 Change `tab: 'Sequence'` → `'Mermaid'` or `'PlantUML'` and title accordingly per macro.
-For **Lite** variant, change the `filter({ hasNotText: 'Lite' })` to `filter({ hasText: 'Lite' })`.
+Swap the variant filter chain per the per-variant recipe in the snippet comments — always include the description-text filter when running on a multi-install site like `zenuml.atlassian.net` (production) where Full and Diagramly share the same display name.
 
 **For Graph (DrawIO):**
 
@@ -244,9 +274,16 @@ browser_run_code code="async (page) => {
   await input.dispatchEvent('change');
   await page.waitForTimeout(2000);
 
-  // Lite: include 'Lite'; Full/Diagramly: exclude 'Lite'
+  // Disambiguate variants by description text on multi-install sites (e.g. zenuml.atlassian.net prod):
+  //   Lite:      .filter({ hasText: 'Lite' })
+  //   Full:      .filter({ hasText: 'ZenUML for Confluence' }).filter({ hasNotText: 'Lite' })
+  //   Diagramly: .filter({ hasText: 'Diagramly for Confluence' })
+  // Example below targets Full.
   const match = dialog.locator('[role=option], [role=gridcell] button')
-    .filter({ hasText: 'Graph (DrawIO)' }).filter({ hasNotText: 'Lite' }).first();
+    .filter({ hasText: 'Graph (DrawIO)' })
+    .filter({ hasText: 'ZenUML for Confluence' })
+    .filter({ hasNotText: 'Lite' })
+    .first();
   await match.click();
   await page.waitForTimeout(500);
   await page.getByTestId('ModalElementBrowser__insert-button').click();
@@ -284,8 +321,16 @@ browser_run_code code="async (page) => {
   await input.dispatchEvent('change');
   await page.waitForTimeout(2000);
 
+  // Disambiguate variants by description text on multi-install sites (e.g. zenuml.atlassian.net prod):
+  //   Lite:      .filter({ hasText: 'Lite' })
+  //   Full:      .filter({ hasText: 'ZenUML for Confluence' }).filter({ hasNotText: 'Lite' })
+  //   Diagramly: .filter({ hasText: 'Diagramly for Confluence' })
+  // Example below targets Full.
   const match = dialog.locator('[role=option], [role=gridcell] button')
-    .filter({ hasText: 'OpenAPI' }).filter({ hasNotText: 'Lite' }).first();
+    .filter({ hasText: 'OpenAPI' })
+    .filter({ hasText: 'ZenUML for Confluence' })
+    .filter({ hasNotText: 'Lite' })
+    .first();
   await match.click();
   await page.waitForTimeout(500);
   await page.getByTestId('ModalElementBrowser__insert-button').click();

@@ -125,9 +125,9 @@ Report PVT results to the user.
 
 **This step runs automatically after PVT. Do not skip it.**
 
-> See **Spot Checks** in `CLAUDE.md` for the full definition — what a spot check is, environment selection rules, and key principles.
+General workflow, environment selection, and verification methods: **spot-check** skill.
 
-A **spot check** here is **not** defined as “find a matching `/pvt-*` skill.” It means: **understand what shipped in this iteration** for the variant being released, then **run checks that deliberately exercise those changes** — the smallest set of verification that still covers the delta.
+Release-specific: a spot check here is **not** defined as “find a matching `/pvt-*` skill.” It means: **understand what shipped in this iteration** for the variant being released, then **run checks that deliberately exercise those changes** — the smallest set of verification that still covers the delta.
 
 #### 1. Establish the release delta
 
@@ -148,15 +148,27 @@ Read `git log` output **as product intent**, not just keyword soup: group commit
 
 For any commit that is not self-explanatory from the subject line, **read the actual diff** (`git show <sha>`) to understand the specific code change before writing the plan.
 
+**Mandatory triage table — required before you may write the plan or declare N/A.**
+
+For every commit in `git log <prev-tag>..<new-tag> --oneline`, assign one of these categories:
+
+| Category | Criteria | Plan action |
+|---|---|---|
+| `behavioral` | Changes runtime behavior visible to a Confluence user or macro consumer | Must produce at least one `[ ]` assertion in the plan |
+| `instrumentation` | Adds/changes analytics events or properties; no UI change | May produce an assertion (event fires + properties) or be skipped with justification |
+| `infra/test/docs` | CI config, test files, migration scripts, documentation only | Write `Skipped: <subject> — <reason>` |
+
+A commit categorized as `infra/test/docs` or `instrumentation` that has **any** runtime code change (i.e. touches `src/` or `functions/` outside test directories) must be re-categorized as `behavioral` unless `git show <sha>` confirms the runtime path is never reachable from user-facing flows.
+
+**Variant reachability check (per commit):** A `behavioral` commit may still be unreachable in the variant being released — e.g. the embed macro module is removed from the Diagramly manifest, so `src/forge-embed-editor.ts` changes ship in the Diagramly bundle but cannot be triggered through Diagramly. When this applies, the commit stays `behavioral` but the assertion is replaced with `Not testable in <variant> — <reason, e.g. module removed via manifest yq>`. Don't silently drop it; the entry must appear in the triage table and final report.
+
+You may only write `Spot check: N/A — <justification>` if **every** commit in the triage table is assigned `infra/test/docs` and none is `behavioral` or `instrumentation`. If even one commit is `instrumentation`, write a plan entry for it (even if the assertion is "event fires with correct properties") — the N/A path is closed.
+
+The triage table must appear in your response **before** the plan or any N/A declaration. Output it explicitly — it is a required artifact, not internal reasoning.
+
 #### 2. Write the spot check plan — BEFORE touching the browser
 
-**STOP. Do not open the browser, run Playwright, or invoke any `/pvt-*` skill until this plan is written and output in the response.**
-
-The plan is a checklist of **specific, falsifiable assertions** about what you expect to observe in production — one assertion per behavioural or instrumentation change in the delta. Each assertion must name:
-
-1. **The changed behaviour** — derived from reading the commit/diff, not from keyword matching
-2. **The observable signal** — a specific Mixpanel event + property, a named UI element, a network response, etc.
-3. **The method** — how you will verify it (Playwright MCP step, request intercept, curl, etc.)
+**STOP.** Follow the **spot-check** skill plan format. Release-specific additions below apply on top of that template.
 
 **Format:**
 
@@ -193,9 +205,11 @@ Commit: Track paywall advocacy draft preview expand and collapse in Mixpanel
 **Key rules:**
 - Each `[ ]` must be independently pass/fail checkable — if you cannot state what "pass" looks like before running, the assertion is too vague.
 - `/pvt-*` skills may appear as **method shortcuts** once an assertion is already written (`/pvt-paywall` covers assertions A, B, C), but never as a substitute for writing the assertion first.
-- If the delta contains no production behaviour changes (docs-only, test-only, infra-only), write `Spot check: N/A — <one-line justification>` and proceed to Step 6.
+- N/A is only available when **every** commit in the triage table (required in Section 1) is categorized as `infra/test/docs`. If so, write `Spot check: N/A — <one-line justification that references the triage table>` and proceed to Step 6. The triage table must appear in your response before the N/A declaration. A missing triage table means N/A is not available.
 
 #### 3. Execute the plan
+
+Follow the **spot-check** skill execution workflow. Release-specific rules:
 
 - **Variant:** Always pass **the same variant as this release** into skills or instructions (e.g. `/release-app diagramly` → tests target **diagramly**).
 - **Pre-built skills:** Invoke `/pvt-*` skills **when they align** with the plan — they are reusable recipes, not the definition of “spot check.”

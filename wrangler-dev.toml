@@ -11,6 +11,10 @@ ENVIRONMENT = "development"  # Set to "development" for local development
 # For local wrangler pages dev: set via personal wrangler-{name}.toml or --var flag.
 # Unset = no allowlist = capture all sites (acceptable for local dev).
 
+# JOINT-DEBUG
+NGROK_AUTHTOKEN = "2piBMy4QpL0xxxxx"
+NGROK_DOMAIN = "xxxx.ngrok-free.app"
+
 [env.production]
 ENVIRONMENT = "production"
 

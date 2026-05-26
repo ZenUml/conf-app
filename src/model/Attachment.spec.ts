@@ -79,6 +79,12 @@ describe('Attachment', () => {
     mockGetContext.mockResolvedValue({
       extension: { config: { customContentId: 'test-uuid' } }
     });
+    // ZEN-1170 Defect 1: createAttachmentIfContentChanged now reads
+    // forgeGlobal.forgeContext directly to gate on customContentId — set
+    // it here so all existing happy-path tests proceed past the guard.
+    (forgeGlobal as any).forgeContext = {
+      extension: { config: { customContentId: 'test-uuid' } },
+    };
     mockApWrapper._getCurrentPageId.mockResolvedValue('page-123');
     mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
     // Setup DOM
@@ -86,6 +92,7 @@ describe('Attachment', () => {
   });
 
   afterEach(() => {
+    (forgeGlobal as any).forgeContext = undefined;
     delete (window as any).createAttachmentInProgress;
   });
 
@@ -145,6 +152,8 @@ describe('Attachment', () => {
 
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
+        ok: true,
+        status: 200,
         text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'attachment-123' }] }))
       });
       mockForgeRequest.mockResolvedValue({});
@@ -165,6 +174,19 @@ describe('Attachment', () => {
           content_hash: expect.stringContaining('hash-'),
         }),
       );
+      // New attachment → 'created' success event with version 1
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'created',
+        'attachment_upload_succeeded',
+        'export',
+        expect.objectContaining({
+          custom_content_id: 'test-uuid',
+          page_id: 'page-123',
+          attachment_name: 'zenuml-test-uuid.png',
+          version_number: 1,
+          attachment_id: 'attachment-123',
+        }),
+      );
     });
 
     it('should update existing attachment when content hash changes', async () => {
@@ -183,6 +205,8 @@ describe('Attachment', () => {
         .mockResolvedValueOnce([]); // getAttachmentsV2 in uploadAttachment2
       
       mockRequestConfluence.mockResolvedValue({
+        ok: true,
+        status: 200,
         text: vi.fn().mockResolvedValue('success')
       });
       mockForgeRequest.mockResolvedValue({});
@@ -200,7 +224,45 @@ describe('Attachment', () => {
           attachment_name: 'zenuml-test-uuid.png',
         }),
       );
+      // Existing attachment + content changed → 'updated' success event with bumped version
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'updated',
+        'attachment_upload_succeeded',
+        'export',
+        expect.objectContaining({
+          custom_content_id: 'test-uuid',
+          page_id: 'page-123',
+          version_number: 3,
+          attachment_id: 'attachment-123',
+        }),
+      );
       expect(mockForgeRequest).toHaveBeenCalled(); // updateAttachmentProperties
+    });
+
+    it('should NOT emit attachment_upload_succeeded when the upload throws', async () => {
+      // Regression guard: success must fire only after updateAttachmentProperties
+      // resolves, so a thrown upload doesn't pollute the success denominator.
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const mockBlob = new Blob(['test'], { type: 'image/png' });
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      // Force the upload POST to throw via the multipart path
+      mockRequestConfluence.mockRejectedValue(new Error('network down'));
+
+      await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow('network down');
+
+      // _failed fires, _succeeded does NOT
+      const succeededCalls = mockTrackEvent.mock.calls.filter(
+        (c: unknown[]) => c[1] === 'attachment_upload_succeeded'
+      );
+      expect(succeededCalls).toHaveLength(0);
+      const failedCalls = mockTrackEvent.mock.calls.filter(
+        (c: unknown[]) => c[1] === 'attachment_upload_failed'
+      );
+      expect(failedCalls.length).toBeGreaterThan(0);
+
+      consoleErrorSpy.mockRestore();
     });
 
     it('should skip upload when content hash matches existing attachment', async () => {
@@ -238,6 +300,8 @@ describe('Attachment', () => {
       
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
+        ok: true,
+        status: 200,
         text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'attachment-123' }] }))
       });
       mockForgeRequest.mockResolvedValue({});
@@ -285,11 +349,105 @@ describe('Attachment', () => {
       consoleErrorSpy.mockRestore();
     });
 
+    it('should label a non-2xx HTTP response from the upload as http_<status>', async () => {
+      // Simulates the 70%-of-fails case where the Forge bridge returns a 403
+      // Response.  Previously this slipped through, the body was JSON.parse'd,
+      // and the error was logged as opaque `Error` / `UnknownError`.
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const mockBlob = new Blob(['test'], { type: 'image/png' });
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: false,
+        status: 403,
+        text: vi.fn().mockResolvedValue('Forbidden'),
+      });
+
+      await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(
+        /Confluence attachment API returned 403/
+      );
+
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'http_403',
+        'attachment_upload_failed',
+        'export',
+        expect.objectContaining({
+          custom_content_id: 'test-uuid',
+          error_name: 'AttachmentUploadHttpError',
+          http_status: 403,
+        }),
+      );
+      expect((window as any).createAttachmentInProgress).toBe(false);
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should label a wrapped non-2xx statusCode in a 200 body as http_<status>', async () => {
+      // Simulates the production sample: HTTP 200 OK with a body like
+      //   {"statusCode":403,"data":{"authorized":true,...}}
+      // The legacy draft-page handler only matched statusCode === 404; this
+      // generalises to any wrapped 4xx/5xx.
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const mockBlob = new Blob(['test'], { type: 'image/png' });
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: vi.fn().mockResolvedValue(
+          JSON.stringify({ statusCode: 403, data: { authorized: true, valid: false } })
+        ),
+      });
+
+      await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(
+        /Confluence attachment API returned 403/
+      );
+
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'http_403',
+        'attachment_upload_failed',
+        'export',
+        expect.objectContaining({
+          custom_content_id: 'test-uuid',
+          error_name: 'AttachmentUploadHttpError',
+          http_status: 403,
+        }),
+      );
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should label a non-Error throwable as non_error_thrown (not UnknownError)', async () => {
+      // 70% of `attachment_upload_failed` events labelled `UnknownError` were
+      // non-Error throwables (string, plain object, etc.) whose `.name` was
+      // undefined.  Make sure the new label exposes that distinctly so future
+      // analytics queries don't conflate them with real Errors.
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockApWrapper.getAttachmentsV2.mockRejectedValue('boom'); // string, not Error
+
+      await expect(createAttachmentIfContentChanged('test content')).rejects.toBe('boom');
+
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'non_error_thrown',
+        'attachment_upload_failed',
+        'export',
+        expect.objectContaining({
+          custom_content_id: 'test-uuid',
+          error_name: 'string',
+          error_message: 'boom',
+        }),
+      );
+      consoleErrorSpy.mockRestore();
+    });
+
     it('should skip upload when page is a draft (Option A — context status check)', async () => {
       // Simulate the inline-edit-canvas preview context where isDisplayMode() returns
       // true but the page hasn't been published yet.
       (forgeGlobal as any).forgeContext = {
-        extension: { content: { status: 'draft' } }
+        extension: {
+          content: { status: 'draft' },
+          config: { customContentId: 'test-uuid' },
+        }
       };
 
       await createAttachmentIfContentChanged('test content');
@@ -312,7 +470,10 @@ describe('Attachment', () => {
     it('should skip upload when API returns wrapped draft-page 404 (Option B — body parse)', async () => {
       // Option A guard won't fire because status is not 'draft' in context
       (forgeGlobal as any).forgeContext = {
-        extension: { content: { status: 'current' } }
+        extension: {
+          content: { status: 'current' },
+          config: { customContentId: 'test-uuid' },
+        }
       };
 
       const mockBlob = new Blob(['test'], { type: 'image/png' });
@@ -320,6 +481,8 @@ describe('Attachment', () => {
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       // Confluence v1 wraps the draft 404 inside a 200 body
       mockRequestConfluence.mockResolvedValue({
+        ok: true,
+        status: 200,
         text: vi.fn().mockResolvedValue(
           JSON.stringify({
             statusCode: 404,
@@ -361,6 +524,8 @@ describe('Attachment', () => {
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       
       const mockResponse = {
+        ok: true,
+        status: 200,
         text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'attachment-123' }] }))
       };
       mockRequestConfluence.mockResolvedValue(mockResponse);
@@ -397,6 +562,8 @@ describe('Attachment', () => {
       // Set up mocks for the attachment creation flow
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
+        ok: true,
+        status: 200,
         text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'attachment-123' }] }))
       });
       mockForgeRequest.mockResolvedValue({});
@@ -439,6 +606,8 @@ describe('Attachment', () => {
       // Test through createAttachmentIfContentChanged which calls toPng
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
+        ok: true,
+        status: 200,
         text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'attachment-123' }] }))
       });
       mockForgeRequest.mockResolvedValue({});

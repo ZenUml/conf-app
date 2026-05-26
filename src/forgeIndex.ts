@@ -1,5 +1,5 @@
 import globals from '@/model/globals';
-import { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isFullscreenMode } from '@/model/globals/forgeGlobal';
+import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isConfiguring, isFullscreenMode } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
 import { toast } from '@/utils/toast';
@@ -19,10 +19,29 @@ import { handleAiAideRoute } from './routes/aiAide';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
-import { NULL_DIAGRAM } from '@/model/Diagram/Diagram';
+import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
+import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
+import {
+  reportLegacyContentPropertyRestored,
+  reportLegacyContentPropertyLoadFailed,
+  reportLegacyContentPropertyValueUnexpected,
+  reportLegacyContentPropertyMacroRepaired,
+} from '@/utils/legacyContentPropertyTelemetry';
+import { LegacyLoadBlockedSaveError } from '@/model/ContentProvider/Persistence';
 
 // Track editor session start time
 const editorStartTime = Date.now();
+
+// Captured at editor open from extension.config.uuid; the 'save' EventBus
+// handler reads it back to forward through view.submit's replace-semantics
+// so Connect-era guestParams.uuid survives.
+let originalConfigUuid: string | undefined;
+
+// ZEN-1170 Defect 2b: captured during load so the save handler can detect
+// when the persisted id differs from the macro's stale config id and repair
+// the macro XML via view.submit({config:...}).
+let originalCustomContentId: string | undefined;
+let recoveryPageId: string | undefined;
 
 // Initialize critical path rendering first
 async function initializeCriticalPath() {
@@ -92,20 +111,157 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       return;
     }
 
-    let doc;
+    let doc: Diagram | undefined;
+    let legacyLoadBlocked = false;
     const customContentId = context.extension?.config?.customContentId || context.extension.modal?.customContentId;
-    if(!customContentId) {
-      doc = {
-        diagramType: DiagramType.Sequence,
-        code: Example.Sequence,
-        mermaidCode: Example.Mermaid,
-        plantUmlCode: Example.PlantUml,
-        isNew: true
+    originalCustomContentId = customContentId;
+    recoveryPageId = context.extension?.content?.id;
+    // ZEN-1170 Defect 1: see forge-graph-editor.ts for why this uses
+    // config.uuid and not forgeGlobal.localId.
+    const storageUuid: string | undefined = context.extension?.config?.uuid;
+    if (customContentId) {
+      const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId);
+      console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
+      doc = loaded.customContent?.value;
+      if (loaded.recoveredFromOrphanId && doc) {
+        doc.recoveredFromOrphan = true;
+        doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
+        reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, {
+          recoveryUsed: true,
+          recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+        });
+      } else if (!doc) {
+        // ZEN-1170: the referenced customContent failed to load AND no page
+        // child was a confident match. Don't assign doc here — let the legacy
+        // content-property fallback below try storageUuid before we mount an
+        // empty/example doc and risk a destructive save.
+        reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, { recoveryUsed: false });
       }
-    } else {
-      const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-      console.debug('Loaded custom content', customContent);
-      doc = customContent?.value;
+    }
+
+    // ZEN-1170 Defect 1: try the legacy content-property fallback whenever
+    // the custom-content path didn't yield a doc AND a legacy storageUuid
+    // exists. Covers both pure-legacy macros (no customContentId) AND mixed-
+    // state macros (stale customContentId that 404s, but the original legacy
+    // body still lives on the page). Without this, a mixed-state macro
+    // mounts the example DSL and a save would replace the legacy body.
+    if (!doc && storageUuid) {
+      const result = await globals.apWrapper.getContentPropertyV2(
+        `zenuml-sequence-macro-${storageUuid}-body`,
+      );
+      if (result.status === 'ok') {
+        const value = result.property.value;
+        if (value && typeof value === 'object') {
+          // Reuse Defect 2b's recoveredFromOrphan for UI gating. See
+          // forge-graph-viewer.ts for the rationale.
+          // ZEN-1170 Defect 1: object-shaped legacy sequence properties may
+          // lack `diagramType` entirely (the field was added later). The
+          // original ContentPropertyStorageProvider._normaliseContentProperty
+          // unconditionally defaulted to Sequence, which is wrong for
+          // mermaidCode-only / plantUmlCode-only legacy bodies — they'd
+          // render blank under the Sequence component and a downstream
+          // save would persist them as Sequence CC, hiding the original
+          // diagram semantics. Infer from populated fields instead.
+          const restored = value as Diagram;
+          // Trust stored diagramType only when it's a valid renderable type
+          // (Sequence/Mermaid/PlantUml). DiagramType.Unknown is a valid enum
+          // value but a sentinel for "we don't know" — letting it through
+          // would mount no renderer + a downstream save could persist a CC
+          // record typed 'unknown' that hides the legacy body. Treat
+          // Unknown the same as missing → fall through to content-field
+          // inference, matching the existing CompositeContentProvider guard
+          // that converts undefined/Unknown to Sequence before returning.
+          //
+          // Inference precedence matches the legacy
+          // ContentPropertyStorageProvider getDiagramType(): code first
+          // (Sequence is the dominant legacy shape), then mermaidCode,
+          // then plantUmlCode. Default to Sequence for empty objects.
+          const VALID_DIAGRAM_TYPES: ReadonlyArray<DiagramType> = [
+            DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml,
+          ];
+          const storedTypeIsValid = restored.diagramType
+            && VALID_DIAGRAM_TYPES.includes(restored.diagramType);
+          const inferredDiagramType = storedTypeIsValid
+            ? restored.diagramType!
+            : (restored.code ? DiagramType.Sequence
+              : restored.mermaidCode ? DiagramType.Mermaid
+              : restored.plantUmlCode ? DiagramType.PlantUml
+              : DiagramType.Sequence);
+          doc = {
+            ...restored,
+            diagramType: inferredDiagramType,
+            source: DataSource.ContentProperty,
+            id: undefined,
+            recoveredFromOrphan: true,
+          };
+          reportLegacyContentPropertyRestored('editor', 'sequence', storageUuid, { pageId: recoveryPageId });
+        } else if (typeof value === 'string') {
+          // Pre-2024 sequence macros stored the DSL as a bare string. Mirror
+          // ContentPropertyStorageProvider._normaliseContentProperty so we
+          // restore the diagram instead of falling through to the example.
+          doc = {
+            diagramType: DiagramType.Sequence,
+            source: DataSource.ContentPropertyOld,
+            code: value,
+            id: undefined,
+            recoveredFromOrphan: true,
+          } as Diagram;
+          reportLegacyContentPropertyRestored('editor', 'sequence', storageUuid, { pageId: recoveryPageId, valueType: 'string_legacy' });
+        } else {
+          legacyLoadBlocked = true;
+          reportLegacyContentPropertyValueUnexpected('editor', 'sequence', storageUuid, value == null ? 'null' : 'other');
+        }
+      } else if (result.status === 'forbidden') {
+        legacyLoadBlocked = true;
+        reportLegacyContentPropertyLoadFailed('editor', 'sequence', storageUuid, 'forbidden', { pageId: recoveryPageId });
+      } else if (result.status === 'page_not_found') {
+        // See forge-graph-editor.ts: fail closed on V2 404 (page not reachable
+        // != key absent). Refuse save so we never overwrite legacy data on a
+        // page we couldn't probe.
+        legacyLoadBlocked = true;
+        reportLegacyContentPropertyLoadFailed('editor', 'sequence', storageUuid, 'http', { pageId: recoveryPageId, httpStatus: 404 });
+      } else if (result.status === 'error') {
+        legacyLoadBlocked = true;
+        reportLegacyContentPropertyLoadFailed('editor', 'sequence', storageUuid, result.reason, { pageId: recoveryPageId, httpStatus: result.httpStatus });
+      }
+      // status === 'not_found' (200 + empty results) falls through to the
+      // example/new path below as a legitimate "no legacy data" case.
+    }
+
+    // ZEN-1170 (pre-Defect-1 behavior preserved): when CC was attempted but
+    // failed AND we have no legacy storageUuid to try AND legacy fallback
+    // wasn't blocked, mount the placeholder empty doc so the wipe-precursor
+    // telemetry + per-macro-type dispatch below can run.
+    // CRITICAL: gate on !legacyLoadBlocked. If the legacy fallback set the
+    // sentinel (e.g. mixed-state with 403/5xx on the property read), the
+    // blocked-doc branch below MUST be the one that runs — otherwise the
+    // placeholder NULL_DIAGRAM would erase the sentinel and persistence
+    // would happily save an empty doc over the legacy body.
+    if (!doc && customContentId && !legacyLoadBlocked) {
+      doc = { ...NULL_DIAGRAM };
+    }
+    if (!doc) {
+      if (legacyLoadBlocked) {
+        // Mount a degraded, save-blocked diagram. Persistence layer will
+        // refuse the save; the user sees the editor but cannot destroy the
+        // legacy data.
+        doc = {
+          diagramType: DiagramType.Sequence,
+          code: '',
+          mermaidCode: '',
+          plantUmlCode: '',
+          isNew: false,
+          legacyLoadBlocked: true,
+        } as Diagram;
+      } else {
+        doc = {
+          diagramType: DiagramType.Sequence,
+          code: Example.Sequence,
+          mermaidCode: Example.Mermaid,
+          plantUmlCode: Example.PlantUml,
+          isNew: true,
+        };
+      }
     }
 
     // Capture the active field for wipe-precursor telemetry BEFORE any
@@ -140,7 +296,11 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // Start journey tracking for editor mode
     const editable = await isEditorMode();
     if (editable) {
-      const macroUuid = context.extension?.config?.uuid || uuidv4();
+      originalConfigUuid = context.extension?.config?.uuid;
+      const macroUuid =
+        forgeGlobal.forgeContext?.localId
+        || context.extension?.config?.uuid
+        || uuidv4();
       const isDialog = !!context.extension?.modal;
       const isMacroConfig = !!context.extension?.macro?.isConfiguring || !!context.extension?.macro?.isInserting;
 
@@ -290,6 +450,11 @@ const createAttachmentIfContentChangedPromise = import("@/model/Attachment").the
 
 async function createAttachment(code: string, diagramType: DiagramType) {
   try {
+    // ZEN-1170 Defect 1: the missing-customContentId case is handled
+    // centrally inside createAttachmentIfContentChanged (Attachment.ts)
+    // — it emits the `missing_custom_content_id` skip telemetry and
+    // returns early. Per-callsite fast paths previously here suppressed
+    // that central event, hiding the highest-volume class of skips.
     if (globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
       const createAttachmentIfContentChanged = await createAttachmentIfContentChangedPromise;
       await createAttachmentIfContentChanged(code, diagramType);
@@ -339,7 +504,10 @@ EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => 
 
 EventBus.$on('edit', async(params: any) => {
   const context = await initForgeContext();
-  const macroUuid = context.extension?.config?.uuid || uuidv4();
+  const macroUuid =
+    forgeGlobal.forgeContext?.localId
+    || context.extension?.config?.uuid
+    || uuidv4();
   // Forward the macro's customContentId so the modal can load the right diagram
   // and the pre-edit paywall gate can fire. Without this the modal opens a blank
   // new diagram and the paywall check is skipped entirely.
@@ -380,23 +548,42 @@ EventBus.$on('save', async () => {
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
   store.state.diagram.isNew = false;
 
+  // Captured before save runs. After save, if the returned id differs from
+  // sourceId, the save forked a new custom content (cross-page-copy / same-
+  // page-duplicate path in CustomContentStorageProvider.save) and the macro
+  // params must be rewritten via view.submit, else the page still points at
+  // the source content while the new one sits orphaned.
+  // The truthy-guard on sourceId is load-failure protection: a degraded load
+  // (404/restricted custom content) mounts NULL_DIAGRAM with id=''; saves
+  // there always return a new id, but writing it back would repoint the
+  // macro at a blank new record.
+  const sourceId = store.state.diagram.id ? String(store.state.diagram.id) : '';
+
   let id: string;
   try {
     id = await saveToPlatform(store.state.diagram);
   } catch (error) {
+    // ZEN-1170 Defect 1: persistence layer refused save because the legacy
+    // content-property load failed. Surface a clear message that does NOT
+    // suggest "retry" (retrying won't help; the user needs to refresh or
+    // contact support).
+    if (error instanceof LegacyLoadBlockedSaveError) {
+      toast({
+        message: 'Legacy diagram content failed to load — saving is disabled to prevent data loss. Please refresh the page or contact support.',
+        duration: 8000,
+      });
+      return;
+    }
     console.error('save failed', error);
     trackEvent('save_failed', 'save_failed', 'error', {
       error_message: String((error as any)?.message || error).substring(0, 500),
       http_status: (error as any)?.status || (error as any)?.statusCode || 'unknown',
+      macro_type: store.state.diagram.diagramType as MacroTypeValue,
     });
     toast({ message: 'Failed to save. Please try again.', duration: 5000 });
     // Do NOT close the dialog — let the user retry
     return;
   }
-
-  // Notify editors so they can clear their localStorage drafts now that the
-  // diagram is durably persisted.
-  EventBus.$emit('saved', id);
 
   const preservedTheme = sessionStorage.getItem(`${location.hostname}-preserve-zenuml-conf-theme`);
   if (isNewSequence && preservedTheme) {
@@ -409,13 +596,69 @@ EventBus.$on('save', async () => {
     endEditJourney('saved');
   }
 
+  // ZEN-1170 Defect 2b: repair stale macro XML when we saved against the
+  // recovered sibling id. view.submit({config:...}) only persists back to
+  // the macro XML in surfaces where the parent is the macro-config editor —
+  // i.e. inserting a new macro or editing via the in-page "edit macro params"
+  // affordance (isConfiguring). In viewer-launched modals the submitted
+  // payload is forwarded to onClose and discarded, so repair would be a
+  // no-op and the telemetry event would be misleading. Gate accordingly.
+  const macroNeedsRepair = !!(originalCustomContentId && id && id !== originalCustomContentId);
+  // ZEN-1170 Defect 1: legacy migration writeback. See forge-graph-editor.ts
+  // for the rationale — detect via source rather than a parallel flag, so we
+  // reuse Defect 2b's writeback path without adding new Diagram fields.
+  const legacyMacroNeedsRepair = !originalCustomContentId
+    && (store.state.diagram?.source === DataSource.ContentProperty
+        || store.state.diagram?.source === DataSource.ContentPropertyOld);
+
   // Give some time for track event to be sent out. We are not using a more reliable way to track event because
   // we don't want to block dialog close for too long.
   setTimeout(async () => {
-    if(await isInserting()) {
-      await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
-    } else {
-      await (await getView()).close();
+    // Writeback the new customContentId when (a) inserting a fresh macro,
+    // (b) the save returned a different id (cross-page-copy / same-page-
+    // duplicate POST branch), (c) we recovered from an orphan and must
+    // repoint the macro at the recovered sibling id, or (d) we migrated a
+    // legacy uuid-only macro and must write customContentId for the first time.
+    const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
+    const repairWillPersist = inserting || configuring;
+    const attemptRepair = repairWillPersist && macroNeedsRepair;
+    const attemptLegacyMigration = repairWillPersist && legacyMacroNeedsRepair && !!id;
+    const idChanged = !!sourceId && !!id && id !== sourceId;
+    const needsWriteback = inserting || idChanged || attemptRepair || attemptLegacyMigration;
+    try {
+      if (needsWriteback) {
+        await (await getView()).submit({config: {
+          customContentId: id,
+          updatedAt: new Date().toISOString(),
+          ...(originalConfigUuid && { uuid: originalConfigUuid }),
+        }});
+        if (attemptRepair && originalCustomContentId) {
+          reportOrphanMacroRepaired(recoveryPageId, originalCustomContentId, id, 'sequence');
+        }
+        if (attemptLegacyMigration && originalConfigUuid) {
+          reportLegacyContentPropertyMacroRepaired('sequence', originalConfigUuid, id, { pageId: recoveryPageId });
+        }
+      } else {
+        await (await getView()).close();
+      }
+      // Only clear the local draft after the macro state is durable on the
+      // page. If view.submit throws below, the backend POST has succeeded
+      // but the macro still points at the source content; keeping the draft
+      // around preserves the user's recovery anchor for a retry.
+      EventBus.$emit('saved', id);
+    } catch (error) {
+      // view.submit throws on MACRO_NOT_FOUND etc. The backend POST already
+      // succeeded, so without writeback the page still points at the source
+      // content; surface this as a save_failed signal so we can detect it.
+      // The 'saved' event is intentionally NOT emitted here so the local
+      // draft survives as a retry anchor.
+      console.error('view.submit/close failed after save', error);
+      trackEvent('save_failed', 'view_submit_failed', 'error', {
+        error_message: String((error as any)?.message || error).substring(0, 500),
+        new_custom_content_id: id,
+        writeback_required: String(needsWriteback),
+        macro_type: store.state.diagram.diagramType as MacroTypeValue,
+      });
     }
   }, 500);
 });
@@ -475,7 +718,10 @@ EventBus.$on('exit', async (showWarning: boolean) => {
 
 EventBus.$on('fullscreen', async () => {
   const context = await initForgeContext();
-  const macroUuid = context.extension?.config?.uuid || uuidv4();
+  const macroUuid =
+    forgeGlobal.forgeContext?.localId
+    || context.extension?.config?.uuid
+    || uuidv4();
 
   await openModal({
     resource: 'main',
@@ -494,7 +740,17 @@ EventBus.$on('fullscreen', async () => {
 
 EventBus.$on('updateContent', async (diagram: Diagram) => {
   if (await globals.apWrapper.canUserEdit()) {
-    saveToPlatform(diagram)
+    // ZEN-1170 Defect 1: catch the legacy-load-blocked refusal locally so it
+    // doesn't surface as an unhandled rejection. Autosave paths must stay
+    // silent when refused — the user sees the toast surfaced by the explicit
+    // 'save' handler if they try to save manually.
+    saveToPlatform(diagram).catch((error) => {
+      if (error instanceof LegacyLoadBlockedSaveError) {
+        console.debug('updateContent save refused: legacy load blocked');
+        return;
+      }
+      throw error;
+    });
   } else {
     console.info('Your changes cannot be persistent as you are not authorized to edit.');
   }

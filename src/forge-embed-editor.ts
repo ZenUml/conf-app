@@ -1,36 +1,46 @@
 import globals from "@/model/globals";
-import { getView, getContext as initForgeContext, isInserting } from './model/globals/forgeGlobal';
-import { saveToPlatform } from "@/model/ContentProvider/Persistence";
+import forgeGlobal, { getView, getContext as initForgeContext } from './model/globals/forgeGlobal';
 import MacroUtil from "@/model/MacroUtil";
+import { trackEvent } from "@/utils/window";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { mountRoot } from "@/mount-root";
 import { installRestoreDraftBanner } from "@/utils/restoreDraftBanner";
 import ForgeEmbedEditor from "@/components/DrawIoExtension/ForgeEmbedEditor.vue";
+import EventBus from './EventBus';
 
 installRestoreDraftBanner();
-import { Diagram, DiagramType, DataSource, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { Diagram, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
 import uuidv4 from "@/utils/uuid";
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 
-async function saveEmbedAndExit(_customContentId: string) {
-  const macroData = await globals.apWrapper.getMacroData();
+// Captured at editor open from extension.config.uuid; forwarded back through
+// view.submit's replace-semantics so Connect-era guestParams.uuid survives.
+let originalConfigUuid: string | undefined;
 
-  const id = await saveToPlatform({
-    diagramType: DiagramType.Embed,
-    source: DataSource.CustomContent,
-  } as Diagram);
-  
+async function saveEmbedAndExit(selectedCustomContentId: string) {
+  // Embed save = point the macro at the user's picked document. No new
+  // customContent record is created. The picked CC's body (its native
+  // diagramType + code/graphXml/mermaidCode) is what the embed viewer
+  // dispatches on. Connect-era behaviour was the same: saveMacro({
+  // customContentId: window.picked.id, ... }) referenced the picked
+  // record directly.
+  //
+  // Bug history (ZEN-125): a TS strictness pass on 2026-03-26 (3fddbcc2)
+  // dropped the customContentId field while silencing `as Diagram`, then
+  // 2026-04-27 (810d513d) renamed the orphaned parameter to start with `_`
+  // to silence the unused-arg lint warning — which made the bug look
+  // intentional in source. Result was every embed save POSTed an empty
+  // {diagramType:"embed",source:"custom-content"} placeholder, and the
+  // viewer rendered "Unknown diagram type: embed".
+  const macroData = await globals.apWrapper.getMacroData();
   const isNew = !macroData?.uuid;
 
-  // Tag analytics with the just-saved customContent id; relying on central
-  // Forge-context enrichment here would record the stale source id on copies
-  // and null on first saves (context not yet refreshed).
   const savedIdProps = {
-    content_id: id,
-    custom_content_id: id,
-    attachment_name: `zenuml-${id}.png`,
+    content_id: selectedCustomContentId,
+    custom_content_id: selectedCustomContentId,
+    attachment_name: `zenuml-${selectedCustomContentId}.png`,
   };
 
   if (isNew) {
@@ -50,17 +60,29 @@ async function saveEmbedAndExit(_customContentId: string) {
       ...savedIdProps,
     });
   }
-  
-  // End journey after all tracking is done
+
   if (getEditJourneyId()) {
     endEditJourney('saved');
   }
-  
+
   setTimeout(async () => {
-    if(await isInserting()) {
-      await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
-    } else {
-      await (await getView()).close();
+    try {
+      await (await getView()).submit({config: {
+        customContentId: selectedCustomContentId,
+        updatedAt: new Date().toISOString(),
+        ...(originalConfigUuid && { uuid: originalConfigUuid }),
+      }});
+      // Notify listeners after the macro state is durable; on submit
+      // failure the catch path intentionally does NOT emit so any local
+      // draft survives as a retry anchor.
+      EventBus.$emit('saved', selectedCustomContentId);
+    } catch (error) {
+      console.error('view.submit failed after embed save', error);
+      trackEvent('save_failed', 'view_submit_failed', 'error', {
+        error_message: String((error as any)?.message || error).substring(0, 500),
+        selected_custom_content_id: selectedCustomContentId,
+        macro_type: 'embed',
+      });
     }
   }, 500);
 }
@@ -71,9 +93,14 @@ async function exit() {
 
 async function initializeMacro() {
   const context = await initForgeContext();
-  
+
+  originalConfigUuid = context.extension?.config?.uuid;
+
   // Start journey tracking
-  const macroUuid = context.extension?.config?.uuid || uuidv4();
+  const macroUuid =
+    forgeGlobal.forgeContext?.localId
+    || context.extension?.config?.uuid
+    || uuidv4();
   const isDialog = !!context.extension?.modal;
   const isMacroConfig = !!context.extension?.macro?.isConfiguring || !!context.extension?.macro?.isInserting;
   

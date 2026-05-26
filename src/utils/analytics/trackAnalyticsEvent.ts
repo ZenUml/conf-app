@@ -16,7 +16,7 @@ let _identified = false;
 function _initMixpanel() {
   if (!_initialized) {
     const cloudId = forgeGlobal.forgeContext?.cloudId ?? "";
-    const isFullReplayClient = cloudId === "d1b3810b-db2f-4f83-8ec3-90f60944e570";
+    const isHighReplayClient = cloudId === "d1b3810b-db2f-4f83-8ec3-90f60944e570";
 
     mixpanel.init(import.meta.env.VITE_MIXPANEL_TOKEN, {
       debug: true,
@@ -24,7 +24,7 @@ function _initMixpanel() {
       autocapture: false,
       persistence: "localStorage",
       ignore_dnt: true,
-      record_sessions_percent: isFullReplayClient ? 100 : 10,
+      record_sessions_percent: isHighReplayClient ? 50 : 5,
     });
     _initialized = true;
   }

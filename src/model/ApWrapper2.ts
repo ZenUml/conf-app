@@ -24,6 +24,24 @@ import SpaceAdminResolver from './permissions/SpaceAdminResolver';
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
 const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
 
+// ZEN-1170 Defect 1: discriminated result for legacy content-property reads.
+// Viewers can collapse anything non-'ok' to "no content"; editors must
+// distinguish 'not_found' (legitimate new macro — body genuinely doesn't
+// exist) from forbidden/error/page_not_found (unsafe to treat as new —
+// would risk overwriting legacy data on save).
+//
+// CRITICAL: on the V2 endpoint `/pages/{pageId}/properties?key={key}`:
+//   - HTTP 200 + `results: []` = key genuinely not present → 'not_found' (safe)
+//   - HTTP 404                  = PAGE itself not reachable → 'page_not_found' (unsafe)
+// The 404 means we couldn't verify whether the key exists, so the editor
+// must fail closed and refuse to mount a fresh placeholder.
+export type ContentPropertyV2Result =
+  | { status: 'ok'; property: IContentProperty }
+  | { status: 'not_found' }
+  | { status: 'page_not_found' }
+  | { status: 'forbidden' }
+  | { status: 'error'; reason: 'http' | 'parse' | 'thrown'; httpStatus?: number };
+
 export default class ApWrapper2 implements IApWrapper {
   versionType: VersionType;
   _page: AtlasPage;
@@ -87,9 +105,54 @@ export default class ApWrapper2 implements IApWrapper {
     return Promise.resolve(undefined);
   }
 
-  saveMacro(params: IMacroData, _body: string) {
-    if (forgeGlobal.view?.submit) {
-      forgeGlobal.view.submit(params);
+  // ZEN-1170 Defect 1: discriminated content-property read used by the Forge
+  // viewer/editor legacy-fallback paths. The legacy `getContentProperty` above
+  // collapses every failure to `undefined`, which is safe for viewer-only
+  // callers but unsafe for editors (a transient 403 would look identical to
+  // "no legacy property" and the user could save over the legacy data).
+  async getContentPropertyV2(key: string): Promise<ContentPropertyV2Result> {
+    // Resolve pageId with the same fallback chain as initializeContext, since
+    // not every Forge entry point calls initializeContext() before reaching
+    // here (e.g. forge-graph-editor.ts). Without this fallback, the editor's
+    // legacy-fallback path would always see status='error' and incorrectly
+    // mount EMPTY_GRAPH with saves blocked instead of restoring the legacy
+    // diagram body.
+    let pageId = this.currentPageId
+      || forgeGlobal.forgeContext?.extension?.content?.id;
+    if (!pageId) {
+      try { pageId = await this._page.getPageId(); } catch { /* fall through */ }
+    }
+    if (!pageId) return { status: 'error', reason: 'thrown' };
+    try {
+      // Use V2 properties endpoint with ?key= filter. The V1 endpoint
+      // (/wiki/rest/api/content/{id}/property/{key}) returns 410 Gone via
+      // Forge's requestConfluence proxy even though it still works for
+      // direct REST clients. V2 supports the same get-by-key shape via
+      // query param + returns a results array.
+      const url = `/wiki/api/v2/pages/${encodeURIComponent(pageId)}/properties?key=${encodeURIComponent(key)}`;
+      const { requestConfluence } = await import('@forge/bridge');
+      const res = await requestConfluence(url);
+      if (res.status === 403) return { status: 'forbidden' };
+      // V2 404 = the PAGE isn't reachable (wrong id, deleted, perms). It is
+      // NOT the same as "key doesn't exist on this page" — that's a 200 with
+      // empty results. Returning 'not_found' here would let editors treat a
+      // failed page lookup as "safe to start fresh" and destructively save
+      // over legacy data on a different page id we never actually probed.
+      if (res.status === 404) return { status: 'page_not_found' };
+      if (!res.ok) return { status: 'error', reason: 'http', httpStatus: res.status };
+      try {
+        const body = (await res.json()) as { results?: Array<{ value?: unknown; version?: { number: number } }> };
+        const first = body.results?.[0];
+        if (!first) return { status: 'not_found' }; // V2 returns 200 with empty results for missing key
+        return {
+          status: 'ok',
+          property: { value: first.value as IContentProperty['value'], version: first.version },
+        };
+      } catch {
+        return { status: 'error', reason: 'parse' };
+      }
+    } catch {
+      return { status: 'error', reason: 'thrown' };
     }
   }
 
@@ -145,12 +208,21 @@ export default class ApWrapper2 implements IApWrapper {
 
   async createCustomContentV2(content: Diagram): Promise<ICustomContentResponseBodyV2> {
     const type = this.getCustomContentType();
+    // ZEN-1170: strip UI/control-plane fields before serializing. See
+    // saveCustomContentV2 for the full rationale — these flags drive viewer
+    // chrome and persistence behavior and must never round-trip through
+    // the stored CC body, or the migrated macro stays trapped in the
+    // recovery UI forever. saveCustomContentV2's update branch sanitises
+    // there; this is the direct-create branch (called e.g. by
+    // CustomContentStorageProvider.save when source !== 'custom-content',
+    // which is the Defect 1 legacy-migration path).
+    const { recoveredFromOrphan: _rfo, recoveredFromOrphanId: _rid, legacyLoadBlocked: _llb, ...sanitizedContent } = content as any;
     const data: any = {
       "type": type,
       "pageId": await this._getCurrentPageId(),
       "title": content.title || `Untitled ${new Date().toISOString()}`,
       "body": {
-        "value": JSON.stringify(content),
+        "value": JSON.stringify(sanitizedContent),
         "representation": "raw"
       }
     };
@@ -280,11 +352,63 @@ export default class ApWrapper2 implements IApWrapper {
 
   async getCustomContentByIdV2(id: string): Promise<ICustomContentV2 | undefined> {
     const customContent = await this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`);
-    if (!customContent) {
-      throw Error(`Failed to load custom content by id ${id}`);
+    return this.parseCustomContentByIdV2Response(id, customContent);
+  }
+
+  // ZEN-1170 Defect 2b. Distinguish "the CC genuinely doesn't exist" (404 /
+  // NOT_FOUND) from "the request failed for some other reason" (403, 5xx,
+  // malformed response, thrown). Recovery is only safe in the first case —
+  // probing and rewriting a sibling on top of a transient failure would
+  // cause false repairs. Returns a structured result so the loader can
+  // decide whether to probe.
+  private async fetchCustomContentByIdV2WithStatus(id: string): Promise<{
+    customContent: ICustomContentV2 | undefined;
+    status: 'ok' | 'not_found' | 'other_error';
+    errorDetail?: string;
+  }> {
+    let rawResponse: any;
+    try {
+      rawResponse = await this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`);
+    } catch (e: any) {
+      return { customContent: undefined, status: 'other_error', errorDetail: e?.message ? String(e.message) : String(e) };
     }
-    //@ts-ignore
-    let diagram = JSON.parse(customContent.body.raw.value);
+    const errors = rawResponse?.errors;
+    if (Array.isArray(errors) && errors.length > 0) {
+      // Strict 404 detection: every error in the array must be a true 404
+      // (status === 404 AND code === 'NOT_FOUND'). A mixed array — or a
+      // single error with mismatched status/code — must be treated as
+      // 'other_error' so recovery does not trigger and the write path
+      // does not fall through to create on transient failures.
+      const allStrictNotFound = errors.every(
+        (err: any) => err?.status === 404 && err?.code === 'NOT_FOUND',
+      );
+      const status: 'not_found' | 'other_error' = allStrictNotFound ? 'not_found' : 'other_error';
+      // Telemetry for non-success shapes preserved from the legacy parsing path.
+      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
+      return { customContent: undefined, status, errorDetail: JSON.stringify(errors) };
+    }
+    if (!rawResponse?.body?.raw?.value) {
+      // Truthy response but no parseable body — unexpected shape, not a 404.
+      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
+      return { customContent: undefined, status: 'other_error', errorDetail: 'malformed_or_empty_response' };
+    }
+    const parsed = await this.parseCustomContentByIdV2Response(id, rawResponse);
+    return { customContent: parsed, status: parsed ? 'ok' : 'other_error' };
+  }
+
+  private async parseCustomContentByIdV2Response(id: string, customContent: any): Promise<ICustomContentV2 | undefined> {
+    // forgeRequest returns the parsed JSON body regardless of HTTP status —
+    // a 404 surfaces as { errors: [{ status: 404, code: 'NOT_FOUND', … }] }
+    // (truthy but missing body.raw.value). Previously the next line crashed
+    // with TypeError → viewer iframe collapsed to 0 height (ZEN-1170). Treat
+    // any non-success shape as "not found" so callers fall through to
+    // NULL_DIAGRAM / fallback paths instead of vanishing.
+    const rawValue = customContent?.body?.raw?.value;
+    if (!rawValue || customContent?.errors) {
+      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
+      return undefined;
+    }
+    let diagram = JSON.parse(rawValue);
     diagram.source = DataSource.CustomContent;
     const count = (await this._page.countMacros((m) => {
       //TODO: filter by macro type
@@ -314,6 +438,152 @@ export default class ApWrapper2 implements IApWrapper {
     diagram.id = id;
     let assign = <unknown>Object.assign({}, customContent, {value: diagram});
     return <ICustomContentV2>assign;
+  }
+
+  // ZEN-1170 read-only probe. When a viewer's customContentId can no longer
+  // be loaded (404, deleted, restricted) we list the host page's own
+  // custom-content children and look for one whose stored `body.id` equals
+  // the orphan id — that's the surviving sibling created by the historical
+  // cross-page-copy → dedupe flow. The result is reported to Mixpanel so we
+  // can estimate fleet-wide recoverability before shipping any auto-repair.
+  //
+  // No writes. No state changes. Safe to call from any viewer entry.
+  async probeOrphanRecovery(
+    pageId: string,
+    orphanId: string,
+  ): Promise<{
+    recoverable: boolean | 'probe_failed';
+    candidateCount: number;
+    pageChildrenTotal: number;
+    candidateIds?: string[];
+    truncated?: boolean;
+    probeError?: string;
+  }> {
+    // The Forge save path stores everything under one type, but historical
+    // (Connect-era) graph custom content still lives under the dedicated
+    // `zenuml-content-graph` type — so a graph macro whose orphan survivor
+    // was created back then is invisible to a sequence-typed listing. Probe
+    // both lite/full types; diagramly only has its own single type.
+    const limit = 250;
+    const typesToProbe = forgeGlobal.isDiagramly
+      ? [this.customContentType('gpt-custom-content-key')]
+      : [
+          this.customContentType('zenuml-content-sequence'),
+          this.customContentType('zenuml-content-graph'),
+        ];
+    try {
+      const responses = await Promise.all(
+        typesToProbe.map(t =>
+          this.makeRequest(`/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(t)}&body-format=raw&limit=${limit}`),
+        ),
+      );
+      const errored = responses.find(r => r?.errors);
+      if (errored) {
+        return {
+          recoverable: 'probe_failed',
+          candidateCount: 0,
+          pageChildrenTotal: 0,
+          probeError: JSON.stringify(errored.errors),
+        };
+      }
+      const candidateIds: string[] = [];
+      let pageChildrenTotal = 0;
+      let truncated = false;
+      for (const response of responses) {
+        const results: Array<any> = Array.isArray(response?.results) ? response.results : [];
+        pageChildrenTotal += results.length;
+        if (results.length >= limit && response?._links?.next) {
+          truncated = true;
+        }
+        for (const child of results) {
+          const rawValue = child?.body?.raw?.value;
+          if (!rawValue) continue;
+          try {
+            const body = JSON.parse(rawValue);
+            if (body?.id && String(body.id) === String(orphanId) && child?.id) {
+              candidateIds.push(String(child.id));
+            }
+          } catch {
+            // malformed body — counted in total but not as a match
+          }
+        }
+      }
+      return {
+        recoverable: candidateIds.length > 0,
+        candidateCount: candidateIds.length,
+        pageChildrenTotal,
+        ...(candidateIds.length > 0 && { candidateIds }),
+        ...(truncated && { truncated: true }),
+      };
+    } catch (e: any) {
+      return {
+        recoverable: 'probe_failed',
+        candidateCount: 0,
+        pageChildrenTotal: 0,
+        probeError: e?.message ? String(e.message) : String(e),
+      };
+    }
+  }
+
+  // ZEN-1170 Defect 2b. Read-OR-recover for the macro's referenced CC.
+  // - On happy path: returns the requested CC, no recovery marker.
+  // - When the requested CC 404s AND the page has exactly one custom-content
+  //   child whose body.id matches the orphan id: fetch that child and return
+  //   it with `recoveredFromOrphanId` set, so callers can render/edit/save
+  //   against the surviving sibling. Ambiguous matches (>1 candidates) are
+  //   intentionally not auto-recovered.
+  // - Other direct-fetch failures (403, 5xx, malformed, thrown) do NOT
+  //   trigger recovery: a transient error must not allow a sibling to be
+  //   picked and (in config surface) later rewrite the macro XML. The
+  //   `direct_fetch_status` is included in the result so callers / tests
+  //   can verify the gate.
+  async loadCustomContentWithOrphanRecovery(
+    pageId: string | undefined,
+    customContentId: string,
+  ): Promise<{
+    customContent: ICustomContentV2 | undefined;
+    recoveredFromOrphanId?: string;
+    probeResult?: Awaited<ReturnType<ApWrapper2['probeOrphanRecovery']>>;
+    directFetchStatus?: 'ok' | 'not_found' | 'other_error';
+  }> {
+    const direct = await this.fetchCustomContentByIdV2WithStatus(customContentId);
+    if (direct.status === 'ok' && direct.customContent) {
+      return { customContent: direct.customContent, directFetchStatus: 'ok' };
+    }
+    if (direct.status !== 'not_found') {
+      // Transient / 403 / 5xx / malformed — refuse to probe. Probing here
+      // could surface a sibling for a CC that's only briefly unavailable
+      // and (in config surface) later cause an incorrect macro XML rewrite.
+      return { customContent: undefined, directFetchStatus: direct.status };
+    }
+    if (!pageId) {
+      return { customContent: undefined, directFetchStatus: 'not_found' };
+    }
+
+    const probeResult = await this.probeOrphanRecovery(pageId, customContentId);
+    // Refuse recovery when the listing was truncated: a single match on the
+    // first page is not globally unambiguous if additional pages exist. Auto-
+    // repair against a non-unique sibling would silently rewrite the macro XML
+    // to the wrong custom content id. Surface via telemetry instead.
+    if (
+      probeResult.truncated ||
+      probeResult.recoverable !== true ||
+      probeResult.candidateCount !== 1 ||
+      !probeResult.candidateIds?.[0]
+    ) {
+      return { customContent: undefined, probeResult, directFetchStatus: 'not_found' };
+    }
+    const recoveredId = probeResult.candidateIds[0];
+    const recovered = await this.getCustomContentByIdV2(recoveredId);
+    if (!recovered) {
+      return { customContent: undefined, probeResult, directFetchStatus: 'not_found' };
+    }
+    return {
+      customContent: recovered,
+      recoveredFromOrphanId: customContentId,
+      probeResult,
+      directFetchStatus: 'not_found',
+    };
   }
 
   async getCustomContentVersionBeforeDate(id: string, date: string): Promise<ICustomContentV2 | undefined> {
@@ -689,20 +959,60 @@ export default class ApWrapper2 implements IApWrapper {
 
   async saveCustomContentV2(customContentId: string, value: Diagram): Promise<ICustomContentResponseBodyV2> {
     let result;
-    // TODO: Do we really need to check whether it exists?
-    const existing = await this.getCustomContentByIdV2(customContentId);
+    // ZEN-1170 Defect 2b: use status-aware fetch so the existence check
+    // distinguishes a genuine 404 (legitimate "create new") from transient
+    // failures (403, 5xx, malformed, thrown). Falling through to create on
+    // a transient failure would orphan the user's edits when the macro
+    // config still references the old CC id.
+    const direct = await this.fetchCustomContentByIdV2WithStatus(customContentId);
+    if (direct.status === 'other_error') {
+      const err = new Error(
+        `saveCustomContentV2: existence check for ${customContentId} failed: ${direct.errorDetail || 'unknown'}`,
+      );
+      trackEvent('save_existence_check_failed', 'save_existence_check_failed', 'error', {
+        custom_content_id: customContentId,
+        detail: direct.errorDetail || '',
+      });
+      throw err;
+    }
+    const existing = direct.customContent;
     const pageId = await this._getCurrentPageId();
     const count = (await this._page.countMacros((m) => {
       return m?.customContentId === customContentId //new forge custom content
         || m?.customContentId?.value === customContentId;
     }));
 
-    // pageId is absent when editing in custom content list page;
-    // Make sure we don't update custom content on a different page
-    // and there is only one macro linked to the custom content on the current page.
-    if (existing && (!pageId || (String(pageId) === String(existing?.pageId) && count === 1))) {
+    // ZEN-1170: UI/control-plane fields (recoveredFromOrphan, legacyLoadBlocked,
+    // migratedFromLegacyContentProperty) are set by load paths to drive viewer
+    // chrome and persistence-layer behavior. They must NEVER round-trip through
+    // stored CustomContent body, or every future direct fetch would parse them
+    // back out and trap the (now-repaired) macro in the recovery UI forever
+    // (READ-ONLY banner + disabled Edit). Strip unconditionally before any
+    // create or update. Defect 1: catches legacy-content-property migrations
+    // where source=ContentProperty docs flow through the create branch.
+    // Defect 2b: catches the orphan-recovery branch below as well.
+    const { recoveredFromOrphan: _rfo, legacyLoadBlocked: _llb, ...bodyWithoutUiFlags } = value as any;
+
+    // ZEN-1170 Defect 2b: when the diagram was loaded via orphan-sibling
+    // recovery, the macro XML still references the dead orphan id, so no
+    // macro on the page references this CC yet (count === 0). We still
+    // want to update this CC in-place (rather than creating a third
+    // record), AND preserve body.id = orphanId so future probe-based
+    // recovery still finds this CC even if the macro-config repair via
+    // view.submit doesn't land. recoveredFromOrphanId itself is also
+    // stripped here so future direct fetches don't re-derive the flag.
+    const recoveredFromOrphanId = value.recoveredFromOrphanId;
+    const samePage = !pageId || String(pageId) === String(existing?.pageId);
+    const countAllowsUpdate = recoveredFromOrphanId ? (count <= 1) : (count === 1);
+    let saveValue: Diagram = bodyWithoutUiFlags as Diagram;
+    if (recoveredFromOrphanId) {
+      const { recoveredFromOrphanId: _id, ...bodyOnly } = bodyWithoutUiFlags as any;
+      saveValue = { ...bodyOnly, id: recoveredFromOrphanId } as Diagram;
+    }
+
+    if (existing && samePage && countAllowsUpdate) {
       try {
-        result = await this.updateCustomContentV2(existing, value);
+        result = await this.updateCustomContentV2(existing, saveValue);
       } catch (error) {
         trackEvent('update_custom_content_error', 'update_custom_content_error', 'error', this.buildStructuredErrorProps(error));
         throw error;
@@ -714,7 +1024,7 @@ export default class ApWrapper2 implements IApWrapper {
       if (String(pageId) !== String(existing?.pageId)) {
         console.warn(`Detected copied macro on page ${pageId} (current) and ${existing?.pageId}.`);
       }
-      result = await this.createCustomContentV2(value);
+      result = await this.createCustomContentV2(saveValue);
     }
     return result;
   }

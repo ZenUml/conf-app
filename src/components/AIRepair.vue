@@ -27,11 +27,14 @@
       <div class="flex-1 overflow-hidden p-4 bg-gray-50 flex flex-col">
         <div v-if="!originalCode || !repairResult" class="flex-1 flex flex-col items-center justify-center text-gray-500">
           <div class="inline-block h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600 mb-4"></div>
-          <p>Analyzing changes...</p>
+          <p>{{ repairStatus || 'Analyzing changes...' }}</p>
+          <div v-if="repairProgress > 0" class="mt-2 w-64 bg-gray-200 rounded-full h-2">
+            <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" :style="{ width: repairProgress + '%' }"></div>
+          </div>
         </div>
 
         <div v-else class="flex-1 flex border border-gray-700 rounded-md overflow-hidden bg-gray-950 font-mono text-sm relative">
-          
+
           <div class="flex-1 flex flex-col border-r border-gray-800 min-w-0">
              <div class="sticky top-0 z-10 bg-gray-800/90 backdrop-blur px-4 py-2 border-b border-gray-700 text-xs font-bold text-red-400 uppercase tracking-wider">
               <span>Original</span>
@@ -63,7 +66,7 @@
             <div class="sticky top-0 z-10 bg-gray-800/90 backdrop-blur px-4 py-2 border-b border-gray-700 text-xs font-bold text-green-400 uppercase tracking-wider shrink-0">
               <span>Repaired (Editable)</span>
             </div>
-            
+
             <div class="flex-1 relative overflow-hidden">
               <div
                 ref="rightScrollRef"
@@ -78,9 +81,9 @@
                     :class="[getRightRowClass(row), row.isEditing ? 'bg-gray-700' : 'hover:bg-gray-800/50']"
                   >
                     <div class="w-8 flex-shrink-0 flex items-center justify-center border-r border-gray-800 bg-gray-900/50">
-                      <input 
-                        v-if="row.hasChange" 
-                        type="checkbox" 
+                      <input
+                        v-if="row.hasChange"
+                        type="checkbox"
                         :checked="row.accepted"
                         @change="toggleAccept(row, $event)"
                         class="cursor-pointer accent-blue-500 opacity-50 group-hover:opacity-100 transition-opacity w-3.5 h-3.5"
@@ -91,23 +94,23 @@
                     <div class="w-12 flex-shrink-0 text-right pr-3 text-gray-600 border-r border-gray-800 select-none leading-6 text-xs">
                       {{ row.right.lineNumber > 0 ? row.right.lineNumber : '' }}
                     </div>
-                    
-                    <div 
+
+                    <div
                       class="flex-1 pl-4 pr-12 leading-6 whitespace-pre relative flex items-center"
                       :class="getRightContentClass(row)"
                       @dblclick="startEdit(row)"
                       title="Double click to edit"
                     >
-                      <input 
-                        v-if="row.isEditing" 
-                        v-model="row.editBuffer" 
-                        @blur="commitEdit(row)" 
-                        @keyup.enter="commitEdit(row)" 
-                        class="absolute inset-y-0 left-0 w-full h-full bg-gray-700 text-white px-4 outline-none border-y border-blue-500 font-mono text-sm leading-6 z-10" 
+                      <input
+                        v-if="row.isEditing"
+                        v-model="row.editBuffer"
+                        @blur="commitEdit(row)"
+                        @keyup.enter="commitEdit(row)"
+                        class="absolute inset-y-0 left-0 w-full h-full bg-gray-700 text-white px-4 outline-none border-y border-blue-500 font-mono text-sm leading-6 z-10"
                         v-focus
                       />
                       <span v-else>{{ displayContent(row) }}</span>
-                      
+
                       <span v-if="!row.isEditing && row.customContent !== null" class="absolute left-0 text-[10px] text-blue-400 opacity-70 select-none pointer-events-none">
                         E
                       </span>
@@ -117,30 +120,30 @@
               </div>
             </div>
 
-            <div 
+            <div
               ref="minimapRef"
               class="absolute right-0 top-0 bottom-0 w-10 z-20 bg-gray-900/80 border-l border-gray-800 flex flex-col select-none overflow-hidden backdrop-blur-[1px]"
               :class="isDragging ? 'cursor-grabbing' : 'cursor-pointer'"
               @mousedown="handleDragStart"
             >
               <div class="flex-1 relative w-full opacity-80 hover:opacity-100 transition-opacity">
-                <div 
-                  v-for="(row, idx) in diffRows" 
+                <div
+                  v-for="(row, idx) in diffRows"
                   :key="'mini-'+idx"
                   class="w-full flex"
                   :style="{ height: (100 / diffRows.length) + '%' }"
                 >
-                  <div 
-                    class="flex-1" 
+                  <div
+                    class="flex-1"
                     :class="row.left.type === 'removed' ? 'bg-red-500' : ''"
                   ></div>
-                  <div 
-                    class="flex-1" 
+                  <div
+                    class="flex-1"
                     :class="row.right.type === 'added' ? 'bg-green-500' : ''"
                   ></div>
                 </div>
 
-                <div 
+                <div
                   class="absolute left-0 w-full bg-blue-500/30 border-y border-blue-400/60 pointer-events-none"
                   :style="viewportStyle"
                 ></div>
@@ -168,9 +171,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, nextTick, onUnmounted, Directive } from 'vue';
+import { ref, watch, computed, nextTick, onUnmounted, onBeforeUnmount, Directive } from 'vue';
 import * as Diff from 'diff';
-import { fixDiagram } from "@/services/GenerateService";
+import { startFixDiagram, getFixDiagramStatus } from "@/services/GenerateService";
 
 const props = defineProps({
   showDialog: Boolean,
@@ -235,11 +238,11 @@ const buildDiffRows = () => {
       const removedLines = part.value.replace(/\n$/, '').split('\n');
       const addedLines = nextPart.value.replace(/\n$/, '').split('\n');
       const maxCount = Math.max(removedLines.length, addedLines.length);
-      
+
       for (let j = 0; j < maxCount; j++) {
         const leftLine: DiffLine = j < removedLines.length ? { content: removedLines[j], lineNumber: lNum++, type: 'removed' } : { content: ' ', lineNumber: -1, type: 'empty' };
         const rightLine: DiffLine = j < addedLines.length ? { content: addedLines[j], lineNumber: rNum++, type: 'added' } : { content: ' ', lineNumber: -1, type: 'empty' };
-        
+
         rows.push({ left: leftLine, right: rightLine, hasChange: true, accepted: true, isEditing: false, editBuffer: '', customContent: null });
       }
       i += 2;
@@ -346,7 +349,7 @@ const getFinalCode = () => {
       lines.push(row.customContent);
       continue;
     }
-    
+
     // 2. Decide based on user acceptance state
     if (row.accepted) {
       // Accept AI changes: push common content or added content (skip empty/AI-deleted rows)
@@ -391,15 +394,15 @@ const syncScroll = (event: Event, source: 'left' | 'right') => {
   isSyncing = true;
   const el = event.target as HTMLElement;
   const target = source === 'left' ? rightScrollRef.value : leftScrollRef.value;
-  
+
   if (target) {
     target.scrollTop = el.scrollTop;
     target.scrollLeft = el.scrollLeft;
   }
-  
+
   scrollProgress.value = el.scrollTop / el.scrollHeight;
   scrollVisibleRatio.value = el.clientHeight / el.scrollHeight;
-  
+
   window.requestAnimationFrame(() => isSyncing = false);
 };
 
@@ -407,7 +410,7 @@ const performScroll = (clientY: number) => {
   if (!minimapRef.value || !rightScrollRef.value) return;
   const rect = minimapRef.value.getBoundingClientRect();
   const scrollEl = rightScrollRef.value;
-  
+
   let percentage = (clientY - rect.top) / rect.height;
   percentage = Math.max(0, Math.min(1, percentage));
 
@@ -434,20 +437,99 @@ const handleDragEnd = () => {
 };
 
 // Trigger AI repair
+const repairStatus = ref<string>('');
+const repairProgress = ref<number>(0);
+const currentJobId = ref<string | null>(null);
+let pollIntervalId: number | null = null;
+
 const triggerAiRepair = async () => {
   try {
-    const result = await fixDiagram(props.originalCode || '', props.error?.toString() || 'Syntax error', props.diagramType);
-    repairResult.value = result.updatedCode;
-    // watch will trigger buildDiffRows and minimap update
+    repairStatus.value = 'Starting AI repair...';
+    repairProgress.value = 0;
+
+    const { jobId } = await startFixDiagram(
+      props.originalCode || '',
+      props.error?.toString() || 'Syntax error',
+      props.diagramType
+    );
+
+    currentJobId.value = jobId;
+    startPolling(jobId);
+
   } catch (err: any) {
     repairResult.value = `// Error: ${err.message}`;
+    repairStatus.value = `Error: ${err.message}`;
+    stopPolling();
+  }
+};
+
+const startPolling = (jobId: string) => {
+  let attempts = 0;
+  const maxAttempts = 30;
+  let isPolling = true;
+
+  const poll = async () => {
+    if (!isPolling) return;
+
+    attempts++;
+
+    try {
+      const status = await getFixDiagramStatus(jobId);
+
+      // Update UI
+      repairStatus.value = status.message || status.status;
+      repairProgress.value = status.progress;
+
+      // Check completion
+      if (status.status === 'COMPLETED') {
+        if (status.output?.diagramCode) {
+          repairResult.value = status.output.diagramCode;
+          repairStatus.value = 'Completed';
+          repairProgress.value = 100;
+        } else {
+          throw new Error('Job completed but no diagram code in output');
+        }
+        stopPolling();
+        return;
+      } else if (status.status === 'FAILED') {
+        throw new Error(`Diagram modification failed: ${status.error || 'Unknown error'}`);
+      } else if (attempts >= maxAttempts) {
+        throw new Error('Diagram modification timed out after 60 seconds');
+      }
+
+      // Schedule next poll only after current one completes
+      if (isPolling) {
+        pollIntervalId = window.setTimeout(poll, 2000);
+      }
+
+    } catch (err: any) {
+      console.error('[AIRepair] Polling error:', err.message);
+      repairResult.value = `// Error: ${err.message}`;
+      repairStatus.value = `Error: ${err.message}`;
+      stopPolling();
+    }
+  };
+
+  // Store the isPolling flag so stopPolling can cancel it
+  (poll as any).stopPolling = () => { isPolling = false; };
+
+  // Start first poll
+  poll();
+};
+
+const stopPolling = () => {
+  if (pollIntervalId !== null) {
+    clearTimeout(pollIntervalId);
+    pollIntervalId = null;
   }
 };
 
 const closeDialog = () => {
+  stopPolling(); // Stop polling when dialog closes
   emit('close');
   repairResult.value = null;
   diffRows.value = [];
+  currentJobId.value = null;
   handleDragEnd();
 };
 
@@ -460,6 +542,11 @@ watch(repairResult, () => {
 
 watch([() => props.originalCode, () => props.showDialog], ([code, show]) => {
   if (show && !repairResult.value) triggerAiRepair();
+});
+
+// Cleanup on unmount
+onBeforeUnmount(() => {
+  stopPolling();
 });
 
 onUnmounted(handleDragEnd);

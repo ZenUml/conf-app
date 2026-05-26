@@ -8,35 +8,30 @@
   <script type="text/javascript" src="./js/md5.js"></script>
 
   <!-- TODO: load DrawIO scripts for Graph macro only -->
-	<!-- Load common.css explicitly so we can disable mxClient.js's auto-load.
-	     mxClient.js (line 9) hard-codes `mxClient.link("stylesheet","mxgraph/css/common.css")`
-	     with no basePath prefix; in the Forge iframe that resolves to
-	     <iframe-root>/mxgraph/css/common.css → 404. Vite rewrites the leading
-	     "/" on this <link href> at build time so it resolves correctly. -->
+	<!-- Load common.css explicitly so we can disable viewer-static.min.js's auto-load.
+	     viewer-static.min.js (mxClient section) hard-codes
+	     `mxClient.link("stylesheet","mxgraph/css/common.css")` with no basePath
+	     prefix; in the Forge iframe that resolves to <iframe-root>/mxgraph/css/common.css
+	     → 404. Vite rewrites the leading "/" on this <link href> at build time so it
+	     resolves correctly. mxLoadStylesheets=false (set below) stops the auto-load. -->
 	<link rel="stylesheet" href="/drawio/mxgraph/css/common.css">
 	<script type="text/javascript">
-		// Read by mxClient.js at evaluation time (must be set BEFORE the script tag below).
-		// mxLoadStylesheets=false stops mxClient.link("stylesheet","mxgraph/css/common.css") (line 9).
-		// mxLoadResources=false stops the synchronous XHR for "./resources/graph.txt" (line 1094);
-		// our app intentionally skips core mx language bundles — see Init.js comment about
-		// grapheditor.properties holding everything we need.
+		// All globals must be set BEFORE viewer-static.min.js evaluates them.
+		// viewer-static.min.js uses the `window.X = window.X || "<cdn-fallback>"` pattern,
+		// so values set here take precedence over the upstream CDN defaults.
+		//
+		// mxLoadStylesheets=false — stops mxClient.link("stylesheet","mxgraph/css/common.css")
+		// mxLoadResources=false  — stops the synchronous XHR for "./resources/graph.txt";
+		//   our app intentionally skips core mx language bundles (grapheditor.properties
+		//   holds everything we need via Init.js / the bundled viewer).
+		// mxBasePath             — points mxgraph core to our local copy so image paths
+		//   resolve correctly inside the Forge iframe.
+		// uiTheme / urlParams / *_PATH — read at module-load time by Editor.js and
+		//   GraphViewer.js (bare references, not window.* lookups); must exist before the
+		//   bundle evaluates or those modules throw ReferenceError and the viewer goes blank.
 		var mxLoadStylesheets = false;
 		var mxLoadResources = false;
-	</script>
-	<script type="text/javascript" src="/drawio/js/sanitizer/purify.min.js"></script>
-	<script type="text/javascript" src="/drawio/mxgraph/mxClient.js"></script>
-	<script type="text/javascript" src="/drawio/js/grapheditor/Init.js"></script>
-	<script type="text/javascript" src="/drawio/js/grapheditor/Graph.js"></script>
-	<script type="text/javascript" src="/drawio/js/grapheditor/Shapes.js"></script>
-	<script type="text/javascript">
-		// These globals must be defined BEFORE the Editor / GraphViewer scripts
-		// below — they read them at module-load time (bare references, not
-		// window.* lookups), so a missing binding throws ReferenceError and the
-		// viewer iframe goes blank.
-		//   - uiTheme: grapheditor/Editor.js:243 (Editor.currentTheme = uiTheme;)
-		//   - urlParams: diagramly/GraphViewer.js:23, grapheditor/Editor.js:207
-		//   - SHAPES_PATH / STENCIL_PATH / IMAGE_PATH / STYLE_PATH:
-		//     diagramly/Editor.js:~7920 stencil-library map
+		window.mxBasePath = './drawio/mxgraph/';
 		var uiTheme = '';
 		var SHAPES_PATH = './drawio/shapes';
 		var STENCIL_PATH = './drawio/stencils';
@@ -55,16 +50,12 @@
 			return result;
 		})(window.location.href);
 	</script>
-	<!-- Editor + EditorUi + diagramly extensions + GraphViewer power the
-	     multi-page viewer (prev / "X / Y" / next toolbar). GraphViewer.js
-	     references Editor and EditorUi globals at module-load time, and uses
-	     Editor.extractGraphModel + Editor.parseDiagramNode (defined in
-	     diagramly/Editor.js) at runtime to walk <mxfile> pages. Without these
-	     the official drawio Confluence plugin's page-nav UX can't render. -->
-	<script type="text/javascript" src="/drawio/js/grapheditor/Editor.js"></script>
-	<script type="text/javascript" src="/drawio/js/grapheditor/EditorUi.js"></script>
-	<script type="text/javascript" src="/drawio/js/diagramly/Editor.js"></script>
-	<script type="text/javascript" src="/drawio/js/diagramly/GraphViewer.js"></script>
+	<!-- viewer-static.min.js (DrawIO v30.0.2) is a self-contained bundle:
+	     DOMPurify + mxClient + grapheditor/{Init,Graph,Shapes,Editor,EditorUi}
+	     + diagramly/{Editor,GraphViewer}. Replaces the 8 individual script tags
+	     used in v21.6.5 and fixes the swimlane-body fillColor rendering bug
+	     (issue #143) that was present in v21.6.5. -->
+	<script type="text/javascript" src="/drawio/js/viewer-static.min.js"></script>
 	<!-- Pre-load shape JS files. mxStencilRegistry.getStencil() falls back to
 	     loading these via XHR + eval(), which the Forge CSP blocks
 	     ("'unsafe-eval' is not an allowed source of script"). Loading them via
@@ -78,9 +69,8 @@
 	<script type="text/javascript" src="/drawio/shapes/mxAWS4.js"></script>
 	<script type="text/javascript">
 		// SHAPES_PATH / STENCIL_PATH / IMAGE_PATH / STYLE_PATH / urlParams are
-		// defined earlier (above the Editor scripts) — they have to exist BEFORE
-		// those scripts evaluate. This block only configures the stencil
-		// registry, which depends on Graph.js having loaded.
+		// defined in the globals block above, before viewer-static.min.js loads.
+		// This block only configures the stencil registry after the bundle has run.
 
 		// Forge CSP forbids "unsafe-eval", which breaks mxStencilRegistry's
 		// fallback path that loads shape .js files via XHR + eval(). Disable that
@@ -99,13 +89,10 @@
 		// definitions and/or XML stencils that back it. Files are fetched lazily
 		// on first use so this adds no upfront cost.
 		//
-		// The mapping mirrors DrawIO's own Editor.js (see
-		// public/drawio/js/diagramly/Editor.js, ~line 7920) — the embedded viewer
-		// loads the basic mxGraph runtime but not Editor.js, so the libraries map
-		// stays empty and stencil-backed shapes fall back to a solid rectangle
-		// filled with the shape's fillColor. The aws3 entry is added on top of
-		// the official list to keep legacy AWS-2017 diagrams (mxgraph.aws3.*)
-		// rendering correctly.
+		// The mapping mirrors DrawIO's own diagramly/Editor.js stencil-library
+		// map (now bundled inside viewer-static.min.js). The aws3 entry is added
+		// on top of the official list to keep legacy AWS-2017 diagrams
+		// (mxgraph.aws3.*) rendering correctly.
 		(function () {
 			if (typeof mxStencilRegistry === 'undefined') return;
 			var L = mxStencilRegistry.libraries;

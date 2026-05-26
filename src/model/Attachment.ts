@@ -1,6 +1,7 @@
 import * as htmlToImage from 'html-to-image';
 import md5 from 'md5';
 import {trackEvent} from '@/utils/window';
+import { toast } from '@/utils/toast';
 import global from '@/model/globals';
 import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import {forgeRequest} from '@/utils/requestUtil';
@@ -235,7 +236,14 @@ async function uploadAttachment(
       console.warn('Failed to inject diagram source into PNG attachment', e);
     }
   }
-  if (!blob) throw new Error('Failed to convert diagram to PNG');
+  if (!blob) {
+    // Show a toast only when the diagram has content — an empty diagram is already
+    // surfaced by the Viewer's empty state, so no redundant message needed there.
+    if (content?.trim()) {
+      toast({ message: 'Diagram backup could not be saved — try re-saving.', duration: 4000 });
+    }
+    throw new ToPngError();
+  }
   // Always store metaKey as the comment — iTXt injection is best-effort.
   // Storing the bare hash on failure causes an infinite re-upload loop when
   // toPng() consistently returns a non-PNG blob (e.g. empty diagram → 4 bytes).
@@ -307,6 +315,18 @@ class DraftPageError extends Error {
   constructor(body: string) {
     super(`Attachment upload skipped — page is a draft: ${body}`);
     this.name = 'DraftPageError';
+  }
+}
+
+/**
+ * Thrown when toPng() returns null — the diagram is empty, not yet rendered,
+ * or the capture node is absent. Treated as a skip (not a failure) so the
+ * caller doesn't log it as an error and it doesn't break the save flow.
+ */
+class ToPngError extends Error {
+  constructor() {
+    super('Diagram is empty or not yet rendered — PNG capture skipped.');
+    this.name = 'ToPngError';
   }
 }
 
@@ -553,6 +573,13 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
     // non-fatal, no re-throw. Emit the skip event so analysts can correlate.
     if (e instanceof DraftPageError) {
       trackEvent('draft_page', 'attachment_upload_skipped', 'export', ctx);
+      return;
+    }
+    // ToPngError: diagram is empty or not yet rendered. The Viewer already shows
+    // an empty state for blank diagrams; for non-empty diagrams a toast was shown
+    // in uploadAttachment. Either way, skip the upload — don't count as a failure.
+    if (e instanceof ToPngError) {
+      trackEvent('unrenderable_diagram', 'attachment_upload_skipped', 'export', ctx);
       return;
     }
     // The function still throws (callers wrap this in try/catch already), but we

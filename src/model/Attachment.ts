@@ -213,11 +213,88 @@ function buildPostRequestToUploadAttachment(uri: string, hash: string, file: Fil
   };
 }
 
+// ============================================================================
+// PNG iTXt chunk injection (for DrawIO XML source embedding)
+// ============================================================================
+
+function crc32(data: Uint8Array): number {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    table[i] = c;
+  }
+  let crc = 0xFFFFFFFF;
+  for (const byte of data) crc = table[(crc ^ byte) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function buildItxtChunk(keyword: string, text: string): Uint8Array {
+  const enc = new TextEncoder();
+  const kw = enc.encode(keyword);
+  const textBytes = enc.encode(text);
+  // iTXt data: keyword \0 comprFlag(0) comprMethod(0) langTag \0 translatedKw \0 text
+  const data = new Uint8Array(kw.length + 1 + 1 + 1 + 0 + 1 + 0 + 1 + textBytes.length);
+  let pos = 0;
+  data.set(kw, pos); pos += kw.length;
+  data[pos++] = 0; // keyword null terminator
+  data[pos++] = 0; // compression flag: uncompressed
+  data[pos++] = 0; // compression method
+  data[pos++] = 0; // language tag null terminator
+  data[pos++] = 0; // translated keyword null terminator
+  data.set(textBytes, pos);
+  // Build: length(4) + type(4) + data + crc(4)
+  const type = enc.encode('iTXt');
+  const chunk = new Uint8Array(4 + 4 + data.length + 4);
+  const view = new DataView(chunk.buffer);
+  view.setUint32(0, data.length, false);
+  chunk.set(type, 4);
+  chunk.set(data, 8);
+  const crcInput = new Uint8Array(4 + data.length);
+  crcInput.set(type, 0);
+  crcInput.set(data, 4);
+  view.setUint32(4 + 4 + data.length, crc32(crcInput), false);
+  return chunk;
+}
+
+async function injectPngItxtChunk(blob: Blob, keyword: string, text: string): Promise<Blob> {
+  try {
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    const dataView = new DataView(buf.buffer);
+    let offset = 8; // skip PNG signature
+    let iendPos = -1;
+    while (offset + 8 <= buf.length) {
+      const length = dataView.getUint32(offset, false);
+      const type = String.fromCharCode(buf[offset+4], buf[offset+5], buf[offset+6], buf[offset+7]);
+      if (type === 'IEND') { iendPos = offset; break; }
+      offset += 12 + length;
+    }
+    if (iendPos === -1) return blob;
+    const chunk = buildItxtChunk(keyword, text);
+    const result = new Uint8Array(buf.length + chunk.length);
+    result.set(buf.slice(0, iendPos));
+    result.set(chunk, iendPos);
+    result.set(buf.slice(iendPos), iendPos + chunk.length);
+    return new Blob([result], { type: 'image/png' });
+  } catch (e) {
+    console.warn('[Attachment] injectPngItxtChunk failed, uploading without embedded source', e);
+    return blob;
+  }
+}
+
 /**
  * Upload an attachment file to Confluence.
  */
-async function uploadAttachment(attachmentName: string, uri: string, hash: string): Promise<ApiResponse> {
-  const blob = await toPng();
+async function uploadAttachment(
+  attachmentName: string,
+  uri: string,
+  hash: string,
+  embeddedSource?: { keyword: string; text: string },
+): Promise<ApiResponse> {
+  let blob = await toPng();
+  if (blob && embeddedSource) {
+    blob = await injectPngItxtChunk(blob, embeddedSource.keyword, embeddedSource.text);
+  }
   const file = new File([blob!], attachmentName, { type: 'image/png' });
   console.debug('Uploading attachment to', uri);
   return await makeRequest(buildPostRequestToUploadAttachment(uri, hash, file));
@@ -262,7 +339,7 @@ export async function getAttachmentDownloadLink(
   macroUuid: string
 ): Promise<string | false> {
   const attachmentName = attachmentNameByIdentifier(macroUuid);
-  const attachments = await global.apWrapper.getAttachmentsV2(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
+  const attachments = await global.apWrapper.getAttachments(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
   if (attachments.length > 1) {
     console.warn(`Multiple attachments found with uuid "${macroUuid}" on page ${pageId}:`, attachments);
   }
@@ -341,7 +418,7 @@ async function tryGetAttachment(): Promise<AttachmentWithLinks | false> {
   const pageId = await global.apWrapper._getCurrentPageId();
   const identifier = await getIdentifier();
   const attachmentName = attachmentNameByIdentifier(identifier!);
-  const attachments = await global.apWrapper.getAttachmentsV2(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
+  const attachments = await global.apWrapper.getAttachments(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
   const descending = attachments.sort((a, b) => (b.version?.number ?? 0) - (a.version?.number ?? 0));
   return descending.length > 0 && descending[0];
 }
@@ -351,19 +428,24 @@ async function tryGetAttachment(): Promise<AttachmentWithLinks | false> {
  */
 async function uploadAttachment2(
   hash: string,
-  fnGetUri: (pageId: string) => string
+  fnGetUri: (pageId: string) => string,
+  embeddedSource?: { keyword: string; text: string },
 ): Promise<ApiResponse> {
   const pageId = await global.apWrapper._getCurrentPageId();
   const identifier = await getIdentifier();
   const attachmentName = attachmentNameByIdentifier(identifier!);
   const uri = fnGetUri(pageId);
-  return await uploadAttachment(attachmentName, uri, hash);
+  return await uploadAttachment(attachmentName, uri, hash, embeddedSource);
 }
 
 /**
  * Create a function that uploads a new version of an existing attachment.
  */
-function uploadNewVersionOfAttachment(hash: string, ctx: UploadContext): () => Promise<AttachmentMeta> {
+function uploadNewVersionOfAttachment(
+  hash: string,
+  ctx: UploadContext,
+  embeddedSource?: { keyword: string; text: string },
+): () => Promise<AttachmentMeta> {
   return async () => {
     const attachment = await tryGetAttachment() as AttachmentWithLinks;
     const attachmentId = attachment.id;
@@ -371,7 +453,7 @@ function uploadNewVersionOfAttachment(hash: string, ctx: UploadContext): () => P
     trackEvent('version:' + versionNumber, 'upload_attachment', 'export', ctx);
     await uploadAttachment2(hash, (pageId: string) => {
       return buildAttachmentBasePath(pageId) + '/' + attachmentId + '/data';
-    });
+    }, embeddedSource);
     return { attachmentId, versionNumber, hash };
   };
 }
@@ -379,10 +461,14 @@ function uploadNewVersionOfAttachment(hash: string, ctx: UploadContext): () => P
 /**
  * Create a function that uploads a new attachment.
  */
-function uploadNewAttachment(hash: string, ctx: UploadContext): () => Promise<AttachmentMeta> {
+function uploadNewAttachment(
+  hash: string,
+  ctx: UploadContext,
+  embeddedSource?: { keyword: string; text: string },
+): () => Promise<AttachmentMeta> {
   return async () => {
     trackEvent('version:1', 'upload_attachment', 'export', ctx);
-    const response = await uploadAttachment2(hash, buildAttachmentBasePath);
+    const response = await uploadAttachment2(hash, buildAttachmentBasePath, embeddedSource);
     const parsed = JSON.parse(response.body);
     // Option B: Confluence v1 wraps a 404 in a 200 body when the page is a draft.
     // Body: {"statusCode":404,"message":"No content found … status : draft"}
@@ -488,7 +574,13 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
     const attachment = await tryGetAttachment();
     if (!attachment || hash !== attachment.comment) {
       const isUpdate = Boolean(attachment);
-      const attachmentMeta = await (attachment ? uploadNewVersionOfAttachment(hash, ctx) : uploadNewAttachment(hash, ctx))();
+      const embeddedSource = diagramType === 'graph' && content
+        ? { keyword: 'mxGraphModel', text: content }
+        : undefined;
+      const attachmentMeta = await (attachment
+        ? uploadNewVersionOfAttachment(hash, ctx, embeddedSource)
+        : uploadNewAttachment(hash, ctx, embeddedSource)
+      )();
       await updateAttachmentProperties(attachmentMeta);
       // Success path — gives us a denominator for `_failed` and tells the
       // `created` vs `updated` story. Emit AFTER updateAttachmentProperties

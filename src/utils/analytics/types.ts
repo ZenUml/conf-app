@@ -43,6 +43,7 @@ export type AnalyticsProperties = {
   content_id?: string;
   content_type?: string;
   content_status?: string;
+  content_state?: 'default' | 'authored' | 'empty';
   page_id?: string;
   custom_content_id?: string;
   attachment_name?: string;

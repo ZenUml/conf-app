@@ -18,9 +18,10 @@ import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { classifyContentState } from '@/utils/analytics/contentState';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
-import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
+import { reportOrphanObserved, reportOrphanMacroRepaired, reportCustomContentLoadSucceeded } from '@/utils/orphanTelemetry';
 import {
   reportLegacyContentPropertyRestored,
   reportLegacyContentPropertyLoadFailed,
@@ -130,12 +131,24 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           recoveryUsed: true,
           recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
         });
+      } else if (doc) {
+        reportCustomContentLoadSucceeded(recoveryPageId, customContentId, 'sequence');
       } else if (!doc) {
         // ZEN-1170: the referenced customContent failed to load AND no page
         // child was a confident match. Don't assign doc here — let the legacy
         // content-property fallback below try storageUuid before we mount an
         // empty/example doc and risk a destructive save.
-        reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, { recoveryUsed: false });
+        reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, {
+          recoveryUsed: false,
+          directFetchStatus: loaded.directFetchStatus,
+          directFetchHttpStatus: loaded.directFetchHttpStatus,
+          directFetchErrorCode: loaded.directFetchErrorCode,
+          directFetchErrorClass: loaded.directFetchErrorClass,
+        });
+        store.commit('setLoadError', {
+          httpStatus: loaded.directFetchHttpStatus,
+          errorClass: loaded.directFetchErrorClass,
+        });
       }
     }
 
@@ -387,6 +400,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           surface: "viewer",
           macro_type: doc.diagramType,
           entry_point: "page_view",
+          content_state: classifyContentState(doc.diagramType, doc),
         });
       } else {
         const isNew = !customContentId;

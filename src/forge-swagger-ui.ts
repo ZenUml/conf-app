@@ -15,7 +15,7 @@ import macroMetrics from "@/services/MacroMetrics";
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import store from "@/model/store2";
 import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
-import { reportOrphanObserved } from '@/utils/orphanTelemetry';
+import { reportOrphanObserved, reportCustomContentLoadSucceeded } from '@/utils/orphanTelemetry';
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
 
 // @ts-ignore
@@ -67,8 +67,20 @@ async function loadDiagram() {
         recoveryUsed: true,
         recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
       });
+    } else if (doc) {
+      reportCustomContentLoadSucceeded(pageId, customContentId, 'openapi');
     } else if (!doc) {
-      reportOrphanObserved(pageId, customContentId, 'openapi', loaded.probeResult, { recoveryUsed: false });
+      reportOrphanObserved(pageId, customContentId, 'openapi', loaded.probeResult, {
+        recoveryUsed: false,
+        directFetchStatus: loaded.directFetchStatus,
+        directFetchHttpStatus: loaded.directFetchHttpStatus,
+        directFetchErrorCode: loaded.directFetchErrorCode,
+        directFetchErrorClass: loaded.directFetchErrorClass,
+      });
+      store.commit('setLoadError', {
+        httpStatus: loaded.directFetchHttpStatus,
+        errorClass: loaded.directFetchErrorClass,
+      });
     }
   }
   store.state.diagram = doc ?? NULL_DIAGRAM;
@@ -97,12 +109,6 @@ async function loadDiagram() {
 
 async function initializeMacro() {
   await globals.apWrapper.initializeContext();
-  trackAnalyticsEvent("macro_viewed", {
-    feature_area: "macro",
-    surface: "viewer",
-    macro_type: "openapi",
-    entry_point: "page_view",
-  });
 
   // Initialize with empty doc, will be loaded in loadDiagram.
   // Fullscreen viewer paywall wraps OpenApiViewer underneath the modal
@@ -119,6 +125,12 @@ async function initializeMacro() {
   initSwaggerUi();
 
   await loadDiagram();
+  trackAnalyticsEvent("macro_viewed", {
+    feature_area: "macro",
+    surface: "viewer",
+    macro_type: store.state.diagram.diagramType,
+    entry_point: "page_view",
+  });
 }
 
 export default initializeMacro();

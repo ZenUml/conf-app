@@ -6,6 +6,9 @@ import EventBus from "@/EventBus";
 
 const ExtendedStore: StoreOptions<RootState> = {
   mutations: {
+    setLoadError(state: any, payload: any) {
+      state.loadError = payload;
+    },
     updateCode2(state: any, payload: any) {
       state.diagram.code = payload
     },
@@ -64,6 +67,7 @@ const ExtendedStore: StoreOptions<RootState> = {
   },
   state: {
     diagram: NULL_DIAGRAM,
+    loadError: null,
     error: null,
     generating: false,
     lastDiagramWasAI: false,

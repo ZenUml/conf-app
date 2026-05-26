@@ -79,7 +79,29 @@
 
           <!-- Canvas + bottom-edge pill -->
           <div class="viewer-canvas">
-            <div class="screen-capture-content" :class="{'w-full': wide}">
+            <!-- #152: permission-denied empty state (403) -->
+            <div v-if="isPermissionError" class="viewer-load-failed" role="alert" data-testid="load-failed-permission">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-load-failed-icon" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+              </svg>
+              <div class="viewer-load-failed-body">
+                <strong>You may not have permission to view this diagram's source content</strong>
+                <p class="viewer-load-failed-hint">The diagram is stored on a Confluence page you can't access. Ask the page owner for read access, or contact your admin.</p>
+              </div>
+              <button class="viewer-load-failed-btn" @click="retry">I have permission, retry</button>
+            </div>
+            <!-- #151: generic load-failed empty state -->
+            <div v-else-if="isLoadFailed" class="viewer-load-failed" role="alert" data-testid="load-failed-generic">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-load-failed-icon" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+              </svg>
+              <div class="viewer-load-failed-body">
+                <strong>Couldn't load this diagram</strong>
+                <span v-if="failedCustomContentId" class="viewer-load-failed-id">Content ID: {{ failedCustomContentId }}</span>
+              </div>
+              <button class="viewer-load-failed-btn" @click="retry">Retry</button>
+            </div>
+            <div v-else class="screen-capture-content" :class="{'w-full': wide}">
               <slot></slot>
             </div>
 
@@ -170,8 +192,21 @@ export default {
     OverflowMenu,
   },
   computed: {
-    ...mapState({diagramType: state => state.diagram.diagramType, diagram: state => state.diagram }),
+    ...mapState({
+      diagramType: state => state.diagram.diagramType,
+      diagram: state => state.diagram,
+      loadError: state => state.loadError,
+    }),
     ...mapGetters({isDisplayMode: 'isDisplayMode'}),
+    isLoadFailed() {
+      return this.diagramType === 'unknown' && this.isDisplayMode;
+    },
+    isPermissionError() {
+      return this.isLoadFailed && this.loadError?.httpStatus === 403;
+    },
+    failedCustomContentId() {
+      return window.forgeGlobal?.forgeContext?.extension?.config?.customContentId;
+    },
     isFullscreenMode() {
       return window.forgeGlobal?.forgeContext?.extension?.modal?.macroMode === 'fullscreen';
     },
@@ -225,6 +260,9 @@ export default {
     }
   },
   methods: {
+    retry() {
+      location.reload();
+    },
     edit() {
       trackEvent('edit', 'click', 'editing');
       EventBus.$emit('edit');
@@ -478,6 +516,55 @@ export default {
 .viewer-btn-primary:active { background: #064395; }
 
 .viewer-icon { width: 16px; height: 16px; }
+
+.viewer-load-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 24px;
+  text-align: center;
+  color: #374151;
+}
+.viewer-load-failed-icon {
+  width: 32px;
+  height: 32px;
+  color: #9CA3AF;
+  flex-shrink: 0;
+}
+.viewer-load-failed-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.viewer-load-failed-body strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+.viewer-load-failed-hint {
+  font-size: 13px;
+  color: #6B7280;
+  max-width: 360px;
+}
+.viewer-load-failed-id {
+  font-size: 12px;
+  color: #9CA3AF;
+  font-family: monospace;
+}
+.viewer-load-failed-btn {
+  padding: 6px 14px;
+  background: #F3F4F6;
+  color: #374151;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.viewer-load-failed-btn:hover { background: #E5E7EB; }
 
 .viewer-canvas {
   position: relative;

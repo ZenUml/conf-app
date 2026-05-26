@@ -3,6 +3,29 @@ import type ApWrapper2 from '@/model/ApWrapper2';
 
 export type OrphanDiagramKind = 'sequence' | 'graph' | 'openapi' | 'embed';
 
+/**
+ * Emit a sampled (1%) `customcontent_load_succeeded` event on the happy path
+ * so per-user / per-page success-vs-failure joins are possible in Mixpanel.
+ * Successes are the dominant case (>99% of loads); 1% gives enough signal
+ * without drowning the event stream.
+ */
+export function reportCustomContentLoadSucceeded(
+  pageId: string | undefined,
+  customContentId: string,
+  diagramKind: OrphanDiagramKind,
+): void {
+  if (Math.random() > 0.01) return;
+  try {
+    trackEvent(customContentId, 'customcontent_load_succeeded', 'info', {
+      diagram_kind: diagramKind,
+      direct_fetch_status: 'ok',
+      ...(pageId && { page_id: pageId }),
+    });
+  } catch (e) {
+    console.warn('[orphanTelemetry] reportCustomContentLoadSucceeded failed', e);
+  }
+}
+
 export type ProbeResult = Awaited<ReturnType<ApWrapper2['probeOrphanRecovery']>>;
 
 /**
@@ -25,8 +48,21 @@ export function reportOrphanObserved(
   orphanId: string,
   diagramKind: OrphanDiagramKind,
   probeResult: ProbeResult | undefined,
-  options: { recoveryUsed?: boolean; recoveredId?: string } = {},
+  options: {
+    recoveryUsed?: boolean;
+    recoveredId?: string;
+    directFetchStatus?: 'ok' | 'not_found' | 'other_error';
+    directFetchHttpStatus?: number;
+    directFetchErrorCode?: string;
+    directFetchErrorClass?: 'thrown' | 'structured' | 'malformed';
+  } = {},
 ): void {
+  const directFetchProps = {
+    ...(options.directFetchStatus !== undefined && { direct_fetch_status: options.directFetchStatus }),
+    ...(options.directFetchHttpStatus !== undefined && { direct_fetch_http_status: options.directFetchHttpStatus }),
+    ...(options.directFetchErrorCode !== undefined && { direct_fetch_error_code: options.directFetchErrorCode }),
+    ...(options.directFetchErrorClass !== undefined && { direct_fetch_error_class: options.directFetchErrorClass }),
+  };
   try {
     if (!pageId || !probeResult) {
       // Two distinct reasons we couldn't probe:
@@ -39,6 +75,7 @@ export function reportOrphanObserved(
         recoverable: !pageId ? 'probe_skipped_no_page_id' : 'probe_skipped_no_probe_result',
         recovery_used: false,
         ...(pageId && { page_id: pageId }),
+        ...directFetchProps,
       });
       return;
     }
@@ -52,6 +89,7 @@ export function reportOrphanObserved(
       ...(options.recoveredId && { recovered_id: options.recoveredId }),
       ...(probeResult.truncated && { truncated: true }),
       ...(probeResult.probeError && { probe_error: probeResult.probeError }),
+      ...directFetchProps,
     });
   } catch (e) {
     console.warn('[orphanTelemetry] reportOrphanObserved failed', e);

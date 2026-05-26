@@ -159,19 +159,19 @@ describe('GenericViewer (chrome-less)', () => {
   })
 
   describe('bottom-edge pill actions', () => {
-    it('shows the four expected actions for a custom-content diagram', () => {
+    it('shows the five expected actions for a custom-content diagram', () => {
       const wrapper = mountViewer()
-      const labels = wrapper.findAll('.viewer-edge-bottom-pill .viewer-pill-btn')
+      const labels = wrapper.findAll('[role="toolbar"][aria-label="Diagram actions"] button')
         .map(b => b.attributes('aria-label'))
-      expect(labels).toEqual(['Copy code', 'Export PNG', 'Versions', 'Copy link'])
+      expect(labels).toEqual(['Copy code', 'Export PNG', 'Versions', 'Copy link', 'More'])
     })
 
     it('hides the Versions button when the diagram is not custom content', () => {
       store.state.diagram.source = DataSource.MacroBody
       const wrapper = mountViewer()
-      const labels = wrapper.findAll('.viewer-edge-bottom-pill .viewer-pill-btn')
+      const labels = wrapper.findAll('[role="toolbar"][aria-label="Diagram actions"] button')
         .map(b => b.attributes('aria-label'))
-      expect(labels).toEqual(['Copy code', 'Export PNG', 'Copy link'])
+      expect(labels).toEqual(['Copy code', 'Export PNG', 'Copy link', 'More'])
     })
 
     it('opens the export modal when Export PNG is clicked', async () => {

@@ -25,7 +25,7 @@ function reconstructDiagram(payload: DiagramPayload, customContentId: string): D
   const dt = parseDiagramType(payload.diagramType);
   // Preserve the original CC id so callers can detect id changes on save
   // (sourceId → newId diff triggers view.submit writeback in insert/configure contexts).
-  const base: Diagram = { ...NULL_DIAGRAM, id: customContentId, diagramType: dt, source: DataSource.PngAttachment };
+  const base: Diagram = { ...NULL_DIAGRAM, id: customContentId, diagramType: dt, source: DataSource.PngAttachment, recoveredFromOrphan: true };
   switch (dt) {
     case DiagramType.Graph:   return { ...base, graphXml: payload.source };
     case DiagramType.Mermaid: return { ...base, mermaidCode: payload.source };

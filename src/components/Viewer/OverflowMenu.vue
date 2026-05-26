@@ -119,6 +119,8 @@ export default {
   height: 16px;
 }
 
+/* Trigger styling is owned locally by OverflowMenu so the trigger isn't dependent on a parent's scoped CSS reaching across data-v hashes. */
+
 .overflow-menu-popover {
   position: absolute;
   bottom: calc(100% + 8px);

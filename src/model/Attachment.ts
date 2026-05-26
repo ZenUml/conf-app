@@ -215,12 +215,34 @@ function buildPostRequestToUploadAttachment(uri: string, hash: string, file: Fil
 
 /**
  * Upload an attachment file to Confluence.
+ * Returns the ApiResponse and the comment key actually written: if iTXt
+ * injection succeeded the key carries the `|itxt:v1` suffix; otherwise it
+ * falls back to the bare content hash so future views can retry.
  */
-async function uploadAttachment(attachmentName: string, uri: string, hash: string): Promise<ApiResponse> {
-  const blob = await toPng();
+async function uploadAttachment(
+  attachmentName: string,
+  uri: string,
+  hash: string,
+  content?: string,
+  diagramType?: string,
+): Promise<{ response: ApiResponse; effectiveHash: string }> {
+  let blob = await toPng();
+  let injectionSucceeded = false;
+  if (blob && content !== undefined && diagramType) {
+    try {
+      const { injectDiagramSource } = await import('@/utils/pngMetadata');
+      const original = blob;
+      blob = await injectDiagramSource(blob, diagramType, content);
+      injectionSucceeded = blob !== original;
+    } catch (e) {
+      console.warn('Failed to inject diagram source into PNG attachment', e);
+    }
+  }
+  const effectiveHash = injectionSucceeded ? `${hash}|${diagramType}|itxt:v1` : hash;
   const file = new File([blob!], attachmentName, { type: 'image/png' });
   console.debug('Uploading attachment to', uri);
-  return await makeRequest(buildPostRequestToUploadAttachment(uri, hash, file));
+  const response = await makeRequest(buildPostRequestToUploadAttachment(uri, effectiveHash, file));
+  return { response, effectiveHash };
 }
 
 /**
@@ -351,38 +373,50 @@ async function tryGetAttachment(): Promise<AttachmentWithLinks | false> {
  */
 async function uploadAttachment2(
   hash: string,
-  fnGetUri: (pageId: string) => string
-): Promise<ApiResponse> {
+  fnGetUri: (pageId: string) => string,
+  content?: string,
+  diagramType?: string,
+): Promise<{ response: ApiResponse; effectiveHash: string }> {
   const pageId = await global.apWrapper._getCurrentPageId();
   const identifier = await getIdentifier();
   const attachmentName = attachmentNameByIdentifier(identifier!);
   const uri = fnGetUri(pageId);
-  return await uploadAttachment(attachmentName, uri, hash);
+  return await uploadAttachment(attachmentName, uri, hash, content, diagramType);
 }
 
 /**
  * Create a function that uploads a new version of an existing attachment.
  */
-function uploadNewVersionOfAttachment(hash: string, ctx: UploadContext): () => Promise<AttachmentMeta> {
+function uploadNewVersionOfAttachment(
+  hash: string,
+  ctx: UploadContext,
+  content?: string,
+  diagramType?: string,
+): () => Promise<AttachmentMeta> {
   return async () => {
     const attachment = await tryGetAttachment() as AttachmentWithLinks;
     const attachmentId = attachment.id;
     const versionNumber = attachment.version.number + 1;
     trackEvent('version:' + versionNumber, 'upload_attachment', 'export', ctx);
-    await uploadAttachment2(hash, (pageId: string) => {
+    const { effectiveHash } = await uploadAttachment2(hash, (pageId: string) => {
       return buildAttachmentBasePath(pageId) + '/' + attachmentId + '/data';
-    });
-    return { attachmentId, versionNumber, hash };
+    }, content, diagramType);
+    return { attachmentId, versionNumber, hash: effectiveHash };
   };
 }
 
 /**
  * Create a function that uploads a new attachment.
  */
-function uploadNewAttachment(hash: string, ctx: UploadContext): () => Promise<AttachmentMeta> {
+function uploadNewAttachment(
+  hash: string,
+  ctx: UploadContext,
+  content?: string,
+  diagramType?: string,
+): () => Promise<AttachmentMeta> {
   return async () => {
     trackEvent('version:1', 'upload_attachment', 'export', ctx);
-    const response = await uploadAttachment2(hash, buildAttachmentBasePath);
+    const { response, effectiveHash } = await uploadAttachment2(hash, buildAttachmentBasePath, content, diagramType);
     const parsed = JSON.parse(response.body);
     // Option B: Confluence v1 wraps a 404 in a 200 body when the page is a draft.
     // Body: {"statusCode":404,"message":"No content found … status : draft"}
@@ -403,7 +437,7 @@ function uploadNewAttachment(hash: string, ctx: UploadContext): () => Promise<At
     }
     const attachmentId = results[0].id as string;
     const versionNumber = 1;
-    return { attachmentId, versionNumber, hash };
+    return { attachmentId, versionNumber, hash: effectiveHash };
   };
 }
 
@@ -486,9 +520,19 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
 
   try {
     const attachment = await tryGetAttachment();
-    if (!attachment || hash !== attachment.comment) {
+    // metaKey encodes content, diagramType, and a version token so that:
+    // (a) existing pre-iTXt attachments get one forced re-upload to backfill
+    //     the embedded source chunk, and (b) type changes with same content
+    //     still trigger a re-upload (diagramType in key).
+    // The actual comment stored is computed by uploadAttachment based on
+    // whether injection succeeded — bare hash if not, metaKey if yes.
+    // When diagramType is absent injection is skipped, so no version token.
+    const metaKey = diagramType ? `${hash}|${diagramType}|itxt:v1` : hash;
+    if (!attachment || metaKey !== attachment.comment) {
       const isUpdate = Boolean(attachment);
-      const attachmentMeta = await (attachment ? uploadNewVersionOfAttachment(hash, ctx) : uploadNewAttachment(hash, ctx))();
+      const attachmentMeta = await (attachment
+        ? uploadNewVersionOfAttachment(hash, ctx, content, diagramType)
+        : uploadNewAttachment(hash, ctx, content, diagramType))();
       await updateAttachmentProperties(attachmentMeta);
       // Success path — gives us a denominator for `_failed` and tells the
       // `created` vs `updated` story. Emit AFTER updateAttachmentProperties

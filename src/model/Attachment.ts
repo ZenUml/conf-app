@@ -238,8 +238,9 @@ async function uploadAttachment(
       console.warn('Failed to inject diagram source into PNG attachment', e);
     }
   }
+  if (!blob) throw new Error('Failed to convert diagram to PNG');
   const effectiveHash = injectionSucceeded ? `${hash}|${diagramType}|itxt:v1` : hash;
-  const file = new File([blob!], attachmentName, { type: 'image/png' });
+  const file = new File([blob], attachmentName, { type: 'image/png' });
   console.debug('Uploading attachment to', uri);
   const response = await makeRequest(buildPostRequestToUploadAttachment(uri, effectiveHash, file));
   return { response, effectiveHash };

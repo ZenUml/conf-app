@@ -163,8 +163,8 @@ export async function extractDiagramSource(
         continue;
       }
 
-      // Skip compression (we only write uncompressed)
-      if (dataBytes[kwEnd + 1] !== 0) {
+      // Skip compression (we only write uncompressed; flag=0, method=0)
+      if (dataBytes[kwEnd + 1] !== 0 || dataBytes[kwEnd + 2] !== 0) {
         offset += 4 + 4 + chunkLen + 4;
         continue;
       }
@@ -179,7 +179,9 @@ export async function extractDiagramSource(
       if (textStart >= dataBytes.length) { offset += 4 + 4 + chunkLen + 4; continue; }
 
       try {
-        return JSON.parse(decoder.decode(dataBytes.subarray(textStart))) as DiagramPayload;
+        const parsed = JSON.parse(decoder.decode(dataBytes.subarray(textStart)));
+        if (typeof parsed?.diagramType !== 'string' || typeof parsed?.source !== 'string') return null;
+        return parsed as DiagramPayload;
       } catch {
         return null;
       }

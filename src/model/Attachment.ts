@@ -227,19 +227,19 @@ async function uploadAttachment(
   diagramType?: string,
 ): Promise<{ response: ApiResponse; effectiveHash: string }> {
   let blob = await toPng();
-  let injectionSucceeded = false;
   if (blob && content !== undefined && diagramType) {
     try {
       const { injectDiagramSource } = await import('@/utils/pngMetadata');
-      const original = blob;
       blob = await injectDiagramSource(blob, diagramType, content);
-      injectionSucceeded = blob !== original;
     } catch (e) {
       console.warn('Failed to inject diagram source into PNG attachment', e);
     }
   }
   if (!blob) throw new Error('Failed to convert diagram to PNG');
-  const effectiveHash = injectionSucceeded ? `${hash}|${diagramType}|itxt:v1` : hash;
+  // Always store metaKey as the comment — iTXt injection is best-effort.
+  // Storing the bare hash on failure causes an infinite re-upload loop when
+  // toPng() consistently returns a non-PNG blob (e.g. empty diagram → 4 bytes).
+  const effectiveHash = diagramType ? `${hash}|${diagramType}|itxt:v1` : hash;
   const file = new File([blob], attachmentName, { type: 'image/png' });
   console.debug('Uploading attachment to', uri);
   const response = await makeRequest(buildPostRequestToUploadAttachment(uri, effectiveHash, file));
@@ -525,8 +525,8 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
     // (a) existing pre-iTXt attachments get one forced re-upload to backfill
     //     the embedded source chunk, and (b) type changes with same content
     //     still trigger a re-upload (diagramType in key).
-    // The actual comment stored is computed by uploadAttachment based on
-    // whether injection succeeded — bare hash if not, metaKey if yes.
+    // uploadAttachment always stores metaKey as the comment (iTXt is best-effort),
+    // preventing infinite re-uploads when toPng() returns a non-PNG blob.
     // When diagramType is absent injection is skipped, so no version token.
     const metaKey = diagramType ? `${hash}|${diagramType}|itxt:v1` : hash;
     if (!attachment || metaKey !== attachment.comment) {

@@ -454,6 +454,37 @@ async function updateAttachmentProperties(attachmentMeta: AttachmentMeta): Promi
   ));
 }
 
+/**
+ * Store diagram source as a Confluence content property on the attachment.
+ * This lets recovery read source via REST API without downloading the PNG binary
+ * (requestConfluence from @forge/bridge returns 401 for download URLs).
+ *
+ * Uses the V1 content property API: /wiki/rest/api/content/{numericId}/property
+ * The V2 attachment ID (att83525676) is stripped to numeric (83525676) for V1.
+ */
+async function setDiagramSourceProperty(attachmentId: string, diagramType: string, source: string): Promise<void> {
+  const numericId = attachmentId.startsWith('att') ? attachmentId.slice(3) : attachmentId;
+  const propertyKey = 'zenuml-source';
+  const value = { diagramType, source };
+  try {
+    const existing = await forgeRequest(`/wiki/rest/api/content/${numericId}/property/${propertyKey}`).catch(() => null);
+    if (existing?.version?.number != null) {
+      await forgeRequest(`/wiki/rest/api/content/${numericId}/property/${propertyKey}`, 'PUT', {
+        key: propertyKey,
+        value,
+        version: { number: existing.version.number + 1 },
+      });
+    } else {
+      await forgeRequest(`/wiki/rest/api/content/${numericId}/property`, 'POST', {
+        key: propertyKey,
+        value,
+      });
+    }
+  } catch (e) {
+    console.warn('setDiagramSourceProperty failed', attachmentId, e);
+  }
+}
+
 // ============================================================================
 // Main Export
 // ============================================================================
@@ -534,6 +565,12 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
         ? uploadNewVersionOfAttachment(hash, ctx, content, diagramType)
         : uploadNewAttachment(hash, ctx, content, diagramType))();
       await updateAttachmentProperties(attachmentMeta);
+      // Store diagram source as a Confluence content property so recovery
+      // can read it via REST API without downloading the PNG binary
+      // (requestConfluence from @forge/bridge returns 401 for download URLs).
+      if (diagramType && content) {
+        await setDiagramSourceProperty(attachmentMeta.attachmentId, diagramType, content);
+      }
       // Success path — gives us a denominator for `_failed` and tells the
       // `created` vs `updated` story. Emit AFTER updateAttachmentProperties
       // so it really did land end-to-end, not just the upload POST.

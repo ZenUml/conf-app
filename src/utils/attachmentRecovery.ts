@@ -2,13 +2,18 @@
  * Attachment-based diagram recovery.
  *
  * When a viewer can no longer access custom content (403/404), this module
- * fetches the PNG attachment that was saved alongside the macro and extracts
- * the zenumlDiagram iTXt chunk embedded there. It then reconstructs a Diagram
- * object so the viewer can render (and the editor can edit) the original source.
+ * finds the PNG attachment saved alongside the macro and reads the zenuml-source
+ * content property stored on it. It then reconstructs a Diagram object so the
+ * viewer can render (and the editor can edit) the original source.
+ *
+ * Why content property instead of PNG iTXt:
+ *   requestConfluence from @forge/bridge returns 401 for /download/attachments/
+ *   URLs — the api.atlassian.com/ex/confluence gateway is REST-only and does not
+ *   support binary content-delivery paths. Content properties use the standard
+ *   REST API and work correctly.
  */
 
 import { DataSource, Diagram, DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
-import { extractDiagramSource, type DiagramPayload } from '@/utils/pngMetadata';
 
 function parseDiagramType(type: string): DiagramType {
   switch (type.toLowerCase()) {
@@ -21,24 +26,25 @@ function parseDiagramType(type: string): DiagramType {
   }
 }
 
-function reconstructDiagram(payload: DiagramPayload, customContentId: string): Diagram {
-  const dt = parseDiagramType(payload.diagramType);
+function reconstructDiagram(diagramType: string, source: string, customContentId: string): Diagram {
+  const dt = parseDiagramType(diagramType);
   // Preserve the original CC id so callers can detect id changes on save
   // (sourceId → newId diff triggers view.submit writeback in insert/configure contexts).
   const base: Diagram = { ...NULL_DIAGRAM, id: customContentId, diagramType: dt, source: DataSource.PngAttachment, recoveredFromOrphan: true };
   switch (dt) {
-    case DiagramType.Graph:   return { ...base, graphXml: payload.source };
-    case DiagramType.Mermaid: return { ...base, mermaidCode: payload.source };
-    case DiagramType.PlantUml: return { ...base, plantUmlCode: payload.source };
-    default:                  return { ...base, code: payload.source };
+    case DiagramType.Graph:   return { ...base, graphXml: source };
+    case DiagramType.Mermaid: return { ...base, mermaidCode: source };
+    case DiagramType.PlantUml: return { ...base, plantUmlCode: source };
+    default:                  return { ...base, code: source };
   }
 }
 
 /**
- * Try to recover a diagram from the PNG attachment saved for `customContentId`
- * on page `pageId`. Returns a reconstructed Diagram, or null if unavailable.
+ * Try to recover a diagram from the content property stored on the PNG attachment
+ * saved for `customContentId` on page `pageId`.
+ * Returns a reconstructed Diagram, or null if unavailable.
  *
- * This is intentionally best-effort: any error (no attachment, no chunk,
+ * This is intentionally best-effort: any error (no attachment, no property,
  * network failure) returns null so the caller falls through gracefully.
  */
 export async function tryExtractFromPngAttachment(
@@ -51,24 +57,18 @@ export async function tryExtractFromPngAttachment(
     const attachments = await globals.apWrapper.getAttachmentsV2(pageId, { filename: attachmentName });
     if (!attachments?.length) return null;
 
-    // _links.download from V2 API is a Confluence-relative path that may or may
-    // not carry the /wiki prefix (e.g. "/download/attachments/..." vs "/wiki/...").
-    // requestConfluence (Forge bridge) requires the /wiki prefix.
-    const rawDownload = (attachments[0] as any)._links?.download as string | undefined;
-    if (!rawDownload) return null;
-    const downloadPath = rawDownload.startsWith('/wiki/') ? rawDownload : `/wiki${rawDownload}`;
+    // V2 API returns att-prefixed IDs (e.g. "att83525676").
+    // V1 content property API requires the numeric portion only.
+    const rawId = (attachments[0] as any).id as string | undefined;
+    if (!rawId) return null;
+    const numericId = rawId.startsWith('att') ? rawId.slice(3) : rawId;
 
-    // forgeRequest always calls .json(), so use requestConfluence directly for binary
-    const { requestConfluence } = await import('@forge/bridge');
-    const response = await requestConfluence(downloadPath);
-    if (!response.ok) return null;
+    const { forgeRequest } = await import('@/utils/requestUtil');
+    const property = await forgeRequest(`/wiki/rest/api/content/${numericId}/property/zenuml-source`).catch(() => null);
+    if (!property?.value?.diagramType || !property?.value?.source) return null;
 
-    const arrayBuffer = await response.arrayBuffer();
-    const payload = await extractDiagramSource(arrayBuffer);
-    if (!payload) return null;
-
-    console.debug('PNG attachment recovery succeeded for', customContentId, 'type:', payload.diagramType);
-    return reconstructDiagram(payload, customContentId);
+    console.debug('PNG attachment recovery succeeded for', customContentId, 'type:', property.value.diagramType);
+    return reconstructDiagram(property.value.diagramType, property.value.source, customContentId);
   } catch (e) {
     console.warn('PNG attachment recovery failed for', customContentId, e);
     return null;

@@ -21,9 +21,11 @@ function parseDiagramType(type: string): DiagramType {
   }
 }
 
-function reconstructDiagram(payload: DiagramPayload): Diagram {
+function reconstructDiagram(payload: DiagramPayload, customContentId: string): Diagram {
   const dt = parseDiagramType(payload.diagramType);
-  const base: Diagram = { ...NULL_DIAGRAM, diagramType: dt, source: DataSource.PngAttachment };
+  // Preserve the original CC id so callers can detect id changes on save
+  // (sourceId → newId diff triggers view.submit writeback in insert/configure contexts).
+  const base: Diagram = { ...NULL_DIAGRAM, id: customContentId, diagramType: dt, source: DataSource.PngAttachment };
   switch (dt) {
     case DiagramType.Graph:   return { ...base, graphXml: payload.source };
     case DiagramType.Mermaid: return { ...base, mermaidCode: payload.source };
@@ -66,7 +68,7 @@ export async function tryExtractFromPngAttachment(
     if (!payload) return null;
 
     console.debug('PNG attachment recovery succeeded for', customContentId, 'type:', payload.diagramType);
-    return reconstructDiagram(payload);
+    return reconstructDiagram(payload, customContentId);
   } catch (e) {
     console.warn('PNG attachment recovery failed for', customContentId, e);
     return null;

@@ -596,7 +596,11 @@ describe('ApWrapper2', () => {
     const sequenceType = 'ac:com.zenuml.confluence-addon:zenuml-content-sequence';
     const graphType = 'ac:com.zenuml.confluence-addon:zenuml-content-graph';
 
-    function match(opts: { id: string; pageId: string; title?: string; diagramType?: string; createdAt?: string; extra?: any }) {
+    function cqlResults(ids: string[]) {
+      return { results: ids.map(id => ({ content: { id } })) };
+    }
+
+    function ccBody(opts: { id: string; pageId: string; title?: string; diagramType?: string; createdAt?: string; extra?: any }) {
       const body = {
         diagramType: opts.diagramType ?? 'graph',
         graphXml: '<mxGraphModel/>',
@@ -618,18 +622,18 @@ describe('ApWrapper2', () => {
       expect(forgeRequest).not.toHaveBeenCalled();
     });
 
-    it('queries both legacy types with title filter and limit=250', async () => {
-      vi.mocked(forgeRequest)
-        .mockResolvedValueOnce({ results: [] })
-        .mockResolvedValueOnce({ results: [] });
+    // CQL is used instead of /api/v2/custom-content?title=... because the V2
+    // title= filter is silently ignored — verified on whimet4 2026-05-27
+    // (1000+ CCs, matching record buried beyond limit=250). CQL with exact
+    // `title = "<uuid>"` matching is reliable and permission-scoped.
+    it('runs a CQL exact-title search across both legacy CC types', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ results: [] });
 
       await wrapper.findLegacyCustomContentByUuid(uuid);
 
+      const expectedCql = `(type = "${sequenceType}" OR type = "${graphType}") AND title = "${uuid}"`;
       expect(forgeRequest).toHaveBeenCalledWith(
-        `/wiki/api/v2/custom-content?type=${encodeURIComponent(sequenceType)}&title=${uuid}&body-format=raw&limit=250`,
-      );
-      expect(forgeRequest).toHaveBeenCalledWith(
-        `/wiki/api/v2/custom-content?type=${encodeURIComponent(graphType)}&title=${uuid}&body-format=raw&limit=250`,
+        `/wiki/rest/api/search?cql=${encodeURIComponent(expectedCql)}&limit=250`,
       );
     });
 
@@ -638,8 +642,8 @@ describe('ApWrapper2', () => {
       // of a Connect-era macro whose data lives on page 999. Viewer should
       // render the recovered diagram with the cross-page marker.
       vi.mocked(forgeRequest)
-        .mockResolvedValueOnce({ results: [] })
-        .mockResolvedValueOnce({ results: [match({ id: '3681484960', pageId: '999' })] });
+        .mockResolvedValueOnce(cqlResults(['3681484960']))
+        .mockResolvedValueOnce(ccBody({ id: '3681484960', pageId: '999' }));
 
       const result = await wrapper.findLegacyCustomContentByUuid(uuid);
 
@@ -653,8 +657,8 @@ describe('ApWrapper2', () => {
 
     it('does not flag isCopy when the resolved content lives on the current page', async () => {
       vi.mocked(forgeRequest)
-        .mockResolvedValueOnce({ results: [] })
-        .mockResolvedValueOnce({ results: [match({ id: 'cc1', pageId: '456' })] });
+        .mockResolvedValueOnce(cqlResults(['cc1']))
+        .mockResolvedValueOnce(ccBody({ id: 'cc1', pageId: '456' }));
 
       const result = await wrapper.findLegacyCustomContentByUuid(uuid);
 
@@ -662,26 +666,22 @@ describe('ApWrapper2', () => {
       expect((result?.value as any)?.copyReason).toBeUndefined();
     });
 
-    it('picks the most recently versioned match when several exist', async () => {
+    it('picks the most recently versioned match when several exist (customer 27-CC case)', async () => {
       vi.mocked(forgeRequest)
-        .mockResolvedValueOnce({ results: [] })
-        .mockResolvedValueOnce({ results: [
-          match({ id: 'older', pageId: '456', createdAt: '2021-08-01T00:00:00Z' }),
-          match({ id: 'newest', pageId: '456', createdAt: '2024-09-10T00:00:00Z' }),
-          match({ id: 'middle', pageId: '456', createdAt: '2021-12-13T00:00:00Z' }),
-        ] });
+        .mockResolvedValueOnce(cqlResults(['older', 'newest', 'middle']))
+        .mockResolvedValueOnce(ccBody({ id: 'older', pageId: '456', createdAt: '2021-08-01T00:00:00Z' }))
+        .mockResolvedValueOnce(ccBody({ id: 'newest', pageId: '456', createdAt: '2024-09-10T00:00:00Z' }))
+        .mockResolvedValueOnce(ccBody({ id: 'middle', pageId: '456', createdAt: '2021-12-13T00:00:00Z' }));
 
       const result = await wrapper.findLegacyCustomContentByUuid(uuid);
 
       expect(result?.id).toBe('newest');
     });
 
-    it('resolves a match from the sequence type when present', async () => {
-      // A Connect-era sequence macro that was migrated to Forge would have
-      // its body under zenuml-content-sequence — the fallback must cover it.
+    it('resolves a sequence-typed match too (CQL covers both legacy types)', async () => {
       vi.mocked(forgeRequest)
-        .mockResolvedValueOnce({ results: [match({ id: 'seq1', pageId: '456', diagramType: 'sequence' })] })
-        .mockResolvedValueOnce({ results: [] });
+        .mockResolvedValueOnce(cqlResults(['seq1']))
+        .mockResolvedValueOnce(ccBody({ id: 'seq1', pageId: '456', diagramType: 'sequence' }));
 
       const result = await wrapper.findLegacyCustomContentByUuid(uuid);
 
@@ -689,42 +689,53 @@ describe('ApWrapper2', () => {
       expect((result?.value as any)?.diagramType).toBe('sequence');
     });
 
-    it('returns undefined when no listing yields a parseable diagram', async () => {
+    it('returns undefined when CQL yields zero matches', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ results: [] });
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(result).toBeUndefined();
+      // Single API call — no per-id fetches when CQL is empty.
+      expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
+    });
+
+    // Defensive: server should return only exact-title matches, but if a
+    // race / cache anomaly returns a wrong-title body, skip it.
+    it('defensively skips fetched bodies whose title does not match the uuid', async () => {
       vi.mocked(forgeRequest)
-        .mockResolvedValueOnce({ results: [] })
-        .mockResolvedValueOnce({ results: [] });
+        .mockResolvedValueOnce(cqlResults(['wrong']))
+        .mockResolvedValueOnce(ccBody({ id: 'wrong', pageId: '456', title: 'something-else' }));
 
       const result = await wrapper.findLegacyCustomContentByUuid(uuid);
 
       expect(result).toBeUndefined();
     });
 
-    it('defensively ignores results whose title does not match (the title= filter is keyword/prefix, not exact)', async () => {
+    it('ignores fetched bodies that fail to parse or lack diagramType', async () => {
       vi.mocked(forgeRequest)
-        .mockResolvedValueOnce({ results: [] })
-        .mockResolvedValueOnce({ results: [
-          match({ id: 'wrong', pageId: '456', title: 'something-else' }),
-        ] });
+        .mockResolvedValueOnce(cqlResults(['malformed', 'no-type']))
+        .mockResolvedValueOnce({ id: 'malformed', title: uuid, pageId: '456', body: { raw: { value: 'not-json' } }, version: { createdAt: '2024-01-01' } })
+        .mockResolvedValueOnce({ id: 'no-type', title: uuid, pageId: '456', body: { raw: { value: JSON.stringify({ noDiagramType: true }) } }, version: { createdAt: '2024-01-01' } });
 
       const result = await wrapper.findLegacyCustomContentByUuid(uuid);
 
       expect(result).toBeUndefined();
     });
 
-    it('ignores results with malformed JSON body and results missing diagramType', async () => {
+    // One bad per-id fetch (403, network blip, etc.) must not poison the
+    // whole recovery — the helper should still return a good neighbour.
+    it('tolerates a per-id fetch failure when other candidates remain valid', async () => {
       vi.mocked(forgeRequest)
-        .mockResolvedValueOnce({ results: [] })
-        .mockResolvedValueOnce({ results: [
-          { id: 'a', title: uuid, pageId: '456', body: { raw: { value: 'not-json' } }, version: { createdAt: '2024-01-01' } },
-          { id: 'b', title: uuid, pageId: '456', body: { raw: { value: JSON.stringify({ noDiagramType: true }) } }, version: { createdAt: '2024-01-01' } },
-        ] });
+        .mockResolvedValueOnce(cqlResults(['busted', 'good']))
+        .mockRejectedValueOnce(new Error('403 forbidden'))
+        .mockResolvedValueOnce(ccBody({ id: 'good', pageId: '456' }));
 
       const result = await wrapper.findLegacyCustomContentByUuid(uuid);
 
-      expect(result).toBeUndefined();
+      expect(result?.id).toBe('good');
     });
 
-    it('returns undefined and tracks an error event when forgeRequest throws', async () => {
+    it('returns undefined and tracks an error event when the CQL search itself throws', async () => {
       vi.mocked(forgeRequest).mockRejectedValue(new Error('network down'));
 
       const result = await wrapper.findLegacyCustomContentByUuid(uuid);

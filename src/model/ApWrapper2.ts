@@ -614,35 +614,43 @@ export default class ApWrapper2 implements IApWrapper {
       ? ['gpt-custom-content-key']
       : CUSTOM_CONTENT_TYPES;
     try {
-      const responses = await Promise.all(types.map(t => {
-        const params = new URLSearchParams();
-        params.append('type', this.customContentType(t));
-        params.append('title', uuid);
-        params.append('body-format', 'raw');
-        // V2 max page size. The API's `title=` filter is keyword/prefix not
-        // exact match — see defensive c.title === uuid check below — and the
-        // results are unsorted within a page, so paginating cannot be avoided
-        // by sorting. Pulling one big page and picking the newest in-memory
-        // is simpler and avoids _links.next plumbing.
-        params.append('limit', '250');
-        return forgeRequest(`/wiki/api/v2/custom-content?${params.toString()}`);
-      }));
+      // Use CQL exact-title search. The V2 `/api/v2/custom-content?title=...`
+      // query param is silently IGNORED by the platform — verified 2026-05-27
+      // on whimet4 (1000+ CCs, the matching record was beyond limit=250 and
+      // never returned regardless of the title= value). The customer's case
+      // (2026-05-25) only worked by luck because their 27 matching CCs all
+      // landed inside the first 250 unsorted results. CQL is permission-
+      // scoped server-side (a CC the user can't see won't appear) and
+      // returns content metadata only — body must be fetched separately.
+      const typeClause = types.map(t => `type = "${this.customContentType(t)}"`).join(' OR ');
+      const cql = `(${typeClause}) AND title = "${uuid}"`;
+      const search: any = await forgeRequest(`/wiki/rest/api/search?cql=${encodeURIComponent(cql)}&limit=250`);
+      const ids: string[] = (search?.results || [])
+        .map((r: any) => r?.content?.id)
+        .filter((id: any): id is string => typeof id === 'string' && !!id);
+      if (ids.length === 0) return undefined;
+
+      // Fetch body for each candidate in parallel. N is usually 1, can be
+      // higher in legacy save-creates-new-each-time scenarios (customer
+      // case 2026-05-25 had 27 CCs sharing one uuid). Tolerate per-id
+      // failures so one 403 doesn't poison the whole recovery.
+      const bodies = await Promise.all(ids.map((id: string) =>
+        this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`).catch(() => undefined),
+      ));
 
       let best: any | undefined;
       let bestWhen = 0;
-      for (const r of responses) {
-        for (const c of (r?.results || [])) {
-          if (c?.title !== uuid) continue;
-          const rawValue = c?.body?.raw?.value;
-          if (!rawValue) continue;
-          let parsed: any;
-          try { parsed = JSON.parse(rawValue); } catch { continue; }
-          if (!parsed?.diagramType) continue;
-          const when = new Date(c?.version?.createdAt || 0).getTime();
-          if (!best || when > bestWhen) {
-            best = c;
-            bestWhen = when;
-          }
+      for (const cc of bodies) {
+        if (!cc || cc?.title !== uuid) continue;
+        const rawValue = cc?.body?.raw?.value;
+        if (!rawValue) continue;
+        let parsed: any;
+        try { parsed = JSON.parse(rawValue); } catch { continue; }
+        if (!parsed?.diagramType) continue;
+        const when = new Date(cc?.version?.createdAt || 0).getTime();
+        if (!best || when > bestWhen) {
+          best = cc;
+          bestWhen = when;
         }
       }
       if (!best) return undefined;

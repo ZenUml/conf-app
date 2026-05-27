@@ -86,22 +86,7 @@ Output: the absolute path of the saved file on stdout (everything else on stderr
 ## Related skills
 
 - `find-macros-on-page` — locates the macro's `customContentId` and surfaces orphan-backup attachments. Hand the attachment filename from that output to this skill.
-- After downloading a `zenuml-*.png` written by our PNG-embedded-source feature, extract the source from the iTXt chunk:
-  ```python
-  import struct, zlib
-  with open("/tmp/recovered.png","rb") as f: d = f.read()
-  i = 8
-  while i < len(d):
-      ln = struct.unpack(">I", d[i:i+4])[0]
-      t = d[i+4:i+8].decode()
-      if t == "iTXt":
-          body = d[i+8:i+8+ln]
-          kw, rest = body.split(b"\x00", 1)
-          cflag = rest[0]
-          _, rest = rest[2:].split(b"\x00", 1)
-          _, text = rest.split(b"\x00", 1)
-          if cflag: text = zlib.decompress(text)
-          print(f"{kw.decode()}: {text.decode()[:500]}")
-      i += 8 + ln + 4
-      if t == "IEND": break
+- After downloading a `zenuml-*.png`, use the `extract-itxt` skill to read the embedded diagram source:
+  ```bash
+  node .claude/skills/extract-itxt/scripts/extract.mjs /tmp/recovered.png
   ```

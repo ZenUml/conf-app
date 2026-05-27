@@ -1,6 +1,7 @@
 import * as htmlToImage from 'html-to-image';
 import md5 from 'md5';
 import {trackEvent} from '@/utils/window';
+import { toast } from '@/utils/toast';
 import global from '@/model/globals';
 import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import {forgeRequest} from '@/utils/requestUtil';
@@ -213,91 +214,44 @@ function buildPostRequestToUploadAttachment(uri: string, hash: string, file: Fil
   };
 }
 
-// ============================================================================
-// PNG iTXt chunk injection (for DrawIO XML source embedding)
-// ============================================================================
-
-function crc32(data: Uint8Array): number {
-  const table = new Uint32Array(256);
-  for (let i = 0; i < 256; i++) {
-    let c = i;
-    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
-    table[i] = c;
-  }
-  let crc = 0xFFFFFFFF;
-  for (const byte of data) crc = table[(crc ^ byte) & 0xFF] ^ (crc >>> 8);
-  return (crc ^ 0xFFFFFFFF) >>> 0;
-}
-
-function buildItxtChunk(keyword: string, text: string): Uint8Array {
-  const enc = new TextEncoder();
-  const kw = enc.encode(keyword);
-  const textBytes = enc.encode(text);
-  // iTXt data: keyword \0 comprFlag(0) comprMethod(0) langTag \0 translatedKw \0 text
-  const data = new Uint8Array(kw.length + 1 + 1 + 1 + 0 + 1 + 0 + 1 + textBytes.length);
-  let pos = 0;
-  data.set(kw, pos); pos += kw.length;
-  data[pos++] = 0; // keyword null terminator
-  data[pos++] = 0; // compression flag: uncompressed
-  data[pos++] = 0; // compression method
-  data[pos++] = 0; // language tag null terminator
-  data[pos++] = 0; // translated keyword null terminator
-  data.set(textBytes, pos);
-  // Build: length(4) + type(4) + data + crc(4)
-  const type = enc.encode('iTXt');
-  const chunk = new Uint8Array(4 + 4 + data.length + 4);
-  const view = new DataView(chunk.buffer);
-  view.setUint32(0, data.length, false);
-  chunk.set(type, 4);
-  chunk.set(data, 8);
-  const crcInput = new Uint8Array(4 + data.length);
-  crcInput.set(type, 0);
-  crcInput.set(data, 4);
-  view.setUint32(4 + 4 + data.length, crc32(crcInput), false);
-  return chunk;
-}
-
-async function injectPngItxtChunk(blob: Blob, keyword: string, text: string): Promise<Blob> {
-  try {
-    const buf = new Uint8Array(await blob.arrayBuffer());
-    const dataView = new DataView(buf.buffer);
-    let offset = 8; // skip PNG signature
-    let iendPos = -1;
-    while (offset + 8 <= buf.length) {
-      const length = dataView.getUint32(offset, false);
-      const type = String.fromCharCode(buf[offset+4], buf[offset+5], buf[offset+6], buf[offset+7]);
-      if (type === 'IEND') { iendPos = offset; break; }
-      offset += 12 + length;
-    }
-    if (iendPos === -1) return blob;
-    const chunk = buildItxtChunk(keyword, text);
-    const result = new Uint8Array(buf.length + chunk.length);
-    result.set(buf.slice(0, iendPos));
-    result.set(chunk, iendPos);
-    result.set(buf.slice(iendPos), iendPos + chunk.length);
-    return new Blob([result], { type: 'image/png' });
-  } catch (e) {
-    console.warn('[Attachment] injectPngItxtChunk failed, uploading without embedded source', e);
-    return blob;
-  }
-}
-
 /**
  * Upload an attachment file to Confluence.
+ * Returns the ApiResponse and the comment key actually written: if iTXt
+ * injection succeeded the key carries the `|itxt:v1` suffix; otherwise it
+ * falls back to the bare content hash so future views can retry.
  */
 async function uploadAttachment(
   attachmentName: string,
   uri: string,
   hash: string,
-  embeddedSource?: { keyword: string; text: string },
-): Promise<ApiResponse> {
+  content?: string,
+  diagramType?: string,
+): Promise<{ response: ApiResponse; effectiveHash: string }> {
   let blob = await toPng();
-  if (blob && embeddedSource) {
-    blob = await injectPngItxtChunk(blob, embeddedSource.keyword, embeddedSource.text);
+  if (blob && content !== undefined && diagramType) {
+    try {
+      const { injectDiagramSource } = await import('@/utils/pngMetadata');
+      blob = await injectDiagramSource(blob, diagramType, content);
+    } catch (e) {
+      console.warn('Failed to inject diagram source into PNG attachment', e);
+    }
   }
-  const file = new File([blob!], attachmentName, { type: 'image/png' });
+  if (!blob) {
+    // Show a toast only when the diagram has content — an empty diagram is already
+    // surfaced by the Viewer's empty state, so no redundant message needed there.
+    if (content?.trim()) {
+      toast({ message: 'Diagram backup could not be saved — try re-saving.', duration: 4000 });
+    }
+    throw new ToPngError();
+  }
+  // Always store metaKey as the comment — iTXt injection is best-effort.
+  // Storing the bare hash on failure causes an infinite re-upload loop when
+  // toPng() consistently returns a non-PNG blob (e.g. empty diagram → 4 bytes).
+  const effectiveHash = diagramType ? `${hash}|${diagramType}|itxt:v1` : hash;
+  const file = new File([blob], attachmentName, { type: 'image/png' });
   console.debug('Uploading attachment to', uri);
-  return await makeRequest(buildPostRequestToUploadAttachment(uri, hash, file));
+  const response = await makeRequest(buildPostRequestToUploadAttachment(uri, effectiveHash, file));
+  return { response, effectiveHash };
 }
 
 /**
@@ -361,6 +315,18 @@ class DraftPageError extends Error {
   constructor(body: string) {
     super(`Attachment upload skipped — page is a draft: ${body}`);
     this.name = 'DraftPageError';
+  }
+}
+
+/**
+ * Thrown when toPng() returns null — the diagram is empty, not yet rendered,
+ * or the capture node is absent. Treated as a skip (not a failure) so the
+ * caller doesn't log it as an error and it doesn't break the save flow.
+ */
+class ToPngError extends Error {
+  constructor() {
+    super('Diagram is empty or not yet rendered — PNG capture skipped.');
+    this.name = 'ToPngError';
   }
 }
 
@@ -429,13 +395,14 @@ async function tryGetAttachment(): Promise<AttachmentWithLinks | false> {
 async function uploadAttachment2(
   hash: string,
   fnGetUri: (pageId: string) => string,
-  embeddedSource?: { keyword: string; text: string },
-): Promise<ApiResponse> {
+  content?: string,
+  diagramType?: string,
+): Promise<{ response: ApiResponse; effectiveHash: string }> {
   const pageId = await global.apWrapper._getCurrentPageId();
   const identifier = await getIdentifier();
   const attachmentName = attachmentNameByIdentifier(identifier!);
   const uri = fnGetUri(pageId);
-  return await uploadAttachment(attachmentName, uri, hash, embeddedSource);
+  return await uploadAttachment(attachmentName, uri, hash, content, diagramType);
 }
 
 /**
@@ -444,17 +411,18 @@ async function uploadAttachment2(
 function uploadNewVersionOfAttachment(
   hash: string,
   ctx: UploadContext,
-  embeddedSource?: { keyword: string; text: string },
+  content?: string,
+  diagramType?: string,
 ): () => Promise<AttachmentMeta> {
   return async () => {
     const attachment = await tryGetAttachment() as AttachmentWithLinks;
     const attachmentId = attachment.id;
     const versionNumber = attachment.version.number + 1;
     trackEvent('version:' + versionNumber, 'upload_attachment', 'export', ctx);
-    await uploadAttachment2(hash, (pageId: string) => {
+    const { effectiveHash } = await uploadAttachment2(hash, (pageId: string) => {
       return buildAttachmentBasePath(pageId) + '/' + attachmentId + '/data';
-    }, embeddedSource);
-    return { attachmentId, versionNumber, hash };
+    }, content, diagramType);
+    return { attachmentId, versionNumber, hash: effectiveHash };
   };
 }
 
@@ -464,11 +432,12 @@ function uploadNewVersionOfAttachment(
 function uploadNewAttachment(
   hash: string,
   ctx: UploadContext,
-  embeddedSource?: { keyword: string; text: string },
+  content?: string,
+  diagramType?: string,
 ): () => Promise<AttachmentMeta> {
   return async () => {
     trackEvent('version:1', 'upload_attachment', 'export', ctx);
-    const response = await uploadAttachment2(hash, buildAttachmentBasePath, embeddedSource);
+    const { response, effectiveHash } = await uploadAttachment2(hash, buildAttachmentBasePath, content, diagramType);
     const parsed = JSON.parse(response.body);
     // Option B: Confluence v1 wraps a 404 in a 200 body when the page is a draft.
     // Body: {"statusCode":404,"message":"No content found … status : draft"}
@@ -489,7 +458,7 @@ function uploadNewAttachment(
     }
     const attachmentId = results[0].id as string;
     const versionNumber = 1;
-    return { attachmentId, versionNumber, hash };
+    return { attachmentId, versionNumber, hash: effectiveHash };
   };
 }
 
@@ -572,15 +541,19 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
 
   try {
     const attachment = await tryGetAttachment();
-    if (!attachment || hash !== attachment.comment) {
+    // metaKey encodes content, diagramType, and a version token so that:
+    // (a) existing pre-iTXt attachments get one forced re-upload to backfill
+    //     the embedded source chunk, and (b) type changes with same content
+    //     still trigger a re-upload (diagramType in key).
+    // uploadAttachment always stores metaKey as the comment (iTXt is best-effort),
+    // preventing infinite re-uploads when toPng() returns a non-PNG blob.
+    // When diagramType is absent injection is skipped, so no version token.
+    const metaKey = diagramType ? `${hash}|${diagramType}|itxt:v1` : hash;
+    if (!attachment || metaKey !== attachment.comment) {
       const isUpdate = Boolean(attachment);
-      const embeddedSource = diagramType === 'graph' && content
-        ? { keyword: 'mxGraphModel', text: content }
-        : undefined;
       const attachmentMeta = await (attachment
-        ? uploadNewVersionOfAttachment(hash, ctx, embeddedSource)
-        : uploadNewAttachment(hash, ctx, embeddedSource)
-      )();
+        ? uploadNewVersionOfAttachment(hash, ctx, content, diagramType)
+        : uploadNewAttachment(hash, ctx, content, diagramType))();
       await updateAttachmentProperties(attachmentMeta);
       // Success path — gives us a denominator for `_failed` and tells the
       // `created` vs `updated` story. Emit AFTER updateAttachmentProperties
@@ -600,6 +573,13 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
     // non-fatal, no re-throw. Emit the skip event so analysts can correlate.
     if (e instanceof DraftPageError) {
       trackEvent('draft_page', 'attachment_upload_skipped', 'export', ctx);
+      return;
+    }
+    // ToPngError: diagram is empty or not yet rendered. The Viewer already shows
+    // an empty state for blank diagrams; for non-empty diagrams a toast was shown
+    // in uploadAttachment. Either way, skip the upload — don't count as a failure.
+    if (e instanceof ToPngError) {
+      trackEvent('unrenderable_diagram', 'attachment_upload_skipped', 'export', ctx);
       return;
     }
     // The function still throws (callers wrap this in try/catch already), but we

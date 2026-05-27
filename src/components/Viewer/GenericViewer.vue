@@ -100,6 +100,7 @@
                 <span v-if="failedCustomContentId" class="viewer-load-failed-id">Content ID: {{ failedCustomContentId }}</span>
               </div>
               <button class="viewer-load-failed-btn" @click="retry">Retry</button>
+              <a class="viewer-support-link" data-testid="load-failed-support-link" href="#" @click.prevent="contactSupport">Contact support →</a>
             </div>
             <div v-else class="screen-capture-content" :class="{'w-full': wide}">
               <slot></slot>
@@ -173,6 +174,7 @@ import OverflowMenu from '@/components/Viewer/OverflowMenu.vue'
 import { toast } from '@/utils/toast'
 import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
+import { openUrl } from '@/model/globals/forgeGlobal'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 
@@ -262,6 +264,26 @@ export default {
   methods: {
     retry() {
       location.reload();
+    },
+    async contactSupport() {
+      const contentId = this.failedCustomContentId ?? '(unknown)';
+      const ctx = window.forgeGlobal?.forgeContext ?? {};
+      const payload = [
+        'Diagram failed to load',
+        `Content ID: ${contentId}`,
+        `App version: ${import.meta.env.VITE_APP_VERSION ?? '(unknown)'} (${import.meta.env.PRODUCT_TYPE ?? '(unknown)'})`,
+        `Forge env: ${ctx?.environment?.type ?? '(unknown)'}`,
+        `cloudId: ${ctx?.cloudId ?? '(unknown)'}`,
+      ].join('\n');
+      const ok = await this.copyToClipboard(payload);
+      toast({
+        message: ok
+          ? 'Diagnostic info copied — paste into your ticket'
+          : `Couldn't auto-copy. Content ID: ${contentId}`,
+        duration: ok ? 4000 : 6000,
+      });
+      trackEvent('support_link_clicked', 'click', 'load_failed_generic', { content_id: String(this.failedCustomContentId ?? '') });
+      openUrl('https://zenuml.atlassian.net/servicedesk');
     },
     edit() {
       trackEvent('edit', 'click', 'editing');
@@ -565,6 +587,15 @@ export default {
   transition: background-color 150ms ease;
 }
 .viewer-load-failed-btn:hover { background: #E5E7EB; }
+
+.viewer-support-link {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #6B7280;
+  text-decoration: none;
+  cursor: pointer;
+}
+.viewer-support-link:hover { color: #374151; text-decoration: underline; }
 
 .viewer-canvas {
   position: relative;

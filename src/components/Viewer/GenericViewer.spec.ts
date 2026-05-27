@@ -195,4 +195,48 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
+  describe('load-failed support link', () => {
+    it('renders the Contact support link in the generic load-failed state', () => {
+      store.commit('updateDiagramType', DiagramType.Unknown)
+      const wrapper = mountViewer()
+      expect(wrapper.find('[data-testid="load-failed-support-link"]').exists()).toBe(true)
+    })
+
+    it('does not render the support link in the permission (403) state', () => {
+      store.commit('updateDiagramType', DiagramType.Unknown)
+      store.state.loadError = { httpStatus: 403 }
+      const wrapper = mountViewer()
+      expect(wrapper.find('[data-testid="load-failed-permission"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="load-failed-support-link"]').exists()).toBe(false)
+    })
+
+    it('clicking copies diagnostic info, tracks the event, and opens the support portal', async () => {
+      const openUrlMod = await import('@/model/globals/forgeGlobal')
+      const windowMod = await import('@/utils/window')
+      const openUrlSpy = vi.spyOn(openUrlMod, 'openUrl').mockImplementation(() => Promise.resolve())
+      const trackSpy = vi.spyOn(windowMod, 'trackEvent')
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+      Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true })
+
+      store.state.loadError = null
+      store.commit('updateDiagramType', DiagramType.Unknown)
+      const wrapper = mountViewer()
+      await wrapper.find('[data-testid="load-failed-support-link"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      expect(writeText).toHaveBeenCalledOnce()
+      const payload = writeText.mock.calls[0][0] as string
+      expect(payload).toContain('Diagram failed to load')
+      expect(payload).toContain('Content ID:')
+      expect(openUrlSpy).toHaveBeenCalledWith('https://zenuml.atlassian.net/servicedesk')
+      expect(trackSpy).toHaveBeenCalledWith(
+        'support_link_clicked',
+        'click',
+        'load_failed_generic',
+        expect.objectContaining({ content_id: expect.any(String) }),
+      )
+    })
+  })
+
 })

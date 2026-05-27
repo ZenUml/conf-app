@@ -280,9 +280,13 @@ export default {
         message: ok
           ? 'Diagnostic info copied — paste into your ticket'
           : `Couldn't auto-copy. Content ID: ${contentId}`,
-        duration: ok ? 4000 : 6000,
+        duration: ok ? 6000 : 8000,
       });
       trackEvent('support_link_clicked', 'click', 'load_failed_generic', { content_id: String(this.failedCustomContentId ?? '') });
+      // router.open in Forge can steal focus immediately (or full-page navigate
+      // in some host shells). Hold for ~1.5s so the toast above is actually
+      // readable before the portal grabs the user's attention.
+      await new Promise(r => setTimeout(r, 1500));
       openUrl('https://zenuml.atlassian.net/servicedesk');
     },
     edit() {

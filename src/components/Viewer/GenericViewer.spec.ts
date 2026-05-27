@@ -181,6 +181,18 @@ describe('GenericViewer (chrome-less)', () => {
       await wrapper.find('button[aria-label="Export PNG"]').trigger('click')
       expect(vm.showExportModal).toBe(true)
     })
+
+    // The bottom pill is absolutely positioned over the canvas bottom and
+    // appears on hover. In the load-failed empty state the Retry button sits
+    // at the bottom of the same flex column, so the pill would cover it.
+    // None of the pill's actions (copy code, export PNG, versions, copy link)
+    // make sense without a loaded diagram, so we hide the pill entirely.
+    it('does not render the bottom-edge pill in the load-failed state', () => {
+      store.commit('updateDiagramType', DiagramType.Unknown)
+      const wrapper = mountViewer()
+      expect(wrapper.find('[role="toolbar"][aria-label="Diagram actions"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="load-failed-generic"] .viewer-load-failed-btn').exists()).toBe(true)
+    })
   })
 
 })

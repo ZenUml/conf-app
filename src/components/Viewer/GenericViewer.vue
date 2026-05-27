@@ -105,7 +105,7 @@
               <slot></slot>
             </div>
 
-            <div class="viewer-edge-bottom-pill" role="toolbar" aria-label="Diagram actions">
+            <div v-if="!isLoadFailed" class="viewer-edge-bottom-pill" role="toolbar" aria-label="Diagram actions">
               <!-- Graph viewer slots in multi-page nav (prev / X of Y / next) here. -->
               <slot name="pill-prefix"></slot>
               <button @click="copyCode" title="Copy code" aria-label="Copy code" class="viewer-pill-btn">

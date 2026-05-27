@@ -1,6 +1,7 @@
 import createAttachmentIfContentChanged from "@/model/Attachment";
 import {trackEvent, serializeError} from "@/utils/window";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import type { MacroTypeValue } from "@/utils/analytics/catalog";
 import globals from '@/model/globals';
 import ForgeEmbedViewer from "@/components/Viewer/ForgeEmbedViewer.vue";
 import EventBus from './EventBus'
@@ -89,7 +90,7 @@ async function initializeMacro() {
     trackAnalyticsEvent("macro_viewed", {
       feature_area: "macro",
       surface: "viewer",
-      macro_type: store.state.diagram.diagramType,
+      macro_type: store.state.diagram.diagramType as MacroTypeValue,
       entry_point: "page_view",
     });
   } catch (e) {

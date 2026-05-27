@@ -398,7 +398,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         trackAnalyticsEvent("macro_viewed", {
           feature_area: "macro",
           surface: "viewer",
-          macro_type: doc.diagramType,
+          macro_type: doc.diagramType as MacroTypeValue,
           entry_point: "page_view",
           content_state: classifyContentState(doc.diagramType, doc),
         });
@@ -483,25 +483,26 @@ async function createAttachment(code: string, diagramType: DiagramType) {
     let errorDetails: any = { message: e instanceof Error ? e.message : serializeError(e) };
 
     // Extract XHR details if available
-    if (e.xhr) {
+    const eAny = e as any;
+    if (eAny.xhr) {
       errorDetails.xhr = {
-        status: e.xhr.status,
-        statusText: e.xhr.statusText
+        status: eAny.xhr.status,
+        statusText: eAny.xhr.statusText
       };
 
       // Try to extract the full response text
       try {
         // For HTML responses, extract text content to avoid HTML tags
-        if (e.xhr.responseText && e.xhr.responseText.includes('<!doctype html>')) {
+        if (eAny.xhr.responseText && eAny.xhr.responseText.includes('<!doctype html>')) {
           const tempDiv = document.createElement('div');
-          tempDiv.innerHTML = e.xhr.responseText;
+          tempDiv.innerHTML = eAny.xhr.responseText;
           errorDetails.xhr.responseDetails = tempDiv.textContent?.substring(0, 500) || 'HTML response (extracted text)';
         } else {
           // For other responses, include the raw text
-          errorDetails.xhr.responseDetails = e.xhr.responseText?.substring(0, 500) || 'No response text';
+          errorDetails.xhr.responseDetails = eAny.xhr.responseText?.substring(0, 500) || 'No response text';
         }
       } catch (parseError) {
-        errorDetails.xhr.responseDetails = 'Error parsing response: ' + parseError.message;
+        errorDetails.xhr.responseDetails = 'Error parsing response: ' + (parseError as any).message;
       }
     }
 

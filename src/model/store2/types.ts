@@ -10,5 +10,6 @@ export interface RootState {
   loadError: DiagramLoadError | null
   error: any,
   generating: boolean,
+  lastDiagramWasAI: boolean,
   onElementClick: Function
 }

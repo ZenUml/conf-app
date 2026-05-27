@@ -49,7 +49,7 @@ Numbers don't speak for themselves. Before flagging any anomaly — zero paywall
 - **Regional holiday** in the tenant's primary engineering geography. Signature: views drop partially, edits collapse. Common pattern, easy to miss.
 - **Rollout shock** if the tenant was CSS-enrolled within the last 7 days. Their friction will be inflated until users adapt.
 - **Data settling** for the most recent day — late events trickle in for ~24h.
-- **Sub-threshold trigger** if `paywall_triggered` fires for a space `metrics-inspect` shows under 100 macros — suspect a count-source mismatch, not a paywall regression.
+- **Apparent sub-threshold trigger** if `paywall_triggered` fires for a space metrics-inspect shows under 100 macros — first check you used `addonKey=com.zenuml.confluence-addon-lite` in the curl. Without it you read the Full KV bucket, which is a different dataset. See Troubleshooting item 7.
 
 When you hit a suspicious anomaly, consult `private/paywall/interpretation.md` — it has the tenant geography table, holiday calendar, and a Golden Week worked example. Read it on demand rather than carrying it through every run.
 
@@ -73,7 +73,8 @@ Output is a JSON object — `{"zenuml-stg":true,"tenant-a":true,...}` — keys a
 |----------|-------|
 | KV namespace | `fe9042cb20994651b0a2ef9e68f9037c` |
 | D1 production DB | `conf-zenuml-prod` |
-| metrics-inspect URL | `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>` |
+| metrics-inspect URL (Lite) | `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>&addonKey=com.zenuml.confluence-addon-lite` |
+| metrics-inspect URL (Full) | `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>` (no addonKey → reads Full KV bucket) |
 | Mixpanel project ID | `3373228` |
 
 > **D1 note:** There are several D1 databases in the account. Only `conf-zenuml-prod` has production data (2.2 GB). `conf-zenuml-dev` and others are empty or staging-only.
@@ -159,7 +160,7 @@ python3 .claude/skills/paywall/scripts/paywall_queries.py per-space-all \
 
 Output: `{event: {domain: {space: count}}}`. From this output, focus only on domains where triggered > 0 OR saves > 10 OR creates > 0. Wall time ≈ the slowest single segmentation call rather than N×4 sequential batches.
 
-Cross-reference space keys against metrics-inspect (`curl https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>`) to get each space's macro count. This catches the pattern where a tenant has heavy spaces (>100 macros) but saves happen in light spaces — which explains zero blocks despite high activity. See `private/paywall/runbook.md` for the canonical case study (heavy-space-but-light-saves).
+Cross-reference space keys against metrics-inspect (`curl "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>&addonKey=com.zenuml.confluence-addon-lite"`) to get each space's macro count from the **Lite KV bucket**. Always pass `addonKey` — omitting it reads the Full KV bucket which has different counts and will give wrong results for Lite tenants. This catches the pattern where a tenant has heavy spaces (>100 macros) but saves happen in light spaces — which explains zero blocks despite high activity. See `private/paywall/runbook.md` for the canonical case study (heavy-space-but-light-saves).
 
 When `paywall_continued_editing` is high for a tenant, the per-space split tells you which space the bouncing user is on — the script already includes that event. See `private/paywall/runbook.md` for a worked case where this concentrates in a single user/space pair.
 
@@ -218,6 +219,8 @@ Query (insights, last 1 day):
 - metric B: `paywall_continued_editing` total, breakdown by `action_type`
 - compute B/A per row
 
+> **Window caveat:** Running this via MCP `Run-Query` with `unit: day, value: 1` uses a **rolling 24h window** (includes yesterday evening's events), whereas `paywall_queries.py daily` returns **today-only** partial data. The surface breakdown will be ~20–30% higher in absolute counts than today's domain table. Trends are directionally valid; avoid numeric comparison to prior today-only snapshots.
+
 ### Non-CSS domains in the results
 
 If a domain appears in Q1/Q2/Q3/Q4 results but is **not** in the CSS flag, check `private/paywall/anomalies.md` before treating it as a new finding. The reference file lists known persistent anomalies with first-seen dates. If the domain is new, add a row to that file — don't re-investigate every day. Genuinely new + persistent (3+ days) anomalies are worth a code-path investigation, since they suggest the CSS flag check is being bypassed.
@@ -238,8 +241,8 @@ After building the table, send a PushNotification (single `message` field only �
 For each candidate domain, run these **in parallel**:
 
 ```bash
-# 1. Macro counts + space data per domain
-curl -s "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>"
+# 1. Macro counts + space data per domain (Lite KV — always pass addonKey for Lite tenants)
+curl -s "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>&addonKey=com.zenuml.confluence-addon-lite"
 
 # 2. Install age — ClientInstallation uses subdomain prefix (no .atlassian.net)
 npx wrangler d1 execute conf-zenuml-prod --remote --command "
@@ -420,10 +423,10 @@ If a user reports they're not seeing the paywall, check in order:
 1. **Forge app version** — run `pnpm forge install list 2>&1 | grep <domain>`. Interpretation, Out-of-date handling, and the event-name cutover are documented in **Check Forge app version** above.
 2. **Is their domain on CSS?** If not, they'll never see the paywall regardless of macro count.
 3. **Are they on Lite?** Paywall logic short-circuits to `false` for Full/Diagramly. Check Mixpanel `product_type` property on their `macro_viewed` events.
-4. **Per-space macro count ≥ 100?** Paywall is per-space, not per-tenant. A tenant with 5,000 total macros across 100 spaces won't trigger if no single space crosses the threshold. Check `metrics-inspect` and look at top spaces by `total`.
+4. **Per-space macro count ≥ 100?** Paywall is per-space, not per-tenant. A tenant with 5,000 total macros across 100 spaces won't trigger if no single space crosses the threshold. Check metrics-inspect with `addonKey=com.zenuml.confluence-addon-lite` (Lite KV) and look at top spaces by `total`. **Never omit addonKey for Lite tenants** — the Full KV bucket has different counts and will mislead.
 5. **Are users actually trying to EDIT macros in over-threshold spaces?** Paywall fires on edit click (`paywall_triggered`), NOT on viewing. View-only users in a 1,000-macro space generate zero paywall events. Cross-check `macro_viewed` against `macro_save_succeeded` filtered by `client_domain` (and ideally `confluence_space`). **If edit activity collapses on a specific date while views only partially drop, suspect a regional holiday in the tenant's primary engineering geography** — see `private/paywall/interpretation.md` for the geography table and worked example.
 6. **Is their space licensed?** Check KV: `license:{cloudId}:{spaceKey}`.
-7. **Sub-threshold trigger discrepancy?** If `paywall_triggered` fires for a space that `metrics-inspect` shows below 100 macros, suspect a count methodology gap: `metrics-inspect` shows live macro counts, but the frontend paywall check in `useCustomerSuccessService.ts` may use a cached or differently-computed count. See `private/paywall/runbook.md` for observed cases. Reconcile by adding a debug log in `useCustomerSuccessService.ts` to emit the raw count seen at trigger time.
+7. **Apparent sub-threshold trigger?** If `paywall_triggered` fires for a space that metrics-inspect shows below 100 macros, **first verify you used `addonKey=com.zenuml.confluence-addon-lite`** in the metrics-inspect call. Omitting addonKey reads the Full KV bucket (`metrics:domain:full`), which has different counts from the Lite KV (`metrics:domain:lite`) used by the frontend. This was the cause of every "sub-threshold" case in the runbook (2026-05-27 postmortem). If you confirm the Lite KV count is also below 100 and triggers still fire, then suspect KV staleness: the KV is only refreshed on save, so spaces with only deletes (no new saves) carry a stale-high count until someone saves. Check `ageHours` in the diagnosis field — anything >24h is stale.
 
 For local simulation, use localStorage overrides:
 ```js
@@ -440,7 +443,7 @@ After completing the monitoring run, review what happened and propose skill impr
 
 1. **Errors or unexpected results** — did any query fail, return unexpectedly empty results, or require a workaround not covered in the skill? If so, document the fix.
 
-2. **Event name drift** — did any event return 0 results that should have data? Could be a rename, a drop, or a new event name. Check with `mcp__claude_ai_Mixpanel__Get-Events` if suspicious. Note: `macro_save_failed` (Q4 event B in the macro-activity query) is expected to be very sparse or zero — this is normal, not a drift signal.
+2. **Event name drift** — did any event return 0 results that should have data? Could be a rename, a drop, or a new event name. Check with `mcp__claude_ai_Mixpanel__Get-Events` if suspicious. Note: `macro_save_failed` (Q4 event B in the macro-activity query) is expected to be very sparse or zero — this is normal, not a drift signal. Also note: **`advocacy_message_copied__unique > 0` while total events = 0 is a Mixpanel HyperLogLog artifact** for very low-volume events — the unique count uses approximate counting and can show 1–7 false positives when event volume is near zero. Treat such cases as unconfirmed; verify with a JQL count if the signal matters.
 
 3. **Domain list staleness** — are there new domains in Q1/Q2 results that aren't in the known CSS list? Flag them — they may need to be enrolled.
 

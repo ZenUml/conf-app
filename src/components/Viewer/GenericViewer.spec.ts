@@ -197,6 +197,20 @@ describe('GenericViewer (chrome-less)', () => {
   })
 
   describe('load-failed support link', () => {
+    it('fires load_failed_shown on mount when the diagram is in the load-failed state', async () => {
+      const windowMod = await import('@/utils/window')
+      const trackSpy = vi.spyOn(windowMod, 'trackEvent')
+      store.commit('updateDiagramType', DiagramType.Unknown)
+      mountViewer()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(trackSpy).toHaveBeenCalledWith(
+        'load_failed_shown',
+        'view',
+        'load_failed_generic',
+        expect.objectContaining({ state: expect.any(String), content_id: expect.any(String) }),
+      )
+    })
+
     it('renders the Contact support link in the generic load-failed state', () => {
       store.commit('updateDiagramType', DiagramType.Unknown)
       const wrapper = mountViewer()

@@ -146,7 +146,9 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           directFetchErrorClass: loaded.directFetchErrorClass,
         });
         store.commit('setLoadError', {
+          directFetchStatus: loaded.directFetchStatus,
           httpStatus: loaded.directFetchHttpStatus,
+          errorCode: loaded.directFetchErrorCode,
           errorClass: loaded.directFetchErrorClass,
         });
       }
@@ -770,5 +772,4 @@ EventBus.$on('updateContent', async (diagram: Diagram) => {
     console.info('Your changes cannot be persistent as you are not authorized to edit.');
   }
 });
-
 

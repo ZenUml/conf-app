@@ -42,7 +42,9 @@ async function loadDiagram() {
         directFetchErrorClass: loaded.directFetchErrorClass,
       });
       store.commit('setLoadError', {
+        directFetchStatus: loaded.directFetchStatus,
         httpStatus: loaded.directFetchHttpStatus,
+        errorCode: loaded.directFetchErrorCode,
         errorClass: loaded.directFetchErrorClass,
       });
     }
@@ -113,4 +115,3 @@ EventBus.$on('edit', async () => {
     },
   });
 });
-

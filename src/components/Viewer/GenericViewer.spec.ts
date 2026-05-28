@@ -44,6 +44,7 @@ describe('GenericViewer (chrome-less)', () => {
     store.state.diagram.isCopy = false
     store.state.diagram.title = 'Login flow'
     store.state.diagram.id = 'content-123'
+    store.state.loadError = null
   })
 
   describe('layout', () => {
@@ -191,7 +192,7 @@ describe('GenericViewer (chrome-less)', () => {
       store.commit('updateDiagramType', DiagramType.Unknown)
       const wrapper = mountViewer()
       expect(wrapper.find('[role="toolbar"][aria-label="Diagram actions"]').exists()).toBe(false)
-      expect(wrapper.find('[data-testid="load-failed-generic"] .viewer-load-failed-btn').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="load-failed-generic"] .viewer-lf-btn-primary').exists()).toBe(true)
     })
   })
 
@@ -202,12 +203,14 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="load-failed-support-link"]').exists()).toBe(true)
     })
 
-    it('does not render the support link in the permission (403) state', () => {
+    it('still renders the support link when the loader reports a permission-like error', () => {
       store.commit('updateDiagramType', DiagramType.Unknown)
       store.state.loadError = { httpStatus: 403 }
       const wrapper = mountViewer()
-      expect(wrapper.find('[data-testid="load-failed-permission"]').exists()).toBe(true)
-      expect(wrapper.find('[data-testid="load-failed-support-link"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="load-failed-generic"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="load-failed-support-link"]').exists()).toBe(true)
+      expect(wrapper.text()).toContain("The diagram data is no longer available")
+      expect(wrapper.text()).toContain("The original diagram data couldn't be recovered")
     })
 
     it('clicking copies diagnostic info, tracks the event, then opens the support portal after a delay', async () => {
@@ -229,8 +232,15 @@ describe('GenericViewer (chrome-less)', () => {
         await vi.advanceTimersByTimeAsync(0)
         expect(writeText).toHaveBeenCalledOnce()
         const payload = writeText.mock.calls[0][0] as string
-        expect(payload).toContain('Diagram failed to load')
-        expect(payload).toContain('Content ID:')
+        expect(payload).toContain("ZenUML couldn't display a diagram")
+        expect(payload).toContain('Custom content ID:')
+        expect(payload).toContain('Page ID:')
+        expect(payload).toContain('Macro UUID:')
+        expect(payload).toContain('Space:')
+        expect(payload).toContain('Client domain:')
+        expect(payload).toContain('Module key:')
+        expect(payload).toContain('Direct fetch status:')
+        expect(payload).toContain('Load error status:')
         expect(trackSpy).toHaveBeenCalledWith(
           'support_link_clicked',
           'click',

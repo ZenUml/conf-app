@@ -4,31 +4,39 @@
 
 The generic load-failed empty state in `GenericViewer.vue` (issue #151) currently offers only a Retry button. If Retry doesn't help — because the underlying custom-content was deleted, never existed, or there's a server-side problem — the user has nowhere to go. They see "Content ID: 999999999" with no way to bring it to our attention.
 
-The permission (403) variant (issue #152) already steers users to the right place: "Ask the page owner for read access, or contact your admin." That's a Confluence permissions issue, not a ZenUML problem, so it's deliberately excluded here.
+Atlassian's custom content API often collapses inaccessible or missing content into a not-found style response, so the viewer cannot reliably distinguish "deleted", "not visible to this user", stale reference, migration/orphan state, or temporary platform failure. The message must avoid over-diagnosing the cause.
 
 ## Goal
 
-Give users on the generic load-failed screen a one-click path to file a support ticket with us, with the diagnostic context they would otherwise have to dig up by hand.
+Give users on the load-failed screen a one-click path to file a support ticket with us, with the diagnostic context they would otherwise have to dig up by hand. This includes likely Confluence permission cases because support contact is still useful for customer discovery and triage.
 
 ## Non-goals
 
 - Pre-filling a JSD form via URL query params. JSD's `summary=` / `description=` prefill requires hardcoding a specific portalId + requestTypeId; that's brittle to JSD form changes and was rejected during brainstorming.
-- Adding the same link to the permission (403) state. Most 403s are real Confluence permission issues and the message already directs the user to the right person; adding a "report to us" button would generate tickets we can't help with.
+- Trying to classify the visible empty state as a definite permission, deletion, or corruption case. The API response is not reliable enough for that.
 - Including build-time branch/hash in the diagnostic payload. App version + environment is sufficient for support; dev branch/hash is leaked dev-only signal and not useful in customer tickets.
 
 ## Design
 
 ### UI
 
-In `src/components/Viewer/GenericViewer.vue` (the `v-else-if="isLoadFailed"` block currently at line 94–103), add a small secondary "Contact support →" link directly below the Retry button:
+In `src/components/Viewer/GenericViewer.vue` (the `v-if="isLoadFailed"` block), show a single generic load-failed state with a small secondary "Contact ZenUML support →" link directly below the Retry button:
 
 ```
-            ⚠
-   Couldn't load this diagram
+             ⚠
+   We can't display this diagram
+ZenUML couldn't read the diagram data
+        for your account.
        Content ID: 999999999
           [ Retry ]
-       Contact support →
+   Contact ZenUML support →
 ```
+
+Body copy:
+
+> ZenUML couldn't read the diagram data for your account. You might not have permission to view the source content, or the diagram data may no longer be available.
+>
+> Other users may still be able to view it.
 
 Style: text-only link, no border, slightly muted color (matches the existing `viewer-load-failed-hint` palette). It is visually subordinate to Retry — Retry is the primary action for transient failures; support is the escape hatch when Retry has not solved it.
 
@@ -38,13 +46,23 @@ New method `contactSupport()` on the component:
 
 ```ts
 async contactSupport() {
+  const ctx = window.forgeGlobal?.forgeContext ?? {};
+  const extension = ctx?.extension ?? {};
   const payload = [
-    'Diagram failed to load',
-    `Content ID: ${this.failedCustomContentId ?? '(unknown)'}`,
-    `App version: ${import.meta.env.VITE_APP_VERSION ?? '(unknown)'} (${import.meta.env.VITE_APP_PRODUCT_TYPE ?? '(unknown)'})`,
-    `Forge env: ${window.forgeGlobal?.forgeContext?.environment?.type ?? '(unknown)'}`,
-    `cloudId: ${window.forgeGlobal?.forgeContext?.cloudId ?? '(unknown)'}`,
-    `spaceKey: ${this.diagram?.space?.key ?? '(unknown)'}`,
+    "ZenUML couldn't display a diagram",
+    `Custom content ID: ${this.failedCustomContentId ?? '(unknown)'}`,
+    `Page ID: ${extension?.content?.id ?? '(unknown)'}`,
+    `Macro UUID: ${ctx?.localId ?? '(unknown)'}`,
+    `Space: ${getSpaceKey() || '(unknown)'}`,
+    `Client domain: ${getClientDomain() || '(unknown)'}`,
+    `Module key: ${ctx?.moduleKey ?? '(unknown)'}`,
+    `App version: ${import.meta.env.VITE_APP_VERSION ?? '(unknown)'} (${import.meta.env.PRODUCT_TYPE ?? '(unknown)'})`,
+    `Forge env: ${ctx?.environmentType ?? ctx?.environment?.type ?? '(unknown)'}`,
+    `Cloud ID: ${ctx?.cloudId ?? '(unknown)'}`,
+    `Direct fetch status: ${this.loadError?.directFetchStatus ?? '(unknown)'}`,
+    `Load error status: ${this.loadError?.httpStatus ?? '(unknown)'}`,
+    `Load error code: ${this.loadError?.errorCode ?? '(unknown)'}`,
+    `Load error class: ${this.loadError?.errorClass ?? '(unknown)'}`,
   ].join('\n');
 
   try {
@@ -76,7 +94,7 @@ async contactSupport() {
 Add a new describe block, `load-failed support link`:
 
 1. `renders a "Contact support" link when in generic load-failed state` — set `diagramType=Unknown` (no `loadError.httpStatus`); assert the link element is present.
-2. `does not render the support link in the permission (403) state` — set `diagramType=Unknown` and `loadError={httpStatus: 403}`; assert the link is absent.
+2. `still renders the support link when the loader reports a permission-like error` — set `diagramType=Unknown` and `loadError={httpStatus: 403}`; assert the same generic state and support link are present.
 3. `clicking copies diagnostic info and opens the support portal` — mock `navigator.clipboard.writeText`, `openUrl`, and `trackEvent`; click the link; assert all three were called with expected payloads (substring matches for the clipboard text; exact URL for openUrl; expected category/label/content_id for trackEvent).
 
 Mocks for `openUrl` and `navigator.clipboard` need to be added to the existing test setup; `trackEvent` is already mocked via `@/utils/window`.

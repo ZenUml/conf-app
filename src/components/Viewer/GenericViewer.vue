@@ -79,28 +79,58 @@
 
           <!-- Canvas + bottom-edge pill -->
           <div class="viewer-canvas">
-            <!-- #152: permission-denied empty state (403) -->
-            <div v-if="isPermissionError" class="viewer-load-failed" role="alert" data-testid="load-failed-permission">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-load-failed-icon" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
-              </svg>
-              <div class="viewer-load-failed-body">
-                <strong>You may not have permission to view this diagram's source content</strong>
-                <p class="viewer-load-failed-hint">The diagram is stored on a Confluence page you can't access. Ask the page owner for read access, or contact your admin.</p>
+            <!-- #151/#152: generic custom-content load-failed empty state — Option A design. -->
+            <div v-if="isLoadFailed" class="viewer-load-failed" role="alert" data-testid="load-failed-generic">
+              <!-- Icon: eye-off when retryable (has content ID), broken-link when unrecoverable -->
+              <div class="viewer-lf-icon-wrap">
+                <svg v-if="failedCustomContentId" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor" class="viewer-lf-icon" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
+                </svg>
+                <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor" class="viewer-lf-icon" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-1.5 1.5M10.81 15.31a4.5 4.5 0 0 1-1.242-7.244l1.5-1.5M3 3l18 18" />
+                </svg>
               </div>
-              <button class="viewer-load-failed-btn" @click="retry">I have permission, retry</button>
-            </div>
-            <!-- #151: generic load-failed empty state -->
-            <div v-else-if="isLoadFailed" class="viewer-load-failed" role="alert" data-testid="load-failed-generic">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-load-failed-icon" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-              </svg>
-              <div class="viewer-load-failed-body">
-                <strong>Couldn't load this diagram</strong>
-                <span v-if="failedCustomContentId" class="viewer-load-failed-id">Content ID: {{ failedCustomContentId }}</span>
+
+              <!-- Heading -->
+              <h3 class="viewer-lf-heading">
+                {{ failedCustomContentId ? "This diagram isn't available" : "The diagram data is no longer available" }}
+              </h3>
+
+              <!-- Body -->
+              <p class="viewer-lf-body">
+                <template v-if="failedCustomContentId">
+                  You may not have permission to view it, or the source content has been removed.
+                  Other people on this page might still see it.
+                </template>
+                <template v-else>
+                  The original diagram data couldn't be recovered. Contact support — or, if you manage this page, remove and recreate this macro.
+                </template>
+              </p>
+
+              <!-- Actions -->
+              <div class="viewer-lf-actions">
+                <button v-if="failedCustomContentId" class="viewer-lf-btn-primary" @click="retry">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+                  Try again
+                </button>
+                <button v-else class="viewer-lf-btn-primary" data-testid="load-failed-support-link" @click="contactSupport">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/></svg>
+                  Contact support
+                </button>
+                <button v-if="failedCustomContentId" class="viewer-lf-btn-secondary" data-testid="load-failed-support-link" @click="contactSupport">
+                  Contact support
+                </button>
               </div>
-              <button class="viewer-load-failed-btn" @click="retry">Retry</button>
-              <a class="viewer-support-link" data-testid="load-failed-support-link" href="#" @click.prevent="contactSupport">Contact support →</a>
+
+              <!-- Content ID footer strip: only when source reference is known -->
+              <div v-if="failedCustomContentId" class="viewer-lf-footer">
+                <span class="viewer-lf-footer-label">CONTENT ID</span>
+                <code class="viewer-lf-footer-id">{{ failedCustomContentId }}</code>
+                <button class="viewer-lf-copy-btn" @click="copyContentId" :title="contentIdCopied ? 'Copied!' : 'Copy Content ID'" :aria-label="contentIdCopied ? 'Copied!' : 'Copy Content ID'">
+                  <svg v-if="contentIdCopied" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="#0F8B5C" width="13" height="13" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75 10 18l9.5-11.25"/></svg>
+                  <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="13" height="13" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75"/></svg>
+                </button>
+              </div>
             </div>
             <div v-else class="screen-capture-content" :class="{'w-full': wide}">
               <slot></slot>
@@ -175,6 +205,7 @@ import { toast } from '@/utils/toast'
 import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
 import { openUrl } from '@/model/globals/forgeGlobal'
+import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 
@@ -186,6 +217,7 @@ export default {
     isHovering: false,
     showExportModal: false,
     isDownloadingDebug: false,
+    contentIdCopied: false,
   }),
   components: {
     Debug,
@@ -203,11 +235,9 @@ export default {
     isLoadFailed() {
       return this.diagramType === 'unknown' && this.isDisplayMode;
     },
-    isPermissionError() {
-      return this.isLoadFailed && this.loadError?.httpStatus === 403;
-    },
     failedCustomContentId() {
-      return window.forgeGlobal?.forgeContext?.extension?.config?.customContentId;
+      const extension = window.forgeGlobal?.forgeContext?.extension;
+      return extension?.config?.customContentId ?? extension?.modal?.customContentId;
     },
     isFullscreenMode() {
       return window.forgeGlobal?.forgeContext?.extension?.modal?.macroMode === 'fullscreen';
@@ -265,15 +295,31 @@ export default {
     retry() {
       location.reload();
     },
+    async copyContentId() {
+      const id = String(this.failedCustomContentId ?? '');
+      await this.copyToClipboard(id);
+      this.contentIdCopied = true;
+      setTimeout(() => { this.contentIdCopied = false; }, 1500);
+    },
     async contactSupport() {
       const contentId = this.failedCustomContentId ?? '(unknown)';
       const ctx = window.forgeGlobal?.forgeContext ?? {};
+      const extension = ctx?.extension ?? {};
       const payload = [
-        'Diagram failed to load',
-        `Content ID: ${contentId}`,
+        "ZenUML couldn't display a diagram",
+        `Custom content ID: ${contentId}`,
+        `Page ID: ${extension?.content?.id ?? '(unknown)'}`,
+        `Macro UUID: ${ctx?.localId ?? '(unknown)'}`,
+        `Space: ${getSpaceKey() || '(unknown)'}`,
+        `Client domain: ${getClientDomain() || '(unknown)'}`,
+        `Module key: ${ctx?.moduleKey ?? '(unknown)'}`,
         `App version: ${import.meta.env.VITE_APP_VERSION ?? '(unknown)'} (${import.meta.env.PRODUCT_TYPE ?? '(unknown)'})`,
-        `Forge env: ${ctx?.environment?.type ?? '(unknown)'}`,
-        `cloudId: ${ctx?.cloudId ?? '(unknown)'}`,
+        `Forge env: ${ctx?.environmentType ?? ctx?.environment?.type ?? '(unknown)'}`,
+        `Cloud ID: ${ctx?.cloudId ?? '(unknown)'}`,
+        `Direct fetch status: ${this.loadError?.directFetchStatus ?? '(unknown)'}`,
+        `Load error status: ${this.loadError?.httpStatus ?? '(unknown)'}`,
+        `Load error code: ${this.loadError?.errorCode ?? '(unknown)'}`,
+        `Load error class: ${this.loadError?.errorClass ?? '(unknown)'}`,
       ].join('\n');
       const ok = await this.copyToClipboard(payload);
       toast({
@@ -548,41 +594,56 @@ export default {
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  padding: 32px 24px;
+  padding: 44px 24px 0;
   text-align: center;
   color: #374151;
 }
-.viewer-load-failed-icon {
-  width: 32px;
-  height: 32px;
-  color: #9CA3AF;
+/* Option A: Clear hierarchy load-failed state */
+.viewer-lf-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 16px;
+  background: #F3F4F6;
+  border-radius: 50%;
+  color: #6B7280;
   flex-shrink: 0;
 }
-.viewer-load-failed-body {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.viewer-lf-icon {
+  width: 22px;
+  height: 22px;
 }
-.viewer-load-failed-body strong {
-  font-size: 14px;
+.viewer-lf-heading {
+  margin: 0;
+  font-size: 18px;
   font-weight: 600;
   color: #111827;
+  line-height: 1.3;
 }
-.viewer-load-failed-hint {
-  font-size: 13px;
-  color: #6B7280;
-  max-width: 360px;
+.viewer-lf-body {
+  margin: 8px 0 0;
+  max-width: 420px;
+  text-align: center;
+  font-size: 14px;
+  color: #4B5563;
+  line-height: 1.55;
 }
-.viewer-load-failed-id {
-  font-size: 12px;
-  color: #9CA3AF;
-  font-family: monospace;
+.viewer-lf-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 22px;
 }
-.viewer-load-failed-btn {
-  padding: 6px 14px;
-  background: #F3F4F6;
-  color: #374151;
-  border: 1px solid #E5E7EB;
+.viewer-lf-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #0052CC;
+  color: #fff;
+  border: none;
   border-radius: 6px;
   font-family: inherit;
   font-size: 13px;
@@ -590,16 +651,63 @@ export default {
   cursor: pointer;
   transition: background-color 150ms ease;
 }
-.viewer-load-failed-btn:hover { background: #E5E7EB; }
-
-.viewer-support-link {
-  margin-top: 4px;
-  font-size: 12px;
+.viewer-lf-btn-primary:hover { background: #0747A6; }
+.viewer-lf-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: #fff;
+  color: #374151;
+  border: 1px solid #D1D5DB;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.viewer-lf-btn-secondary:hover { background: #F9FAFB; }
+.viewer-lf-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  align-self: stretch;
+  padding: 10px 16px;
+  margin-top: 8px;
+  border-top: 1px solid #E5E7EB;
+  background: #F9FAFB;
   color: #6B7280;
-  text-decoration: none;
+  font-size: 12px;
+}
+.viewer-lf-footer-label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  font-size: 10px;
+  color: #9CA3AF;
+}
+.viewer-lf-footer-id {
+  font-family: monospace;
+  font-size: 12px;
+  color: #4B5563;
+}
+.viewer-lf-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #9CA3AF;
   cursor: pointer;
 }
-.viewer-support-link:hover { color: #374151; text-decoration: underline; }
+.viewer-lf-copy-btn:hover { color: #6B7280; }
 
 .viewer-canvas {
   position: relative;

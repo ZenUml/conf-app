@@ -1,7 +1,9 @@
 import {Diagram} from "@/model/Diagram/Diagram";
 
 export interface DiagramLoadError {
+  directFetchStatus?: 'ok' | 'not_found' | 'other_error';
   httpStatus?: number;
+  errorCode?: string;
   errorClass?: 'thrown' | 'structured' | 'malformed';
 }
 

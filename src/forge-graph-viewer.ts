@@ -40,6 +40,7 @@ function loadDrawIOScripts(): Promise<void> {
 import createAttachmentIfContentChanged from "@/model/Attachment";
 import {trackEvent, serializeError} from "@/utils/window";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import type { MacroTypeValue } from "@/utils/analytics/catalog";
 import globals from '@/model/globals';
 import {decompress} from '@/utils/compress';
 import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
@@ -53,7 +54,7 @@ import store from "@/model/store2";
 import GraphExample from '@/model/Graph/GraphExample';
 import { DataSource, Diagram, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
-import { reportOrphanObserved } from '@/utils/orphanTelemetry';
+import { reportOrphanObserved, reportCustomContentLoadSucceeded } from '@/utils/orphanTelemetry';
 import {
   reportLegacyContentPropertyRestored,
   reportLegacyContentPropertyLoadFailed,
@@ -78,8 +79,22 @@ async function loadDiagram() {
         recoveryUsed: true,
         recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
       });
+    } else if (doc) {
+      reportCustomContentLoadSucceeded(pageId, customContentId, 'graph');
     } else if (!doc) {
-      reportOrphanObserved(pageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false });
+      reportOrphanObserved(pageId, customContentId, 'graph', loaded.probeResult, {
+        recoveryUsed: false,
+        directFetchStatus: loaded.directFetchStatus,
+        directFetchHttpStatus: loaded.directFetchHttpStatus,
+        directFetchErrorCode: loaded.directFetchErrorCode,
+        directFetchErrorClass: loaded.directFetchErrorClass,
+      });
+      store.commit('setLoadError', {
+        directFetchStatus: loaded.directFetchStatus,
+        httpStatus: loaded.directFetchHttpStatus,
+        errorCode: loaded.directFetchErrorCode,
+        errorClass: loaded.directFetchErrorClass,
+      });
     }
   }
 
@@ -185,13 +200,13 @@ async function initializeMacro() {
     // Load DrawIO scripts first
     // await loadDrawIOScripts();
     await globals.apWrapper.initializeContext();
+    await loadDiagram();
     trackAnalyticsEvent("macro_viewed", {
       feature_area: "macro",
       surface: "viewer",
-      macro_type: "graph",
+      macro_type: store.state.diagram.diagramType as MacroTypeValue,
       entry_point: "page_view",
     });
-    await loadDiagram();
   } catch (e) {
     console.error('Error loading graph viewer', e);
   }

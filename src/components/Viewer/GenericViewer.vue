@@ -79,11 +79,55 @@
 
           <!-- Canvas + bottom-edge pill -->
           <div class="viewer-canvas">
-            <div class="screen-capture-content" :class="{'w-full': wide}">
+            <!-- #151/#152: generic custom-content load-failed empty state — Option A design. -->
+            <div v-if="isLoadFailed" class="viewer-load-failed" role="alert" data-testid="load-failed-generic">
+              <!-- Icon: eye-off when retryable (has content ID), broken-link when unrecoverable -->
+              <div class="viewer-lf-icon-wrap">
+                <svg v-if="failedCustomContentId" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor" class="viewer-lf-icon" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
+                </svg>
+                <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor" class="viewer-lf-icon" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-1.5 1.5M10.81 15.31a4.5 4.5 0 0 1-1.242-7.244l1.5-1.5M3 3l18 18" />
+                </svg>
+              </div>
+
+              <!-- Heading -->
+              <h3 class="viewer-lf-heading">
+                {{ failedCustomContentId ? "This diagram isn't available" : "The diagram data is no longer available" }}
+              </h3>
+
+              <!-- Body -->
+              <p class="viewer-lf-body">
+                <template v-if="failedCustomContentId">
+                  You may not have permission to view it, or the source content has been removed.
+                  Other people on this page might still see it.
+                </template>
+                <template v-else>
+                  The original diagram data couldn't be recovered. Contact support — or, if you manage this page, remove and recreate this macro.
+                </template>
+              </p>
+
+              <!-- Actions -->
+              <div class="viewer-lf-actions">
+                <button v-if="failedCustomContentId" class="viewer-lf-btn-primary" @click="retry">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+                  Try again
+                </button>
+                <button v-else class="viewer-lf-btn-primary" data-testid="load-failed-support-link" @click="contactSupport">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/></svg>
+                  Contact support
+                </button>
+                <button v-if="failedCustomContentId" class="viewer-lf-btn-secondary" data-testid="load-failed-support-link" @click="contactSupport">
+                  Contact support
+                </button>
+              </div>
+
+            </div>
+            <div v-else class="screen-capture-content" :class="{'w-full': wide}">
               <slot></slot>
             </div>
 
-            <div class="viewer-edge-bottom-pill" role="toolbar" aria-label="Diagram actions">
+            <div v-if="!isLoadFailed" class="viewer-edge-bottom-pill" role="toolbar" aria-label="Diagram actions">
               <!-- Graph viewer slots in multi-page nav (prev / X of Y / next) here. -->
               <slot name="pill-prefix"></slot>
               <button @click="copyCode" title="Copy code" aria-label="Copy code" class="viewer-pill-btn">
@@ -151,6 +195,8 @@ import OverflowMenu from '@/components/Viewer/OverflowMenu.vue'
 import { toast } from '@/utils/toast'
 import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
+import { openUrl } from '@/model/globals/forgeGlobal'
+import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 
@@ -170,8 +216,19 @@ export default {
     OverflowMenu,
   },
   computed: {
-    ...mapState({diagramType: state => state.diagram.diagramType, diagram: state => state.diagram }),
+    ...mapState({
+      diagramType: state => state.diagram.diagramType,
+      diagram: state => state.diagram,
+      loadError: state => state.loadError,
+    }),
     ...mapGetters({isDisplayMode: 'isDisplayMode'}),
+    isLoadFailed() {
+      return this.diagramType === 'unknown' && this.isDisplayMode;
+    },
+    failedCustomContentId() {
+      const extension = window.forgeGlobal?.forgeContext?.extension;
+      return extension?.config?.customContentId ?? extension?.modal?.customContentId;
+    },
     isFullscreenMode() {
       return window.forgeGlobal?.forgeContext?.extension?.modal?.macroMode === 'fullscreen';
     },
@@ -223,8 +280,51 @@ export default {
     } catch (e) {
       console.error('canUserEdit failed', e);
     }
+    if (this.isLoadFailed) {
+      trackEvent('load_failed_shown', 'view', 'load_failed_generic', {
+        state: this.failedCustomContentId ? 'with_id' : 'no_id',
+        content_id: String(this.failedCustomContentId ?? ''),
+      });
+    }
   },
   methods: {
+    retry() {
+      location.reload();
+    },
+    async contactSupport() {
+      const contentId = this.failedCustomContentId ?? '(unknown)';
+      const ctx = window.forgeGlobal?.forgeContext ?? {};
+      const extension = ctx?.extension ?? {};
+      const payload = [
+        "ZenUML couldn't display a diagram",
+        `Custom content ID: ${contentId}`,
+        `Page ID: ${extension?.content?.id ?? '(unknown)'}`,
+        `Macro UUID: ${ctx?.localId ?? '(unknown)'}`,
+        `Space: ${getSpaceKey() || '(unknown)'}`,
+        `Client domain: ${getClientDomain() || '(unknown)'}`,
+        `Module key: ${ctx?.moduleKey ?? '(unknown)'}`,
+        `App version: ${import.meta.env.VITE_APP_VERSION ?? '(unknown)'} (${import.meta.env.PRODUCT_TYPE ?? '(unknown)'})`,
+        `Forge env: ${ctx?.environmentType ?? ctx?.environment?.type ?? '(unknown)'}`,
+        `Cloud ID: ${ctx?.cloudId ?? '(unknown)'}`,
+        `Direct fetch status: ${this.loadError?.directFetchStatus ?? '(unknown)'}`,
+        `Load error status: ${this.loadError?.httpStatus ?? '(unknown)'}`,
+        `Load error code: ${this.loadError?.errorCode ?? '(unknown)'}`,
+        `Load error class: ${this.loadError?.errorClass ?? '(unknown)'}`,
+      ].join('\n');
+      const ok = await this.copyToClipboard(payload);
+      toast({
+        message: ok
+          ? 'Diagnostic info copied — paste into your ticket'
+          : `Couldn't auto-copy. Content ID: ${contentId}`,
+        duration: ok ? 6000 : 8000,
+      });
+      trackEvent('support_link_clicked', 'click', 'load_failed_generic', { content_id: String(this.failedCustomContentId ?? '') });
+      // router.open in Forge can steal focus immediately (or full-page navigate
+      // in some host shells). Hold for ~1.5s so the toast above is actually
+      // readable before the portal grabs the user's attention.
+      await new Promise(r => setTimeout(r, 1500));
+      openUrl('https://zenuml.atlassian.net/servicedesk');
+    },
     edit() {
       trackEvent('edit', 'click', 'editing');
       EventBus.$emit('edit');
@@ -478,6 +578,87 @@ export default {
 .viewer-btn-primary:active { background: #064395; }
 
 .viewer-icon { width: 16px; height: 16px; }
+
+.viewer-load-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 44px 24px 44px;
+  text-align: center;
+  color: #374151;
+}
+/* Option A: Clear hierarchy load-failed state */
+.viewer-lf-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 16px;
+  background: #F3F4F6;
+  border-radius: 50%;
+  color: #6B7280;
+  flex-shrink: 0;
+}
+.viewer-lf-icon {
+  width: 22px;
+  height: 22px;
+}
+.viewer-lf-heading {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #111827;
+  line-height: 1.3;
+}
+.viewer-lf-body {
+  margin: 8px 0 0;
+  max-width: 420px;
+  text-align: center;
+  font-size: 14px;
+  color: #4B5563;
+  line-height: 1.55;
+}
+.viewer-lf-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 22px;
+}
+.viewer-lf-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #0052CC;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.viewer-lf-btn-primary:hover { background: #0747A6; }
+.viewer-lf-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: #fff;
+  color: #374151;
+  border: 1px solid #D1D5DB;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.viewer-lf-btn-secondary:hover { background: #F9FAFB; }
 
 .viewer-canvas {
   position: relative;

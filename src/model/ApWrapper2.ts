@@ -365,12 +365,20 @@ export default class ApWrapper2 implements IApWrapper {
     customContent: ICustomContentV2 | undefined;
     status: 'ok' | 'not_found' | 'other_error';
     errorDetail?: string;
+    httpStatus?: number;
+    errorCode?: string;
+    errorClass?: 'thrown' | 'structured' | 'malformed';
   }> {
     let rawResponse: any;
     try {
       rawResponse = await this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`);
     } catch (e: any) {
-      return { customContent: undefined, status: 'other_error', errorDetail: e?.message ? String(e.message) : String(e) };
+      return {
+        customContent: undefined,
+        status: 'other_error',
+        errorDetail: e?.message ? String(e.message) : String(e),
+        errorClass: 'thrown',
+      };
     }
     const errors = rawResponse?.errors;
     if (Array.isArray(errors) && errors.length > 0) {
@@ -385,12 +393,20 @@ export default class ApWrapper2 implements IApWrapper {
       const status: 'not_found' | 'other_error' = allStrictNotFound ? 'not_found' : 'other_error';
       // Telemetry for non-success shapes preserved from the legacy parsing path.
       trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
-      return { customContent: undefined, status, errorDetail: JSON.stringify(errors) };
+      const firstError = errors[0];
+      return {
+        customContent: undefined,
+        status,
+        errorDetail: JSON.stringify(errors),
+        errorClass: 'structured',
+        ...(typeof firstError?.status === 'number' && { httpStatus: firstError.status }),
+        ...(typeof firstError?.code === 'string' && { errorCode: firstError.code }),
+      };
     }
     if (!rawResponse?.body?.raw?.value) {
       // Truthy response but no parseable body — unexpected shape, not a 404.
       trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
-      return { customContent: undefined, status: 'other_error', errorDetail: 'malformed_or_empty_response' };
+      return { customContent: undefined, status: 'other_error', errorDetail: 'malformed_or_empty_response', errorClass: 'malformed' };
     }
     const parsed = await this.parseCustomContentByIdV2Response(id, rawResponse);
     return { customContent: parsed, status: parsed ? 'ok' : 'other_error' };
@@ -545,6 +561,9 @@ export default class ApWrapper2 implements IApWrapper {
     recoveredFromOrphanId?: string;
     probeResult?: Awaited<ReturnType<ApWrapper2['probeOrphanRecovery']>>;
     directFetchStatus?: 'ok' | 'not_found' | 'other_error';
+    directFetchHttpStatus?: number;
+    directFetchErrorCode?: string;
+    directFetchErrorClass?: 'thrown' | 'structured' | 'malformed';
   }> {
     const direct = await this.fetchCustomContentByIdV2WithStatus(customContentId);
     if (direct.status === 'ok' && direct.customContent) {
@@ -554,7 +573,13 @@ export default class ApWrapper2 implements IApWrapper {
       // Transient / 403 / 5xx / malformed — refuse to probe. Probing here
       // could surface a sibling for a CC that's only briefly unavailable
       // and (in config surface) later cause an incorrect macro XML rewrite.
-      return { customContent: undefined, directFetchStatus: direct.status };
+      return {
+        customContent: undefined,
+        directFetchStatus: direct.status,
+        ...(direct.httpStatus !== undefined && { directFetchHttpStatus: direct.httpStatus }),
+        ...(direct.errorCode !== undefined && { directFetchErrorCode: direct.errorCode }),
+        ...(direct.errorClass !== undefined && { directFetchErrorClass: direct.errorClass }),
+      };
     }
     if (!pageId) {
       return { customContent: undefined, directFetchStatus: 'not_found' };

@@ -1,6 +1,7 @@
 import createAttachmentIfContentChanged from "@/model/Attachment";
 import {trackEvent, serializeError} from "@/utils/window";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import type { MacroTypeValue } from "@/utils/analytics/catalog";
 import globals from '@/model/globals';
 import ForgeEmbedViewer from "@/components/Viewer/ForgeEmbedViewer.vue";
 import EventBus from './EventBus'
@@ -8,23 +9,44 @@ import {mountRoot} from "@/mount-root";
 import macroMetrics from '@/services/MacroMetrics';
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import store from "@/model/store2";
-import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { Diagram, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
-import { reportOrphanObserved } from '@/utils/orphanTelemetry';
+import { reportOrphanObserved, reportCustomContentLoadSucceeded } from '@/utils/orphanTelemetry';
 
 async function loadDiagram() {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
   const customContentId = context.extension?.config?.customContentId;
+  const pageId = context.extension?.content?.id;
   if(!customContentId) {
   } else {
-    const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-    console.log('loadDiagram - customContent', customContent);
-    doc = customContent?.value;
-    if (!doc) {
-      // ZEN-1170 telemetry: probe page children for a recovery candidate.
-      void reportOrphanObserved(globals.apWrapper, context.extension?.content?.id, customContentId, 'embed');
+    const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(pageId, customContentId);
+    console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
+    doc = loaded.customContent?.value;
+    if (loaded.recoveredFromOrphanId && doc) {
+      doc.recoveredFromOrphan = true;
+      doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
+      reportOrphanObserved(pageId, customContentId, 'embed', loaded.probeResult, {
+        recoveryUsed: true,
+        recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+      });
+    } else if (doc) {
+      reportCustomContentLoadSucceeded(pageId, customContentId, 'embed');
+    } else if (!doc) {
+      reportOrphanObserved(pageId, customContentId, 'embed', loaded.probeResult, {
+        recoveryUsed: false,
+        directFetchStatus: loaded.directFetchStatus,
+        directFetchHttpStatus: loaded.directFetchHttpStatus,
+        directFetchErrorCode: loaded.directFetchErrorCode,
+        directFetchErrorClass: loaded.directFetchErrorClass,
+      });
+      store.commit('setLoadError', {
+        directFetchStatus: loaded.directFetchStatus,
+        httpStatus: loaded.directFetchHttpStatus,
+        errorCode: loaded.directFetchErrorCode,
+        errorClass: loaded.directFetchErrorClass,
+      });
     }
   }
   store.state.diagram = doc ?? NULL_DIAGRAM;
@@ -63,16 +85,16 @@ async function loadDiagram() {
 async function initializeMacro() {
   try {
     await globals.apWrapper.initializeContext();
-    trackAnalyticsEvent("macro_viewed", {
-      feature_area: "macro",
-      surface: "viewer",
-      macro_type: "embed",
-      entry_point: "page_view",
-    });
 
     // Initialize with empty doc, will be loaded in loadDiagram
     mountRoot(NULL_DIAGRAM, ForgeEmbedViewer);
     await loadDiagram();
+    trackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: store.state.diagram.diagramType as MacroTypeValue,
+      entry_point: "page_view",
+    });
   } catch (e) {
     console.error('Error loading embed viewer', e);
   }
@@ -93,4 +115,3 @@ EventBus.$on('edit', async () => {
     },
   });
 });
-

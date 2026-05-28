@@ -5,7 +5,8 @@ const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockReq
   const mockTrackEvent = vi.fn();
   const mockApWrapper = {
     _getCurrentPageId: vi.fn(),
-    getAttachmentsV2: vi.fn()
+    getAttachmentsV2: vi.fn(),
+    getAttachments: vi.fn(),
   };
   const mockGetContext = vi.fn();
   const mockForgeRequest = vi.fn();
@@ -86,7 +87,7 @@ describe('Attachment', () => {
       extension: { config: { customContentId: 'test-uuid' } },
     };
     mockApWrapper._getCurrentPageId.mockResolvedValue('page-123');
-    mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+    mockApWrapper.getAttachments.mockResolvedValue([]);
     // Setup DOM
     document.body.innerHTML = '';
   });
@@ -104,15 +105,15 @@ describe('Attachment', () => {
           download: '/download/attachment.png'
         }
       };
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([mockAttachment]);
+      mockApWrapper.getAttachments.mockResolvedValue([mockAttachment]);
 
       const link = await getAttachmentDownloadLink('page-123', 'test-uuid');
       expect(link).toBe('https://example.com/download/attachment.png');
-      expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalledWith('page-123', { filename: 'zenuml-test-uuid.png' });
+      expect(mockApWrapper.getAttachments).toHaveBeenCalledWith('page-123', { filename: 'zenuml-test-uuid.png' });
     });
 
     it('should return undefined when no attachment found', async () => {
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockApWrapper.getAttachments.mockResolvedValue([]);
 
       const link = await getAttachmentDownloadLink('page-123', 'test-uuid');
       // Returns 0 (falsy) when attachments.length is 0
@@ -133,7 +134,7 @@ describe('Attachment', () => {
           download: '/download/attachment2.png'
         }
       };
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([mockAttachment1, mockAttachment2]);
+      mockApWrapper.getAttachments.mockResolvedValue([mockAttachment1, mockAttachment2]);
 
       const link = await getAttachmentDownloadLink('page-123', 'test-uuid');
       expect(link).toBe('https://example.com/download/attachment1.png');
@@ -150,7 +151,7 @@ describe('Attachment', () => {
       const mockBlob = new Blob(['test'], { type: 'image/png' });
       vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
 
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockApWrapper.getAttachments.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
         ok: true,
         status: 200,
@@ -161,7 +162,7 @@ describe('Attachment', () => {
       await createAttachmentIfContentChanged('test content');
 
       expect(mockApWrapper._getCurrentPageId).toHaveBeenCalled();
-      expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalled();
+      expect(mockApWrapper.getAttachments).toHaveBeenCalled();
       expect(md5).toHaveBeenCalledWith('test content');
       expect(mockTrackEvent).toHaveBeenCalledWith(
         'version:1',
@@ -199,7 +200,7 @@ describe('Attachment', () => {
         comment: 'hash-old-content'
       };
       // tryGetAttachment is called twice: once in createAttachmentIfContentChanged, once in uploadNewVersionOfAttachment
-      mockApWrapper.getAttachmentsV2
+      mockApWrapper.getAttachments
         .mockResolvedValueOnce([existingAttachment]) // tryGetAttachment in createAttachmentIfContentChanged
         .mockResolvedValueOnce([existingAttachment]) // tryGetAttachment in uploadNewVersionOfAttachment
         .mockResolvedValueOnce([]); // getAttachmentsV2 in uploadAttachment2
@@ -246,7 +247,7 @@ describe('Attachment', () => {
       const mockBlob = new Blob(['test'], { type: 'image/png' });
       vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
 
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockApWrapper.getAttachments.mockResolvedValue([]);
       // Force the upload POST to throw via the multipart path
       mockRequestConfluence.mockRejectedValue(new Error('network down'));
 
@@ -274,8 +275,8 @@ describe('Attachment', () => {
       // tryGetAttachment calls getAttachmentsV2 with the pageId and filename
       // It's called once in createAttachmentIfContentChanged
       // Make sure to reset the mock to avoid interference from previous tests
-      mockApWrapper.getAttachmentsV2.mockReset();
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([existingAttachment]);
+      mockApWrapper.getAttachments.mockReset();
+      mockApWrapper.getAttachments.mockResolvedValue([existingAttachment]);
 
       await createAttachmentIfContentChanged('test content'); // md5('test content') === existingAttachment.comment
 
@@ -298,7 +299,7 @@ describe('Attachment', () => {
       const mockBlob = new Blob(['test'], { type: 'image/png' });
       vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
       
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockApWrapper.getAttachments.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
         ok: true,
         status: 200,
@@ -329,7 +330,7 @@ describe('Attachment', () => {
       // buildUploadContext swallows _getCurrentPageId errors (so context is
       // best-effort), so to exercise the catch path we make the attachment
       // lookup throw instead.
-      mockApWrapper.getAttachmentsV2.mockRejectedValue(new Error('API error'));
+      mockApWrapper.getAttachments.mockRejectedValue(new Error('API error'));
 
       // The function still throws so existing callers see the failure.
       await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow('API error');
@@ -357,7 +358,7 @@ describe('Attachment', () => {
       const mockBlob = new Blob(['test'], { type: 'image/png' });
       vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
 
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockApWrapper.getAttachments.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
         ok: false,
         status: 403,
@@ -391,7 +392,7 @@ describe('Attachment', () => {
       const mockBlob = new Blob(['test'], { type: 'image/png' });
       vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
 
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockApWrapper.getAttachments.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
         ok: true,
         status: 200,
@@ -423,7 +424,7 @@ describe('Attachment', () => {
       // undefined.  Make sure the new label exposes that distinctly so future
       // analytics queries don't conflate them with real Errors.
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      mockApWrapper.getAttachmentsV2.mockRejectedValue('boom'); // string, not Error
+      mockApWrapper.getAttachments.mockRejectedValue('boom'); // string, not Error
 
       await expect(createAttachmentIfContentChanged('test content')).rejects.toBe('boom');
 
@@ -478,7 +479,7 @@ describe('Attachment', () => {
 
       const mockBlob = new Blob(['test'], { type: 'image/png' });
       vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockApWrapper.getAttachments.mockResolvedValue([]);
       // Confluence v1 wraps the draft 404 inside a 200 body
       mockRequestConfluence.mockResolvedValue({
         ok: true,
@@ -521,7 +522,7 @@ describe('Attachment', () => {
       const mockBlob = new Blob(['test'], { type: 'image/png' });
       vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
       
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockApWrapper.getAttachments.mockResolvedValue([]);
       
       const mockResponse = {
         ok: true,
@@ -560,7 +561,7 @@ describe('Attachment', () => {
       document.body.appendChild(mockIframe);
 
       // Set up mocks for the attachment creation flow
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockApWrapper.getAttachments.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
         ok: true,
         status: 200,
@@ -604,7 +605,7 @@ describe('Attachment', () => {
       document.body.appendChild(mockElement);
 
       // Test through createAttachmentIfContentChanged which calls toPng
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockApWrapper.getAttachments.mockResolvedValue([]);
       mockRequestConfluence.mockResolvedValue({
         ok: true,
         status: 200,
@@ -627,7 +628,7 @@ describe('Attachment', () => {
       const error = new Error('Conversion failed');
       vi.mocked(htmlToImage.toBlob).mockRejectedValue(error);
 
-      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockApWrapper.getAttachments.mockResolvedValue([]);
 
       // toPng is non-async, so the rejection propagates to the caller
       await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow('Conversion failed');

@@ -18,9 +18,10 @@ import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { classifyContentState } from '@/utils/analytics/contentState';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
-import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
+import { reportOrphanObserved, reportOrphanMacroRepaired, reportCustomContentLoadSucceeded } from '@/utils/orphanTelemetry';
 import {
   reportLegacyContentPropertyRestored,
   reportLegacyContentPropertyLoadFailed,
@@ -130,12 +131,26 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           recoveryUsed: true,
           recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
         });
+      } else if (doc) {
+        reportCustomContentLoadSucceeded(recoveryPageId, customContentId, 'sequence');
       } else if (!doc) {
         // ZEN-1170: the referenced customContent failed to load AND no page
         // child was a confident match. Don't assign doc here — let the legacy
         // content-property fallback below try storageUuid before we mount an
         // empty/example doc and risk a destructive save.
-        reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, { recoveryUsed: false });
+        reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, {
+          recoveryUsed: false,
+          directFetchStatus: loaded.directFetchStatus,
+          directFetchHttpStatus: loaded.directFetchHttpStatus,
+          directFetchErrorCode: loaded.directFetchErrorCode,
+          directFetchErrorClass: loaded.directFetchErrorClass,
+        });
+        store.commit('setLoadError', {
+          directFetchStatus: loaded.directFetchStatus,
+          httpStatus: loaded.directFetchHttpStatus,
+          errorCode: loaded.directFetchErrorCode,
+          errorClass: loaded.directFetchErrorClass,
+        });
       }
     }
 
@@ -254,13 +269,29 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           legacyLoadBlocked: true,
         } as Diagram;
       } else {
-        doc = {
-          diagramType: DiagramType.Sequence,
-          code: Example.Sequence,
-          mermaidCode: Example.Mermaid,
-          plantUmlCode: Example.PlantUml,
-          isNew: true,
-        };
+        // In display mode (viewer, fullscreen) a macro with no saved content
+        // has no data to show — render the unrecoverable load-failed state so
+        // viewers aren't confused by example "Order Service" content.
+        const isEditing = context.extension?.modal?.macroMode === 'editor'
+          || context.extension?.macro?.isConfiguring
+          || context.extension?.macro?.isInserting;
+        if (isEditing) {
+          doc = {
+            diagramType: DiagramType.Sequence,
+            code: Example.Sequence,
+            mermaidCode: Example.Mermaid,
+            plantUmlCode: Example.PlantUml,
+            isNew: true,
+          };
+        } else {
+          doc = { ...NULL_DIAGRAM };
+          trackAnalyticsEvent('load_failed_no_id_shown', {
+            feature_area: 'macro',
+            surface: 'viewer',
+            macro_type: 'sequence',
+            page_id: recoveryPageId,
+          });
+        }
       }
     }
 
@@ -385,8 +416,9 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         trackAnalyticsEvent("macro_viewed", {
           feature_area: "macro",
           surface: "viewer",
-          macro_type: doc.diagramType,
+          macro_type: doc.diagramType as MacroTypeValue,
           entry_point: "page_view",
+          content_state: classifyContentState(doc.diagramType, doc),
         });
       } else {
         const isNew = !customContentId;
@@ -469,25 +501,26 @@ async function createAttachment(code: string, diagramType: DiagramType) {
     let errorDetails: any = { message: e instanceof Error ? e.message : serializeError(e) };
 
     // Extract XHR details if available
-    if (e.xhr) {
+    const eAny = e as any;
+    if (eAny.xhr) {
       errorDetails.xhr = {
-        status: e.xhr.status,
-        statusText: e.xhr.statusText
+        status: eAny.xhr.status,
+        statusText: eAny.xhr.statusText
       };
 
       // Try to extract the full response text
       try {
         // For HTML responses, extract text content to avoid HTML tags
-        if (e.xhr.responseText && e.xhr.responseText.includes('<!doctype html>')) {
+        if (eAny.xhr.responseText && eAny.xhr.responseText.includes('<!doctype html>')) {
           const tempDiv = document.createElement('div');
-          tempDiv.innerHTML = e.xhr.responseText;
+          tempDiv.innerHTML = eAny.xhr.responseText;
           errorDetails.xhr.responseDetails = tempDiv.textContent?.substring(0, 500) || 'HTML response (extracted text)';
         } else {
           // For other responses, include the raw text
-          errorDetails.xhr.responseDetails = e.xhr.responseText?.substring(0, 500) || 'No response text';
+          errorDetails.xhr.responseDetails = eAny.xhr.responseText?.substring(0, 500) || 'No response text';
         }
       } catch (parseError) {
-        errorDetails.xhr.responseDetails = 'Error parsing response: ' + parseError.message;
+        errorDetails.xhr.responseDetails = 'Error parsing response: ' + (parseError as any).message;
       }
     }
 
@@ -755,5 +788,4 @@ EventBus.$on('updateContent', async (diagram: Diagram) => {
     console.info('Your changes cannot be persistent as you are not authorized to edit.');
   }
 });
-
 

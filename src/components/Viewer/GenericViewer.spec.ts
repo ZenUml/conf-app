@@ -44,6 +44,7 @@ describe('GenericViewer (chrome-less)', () => {
     store.state.diagram.isCopy = false
     store.state.diagram.title = 'Login flow'
     store.state.diagram.id = 'content-123'
+    store.state.loadError = null
   })
 
   describe('layout', () => {
@@ -180,6 +181,94 @@ describe('GenericViewer (chrome-less)', () => {
       expect(vm.showExportModal).toBe(false)
       await wrapper.find('button[aria-label="Export PNG"]').trigger('click')
       expect(vm.showExportModal).toBe(true)
+    })
+
+    // The bottom pill is absolutely positioned over the canvas bottom and
+    // appears on hover. In the load-failed empty state the Retry button sits
+    // at the bottom of the same flex column, so the pill would cover it.
+    // None of the pill's actions (copy code, export PNG, versions, copy link)
+    // make sense without a loaded diagram, so we hide the pill entirely.
+    it('does not render the bottom-edge pill in the load-failed state', () => {
+      store.commit('updateDiagramType', DiagramType.Unknown)
+      const wrapper = mountViewer()
+      expect(wrapper.find('[role="toolbar"][aria-label="Diagram actions"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="load-failed-generic"] .viewer-lf-btn-primary').exists()).toBe(true)
+    })
+  })
+
+  describe('load-failed support link', () => {
+    it('fires load_failed_shown on mount when the diagram is in the load-failed state', async () => {
+      const windowMod = await import('@/utils/window')
+      const trackSpy = vi.spyOn(windowMod, 'trackEvent')
+      store.commit('updateDiagramType', DiagramType.Unknown)
+      mountViewer()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(trackSpy).toHaveBeenCalledWith(
+        'load_failed_shown',
+        'view',
+        'load_failed_generic',
+        expect.objectContaining({ state: expect.any(String), content_id: expect.any(String) }),
+      )
+    })
+
+    it('renders the Contact support link in the generic load-failed state', () => {
+      store.commit('updateDiagramType', DiagramType.Unknown)
+      const wrapper = mountViewer()
+      expect(wrapper.find('[data-testid="load-failed-support-link"]').exists()).toBe(true)
+    })
+
+    it('still renders the support link when the loader reports a permission-like error', () => {
+      store.commit('updateDiagramType', DiagramType.Unknown)
+      store.state.loadError = { httpStatus: 403 }
+      const wrapper = mountViewer()
+      expect(wrapper.find('[data-testid="load-failed-generic"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="load-failed-support-link"]').exists()).toBe(true)
+      expect(wrapper.text()).toContain("The diagram data is no longer available")
+      expect(wrapper.text()).toContain("The original diagram data couldn't be recovered")
+    })
+
+    it('clicking copies diagnostic info, tracks the event, then opens the support portal after a delay', async () => {
+      const openUrlMod = await import('@/model/globals/forgeGlobal')
+      const windowMod = await import('@/utils/window')
+      const openUrlSpy = vi.spyOn(openUrlMod, 'openUrl').mockImplementation(() => Promise.resolve())
+      const trackSpy = vi.spyOn(windowMod, 'trackEvent')
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+      Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true })
+
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      try {
+        store.state.loadError = null
+        store.commit('updateDiagramType', DiagramType.Unknown)
+        const wrapper = mountViewer()
+        await wrapper.find('[data-testid="load-failed-support-link"]').trigger('click')
+        // Synchronous part: clipboard + toast + tracking happen before the delay.
+        await vi.advanceTimersByTimeAsync(0)
+        expect(writeText).toHaveBeenCalledOnce()
+        const payload = writeText.mock.calls[0][0] as string
+        expect(payload).toContain("ZenUML couldn't display a diagram")
+        expect(payload).toContain('Custom content ID:')
+        expect(payload).toContain('Page ID:')
+        expect(payload).toContain('Macro UUID:')
+        expect(payload).toContain('Space:')
+        expect(payload).toContain('Client domain:')
+        expect(payload).toContain('Module key:')
+        expect(payload).toContain('Direct fetch status:')
+        expect(payload).toContain('Load error status:')
+        expect(trackSpy).toHaveBeenCalledWith(
+          'support_link_clicked',
+          'click',
+          'load_failed_generic',
+          expect.objectContaining({ content_id: expect.any(String) }),
+        )
+        // openUrl must NOT fire immediately — we hold focus so the toast is readable.
+        expect(openUrlSpy).not.toHaveBeenCalled()
+
+        await vi.advanceTimersByTimeAsync(1500)
+        expect(openUrlSpy).toHaveBeenCalledWith('https://zenuml.atlassian.net/servicedesk')
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 

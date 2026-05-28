@@ -293,7 +293,7 @@ export async function getAttachmentDownloadLink(
   macroUuid: string
 ): Promise<string | false> {
   const attachmentName = attachmentNameByIdentifier(macroUuid);
-  const attachments = await global.apWrapper.getAttachmentsV2(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
+  const attachments = await global.apWrapper.getAttachments(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
   if (attachments.length > 1) {
     console.warn(`Multiple attachments found with uuid "${macroUuid}" on page ${pageId}:`, attachments);
   }
@@ -384,7 +384,7 @@ async function tryGetAttachment(): Promise<AttachmentWithLinks | false> {
   const pageId = await global.apWrapper._getCurrentPageId();
   const identifier = await getIdentifier();
   const attachmentName = attachmentNameByIdentifier(identifier!);
-  const attachments = await global.apWrapper.getAttachmentsV2(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
+  const attachments = await global.apWrapper.getAttachments(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
   const descending = attachments.sort((a, b) => (b.version?.number ?? 0) - (a.version?.number ?? 0));
   return descending.length > 0 && descending[0];
 }

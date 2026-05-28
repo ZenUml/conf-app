@@ -90,3 +90,4 @@ Output: the absolute path of the saved file on stdout (everything else on stderr
   ```bash
   node .claude/skills/extract-itxt/scripts/extract.mjs /tmp/recovered.png
   ```
+  Prints all PNG text chunks (iTXt / tEXt / zTXt) to stdout. For the `zenumlDiagram` keyword the JSON is pretty-printed; for `mxGraphModel` (DrawIO) the raw XML is printed.

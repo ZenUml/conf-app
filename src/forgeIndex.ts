@@ -269,13 +269,23 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           legacyLoadBlocked: true,
         } as Diagram;
       } else {
-        doc = {
-          diagramType: DiagramType.Sequence,
-          code: Example.Sequence,
-          mermaidCode: Example.Mermaid,
-          plantUmlCode: Example.PlantUml,
-          isNew: true,
-        };
+        // In display mode (viewer, fullscreen) a macro with no saved content
+        // has no data to show — render the unrecoverable load-failed state so
+        // viewers aren't confused by example "Order Service" content.
+        const isEditing = context.extension?.modal?.macroMode === 'editor'
+          || context.extension?.macro?.isConfiguring
+          || context.extension?.macro?.isInserting;
+        if (isEditing) {
+          doc = {
+            diagramType: DiagramType.Sequence,
+            code: Example.Sequence,
+            mermaidCode: Example.Mermaid,
+            plantUmlCode: Example.PlantUml,
+            isNew: true,
+          };
+        } else {
+          doc = { ...NULL_DIAGRAM };
+        }
       }
     }
 

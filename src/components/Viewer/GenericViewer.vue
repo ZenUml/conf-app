@@ -578,7 +578,7 @@ export default {
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  padding: 44px 24px 0;
+  padding: 44px 24px 44px;
   text-align: center;
   color: #374151;
 }

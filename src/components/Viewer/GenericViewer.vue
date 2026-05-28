@@ -122,15 +122,6 @@
                 </button>
               </div>
 
-              <!-- Content ID footer strip: only when source reference is known -->
-              <div v-if="failedCustomContentId" class="viewer-lf-footer">
-                <span class="viewer-lf-footer-label">CONTENT ID</span>
-                <code class="viewer-lf-footer-id">{{ failedCustomContentId }}</code>
-                <button class="viewer-lf-copy-btn" @click="copyContentId" :title="contentIdCopied ? 'Copied!' : 'Copy Content ID'" :aria-label="contentIdCopied ? 'Copied!' : 'Copy Content ID'">
-                  <svg v-if="contentIdCopied" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="#0F8B5C" width="13" height="13" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75 10 18l9.5-11.25"/></svg>
-                  <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="13" height="13" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75"/></svg>
-                </button>
-              </div>
             </div>
             <div v-else class="screen-capture-content" :class="{'w-full': wide}">
               <slot></slot>
@@ -217,7 +208,6 @@ export default {
     isHovering: false,
     showExportModal: false,
     isDownloadingDebug: false,
-    contentIdCopied: false,
   }),
   components: {
     Debug,
@@ -294,12 +284,6 @@ export default {
   methods: {
     retry() {
       location.reload();
-    },
-    async copyContentId() {
-      const id = String(this.failedCustomContentId ?? '');
-      await this.copyToClipboard(id);
-      this.contentIdCopied = true;
-      setTimeout(() => { this.contentIdCopied = false; }, 1500);
     },
     async contactSupport() {
       const contentId = this.failedCustomContentId ?? '(unknown)';
@@ -669,45 +653,6 @@ export default {
   transition: background-color 150ms ease;
 }
 .viewer-lf-btn-secondary:hover { background: #F9FAFB; }
-.viewer-lf-footer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  align-self: stretch;
-  padding: 10px 16px;
-  margin-top: 8px;
-  border-top: 1px solid #E5E7EB;
-  background: #F9FAFB;
-  color: #6B7280;
-  font-size: 12px;
-}
-.viewer-lf-footer-label {
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: 600;
-  font-size: 10px;
-  color: #9CA3AF;
-}
-.viewer-lf-footer-id {
-  font-family: monospace;
-  font-size: 12px;
-  color: #4B5563;
-}
-.viewer-lf-copy-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  color: #9CA3AF;
-  cursor: pointer;
-}
-.viewer-lf-copy-btn:hover { color: #6B7280; }
 
 .viewer-canvas {
   position: relative;

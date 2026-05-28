@@ -883,4 +883,70 @@ describe('ApWrapper2', () => {
       expect(reqMock).toHaveBeenCalledWith(expect.stringMatching(/\/wiki\/api\/v2\/pages\/page%2Fwith%20space\/properties\?key=zenuml-graph-macro-with%2Fslash-body/));
     });
   });
+
+  // Regression: PR #75 switched tryGetAttachment/getAttachmentDownloadLink
+  // from the V2 endpoint to V1 to fix a V2/V1 visibility mismatch. The V1
+  // wrapper read `response._links.base` unguarded; in production some
+  // response shapes (no attachments, certain permission/error paths) omit
+  // `_links` entirely, throwing `TypeError: Cannot read properties of
+  // undefined (reading 'base')` from every save attempt — surfacing as
+  // ~2.5k/day `attachment_upload_failed` events with event_label=TypeError.
+  describe('getAttachments — v1 response shape resilience', () => {
+    beforeEach(() => {
+      wrapper.currentPageId = 'page-123';
+      // Force a deterministic base URL so the fallback branch is observable.
+      (wrapper as any).baseUrl = 'https://example.atlassian.net/wiki';
+    });
+
+    it('returns attachments with envelope _links.base merged when present', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        _links: { base: 'https://example.atlassian.net/wiki', context: '/wiki' },
+        results: [{
+          id: 'att-1',
+          metadata: { comment: 'hash-abc' },
+          _links: { download: '/download/attachments/123/foo.png' },
+        }],
+      });
+
+      const out = await wrapper.getAttachments('page-123', { filename: 'foo.png' });
+      expect(out).toHaveLength(1);
+      expect((out[0] as any)._links.base).toBe('https://example.atlassian.net/wiki');
+      expect((out[0] as any)._links.download).toBe('/download/attachments/123/foo.png');
+      expect((out[0] as any).comment).toBe('hash-abc');
+    });
+
+    it('falls back to wrapper base URL when envelope _links is missing (the production crash path)', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        // No envelope `_links` — this is the shape that crashed in prod.
+        results: [{
+          id: 'att-2',
+          metadata: { comment: 'hash-def' },
+          _links: { download: '/download/attachments/123/bar.png' },
+        }],
+      });
+
+      // Must not throw.
+      const out = await wrapper.getAttachments('page-123', { filename: 'bar.png' });
+      expect(out).toHaveLength(1);
+      expect((out[0] as any)._links.base).toBe('https://example.atlassian.net/wiki');
+      expect((out[0] as any)._links.download).toBe('/download/attachments/123/bar.png');
+    });
+
+    it('returns an empty array when results is missing', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({});
+      const out = await wrapper.getAttachments('page-123');
+      expect(out).toEqual([]);
+    });
+
+    it('handles attachments that lack their own _links (defensive Object.assign target)', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        _links: { base: 'https://example.atlassian.net/wiki', context: '/wiki' },
+        results: [{ id: 'att-3', metadata: { comment: 'hash-ghi' } }],
+      });
+
+      const out = await wrapper.getAttachments('page-123');
+      expect(out).toHaveLength(1);
+      expect((out[0] as any)._links.base).toBe('https://example.atlassian.net/wiki');
+    });
+  });
 });

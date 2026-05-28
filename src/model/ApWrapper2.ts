@@ -1095,12 +1095,21 @@ export default class ApWrapper2 implements IApWrapper {
     const url = `/rest/api/content/${pageId}/child/attachment${param ? `?expand=version&${param}` : ''}`;
     const response = await this.makeRequest(url);
     console.debug(`found attachments in page ${pageId} with params ${queryParameters}:`, response);
-    const baseLinks = {base: response._links.base, context: response._links.context};
+    // The v1 endpoint usually returns `_links` (`base`, `context`) at the
+    // envelope level, but in some response shapes (no attachments, certain
+    // permission/error paths) `_links` is absent. Reading `.base` blindly
+    // threw `TypeError: Cannot read properties of undefined (reading 'base')`
+    // on every save attempt, surfacing as ~2.5k/day `attachment_upload_failed`
+    // events with event_label=TypeError. Fall back to the wrapper's resolved
+    // base URL so callers still get a usable absolute download link.
+    const envelopeBase = response?._links?.base ?? await this._getBaseUrl();
+    const envelopeContext = response?._links?.context ?? '';
+    const baseLinks = {base: envelopeBase, context: envelopeContext};
     //set 'comment' as top level field to be consistent with V2 API response
-    return response?.results.map((a: any) => Object.assign(a, {
+    return (response?.results || []).map((a: any) => Object.assign(a, {
       comment: a.metadata?.comment,
-      _links: Object.assign(a._links, baseLinks)
-    })) || [];
+      _links: Object.assign(a._links || {}, baseLinks)
+    }));
   }
 
   async _getCurrentUser(): Promise<IUser> {

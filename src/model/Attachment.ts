@@ -287,13 +287,22 @@ function attachmentNameByIdentifier(id: string): string {
 
 /**
  * Get the download link for an attachment by page ID and macro UUID.
+ *
+ * Uses the V2 attachments endpoint. The V1 endpoint
+ * `/rest/api/content/{pageId}/child/attachment` returns HTTP 410 Gone via
+ * the Forge `api.atlassian.com/ex/confluence/...` proxy ("This deprecated
+ * endpoint has been removed"), with a body that has no `_links` field.
+ * PR #75 switched this to V1 to fix a V2/V1 visibility mismatch, but that
+ * made every save throw `TypeError: Cannot read properties of undefined
+ * (reading 'base')` and surfaced as ~2.5k/day attachment_upload_failed
+ * events with event_label=TypeError. V2 is the supported Forge path.
  */
 export async function getAttachmentDownloadLink(
   pageId: string,
   macroUuid: string
 ): Promise<string | false> {
   const attachmentName = attachmentNameByIdentifier(macroUuid);
-  const attachments = await global.apWrapper.getAttachments(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
+  const attachments = await global.apWrapper.getAttachmentsV2(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
   if (attachments.length > 1) {
     console.warn(`Multiple attachments found with uuid "${macroUuid}" on page ${pageId}:`, attachments);
   }
@@ -379,12 +388,17 @@ function buildFailureLabel(e: unknown, httpStatus: number | undefined): string {
 /**
  * Try to get existing attachment for current macro.
  * Returns the attachment with highest version number, or false if none found.
+ *
+ * Uses the V2 attachments endpoint. PR #75 switched to V1 to fix a V2/V1
+ * visibility mismatch, but V1 is gone on the Forge proxy (HTTP 410) and the
+ * response body has no `_links`, so every save threw `TypeError: Cannot
+ * read properties of undefined (reading 'base')`. V2 is the supported path.
  */
 async function tryGetAttachment(): Promise<AttachmentWithLinks | false> {
   const pageId = await global.apWrapper._getCurrentPageId();
   const identifier = await getIdentifier();
   const attachmentName = attachmentNameByIdentifier(identifier!);
-  const attachments = await global.apWrapper.getAttachments(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
+  const attachments = await global.apWrapper.getAttachmentsV2(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
   const descending = attachments.sort((a, b) => (b.version?.number ?? 0) - (a.version?.number ?? 0));
   return descending.length > 0 && descending[0];
 }

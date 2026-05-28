@@ -86,8 +86,8 @@ Output: the absolute path of the saved file on stdout (everything else on stderr
 ## Related skills
 
 - `find-macros-on-page` — locates the macro's `customContentId` and surfaces orphan-backup attachments. Hand the attachment filename from that output to this skill.
-- After downloading a `zenuml-*.png` written by our PNG-embedded-source feature, extract the source from the iTXt chunk:
+- After downloading a `zenuml-*.png`, use the `extract-itxt` skill to read the embedded diagram source:
   ```bash
-  node .claude/skills/download-attachment/scripts/extract-itxt.mjs /tmp/recovered.png
+  node .claude/skills/extract-itxt/scripts/extract.mjs /tmp/recovered.png
   ```
   Prints all PNG text chunks (iTXt / tEXt / zTXt) to stdout. For the `zenumlDiagram` keyword the JSON is pretty-printed; for `mxGraphModel` (DrawIO) the raw XML is printed.

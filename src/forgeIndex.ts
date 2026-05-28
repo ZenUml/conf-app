@@ -285,6 +285,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           };
         } else {
           doc = { ...NULL_DIAGRAM };
+          trackAnalyticsEvent('load_failed_no_id_shown', {
+            feature_area: 'macro',
+            surface: 'viewer',
+            macro_type: 'sequence',
+            page_id: recoveryPageId,
+          });
         }
       }
     }

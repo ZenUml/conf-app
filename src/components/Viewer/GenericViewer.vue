@@ -280,6 +280,12 @@ export default {
     } catch (e) {
       console.error('canUserEdit failed', e);
     }
+    if (this.isLoadFailed) {
+      trackEvent('load_failed_shown', 'view', 'load_failed_generic', {
+        state: this.failedCustomContentId ? 'with_id' : 'no_id',
+        content_id: String(this.failedCustomContentId ?? ''),
+      });
+    }
   },
   methods: {
     retry() {

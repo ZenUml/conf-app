@@ -122,7 +122,11 @@ async function saveGraphAndExit(graphXml: string) {
     const idChanged = !!sourceId && !!id && id !== sourceId;
     const needsWriteback = inserting || idChanged || attemptRepair || attemptLegacyMigration;
     try {
-      if (needsWriteback) {
+      // view.submit() only persists when the surface is a macro-config editor
+      // (inserting or configuring). Gate all writeback paths by repairWillPersist
+      // so viewer-launched saves fall back to view.close() instead of throwing
+      // "this resource's view is not submittable."
+      if (needsWriteback && repairWillPersist) {
         await (await getView()).submit({config: {
           customContentId: id,
           updatedAt: new Date().toISOString(),

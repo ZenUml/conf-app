@@ -1,55 +1,17 @@
-import SwaggerUIBundle from 'swagger-ui'
 import "swagger-ui/dist/swagger-ui.css";
-import SpecListener from './utils/spec-listener'
 import './assets/tailwind.css'
 
-import OpenApiExample from '@/model/OpenApi/OpenApiExample'
 import createAttachmentIfContentChanged from "@/model/Attachment";
 import {trackEvent, serializeError} from "@/utils/window";
-import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import globals from '@/model/globals';
 import OpenApiViewer from "@/components/Viewer/OpenApiViewer.vue";
 import EventBus from './EventBus'
-import {mountRoot} from "@/mount-root";
-import macroMetrics from "@/services/MacroMetrics";
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
-import store from "@/model/store2";
-import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { Diagram } from "@/model/Diagram/Diagram";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
-import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
+import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
 
-// @ts-ignore
-window.SwaggerUIBundle = SwaggerUIBundle;
-
-function initSwaggerUi() {
-  const elementId = 'swagger-ui';
-  const element = document.getElementById(elementId);
-  if(element && element.innerHTML.trim()) {
-    element.innerHTML = '';
-  }
-
-  const ui = SwaggerUIBundle({
-    // url: "https://petstore.swagger.io/v2/swagger.json",
-    dom_id: `#${elementId}`,
-    presets: [
-      SwaggerUIBundle.presets.apis,
-      // SwaggerUIStandalonePreset
-    ],
-    plugins: [
-      SwaggerUIBundle.plugins.DownloadUrl,
-      SpecListener
-    ],
-    // requestSnippetsEnabled: true,
-    // layout: "StandaloneLayout"
-  })
-
-  // eslint-disable-next-line
-  // @ts-ignore
-  window.ui = ui
-}
-
-async function loadDiagram() {
-
+async function loadDiagram(): Promise<Diagram | undefined> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
@@ -71,14 +33,10 @@ async function loadDiagram() {
       reportOrphanObserved(pageId, customContentId, 'openapi', loaded.probeResult, { recoveryUsed: false });
     }
   }
-  store.state.diagram = doc ?? NULL_DIAGRAM;
-  window.diagram = doc ?? NULL_DIAGRAM;
-  console.log('loadDiagram - window.diagram', window.diagram);
+  return doc;
+}
 
-  // eslint-disable-next-line
-  // @ts-ignore
-  window.updateSpec(doc?.code || OpenApiExample);
-
+function afterLoad(doc: Diagram | undefined) {
   setTimeout(async function () {
     try {
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
@@ -96,29 +54,15 @@ async function loadDiagram() {
 }
 
 async function initializeMacro() {
-  await globals.apWrapper.initializeContext();
-  trackAnalyticsEvent("macro_viewed", {
-    feature_area: "macro",
-    surface: "viewer",
-    macro_type: "openapi",
-    entry_point: "page_view",
-  });
-
-  // Initialize with empty doc, will be loaded in loadDiagram.
-  // Fullscreen viewer paywall wraps OpenApiViewer underneath the modal
-  // when triggered; #swagger-ui still lives inside OpenApiViewer's
-  // template, so initSwaggerUi() resolves it after the wrapped mount.
-  const paywalled = await tryFullscreenViewerPaywall({
-    doc: NULL_DIAGRAM,
-    content: OpenApiViewer,
+  await bootstrapForgeViewer({
     macroKind: 'openapi',
+    content: OpenApiViewer,
+    loadDiagram,
+    afterLoad,
+    onError: (error) => {
+      console.error('Error loading OpenAPI viewer', error);
+    },
   });
-  if (!paywalled) {
-    mountRoot(NULL_DIAGRAM, OpenApiViewer);
-  }
-  initSwaggerUi();
-
-  await loadDiagram();
 }
 
 export default initializeMacro();
@@ -144,4 +88,3 @@ EventBus.$on('edit', async () => {
     },
   });
 });
-

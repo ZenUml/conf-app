@@ -42,6 +42,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # vendor/asyncapi-studio is a submodule that build:asyncapi compiles
+          # into static/asyncapi-studio. Without recursive checkout the
+          # asyncapi build step would fail to find the Studio source.
+          submodules: recursive
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
         with:
@@ -56,6 +61,17 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
       - run: pnpm test:unit
+      # Verify the asyncapi variant builds. lite/full/diagramly are already
+      # exercised by their respective staging-deploy jobs; asyncapi has no
+      # staging-deploy job yet (PR #2 wires that up after Studio assets land).
+      - name: Verify asyncapi build
+        run: pnpm build:asyncapi
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          # Skip Puppeteer's chromium download inside the Studio submodule's
+          # pnpm install (some transitive deps pull it in but the Studio
+          # build doesn't need it).
+          PUPPETEER_SKIP_DOWNLOAD: "true"
   
   staging-lite:
     name: "Deploy: Lite"

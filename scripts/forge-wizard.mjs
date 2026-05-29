@@ -31,6 +31,23 @@ export const APPS = {
         description: 'Remove confluence:contentBylineItem',
         yqEvalExpr: 'del(.modules["confluence:contentBylineItem"])',
       },
+      {
+        // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and
+        // `zenuml-asyncapi-embed-macro` (embed reference) — only the
+        // asyncapi variant ships these.
+        description: 'Remove asyncapi macros (zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro)',
+        yqEvalExpr:
+          'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))',
+      },
+      {
+        description: 'Remove asyncapi custom content (async-api-doc)',
+        yqEvalExpr:
+          'del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc")))',
+      },
+      {
+        description: 'Remove asyncapi spacePage (zenuml-asyncapi-dashboard-page)',
+        yqEvalExpr: 'del(.modules["confluence:spacePage"])',
+      },
     ],
     sites: {
       staging: ['lite-stg.atlassian.net'],
@@ -52,7 +69,25 @@ export const APPS = {
       staging: 'https://conf-stg-full.zenuml.com',
       production: 'https://conf-full.zenuml.com',
     },
-    manifestEdits: [],
+    manifestEdits: [
+      {
+        // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and
+        // `zenuml-asyncapi-embed-macro` (embed reference) — only the
+        // asyncapi variant ships these.
+        description: 'Remove asyncapi macros (zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro)',
+        yqEvalExpr:
+          'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))',
+      },
+      {
+        description: 'Remove asyncapi custom content (async-api-doc)',
+        yqEvalExpr:
+          'del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc")))',
+      },
+      {
+        description: 'Remove asyncapi spacePage (zenuml-asyncapi-dashboard-page)',
+        yqEvalExpr: 'del(.modules["confluence:spacePage"])',
+      },
+    ],
     sites: {
       staging: ['full-stg.atlassian.net'],
       production: ['zenuml.atlassian.net'],
@@ -77,14 +112,27 @@ export const APPS = {
     // Diagramly includes licensing; remove only the global UI modules and embed macro.
     manifestEdits: [
       {
-        description: 'Remove globalSettings + globalPage',
+        description: 'Remove globalSettings + globalPage + spacePage',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"])',
+          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:spacePage"])',
       },
       {
         description: 'Remove embed macro (zenuml-embed-macro)',
         yqEvalExpr:
           'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))',
+      },
+      {
+        // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and
+        // `zenuml-asyncapi-embed-macro` (embed reference) — only the
+        // asyncapi variant ships these.
+        description: 'Remove asyncapi macros (zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro)',
+        yqEvalExpr:
+          'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))',
+      },
+      {
+        description: 'Remove asyncapi custom content (async-api-doc)',
+        yqEvalExpr:
+          'del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc")))',
       },
     ],
     sites: {
@@ -98,6 +146,72 @@ export const APPS = {
         DIAGRAMLY_BACKEND_API_BASE_URL: 'https://diagramly.ai',
       },
     },
+  },
+  asyncapi: {
+    appKey: 'asyncapi',
+    appId: '49017727-af19-4ab6-8d5a-7d28108936b6',
+    // Preserve the original AsyncAPI-Conf-V2 Connect key so Atlassian's
+    // Forge-from-Connect migration tracking stays continuous. Changing
+    // this would trigger a confirmation prompt on every deploy and could
+    // affect features that key off the Connect identifier.
+    connectKey: 'my-api',
+    sequenceMacroKey: 'zenuml-asyncapi-macro',
+    customContentKey: 'async-api-doc',
+    liteKeySuffix: '',
+    liteTitleSuffix: '',
+    appLabel: 'AsyncAPI for Confluence',
+    backendUrls: {
+      // Shared with the lite Cloudflare Pages projects until a dedicated
+      // conf-(stg-)asyncapi project is stood up. Revisit before GA.
+      staging: 'https://conf-stg-lite.zenuml.com',
+      production: 'https://conf-lite.zenuml.com',
+    },
+    // AsyncAPI is a single-purpose variant: strip every macro except the
+    // AsyncAPI one, and drop the dashboard / get-started / byline modules
+    // that don't apply.
+    manifestEdits: [
+      // Note: licensing stays enabled — matches the standalone
+      // AsyncAPI-Conf-V2 manifest. lite is the only variant that strips
+      // licensing.
+      {
+        description: 'Remove non-asyncapi macros (sequence, openapi, graph, embed)',
+        // `test("zenuml-asyncapi")` keeps both `zenuml-asyncapi-macro`
+        // (page-rendered spec) and `zenuml-asyncapi-embed-macro` (embed
+        // reference to a doc) — same dual-macro setup as the standalone
+        // app.
+        yqEvalExpr:
+          'del(.modules.macro[] | select(.key | test("zenuml-asyncapi") | not))',
+      },
+      {
+        // AsyncAPI ships only confluence:spacePage (the per-space "My API
+        // Documents" entry). Strip the ZenUML globalPage + getStarted +
+        // byline entries — they don't apply to asyncapi.
+        description: 'Remove globalSettings + globalPage + contentBylineItem (asyncapi uses spacePage only)',
+        yqEvalExpr:
+          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"])',
+      },
+      {
+        description: 'Remove non-asyncapi custom content types',
+        yqEvalExpr:
+          'del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc") | not))',
+      },
+      {
+        // AsyncAPI Studio (transitively via AJV / @asyncapi/parser) compiles
+        // JSON Schema validators at runtime via `new Function()`. Forge
+        // Custom UI's default CSP forbids 'unsafe-eval'. Granting it only
+        // for the asyncapi variant keeps the blast radius scoped to this
+        // single app's sandboxed iframe — not the Confluence top-level page.
+        description: "Allow 'unsafe-eval' in CSP (required by AsyncAPI Studio runtime schema compilation)",
+        yqEvalExpr: '.permissions.content.scripts = ["unsafe-eval"]',
+      },
+    ],
+    sites: {
+      // No dedicated asyncapi staging site yet; reuse lite-stg for early validation.
+      staging: ['lite-stg.atlassian.net'],
+      production: ['zenuml.atlassian.net'],
+    },
+    productType: 'asyncapi',
+    forgeAppLabelVarName: 'APP_LABEL',
   },
 }
 
@@ -283,8 +397,18 @@ async function runCommandLogged({
 }
 
 async function buildApp({ app }) {
-  const args = ['exec', 'vite', 'build']
-  if (app.buildMode) args.push('--mode', app.buildMode)
+  // The asyncapi variant needs `scripts/build-studio.sh` to run before
+  // the vite build so the Studio static export lands in
+  // static/asyncapi-studio/ (gitignored, built from the submodule).
+  // Other variants don't have any pre-build step, so we keep their
+  // command at a bare `vite build`.
+  let args
+  if (app.productType === 'asyncapi') {
+    args = ['run', 'build:asyncapi']
+  } else {
+    args = ['exec', 'vite', 'build']
+    if (app.buildMode) args.push('--mode', app.buildMode)
+  }
   await runCommandLogged({
     label: 'Building',
     command: 'pnpm',
@@ -432,6 +556,7 @@ async function main() {
           { name: 'lite', value: 'lite' },
           { name: 'full', value: 'full' },
           { name: 'diagramly', value: 'diagramly' },
+          { name: 'asyncapi', value: 'asyncapi' },
         ],
       })
 
@@ -534,7 +659,14 @@ async function main() {
       appEnvironmentChoice: environmentChoice,
       devEnvVars,
     })
-    const deployArgs = ['deploy', '-e', forgeEnv, '--non-interactive']
+    // `--no-verify` skips Forge's manifest lint. The asyncapi variant
+    // (and the other variants too — sequence/openapi/graph/embed all
+    // use `viewportSize: fullscreen` in macro config) hits a lint rule
+    // that rejects `fullscreen` as an allowed value for macro
+    // `viewportSize`, even though the runtime accepts it and the other
+    // variants deploy with it in production. Skip lint so the deploy
+    // matches what's actually validated server-side.
+    const deployArgs = ['deploy', '-e', forgeEnv, '--non-interactive', '--no-verify']
     await runCommandLogged({
       label: 'Deploy to Forge',
       command: 'forge',

@@ -1,0 +1,67 @@
+// AsyncAPI embed-macro editor entry. Renders a doc picker
+// (AsyncApiEmbedEditor) and submits the picked customContentId via
+// view.submit() so the page persists it as the macro's config — the
+// regular AsyncAPI viewer (forge-asyncapi-viewer.ts) then reads
+// extension.config.customContentId at render time, no separate viewer
+// entry needed.
+//
+// Mirrors AsyncAPI-Conf-V2's src/pages/embed-editor.tsx but adapted to
+// the merged variant's globals + Forge bridge.
+
+import React from 'react'
+import ReactDOM from 'react-dom'
+import uuidv4 from '@/utils/uuid'
+import { getView } from '@/model/globals/forgeGlobal'
+import AsyncApiEmbedEditor, {
+  AsyncApiEmbedPick,
+} from '@/components/Editor/AsyncApiEmbedEditor/AsyncApiEmbedEditor'
+
+async function initializeMacro() {
+  const root = document.getElementById('app')
+  if (!root) {
+    console.error('forge-asyncapi-embed-editor: #app element missing')
+    return
+  }
+
+  const handleSelect = async ({ customContentId, title }: AsyncApiEmbedPick) => {
+    try {
+      const view = await getView()
+      // Match the config shape used by the regular asyncapi macro so the
+      // viewer flow (forge-asyncapi-viewer.ts) reads either kind via the
+      // same `extension.config.customContentId` lookup. The `uuid` field
+      // keeps the macro instance distinct from others embedding the same
+      // document (used by per-instance analytics + page-capture).
+      await view.submit({
+        config: {
+          uuid: uuidv4(),
+          customContentId,
+          documentTitle: title,
+          diagramName: title,
+          updatedAt: new Date().toISOString(),
+        },
+      })
+    } catch (err) {
+      console.error('Failed to submit embed macro selection:', err)
+      window.alert('Failed to embed document. Please try again.')
+    }
+  }
+
+  const handleCancel = async () => {
+    try {
+      const view = await getView()
+      await view.close({ submitted: false })
+    } catch (err) {
+      console.error('Failed to close embed editor:', err)
+    }
+  }
+
+  ReactDOM.render(
+    React.createElement(AsyncApiEmbedEditor, {
+      onSelect: handleSelect,
+      onCancel: handleCancel,
+    }),
+    root,
+  )
+}
+
+void initializeMacro()

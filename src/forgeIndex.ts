@@ -66,9 +66,19 @@ async function initializeCriticalPath() {
   try {
     await initForgeContext();
 
-    // Check if this is a global settings route
+    // Modals opened from a globalPage / spacePage keep the parent's
+    // extension.type but populate extension.modal with the openModal
+    // context. For asyncapi modals opened from the dashboard, we want
+    // dispatch to fall through to loadHeavyComponents (which routes on
+    // modal.diagramType + modal.macroMode) — not to re-render the dashboard
+    // inside the modal. Detect via modal.macroMode which the openModal
+    // caller sets to 'editor' / 'viewer' / 'fullscreen'; Forge's default
+    // extension.modal (when there isn't a real modal) doesn't have it.
     const context = await initForgeContext();
-    if (context.extension?.type === 'confluence:globalSettings') {
+    const isOpenedModal = !!context.extension?.modal?.macroMode;
+
+    // Check if this is a global settings route (get started page)
+    if (!isOpenedModal && context.extension?.type === 'confluence:globalSettings') {
       if (context.moduleKey === 'diagramly-admin-create-demo-page') {
         await handleCreateDemoPageRoute();
       } else {
@@ -77,15 +87,31 @@ async function initializeCriticalPath() {
       return { macroData: null };
     }
 
-    // Check if this is a global page route (dashboard)
-    if (context.extension?.type === 'confluence:globalPage') {
+    // Check if this is a global page route (dashboard). The ZenUML variants
+    // route this to the existing getStarted UI.
+    if (!isOpenedModal && context.extension?.type === 'confluence:globalPage') {
       await handleGetStartedRoute();
-      // await import('./dashboard');
+      return { macroData: null };
+    }
+
+    // Check if this is a space page route. The asyncapi variant ships a
+    // confluence:spacePage entry (zenuml-asyncapi-dashboard-page) that
+    // renders "My API Documents" in each Confluence space's sidebar —
+    // mirrors the original AsyncAPI-Conf-V2 spacePage. The route is gated
+    // on PRODUCT_TYPE so Vite dead-code-eliminates the import in
+    // non-asyncapi variant builds.
+    if (
+      !isOpenedModal &&
+      context.extension?.type === 'confluence:spacePage' &&
+      import.meta.env.PRODUCT_TYPE === 'asyncapi'
+    ) {
+      const { handleAsyncApiDashboardRoute } = await import('./routes/asyncApiDashboard');
+      await handleAsyncApiDashboardRoute();
       return { macroData: null };
     }
 
     // Check if this is a content byline item route (AI Aide)
-    if (context.extension?.type === 'confluence:contentBylineItem') {
+    if (!isOpenedModal && context.extension?.type === 'confluence:contentBylineItem') {
       await handleAiAideRoute();
       return { macroData: null };
     }
@@ -152,8 +178,23 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 
     const context = await initForgeContext();
 
-    // Skip loading heavy components if this is a global settings or global page context
-    if (['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem'].includes(context.extension?.type) || (context as any).moduleKey === 'zenuml-page-banner') {
+    // Skip loading heavy components for non-macro routes (dashboard /
+    // global settings / byline / asyncapi space page / page banner). Their
+    // entry handlers (handleGetStartedRoute / handleAiAideRoute /
+    // handleAsyncApiDashboardRoute / handlePageBannerRoute) mount their own
+    // Vue trees into #app.
+    //
+    // Exception: modals opened from those routes carry the parent's
+    // extension.type but populate extension.modal.macroMode with 'editor' /
+    // 'viewer' / 'fullscreen'. We DO want to load heavy components for those
+    // modals so the editor / viewer renders — skip only when there's no
+    // opened-modal marker (i.e. the actual dashboard / settings page).
+    const isOpenedModal = !!context.extension?.modal?.macroMode;
+    if (
+      (!isOpenedModal &&
+        ['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:spacePage'].includes(context.extension?.type)) ||
+      (context as any).moduleKey === 'zenuml-page-banner'
+    ) {
       console.log('Skipping heavy components load for global context');
       return;
     }
@@ -436,6 +477,19 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const isSequence = context.moduleKey.startsWith('zenuml-sequence-macro') || context.moduleKey.startsWith('gpt-diagram-macro') || context.extension.modal?.diagramType === 'sequence' || context.extension.modal?.diagramType === 'mermaid';
     const isGraph = context.moduleKey.startsWith('zenuml-graph-macro');
     const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
+    // AsyncAPI ships two macros — `zenuml-asyncapi-macro` (page-rendered
+    // spec, each instance owns its own custom-content doc) and
+    // `zenuml-asyncapi-embed-macro` (references an existing doc by
+    // customContentId). The embed editor opens a doc picker; the embed
+    // viewer reuses the regular forge-asyncapi-viewer which already
+    // reads extension.config.customContentId.
+    const isAsyncApiEmbed = context.moduleKey.startsWith('zenuml-asyncapi-embed-macro');
+    // isAsyncApi also picks up modal contexts opened from the asyncapi
+    // dashboard ("My API Documents"), which don't carry the macro moduleKey
+    // but do set extension.modal.diagramType='asyncapi'. Without that check
+    // dashboard-launched Create / Edit / View modals fall through to the
+    // swagger editor.
+    const isAsyncApi = context.moduleKey.startsWith('zenuml-asyncapi-macro') || isAsyncApiEmbed || context.extension.modal?.diagramType === 'asyncapi';
 
     if(isSequence) {
       const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';
@@ -500,6 +554,25 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       await import(editable ? "@/forge-graph-editor" : "@/forge-graph-viewer");
     } else if(isEmbed) {
       await import(editable ? "@/forge-embed-editor" : "@/forge-embed-viewer");
+    } else if(isAsyncApi && import.meta.env.PRODUCT_TYPE === 'asyncapi') {
+      // Build-time literal: Vite replaces PRODUCT_TYPE via `define` so
+      // non-asyncapi variants short-circuit and dead-code-eliminate the
+      // dynamic import. Keeps @asyncapi/parser (which pulls in Node `fs`)
+      // out of the lite/full/diagramly dependency graph entirely.
+      //
+      // Three entry points for the asyncapi variant:
+      //  - regular macro view  → forge-asyncapi-viewer
+      //  - regular macro edit  → forge-asyncapi-editor (Studio iframe)
+      //  - embed macro edit    → forge-asyncapi-embed-editor (doc picker)
+      // The embed macro VIEW reuses forge-asyncapi-viewer — same code
+      // path, reads extension.config.customContentId either way.
+      if (editable) {
+        await import(isAsyncApiEmbed
+          ? "@/forge-asyncapi-embed-editor"
+          : "@/forge-asyncapi-editor");
+      } else {
+        await import("@/forge-asyncapi-viewer");
+      }
     } else {
       await import(editable ? "@/forge-swagger-editor" : "@/forge-swagger-ui");
     }

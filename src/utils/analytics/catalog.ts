@@ -14,6 +14,7 @@ export type MacroTypeValue =
   | "mermaid"
   | "graph"
   | "openapi"
+  | "asyncapi"
   | "embed"
   | "plantuml"
   | "none";

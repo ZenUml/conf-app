@@ -22,6 +22,15 @@ import { SpaceAdmin } from './SpaceAdmin';
 import SpaceAdminResolver from './permissions/SpaceAdminResolver';
 
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
+// AsyncAPI variant only registers `async-api-doc` in its manifest — the
+// key is preserved from the standalone AsyncAPI-Conf-V2 app so existing
+// customer docs stored under `ac:my-api:async-api-doc` keep working.
+// Querying for sequence/graph keys here would return 400 from the v1/v2
+// search APIs ("Unsupported value for type").
+const ASYNCAPI_CUSTOM_CONTENT_TYPES = ['async-api-doc'];
+function customContentTypesForVariant(): string[] {
+  return forgeGlobal.isAsyncApi ? ASYNCAPI_CUSTOM_CONTENT_TYPES : CUSTOM_CONTENT_TYPES;
+}
 const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
 
 // ZEN-1170 Defect 1: discriminated result for legacy content-property reads.
@@ -159,14 +168,27 @@ export default class ApWrapper2 implements IApWrapper {
   // All document types will be using the same content key.
   // Old documents that uses the old content key will not be migrated.
   // We may migrate them in the future.
+  // AsyncAPI variant is a special case: it ships its own custom-content
+  // module (`async-api-doc`) because it was merged in from the standalone
+  // AsyncAPI-Conf-V2 app. The key + connect prefix match what that app
+  // used (`ac:my-api:async-api-doc`) so existing customer documents
+  // stored under that type remain accessible after the merge.
   getContentKey() {
-    return forgeGlobal.isDiagramly ? 'gpt-custom-content-key' : 'zenuml-content-sequence';
+    if (forgeGlobal.isDiagramly) return 'gpt-custom-content-key';
+    if (forgeGlobal.isAsyncApi) return 'async-api-doc';
+    return 'zenuml-content-sequence';
   }
 
   getCustomContentTypePrefix() {
     let key;
     if (forgeGlobal.isDiagramly) {
       key = 'gptdock-confluence';
+    } else if (forgeGlobal.isAsyncApi) {
+      // Matches the asyncapi variant's connect bridge key (`my-api`) so
+      // the full type resolves to `ac:my-api:async-api-doc` — same key
+      // the standalone AsyncAPI-Conf-V2 app used. Critical for migrating
+      // existing installs without orphaning their documents.
+      key = 'my-api';
     } else {
       key = `com.zenuml.confluence-addon${forgeGlobal.isLite ? '-lite' : ''}`;
     }
@@ -225,13 +247,31 @@ export default class ApWrapper2 implements IApWrapper {
     const sanitizedContent = this.sanitizeCustomContentBody(content);
     const data: any = {
       "type": type,
-      "pageId": await this._getCurrentPageId(),
       "title": content.title || `Untitled ${new Date().toISOString()}`,
       "body": {
         "value": JSON.stringify(sanitizedContent),
         "representation": "raw"
       }
     };
+
+    // Custom-content v2 requires exactly one parent (pageId / spaceId /
+    // blogPostId / customContentId). Macro saves always have a pageId via
+    // forgeContext.extension.content.id, but space-app dashboards (e.g.
+    // asyncapi's "Create New API") run outside a page — there's no
+    // extension.content, so pageId is undefined and the POST fails 400.
+    // Fall back to spaceId from forgeContext.extension.space when no page
+    // is in scope.
+    const pageId = await this._getCurrentPageId();
+    if (pageId) {
+      data.pageId = pageId;
+    } else {
+      const space = await this.getCurrentSpace();
+      if (space?.id) {
+        data.spaceId = space.id;
+      } else {
+        throw new Error('createCustomContentV2: no page or space context available');
+      }
+    }
 
     const response = await this.makeRequest('/api/v2/custom-content', 'POST', data);
     return response as ICustomContentResponseBodyV2;
@@ -767,7 +807,7 @@ export default class ApWrapper2 implements IApWrapper {
   buildTypesClauseFilter(): string {
     const typeClause = (t: string) => `type="${this.customContentType(t)}"`;
     const typesClause = (a: Array<string>) => a.map(typeClause).join(' or ');
-    return typesClause(CUSTOM_CONTENT_TYPES);
+    return typesClause(customContentTypesForVariant());
   }
 
   async buildSearchCustomConentUrl(keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = [], limit?: number): Promise<string> {
@@ -795,8 +835,20 @@ export default class ApWrapper2 implements IApWrapper {
 
   async searchCustomContentForge(maxItems: number = 250): Promise<Array<ICustomContent>> {
     try {
-      // Use the new Forge API to search custom content
-      const searchUrl = `/wiki/api/v2/custom-content?limit=${maxItems}&body-format=raw`;
+      // Use the new Forge API to search custom content. Scope by the
+      // variant's registered types — otherwise the v2 endpoint returns
+      // the first `maxItems` of ALL custom content visible to the user
+      // (across every installed app), which can push the variant's own
+      // recently-created docs off the page once an instance has more
+      // than ~250 total. Symptom: dashboard never picks up a new doc on
+      // a site with lots of other custom content.
+      const params = new URLSearchParams();
+      customContentTypesForVariant().forEach(t => {
+        params.append('type', this.customContentType(t));
+      });
+      params.append('limit', String(maxItems));
+      params.append('body-format', 'raw');
+      const searchUrl = `/wiki/api/v2/custom-content?${params.toString()}`;
       const response = await forgeRequest(searchUrl);
       
       if (!response || !response.results) {
@@ -836,7 +888,7 @@ export default class ApWrapper2 implements IApWrapper {
 
   async searchPagedCustomContentForge(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
     const params = new URLSearchParams();
-    CUSTOM_CONTENT_TYPES.forEach(type => {
+    customContentTypesForVariant().forEach(type => {
       params.append('type', this.customContentType(type));
     });
     params.append('limit', pageSize.toString());

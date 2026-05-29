@@ -5,6 +5,7 @@ import { execSync } from "child_process";
 import fs from 'fs'
 import copy from 'rollup-plugin-copy'
 import { visualizer } from 'rollup-plugin-visualizer'
+import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -90,12 +91,44 @@ export default defineConfig(({ command }) => ({
       'codemirror-lang-mermaid',
       '@zenuml/codemirror-extensions',
       '@zenuml/core',
+      // AsyncAPI variant: @asyncapi/parser pulls in CJS-only modules
+      // (readable-stream, qs, avsc, @openapi-contrib/openapi-schema-to-json-schema)
+      // whose default exports must be unwrapped via Vite's CJS-interop
+      // pre-bundling — otherwise `import { Readable } from 'readable-stream'`
+      // resolves to undefined and `class FooStream extends Readable` throws
+      // "Class extends value undefined". Mirrors AsyncAPI-Conf-V2's vite config.
+      ...(process.env.PRODUCT_TYPE === 'asyncapi'
+        ? [
+            'readable-stream',
+            'qs',
+            'avsc',
+            '@openapi-contrib/openapi-schema-to-json-schema',
+          ]
+        : []),
     ],
+    ...(process.env.PRODUCT_TYPE === 'asyncapi'
+      ? {
+          needsInterop: [
+            'readable-stream',
+            'qs',
+            'avsc',
+            '@openapi-contrib/openapi-schema-to-json-schema',
+          ],
+          exclude: ['stream-browserify', 'node-stdlib-browser'],
+        }
+      : {}),
   },
   build: {
     rollupOptions: {
       input: getHtmlFiles('./', { isBuild: command === 'build' })
     },
+
+    // @asyncapi/parser's transitive deps (qs, avsc, readable-stream, …)
+    // ship as mixed CJS/ESM. Enable transformMixedEsModules so Rollup
+    // can handle the named-imports-from-CJS the parser depends on.
+    commonjsOptions: process.env.PRODUCT_TYPE === 'asyncapi'
+      ? { transformMixedEsModules: true }
+      : undefined,
 
     emptyOutDir: true,
     sourcemap: false,
@@ -105,7 +138,22 @@ export default defineConfig(({ command }) => ({
   resolve: {
     alias: {
       'vue': '@vue/compat',
-      '@': resolve(__dirname, './src')
+      '@': resolve(__dirname, './src'),
+      // AsyncAPI variant: @asyncapi/parser pulls in Node's `fs` for its
+      // fromURL/fromFile helpers (which we never call — we always pass a
+      // pre-parsed schema). Earlier attempts aliased fs -> memfs but
+      // memfs@4's internal class hierarchies blow up at module-eval time
+      // ("class FileHandle extends <undefined>") under Rollup's CJS interop.
+      // Use a hand-written stub instead: exports the names Rollup needs to
+      // satisfy strict named-import resolution; bodies throw at call time,
+      // which never happens because we don't invoke fromURL/fromFile.
+      ...(process.env.PRODUCT_TYPE === 'asyncapi'
+        ? {
+            'fs': resolve(__dirname, './src/stubs/empty-fs.ts'),
+            'fs/promises': resolve(__dirname, './src/stubs/empty-fs.ts'),
+            'stream': 'stream-browserify',
+          }
+        : {}),
     },
     dedupe: [
       '@codemirror/state',
@@ -125,6 +173,20 @@ export default defineConfig(({ command }) => ({
       },
     },
   }),
+  // Polyfill Node built-ins that leak through @asyncapi/parser (transitive
+  // dep of @asyncapi/react-component used by forge-asyncapi-viewer). Mirror
+  // the working config from AsyncAPI-Conf-V2: include buffer/process/util/
+  // path/url/crypto/stream; exclude fs/os because they're aliased to memfs
+  // / left unresolved below. Only the asyncapi variant gets this runtime —
+  // the other variants don't import the AsyncAPI viewer.
+  ...(process.env.PRODUCT_TYPE === 'asyncapi'
+    ? [nodePolyfills({
+        protocolImports: true,
+        globals: { Buffer: true, global: true, process: true },
+        include: ['buffer', 'process', 'util', 'path', 'url', 'crypto', 'stream'],
+        exclude: ['fs', 'os'],
+      })]
+    : []),
   // Dev-only: serve sandbox.html at "/" so engineers landing on
   // http://127.0.0.1:8080/ get the test-case index instead of the Forge
   // app entry (which only renders meaningfully inside a Confluence iframe).
@@ -151,7 +213,15 @@ export default defineConfig(({ command }) => ({
       // import (see src/utils/mermaid/loadMermaid.ts) so it's excluded from
       // the Rollup module graph. Copy the entire dist/ tree (entry +
       // chunks/) so the relative imports inside the entry resolve.
-      { src: 'node_modules/mermaid/dist/*', dest: 'dist/vendor/mermaid' }
+      { src: 'node_modules/mermaid/dist/*', dest: 'dist/vendor/mermaid' },
+      // AsyncAPI Studio assets ship only with the asyncapi variant. Studio is
+      // loaded as a nested iframe from the AsyncAPI editor and uses
+      // localStorage to sync the document with the host; that requires
+      // same-origin, so Studio must live under the same Forge resource as
+      // index.html (`*.cdn.prod.atlassian-dev.net/<app-id>/asyncapi-studio/`).
+      ...(process.env.PRODUCT_TYPE === 'asyncapi'
+        ? [{ src: 'static/asyncapi-studio', dest: 'dist' }]
+        : []),
     ],
     hook: process.env.NODE_ENV === 'development' ? 'buildStart' : 'writeBundle'
   }), ...(process.env.ANALYZE === '1' ? [visualizer({
@@ -248,6 +318,10 @@ export default defineConfig(({ command }) => ({
       '**/tests/e2e-tests/**',
       '**/tests/export-modal/**',
       '**/packages/**',
+      // Skip the asyncapi-studio submodule's own tests — they import
+      // upstream `@/*` aliases that aren't resolvable in our root tsconfig
+      // and aren't relevant to this repo's test suite.
+      '**/vendor/asyncapi-studio/**',
     ],
   },
   server: {

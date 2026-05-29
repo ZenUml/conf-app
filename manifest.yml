@@ -225,6 +225,37 @@ modules:
       icon: resource:main;image/diagram_macro_icon.png
       unlicensedAccess:
         - unlicensed
+    # AsyncAPI macro: ships only with the asyncapi variant; lite/full/diagramly
+    # strip this entry via manifestEdits in scripts/forge-wizard.mjs.
+    - key: zenuml-asyncapi-macro
+      title: AsyncAPI Spec
+      description: Create an AsyncAPI Spec. ${APP_LABEL}
+      resource: main
+      config:
+        resource: main
+        viewportSize: fullscreen
+      adfExport:
+        function: exportMacro
+      resolver:
+        endpoint: remote-connect
+      icon: resource:main;image/openapi_macro_icon.png
+    # AsyncAPI embed macro: lets the user reference an existing AsyncAPI
+    # document (created from the dashboard or the regular asyncapi macro)
+    # from anywhere else on the site. Ships only with the asyncapi variant;
+    # the lite/full/diagramly yq edits strip it via the same `test(
+    # "zenuml-asyncapi")` filter that drops zenuml-asyncapi-macro.
+    - key: zenuml-asyncapi-embed-macro
+      title: Embed AsyncAPI Spec
+      description: Embed an existing AsyncAPI document. ${APP_LABEL}
+      resource: main
+      config:
+        resource: main
+        viewportSize: fullscreen
+      adfExport:
+        function: exportMacro
+      resolver:
+        endpoint: remote-connect
+      icon: resource:main;image/openapi_macro_icon.png
   trigger:
     - key: remote-installed-trigger
       endpoint: remote-installed-endpoint
@@ -297,6 +328,13 @@ modules:
   confluence:pageBanner:
     - key: zenuml-page-banner
       resource: main
+  confluence:spacePage: #Note: AsyncAPI variant only — appears in each Confluence space's sidebar. Mirrors AsyncAPI-Conf-V2's spacePage. Other variants strip this via manifestEdits in scripts/forge-wizard.mjs.
+    - key: zenuml-asyncapi-dashboard-page
+      resource: main
+      title: My API Documents
+      route: zenuml-asyncapi-dashboard
+      resolver:
+        endpoint: remote-connect
   confluence:contentBylineItem: #Note: This module is applicable for "Diagramly for Confluence", not "ZenUML for Confluence"
     - key: zenuml-byline-aiaide
       resource: main
@@ -333,6 +371,32 @@ modules:
       resource: main
       bodyType: raw
       indexing: true
+      migratedFromConnect: true
+    # AsyncAPI custom content: ships only with the asyncapi variant.
+    # lite/full/diagramly strip this entry via manifestEdits.
+    #
+    # Key is `async-api-doc` (matching the standalone AsyncAPI-Conf-V2
+    # app's CUSTOM_CONTENT_KEY) so existing customer docs stored under
+    # `ac:my-api:async-api-doc` keep surfacing in the merged variant —
+    # the Forge appId is preserved across the migration, so changing the
+    # module key would orphan those records.
+    - key: async-api-doc
+      supportedContainerTypes:
+        - space
+        - page
+        - blogpost
+      supportedChildTypes:
+        - attachment
+        - comment
+      title: AsyncAPI Spec
+      resource: main
+      bodyType: raw
+      indexing: true
+      # Without this flag the module registers as a pure-Forge type and
+      # the v2 API rejects POSTs that target the Connect-style identifier
+      # `ac:<connect.key>:<module.key>` with 400 "Invalid content type".
+      # Matches the pattern used by the other zenuml customContent entries
+      # above (zenuml-content-sequence, zenuml-content-graph).
       migratedFromConnect: true
   function:
     - key: exportMacro

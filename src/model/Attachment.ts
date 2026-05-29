@@ -4,7 +4,7 @@ import {trackEvent} from '@/utils/window';
 import { toast } from '@/utils/toast';
 import global from '@/model/globals';
 import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
-import {forgeRequest} from '@/utils/requestUtil';
+import {forgeRequest, forgeCallFunction} from '@/utils/requestUtil';
 import type { Attachment } from '@/model/ConfluenceTypes';
 
 // ============================================================================
@@ -226,6 +226,7 @@ async function uploadAttachment(
   hash: string,
   content?: string,
   diagramType?: string,
+  ctx?: UploadContext,
 ): Promise<{ response: ApiResponse; effectiveHash: string }> {
   let blob = await toPng();
   if (blob && content !== undefined && diagramType) {
@@ -250,8 +251,100 @@ async function uploadAttachment(
   const effectiveHash = diagramType ? `${hash}|${diagramType}|itxt:v1` : hash;
   const file = new File([blob], attachmentName, { type: 'image/png' });
   console.debug('Uploading attachment to', uri);
-  const response = await makeRequest(buildPostRequestToUploadAttachment(uri, effectiveHash, file));
-  return { response, effectiveHash };
+  try {
+    const response = await makeRequest(buildPostRequestToUploadAttachment(uri, effectiveHash, file));
+    return { response, effectiveHash };
+  } catch (e) {
+    if (e instanceof AttachmentUploadHttpError && (e.status === 401 || e.status === 403)) {
+      const response = await uploadViaAppFallback(uri, attachmentName, effectiveHash, blob, e, ctx);
+      return { response, effectiveHash };
+    }
+    throw e;
+  }
+}
+
+/**
+ * Convert a Blob to a base64-encoded string (without the `data:` prefix).
+ * Used to ship the PNG through the Forge `invoke()` wire as JSON.
+ *
+ * Uses FileReader.readAsDataURL rather than `blob.arrayBuffer()` for jsdom
+ * compatibility — older jsdom builds in the test runner don't implement the
+ * Blob.arrayBuffer method, while FileReader has been universal since jsdom 9.
+ */
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result ?? '');
+      const comma = dataUrl.indexOf(',');
+      resolve(comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('FileReader failed'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Fallback for ~13.8% of uploads that 401/403 against the viewing user's
+ * credentials (issue #166). The frontend hands the PNG to the `uploadAttachment`
+ * Forge resolver, which retries via `api.asApp().requestConfluence(...)` — the
+ * app's `write:attachment:confluence` scope covers per-page permission gaps.
+ *
+ * Only invoked on `AttachmentUploadHttpError` with status 401 or 403. Other
+ * failure modes (network, 4xx other than 401/403, 5xx, parse errors) still
+ * throw — we don't want to inflate Forge function-call quota on transient or
+ * genuinely-broken cases.
+ */
+async function uploadViaAppFallback(
+  uri: string,
+  attachmentName: string,
+  effectiveHash: string,
+  blob: Blob,
+  originalError: AttachmentUploadHttpError,
+  ctx?: UploadContext,
+): Promise<ApiResponse> {
+  console.info(`Attachment upload: falling back to backend resolver (user got HTTP ${originalError.status})`);
+  // Emit fallback-started BEFORE the resolver call so analysts can count
+  // attempts even when the resolver itself throws (function-quota exhaustion,
+  // bridge-to-Forge network drop, etc.). `recovered_from_status` is the
+  // headline signal: which user-side status triggered the fallback.
+  trackEvent(`http_${originalError.status}`, 'attachment_upload_app_fallback_started', 'export', {
+    ...(ctx ?? {}),
+    recovered_from_status: originalError.status,
+  });
+
+  const pngBase64 = await blobToBase64(blob);
+  const result = await forgeCallFunction('uploadAttachment', {
+    uri,
+    attachmentName,
+    hash: effectiveHash,
+    pngBase64,
+  });
+
+  if (!result?.ok) {
+    // Surface the resolver-side status as the same typed error so the outer
+    // analytics catch labels it with the same `http_<status>` scheme regardless
+    // of which path produced the failure — Mixpanel queries stay path-agnostic.
+    throw new AttachmentUploadHttpError(
+      typeof result?.status === 'number' ? result.status : 0,
+      String(result?.body ?? '')
+    );
+  }
+
+  trackEvent(`http_${originalError.status}`, 'attachment_upload_app_fallback_succeeded', 'export', {
+    ...(ctx ?? {}),
+    recovered_from_status: originalError.status,
+    fallback_attachment_id: result.attachmentId,
+  });
+
+  // Synthesise the ApiResponse shape callers expect. The resolver may have
+  // returned the original Confluence body (preferred); fall back to a minimal
+  // `results` envelope when it didn't, so `uploadNewAttachment`'s downstream
+  // JSON.parse still finds the new attachment id.
+  const body = (typeof result.body === 'string' && result.body)
+    ? result.body
+    : JSON.stringify({ results: [{ id: result.attachmentId }] });
+  return { body };
 }
 
 /**
@@ -397,12 +490,13 @@ async function uploadAttachment2(
   fnGetUri: (pageId: string) => string,
   content?: string,
   diagramType?: string,
+  ctx?: UploadContext,
 ): Promise<{ response: ApiResponse; effectiveHash: string }> {
   const pageId = await global.apWrapper._getCurrentPageId();
   const identifier = await getIdentifier();
   const attachmentName = attachmentNameByIdentifier(identifier!);
   const uri = fnGetUri(pageId);
-  return await uploadAttachment(attachmentName, uri, hash, content, diagramType);
+  return await uploadAttachment(attachmentName, uri, hash, content, diagramType, ctx);
 }
 
 /**
@@ -421,7 +515,7 @@ function uploadNewVersionOfAttachment(
     trackEvent('version:' + versionNumber, 'upload_attachment', 'export', ctx);
     const { effectiveHash } = await uploadAttachment2(hash, (pageId: string) => {
       return buildAttachmentBasePath(pageId) + '/' + attachmentId + '/data';
-    }, content, diagramType);
+    }, content, diagramType, ctx);
     return { attachmentId, versionNumber, hash: effectiveHash };
   };
 }
@@ -437,7 +531,7 @@ function uploadNewAttachment(
 ): () => Promise<AttachmentMeta> {
   return async () => {
     trackEvent('version:1', 'upload_attachment', 'export', ctx);
-    const { response, effectiveHash } = await uploadAttachment2(hash, buildAttachmentBasePath, content, diagramType);
+    const { response, effectiveHash } = await uploadAttachment2(hash, buildAttachmentBasePath, content, diagramType, ctx);
     const parsed = JSON.parse(response.body);
     // Option B: Confluence v1 wraps a 404 in a 200 body when the page is a draft.
     // Body: {"statusCode":404,"message":"No content found … status : draft"}

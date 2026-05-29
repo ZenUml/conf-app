@@ -580,6 +580,175 @@ describe('ApWrapper2', () => {
     });
   });
 
+  // ZEN-1170 Defect 1 sibling: cross-page-paste recovery via uuid → CC title.
+  // Connect-era macros stored only {uuid, updatedAt} in macro params. When
+  // copy-pasted, the macro params travel but content properties do not — so
+  // both the customContentId path and the Defect 1 content-property fallback
+  // miss. The diagram however survives as a CustomContent on the SOURCE
+  // page, titled with the uuid. This fallback finds it.
+  //
+  // Real-world verification 2026-05-25 against a customer tenant: 27 distinct
+  // CC records shared the same uuid title (a Connect-era save flow created a
+  // new record each save instead of versioning); limit=250 fetches them all
+  // in one page and version.createdAt sort picks the most recent.
+  describe('findLegacyCustomContentByUuid', () => {
+    const uuid = '6a0a1be1-8d41-47cc-a710-934e9d19480b';
+    const sequenceType = 'ac:com.zenuml.confluence-addon:zenuml-content-sequence';
+    const graphType = 'ac:com.zenuml.confluence-addon:zenuml-content-graph';
+
+    function cqlResults(ids: string[]) {
+      return { results: ids.map(id => ({ content: { id } })) };
+    }
+
+    function ccBody(opts: { id: string; pageId: string; title?: string; diagramType?: string; createdAt?: string; extra?: any }) {
+      const body = {
+        diagramType: opts.diagramType ?? 'graph',
+        graphXml: '<mxGraphModel/>',
+        ...(opts.extra || {}),
+      };
+      return {
+        id: opts.id,
+        type: graphType,
+        title: opts.title ?? uuid,
+        pageId: opts.pageId,
+        body: { raw: { value: JSON.stringify(body) } },
+        version: { number: 2, createdAt: opts.createdAt ?? '2024-09-10T00:00:00Z' },
+      };
+    }
+
+    it('returns undefined for an empty uuid (no API calls)', async () => {
+      const result = await wrapper.findLegacyCustomContentByUuid('');
+      expect(result).toBeUndefined();
+      expect(forgeRequest).not.toHaveBeenCalled();
+    });
+
+    // CQL is used instead of /api/v2/custom-content?title=... because the V2
+    // title= filter is silently ignored — verified on whimet4 2026-05-27
+    // (1000+ CCs, matching record buried beyond limit=250). CQL with exact
+    // `title = "<uuid>"` matching is reliable and permission-scoped.
+    it('runs a CQL exact-title search across both legacy CC types', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ results: [] });
+
+      await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      const expectedCql = `(type = "${sequenceType}" OR type = "${graphType}") AND title = "${uuid}"`;
+      expect(forgeRequest).toHaveBeenCalledWith(
+        `/wiki/rest/api/search?cql=${encodeURIComponent(expectedCql)}&limit=250`,
+      );
+    });
+
+    it('flags isCopy=true when the resolved content lives on a different page (customer scenario)', async () => {
+      // Customer macro on page 456 (spec's default getPageId mock) is a paste
+      // of a Connect-era macro whose data lives on page 999. Viewer should
+      // render the recovered diagram with the cross-page marker.
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(cqlResults(['3681484960']))
+        .mockResolvedValueOnce(ccBody({ id: '3681484960', pageId: '999' }));
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(result?.id).toBe('3681484960');
+      expect((result?.value as any)?.isCopy).toBe(true);
+      expect((result?.value as any)?.copyReason).toBe('cross-page');
+      expect((result?.value as any)?.diagramType).toBe('graph');
+      expect((result?.value as any)?.source).toBe('custom-content');
+      expect((result?.value as any)?.id).toBe('3681484960');
+    });
+
+    it('does not flag isCopy when the resolved content lives on the current page', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(cqlResults(['cc1']))
+        .mockResolvedValueOnce(ccBody({ id: 'cc1', pageId: '456' }));
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect((result?.value as any)?.isCopy).toBe(false);
+      expect((result?.value as any)?.copyReason).toBeUndefined();
+    });
+
+    it('picks the most recently versioned match when several exist (customer 27-CC case)', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(cqlResults(['older', 'newest', 'middle']))
+        .mockResolvedValueOnce(ccBody({ id: 'older', pageId: '456', createdAt: '2021-08-01T00:00:00Z' }))
+        .mockResolvedValueOnce(ccBody({ id: 'newest', pageId: '456', createdAt: '2024-09-10T00:00:00Z' }))
+        .mockResolvedValueOnce(ccBody({ id: 'middle', pageId: '456', createdAt: '2021-12-13T00:00:00Z' }));
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(result?.id).toBe('newest');
+    });
+
+    it('resolves a sequence-typed match too (CQL covers both legacy types)', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(cqlResults(['seq1']))
+        .mockResolvedValueOnce(ccBody({ id: 'seq1', pageId: '456', diagramType: 'sequence' }));
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(result?.id).toBe('seq1');
+      expect((result?.value as any)?.diagramType).toBe('sequence');
+    });
+
+    it('returns undefined when CQL yields zero matches', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ results: [] });
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(result).toBeUndefined();
+      // Single API call — no per-id fetches when CQL is empty.
+      expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
+    });
+
+    // Defensive: server should return only exact-title matches, but if a
+    // race / cache anomaly returns a wrong-title body, skip it.
+    it('defensively skips fetched bodies whose title does not match the uuid', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(cqlResults(['wrong']))
+        .mockResolvedValueOnce(ccBody({ id: 'wrong', pageId: '456', title: 'something-else' }));
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(result).toBeUndefined();
+    });
+
+    it('ignores fetched bodies that fail to parse or lack diagramType', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(cqlResults(['malformed', 'no-type']))
+        .mockResolvedValueOnce({ id: 'malformed', title: uuid, pageId: '456', body: { raw: { value: 'not-json' } }, version: { createdAt: '2024-01-01' } })
+        .mockResolvedValueOnce({ id: 'no-type', title: uuid, pageId: '456', body: { raw: { value: JSON.stringify({ noDiagramType: true }) } }, version: { createdAt: '2024-01-01' } });
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(result).toBeUndefined();
+    });
+
+    // One bad per-id fetch (403, network blip, etc.) must not poison the
+    // whole recovery — the helper should still return a good neighbour.
+    it('tolerates a per-id fetch failure when other candidates remain valid', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(cqlResults(['busted', 'good']))
+        .mockRejectedValueOnce(new Error('403 forbidden'))
+        .mockResolvedValueOnce(ccBody({ id: 'good', pageId: '456' }));
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(result?.id).toBe('good');
+    });
+
+    it('returns undefined and tracks an error event when the CQL search itself throws', async () => {
+      vi.mocked(forgeRequest).mockRejectedValue(new Error('network down'));
+
+      const result = await wrapper.findLegacyCustomContentByUuid(uuid);
+
+      expect(result).toBeUndefined();
+      expect(trackEvent).toHaveBeenCalledWith(
+        expect.stringContaining('network down'),
+        'find_legacy_custom_content_by_uuid',
+        'error',
+      );
+    });
+  });
+
   // ZEN-1170 Defect 2b: when a diagram was loaded via orphan-sibling
   // recovery (diagram.recoveredFromOrphanId set), saveCustomContentV2 must
   // update the recovered CC in-place rather than creating a third record,

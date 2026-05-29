@@ -586,6 +586,97 @@ export default class ApWrapper2 implements IApWrapper {
     };
   }
 
+  // ZEN-1170 Defect 1 sibling: cross-page-paste recovery.
+  //
+  // Connect-era macros stored only {uuid, updatedAt} in macro params — no
+  // `customContentId` — because the diagram body was looked up via uuid against
+  // content properties. After Forge-from-Connect migration those params were
+  // preserved verbatim, so any such macro that was never re-edited still has
+  // no customContentId today. When the macro is then copy-pasted to a new
+  // page, the destination page's macro params are a frozen {uuid, updatedAt}
+  // pair AND the destination page has no zenuml-graph-macro-<uuid>-body
+  // property either (content properties don't follow a macro paste) — so
+  // Defect 1's content-property fallback also misses. The data however does
+  // survive as a CustomContent on the SOURCE page, titled with the uuid.
+  //
+  // This fallback resolves the diagram by exact title match on the uuid,
+  // across the legacy custom-content types. Returns the most recent matching
+  // content shaped like getCustomContentByIdV2 — including cross-page copy
+  // detection — so it slots into the same downstream flow.
+  //
+  // Confirmed reproducible 2026-05-25 on a real customer page: 27 distinct
+  // CC records share one uuid title (a Connect-era save flow wrote a new
+  // record each save); limit=250 fetches them all in a single page and the
+  // in-memory sort by version.createdAt picks the most recent.
+  async findLegacyCustomContentByUuid(uuid: string): Promise<ICustomContentV2 | undefined> {
+    if (!uuid) return undefined;
+    const types = forgeGlobal.isDiagramly
+      ? ['gpt-custom-content-key']
+      : CUSTOM_CONTENT_TYPES;
+    try {
+      // Use CQL exact-title search. The V2 `/api/v2/custom-content?title=...`
+      // query param is silently IGNORED by the platform — verified 2026-05-27
+      // on whimet4 (1000+ CCs, the matching record was beyond limit=250 and
+      // never returned regardless of the title= value). The customer's case
+      // (2026-05-25) only worked by luck because their 27 matching CCs all
+      // landed inside the first 250 unsorted results. CQL is permission-
+      // scoped server-side (a CC the user can't see won't appear) and
+      // returns content metadata only — body must be fetched separately.
+      const typeClause = types.map(t => `type = "${this.customContentType(t)}"`).join(' OR ');
+      const cql = `(${typeClause}) AND title = "${uuid}"`;
+      const search: any = await forgeRequest(`/wiki/rest/api/search?cql=${encodeURIComponent(cql)}&limit=250`);
+      const ids: string[] = (search?.results || [])
+        .map((r: any) => r?.content?.id)
+        .filter((id: any): id is string => typeof id === 'string' && !!id);
+      if (ids.length === 0) return undefined;
+
+      // Fetch body for each candidate in parallel. N is usually 1, can be
+      // higher in legacy save-creates-new-each-time scenarios (customer
+      // case 2026-05-25 had 27 CCs sharing one uuid). Tolerate per-id
+      // failures so one 403 doesn't poison the whole recovery.
+      const bodies = await Promise.all(ids.map((id: string) =>
+        this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`).catch(() => undefined),
+      ));
+
+      let best: any | undefined;
+      let bestWhen = 0;
+      for (const cc of bodies) {
+        if (!cc || cc?.title !== uuid) continue;
+        const rawValue = cc?.body?.raw?.value;
+        if (!rawValue) continue;
+        let parsed: any;
+        try { parsed = JSON.parse(rawValue); } catch { continue; }
+        if (!parsed?.diagramType) continue;
+        const when = new Date(cc?.version?.createdAt || 0).getTime();
+        if (!best || when > bestWhen) {
+          best = cc;
+          bestWhen = when;
+        }
+      }
+      if (!best) return undefined;
+
+      const diagram = JSON.parse(best.body.raw.value);
+      diagram.source = DataSource.CustomContent;
+      diagram.id = best.id;
+
+      const currentPageId = await this._page.getPageId();
+      if (currentPageId && best.pageId && String(currentPageId) !== String(best.pageId)) {
+        diagram.isCopy = true;
+        diagram.copyReason = 'cross-page';
+        trackEvent('cross_page', 'duplication_detect', 'warning');
+      } else {
+        diagram.isCopy = false;
+        diagram.copyReason = undefined;
+      }
+
+      return Object.assign({}, best, { value: diagram }) as ICustomContentV2;
+    } catch (e: any) {
+      console.error('findLegacyCustomContentByUuid', e);
+      trackEvent(String(e?.message || e).substring(0, 200), 'find_legacy_custom_content_by_uuid', 'error');
+      return undefined;
+    }
+  }
+
   async getCustomContentVersionBeforeDate(id: string, date: string): Promise<ICustomContentV2 | undefined> {
     const customContent = await this.getCustomContentRawV2(id, 'include-versions=true');
     const descendingVersions = customContent?.versions?.results.sort((a, b) => b.number - a.number);

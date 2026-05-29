@@ -120,12 +120,37 @@ async function initializeMacro() {
   const customContentId = context.extension?.config?.customContentId;
 
   let doc: Diagram | undefined;
-  if (!customContentId) {
-    doc = { diagramType: DiagramType.Embed, isNew: true } as Diagram;
-  } else {
+  if (customContentId) {
     const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
+  }
+
+  // ZEN-1170 Defect 1 sibling (PR #139): cross-page-paste recovery via
+  // uuid → CC title. Mirrors the embed viewer fallback so an Edit click on
+  // a recovered embed doesn't open a blank editor that would silently wipe
+  // the diagram the viewer is showing on first save. Runs before the
+  // isNew=true default so we don't shadow a real recovered diagram.
+  if (!doc) {
+    const storageUuid = context.extension?.config?.uuid;
+    if (storageUuid) {
+      const recovered = await globals.apWrapper.findLegacyCustomContentByUuid(storageUuid);
+      if (recovered?.value) {
+        doc = recovered.value;
+        doc.recoveredFromOrphan = true;
+        trackEvent(storageUuid, 'legacy_custom_content_by_uuid_restored', 'info', {
+          surface: 'editor',
+          macro_type: 'embed',
+          recovered_id: String(recovered.id ?? ''),
+          is_copy: doc.isCopy ? 'true' : 'false',
+          ...(context.extension?.content?.id && { page_id: context.extension.content.id }),
+        });
+      }
+    }
+  }
+
+  if (!doc) {
+    doc = { diagramType: DiagramType.Embed, isNew: true } as Diagram;
   }
 
   store.state.diagram = doc ?? NULL_DIAGRAM;

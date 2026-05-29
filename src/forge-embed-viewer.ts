@@ -13,6 +13,7 @@ async function loadDiagram(): Promise<Diagram | undefined> {
 
   let doc: Diagram | undefined;
   const customContentId = context.extension?.config?.customContentId;
+  const pageId = context.extension?.content?.id;
   if(!customContentId) {
   } else {
     const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
@@ -23,6 +24,30 @@ async function loadDiagram(): Promise<Diagram | undefined> {
       void reportOrphanObserved(globals.apWrapper, context.extension?.content?.id, customContentId, 'embed');
     }
   }
+
+  // ZEN-1170 Defect 1 sibling: cross-page-paste recovery via uuid → CC title.
+  // Embed macros never used content properties (no Defect 1 path here), but
+  // the Connect-era {uuid, updatedAt}-only param shape is possible for them
+  // too, and copy-pasting such a macro leaves the destination with no
+  // customContentId. Find the surviving CC by exact-title CQL search.
+  if (!doc) {
+    const storageUuid = context.extension?.config?.uuid;
+    if (storageUuid) {
+      const recovered = await globals.apWrapper.findLegacyCustomContentByUuid(storageUuid);
+      if (recovered?.value) {
+        doc = recovered.value;
+        doc.recoveredFromOrphan = true;
+        trackEvent(storageUuid, 'legacy_custom_content_by_uuid_restored', 'info', {
+          surface: 'viewer',
+          macro_type: 'embed',
+          recovered_id: String(recovered.id ?? ''),
+          is_copy: doc.isCopy ? 'true' : 'false',
+          ...(pageId && { page_id: pageId }),
+        });
+      }
+    }
+  }
+
   return doc;
 }
 

@@ -291,6 +291,31 @@ async function initializeMacro() {
         reportOrphanObserved(recoveryPageId, customContentId, 'openapi', loaded.probeResult, { recoveryUsed: false });
       }
     }
+
+    // ZEN-1170 Defect 1 sibling (PR #139): cross-page-paste recovery via
+    // uuid → CC title. OpenAPI macros never used content properties (no
+    // step 2 fallback exists), but the Connect-era {uuid, updatedAt}-only
+    // param shape exists for them too — copy-paste leaves the destination
+    // with no customContentId. Without this fallback the editor would
+    // mount OpenApiExample and a first save would wipe the recovered spec.
+    if (!doc) {
+      const storageUuid = context.extension?.config?.uuid;
+      if (storageUuid) {
+        const recovered = await globals.apWrapper.findLegacyCustomContentByUuid(storageUuid);
+        if (recovered?.value) {
+          doc = recovered.value;
+          doc.recoveredFromOrphan = true;
+          trackEvent(storageUuid, 'legacy_custom_content_by_uuid_restored', 'info', {
+            surface: 'editor',
+            macro_type: 'openapi',
+            recovered_id: String(recovered.id ?? ''),
+            is_copy: doc.isCopy ? 'true' : 'false',
+            ...(recoveryPageId && { page_id: recoveryPageId }),
+          });
+        }
+      }
+    }
+
     store.state.diagram = doc ?? NULL_DIAGRAM;
 
     // @ts-ignore

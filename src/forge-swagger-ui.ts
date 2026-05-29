@@ -16,9 +16,9 @@ async function loadDiagram(): Promise<Diagram | undefined> {
 
   let doc: Diagram | undefined;
   const customContentId = context.extension?.config?.customContentId;
+  const pageId = context.extension?.content?.id;
   if(!customContentId) {
   } else {
-    const pageId = context.extension?.content?.id;
     const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(pageId, customContentId);
     console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
@@ -33,6 +33,30 @@ async function loadDiagram(): Promise<Diagram | undefined> {
       reportOrphanObserved(pageId, customContentId, 'openapi', loaded.probeResult, { recoveryUsed: false });
     }
   }
+
+  // ZEN-1170 Defect 1 sibling: cross-page-paste recovery via uuid → CC title.
+  // OpenAPI macros never used content properties (no Defect 1 path here),
+  // but the Connect-era {uuid, updatedAt}-only param shape exists for them
+  // too, and copy-pasting such a macro leaves the destination with no
+  // customContentId. Find the surviving CC by exact-title CQL search.
+  if (!doc) {
+    const storageUuid = context.extension?.config?.uuid;
+    if (storageUuid) {
+      const recovered = await globals.apWrapper.findLegacyCustomContentByUuid(storageUuid);
+      if (recovered?.value) {
+        doc = recovered.value;
+        doc.recoveredFromOrphan = true;
+        trackEvent(storageUuid, 'legacy_custom_content_by_uuid_restored', 'info', {
+          surface: 'viewer',
+          macro_type: 'openapi',
+          recovered_id: String(recovered.id ?? ''),
+          is_copy: doc.isCopy ? 'true' : 'false',
+          ...(pageId && { page_id: pageId }),
+        });
+      }
+    }
+  }
+
   return doc;
 }
 

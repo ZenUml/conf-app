@@ -228,6 +228,33 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       // example/new path below as a legitimate "no legacy data" case.
     }
 
+    // ZEN-1170 Defect 1 sibling (PR #139): cross-page-paste recovery via
+    // uuid → CC title. The content-property step above only checks THIS
+    // page; a Connect-era sequence macro copy-pasted to a new page has no
+    // property here — its body survives only as a CustomContent on the
+    // SOURCE page, titled with the uuid. Without this fallback the editor
+    // would mount Example.Sequence and a first save would silently wipe
+    // the recovered diagram the viewer is showing (PR #139 viewer step 3).
+    if (!doc && storageUuid) {
+      const recovered = await globals.apWrapper.findLegacyCustomContentByUuid(storageUuid);
+      if (recovered?.value) {
+        doc = recovered.value;
+        doc.recoveredFromOrphan = true;
+        // Step 2 may have set legacyLoadBlocked if its property check was
+        // indeterminate (403/page-not-found/parse-error). Clear it: step 3
+        // found a real CC on a different storage layer — saving creates a
+        // new CC, it cannot overwrite the content property we couldn't read.
+        legacyLoadBlocked = false;
+        trackEvent(storageUuid, 'legacy_custom_content_by_uuid_restored', 'info', {
+          surface: 'editor',
+          macro_type: 'sequence',
+          recovered_id: String(recovered.id ?? ''),
+          is_copy: doc.isCopy ? 'true' : 'false',
+          ...(recoveryPageId && { page_id: recoveryPageId }),
+        });
+      }
+    }
+
     // ZEN-1170 (pre-Defect-1 behavior preserved): when CC was attempted but
     // failed AND we have no legacy storageUuid to try AND legacy fallback
     // wasn't blocked, mount the placeholder empty doc so the wipe-precursor
@@ -609,7 +636,13 @@ EventBus.$on('save', async () => {
   // reuse Defect 2b's writeback path without adding new Diagram fields.
   const legacyMacroNeedsRepair = !originalCustomContentId
     && (store.state.diagram?.source === DataSource.ContentProperty
-        || store.state.diagram?.source === DataSource.ContentPropertyOld);
+        || store.state.diagram?.source === DataSource.ContentPropertyOld
+        // PR #139 same-page recovery — see forge-graph-editor.ts for the
+        // full rationale. Cross-page recovery already writes back via the
+        // idChanged path; this branch only fires when the recovered CC
+        // lives on the same page so save updates in place (idChanged=false).
+        || (store.state.diagram?.source === DataSource.CustomContent
+            && !!(store.state.diagram as any)?.recoveredFromOrphan));
 
   // Give some time for track event to be sent out. We are not using a more reliable way to track event because
   // we don't want to block dialog close for too long.

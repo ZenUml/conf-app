@@ -32,7 +32,12 @@ test.describe(`Smoke Test - ${macroType}`, () => {
       console.log(`  ✓ Sequence macro inserted`);
     });
 
-    const pageId = await publishAndVerifyMacros(page, editorPage, 1, 'smoke-sequence');
+    // Default sequence content (Example.Sequence) renders "OrderController" as a
+    // participant. If the viewer shows the load-failed panel instead, this text
+    // won't appear and the test fails — catching the ZEN-1172 class of regression.
+    const pageId = await publishAndVerifyMacros(page, editorPage, 1, 'smoke-sequence', async (macroPage) => {
+      await macroPage.assertMacroContent(macroPage.getSequenceMacroFrame(), 'OrderController');
+    });
     if (pageId) createdPageIds.push(pageId);
   });
 });

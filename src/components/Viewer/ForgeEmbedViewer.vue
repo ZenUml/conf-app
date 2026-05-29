@@ -11,10 +11,10 @@
       <component 
         v-if="viewerComponent" 
         :is="viewerComponent" 
-        :doc="doc"
-        :graphXml="doc?.graphXml"
-        :code="doc?.code"
-        :mermaidCode="doc?.mermaidCode"
+        :doc="effectiveDoc"
+        :graphXml="effectiveDoc?.graphXml"
+        :code="effectiveDoc?.code"
+        :mermaidCode="effectiveDoc?.mermaidCode"
       />
     </div>
   </div>
@@ -39,19 +39,32 @@ export default {
   async mounted() {
     await this.initializeViewer();
   },
+  computed: {
+    effectiveDoc() {
+      return this.doc || this.$store.state.diagram;
+    },
+    effectiveDiagramType() {
+      return this.diagramType || this.effectiveDoc?.diagramType;
+    }
+  },
+  watch: {
+    effectiveDiagramType() {
+      this.initializeViewer();
+    }
+  },
   methods: {
     async initializeViewer() {
-      if (this.diagramType) {
-        this.viewerComponent = await loadForgeViewerComponent(this.diagramType);
+      if (this.effectiveDiagramType) {
+        this.viewerComponent = await loadForgeViewerComponent(this.effectiveDiagramType);
         if (this.viewerComponent) {
           this.loading = false;
         } else {
-          this.error = `Unknown diagram type: ${this.diagramType}`;
+          this.error = `Unknown diagram type: ${this.effectiveDiagramType}`;
           this.loading = false;
         }
       } else {
-        this.error = 'No diagram type specified';
-        this.loading = false;
+        this.loading = true;
+        this.error = null;
       }
     }
   }
@@ -81,4 +94,4 @@ export default {
   width: 100%;
   height: 100%;
 }
-</style> 
+</style>

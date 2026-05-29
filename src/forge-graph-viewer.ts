@@ -39,28 +39,22 @@ function loadDrawIOScripts(): Promise<void> {
 
 import createAttachmentIfContentChanged from "@/model/Attachment";
 import {trackEvent, serializeError} from "@/utils/window";
-import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import globals from '@/model/globals';
 import {decompress} from '@/utils/compress';
-import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
-import ApWrapper2 from "@/model/ApWrapper2";
 import ForgeGraphViewer from "@/components/Viewer/ForgeGraphViewer.vue";
 import EventBus from './EventBus'
-import {mountRoot} from "@/mount-root";
-import macroMetrics from '@/services/MacroMetrics';
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
-import store from "@/model/store2";
 import GraphExample from '@/model/Graph/GraphExample';
-import { DataSource, Diagram, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
-import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
+import { DataSource, Diagram, DiagramType } from "@/model/Diagram/Diagram";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import {
   reportLegacyContentPropertyRestored,
   reportLegacyContentPropertyLoadFailed,
   reportLegacyContentPropertyValueUnexpected,
 } from '@/utils/legacyContentPropertyTelemetry';
+import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
 
-async function loadDiagram() {
+async function loadDiagram(): Promise<Diagram | undefined> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
@@ -102,10 +96,9 @@ async function loadDiagram() {
           // Legacy V1 storage (Connect-era) compressed graphXml and set
           // `compressed: true` on the property value; the post-Forge CC
           // path stores plain XML. Decompress here so doc.graphXml is
-          // always plain XML downstream — the Vue mount at L145 reads
-          // `contentProps.graphXml` BEFORE the post-mount window.updateGraph
-          // decompression at L148-155, so without this the viewer mounts
-          // with compressed bytes and renders blank.
+          // always plain XML downstream. The viewer reacts to the store update
+          // after the shell mount, so publishing compressed bytes would still
+          // render blank.
           const restored = value as Diagram & { compressed?: boolean };
           let graphXml = restored.graphXml;
           if (restored.compressed && graphXml && !graphXml.startsWith('<mxGraphModel')) {
@@ -132,21 +125,10 @@ async function loadDiagram() {
     }
   }
 
-  store.state.diagram = doc ?? NULL_DIAGRAM;
-  window.diagram = doc ?? NULL_DIAGRAM;
-  console.log('loadDiagram - window.diagram', window.diagram);
+  return doc;
+}
 
-  const contentProps = { graphXml: doc?.graphXml };
-  const paywalled = await tryFullscreenViewerPaywall({
-    doc,
-    content: ForgeGraphViewer,
-    contentProps,
-    macroKind: 'graph',
-  });
-  if (!paywalled) {
-    mountRoot(doc ?? NULL_DIAGRAM, ForgeGraphViewer, contentProps);
-  }
-
+function afterLoad(doc: Diagram | undefined) {
   let graphXml = doc?.graphXml;
   if (doc?.compressed) {
     trackEvent('compressed_field_viewer', 'load', 'warning');
@@ -181,20 +163,17 @@ async function loadDiagram() {
 }
 
 async function initializeMacro() {
-  try {
-    // Load DrawIO scripts first
-    // await loadDrawIOScripts();
-    await globals.apWrapper.initializeContext();
-    trackAnalyticsEvent("macro_viewed", {
-      feature_area: "macro",
-      surface: "viewer",
-      macro_type: "graph",
-      entry_point: "page_view",
-    });
-    await loadDiagram();
-  } catch (e) {
-    console.error('Error loading graph viewer', e);
-  }
+  // Load DrawIO scripts first
+  // await loadDrawIOScripts();
+  await bootstrapForgeViewer({
+    macroKind: 'graph',
+    content: ForgeGraphViewer,
+    loadDiagram,
+    afterLoad,
+    onError: (error) => {
+      console.error('Error loading graph viewer', error);
+    },
+  });
 }
 
 

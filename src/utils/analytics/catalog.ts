@@ -78,4 +78,5 @@ export type AnalyticsEventName =
   | "custom_content_update_failed"
   | "graph_editor_init_empty"
   | "editor_load_empty_active_field"
-  | "swagger_editor_config_empty_with_modal";
+  | "swagger_editor_config_empty_with_modal"
+  | "viewer_load_failed";

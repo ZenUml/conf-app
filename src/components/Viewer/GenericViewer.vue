@@ -138,6 +138,7 @@
 
 <script>
 import {trackEvent} from "@/utils/window";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 
 import {mapState, mapGetters} from "vuex";
 import EventBus from '../../EventBus'
@@ -215,6 +216,24 @@ export default {
       return this.diagram.copyReason === 'cross-page'
         ? 'This diagram lives on another page. Edit it there to keep both in sync.'
         : 'There are multiple copies of this diagram on this page. Edits affect all of them.';
+    },
+  },
+  watch: {
+    // Fire viewer_load_failed when the error store slot becomes truthy while
+    // the macro is in display (viewer) mode. The isDisplayMode guard prevents
+    // false positives from editor-context syntax validation errors, which also
+    // flow through the same store slot.
+    '$store.state.error': {
+      handler(error) {
+        if (!error || !this.isDisplayMode) return;
+        trackAnalyticsEvent('viewer_load_failed', {
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: this.diagramType,
+          failure_reason: typeof error === 'string' ? error : (error?.message ?? String(error)),
+        });
+      },
+      immediate: true,
     },
   },
   async mounted() {

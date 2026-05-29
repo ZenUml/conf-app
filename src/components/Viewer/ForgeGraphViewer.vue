@@ -62,10 +62,21 @@ export default {
   mounted() {
     this.renderViewer();
   },
+  computed: {
+    effectiveGraphXml() {
+      return this.graphXml || this.$store.state.diagram?.graphXml;
+    }
+  },
+  watch: {
+    effectiveGraphXml() {
+      this.renderViewer();
+    }
+  },
   methods: {
     renderViewer() {
       const container = this.$refs.graphContainer;
-      if (!container || !this.graphXml) return;
+      if (!container || !this.effectiveGraphXml) return;
+      container.innerHTML = '';
       try {
         // GraphViewer accepts <mxfile> (multi-page) and raw <mxGraphModel>
         // (legacy single-page) via its Editor.extractGraphModel pipeline.
@@ -73,7 +84,7 @@ export default {
         // page-nav strip — page nav is rendered into the GenericViewer
         // bottom pill via the #pill-prefix slot above.
         // @ts-ignore
-        const xmlNode = mxUtils.parseXml(this.graphXml).documentElement;
+        const xmlNode = mxUtils.parseXml(this.effectiveGraphXml).documentElement;
         // @ts-ignore
         this.graphViewer = new GraphViewer(container, xmlNode, {
           'auto-fit': true,

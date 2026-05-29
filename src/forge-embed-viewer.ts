@@ -1,18 +1,14 @@
 import createAttachmentIfContentChanged from "@/model/Attachment";
 import {trackEvent, serializeError} from "@/utils/window";
-import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import globals from '@/model/globals';
 import ForgeEmbedViewer from "@/components/Viewer/ForgeEmbedViewer.vue";
 import EventBus from './EventBus'
-import {mountRoot} from "@/mount-root";
-import macroMetrics from '@/services/MacroMetrics';
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
-import store from "@/model/store2";
-import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
-import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
+import { Diagram } from "@/model/Diagram/Diagram";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
+import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
 
-async function loadDiagram() {
+async function loadDiagram(): Promise<Diagram | undefined> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
@@ -33,7 +29,7 @@ async function loadDiagram() {
   // Embed macros never used content properties (no Defect 1 path here), but
   // the Connect-era {uuid, updatedAt}-only param shape is possible for them
   // too, and copy-pasting such a macro leaves the destination with no
-  // customContentId. Find the surviving CC by tenant-wide title=uuid match.
+  // customContentId. Find the surviving CC by exact-title CQL search.
   if (!doc) {
     const storageUuid = context.extension?.config?.uuid;
     if (storageUuid) {
@@ -52,21 +48,10 @@ async function loadDiagram() {
     }
   }
 
-  store.state.diagram = doc ?? NULL_DIAGRAM;
-  window.diagram = doc ?? NULL_DIAGRAM;
-  console.log('loadDiagram - window.diagram', window.diagram);
+  return doc;
+}
 
-  const contentProps = { diagramType: doc?.diagramType, doc };
-  const paywalled = await tryFullscreenViewerPaywall({
-    doc,
-    content: ForgeEmbedViewer,
-    contentProps,
-    macroKind: 'embed',
-  });
-  if (!paywalled) {
-    mountRoot(doc ?? NULL_DIAGRAM, ForgeEmbedViewer, contentProps);
-  }
-
+function afterLoad(doc: Diagram | undefined) {
   setTimeout(async function () {
     try {
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
@@ -86,21 +71,15 @@ async function loadDiagram() {
 
 
 async function initializeMacro() {
-  try {
-    await globals.apWrapper.initializeContext();
-    trackAnalyticsEvent("macro_viewed", {
-      feature_area: "macro",
-      surface: "viewer",
-      macro_type: "embed",
-      entry_point: "page_view",
-    });
-
-    // Initialize with empty doc, will be loaded in loadDiagram
-    mountRoot(NULL_DIAGRAM, ForgeEmbedViewer);
-    await loadDiagram();
-  } catch (e) {
-    console.error('Error loading embed viewer', e);
-  }
+  await bootstrapForgeViewer({
+    macroKind: 'embed',
+    content: ForgeEmbedViewer,
+    loadDiagram,
+    afterLoad,
+    onError: (error) => {
+      console.error('Error loading embed viewer', error);
+    },
+  });
 }
 
 export default initializeMacro();
@@ -118,4 +97,3 @@ EventBus.$on('edit', async () => {
     },
   });
 });
-

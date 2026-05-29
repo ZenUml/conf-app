@@ -32,7 +32,13 @@ test.describe(`Smoke Test - ${macroType}`, () => {
       console.log(`  ✓ OpenAPI macro inserted`);
     });
 
-    const pageId = await publishAndVerifyMacros(page, editorPage, 1, 'smoke-openapi');
+    // ZEN-1172: assert the rendered spec is actually visible inside the iframe.
+    // A freshly inserted macro renders OpenApiExample, whose spec contains the
+    // "/users" path. The load-failed panel does NOT contain "/users", so this
+    // catches the broken-viewer regression that an iframe-count check missed.
+    const pageId = await publishAndVerifyMacros(page, editorPage, 1, 'smoke-openapi', async (macroPage) => {
+      await macroPage.assertMacroContent(macroPage.getOpenApiMacroFrame(), '/users');
+    });
     if (pageId) createdPageIds.push(pageId);
   });
 });

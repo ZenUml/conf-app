@@ -32,7 +32,12 @@ test.describe(`Smoke Test - ${macroType}`, () => {
       console.log(`  ✓ Graph macro inserted`);
     });
 
-    const pageId = await publishAndVerifyMacros(page, editorPage, 1, 'smoke-graph');
+    // DrawIO renders an SVG canvas. Shapes have no predictable text labels, so
+    // we assert the SVG element itself is visible — enough to confirm the viewer
+    // rendered the diagram rather than falling back to the load-failed panel.
+    const pageId = await publishAndVerifyMacros(page, editorPage, 1, 'smoke-graph', async (macroPage) => {
+      await macroPage.assertMacroHasSvg(macroPage.getGraphMacroFrame());
+    });
     if (pageId) createdPageIds.push(pageId);
   });
 });

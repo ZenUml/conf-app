@@ -32,7 +32,14 @@ test.describe(`Smoke Test - ${macroType}`, () => {
       console.log(`  ✓ PlantUML macro inserted`);
     });
 
-    const pageId = await publishAndVerifyMacros(page, editorPage, 1, 'smoke-mermaid');
+    // PlantUML renders to an injected SVG (via the PlantUML server). Asserting
+    // the SVG element is present confirms the viewer rendered the diagram rather
+    // than showing the load-failed error panel. Text-based assertions are avoided
+    // because PlantUML SVGs embed participant names in non-visible <title> nodes
+    // as well as visible <text> nodes, causing strict-mode violations.
+    const pageId = await publishAndVerifyMacros(page, editorPage, 1, 'smoke-mermaid', async (macroPage) => {
+      await macroPage.assertMacroHasSvg(macroPage.getSequenceMacroFrame());
+    });
     if (pageId) createdPageIds.push(pageId);
   });
 });

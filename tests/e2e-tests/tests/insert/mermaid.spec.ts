@@ -32,7 +32,12 @@ test.describe(`Smoke Test - ${macroType}`, () => {
       console.log(`  ✓ PlantUML macro inserted`);
     });
 
-    const pageId = await publishAndVerifyMacros(page, editorPage, 1, 'smoke-mermaid');
+    // Default PlantUML content (Example.PlantUml) contains "Alice". The PlantUML
+    // server returns an SVG with text nodes for participant names, so this assertion
+    // fails if the viewer shows an error panel instead of the rendered diagram.
+    const pageId = await publishAndVerifyMacros(page, editorPage, 1, 'smoke-mermaid', async (macroPage) => {
+      await macroPage.assertMacroContent(macroPage.getSequenceMacroFrame(), 'Alice');
+    });
     if (pageId) createdPageIds.push(pageId);
   });
 });

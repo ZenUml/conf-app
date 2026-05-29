@@ -47,6 +47,13 @@ export class MacroPage {
     await expect(frame.getByText(expectedText, { exact: false })).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
   }
 
+  // For DrawIO graphs the rendered output is pure SVG with no predictable text
+  // labels, so we assert the SVG canvas element is present instead.
+  async assertMacroHasSvg(frame: FrameLocator): Promise<void> {
+    await expect(frame.locator('body')).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
+    await expect(frame.locator('svg').first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
+  }
+
   async openFullscreen(macroFrame: FrameLocator): Promise<void> {
     await expect(macroFrame.locator('body')).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
     const fullscreenButton = macroFrame.getByRole('button', { name: 'Fullscreen' });

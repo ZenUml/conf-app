@@ -5,30 +5,6 @@ const typeMap = {
   'plantuml': {diagramType: 'plantuml', languageKey: 'LANG_PLANTUML'},
 }
 
-export async function generateDsl(context, title, content, userPrompt, diagramId, diagramType = 'sequence') {
-  const diagramData = {
-    0: {
-      json: {
-        diagramType: typeMap[diagramType].diagramType,
-        languageKey: typeMap[diagramType].languageKey,
-        subTypeKey: typeMap[diagramType].subTypeKey,
-        diagramId,
-        command: getPrompt(diagramType, title, content, userPrompt),
-      },
-    },
-  };
-
-  const diagramResult = await callDiagramly(context, `/api/version.create?batch=1`, diagramData);
-
-  if (diagramResult &&
-      diagramResult[0]?.result?.data?.json?.gptResponse) {
-    const dsl = diagramResult[0].result.data.json.gptResponse;
-    const diagramId = diagramResult[0].result.data.json.diagramId;
-    const diagramTitle = diagramResult[0].result.data.json.diagramTitle;
-    return { dsl, diagramId, diagramTitle };
-  }
-}
-
 // Asynchronous diagram modification - returns jobId for polling
 export async function modifyDiagram(context, diagramCode, errorMessage, diagramType = 'sequence') {
   const typeInfo = typeMap[diagramType];
@@ -134,43 +110,4 @@ export async function callDiagramly(context, uri, payload) {
     console.error('[callDiagramly] Error:', error.message);
     throw error;
   }
-}
-
-const getPrompt = (diagramType, title, content, userPrompt) => {
-  const para1 = content
-  const para2 = userPrompt || 'the full document';
-
-  const diagramCommandMap = {
-    'sequence': `
-      Please read the given Confluence page content, model the process and create the sequence diagram in ZenUML language. This diagram will be integrated into Confluence pages, so ensure it's clear and professional.
-
-      Confluence page:
-
-      Title: \`${title}\`
-
-      Content:
-      \`\`\`
-      [${para1}]
-      \`\`\`
-
-      Key section or topic for the sequence diagram is [${para2}], ignore irrelevant content.
-
-    `,
-    'mermaid': `
-      Please read the given Confluence page content, model the process and create the flow chart diagram in Mermaid language. This diagram will be integrated into Confluence pages, so ensure it's clear and professional. Mermaid language:
-
-        Confluence page:
-
-        Title: \`${title}\`
-
-        Content:
-        \`\`\`
-        [${para1}]
-        \`\`\`
-
-        Key section or topic for the flow chart is [${para2}], ignore irrelevant content.
-
-      `,
-  };
-  return diagramCommandMap[diagramType];
 }

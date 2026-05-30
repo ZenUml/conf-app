@@ -664,19 +664,6 @@ export class ConfluenceEditorPage {
   }
 
   /**
-   * Close the GenerationPrompt dialog if it appears after inserting a macro
-   */
-  async closeGenerationPromptIfVisible(): Promise<void> {
-    const frame = this.getMacroEditorFrame();
-    const openEditorButton = frame.getByRole('button', { name: /open editor/i });
-    if (await openEditorButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await openEditorButton.click();
-      await this.page.waitForTimeout(500);
-      console.log('✓ GenerationPrompt dialog closed');
-    }
-  }
-
-  /**
    * Switch to a specific tab in the Diagram macro editor (e.g., 'Mermaid', 'PlantUML')
    */
   async switchToMacroTab(tabName: string): Promise<void> {

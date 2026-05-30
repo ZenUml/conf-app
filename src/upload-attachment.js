@@ -1,4 +1,4 @@
-import api from '@forge/api';
+import api, { route } from '@forge/api';
 
 // ---------------------------------------------------------------------------
 // Attachment-upload fallback resolver
@@ -19,13 +19,19 @@ import api from '@forge/api';
 // Wire contract — payload from the frontend
 // -----------------------------------------
 //   {
-//     uri:            string   // /rest/api/content/{pageId}/child/attachment
-//                              //   (new) or /...{attachmentId}/data (new version)
+//     pageId:         string   // Confluence page id (digits)
+//     attachmentId:   string?  // OMIT for new attachment, INCLUDE for new version
 //     attachmentName: string   // e.g. zenuml-<customContentId>.png
 //     hash:           string   // md5(diagram-content) — stored as comment so
 //                              //   subsequent uploads can skip when unchanged
 //     pngBase64:      string   // base64-encoded PNG bytes
 //   }
+//
+// We deliberately receive `pageId` + optional `attachmentId` instead of the
+// preformed URI. Forge's `route` tagged-template-literal requires the
+// interpolated values to be passed individually so it can URL-encode them —
+// receiving a pre-built path string would force regex-parsing back into its
+// components, which is fragile.
 //
 // Wire contract — response to the frontend
 // -----------------------------------------
@@ -39,11 +45,11 @@ import api from '@forge/api';
 // ---------------------------------------------------------------------------
 
 export const handler = async (payload) => {
-  const { uri, attachmentName, hash, pngBase64 } = payload ?? {};
+  const { pageId, attachmentId, attachmentName, hash, pngBase64 } = payload ?? {};
 
-  if (!uri || !attachmentName || !hash || !pngBase64) {
+  if (!pageId || !attachmentName || !hash || !pngBase64) {
     console.warn('upload-attachment: missing required payload fields', {
-      hasUri: !!uri,
+      hasPageId: !!pageId,
       hasName: !!attachmentName,
       hasHash: !!hash,
       hasPng: !!pngBase64,
@@ -65,17 +71,27 @@ export const handler = async (payload) => {
 
     // X-Atlassian-Token: no-check disables Confluence's CSRF check for the
     // app-token caller. Required by the v1 multipart attachment endpoint.
-    const response = await api.asApp().requestConfluence(`/wiki${uri}`, {
+    // `route` tagged-template URL-encodes the dynamic ids — required by Forge.
+    const requestOptions = {
       method: 'POST',
       headers: { 'X-Atlassian-Token': 'no-check' },
       body: formData,
-    });
+    };
+    const response = attachmentId
+      ? await api.asApp().requestConfluence(
+          route`/wiki/rest/api/content/${pageId}/child/attachment/${attachmentId}/data`,
+          requestOptions,
+        )
+      : await api.asApp().requestConfluence(
+          route`/wiki/rest/api/content/${pageId}/child/attachment`,
+          requestOptions,
+        );
 
     const body = await response.text();
 
     if (!response.ok) {
       console.warn(
-        `upload-attachment: ${response.status} from /wiki${uri} for ${attachmentName}: ${body.slice(0, 200)}`
+        `upload-attachment: ${response.status} for page=${pageId} attachment=${attachmentName}: ${body.slice(0, 200)}`
       );
       return { ok: false, status: response.status, body };
     }
@@ -83,16 +99,18 @@ export const handler = async (payload) => {
     // Extract attachmentId for the frontend's new-attachment path
     // (uploadNewAttachment parses results[0].id from the body). For new-version
     // uploads the frontend doesn't read the id, but returning it doesn't hurt.
-    let attachmentId = null;
+    // Named `newAttachmentId` to avoid shadowing the payload's `attachmentId`
+    // (which only exists on the new-version-of-existing path).
+    let newAttachmentId = null;
     try {
       const parsed = JSON.parse(body);
-      attachmentId = parsed.results?.[0]?.id ?? parsed.data?.results?.[0]?.id ?? null;
+      newAttachmentId = parsed.results?.[0]?.id ?? parsed.data?.results?.[0]?.id ?? null;
     } catch {
       // Confluence sometimes returns non-JSON bodies on edge cases — that's
       // fine, the frontend will fall through its own parsing.
     }
 
-    return { ok: true, status: response.status, body, attachmentId };
+    return { ok: true, status: response.status, body, attachmentId: newAttachmentId ?? attachmentId ?? null };
   } catch (e) {
     console.error('upload-attachment: handler error', e);
     const message = String(e?.message ?? e ?? '').slice(0, 200);

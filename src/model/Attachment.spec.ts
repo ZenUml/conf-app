@@ -460,11 +460,17 @@ describe('Attachment', () => {
       expect(mockForgeCallFunction).toHaveBeenCalledWith(
         'uploadAttachment',
         expect.objectContaining({
+          pageId: 'page-123',
           attachmentName: 'zenuml-test-uuid.png',
           // pngBase64 transport key is present (don't pin the value — depends
           // on the mock blob's contents)
           pngBase64: expect.any(String),
         }),
+      );
+      // New-attachment path → no attachmentId in payload
+      expect(mockForgeCallFunction).toHaveBeenCalledWith(
+        'uploadAttachment',
+        expect.not.objectContaining({ attachmentId: expect.anything() }),
       );
     });
 

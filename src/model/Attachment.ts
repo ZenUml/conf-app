@@ -313,9 +313,28 @@ async function uploadViaAppFallback(
     recovered_from_status: originalError.status,
   });
 
+  // Decompose the preformed uri into pageId + optional attachmentId so the
+  // resolver can pass them through Forge's `route` template literal (it
+  // URL-encodes the dynamic ids — required by @forge/api). The uri shape is
+  // produced by uploadAttachment2 from buildAttachmentBasePath; if the shape
+  // ever drifts the regex will fail and the resolver will report 400.
+  // Match non-slash chars rather than \d+: real Confluence pageIds are numeric,
+  // but tests use string placeholders ('page-123'), and we'd rather forward an
+  // odd-looking id to the resolver and let Confluence reject it than fail the
+  // shape check ourselves.
+  const newMatch = uri.match(/^\/rest\/api\/content\/([^/]+)\/child\/attachment$/);
+  const versionMatch = uri.match(/^\/rest\/api\/content\/([^/]+)\/child\/attachment\/([^/]+)\/data$/);
+  const pageId = newMatch?.[1] ?? versionMatch?.[1];
+  const attachmentId = versionMatch?.[2];
+
+  if (!pageId) {
+    throw new AttachmentUploadHttpError(0, `unrecognised upload uri shape: ${uri}`);
+  }
+
   const pngBase64 = await blobToBase64(blob);
   const result = await forgeCallFunction('uploadAttachment', {
-    uri,
+    pageId,
+    ...(attachmentId ? { attachmentId } : {}),
     attachmentName,
     hash: effectiveHash,
     pngBase64,

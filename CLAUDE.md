@@ -191,6 +191,16 @@ Key gotcha: `page_viewed` in D1 signals tenant activity on Confluence — **not*
 
 Full reference (event storage, `clientDomain` format, key sources, paywall events): [docs/analytics-reference.md](docs/analytics-reference.md). For query patterns, use the **conf-app** skill.
 
+### Bug reports: User-First Trace
+
+Frame bug reports and incident write-ups with **User-First Trace**:
+
+1. **User journey** — start with what the user did, what they saw, what changed, and what outcome they experienced. Keep the end user as the skeleton of the report and the highest priority.
+2. **Runtime evidence** — layer in console errors, network calls, API responses, analytics events, timing, retries, page/draft state, and environment details.
+3. **Code path** — only after the user journey and runtime evidence are clear, explain the source code paths that produced the behavior.
+
+Use lower-level techniques such as State-Surface Framing inside this structure when relevant: identify where the data truth lives (published page, draft page, macro config, custom content, D1 mirror) and which UI/runtime surface is reading or writing it (page viewer, viewer modal, native macro config, page editor, fullscreen modal).
+
 ## Browser automation and Forge iframes
 
 Forge Custom UI apps render inside **sandboxed cross-origin iframes** (OOPIFs). Only Playwright can reliably access content inside them.

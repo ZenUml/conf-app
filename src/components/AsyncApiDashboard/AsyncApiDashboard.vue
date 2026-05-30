@@ -249,7 +249,16 @@ async function loadDocuments(isRefresh = false): Promise<void> {
 
         const parsed = parseSpec(v.code)
         const id = String(entry.id ?? v.id ?? Math.random())
-        const title = entry.title || parsed.title || v.title || 'Untitled AsyncAPI'
+        // Prefer the spec's `info.title` over the custom-content title.
+        // The spec body is what the user actually edits in the Studio, so
+        // info.title always reflects the latest user-entered name. The
+        // custom-content title only updates if the editor's save flow
+        // successfully writes it — and we've observed it lagging behind
+        // when a doc is edited from the dashboard (the body code updates
+        // but the top-level title doesn't). Reading from parsed.title
+        // first means the dashboard card surfaces the user-chosen name
+        // immediately, regardless of whether the title write race-loses.
+        const title = parsed.title || entry.title || v.title || 'Untitled AsyncAPI'
         const status = (entry as any).status as string | undefined
         const createdAt = (entry as any).createdAt as string | undefined
         const updatedAt = (entry.version && (entry.version.createdAt as string)) || undefined

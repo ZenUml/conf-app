@@ -604,14 +604,11 @@ async function updateAttachmentProperties(attachmentMeta: AttachmentMeta): Promi
  *
  * Emits the following events alongside the existing `upload_attachment`:
  *   - `attachment_upload_succeeded` (event_label: 'created' | 'updated', plus version_number)
- *   - `attachment_upload_skipped`   (event_label: 'concurrent' | 'unchanged' | 'draft_page')
  *   - `attachment_upload_failed`    (event_label: failure reason, plus error fields)
  * Each carries the same join keys (page_id, custom_content_id, cloud_id, ...)
  * used by the backend `macro_export_*` events in src/export.js.
  *
- * `_succeeded` gives us a denominator. Without it we only saw `_failed` (n=2,543/14d)
- * and `_skipped` (n=99,338/14d) — no way to compute a true upload failure rate, and
- * `_skipped(unchanged)` was a confusing proxy because it inflates with every page view.
+ * `_succeeded` gives us a denominator for computing the true upload failure rate.
  */
 async function createAttachmentIfContentChanged(content: string, diagramType?: string): Promise<void> {
   const hash = md5(content);
@@ -627,7 +624,6 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
   // viewer call sites are covered without per-caller guards.
   const macroCustomContentId = forgeGlobal.forgeContext?.extension?.config?.customContentId;
   if (!macroCustomContentId) {
-    trackEvent('missing_custom_content_id', 'attachment_upload_skipped', 'export', ctx);
     return;
   }
 
@@ -636,7 +632,6 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
   // events are fired afterwards, thus multiple calls to this method at (almost) same time,
   // caused 409 or 503 error.
   if (window.createAttachmentInProgress) {
-    trackEvent('concurrent', 'attachment_upload_skipped', 'export', ctx);
     return;
   }
 
@@ -646,7 +641,6 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
   // The v1 attachment API only accepts status=current pages — a draft page returns a
   // wrapped 404 body, causing a misleading "no results" error downstream.
   if (forgeGlobal.forgeContext?.extension?.content?.status === 'draft') {
-    trackEvent('draft_page', 'attachment_upload_skipped', 'export', ctx);
     return;
   }
 
@@ -676,23 +670,17 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
         version_number: attachmentMeta.versionNumber,
         attachment_id: attachmentMeta.attachmentId,
       });
-    } else {
-      // Already up to date — this is the expected steady-state for an existing macro.
-      // Emit so we can prove upload coverage exists when investigating `attachment_not_found`.
-      trackEvent('unchanged', 'attachment_upload_skipped', 'export', ctx);
     }
   } catch (e: any) {
     // Option B: DraftPageError means the v1 API confirmed the page is a draft —
     // non-fatal, no re-throw. Emit the skip event so analysts can correlate.
     if (e instanceof DraftPageError) {
-      trackEvent('draft_page', 'attachment_upload_skipped', 'export', ctx);
       return;
     }
     // ToPngError: diagram is empty or not yet rendered. The Viewer already shows
     // an empty state for blank diagrams; for non-empty diagrams a toast was shown
     // in uploadAttachment. Either way, skip the upload — don't count as a failure.
     if (e instanceof ToPngError) {
-      trackEvent('unrenderable_diagram', 'attachment_upload_skipped', 'export', ctx);
       return;
     }
     // The function still throws (callers wrap this in try/catch already), but we

@@ -85,7 +85,7 @@ describe('forge-upload-attachment', () => {
     // read-check (GET as user), upload POST (as app), properties PUT (as app)
     expect(fetchMock).toHaveBeenCalledTimes(3);
     const [readUrl, readInit] = fetchMock.mock.calls[0];
-    expect(readUrl).toBe('https://api.atlassian.com/ex/confluence/cloud-1/rest/api/content/12345');
+    expect(readUrl).toBe('https://api.atlassian.com/ex/confluence/cloud-1/api/v2/pages/12345');
     expect(readInit.headers.Authorization).toBe('Bearer user-token');
 
     const [uploadUrl, uploadInit] = fetchMock.mock.calls[1];

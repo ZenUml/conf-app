@@ -117,7 +117,13 @@ export const onRequest = async ({ request, env }) => {
     // ---- authz: confirm the calling user can read the target page ----------
     // The app token can write to any page; gate on the user actually having
     // access to the content they claim to be viewing.
-    const pageReadUrl = `${apiBaseUrl}/rest/api/content/${pageId}`;
+    //
+    // Use the v2 endpoint (/api/v2/pages/{id}) — NOT the v1 /rest/api/content/{id}.
+    // The v1 Confluence REST API returns 410 Gone for OAuth 2.0 tokens (the
+    // x-forge-oauth-user 3LO token here), verified live on lite-stg. Every
+    // working user-token path in this repo (export.js asUser, forge-custom-content)
+    // uses v2 for exactly this reason.
+    const pageReadUrl = `${apiBaseUrl}/api/v2/pages/${pageId}`;
     const readResp = await fetch(pageReadUrl, {
       method: 'GET',
       headers: { Accept: 'application/json', Authorization: `Bearer ${userToken}` },

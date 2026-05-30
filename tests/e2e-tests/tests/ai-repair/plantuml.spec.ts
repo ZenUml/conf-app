@@ -23,9 +23,6 @@ test.describe('AI Repair - PlantUML', () => {
     await testBase.enableAiRepair();
     
     await testBase.createPageWithDiagramMacro('AI Repair PlantUML Test');
-    
-    // Close GenerationPrompt if it appears
-    await editorPage.closeGenerationPromptIfVisible();
   });
 
   test('should apply AI repair to fix PlantUML syntax error', async () => {

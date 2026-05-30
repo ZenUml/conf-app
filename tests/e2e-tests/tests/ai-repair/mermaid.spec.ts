@@ -1,5 +1,4 @@
-import { test, expect } from '@playwright/test';
-import { testConfig, TIMEOUTS } from '../../config/test-config.js';
+import { test } from '@playwright/test';
 import { ConfluenceEditorPage } from '../../pages/EditorPage.js';
 import { DiagramTestHelper } from '../../helpers/DiagramTestHelper.js';
 
@@ -27,12 +26,9 @@ test.describe('AI Repair - Mermaid', () => {
     await testBase.enableAiRepair();
     
     await testBase.createPageWithDiagramMacro('AI Repair Mermaid Test');
-    
-    // Close GenerationPrompt if it appears
-    await editorPage.closeGenerationPromptIfVisible();
   });
 
-  test('should apply AI repair to fix Mermaid syntax error', async ({ page }) => {
+  test('should apply AI repair to fix Mermaid syntax error', async () => {
     await test.step('Switch to Mermaid tab and enter invalid syntax', async () => {
       await editorPage.switchToMacroTab('Mermaid');
       

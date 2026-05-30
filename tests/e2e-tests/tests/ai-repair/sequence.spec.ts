@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
 import { ConfluenceEditorPage } from '../../pages/EditorPage.js';
 import { DiagramTestHelper } from '../../helpers/DiagramTestHelper.js';
 
@@ -26,12 +26,9 @@ test.describe('AI Repair - ZenUML', () => {
     await testBase.enableAiRepair();
     
     await testBase.createPageWithDiagramMacro('AI Repair Test');
-    
-    // Close GenerationPrompt if it appears
-    await editorPage.closeGenerationPromptIfVisible();
   });
 
-  test('should apply AI repair to fix syntax error', async ({ page }) => {
+  test('should apply AI repair to fix syntax error', async () => {
     await test.step('Enter invalid ZenUML syntax', async () => {
       // Type invalid syntax (invalid method syntax)
       const invalidCode = `A.-method(）`;

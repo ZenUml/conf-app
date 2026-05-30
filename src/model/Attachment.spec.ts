@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Use vi.hoisted to define mocks before they're used in vi.mock factories
-const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockRequestConfluence } = vi.hoisted(() => {
+const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockForgeCallFunction, mockRequestConfluence } = vi.hoisted(() => {
   const mockTrackEvent = vi.fn();
   const mockApWrapper = {
     _getCurrentPageId: vi.fn(),
@@ -9,13 +9,15 @@ const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockReq
   };
   const mockGetContext = vi.fn();
   const mockForgeRequest = vi.fn();
+  const mockForgeCallFunction = vi.fn();
   const mockRequestConfluence = vi.fn();
-  
+
   return {
     mockTrackEvent,
     mockApWrapper,
     mockGetContext,
     mockForgeRequest,
+    mockForgeCallFunction,
     mockRequestConfluence
   };
 });
@@ -55,7 +57,8 @@ vi.mock('@/model/globals/forgeGlobal', () => ({
 
 // Mock requestUtil
 vi.mock('@/utils/requestUtil', () => ({
-  forgeRequest: (...args: any[]) => mockForgeRequest(...args)
+  forgeRequest: (...args: any[]) => mockForgeRequest(...args),
+  forgeCallFunction: (...args: any[]) => mockForgeCallFunction(...args)
 }));
 
 // Mock @forge/bridge
@@ -349,10 +352,11 @@ describe('Attachment', () => {
       consoleErrorSpy.mockRestore();
     });
 
-    it('should label a non-2xx HTTP response from the upload as http_<status>', async () => {
-      // Simulates the 70%-of-fails case where the Forge bridge returns a 403
-      // Response.  Previously this slipped through, the body was JSON.parse'd,
-      // and the error was logged as opaque `Error` / `UnknownError`.
+    it('should label a non-2xx HTTP response from the upload as http_<status> when fallback also fails', async () => {
+      // Simulates the case where the user-side upload 403s AND the backend
+      // resolver (api.asApp) fallback ALSO fails (rare — would mean the app's
+      // write:attachment scope also doesn't cover this page). The outer catch
+      // re-labels the synthesised resolver error with the original 403 status.
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const mockBlob = new Blob(['test'], { type: 'image/png' });
       vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
@@ -363,11 +367,26 @@ describe('Attachment', () => {
         status: 403,
         text: vi.fn().mockResolvedValue('Forbidden'),
       });
+      // Resolver also rejects (app principal cannot write here either)
+      mockForgeCallFunction.mockResolvedValue({
+        ok: false,
+        status: 403,
+        body: 'app forbidden too',
+      });
 
       await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(
         /Confluence attachment API returned 403/
       );
 
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'http_403',
+        'attachment_upload_app_fallback_started',
+        'export',
+        expect.objectContaining({
+          custom_content_id: 'test-uuid',
+          recovered_from_status: 403,
+        }),
+      );
       expect(mockTrackEvent).toHaveBeenCalledWith(
         'http_403',
         'attachment_upload_failed',
@@ -379,6 +398,107 @@ describe('Attachment', () => {
         }),
       );
       expect((window as any).createAttachmentInProgress).toBe(false);
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should recover via app fallback when user-side upload returns 403', async () => {
+      // The headline issue #166 scenario: viewer-only user 403s on direct
+      // upload, frontend invokes uploadAttachment resolver, resolver succeeds
+      // via api.asApp() and the overall upload succeeds.
+      const mockBlob = new Blob(['test'], { type: 'image/png' });
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: false,
+        status: 403,
+        text: vi.fn().mockResolvedValue('user forbidden'),
+      });
+      mockForgeRequest.mockResolvedValue({});
+      mockForgeCallFunction.mockResolvedValue({
+        ok: true,
+        status: 200,
+        body: JSON.stringify({ results: [{ id: 'rescued-attachment-456' }] }),
+        attachmentId: 'rescued-attachment-456',
+      });
+
+      await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+
+      // Fallback started/succeeded both fired with the right status
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'http_403',
+        'attachment_upload_app_fallback_started',
+        'export',
+        expect.objectContaining({ recovered_from_status: 403 }),
+      );
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'http_403',
+        'attachment_upload_app_fallback_succeeded',
+        'export',
+        expect.objectContaining({
+          recovered_from_status: 403,
+          fallback_attachment_id: 'rescued-attachment-456',
+        }),
+      );
+      // The overall outcome is still success — the existing
+      // attachment_upload_succeeded event fires as if nothing went wrong.
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'created',
+        'attachment_upload_succeeded',
+        'export',
+        expect.objectContaining({
+          attachment_id: 'rescued-attachment-456',
+        }),
+      );
+      // No _failed should have fired
+      expect(mockTrackEvent).not.toHaveBeenCalledWith(
+        expect.any(String),
+        'attachment_upload_failed',
+        expect.any(String),
+        expect.anything(),
+      );
+      expect(mockForgeCallFunction).toHaveBeenCalledWith(
+        'uploadAttachment',
+        expect.objectContaining({
+          pageId: 'page-123',
+          attachmentName: 'zenuml-test-uuid.png',
+          // pngBase64 transport key is present (don't pin the value — depends
+          // on the mock blob's contents)
+          pngBase64: expect.any(String),
+        }),
+      );
+      // New-attachment path → no attachmentId in payload
+      expect(mockForgeCallFunction).toHaveBeenCalledWith(
+        'uploadAttachment',
+        expect.not.objectContaining({ attachmentId: expect.anything() }),
+      );
+    });
+
+    it('should NOT invoke app fallback on non-401/403 errors (avoids burning Forge function quota)', async () => {
+      // 500s, parse errors, network drops etc. must NOT trigger the resolver.
+      // The whole point of keeping the frontend path primary is quota savings.
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const mockBlob = new Blob(['test'], { type: 'image/png' });
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: vi.fn().mockResolvedValue('server error'),
+      });
+
+      await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(
+        /Confluence attachment API returned 500/
+      );
+
+      expect(mockForgeCallFunction).not.toHaveBeenCalled();
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'http_500',
+        'attachment_upload_failed',
+        'export',
+        expect.objectContaining({ http_status: 500 }),
+      );
       consoleErrorSpy.mockRestore();
     });
 

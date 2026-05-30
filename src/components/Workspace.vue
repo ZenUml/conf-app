@@ -19,7 +19,6 @@
       </div>
       <div class="feedback-section flex-shrink-0">
         <CSAT variant="bar" />
-        <AIFeedback />
       </div>
     </div>
   </div>
@@ -31,7 +30,6 @@
   import Header from "@/components/Header/Header.vue";
   import DiagramPortal from "@/components/DiagramPortal.vue";
   import CSAT from '@/components/CSAT/index.vue'
-  import AIFeedback from '@/components/AIFeedback/index.vue'
   import SyntaxErrorBox from '@/components/SyntaxErrorBox.vue'
 
   export default {
@@ -50,7 +48,6 @@
       Header,
       Editor,
       CSAT,
-      AIFeedback,
       SyntaxErrorBox
     }
   }

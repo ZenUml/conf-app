@@ -148,7 +148,7 @@ let timer: number;
 
 onMounted(async () => {
   const isPopped = await checkStateOfCSAT();
-  if (!isPopped && !store.state.lastDiagramWasAI) {
+  if (!isPopped) {
     timer = setTimeout(() => {
       open.value = true;
     }, 1000 * 60)

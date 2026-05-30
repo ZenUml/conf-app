@@ -61,8 +61,6 @@ function makeStore(overrides: Record<string, any> = {}) {
         ...overrides,
       } as any,
       error: null,
-      generating: false,
-      lastDiagramWasAI: false,
       onElementClick: () => {},
     } as any,
   });

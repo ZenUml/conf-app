@@ -38,6 +38,10 @@ The add-on comes in three variants:
 - **Lite Version** (`PRODUCT_TYPE=lite`) — Reduced feature set (free)
 - **Diagramly** (`PRODUCT_TYPE=diagramly`) — Diagramly-branded variant
 
+### The Handbook (internal team site)
+
+The **Handbook** is our internal, team-only knowledge site — *not* customer-facing. It collects what the team needs day to day: developer reference, operations runbooks, pricing/growth strategy, and customer intelligence (profiles, investigations). Because it can contain client-sensitive data, it lives in the **`private/` submodule** (`ZenUml/conf-app-private`), never the public repo. (This replaces the older, narrower "dev site" framing.)
+
 ## Hard rules
 
 ### Pure Forge — no Connect code

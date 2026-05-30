@@ -4,7 +4,7 @@ import {trackEvent} from '@/utils/window';
 import { toast } from '@/utils/toast';
 import global from '@/model/globals';
 import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
-import {forgeRequest} from '@/utils/requestUtil';
+import {forgeRequest, callRemote} from '@/utils/requestUtil';
 import type { Attachment } from '@/model/ConfluenceTypes';
 
 // ============================================================================
@@ -25,6 +25,19 @@ interface AttachmentMeta {
   attachmentId: string;
   versionNumber: number;
   hash: string;
+}
+
+/**
+ * Where a single upload is headed. `isUpdate` distinguishes a new version of an
+ * existing attachment (attachmentId + bumped versionNumber) from a brand-new
+ * attachment. `uri` is the v1 POST target. Shared by the user-side upload and
+ * the app-side fallback so both agree on the destination.
+ */
+interface UploadTarget {
+  isUpdate: boolean;
+  uri: string;
+  attachmentId?: string;
+  versionNumber: number;
 }
 
 /** Attachment with _links property (added by ApWrapper2.getAttachmentsV2) */
@@ -215,18 +228,20 @@ function buildPostRequestToUploadAttachment(uri: string, hash: string, file: Fil
 }
 
 /**
- * Upload an attachment file to Confluence.
- * Returns the ApiResponse and the comment key actually written: if iTXt
- * injection succeeded the key carries the `|itxt:v1` suffix; otherwise it
- * falls back to the bare content hash so future views can retry.
+ * Render the diagram to a PNG blob (best-effort iTXt source injection) and
+ * compute the comment key actually written: if iTXt injection succeeded the
+ * key carries the `|itxt:v1` suffix; otherwise it falls back to the bare
+ * content hash so future views can retry.
+ *
+ * Extracted from the upload so the user-side POST and the app-side fallback
+ * share ONE render — the fallback can't drift from what the user attempted,
+ * and we don't pay for a second screen capture on the recovery path.
  */
-async function uploadAttachment(
-  attachmentName: string,
-  uri: string,
+async function renderAttachmentPng(
   hash: string,
   content?: string,
   diagramType?: string,
-): Promise<{ response: ApiResponse; effectiveHash: string }> {
+): Promise<{ blob: Blob; effectiveHash: string }> {
   let blob = await toPng();
   if (blob && content !== undefined && diagramType) {
     try {
@@ -248,10 +263,42 @@ async function uploadAttachment(
   // Storing the bare hash on failure causes an infinite re-upload loop when
   // toPng() consistently returns a non-PNG blob (e.g. empty diagram → 4 bytes).
   const effectiveHash = diagramType ? `${hash}|${diagramType}|itxt:v1` : hash;
+  return { blob, effectiveHash };
+}
+
+/**
+ * POST the rendered PNG to Confluence as the *viewing user* (the
+ * `@forge/bridge.requestConfluence` path). Throws `AttachmentUploadHttpError`
+ * on a non-2xx response — including the `viewer can't write` 401/403 that the
+ * app-side fallback recovers (issue #166).
+ */
+async function postAttachmentAsUser(
+  attachmentName: string,
+  uri: string,
+  effectiveHash: string,
+  blob: Blob,
+): Promise<ApiResponse> {
   const file = new File([blob], attachmentName, { type: 'image/png' });
   console.debug('Uploading attachment to', uri);
-  const response = await makeRequest(buildPostRequestToUploadAttachment(uri, effectiveHash, file));
-  return { response, effectiveHash };
+  return await makeRequest(buildPostRequestToUploadAttachment(uri, effectiveHash, file));
+}
+
+/**
+ * Convert a Blob to a base64 string (without the `data:` prefix) for shipping
+ * the PNG to the backend fallback over the JSON `callRemote` wire. Uses
+ * FileReader rather than `blob.arrayBuffer()` for jsdom compatibility in tests.
+ */
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result ?? '');
+      const comma = dataUrl.indexOf(',');
+      resolve(comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('FileReader failed'));
+    reader.readAsDataURL(blob);
+  });
 }
 
 /**
@@ -390,75 +437,101 @@ async function tryGetAttachment(): Promise<AttachmentWithLinks | false> {
 }
 
 /**
- * Internal function to upload attachment with hash and URI builder.
+ * Turn the raw upload response into AttachmentMeta, surfacing the two
+ * "HTTP 200 with an error wrapped in the body" shapes the v1 API produces:
+ *   - draft page:  {"statusCode":404,"message":"… status : draft"}  → DraftPageError
+ *   - wrapped 4xx: {"statusCode":403, …}                            → AttachmentUploadHttpError
+ * The wrapped-status check now covers BOTH the new-attachment and new-version
+ * paths, so a 200-wrapped 403 on either path reaches the app fallback
+ * (previously only the new-attachment path looked, so wrapped-403s on updates
+ * slipped through uncaught).
  */
-async function uploadAttachment2(
-  hash: string,
-  fnGetUri: (pageId: string) => string,
-  content?: string,
-  diagramType?: string,
-): Promise<{ response: ApiResponse; effectiveHash: string }> {
-  const pageId = await global.apWrapper._getCurrentPageId();
-  const identifier = await getIdentifier();
-  const attachmentName = attachmentNameByIdentifier(identifier!);
-  const uri = fnGetUri(pageId);
-  return await uploadAttachment(attachmentName, uri, hash, content, diagramType);
-}
+function parseUploadResult(
+  response: ApiResponse,
+  target: UploadTarget,
+  effectiveHash: string,
+): AttachmentMeta {
+  // Parse defensively: the new-version `/data` endpoint can return a non-JSON
+  // body (e.g. plain "success"), so an unparseable body just means there's no
+  // wrapped error to surface — not a failure on its own.
+  let parsed: any;
+  try {
+    parsed = JSON.parse(response.body);
+  } catch {
+    parsed = undefined;
+  }
 
-/**
- * Create a function that uploads a new version of an existing attachment.
- */
-function uploadNewVersionOfAttachment(
-  hash: string,
-  ctx: UploadContext,
-  content?: string,
-  diagramType?: string,
-): () => Promise<AttachmentMeta> {
-  return async () => {
-    const attachment = await tryGetAttachment() as AttachmentWithLinks;
-    const attachmentId = attachment.id;
-    const versionNumber = attachment.version.number + 1;
-    trackEvent('version:' + versionNumber, 'upload_attachment', 'export', ctx);
-    const { effectiveHash } = await uploadAttachment2(hash, (pageId: string) => {
-      return buildAttachmentBasePath(pageId) + '/' + attachmentId + '/data';
-    }, content, diagramType);
-    return { attachmentId, versionNumber, hash: effectiveHash };
-  };
-}
-
-/**
- * Create a function that uploads a new attachment.
- */
-function uploadNewAttachment(
-  hash: string,
-  ctx: UploadContext,
-  content?: string,
-  diagramType?: string,
-): () => Promise<AttachmentMeta> {
-  return async () => {
-    trackEvent('version:1', 'upload_attachment', 'export', ctx);
-    const { response, effectiveHash } = await uploadAttachment2(hash, buildAttachmentBasePath, content, diagramType);
-    const parsed = JSON.parse(response.body);
+  if (parsed) {
     // Option B: Confluence v1 wraps a 404 in a 200 body when the page is a draft.
-    // Body: {"statusCode":404,"message":"No content found … status : draft"}
     if (parsed.statusCode === 404 && String(parsed.message ?? '').includes('status : draft')) {
       throw new DraftPageError(response.body);
     }
-    // Generalisation of the above: any wrapped 4xx/5xx in a 200 body should be
-    // surfaced as an HTTP error rather than falling through to the opaque
-    // "no results" branch. Production logs show 403 bodies like
-    //   {"statusCode":403,"data":{"authorized":true,...}}
-    // which we want labelled `http_403`, not `Error`.
+    // Generalisation: any wrapped 4xx/5xx in a 200 body becomes a typed HTTP
+    // error so the `http_<status>` label applies and the 401/403 fallback fires.
     if (typeof parsed.statusCode === 'number' && parsed.statusCode >= 400) {
       throw new AttachmentUploadHttpError(parsed.statusCode, response.body);
     }
-    const results = parsed.results ?? parsed.data?.results;
-    if (!results?.length) {
-      throw new Error(`Upload succeeded but response has no results: ${response.body}`);
-    }
-    const attachmentId = results[0].id as string;
-    const versionNumber = 1;
-    return { attachmentId, versionNumber, hash: effectiveHash };
+  }
+
+  // A new version reuses the known id + the version we're bumping to; the v1
+  // `/data` response doesn't need parsing for the id.
+  if (target.isUpdate) {
+    return { attachmentId: target.attachmentId!, versionNumber: target.versionNumber, hash: effectiveHash };
+  }
+
+  // A brand-new attachment must yield its id from the v1 results envelope.
+  const results = parsed?.results ?? parsed?.data?.results;
+  if (!results?.length) {
+    throw new Error(`Upload succeeded but response has no results: ${response.body}`);
+  }
+  return { attachmentId: results[0].id as string, versionNumber: 1, hash: effectiveHash };
+}
+
+/**
+ * Recover a viewer-only 401/403 (issue #166) by re-running the COMPLETE write
+ * — attachment data AND the metadata-comment PUT — server-side as the *app*,
+ * via the `/forge-upload-attachment` Cloudflare remote (which receives the app
+ * system token as `x-forge-oauth-system`). The app holds
+ * `write:attachment:confluence`, so it succeeds where the viewer was denied.
+ *
+ * A backend `{ ok:false }` is surfaced as AttachmentUploadHttpError so the
+ * outer analytics catch labels it `http_<status>` exactly like the direct
+ * path — Mixpanel queries stay agnostic to which path produced the failure.
+ */
+async function uploadAttachmentViaApp(
+  pageId: string,
+  target: UploadTarget,
+  attachmentName: string,
+  effectiveHash: string,
+  blob: Blob,
+): Promise<AttachmentMeta> {
+  const pngBase64 = await blobToBase64(blob);
+  let raw: unknown;
+  try {
+    raw = await callRemote('/forge-upload-attachment', 'POST', {
+      pageId,
+      ...(target.attachmentId ? { attachmentId: target.attachmentId } : {}),
+      attachmentName,
+      hash: effectiveHash,
+      versionNumber: target.versionNumber,
+      pngBase64,
+    });
+  } catch (e) {
+    // callRemote throws on a non-2xx transport response (e.g. the function
+    // itself 500'd); normalise so the failure is labelled consistently.
+    throw new AttachmentUploadHttpError(0, `app fallback transport error: ${(e as Error)?.message ?? e}`);
+  }
+  const result: any = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  if (!result?.ok) {
+    throw new AttachmentUploadHttpError(
+      typeof result?.status === 'number' ? result.status : 0,
+      String(result?.body ?? 'app fallback failed'),
+    );
+  }
+  return {
+    attachmentId: String(result.attachmentId ?? target.attachmentId ?? ''),
+    versionNumber: typeof result.versionNumber === 'number' ? result.versionNumber : target.versionNumber,
+    hash: effectiveHash,
   };
 }
 
@@ -551,17 +624,64 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
     const metaKey = diagramType ? `${hash}|${diagramType}|itxt:v1` : hash;
     if (!attachment || metaKey !== attachment.comment) {
       const isUpdate = Boolean(attachment);
-      const attachmentMeta = await (attachment
-        ? uploadNewVersionOfAttachment(hash, ctx, content, diagramType)
-        : uploadNewAttachment(hash, ctx, content, diagramType))();
-      await updateAttachmentProperties(attachmentMeta);
+      const pageId = await global.apWrapper._getCurrentPageId();
+      const identifier = await getIdentifier();
+      const attachmentName = attachmentNameByIdentifier(identifier!);
+      const base = buildAttachmentBasePath(pageId);
+      const target: UploadTarget = isUpdate
+        ? {
+            isUpdate: true,
+            attachmentId: (attachment as AttachmentWithLinks).id,
+            versionNumber: ((attachment as AttachmentWithLinks).version?.number ?? 0) + 1,
+            uri: base + '/' + (attachment as AttachmentWithLinks).id + '/data',
+          }
+        : { isUpdate: false, versionNumber: 1, uri: base };
+
+      trackEvent('version:' + target.versionNumber, 'upload_attachment', 'export', ctx);
+
+      // Render once — the same PNG bytes feed the user attempt AND the fallback.
+      const { blob, effectiveHash } = await renderAttachmentPng(hash, content, diagramType);
+
+      let attachmentMeta: AttachmentMeta;
+      let viaAppFallback = false;
+      try {
+        const response = await postAttachmentAsUser(attachmentName, target.uri, effectiveHash, blob);
+        attachmentMeta = parseUploadResult(response, target, effectiveHash);
+        await updateAttachmentProperties(attachmentMeta);
+      } catch (e) {
+        // Viewer-only users (issue #166) lack attachment-write permission on the
+        // page even though the app does. On 401/403 — whether a real HTTP status
+        // or a 200-wrapped statusCode — re-run the WHOLE write (data + the
+        // properties PUT) server-side as the app. Every other failure (network,
+        // 5xx, parse) re-throws so we don't burn the Forge remote on cases the
+        // app can't fix anyway.
+        if (e instanceof AttachmentUploadHttpError && (e.status === 401 || e.status === 403)) {
+          // Emit BEFORE the fallback call so attempts are counted even when the
+          // backend itself throws. `recovered_from_status` is the headline join.
+          trackEvent(`http_${e.status}`, 'attachment_upload_app_fallback_started', 'export', {
+            ...ctx,
+            recovered_from_status: e.status,
+          });
+          attachmentMeta = await uploadAttachmentViaApp(pageId, target, attachmentName, effectiveHash, blob);
+          viaAppFallback = true;
+          trackEvent(`http_${e.status}`, 'attachment_upload_app_fallback_succeeded', 'export', {
+            ...ctx,
+            recovered_from_status: e.status,
+            fallback_attachment_id: attachmentMeta.attachmentId,
+          });
+        } else {
+          throw e;
+        }
+      }
+
       // Success path — gives us a denominator for `_failed` and tells the
-      // `created` vs `updated` story. Emit AFTER updateAttachmentProperties
-      // so it really did land end-to-end, not just the upload POST.
+      // `created` vs `updated` story. Emit only once the write (and its
+      // properties PUT) really landed, whether via the user or the app path.
       trackEvent(isUpdate ? 'updated' : 'created', 'attachment_upload_succeeded', 'export', {
         ...ctx,
         version_number: attachmentMeta.versionNumber,
         attachment_id: attachmentMeta.attachmentId,
+        via_app_fallback: viaAppFallback,
       });
     } else {
       // Already up to date — this is the expected steady-state for an existing macro.

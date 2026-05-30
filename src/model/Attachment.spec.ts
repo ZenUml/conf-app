@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Use vi.hoisted to define mocks before they're used in vi.mock factories
-const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockRequestConfluence } = vi.hoisted(() => {
+const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCallRemote, mockRequestConfluence } = vi.hoisted(() => {
   const mockTrackEvent = vi.fn();
   const mockApWrapper = {
     _getCurrentPageId: vi.fn(),
@@ -9,13 +9,15 @@ const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockReq
   };
   const mockGetContext = vi.fn();
   const mockForgeRequest = vi.fn();
+  const mockCallRemote = vi.fn();
   const mockRequestConfluence = vi.fn();
-  
+
   return {
     mockTrackEvent,
     mockApWrapper,
     mockGetContext,
     mockForgeRequest,
+    mockCallRemote,
     mockRequestConfluence
   };
 });
@@ -55,7 +57,8 @@ vi.mock('@/model/globals/forgeGlobal', () => ({
 
 // Mock requestUtil
 vi.mock('@/utils/requestUtil', () => ({
-  forgeRequest: (...args: any[]) => mockForgeRequest(...args)
+  forgeRequest: (...args: any[]) => mockForgeRequest(...args),
+  callRemote: (...args: any[]) => mockCallRemote(...args)
 }));
 
 // Mock @forge/bridge
@@ -349,11 +352,10 @@ describe('Attachment', () => {
       consoleErrorSpy.mockRestore();
     });
 
-    it('should label a non-2xx HTTP response from the upload as http_<status>', async () => {
-      // Simulates the 70%-of-fails case where the Forge bridge returns a 403
-      // Response.  Previously this slipped through, the body was JSON.parse'd,
-      // and the error was logged as opaque `Error` / `UnknownError`.
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('should recover a viewer-only 403 via the app fallback (issue #166)', async () => {
+      // The headline scenario: the viewing user lacks attachment-write
+      // permission so the direct upload 403s. The frontend hands the PNG to the
+      // /forge-upload-attachment remote, which writes as the app and succeeds.
       const mockBlob = new Blob(['test'], { type: 'image/png' });
       vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
 
@@ -363,31 +365,59 @@ describe('Attachment', () => {
         status: 403,
         text: vi.fn().mockResolvedValue('Forbidden'),
       });
+      mockCallRemote.mockResolvedValue({ ok: true, attachmentId: 'rescued-456', versionNumber: 1 });
 
-      await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(
-        /Confluence attachment API returned 403/
-      );
+      await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
 
-      expect(mockTrackEvent).toHaveBeenCalledWith(
-        'http_403',
-        'attachment_upload_failed',
-        'export',
+      // The fallback was invoked against the right endpoint with a new-attachment
+      // payload (no attachmentId) and the PNG transported as base64.
+      expect(mockCallRemote).toHaveBeenCalledWith(
+        '/forge-upload-attachment',
+        'POST',
         expect.objectContaining({
-          custom_content_id: 'test-uuid',
-          error_name: 'AttachmentUploadHttpError',
-          http_status: 403,
+          pageId: 'page-123',
+          attachmentName: 'zenuml-test-uuid.png',
+          pngBase64: expect.any(String),
         }),
       );
-      expect((window as any).createAttachmentInProgress).toBe(false);
-      consoleErrorSpy.mockRestore();
+      expect(mockCallRemote).toHaveBeenCalledWith(
+        '/forge-upload-attachment',
+        'POST',
+        expect.not.objectContaining({ attachmentId: expect.anything() }),
+      );
+      // Fallback started + succeeded both fired with the recovered status.
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'http_403',
+        'attachment_upload_app_fallback_started',
+        'export',
+        expect.objectContaining({ recovered_from_status: 403 }),
+      );
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'http_403',
+        'attachment_upload_app_fallback_succeeded',
+        'export',
+        expect.objectContaining({ recovered_from_status: 403, fallback_attachment_id: 'rescued-456' }),
+      );
+      // Overall outcome is success — and flagged as a fallback so analysts can
+      // measure recovery rate.
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'created',
+        'attachment_upload_succeeded',
+        'export',
+        expect.objectContaining({ attachment_id: 'rescued-456', via_app_fallback: true }),
+      );
+      // No _failed should fire, and the user-side properties PUT must NOT run
+      // (the app did the whole write, including the comment PUT).
+      expect(mockTrackEvent).not.toHaveBeenCalledWith(
+        expect.any(String), 'attachment_upload_failed', expect.any(String), expect.anything(),
+      );
+      expect(mockForgeRequest).not.toHaveBeenCalled();
     });
 
-    it('should label a wrapped non-2xx statusCode in a 200 body as http_<status>', async () => {
-      // Simulates the production sample: HTTP 200 OK with a body like
-      //   {"statusCode":403,"data":{"authorized":true,...}}
-      // The legacy draft-page handler only matched statusCode === 404; this
-      // generalises to any wrapped 4xx/5xx.
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('should recover a 200-wrapped 403 body via the app fallback', async () => {
+      // The most common observed shape: HTTP 200 OK with {"statusCode":403,...}
+      // in the body. This previously slipped past the fallback entirely; now it
+      // is surfaced as a 403 and recovered the same way as a real HTTP 403.
       const mockBlob = new Blob(['test'], { type: 'image/png' });
       vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
 
@@ -399,6 +429,34 @@ describe('Attachment', () => {
           JSON.stringify({ statusCode: 403, data: { authorized: true, valid: false } })
         ),
       });
+      mockCallRemote.mockResolvedValue({ ok: true, attachmentId: 'rescued-789', versionNumber: 1 });
+
+      await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+
+      expect(mockCallRemote).toHaveBeenCalledWith('/forge-upload-attachment', 'POST', expect.anything());
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'http_403',
+        'attachment_upload_app_fallback_succeeded',
+        'export',
+        expect.objectContaining({ fallback_attachment_id: 'rescued-789' }),
+      );
+    });
+
+    it('should label http_<status> when the app fallback ALSO fails', async () => {
+      // Rare: the user 403s AND the app-side write is rejected too (would mean
+      // the app's write:attachment scope doesn't cover this page). The fallback
+      // failure is re-labelled with the same http_<status> scheme.
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const mockBlob = new Blob(['test'], { type: 'image/png' });
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: false,
+        status: 403,
+        text: vi.fn().mockResolvedValue('Forbidden'),
+      });
+      mockCallRemote.mockResolvedValue({ ok: false, status: 403, body: 'app forbidden too' });
 
       await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(
         /Confluence attachment API returned 403/
@@ -406,13 +464,44 @@ describe('Attachment', () => {
 
       expect(mockTrackEvent).toHaveBeenCalledWith(
         'http_403',
+        'attachment_upload_app_fallback_started',
+        'export',
+        expect.objectContaining({ recovered_from_status: 403 }),
+      );
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'http_403',
         'attachment_upload_failed',
         'export',
-        expect.objectContaining({
-          custom_content_id: 'test-uuid',
-          error_name: 'AttachmentUploadHttpError',
-          http_status: 403,
-        }),
+        expect.objectContaining({ custom_content_id: 'test-uuid', http_status: 403 }),
+      );
+      expect((window as any).createAttachmentInProgress).toBe(false);
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should NOT invoke the app fallback on a 5xx (Forge function-quota guard)', async () => {
+      // Only 401/403 (the viewer-permission cases) route to the resolver. 5xx,
+      // network drops, parse errors must re-throw without spending a remote call.
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const mockBlob = new Blob(['test'], { type: 'image/png' });
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: vi.fn().mockResolvedValue('server error'),
+      });
+
+      await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(
+        /Confluence attachment API returned 500/
+      );
+
+      expect(mockCallRemote).not.toHaveBeenCalled();
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'http_500',
+        'attachment_upload_failed',
+        'export',
+        expect.objectContaining({ http_status: 500 }),
       );
       consoleErrorSpy.mockRestore();
     });

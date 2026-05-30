@@ -174,7 +174,11 @@ const refreshing = ref(false)
 const error = ref<string | null>(null)
 const searchTerm = ref('')
 const sortBy = ref<'updated' | 'created' | 'name'>('updated')
-const statusFilter = ref<'all' | 'current' | 'archived'>('all')
+// Default to 'current' so archived/trashed docs are hidden until the
+// user explicitly switches to "Archived" or "All Documents". Matches
+// the way the legacy AsyncAPI-Conf-V2 dashboard treated soft-deleted
+// records.
+const statusFilter = ref<'all' | 'current' | 'archived'>('current')
 const lastRefreshAt = ref<Date | null>(null)
 const spaceKey = ref<string | null>(null)
 const indexingNotice = ref(false)
@@ -259,7 +263,12 @@ async function loadDocuments(isRefresh = false): Promise<void> {
         // first means the dashboard card surfaces the user-chosen name
         // immediately, regardless of whether the title write race-loses.
         const title = parsed.title || entry.title || v.title || 'Untitled AsyncAPI'
-        const status = (entry as any).status as string | undefined
+        // Status precedence: the body's `status` field is the source of
+        // truth for archived/trashed (Archive sets it via PUT — see
+        // confirmDelete). Fall back to the v2 record's top-level
+        // `status` only when the body doesn't carry one.
+        const status = (v as any).status as string | undefined
+          || (entry as any).status as string | undefined
         const createdAt = (entry as any).createdAt as string | undefined
         const updatedAt = (entry.version && (entry.version.createdAt as string)) || undefined
         const pageId = (entry as any).pageId ? String((entry as any).pageId) : undefined
@@ -438,18 +447,76 @@ async function openEdit(doc: AsyncApiDoc) {
 async function confirmDelete(doc: AsyncApiDoc) {
   if (!doc.contentId) return
   const confirmed = window.confirm(
-    `Archive "${doc.displayTitle}"? It will be moved to trash and can be restored from Confluence.`,
+    `Archive "${doc.displayTitle}"? The document will be marked archived; you can restore it later by editing the entry's title back.`,
   )
   if (!confirmed) return
 
   try {
+    // Soft-delete via PUT, not HTTP DELETE.
+    //
+    // We initially used DELETE /wiki/api/v2/custom-content/{id} but it
+    // returned 401 over the Forge bridge: the app's `write:custom-content
+    // :confluence` scope grants create/update permission for content the
+    // app owns, but the v2 DELETE endpoint requires the caller to be the
+    // content's author or a content admin — and `ac:my-api:async-api-doc`
+    // records that pre-date the Forge migration were authored by the
+    // legacy Connect app's runtime account, not by the user / current
+    // Forge app, so DELETE 401s.
+    //
+    // The standalone AsyncAPI-Conf-V2 worked around this with a PUT
+    // update that marks the body's status as 'trashed' and appends
+    // " (Deleted)" to the title — same record, same author, no delete
+    // permission needed. That's the path here too: load the existing v2
+    // record, PUT a new version with `status: 'trashed'` in the body
+    // and the title suffix, increment version. Dashboard search then
+    // filters by parsed body.status when the user picks "Active" in the
+    // status dropdown.
     const { requestConfluence } = await import('@forge/bridge')
-    const response = await requestConfluence(`/wiki/api/v2/custom-content/${doc.contentId}`, {
-      method: 'DELETE',
-    })
-    if (!response.ok && response.status !== 204) {
-      throw new Error(`Archive failed: HTTP ${response.status}`)
+    const getResp = await requestConfluence(
+      `/wiki/api/v2/custom-content/${doc.contentId}?body-format=raw`,
+      { method: 'GET', headers: { Accept: 'application/json' } },
+    )
+    if (!getResp.ok) {
+      throw new Error(`Archive failed: load returned HTTP ${getResp.status}`)
     }
+    const existing = await getResp.json()
+    let existingBody: any = {}
+    try {
+      existingBody = JSON.parse(existing.body?.raw?.value || '{}')
+    } catch {
+      existingBody = {}
+    }
+    const newBody = {
+      ...existingBody,
+      status: 'trashed',
+      // Drop legacy `schema` if present (Conf-V2 carried both `code` and
+      // `schema`; current variant only uses `code`).
+      schema: undefined,
+    }
+    const cleanTitle = doc.displayTitle.replace(/\s*\(Deleted\)\s*$/, '')
+    const putBody: any = {
+      id: existing.id,
+      type: existing.type,
+      status: 'current',
+      title: `${cleanTitle} (Deleted)`,
+      body: {
+        value: JSON.stringify(newBody),
+        representation: 'raw',
+      },
+      version: { number: (existing.version?.number || 0) + 1 },
+    }
+    if (existing.pageId) putBody.pageId = existing.pageId
+    else if (existing.spaceId) putBody.spaceId = existing.spaceId
+    const putResp = await requestConfluence(`/wiki/api/v2/custom-content/${doc.contentId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(putBody),
+    })
+    if (!putResp.ok) {
+      throw new Error(`Archive failed: HTTP ${putResp.status}`)
+    }
+    // Optimistic local update: remove the card from the in-memory list
+    // and trigger a refresh.
     documents.value = documents.value.filter((d) => d.id !== doc.id)
     await loadDocuments(true)
   } catch (err) {

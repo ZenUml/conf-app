@@ -4,6 +4,7 @@ import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
 import { toast } from '@/utils/toast';
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
+import { decideWriteback } from "@/model/writebackGate";
 
 import './assets/tailwind.css'
 import { saveToPlatform } from "./model/ContentProvider/Persistence";
@@ -653,11 +654,16 @@ EventBus.$on('save', async () => {
     // repoint the macro at the recovered sibling id, or (d) we migrated a
     // legacy uuid-only macro and must write customContentId for the first time.
     const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
-    const repairWillPersist = inserting || configuring;
-    const attemptRepair = repairWillPersist && macroNeedsRepair;
-    const attemptLegacyMigration = repairWillPersist && legacyMacroNeedsRepair && !!id;
     const idChanged = !!sourceId && !!id && id !== sourceId;
-    const needsWriteback = inserting || idChanged || attemptRepair || attemptLegacyMigration;
+    // #170: never view.submit in a non-submittable surface — see writebackGate.ts.
+    const { attemptRepair, attemptLegacyMigration, needsWriteback } = decideWriteback({
+      inserting: !!inserting,
+      configuring: !!configuring,
+      idChanged,
+      macroNeedsRepair,
+      legacyMacroNeedsRepair,
+      hasId: !!id,
+    });
     try {
       if (needsWriteback) {
         await (await getView()).submit({config: {

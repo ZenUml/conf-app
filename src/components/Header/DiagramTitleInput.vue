@@ -106,7 +106,10 @@ onBeforeUnmount(() => {
 <style scoped>
 @keyframes autoname-spark-fadein { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: scale(1); } }
 @keyframes autoname-spark-fadeout { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.6); } }
-.autoname-spark-in { animation: autoname-spark-fadein 300ms ease-out forwards; }
+/* Gentle twinkle while a title is being generated/typed, so the spark reads as "working". */
+@keyframes autoname-spark-pulse { 0%, 100% { transform: scale(1); opacity: 0.8; } 50% { transform: scale(1.2); opacity: 1; } }
+/* Fade in once, then pulse continuously until the spark fades out in Phase 3. */
+.autoname-spark-in { animation: autoname-spark-fadein 300ms ease-out, autoname-spark-pulse 1.1s ease-in-out 300ms infinite; }
 .autoname-spark-out { animation: autoname-spark-fadeout 400ms ease-in forwards; }
 
 @keyframes autoname-blink { 0%, 100% { border-right-color: #7C3AED; } 50% { border-right-color: transparent; } }

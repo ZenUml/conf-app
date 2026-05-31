@@ -3,6 +3,7 @@ import {CustomContentStorageProvider} from "@/model/ContentProvider/CustomConten
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import type { MacroTypeValue } from "@/utils/analytics/catalog";
 import ApWrapper2 from "@/model/ApWrapper2";
+import { markCsatPending } from "@/utils/csat";
 import { syncCustomContent } from "@/services/CustomContent";
 import globals from '@/model/globals';
 import forgeGlobal from '@/model/globals/forgeGlobal';
@@ -89,6 +90,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
         ...savedIdProps,
       });
     }
+    markCsatPending();
   }
 
   // Report metrics on save (updates KV cache for all users)

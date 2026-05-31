@@ -49,6 +49,21 @@ export default function useCSATState() {
     return true;
   };
 
+  /**
+   * Remove this user's suppression synchronously (the inverse of
+   * markSuppressed). Used by Undo so dismissing-then-undoing fully restores
+   * the un-suppressed state. Returns false if no account is cached yet.
+   */
+  const clearSuppressed = (): boolean => {
+    if (!account.value) return false;
+    const localState = getLocalState(STORAGE_KEY, DEFAULT_STATE);
+    if (localState.users[account.value.atlassianAccountId]) {
+      delete localState.users[account.value.atlassianAccountId];
+      setLocalState(STORAGE_KEY, localState);
+    }
+    return true;
+  };
+
   /** Async suppression for callers without a pre-resolved account. */
   const updateStateOfCSAT = async () => {
     await ensureAccount();
@@ -59,5 +74,6 @@ export default function useCSATState() {
     checkStateOfCSAT,
     updateStateOfCSAT,
     markSuppressed,
+    clearSuppressed,
   };
 }

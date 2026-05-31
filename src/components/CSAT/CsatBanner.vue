@@ -89,7 +89,7 @@ const score = ref<number | null>(null);
 const hovered = ref<number | null>(null);
 const feedbackText = ref('');
 
-const { checkStateOfCSAT, markSuppressed } = useCSATState();
+const { checkStateOfCSAT, markSuppressed, clearSuppressed } = useCSATState();
 
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -127,15 +127,22 @@ function selectScore(val: number) {
 }
 
 /**
- * Persist 3-month suppression. Synchronous + best-effort: the account was
- * already resolved by checkStateOfCSAT() at mount, so this writes immediately
- * — it lands before view.close() and never blocks or delays the close.
+ * Persist / remove 3-month suppression. Synchronous + best-effort: the account
+ * was resolved by checkStateOfCSAT() at mount, so both write immediately —
+ * coupled to the user action, not to any close timer, and never blocking close.
  */
 function suppress() {
   try {
     markSuppressed();
   } catch (e) {
     console.warn('[csat] suppression update failed', e);
+  }
+}
+function unsuppress() {
+  try {
+    clearSuppressed();
+  } catch (e) {
+    console.warn('[csat] suppression clear failed', e);
   }
 }
 
@@ -153,12 +160,10 @@ function submit() {
 
 function dismiss() {
   phase.value = 'dismissed';
-  // Suppress only when the dismissal settles, so Undo can fully revert it.
-  // The write is synchronous, so it completes before view.close().
-  closeTimer = setTimeout(() => {
-    suppress();
-    view.close();
-  }, 2500);
+  // Persist suppression at the moment of the dismiss action, so it survives
+  // even if the iframe is torn down during the Undo window. Undo reverses it.
+  suppress();
+  closeTimer = setTimeout(() => view.close(), 2500);
 }
 
 function undo() {
@@ -166,6 +171,7 @@ function undo() {
     clearTimeout(closeTimer);
     closeTimer = null;
   }
+  unsuppress();
   phase.value = 'rate';
   score.value = null;
   feedbackText.value = '';

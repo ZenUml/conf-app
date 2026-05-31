@@ -43,4 +43,20 @@ describe('useCSATState.markSuppressed', () => {
     // One lookup total — markSuppressed must not trigger a second _getCurrentUser.
     expect(getCurrentUser).toHaveBeenCalledTimes(1);
   });
+
+  it('clearSuppressed reverses a suppression synchronously (Undo path)', async () => {
+    const { checkStateOfCSAT, markSuppressed, clearSuppressed } = useCSATState();
+    await checkStateOfCSAT();
+
+    expect(markSuppressed()).toBe(true);
+    expect(await useCSATState().checkStateOfCSAT()).toBeTruthy(); // suppressed
+
+    expect(clearSuppressed()).toBe(true);
+    expect(await useCSATState().checkStateOfCSAT()).toBeFalsy(); // restored
+  });
+
+  it('clearSuppressed returns false before an account is resolved', () => {
+    const { clearSuppressed } = useCSATState();
+    expect(clearSuppressed()).toBe(false);
+  });
 });

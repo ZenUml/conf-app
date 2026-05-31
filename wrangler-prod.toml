@@ -46,3 +46,6 @@ id = "fe9042cb20994651b0a2ef9e68f9037c"
 [ai]
 binding = "AI"
 
+[env.production.ai]
+binding = "AI"
+

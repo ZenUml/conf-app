@@ -1,0 +1,280 @@
+<template>
+  <div v-if="phase !== 'hidden'" class="pb-bar">
+    <!-- Dismissed state -->
+    <template v-if="phase === 'dismissed'">
+      <span class="pb-inline">
+        <svg class="pb-check" viewBox="0 0 24 24" fill="none" stroke="#22A06B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M20 6 9 17l-5-5" /></svg>
+        We'll check back in a few months.
+        <button class="pb-link" @click="undo">Undo</button>
+      </span>
+      <span class="pb-spacer" />
+    </template>
+
+    <!-- Thanks state -->
+    <template v-else-if="phase === 'thanks'">
+      <span class="pb-inline">
+        <svg class="pb-check" viewBox="0 0 24 24" fill="none" stroke="#22A06B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M20 6 9 17l-5-5" /></svg>
+        <strong>Thanks!</strong>&nbsp;This helps us improve ZenUML.
+      </span>
+      <span class="pb-spacer" />
+    </template>
+
+    <!-- Rate / feedback state -->
+    <template v-else>
+      <span class="pb-label">How's ZenUML working for you?</span>
+
+      <div class="pb-faces" role="radiogroup" aria-label="Rate your experience" @mouseleave="hovered = null">
+        <button
+          v-for="(_, i) in 5"
+          :key="i"
+          class="pb-face-btn"
+          :class="{ 'pb-face-selected': score === i, 'pb-face-dim': score !== null && score !== i }"
+          role="radio"
+          :aria-checked="score === i"
+          :aria-label="`${i + 1} of 5 — ${LABELS[i]}`"
+          :title="LABELS[i]"
+          @mouseenter="hovered = i"
+          @click="selectScore(i)"
+        >
+          <svg class="pb-face-svg" viewBox="0 0 24 24" fill="none"
+               :stroke="(hovered === i || score === i) ? '#0C66E4' : '#626F86'"
+               stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+               width="22" height="22">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M9 9.7 v1.1" />
+            <path d="M15 9.7 v1.1" />
+            <path :d="MOUTHS[i]" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Inline comment + send, animated in on rating -->
+      <div v-if="phase === 'feedback'" class="pb-feedback-row">
+        <input
+          v-model="feedbackText"
+          class="pb-input"
+          placeholder="Add a comment (optional)"
+          autofocus
+          @keydown.enter="submit"
+        />
+        <button class="pb-link pb-link-brand" @click="submit">Send</button>
+      </div>
+
+      <span class="pb-spacer" />
+      <button class="pb-link" @click="dismiss">Dismiss</button>
+    </template>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue';
+import { view } from '@forge/bridge';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import useCSATState from '@/hooks/useCSATState';
+
+const PENDING_KEY = 'csatPending';
+const PENDING_MAX_AGE_MS = 10 * 60 * 1000;
+
+const LABELS = ['Very poor', 'Poor', 'OK', 'Good', 'Great'];
+const MOUTHS = [
+  'M8.5 16.4 Q12 13.4 15.5 16.4',
+  'M8.6 15.7 Q12 14.4 15.4 15.7',
+  'M9 15.2 H15',
+  'M8.6 14.7 Q12 16.3 15.4 14.7',
+  'M8.2 14.3 Q12 17.2 15.8 14.3',
+];
+
+type Phase = 'hidden' | 'rate' | 'feedback' | 'thanks' | 'dismissed';
+
+const phase = ref<Phase>('hidden');
+const score = ref<number | null>(null);
+const hovered = ref<number | null>(null);
+const feedbackText = ref('');
+
+const { checkStateOfCSAT, updateStateOfCSAT } = useCSATState();
+
+onMounted(async () => {
+  const pending = localStorage.getItem(PENDING_KEY);
+  const pendingTs = pending ? Number(pending) : 0;
+  const isFresh = pendingTs && (Date.now() - pendingTs < PENDING_MAX_AGE_MS);
+
+  const suppressed = await checkStateOfCSAT();
+
+  if (!isFresh || suppressed) {
+    view.close();
+    return;
+  }
+
+  localStorage.removeItem(PENDING_KEY);
+  phase.value = 'rate';
+});
+
+function selectScore(val: number) {
+  score.value = val;
+  phase.value = 'feedback';
+}
+
+async function submit() {
+  trackAnalyticsEvent('csat_submitted', {
+    feature_area: 'feedback',
+    surface: 'editor',
+    feedback_score: score.value ?? undefined,
+    feedback_text: feedbackText.value || undefined,
+  } as any);
+  phase.value = 'thanks';
+  await updateStateOfCSAT();
+  setTimeout(() => view.close(), 3000);
+}
+
+async function dismiss() {
+  phase.value = 'dismissed';
+  await updateStateOfCSAT();
+  setTimeout(() => view.close(), 2500);
+}
+
+function undo() {
+  phase.value = 'rate';
+  score.value = null;
+  feedbackText.value = '';
+}
+</script>
+
+<style scoped>
+.pb-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  background: #F7F8F9;
+  border-bottom: 1px solid #DCDFE4;
+  min-height: 46px;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+}
+
+.pb-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #44546F;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.pb-faces {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.pb-face-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 7px;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
+  transition: background 0.14s, transform 0.14s cubic-bezier(0.16, 0.84, 0.44, 1);
+}
+
+.pb-face-btn:hover {
+  background: rgba(9, 30, 66, 0.06);
+  transform: translateY(-1px) scale(1.08);
+}
+
+.pb-face-selected {
+  background: rgba(12, 102, 228, 0.08);
+}
+
+.pb-face-dim {
+  opacity: 0.5;
+}
+
+.pb-face-svg {
+  transition: stroke 0.15s;
+  flex-shrink: 0;
+}
+
+.pb-feedback-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 460px;
+  animation: pb-fade 0.2s ease both;
+}
+
+.pb-input {
+  flex: 1;
+  height: 32px;
+  border: 1px solid #DCDFE4;
+  border-radius: 6px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: #172B4D;
+  font-family: inherit;
+  outline: none;
+  background: #fff;
+  min-width: 0;
+}
+
+.pb-input:focus {
+  border-color: #0C66E4;
+  box-shadow: 0 0 0 2px rgba(12, 102, 228, 0.13);
+}
+
+.pb-spacer {
+  flex: 1;
+}
+
+.pb-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #44546F;
+}
+
+.pb-inline strong {
+  color: #172B4D;
+}
+
+.pb-check {
+  flex-shrink: 0;
+}
+
+.pb-link {
+  background: transparent;
+  color: #44546F;
+  border: 0;
+  padding: 6px 4px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.pb-link:hover {
+  color: #172B4D;
+  text-decoration: underline;
+}
+
+.pb-link-brand {
+  color: #0C66E4;
+}
+
+.pb-link-brand:hover {
+  color: #0055CC;
+}
+
+@keyframes pb-fade {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+</style>

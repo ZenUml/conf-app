@@ -88,6 +88,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
         operation_mode: "edit",
         ...savedIdProps,
       });
+      localStorage.setItem('csatPending', String(Date.now()));
     }
   }
 

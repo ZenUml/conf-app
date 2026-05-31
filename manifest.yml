@@ -274,6 +274,9 @@ modules:
       route: zenuml-dashboard
       resolver:
         endpoint: remote-connect
+  confluence:pageBanner:
+    - key: zenuml-csat-banner
+      resource: main
   confluence:contentBylineItem: #Note: This module is applicable for "Diagramly for Confluence", not "ZenUML for Confluence"
     - key: zenuml-byline-aiaide
       resource: main

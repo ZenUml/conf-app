@@ -71,9 +71,16 @@ async function initializeCriticalPath() {
       return { macroData: null };
     }
 
-    // Check if this is a content byine item route (AI Aide)
+    // Check if this is a content byline item route (AI Aide)
     if (context.extension?.type === 'confluence:contentBylineItem') {
       await handleAiAideRoute();
+      return { macroData: null };
+    }
+
+    // Check if this is the CSAT page banner
+    if (context.extension?.type === 'confluence:pageBanner') {
+      const { handleCsatBannerRoute } = await import('./routes/csatBanner');
+      await handleCsatBannerRoute();
       return { macroData: null };
     }
 
@@ -107,7 +114,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const context = await initForgeContext();
 
     // Skip loading heavy components if this is a global settings or global page context
-    if (['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem'].includes(context.extension?.type)) {
+    if (['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:pageBanner'].includes(context.extension?.type)) {
       console.log('Skipping heavy components load for global context');
       return;
     }

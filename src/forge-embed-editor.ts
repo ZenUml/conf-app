@@ -59,6 +59,7 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
       operation_mode: "edit",
       ...savedIdProps,
     });
+    localStorage.setItem('csatPending', String(Date.now()));
   }
 
   if (getEditJourneyId()) {

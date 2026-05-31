@@ -151,4 +151,35 @@ describe('useAutoTitle', () => {
     expect(aiGenerateTitle).toHaveBeenNthCalledWith(1, { dsl: 'sequenceDiagram\n A->>B: hi', type: 'sequence' })
     expect(aiGenerateTitle).toHaveBeenNthCalledWith(2, { dsl: '@startuml\nA->B\n@enduml', type: 'plantuml' })
   })
+
+  it('reset() clears per-document guards so a fresh diagram can auto-title', async () => {
+    vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Order Checkout'))
+    const { initFlag, generate, dismiss, reset } = useAutoTitle()
+    await initFlag()
+    const p = generate('init', SEQ)
+    await runAnimation('Order Checkout')
+    await p
+    dismiss()
+    reset()
+    fakeStore.state.diagram.title = ''
+    const p2 = generate('init', SEQ)
+    await runAnimation('Order Checkout')
+    await p2
+    expect(aiGenerateTitle).toHaveBeenCalledTimes(2)
+  })
+
+  it('manual edit mid-typewriter stops animation and clears displayedTitle', async () => {
+    vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Order Checkout Process'))
+    const { initFlag, generate, markManualEdit, displayedTitle, isAnimating } = useAutoTitle()
+    await initFlag()
+    const p = generate('init', SEQ)
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(TYPEWRITER_MS_PER_CHAR * 3)
+    markManualEdit()
+    expect(isAnimating.value).toBe(false)
+    expect(displayedTitle.value).toBe('')
+    await vi.advanceTimersByTimeAsync(500)
+    await p
+    expect(fakeStore.dispatch).not.toHaveBeenCalledWith('updateTitle', 'Order Checkout Process')
+  })
 })

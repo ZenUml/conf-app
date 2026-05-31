@@ -25,6 +25,7 @@ let flagLoaded = false
 
 const MERMAID_TYPE_MAP: Record<string, string> = {
   graph: 'flow chart',
+  flowchart: 'flow chart',
   sequenceDiagram: 'sequence',
   gantt: 'gantt chart',
   classDiagram: 'class',
@@ -72,6 +73,7 @@ function typeOut(title: string, token: number): Promise<void> {
 function resetGenerating(): void {
   isGeneratingTitle.value = false
   isAnimating.value = false
+  displayedTitle.value = ''
   showSpark.value = false
   sparkFadingOut.value = false
   showDismiss.value = false
@@ -103,14 +105,14 @@ export function useAutoTitle() {
       if (trigger === 'user') toast({ message: 'Add some diagram code first', duration: 3000 })
       return
     }
+    const contentHash = hashString(code)
     if (trigger === 'init') {
       if (hasManuallyEditedTitle.value) return
       if ((currentTitle || '').trim()) return
-      if (hashString(code) === lastGeneratedContentHash.value) return
+      if (contentHash === lastGeneratedContentHash.value) return
     }
 
     const token = ++genToken
-    const contentHash = hashString(code)
     isGeneratingTitle.value = true
     autoNameAnimationDone.value = false
     showSpark.value = true
@@ -120,7 +122,9 @@ export function useAutoTitle() {
       const res: any = await aiGenerateTitle({ dsl: code, type: titleTypeParam(diagramType, code) })
       if (token !== genToken) return
       if (!res.ok) {
-        if (trigger === 'user') toast({ message: await res.text(), duration: 3000 })
+        const errText = await res.text()
+        if (token !== genToken) return
+        if (trigger === 'user') toast({ message: errText, duration: 3000 })
         resetGenerating()
         return
       }
@@ -178,6 +182,19 @@ export function useAutoTitle() {
     resetGenerating()
   }
 
+  function reset(): void {
+    genToken += 1
+    isGeneratingTitle.value = false
+    isAnimating.value = false
+    displayedTitle.value = ''
+    showSpark.value = false
+    sparkFadingOut.value = false
+    showDismiss.value = false
+    autoNameAnimationDone.value = false
+    hasManuallyEditedTitle.value = false
+    lastGeneratedContentHash.value = null
+  }
+
   return {
     aiTitleEnabled,
     isGeneratingTitle,
@@ -192,6 +209,7 @@ export function useAutoTitle() {
     generate,
     dismiss,
     markManualEdit,
+    reset,
   }
 }
 

@@ -89,7 +89,7 @@ const score = ref<number | null>(null);
 const hovered = ref<number | null>(null);
 const feedbackText = ref('');
 
-const { checkStateOfCSAT, updateStateOfCSAT } = useCSATState();
+const { checkStateOfCSAT, markSuppressed } = useCSATState();
 
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -126,9 +126,17 @@ function selectScore(val: number) {
   phase.value = 'feedback';
 }
 
-/** Persist 3-month suppression. Best-effort: never block the banner close. */
+/**
+ * Persist 3-month suppression. Synchronous + best-effort: the account was
+ * already resolved by checkStateOfCSAT() at mount, so this writes immediately
+ * — it lands before view.close() and never blocks or delays the close.
+ */
 function suppress() {
-  updateStateOfCSAT().catch((e) => console.warn('[csat] suppression update failed', e));
+  try {
+    markSuppressed();
+  } catch (e) {
+    console.warn('[csat] suppression update failed', e);
+  }
 }
 
 function submit() {
@@ -139,7 +147,6 @@ function submit() {
     feedback_text: feedbackText.value || undefined,
   } as any);
   phase.value = 'thanks';
-  // No Undo from 'thanks' — suppress eagerly, but close regardless of its fate.
   suppress();
   closeTimer = setTimeout(() => view.close(), 3000);
 }
@@ -147,7 +154,7 @@ function submit() {
 function dismiss() {
   phase.value = 'dismissed';
   // Suppress only when the dismissal settles, so Undo can fully revert it.
-  // Eager suppression would strand a user who clicks Undo for 3 months.
+  // The write is synchronous, so it completes before view.close().
   closeTimer = setTimeout(() => {
     suppress();
     view.close();

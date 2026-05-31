@@ -46,7 +46,7 @@ const AUTO_DEBOUNCE_MS = 1500
 const {
   aiTitleEnabled, isGeneratingTitle, isAnimating, displayedTitle,
   showSpark, sparkFadingOut, showDismiss,
-  initFlag, generate, dismiss, markManualEdit, reset,
+  initFlag, generate, dismiss, markManualEdit, onTitleCleared, reset,
 } = useAutoTitle()
 
 const titleError = ref(false)
@@ -67,8 +67,14 @@ function scheduleAutoGenerate() {
 
 function onInput(e: Event) {
   titleError.value = false
-  markManualEdit()
-  store.dispatch('updateTitle', (e.target as HTMLInputElement).value)
+  const newVal = (e.target as HTMLInputElement).value
+  if (newVal) {
+    markManualEdit()
+  } else {
+    onTitleCleared()
+    scheduleAutoGenerate()
+  }
+  store.dispatch('updateTitle', newVal)
 }
 
 function onManualGenerate() {

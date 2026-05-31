@@ -50,6 +50,17 @@ describe('DiagramTitleInput', () => {
     expect((useAutoTitle() as any).hasManuallyEditedTitle.value).toBe(true)
   })
 
+  it('re-enables auto-generation when user clears the title', async () => {
+    const wrapper = mount(DiagramTitleInput)
+    await flushPromises()
+    // Type a title — locks auto-gen
+    await wrapper.find('input').setValue('My title')
+    expect((useAutoTitle() as any).hasManuallyEditedTitle.value).toBe(true)
+    // Clear the title — should re-enable auto-gen
+    await wrapper.find('input').setValue('')
+    expect((useAutoTitle() as any).hasManuallyEditedTitle.value).toBe(false)
+  })
+
   it('flashes the error border on the flash-title-error event', async () => {
     const wrapper = mount(DiagramTitleInput)
     await flushPromises()

@@ -196,6 +196,11 @@ export function useAutoTitle() {
     resetGenerating()
   }
 
+  function onTitleCleared(): void {
+    hasManuallyEditedTitle.value = false
+    lastGeneratedContentHash.value = null
+  }
+
   function reset(): void {
     genToken += 1
     isGeneratingTitle.value = false
@@ -223,6 +228,7 @@ export function useAutoTitle() {
     generate,
     dismiss,
     markManualEdit,
+    onTitleCleared,
     reset,
   }
 }

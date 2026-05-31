@@ -22,7 +22,7 @@
       <IconDismiss />
     </button>
 
-    <div v-if="aiTitleEnabled" class="pr-1 flex items-center flex-shrink-0">
+    <div class="pr-1 flex items-center flex-shrink-0">
       <button class="rounded-md p-1 text-gray-600 hover:bg-gray-200 transition-colors duration-200"
         :class="{ 'pointer-events-none opacity-50 cursor-not-allowed': isGeneratingTitle }"
         title="Generate title with AI" :disabled="isGeneratingTitle" @click="onManualGenerate">

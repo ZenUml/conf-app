@@ -873,6 +873,88 @@ describe('ApWrapper2', () => {
     });
   });
 
+  // ZEN-#169 / Fix 1a — the create-vs-update guard in saveCustomContentV2.
+  //
+  // `count` here is AtlasPage.countMacros(), which reads the PUBLISHED page
+  // body (the Forge iframe can't see the editor's draft). The guard decides
+  // whether to UPDATE the existing custom content in place or CREATE (fork) a
+  // new one. The bug: it forked whenever count !== 1, so a macro whose
+  // customContentId binding lives only in an unpublished draft (count === 0,
+  // because the published body has no macro referencing it) forked a fresh cc
+  // on every save — orphaning the edit and, in the non-submittable in-viewer
+  // modal, throwing on the config writeback.
+  //
+  // Fix 1a: treat count <= 1 as "safe to update in place" (0 = draft-only
+  // binding / orphan, 1 = the normal single macro). count > 1 still forks —
+  // that is a genuine same-page duplicate (copy). These tests lock that
+  // truth table so the fork can never silently come back for count === 0.
+  describe('saveCustomContentV2 — draft-only binding update guard (ZEN-#169 / 1a)', () => {
+    const ccId = '5690394053';
+
+    // GET existence-check response: a healthy cc that lives on the current page
+    // (pageId 456 — the AtlasPage mock's getPageId, so samePage === true).
+    function mockExistence() {
+      return {
+        id: ccId,
+        pageId: '456',
+        type: 'ac:com.zenuml.confluence-addon:zenuml-content-sequence',
+        status: 'current',
+        version: { number: 2 },
+        body: { raw: { value: JSON.stringify({ code: 'old', diagramType: 'sequence' }) } },
+      };
+    }
+
+    function diagramToSave() {
+      return { id: ccId, code: 'edited', diagramType: 'sequence', source: 'custom-content' } as any;
+    }
+
+    // The lock: count === 0 means the binding is only in the draft, NOT a copy.
+    // Pre-1a this forked (the incident). It MUST update the existing cc in place.
+    it('count === 0 (draft-only binding) → UPDATES in place, does not fork', async () => {
+      (wrapper as any)._page.countMacros = vi.fn().mockResolvedValue(0);
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(mockExistence())                       // existence GET
+        .mockResolvedValueOnce({ id: ccId, version: { number: 3 } }); // update PUT
+
+      const result = await wrapper.saveCustomContentV2(ccId, diagramToSave());
+
+      const writeCall = vi.mocked(forgeRequest).mock.calls[1];
+      expect(writeCall[0]).toBe(`/wiki/api/v2/custom-content/${ccId}`); // same id → in-place
+      expect(writeCall[1]).toBe('PUT');                                 // UPDATE, not POST/create
+      expect(result?.id).toBe(ccId);                                    // id unchanged → no fork
+    });
+
+    // The normal healthy case — exactly one macro references the cc.
+    it('count === 1 (single macro) → UPDATES in place', async () => {
+      (wrapper as any)._page.countMacros = vi.fn().mockResolvedValue(1);
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(mockExistence())
+        .mockResolvedValueOnce({ id: ccId, version: { number: 3 } });
+
+      await wrapper.saveCustomContentV2(ccId, diagramToSave());
+
+      const writeCall = vi.mocked(forgeRequest).mock.calls[1];
+      expect(writeCall[0]).toBe(`/wiki/api/v2/custom-content/${ccId}`);
+      expect(writeCall[1]).toBe('PUT');
+    });
+
+    // The copy case MUST still fork — two macros on the page share the cc, so a
+    // save needs its own record. 1a must not regress this.
+    it('count > 1 (same-page duplicate / copy) → CREATES a new cc (forks)', async () => {
+      (wrapper as any)._page.countMacros = vi.fn().mockResolvedValue(2);
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(mockExistence())                          // existence GET
+        .mockResolvedValueOnce({ id: 'new-forked-id', version: { number: 1 } }); // create POST
+
+      const result = await wrapper.saveCustomContentV2(ccId, diagramToSave());
+
+      const writeCall = vi.mocked(forgeRequest).mock.calls[1];
+      expect(writeCall[0]).toBe('/wiki/api/v2/custom-content'); // collection endpoint → create
+      expect(writeCall[1]).toBe('POST');
+      expect(result?.id).toBe('new-forked-id');                 // forked to a new id
+    });
+  });
+
   describe('isVersionConflict (via updateCustomContentV2 behavior)', () => {
     it('should detect version conflict from error message', async () => {
       const content = buildContent(3);

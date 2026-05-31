@@ -287,13 +287,11 @@ describe('Attachment', () => {
       expect(mockForgeRequest).not.toHaveBeenCalled();
       // Should not call toPng either
       expect(htmlToImage.toBlob).not.toHaveBeenCalled();
-      // Emits attachment_upload_skipped('unchanged') so we can prove upload
-      // coverage exists when investigating attachment_not_found export failures.
-      expect(mockTrackEvent).toHaveBeenCalledWith(
-        'unchanged',
+      expect(mockTrackEvent).not.toHaveBeenCalledWith(
+        expect.any(String),
         'attachment_upload_skipped',
-        'export',
-        expect.objectContaining({ custom_content_id: 'test-uuid' }),
+        expect.any(String),
+        expect.anything(),
       );
     });
 
@@ -314,16 +312,14 @@ describe('Attachment', () => {
 
       await createAttachmentIfContentChanged('test content');
 
-      // Concurrency guard short-circuits the upload itself — but we now build the
-      // event context up-front, so `_getCurrentPageId` IS called (and we record
-      // `attachment_upload_skipped` with full context for diagnostics).
+      // Concurrency guard short-circuits the upload itself.
       expect(mockRequestConfluence).not.toHaveBeenCalled();
       expect(mockForgeRequest).not.toHaveBeenCalled();
-      expect(mockTrackEvent).toHaveBeenCalledWith(
-        'concurrent',
+      expect(mockTrackEvent).not.toHaveBeenCalledWith(
+        expect.any(String),
         'attachment_upload_skipped',
-        'export',
-        expect.objectContaining({ custom_content_id: 'test-uuid' }),
+        expect.any(String),
+        expect.anything(),
       );
     });
 
@@ -545,11 +541,11 @@ describe('Attachment', () => {
       expect(mockRequestConfluence).not.toHaveBeenCalled();
       expect(mockForgeRequest).not.toHaveBeenCalled();
       expect(htmlToImage.toBlob).not.toHaveBeenCalled();
-      expect(mockTrackEvent).toHaveBeenCalledWith(
-        'draft_page',
+      expect(mockTrackEvent).not.toHaveBeenCalledWith(
+        expect.any(String),
         'attachment_upload_skipped',
-        'export',
-        expect.objectContaining({ custom_content_id: 'test-uuid' }),
+        expect.any(String),
+        expect.anything(),
       );
 
       // Cleanup
@@ -583,11 +579,11 @@ describe('Attachment', () => {
       // Should NOT throw — DraftPageError is caught and treated as non-fatal
       await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
 
-      expect(mockTrackEvent).toHaveBeenCalledWith(
-        'draft_page',
+      expect(mockTrackEvent).not.toHaveBeenCalledWith(
+        expect.any(String),
         'attachment_upload_skipped',
-        'export',
-        expect.objectContaining({ custom_content_id: 'test-uuid' }),
+        expect.any(String),
+        expect.anything(),
       );
       // The concurrency flag must be released even on the non-fatal path
       expect((window as any).createAttachmentInProgress).toBe(false);

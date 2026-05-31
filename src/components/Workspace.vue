@@ -1,11 +1,5 @@
 <template>
   <div class="workspace-container">
-    <div class="absolute top-0 left-0" style="z-index: 999" v-show="isNewDiagram && isAiTitleFeatureEnabled && isLite">
-      <div>
-        <GenerationPrompt :onConfirm="handleGenerate"/>
-      </div>
-    </div>
-
     <div class="content h-screen flex flex-col" style="height: 100vh; overflow: hidden;">
       <div class="flex-shrink-0">
         <Header />
@@ -25,7 +19,6 @@
       </div>
       <div class="feedback-section flex-shrink-0">
         <CSAT variant="bar" />
-        <AIFeedback />
       </div>
     </div>
   </div>
@@ -37,15 +30,6 @@
   import Header from "@/components/Header/Header.vue";
   import DiagramPortal from "@/components/DiagramPortal.vue";
   import CSAT from '@/components/CSAT/index.vue'
-  import AIFeedback from '@/components/AIFeedback/index.vue'
-  import GenerationPrompt from "@/components/Editor/GenerationPrompt.vue";
-  import {generateDiagramFromPage} from "@/services/GenerateService";
-  import Example from "@/utils/sequence/Example";
-  import store from '@/model/store2'
-  import type {DiagramType} from "@/model/Diagram/Diagram";
-  import getFeatureFlags from '@/apis/featureFlags';
-  import globals from "@/model/globals";
-  import {trackEvent} from '@/utils/window';
   import SyntaxErrorBox from '@/components/SyntaxErrorBox.vue'
 
   export default {
@@ -53,48 +37,17 @@
     props: {
       msg: String
     },
-    data() {
-      return {
-        aiTitleFeatureEnabled: false,
-        isLite: false
-      };
-    },
     async mounted () {
       // @ts-ignore
       if (window.split) {
         Split(['#workspace-left', '#workspace-right'], { sizes: [35, 65] })
       }
-
-      this.aiTitleFeatureEnabled = await getFeatureFlags(['AI_TITLE']).then((res: any) => res.AI_TITLE.enabled);
-      this.isLite = globals.apWrapper.isLite();
-    },
-    computed: {
-      isNewDiagram() {
-        return this.$store.state.diagram.isNew;
-      },
-      isAiTitleFeatureEnabled() {
-        return this.aiTitleFeatureEnabled;
-      }
-    },
-    methods: {
-      async handleGenerate(diagramType: DiagramType, userPrompt: string) {
-        if(diagramType) {
-          await generateDiagramFromPage(diagramType, userPrompt);
-
-          trackEvent('generate_diagram_from_page', 'click_generate_button', diagramType, {userPromptLength: userPrompt.length});
-        } else {
-          store.dispatch('updateCode2', Example.Sequence);
-          trackEvent('generate_diagram_from_page', 'click_open_editor_button', '');
-        }
-      },
     },
     components: {
       DiagramPortal,
       Header,
       Editor,
       CSAT,
-      GenerationPrompt,
-      AIFeedback,
       SyntaxErrorBox
     }
   }

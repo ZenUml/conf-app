@@ -38,6 +38,10 @@ The add-on comes in three variants:
 - **Lite Version** (`PRODUCT_TYPE=lite`) — Reduced feature set (free)
 - **Diagramly** (`PRODUCT_TYPE=diagramly`) — Diagramly-branded variant
 
+### The Handbook (internal team site)
+
+The **Handbook** is our internal, team-only knowledge site — *not* customer-facing. It collects what the team needs day to day: developer reference, operations runbooks, pricing/growth strategy, and customer intelligence (profiles, investigations). Because it can contain client-sensitive data, it lives in the **`private/` submodule** (`ZenUml/conf-app-private`), never the public repo. (This replaces the older, narrower "dev site" framing.)
+
 ## Hard rules
 
 ### Pure Forge — no Connect code
@@ -186,6 +190,16 @@ Lite / full / diagramly map to `conf-stg-lite`, `conf-stg-full`, `conf-lite`, `c
 Key gotcha: `page_viewed` in D1 signals tenant activity on Confluence — **not** a macro view. Use Mixpanel `macro_viewed` (project ID `3373228`) for macro engagement.
 
 Full reference (event storage, `clientDomain` format, key sources, paywall events): [docs/analytics-reference.md](docs/analytics-reference.md). For query patterns, use the **conf-app** skill.
+
+### Bug reports: User-First Trace
+
+Frame bug reports and incident write-ups with **User-First Trace**:
+
+1. **User journey** — start with what the user did, what they saw, what changed, and what outcome they experienced. Keep the end user as the skeleton of the report and the highest priority.
+2. **Runtime evidence** — layer in console errors, network calls, API responses, analytics events, timing, retries, page/draft state, and environment details.
+3. **Code path** — only after the user journey and runtime evidence are clear, explain the source code paths that produced the behavior.
+
+Use lower-level techniques such as State-Surface Framing inside this structure when relevant: identify where the data truth lives (published page, draft page, macro config, custom content, D1 mirror) and which UI/runtime surface is reading or writing it (page viewer, viewer modal, native macro config, page editor, fullscreen modal).
 
 ## Browser automation and Forge iframes
 

@@ -3,7 +3,6 @@
   "include": [
     "/uninstalled",
     "/track",
-    "/diagramly/generate",
     "/diagramly/fix-diagram",
     "/diagramly/job-status",
     "/diagramly/chat",

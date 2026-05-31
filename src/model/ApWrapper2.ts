@@ -1094,7 +1094,19 @@ export default class ApWrapper2 implements IApWrapper {
     // stripped here so future direct fetches don't re-derive the flag.
     const recoveredFromOrphanId = value.recoveredFromOrphanId;
     const samePage = !pageId || String(pageId) === String(existing?.pageId);
-    const countAllowsUpdate = recoveredFromOrphanId ? (count <= 1) : (count === 1);
+    // ZEN-#169: `count` comes from AtlasPage.countMacros, which reads the
+    // PUBLISHED atlas_doc_format (the Forge iframe can't see the editor's
+    // draft). A macro whose customContentId binding lives only in an
+    // unpublished draft therefore yields count===0 even though the cc loaded
+    // cleanly and lives on this page — that is a draft-only binding (or an
+    // orphan), NOT a copy. Forking there mints an orphan and, in the
+    // non-submittable in-viewer Edit modal, throws on the config writeback.
+    // Treat count<=1 as "safe to update in place" (0 = draft-only/orphan,
+    // 1 = the normal single macro). Genuine copies still fork: same-page
+    // duplicates via count>1 (the else branch) and cross-page via
+    // samePage===false — both are also flagged earlier as isCopy in
+    // CustomContentStorageProvider.save.
+    const countAllowsUpdate = count <= 1;
     let saveValue: Diagram = bodyWithoutUiFlags as Diagram;
     if (recoveredFromOrphanId) {
       const { recoveredFromOrphanId: _id, ...bodyOnly } = bodyWithoutUiFlags as any;

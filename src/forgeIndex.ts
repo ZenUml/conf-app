@@ -77,8 +77,8 @@ async function initializeCriticalPath() {
       return { macroData: null };
     }
 
-    // Check if this is the CSAT page banner
-    if (context.extension?.type === 'confluence:pageBanner') {
+    // Check if this is the CSAT page banner (pageBanner context has no extension property)
+    if ((context as any).moduleKey === 'zenuml-csat-banner') {
       const { handleCsatBannerRoute } = await import('./routes/csatBanner');
       await handleCsatBannerRoute();
       return { macroData: null };
@@ -114,7 +114,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const context = await initForgeContext();
 
     // Skip loading heavy components if this is a global settings or global page context
-    if (['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:pageBanner'].includes(context.extension?.type)) {
+    if (['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem'].includes(context.extension?.type) || (context as any).moduleKey === 'zenuml-csat-banner') {
       console.log('Skipping heavy components load for global context');
       return;
     }

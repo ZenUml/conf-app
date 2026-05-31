@@ -42,6 +42,12 @@
       <div class="w-px h-5 bg-gray-400 flex-shrink-0"></div>
 
       <button
+        data-testid="debug-csat-banner"
+        class="h-6 px-3 border-none rounded text-[11px] font-medium font-mono cursor-pointer transition-all duration-150 bg-blue-100 text-blue-700 hover:bg-blue-200 active:bg-blue-400 active:text-white"
+        title="Set csatPending and reload to trigger the page banner"
+        @click="onTriggerCsatBanner"
+      >CSAT</button>
+      <button
         data-testid="debug-clear"
         class="h-6 px-3 mr-2 border-none rounded text-[11px] font-medium font-mono cursor-pointer transition-all duration-150 bg-gray-200 text-gray-600 hover:bg-gray-300 active:bg-gray-400 active:text-white"
         title="Clear all paywall mocks and reload"
@@ -83,6 +89,11 @@ onMounted(async () => {
   shortUuid.value = (await provider.getUuid())?.substring(0, 8) ?? ''
   contentId.value = (await provider.getId()) ?? ''
 })
+
+function onTriggerCsatBanner() {
+  localStorage.setItem('csatPending', String(Date.now()));
+  window.location.reload();
+}
 
 function onClear() {
   applyPreset('Reset')

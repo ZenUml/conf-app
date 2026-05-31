@@ -127,7 +127,7 @@ function selectScore(val: number) {
 }
 
 /**
- * Persist / remove 3-month suppression. Synchronous + best-effort: the account
+ * Persist / remove 1-week suppression. Synchronous + best-effort: the account
  * was resolved by checkStateOfCSAT() at mount, so both write immediately —
  * coupled to the user action, not to any close timer, and never blocking close.
  */
@@ -150,7 +150,8 @@ function submit() {
   trackAnalyticsEvent('csat_submitted', {
     feature_area: 'feedback',
     surface: 'editor',
-    feedback_score: score.value ?? undefined,
+    // score.value is the 0-based face index; report the 1-5 rating the user saw.
+    feedback_score: score.value != null ? score.value + 1 : undefined,
     feedback_text: feedbackText.value || undefined,
   } as any);
   phase.value = 'thanks';

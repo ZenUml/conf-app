@@ -17,6 +17,7 @@ import { handleGetStartedRoute } from './routes/getStarted';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, getEditJourneyStartTime, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
+import { isCsatPendingFresh } from '@/utils/csat';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
@@ -77,8 +78,18 @@ async function initializeCriticalPath() {
       return { macroData: null };
     }
 
-    // Check if this is the CSAT page banner (pageBanner context has no extension property)
+    // CSAT page banner. This module mounts on EVERY Confluence page load, so on
+    // the ~99% of loads with no fresh save trigger we close immediately WITHOUT
+    // importing the banner route, initializing the macro context, or mounting
+    // Vue — that keeps the inactive-survey path free of any analytics or work.
+    // (Routed by moduleKey, not extension.type, because the pageBanner extension
+    // carries no macro config to discriminate on.)
     if ((context as any).moduleKey === 'zenuml-csat-banner') {
+      if (!isCsatPendingFresh()) {
+        const { view } = await import('@forge/bridge');
+        view.close();
+        return { macroData: null };
+      }
       const { handleCsatBannerRoute } = await import('./routes/csatBanner');
       await handleCsatBannerRoute();
       return { macroData: null };

@@ -6,6 +6,12 @@ import {
   isCsatPendingFresh,
   clearCsatPending,
 } from '@/utils/csat';
+import { getLocalStorageKey } from '@/utils/window';
+
+// The stored key is tenant-scoped (csatPending-<clientDomain>), so tests that
+// poke storage directly must go through getLocalStorageKey — the same key the
+// helpers use — rather than the raw base key.
+const scopedKey = () => getLocalStorageKey(CSAT_PENDING_KEY);
 
 // These helpers guard the survey trigger: a localStorage failure (quota,
 // disabled storage, partitioned cross-origin iframe) must never propagate
@@ -24,10 +30,12 @@ describe('csat pending helpers', () => {
   });
 
   describe('markCsatPending', () => {
-    it('writes a fresh timestamp under the pending key', () => {
+    it('writes a fresh timestamp under the tenant-scoped key, not the raw key', () => {
       const before = Date.now();
       markCsatPending();
-      const stored = Number(localStorage.getItem(CSAT_PENDING_KEY));
+      // Tenant-scoped, not raw — guards against the cross-tenant leak (#4).
+      expect(localStorage.getItem(CSAT_PENDING_KEY)).toBeNull();
+      const stored = Number(localStorage.getItem(scopedKey()));
       expect(stored).toBeGreaterThanOrEqual(before);
     });
 
@@ -42,18 +50,23 @@ describe('csat pending helpers', () => {
   describe('isCsatPendingFresh', () => {
     it('is true for a timestamp inside the freshness window', () => {
       const now = 1_000_000_000_000;
-      localStorage.setItem(CSAT_PENDING_KEY, String(now - 1000));
+      localStorage.setItem(scopedKey(), String(now - 1000));
       expect(isCsatPendingFresh(now)).toBe(true);
     });
 
     it('is false for a timestamp past the freshness window', () => {
       const now = 1_000_000_000_000;
-      localStorage.setItem(CSAT_PENDING_KEY, String(now - CSAT_PENDING_MAX_AGE_MS - 1));
+      localStorage.setItem(scopedKey(), String(now - CSAT_PENDING_MAX_AGE_MS - 1));
       expect(isCsatPendingFresh(now)).toBe(false);
     });
 
     it('is false when nothing is stored', () => {
       expect(isCsatPendingFresh()).toBe(false);
+    });
+
+    it('round-trips with markCsatPending', () => {
+      markCsatPending();
+      expect(isCsatPendingFresh()).toBe(true);
     });
 
     it('is false (not a throw) when getItem fails', () => {
@@ -69,10 +82,11 @@ describe('csat pending helpers', () => {
   });
 
   describe('clearCsatPending', () => {
-    it('removes the pending key so the trigger fires once', () => {
-      localStorage.setItem(CSAT_PENDING_KEY, String(Date.now()));
+    it('removes the tenant-scoped pending key so the trigger fires once', () => {
+      markCsatPending();
       clearCsatPending();
-      expect(localStorage.getItem(CSAT_PENDING_KEY)).toBeNull();
+      expect(localStorage.getItem(scopedKey())).toBeNull();
+      expect(isCsatPendingFresh()).toBe(false);
     });
 
     it('swallows a removeItem failure', () => {

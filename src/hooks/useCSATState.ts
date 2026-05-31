@@ -26,7 +26,7 @@ export default function useCSATState() {
   };
 
   /**
-   * Persist 3-month suppression synchronously using the already-resolved
+   * Persist 1-week suppression synchronously using the already-resolved
    * account. Synchronous on purpose: callers (the pageBanner) need the write
    * to land BEFORE view.close() tears down the iframe, so it can't await a
    * user lookup first. Returns false if no account is cached yet — run
@@ -38,7 +38,7 @@ export default function useCSATState() {
 
     const lastUpdated = new Date();
     const expiresDate = clone(lastUpdated);
-    expiresDate.setMonth(expiresDate.getMonth() + 3);
+    expiresDate.setDate(expiresDate.getDate() + 7);
 
     localState.users[account.value.atlassianAccountId] = {
       lastUpdated: lastUpdated,

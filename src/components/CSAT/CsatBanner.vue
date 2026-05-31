@@ -67,13 +67,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { view } from '@forge/bridge';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import useCSATState from '@/hooks/useCSATState';
-
-const PENDING_KEY = 'csatPending';
-const PENDING_MAX_AGE_MS = 10 * 60 * 1000;
+import { isCsatPendingFresh, clearCsatPending } from '@/utils/csat';
 
 const LABELS = ['Very poor', 'Poor', 'OK', 'Good', 'Great'];
 const MOUTHS = [
@@ -93,20 +91,34 @@ const feedbackText = ref('');
 
 const { checkStateOfCSAT, updateStateOfCSAT } = useCSATState();
 
+let closeTimer: ReturnType<typeof setTimeout> | null = null;
+
 onMounted(async () => {
-  const pending = localStorage.getItem(PENDING_KEY);
-  const pendingTs = pending ? Number(pending) : 0;
-  const isFresh = pendingTs && (Date.now() - pendingTs < PENDING_MAX_AGE_MS);
+  // The pageBanner mounts on every Confluence page. Any failure here must end
+  // in view.close() — never a stranded empty banner frame.
+  try {
+    // Cheap local gate first: on the ~99% of page loads with no fresh trigger,
+    // close immediately without paying the _getCurrentUser lookup.
+    if (!isCsatPendingFresh()) {
+      view.close();
+      return;
+    }
 
-  const suppressed = await checkStateOfCSAT();
+    if (await checkStateOfCSAT()) {
+      view.close();
+      return;
+    }
 
-  if (!isFresh || suppressed) {
+    clearCsatPending();
+    phase.value = 'rate';
+  } catch (e) {
+    console.warn('[csat] banner mount failed; closing', e);
     view.close();
-    return;
   }
+});
 
-  localStorage.removeItem(PENDING_KEY);
-  phase.value = 'rate';
+onBeforeUnmount(() => {
+  if (closeTimer) clearTimeout(closeTimer);
 });
 
 function selectScore(val: number) {
@@ -114,7 +126,12 @@ function selectScore(val: number) {
   phase.value = 'feedback';
 }
 
-async function submit() {
+/** Persist 3-month suppression. Best-effort: never block the banner close. */
+function suppress() {
+  updateStateOfCSAT().catch((e) => console.warn('[csat] suppression update failed', e));
+}
+
+function submit() {
   trackAnalyticsEvent('csat_submitted', {
     feature_area: 'feedback',
     surface: 'editor',
@@ -122,17 +139,26 @@ async function submit() {
     feedback_text: feedbackText.value || undefined,
   } as any);
   phase.value = 'thanks';
-  await updateStateOfCSAT();
-  setTimeout(() => view.close(), 3000);
+  // No Undo from 'thanks' — suppress eagerly, but close regardless of its fate.
+  suppress();
+  closeTimer = setTimeout(() => view.close(), 3000);
 }
 
-async function dismiss() {
+function dismiss() {
   phase.value = 'dismissed';
-  await updateStateOfCSAT();
-  setTimeout(() => view.close(), 2500);
+  // Suppress only when the dismissal settles, so Undo can fully revert it.
+  // Eager suppression would strand a user who clicks Undo for 3 months.
+  closeTimer = setTimeout(() => {
+    suppress();
+    view.close();
+  }, 2500);
 }
 
 function undo() {
+  if (closeTimer) {
+    clearTimeout(closeTimer);
+    closeTimer = null;
+  }
   phase.value = 'rate';
   score.value = null;
   feedbackText.value = '';

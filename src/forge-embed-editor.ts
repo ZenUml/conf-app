@@ -3,6 +3,7 @@ import forgeGlobal, { getView, getContext as initForgeContext } from './model/gl
 import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from "@/utils/window";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { markCsatPending } from "@/utils/csat";
 import { mountRoot } from "@/mount-root";
 import { installRestoreDraftBanner } from "@/utils/restoreDraftBanner";
 import ForgeEmbedEditor from "@/components/DrawIoExtension/ForgeEmbedEditor.vue";
@@ -59,7 +60,7 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
       operation_mode: "edit",
       ...savedIdProps,
     });
-    localStorage.setItem('csatPending', String(Date.now()));
+    markCsatPending();
   }
 
   if (getEditJourneyId()) {

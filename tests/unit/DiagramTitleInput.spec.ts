@@ -34,6 +34,14 @@ describe('DiagramTitleInput', () => {
     expect(wrapper.find('button[title="Generate title with AI"]').exists()).toBe(true)
   })
 
+  it('shows the manual generate button even when the flag is disabled', async () => {
+    const { default: getFeatureFlags } = await import('@/apis/featureFlags')
+    vi.mocked(getFeatureFlags).mockResolvedValueOnce({})
+    const wrapper = mount(DiagramTitleInput)
+    await flushPromises()
+    expect(wrapper.find('button[title="Generate title with AI"]').exists()).toBe(true)
+  })
+
   it('dispatches updateTitle and locks auto on manual typing', async () => {
     const wrapper = mount(DiagramTitleInput)
     await flushPromises()

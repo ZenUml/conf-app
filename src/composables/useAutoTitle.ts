@@ -85,11 +85,11 @@ export function useAutoTitle() {
     try {
       const flags: any = await getFeatureFlags(['AI_TITLE'])
       aiTitleEnabled.value = !!flags?.AI_TITLE?.enabled
+      flagLoaded = true
     } catch (e) {
       console.error('Failed to load AI_TITLE flag', e)
       aiTitleEnabled.value = false
-    } finally {
-      flagLoaded = true
+      // leave flagLoaded false so a later mount can retry
     }
   }
 

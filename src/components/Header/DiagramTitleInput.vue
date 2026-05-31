@@ -13,6 +13,7 @@
       placeholder="Name your diagram…"
       :value="inputValue"
       @input="onInput"
+      :readonly="isAnimating"
       class="flex-1 px-2 py-2 bg-transparent outline-none text-sm min-w-0"
       :class="[titleError ? 'text-red-700 placeholder-red-300' : '', isAnimating ? 'autoname-typing' : '']" />
 

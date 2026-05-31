@@ -45,9 +45,12 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-export async function onRequestPost({ request, env }: { request: Request; env: Env }) {
+export async function onRequest({ request, env }: { request: Request; env: Env }) {
   if (request.method === 'OPTIONS') {
     return new Response(null, { headers: CORS_HEADERS });
+  }
+  if (request.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405, headers: CORS_HEADERS });
   }
 
   let body: { dsl?: string; type?: string };

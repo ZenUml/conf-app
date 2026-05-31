@@ -91,6 +91,8 @@ onMounted(async () => {
 })
 
 function onTriggerCsatBanner() {
+  const suppressionKey = Object.keys(localStorage).find(k => k.startsWith('csat_state-'));
+  if (suppressionKey) localStorage.removeItem(suppressionKey);
   localStorage.setItem('csatPending', String(Date.now()));
   window.location.reload();
 }

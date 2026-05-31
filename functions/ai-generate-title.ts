@@ -6,21 +6,35 @@ interface Env {
 
 type Strategy = (ai: Ai, dsl: string, type?: string) => Promise<string>;
 
+// Robustly pull a title out of the model's free-form response. Llama often
+// ignores the "wrap in triple quotes" instruction (especially for sequence
+// DSLs), so fall back through: triple-quoted span -> any quoted span -> the
+// first non-empty line of the raw text. Throws only when nothing usable remains.
+export function extractTitle(raw: string): string {
+  const text = String(raw ?? '');
+  const quoted = text.match(/"""([\s\S]*?)"""/)?.[1] ?? text.match(/"([^"]{2,})"/)?.[1];
+  const firstLine = (quoted ?? text)
+    .replace(/^\s*title\s*[:\-]\s*/i, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  const title = (firstLine ?? '').replace(/^["'\s]+|["'\s]+$/g, '').trim();
+  if (!title) throw new Error('Failed to extract title');
+  return title.slice(0, 80);
+}
+
 const strategies: Strategy[] = [
   async (ai, dsl, type) => {
     const result = await (ai as any).run('@cf/meta/llama-2-7b-chat-int8', {
       messages: [
         {
           role: 'system',
-          content: `You will help the user to create a title for an ${type || 'UML'} diagram, the user will give a DSL that describing an ${type || 'UML'} diagram, you should just give out one title describing the whole UML and enclose it with triple quotes (like: """example title""").`,
+          content: `You will help the user to create a title for an ${type || 'UML'} diagram, the user will give a DSL that describing an ${type || 'UML'} diagram, you should just give out one concise title (ideally under 60 characters) describing the whole UML and enclose it with triple quotes (like: """example title""").`,
         },
         { role: 'user', content: dsl },
       ],
     });
-    const matchResult = (result as any).response.match(/"""(.*)"""/is);
-    const title = matchResult?.[1];
-    if (!title) throw new Error('Failed to extract title');
-    return title;
+    return extractTitle((result as any).response);
   },
   async (ai, dsl) => {
     const result = await (ai as any).run('@cf/meta/llama-2-7b-chat-int8', {
@@ -32,10 +46,7 @@ const strategies: Strategy[] = [
         { role: 'user', content: dsl },
       ],
     });
-    const matchResult = (result as any).response.match(/[^"]+title[^"]+"([^"]+)"/is);
-    const title = matchResult?.[1];
-    if (!title) throw new Error('Failed to extract title');
-    return title;
+    return extractTitle((result as any).response);
   },
 ];
 
@@ -45,9 +56,12 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-export async function onRequestPost({ request, env }: { request: Request; env: Env }) {
+export async function onRequest({ request, env }: { request: Request; env: Env }) {
   if (request.method === 'OPTIONS') {
     return new Response(null, { headers: CORS_HEADERS });
+  }
+  if (request.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405, headers: CORS_HEADERS });
   }
 
   let body: { dsl?: string; type?: string };

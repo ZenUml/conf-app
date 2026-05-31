@@ -24,7 +24,8 @@
     "/metrics-cache/query",
     "/metrics-cache/update",
     "/admin/metrics-inspect",
-    "/feature-flags"
+    "/feature-flags",
+    "/ai-generate-title"
   ],
   "exclude": []
 }

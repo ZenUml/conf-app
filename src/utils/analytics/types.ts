@@ -39,6 +39,7 @@ export type AnalyticsProperties = {
   // Feedback
   feedback_value?: FeedbackValue;
   feedback_score?: number;
+  feedback_text?: string;
   // Content
   content_id?: string;
   content_type?: string;

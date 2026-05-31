@@ -111,11 +111,19 @@ onMounted(async () => {
 
     clearCsatPending();
     phase.value = 'rate';
+    // Impression: the banner is committed to showing. This is the denominator
+    // for response/dismiss/abandon rates — the only place reach is observable.
+    trackAnalyticsEvent('csat_displayed', { feature_area: 'feedback', surface: 'editor' });
   } catch (e) {
     console.warn('[csat] banner mount failed; closing', e);
     view.close();
   }
 });
+
+/** The 1-5 rating the user saw, or undefined if no face was selected. */
+function ratingValue(): number | undefined {
+  return score.value != null ? score.value + 1 : undefined;
+}
 
 onBeforeUnmount(() => {
   if (closeTimer) clearTimeout(closeTimer);
@@ -150,16 +158,22 @@ function submit() {
   trackAnalyticsEvent('csat_submitted', {
     feature_area: 'feedback',
     surface: 'editor',
-    // score.value is the 0-based face index; report the 1-5 rating the user saw.
-    feedback_score: score.value != null ? score.value + 1 : undefined,
+    feedback_score: ratingValue(),
     feedback_text: feedbackText.value || undefined,
-  } as any);
+  });
   phase.value = 'thanks';
   suppress();
   closeTimer = setTimeout(() => view.close(), 3000);
 }
 
 function dismiss() {
+  // feedback_score is set if the user rated a face before dismissing, undefined
+  // if they dismissed outright — distinguishes "rated but abandoned" from "rejected".
+  trackAnalyticsEvent('csat_dismissed', {
+    feature_area: 'feedback',
+    surface: 'editor',
+    feedback_score: ratingValue(),
+  });
   phase.value = 'dismissed';
   // Persist suppression at the moment of the dismiss action, so it survives
   // even if the iframe is torn down during the Undo window. Undo reverses it.

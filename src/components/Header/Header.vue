@@ -5,28 +5,7 @@
         v-model="diagramType"
         :options="diagramOptions"
       />
-      <div class="flex items-center flex-1 min-w-64 border-2 rounded-md transition-colors duration-200 h-10"
-        :class="titleError ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-gray-300 focus-within:border-blue-500'">
-        <span class="pl-3 pr-2 text-xs font-semibold tracking-wide text-gray-400 uppercase select-none flex-shrink-0">Title</span>
-        <div class="w-px h-4 bg-gray-200 flex-shrink-0"></div>
-        <input
-          type="text"
-          placeholder="Name your diagram…"
-          :value="currentTitle"
-          @input="handleTitleChange"
-          class="flex-1 px-2 py-2 bg-transparent outline-none text-sm min-w-0"
-          :class="[titleError ? 'text-red-700 placeholder-red-300' : '', { 'pr-8': isAiTitleEnabled }]" />
-        <div v-if="isAiTitleEnabled" class="pr-1 flex items-center">
-          <button class="rounded-md p-1 text-gray-600 hover:bg-gray-200 transition-colors duration-200"
-            :class="{ 'pointer-events-none opacity-50 cursor-not-allowed': titleLoading }"
-            title="Generate title with AI"
-            @click="handleGenerateTitle"
-            :disabled="titleLoading">
-            <SparklesIcon v-if="!titleLoading" class="w-5 h-5" />
-            <ArrowPathIcon v-else class="w-5 h-5 animate-spin" />
-          </button>
-        </div>
-      </div>
+      <DiagramTitleInput />
     </div>
     <div class="flex items-center gap-3 shrink-0">
       <button class="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
@@ -52,16 +31,6 @@
         </div>
       </div>
     </div>
-    <Modal :visible="noticeModalVisible"
-      :onConfirm="generateTitle"
-      :onCancel="handleCloseModal">
-      <template v-slot:body>
-        <p>
-          This is an experimental feature, and your data will be sent to
-          Cloudflare. Cloudflare will not use your data as training data.
-        </p>
-      </template>
-    </Modal>
   </header>
 </template>
 
@@ -76,49 +45,23 @@ import { getEditorDiagramOptions, getDiagramConfig, getCodeFromDiagram, getStore
 import EventBus from "@/EventBus";
 import { trackEvent } from "@/utils/window";
 import { getEditJourneyId, getOrCreateSession } from "@/utils/journeyTracking";
-import Modal from "@/components/Modal/Modal.vue";
-import { toast } from "@/utils/toast";
-import aiGenerateTitle from "@/apis/aiGenerateTitle";
 import { openUrl } from "@/model/globals/forgeGlobal";
 import LightBulbIcon from '@heroicons/vue/24/outline/LightBulbIcon';
 import QuestionMarkCircleIcon from '@heroicons/vue/24/outline/QuestionMarkCircleIcon';
-import SparklesIcon from '@heroicons/vue/24/outline/SparklesIcon';
-import ArrowPathIcon from '@heroicons/vue/24/outline/ArrowPathIcon';
-
-function getMermaidType(dsl) {
-  let type = dsl.trim().split("\n")[0].split(" ")[0];
-  const typeMap = {
-    graph: "flow chart",
-    sequenceDiagram: "sequence",
-    gantt: "gantt chart",
-    classDiagram: "class",
-    gitGraph: "git",
-    erDiagram: "entity relationship",
-    journey: "journey",
-    quadrantChart: "quadrant chart",
-    'xychart-beta': "xy chart",
-  }
-  return typeMap[type] || type
-}
+import DiagramTitleInput from "@/components/Header/DiagramTitleInput.vue";
 
 export default {
   name: "Header",
   components: {
     PublishButton,
     TabSwitcher,
-    Modal,
+    DiagramTitleInput,
     LightBulbIcon: { render: LightBulbIcon },
     QuestionMarkCircleIcon: { render: QuestionMarkCircleIcon },
-    SparklesIcon: { render: SparklesIcon },
-    ArrowPathIcon: { render: ArrowPathIcon },
   },
   data() {
     return {
       helpUrl: "https://zenuml.com/docs?utm_source=confluence-plugin&utm_medium=help-button&utm_campaign=confluence-plugin",
-      titleError: false,
-      titleLoading: false,
-      noticeModalVisible: false,
-      aiTitleFeatureEnabled: false,
       originalCode: "",
       diagramOptions: getEditorDiagramOptions()
     };
@@ -140,7 +83,6 @@ export default {
     ...mapState({
       templateUrl: (state) =>
         getDiagramConfig(state.diagram.diagramType)?.templateUrl || '',
-      title: (state) => state.diagram.title,
     }),
     currentCode() {
       return getCodeFromDiagram(this.$store.state.diagram, this.diagramType);
@@ -148,7 +90,8 @@ export default {
     saveAndExit: function () {
       return () => {
         if (!this.$store.state.diagram.title) {
-          return (this.titleError = true);
+          EventBus.$emit("flash-title-error");
+          return;
         }
         EventBus.$emit("save");
       };
@@ -175,20 +118,8 @@ export default {
         EventBus.$emit("exit", codeChanged);
       };
     },
-    isAiTitleEnabled: function () {
-      return this.aiTitleFeatureEnabled;
-    },
-    currentTitle: function () {
-      return this.$store.state.diagram.title;
-    },
     isPublishDisabled: function () {
-      return !this.$store.state.diagram.title || this.titleError;
-    },
-  },
-  watch: {
-    diagramType: function () {
-      // Clear title error when switching tabs - let isPublishDisabled compute the correct state
-      this.titleError = false;
+      return !this.$store.state.diagram.title;
     },
   },
   methods: {
@@ -202,40 +133,6 @@ export default {
     async helpClick() {
       trackEvent("help", "click", this.diagramType);
       await openUrl(this.helpUrl);
-    },
-    handleTitleChange(value) {
-      if (value) {
-        this.titleError = false;
-      }
-      this.$store.dispatch("updateTitle", value.target.value);
-    },
-    handleGenerateTitle() {
-      this.noticeModalVisible = true;
-    },
-    handleCloseModal() {
-      this.noticeModalVisible = false;
-    },
-    async generateTitle() {
-      this.noticeModalVisible = false;
-      this.titleLoading = true;
-      const res = await aiGenerateTitle({
-        dsl: this.currentCode,
-        type:
-          this.diagramType === DiagramType.Mermaid
-            ? getMermaidType(this.currentCode)
-            : DiagramType.Sequence,
-      }).catch((e) => {
-        this.titleLoading = false;
-        toast({ message: e.message, duration: 3000 });
-      });
-      if (!res.ok) {
-        this.titleLoading = false;
-        toast({ message: await res.text(), duration: 3000 });
-        return;
-      }
-      this.titleLoading = false;
-      const generatedTitle = await res.text();
-      this.$store.dispatch("updateTitle", generatedTitle);
     },
   },
   async mounted() {
@@ -317,9 +214,6 @@ export default {
       clearDraft(this._draftScope);
     };
     EventBus.$on('draft-restore', this._onRestore);
-
-    // this.aiTitleFeatureEnabled = await getFeatureFlags(['AI_TITLE']).then(res => res.AI_TITLE.enabled);
-    this.aiTitleFeatureEnabled = false; // Disable the AI title feature as it is not ready
   },
   beforeUnmount() {
     this._closeGuardOff?.();

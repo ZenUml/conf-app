@@ -316,13 +316,6 @@ modules:
       handler: export.handler
     - key: pageCaptureFn
       handler: page-capture.handler
-    # Fallback for the frontend attachment upload (#166). The frontend
-    # uploads PNGs directly via @forge/bridge.requestConfluence as the
-    # viewing user; this resolver is invoked ONLY when that upload 401/403s,
-    # and uploads via api.asApp() using the app's write:attachment scope.
-    # See src/upload-attachment.js for the wire contract.
-    - key: uploadAttachment
-      handler: upload-attachment.handler
 
 resources:
   - key: main

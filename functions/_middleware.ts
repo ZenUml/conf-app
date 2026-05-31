@@ -5,7 +5,8 @@ import * as Sentry from "@sentry/cloudflare";
 const AUTHENTICATED_PATHS = [
   '/diagramly',
   '/metrics-cache',
-  '/forge-custom-content'
+  '/forge-custom-content',
+  '/forge-upload-attachment'
 ];
 
 // Create a middleware function that handles authentication

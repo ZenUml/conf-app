@@ -191,6 +191,8 @@ Key gotcha: `page_viewed` in D1 signals tenant activity on Confluence — **not*
 
 Full reference (event storage, `clientDomain` format, key sources, paywall events): [docs/analytics-reference.md](docs/analytics-reference.md). For query patterns, use the **conf-app** skill.
 
+**Every new feature must include Mixpanel tracking.** When adding a feature, add `trackAnalyticsEvent` calls for the key lifecycle moments (requested, succeeded, failed, dismissed, etc.). Register new event names in `src/utils/analytics/catalog.ts` (`AnalyticsEventName` union) and use appropriate properties from `src/utils/analytics/types.ts`. Tracking is not optional — it is part of the definition of done.
+
 ### Bug reports: User-First Trace
 
 Frame bug reports and incident write-ups with **User-First Trace**:

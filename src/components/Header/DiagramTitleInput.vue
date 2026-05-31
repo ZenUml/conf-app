@@ -4,9 +4,17 @@
     <span class="pl-3 pr-2 text-xs font-semibold tracking-wide text-gray-400 uppercase select-none flex-shrink-0">Title</span>
     <div class="w-px h-4 bg-gray-200 flex-shrink-0"></div>
 
-    <span v-if="showSpark" class="pl-2 flex items-center" :class="sparkFadingOut ? 'autoname-spark-out' : 'autoname-spark-in'">
-      <IconSpark />
-    </span>
+    <button type="button"
+      class="ml-1 rounded-md p-1 flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors duration-200"
+      :class="[
+        (isGeneratingTitle || showSpark) && !sparkFadingOut ? 'autoname-spark-in text-purple-500' : '',
+        sparkFadingOut ? 'autoname-spark-out' : '',
+      ]"
+      title="Generate title with AI" :disabled="isGeneratingTitle || isAnimating" @click="onManualGenerate">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+      </svg>
+    </button>
 
     <input
       type="text"
@@ -21,19 +29,6 @@
       title="Dismiss suggested title" @click="onDismiss">
       <IconDismiss />
     </button>
-
-    <div class="pr-1 flex items-center flex-shrink-0">
-      <button class="rounded-md p-1 text-gray-600 hover:bg-gray-200 transition-colors duration-200"
-        :class="{ 'pointer-events-none opacity-50 cursor-not-allowed': isGeneratingTitle }"
-        title="Generate title with AI" :disabled="isGeneratingTitle" @click="onManualGenerate">
-        <svg v-if="!isGeneratingTitle" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
-        </svg>
-        <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="animate-spin">
-          <path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-        </svg>
-      </button>
-    </div>
   </div>
 </template>
 
@@ -44,7 +39,6 @@ import { DiagramType } from '@/model/Diagram/Diagram'
 import { getCodeFromDiagram } from '@/model/Diagram/DiagramTypeConfig'
 import EventBus from '@/EventBus'
 import { useAutoTitle } from '@/composables/useAutoTitle'
-import IconSpark from '@/components/icons/IconSpark.vue'
 import IconDismiss from '@/components/icons/IconDismiss.vue'
 
 const AUTO_DEBOUNCE_MS = 1500

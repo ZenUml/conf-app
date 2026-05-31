@@ -26,8 +26,12 @@
       <button class="rounded-md p-1 text-gray-600 hover:bg-gray-200 transition-colors duration-200"
         :class="{ 'pointer-events-none opacity-50 cursor-not-allowed': isGeneratingTitle }"
         title="Generate title with AI" :disabled="isGeneratingTitle" @click="onManualGenerate">
-        <SparklesIcon v-if="!isGeneratingTitle" class="w-5 h-5" />
-        <ArrowPathIcon v-else class="w-5 h-5 animate-spin" />
+        <svg v-if="!isGeneratingTitle" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+        </svg>
+        <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="animate-spin">
+          <path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+        </svg>
       </button>
     </div>
   </div>
@@ -42,8 +46,6 @@ import EventBus from '@/EventBus'
 import { useAutoTitle } from '@/composables/useAutoTitle'
 import IconSpark from '@/components/icons/IconSpark.vue'
 import IconDismiss from '@/components/icons/IconDismiss.vue'
-import SparklesIcon from '@heroicons/vue/24/outline/SparklesIcon'
-import ArrowPathIcon from '@heroicons/vue/24/outline/ArrowPathIcon'
 
 const AUTO_DEBOUNCE_MS = 1500
 

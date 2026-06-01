@@ -12,7 +12,7 @@ const fakeStore = vi.hoisted(() => {
 })
 vi.mock('@/model/store2', () => ({ default: fakeStore }))
 vi.mock('@/apis/aiGenerateTitle', () => ({ default: vi.fn().mockResolvedValue({ ok: true, text: async () => 'T' }) }))
-vi.mock('@/apis/featureFlags', () => ({ default: vi.fn().mockResolvedValue({ AI_TITLE: { enabled: true } }) }))
+vi.mock('@/apis/aiTitleFeatureFlag', () => ({ isAiTitleEnabled: vi.fn().mockResolvedValue(true), resetAiTitleFlagForTests: vi.fn() }))
 vi.mock('@/utils/toast', () => ({ toast: vi.fn() }))
 
 import DiagramTitleInput from '@/components/Header/DiagramTitleInput.vue'
@@ -34,12 +34,12 @@ describe('DiagramTitleInput', () => {
     expect(wrapper.find('button[title="Generate title with AI"]').exists()).toBe(true)
   })
 
-  it('shows the manual generate button even when the flag is disabled', async () => {
-    const { default: getFeatureFlags } = await import('@/apis/featureFlags')
-    vi.mocked(getFeatureFlags).mockResolvedValueOnce({})
+  it('hides the manual generate button when the flag is disabled', async () => {
+    const { isAiTitleEnabled } = await import('@/apis/aiTitleFeatureFlag')
+    vi.mocked(isAiTitleEnabled).mockResolvedValueOnce(false)
     const wrapper = mount(DiagramTitleInput)
     await flushPromises()
-    expect(wrapper.find('button[title="Generate title with AI"]').exists()).toBe(true)
+    expect(wrapper.find('button[title="Generate title with AI"]').exists()).toBe(false)
   })
 
   it('dispatches updateTitle and locks auto on manual typing', async () => {

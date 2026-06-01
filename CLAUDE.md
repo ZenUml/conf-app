@@ -44,6 +44,10 @@ The **Handbook** is our internal, team-only knowledge site — *not* customer-fa
 
 ## Hard rules
 
+### Never mark a UI spot check passed without UI evidence
+
+A spot check assertion that requires UI verification must be confirmed by actually observing the UI — a screenshot, a snapshot, or a network intercept. Passing a unit test does not satisfy a UI assertion. If the UI cannot be driven (e.g. iframe keyboard limitations), mark the assertion **SKIPPED** with the reason and the blocker, not **PASS**.
+
 ### Never state without evidence
 
 Do not assert facts about external systems, APIs, processes, or behavior unless you can point to proof — code you read, a doc you fetched, a command you ran. If you don't have evidence, say "I don't know" or "I'd need to verify this." Guessing and presenting it as fact is strictly prohibited.

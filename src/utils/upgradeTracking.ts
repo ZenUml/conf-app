@@ -12,6 +12,7 @@ export enum UpgradeEventName {
   PAYWALL_CONTINUED_EDITING = 'paywall_continued_editing',
   ADVOCACY_MESSAGE_COPIED = 'advocacy_message_copied',
   ADVOCACY_DRAFT_PREVIEW_CLICKED = 'advocacy_draft_preview_clicked',
+  EXTENSION_REQUEST_CLICKED = 'extension_request_clicked',
 }
 
 export enum UIComponent {

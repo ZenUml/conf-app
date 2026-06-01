@@ -45,6 +45,27 @@
           @copied="tracking.trackAdvocacyCopy"
         />
 
+        <!-- Support-assisted extension CTA -->
+        <div class="px-4 pb-3">
+          <div class="rounded-md border border-blue-100 bg-blue-50 px-3 py-2">
+            <div class="flex items-center justify-between gap-3">
+              <p class="text-xs text-blue-950 leading-5">
+                Need time to review upgrade options? Request a temporary extension from support.
+              </p>
+              <button
+                data-testid="request-extension-btn"
+                class="shrink-0 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                @click="onRequestExtension"
+              >Request extension</button>
+            </div>
+            <p
+              v-if="extensionRequestStatus"
+              class="mt-1 text-[11px] text-blue-800"
+              data-testid="request-extension-status"
+            >{{ extensionRequestStatus }}</p>
+          </div>
+        </div>
+
         <!-- Footer - Continue editing + Learn more -->
         <div class="px-4 py-2 bg-gray-50 flex justify-between items-center">
           <button
@@ -80,7 +101,13 @@ import {
   type AdvocacyMessageContext,
   type MacroKind,
 } from './buildAdvocacyMessage'
+import {
+  buildExtensionRequestContext,
+  buildExtensionRequestMessage,
+  extensionRequestUrl,
+} from './buildExtensionRequest'
 import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
+import { openUrl } from '@/model/globals/forgeGlobal'
 
 const ENTERPRISE_BUNDLE_PRICE = `$${ENTERPRISE_BUNDLE_ANNUAL_COST}/yr/space`
 
@@ -133,11 +160,44 @@ const message = computed(() => buildAdvocacyMessage(messageContext.value))
 const tracking = useUpgradeTracking(() => props.visible, () => emit('close'), () => props.actionType)
 
 const draftExpanded = ref(false)
+const extensionRequestStatus = ref('')
 
 function onDraftPreviewToggle() {
   const willExpand = !draftExpanded.value
   draftExpanded.value = willExpand
   tracking.trackAdvocacyDraftPreviewToggle(willExpand)
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (!navigator.clipboard?.writeText) {
+      return false
+    }
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch (e) {
+    console.warn('[paywall] failed to copy extension request details', e)
+    return false
+  }
+}
+
+async function onRequestExtension() {
+  const requestUrl = extensionRequestUrl()
+  const requestContext = buildExtensionRequestContext({
+    spaceKey: messageContext.value.spaceKey,
+    macroCount: props.macrosCreated,
+    macrosLimit: props.macrosLimit,
+    macroKind: props.macroKind,
+  })
+  const requestMessage = buildExtensionRequestMessage(requestContext)
+  const copied = await copyToClipboard(requestMessage)
+
+  tracking.trackExtensionRequestClick(copied, requestUrl)
+  extensionRequestStatus.value = copied
+    ? 'Request details copied. Paste them into the support form that opens next.'
+    : 'Support form opened. Include the space key and macro count in your request.'
+
+  await openUrl(requestUrl)
 }
 
 const modalContainer = ref<HTMLElement | null>(null)

@@ -132,8 +132,8 @@ describe('useAutoTitle', () => {
     expect(aiGenerateTitle).toHaveBeenCalledTimes(1)
   })
 
-  it('is silent on auto-trigger errors but toasts on manual errors', async () => {
-    vi.mocked(aiGenerateTitle).mockResolvedValue(errRes('boom'))
+  it('is silent on auto-trigger errors but toasts a friendly message on manual errors', async () => {
+    vi.mocked(aiGenerateTitle).mockResolvedValue(errRes('AiError: 5028: This model was deprecated'))
     const { initFlag, generate } = useAutoTitle()
     await initFlag()
     await generate('init', SEQ)
@@ -141,7 +141,7 @@ describe('useAutoTitle', () => {
     expect(toast).not.toHaveBeenCalled()
     await generate('user', SEQ)
     await vi.advanceTimersByTimeAsync(0)
-    expect(toast).toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ message: "Couldn't generate a title — please try again later." }))
   })
 
   it('maps Mermaid + PlantUML to the right type param', async () => {

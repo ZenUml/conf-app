@@ -17,9 +17,6 @@
       <div id="syntax-error-box" class="sticky bottom-0 left-0 right-0 z-[1000] bg-white flex-shrink-0" style="position: sticky !important;">
         <SyntaxErrorBox />
       </div>
-      <div class="feedback-section flex-shrink-0">
-        <CSAT variant="bar" />
-      </div>
     </div>
   </div>
 </template>
@@ -29,7 +26,6 @@
   import Split from 'split.js'
   import Header from "@/components/Header/Header.vue";
   import DiagramPortal from "@/components/DiagramPortal.vue";
-  import CSAT from '@/components/CSAT/index.vue'
   import SyntaxErrorBox from '@/components/SyntaxErrorBox.vue'
 
   export default {
@@ -47,7 +43,6 @@
       DiagramPortal,
       Header,
       Editor,
-      CSAT,
       SyntaxErrorBox
     }
   }

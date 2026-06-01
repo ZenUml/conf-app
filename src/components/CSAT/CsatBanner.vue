@@ -14,14 +14,14 @@
     <template v-else-if="phase === 'thanks'">
       <span class="pb-inline">
         <svg class="pb-check" viewBox="0 0 24 24" fill="none" stroke="#22A06B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M20 6 9 17l-5-5" /></svg>
-        <strong>Thanks!</strong>&nbsp;This helps us improve ZenUML.
+        <strong>Thanks!</strong>&nbsp;This helps us improve {{ productName }}.
       </span>
       <span class="pb-spacer" />
     </template>
 
     <!-- Rate / feedback state -->
     <template v-else>
-      <span class="pb-label">How's ZenUML working for you?</span>
+      <span class="pb-label">How's {{ productName }} working for you?</span>
 
       <div class="pb-faces" role="radiogroup" aria-label="Rate your experience" @mouseleave="hovered = null">
         <button
@@ -67,7 +67,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { view } from '@forge/bridge';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import useCSATState from '@/hooks/useCSATState';
@@ -88,6 +88,10 @@ const phase = ref<Phase>('hidden');
 const score = ref<number | null>(null);
 const hovered = ref<number | null>(null);
 const feedbackText = ref('');
+
+const productName = computed(() =>
+  import.meta.env.PRODUCT_TYPE === 'diagramly' ? 'Diagramly' : 'ZenUML'
+);
 
 const { checkStateOfCSAT, markSuppressed, clearSuppressed } = useCSATState();
 

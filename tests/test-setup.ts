@@ -23,6 +23,12 @@ vi.mock('@forge/bridge', () => ({
   requestConfluence: vi.fn(async () => ({ json: async () => ({}) })),
   router: { navigate: vi.fn(async () => {}) },
   events: { emit: vi.fn(), on: vi.fn(() => () => {}) },
+  FeatureFlags: vi.fn().mockImplementation(() => ({
+    initialize: vi.fn(async () => {}),
+    checkFlag: vi.fn(() => false),
+    shutdown: vi.fn(),
+    isInitialized: vi.fn(() => true),
+  })),
 }));
 
 

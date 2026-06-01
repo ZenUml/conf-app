@@ -1,3 +1,6 @@
+## [2026-06-01] - Release
+- Triggered release pipeline for diagramly
+
 ## [2026-04-28] - Release
 - Triggered release pipeline to activate STRIPE_WEBHOOK_SECRET in production
 

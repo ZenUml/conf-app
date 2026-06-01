@@ -133,28 +133,6 @@ describe('feature-flags onRequestGet', () => {
     });
   });
 
-  describe('AI_TITLE', () => {
-    it('returns AI_TITLE enabled when client includes domain (substring match)', async () => {
-      const ctx = makeContext(
-        { client: 'mycompany.atlassian.net', features: 'AI_TITLE' },
-        { AI_TITLE_ENABLED_DOMAINS: 'atlassian.net' },
-      );
-      const response = await onRequestGet(ctx);
-      const body = await response.json() as Record<string, unknown>;
-      expect(body.AI_TITLE).toEqual({ enabled: true });
-    });
-
-    it('returns AI_TITLE disabled when client does not include any domain', async () => {
-      const ctx = makeContext(
-        { client: 'mycompany.atlassian.net', features: 'AI_TITLE' },
-        { AI_TITLE_ENABLED_DOMAINS: 'example.com' },
-      );
-      const response = await onRequestGet(ctx);
-      const body = await response.json() as Record<string, unknown>;
-      expect(body.AI_TITLE).toEqual({ enabled: false });
-    });
-  });
-
   describe('TEST', () => {
     it('returns TEST flag always', async () => {
       const ctx = makeContext({ client: 'any.atlassian.net', features: 'TEST' });

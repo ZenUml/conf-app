@@ -52,7 +52,11 @@ A spot check assertion that requires UI verification must be confirmed by actual
 
 Do not assert facts about external systems, APIs, processes, or behavior unless you can point to proof — code you read, a doc you fetched, a command you ran. If you don't have evidence, say "I don't know" or "I'd need to verify this." Guessing and presenting it as fact is strictly prohibited.
 
+### Plan Mixpanel events before implementing any feature
 
+Before writing code for any new feature, define the analytics events first. For each event specify: name, trigger (what user action or system transition fires it), and the key properties (e.g. `feature_area`, `surface`, `macro_type`, outcome fields). Add them to `src/utils/analytics/catalog.ts` and `src/utils/analytics/types.ts` as the first commit of the feature branch.
+
+**Why:** events retrofitted after the fact miss edge cases (e.g. "accepted vs modified" required understanding the full UX flow before implementation). Planning events up front forces clarity on what "success" looks like before the code is written.
 
 ### Pure Forge — no Connect code
 

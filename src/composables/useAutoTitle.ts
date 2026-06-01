@@ -1,10 +1,11 @@
 import { ref } from 'vue'
 import store from '@/model/store2'
 import aiGenerateTitle from '@/apis/aiGenerateTitle'
-import getFeatureFlags from '@/apis/featureFlags'
+import { isAiTitleEnabled, resetAiTitleFlagForTests } from '@/apis/aiTitleFeatureFlag'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import { hashString } from '@/utils/hashString'
 import { toast } from '@/utils/toast'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
 export const TYPEWRITER_MS_PER_CHAR = 40
 export const SPARK_FADEOUT_MS = 400
@@ -83,13 +84,10 @@ export function useAutoTitle() {
   async function initFlag(): Promise<void> {
     if (flagLoaded) return
     try {
-      const flags: any = await getFeatureFlags(['AI_TITLE'])
-      aiTitleEnabled.value = !!flags?.AI_TITLE?.enabled
+      aiTitleEnabled.value = await isAiTitleEnabled()
       flagLoaded = true
     } catch (e) {
       console.error('Failed to load AI_TITLE flag', e)
-      aiTitleEnabled.value = false
-      // leave flagLoaded false so a later mount can retry
     }
   }
 
@@ -112,11 +110,21 @@ export function useAutoTitle() {
       if (contentHash === lastGeneratedContentHash.value) return
     }
 
+    const isRegenerate = trigger === 'user' && autoNameAnimationDone.value
+
     const token = ++genToken
     isGeneratingTitle.value = true
     autoNameAnimationDone.value = false
     showSpark.value = true
     sparkFadingOut.value = false
+    const trackProps = {
+      feature_area: 'ai' as const,
+      surface: 'editor' as const,
+      macro_type: diagramType.toLowerCase() as any,
+      generation_source: isRegenerate ? 'regenerate' : trigger,
+      prompt_length: code.length,
+    }
+    trackAnalyticsEvent('ai_generation_requested', trackProps)
 
     try {
       const res: any = await aiGenerateTitle({ dsl: code, type: titleTypeParam(diagramType, code) })
@@ -124,6 +132,7 @@ export function useAutoTitle() {
       if (!res.ok) {
         const errText = await res.text()
         if (token !== genToken) return
+        trackAnalyticsEvent('ai_generation_failed', { ...trackProps, failure_reason: errText })
         if (trigger === 'user') toast({ message: errText, duration: 3000 })
         resetGenerating()
         return
@@ -135,6 +144,7 @@ export function useAutoTitle() {
         return
       }
 
+      trackAnalyticsEvent('ai_generation_succeeded', trackProps)
       lastGeneratedContentHash.value = contentHash
       isAnimating.value = true
       showDismiss.value = true
@@ -154,12 +164,14 @@ export function useAutoTitle() {
       sparkFadingOut.value = false
     } catch (e) {
       if (token !== genToken) return
+      trackAnalyticsEvent('ai_generation_failed', { ...trackProps, failure_reason: String(e) })
       if (trigger === 'user') toast({ message: String(e), duration: 3000 })
       resetGenerating()
     }
   }
 
   function dismiss(): void {
+    trackAnalyticsEvent('ai_title_dismissed', { feature_area: 'ai', surface: 'editor' })
     genToken += 1
     store.dispatch('updateTitle', '')
     isAnimating.value = false
@@ -177,9 +189,17 @@ export function useAutoTitle() {
   }
 
   function markManualEdit(): void {
+    if (autoNameAnimationDone.value) {
+      trackAnalyticsEvent('ai_title_modified', { feature_area: 'ai', surface: 'editor' })
+    }
     hasManuallyEditedTitle.value = true
     genToken += 1
     resetGenerating()
+  }
+
+  function onTitleCleared(): void {
+    hasManuallyEditedTitle.value = false
+    lastGeneratedContentHash.value = null
   }
 
   function reset(): void {
@@ -209,7 +229,15 @@ export function useAutoTitle() {
     generate,
     dismiss,
     markManualEdit,
+    onTitleCleared,
     reset,
+  }
+}
+
+export function notifyAiTitleSaved(): void {
+  if (autoNameAnimationDone.value) {
+    trackAnalyticsEvent('ai_title_accepted', { feature_area: 'ai', surface: 'editor' })
+    autoNameAnimationDone.value = false
   }
 }
 
@@ -226,4 +254,5 @@ export function useAutoTitle() {
   lastGeneratedContentHash.value = null
   genToken = 0
   flagLoaded = false
+  resetAiTitleFlagForTests()
 }

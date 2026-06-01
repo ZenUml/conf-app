@@ -12,15 +12,18 @@ const fakeStore = vi.hoisted(() => {
 })
 vi.mock('@/model/store2', () => ({ default: fakeStore }))
 vi.mock('@/apis/aiGenerateTitle', () => ({ default: vi.fn() }))
-vi.mock('@/apis/featureFlags', () => ({
-  default: vi.fn().mockResolvedValue({ AI_TITLE: { enabled: true } }),
+vi.mock('@/apis/aiTitleFeatureFlag', () => ({
+  isAiTitleEnabled: vi.fn().mockResolvedValue(true),
+  resetAiTitleFlagForTests: vi.fn(),
 }))
 vi.mock('@/utils/toast', () => ({ toast: vi.fn() }))
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
 
-import { useAutoTitle, TYPEWRITER_MS_PER_CHAR, SPARK_FADEOUT_MS } from './useAutoTitle'
+import { useAutoTitle, notifyAiTitleSaved, TYPEWRITER_MS_PER_CHAR, SPARK_FADEOUT_MS } from './useAutoTitle'
 import aiGenerateTitle from '@/apis/aiGenerateTitle'
-import getFeatureFlags from '@/apis/featureFlags'
+import { isAiTitleEnabled } from '@/apis/aiTitleFeatureFlag'
 import { toast } from '@/utils/toast'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
 const okRes = (text: string) => ({ ok: true, text: async () => text }) as any
 const errRes = (text: string) => ({ ok: false, text: async () => text }) as any
@@ -37,8 +40,9 @@ describe('useAutoTitle', () => {
     fakeStore.dispatch.mockClear()
     fakeStore.state.diagram.title = ''
     vi.mocked(aiGenerateTitle).mockReset()
-    vi.mocked(getFeatureFlags).mockResolvedValue({ AI_TITLE: { enabled: true } } as any)
+    vi.mocked(isAiTitleEnabled).mockResolvedValue(true)
     vi.mocked(toast).mockClear()
+    vi.mocked(trackAnalyticsEvent).mockClear()
     vi.useFakeTimers()
   })
   afterEach(() => vi.useRealTimers())
@@ -50,7 +54,7 @@ describe('useAutoTitle', () => {
   })
 
   it('does not call the API when the flag is off', async () => {
-    vi.mocked(getFeatureFlags).mockResolvedValue({ AI_TITLE: { enabled: false } } as any)
+    vi.mocked(isAiTitleEnabled).mockResolvedValue(false)
     const { initFlag, generate } = useAutoTitle()
     await initFlag()
     await generate('init', SEQ)
@@ -166,6 +170,54 @@ describe('useAutoTitle', () => {
     await runAnimation('Order Checkout')
     await p2
     expect(aiGenerateTitle).toHaveBeenCalledTimes(2)
+  })
+
+  it('notifyAiTitleSaved fires ai_title_accepted when title was generated and resets the flag', async () => {
+    vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Order Checkout'))
+    const { initFlag, generate } = useAutoTitle()
+    await initFlag()
+    const p = generate('init', SEQ)
+    await runAnimation('Order Checkout')
+    await p
+    notifyAiTitleSaved()
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_title_accepted', expect.objectContaining({ feature_area: 'ai' }))
+    // second call should not double-fire
+    vi.mocked(trackAnalyticsEvent).mockClear()
+    notifyAiTitleSaved()
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('ai_title_accepted', expect.anything())
+  })
+
+  it('markManualEdit fires ai_title_modified only when a title was already generated', async () => {
+    vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Order Checkout'))
+    const { initFlag, generate, markManualEdit } = useAutoTitle()
+    await initFlag()
+    // before any generation — no event
+    markManualEdit()
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('ai_title_modified', expect.anything())
+    vi.mocked(trackAnalyticsEvent).mockClear()
+    // after generation completes — fires
+    ;(useAutoTitle as any).__resetForTests()
+    await initFlag()
+    const p = generate('init', SEQ)
+    await runAnimation('Order Checkout')
+    await p
+    markManualEdit()
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_title_modified', expect.objectContaining({ feature_area: 'ai' }))
+  })
+
+  it('second user-triggered generate uses generation_source regenerate', async () => {
+    vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Order Checkout'))
+    const { initFlag, generate } = useAutoTitle()
+    await initFlag()
+    const p1 = generate('init', SEQ)
+    await runAnimation('Order Checkout')
+    await p1
+    vi.mocked(trackAnalyticsEvent).mockClear()
+    vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('New Title'))
+    const p2 = generate('user', SEQ)
+    await runAnimation('New Title')
+    await p2
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_generation_requested', expect.objectContaining({ generation_source: 'regenerate' }))
   })
 
   it('manual edit mid-typewriter stops animation and clears displayedTitle', async () => {

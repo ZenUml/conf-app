@@ -49,6 +49,6 @@ id = "fd87eed34f864190880a4b44d25c0e91"
 binding = "KV_FEATURE_FLAGS"
 id = "fd87eed34f864190880a4b44d25c0e91"
 
-[ai]
+[env.production.ai]
 binding = "AI"
 

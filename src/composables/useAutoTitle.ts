@@ -5,6 +5,7 @@ import getFeatureFlags from '@/apis/featureFlags'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import { hashString } from '@/utils/hashString'
 import { toast } from '@/utils/toast'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
 export const TYPEWRITER_MS_PER_CHAR = 40
 export const SPARK_FADEOUT_MS = 400
@@ -118,12 +119,22 @@ export function useAutoTitle() {
     showSpark.value = true
     sparkFadingOut.value = false
 
+    const trackProps = {
+      feature_area: 'ai' as const,
+      surface: 'editor' as const,
+      macro_type: diagramType.toLowerCase() as any,
+      generation_source: trigger,
+      prompt_length: code.length,
+    }
+    trackAnalyticsEvent('ai_generation_requested', trackProps)
+
     try {
       const res: any = await aiGenerateTitle({ dsl: code, type: titleTypeParam(diagramType, code) })
       if (token !== genToken) return
       if (!res.ok) {
         const errText = await res.text()
         if (token !== genToken) return
+        trackAnalyticsEvent('ai_generation_failed', { ...trackProps, failure_reason: errText })
         if (trigger === 'user') toast({ message: errText, duration: 3000 })
         resetGenerating()
         return
@@ -135,6 +146,7 @@ export function useAutoTitle() {
         return
       }
 
+      trackAnalyticsEvent('ai_generation_succeeded', trackProps)
       lastGeneratedContentHash.value = contentHash
       isAnimating.value = true
       showDismiss.value = true
@@ -154,12 +166,14 @@ export function useAutoTitle() {
       sparkFadingOut.value = false
     } catch (e) {
       if (token !== genToken) return
+      trackAnalyticsEvent('ai_generation_failed', { ...trackProps, failure_reason: String(e) })
       if (trigger === 'user') toast({ message: String(e), duration: 3000 })
       resetGenerating()
     }
   }
 
   function dismiss(): void {
+    trackAnalyticsEvent('ai_title_dismissed', { feature_area: 'ai', surface: 'editor' })
     genToken += 1
     store.dispatch('updateTitle', '')
     isAnimating.value = false
@@ -180,6 +194,11 @@ export function useAutoTitle() {
     hasManuallyEditedTitle.value = true
     genToken += 1
     resetGenerating()
+  }
+
+  function onTitleCleared(): void {
+    hasManuallyEditedTitle.value = false
+    lastGeneratedContentHash.value = null
   }
 
   function reset(): void {
@@ -209,6 +228,7 @@ export function useAutoTitle() {
     generate,
     dismiss,
     markManualEdit,
+    onTitleCleared,
     reset,
   }
 }

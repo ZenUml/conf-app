@@ -34,12 +34,31 @@ describe('DiagramTitleInput', () => {
     expect(wrapper.find('button[title="Generate title with AI"]').exists()).toBe(true)
   })
 
+  it('shows the manual generate button even when the flag is disabled', async () => {
+    const { default: getFeatureFlags } = await import('@/apis/featureFlags')
+    vi.mocked(getFeatureFlags).mockResolvedValueOnce({})
+    const wrapper = mount(DiagramTitleInput)
+    await flushPromises()
+    expect(wrapper.find('button[title="Generate title with AI"]').exists()).toBe(true)
+  })
+
   it('dispatches updateTitle and locks auto on manual typing', async () => {
     const wrapper = mount(DiagramTitleInput)
     await flushPromises()
     await wrapper.find('input').setValue('My own title')
     expect(fakeStore.dispatch).toHaveBeenCalledWith('updateTitle', 'My own title')
     expect((useAutoTitle() as any).hasManuallyEditedTitle.value).toBe(true)
+  })
+
+  it('re-enables auto-generation when user clears the title', async () => {
+    const wrapper = mount(DiagramTitleInput)
+    await flushPromises()
+    // Type a title — locks auto-gen
+    await wrapper.find('input').setValue('My title')
+    expect((useAutoTitle() as any).hasManuallyEditedTitle.value).toBe(true)
+    // Clear the title — should re-enable auto-gen
+    await wrapper.find('input').setValue('')
+    expect((useAutoTitle() as any).hasManuallyEditedTitle.value).toBe(false)
   })
 
   it('flashes the error border on the flash-title-error event', async () => {

@@ -56,6 +56,7 @@ export type AnalyticsEventName =
   | "ai_generation_requested"
   | "ai_generation_succeeded"
   | "ai_generation_failed"
+  | "ai_title_dismissed"
   | "ai_editor_opened"
   | "ai_feedback_submitted"
   | "upgrade_modal_shown"

@@ -44,6 +44,12 @@ The **Handbook** is our internal, team-only knowledge site — *not* customer-fa
 
 ## Hard rules
 
+### Never state without evidence
+
+Do not assert facts about external systems, APIs, processes, or behavior unless you can point to proof — code you read, a doc you fetched, a command you ran. If you don't have evidence, say "I don't know" or "I'd need to verify this." Guessing and presenting it as fact is strictly prohibited.
+
+
+
 ### Pure Forge — no Connect code
 
 All three variants (lite, full, diagramly) are **Forge-only** in production. The Connect runtime is fully removed.

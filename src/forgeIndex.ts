@@ -19,7 +19,8 @@ import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
 import { isCsatPendingFresh } from '@/utils/csat';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
@@ -589,6 +590,7 @@ import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
 installRestoreDraftBanner();
 
 EventBus.$on('save', async () => {
+  notifyAiTitleSaved()
   console.log('save', store.state.diagram);
 
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"

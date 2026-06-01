@@ -44,6 +44,14 @@ The **Handbook** is our internal, team-only knowledge site — *not* customer-fa
 
 ## Hard rules
 
+### Never mark a UI spot check passed without UI evidence
+
+A spot check assertion that requires UI verification must be confirmed by actually observing the UI — a screenshot, a snapshot, or a network intercept. Passing a unit test does not satisfy a UI assertion. If the UI cannot be driven (e.g. iframe keyboard limitations), mark the assertion **SKIPPED** with the reason and the blocker, not **PASS**.
+
+### Never state without evidence
+
+Do not assert facts about external systems, APIs, processes, or behavior unless you can point to proof — code you read, a doc you fetched, a command you ran. If you don't have evidence, say "I don't know" or "I'd need to verify this." Guessing and presenting it as fact is strictly prohibited.
+
 ### Plan Mixpanel events before implementing any feature
 
 Before writing code for any new feature, define the analytics events first. For each event specify: name, trigger (what user action or system transition fires it), and the key properties (e.g. `feature_area`, `surface`, `macro_type`, outcome fields). Add them to `src/utils/analytics/catalog.ts` and `src/utils/analytics/types.ts` as the first commit of the feature branch.
@@ -196,6 +204,8 @@ Lite / full / diagramly map to `conf-stg-lite`, `conf-stg-full`, `conf-lite`, `c
 Key gotcha: `page_viewed` in D1 signals tenant activity on Confluence — **not** a macro view. Use Mixpanel `macro_viewed` (project ID `3373228`) for macro engagement.
 
 Full reference (event storage, `clientDomain` format, key sources, paywall events): [docs/analytics-reference.md](docs/analytics-reference.md). For query patterns, use the **conf-app** skill.
+
+**Every new feature must include Mixpanel tracking.** When adding a feature, add `trackAnalyticsEvent` calls for the key lifecycle moments (requested, succeeded, failed, dismissed, etc.). Register new event names in `src/utils/analytics/catalog.ts` (`AnalyticsEventName` union) and use appropriate properties from `src/utils/analytics/types.ts`. Tracking is not optional — it is part of the definition of done.
 
 ### Bug reports: User-First Trace
 

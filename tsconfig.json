@@ -41,6 +41,7 @@
     "src/**/*.jsx",
     "tests/**/*.ts",
     "tests/**/*.tsx",
+    ".storybook/**/*.ts",
     "global.d.ts"
   ],
   "exclude": [

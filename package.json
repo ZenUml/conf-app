@@ -22,6 +22,8 @@
     "build:full:watch": "PRODUCT_TYPE=full vite build --watch",
     "build:lite": "PRODUCT_TYPE=lite vite build",
     "build:diagramly": "PRODUCT_TYPE=diagramly vite build",
+    "storybook": "PRODUCT_TYPE=lite storybook dev -p 6006",
+    "build-storybook": "PRODUCT_TYPE=lite storybook build",
     "wrangler:serve": "wrangler pages dev dist --compatibility-flags=nodejs_compat --compatibility-date=2024-11-11",
     "wrangler:publish:stg": "CLOUDFLARE_ACCOUNT_ID=8d5fc7ce04adc5096f52485cce7d7b3d wrangler pages publish dist --project-name conf-stg-full --branch=production",
     "wrangler:publish:stg:lite": "CLOUDFLARE_ACCOUNT_ID=8d5fc7ce04adc5096f52485cce7d7b3d wrangler pages publish dist --project-name conf-stg-lite --branch=production",
@@ -132,6 +134,9 @@
     "@forge/cli": "^12.20.1",
     "@inquirer/prompts": "^8.3.2",
     "@playwright/test": "^1.59.1",
+    "@storybook/addon-a11y": "^10.4.1",
+    "@storybook/addon-docs": "^10.4.1",
+    "@storybook/vue3-vite": "^10.4.1",
     "@types/jest": "^24.0.19",
     "@types/js-yaml": "^4.0.9",
     "@types/lodash": "^4.14.202",
@@ -150,6 +155,7 @@
     "eslint-plugin-vue": "^9.0.0",
     "jsdom": "^23.1.0",
     "rollup-plugin-visualizer": "^6.0.5",
+    "storybook": "^10.4.1",
     "tailwind-scrollbar": "^3.0.5",
     "typescript-eslint": "^8.57.1",
     "vitest": "^2.1.9",
@@ -195,7 +201,7 @@
     "node": ">=22"
   },
   "volta": {
-    "node": "22.11.0"
+    "node": "22.22.3"
   },
   "pnpm": {
     "ignoredBuiltDependencies": [],

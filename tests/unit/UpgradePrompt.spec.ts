@@ -10,6 +10,7 @@ vi.mock('@/utils/upgradeTracking', () => ({
     PAYWALL_CONTINUED_EDITING: 'paywall_continued_editing',
     ADVOCACY_MESSAGE_COPIED: 'advocacy_message_copied',
     ADVOCACY_DRAFT_PREVIEW_CLICKED: 'advocacy_draft_preview_clicked',
+    EXTENSION_REQUEST_CLICKED: 'extension_request_clicked',
   },
   UIComponent: {
     MODAL: 'modal',
@@ -29,11 +30,21 @@ vi.mock('@/composables/useCustomerSuccessService', () => ({
 }))
 
 vi.mock('@/model/globals/forgeGlobal', () => ({
-  openUrl: vi.fn(),
+  default: {
+    isForge: false,
+    forgeContext: {
+      accountId: 'account-123',
+      extension: {
+        content: { id: 'page-456' },
+      },
+    },
+  },
+  openUrl: vi.fn().mockResolvedValue(undefined),
 }))
 
 import UpgradePrompt from '@/components/UpgradePrompt/UpgradePrompt.vue'
 import { trackUpgradeEvent } from '@/utils/upgradeTracking'
+import { openUrl } from '@/model/globals/forgeGlobal'
 
 const baseProps = {
   visible: true,
@@ -261,6 +272,51 @@ describe('UpgradePrompt', () => {
 
     expect(trackUpgradeEvent).toHaveBeenCalledWith('paywall_continued_editing')
     expect(wrapper.emitted('continueEditing')).toBeTruthy()
+
+    wrapper.unmount()
+  })
+
+  it('opens support request link, copies extension details, and tracks the request click', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+
+    const wrapper = mount(UpgradePrompt, {
+      props: baseProps,
+      attachTo: document.body,
+    })
+
+    const button = document.querySelector('[data-testid="request-extension-btn"]') as HTMLButtonElement
+    button.click()
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(writeText).toHaveBeenCalledTimes(1)
+    const copiedMessage = writeText.mock.calls[0][0]
+    expect(copiedMessage).toContain('Request: Temporary Lite editing extension')
+    expect(copiedMessage).toContain('Space key: engineering-architecture')
+    expect(copiedMessage).toContain('Macro count: 105')
+    expect(copiedMessage).toContain('Limit: 100')
+    expect(copiedMessage).toContain('User account ID: account-123')
+    expect(copiedMessage).toContain('Page ID: page-456')
+
+    expect(trackUpgradeEvent).toHaveBeenCalledWith(
+      'extension_request_clicked',
+      expect.objectContaining({
+        ui_component: 'modal',
+        copied_request_details: true,
+        request_url: 'https://zenuml.atlassian.net/servicedesk/customer/portals',
+        macro_count: 100,
+        space_key: 'engineering-architecture',
+      })
+    )
+    expect(openUrl).toHaveBeenCalledWith(
+      'https://zenuml.atlassian.net/servicedesk/customer/portals'
+    )
+
+    const status = document.querySelector('[data-testid="request-extension-status"]') as HTMLElement
+    expect(status.textContent).toContain('Request details copied')
 
     wrapper.unmount()
   })

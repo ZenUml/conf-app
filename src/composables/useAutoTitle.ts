@@ -133,7 +133,7 @@ export function useAutoTitle() {
         const errText = await res.text()
         if (token !== genToken) return
         trackAnalyticsEvent('ai_generation_failed', { ...trackProps, failure_reason: errText })
-        if (trigger === 'user') toast({ message: errText, duration: 3000 })
+        if (trigger === 'user') toast({ message: "Couldn't generate a title — please try again later.", duration: 3000 })
         resetGenerating()
         return
       }
@@ -165,7 +165,7 @@ export function useAutoTitle() {
     } catch (e) {
       if (token !== genToken) return
       trackAnalyticsEvent('ai_generation_failed', { ...trackProps, failure_reason: String(e) })
-      if (trigger === 'user') toast({ message: String(e), duration: 3000 })
+      if (trigger === 'user') toast({ message: "Couldn't generate a title — please try again later.", duration: 3000 })
       resetGenerating()
     }
   }

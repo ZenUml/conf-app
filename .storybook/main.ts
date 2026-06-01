@@ -24,6 +24,7 @@ const config: StorybookConfig = {
         alias: {
           vue: '@vue/compat',
           '@': path.resolve(__dirname, '../src'),
+          '@forge/bridge': path.resolve(__dirname, '../src/stubs/forge-bridge.ts'),
         },
         dedupe: ['vue', '@vue/compat'],
       },

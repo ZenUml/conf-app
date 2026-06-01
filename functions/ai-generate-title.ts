@@ -23,9 +23,11 @@ export function extractTitle(raw: string): string {
   return title.slice(0, 80);
 }
 
+const MODEL = '@cf/meta/llama-3.1-8b-instruct';
+
 const strategies: Strategy[] = [
   async (ai, dsl, type) => {
-    const result = await (ai as any).run('@cf/meta/llama-2-7b-chat-int8', {
+    const result = await (ai as any).run(MODEL, {
       messages: [
         {
           role: 'system',
@@ -37,7 +39,7 @@ const strategies: Strategy[] = [
     return extractTitle((result as any).response);
   },
   async (ai, dsl) => {
-    const result = await (ai as any).run('@cf/meta/llama-2-7b-chat-int8', {
+    const result = await (ai as any).run(MODEL, {
       messages: [
         {
           role: 'system',

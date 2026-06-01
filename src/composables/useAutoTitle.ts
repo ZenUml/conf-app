@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import store from '@/model/store2'
 import aiGenerateTitle from '@/apis/aiGenerateTitle'
-import getFeatureFlags from '@/apis/featureFlags'
+import { isAiTitleEnabled, resetAiTitleFlagForTests } from '@/apis/aiTitleFeatureFlag'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import { hashString } from '@/utils/hashString'
 import { toast } from '@/utils/toast'
@@ -84,13 +84,10 @@ export function useAutoTitle() {
   async function initFlag(): Promise<void> {
     if (flagLoaded) return
     try {
-      const flags: any = await getFeatureFlags(['AI_TITLE'])
-      aiTitleEnabled.value = !!flags?.AI_TITLE?.enabled
+      aiTitleEnabled.value = await isAiTitleEnabled()
       flagLoaded = true
     } catch (e) {
       console.error('Failed to load AI_TITLE flag', e)
-      aiTitleEnabled.value = false
-      // leave flagLoaded false so a later mount can retry
     }
   }
 
@@ -246,4 +243,5 @@ export function useAutoTitle() {
   lastGeneratedContentHash.value = null
   genToken = 0
   flagLoaded = false
+  resetAiTitleFlagForTests()
 }

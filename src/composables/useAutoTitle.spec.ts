@@ -12,14 +12,15 @@ const fakeStore = vi.hoisted(() => {
 })
 vi.mock('@/model/store2', () => ({ default: fakeStore }))
 vi.mock('@/apis/aiGenerateTitle', () => ({ default: vi.fn() }))
-vi.mock('@/apis/featureFlags', () => ({
-  default: vi.fn().mockResolvedValue({ AI_TITLE: { enabled: true } }),
+vi.mock('@/apis/aiTitleFeatureFlag', () => ({
+  isAiTitleEnabled: vi.fn().mockResolvedValue(true),
+  resetAiTitleFlagForTests: vi.fn(),
 }))
 vi.mock('@/utils/toast', () => ({ toast: vi.fn() }))
 
 import { useAutoTitle, TYPEWRITER_MS_PER_CHAR, SPARK_FADEOUT_MS } from './useAutoTitle'
 import aiGenerateTitle from '@/apis/aiGenerateTitle'
-import getFeatureFlags from '@/apis/featureFlags'
+import { isAiTitleEnabled } from '@/apis/aiTitleFeatureFlag'
 import { toast } from '@/utils/toast'
 
 const okRes = (text: string) => ({ ok: true, text: async () => text }) as any
@@ -37,7 +38,7 @@ describe('useAutoTitle', () => {
     fakeStore.dispatch.mockClear()
     fakeStore.state.diagram.title = ''
     vi.mocked(aiGenerateTitle).mockReset()
-    vi.mocked(getFeatureFlags).mockResolvedValue({ AI_TITLE: { enabled: true } } as any)
+    vi.mocked(isAiTitleEnabled).mockResolvedValue(true)
     vi.mocked(toast).mockClear()
     vi.useFakeTimers()
   })
@@ -50,7 +51,7 @@ describe('useAutoTitle', () => {
   })
 
   it('does not call the API when the flag is off', async () => {
-    vi.mocked(getFeatureFlags).mockResolvedValue({ AI_TITLE: { enabled: false } } as any)
+    vi.mocked(isAiTitleEnabled).mockResolvedValue(false)
     const { initFlag, generate } = useAutoTitle()
     await initFlag()
     await generate('init', SEQ)

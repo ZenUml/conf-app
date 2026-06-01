@@ -42,16 +42,6 @@ async function handleLitePngExport(
   }
 }
 
-async function handleAiTitles(
-  kvService: KVNamespace,
-  client: string,
-  result: Record<string, unknown>,
-) {
-  const raw = await kvService.get('AI_TITLE_ENABLED_DOMAINS');
-  const ENABLED_DOMAINS: string[] = raw?.split(',').map((d) => d.trim()) || [];
-  result.AI_TITLE = { enabled: ENABLED_DOMAINS.some((d) => client.includes(d)) };
-}
-
 function handleTest(result: Record<string, unknown>) {
   result.TEST = { enabled: true, data: 'test data' };
 }
@@ -85,9 +75,6 @@ export async function onRequestGet({ request, env }: { request: Request; env: En
     }
     if (queryAll || feat === 'LITE_PNG_EXPORT') {
       await handleLitePngExport(kvService, client, result);
-    }
-    if (queryAll || feat === 'AI_TITLE') {
-      await handleAiTitles(kvService, client, result);
     }
     if (queryAll || feat === 'TEST') {
       handleTest(result);

@@ -110,17 +110,18 @@ export function useAutoTitle() {
       if (contentHash === lastGeneratedContentHash.value) return
     }
 
+    const isRegenerate = trigger === 'user' && autoNameAnimationDone.value
+
     const token = ++genToken
     isGeneratingTitle.value = true
     autoNameAnimationDone.value = false
     showSpark.value = true
     sparkFadingOut.value = false
-
     const trackProps = {
       feature_area: 'ai' as const,
       surface: 'editor' as const,
       macro_type: diagramType.toLowerCase() as any,
-      generation_source: trigger,
+      generation_source: isRegenerate ? 'regenerate' : trigger,
       prompt_length: code.length,
     }
     trackAnalyticsEvent('ai_generation_requested', trackProps)
@@ -188,6 +189,9 @@ export function useAutoTitle() {
   }
 
   function markManualEdit(): void {
+    if (autoNameAnimationDone.value) {
+      trackAnalyticsEvent('ai_title_modified', { feature_area: 'ai', surface: 'editor' })
+    }
     hasManuallyEditedTitle.value = true
     genToken += 1
     resetGenerating()
@@ -227,6 +231,13 @@ export function useAutoTitle() {
     markManualEdit,
     onTitleCleared,
     reset,
+  }
+}
+
+export function notifyAiTitleSaved(): void {
+  if (autoNameAnimationDone.value) {
+    trackAnalyticsEvent('ai_title_accepted', { feature_area: 'ai', surface: 'editor' })
+    autoNameAnimationDone.value = false
   }
 }
 

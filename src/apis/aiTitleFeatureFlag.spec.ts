@@ -61,6 +61,10 @@ describe('isAiTitleEnabled', () => {
           installContext: 'ari:cloud:confluence::site/cloud-1',
           accountId: 'account-1',
         },
+        attributes: {
+          installContext: 'ari:cloud:confluence::site/cloud-1',
+          accountId: 'account-1',
+        },
       },
       { environment: 'staging' },
     )

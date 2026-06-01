@@ -26,9 +26,14 @@ async function getFeatureFlagsClient(): Promise<FeatureFlags> {
     initializePromise = (async () => {
       const ctx = await getContext()
       const client = new FeatureFlags()
+      const installContext = `ari:cloud:confluence::site/${ctx.cloudId}`
       const user: FeatureFlagUser = {
         identifiers: {
-          installContext: `ari:cloud:confluence::site/${ctx.cloudId}`,
+          installContext,
+          accountId: ctx.accountId,
+        },
+        attributes: {
+          installContext,
           accountId: ctx.accountId,
         },
       }

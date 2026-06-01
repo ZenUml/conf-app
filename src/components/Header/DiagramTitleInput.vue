@@ -4,7 +4,7 @@
     <span class="pl-3 pr-2 text-xs font-semibold tracking-wide text-gray-400 uppercase select-none flex-shrink-0">Title</span>
     <div class="w-px h-4 bg-gray-200 flex-shrink-0"></div>
 
-    <button type="button"
+    <button v-if="aiTitleEnabled || autoNameAnimationDone" type="button"
       class="ml-1 rounded-md p-1 flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors duration-200"
       :class="[
         (isGeneratingTitle || showSpark) && !sparkFadingOut ? 'autoname-spark-in text-purple-500' : '',
@@ -45,7 +45,7 @@ const AUTO_DEBOUNCE_MS = 1500
 
 const {
   aiTitleEnabled, isGeneratingTitle, isAnimating, displayedTitle,
-  showSpark, sparkFadingOut, showDismiss,
+  showSpark, sparkFadingOut, showDismiss, autoNameAnimationDone,
   initFlag, generate, dismiss, markManualEdit, onTitleCleared, reset,
 } = useAutoTitle()
 

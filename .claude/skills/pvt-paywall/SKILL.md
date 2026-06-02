@@ -30,7 +30,7 @@ Site: always production (`zenuml.atlassian.net`).
 
 - You must be logged into `zenuml.atlassian.net` in the browser.
 - A Confluence page with a ZenUML / Mermaid / Sequence macro must exist on that site. The PVT smoke-test pages under `Test pages → PVT → 2026 → 2026-MM` are good candidates.
-- localStorage mocks simulate a saturated space — no real CSS flag change needed.
+- localStorage mocks simulate a saturated space — no real CSS flag change needed. These mocks live in the **Forge iframe origin** (`*.cdn.prod.atlassian-dev.net`), not the top-level page, and persist across sessions. If the paywall does **not** appear, suspect stale mocks (esp. `mockSpacePaid=true`) — see the **paywall** skill § "Paywall not showing on dev/staging during manual testing" for the console-log signatures and the Playwright recipe to clear them.
 - **Browser automation:** Use Playwright with `frameLocator()` / `contentFrame()` to interact with content inside the Forge iframe. `claude-in-chrome`, `chrome-devtools-mcp`, and `browser-use` cannot cross the Forge iframe boundary (see CLAUDE.md § Browser Automation).
 
 ## Two trigger paths — both must be tested

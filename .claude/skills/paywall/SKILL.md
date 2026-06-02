@@ -432,6 +432,48 @@ localStorage.mockMacroCount = '105'
 localStorage.mockSpacePaid = 'false'
 ```
 
+### Paywall not showing on dev/staging during manual testing
+
+This is a **different failure mode** from the tenant debugging above — it bites when you drive the paywall yourself on `lite-stg` / `lite-dev` and nothing appears. **The #1 cause is stale localStorage mocks left behind by a previous manual session** (or by the `?sandbox=` paywall presets, which auto-set them via `applyPaywallSandboxMocks` in `forgeGlobal.ts`). The mocks short-circuit the real CSS/count/license logic.
+
+**Decision chain** (`useCustomerSuccessService.ts` `shouldBlockActions`), in order:
+1. `spacePaidStatus === true` → **bypass everything** (early return, no block). Set by `mockSpacePaid` or `/api/space-status`.
+2. else block iff `macrosCreated >= MACROS_LIMIT (100)` **AND** `customerSuccessServiceEnabled` **AND** `isLite`.
+
+Paywall fires at **editor mount** (click `Edit` on a macro, or insert a new one), **not** in the viewer. Viewing a saturated page produces zero paywall.
+
+**Read the console first — these logs tell you exactly what's overriding:**
+
+| Console log | Meaning |
+|---|---|
+| `🧪 Using mock space paid status: true` | `mockSpacePaid=true` is forcing paid → paywall bypassed |
+| `🧪 Using mock macro count: <N>` | `mockMacroCount` overriding real count (need ≥100 to block) |
+| `🧪 Using mock CSS Feature Flag: <bool>` | `mockCSSEnabled` overriding CSS enrollment |
+| `✅ Space is paid - bypassing all restrictions` | step 1 above fired — paywall will not show |
+| `🚫 shouldBlockActions check: {...}` | the authoritative decision — read `macrosCreated`, `isLite`, `spacePaid`, `shouldBlock` |
+
+**The five mock keys** (`useCustomerSuccessService.ts` + `forgeGlobal.ts`): `mockSpacePaid`, `mockMacroCount`, `mockCSSEnabled`, `mockSpaceKey`, `mockClientDomain` (plus `mockAiTitleEnabled` in `aiTitleFeatureFlag.ts`).
+
+**CRITICAL — the mocks live in the Forge iframe's localStorage, not the top-level page.** The macro runs in a cross-origin iframe served from `*.cdn.prod.atlassian-dev.net`; the Confluence page is `*.atlassian.net`. Clearing `localStorage` on the top-level page does **nothing**. You must clear it inside the iframe's origin.
+
+With Playwright, `frameLocator()` has **no** `.evaluate()` — grab the actual `Frame` object instead:
+
+```js
+// read / clear the mocks inside the Forge iframe origin
+const forgeFrame = page.frames().find(f => f.url().includes('cdn.prod.atlassian-dev.net'));
+await forgeFrame.evaluate(() => {
+  Object.keys(localStorage)
+    .filter(k => k.toLowerCase().includes('mock'))
+    .forEach(k => localStorage.removeItem(k));
+});
+await page.reload();
+// then click Edit on the macro and assert the modal:
+//   h2 "This space has reached the ZenUML Lite limit (100 macros)."
+//   [data-testid="continue-editing-btn"]  (or continue-attempts-exhausted at 0)
+```
+
+Confirm the real count is actually over threshold once mocks are gone: KV key `metrics:<domain>:<lite|full>` in namespace `9531a58d3f5b47a6af77750240c09548` (shared staging+prod), e.g. `npx wrangler kv key get "metrics:lite-stg:lite" --namespace-id 9531a58d3f5b47a6af77750240c09548 --remote`.
+
 ## Step 6: Self-Review (always run after monitoring)
 
 After completing the monitoring run, review what happened and propose skill improvements. Do this every time — not just when something went wrong.

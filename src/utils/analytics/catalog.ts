@@ -66,6 +66,8 @@ export type AnalyticsEventName =
   | "paywall_blocked_create"
   | "upgrade_modal_dismissed"
   | "upgrade_feature_enabled"
+  | "paywall_continue_used"
+  | "paywall_attempts_exhausted"
   | "advocacy_message_copied"
   | "advocacy_draft_preview_clicked"
   | "extension_request_clicked"

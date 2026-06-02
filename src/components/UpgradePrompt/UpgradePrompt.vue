@@ -67,17 +67,29 @@
         </div>
 
         <!-- Footer - Continue editing + Learn more -->
-        <div class="px-4 py-2 bg-gray-50 flex justify-between items-center">
-          <button
-            data-testid="continue-editing-btn"
-            class="text-xs text-gray-600 hover:text-gray-800 hover:underline cursor-pointer"
-            @click="onContinueEditing"
-          >Continue editing without upgrading</button>
+        <div class="px-4 py-2 bg-gray-50 flex justify-between items-center gap-3">
+          <div class="min-w-0">
+            <button
+              v-if="canContinueEditing"
+              data-testid="continue-editing-btn"
+              class="text-xs text-gray-600 hover:text-gray-800 hover:underline cursor-pointer"
+              :title="continueAttemptsTooltip"
+              :aria-label="continueButtonAriaLabel"
+              @click="onContinueEditing"
+            >{{ continueButtonCopy }}</button>
+            <span
+              v-else
+              data-testid="continue-attempts-exhausted"
+              class="text-xs text-gray-500"
+              :title="continueAttemptsTooltip"
+              :aria-label="continueButtonAriaLabel"
+            >Request extension to continue editing</span>
+          </div>
           <a
             href="https://zenuml.com/upgrade/"
             target="_blank"
             rel="noopener noreferrer"
-            class="text-xs text-blue-600 hover:text-blue-800 hover:underline"
+            class="shrink-0 text-xs text-blue-600 hover:text-blue-800 hover:underline"
           >
             Why do I need to upgrade? →
           </a>
@@ -95,7 +107,8 @@ import AdvocacyButton from './AdvocacyButton.vue'
 import { useUpgradeTracking } from './useUpgradeTracking'
 import { trackUpgradeEvent, UpgradeEventName } from '@/utils/upgradeTracking'
 import type { PaywallActionType } from '@/utils/paywall/mountPaywallGate'
-import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
+import { CONTINUE_ATTEMPTS_STORAGE_SOURCE } from '@/utils/paywall/continueAttempts'
+import { getUpgradeContext, useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
 import {
   buildAdvocacyMessage,
   type AdvocacyMessageContext,
@@ -120,6 +133,7 @@ const props = withDefaults(
     enterpriseBundleUrl: string
     macroKind?: MacroKind
     actionType?: PaywallActionType
+    remainingContinueAttempts?: number
   }>(),
   { macroKind: 'unknown' }
 )
@@ -130,17 +144,45 @@ const emit = defineEmits<{
 }>()
 
 function onContinueEditing() {
+  const attemptsBefore = props.remainingContinueAttempts
+  const attemptsAfter = attemptsBefore === undefined
+    ? undefined
+    : Math.max(0, attemptsBefore - 1)
+  const attemptTrackingPayload = attemptsBefore === undefined
+    ? {}
+    : {
+        remaining_attempts_before: attemptsBefore,
+        remaining_attempts_after: attemptsAfter,
+        storage_source: CONTINUE_ATTEMPTS_STORAGE_SOURCE,
+      }
+
   // Pass action_type only when set so unit tests (which mount without it)
   // keep the existing single-arg call shape. Production always sets actionType
   // via PaywallGate, so the per-surface continued_rate breakdown still works.
   if (props.actionType !== undefined) {
     trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING, {
       action_type: props.actionType,
+      ...attemptTrackingPayload,
     })
+  } else if (attemptsBefore !== undefined) {
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING, attemptTrackingPayload)
   } else {
     trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING)
   }
+
   emit('continueEditing')
+
+  if (attemptsBefore !== undefined) {
+    const phase2Payload = {
+      ...(props.actionType !== undefined ? { action_type: props.actionType } : {}),
+      ...attemptTrackingPayload,
+      ...getUpgradeContext(),
+    }
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUE_USED, phase2Payload)
+    if (attemptsAfter === 0) {
+      trackUpgradeEvent(UpgradeEventName.PAYWALL_ATTEMPTS_EXHAUSTED, phase2Payload)
+    }
+  }
 }
 
 const customerSuccess = useCustomerSuccessService() as ReturnType<typeof useCustomerSuccessService> | undefined
@@ -161,6 +203,19 @@ const tracking = useUpgradeTracking(() => props.visible, () => emit('close'), ()
 
 const draftExpanded = ref(false)
 const extensionRequestStatus = ref('')
+const canContinueEditing = computed(() => props.remainingContinueAttempts === undefined || props.remainingContinueAttempts > 0)
+const continueButtonCopy = computed(() => {
+  const attempts = props.remainingContinueAttempts ?? 0
+  if (props.remainingContinueAttempts === undefined) return 'Continue editing without upgrading'
+  return `Continue editing without upgrading (${attempts})`
+})
+const continueAttemptsTooltip = computed(() => {
+  const attempts = props.remainingContinueAttempts ?? 0
+  if (props.remainingContinueAttempts === undefined) return undefined
+  if (attempts <= 0) return 'No continue attempts remain. Request an extension or upgrade to keep editing.'
+  return `You have ${attempts} temporary continue ${attempts === 1 ? 'attempt' : 'attempts'} left before editing is blocked for you in this space.`
+})
+const continueButtonAriaLabel = computed(() => continueAttemptsTooltip.value || continueButtonCopy.value)
 
 function onDraftPreviewToggle() {
   const willExpand = !draftExpanded.value

@@ -8,6 +8,8 @@ vi.mock('@/utils/upgradeTracking', () => ({
     MODAL_SHOWN: 'upgrade_modal_shown',
     MODAL_DISMISSED: 'upgrade_modal_dismissed',
     PAYWALL_CONTINUED_EDITING: 'paywall_continued_editing',
+    PAYWALL_CONTINUE_USED: 'paywall_continue_used',
+    PAYWALL_ATTEMPTS_EXHAUSTED: 'paywall_attempts_exhausted',
     ADVOCACY_MESSAGE_COPIED: 'advocacy_message_copied',
     ADVOCACY_DRAFT_PREVIEW_CLICKED: 'advocacy_draft_preview_clicked',
     EXTENSION_REQUEST_CLICKED: 'extension_request_clicked',
@@ -271,6 +273,90 @@ describe('UpgradePrompt', () => {
     await Promise.resolve()
 
     expect(trackUpgradeEvent).toHaveBeenCalledWith('paywall_continued_editing')
+    expect(wrapper.emitted('continueEditing')).toBeTruthy()
+
+    wrapper.unmount()
+  })
+
+  it('shows the remaining continue attempts when attempts are enforced', () => {
+    const wrapper = mount(UpgradePrompt, {
+      props: {
+        ...baseProps,
+        remainingContinueAttempts: 15,
+      },
+      attachTo: document.body,
+    })
+
+    const continueButton = document.querySelector(
+      '[data-testid="continue-editing-btn"]'
+    ) as HTMLButtonElement
+    expect(continueButton).toBeTruthy()
+    expect(continueButton.textContent).toContain('Continue editing without upgrading (15)')
+    expect(continueButton.getAttribute('title')).toContain(
+      'You have 15 temporary continue attempts left before editing is blocked for you in this space.'
+    )
+
+    wrapper.unmount()
+  })
+
+  it('removes continue editing when continue attempts are exhausted', () => {
+    const wrapper = mount(UpgradePrompt, {
+      props: {
+        ...baseProps,
+        remainingContinueAttempts: 0,
+      },
+      attachTo: document.body,
+    })
+
+    const exhaustedCopy = document.querySelector(
+      '[data-testid="continue-attempts-exhausted"]'
+    ) as HTMLElement
+    expect(exhaustedCopy.textContent).toContain('Request extension to continue editing')
+    expect(exhaustedCopy.textContent).not.toContain('(0)')
+    expect(exhaustedCopy.getAttribute('title')).toContain(
+      'No continue attempts remain. Request an extension or upgrade to keep editing.'
+    )
+    expect(document.querySelector('[data-testid="continue-editing-btn"]')).toBeNull()
+    expect(document.querySelector('[data-testid="request-extension-btn"]')).toBeTruthy()
+    expect(document.querySelector('[data-testid="advocacy-copy-btn"]')).toBeTruthy()
+
+    wrapper.unmount()
+  })
+
+  it('tracks continue attempt usage and exhaustion when the last attempt is used', async () => {
+    const wrapper = mount(UpgradePrompt, {
+      props: {
+        ...baseProps,
+        remainingContinueAttempts: 1,
+        actionType: 'page_editor',
+      },
+      attachTo: document.body,
+    })
+
+    const continueButton = document.querySelector(
+      '[data-testid="continue-editing-btn"]'
+    ) as HTMLButtonElement
+    continueButton.click()
+    await Promise.resolve()
+
+    expect(trackUpgradeEvent).toHaveBeenCalledWith(
+      'paywall_continue_used',
+      expect.objectContaining({
+        action_type: 'page_editor',
+        remaining_attempts_before: 1,
+        remaining_attempts_after: 0,
+        storage_source: 'local_storage',
+      })
+    )
+    expect(trackUpgradeEvent).toHaveBeenCalledWith(
+      'paywall_attempts_exhausted',
+      expect.objectContaining({
+        action_type: 'page_editor',
+        remaining_attempts_before: 1,
+        remaining_attempts_after: 0,
+        storage_source: 'local_storage',
+      })
+    )
     expect(wrapper.emitted('continueEditing')).toBeTruthy()
 
     wrapper.unmount()

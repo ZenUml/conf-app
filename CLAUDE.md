@@ -124,6 +124,8 @@ The app uses custom content (V2 API) for diagram persistence:
 - **CustomContentStorageProvider** — Stores data as Confluence custom content
 - **CompositeContentProvider** — Combines multiple providers with fallback chain
 
+Confluence is the system of record for diagram content; D1/backend data may support telemetry or sync, but must not become required storage or recovery for user diagram bodies. Rendering and editing must not depend on our Cloudflare backend being available when Confluence storage is available.
+
 ### Key models
 
 - **Diagram** — Core diagram model with content and metadata

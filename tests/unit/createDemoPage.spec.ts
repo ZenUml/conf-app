@@ -167,7 +167,7 @@ describe('enrollSpace — space resolution', () => {
     );
   });
 
-  it('returns 400 when the resolved space is archived or non-global', async () => {
+  it('returns 400 when the resolved space is archived', async () => {
     installAdminUserMock();
     installHappyPathAsAppMock({
       space: makeResponse({ results: [{ id: '111', key: 'OLD', type: 'global', status: 'archived' }] }),
@@ -175,6 +175,26 @@ describe('enrollSpace — space resolution', () => {
 
     const result = await callHandler({ spaceKey: 'OLD' });
     expect(result).toMatchObject({ ok: false, status: 400, error: 'space_not_eligible' });
+  });
+
+  it('returns 400 when the resolved space type is unknown', async () => {
+    installAdminUserMock();
+    installHappyPathAsAppMock({
+      space: makeResponse({ results: [{ id: '111', key: 'UNK', type: 'unknown_type', status: 'current' }] }),
+    });
+
+    const result = await callHandler({ spaceKey: 'UNK' });
+    expect(result).toMatchObject({ ok: false, status: 400, error: 'space_not_eligible' });
+  });
+
+  it('accepts onboarding-type spaces', async () => {
+    installAdminUserMock();
+    installHappyPathAsAppMock({
+      space: makeResponse({ results: [{ id: '222', key: 'OB', type: 'onboarding', status: 'current' }] }),
+    });
+
+    const result = await callHandler({ spaceKey: 'OB' });
+    expect(result).toMatchObject({ ok: true });
   });
 });
 

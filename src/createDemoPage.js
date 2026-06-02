@@ -32,7 +32,7 @@ async function resolveSpace(spaceKey) {
     const body = await res.json();
     const hit = body && body.results && body.results[0];
     if (!hit) return { ok: false, status: 404, error: 'space_not_found' };
-    if (hit.type !== 'global' || hit.status !== 'current') {
+    if (!['global', 'onboarding'].includes(hit.type) || hit.status !== 'current') {
       return { ok: false, status: 400, error: 'space_not_eligible' };
     }
     return { ok: true, space: { id: hit.id, key: hit.key } };

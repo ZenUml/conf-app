@@ -5,6 +5,7 @@ import macroMetrics from "@/services/MacroMetrics"
 import { getClientDomain } from "@/utils/ContextParameters/ContextParameters"
 import globals from '@/model/globals'
 import { callRemote } from '@/utils/requestUtil'
+import { writeTargetingMarker, toMarkerSeverity } from '@/utils/paywall/warningBanner'
 
 export const MACROS_LIMIT = 100
 const WARNING_THRESHOLD = 85
@@ -194,6 +195,27 @@ export function useCustomerSuccessService() {
     }
   }
 
+  // Paywall page-banner targeting (Phase 3 redesign). Persist a per-space marker
+  // so the global page-banner iframe — which has no live macro context — can
+  // decide visibility on a LATER page load purely from localStorage, no backend
+  // call (CSAT-style cross-load signal). Single-writer: only the macro iframe
+  // writes this key. Lite-only; Full/Diagramly spaces are unrestricted.
+  // Identity is derived via the shared helper (getClientDomain + getSpaceKey) so
+  // the macro-side write and banner-side read produce byte-identical keys.
+  function persistTargetingMarker() {
+    if (!globals.apWrapper.isLite()) return;
+    try {
+      writeTargetingMarker({
+        severity: toMarkerSeverity(severity.value),
+        macroCount: macrosCreated.value,
+        spacePaid: spacePaidStatus.value,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn('[paywall-banner] failed to persist targeting marker', e);
+    }
+  }
+
   const initialize = async () => {
     await Promise.all([
       loadMacroMetrics(),
@@ -201,6 +223,7 @@ export function useCustomerSuccessService() {
       loadSpacePaidStatus(),
       loadSpaceKey(),
     ]);
+    persistTargetingMarker();
   }
 
   return {

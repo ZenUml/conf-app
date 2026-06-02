@@ -136,6 +136,20 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       return;
     }
 
+    // Paywall page-banner targeting write. Every macro render (viewer OR editor,
+    // any diagram type) refreshes the per-space localStorage marker that the
+    // global page-banner iframe reads on a LATER page load. This is the ONLY
+    // write path: the editor's paywall gate also calls initialize(), but plain
+    // viewer page loads never would — and reaching the user BEFORE they open the
+    // editor is the whole point of the redesign. Fire-and-forget and Lite-gated
+    // (the composable no-ops the write for Full/Diagramly) so it never blocks or
+    // breaks the render.
+    if (globals.apWrapper.isLite()) {
+      import('@/composables/useCustomerSuccessService')
+        .then(({ useCustomerSuccessService }) => useCustomerSuccessService().initialize())
+        .catch(e => console.warn('[paywall-banner] targeting refresh failed', e));
+    }
+
     let doc: Diagram | undefined;
     let legacyLoadBlocked = false;
     const customContentId = context.extension?.config?.customContentId || context.extension.modal?.customContentId;

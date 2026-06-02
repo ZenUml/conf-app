@@ -146,6 +146,22 @@ describe('shouldShowPaywallBanner — reads from localStorage', () => {
   })
 })
 
+describe('CSAT defer contract', () => {
+  // forgeIndex's CSAT branch yields when shouldShowPaywallBanner() is true, so
+  // the two pageBanner modules never stack (paywall > CSAT). This asserts the
+  // signal CSAT keys off of.
+  const now = Date.parse('2026-06-10T00:00:00.000Z')
+
+  it('paywall eligible (warning, unpaid, unsnoozed) → CSAT must defer', () => {
+    writeTargetingMarker(warning, ID)
+    expect(shouldShowPaywallBanner(now, ID)).toBe(true)
+  })
+
+  it('paywall not eligible (no marker) → CSAT proceeds', () => {
+    expect(shouldShowPaywallBanner(now, ID)).toBe(false)
+  })
+})
+
 describe('toMarkerSeverity', () => {
   it('maps the composable "normal" band to the marker "none" band', () => {
     expect(toMarkerSeverity('normal')).toBe('none')

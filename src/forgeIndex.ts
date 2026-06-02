@@ -18,6 +18,7 @@ import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId,
 import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
 import { isCsatPendingFresh } from '@/utils/csat';
+import { shouldShowPaywallBanner } from '@/utils/paywall/warningBanner';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
@@ -91,13 +92,35 @@ async function initializeCriticalPath() {
     // (Routed by moduleKey, not extension.type, because the pageBanner extension
     // carries no macro config to discriminate on.)
     if ((context as any).moduleKey === 'zenuml-csat-banner') {
-      if (!isCsatPendingFresh()) {
+      // CSAT defers to the paywall warning banner. Both are confluence:pageBanner
+      // modules, so on a load where the paywall banner is eligible we must NOT
+      // stack a second banner — paywall > CSAT in the Phase 4 priority order.
+      // The defer check is the same cheap synchronous localStorage read the
+      // paywall branch uses, so the inactive path stays free of work.
+      if (!isCsatPendingFresh() || shouldShowPaywallBanner()) {
         const { view } = await import('@forge/bridge');
         view.close();
         return { macroData: null };
       }
       const { handleCsatBannerRoute } = await import('./routes/csatBanner');
       await handleCsatBannerRoute();
+      return { macroData: null };
+    }
+
+    // Paywall warning page banner. Like CSAT, this module mounts on EVERY
+    // Confluence page load, so on the loads where the space is not in the 85–99
+    // warning band (or the user is snoozed) we close immediately WITHOUT
+    // importing the banner route, initializing the macro context, or mounting
+    // Vue. Visibility is decided purely from the localStorage markers — no
+    // backend call — exactly like CSAT's csatPending fast-exit.
+    if ((context as any).moduleKey === 'zenuml-paywall-warning-banner') {
+      if (!shouldShowPaywallBanner()) {
+        const { view } = await import('@forge/bridge');
+        view.close();
+        return { macroData: null };
+      }
+      const { handlePaywallBannerRoute } = await import('./routes/paywallBanner');
+      await handlePaywallBannerRoute();
       return { macroData: null };
     }
 
@@ -131,7 +154,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const context = await initForgeContext();
 
     // Skip loading heavy components if this is a global settings or global page context
-    if (['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem'].includes(context.extension?.type) || (context as any).moduleKey === 'zenuml-csat-banner') {
+    if (['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem'].includes(context.extension?.type) || (context as any).moduleKey === 'zenuml-csat-banner' || (context as any).moduleKey === 'zenuml-paywall-warning-banner') {
       console.log('Skipping heavy components load for global context');
       return;
     }

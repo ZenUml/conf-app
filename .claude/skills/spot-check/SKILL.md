@@ -20,6 +20,8 @@ A **spot check** is an ad hoc, AI-driven, ephemeral verification of a specific b
 - **AI-driven** — use Playwright MCP (`mcp__playwright__*`) to improvise steps. It is the only tool that reliably reaches inside Forge cross-origin iframes. Claude in Chrome / cursor-ide-browser can handle Confluence page chrome outside the iframe only. No script is checked in.
 - **Ephemeral** — test steps are not saved for future use.
 - **Targeted** — verify the specific behavior being checked, not a full regression.
+- **Real world** — verify the behaviour on a confluence site, not a local fixture or unit test.
+- **Forge tunnel** — use forge tunnel (separate skill) and `lite-dev.atlassian.net` by default.
 
 ## Write the plan first
 
@@ -49,14 +51,14 @@ For **branch validation** before push (Forge tunnel vs dev site), follow Step 2 
 
 ## Choosing the environment
 
-| Situation | Target environment |
-|-----------|-------------------|
-| New feature not yet deployed | Forge tunnel → `lite-dev.atlassian.net` (see **validate-branch**) |
-| Deployed to staging / failing pipeline | Staging site (e.g. `zenuml-stg.atlassian.net`) |
-| Reproducing a production issue | Production site directly |
-| Post-release validation | Production — same variant as the release |
-| Backend-only (webhook, API, D1) | `curl` / wrangler against staging or prod |
-| Validating the workflow itself | Any appropriate env |
+| Situation                              | Target environment                                                |
+|----------------------------------------|-------------------------------------------------------------------|
+| New feature not yet deployed           | Forge tunnel → `lite-dev.atlassian.net` (see **validate-branch**) |
+| Deployed to staging / failing pipeline | Staging site (`lite-stg.atlassian.net`)                           |
+| Reproducing a production issue         | Production site directly (zenuml.atlassian.net)                   |
+| Post-release validation                | Production — same variant as the release                          |
+| Backend-only (webhook, API, D1)        | `curl` / wrangler against staging or prod                         |
+| Validating the workflow itself         | Any appropriate env                                               |
 
 App profiles and credentials: `tests/e2e-tests/config/apps.ts`, `.env.forge.local`.
 
@@ -64,21 +66,22 @@ App profiles and credentials: `tests/e2e-tests/config/apps.ts`, `.env.forge.loca
 
 Use whichever signals the behavior requires. Mix freely — e.g. drive the browser, then query D1, then check Mixpanel.
 
-| Signal | How |
-|--------|-----|
-| UI behavior | Playwright MCP (`mcp__playwright__*`) — use `frameLocator()` inside Forge iframes |
-| Analytics events | Intercept `api.mixpanel.com` via Playwright, or `mcp__mixpanel__Run-Query` with `project_id=3373228` |
-| Forge logs | `forge logs --environment staging` / `forge logs --environment production` |
-| Cloudflare Workers logs | `wrangler pages deployment tail --project-name <project>` |
-| D1 database state | `wrangler d1 execute <db> --remote --command "SELECT ..."` |
-| R2 object storage | `wrangler r2 object get <bucket>/<key>` |
+| Signal                          | How                                                                                |
+|---------------------------------|------------------------------------------------------------------------------------|
+| UI behavior                     | Playwright MCP (`mcp__playwright__*`) — use `frameLocator()` inside Forge iframes  |
+| Analytics events                | `mcp__mixpanel__Run-Query` with `project_id=3373228`                               |
+| Forge logs                      | `forge logs --environment staging` / `forge logs --environment production`         |
+| Cloudflare Pages Functions logs | `wrangler pages deployment tail --project-name <project> --environment production` |
+| Cloudflare Workers logs         | `wrangler tail`                                                                    |
+| D1 database state               | `wrangler d1 execute <db> --remote --command "SELECT ..."`                         |
+| R2 object storage               | `wrangler r2 object get <bucket>/<key>`                                            |
 
 Analytics reference: [docs/analytics-reference.md](../../../docs/analytics-reference.md).
 
 ## Workflow
 
 1. **Plan** — behavior, target page/macro or data path, expected signal per assertion (see above).
-2. **Navigate** — open the target Confluence site if UI is involved. Log in from `.env.forge.local` when needed.
+2. **Navigate** — open the target Confluence site if UI is involved. Reuse the Chrome logged-in session when possible.
 3. **Reuse fixtures** — prefer an existing page with the relevant macro. Create one only if none exists (**create-test-page** skill for API-only setup).
 4. **Execute** — run each planned check. Screenshot or capture evidence after key steps. Report pass / fail / skipped per assertion.
 
@@ -86,12 +89,12 @@ Analytics reference: [docs/analytics-reference.md](../../../docs/analytics-refer
 
 Forge Custom UI renders in sandboxed cross-origin iframes (OOPIFs). Only Playwright reliably crosses that boundary.
 
-| Tool | Forge iframe access |
-|------|---------------------|
-| **Playwright MCP** | ✅ Yes — `frameLocator()` |
-| **chrome-devtools-mcp** | ❌ No |
-| **cursor-ide-browser** | ❌ No — page chrome only |
-| **claude-in-chrome** | ❌ No |
+| Tool                    | Forge iframe access      |
+|-------------------------|--------------------------|
+| **Playwright MCP**      | ✅ Yes — `frameLocator()` |
+| **chrome-devtools-mcp** | ❌ No                     |
+| **cursor-ide-browser**  | ❌ No — page chrome only  |
+| **claude-in-chrome**    | ❌ No                     |
 
 **Common gotchas:**
 
@@ -99,13 +102,18 @@ Forge Custom UI renders in sandboxed cross-origin iframes (OOPIFs). Only Playwri
 - Paywall state: use the macro toolbar `Preset:` dropdown (Bystander/Owner/etc.) for deterministic variants.
 - Version label in the macro toolbar confirms which build you hit (`vYYYY.MM…` = public deploy; branch SHA = tunnel/dev).
 
+**Before testing — mandatory pre-flight:**
+
+1. **Enable `zenumlDebug`** — open the browser console on the target Confluence page and run `localStorage.setItem('zenumlDebug', 'true')`, then reload. This unlocks the debug toolbar and version label inside the macro. Without it, key diagnostic signals are invisible.
+2. **Confirm the commit** — read the version label in the macro toolbar and match it against the expected commit SHA or release tag. GitHub PR commits use a merge commit hash (e.g. `abc1234` from the "Merge pull request" commit) that differs from the branch HEAD — always verify against the *actual* deployed SHA, not the PR's branch tip.
+
 ## Related skills
 
-| Skill | When |
-|-------|------|
-| **repro** | Confirm a bug exists before fixing |
-| **validate-branch** | Pre-push branch smoke via tunnel or dev site |
-| **release-app** | Step 5.5 — release-delta spot check after PVT |
-| **pvt** / **pvt-*** | Reusable production recipes (Mermaid smoke, paywall, drawio, etc.) — methods, not substitutes for writing assertions |
-| **create-test-page** | API-only page setup when you need specific macro content without the editor |
-| **graph-macro**, **copy-macro**, etc. | Focused recipes for specific macro flows |
+| Skill                                 | When                                                                        |
+|---------------------------------------|-----------------------------------------------------------------------------|
+| **repro**                             | Confirm a bug exists before fixing                                          |
+| **validate-branch**                   | Pre-push branch smoke via tunnel or dev site                                |
+| **release-app**                       | Step 5.5 — release-delta spot check after PVT                               |
+| **pvt** / **pvt-***                   | Reusable production recipes — methods, not substitutes for writing assertions |
+| **create-test-page**                  | API-only page setup when you need specific macro content without the editor |
+| **graph-macro**, **copy-macro**, etc. | Focused recipes for specific macro flows                                    |

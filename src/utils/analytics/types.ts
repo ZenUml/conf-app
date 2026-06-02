@@ -36,6 +36,7 @@ export type AnalyticsProperties = {
   // AI
   prompt_length?: number;
   generation_source?: string;
+  accepted_title?: string;
   // Feedback
   feedback_value?: FeedbackValue;
   feedback_score?: number;

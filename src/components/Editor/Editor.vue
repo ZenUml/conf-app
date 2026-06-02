@@ -12,13 +12,15 @@ import {EditorView} from '@codemirror/view'
 import globals from "@/model/globals";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
-import {EditorState, Compartment} from '@codemirror/state';
+import {EditorState, Compartment, EditorSelection} from '@codemirror/state';
 import {baseExtensionsFactory, mermaidExtensions, zenumlExtensions, plantUmlExtensions} from "./extensions";
 import {computed, onMounted, ref, watch, onBeforeUnmount, onBeforeMount} from "vue";
 import {useStore} from "vuex";
 import { validateMermaidSyntaxForStore } from "@/utils/mermaid/validate";
 import { validateSequenceSyntaxForStore } from "@/utils/sequence/validate";
 import { validatePlantUmlSyntaxForStore } from "@/utils/plantuml/validate";
+import { classifyDiagramPaste } from "./pasteDetection";
+import { toast } from "@/utils/toast";
 import { debounce } from 'lodash';
 
 const store = useStore();
@@ -27,7 +29,7 @@ const cmView = ref();
 const canUserEdit = ref();
 
 // Create a compartment for diagram-specific extensions
-let diagramCompartment = new Compartment()
+const diagramCompartment = new Compartment()
 
 const diagramType = computed(() => store.state.diagram.diagramType);
 
@@ -60,6 +62,35 @@ const diagramSpecificExtensions = computed(() => {
   if (diagramType.value === DiagramType.Mermaid) return mermaidExtensions;
   if (diagramType.value === DiagramType.PlantUml) return plantUmlExtensions;
   return zenumlExtensions;
+});
+
+const insertIntoEditor = (view, text) => {
+  view.dispatch(view.state.changeByRange(range => ({
+    changes: { from: range.from, to: range.to, insert: text },
+    range: EditorSelection.cursor(range.from + text.length)
+  })));
+}
+
+const diagramPasteHandler = EditorView.domEventHandlers({
+  paste(event, view) {
+    const pastedText = event.clipboardData?.getData('text/plain') || '';
+    const action = classifyDiagramPaste(pastedText, diagramType.value);
+    if (!action) return false;
+
+    event.preventDefault();
+    if (action.kind === 'switch') {
+      store.dispatch(getStoreUpdateAction(action.targetType), action.code);
+      store.dispatch('updateDiagramType', action.targetType);
+      localStorage.setItem('zenuml-preferred-diagram-type', action.targetType);
+    } else {
+      insertIntoEditor(view, action.code);
+    }
+
+    if (action.message) {
+      toast({ message: action.message, duration: 3000 });
+    }
+    return true;
+  }
 });
 
 watch(code, (newVal) => {
@@ -102,6 +133,7 @@ onMounted(() => {
       // Initialize with base extensions and the compartment holding the initial diagram extensions
       extensions: [
         ...baseExtensions.value,
+        diagramPasteHandler,
         diagramCompartment.of(diagramSpecificExtensions.value)
       ]
     }),

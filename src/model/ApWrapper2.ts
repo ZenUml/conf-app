@@ -216,7 +216,7 @@ export default class ApWrapper2 implements IApWrapper {
     // there; this is the direct-create branch (called e.g. by
     // CustomContentStorageProvider.save when source !== 'custom-content',
     // which is the Defect 1 legacy-migration path).
-    const { recoveredFromOrphan: _rfo, recoveredFromOrphanId: _rid, legacyLoadBlocked: _llb, ...sanitizedContent } = content as any;
+    const sanitizedContent = this.sanitizeCustomContentBody(content);
     const data: any = {
       "type": type,
       "pageId": await this._getCurrentPageId(),
@@ -271,8 +271,29 @@ export default class ApWrapper2 implements IApWrapper {
     };
   }
 
+  private sanitizeCustomContentBody(content: Diagram): Diagram {
+    const body = { ...(content as any) };
+    delete body.recoveredFromOrphan;
+    delete body.recoveredFromOrphanId;
+    delete body.legacyLoadBlocked;
+
+    // Legacy graph records used `compressed: true` with an LZUTF8 graphXml
+    // body. DrawIO saves now emit plain XML, so persisting a stale true flag
+    // makes the next load try to decompress non-compressed XML.
+    if (
+      body.diagramType === DiagramType.Graph
+      && typeof body.graphXml === 'string'
+      && body.graphXml.trimStart().startsWith('<')
+    ) {
+      delete body.compressed;
+    }
+
+    return body as Diagram;
+  }
+
   async updateCustomContentV2(content: ICustomContentV2, newBody: Diagram): Promise<ICustomContentResponseBodyV2> {
     let newVersionNumber = 1;
+    const sanitizedBody = this.sanitizeCustomContentBody(newBody);
 
     if (content.version?.number) {
       newVersionNumber += content.version?.number
@@ -283,9 +304,9 @@ export default class ApWrapper2 implements IApWrapper {
       "type": content.type,
       "status": content.status,
       "pageId": content.pageId,
-      "title": newBody.title || content.title,
+      "title": sanitizedBody.title || content.title,
       "body": {
-        "value": JSON.stringify(newBody),
+        "value": JSON.stringify(sanitizedBody),
         "representation": "raw"
       },
       "version": {
@@ -1082,7 +1103,7 @@ export default class ApWrapper2 implements IApWrapper {
     // create or update. Defect 1: catches legacy-content-property migrations
     // where source=ContentProperty docs flow through the create branch.
     // Defect 2b: catches the orphan-recovery branch below as well.
-    const { recoveredFromOrphan: _rfo, legacyLoadBlocked: _llb, ...bodyWithoutUiFlags } = value as any;
+    const bodyWithoutUiFlags = this.sanitizeCustomContentBody(value);
 
     // ZEN-1170 Defect 2b: when the diagram was loaded via orphan-sibling
     // recovery, the macro XML still references the dead orphan id, so no

@@ -85,6 +85,25 @@ describe('ApWrapper2', () => {
       expect(trackEvent).toHaveBeenCalledWith('"123"', 'update_custom_content', 'info');
     });
 
+    it('strips stale compressed flag when updating a graph body with plain XML', async () => {
+      const content = buildContent(5);
+      const diagram = {
+        id: '123',
+        title: 'Graph',
+        diagramType: 'graph',
+        graphXml: '<mxfile><diagram /></mxfile>',
+        compressed: true,
+      } as any;
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '123', version: { number: 6 } });
+
+      await wrapper.updateCustomContentV2(content, diagram);
+
+      const payload = vi.mocked(forgeRequest).mock.calls[0][2] as any;
+      const serializedBody = JSON.parse(payload.body.value);
+      expect(serializedBody.graphXml).toBe('<mxfile><diagram /></mxfile>');
+      expect(serializedBody.compressed).toBeUndefined();
+    });
+
     it('should retry on version conflict and succeed', async () => {
       const content = buildContent(5);
       const diagram = buildDiagram();
@@ -936,6 +955,31 @@ describe('ApWrapper2', () => {
       const writeCall = vi.mocked(forgeRequest).mock.calls[1];
       expect(writeCall[0]).toBe(`/wiki/api/v2/custom-content/${ccId}`);
       expect(writeCall[1]).toBe('PUT');
+    });
+
+    it('strips stale compressed flag when saving edited graph XML in place', async () => {
+      (wrapper as any)._page.countMacros = vi.fn().mockResolvedValue(1);
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({
+          ...mockExistence(),
+          type: 'ac:com.zenuml.confluence-addon:zenuml-content-graph',
+          body: { raw: { value: JSON.stringify({ graphXml: 'legacy-compressed', diagramType: 'graph', compressed: true }) } },
+        })
+        .mockResolvedValueOnce({ id: ccId, version: { number: 3 } });
+
+      await wrapper.saveCustomContentV2(ccId, {
+        id: ccId,
+        title: 'Edited graph',
+        diagramType: 'graph',
+        source: 'custom-content',
+        graphXml: '<mxfile><diagram /></mxfile>',
+        compressed: true,
+      } as any);
+
+      const writeCall = vi.mocked(forgeRequest).mock.calls[1];
+      const serializedBody = JSON.parse((writeCall[2] as any).body.value);
+      expect(serializedBody.graphXml).toBe('<mxfile><diagram /></mxfile>');
+      expect(serializedBody.compressed).toBeUndefined();
     });
 
     // The copy case MUST still fork — two macros on the page share the cc, so a

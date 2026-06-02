@@ -44,7 +44,6 @@ import {decompress} from '@/utils/compress';
 import ForgeGraphViewer from "@/components/Viewer/ForgeGraphViewer.vue";
 import EventBus from './EventBus'
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
-import GraphExample from '@/model/Graph/GraphExample';
 import { DataSource, Diagram, DiagramType } from "@/model/Diagram/Diagram";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import {
@@ -150,6 +149,10 @@ async function loadDiagram(): Promise<Diagram | undefined> {
 }
 
 function afterLoad(doc: Diagram | undefined) {
+  // Rendering is driven by the store (publishLoadedDiagram normalizes legacy
+  // compressed graph bodies to plain XML before the store write). Here we only
+  // need plain XML for the attachment side-effect below, plus the compressed_*
+  // telemetry that sizes how many legacy compressed graph macros are loaded.
   let graphXml = doc?.graphXml;
   if (doc?.compressed) {
     trackEvent('compressed_field_viewer', 'load', 'warning');
@@ -158,9 +161,6 @@ function afterLoad(doc: Diagram | undefined) {
       trackEvent('compressed_content_viewer', 'load', 'warning');
     }
   }
-
-  // @ts-ignore
-  window.updateGraph && window.updateGraph(graphXml || GraphExample.graphXml);
 
   setTimeout(async function () {
     try {

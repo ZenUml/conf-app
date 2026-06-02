@@ -289,9 +289,7 @@ modules:
       resolver:
         endpoint: remote-connect
   confluence:pageBanner:
-    - key: zenuml-csat-banner
-      resource: main
-    - key: zenuml-paywall-warning-banner
+    - key: zenuml-page-banner
       resource: main
   confluence:contentBylineItem: #Note: This module is applicable for "Diagramly for Confluence", not "ZenUML for Confluence"
     - key: zenuml-byline-aiaide

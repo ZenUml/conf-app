@@ -28,16 +28,15 @@ vi.mock('@/utils/upgradeTracking', () => ({
   },
 }))
 
-vi.mock('@/composables/useCustomerSuccessService', () => {
-  const { ref } = require('vue')
-  return {
-    useCustomerSuccessService: () => ({
-      upgradeUrl: ref('https://upgrade.example.com'),
-      enterpriseBundleUrl: ref('https://bundle.example.com'),
-    }),
-    MACROS_LIMIT: 100,
-  }
-})
+vi.mock('@/composables/useCustomerSuccessService', () => ({
+  // The component only reads `.value` on these (pure URL refs), so plain
+  // { value } stand-ins suffice — no need to import vue's ref into the factory.
+  useCustomerSuccessService: () => ({
+    upgradeUrl: { value: 'https://upgrade.example.com' },
+    enterpriseBundleUrl: { value: 'https://bundle.example.com' },
+  }),
+  MACROS_LIMIT: 100,
+}))
 
 vi.mock('@/model/globals/forgeGlobal', () => ({
   default: { forgeContext: null },

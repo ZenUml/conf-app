@@ -9,6 +9,7 @@ import forgeGlobal from "@/model/globals/forgeGlobal";
 import type { AnalyticsEventName } from "./catalog";
 import type { AnalyticsProperties } from "./types";
 import type { SpaceAdmin } from "@/model/SpaceAdmin";
+import { isCurrentPageDemoPage } from "./demoPageStatus";
 
 let _initialized = false;
 let _identified = false;
@@ -113,6 +114,24 @@ function _getContentIdentifiers(): {
   };
 }
 
+// Enriches macro_* events with `is_demo_page: true` when the current macro
+// lives on a Diagramly demo page (tagged via page property on creation).
+// The lookup is cached per page id; first call costs one Confluence REST
+// hit, subsequent macro views on the same page reuse the cached value.
+async function _getDemoPageTelemetry(
+  eventName: AnalyticsEventName
+): Promise<Pick<AnalyticsProperties, "is_demo_page">> {
+  if (!eventName.startsWith("macro_")) {
+    return {};
+  }
+  try {
+    const isDemo = await isCurrentPageDemoPage();
+    return isDemo ? { is_demo_page: true } : {};
+  } catch {
+    return {};
+  }
+}
+
 export async function _awaitableTrackAnalyticsEvent(
   eventName: AnalyticsEventName,
   callerProps: AnalyticsProperties
@@ -147,6 +166,7 @@ export async function _awaitableTrackAnalyticsEvent(
         callerProps.custom_content_id ?? contentIds.custom_content_id,
       attachment_name: callerProps.attachment_name ?? contentIds.attachment_name,
       ...(await _getSpaceAdminTelemetry(eventName)),
+      ...(await _getDemoPageTelemetry(eventName)),
     };
 
     mixpanel.track(eventName, enriched);

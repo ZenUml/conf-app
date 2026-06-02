@@ -21,6 +21,7 @@ import { isCsatPendingFresh } from '@/utils/csat';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
+import { handleCreateDemoPageRoute } from './routes/createDemoPage';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
@@ -59,10 +60,14 @@ async function initializeCriticalPath() {
   try {
     await initForgeContext();
 
-    // Check if this is a global settings route (get started page)
+    // Check if this is a global settings route
     const context = await initForgeContext();
     if (context.extension?.type === 'confluence:globalSettings') {
-      await handleGetStartedRoute();
+      if (context.moduleKey === 'diagramly-admin-create-demo-page') {
+        await handleCreateDemoPageRoute();
+      } else {
+        await handleGetStartedRoute();
+      }
       return { macroData: null };
     }
 

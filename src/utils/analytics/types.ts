@@ -49,6 +49,10 @@ export type AnalyticsProperties = {
   custom_content_id?: string;
   attachment_name?: string;
   space_admin_count?: number;
+  // Diagramly demo-page engagement: set automatically for macro_* events when
+  // the macro lives on a page tagged with the `diagramly-demo-page` page
+  // property. See utils/analytics/demoPageStatus.ts.
+  is_demo_page?: boolean;
   // Error
   error_code?: string;
   error_name?: string;

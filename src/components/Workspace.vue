@@ -3,6 +3,7 @@
     <div class="content h-screen flex flex-col" style="height: 100vh; overflow: hidden;">
       <div class="flex-shrink-0">
         <Header />
+        <PaywallWarningBanner />
       </div>
       <div class="workspace flex-grow split" style="overflow: hidden; position: relative;">
         <div id="workspace-left" class="editor flex flex-col flex-grow" style="overflow: hidden;">
@@ -27,6 +28,7 @@
   import Header from "@/components/Header/Header.vue";
   import DiagramPortal from "@/components/DiagramPortal.vue";
   import SyntaxErrorBox from '@/components/SyntaxErrorBox.vue'
+  import PaywallWarningBanner from '@/components/UpgradePrompt/PaywallWarningBanner.vue'
 
   export default {
     name: 'Workspace',
@@ -43,7 +45,8 @@
       DiagramPortal,
       Header,
       Editor,
-      SyntaxErrorBox
+      SyntaxErrorBox,
+      PaywallWarningBanner,
     }
   }
 </script>

@@ -68,6 +68,8 @@ export type AnalyticsEventName =
   | "upgrade_feature_enabled"
   | "paywall_continue_used"
   | "paywall_attempts_exhausted"
+  | "paywall_banner_shown"
+  | "paywall_banner_dismissed"
   | "advocacy_message_copied"
   | "advocacy_draft_preview_clicked"
   | "extension_request_clicked"

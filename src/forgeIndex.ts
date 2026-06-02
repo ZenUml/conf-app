@@ -590,7 +590,7 @@ import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
 installRestoreDraftBanner();
 
 EventBus.$on('save', async () => {
-  notifyAiTitleSaved()
+  notifyAiTitleSaved({ title: store.state.diagram.title, contentId: store.state.diagram.id })
   console.log('save', store.state.diagram);
 
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"

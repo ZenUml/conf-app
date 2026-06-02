@@ -234,9 +234,14 @@ export function useAutoTitle() {
   }
 }
 
-export function notifyAiTitleSaved(): void {
+export function notifyAiTitleSaved(opts?: { title?: string; contentId?: string }): void {
   if (autoNameAnimationDone.value) {
-    trackAnalyticsEvent('ai_title_accepted', { feature_area: 'ai', surface: 'editor' })
+    trackAnalyticsEvent('ai_title_accepted', {
+      feature_area: 'ai',
+      surface: 'editor',
+      ...(opts?.title && { accepted_title: opts.title }),
+      ...(opts?.contentId && { content_id: opts.contentId }),
+    })
     autoNameAnimationDone.value = false
   }
 }

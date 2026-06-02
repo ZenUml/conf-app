@@ -1,0 +1,229 @@
+import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
+
+/**
+ * Shared marker module for the paywall page-banner (Phase 3 redesign).
+ *
+ * Two single-writer localStorage markers coordinate the two iframes that can
+ * never call each other directly:
+ *
+ *   - TARGETING marker (`paywallWarning:<domain>:<space>`) — written ONLY by the
+ *     macro iframe (useCustomerSuccessService) when a macro renders. Records the
+ *     space's computed severity / macro count / paid status.
+ *   - DISMISSAL marker (`paywallBanner:<domain>:<space>`) — written ONLY by the
+ *     page-banner iframe. Records show count + the last dismissal timestamp.
+ *
+ * Single-writer-per-key avoids the read-modify-write clobber two iframes would
+ * otherwise hit on a shared key. The banner's visibility is decided purely from
+ * these markers (no backend call), the same fast-exit discipline as CSAT.
+ *
+ * Scope deviation from the design doc (2026-06-02): keys are scoped by
+ * `domain:space` only, NOT `domain:space:accountId`. The page-banner (read)
+ * iframe cannot reliably read `accountId` from its Forge context synchronously
+ * — CSAT pays for an async `_getCurrentUser()` precisely because of this — so an
+ * accountId-keyed read would build `...:unknown` while the macro-side write used
+ * a real id, and the keys would never match (silent never-show). localStorage is
+ * already per-browser, hence effectively per-user; accountId in the key would
+ * only disambiguate multiple Atlassian accounts sharing one browser profile
+ * (negligible for v1). Dropping it keeps the entire gate synchronous.
+ */
+
+/** Snooze window for a dismissed warning banner — matches the Phase 4 85–99 band. */
+export const WARNING_BANNER_SUPPRESSION_MS = 7 * 24 * 60 * 60 * 1000
+
+/** Marker severity. 'none' is the inactive state the macro side writes when the
+ * space falls below the warning band; the composable's own `severity` computed
+ * uses 'normal' for that band — map via {@link toMarkerSeverity}. */
+export type WarningSeverity = 'none' | 'warning' | 'critical'
+
+export interface WarningBannerIdentity {
+  clientDomain: string
+  spaceKey: string
+}
+
+export interface TargetingMarker {
+  severity: WarningSeverity
+  macroCount: number
+  spacePaid: boolean
+  updatedAt: string
+}
+
+export interface DismissalMarker {
+  dismissedAt: string | null
+  lastShownAt: string | null
+  showCount: number
+}
+
+/** encodeURIComponent + 'unknown' fallback, mirroring continueAttempts.ts so the
+ * macro-side write and banner-side read derive byte-identical keys. */
+function normalizeKeyPart(value: string): string {
+  return encodeURIComponent(value || 'unknown')
+}
+
+/**
+ * Derive the shared identity from the Forge context. Both the macro iframe
+ * (write) and the page-banner iframe (read) call this so any divergence in any
+ * part — which would silently break the never-show — is impossible by
+ * construction. `getSpaceKey()` is the single source for the space part on both
+ * sides.
+ */
+export function deriveWarningBannerIdentity(): WarningBannerIdentity {
+  return {
+    clientDomain: getClientDomain() || 'unknown',
+    spaceKey: getSpaceKey() || 'unknown',
+  }
+}
+
+export function targetingMarkerKey(identity: WarningBannerIdentity): string {
+  return ['paywallWarning', normalizeKeyPart(identity.clientDomain), normalizeKeyPart(identity.spaceKey)].join(':')
+}
+
+export function dismissalMarkerKey(identity: WarningBannerIdentity): string {
+  return ['paywallBanner', normalizeKeyPart(identity.clientDomain), normalizeKeyPart(identity.spaceKey)].join(':')
+}
+
+export function parseTargetingMarker(raw: string | null): TargetingMarker | null {
+  if (!raw) return null
+  try {
+    const p = JSON.parse(raw) as Partial<TargetingMarker>
+    if (p.severity !== 'none' && p.severity !== 'warning' && p.severity !== 'critical') return null
+    if (typeof p.macroCount !== 'number' || !Number.isFinite(p.macroCount)) return null
+    if (typeof p.spacePaid !== 'boolean') return null
+    if (typeof p.updatedAt !== 'string') return null
+    return {
+      severity: p.severity,
+      macroCount: Math.floor(p.macroCount),
+      spacePaid: p.spacePaid,
+      updatedAt: p.updatedAt,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function parseDismissalMarker(raw: string | null): DismissalMarker | null {
+  if (!raw) return null
+  try {
+    const p = JSON.parse(raw) as Partial<DismissalMarker>
+    if (typeof p !== 'object' || p === null) return null
+    return {
+      dismissedAt: typeof p.dismissedAt === 'string' ? p.dismissedAt : null,
+      lastShownAt: typeof p.lastShownAt === 'string' ? p.lastShownAt : null,
+      showCount:
+        typeof p.showCount === 'number' && Number.isFinite(p.showCount) && p.showCount >= 0
+          ? Math.floor(p.showCount)
+          : 0,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function readTargetingMarker(identity: WarningBannerIdentity = deriveWarningBannerIdentity()): TargetingMarker | null {
+  try {
+    return parseTargetingMarker(localStorage.getItem(targetingMarkerKey(identity)))
+  } catch {
+    return null
+  }
+}
+
+/** Best-effort write from the macro iframe. Never throws into the render path. */
+export function writeTargetingMarker(
+  marker: TargetingMarker,
+  identity: WarningBannerIdentity = deriveWarningBannerIdentity()
+): void {
+  try {
+    localStorage.setItem(targetingMarkerKey(identity), JSON.stringify(marker))
+  } catch (e) {
+    console.warn('[paywall-banner] targeting marker write failed', e)
+  }
+}
+
+export function readDismissalMarker(identity: WarningBannerIdentity = deriveWarningBannerIdentity()): DismissalMarker | null {
+  try {
+    return parseDismissalMarker(localStorage.getItem(dismissalMarkerKey(identity)))
+  } catch {
+    return null
+  }
+}
+
+/** Best-effort write from the banner iframe. Never throws into the banner path. */
+function writeDismissalMarker(marker: DismissalMarker, identity: WarningBannerIdentity): void {
+  try {
+    localStorage.setItem(dismissalMarkerKey(identity), JSON.stringify(marker))
+  } catch (e) {
+    console.warn('[paywall-banner] dismissal marker write failed', e)
+  }
+}
+
+/**
+ * Pure visibility gate. Show iff: a warning targeting marker exists, the space
+ * is unpaid, and the banner is not inside its post-dismissal snooze window.
+ * `critical` (100+) is intentionally excluded — the hard modal owns that band.
+ */
+export function isWarningBannerVisible(
+  targeting: TargetingMarker | null,
+  dismissal: DismissalMarker | null,
+  now: number = Date.now()
+): boolean {
+  if (!targeting) return false
+  if (targeting.severity !== 'warning') return false
+  if (targeting.spacePaid) return false
+  if (dismissal?.dismissedAt) {
+    const dismissedMs = Date.parse(dismissal.dismissedAt)
+    if (Number.isFinite(dismissedMs) && now - dismissedMs <= WARNING_BANNER_SUPPRESSION_MS) {
+      return false
+    }
+  }
+  return true
+}
+
+/** localStorage-backed gate used by the forgeIndex fast-exit and the CSAT defer
+ * check. Fail closed (no banner) on any storage error. */
+export function shouldShowPaywallBanner(
+  now: number = Date.now(),
+  identity: WarningBannerIdentity = deriveWarningBannerIdentity()
+): boolean {
+  try {
+    return isWarningBannerVisible(readTargetingMarker(identity), readDismissalMarker(identity), now)
+  } catch {
+    return false
+  }
+}
+
+/** Record an impression: bump showCount, stamp lastShownAt, preserve dismissedAt. */
+export function recordBannerShown(
+  identity: WarningBannerIdentity = deriveWarningBannerIdentity(),
+  now: Date = new Date()
+): DismissalMarker {
+  const current = readDismissalMarker(identity)
+  const next: DismissalMarker = {
+    dismissedAt: current?.dismissedAt ?? null,
+    lastShownAt: now.toISOString(),
+    showCount: (current?.showCount ?? 0) + 1,
+  }
+  writeDismissalMarker(next, identity)
+  return next
+}
+
+/** Record a dismissal: stamp dismissedAt (starts the snooze), preserve counters. */
+export function recordBannerDismissed(
+  identity: WarningBannerIdentity = deriveWarningBannerIdentity(),
+  now: Date = new Date()
+): DismissalMarker {
+  const current = readDismissalMarker(identity)
+  const next: DismissalMarker = {
+    dismissedAt: now.toISOString(),
+    lastShownAt: current?.lastShownAt ?? null,
+    showCount: current?.showCount ?? 0,
+  }
+  writeDismissalMarker(next, identity)
+  return next
+}
+
+/** Map the composable's `severity` band ('normal' | 'warning' | 'critical') to
+ * the marker's severity ('none' | 'warning' | 'critical'). */
+export function toMarkerSeverity(severity: string): WarningSeverity {
+  if (severity === 'warning') return 'warning'
+  if (severity === 'critical') return 'critical'
+  return 'none'
+}

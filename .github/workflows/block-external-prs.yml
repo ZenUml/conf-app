@@ -1,0 +1,25 @@
+name: Block External PRs
+
+# This repo does not accept pull requests from forks (external contributors).
+# `pull_request_target` runs with the base repo's token so we can comment + close.
+# We never check out the PR head, so untrusted fork code is never executed.
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  block-external:
+    name: Close fork PRs
+    if: github.event.pull_request.head.repo.fork
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment and close
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          gh pr comment "$PR_URL" --body "Thanks for your interest! This repository does not accept pull requests from forks. External contributions are not enabled here, so this PR is being closed automatically. If you believe this is a mistake, please open an issue."
+          gh pr close "$PR_URL"

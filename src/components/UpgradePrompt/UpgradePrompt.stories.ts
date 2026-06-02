@@ -82,9 +82,78 @@ const meta: Meta<typeof UpgradePrompt> = {
 
 export default meta
 
-export const Default: Story = {}
+export const DefaultUnlimitedContinue: Story = {
+  name: 'Default - Continue still unlimited',
+}
+
+export const AttemptsAvailable15: Story = {
+  name: 'Phase 2 - 15 attempts available',
+  args: {
+    remainingContinueAttempts: 15,
+  },
+  play: async () => {
+    const body = within(document.body)
+    const button = await body.findByTestId('continue-editing-btn')
+    await expect(button).toHaveTextContent('Continue editing without upgrading (15)')
+    await expect(button).toHaveAttribute(
+      'title',
+      'You have 15 temporary continue attempts left before editing is blocked for you in this space.'
+    )
+  },
+}
+
+export const AttemptsLow3: Story = {
+  name: 'Phase 2 - low attempts',
+  args: {
+    remainingContinueAttempts: 3,
+  },
+  play: async () => {
+    const body = within(document.body)
+    await expect(await body.findByTestId('continue-editing-btn')).toHaveTextContent(
+      'Continue editing without upgrading (3)'
+    )
+  },
+}
+
+export const LastAttempt: Story = {
+  name: 'Phase 2 - last attempt',
+  args: {
+    remainingContinueAttempts: 1,
+  },
+  play: async () => {
+    const body = within(document.body)
+    const button = await body.findByTestId('continue-editing-btn')
+    await expect(button).toHaveTextContent('Continue editing without upgrading (1)')
+    await expect(button).toHaveAttribute(
+      'title',
+      'You have 1 temporary continue attempt left before editing is blocked for you in this space.'
+    )
+  },
+}
+
+export const AttemptsExhausted: Story = {
+  name: 'Phase 2 - attempts exhausted',
+  args: {
+    remainingContinueAttempts: 0,
+  },
+  play: async () => {
+    const body = within(document.body)
+    const exhaustedCopy = await body.findByTestId('continue-attempts-exhausted')
+    await expect(exhaustedCopy).toHaveTextContent('Request extension to continue editing')
+    await expect(exhaustedCopy).toHaveAttribute(
+      'title',
+      'No continue attempts remain. Request an extension or upgrade to keep editing.'
+    )
+    await expect(await body.findByTestId('request-extension-btn')).toBeVisible()
+    await expect(await body.findByTestId('advocacy-copy-btn')).toBeVisible()
+    await expect(body.queryByTestId('continue-editing-btn')).toBeNull()
+  },
+}
 
 export const RequestExtensionCopied: Story = {
+  args: {
+    remainingContinueAttempts: 15,
+  },
   play: async () => {
     const body = within(document.body)
     await userEvent.click(await body.findByTestId('request-extension-btn'))
@@ -95,6 +164,9 @@ export const RequestExtensionCopied: Story = {
 }
 
 export const RequestExtensionCopyFailed: Story = {
+  args: {
+    remainingContinueAttempts: 15,
+  },
   parameters: {
     extensionRequestCopy: false,
   },
@@ -108,6 +180,9 @@ export const RequestExtensionCopyFailed: Story = {
 }
 
 export const DraftPreviewExpanded: Story = {
+  args: {
+    remainingContinueAttempts: 15,
+  },
   play: async () => {
     const body = within(document.body)
     await userEvent.click(await body.findByTestId('draft-toggle-btn'))

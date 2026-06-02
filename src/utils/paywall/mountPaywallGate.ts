@@ -10,10 +10,12 @@ import {
   getUpgradeContext,
 } from '@/composables/useCustomerSuccessService';
 import {
+  default as forgeGlobal,
   getView,
   isFullscreenMode,
   isEditorMode,
 } from '@/model/globals/forgeGlobal';
+import { getClientDomain } from '@/utils/ContextParameters/ContextParameters';
 import {
   trackUpgradeEvent,
   UpgradeEventName,
@@ -63,6 +65,11 @@ export async function mountUnderPaywallGate(opts: {
     macroKind: opts.macroKind,
     spaceKey,
     actionType: opts.actionType,
+    continueAttemptsIdentity: {
+      clientDomain: getClientDomain() || 'unknown_atlassian_domain',
+      spaceKey: spaceKey || opts.customerSuccess.spaceKey.value || 'unknown_space',
+      userAccountId: forgeGlobal.forgeContext?.accountId || 'unknown_user_account_id',
+    },
     onClose: async () => {
       await (await getView()).close();
     },

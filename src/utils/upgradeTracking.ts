@@ -10,6 +10,8 @@ export enum UpgradeEventName {
   PAYWALL_BLOCKED_EDIT = 'paywall_blocked_edit',
   PAYWALL_BLOCKED_CREATE = 'paywall_blocked_create',
   PAYWALL_CONTINUED_EDITING = 'paywall_continued_editing',
+  PAYWALL_CONTINUE_USED = 'paywall_continue_used',
+  PAYWALL_ATTEMPTS_EXHAUSTED = 'paywall_attempts_exhausted',
   ADVOCACY_MESSAGE_COPIED = 'advocacy_message_copied',
   ADVOCACY_DRAFT_PREVIEW_CLICKED = 'advocacy_draft_preview_clicked',
   EXTENSION_REQUEST_CLICKED = 'extension_request_clicked',

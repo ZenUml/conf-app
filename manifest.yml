@@ -240,6 +240,14 @@ modules:
       function: pageCaptureFn
       events:
         - avi:confluence:updated:page
+  scheduledTrigger:
+    # Diagramly-only. CI yq-strips this entry for lite/full so it never runs
+    # on those variants. Polls the enrollment KV and creates a demo page for
+    # any enrolled space that doesn't yet have one. Interval is a safety net
+    # — the admin button still processes synchronously.
+    - key: diagramly-demo-page-pipeline
+      function: createDemoPageScheduled
+      interval: fiveMinute
   endpoint:
     - key: remote-connect
       remote: connect
@@ -327,6 +335,8 @@ modules:
       handler: page-capture.handler
     - key: createDemoPage
       handler: createDemoPage.handler
+    - key: createDemoPageScheduled
+      handler: createDemoPage.scheduledHandler
 
 resources:
   - key: main

@@ -1,9 +1,10 @@
 <template>
   <div class="create-demo-page">
-    <h1>Diagramly Admin — Create demo page</h1>
+    <h1>Diagramly Admin — Enroll space for demo page</h1>
     <p>
-      Creates a demo page in the chosen Confluence space, using the Diagramly app
-      identity. Use this only on tenants where a demo page is expected.
+      Enrolls the chosen Confluence space. The Diagramly pipeline creates one
+      demo page per enrolled space. Deleting the demo page is treated as
+      opt-out — the pipeline will not recreate it.
     </p>
 
     <form @submit.prevent="onSubmit">
@@ -12,12 +13,12 @@
         id="spaceKey"
         v-model="spaceKey"
         type="text"
-        placeholder="e.g. DEMO"
+        placeholder="e.g. TEAM"
         required
         :disabled="busy"
       />
       <button type="submit" :disabled="busy || !spaceKey">
-        {{ busy ? 'Creating…' : 'Create demo page' }}
+        {{ busy ? 'Enrolling…' : 'Enroll space' }}
       </button>
     </form>
 
@@ -26,11 +27,18 @@
         Demo page already exists for space <code>{{ spaceKey }}</code>. Page id:
         <code>{{ result.pageId }}</code>.
       </p>
+      <p v-else-if="result.ok && result.pageId">
+        Space enrolled and demo page created. Page id: <code>{{ result.pageId }}</code>.
+      </p>
       <p v-else-if="result.ok">
-        Demo page created. Page id: <code>{{ result.pageId }}</code>.
+        Space enrolled. The pipeline will create the demo page on its next run.
+      </p>
+      <p v-else-if="!result.ok && result.error === 'in_progress'">
+        Another run is in progress (started {{ result.startedAt }}). Try again
+        in a few minutes.
       </p>
       <p v-else>
-        Create failed (status {{ result.status }}, {{ result.error }}).
+        Enrollment failed (status {{ result.status }}, {{ result.error }}).
         <span v-if="result.detail">Detail: {{ result.detail }}</span>
       </p>
     </div>
@@ -41,8 +49,15 @@
 import { ref } from 'vue';
 import { invoke } from '@forge/bridge';
 
-type Success = { ok: true; pageId: string; alreadyExists?: boolean; createdAt?: string };
-type Failure = { ok: false; status: number; error: string; detail?: string };
+type Success = {
+  ok: true;
+  enrolled?: boolean;
+  spaceKey?: string;
+  pageId?: string;
+  alreadyExists?: boolean;
+  createdAt?: string;
+};
+type Failure = { ok: false; status: number; error: string; detail?: string; startedAt?: string };
 type InvokeResult = Success | Failure;
 
 const spaceKey = ref('');
@@ -53,6 +68,9 @@ async function onSubmit() {
   busy.value = true;
   result.value = null;
   try {
+    // Backend resolver name stays 'createDemoPage' for back-compat with any
+    // already-bookmarked admin tab; the resolver now writes the enrollment
+    // marker before processing.
     const res = (await invoke('createDemoPage', { spaceKey: spaceKey.value })) as InvokeResult;
     result.value = res;
   } catch (e) {

@@ -83,6 +83,8 @@ jobs:
             yq eval '
               del(.modules."confluence:globalSettings"[] | select(.key == "diagramly-admin-create-demo-page"))
               | del(.modules.function[] | select(.key == "createDemoPage"))
+              | del(.modules.function[] | select(.key == "createDemoPageScheduled"))
+              | del(.modules.scheduledTrigger)
             ' -i manifest.yml
       - name: Remove licensing for Lite
         if: ${{ steps.properties.outputs.license == 'lite' }}

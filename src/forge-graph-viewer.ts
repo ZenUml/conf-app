@@ -12,13 +12,15 @@ import {
   reportLegacyContentPropertyLoadFailed,
   reportLegacyContentPropertyValueUnexpected,
 } from '@/utils/legacyContentPropertyTelemetry';
-import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
+import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/viewerBootstrap';
 import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
+import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
 
-async function loadDiagram(): Promise<Diagram | undefined> {
+async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
+  let loadError = null;
   const customContentId = context.extension?.config?.customContentId;
   const pageId = context.extension?.content?.id;
   if(!customContentId) {
@@ -35,6 +37,7 @@ async function loadDiagram(): Promise<Diagram | undefined> {
       });
     } else if (!doc) {
       reportOrphanObserved(pageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false });
+      loadError = mapCustomContentLoadError(loaded);
     }
   }
 
@@ -107,7 +110,7 @@ async function loadDiagram(): Promise<Diagram | undefined> {
     }
   }
 
-  return doc;
+  return { doc, loadError };
 }
 
 function afterLoad(doc: Diagram | undefined) {

@@ -1,57 +1,54 @@
 import { Component } from 'vue';
 import globals from '@/model/globals';
 import { mountRoot } from '@/mount-root';
-import store from '@/model/store2';
 import { Diagram, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
-import { decompress } from '@/utils/compress';
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage';
+import {
+  applyViewerLoadOutcome,
+  getForgeCustomContentId,
+  mapThrownViewerLoadError,
+  setViewerLoadState,
+} from '@/utils/viewerLoadOutcome';
+
+export { publishLoadedDiagram } from '@/utils/viewerLoadOutcome';
+import type { DiagramLoadError } from '@/model/store2/types';
+
+export type ViewerLoadDiagramResult =
+  | Diagram
+  | undefined
+  | {
+      doc?: Diagram;
+      loadError?: DiagramLoadError | null;
+    };
 
 export interface ViewerBootstrapOptions {
   macroKind: MacroKind;
   content: Component;
   contentProps?: Record<string, unknown>;
-  loadDiagram: () => Promise<Diagram | undefined>;
+  loadDiagram: () => Promise<ViewerLoadDiagramResult>;
   afterLoad?: (doc: Diagram | undefined) => void | Promise<void>;
   onError?: (error: unknown) => void;
 }
 
-/**
- * Legacy Connect-era graph/DrawIO macros persisted graphXml as LZUTF8-Base64
- * with `compressed: true`. The customContentId load path (ApWrapper2's
- * JSON.parse) preserved that flag without decompressing, so the still-
- * compressed string reached the store and ForgeGraphViewer's
- * `mxUtils.parseXml(<base64>)` threw → blank canvas (the error is swallowed).
- * The content-property recovery path already decompresses inline; this
- * normalizes the customContentId path too, at the single store-write boundary,
- * so the store always holds plain <mxGraphModel> XML regardless of load path.
- *
- * Returns a NEW object when it decompresses, leaving the caller's `doc`
- * reference compressed so afterLoad's compressed_* telemetry still fires on it.
- * No-op for plain XML and for non-graph docs (`compressed` is undefined).
- */
-function normalizeCompressedGraphDoc(doc: Diagram | undefined): Diagram | undefined {
-  if (doc?.compressed && doc.graphXml && !doc.graphXml.startsWith('<mxGraphModel')) {
-    return { ...doc, graphXml: decompress(doc.graphXml), compressed: false };
+function normalizeViewerLoadResult(
+  result: ViewerLoadDiagramResult,
+): { doc?: Diagram; loadError?: DiagramLoadError | null } {
+  if (result && typeof result === 'object' && 'doc' in result) {
+    return {
+      doc: result.doc,
+      loadError: result.loadError ?? null,
+    };
   }
-  return doc;
-}
-
-export function publishLoadedDiagram(doc: Diagram | undefined): Diagram {
-  const diagram = normalizeCompressedGraphDoc(doc) ?? NULL_DIAGRAM;
-  store.state.diagram = diagram;
-  // Signal load completion (success OR failure — `doc` is undefined when the
-  // referenced content 404s/failed to load). The embed viewer uses this to show
-  // a terminal error rather than an endless "Loading embedded diagram…".
-  store.state.diagramLoadComplete = true;
-  window.diagram = diagram;
-  console.log('loadDiagram - window.diagram', window.diagram);
-  return diagram;
+  return { doc: result as Diagram | undefined, loadError: null };
 }
 
 export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Promise<void> {
   try {
     await globals.apWrapper.initializeContext();
+    if (globals.apWrapper.isDisplayMode()) {
+      setViewerLoadState('loading', null);
+    }
     const paywalled = await tryFullscreenViewerPaywall({
       doc: NULL_DIAGRAM,
       content: options.content,
@@ -62,10 +59,23 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
       mountRoot(NULL_DIAGRAM, options.content, options.contentProps);
     }
 
-    const doc = await options.loadDiagram();
-    publishLoadedDiagram(doc);
+    const loadResult = normalizeViewerLoadResult(await options.loadDiagram());
+    const doc = applyViewerLoadOutcome({
+      doc: loadResult.doc,
+      loadError: loadResult.loadError,
+      customContentId: getForgeCustomContentId(),
+      macroKind: options.macroKind,
+    });
     await options.afterLoad?.(doc);
   } catch (error) {
+    if (globals.apWrapper.isDisplayMode()) {
+      applyViewerLoadOutcome({
+        doc: undefined,
+        loadError: mapThrownViewerLoadError(error),
+        customContentId: getForgeCustomContentId(),
+        macroKind: options.macroKind,
+      });
+    }
     if (options.onError) {
       options.onError(error);
       return;

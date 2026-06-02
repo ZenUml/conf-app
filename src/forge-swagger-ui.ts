@@ -9,12 +9,14 @@ import EventBus from './EventBus'
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import { Diagram } from "@/model/Diagram/Diagram";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
-import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
+import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/viewerBootstrap';
+import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
 
-async function loadDiagram(): Promise<Diagram | undefined> {
+async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
+  let loadError = null;
   // Read from config (page-macro viewer) AND modal — the dual-format dashboard's
   // View action opens this viewer as a modal carrying the id via
   // modal.customContentId (mirrors forge-asyncapi-viewer). Without the modal
@@ -37,6 +39,7 @@ async function loadDiagram(): Promise<Diagram | undefined> {
       });
     } else if (!doc) {
       reportOrphanObserved(pageId, customContentId, 'openapi', loaded.probeResult, { recoveryUsed: false });
+      loadError = mapCustomContentLoadError(loaded);
     }
   }
 
@@ -63,7 +66,7 @@ async function loadDiagram(): Promise<Diagram | undefined> {
     }
   }
 
-  return doc;
+  return { doc, loadError };
 }
 
 function afterLoad(doc: Diagram | undefined) {

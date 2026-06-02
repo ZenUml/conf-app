@@ -60,6 +60,19 @@ vi.mock('@/utils/toast', () => ({
   toast: vi.fn(),
 }))
 
+vi.mock('@/model/globals/forgeGlobal', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/model/globals/forgeGlobal')>()
+  return {
+    ...actual,
+    openUrl: vi.fn(() => Promise.resolve()),
+  }
+})
+
+vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
+  getClientDomain: vi.fn(() => 'example.atlassian.net'),
+  getSpaceKey: vi.fn(() => 'TEST'),
+}))
+
 const mountViewer = () => mount(GenericViewer, { global: { plugins: [store] } })
 
 describe('GenericViewer (chrome-less)', () => {
@@ -73,6 +86,13 @@ describe('GenericViewer (chrome-less)', () => {
     store.state.diagram.snapshotFallback = false
     store.state.diagram.snapshotAt = undefined
     store.state.diagram.recoveredFromOrphan = false
+    store.state.viewerLoadState = 'ready'
+    store.state.loadError = null
+    window.forgeGlobal = {
+      forgeContext: {
+        extension: { config: { customContentId: 'content-123' } },
+      },
+    } as any
   })
 
   describe('layout', () => {
@@ -463,6 +483,97 @@ describe('GenericViewer (chrome-less)', () => {
       expect(vm.showExportModal).toBe(false)
       await wrapper.find('button[aria-label="Export PNG"]').trigger('click')
       expect(vm.showExportModal).toBe(true)
+    })
+
+    it('does not render the bottom-edge pill in the load-failed state', () => {
+      store.state.viewerLoadState = 'failed_with_source'
+      const wrapper = mountViewer()
+      expect(wrapper.find('[role="toolbar"][aria-label="Diagram actions"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="load-failed-generic"] .viewer-lf-btn-primary').exists()).toBe(true)
+    })
+  })
+
+  describe('load-failed recovery panel', () => {
+    it('does not render the diagram slot while load-failed', () => {
+      store.state.viewerLoadState = 'failed_with_source'
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        slots: { default: '<div class="diagram-stub">slot</div>' },
+      })
+      expect(wrapper.find('.diagram-stub').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="load-failed-generic"]').exists()).toBe(true)
+    })
+
+    it('renders retry and support actions for failed_with_source', () => {
+      store.state.viewerLoadState = 'failed_with_source'
+      const wrapper = mountViewer()
+      expect(wrapper.text()).toContain("This diagram isn't available")
+      expect(wrapper.text()).toContain('Try again')
+      expect(wrapper.text()).toContain('Contact support')
+    })
+
+    it('renders only Contact support for failed_without_source', () => {
+      store.state.viewerLoadState = 'failed_without_source'
+      window.forgeGlobal = { forgeContext: { extension: { config: {} } } } as any
+      const wrapper = mountViewer()
+      expect(wrapper.text()).toContain('The diagram data is no longer available')
+      expect(wrapper.text()).not.toContain('Try again')
+      expect(wrapper.find('[data-testid="load-failed-support-link"]').exists()).toBe(true)
+    })
+
+    it('fires load_failed_shown once when the failed state appears', async () => {
+      const windowMod = await import('@/utils/window')
+      const trackSpy = vi.spyOn(windowMod, 'trackEvent')
+      store.state.viewerLoadState = 'failed_with_source'
+      mountViewer()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(trackSpy).toHaveBeenCalledWith(
+        'load_failed_shown',
+        'view',
+        'load_failed_generic',
+        expect.objectContaining({ state: 'with_id', content_id: 'content-123' }),
+      )
+    })
+
+    it('copies diagnostics, tracks support click, then opens the support portal after a delay', async () => {
+      const openUrlMod = await import('@/model/globals/forgeGlobal')
+      const windowMod = await import('@/utils/window')
+      const openUrlSpy = vi.spyOn(openUrlMod, 'openUrl').mockImplementation(() => Promise.resolve())
+      const trackSpy = vi.spyOn(windowMod, 'trackEvent')
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+      Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true })
+
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      try {
+        store.state.viewerLoadState = 'failed_without_source'
+        store.state.loadError = { httpStatus: 403 }
+        const wrapper = mountViewer()
+        await wrapper.find('[data-testid="load-failed-support-link"]').trigger('click')
+        await vi.advanceTimersByTimeAsync(0)
+        expect(writeText).toHaveBeenCalledOnce()
+        const payload = writeText.mock.calls[0][0] as string
+        expect(payload).toContain("ZenUML couldn't display a diagram")
+        expect(payload).toContain('Custom content ID:')
+        expect(payload).toContain('Page ID:')
+        expect(payload).toContain('Macro UUID:')
+        expect(payload).toContain('Space key:')
+        expect(payload).toContain('Client domain:')
+        expect(payload).toContain('Module key:')
+        expect(payload).toContain('Direct fetch status:')
+        expect(payload).toContain('Load error HTTP status: 403')
+        expect(trackSpy).toHaveBeenCalledWith(
+          'support_link_clicked',
+          'click',
+          'load_failed_generic',
+          expect.objectContaining({ content_id: expect.any(String) }),
+        )
+        expect(openUrlSpy).not.toHaveBeenCalled()
+        await vi.advanceTimersByTimeAsync(1500)
+        expect(openUrlSpy).toHaveBeenCalledWith('https://zenuml.atlassian.net/servicedesk')
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 

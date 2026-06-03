@@ -19,6 +19,7 @@ import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
 import { decidePageBanner, handlePageBannerRoute } from './routes/pageBanner';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
+import { maybeProbeSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
@@ -98,6 +99,15 @@ async function initializeCriticalPath() {
     // (Routed by moduleKey, not extension.type, because the pageBanner extension
     // carries no macro config to discriminate on.)
     if ((context as any).moduleKey === 'zenuml-page-banner') {
+      // Phase 5a measurement: detect whether the current user is a space admin
+      // and, when so, fire `space_admin_active`. Runs on EVERY page-banner load
+      // (including loads where no banner shows) so we observe admin activity
+      // across Confluence, not just on our macros. Lite-only and throttled to
+      // once / 30 days per domain:space, so the common load exits synchronously
+      // before any init/REST. Awaited before view.close() — closing the iframe
+      // would abort the in-flight REST call — and never throws.
+      await maybeProbeSpaceAdmin();
+
       const choice = decidePageBanner();
       if (choice === 'none') {
         const { view } = await import('@forge/bridge');

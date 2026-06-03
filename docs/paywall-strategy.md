@@ -22,6 +22,7 @@ The **friction funnel is fully shipped and instrumented**: per-space 100-macro s
 | Advocacy CTA (marketplace/sales CTAs removed — were 0% click) | `advocacy_message_copied` | — |
 | 15 continue-attempts gate (localStorage, per `domain:space:user`) | `paywall_continue_used`, `paywall_attempts_exhausted` | — |
 | Page-banner warning (85–99 band, 7-day snooze, CSAT defer) | `paywall_banner_shown` / `_dismissed`, `surface: page_banner` | PRs #201–#210 |
+| Space-admin activity probe (Phase 5a; Lite, 30d throttle) | `space_admin_active` (`is_space_admin: true`, `surface: page_banner`) | `src/utils/paywall/spaceAdminProbe.ts` |
 | Export Phase-1 telemetry | `macro_export_requested` / `_succeeded` / `_failed` | `src/export.js` |
 
 ---
@@ -40,18 +41,19 @@ The gating decision below blocks all nudge-funnel code.
 ### B. Friction funnel — banner fatigue, personalization, rollout
 
 5. **[Phase 4] Banner fatigue & full priority order** — 100+ band gets a shorter **24h** suppression window; taper repeats via `showCount`/`lastShownAt`; finalize priority `restore/recovery > paywall warning > CSAT`. Keep windows data-tunable.
-6. **[Phase 5] Space-Admin personalization** — validate current user via `SpaceAdminResolver` (don't rely on `space_admin_count`); track `is_space_admin`; branch copy (admin → "request extension or upgrade"; non-admin → "ask a space admin"); consider showing earlier to admins.
-7. **[Phase 6] Operational rollout** — enable a small CSS cohort first (pilot tenant primary). Monitor support-ticket volume, `extension_request_clicked`, `admin_message_copied`, attempt exhaustion, save volume before/after, continue-editing rate, advocacy copy rate. Tune attempt count, dismissal windows, warning threshold, CTA order, copy.
+6. **[Phase 5a] Space-admin activity measurement** ✅ *shipped (this PR)* — `space_admin_active` probe on the page-banner load (`src/utils/paywall/spaceAdminProbe.ts`): Lite-only, throttled once/30d per `domain:space`, fires only when the current user is a space admin. Answers the go/no-go for 5b: **are admins even active on Confluence?** Read the event in Mixpanel after ~2–4 weeks before building 5b.
+7. **[Phase 5b] Space-Admin copy personalization** — *deferred pending 5a data.* validate current user via `SpaceAdminResolver` (don't rely on `space_admin_count`); track `is_space_admin` on banner/modal events; branch copy (admin → "request extension or upgrade"; non-admin → "ask a space admin"); consider showing earlier to admins.
+8. **[Phase 6] Operational rollout** — enable a small CSS cohort first (pilot tenant primary). Monitor support-ticket volume, `extension_request_clicked`, `admin_message_copied`, attempt exhaustion, save volume before/after, continue-editing rate, advocacy copy rate. Tune attempt count, dismissal windows, warning threshold, CTA order, copy.
 
 ### C. Cross-funnel — ship regardless
 
-8. **Failure-taxonomy debt** — triage `unexpected_error` (142/mo, 20% of export failures); kill `attachment_not_found` (517/mo, 71%) by auto-regenerating the PNG on export when missing.
+9. **Failure-taxonomy debt** — triage `unexpected_error` (142/mo, 20% of export failures); kill `attachment_not_found` (517/mo, 71%) by auto-regenerating the PNG on export when missing.
 
 ### D. Open strategic questions
 
-9. **Hard-block on create?** Edit is soft (77% continue rate accepted); are create-blocked users higher-intent enough to hard-block without unacceptable CSAT damage?
-10. **Pricing-card placement** above the advocacy draft — re-test once a steady-state advocacy baseline exists.
-11. **A/B copy variants** — D2 shipped; D1 (recipient-agnostic) and D3 (no illustration) are candidates if advocacy copy rate flattens.
+10. **Hard-block on create?** Edit is soft (77% continue rate accepted); are create-blocked users higher-intent enough to hard-block without unacceptable CSAT damage?
+11. **Pricing-card placement** above the advocacy draft — re-test once a steady-state advocacy baseline exists.
+12. **A/B copy variants** — D2 shipped; D1 (recipient-agnostic) and D3 (no illustration) are candidates if advocacy copy rate flattens.
 
 ### E. Deprioritized (on the radar, not scheduled)
 

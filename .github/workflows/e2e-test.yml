@@ -57,7 +57,8 @@ jobs:
   auth:
     name: auth bootstrap
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # OTP login maxes at ~1m14s in practice; 2 min reaps a hung login fast.
+    timeout-minutes: 2
     steps:
       - uses: actions/checkout@v5
       - name: Setup pnpm
@@ -114,7 +115,12 @@ jobs:
     name: shard ${{ matrix.shard }}/4
     needs: auth
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Fail fast. Slowest passing shard observed is ~3m20s (Lite 1/4); 5 min
+    # reaps a wedged shard (one test stuck at the 300s test timeout x3 retries
+    # = ~15 min) quickly, before a human cancels so the on-first-retry trace
+    # still uploads as failure evidence. See run 26862568693 shard 2/4:
+    # parent-page load wedged, cancelled at ~11 min, trace lost.
+    timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:

@@ -217,3 +217,7 @@ Shared
 - Step 8 (Mixpanel — both action_types present): PASS | FAIL | SKIPPED — modal_shown={n}, triggered_page_editor={n}, triggered_fullscreen_viewer={n}, continued={n}, advocacy={n}
 - Step 9 (cleanup leaves both surfaces unblocked): PASS | FAIL
 ```
+
+## Related
+
+- **pvt-paywall-banner** — the Lite **warning page-banner** (85–99 macro band, soft nudge in the `zenuml-page-banner` host). A distinct surface from this modal: the banner gate is warning-only and deliberately returns false at 100+, where *this* modal takes over.

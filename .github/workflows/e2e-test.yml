@@ -39,12 +39,17 @@ on:
 # multiplies the chance of a slow run. If the artifact is missing, the shard
 # falls through to its own login (the pre-existing behavior, kept as fallback).
 #
-# Spec-level parallelism via Playwright's `--shard=N/M`. N=2 splits the 9-test
-# insert suite ~5/4. Note: `--shard` splits CONTIGUOUSLY by file and can't split
-# within a file, so the dense paywall spec bounds the heaviest shard. Keep
-# strategy.matrix.shard in sync with SHARD_COUNT.
+# Spec-level parallelism via Playwright's `--shard=N/M`. With auth deduped above,
+# shards do pure test work (no per-shard login), so scaling shards finally cuts
+# wall-clock instead of multiplying auth-flake exposure (the reason an earlier
+# N=4 attempt without dedup was slower). N=4 splits the 9-test insert suite
+# ~2/3/3/1. Note: `--shard` splits CONTIGUOUSLY by file and can't split within a
+# file, so the dense paywall spec bounds the heaviest shard. On Full/Diagramly the
+# paywall spec is skipped (Lite-only), so a couple of their shards are near-idle —
+# cheap now that they no longer each pay an OTP login. Keep strategy.matrix.shard
+# in sync with SHARD_COUNT.
 env:
-  SHARD_COUNT: 2
+  SHARD_COUNT: 4
 
 jobs:
   # Log in ONCE per run and publish the storageState so every shard reuses it
@@ -93,14 +98,14 @@ jobs:
           if-no-files-found: error
 
   test:
-    name: shard ${{ matrix.shard }}/2
+    name: shard ${{ matrix.shard }}/4
     needs: auth
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v5
       - name: Setup pnpm

@@ -17,8 +17,7 @@ import { handleGetStartedRoute } from './routes/getStarted';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, getEditJourneyStartTime, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
-import { isCsatPendingFresh } from '@/utils/csat';
-import { shouldShowPaywallBanner } from '@/utils/paywall/warningBanner';
+import { decidePageBanner, handlePageBannerRoute } from './routes/pageBanner';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
@@ -85,43 +84,27 @@ async function initializeCriticalPath() {
       return { macroData: null };
     }
 
-    // CSAT page banner. This module mounts on EVERY Confluence page load, so on
-    // the ~99% of loads with no fresh save trigger we close immediately WITHOUT
-    // importing the banner route, initializing the macro context, or mounting
-    // Vue — that keeps the inactive-survey path free of any analytics or work.
+    // Page banner host. A single confluence:pageBanner module mounts on EVERY
+    // Confluence page load and decides — synchronously, from localStorage only —
+    // which banner (if any) to show: paywall warning outranks the CSAT survey.
+    // The paywall branch is eligible only when the space is unpaid, over the
+    // Lite hard limit, CSS targeting is on, recent macro authoring activity is
+    // present, and the user is not snoozed. On the ~99% of loads where neither
+    // banner is eligible we close immediately WITHOUT importing the banner
+    // route, initializing the macro context, or mounting Vue. One module +
+    // central priority means the banners never coordinate across iframes (no
+    // defer). decidePageBanner() touches only the cheap predicates, so this
+    // stays a true fast-exit.
     // (Routed by moduleKey, not extension.type, because the pageBanner extension
     // carries no macro config to discriminate on.)
-    if ((context as any).moduleKey === 'zenuml-csat-banner') {
-      // CSAT defers to the paywall warning banner. Both are confluence:pageBanner
-      // modules, so on a load where the paywall banner is eligible we must NOT
-      // stack a second banner — paywall > CSAT in the Phase 4 priority order.
-      // The defer check is the same cheap synchronous localStorage read the
-      // paywall branch uses, so the inactive path stays free of work.
-      if (!isCsatPendingFresh() || shouldShowPaywallBanner()) {
+    if ((context as any).moduleKey === 'zenuml-page-banner') {
+      const choice = decidePageBanner();
+      if (choice === 'none') {
         const { view } = await import('@forge/bridge');
         view.close();
         return { macroData: null };
       }
-      const { handleCsatBannerRoute } = await import('./routes/csatBanner');
-      await handleCsatBannerRoute();
-      return { macroData: null };
-    }
-
-    // Paywall warning page banner. Like CSAT, this module mounts on EVERY
-    // Confluence page load, so on the loads where the space is not over the
-    // Lite hard limit, CSS targeting is off, the user has no recent macro
-    // authoring activity, or the user is snoozed, we close immediately WITHOUT
-    // importing the banner route, initializing the macro context, or mounting
-    // Vue. Visibility is decided purely from the localStorage markers — no
-    // backend call — exactly like CSAT's csatPending fast-exit.
-    if ((context as any).moduleKey === 'zenuml-paywall-warning-banner') {
-      if (!shouldShowPaywallBanner()) {
-        const { view } = await import('@forge/bridge');
-        view.close();
-        return { macroData: null };
-      }
-      const { handlePaywallBannerRoute } = await import('./routes/paywallBanner');
-      await handlePaywallBannerRoute();
+      await handlePageBannerRoute(choice);
       return { macroData: null };
     }
 
@@ -155,7 +138,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const context = await initForgeContext();
 
     // Skip loading heavy components if this is a global settings or global page context
-    if (['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem'].includes(context.extension?.type) || (context as any).moduleKey === 'zenuml-csat-banner' || (context as any).moduleKey === 'zenuml-paywall-warning-banner') {
+    if (['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem'].includes(context.extension?.type) || (context as any).moduleKey === 'zenuml-page-banner') {
       console.log('Skipping heavy components load for global context');
       return;
     }
@@ -857,4 +840,3 @@ EventBus.$on('updateContent', async (diagram: Diagram) => {
     console.info('Your changes cannot be persistent as you are not authorized to edit.');
   }
 });
-

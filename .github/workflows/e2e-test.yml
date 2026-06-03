@@ -30,31 +30,95 @@ on:
         required: true
         description: 'TOTP secret used by tests/e2e-tests/utils/otp.js'
 
-# Spec-level parallelism via Playwright's `--shard=N/M`. Each shard is an
-# independent GitHub Actions job: it does its own auth bootstrap (~30s) and
-# runs ~half of the suite's specs in parallel with the other shard.
+# Auth is DEDUPLICATED. A single `auth` job logs in once and uploads the
+# Playwright storageState as an artifact; every shard downloads it, so
+# auth.setup.ts's `fs.existsSync(AUTH_STATE_PATH)` skip fires and the shards
+# never log in. This removes the per-shard Atlassian OTP login — the dominant
+# E2E flake (a TOTP retry balloons a shard's auth bootstrap by ~3min) — and
+# decouples shard count from auth-flake exposure, so scaling shards no longer
+# multiplies the chance of a slow run. If the artifact is missing, the shard
+# falls through to its own login (the pre-existing behavior, kept as fallback).
 #
-# Trade-off: 2× auth cost (~30s × 2 = 60s of duplicate work) vs. wall-clock
-# savings of half the spec runtime. For the insert suite (~250s today),
-# the longest shard finishes in ~150s — a ~40% wall-clock reduction.
-#
-# Why N=2: insert (the only suite running in CI today) has 9 tests, which
-# Playwright shards as 4/4/1 across N=3 — the small shard pays full auth
-# overhead for almost no work. N=2 splits cleanly to 5/4. If `suite=all`
-# is ever enabled in CI (~23 tests), bump SHARD_COUNT to 3 below and add
-# a third entry to strategy.matrix.shard.
+# Spec-level parallelism via Playwright's `--shard=N/M`. With auth deduped above,
+# shards do pure test work (no per-shard login), so scaling shards finally cuts
+# wall-clock instead of multiplying auth-flake exposure (the reason an earlier
+# N=4 attempt without dedup was slower). N=4 splits the 9-test insert suite
+# ~2/3/3/1. Note: `--shard` splits CONTIGUOUSLY by file and can't split within a
+# file, so the dense paywall spec bounds the heaviest shard. On Full/Diagramly the
+# paywall spec is skipped (Lite-only), so a couple of their shards are near-idle —
+# cheap now that they no longer each pay an OTP login. Keep strategy.matrix.shard
+# in sync with SHARD_COUNT.
 env:
-  SHARD_COUNT: 2
+  SHARD_COUNT: 4
 
 jobs:
+  # Log in ONCE per run and publish the storageState so every shard reuses it
+  # instead of doing its own (flaky) Atlassian OTP login.
+  auth:
+    name: auth bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 10.x
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+      - name: Install E2E test dependencies
+        run: cd tests/e2e-tests && pnpm install --ignore-workspace
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-pw-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
+      - name: Compute daily cache key
+        id: cacheday
+        run: echo "key=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      - name: Restore cached auth session
+        # The Atlassian session lasts ~30 days, so a daily key is well inside its
+        # validity: the day's first run logs in and caches the storageState; later
+        # runs restore it and auth.setup.ts validates liveness, then skips login. A
+        # stale/revoked session self-heals (auth.setup deletes it and re-logs-in).
+        # actions/cache writes the cache only on a restore miss, so most days = 1 login.
+        uses: actions/cache@v5
+        with:
+          path: tests/e2e-tests/auth-state-*.json
+          key: auth-session-${{ inputs.artifact-suffix }}-${{ steps.cacheday.outputs.key }}
+      - name: Authenticate once (writes auth-state-<domain>.json)
+        run: cd tests/e2e-tests && pnpm exec playwright test --project=auth
+        env:
+          APP: ${{ inputs.app }}
+          CI: true
+          ZENUML_STAGE_USERNAME: ${{ inputs.username }}
+          ZENUML_STAGE_PASSWORD: ${{ inputs.password }}
+          ATLASSIAN_OTP: ${{ inputs.otp }}
+      - name: Upload shared auth state
+        uses: actions/upload-artifact@v6
+        with:
+          name: auth-state-${{ inputs.artifact-suffix }}
+          path: ./tests/e2e-tests/auth-state-*.json
+          retention-days: 1
+          if-no-files-found: error
+
   test:
-    name: shard ${{ matrix.shard }}/2
+    name: shard ${{ matrix.shard }}/4
+    needs: auth
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v5
       - name: Setup pnpm
@@ -82,14 +146,24 @@ jobs:
       - name: Install Playwright browsers
         if: steps.pw-cache.outputs.cache-hit != 'true'
         run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
+      - name: Download shared auth state
+        # From the `auth` job: drops auth-state-<domain>.json into tests/e2e-tests/
+        # so auth.setup.ts's fs.existsSync skip fires and this shard does NOT log in.
+        # continue-on-error → if the artifact is absent the shard falls through to
+        # its own login (the pre-existing behavior).
+        continue-on-error: true
+        uses: actions/download-artifact@v6
+        with:
+          name: auth-state-${{ inputs.artifact-suffix }}
+          path: ./tests/e2e-tests/
       - name: Run tests
         run: |
           cd tests/e2e-tests
           # Build the project filter list per suite — same as the per-suite
           # pnpm scripts, but inlined so we can append `--shard=N/M` for
-          # spec-level parallelism. Setup projects (auth, pages) run in every
-          # shard (Playwright shards specs, not setup deps); their cost is the
-          # price we pay for the parallelism.
+          # spec-level parallelism. The `auth` setup project still runs but skips
+          # its login (storageState was downloaded above); `pages` runs per shard
+          # only for the render/all suites.
           case "${{ inputs.suite }}" in
             insert)
               PROJECTS="--project=auth --project=insert"

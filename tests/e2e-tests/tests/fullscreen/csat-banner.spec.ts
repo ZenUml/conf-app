@@ -46,7 +46,12 @@ import { clickEditorPublish, expectModalClosed } from '../../helpers/FullscreenM
  * Run `page.locator('iframe').all()` in a debugger session after deploying
  * the module to find the correct selector.
  */
-const BANNER_IFRAME_SELECTOR = 'iframe[data-module-key*="csat-banner"], [data-testid*="page-banner"] iframe';
+// The CSAT survey now renders inside the single shared host module
+// (`zenuml-page-banner`), which picks paywall-warning > CSAT. CSAT tests create
+// a fresh low-macro page so paywall is never eligible → the host shows CSAT.
+// The host iframe lives under div[data-testid="forge-page-banner-wrapper"]
+// (confirmed via the feat/page-banner-host spot-check; there is no data-module-key).
+const BANNER_IFRAME_SELECTOR = '[data-testid="forge-page-banner-wrapper"] iframe, [data-testid*="page-banner"] iframe';
 
 /** Drill into the CSAT banner's Custom UI iframe. */
 function csatBannerFrame(page: Page) {

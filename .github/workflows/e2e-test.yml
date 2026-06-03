@@ -31,30 +31,33 @@ on:
         description: 'TOTP secret used by tests/e2e-tests/utils/otp.js'
 
 # Spec-level parallelism via Playwright's `--shard=N/M`. Each shard is an
-# independent GitHub Actions job: it does its own auth bootstrap (~30s) and
-# runs ~half of the suite's specs in parallel with the other shard.
+# independent GitHub Actions job: it does its own auth bootstrap (~1min) and
+# runs a slice of the suite's specs in parallel with the other shards.
 #
-# Trade-off: 2× auth cost (~30s × 2 = 60s of duplicate work) vs. wall-clock
-# savings of half the spec runtime. For the insert suite (~250s today),
-# the longest shard finishes in ~150s — a ~40% wall-clock reduction.
+# Trade-off: N× auth cost (~1min of duplicate bootstrap per shard) vs. wall-clock
+# savings from splitting the spec runtime. Tests are I/O-bound on live Confluence
+# (~46s/test) and run serially within a shard (workers:1), so wall-clock is set by
+# the heaviest shard.
 #
-# Why N=2: insert (the only suite running in CI today) has 9 tests, which
-# Playwright shards as 4/4/1 across N=3 — the small shard pays full auth
-# overhead for almost no work. N=2 splits cleanly to 5/4. If `suite=all`
-# is ever enabled in CI (~23 tests), bump SHARD_COUNT to 3 below and add
-# a third entry to strategy.matrix.shard.
+# Why N=4: insert (the only suite in CI) has 9 tests. Playwright `--shard` splits
+# CONTIGUOUSLY by file and keeps files whole, and the paywall spec is a dense
+# 3-test file: at N=2 it lumps with smoke specs into a 5-test shard (~4m49), and
+# N=3 is a no-op (it rebundles to 3/5/1). N=4 splits 2/3/3/1 → max 3 tests/shard
+# (~3m30). Cost: Full/Diagramly skip the paywall spec (6 light tests each), so a
+# couple of their shards are near-idle — accepted for the Lite wall-clock win.
+# Keep strategy.matrix.shard in sync with SHARD_COUNT.
 env:
-  SHARD_COUNT: 2
+  SHARD_COUNT: 4
 
 jobs:
   test:
-    name: shard ${{ matrix.shard }}/2
+    name: shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v5
       - name: Setup pnpm

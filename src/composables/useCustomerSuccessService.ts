@@ -209,6 +209,7 @@ export function useCustomerSuccessService() {
         severity: toMarkerSeverity(severity.value),
         macroCount: macrosCreated.value,
         spacePaid: spacePaidStatus.value,
+        customerSuccessServiceEnabled: customerSuccessServiceEnabled.value,
         updatedAt: new Date().toISOString(),
       });
     } catch (e) {

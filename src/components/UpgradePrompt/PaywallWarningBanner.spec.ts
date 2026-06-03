@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import PaywallWarningBanner from './PaywallWarningBanner.vue'
 
-const warningMarker = { severity: 'warning', macroCount: 90, spacePaid: false, updatedAt: 'x' }
+const warningMarker = {
+  severity: 'critical',
+  macroCount: 101,
+  spacePaid: false,
+  customerSuccessServiceEnabled: true,
+  updatedAt: 'x',
+}
 
 // Mutable gate result the marker-module mock returns; flipped per test.
 const gate = { visible: true, targeting: warningMarker as any }
@@ -10,13 +16,14 @@ const gate = { visible: true, targeting: warningMarker as any }
 vi.mock('@/utils/paywall/warningBanner', () => ({
   deriveWarningBannerIdentity: () => ({ clientDomain: 'example-tenant', spaceKey: 'ENG' }),
   readTargetingMarker: () => gate.targeting,
+  readMacroActivityMarker: () => ({ lastActivityAt: '2026-06-03T00:00:00.000Z', activityType: 'edit' }),
   readDismissalMarker: () => null,
   isWarningBannerVisible: () => gate.visible,
   recordBannerShown: vi.fn(),
   recordBannerDismissed: vi.fn(),
 }))
 
-vi.mock('@forge/bridge', () => ({ view: { close: vi.fn() } }))
+const closeView = vi.fn()
 
 vi.mock('@/utils/upgradeTracking', () => ({
   trackUpgradeEvent: vi.fn(),
@@ -40,6 +47,7 @@ vi.mock('@/composables/useCustomerSuccessService', () => ({
 
 vi.mock('@/model/globals/forgeGlobal', () => ({
   default: { forgeContext: null },
+  getView: vi.fn(() => Promise.resolve({ close: closeView })),
   openUrl: vi.fn(),
 }))
 
@@ -56,29 +64,27 @@ describe('PaywallWarningBanner (page banner)', () => {
     const wrapper = mount(PaywallWarningBanner)
 
     expect(wrapper.find('[data-testid="paywall-warning-banner"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('90 of 100')
+    expect(wrapper.text()).toContain('101 of 100')
     expect(recordBannerShown).toHaveBeenCalledOnce()
     expect(trackUpgradeEvent).toHaveBeenCalledWith(
       'paywall_banner_shown',
-      expect.objectContaining({ surface: 'page_banner', severity: 'warning', macro_count: 90 })
+      expect.objectContaining({ surface: 'page_banner', severity: 'critical', macro_count: 101 })
     )
   })
 
   it('closes the iframe and renders nothing when the gate fails', async () => {
     gate.visible = false
-    const { view } = await import('@forge/bridge')
     const { recordBannerShown } = await import('@/utils/paywall/warningBanner')
     const wrapper = mount(PaywallWarningBanner)
 
     expect(wrapper.find('[data-testid="paywall-warning-banner"]').exists()).toBe(false)
-    expect(view.close).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(closeView).toHaveBeenCalledOnce())
     expect(recordBannerShown).not.toHaveBeenCalled()
   })
 
   it('snoozes (records dismissal) and closes on dismiss', async () => {
     const { recordBannerDismissed } = await import('@/utils/paywall/warningBanner')
     const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
-    const { view } = await import('@forge/bridge')
     const wrapper = mount(PaywallWarningBanner)
 
     await wrapper.find('[data-testid="paywall-banner-dismiss"]').trigger('click')
@@ -88,7 +94,7 @@ describe('PaywallWarningBanner (page banner)', () => {
       'paywall_banner_dismissed',
       expect.objectContaining({ surface: 'page_banner' })
     )
-    expect(view.close).toHaveBeenCalled()
+    await vi.waitFor(() => expect(closeView).toHaveBeenCalled())
     expect(wrapper.find('[data-testid="paywall-warning-banner"]').exists()).toBe(false)
   })
 })

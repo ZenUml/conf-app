@@ -11,8 +11,8 @@
       <path d="M10.3 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
     </svg>
     <span class="paywall-banner__text">
-      This space is approaching the ZenUML Lite diagram limit ({{ macroCount }} of {{ macrosLimit }}).
-      Existing diagrams still render — but new edits may be blocked soon.
+      This space is over the ZenUML Lite diagram limit ({{ macroCount }} of {{ macrosLimit }}).
+      Existing diagrams still render, but creating or editing diagrams may be blocked.
     </span>
     <div class="paywall-banner__actions">
       <button
@@ -44,7 +44,6 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { view } from '@forge/bridge'
 import { useCustomerSuccessService, MACROS_LIMIT } from '@/composables/useCustomerSuccessService'
 import {
   trackUpgradeEvent,
@@ -59,11 +58,12 @@ import {
   buildExtensionRequestMessage,
   extensionRequestUrl,
 } from './buildExtensionRequest'
-import { openUrl } from '@/model/globals/forgeGlobal'
+import { getView, openUrl } from '@/model/globals/forgeGlobal'
 import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
 import {
   deriveWarningBannerIdentity,
   readTargetingMarker,
+  readMacroActivityMarker,
   recordBannerShown,
   recordBannerDismissed,
   isWarningBannerVisible,
@@ -95,7 +95,7 @@ let macroCountValue = 0
 try {
   identity = deriveWarningBannerIdentity()
   const targeting = readTargetingMarker(identity)
-  passesGate = !!targeting && isWarningBannerVisible(targeting, readDismissalMarker(identity))
+  passesGate = !!targeting && isWarningBannerVisible(targeting, readDismissalMarker(identity), readMacroActivityMarker(identity))
   if (passesGate && targeting) {
     macroCountValue = targeting.macroCount
     severity = targeting.severity
@@ -108,12 +108,17 @@ try {
 const visible = ref(passesGate)
 const macroCount = ref(macroCountValue)
 
+async function closeBannerView() {
+  const activeView = await getView()
+  await activeView.close()
+}
+
 onMounted(() => {
   // Mirrors CsatBanner: any failure on the pageBanner path must end in
   // view.close() — never a stranded empty banner frame.
   try {
     if (!passesGate) {
-      view.close()
+      void closeBannerView()
       return
     }
     // Impression: bump the show counter and emit the denominator event.
@@ -125,7 +130,7 @@ onMounted(() => {
     })
   } catch (e) {
     console.warn('[paywall-banner] mount failed; closing', e)
-    view.close()
+    void closeBannerView()
   }
 })
 
@@ -162,7 +167,7 @@ function onDismiss() {
     ...bannerContext(),
   })
   visible.value = false
-  view.close()
+  void closeBannerView()
 }
 
 async function copyToClipboard(text: string): Promise<boolean> {

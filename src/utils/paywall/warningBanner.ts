@@ -3,14 +3,17 @@ import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextP
 /**
  * Shared marker module for the paywall page-banner (Phase 3 redesign).
  *
- * Two single-writer localStorage markers coordinate the two iframes that can
+ * Three single-writer localStorage markers coordinate the iframes that can
  * never call each other directly:
  *
  *   - TARGETING marker (`paywallWarning:<domain>:<space>`) — written ONLY by the
  *     macro iframe (useCustomerSuccessService) when a macro renders. Records the
- *     space's computed severity / macro count / paid status.
+ *     space's computed severity / macro count / paid status / CSS flag state.
  *   - DISMISSAL marker (`paywallBanner:<domain>:<space>`) — written ONLY by the
  *     page-banner iframe. Records show count + the last dismissal timestamp.
+ *   - ACTIVITY marker (`paywallActivity:<domain>:<space>`) — written by editor
+ *     save paths after a successful create/edit. Records the user's latest
+ *     macro-authoring activity in this browser profile.
  *
  * Single-writer-per-key avoids the read-modify-write clobber two iframes would
  * otherwise hit on a shared key. The banner's visibility is decided purely from
@@ -27,13 +30,16 @@ import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextP
  * (negligible for v1). Dropping it keeps the entire gate synchronous.
  */
 
-/** Snooze window for a dismissed warning banner — matches the Phase 4 85–99 band. */
+/** Snooze window for a dismissed warning banner. */
 export const WARNING_BANNER_SUPPRESSION_MS = 7 * 24 * 60 * 60 * 1000
+export const RECENT_MACRO_ACTIVITY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
+export const PAYWALL_BANNER_MIN_MACRO_COUNT = 100
 
 /** Marker severity. 'none' is the inactive state the macro side writes when the
  * space falls below the warning band; the composable's own `severity` computed
  * uses 'normal' for that band — map via {@link toMarkerSeverity}. */
 export type WarningSeverity = 'none' | 'warning' | 'critical'
+export type MacroActivityType = 'create' | 'edit'
 
 export interface WarningBannerIdentity {
   clientDomain: string
@@ -44,7 +50,13 @@ export interface TargetingMarker {
   severity: WarningSeverity
   macroCount: number
   spacePaid: boolean
+  customerSuccessServiceEnabled: boolean
   updatedAt: string
+}
+
+export interface MacroActivityMarker {
+  lastActivityAt: string
+  activityType: MacroActivityType
 }
 
 export interface DismissalMarker {
@@ -81,6 +93,10 @@ export function dismissalMarkerKey(identity: WarningBannerIdentity): string {
   return ['paywallBanner', normalizeKeyPart(identity.clientDomain), normalizeKeyPart(identity.spaceKey)].join(':')
 }
 
+export function macroActivityMarkerKey(identity: WarningBannerIdentity): string {
+  return ['paywallActivity', normalizeKeyPart(identity.clientDomain), normalizeKeyPart(identity.spaceKey)].join(':')
+}
+
 export function parseTargetingMarker(raw: string | null): TargetingMarker | null {
   if (!raw) return null
   try {
@@ -88,12 +104,29 @@ export function parseTargetingMarker(raw: string | null): TargetingMarker | null
     if (p.severity !== 'none' && p.severity !== 'warning' && p.severity !== 'critical') return null
     if (typeof p.macroCount !== 'number' || !Number.isFinite(p.macroCount)) return null
     if (typeof p.spacePaid !== 'boolean') return null
+    if (typeof p.customerSuccessServiceEnabled !== 'boolean') return null
     if (typeof p.updatedAt !== 'string') return null
     return {
       severity: p.severity,
       macroCount: Math.floor(p.macroCount),
       spacePaid: p.spacePaid,
+      customerSuccessServiceEnabled: p.customerSuccessServiceEnabled,
       updatedAt: p.updatedAt,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function parseMacroActivityMarker(raw: string | null): MacroActivityMarker | null {
+  if (!raw) return null
+  try {
+    const p = JSON.parse(raw) as Partial<MacroActivityMarker>
+    if (p.activityType !== 'create' && p.activityType !== 'edit') return null
+    if (typeof p.lastActivityAt !== 'string') return null
+    return {
+      lastActivityAt: p.lastActivityAt,
+      activityType: p.activityType,
     }
   } catch {
     return null
@@ -126,6 +159,14 @@ export function readTargetingMarker(identity: WarningBannerIdentity = deriveWarn
   }
 }
 
+export function readMacroActivityMarker(identity: WarningBannerIdentity = deriveWarningBannerIdentity()): MacroActivityMarker | null {
+  try {
+    return parseMacroActivityMarker(localStorage.getItem(macroActivityMarkerKey(identity)))
+  } catch {
+    return null
+  }
+}
+
 /** Best-effort write from the macro iframe. Never throws into the render path. */
 export function writeTargetingMarker(
   marker: TargetingMarker,
@@ -135,6 +176,22 @@ export function writeTargetingMarker(
     localStorage.setItem(targetingMarkerKey(identity), JSON.stringify(marker))
   } catch (e) {
     console.warn('[paywall-banner] targeting marker write failed', e)
+  }
+}
+
+export function markRecentMacroActivity(
+  activityType: MacroActivityType,
+  identity: WarningBannerIdentity = deriveWarningBannerIdentity(),
+  now: Date = new Date()
+): void {
+  try {
+    const marker: MacroActivityMarker = {
+      lastActivityAt: now.toISOString(),
+      activityType,
+    }
+    localStorage.setItem(macroActivityMarkerKey(identity), JSON.stringify(marker))
+  } catch (e) {
+    console.warn('[paywall-banner] activity marker write failed', e)
   }
 }
 
@@ -156,18 +213,24 @@ function writeDismissalMarker(marker: DismissalMarker, identity: WarningBannerId
 }
 
 /**
- * Pure visibility gate. Show iff: a warning targeting marker exists, the space
- * is unpaid, and the banner is not inside its post-dismissal snooze window.
- * `critical` (100+) is intentionally excluded — the hard modal owns that band.
+ * Pure visibility gate. Show iff: a targeting marker exists, the CSS feature is
+ * enabled for the client, the space is unpaid and over the hard limit, the user
+ * created/edited a macro recently, and the banner is not inside its snooze
+ * window.
  */
 export function isWarningBannerVisible(
   targeting: TargetingMarker | null,
   dismissal: DismissalMarker | null,
+  activity: MacroActivityMarker | null,
   now: number = Date.now()
 ): boolean {
   if (!targeting) return false
-  if (targeting.severity !== 'warning') return false
+  if (!targeting.customerSuccessServiceEnabled) return false
   if (targeting.spacePaid) return false
+  if (targeting.macroCount <= PAYWALL_BANNER_MIN_MACRO_COUNT) return false
+  if (!activity?.lastActivityAt) return false
+  const activityMs = Date.parse(activity.lastActivityAt)
+  if (!Number.isFinite(activityMs) || now - activityMs > RECENT_MACRO_ACTIVITY_WINDOW_MS) return false
   if (dismissal?.dismissedAt) {
     const dismissedMs = Date.parse(dismissal.dismissedAt)
     if (Number.isFinite(dismissedMs) && now - dismissedMs <= WARNING_BANNER_SUPPRESSION_MS) {
@@ -184,7 +247,7 @@ export function shouldShowPaywallBanner(
   identity: WarningBannerIdentity = deriveWarningBannerIdentity()
 ): boolean {
   try {
-    return isWarningBannerVisible(readTargetingMarker(identity), readDismissalMarker(identity), now)
+    return isWarningBannerVisible(readTargetingMarker(identity), readDismissalMarker(identity), readMacroActivityMarker(identity), now)
   } catch {
     return false
   }

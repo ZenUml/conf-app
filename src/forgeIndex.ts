@@ -108,8 +108,9 @@ async function initializeCriticalPath() {
     }
 
     // Paywall warning page banner. Like CSAT, this module mounts on EVERY
-    // Confluence page load, so on the loads where the space is not in the 85–99
-    // warning band (or the user is snoozed) we close immediately WITHOUT
+    // Confluence page load, so on the loads where the space is not over the
+    // Lite hard limit, CSS targeting is off, the user has no recent macro
+    // authoring activity, or the user is snoozed, we close immediately WITHOUT
     // importing the banner route, initializing the macro context, or mounting
     // Vue. Visibility is decided purely from the localStorage markers — no
     // backend call — exactly like CSAT's csatPending fast-exit.
@@ -856,5 +857,4 @@ EventBus.$on('updateContent', async (diagram: Diagram) => {
     console.info('Your changes cannot be persistent as you are not authorized to edit.');
   }
 });
-
 

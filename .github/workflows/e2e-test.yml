@@ -81,6 +81,19 @@ jobs:
       - name: Install Playwright browsers
         if: steps.pw-cache.outputs.cache-hit != 'true'
         run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
+      - name: Compute daily cache key
+        id: cacheday
+        run: echo "key=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      - name: Restore cached auth session
+        # The Atlassian session lasts ~30 days, so a daily key is well inside its
+        # validity: the day's first run logs in and caches the storageState; later
+        # runs restore it and auth.setup.ts validates liveness, then skips login. A
+        # stale/revoked session self-heals (auth.setup deletes it and re-logs-in).
+        # actions/cache writes the cache only on a restore miss, so most days = 1 login.
+        uses: actions/cache@v5
+        with:
+          path: tests/e2e-tests/auth-state-*.json
+          key: auth-session-${{ inputs.artifact-suffix }}-${{ steps.cacheday.outputs.key }}
       - name: Authenticate once (writes auth-state-<domain>.json)
         run: cd tests/e2e-tests && pnpm exec playwright test --project=auth
         env:

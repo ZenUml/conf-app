@@ -107,7 +107,7 @@ export class MacroPage {
       try {
         await continueBtn.waitFor({ state: 'visible', timeout: 3000 });
         console.log('  → Paywall gate detected; clicking Continue editing');
-        await continueBtn.click();
+        await continueBtn.click({ force: true });
         await this.page.waitForTimeout(2000);
       } catch {
         // No gate — space is below the macro limit

@@ -566,7 +566,7 @@ export class ConfluenceEditorPage {
     const continueEditingBtn = frame.locator('[data-testid="continue-editing-btn"]');
     if (await continueEditingBtn.count() > 0) {
       console.log('Paywall gate detected; clicking Continue editing');
-      await continueEditingBtn.click();
+      await continueEditingBtn.click({ force: true });
       await this.page.waitForTimeout(500);
     }
   }

@@ -48,12 +48,12 @@ export async function setAppMocks(
   }, entries);
 }
 
-/** Remove only the paywall markers (targeting + dismissal), leaving mocks in place. */
+/** Remove only the paywall markers (targeting + activity + dismissal), leaving mocks in place. */
 export async function clearPaywallMarkers(page: Page): Promise<void> {
   const f = appFrame(page);
   await f?.evaluate(() => {
     Object.keys(localStorage)
-      .filter((k) => /^paywall(Warning|Banner):/.test(k))
+      .filter((k) => /^paywall(Warning|Activity|Banner):/.test(k))
       .forEach((k) => localStorage.removeItem(k));
   });
 }
@@ -65,7 +65,7 @@ export async function clearAllBannerState(page: Page): Promise<void> {
     Object.keys(localStorage)
       .filter(
         (k) =>
-          /^paywall(Warning|Banner):/.test(k) ||
+          /^paywall(Warning|Activity|Banner):/.test(k) ||
           k.startsWith('csatPending') ||
           k.startsWith('csat_state') ||
           ['mockMacroCount', 'mockSpacePaid', 'mockCSSEnabled'].includes(k),
@@ -110,14 +110,16 @@ export async function armCsatPending(page: Page): Promise<void> {
 }
 
 /**
- * Drive the space into the 85–99 warning band and wait for the paywall banner.
- * `mockMacroCount=90` makes the macro write a `warning` targeting marker on its
- * render. The first reload writes the marker; the second lets the page-banner
- * read it (the deliberate cross-load signal). Resolves once the banner is shown.
+ * Drive the space over the hard Lite limit and wait for the paywall banner.
+ * `mockMacroCount=101` makes the macro write a critical targeting marker on its
+ * render. The recent activity marker is written directly because this test reuses
+ * an existing page instead of creating or editing a macro in each scenario.
+ * The first reload writes the marker; the second lets the page-banner read it.
+ * Resolves once the banner is shown.
  */
 export async function showWarningBanner(page: Page): Promise<void> {
   await setAppMocks(page, {
-    mockMacroCount: '90',
+    mockMacroCount: '101',
     mockSpacePaid: 'false',
     mockCSSEnabled: 'true',
     zenumlDebug: 'true',
@@ -125,6 +127,15 @@ export async function showWarningBanner(page: Page): Promise<void> {
   await clearPaywallMarkers(page);
   await page.reload();
   await page.waitForTimeout(6_000); // macro renders + writes the warning marker
+  const domain = new URL(page.url()).hostname.split('.')[0];
+  const now = Date.now();
+  await setAppMocks(page, {
+    [`paywallActivity:${domain}:SD`]: JSON.stringify({
+      activityType: 'edit',
+      markedAt: now,
+      expiresAt: now + 30 * 24 * 60 * 60 * 1000,
+    }),
+  });
   await page.reload();
   await page.waitForTimeout(6_000); // page-banner reads the marker and mounts
   await expect(

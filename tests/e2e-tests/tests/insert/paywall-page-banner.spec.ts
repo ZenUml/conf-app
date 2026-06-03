@@ -2,9 +2,10 @@
  * Paywall page-banner spec — verifies the warning banner and its CTAs on the
  * single `zenuml-page-banner` Forge pageBanner host.
  *
- * The banner shows for Lite spaces in the 85–99 macro warning band. We force
- * that band with `mockMacroCount=90` so the macro writes a `warning` targeting
- * marker, which the page-banner reads on a later load (see helpers/pageBanner).
+ * The banner shows for Lite spaces over the hard macro limit when the space has
+ * CUSTOMER_SUCCESS_SERVICE enabled and recent macro activity. We force that
+ * state with `mockMacroCount=101` and a recent activity marker, which the
+ * page-banner reads on a later load (see helpers/pageBanner).
  *
  * Forge-only; run against a tunnel (dev) or a deployed staging build:
  *   pnpm forge:tunnel                       # repo root
@@ -82,14 +83,14 @@ test.describe.serial('Paywall page banner', () => {
   });
 
   // CI keeps a slim 3-test regression set so the spec doesn't dominate one E2E
-  // shard. The full granular matrix — per-CTA isolation, the critical-band (100+)
-  // no-banner boundary, and Mixpanel assertions — lives in the `pvt-paywall-banner`
-  // skill as a production-verification recipe.
+  // shard. The full granular matrix — per-CTA isolation, negative eligibility
+  // gates, and Mixpanel assertions — lives in the `pvt-paywall-banner` skill as
+  // a production-verification recipe.
 
-  test('warning band: banner renders with the count and both CTAs work', async ({ page, context }) => {
+  test('hard limit: banner renders with the count and both CTAs work', async ({ page, context }) => {
     await showWarningBanner(page);
     const frame = pageBannerFrame(page);
-    await expect(frame.getByTestId('paywall-warning-banner')).toContainText('90 of 100');
+    await expect(frame.getByTestId('paywall-warning-banner')).toContainText('101 of 100');
     await expect(frame.getByTestId('paywall-banner-request-extension')).toBeVisible();
 
     // Copy admin message → button swaps its testid to paywall-banner-copied ("✓ Copied").
@@ -118,7 +119,7 @@ test.describe.serial('Paywall page banner', () => {
   });
 
   test('single host: paywall outranks CSAT (no stacking)', async ({ page }) => {
-    // Warning band makes paywall eligible; arm a fresh CSAT trigger too. The single
+    // Hard-limit state makes paywall eligible; arm a fresh CSAT trigger too. The single
     // host must render ONLY the paywall banner — proving the #202 consolidation.
     await showWarningBanner(page);
     await armCsatPending(page);

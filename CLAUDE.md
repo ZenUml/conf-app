@@ -76,7 +76,7 @@ Full rules, artifact routing table, pre-commit grep, and background: [docs/polic
 
 Always use a feature branch. Exception: `.md`-only changes may go directly to `main`.
 
-Branching protocol (start-of-issue steps, worktree usage): [docs/policies/git-workflow.md](docs/policies/git-workflow.md).
+Don't create a worktree reflexively: `.md`-only edits go straight to `main` (worktree only if another session's changes block a clean `git checkout main`), and changes to git-ignored files only need no branch/worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full branching protocol (start-of-issue steps, worktree usage).
 
 ### Never disrupt another session's working tree
 

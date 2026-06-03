@@ -11,8 +11,9 @@
  *   IS_FORGE=true npx playwright test --project=insert tests/insert/paywall-page-banner.spec.ts
  */
 import { test, expect } from '@playwright/test';
-import { testConfig } from '../../config/test-config.js';
-import { insertAndPublishMacro } from '../../helpers/MacroFlowHelper.js';
+import { testConfig, TIMEOUTS } from '../../config/test-config.js';
+import { AUTH_STATE_PATH } from '../../config/auth-state.js';
+import { createPageAndSetup, publishAndVerifyMacros } from './insert-helpers.js';
 import {
   pageBannerFrame,
   showWarningBanner,
@@ -25,16 +26,54 @@ import {
   armCsatPending,
 } from '../../helpers/pageBanner.js';
 
+// The Forge macro iframe. Its presence guarantees an app-origin
+// (cdn.prod.atlassian-dev.net) frame exists to inject the localStorage mocks into.
+const MACRO_IFRAME =
+  '[data-testid="ForgeExtensionContainer"] [data-testid="hosted-resources-iframe"]';
+
 test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
 
-test.describe('Paywall page banner', () => {
+// Serial: the published macro page is built ONCE (beforeAll) and reused by every
+// test. Each test still gets a fresh browser context (Playwright default), so the
+// app-origin localStorage is clean per test — markers never leak across tests
+// even though they share the same Confluence page.
+test.describe.serial('Paywall page banner', () => {
   test.skip(!testConfig.isForge, 'pageBanner is Forge-only');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence macro required');
 
+  // Published page (one sequence macro) shared across all tests.
+  let pageId: string;
+
+  test.beforeAll(async ({ browser }) => {
+    // Create the fixture page ONCE via the proven insert path (the same one the
+    // smoke specs use). The previous version called insertAndPublishMacro per
+    // test, whose fillEditorTitle() does titleInput.click() — intercepted by the
+    // editor's modal backdrop — so every beforeEach failed and, under CI's serial
+    // + retries:2, blew the 15-min E2E shard. interactWithDiagramMacro fills the
+    // title without clicking (and dismisses the paywall modal), and we do it once.
+    const variantLabel = testConfig.isLite ? ' Lite' : '';
+    const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
+    const setupPage = await context.newPage();
+    try {
+      const editorPage = await createPageAndSetup(setupPage, variantLabel);
+      await editorPage.dismissLearnTheBasicsPanel();
+      const macroName = editorPage.getMacroName('Diagram (Mermaid, PlantUML & ZenUML)');
+      await editorPage.clickInsertElements();
+      await editorPage.searchAndSelectMacro('diagram', macroName);
+      await editorPage.interactWithDiagramMacro(`Paywall Banner${variantLabel}`);
+      pageId = await publishAndVerifyMacros(setupPage, editorPage, 1, 'paywall-banner-setup');
+    } finally {
+      await context.close();
+    }
+    expect(pageId, 'beforeAll must publish a macro page').toBeTruthy();
+  });
+
   test.beforeEach(async ({ page }) => {
-    // Fresh macro page so the macro iframe writes the per-space targeting marker,
-    // then a clean banner state so prior runs don't leak.
-    await insertAndPublishMacro(page, 'sequence');
+    // Reuse the shared macro page; wait for the macro iframe so an app-origin
+    // frame exists for mock injection, then clear any banner state written by
+    // this initial load before the scenario is set up.
+    await page.goto(testConfig.pageUrl(pageId));
+    await expect(page.locator(MACRO_IFRAME).first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
     await clearAllBannerState(page);
   });
 

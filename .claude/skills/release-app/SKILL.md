@@ -3,8 +3,9 @@ name: release-app
 description: >
   Release ZenUML Forge apps (lite, full, and/or diagramly) to production via the full CI/CD pipeline.
   Reuses an existing fresh draft release when available (the common case after a recent merge),
-  publishes it to production, verifies with PVT, then runs a spot check — targeted coverage for
-  what shipped this iteration (not keyword→skill matching alone). Falls back to triggering a
+  composes delta-derived release notes (replacing the auto-draft placeholder), publishes it to
+  production, verifies with PVT, then runs a spot check — targeted coverage for what shipped this
+  iteration (not keyword→skill matching alone). Falls back to triggering a
   fresh build via a changelog push only when no recent draft exists.
   Use when the user wants to release, deploy, ship, or push the lite, full, or diagramly Forge app to
   production. Triggers on "release lite", "release full", "release diagramly", "deploy to prod",
@@ -91,17 +92,77 @@ The workflow runs these jobs on main:
 
 If only some variants succeeded (e.g. lite is still deploying but full and diagramly are done), you can publish the completed ones immediately.
 
-### Step 3: Publish the Draft Release
+### Step 3: Add release notes, then publish the Draft Release
+
+The draft releases are auto-created by the build workflow with a **generic placeholder body** (`"This is a draft release for the Lite version of the plugin."`). You **MUST replace that with real release notes before publishing** — do not ship a release whose notes are the placeholder. This is not optional.
 
 For each variant being released:
 
-1. Find the draft release: `gh release list --exclude-drafts=false | grep "Draft"` and look for the tag matching `v{version}-{variant}`
-2. Publish it: `gh release edit <tag> --draft=false`
-3. This triggers the Release workflow (`release.yml`) which:
-   - Builds and publishes to Cloudflare production
-   - Deploys to Forge production
+#### 3.1 Find the draft tag and the previous published tag
 
-If releasing multiple variants, publish them one at a time and wait for each Release workflow to complete before publishing the next.
+```bash
+# This release's draft tag
+gh release list --repo ZenUml/conf-app --limit 30 --json tagName,isDraft \
+  -q "[.[]|select(.isDraft and (.tagName|test(\"-{variant}\$\")))][0].tagName"
+
+# Previous PUBLISHED tag for the same variant (the notes' "since" point)
+gh release list --repo ZenUml/conf-app --exclude-drafts --limit 30 --json tagName \
+  -q "[.[]|select(.tagName|test(\"-{variant}\$\"))][0].tagName"
+```
+
+#### 3.2 Compose the release notes from the delta
+
+This is the **same delta** you establish in Step 5.5 Section 1 — compute it once and reuse it for both notes and the spot check.
+
+```bash
+git fetch --tags
+git log <prev-published-tag>..<new-draft-tag> --oneline
+```
+
+Turn the commit log into **user-facing release notes**, not a raw commit dump:
+
+- Lead with **behavioral / user-visible changes** (what a Confluence user or macro author will notice) — reuse the `behavioral` rows from the Step 5.5 triage table.
+- Then **fixes** (bugs resolved).
+- Fold `infra/test/docs` and pure-`instrumentation` commits into a short trailing line (or omit) — they are not user-facing.
+- Group by theme/surface (paywall, fullscreen, DrawIO, OpenAPI, editor…), not one bullet per commit.
+- Note the variant and version. Keep it concise and concrete.
+
+Write the body to a file, e.g. `release-notes-{variant}.md`:
+
+```markdown
+## v{version}-{variant}
+
+### Changes
+- <user-facing change grouped by theme>
+- …
+
+### Fixes
+- <bug fix>
+
+_Internal: <one line for infra/test/docs/instrumentation, or omit>_
+```
+
+If `git log` shows **no product commits** since the previous published tag (e.g. the build was a re-trigger), say so in the notes (`- Maintenance release; no user-facing changes.`) rather than leaving the placeholder.
+
+#### 3.3 Set the notes on the draft (still a draft at this point)
+
+```bash
+gh release edit <new-draft-tag> --repo ZenUml/conf-app --notes-file release-notes-{variant}.md
+```
+
+Show the composed notes to the user as part of the publish confirmation (per "Always confirm before publishing").
+
+#### 3.4 Publish
+
+```bash
+gh release edit <new-draft-tag> --repo ZenUml/conf-app --draft=false
+```
+
+This triggers the Release workflow (`release.yml`) which:
+- Builds and publishes to Cloudflare production
+- Deploys to Forge production
+
+If releasing multiple variants, set notes + publish them one at a time and wait for each Release workflow to complete before publishing the next. Each variant gets its **own** notes (the per-variant delta can differ).
 
 ### Step 4: Wait for Release Workflow
 
@@ -238,6 +299,7 @@ Summarize the release:
 
 ```
 ## Release Report: v{version}-{variant}
+- Release notes set (replaced placeholder): ✓
 - Draft published: ✓
 - Release workflow: ✓
 - PVT (Mermaid smoke): PASS | FAIL
@@ -257,6 +319,7 @@ Summarize the release:
 
 ## Important Notes
 
+- **Never publish with the placeholder body (Step 3).** Auto-created drafts carry a generic `"This is a draft release…"` body. Always replace it with delta-derived release notes via `gh release edit <tag> --notes-file …` before `--draft=false`. The notes reuse the same prev→new delta as the Step 5.5 spot check.
 - **Always check for an existing fresh draft first (Step 1).** A merge to main that completed in the last hour or so already produced the drafts you need — reuse them. Pushing a `chore: trigger release pipeline` changelog commit when fresh drafts exist wastes ~15 min of CI, pollutes main history, and gains nothing.
 - The build workflow has no `workflow_dispatch` — a push to main is the only fallback if no fresh draft exists
 - Draft releases are only created on the `main` branch (not on PRs or other branches)

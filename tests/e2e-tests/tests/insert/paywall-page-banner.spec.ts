@@ -39,6 +39,12 @@ test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
 // even though they share the same Confluence page.
 test.describe.serial('Paywall page banner', () => {
   test.skip(!testConfig.isForge, 'pageBanner is Forge-only');
+  // Lite-only: the macro writes the warning targeting marker only on Lite
+  // (persistTargetingMarker() in useCustomerSuccessService.ts returns early when
+  // !isLite()). On Full/Diagramly the banner can never appear, so showWarningBanner
+  // would time out. All three variants' E2E run suite=insert, so without this gate
+  // the spec fails the Full/Diagramly main-branch E2E.
+  test.skip(!testConfig.isLite, 'paywall warning banner is Lite-only');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence macro required');
 
   // Published page (one sequence macro) shared across all tests.

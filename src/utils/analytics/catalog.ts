@@ -71,6 +71,7 @@ export type AnalyticsEventName =
   | "paywall_attempts_exhausted"
   | "paywall_banner_shown"
   | "paywall_banner_dismissed"
+  | "space_admin_active"
   | "advocacy_message_copied"
   | "advocacy_draft_preview_clicked"
   | "extension_request_clicked"

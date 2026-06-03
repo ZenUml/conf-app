@@ -49,6 +49,11 @@ export type AnalyticsProperties = {
   custom_content_id?: string;
   attachment_name?: string;
   space_admin_count?: number;
+  // True when the current user is resolved to be a space admin of the current
+  // space. Set on `space_admin_active` (Phase 5a admin-activity probe). Only
+  // emitted as `true` today; kept optional for a future "always, with flag"
+  // rate variant. See utils/paywall/spaceAdminProbe.ts.
+  is_space_admin?: boolean;
   // Diagramly demo-page engagement: set automatically for macro_* events when
   // the macro lives on a page tagged with the `diagramly-demo-page` page
   // property. See utils/analytics/demoPageStatus.ts.

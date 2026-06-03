@@ -133,6 +133,26 @@ export const onRequest = async ({ request, env }) => {
       return fail(403, `caller cannot access page ${pageId} (read check ${readResp.status})`);
     }
 
+    // ---- efficiency: skip the write if the APP can't even access the page ---
+    // Issue #211: production data showed ~59% of triggered fallbacks fail with
+    // 404 NotFoundException because the app principal isn't a member of the
+    // page's (restricted) space — it can't see the page at all. The user-read
+    // check above can't catch this (it validates the *user*, who can read).
+    // A cheap app-side GET lets us skip building/sending the multipart upload
+    // for those cases: a GET that 404s is far cheaper than a multipart POST
+    // that 404s, and yields a clear `app_no_access` signal instead of a
+    // confusing NotFoundException on the write. (This does NOT pre-empt the
+    // ~34% PermissionException case — the app can read but not write there;
+    // that can only be discovered by attempting the write.)
+    const appReadResp = await fetch(pageReadUrl, {
+      method: 'GET',
+      headers: { Accept: 'application/json', Authorization: `Bearer ${systemToken}` },
+    });
+    if (!appReadResp.ok) {
+      console.warn(`forge-upload-attachment: app cannot access page ${pageId} (${appReadResp.status}) — skipping write`);
+      return fail(appReadResp.status, `app_no_access: app cannot access page ${pageId} (${appReadResp.status})`);
+    }
+
     // ---- upload the attachment data as the app -----------------------------
     const blob = new Blob([bytes], { type: 'image/png' });
     const form = new FormData();

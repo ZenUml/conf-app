@@ -9,6 +9,7 @@ import globals from '@/model/globals';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import macroMetrics from '@/services/MacroMetrics';
 import { reportSaveRefusedLegacyLoadBlocked } from '@/utils/legacyContentPropertyTelemetry';
+import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -90,6 +91,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
         ...savedIdProps,
       });
     }
+    markRecentMacroActivity(isNew ? 'create' : 'edit');
     markCsatPending();
   }
 

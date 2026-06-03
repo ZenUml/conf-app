@@ -13,6 +13,7 @@ vi.mock('@/utils/upgradeTracking', () => ({
 }));
 vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
   getClientDomain: () => 'acme.atlassian.net',
+  getSpaceKey: () => 'ENG',
 }));
 vi.mock('@/model/globals', () => ({
   default: {
@@ -59,6 +60,11 @@ describe('useCustomerSuccessService', () => {
     const svc = useCustomerSuccessService();
     await svc.initialize();
     expect(svc.shouldBlockActions.value).toBe(true);
+    expect(JSON.parse(localStorage.getItem('paywallWarning:acme.atlassian.net:ENG') || '{}')).toMatchObject({
+      macroCount: 120,
+      spacePaid: false,
+      customerSuccessServiceEnabled: true,
+    });
     localStorage.removeItem('mockMacroCount');
   });
 });

@@ -9,7 +9,7 @@ vi.mock('@/utils/csat', () => ({ isCsatPendingFresh: vi.fn() }))
 const paywall = vi.mocked(shouldShowPaywallBanner)
 const csat = vi.mocked(isCsatPendingFresh)
 
-describe('decidePageBanner — central priority (replaces the cross-iframe defer)', () => {
+describe('decidePageBanner — central priority for page-banner slots', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('chooses paywall when the paywall warning is eligible', () => {

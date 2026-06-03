@@ -22,13 +22,15 @@ vi.mock('@/utils/window', () => ({
 }))
 
 vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
-  getClientDomain: vi.fn().mockReturnValue('test-domain')
+  getClientDomain: vi.fn().mockReturnValue('test-domain'),
+  getSpaceKey: vi.fn().mockReturnValue('ENG')
 }))
 
 vi.mock('@/model/globals', () => ({
   default: {
     apWrapper: {
-      isLite: vi.fn().mockReturnValue(true)
+      isLite: vi.fn().mockReturnValue(true),
+      getCurrentSpace: vi.fn().mockResolvedValue({ key: 'ENG' })
     }
   }
 }))

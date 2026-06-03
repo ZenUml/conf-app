@@ -15,6 +15,7 @@ import store from "@/model/store2";
 import uuidv4 from "@/utils/uuid";
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
+import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 
 // Captured at editor open from extension.config.uuid; forwarded back through
 // view.submit's replace-semantics so Connect-era guestParams.uuid survives.
@@ -74,6 +75,7 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
         updatedAt: new Date().toISOString(),
         ...(originalConfigUuid && { uuid: originalConfigUuid }),
       }});
+      markRecentMacroActivity(isNew ? 'create' : 'edit');
       // Notify listeners after the macro state is durable; on submit
       // failure the catch path intentionally does NOT emit so any local
       // draft survives as a retry anchor.

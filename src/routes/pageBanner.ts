@@ -11,8 +11,9 @@ import { isCsatPendingFresh } from '@/utils/csat';
  * (this replaces the old two-module + CSAT-defer arrangement, which is why no
  * defer exists here).
  *
- * Priority: the paywall warning (Lite space at 85–99 macros) outranks the CSAT
- * survey. `none` means close the iframe with no work.
+ * Priority: the paywall warning (unpaid Lite space over the hard limit with
+ * recent macro authoring activity) outranks the CSAT survey. `none` means close
+ * the iframe with no work.
  *
  * decidePageBanner() depends only on the two cheap localStorage predicates, so
  * forgeIndex can run it on the hot path (every page load) to decide whether to

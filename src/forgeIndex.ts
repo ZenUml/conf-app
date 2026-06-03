@@ -86,12 +86,15 @@ async function initializeCriticalPath() {
 
     // Page banner host. A single confluence:pageBanner module mounts on EVERY
     // Confluence page load and decides — synchronously, from localStorage only —
-    // which banner (if any) to show: paywall warning (85–99 macros) outranks the
-    // CSAT survey. On the ~99% of loads where neither is eligible we close
-    // immediately WITHOUT importing the banner route, initializing the macro
-    // context, or mounting Vue. One module + central priority means the banners
-    // never coordinate across iframes (no defer). decidePageBanner() touches
-    // only the two cheap predicates, so this stays a true fast-exit.
+    // which banner (if any) to show: paywall warning outranks the CSAT survey.
+    // The paywall branch is eligible only when the space is unpaid, over the
+    // Lite hard limit, CSS targeting is on, recent macro authoring activity is
+    // present, and the user is not snoozed. On the ~99% of loads where neither
+    // banner is eligible we close immediately WITHOUT importing the banner
+    // route, initializing the macro context, or mounting Vue. One module +
+    // central priority means the banners never coordinate across iframes (no
+    // defer). decidePageBanner() touches only the cheap predicates, so this
+    // stays a true fast-exit.
     // (Routed by moduleKey, not extension.type, because the pageBanner extension
     // carries no macro config to discriminate on.)
     if ((context as any).moduleKey === 'zenuml-page-banner') {
@@ -837,5 +840,3 @@ EventBus.$on('updateContent', async (diagram: Diagram) => {
     console.info('Your changes cannot be persistent as you are not authorized to edit.');
   }
 });
-
-

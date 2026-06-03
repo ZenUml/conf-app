@@ -1,5 +1,6 @@
 import { Page, FrameLocator, expect } from '@playwright/test';
 import { testConfig, TIMEOUTS } from '../config/test-config.js';
+import { dismissPaywallGate } from '../helpers/paywallGate.js';
 
 export class MacroPage {
   constructor(private page: Page) {}
@@ -100,18 +101,12 @@ export class MacroPage {
       const modal = this.page.getByTestId('custom-ui-fullscreen-modal-dialog');
       const outerFrame = modal.locator('[data-testid="hosted-resources-iframe"]').contentFrame();
 
-      // If the space hit the macro limit, PaywallGate mounts in the outer
-      // Forge frame above DrawIO. Click Continue editing to proceed — the
-      // gate dismisses, leaving the editor mounted underneath.
-      const continueBtn = outerFrame.locator('[data-testid="continue-editing-btn"]');
-      try {
-        await continueBtn.waitFor({ state: 'visible', timeout: 3000 });
-        console.log('  → Paywall gate detected; clicking Continue editing');
-        await continueBtn.click({ force: true });
-        await this.page.waitForTimeout(2000);
-      } catch {
-        // No gate — space is below the macro limit
-      }
+      // If the space hit the macro limit, the paywall gate mounts in the outer
+      // Forge frame above DrawIO. Clear it before touching the canvas — its
+      // backdrop otherwise blocks the sidebar shape click and Publish. The
+      // helper waits for the gate to actually appear and confirms it closed
+      // (an early force-click can land before Vue wires the handler).
+      await dismissPaywallGate(this.page, outerFrame);
 
       const innerFrame = outerFrame.locator('iframe').contentFrame();
 

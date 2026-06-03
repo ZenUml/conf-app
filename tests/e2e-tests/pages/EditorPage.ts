@@ -1,5 +1,6 @@
 import { Page, FrameLocator, expect } from '@playwright/test';
 import { testConfig, TIMEOUTS } from '../config/test-config.js';
+import { dismissPaywallGate } from '../helpers/paywallGate.js';
 
 export class ConfluenceEditorPage {
   constructor(private page: Page) {}
@@ -480,6 +481,11 @@ export class ConfluenceEditorPage {
     await titleInput.fill(title);
     await this.page.waitForTimeout(500);
 
+    // On Lite over-limit spaces the paywall gate mounts over the editor; clear
+    // it before touching the canvas, otherwise its backdrop blocks the sidebar
+    // shape click (and later Publish) for the full timeout.
+    await this.dismissPaywallIfPresent(frame);
+
     // Step 2: Add a shape to the DrawIO canvas
     await this.addDrawioShape();
 
@@ -563,12 +569,7 @@ export class ConfluenceEditorPage {
   // modal overlays the editor with a fixed inset overlay that intercepts all
   // pointer events. Dismiss it before attempting any editor interaction.
   private async dismissPaywallIfPresent(frame: FrameLocator): Promise<void> {
-    const continueEditingBtn = frame.locator('[data-testid="continue-editing-btn"]');
-    if (await continueEditingBtn.count() > 0) {
-      console.log('Paywall gate detected; clicking Continue editing');
-      await continueEditingBtn.click({ force: true });
-      await this.page.waitForTimeout(500);
-    }
+    await dismissPaywallGate(this.page, frame);
   }
 
   private async clickDrawioPublishForge(): Promise<void> {

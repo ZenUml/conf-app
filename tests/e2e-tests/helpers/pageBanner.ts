@@ -129,11 +129,13 @@ export async function showWarningBanner(page: Page): Promise<void> {
   await page.waitForTimeout(6_000); // macro renders + writes the warning marker
   const domain = new URL(page.url()).hostname.split('.')[0];
   const now = Date.now();
+  // Must match the production MacroActivityMarker shape (warningBanner.ts):
+  // parseMacroActivityMarker requires a string `lastActivityAt` — anything else
+  // parses to null and the visibility gate fails closed (banner never mounts).
   await setAppMocks(page, {
     [`paywallActivity:${domain}:SD`]: JSON.stringify({
+      lastActivityAt: new Date(now).toISOString(),
       activityType: 'edit',
-      markedAt: now,
-      expiresAt: now + 30 * 24 * 60 * 60 * 1000,
     }),
   });
   await page.reload();

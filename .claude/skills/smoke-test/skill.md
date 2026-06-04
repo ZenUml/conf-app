@@ -302,11 +302,26 @@ browser_run_code code="async (page) => {
   await page.waitForTimeout(500);
   await page.getByTestId('ModalElementBrowser__insert-button').click();
 
-  // DrawIO: double-nested iframe — title in outer, Publish in inner
+  // DrawIO: double-nested iframe — title in outer, canvas + Publish in inner
   await page.waitForTimeout(8000);
-  const outerFrame = page.locator('[data-testid=\"hosted-resources-iframe\"]').contentFrame();
+  const outerFrame = page.locator('[data-testid=\"custom-ui-fullscreen-modal-dialog\"] [data-testid=\"hosted-resources-iframe\"]').contentFrame();
   await outerFrame.getByRole('textbox', { name: 'Name your graph…' }).fill('Test Graph');
   const innerFrame = outerFrame.locator('iframe').contentFrame();
+
+  // REQUIRED: draw a shape, else the graph publishes EMPTY (the default DrawIO
+  // canvas has no cells, so the macro renders blank and doesn't exercise the
+  // graph renderer). Double-click the canvas to open DrawIO's shape picker,
+  // then click the first shape item with a REAL Playwright click — synthetic
+  // dispatched MouseEvents do NOT register with DrawIO's handlers; only a real
+  // CDP mouse click inserts the shape. Verified 2026-06-05 on zenuml prod.
+  await innerFrame.locator('.geDiagramContainer').first().dblclick({ position: { x: 500, y: 350 } });
+  await page.waitForTimeout(1500);
+  await innerFrame.locator('.geShapePicker .geItem').first().click();  // real click → inserts shape
+  await page.waitForTimeout(1200);
+  await page.keyboard.type('Test Graph', { delay: 40 });  // label the new shape
+  await page.keyboard.press('Escape');                    // commit the label
+  await page.waitForTimeout(800);
+
   await innerFrame.getByRole('button', { name: 'Publish' }).click();
 
   await page.waitForTimeout(2000);

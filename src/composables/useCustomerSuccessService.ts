@@ -1,6 +1,5 @@
 import { ref, computed } from 'vue'
 import getFeatureFlagsForCurrentDomain from "@/apis/featureFlags"
-import { trackUpgradeEvent, UpgradeEventName } from "@/utils/upgradeTracking"
 import macroMetrics from "@/services/MacroMetrics"
 import { getClientDomain } from "@/utils/ContextParameters/ContextParameters"
 import globals from '@/model/globals'
@@ -115,11 +114,6 @@ export function useCustomerSuccessService() {
         CUSTOMER_SUCCESS_SERVICE: flags.CUSTOMER_SUCCESS_SERVICE,
         enabled: customerSuccessServiceEnabled.value,
       })
-      if (customerSuccessServiceEnabled.value) {
-        trackUpgradeEvent(UpgradeEventName.FEATURE_ENABLED, {
-          feature_name: 'customer_success_service',
-        })
-      }
       cssFlagLoaded = true;
     } catch (error) {
       console.error("❌ Error loading CSS feature flag:", error);
@@ -178,13 +172,6 @@ export function useCustomerSuccessService() {
           isPaid: response.isPaid,
           source: response.source,
         })
-
-        if (response.isPaid) {
-          trackUpgradeEvent(UpgradeEventName.FEATURE_ENABLED, {
-            feature_name: 'paid_space_detected',
-            source: response.source
-          })
-        }
       }
 
       spacePaidStatusLoaded = true;

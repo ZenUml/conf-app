@@ -10,7 +10,7 @@ export function trackRenderTime(
 ): void {
   const t0 = window.__macroLoadStart;
   if (typeof t0 !== 'number') return;
-  trackAnalyticsEvent('diagram_rendered', {
+  trackAnalyticsEvent('macro_viewed', {
     feature_area: 'macro',
     surface: isDisplayMode ? 'viewer' : 'editor',
     macro_type: macroType,

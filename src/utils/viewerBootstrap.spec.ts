@@ -6,7 +6,6 @@ import store from '@/model/store2';
 import globals from '@/model/globals';
 import { mountRoot } from '@/mount-root';
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 
 vi.mock('@/model/globals', () => ({
   default: {
@@ -59,12 +58,6 @@ describe('viewerBootstrap', () => {
     });
 
     expect(globals.apWrapper.initializeContext).toHaveBeenCalled();
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('macro_viewed', {
-      feature_area: 'macro',
-      surface: 'viewer',
-      macro_type: 'openapi',
-      entry_point: 'page_view',
-    });
     expect(tryFullscreenViewerPaywall).toHaveBeenCalledWith({
       doc: NULL_DIAGRAM,
       content: Component,

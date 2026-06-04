@@ -471,14 +471,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       //@ts-ignore
       mountRoot(doc, component, { autoResize: !editable && !fullscreenMode });
 
-      if (!editable) {
-        trackAnalyticsEvent("macro_viewed", {
-          feature_area: "macro",
-          surface: "viewer",
-          macro_type: doc.diagramType,
-          entry_point: "page_view",
-        });
-      } else {
+      if (editable) {
         const isNew = !customContentId;
         const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';
         if (isNew) {

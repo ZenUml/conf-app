@@ -1,5 +1,4 @@
 import { Component } from 'vue';
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import globals from '@/model/globals';
 import { mountRoot } from '@/mount-root';
 import store from '@/model/store2';
@@ -49,13 +48,6 @@ export function publishLoadedDiagram(doc: Diagram | undefined): Diagram {
 export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Promise<void> {
   try {
     await globals.apWrapper.initializeContext();
-    trackAnalyticsEvent('macro_viewed', {
-      feature_area: 'macro',
-      surface: 'viewer',
-      macro_type: options.macroKind,
-      entry_point: 'page_view',
-    });
-
     const paywalled = await tryFullscreenViewerPaywall({
       doc: NULL_DIAGRAM,
       content: options.content,

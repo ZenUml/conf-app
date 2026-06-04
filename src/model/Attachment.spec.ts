@@ -622,6 +622,114 @@ describe('Attachment', () => {
       expect(mockRequestConfluence).toHaveBeenCalled();
       expect(mockForgeRequest).toHaveBeenCalled(); // updateAttachmentProperties
     });
+
+    // ── #212: save-path override (opts.customContentId / opts.fromSave) ──────
+    // The editor save handler calls this for a JUST-SAVED macro whose id the
+    // editor context does NOT yet carry. opts.customContentId supplies that id
+    // explicitly and must drive the guard, the lookup filename, the upload name,
+    // and the telemetry — independent of getContext()/forgeContext.
+    describe('opts.customContentId override (save path)', () => {
+      beforeEach(() => {
+        // Simulate the NEW-macro editor: neither getContext() nor forgeContext
+        // carries a customContentId yet. Without the override the central guard
+        // would short-circuit and nothing would upload.
+        mockGetContext.mockResolvedValue({ extension: { config: {} } });
+        (forgeGlobal as any).forgeContext = { extension: { config: {} } };
+      });
+
+      it('uses the override id for the lookup, upload name, and telemetry even when context has no id', async () => {
+        const mockBlob = new Blob(['test'], { type: 'image/png' });
+        vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockRequestConfluence.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'att-saved-1' }] })),
+        });
+        mockForgeRequest.mockResolvedValue({});
+
+        await createAttachmentIfContentChanged('test content', 'sequence', {
+          customContentId: 'saved-id-999',
+        });
+
+        // Lookup uses the override-derived filename, not zenuml-undefined.png.
+        expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalledWith('page-123', {
+          filename: 'zenuml-saved-id-999.png',
+        });
+        // Success telemetry carries the override id + name.
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'created',
+          'attachment_upload_succeeded',
+          'export',
+          expect.objectContaining({
+            custom_content_id: 'saved-id-999',
+            attachment_name: 'zenuml-saved-id-999.png',
+            attachment_id: 'att-saved-1',
+          }),
+        );
+      });
+
+      it('adds from_save:true to the success event when opts.fromSave is set', async () => {
+        const mockBlob = new Blob(['test'], { type: 'image/png' });
+        vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockRequestConfluence.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'att-saved-2' }] })),
+        });
+        mockForgeRequest.mockResolvedValue({});
+
+        await createAttachmentIfContentChanged('test content', 'sequence', {
+          customContentId: 'saved-id-1000',
+          fromSave: true,
+        });
+
+        const succeeded = mockTrackEvent.mock.calls.find(
+          (c: unknown[]) => c[1] === 'attachment_upload_succeeded',
+        );
+        expect(succeeded).toBeDefined();
+        expect(succeeded![3]).toMatchObject({ from_save: true, custom_content_id: 'saved-id-1000' });
+      });
+
+      it('does NOT set from_save when opts.fromSave is absent', async () => {
+        const mockBlob = new Blob(['test'], { type: 'image/png' });
+        vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockRequestConfluence.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'att-saved-3' }] })),
+        });
+        mockForgeRequest.mockResolvedValue({});
+
+        await createAttachmentIfContentChanged('test content', 'sequence', {
+          customContentId: 'saved-id-1001',
+        });
+
+        const succeeded = mockTrackEvent.mock.calls.find(
+          (c: unknown[]) => c[1] === 'attachment_upload_succeeded',
+        );
+        expect(succeeded).toBeDefined();
+        expect(succeeded![3]).not.toHaveProperty('from_save');
+      });
+
+      it('still skips (guard) when no override AND context has no customContentId', async () => {
+        const mockBlob = new Blob(['test'], { type: 'image/png' });
+        vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+
+        await createAttachmentIfContentChanged('test content', 'sequence');
+
+        // Central guard short-circuits before any lookup/upload.
+        expect(mockApWrapper.getAttachmentsV2).not.toHaveBeenCalled();
+        expect(mockRequestConfluence).not.toHaveBeenCalled();
+        const succeeded = mockTrackEvent.mock.calls.filter(
+          (c: unknown[]) => c[1] === 'attachment_upload_succeeded',
+        );
+        expect(succeeded).toHaveLength(0);
+      });
+    });
   });
 
   describe('createAttachmentIfContentChanged - PNG capture', () => {

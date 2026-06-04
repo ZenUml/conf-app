@@ -68,3 +68,13 @@ scripts/confluence_domain_migration/
 /page-snapshot.yml
 /paywall-snap-*.yml
 /spotcheck-*.yml
+/console-*.txt
+/snap-*.yml
+/iframe-snapshot.md
+/mixpanel-event*.md
+/mixpanel-tracks.txt
+/zen-*-analysis.html
+
+# Local agent / plugin state — never commit
+.claude/projects/
+.superpowers/

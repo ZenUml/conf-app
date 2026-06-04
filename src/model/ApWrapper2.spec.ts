@@ -65,6 +65,15 @@ describe('ApWrapper2', () => {
     wrapper = new ApWrapper2();
   });
 
+  describe('getMacroContentTypes', () => {
+    it('returns the fully-qualified custom-content types for both diagram macros', () => {
+      const types = wrapper.getMacroContentTypes();
+      expect(types).toHaveLength(2);
+      expect(types[0].endsWith(':zenuml-content-sequence')).toBe(true);
+      expect(types[1].endsWith(':zenuml-content-graph')).toBe(true);
+    });
+  });
+
   describe('updateCustomContentV2', () => {
     it('should succeed on first attempt and track update event', async () => {
       const content = buildContent(5);

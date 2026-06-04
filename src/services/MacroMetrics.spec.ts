@@ -377,4 +377,81 @@ describe('MacroMetrics', () => {
       );
     });
   });
+
+  // Large/bulk-grown spaces were under-counted because the v1 CQL content
+  // search is search-index-backed and returns incomplete results. When a
+  // numeric space id is available (Forge), count from the V2 space
+  // custom-content endpoint (system of record), paginated per type.
+  describe('collectMetrics via V2 space custom-content (large-space safe)', () => {
+    beforeEach(() => {
+      mockApWrapper.getCurrentSpace.mockResolvedValue({ key: mockSpace, id: 'space-789' });
+      (mockApWrapper as any).getMacroContentTypes = vi.fn().mockReturnValue(['T-seq', 'T-graph']);
+    });
+
+    it('paginates the V2 space endpoint per content type and sums totals across types and pages', async () => {
+      (callRemote as any).mockResolvedValueOnce(null); // KV miss → collect fresh
+
+      mockApWrapper.requestAllPaginatedData.mockImplementation((url: string, consumer: Function) => {
+        if (url.includes('type=T-seq')) {
+          // two pages — proves it does not stop at the first page
+          consumer({ results: new Array(250).fill({ body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Sequence }) } } }) });
+          consumer({ results: new Array(150).fill({ body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Mermaid }) } } }) });
+        } else if (url.includes('type=T-graph')) {
+          consumer({ results: new Array(60).fill({ body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Graph }) } } }) });
+        }
+        return Promise.resolve({});
+      });
+
+      const result = await macroMetrics.getMacroMetrics();
+
+      // one paginated pass per content type, against the V2 space endpoint (not v1 CQL search)
+      expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalledTimes(2);
+      const urls = mockApWrapper.requestAllPaginatedData.mock.calls.map((c: any[]) => c[0] as string);
+      expect(urls.every((u) => u.includes('/api/v2/spaces/space-789/custom-content'))).toBe(true);
+      expect(urls.every((u) => !u.includes('/rest/api/content/search'))).toBe(true);
+      expect(urls.some((u) => u.includes('type=T-seq'))).toBe(true);
+      expect(urls.some((u) => u.includes('type=T-graph'))).toBe(true);
+
+      // every page across every type is counted — no truncation
+      expect(result?.total).toBe(460);
+      expect(result?.sequence).toBe(250);
+      expect(result?.mermaid).toBe(150);
+      expect(result?.graph).toBe(60);
+    });
+
+    it('falls back to the v1 CQL search when no numeric space id is available', async () => {
+      mockApWrapper.getCurrentSpace.mockResolvedValue({ key: mockSpace }); // no id
+      (callRemote as any).mockResolvedValueOnce(null);
+      mockApWrapper.buildTypesClauseFilter.mockReturnValue('type=customContent');
+      mockApWrapper.requestAllPaginatedData.mockResolvedValue({});
+
+      await macroMetrics.getMacroMetrics();
+
+      expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalledWith(
+        `/rest/api/content/search?expand=body.raw&cql=space in ("${mockSpace}") and (type=customContent)`,
+        expect.any(Function)
+      );
+    });
+  });
+
+  // A silent (swallowed) KV write failure left stale-low counts cached with no
+  // signal. Write failures must be surfaced via the error tracker.
+  describe('KV write failure surfacing', () => {
+    it('surfaces a KV write failure instead of swallowing it', async () => {
+      mockApWrapper.requestAllPaginatedData.mockImplementation((_url: string, consumer: Function) => {
+        consumer({ results: [] });
+        return Promise.resolve({});
+      });
+      // the KV update POST rejects
+      (callRemote as any).mockRejectedValueOnce(new Error('KV write failed'));
+
+      await macroMetrics.reportMacroMetrics();
+
+      expect(mockEventTracker).toHaveBeenCalledWith(
+        expect.any(String),
+        'report_macro_metrics',
+        'error'
+      );
+    });
+  });
 });

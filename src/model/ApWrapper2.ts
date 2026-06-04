@@ -182,6 +182,12 @@ export default class ApWrapper2 implements IApWrapper {
     return `${this.getCustomContentTypePrefix()}:${type}`;
   }
 
+  // Fully-qualified custom-content types for the diagram macros, used to
+  // enumerate/count a space's macros via the V2 space custom-content endpoint.
+  getMacroContentTypes(): string[] {
+    return CUSTOM_CONTENT_TYPES.map((type) => this.customContentType(type));
+  }
+
   async createCustomContent(content: Diagram) {
     const type = this.getCustomContentType();
     const bodyData: any = {

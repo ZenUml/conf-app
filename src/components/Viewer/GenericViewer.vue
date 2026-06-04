@@ -250,6 +250,12 @@ export default {
     },
     fullscreen() {
       trackEvent('fullscreen', 'click', 'viewing');
+      trackAnalyticsEvent('fullscreen_opened', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: this.diagramType ?? 'none',
+        entry_point: 'page_view',
+      });
       EventBus.$emit('fullscreen');
     },
     showContentVersions() {

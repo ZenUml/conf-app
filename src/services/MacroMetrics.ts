@@ -27,6 +27,11 @@ interface ContentResult {
   };
 }
 
+// The paywall blocks at this many macros (mirrors MACROS_LIMIT in
+// useCustomerSuccessService). On the latency-critical read/gate path we stop
+// counting once the total crosses it.
+const PAYWALL_COUNT_CEILING = 100;
+
 export class MacroMetrics {
   constructor(
     private readonly apWrapper: ApWrapper2 = globals.apWrapper,
@@ -71,9 +76,10 @@ export class MacroMetrics {
         return cachedMetrics;
       }
 
-      // KV miss, collect fresh metrics
+      // KV miss, collect fresh metrics. This feeds the awaited paywall gate, so
+      // bound the count at the limit — see collectMetrics / PAYWALL_COUNT_CEILING.
       console.debug('[metrics:kv:read] miss', { domain, space });
-      const metrics = await this.collectMetrics(space, currentSpace.id);
+      const metrics = await this.collectMetrics(space, currentSpace.id, PAYWALL_COUNT_CEILING);
       if (metrics) {
         // Write to cache for future reads
         await this.writeToKV(domain, space, metrics);
@@ -86,7 +92,7 @@ export class MacroMetrics {
     }
   }
 
-  private async collectMetrics(space: string, spaceId?: string): Promise<IMacroMetrics | undefined> {
+  private async collectMetrics(space: string, spaceId?: string, ceiling?: number): Promise<IMacroMetrics | undefined> {
     const stats = this.createInitialStats();
 
     const consumer = (data: { results?: ContentResult[] }) => {
@@ -102,9 +108,20 @@ export class MacroMetrics {
         // paginated per content type. The v1 CQL content search is
         // search-index-backed and under-returns for large / bulk-grown spaces,
         // which silently under-counted the macro total used by the paywall.
+        //
+        // When `ceiling` is set (latency-critical read/gate path) stop as soon
+        // as the total crosses it — the paywall decision can't change above the
+        // limit, so a huge space must not stall the awaited editor/fullscreen
+        // mount enumerating thousands of items. The save path passes no ceiling
+        // and enumerates fully so the cached/analytics count stays accurate.
         for (const type of this.apWrapper.getMacroContentTypes()) {
           const url = `/api/v2/spaces/${spaceId}/custom-content?type=${encodeURIComponent(type)}&body-format=raw&limit=250`;
-          await this.apWrapper.requestAllPaginatedData(url, consumer);
+          if (ceiling != null) {
+            await this.apWrapper.requestPaginatedDataUntil(url, consumer, () => stats.total >= ceiling);
+            if (stats.total >= ceiling) break;
+          } else {
+            await this.apWrapper.requestAllPaginatedData(url, consumer);
+          }
         }
       } else {
         // Fallback when no numeric space id is available (e.g. non-Forge

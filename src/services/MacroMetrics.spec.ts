@@ -33,6 +33,7 @@ describe('MacroMetrics', () => {
     getCurrentSpace: vi.fn(),
     buildTypesClauseFilter: vi.fn(),
     requestAllPaginatedData: vi.fn(),
+    requestPaginatedDataUntil: vi.fn(),
     isLite: vi.fn()
   };
 
@@ -388,12 +389,46 @@ describe('MacroMetrics', () => {
       (mockApWrapper as any).getMacroContentTypes = vi.fn().mockReturnValue(['T-seq', 'T-graph']);
     });
 
-    it('paginates the V2 space endpoint per content type and sums totals across types and pages', async () => {
+    // Read/gate path (getMacroMetrics feeds the awaited paywall gate, so it is
+    // latency-critical): early-exit once the count crosses the limit — a huge
+    // space must not stall the editor/fullscreen gate enumerating thousands.
+    it('early-exits at the macro limit on the read/gate path (does not enumerate the whole space)', async () => {
       (callRemote as any).mockResolvedValueOnce(null); // KV miss → collect fresh
 
+      mockApWrapper.requestPaginatedDataUntil.mockImplementation(
+        async (url: string, consumer: (d: any) => void, shouldStop: () => boolean) => {
+          const pagesByType: Record<string, any[][]> = {
+            'T-seq': [
+              new Array(250).fill({ body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Sequence }) } } }),
+              new Array(150).fill({ body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Mermaid }) } } }),
+            ],
+            'T-graph': [new Array(60).fill({ body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Graph }) } } })],
+          };
+          for (const page of pagesByType[url.includes('type=T-seq') ? 'T-seq' : 'T-graph']) {
+            consumer({ results: page });
+            if (shouldStop()) return;
+          }
+        }
+      );
+
+      const result = await macroMetrics.getMacroMetrics();
+
+      // first page (250) already crosses the 100 limit → stop: never fetch the
+      // second T-seq page, never query the T-graph type, never touch v1 CQL.
+      expect(mockApWrapper.requestPaginatedDataUntil).toHaveBeenCalledTimes(1);
+      expect(mockApWrapper.requestPaginatedDataUntil.mock.calls[0][0]).toContain('/api/v2/spaces/space-789/custom-content');
+      expect(mockApWrapper.requestPaginatedDataUntil.mock.calls[0][0]).toContain('type=T-seq');
+      expect(mockApWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
+      expect(result?.total).toBe(250);
+      expect(result?.sequence).toBe(250);
+      expect(result?.graph).toBe(0);
+    });
+
+    // Save path (reportMacroMetrics is fire-and-forget, not latency-critical):
+    // enumerate the whole space so the cached/analytics count stays accurate.
+    it('counts the full space on the save path (no early-exit) so KV/analytics stay accurate', async () => {
       mockApWrapper.requestAllPaginatedData.mockImplementation((url: string, consumer: Function) => {
         if (url.includes('type=T-seq')) {
-          // two pages — proves it does not stop at the first page
           consumer({ results: new Array(250).fill({ body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Sequence }) } } }) });
           consumer({ results: new Array(150).fill({ body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Mermaid }) } } }) });
         } else if (url.includes('type=T-graph')) {
@@ -401,22 +436,20 @@ describe('MacroMetrics', () => {
         }
         return Promise.resolve({});
       });
+      (callRemote as any).mockResolvedValueOnce({ success: true }); // KV write
 
-      const result = await macroMetrics.getMacroMetrics();
+      await macroMetrics.reportMacroMetrics();
 
-      // one paginated pass per content type, against the V2 space endpoint (not v1 CQL search)
+      // full enumeration of both types via the unbounded paginator; no early-exit
       expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalledTimes(2);
+      expect(mockApWrapper.requestPaginatedDataUntil).not.toHaveBeenCalled();
       const urls = mockApWrapper.requestAllPaginatedData.mock.calls.map((c: any[]) => c[0] as string);
       expect(urls.every((u) => u.includes('/api/v2/spaces/space-789/custom-content'))).toBe(true);
-      expect(urls.every((u) => !u.includes('/rest/api/content/search'))).toBe(true);
-      expect(urls.some((u) => u.includes('type=T-seq'))).toBe(true);
-      expect(urls.some((u) => u.includes('type=T-graph'))).toBe(true);
-
-      // every page across every type is counted — no truncation
-      expect(result?.total).toBe(460);
-      expect(result?.sequence).toBe(250);
-      expect(result?.mermaid).toBe(150);
-      expect(result?.graph).toBe(60);
+      expect(callRemote).toHaveBeenCalledWith(
+        '/metrics-cache/update?addonKey=com.zenuml.confluence-addon-lite',
+        'POST',
+        expect.objectContaining({ metrics: expect.objectContaining({ total: 460, sequence: 250, mermaid: 150, graph: 60 }) })
+      );
     });
 
     it('falls back to the v1 CQL search when no numeric space id is available', async () => {

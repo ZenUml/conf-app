@@ -12,6 +12,32 @@ export async function loadAllPaginatedData(requestFunc: any, initialUrl: string,
   } while (url);
 };
 
+/**
+ * Like loadAllPaginatedData, but stops following `_links.next` as soon as
+ * `shouldStop()` returns true (checked after each page is consumed). Lets a
+ * caller bound the work — e.g. stop counting once a threshold is crossed — so a
+ * latency-critical path never enumerates an entire huge space.
+ */
+export async function loadPaginatedDataUntil(
+  requestFunc: any,
+  initialUrl: string,
+  consumer: (data: any) => void,
+  shouldStop: () => boolean,
+): Promise<void> {
+  let data, url = initialUrl;
+  do {
+    data = await requestFunc(url);
+    consumer(data);
+    if (shouldStop()) return;
+    url = data?._links?.next || '';
+
+    const prefix = '/wiki';
+    if (url.startsWith(prefix)) {
+      url = url.substring(prefix.length);
+    }
+  } while (url);
+}
+
 function isStandaloneEnv(): boolean {
   try {
     return typeof window !== 'undefined' && window.self === window.top;

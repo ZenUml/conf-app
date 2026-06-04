@@ -7,6 +7,7 @@ import type {
   EntryPoint,
   OperationMode,
   FeedbackValue,
+  RenderMode,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -58,6 +59,9 @@ export type AnalyticsProperties = {
   // the macro lives on a page tagged with the `diagramly-demo-page` page
   // property. See utils/analytics/demoPageStatus.ts.
   is_demo_page?: boolean;
+  // Performance
+  render_mode?: RenderMode;
+  duration_ms?: number;
   // Error
   error_code?: string;
   error_name?: string;

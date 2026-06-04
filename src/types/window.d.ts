@@ -27,6 +27,9 @@ declare global {
 
     // Attachment guard (model/Attachment.ts)
     createAttachmentInProgress?: boolean;
+
+    // Render-time baseline: set as the very first inline script in index.html
+    __macroLoadStart?: number;
   }
 }
 

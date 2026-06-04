@@ -44,6 +44,7 @@
 
 <script>
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
+import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
 export default {
   name: "ForgeGraphViewer",
   components: {
@@ -61,6 +62,9 @@ export default {
   },
   mounted() {
     this.renderViewer();
+    if (this.graphViewer) {
+      trackRenderTime('graph', this.$store.getters.isDisplayMode);
+    }
   },
   computed: {
     effectiveGraphXml() {

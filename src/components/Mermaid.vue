@@ -17,6 +17,7 @@ import { loadMermaid } from '@/utils/mermaid/loadMermaid'
 import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
+import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
 
 export default {
   name: "Mermaid",
@@ -29,11 +30,15 @@ export default {
   computed: {
     mermaidCode() {
       return this.$store.state.diagram.diagramType === DiagramType.Mermaid && this.$store.state.diagram.mermaidCode;
-    }
+    },
+    isDisplayMode() {
+      return this.$store.getters.isDisplayMode;
+    },
   },
   async mounted() {
     if (!this.mermaidCode) return;
     this.svg = await this.render(this.mermaidCode);
+    trackRenderTime('mermaid', this.isDisplayMode);
     EventBus.$emit('diagramLoaded', this.mermaidCode, this.$store.state.diagram.diagramType);
     await globals.apWrapper.initializeContext();
   },

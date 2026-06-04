@@ -41,6 +41,8 @@ export type EntryPoint =
 
 export type OperationMode = "create" | "edit" | "unknown";
 
+export type RenderMode = "live_render" | "cached_svg";
+
 export type FeedbackValue = "good" | "partial" | "bad";
 
 export type AnalyticsEventName =
@@ -92,4 +94,5 @@ export type AnalyticsEventName =
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
-  | "viewer_load_failed";
+  | "viewer_load_failed"
+  | "diagram_rendered";

@@ -23,6 +23,7 @@ import { DiagramType } from '@/model/Diagram/Diagram';
 import globals from '@/model/globals';
 import EventBus from '@/EventBus';
 import { debounce } from 'lodash';
+import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
 
 const PLANTUML_SERVER = 'https://www.plantuml.com/plantuml/svg/';
 
@@ -34,11 +35,15 @@ export default {
       loading: false,
       error: null,
       debouncedRender: null,
+      initialRenderTracked: false,
     };
   },
   computed: {
     plantUmlCode() {
       return this.$store.state.diagram.diagramType === DiagramType.PlantUml && this.$store.state.diagram.plantUmlCode;
+    },
+    isDisplayMode() {
+      return this.$store.getters.isDisplayMode;
     },
   },
   async mounted() {
@@ -101,6 +106,10 @@ export default {
           throw new Error(`PlantUML server returned ${response.status}`);
         }
         this.svg = await response.text();
+        if (!this.initialRenderTracked) {
+          this.initialRenderTracked = true;
+          trackRenderTime('plantuml', this.isDisplayMode);
+        }
       } catch (err) {
         console.error('PlantUML render error', err);
         this.error = `Failed to render PlantUML: ${err.message}`;

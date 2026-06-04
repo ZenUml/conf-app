@@ -10,6 +10,7 @@ import SwaggerUIBundle from 'swagger-ui';
 import "swagger-ui/dist/swagger-ui.css";
 import SpecListener from '@/utils/spec-listener';
 import OpenApiExample from '@/model/OpenApi/OpenApiExample';
+import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
 
 export default {
   name: "OpenApiViewer",
@@ -26,6 +27,9 @@ export default {
   },
   mounted() {
     this.initSwaggerUi();
+    // SwaggerUI renders asynchronously internally — this measures time-to-init,
+    // not time-to-full-paint. Best approximation available without a render callback.
+    trackRenderTime('openapi', this.$store.getters.isDisplayMode);
     this.updateSpecFromDiagram();
   },
   watch: {

@@ -207,6 +207,8 @@ Key gotcha: `page_viewed` in D1 signals tenant activity on Confluence — **not*
 
 Full reference (event storage, `clientDomain` format, key sources, paywall events): [docs/analytics-reference.md](docs/analytics-reference.md). For query patterns, use the **conf-app** skill.
 
+**Staging paywall test data:** on `lite-stg`, the large space over the 100-macro limit (the one that triggers the paywall) is **`SD`** (~1230 macros) — same setup as the `zenuml` instance. Use `SD` when you need a real over-threshold Lite space to verify paywall or macro-count behaviour, instead of re-discovering it each time.
+
 **Every new feature must include Mixpanel tracking.** When adding a feature, add `trackAnalyticsEvent` calls for the key lifecycle moments (requested, succeeded, failed, dismissed, etc.). Register new event names in `src/utils/analytics/catalog.ts` (`AnalyticsEventName` union) and use appropriate properties from `src/utils/analytics/types.ts`. Tracking is not optional — it is part of the definition of done.
 
 ### Bug reports: User-First Trace

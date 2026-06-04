@@ -369,6 +369,13 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // Start journey tracking for editor mode
     const editable = await isEditorMode();
     if (editable) {
+      // Refresh the macro-count cache while the editor is open. This is the safe
+      // place for the full enumeration (~10s for a large space): the editing
+      // session keeps the iframe alive long enough to finish and write KV,
+      // whereas firing it on save races the editor teardown (view.submit/close)
+      // and gets killed mid-collect. Fire-and-forget so it never blocks startup.
+      macroMetrics.reportMacroMetrics().catch(e => console.debug('Metrics reporting failed (non-critical)', e));
+
       originalConfigUuid = context.extension?.config?.uuid;
       const macroUuid =
         forgeGlobal.forgeContext?.localId

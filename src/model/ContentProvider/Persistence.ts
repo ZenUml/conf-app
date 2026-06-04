@@ -7,7 +7,6 @@ import { markCsatPending } from "@/utils/csat";
 import { syncCustomContent } from "@/services/CustomContent";
 import globals from '@/model/globals';
 import forgeGlobal from '@/model/globals/forgeGlobal';
-import macroMetrics from '@/services/MacroMetrics';
 import { reportSaveRefusedLegacyLoadBlocked } from '@/utils/legacyContentPropertyTelemetry';
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 
@@ -95,9 +94,10 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
     markCsatPending();
   }
 
-  // Report metrics on save (updates KV cache for all users)
-  macroMetrics.reportMacroMetrics().catch(e => console.debug('Metrics reporting failed (non-critical)', e));
-
+  // NOTE: macro-metrics reporting is NOT done here. Saving submits/closes the
+  // editor, tearing down the iframe and killing any in-flight enumeration
+  // (which for a large space takes ~10s). It runs at editor-open instead
+  // (forgeIndex), where the editing session gives it time to complete.
   await syncCustomContent(customContent, diagram.diagramType, macroUuid);
 
   return String(customContent.id);

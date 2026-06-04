@@ -5,6 +5,7 @@ import ApWrapper2 from "../ApWrapper2";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { syncCustomContent } from "@/services/CustomContent";
 import forgeGlobal from "@/model/globals/forgeGlobal";
+import macroMetrics from "@/services/MacroMetrics";
 
 global.fetch = () => Promise.resolve(new Response("mock fetch success"));
 
@@ -28,6 +29,13 @@ vi.mock("@/services/CustomContent", () => ({
   syncCustomContent: vi.fn(),
 }));
 
+vi.mock("@/services/MacroMetrics", () => ({
+  default: {
+    reportMacroMetrics: vi.fn(() => Promise.resolve()),
+    getMacroMetrics: vi.fn(() => Promise.resolve()),
+  },
+}));
+
 vi.mock("@/model/ContentProvider/CustomContentStorageProvider", () => {
   return {
     CustomContentStorageProvider: class CustomContentStorageProvider {
@@ -45,6 +53,12 @@ describe('Persistence', function () {
     // Reset Forge context so each test starts from a known baseline.
     (forgeGlobal as any).forgeContext = undefined;
   });
+
+  it('does NOT report macro metrics on save — the editor iframe is torn down on submit/close, which would kill a long enumeration; reporting is moved to editor-open', async () => {
+    vi.mocked(macroMetrics.reportMacroMetrics).mockClear();
+    await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper);
+    expect(macroMetrics.reportMacroMetrics).not.toHaveBeenCalled();
+  })
 
   it('forwards forgeContext.localId to syncCustomContent as the macroUuid', async () => {
     (forgeGlobal as any).forgeContext = { localId: 'forge-local-id' };

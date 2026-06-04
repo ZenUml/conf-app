@@ -12,12 +12,18 @@ vi.mock('@forge/bridge', () => ({
   },
 }));
 
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
+  trackAnalyticsEvent: vi.fn(),
+}));
+
 import { setupCloseGuard } from './closeGuard';
 import { view } from '@forge/bridge';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 
 beforeEach(() => {
   onCloseHandlers.length = 0;
   (view.onClose as any).mockClear();
+  vi.mocked(trackAnalyticsEvent).mockClear();
 });
 
 describe('setupCloseGuard', () => {
@@ -49,6 +55,18 @@ describe('setupCloseGuard', () => {
     // Should not reject — we explicitly catch and log.
     await expect(onCloseHandlers[0]()).resolves.toBeUndefined();
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires close_guard_rejected analytics when view.onClose rejects', async () => {
+    (view.onClose as any).mockRejectedValueOnce(new Error("onClose failed because this resource's view is not closable."));
+    const fn = vi.fn();
+    setupCloseGuard(fn);
+    // Allow the microtask queue to flush so the .catch() runs
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('close_guard_rejected', {
+      feature_area: 'system',
+      surface: 'editor',
+    });
   });
 
   it('multiple guards register independently and each can be torn down', async () => {

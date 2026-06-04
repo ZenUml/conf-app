@@ -136,6 +136,10 @@ The legacy MCP-based approach below is preserved for the cases where the script 
 
 The daily script runs these events in parallel internally.
 
+> **Reliability check — the daily/ab-metrics script can silently undercount (observed 2026-06-03).** On a throttled/partial fetch the script returns **empty `__unique` maps and drastically undercounted totals** with no error (observed: `vin3s` `paywall_triggered` reported as **1** when the true 1-day count was **62**; again 2026-06-04: reported **15** vs actual **88**; all `advocacy_message_copied` events dropped to `{}`). The output looks valid, just wrong. **Always sanity-check before building the table:** (1) if any `__unique` map is empty while its total map has data, distrust the whole run; (2) cross-check the script's per-domain totals against a single MCP `$overall` query for `paywall_triggered` (1d) — if the script's summed totals are far below MCP `$overall`, re-pull every metric via `mcp__claude_ai_Mixpanel__Run-Query` (totals **and** `unique`) and use MCP numbers. `ab-metrics` was reliable the same run that `daily` failed, so they fail independently — verify each.
+>
+> **`per-space-all` can hard-error, not just undercount (observed 2026-06-04).** Unlike `daily`/`ab-metrics` which fail silently, `per-space-all` was observed throwing an uncaught **`HTTPError: HTTP Error 400: Bad Request`** mid-batch (one domain×event segmentation call rejected) and aborting the whole run. When this happens, fall back to per-domain MCP queries: for each domain with `triggered > 0` / `saves > 10` / `creates > 0`, run one insights query — metrics `paywall_triggered` / `macro_save_succeeded` / `macro_create_succeeded` (total), `filters: [{propertyName:"client_domain", operator:"equals", value:"<domain>"}]`, breakdown by `confluence_space`. Fan them in parallel.
+
 **Q1 — Paywall block events**
 ```
 event: paywall_triggered, measurement: total

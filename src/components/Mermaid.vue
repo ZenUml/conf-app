@@ -17,7 +17,7 @@ import { loadMermaid } from '@/utils/mermaid/loadMermaid'
 import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
 
 export default {
   name: "Mermaid",
@@ -38,7 +38,7 @@ export default {
   async mounted() {
     if (!this.mermaidCode) return;
     this.svg = await this.render(this.mermaidCode);
-    this.trackRenderTime();
+    trackRenderTime('mermaid', this.isDisplayMode);
     EventBus.$emit('diagramLoaded', this.mermaidCode, this.$store.state.diagram.diagramType);
     await globals.apWrapper.initializeContext();
   },
@@ -55,17 +55,6 @@ export default {
     }
   },
   methods: {
-    trackRenderTime() {
-      const t0 = window.__macroLoadStart;
-      if (typeof t0 !== 'number') return;
-      trackAnalyticsEvent('mermaid_viewer_rendered', {
-        feature_area: 'macro',
-        surface: this.isDisplayMode ? 'viewer' : 'editor',
-        macro_type: 'mermaid',
-        render_mode: 'live_render',
-        duration_ms: Math.round(performance.now() - t0),
-      });
-    },
     async render(code) {
       // Generate a unique ID to avoid conflicts
       this.renderId = `mermaid-${crypto.randomUUID()}`;

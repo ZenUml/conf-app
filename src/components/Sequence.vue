@@ -15,6 +15,7 @@ import { DiagramType } from "@/model/Diagram/Diagram";
 import { trackEvent } from "@/utils/window";
 import globals from "@/model/globals";
 import ViewResizer from "./Viewer/ViewResizer.vue";
+import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
 
 // Create a promise to load ZenUml only when needed
 const loadZenUml = () => import("@zenuml/core").then(module => module.default);
@@ -44,6 +45,9 @@ export default {
         this.$store.state.diagram.code
       );
     },
+    isDisplayMode() {
+      return this.$store.getters.isDisplayMode;
+    },
   },
   async mounted() {
     try {
@@ -52,6 +56,7 @@ export default {
       console.log("ZenUML Core version: ", ZenUml.version);
       zenuml = new ZenUml(this.$refs["zenuml"]);
       await this.render();
+      trackRenderTime('sequence', this.isDisplayMode);
       EventBus.$emit(
         "diagramLoaded",
         this.$store.state.diagram.code,

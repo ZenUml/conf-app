@@ -95,4 +95,4 @@ export type AnalyticsEventName =
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
   | "viewer_load_failed"
-  | "mermaid_viewer_rendered";
+  | "diagram_rendered";

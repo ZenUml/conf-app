@@ -3,7 +3,6 @@ import type { AnalyticsEventName } from './analytics/catalog';
 import type { AnalyticsProperties } from './analytics/types';
 
 export enum UpgradeEventName {
-  FEATURE_ENABLED = 'upgrade_feature_enabled',
   PAYWALL_TRIGGERED = 'paywall_triggered',
   MODAL_SHOWN = 'upgrade_modal_shown',
   MODAL_DISMISSED = 'upgrade_modal_dismissed',

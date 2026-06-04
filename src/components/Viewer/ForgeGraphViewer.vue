@@ -62,9 +62,6 @@ export default {
   },
   mounted() {
     this.renderViewer();
-    if (this.graphViewer) {
-      trackRenderTime('graph', this.$store.getters.isDisplayMode);
-    }
   },
   computed: {
     effectiveGraphXml() {
@@ -96,6 +93,7 @@ export default {
         });
         this.pageCount = this.graphViewer.diagrams?.length || 0;
         this.currentPage = this.graphViewer.currentPage || 0;
+        trackRenderTime('graph', this.$store.getters.isDisplayMode);
       } catch (e) {
         console.error('ForgeGraphViewer: GraphViewer init failed:', e);
       }

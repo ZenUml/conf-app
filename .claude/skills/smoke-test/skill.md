@@ -36,9 +36,14 @@ If parentPageId is unknown, discover it (see Step 0).
 
 ## Variant Differences
 
-All three variants use the **Forge modal** pattern:
-- Dialog: `[data-testid="custom-ui-modal-dialog"]`
+All three variants use the **Forge fullscreen modal** pattern (verified 2026-06-04 on zenuml.atlassian.net for Lite, Full, and Diagramly):
+- Dialog: `[data-testid="custom-ui-fullscreen-modal-dialog"]`  ← ALL variants; `custom-ui-modal-dialog` is obsolete
 - App iframe: `[data-testid="hosted-resources-iframe"]`
+
+**Always scope the iframe locator to the modal wrapper** to avoid strict-mode violations on multi-install sites (e.g. `zenuml.atlassian.net` has all 3 apps installed, so 3 `hosted-resources-iframe` elements exist simultaneously):
+```js
+page.locator('[data-testid="custom-ui-fullscreen-modal-dialog"] [data-testid="hosted-resources-iframe"]').contentFrame()
+```
 
 Lite appends " Lite" to macro names. Diagramly and Full do not.
 Staging apps append " (Staging)" — this is fine, matching handles it automatically.
@@ -171,7 +176,8 @@ browser_navigate url="https://{domain}/wiki/create-content/page?spaceKey={spaceK
 Wait 3s, then set the page title via evaluate (more reliable than snapshot+type). Substitute `{variant}` (`lite` \| `full` \| `diagramly`) and `{macro label}` (`Sequence`, `Mermaid`, etc.) for the current macro:
 ```
 browser_evaluate function="() => {
-  const t = document.querySelector('[placeholder=\"Give this page a title\"]');
+  // Selector: textarea[name='editpages-title']  (NOT [placeholder='Give this page a title'] — that doesn't match)
+  const t = document.querySelector('textarea[name=\"editpages-title\"]');
   if (!t) return 'not found';
   t.focus();
   const s = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
@@ -235,20 +241,28 @@ browser_run_code code="async (page) => {
   await page.getByTestId('ModalElementBrowser__insert-button').click();
 
   // Wait for Forge modal and interact with iframe
+  // All variants use custom-ui-fullscreen-modal-dialog. Scope to modal to avoid strict-mode violations.
   await page.waitForTimeout(5000);
-  const frame = page.locator('[data-testid=\"hosted-resources-iframe\"]').contentFrame();
+  const frame = page.locator('[data-testid=\"custom-ui-fullscreen-modal-dialog\"] [data-testid=\"hosted-resources-iframe\"]').contentFrame();
   await frame.getByRole('tab', { name: 'Sequence' }).click();  // change tab name as needed
   await frame.getByRole('textbox', { name: 'Name your diagram…' }).fill('Test Sequence');
   await frame.getByRole('button', { name: 'Publish' }).click();
 
   // Publish the Confluence page
+  // The 'Publish page' confirmation modal may intercept clicks on the toolbar publish-button.
+  // Detect it via the blanket element and click its Publish button directly.
   await page.waitForTimeout(2000);
   await page.getByTestId('publish-button').click();
   await page.waitForTimeout(500);
   try {
-    await page.getByRole('button', { name: 'Publish' }).last().click({ timeout: 2000 });
+    const blanket = page.locator('[data-testid=\"publish-modal--blanket\"]');
+    if (await blanket.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await blanket.locator('..').getByRole('button', { name: 'Publish' }).click();
+    } else {
+      await page.getByRole('button', { name: 'Publish' }).last().click({ timeout: 2000 });
+    }
   } catch {}
-  await page.waitForURL(u => !u.includes('edit-v2'), { timeout: 30000 });
+  await page.waitForURL(/^(?!.*edit-v2)/, { timeout: 30000 });
   return page.url();
 }"
 ```
@@ -432,10 +446,9 @@ browser_evaluate function="async () => {
   }
 
   async function movePage(pid, newParentId) {
-    const r = await fetch('/wiki/rest/api/content/' + pid + '?expand=version,body.storage', {headers: {'Accept': 'application/json'}});
-    const p = await r.json();
-    const r2 = await fetch('/wiki/rest/api/content/' + pid, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'page', title: p.title, ancestors: [{id: parseInt(newParentId)}], version: {number: p.version.number + 1}, body: {storage: {value: p.body.storage.value, representation: 'storage'}}})});
-    if (!r2.ok) throw new Error('movePage failed: ' + r2.status);
+    // Use the purpose-built move endpoint — simpler and doesn't require version+body fetch
+    const r = await fetch('/wiki/rest/api/content/' + pid + '/move/append/' + newParentId, {method: 'PUT', headers: {'Accept': 'application/json', 'Content-Type': 'application/json'}});
+    if (!r.ok) throw new Error('movePage failed: ' + r.status);
   }
 
   const year = new Date().getFullYear().toString();
@@ -480,3 +493,7 @@ Summarize:
 | Second/third macro not visible on published page | Cursor repositioning (Step 2d) failed — editor was not active when typing "/". Always verify `[contenteditable=true]` before proceeding |
 | DrawIO editor needs depth ≥ 10 snapshot | DrawIO is double-nested: outer `hosted-resources-iframe` (f72e*) + inner DrawIO canvas iframe (f74e*). Title is in outer (f72e*), Publish button is in inner (f74e*) |
 | OpenAPI title field is "Title" not "Name your diagram…" | OpenAPI modal uses different label — search for `textbox "Title"` in snapshot, not "Name your diagram…" |
+| `hosted-resources-iframe` strict mode violation | Multi-install site has 3 iframes — scope with `[data-testid="custom-ui-fullscreen-modal-dialog"] [data-testid="hosted-resources-iframe"]` |
+| iframe not found with `custom-ui-modal-dialog` | Obsolete — all variants now use `custom-ui-fullscreen-modal-dialog` (verified 2026-06-04, Lite + Full + Diagramly) |
+| Page title `[placeholder="Give this page a title"]` returns null | Use `textarea[name="editpages-title"]` instead |
+| `publish-button` click blocked by blanket overlay | "Publish page" confirmation modal is open — detect via `[data-testid="publish-modal--blanket"]` and click its parent's Publish button |

@@ -1,11 +1,11 @@
 ---
 name: submit-branch
-description: Push the current branch and create or reuse a PR on ZenUml/conf-app. Use when the user says "submit", "create PR", "push and PR", "open a pull request", "submit branch", or wants to publish their work as a PR without merging. Does not fix CI or merge — those are separate skills.
+description: Push the current branch and create or reuse a PR on ZenUml/conf-app. Use when the user says "submit", "create PR", "push and PR", "open a pull request", "submit branch", or wants to publish their work as a PR without merging. After the PR exists it always babysits CI (via babysit-pr — monitor + auto-fix). Does not merge — use land-pr for that.
 ---
 
 # Submit Branch
 
-Publish the current branch as a pull request on `ZenUml/conf-app`. Reuses an existing PR if one already exists for this branch.
+Publish the current branch as a pull request on `ZenUml/conf-app`, then babysit its CI. Reuses an existing PR if one already exists for this branch.
 
 **Tip:** Run `/validate-branch` first to catch lint, test, and build failures before pushing.
 
@@ -47,7 +47,7 @@ Check if a PR already exists:
 gh pr view --json number,title,url 2>/dev/null
 ```
 
-If a PR exists, report its URL and stop — nothing more to do.
+If a PR exists, note its URL and **proceed to Step 4** (babysit it). Do not stop here.
 
 If no PR exists, create one targeting `main` **as Draft**:
 
@@ -66,15 +66,28 @@ EOF
 
 If the user explicitly says "submit as ready" or "open as ready", omit `--draft`.
 
+### 4. Babysit CI (always)
+
+After the PR exists (created or reused), **always** babysit its CI by invoking the `babysit-pr` skill with the PR number:
+
+```
+/babysit-pr <PR_NUMBER>
+```
+
+This monitors the `Build, Test and Draft Release` run, diagnoses any failure, and attempts fixes (up to 3 attempts). For a **Draft** PR it expects `Build and Unit Test` + `Deploy: Lite` to pass and `E2E: Lite` to be skipped — that skip is by design, not a failure. Do not stop at "PR created"; carry through until babysit-pr reports PASSED or exhausts its retry budget.
+
+Skip this step only if the user explicitly said "submit only" / "don't babysit" / "just push".
+
 ## Output
 
 Report:
 
-- **SUBMITTED** — PR number, URL, branch name, and that it was opened as Draft (note "mark Ready for Review when you want E2E to run")
-- **FAILED** — what went wrong (dirty worktree, push conflict, gh error)
+- **SUBMITTED** — PR number, URL, branch name, whether it was opened as Draft (note "mark Ready for Review when you want E2E to run"), **and the babysit-pr result** (PASSED / failures + fixes / retries exhausted).
+- **FAILED** — what went wrong (dirty worktree, push conflict, gh error).
 
 ## Does NOT
 
-- Run tests or lint (use `/validate-branch` for that)
-- Fix CI failures
+- Run tests or lint before pushing (use `/validate-branch` for that)
 - Merge the PR (use `/land-pr` for that)
+
+CI fixing is delegated to `babysit-pr` in Step 4, not done by this skill directly.

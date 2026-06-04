@@ -1,6 +1,8 @@
 import { trackAnalyticsEvent } from './trackAnalyticsEvent';
 import type { MacroTypeValue, RenderMode } from './catalog';
 
+// Guards on window.__macroLoadStart (set in index.html head) — silently
+// no-ops in test environments that mount components without the HTML wrapper.
 export function trackRenderTime(
   macroType: MacroTypeValue,
   isDisplayMode: boolean,

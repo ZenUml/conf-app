@@ -28,6 +28,7 @@
 //    `pagehide` listener: synchronous writes only.
 
 import { view } from '@forge/bridge';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 
 export interface CloseGuardHandler {
   // Called when Atlassian fires the close. Should be cheap and (mostly)
@@ -59,7 +60,10 @@ export function setupCloseGuard(handler: CloseGuardHandler): () => void {
   // saver — still completes. The localStorage draft is the safety net.
   try {
     if (typeof (view as any).onClose === 'function') {
-      void (view as any).onClose(wrapped);
+      void (view as any).onClose(wrapped).catch((e: unknown) => {
+        trackAnalyticsEvent('close_guard_rejected', { feature_area: 'system', surface: 'editor' });
+        console.warn('[closeGuard] view.onClose rejected, ignoring:', e);
+      });
     } else {
       console.warn('[closeGuard] view.onClose unavailable — relying on per-keystroke draft only.');
     }

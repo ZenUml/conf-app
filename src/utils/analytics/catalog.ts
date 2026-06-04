@@ -94,4 +94,5 @@ export type AnalyticsEventName =
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
-  | "viewer_load_failed";
+  | "viewer_load_failed"
+  | "close_guard_rejected";

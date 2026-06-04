@@ -427,9 +427,9 @@ function buildFailureLabel(e: unknown, httpStatus: number | undefined): string {
  * Try to get existing attachment for current macro.
  * Returns the attachment with highest version number, or false if none found.
  */
-async function tryGetAttachment(): Promise<AttachmentWithLinks | false> {
+async function tryGetAttachment(identifierOverride?: string): Promise<AttachmentWithLinks | false> {
   const pageId = await global.apWrapper._getCurrentPageId();
-  const identifier = await getIdentifier();
+  const identifier = identifierOverride ?? await getIdentifier();
   const attachmentName = attachmentNameByIdentifier(identifier!);
   const attachments = await global.apWrapper.getAttachmentsV2(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
   const descending = attachments.sort((a, b) => (b.version?.number ?? 0) - (a.version?.number ?? 0));
@@ -570,9 +570,22 @@ async function updateAttachmentProperties(attachmentMeta: AttachmentMeta): Promi
  *
  * `_succeeded` gives us a denominator for computing the true upload failure rate.
  */
-async function createAttachmentIfContentChanged(content: string, diagramType?: string): Promise<void> {
+async function createAttachmentIfContentChanged(
+  content: string,
+  diagramType?: string,
+  opts?: { customContentId?: string; fromSave?: boolean },
+): Promise<void> {
   const hash = md5(content);
   const ctx = await buildUploadContext(hash, diagramType);
+  // #212: the editor save path passes the just-saved customContentId explicitly,
+  // because for a NEW macro the editor context doesn't carry it yet. When
+  // provided it overrides every id source below (guard, lookup, telemetry) so
+  // the attachment lands under the correct `zenuml-<id>.png` name.
+  const overrideId = opts?.customContentId;
+  if (overrideId) {
+    ctx.custom_content_id = overrideId;
+    ctx.attachment_name = `zenuml-${overrideId}.png`;
+  }
 
   // ZEN-1170 Defect 1: central guard for legacy macros that have no
   // customContentId yet. getIdentifier() / the attachment naming chain
@@ -582,7 +595,7 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
   // — the next save migrates the macro and subsequent calls write the
   // correctly-named attachment. Centralised here so embed/swagger/other
   // viewer call sites are covered without per-caller guards.
-  const macroCustomContentId = forgeGlobal.forgeContext?.extension?.config?.customContentId;
+  const macroCustomContentId = overrideId ?? forgeGlobal.forgeContext?.extension?.config?.customContentId;
   if (!macroCustomContentId) {
     return;
   }
@@ -607,7 +620,7 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
   window.createAttachmentInProgress = true;
 
   try {
-    const attachment = await tryGetAttachment();
+    const attachment = await tryGetAttachment(overrideId);
     // metaKey encodes content, diagramType, and a version token so that:
     // (a) existing pre-iTXt attachments get one forced re-upload to backfill
     //     the embedded source chunk, and (b) type changes with same content
@@ -619,7 +632,7 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
     if (!attachment || metaKey !== attachment.comment) {
       const isUpdate = Boolean(attachment);
       const pageId = await global.apWrapper._getCurrentPageId();
-      const identifier = await getIdentifier();
+      const identifier = overrideId ?? await getIdentifier();
       const attachmentName = attachmentNameByIdentifier(identifier!);
       const base = buildAttachmentBasePath(pageId);
       const target: UploadTarget = isUpdate
@@ -676,6 +689,7 @@ async function createAttachmentIfContentChanged(content: string, diagramType?: s
         version_number: attachmentMeta.versionNumber,
         attachment_id: attachmentMeta.attachmentId,
         via_app_fallback: viaAppFallback,
+        ...(opts?.fromSave ? { from_save: true } : {}),
       });
     }
   } catch (e: any) {

@@ -15,7 +15,7 @@ import {
 import {AtlasPage} from "@/model/page/AtlasPage";
 import {ISpace, LocationTarget} from './ILocationContext';
 import {Attachment} from './ConfluenceTypes';
-import { loadAllPaginatedData } from '@/utils/requestUtil';
+import { loadAllPaginatedData, loadPaginatedDataUntil } from '@/utils/requestUtil';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import {forgeRequest} from '@/utils/requestUtil';
 import { SpaceAdmin } from './SpaceAdmin';
@@ -180,6 +180,12 @@ export default class ApWrapper2 implements IApWrapper {
 
   customContentType(type: string) {
     return `${this.getCustomContentTypePrefix()}:${type}`;
+  }
+
+  // Fully-qualified custom-content types for the diagram macros, used to
+  // enumerate/count a space's macros via the V2 space custom-content endpoint.
+  getMacroContentTypes(): string[] {
+    return CUSTOM_CONTENT_TYPES.map((type) => this.customContentType(type));
   }
 
   async createCustomContent(content: Diagram) {
@@ -1276,6 +1282,10 @@ export default class ApWrapper2 implements IApWrapper {
 
   async requestAllPaginatedData(initialUrl: string, consumer: (data: any) => void): Promise<any> {
     return loadAllPaginatedData(this.request.bind(this), initialUrl, consumer);
+  };
+
+  async requestPaginatedDataUntil(initialUrl: string, consumer: (data: any) => void, shouldStop: () => boolean): Promise<void> {
+    return loadPaginatedDataUntil(this.request.bind(this), initialUrl, consumer, shouldStop);
   };
 
   async getAppProperty(_propertyKey: string = ''): Promise<any> {

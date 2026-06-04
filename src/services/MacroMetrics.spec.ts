@@ -33,6 +33,7 @@ describe('MacroMetrics', () => {
     getCurrentSpace: vi.fn(),
     buildTypesClauseFilter: vi.fn(),
     requestAllPaginatedData: vi.fn(),
+    requestPaginatedDataUntil: vi.fn(),
     isLite: vi.fn()
   };
 
@@ -374,6 +375,115 @@ describe('MacroMetrics', () => {
       expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalledWith(
         `/rest/api/content/search?expand=body.raw&cql=space in ("${mockSpace}") and (type=customContent)`,
         expect.any(Function)
+      );
+    });
+  });
+
+  // Large/bulk-grown spaces were under-counted because the v1 CQL content
+  // search is search-index-backed and returns incomplete results. When a
+  // numeric space id is available (Forge), count from the V2 space
+  // custom-content endpoint (system of record), paginated per type.
+  describe('collectMetrics via V2 space custom-content (large-space safe)', () => {
+    beforeEach(() => {
+      mockApWrapper.getCurrentSpace.mockResolvedValue({ key: mockSpace, id: 'space-789' });
+      (mockApWrapper as any).getMacroContentTypes = vi.fn().mockReturnValue(['T-seq', 'T-graph']);
+    });
+
+    // Read/gate path (getMacroMetrics feeds the awaited paywall gate, so it is
+    // latency-critical): early-exit once the count crosses the limit — a huge
+    // space must not stall the editor/fullscreen gate enumerating thousands.
+    it('early-exits at the macro limit on the read/gate path (does not enumerate the whole space)', async () => {
+      (callRemote as any).mockResolvedValueOnce(null); // KV miss → collect fresh
+
+      mockApWrapper.requestPaginatedDataUntil.mockImplementation(
+        async (url: string, consumer: (d: any) => void, shouldStop: () => boolean) => {
+          const pagesByType: Record<string, any[][]> = {
+            'T-seq': [
+              new Array(250).fill({ body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Sequence }) } } }),
+              new Array(150).fill({ body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Mermaid }) } } }),
+            ],
+            'T-graph': [new Array(60).fill({ body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Graph }) } } })],
+          };
+          for (const page of pagesByType[url.includes('type=T-seq') ? 'T-seq' : 'T-graph']) {
+            consumer({ results: page });
+            if (shouldStop()) return;
+          }
+        }
+      );
+
+      const result = await macroMetrics.getMacroMetrics();
+
+      // first page (250) already crosses the 100 limit → stop: never fetch the
+      // second T-seq page, never query the T-graph type, never touch v1 CQL.
+      expect(mockApWrapper.requestPaginatedDataUntil).toHaveBeenCalledTimes(1);
+      expect(mockApWrapper.requestPaginatedDataUntil.mock.calls[0][0]).toContain('/api/v2/spaces/space-789/custom-content');
+      expect(mockApWrapper.requestPaginatedDataUntil.mock.calls[0][0]).toContain('type=T-seq');
+      expect(mockApWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
+      expect(result?.total).toBe(250);
+      expect(result?.sequence).toBe(250);
+      expect(result?.graph).toBe(0);
+    });
+
+    // Save path (reportMacroMetrics is fire-and-forget, not latency-critical):
+    // enumerate the whole space so the cached/analytics count stays accurate.
+    it('counts the full space on the save path (no early-exit) so KV/analytics stay accurate', async () => {
+      mockApWrapper.requestAllPaginatedData.mockImplementation((url: string, consumer: Function) => {
+        if (url.includes('type=T-seq')) {
+          consumer({ results: new Array(250).fill({ body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Sequence }) } } }) });
+          consumer({ results: new Array(150).fill({ body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Mermaid }) } } }) });
+        } else if (url.includes('type=T-graph')) {
+          consumer({ results: new Array(60).fill({ body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Graph }) } } }) });
+        }
+        return Promise.resolve({});
+      });
+      (callRemote as any).mockResolvedValueOnce({ success: true }); // KV write
+
+      await macroMetrics.reportMacroMetrics();
+
+      // full enumeration of both types via the unbounded paginator; no early-exit
+      expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalledTimes(2);
+      expect(mockApWrapper.requestPaginatedDataUntil).not.toHaveBeenCalled();
+      const urls = mockApWrapper.requestAllPaginatedData.mock.calls.map((c: any[]) => c[0] as string);
+      expect(urls.every((u) => u.includes('/api/v2/spaces/space-789/custom-content'))).toBe(true);
+      expect(callRemote).toHaveBeenCalledWith(
+        '/metrics-cache/update?addonKey=com.zenuml.confluence-addon-lite',
+        'POST',
+        expect.objectContaining({ metrics: expect.objectContaining({ total: 460, sequence: 250, mermaid: 150, graph: 60 }) })
+      );
+    });
+
+    it('falls back to the v1 CQL search when no numeric space id is available', async () => {
+      mockApWrapper.getCurrentSpace.mockResolvedValue({ key: mockSpace }); // no id
+      (callRemote as any).mockResolvedValueOnce(null);
+      mockApWrapper.buildTypesClauseFilter.mockReturnValue('type=customContent');
+      mockApWrapper.requestAllPaginatedData.mockResolvedValue({});
+
+      await macroMetrics.getMacroMetrics();
+
+      expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalledWith(
+        `/rest/api/content/search?expand=body.raw&cql=space in ("${mockSpace}") and (type=customContent)`,
+        expect.any(Function)
+      );
+    });
+  });
+
+  // A silent (swallowed) KV write failure left stale-low counts cached with no
+  // signal. Write failures must be surfaced via the error tracker.
+  describe('KV write failure surfacing', () => {
+    it('surfaces a KV write failure instead of swallowing it', async () => {
+      mockApWrapper.requestAllPaginatedData.mockImplementation((_url: string, consumer: Function) => {
+        consumer({ results: [] });
+        return Promise.resolve({});
+      });
+      // the KV update POST rejects
+      (callRemote as any).mockRejectedValueOnce(new Error('KV write failed'));
+
+      await macroMetrics.reportMacroMetrics();
+
+      expect(mockEventTracker).toHaveBeenCalledWith(
+        expect.any(String),
+        'report_macro_metrics',
+        'error'
       );
     });
   });

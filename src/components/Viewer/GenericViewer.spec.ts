@@ -4,6 +4,9 @@ import GenericViewer from '@/components/Viewer/GenericViewer.vue'
 import store from '@/model/store2'
 import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
 
 vi.mock('@/model/globals', () => ({
   default: {
@@ -102,6 +105,18 @@ describe('GenericViewer (chrome-less)', () => {
       const wrapper = mountViewer()
       await wrapper.find('button[aria-label="Fullscreen"]').trigger('click')
       expect(spy).toHaveBeenCalledWith('fullscreen')
+    })
+
+    it('fires fullscreen_opened Mixpanel event with macro_type when Fullscreen is clicked', async () => {
+      store.commit('updateDiagramType', DiagramType.Mermaid)
+      const wrapper = mountViewer()
+      await wrapper.find('button[aria-label="Fullscreen"]').trigger('click')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('fullscreen_opened', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: 'mermaid',
+        entry_point: 'page_view',
+      })
     })
   })
 

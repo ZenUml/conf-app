@@ -104,6 +104,8 @@ export async function loadForgeViewerComponent(type: DiagramType): Promise<any |
     }
 
     if (type === DiagramType.Graph) {
+      const { ensureDrawioViewerLoaded } = await import('@/utils/drawio/loadDrawioViewer');
+      await ensureDrawioViewerLoaded();
       const { default: ForgeGraphViewerEmbed } = await import('@/components/Viewer/ForgeGraphViewerEmbed.vue');
       return ForgeGraphViewerEmbed;
     }

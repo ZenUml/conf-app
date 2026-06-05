@@ -42,44 +42,7 @@
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { decompress } from '@/utils/compress';
 import { trackEvent } from '@/utils/window';
-
-// Load external DrawIO scripts dynamically
-function loadDrawIOScripts() {
-  return new Promise((resolve, reject) => {
-    const scripts = [
-      './drawio/js/sanitizer/purify.min.js',
-      './drawio/mxgraph/mxClient.js',
-      './drawio/js/grapheditor/Init.js',
-      './drawio/js/grapheditor/Graph.js',
-      './drawio/js/grapheditor/Shapes.js'
-    ];
-    
-    let loadedCount = 0;
-    
-    scripts.forEach((src, index) => {
-      const script = document.createElement('script');
-      script.src = src;
-      script.onload = () => {
-        loadedCount++;
-        if (loadedCount === scripts.length) {
-          // Wait for window.Graph to be available
-          const checkGraph = () => {
-            if (window.Graph) {
-              console.log('ForgeGraphViewerEmbed: window.Graph is available:', window.Graph);
-              resolve();
-            } else {
-              console.log('ForgeGraphViewerEmbed: Waiting for window.Graph...');
-              setTimeout(checkGraph, 100);
-            }
-          };
-          checkGraph();
-        }
-      };
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-  });
-}
+import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
 
 export default {
   name: "ForgeGraphViewerEmbed",
@@ -112,10 +75,7 @@ export default {
   methods: {
     async initializeGraph() {
       try {
-        // Load DrawIO scripts first
-        // await loadDrawIOScripts();
-        
-        // Now initialize the graph
+        await ensureDrawioViewerLoaded();
         this.initGraph();
       } catch (error) {
         console.error('Failed to load DrawIO scripts:', error);

@@ -12,6 +12,8 @@ Orchestrate the full path from local branch to merged on main. This skill compos
 
 **Note:** This gets your code to main with staging deployed and draft releases created. Production deployment is a separate step via `/release-app`.
 
+**Markdown-only exception:** If the entire PR diff is Markdown files only, and does not include `CHANGELOG.md`, the repo's `Build, Test and Draft Release` workflow is intentionally skipped by `paths-ignore`. In that case, do not wait for green CI and do not require `/land-pr`'s `E2E: Lite` precondition. Run local validation, submit the PR as Ready, verify the PR is mergeable, merge it directly, and report CI/staging/draft releases as skipped by path filters.
+
 ## Flow
 
 ```
@@ -24,6 +26,17 @@ babysit-pr → EXHAUSTED → stop, "CI blocked"
 land-pr → BLOCKED → stop, report
      | MERGED
      done → suggest /release-app if production deploy is needed
+```
+
+Markdown-only flow:
+
+```
+validate-branch → FAIL → stop, report
+     | PASS
+submit-branch (as Ready, not Draft) → FAIL → stop, report
+     | PR mergeable
+merge directly → MERGED
+     done → report CI/staging/draft releases skipped by path filters
 ```
 
 ## Steps
@@ -51,6 +64,14 @@ On success, note the PR number and URL.
 
 ### Step 3: Get CI green
 
+Before invoking `/babysit-pr`, check whether the PR is Markdown-only:
+
+```bash
+gh pr diff <PR_NUMBER> --name-only
+```
+
+If every changed file ends in `.md` and none is `CHANGELOG.md`, skip `/babysit-pr`. The main workflow has `paths-ignore` for Markdown docs, so there is no green CI to wait for. Record `CI: SKIPPED — markdown-only path filters`.
+
 Invoke `/babysit-pr` with the PR number from Step 2. It will monitor CI (E2E runs because the PR is Ready from the start), diagnose failures, attempt fixes (up to 3 retries), and report back.
 
 If babysit-pr exhausts all 3 retry attempts, stop and report "CI blocked" with the babysit report.
@@ -59,7 +80,25 @@ If babysit-pr exhausts all 3 retry attempts, stop and report "CI blocked" with t
 
 **Confirm with the user before merging** unless they explicitly said "ship it".
 
-Invoke `/land-pr` with the PR number. If merge is blocked, stop and report.
+For non-Markdown changes, invoke `/land-pr` with the PR number. If merge is blocked, stop and report.
+
+For Markdown-only changes, do not invoke `/land-pr`; its E2E precondition cannot be satisfied because CI is intentionally skipped. Instead:
+
+1. Verify the PR is Ready, mergeable, and has no requested-changes review:
+   ```bash
+   gh pr view <PR_NUMBER> --json state,isDraft,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup
+   ```
+2. Fetch the repo's enabled merge strategies and merge directly:
+   ```bash
+   MERGE_FLAG=$(gh api repos/ZenUml/conf-app \
+     --jq 'if .allow_squash_merge and (.allow_merge_commit | not) and (.allow_rebase_merge | not) then "--squash"
+           elif .allow_rebase_merge and (.allow_merge_commit | not) and (.allow_squash_merge | not) then "--rebase"
+           else "--merge" end')
+
+   gh pr merge <PR_NUMBER> --delete-branch $MERGE_FLAG
+   ```
+3. Verify the PR state is `MERGED`.
+4. Report `Staging` and `Draft releases` as `SKIPPED — markdown-only path filters`.
 
 On success, report the draft releases created and suggest `/release-app` if the user wants to go to production.
 
@@ -82,6 +121,19 @@ Final report:
 - Staging: Deployed (lite, full, diagramly)
 - Draft releases: Created
 - Production: Not yet — run /release-app to deploy to production
+```
+
+Markdown-only report:
+
+```
+## Ship Report: <branch-name>
+- Validation: PASS
+- PR: #<number> (<url>)
+- CI: SKIPPED — markdown-only path filters
+- Merge: MERGED into main (<sha>)
+- Staging: SKIPPED — markdown-only path filters
+- Draft releases: SKIPPED — markdown-only path filters
+- Production: Not needed for docs-only changes
 ```
 
 Or on failure:

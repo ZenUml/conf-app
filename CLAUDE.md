@@ -15,13 +15,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Project overview
 
-This is a ZenUML Confluence Cloud Add-on (Forge app) that provides diagramming capabilities for Confluence users. The `DiagramType` enum (`src/model/Diagram/Diagram.ts`) defines five first-class diagram types:
+This is a ZenUML Confluence Cloud Add-on (Forge app) that provides diagramming capabilities for Confluence users. The `DiagramType` enum (`src/model/Diagram/Diagram.ts`) defines six user-facing diagram types (`Unknown` is only a sentinel fallback):
 
 - **Sequence** — ZenUML sequence diagrams (the namesake renderer)
 - **Mermaid** — multi-purpose Mermaid renderer
 - **PlantUml** — multi-purpose PlantUML renderer
 - **Graph** — DrawIO-powered graph diagrams
 - **OpenApi** — OpenAPI/Swagger specifications via swagger-ui
+- **Embed** — embeds an existing diagram, graph, or API spec
 
 The project is built as a full-stack application with:
 
@@ -114,7 +115,7 @@ The original directory stays untouched. When in doubt, ask before any destructiv
   - `/forge-installed` — Forge install/upgrade lifecycle handler
   - `/forge-user-behavior` — Forge trigger event handler
   - `/diagram-likes/` — Diagram like/unlike functionality
-  - `/attachment` — File attachment handling
+  - `/forge-upload-attachment` — App-authenticated attachment upload fallback
   - `/api/space-status` — License/payment status check
 
 ### Content management

@@ -62,6 +62,12 @@ export type AnalyticsProperties = {
   // Performance
   render_mode?: RenderMode;
   duration_ms?: number;
+  // Mermaid render-phase breakdown (EAG-18 profiling)
+  context_init_ms?: number;
+  content_fetch_ms?: number;
+  lib_load_ms?: number;
+  render_ms?: number;
+  dsl_length?: number;
   // Error
   error_code?: string;
   error_name?: string;

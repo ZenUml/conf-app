@@ -14,6 +14,7 @@
 
 <script>
 import { loadMermaid } from '@/utils/mermaid/loadMermaid'
+import { markPhase } from '@/utils/mermaid/renderPhaseTiming'
 import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
@@ -38,7 +39,7 @@ export default {
   async mounted() {
     if (!this.mermaidCode) return;
     this.svg = await this.render(this.mermaidCode);
-    trackRenderTime('mermaid', this.isDisplayMode);
+    trackRenderTime('mermaid', this.isDisplayMode, 'live_render', this.mermaidCode.length);
     EventBus.$emit('diagramLoaded', this.mermaidCode, this.$store.state.diagram.diagramType);
     await globals.apWrapper.initializeContext();
   },
@@ -59,9 +60,12 @@ export default {
       // Generate a unique ID to avoid conflicts
       this.renderId = `mermaid-${crypto.randomUUID()}`;
       try {
+        markPhase('lib_start');
         const mermaid = await loadMermaid();
+        markPhase('lib_done');
         // Use the unique ID to render, avoiding creating extra elements in the body
         const { svg } = await mermaid.render(this.renderId, code);
+        markPhase('render_done');
         return svg;
       } catch (error) {
         console.error('mermaid render error', error);

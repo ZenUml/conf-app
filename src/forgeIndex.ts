@@ -33,6 +33,7 @@ import {
   reportLegacyContentPropertyMacroRepaired,
 } from '@/utils/legacyContentPropertyTelemetry';
 import { LegacyLoadBlockedSaveError } from '@/model/ContentProvider/Persistence';
+import { markPhase } from '@/utils/mermaid/renderPhaseTiming';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -122,6 +123,7 @@ async function initializeCriticalPath() {
     // Initialize context and get macro data (lightweight operations)
     await globals.apWrapper.initializeContext();
     const macroData = await globals.apWrapper.getMacroData();
+    markPhase('context_done');
 
     // Refresh metrics cache on miss; full collect only on save (Persistence.ts)
     macroMetrics.getMacroMetrics().catch(e => console.error('Error refreshing metrics cache:', e));
@@ -374,6 +376,14 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // Backfill default PlantUML DSL for existing diagrams created before PlantUML support
     if (!doc.plantUmlCode) {
       doc = { ...doc, plantUmlCode: Example.PlantUml };
+    }
+    markPhase('content_done');
+
+    // Pre-warm mermaid bundle fetch in parallel with component imports below
+    const isMermaidDoc = doc.diagramType === DiagramType.Mermaid
+      || context.extension.modal?.diagramType === 'mermaid';
+    if (isMermaidDoc) {
+      import('@/utils/mermaid/loadMermaid').then(m => m.loadMermaid()).catch(() => {});
     }
 
     // Start journey tracking for editor mode

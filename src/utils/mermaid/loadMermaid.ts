@@ -29,7 +29,7 @@ export async function loadMermaid(): Promise<any> {
     const mod = await import(/* @vite-ignore */ url);
     const instance = mod.default ?? mod;
     instance.initialize({
-      startOnLoad: true,
+      startOnLoad: false,
       theme: 'neutral',
     });
     cached = instance;

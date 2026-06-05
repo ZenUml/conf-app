@@ -38,6 +38,14 @@ export default {
   },
   async mounted() {
     if (!this.mermaidCode) return;
+    const cachedSvg = this.isDisplayMode && this.$store.state.diagram.mermaidSvg;
+    if (cachedSvg) {
+      this.svg = cachedSvg;
+      trackRenderTime('mermaid', true, 'cached_svg', this.mermaidCode.length);
+      EventBus.$emit('diagramLoaded', this.mermaidCode, this.$store.state.diagram.diagramType);
+      await globals.apWrapper.initializeContext();
+      return;
+    }
     this.svg = await this.render(this.mermaidCode);
     trackRenderTime('mermaid', this.isDisplayMode, 'live_render', this.mermaidCode.length);
     EventBus.$emit('diagramLoaded', this.mermaidCode, this.$store.state.diagram.diagramType);
@@ -66,6 +74,9 @@ export default {
         // Use the unique ID to render, avoiding creating extra elements in the body
         const { svg } = await mermaid.render(this.renderId, code);
         markPhase('render_done');
+        if (svg) {
+          this.$store.dispatch('updateMermaidSvg', svg);
+        }
         return svg;
       } catch (error) {
         console.error('mermaid render error', error);

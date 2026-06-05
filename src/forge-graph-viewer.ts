@@ -1,42 +1,3 @@
-
-// Load external DrawIO scripts dynamically
-function loadDrawIOScripts(): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const scripts = [
-      './drawio/js/sanitizer/purify.min.js',
-      './drawio/mxgraph/mxClient.js',
-      './drawio/js/grapheditor/Init.js',
-      './drawio/js/grapheditor/Graph.js',
-      './drawio/js/grapheditor/Shapes.js'
-    ];
-    
-    let loadedCount = 0;
-    
-    scripts.forEach((src, index) => {
-      const script = document.createElement('script');
-      script.src = src;
-      script.onload = () => {
-        loadedCount++;
-        if (loadedCount === scripts.length) {
-          // Wait for window.Graph to be available
-          const checkGraph = () => {
-            if (window.Graph) {
-              console.log('window.Graph is available:', window.Graph);
-              resolve();
-            } else {
-              console.log('Waiting for window.Graph...');
-              setTimeout(checkGraph, 100);
-            }
-          };
-          checkGraph();
-        }
-      };
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-  });
-}
-
 import createAttachmentIfContentChanged from "@/model/Attachment";
 import {trackEvent, serializeError} from "@/utils/window";
 import globals from '@/model/globals';
@@ -52,6 +13,7 @@ import {
   reportLegacyContentPropertyValueUnexpected,
 } from '@/utils/legacyContentPropertyTelemetry';
 import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
+import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
 
 async function loadDiagram(): Promise<Diagram | undefined> {
   const context = await initForgeContext();
@@ -184,8 +146,7 @@ function afterLoad(doc: Diagram | undefined) {
 }
 
 async function initializeMacro() {
-  // Load DrawIO scripts first
-  // await loadDrawIOScripts();
+  await ensureDrawioViewerLoaded();
   await bootstrapForgeViewer({
     macroKind: 'graph',
     content: ForgeGraphViewer,

@@ -25,7 +25,7 @@ function _initMixpanel() {
       autocapture: false,
       persistence: "localStorage",
       ignore_dnt: true,
-      record_sessions_percent: isHighReplayClient ? 50 : 5,
+      record_sessions_percent: isHighReplayClient ? 20 : 4,
     });
     _initialized = true;
   }

@@ -63,6 +63,7 @@ export class Diagram {
   title?: string = '';
   styles?: object = {};
   mermaidCode?: string = '';
+  mermaidSvg?: string = '';
   plantUmlCode?: string = '';
   graphXml?: string = '';
   /**

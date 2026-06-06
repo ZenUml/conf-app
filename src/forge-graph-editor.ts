@@ -61,7 +61,7 @@ const EMPTY_GRAPH = `<mxfile>
 // close) is scheduled — the caller keeps the "Publishing…" overlay up until the
 // modal closes. Returns false on any error path that leaves the editor open, so
 // the caller can clear the overlay and let the user retry.
-async function saveGraphAndExit(graphXml: string): Promise<boolean> {
+async function saveGraphAndExit(graphXml: string, pngBlob?: Blob | null): Promise<boolean> {
   // Start the publish-latency clock at the save-handler entry (≈ the DrawIO
   // Publish click that postMessages here). Stopped at the redirect below.
   markPublishClicked();
@@ -106,6 +106,33 @@ async function saveGraphAndExit(graphXml: string): Promise<boolean> {
   // End journey on save
   if (getEditJourneyId()) {
     endEditJourney('saved');
+  }
+
+  // #212 follow-up (graph): create the diagram-backup PNG deterministically at
+  // SAVE time rather than relying on a later display-mode view (~22% of created
+  // graph macros never get one, so PDF/Word export later fails with
+  // attachment_not_found). The DrawIO editor exported the PNG (pngBlob) before
+  // this call; we feed those bytes straight into the shared upload path
+  // (user → app-fallback) via the #212 customContentId/renderedPng override.
+  // Fail-safe + time-boxed: a backup must NEVER break or hang Publish. Runs
+  // before the view.submit below tears down the iframe; the view-time path
+  // remains the backfill. Same draft-page constraint as the sequence path —
+  // a brand-new unpublished page can't accept attachments and is skipped
+  // centrally inside createAttachmentIfContentChanged.
+  if (id && pngBlob) {
+    try {
+      const createAttachmentIfContentChanged = (await import('@/model/Attachment')).default;
+      await Promise.race([
+        createAttachmentIfContentChanged(graphXml ?? '', 'graph', {
+          customContentId: String(id),
+          fromSave: true,
+          renderedPng: pngBlob,
+        }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('save-attachment timeout')), 2500)),
+      ]);
+    } catch (e) {
+      console.warn('graph save-time attachment creation skipped (non-fatal):', (e as Error)?.message ?? e);
+    }
   }
 
   // ZEN-1170 Defect 2b: repair stale macro XML when we saved against the

@@ -88,6 +88,51 @@ export default {
       if (this.graphXml) {
         this.sendToFrame({ action: 'load', xml: this.graphXml, autosave: 1 });
       }
+    },
+    // Convert a `data:image/png;base64,…` URI (DrawIO's export response) to a Blob.
+    dataUriToBlob(dataUri) {
+      const comma = typeof dataUri === 'string' ? dataUri.indexOf(',') : -1;
+      if (comma < 0) return null;
+      const meta = dataUri.slice(0, comma);
+      const body = dataUri.slice(comma + 1);
+      const mime = (meta.match(/data:([^;]+)/) || [])[1] || 'image/png';
+      const binary = /;base64/i.test(meta) ? atob(body) : decodeURIComponent(body);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return new Blob([bytes], { type: mime });
+    },
+    // Ask DrawIO to render the current diagram to a PNG and resolve with the
+    // bytes. Best-effort + time-boxed: resolves null on timeout or any failure
+    // so a missing/slow export never blocks Publish. The matching response is
+    // delivered to `pendingExportResolve` by the message listener below.
+    exportPng(timeoutMs = 2000) {
+      return new Promise((resolve) => {
+        let settled = false;
+        const finish = (val) => {
+          if (settled) return;
+          settled = true;
+          this.pendingExportResolve = null;
+          resolve(val);
+        };
+        this.pendingExportResolve = (dataUri) => {
+          try {
+            finish(dataUri ? this.dataUriToBlob(dataUri) : null);
+          } catch (e) {
+            console.warn('graph export: data URI → blob failed', e);
+            finish(null);
+          }
+        };
+        setTimeout(() => finish(null), timeoutMs);
+        try {
+          // proto=json embed export. `format:'png'` returns a plain PNG data
+          // URI; our own iTXt source chunk is added downstream (uniform
+          // recovery format), so we deliberately do NOT use 'xmlpng'.
+          this.sendToFrame({ action: 'export', format: 'png' });
+        } catch (e) {
+          console.warn('graph export: postMessage failed', e);
+          finish(null);
+        }
+      });
     }
   },
   data() {
@@ -101,6 +146,7 @@ export default {
       draftScope: null,
       restoreListener: null,
       messageListener: null,
+      pendingExportResolve: null,
     };
   },
   created() {
@@ -156,6 +202,10 @@ export default {
           }
         }
       }
+      else if (payload.event === 'export') {
+        // Response to our exportPng() request — payload.data is a PNG data URI.
+        if (this.pendingExportResolve) this.pendingExportResolve(payload.data);
+      }
       else if (payload.event === 'save') {
         this.drawioModified = false;
         // Persist the full <mxfile> wrapper so multi-page diagrams keep
@@ -176,7 +226,13 @@ export default {
           contentId: this.$store?.state?.diagram?.id,
         });
         this.publishing = true;
-        const published = await this.saveGraphAndExit(window.graphXml);
+        // Capture a PNG backup from DrawIO BEFORE saveGraphAndExit runs
+        // view.submit and tears down this iframe. exportPng() is best-effort
+        // + time-boxed; a null blob just means the save-time backup is skipped
+        // and the view-time path remains the backfill. The overlay is already
+        // up so the export wait isn't dead time to the user.
+        const pngBlob = await this.exportPng();
+        const published = await this.saveGraphAndExit(window.graphXml, pngBlob);
         // On success the redirect (view.submit/close) tears down this modal, so
         // the overlay stays up until it closes. On failure saveGraphAndExit has
         // already toasted and kept the editor open — clear the overlay to retry.

@@ -119,7 +119,11 @@ async function saveGraphAndExit(graphXml: string, pngBlob?: Blob | null) {
           fromSave: true,
           renderedPng: pngBlob,
         }),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('save-attachment timeout')), 2500)),
+        // 8s (matches the sequence path in forgeIndex.ts): actually AWAIT the
+        // upload (render + POST + properties PUT) so it lands before view.submit
+        // tears down the iframe; verified on lite-stg that 2.5s abandoned the
+        // await early and risked aborting the in-flight write.
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('save-attachment timeout')), 8000)),
       ]);
     } catch (e) {
       console.warn('graph save-time attachment creation skipped (non-fatal):', (e as Error)?.message ?? e);

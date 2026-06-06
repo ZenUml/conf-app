@@ -56,6 +56,16 @@ jobs:
           sentry-dsn: ${{ vars.SENTRY_DSN }}
           page-capture-secret: ${{ vars.PAGE_CAPTURE_SECRET }}
           page-capture-allowed-domains: ${{ vars.PAGE_CAPTURE_ALLOWED_DOMAINS_PROD }}
+      # All non-asyncapi variants: strip the asyncapi-only modules so they never
+      # leak into the lite/full/diagramly production apps. They live in
+      # manifest.yml only so the asyncapi variant can ship them. Mirrors
+      # scripts/forge-wizard.mjs (zenuml-asyncapi-* macros, async-api-doc custom
+      # content, and the asyncapi-only confluence:spacePage dashboard).
+      - name: Remove asyncapi modules in manifest.yml
+        if: ${{ steps.properties.outputs.license != 'asyncapi' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi"))) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"])' -i manifest.yml
       - name: Remove contentBylineItem in manifest.yml
         if: ${{ steps.properties.outputs.license != 'diagramly' }}
         uses: mikefarah/yq@master

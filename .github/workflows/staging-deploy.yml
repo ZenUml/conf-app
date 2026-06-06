@@ -44,6 +44,17 @@ jobs:
           page-capture-secret: ${{ vars.PAGE_CAPTURE_SECRET }}
           page-capture-allowed-domains: ${{ vars.PAGE_CAPTURE_ALLOWED_DOMAINS_STG }}
 
+      # All non-asyncapi variants: strip the asyncapi-only modules. They live in
+      # manifest.yml so the asyncapi variant can ship them, but must NOT leak
+      # into lite/full/diagramly. Mirrors the lite/full/diagramly manifestEdits
+      # in scripts/forge-wizard.mjs (macros zenuml-asyncapi-*, the async-api-doc
+      # custom content, and the asyncapi-only confluence:spacePage dashboard).
+      - name: Remove asyncapi modules from manifest
+        if: inputs.variant != 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi"))) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"])' -i manifest.yml
+
       # Lite: remove contentBylineItem and licensing
       - name: Remove contentBylineItem from manifest
         if: inputs.variant == 'lite'

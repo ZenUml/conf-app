@@ -234,7 +234,13 @@ modules:
     - key: remote-page-behavior-trigger
       endpoint: remote-page-behavior-endpoint
       events:
-        - avi:confluence:viewed:page
+        # avi:confluence:viewed:page removed 2026-06-06: it fired on every page
+        # view across the whole tenant (~98% of all Forge invocations, ~98% of
+        # billed Functions-compute GB-seconds) only to record low-value,
+        # Confluence-wide page_viewed telemetry in D1 (not used for macro
+        # engagement — Mixpanel macro_viewed is the source of truth). The
+        # cloudId->domain AtlassianInstance upsert side-effect still runs on
+        # avi:confluence:updated:page below. See GitHub issue / Forge usage alert.
         - avi:confluence:updated:page
     - key: page-content-capture-trigger
       function: pageCaptureFn

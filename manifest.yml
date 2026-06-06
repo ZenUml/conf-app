@@ -235,7 +235,10 @@ modules:
         resource: main
         viewportSize: fullscreen
       adfExport:
-        function: exportMacro
+        # Dedicated AsyncAPI export (embeds the raw spec; no PNG attachment).
+        # Keeps the shared exportMacro free of asyncapi logic for the other
+        # variants. See src/asyncapi-export.js.
+        function: asyncApiExportMacro
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/openapi_macro_icon.png
@@ -252,7 +255,7 @@ modules:
         resource: main
         viewportSize: fullscreen
       adfExport:
-        function: exportMacro
+        function: asyncApiExportMacro
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/openapi_macro_icon.png
@@ -401,6 +404,12 @@ modules:
   function:
     - key: exportMacro
       handler: export.handler
+    # AsyncAPI macros use a dedicated export handler (asyncapi-export.js) so the
+    # shared exportMacro stays free of asyncapi logic. Only the asyncapi macros
+    # reference it; on lite/full/diagramly the asyncapi macros are stripped, so
+    # this function is simply unused there (and could be stripped too).
+    - key: asyncApiExportMacro
+      handler: asyncapi-export.handler
     - key: pageCaptureFn
       handler: page-capture.handler
     - key: createDemoPage

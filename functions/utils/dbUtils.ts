@@ -28,15 +28,13 @@ export async function upsertAtlassianInstance(
     return;
   }
 
-  const result = await db.prepare(
+  await db.prepare(
     `INSERT INTO AtlassianInstance (cloudId, clientDomain)
      VALUES (?1, ?2)
      ON CONFLICT(cloudId) DO UPDATE SET clientDomain = excluded.clientDomain`
   )
     .bind(cloudId, clientDomain)
     .run();
-
-  console.log('DB AtlassianInstance Upsert Result:', result);
 }
 
 export async function getForgeInstallationClientDomain(
@@ -67,7 +65,7 @@ export async function getForgeInstallationClientDomain(
 }
 
 async function upsertForgeApp(db: D1Database, body: ForgeAppRequestBody) {
-  const result = await db.prepare(
+  await db.prepare(
     `INSERT INTO ForgeApp (
       appId, name, ownerAccountId, version, createdAt
     ) VALUES (?, ?, ?, ?, ?)
@@ -84,8 +82,6 @@ async function upsertForgeApp(db: D1Database, body: ForgeAppRequestBody) {
     body.app.version,
     new Date().toISOString()
   ) .run();
-
-  console.log('DB ForgeApp Upsert Result:', result);
 }
 
 export async function upsertForgeInstallation(db: D1Database, body: ForgeAppRequestBody) {
@@ -108,7 +104,7 @@ export async function upsertForgeInstallation(db: D1Database, body: ForgeAppRequ
     await upsertAtlassianInstance(db, cloudId, clientDomain);
   }
 
-  const result = await db.prepare(
+  await db.prepare(
     `INSERT INTO ForgeInstallation (
       installationId, context, installerAccountId, eventType, appId, environmentId, permissions, cloudId, clientDomain, createdAt
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -135,15 +131,13 @@ export async function upsertForgeInstallation(db: D1Database, body: ForgeAppRequ
     clientDomain,
     new Date().toISOString()
   ) .run();
-
-  console.log('DB ForgeInstallation Upsert Result:', result);
 }
 
 export async function insertUserBehaviorEvent(
   db: D1Database,
   event: MixpanelTrackPayload,
 ): Promise<void> {
-  const result = await db.prepare(
+  await db.prepare(
     `INSERT INTO UserBehaviorEvent (cloudId, userAccountId, contentId, action, clientDomain, spaceKey, payload)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
   )
@@ -157,12 +151,10 @@ export async function insertUserBehaviorEvent(
       JSON.stringify(event),
     )
     .run();
-
-  console.log('DB UserBehaviorEvent Insert Result:', result);
 }
 
 export async function aggregateDailyCounters(db: D1Database): Promise<void> {
-  const result = await db.prepare(
+  await db.prepare(
     `INSERT INTO DailyBehaviorCounter (date, cloudId, clientDomain, spaceKey, action, eventCount, uniqueUsers, uniquePages, updatedAt)
      SELECT
        DATE(createdAt) as date,
@@ -184,16 +176,12 @@ export async function aggregateDailyCounters(db: D1Database): Promise<void> {
        clientDomain = COALESCE(excluded.clientDomain, DailyBehaviorCounter.clientDomain),
        updatedAt = CURRENT_TIMESTAMP`
   ).run();
-
-  console.log('DB DailyBehaviorCounter Aggregate Result:', result);
 }
 
 export async function purgeOldEvents(db: D1Database, retentionDays: number = 60): Promise<void> {
-  const result = await db.prepare(
+  await db.prepare(
     `DELETE FROM UserBehaviorEvent WHERE createdAt < DATETIME('now', ?1)`
   )
     .bind(`-${retentionDays} days`)
     .run();
-
-  console.log(`DB UserBehaviorEvent Purge (>${retentionDays} days):`, result);
 }

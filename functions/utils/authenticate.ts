@@ -42,10 +42,7 @@ async function authenticateForgeRequest(jwt, env) {
     console.error('ALLOWED_FORGE_APP_IDS environment variable is not set');
     return response(500, 'Server configuration error: ALLOWED_FORGE_APP_IDS not configured');
   }
-  console.log('ALLOWED_FORGE_APP_IDS:', allowedForgeAppIds);
-
   const payload = await validateContextToken(jwt, allowedForgeAppIds);
-  console.log('validateContextToken - payload', payload);
   env.FORGE_CONTEXT = payload;
 
   // Populate AtlassianInstance from siteUrl when available in macro-render tokens

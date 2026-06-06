@@ -16,6 +16,7 @@ import { trackEvent } from "@/utils/window";
 import globals from "@/model/globals";
 import ViewResizer from "./Viewer/ViewResizer.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import * as renderPerf from "@/utils/analytics/renderPerf";
 
 // Create a promise to load ZenUml only when needed
 const loadZenUml = () => import("@zenuml/core").then(module => module.default);
@@ -55,7 +56,8 @@ export default {
       const ZenUml = await loadZenUml();
       console.log("ZenUML Core version: ", ZenUml.version);
       zenuml = new ZenUml(this.$refs["zenuml"]);
-      await this.render();
+      // Phase 0b: render_ms for the initial mount render (recorded once).
+      await renderPerf.time('render', () => this.render());
       trackRenderTime('sequence', this.isDisplayMode);
       EventBus.$emit(
         "diagramLoaded",

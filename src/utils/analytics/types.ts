@@ -9,6 +9,7 @@ import type {
   FeedbackValue,
   RenderMode,
   CacheState,
+  CacheSource,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -62,6 +63,8 @@ export type AnalyticsProperties = {
   is_demo_page?: boolean;
   // Performance
   render_mode?: RenderMode;
+  // Where a cached_svg render sourced its SVG (Phase 2: 'cc_body'). Absent/'none' for live_render.
+  cache_source?: CacheSource;
   duration_ms?: number;
   // Browser cache state at render time, measured via Resource Timing transferSize
   // of same-origin JS bundles, plus the raw summed wire bytes. Lets cold/warm
@@ -69,6 +72,14 @@ export type AnalyticsProperties = {
   // state from duration magnitude. See utils/analytics/trackRenderTime.ts.
   cache_state?: CacheState;
   transfer_bytes?: number;
+  // Phase 0b sub-timings (renderPerf). Attribute duration_ms to load phases so we
+  // can pick the right optimization lever. Absent phases are omitted, not 0.
+  bootstrap_ms?: number;   // __macroLoadStart → first app code (head scripts incl. DrawIO + bundle eval)
+  context_ms?: number;     // Forge getContext() resolution
+  fetch_ms?: number;       // custom-content REST round trip
+  render_ms?: number;      // viewer render (lib load + diagram render)
+  measured_sum_ms?: number; // bootstrap+context+fetch+render; duration_ms − this = unattributed remainder
+  tab_hidden?: boolean;    // tab was backgrounded during load → exclude from percentiles (artifact)
   // Error
   error_code?: string;
   error_name?: string;

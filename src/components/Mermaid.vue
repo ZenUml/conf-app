@@ -18,6 +18,7 @@ import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import * as renderPerf from '@/utils/analytics/renderPerf';
 
 export default {
   name: "Mermaid",
@@ -37,7 +38,10 @@ export default {
   },
   async mounted() {
     if (!this.mermaidCode) return;
-    this.svg = await this.render(this.mermaidCode);
+    // Phase 0b: render_ms = loadMermaid + mermaid.render — exactly what an SVG
+    // cache (Lever D) would skip. Only the initial mount render is timed
+    // (renderPerf records once); the watch-driven re-render below is not.
+    this.svg = await renderPerf.time('render', () => this.render(this.mermaidCode));
     trackRenderTime('mermaid', this.isDisplayMode);
     EventBus.$emit('diagramLoaded', this.mermaidCode, this.$store.state.diagram.diagramType);
     await globals.apWrapper.initializeContext();

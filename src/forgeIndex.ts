@@ -809,7 +809,12 @@ EventBus.$on('save', async () => {
           customContentId: String(id),
           fromSave: true,
         }),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('save-attachment timeout')), 2500)),
+        // Cap chosen to actually AWAIT the upload (render + POST + properties PUT
+        // ~2–5s on staging) so it completes before view.submit tears down the
+        // iframe. A 2.5s cap abandoned the await early and risked aborting the
+        // in-flight write (verified on lite-stg: the create finished ~just after
+        // a 2.5s race fired).
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('save-attachment timeout')), 8000)),
       ]);
     } catch (e) {
       console.warn('save-time attachment creation skipped (non-fatal):', (e as Error)?.message ?? e);

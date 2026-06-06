@@ -591,6 +591,7 @@ async function createAttachmentIfContentChanged(
     ctx.custom_content_id = overrideId;
     ctx.attachment_name = `zenuml-${overrideId}.png`;
   }
+  console.log('[VERIFY212] createAttachment enter: diagramType=', diagramType, 'fromSave=', !!opts?.fromSave, 'overrideId=', overrideId, 'renderedPng=', !!opts?.renderedPng, 'ctx.status=', forgeGlobal.forgeContext?.extension?.content?.status);
 
   // ZEN-1170 Defect 1: central guard for legacy macros that have no
   // customContentId yet. getIdentifier() / the attachment naming chain
@@ -602,6 +603,7 @@ async function createAttachmentIfContentChanged(
   // viewer call sites are covered without per-caller guards.
   const macroCustomContentId = overrideId ?? forgeGlobal.forgeContext?.extension?.config?.customContentId;
   if (!macroCustomContentId) {
+    console.log('[VERIFY212] SKIP no-customContentId guard');
     return;
   }
 
@@ -619,6 +621,7 @@ async function createAttachmentIfContentChanged(
   // The v1 attachment API only accepts status=current pages — a draft page returns a
   // wrapped 404 body, causing a misleading "no results" error downstream.
   if (forgeGlobal.forgeContext?.extension?.content?.status === 'draft') {
+    console.log('[VERIFY212] SKIP draft-guard: content.status=draft (overrideId=', overrideId, ')');
     return;
   }
 
@@ -698,6 +701,7 @@ async function createAttachmentIfContentChanged(
         via_app_fallback: viaAppFallback,
         ...(opts?.fromSave ? { from_save: true } : {}),
       });
+      console.log('[VERIFY212] SUCCESS upload: from_save=', !!opts?.fromSave, 'isUpdate=', isUpdate, 'id=', attachmentMeta.attachmentId, 'via_app_fallback=', viaAppFallback);
     }
   } catch (e: any) {
     // Option B: DraftPageError means the v1 API confirmed the page is a draft —
@@ -724,6 +728,7 @@ async function createAttachmentIfContentChanged(
     const errorName = (e instanceof Error && e.name) ? e.name : (e == null ? 'null' : typeof e);
     const errorMessage = String((e as { message?: unknown })?.message ?? e ?? '').slice(0, 200);
     const label = buildFailureLabel(e, httpStatus);
+    console.log('[VERIFY212] FAIL upload: from_save=', !!opts?.fromSave, 'label=', label, 'http_status=', httpStatus, 'err=', errorMessage.slice(0, 120));
     trackEvent(label, 'attachment_upload_failed', 'export', {
       ...ctx,
       error_name: errorName,

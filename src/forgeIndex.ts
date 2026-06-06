@@ -686,6 +686,7 @@ EventBus.$on('save', async () => {
   // exceeds the cap or throws, we proceed to submit anyway — the view-time path
   // remains as a backfill.
   const savedDiagramType = store.state.diagram.diagramType;
+  console.log('[VERIFY212] forgeIndex save handler: diagramType=', savedDiagramType, 'id=', id, 'content.status=', forgeGlobal.forgeContext?.extension?.content?.status);
   if (id && (savedDiagramType === 'sequence' || savedDiagramType === 'mermaid' || savedDiagramType === 'plantuml')) {
     try {
       const createAttachmentIfContentChanged = await createAttachmentIfContentChangedPromise;

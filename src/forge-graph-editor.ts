@@ -110,6 +110,7 @@ async function saveGraphAndExit(graphXml: string, pngBlob?: Blob | null) {
   // remains the backfill. Same draft-page constraint as the sequence path —
   // a brand-new unpublished page can't accept attachments and is skipped
   // centrally inside createAttachmentIfContentChanged.
+  console.log('[VERIFY212] graph saveGraphAndExit: id=', id, 'pngBlob?', !!pngBlob, 'content.status=', forgeGlobal.forgeContext?.extension?.content?.status);
   if (id && pngBlob) {
     try {
       const createAttachmentIfContentChanged = (await import('@/model/Attachment')).default;

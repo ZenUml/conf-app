@@ -60,12 +60,20 @@ async function initializeMacro() {
     return
   }
 
-  const isModal = !!context.extension?.modal?.macroMode
+  const macroMode = context.extension?.modal?.macroMode
+  const isModal = !!macroMode
+  // Both the macro Fullscreen viewer (macroMode 'fullscreen') and the
+  // dashboard "View" modal (macroMode 'viewer') render on this modal path.
+  // The inline ✎ Edit button belongs only to the dashboard view — the macro
+  // fullscreen viewer is read-only chrome (editing is reached via Confluence's
+  // macro toolbar / page editor), so it must not show an Edit affordance.
+  const showInlineEdit = isModal && macroMode !== 'fullscreen'
 
   if (isModal) {
-    // -------- Dashboard modal path --------
-    // Inline React viewer with an Edit button that swaps to the Studio
-    // editor in place (no second modal, no gesture loss).
+    // -------- Modal path (dashboard "View" + macro Fullscreen) --------
+    // Inline React viewer. The dashboard view gets an Edit button that swaps
+    // to the Studio editor in place (no second modal, no gesture loss); the
+    // fullscreen macro viewer omits it (showInlineEdit === false).
 
     async function closeModal() {
       try {
@@ -111,7 +119,7 @@ async function initializeMacro() {
     ReactDOM.render(
       React.createElement(AsyncApiViewer, {
         spec,
-        onEdit: renderEditor,
+        onEdit: showInlineEdit ? renderEditor : undefined,
         onCancel: closeModal,
         loadError,
       }),

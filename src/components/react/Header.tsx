@@ -5,6 +5,7 @@ import { setupCloseGuard } from "@/utils/closeGuard";
 import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
 import EventBus from "@/EventBus";
 import yaml from "js-yaml";
+import { isAiTitleEnabled } from "@/apis/aiTitleFeatureFlag";
 
 interface Props {
   saveAndExit: VoidFunction;
@@ -15,8 +16,26 @@ interface Props {
 const Component = ({ saveAndExit, exit: _exit, aiChatOpen = false, onToggleAiChat }: Props) => {
   const [title, setTitle] = useState("");
   const [parseError, setParseError] = useState<Error | null>(null);
+  const [aiChatEnabled, setAiChatEnabled] = useState(false);
   const originalSpec = useRef<string | null>(null);
   const onRestoreRef = useRef<((p: any) => void) | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    isAiTitleEnabled()
+      .then((enabled) => {
+        if (!cancelled) setAiChatEnabled(enabled);
+      })
+      .catch((error) => {
+        console.error("Failed to load AI Chat feature flag:", error);
+        if (!cancelled) setAiChatEnabled(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Persist drafts (per keystroke + on close) so accidental Atlassian-X close
   // can be recovered on next open. See src/utils/closeGuard.ts for why we
@@ -201,7 +220,7 @@ const Component = ({ saveAndExit, exit: _exit, aiChatOpen = false, onToggleAiCha
         )}
       </div>
       <div className="flex items-center gap-2">
-        {onToggleAiChat && (
+        {aiChatEnabled && onToggleAiChat && (
           <button
             type="button"
             className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors duration-200 ${

@@ -1,9 +1,18 @@
-import {mount} from '@vue/test-utils'
+import {flushPromises, mount} from '@vue/test-utils'
 import Header from '@/components/Header/Header.vue'
 import {DiagramType} from "@/model/Diagram/Diagram";
 import store from "@/model/store2/";
+import { isAiTitleEnabled } from '@/apis/aiTitleFeatureFlag'
+
+vi.mock('@/apis/aiTitleFeatureFlag', () => ({
+  isAiTitleEnabled: vi.fn().mockResolvedValue(true),
+}))
 
 describe('Header', () => {
+  beforeEach(() => {
+    vi.mocked(isAiTitleEnabled).mockResolvedValue(true)
+  })
+
   it('should render correctly', async () => {
     store.commit('updateDiagramType', DiagramType.Sequence);
     const headerWrapper = mount(Header, {
@@ -43,6 +52,7 @@ describe('Header', () => {
         plugins: [store]
       }
     })
+    await flushPromises()
 
     const toggle = headerWrapper.get('[data-testid="ai-chat-toggle"]')
     expect(toggle.classes()).toContain('bg-violet-100')
@@ -50,5 +60,18 @@ describe('Header', () => {
     await toggle.trigger('click')
 
     expect(headerWrapper.emitted('toggle-ai-chat')).toHaveLength(1)
+  })
+
+  it('hides AI chat when the AI feature flag is disabled', async () => {
+    vi.mocked(isAiTitleEnabled).mockResolvedValue(false)
+
+    const headerWrapper = mount(Header, {
+      global: {
+        plugins: [store]
+      }
+    })
+    await flushPromises()
+
+    expect(headerWrapper.find('[data-testid="ai-chat-toggle"]').exists()).toBe(false)
   })
 })

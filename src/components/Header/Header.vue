@@ -9,6 +9,7 @@
     </div>
     <div class="flex items-center gap-3 shrink-0">
       <button
+        v-if="aiChatEnabled"
         class="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors duration-200"
         :class="
           aiChatOpen
@@ -63,6 +64,7 @@ import LightBulbIcon from '@heroicons/vue/24/outline/LightBulbIcon';
 import QuestionMarkCircleIcon from '@heroicons/vue/24/outline/QuestionMarkCircleIcon';
 import SparklesIcon from '@heroicons/vue/24/outline/SparklesIcon';
 import DiagramTitleInput from "@/components/Header/DiagramTitleInput.vue";
+import { isAiTitleEnabled } from '@/apis/aiTitleFeatureFlag';
 
 export default {
   name: "Header",
@@ -85,7 +87,8 @@ export default {
     return {
       helpUrl: "https://zenuml.com/docs?utm_source=confluence-plugin&utm_medium=help-button&utm_campaign=confluence-plugin",
       originalCode: "",
-      diagramOptions: getEditorDiagramOptions()
+      diagramOptions: getEditorDiagramOptions(),
+      aiChatEnabled: false,
     };
   },
   computed: {
@@ -158,6 +161,13 @@ export default {
     },
   },
   async mounted() {
+    try {
+      this.aiChatEnabled = await isAiTitleEnabled();
+    } catch (error) {
+      console.error('Failed to load AI Chat feature flag:', error);
+      this.aiChatEnabled = false;
+    }
+
     // Load user's preferred diagram type from localStorage for new diagrams
     const isNewDiagram = this.$store.state.diagram.isNew;
     if (isNewDiagram) {

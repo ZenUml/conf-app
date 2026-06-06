@@ -666,6 +666,24 @@ async function main() {
       appEnvironmentChoice: environmentChoice,
       devEnvVars,
     })
+    // Expose the variant to the runtime Forge functions — set BEFORE deploy.
+    // Forge bakes environment variables into the deployment at deploy time
+    // ("Changes to environment variables will not apply to existing
+    // deployments. Please run forge deploy"), so this must precede the deploy
+    // to take effect. The shared exportMacro function (src/export.js) gates the
+    // AsyncAPI spec-export fallback on process.env.PRODUCT_TYPE === 'asyncapi'
+    // so lite/full/diagramly skip the extra custom-content fetch. Set it for
+    // every variant; only 'asyncapi' enables the fallback.
+    await runCommandLogged({
+      label: `Set PRODUCT_TYPE Forge variable (${app.productType})`,
+      command: 'forge',
+      args: ['variables', 'set', 'PRODUCT_TYPE', app.productType, '-e', forgeEnv],
+      env: appEnvVars,
+      liveOutput: 'limited',
+      maxLiveChars: 2000,
+      progressDotsEveryMs: 1000,
+    })
+
     // `--no-verify` skips Forge's manifest lint. The asyncapi variant
     // (and the other variants too — sequence/openapi/graph/embed all
     // use `viewportSize: fullscreen` in macro config) hits a lint rule
@@ -682,21 +700,6 @@ async function main() {
       liveOutput: 'limited',
       maxLiveChars: 12000,
       progressDotsEveryMs: 2000,
-    })
-
-    // Expose the variant to the runtime Forge functions. The shared exportMacro
-    // function (src/export.js) gates the AsyncAPI spec-export fallback on
-    // process.env.PRODUCT_TYPE === 'asyncapi' so lite/full/diagramly skip that
-    // extra custom-content fetch. Set it for every variant so the value is
-    // explicit (only 'asyncapi' enables the fallback).
-    await runCommandLogged({
-      label: `Set PRODUCT_TYPE Forge variable (${app.productType})`,
-      command: 'forge',
-      args: ['variables', 'set', 'PRODUCT_TYPE', app.productType, '-e', forgeEnv],
-      env: appEnvVars,
-      liveOutput: 'limited',
-      maxLiveChars: 2000,
-      progressDotsEveryMs: 1000,
     })
 
     // Site selection only applies to install/upgrade + tunnel.

@@ -684,6 +684,21 @@ async function main() {
       progressDotsEveryMs: 2000,
     })
 
+    // Expose the variant to the runtime Forge functions. The shared exportMacro
+    // function (src/export.js) gates the AsyncAPI spec-export fallback on
+    // process.env.PRODUCT_TYPE === 'asyncapi' so lite/full/diagramly skip that
+    // extra custom-content fetch. Set it for every variant so the value is
+    // explicit (only 'asyncapi' enables the fallback).
+    await runCommandLogged({
+      label: `Set PRODUCT_TYPE Forge variable (${app.productType})`,
+      command: 'forge',
+      args: ['variables', 'set', 'PRODUCT_TYPE', app.productType, '-e', forgeEnv],
+      env: appEnvVars,
+      liveOutput: 'limited',
+      maxLiveChars: 2000,
+      progressDotsEveryMs: 1000,
+    })
+
     // Site selection only applies to install/upgrade + tunnel.
     console.log('\nSelection context (already chosen):')
     console.log(`  App: ${app.appKey} (APP_ID: ${app.appId})`)

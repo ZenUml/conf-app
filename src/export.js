@@ -207,14 +207,24 @@ export const handler = async (payload) => {
       // attachment, so the standard image-export path always misses. Fall
       // back to embedding the raw spec as a code block. Ported from
       // AsyncAPI-Conf-V2/src/backend/export.js (buildSpecDocument).
-      const specDoc = await buildAsyncApiSpecFallback(customContentId);
-      if (specDoc) {
-        await trackExportEvent('macro_export_succeeded', {
-          ...joinKeyProps(ctx),
-          export_path: 'asyncapi_spec_fallback',
-          ...fallbackProps(fallbackInfo),
-        });
-        return specDoc;
+      //
+      // Gate on the asyncapi variant: this shared exportMacro function runs for
+      // every variant, but only the asyncapi app ever holds AsyncAPI content.
+      // Skipping the fallback (an extra custom-content fetch) on lite/full/
+      // diagramly keeps their export path fast — they'd only ever get null
+      // here anyway. PRODUCT_TYPE is a Forge runtime variable set to 'asyncapi'
+      // on the asyncapi app at deploy time (scripts/forge-wizard.mjs); it is
+      // unset on the other variants, so this branch is a no-op for them.
+      if (process.env.PRODUCT_TYPE === 'asyncapi') {
+        const specDoc = await buildAsyncApiSpecFallback(customContentId);
+        if (specDoc) {
+          await trackExportEvent('macro_export_succeeded', {
+            ...joinKeyProps(ctx),
+            export_path: 'asyncapi_spec_fallback',
+            ...fallbackProps(fallbackInfo),
+          });
+          return specDoc;
+        }
       }
 
       await trackExportEvent('macro_export_failed', {

@@ -224,6 +224,15 @@ A **major** version (requires **admin re-consent** on upgrade, rolls out only as
 
 Changing a `trigger` module's `events:` list (e.g. removing `avi:confluence:viewed:page`) is **NOT** on that list, and as long as `permissions.scopes` is untouched it is a **minor** version → **auto-upgrades to all installs, no admin consent**. Do not claim otherwise. The docs don't state event-list changes explicitly, so the zero-cost confirmation is the **`forge deploy` output**, which reports any major-version change at deploy time.
 
+### CI on PRs — a CANCELLED run next to a green one is NORMAL (don't investigate it)
+
+Every push to a PR branch fires the `Build, Test and Draft Release` workflow (`.github/workflows/build-test-deploy.yml`) **twice** — once on the `push` event and once on the `pull_request` (`synchronize`) event, both on the same head SHA. A `concurrency` group keyed on the bare branch name with `cancel-in-progress: true` (for non-default branches) **deliberately cancels one of the two as a duplicate** — usually the `push` run shows up `CANCELLED`. This is by design (the workflow comments say so), not a failure.
+
+So when checking a PR before merge:
+- `gh pr view <pr> --json mergeStateStatus` showing **`UNSTABLE`** with some `CANCELLED` contexts is **expected and mergeable** — it is not a real failure.
+- The authoritative signal is the surviving **`pull_request`** run for the head SHA. Verify with: `gh run list --json event,headSha,conclusion` — the `pull_request` run's `conclusion: success` is what matters. The `CANCELLED` `push` run is noise; `gh run view <id> --log-failed` on it is empty because it was cancelled, not failed. **Do not spend rounds diagnosing it.**
+- `.md` / `docs/**` / `.claude/**` / `.cursor/**`-only changes are `paths-ignore`d by both triggers, so those PRs show `CLEAN` with nearly all checks `skipping` — also normal, and they do not run E2E or trigger a staging deploy.
+
 ### Analytics & observability
 
 Key gotcha: `page_viewed` in D1 signals tenant activity on Confluence — **not** a macro view. Use Mixpanel `macro_viewed` (project ID `3373228`) for macro engagement.

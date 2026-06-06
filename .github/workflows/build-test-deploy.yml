@@ -42,11 +42,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          # vendor/asyncapi-studio is a submodule that build:asyncapi compiles
-          # into static/asyncapi-studio. Without recursive checkout the
-          # asyncapi build step would fail to find the Studio source.
-          submodules: recursive
+        # No submodules. build:asyncapi compiles the AsyncAPI Studio from the
+        # COMMITTED static/asyncapi-studio bundle (scripts/build-studio.sh
+        # fast-paths when static/asyncapi-studio/index.html exists), so the
+        # vendor/asyncapi-studio source submodule isn't needed at build time.
+        # `submodules: recursive` additionally tried to clone the `private`
+        # submodule (ZenUml/conf-app-private), which the default GITHUB_TOKEN
+        # cannot access ("Repository not found") — that aborted checkout before
+        # the build ran. Match main and skip submodules.
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
         with:

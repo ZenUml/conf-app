@@ -38,6 +38,8 @@ export type AnalyticsProperties = {
   prompt_length?: number;
   generation_source?: string;
   accepted_title?: string;
+  suggestion_id?: string;
+  chat_message_count?: number;
   // Feedback
   feedback_value?: FeedbackValue;
   feedback_score?: number;

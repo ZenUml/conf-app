@@ -33,4 +33,22 @@ describe('Header', () => {
     expect(mermaidButton.classes()).toContain('bg-emerald-100');
     expect(mermaidButton.classes()).toContain('text-emerald-800');
   })
+
+  it('emits the AI chat toggle action', async () => {
+    const headerWrapper = mount(Header, {
+      props: {
+        aiChatOpen: true,
+      },
+      global: {
+        plugins: [store]
+      }
+    })
+
+    const toggle = headerWrapper.get('[data-testid="ai-chat-toggle"]')
+    expect(toggle.classes()).toContain('bg-violet-100')
+
+    await toggle.trigger('click')
+
+    expect(headerWrapper.emitted('toggle-ai-chat')).toHaveLength(1)
+  })
 })

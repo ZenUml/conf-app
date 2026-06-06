@@ -2,16 +2,31 @@
   <div class="workspace-container">
     <div class="content h-screen flex flex-col" style="height: 100vh; overflow: hidden;">
       <div class="flex-shrink-0">
-        <Header />
+        <Header
+          :ai-chat-open="showAIChat"
+          @toggle-ai-chat="toggleAIChat"
+        />
       </div>
       <div class="workspace flex-grow split" style="overflow: hidden; position: relative;">
-        <div id="workspace-left" class="editor flex flex-col flex-grow" style="overflow: hidden;">
-          <div class="flex-grow overflow-auto" style="min-height: 0;">
-            <editor/>
+        <Transition name="ai-chat-panel">
+          <div v-if="showAIChat" class="ai-chat-panel-container">
+            <AIChatPanel
+              :open="showAIChat"
+              :diagram-type="diagramType"
+              prototype-mode
+              @close="closeAIChat"
+            />
           </div>
-        </div>
-        <div id="workspace-right" class="diagram overflow-auto" style="overflow: auto;">
-          <DiagramPortal :hide-header="true" />
+        </Transition>
+        <div class="workspace-main flex min-w-0 flex-1 split">
+          <div id="workspace-left" class="editor flex flex-col flex-grow" style="overflow: hidden;">
+            <div class="flex-grow overflow-auto" style="min-height: 0;">
+              <editor/>
+            </div>
+          </div>
+          <div id="workspace-right" class="diagram overflow-auto" style="overflow: auto;">
+            <DiagramPortal :hide-header="true" />
+          </div>
         </div>
       </div>
       <div id="syntax-error-box" class="sticky bottom-0 left-0 right-0 z-[1000] bg-white flex-shrink-0" style="position: sticky !important;">
@@ -27,11 +42,47 @@
   import Header from "@/components/Header/Header.vue";
   import DiagramPortal from "@/components/DiagramPortal.vue";
   import SyntaxErrorBox from '@/components/SyntaxErrorBox.vue'
+  import AIChatPanel from '@/components/AIChat/AIChatPanel.vue'
+  import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
   export default {
     name: 'Workspace',
     props: {
       msg: String
+    },
+    data() {
+      return {
+        showAIChat: false,
+      }
+    },
+    computed: {
+      diagramType() {
+        return this.$store.state.diagram.diagramType
+      },
+    },
+    methods: {
+      toggleAIChat() {
+        if (this.showAIChat) {
+          this.closeAIChat()
+          return
+        }
+        this.showAIChat = true
+        trackAnalyticsEvent('ai_chat_opened', {
+          feature_area: 'ai',
+          surface: 'editor',
+          macro_type: this.diagramType || 'none',
+          entry_point: 'ai_prompt',
+        })
+      },
+      closeAIChat() {
+        if (!this.showAIChat) return
+        this.showAIChat = false
+        trackAnalyticsEvent('ai_chat_closed', {
+          feature_area: 'ai',
+          surface: 'editor',
+          macro_type: this.diagramType || 'none',
+        })
+      },
     },
     async mounted () {
       // @ts-ignore
@@ -43,7 +94,8 @@
       DiagramPortal,
       Header,
       Editor,
-      SyntaxErrorBox
+      SyntaxErrorBox,
+      AIChatPanel,
     }
   }
 </script>
@@ -53,6 +105,32 @@
 .split {
   display: flex;
   flex-direction: row;
+}
+
+.workspace-main {
+  overflow: hidden;
+}
+
+.ai-chat-panel-container {
+  width: 360px;
+  min-width: 320px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-right: 1px solid #e2e8f0;
+  box-shadow: 4px 0 16px rgba(15, 23, 42, 0.06);
+  z-index: 20;
+}
+
+.ai-chat-panel-enter-active,
+.ai-chat-panel-leave-active {
+  transition: width 180ms ease, min-width 180ms ease, opacity 140ms ease;
+}
+
+.ai-chat-panel-enter-from,
+.ai-chat-panel-leave-to {
+  width: 0;
+  min-width: 0;
+  opacity: 0;
 }
 
 #workspace-right {
@@ -96,5 +174,14 @@
 
 .gutter.gutter-horizontal:hover::after {
   background-color: #6b7280;
+}
+
+@media (max-width: 980px) {
+  .ai-chat-panel-container {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: min(360px, 90vw);
+    min-width: 0;
+  }
 }
 </style>

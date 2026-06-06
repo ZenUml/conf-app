@@ -8,6 +8,19 @@
       <DiagramTitleInput />
     </div>
     <div class="flex items-center gap-3 shrink-0">
+      <button
+        class="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors duration-200"
+        :class="
+          aiChatOpen
+            ? 'bg-violet-100 text-violet-800'
+            : 'text-gray-500 hover:bg-violet-50 hover:text-violet-700'
+        "
+        data-testid="ai-chat-toggle"
+        @click="$emit('toggle-ai-chat')"
+      >
+        <SparklesIcon class="h-4 w-4" />
+        <span>AI Chat</span>
+      </button>
       <button class="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
         @click="templateClick">
         <LightBulbIcon class="w-4 h-4" />
@@ -48,16 +61,25 @@ import { getEditJourneyId, getOrCreateSession } from "@/utils/journeyTracking";
 import { openUrl } from "@/model/globals/forgeGlobal";
 import LightBulbIcon from '@heroicons/vue/24/outline/LightBulbIcon';
 import QuestionMarkCircleIcon from '@heroicons/vue/24/outline/QuestionMarkCircleIcon';
+import SparklesIcon from '@heroicons/vue/24/outline/SparklesIcon';
 import DiagramTitleInput from "@/components/Header/DiagramTitleInput.vue";
 
 export default {
   name: "Header",
+  props: {
+    aiChatOpen: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  emits: ["toggle-ai-chat"],
   components: {
     PublishButton,
     TabSwitcher,
     DiagramTitleInput,
     LightBulbIcon: { render: LightBulbIcon },
     QuestionMarkCircleIcon: { render: QuestionMarkCircleIcon },
+    SparklesIcon: { render: SparklesIcon },
   },
   data() {
     return {

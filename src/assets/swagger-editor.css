@@ -40,6 +40,56 @@ body {
   overflow-y: scroll;
 }
 
+.swagger-editor-workspace {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.react-ai-chat-panel-container {
+  width: 360px;
+  min-width: 320px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-right: 1px solid #e2e8f0;
+  box-shadow: 4px 0 16px rgba(15, 23, 42, 0.06);
+  z-index: 20;
+}
+
+.react-ai-chat-dot {
+  animation: react-ai-chat-pulse 1.2s infinite;
+}
+
+.react-ai-chat-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.react-ai-chat-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes react-ai-chat-pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 980px) {
+  .react-ai-chat-panel-container {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: min(360px, 90vw);
+    min-width: 0;
+  }
+}
+
 .save-and-exit {
   position: fixed;
   z-index: 1000;

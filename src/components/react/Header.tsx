@@ -9,8 +9,10 @@ import yaml from "js-yaml";
 interface Props {
   saveAndExit: VoidFunction;
   exit: VoidFunction;
+  aiChatOpen?: boolean;
+  onToggleAiChat?: VoidFunction;
 }
-const Component = ({ saveAndExit, exit }: Props) => {
+const Component = ({ saveAndExit, exit: _exit, aiChatOpen = false, onToggleAiChat }: Props) => {
   const [title, setTitle] = useState("");
   const [parseError, setParseError] = useState<Error | null>(null);
   const originalSpec = useRef<string | null>(null);
@@ -198,9 +200,36 @@ const Component = ({ saveAndExit, exit }: Props) => {
           </div>
         )}
       </div>
-      <div className="flex items-center">
+      <div className="flex items-center gap-2">
+        {onToggleAiChat && (
+          <button
+            type="button"
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors duration-200 ${
+              aiChatOpen
+                ? "bg-violet-100 text-violet-800"
+                : "text-gray-500 hover:bg-violet-50 hover:text-violet-700"
+            }`}
+            data-testid="react-ai-chat-toggle"
+            onClick={onToggleAiChat}
+          >
+            <svg
+              className="h-4 w-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m12 3-1.2 3.2L7.5 7.5l3.3 1.3L12 12l1.2-3.2 3.3-1.3-3.3-1.3L12 3Z" />
+              <path d="m5 14-.8 2.2L2 17l2.2.8L5 20l.8-2.2L8 17l-2.2-.8L5 14Z" />
+            </svg>
+            <span>AI Chat</span>
+          </button>
+        )}
         <a
-          className="inline-block help mx-1 ml-2"
+          className="inline-block help mx-1"
           target="_blank"
           href="helpUrl"
         >

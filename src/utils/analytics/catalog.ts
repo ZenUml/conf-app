@@ -52,6 +52,11 @@ export type RenderMode = "live_render" | "cached_svg";
 // inferring cache state from duration magnitude. See trackRenderTime.ts.
 export type CacheState = "cold" | "warm" | "unknown";
 
+// Where a `cached_svg` render sourced its SVG. `none` for `live_render`.
+// `cc_body` = SVG co-stored in the custom-content body (Phase 2);
+// `attachment` / `localstorage` reserved for a future static fast-path viewer.
+export type CacheSource = "none" | "cc_body" | "attachment" | "localstorage";
+
 export type FeedbackValue = "good" | "partial" | "bad";
 
 export type AnalyticsEventName =

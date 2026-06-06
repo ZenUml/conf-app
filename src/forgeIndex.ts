@@ -33,6 +33,7 @@ import {
   reportLegacyContentPropertyMacroRepaired,
 } from '@/utils/legacyContentPropertyTelemetry';
 import { LegacyLoadBlockedSaveError } from '@/model/ContentProvider/Persistence';
+import * as renderPerf from '@/utils/analytics/renderPerf';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -50,6 +51,10 @@ let recoveryPageId: string | undefined;
 
 // Initialize critical path rendering first
 async function initializeCriticalPath() {
+  // Phase 0b: first line of app code — records bootstrap_ms (head scripts incl.
+  // DrawIO + entry bundle eval, everything between __macroLoadStart and here).
+  renderPerf.markAppEntry();
+
   // Hide skeleton loader after critical content is loaded
   const hideSkeletonLoader = () => {
     const skeletonLoader = document.getElementById('skeleton-loader');
@@ -176,7 +181,8 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // config.uuid and not forgeGlobal.localId.
     const storageUuid: string | undefined = context.extension?.config?.uuid;
     if (customContentId) {
-      const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId);
+      const loaded = await renderPerf.time('fetch', () =>
+        globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId));
       console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
       doc = loaded.customContent?.value;
       if (loaded.recoveredFromOrphanId && doc) {

@@ -24,6 +24,7 @@ import globals from '@/model/globals';
 import EventBus from '@/EventBus';
 import { debounce } from 'lodash';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import * as renderPerf from '@/utils/analytics/renderPerf';
 
 const PLANTUML_SERVER = 'https://www.plantuml.com/plantuml/svg/';
 
@@ -100,12 +101,17 @@ export default {
       this.loading = true;
       this.error = null;
       try {
-        const encoded = plantumlEncode(code);
-        const response = await fetch(`${PLANTUML_SERVER}${encoded}`);
-        if (!response.ok) {
-          throw new Error(`PlantUML server returned ${response.status}`);
-        }
-        this.svg = await response.text();
+        // Phase 0b: render_ms = PlantUML server round trip (recorded once).
+        // Note this excludes the 500ms mount debounce, which lands in the
+        // unattributed remainder — itself a finding for Phase 1.
+        this.svg = await renderPerf.time('render', async () => {
+          const encoded = plantumlEncode(code);
+          const response = await fetch(`${PLANTUML_SERVER}${encoded}`);
+          if (!response.ok) {
+            throw new Error(`PlantUML server returned ${response.status}`);
+          }
+          return await response.text();
+        });
         if (!this.initialRenderTracked) {
           this.initialRenderTracked = true;
           trackRenderTime('plantuml', this.isDisplayMode);

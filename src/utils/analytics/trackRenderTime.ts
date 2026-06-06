@@ -1,5 +1,6 @@
 import { trackAnalyticsEvent } from './trackAnalyticsEvent';
-import type { CacheState, MacroTypeValue, RenderMode } from './catalog';
+import type { CacheState, MacroTypeValue, RenderMode, CacheSource } from './catalog';
+import { getTimings } from './renderPerf';
 
 // Below this many summed wire bytes across same-origin scripts we treat the boot
 // as warm: a disk-cache hit reports transferSize 0 and a 304 revalidation only a
@@ -44,21 +45,35 @@ export function measureCacheState(): {
 
 // Guards on window.__macroLoadStart (set in index.html head) — silently
 // no-ops in test environments that mount components without the HTML wrapper.
+//
+// `cacheSource` records where a `cached_svg` render got its SVG so we can tell
+// the cache-hit path apart from live render in Mixpanel. Defaults to 'none',
+// which is the correct value for `live_render` (the existing 2-arg callers).
 export function trackRenderTime(
   macroType: MacroTypeValue,
   isDisplayMode: boolean,
   renderMode: RenderMode = 'live_render',
+  cacheSource: CacheSource = 'none',
 ): void {
   const t0 = window.__macroLoadStart;
   if (typeof t0 !== 'number') return;
+  const duration_ms = Math.round(performance.now() - t0);
+  const timings = getTimings();
   const { cacheState, transferBytes } = measureCacheState();
+  // Dev-only: surface the phase breakdown locally (mirrors the POC harness).
+  // Stripped from prod by the bundler's `import.meta.env.DEV` constant fold.
+  if (import.meta.env.DEV) {
+    console.debug('[macro_viewed]', { macro_type: macroType, duration_ms, ...timings });
+  }
   trackAnalyticsEvent('macro_viewed', {
     feature_area: 'macro',
     surface: isDisplayMode ? 'viewer' : 'editor',
     macro_type: macroType,
     render_mode: renderMode,
-    duration_ms: Math.round(performance.now() - t0),
+    cache_source: cacheSource,
+    duration_ms,
     cache_state: cacheState,
     ...(transferBytes !== undefined ? { transfer_bytes: transferBytes } : {}),
+    ...timings,
   });
 }

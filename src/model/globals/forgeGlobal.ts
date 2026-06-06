@@ -1,4 +1,5 @@
 import { getPresetById } from '@/sandbox/presets';
+import * as renderPerf from '@/utils/analytics/renderPerf';
 
 const global = {
   isForge: true,
@@ -141,7 +142,10 @@ export async function getView() {
 
 export async function getContext() {
   if(!global.forgeContext) {
-    await getView();
+    // Phase 0b: time the first, uncached context resolve (the Forge bridge
+    // round-trip). renderPerf.time records once, so later cache hits — which
+    // skip this branch entirely — never overwrite it.
+    await renderPerf.time('context', () => getView());
   }
   return global.forgeContext;
 }

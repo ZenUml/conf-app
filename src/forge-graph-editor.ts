@@ -128,7 +128,12 @@ async function saveGraphAndExit(graphXml: string, pngBlob?: Blob | null): Promis
           fromSave: true,
           renderedPng: pngBlob,
         }),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('save-attachment timeout')), 2500)),
+        // 6s, matching the sequence path in forgeIndex.ts. With fromSave the
+        // slow Confluence write runs server-side (the backend acks after
+        // validation and finishes in waitUntil), so this await only bounds the
+        // fast backend ack — the PNG is already captured by DrawIO here. The cap
+        // is a hang-guard; 2.5s was too tight and abandoned the await early.
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('save-attachment timeout')), 6000)),
       ]);
     } catch (e) {
       console.warn('graph save-time attachment creation skipped (non-fatal):', (e as Error)?.message ?? e);

@@ -308,8 +308,15 @@ async function renderAttachmentPng(
   hash: string,
   content?: string,
   diagramType?: string,
+  preRendered?: Blob,
 ): Promise<{ blob: Blob; effectiveHash: string }> {
-  let blob = await capturePng(diagramType, content);
+  // graph save-time path: callers that own a capturable surface toPng() can't
+  // reach (the DrawIO editor exports its own PNG over postMessage) pass the
+  // bytes in directly. iTXt source injection below still runs, so the recovery
+  // format stays uniform regardless of where the PNG was captured. When no PNG
+  // is supplied, capturePng() selects the source per diagram type (PlantUML
+  // server PNG, otherwise on-page toPng()).
+  let blob = preRendered ?? await capturePng(diagramType, content);
   if (blob && content !== undefined && diagramType) {
     try {
       const { injectDiagramSource } = await import('@/utils/pngMetadata');
@@ -640,7 +647,7 @@ async function updateAttachmentProperties(attachmentMeta: AttachmentMeta): Promi
 async function createAttachmentIfContentChanged(
   content: string,
   diagramType?: string,
-  opts?: { customContentId?: string; fromSave?: boolean },
+  opts?: { customContentId?: string; fromSave?: boolean; renderedPng?: Blob },
 ): Promise<void> {
   const hash = md5(content);
   const ctx = await buildUploadContext(hash, diagramType);
@@ -714,7 +721,9 @@ async function createAttachmentIfContentChanged(
       trackEvent('version:' + target.versionNumber, 'upload_attachment', 'export', ctx);
 
       // Render once — the same PNG bytes feed the user attempt AND the fallback.
-      const { blob, effectiveHash } = await renderAttachmentPng(hash, content, diagramType);
+      // opts.renderedPng (graph save path) supplies pre-captured bytes; otherwise
+      // we capture via toPng() from the viewer surface.
+      const { blob, effectiveHash } = await renderAttachmentPng(hash, content, diagramType, opts?.renderedPng);
 
       let attachmentMeta: AttachmentMeta;
       let viaAppFallback = false;

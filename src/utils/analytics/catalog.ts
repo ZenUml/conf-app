@@ -43,6 +43,15 @@ export type OperationMode = "create" | "edit" | "unknown";
 
 export type RenderMode = "live_render" | "cached_svg";
 
+// Browser cache state at macro render time, derived from Resource Timing
+// transferSize of the macro's same-origin JS bundle:
+//   warm    — bundle served from HTTP/disk cache (transferSize ~ 0)
+//   cold    — bundle downloaded over the wire (transferSize = wire bytes)
+//   unknown — Resource Timing unavailable (e.g. test env) or no same-origin script seen
+// Lets cold-vs-warm render-time comparisons use a measured signal instead of
+// inferring cache state from duration magnitude. See trackRenderTime.ts.
+export type CacheState = "cold" | "warm" | "unknown";
+
 export type FeedbackValue = "good" | "partial" | "bad";
 
 export type AnalyticsEventName =

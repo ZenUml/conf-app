@@ -8,6 +8,7 @@ import type {
   OperationMode,
   FeedbackValue,
   RenderMode,
+  CacheState,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -62,6 +63,12 @@ export type AnalyticsProperties = {
   // Performance
   render_mode?: RenderMode;
   duration_ms?: number;
+  // Browser cache state at render time, measured via Resource Timing transferSize
+  // of same-origin JS bundles, plus the raw summed wire bytes. Lets cold/warm
+  // render-time comparisons use a measured signal rather than inferring cache
+  // state from duration magnitude. See utils/analytics/trackRenderTime.ts.
+  cache_state?: CacheState;
+  transfer_bytes?: number;
   // Error
   error_code?: string;
   error_name?: string;

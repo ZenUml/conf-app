@@ -54,6 +54,10 @@ test-results/
 .claude/skills/**/__pycache__/
 .codex/
 
+# Generated cross-platform links mirroring .claude/skills (run `pnpm link:skills`)
+/.agents/skills/*
+!/.agents/skills/.gitkeep
+
 # Local Mixpanel exports — raw production telemetry, never commit
 mixpanel-export*
 

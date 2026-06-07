@@ -22,7 +22,14 @@ import { Diagram, DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram'
 import { saveToPlatform } from '@/model/ContentProvider/Persistence'
 import { buildAsyncApiSaveDiagram } from '@/model/asyncapi/buildSaveDiagram'
 import { mountRoot } from '@/mount-root'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import EventBus from './EventBus'
+
+// Captured at mount so the module-level EventBus 'edit' handler can forward the
+// macro's document id into the edit modal. Without it the editor opens on the
+// default spec and a save forks a new document instead of editing this one —
+// and for embed macros it's what lets the modal edit the *referenced* doc.
+let viewerCustomContentId: string | undefined
 
 async function initializeMacro() {
   const context = await initForgeContext()
@@ -32,6 +39,7 @@ async function initializeMacro() {
   const customContentId =
     context.extension?.config?.customContentId ||
     context.extension?.modal?.customContentId
+  viewerCustomContentId = customContentId
 
   let spec: string | undefined
   let existing: Diagram | undefined
@@ -160,6 +168,14 @@ void initializeMacro()
 // Studio chrome.
 EventBus.$on('edit', async () => {
   try {
+    trackAnalyticsEvent('macro_edit_opened', {
+      feature_area: 'macro',
+      surface: 'viewer',
+      macro_type: 'asyncapi',
+      entry_point: 'macro_toolbar',
+      operation_mode: 'edit',
+      custom_content_id: viewerCustomContentId,
+    })
     await openModal({
       resource: 'main',
       onClose: () => {
@@ -170,6 +186,12 @@ EventBus.$on('edit', async () => {
       context: {
         macroMode: 'editor',
         diagramType: 'asyncapi',
+        // Forward the macro's document id so the editor loads and saves THIS
+        // document in place. For an embed macro this is the referenced doc:
+        // editing it here updates the live reference's content. (Re-targeting
+        // which document is embedded stays a page-editor operation — see
+        // resolveAsyncApiEditorEntry.)
+        customContentId: viewerCustomContentId,
       },
     })
   } catch (err) {

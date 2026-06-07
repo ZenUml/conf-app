@@ -5,6 +5,7 @@ import {trackEvent, serializeError} from "@/utils/window";
 import { toast } from '@/utils/toast';
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import { decideWriteback } from "@/model/writebackGate";
+import { resolveAsyncApiEditorEntry } from "@/model/asyncapi/resolveEditorEntry";
 
 import './assets/tailwind.css'
 import { saveToPlatform } from "./model/ContentProvider/Persistence";
@@ -567,7 +568,18 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       // The embed macro VIEW reuses forge-asyncapi-viewer — same code
       // path, reads extension.config.customContentId either way.
       if (editable) {
-        await import(isAsyncApiEmbed
+        // The embed picker persists only via view.submit(), which throws
+        // "view is not submittable" in the view-mode Edit modal
+        // (modal.macroMode === 'editor') — routing it there made re-targeting
+        // an embed silently fail with "Failed to embed document.". Only open
+        // the picker from the native page-editor config surface; from the
+        // view-mode Edit modal, edit the referenced document's spec instead.
+        const isViewModeEditModal = context.extension?.modal?.macroMode === 'editor';
+        const entry = resolveAsyncApiEditorEntry({
+          isEmbedMacro: isAsyncApiEmbed,
+          isViewModeEditModal,
+        });
+        await import(entry === 'embed-picker'
           ? "@/forge-asyncapi-embed-editor"
           : "@/forge-asyncapi-editor");
       } else {

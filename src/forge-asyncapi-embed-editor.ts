@@ -12,6 +12,7 @@ import React from 'react'
 import ReactDOM from 'react-dom'
 import uuidv4 from '@/utils/uuid'
 import { getView } from '@/model/globals/forgeGlobal'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import AsyncApiEmbedEditor, {
   AsyncApiEmbedPick,
 } from '@/components/Editor/AsyncApiEmbedEditor/AsyncApiEmbedEditor'
@@ -41,8 +42,26 @@ async function initializeMacro() {
         },
       })
     } catch (err) {
+      // view.submit() throws "this resource's view is not submittable" on any
+      // surface that isn't the native page-editor config gesture. forgeIndex
+      // now routes the picker only to that submittable surface, but guard
+      // anyway: tell the user where re-targeting actually works instead of the
+      // old dead-end "try again" loop (the retry never could have succeeded).
+      const msg = err instanceof Error ? err.message : String(err)
+      const notSubmittable = /not submittable/i.test(msg)
       console.error('Failed to submit embed macro selection:', err)
-      window.alert('Failed to embed document. Please try again.')
+      trackAnalyticsEvent('embed_retarget_blocked', {
+        feature_area: 'macro',
+        surface: 'editor',
+        macro_type: 'embed',
+        operation_mode: 'edit',
+        failure_reason: notSubmittable ? 'view_not_submittable' : msg.slice(0, 120),
+      })
+      window.alert(
+        notSubmittable
+          ? 'To change which document this macro embeds, edit it from the page editor: open the page in Edit mode, select the macro, and choose Edit. Re-targeting an embed isn’t available from the view-mode editor.'
+          : 'Failed to embed document. Please try again.',
+      )
     }
   }
 

@@ -260,6 +260,24 @@ describe("trackAnalyticsEvent", () => {
     );
   });
 
+  it("sets record_sessions_percent to 0 in the page-banner context", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: undefined,
+      moduleKey: "zenuml-page-banner",
+      environmentType: "production",
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("paywall_banner_shown", {
+      feature_area: "upgrade",
+      surface: "page_banner",
+    });
+
+    expect(mixpanel.init).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ record_sessions_percent: 0 })
+    );
+  });
+
   it("does not throw when mixpanel.track throws", async () => {
     vi.mocked(mixpanel.track).mockImplementation(() => {
       throw new Error("mixpanel down");

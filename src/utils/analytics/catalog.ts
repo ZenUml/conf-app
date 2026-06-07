@@ -68,6 +68,11 @@ export type AnalyticsEventName =
   | "macro_edit_cancelled"
   | "macro_save_succeeded"
   | "macro_save_failed"
+  // Embed re-target attempted from a non-submittable surface (e.g. the
+  // view-mode Edit modal). view.submit() throws "view is not submittable"
+  // there, so the embed's document reference cannot be changed — the user
+  // must re-target from the page editor. Tracks how often users hit this.
+  | "embed_retarget_blocked"
   | "macro_export_requested"
   | "macro_export_succeeded"
   | "macro_export_failed"

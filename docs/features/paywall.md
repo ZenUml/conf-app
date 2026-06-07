@@ -1,6 +1,6 @@
 # Paywall — Status & Roadmap (ZenUML Lite)
 
-**Last updated:** 2026-06-03 · **Variant scope:** Lite only (Full/Diagramly bypass via `isLite() === false`) · **Day-to-day monitoring:** `.claude/skills/paywall/SKILL.md`
+**Last updated:** 2026-06-07 · **Variant scope:** Lite only (Full/Diagramly bypass via `isLite() === false`) · **Day-to-day monitoring:** `.claude/skills/paywall/SKILL.md`
 
 This is the single source of truth for the Lite paywall. It replaces the former separate strategy / export-research / extension-flow / page-banner docs (folded in here 2026-06-03; full history in git).
 
@@ -20,10 +20,38 @@ The **friction funnel is fully shipped and instrumented**: per-space 100-macro s
 |---|---|---|
 | Edit / create soft-block modal | `paywall_blocked_edit` / `paywall_blocked_create` + `paywall_triggered` | PR #89 (create path) |
 | Advocacy CTA (marketplace/sales CTAs removed — were 0% click) | `advocacy_message_copied` | — |
-| 15 continue-attempts gate (localStorage, per `domain:space:user`) | `paywall_continue_used`, `paywall_attempts_exhausted` | — |
+| 15 continue-attempts gate (localStorage, per `clientDomain:spaceKey:userAccountId`) | `paywall_continue_used`, `paywall_attempts_exhausted` | `src/utils/paywall/continueAttempts.ts` |
 | Page-banner warning (85–99 band, 7-day snooze, CSAT defer) | `paywall_banner_shown` / `_dismissed`, `surface: page_banner` | PRs #201–#210 |
 | Space-admin activity probe (Phase 5a; Lite, 30d throttle) | `space_admin_active` (`is_space_admin: true`, `surface: page_banner`) | `src/utils/paywall/spaceAdminProbe.ts` |
 | Export Phase-1 telemetry | `macro_export_requested` / `_succeeded` / `_failed` | `src/export.js` |
+
+---
+
+## Soft-paywall mechanics (how the continue-attempts gate actually works)
+
+**Architecture:** Pure Forge — no Connect code. The paywall fires at editor mount on Lite for every save path (slash-menu insert, page-editor edit, view-mode Edit, fullscreen viewer). Publish does NOT trigger it.
+
+**Gate location:** Access is gated at the modal via the counter, not at the persistence layer. `saveToPlatform` deliberately has **no** `shouldBlockActions` check. The "save is gated in the persistence layer" code comments in `UpgradePrompt.vue` are misleading wording — ignore them.
+
+**Flow:**
+
+1. On editor mount, if the space is over-threshold and the tenant is on the CSS flag, the paywall modal appears.
+2. The modal shows a **"Continue editing without upgrading (N)"** button, where N = `remainingAttempts`.
+3. Each click decrements N, dismisses the modal, and lets the user reach the editor and **save normally**. Saves persisting during the grace window is BY DESIGN, not a leak.
+4. When N reaches 0, the button is replaced by non-clickable **"Request extension to continue editing"** (`canContinueEditing = remainingContinueAttempts > 0` in `UpgradePrompt.vue`) — the modal can no longer be dismissed into the editor, and the user is locked out of editing.
+
+**Constants and storage:**
+
+| Item | Value / Location |
+|---|---|
+| `DEFAULT_CONTINUE_ATTEMPTS` | `15` — `src/utils/paywall/continueAttempts.ts` |
+| localStorage key format | `paywallContinueAttempts:<clientDomain>:<spaceKey>:<userAccountId>` (each part URL-encoded) |
+| State fields | `remainingAttempts`, `firstTriggeredAt`, `lastUsedAt`, `exhaustedAt` |
+| Events | `paywall_continue_used` (each click), `paywall_attempts_exhausted` (N hits 0) |
+
+**Known client-side weak spot:** the counter is `localStorage`-keyed per `clientDomain:spaceKey:userAccountId`, so clearing storage or using an incognito window resets N to 15. This is a deliberate soft-paywall tradeoff — not a bug to patch without a product decision.
+
+**Testing on staging:** on `lite-stg`, the large over-threshold space is **`SD`** (~1230 macros). When the paywall modal appears, click **"Continue editing"** to proceed — do NOT hunt for `localStorage` overrides (`mockSpacePaid` etc.) to suppress it.
 
 ---
 

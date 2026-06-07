@@ -80,20 +80,48 @@ class AsyncApiStudioIntegration {
     }
   }
 
-  public saveSpec(): Promise<string> {
-    return new Promise((resolve, reject) => {
-      try {
-        const currentSpec = localStorage.getItem('document');
-        if (currentSpec) {
-          resolve(currentSpec);
-        } else {
-          reject(new Error('No spec found in localStorage'));
-        }
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : 'Unknown error';
-        reject(new Error('Failed to access localStorage: ' + msg));
+  public async saveSpec(): Promise<string> {
+    // Studio's Monaco onChange runs through `debounce(..., savingDelay)`
+    // (apps/studio/src/components/Editor/MonacoWrapper.tsx) with default
+    // savingDelay=625ms. Until that debounce fires, the user's most
+    // recent keystrokes live only in Monaco's in-memory value — they
+    // haven't reached localStorage. Clicking Publish before the debounce
+    // expires would otherwise have us PUT a stale body and silently
+    // lose the latest edits.
+    //
+    // Two-step flush:
+    //   1. Dispatch Ctrl+S into the Monaco editor (Studio binds Ctrl+S
+    //      to `editorSvc.saveToLocalStorage()` — see
+    //      apps/studio/src/services/editor.service.tsx). This forces an
+    //      immediate, undebounced write of Monaco's current value to
+    //      localStorage.
+    //   2. yield to the next macrotask so the synthetic event handler +
+    //      localStorage.setItem complete before we read.
+    //
+    // The 750ms wait is a belt-and-suspenders backstop in case the
+    // Ctrl+S keybinding fails (e.g. iframe not yet focused or Studio
+    // patched the keybinding) — it's strictly larger than the default
+    // savingDelay so any pending debounced autosave will have flushed.
+    try {
+      const win = this.iframe.contentWindow;
+      const doc = this.iframe.contentDocument;
+      if (win && doc) {
+        const target = (doc.activeElement as HTMLElement) || doc.body;
+        const keydown = new (win as any).KeyboardEvent('keydown', {
+          key: 's', code: 'KeyS', keyCode: 83, which: 83,
+          ctrlKey: true, metaKey: true, bubbles: true, cancelable: true,
+        });
+        target.dispatchEvent(keydown);
       }
-    });
+    } catch {
+      // Cross-origin or other error — fall through to the delay.
+    }
+    await new Promise((r) => setTimeout(r, 750));
+    const currentSpec = localStorage.getItem('document');
+    if (!currentSpec) {
+      throw new Error('No spec found in localStorage');
+    }
+    return currentSpec;
   }
 
   public destroy() {

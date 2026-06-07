@@ -398,15 +398,12 @@ async function runCommandLogged({
 
 async function buildApp({ app }) {
   // The asyncapi variant calls `scripts/build-studio.sh` before the
-  // vite build. The script is a no-op when static/asyncapi-studio/ is
-  // already populated — which is the normal case, because that
-  // directory is a *committed* known-working Studio bundle (a snapshot
-  // from the legacy AsyncAPI-Conf-V2 build). Current asyncapi/studio
-  // HEAD produces a bundle that stalls inside Forge's nested iframe,
-  // so we pin the deployable artifact in-tree and keep the
-  // vendor/asyncapi-studio submodule purely as an upstream source
-  // reference (set FORCE_REBUILD=1 to rebuild from it). See the
-  // header comment in scripts/build-studio.sh for the full rationale.
+  // vite build. The script rebuilds the AsyncAPI Studio from the
+  // vendor/asyncapi-studio submodule (pinned to @asyncapi/studio@1.0.1
+  // — the version AsyncAPI-Conf-V2 used) and writes the output to
+  // static/asyncapi-studio/ (which is gitignored). A .studio-commit
+  // stamp inside that dir lets re-runs skip the rebuild when the
+  // submodule SHA is unchanged; set FORCE_REBUILD=1 to override.
   // Other variants don't have any pre-build step, so we keep their
   // command at a bare `vite build`.
   let args

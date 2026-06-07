@@ -1,0 +1,9 @@
+{
+  "name": "zenuml-confluence-website",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler pages deploy . --project-name=zenuml-confluence-website",
+    "deploy:preview": "wrangler pages deploy . --project-name=zenuml-confluence-website --branch=preview"
+  }
+}

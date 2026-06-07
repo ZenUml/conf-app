@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mermaid Diagrams in Confluence — Flowcharts, Sequence, Class | ZenUML</title>
+  <meta name="description" content="Use Mermaid.js in Confluence to create flowcharts, sequence diagrams, class diagrams, Gantt charts, pie charts, and more — directly in pages, no plugins needed." />
+  <link rel="canonical" href="https://confluence.zenuml.com/diagram-types/mermaid/" />
+  <link rel="stylesheet" href="../../assets/css/main.css" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Mermaid Diagrams in Confluence — Flowcharts, Sequence, Class | ZenUML" />
+  <meta property="og:description" content="Use Mermaid.js in Confluence to create flowcharts, sequence diagrams, class diagrams, Gantt charts, pie charts, and more — directly in pages, no plugins needed." />
+  <meta property="og:url" content="https://confluence.zenuml.com/diagram-types/mermaid/" />
+
+  <!-- Schema.org FAQPage -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "What Mermaid diagram types are supported in ZenUML for Confluence?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "ZenUML for Confluence supports eleven Mermaid diagram types: flowchart, sequence, class, stateDiagram, erDiagram, gantt, pie, journey, gitgraph, quadrantChart, and xychart. This covers all of the most commonly used Mermaid diagram types."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Is Mermaid syntax the same as GitHub Markdown?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. ZenUML for Confluence uses the same Mermaid.js library that GitHub, GitLab, and Notion use to render fenced Mermaid code blocks. A diagram that renders in a GitHub README will render identically in Confluence using ZenUML — no syntax changes required."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I copy a Mermaid diagram from GitHub into Confluence?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. Copy the Mermaid source code from your GitHub README or pull request, paste it into a ZenUML macro set to the Mermaid type, and it will render immediately. The syntax is identical — there is no translation step."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I create a flowchart in Confluence?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Insert a ZenUML macro on your Confluence page, select the Mermaid diagram type, and type or paste your flowchart using Mermaid's graph or flowchart syntax. For example: 'graph TD; A[Start] --> B{Decision}; B -- Yes --> C[Action]; B -- No --> D[End]'. The diagram renders live as you type."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does Mermaid support ER diagrams and database schemas?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. The erDiagram type in Mermaid lets you define entities, attributes, and relationships (one-to-one, one-to-many, many-to-many) using a simple text syntax. ZenUML for Confluence renders erDiagram fully in the browser — it is well suited for documenting database schemas alongside your Confluence architecture pages."
+        }
+      }
+    ]
+  }
+  </script>
+
+  <style>
+    /* Page-specific styles */
+    .hero-sub {
+      font-size: 1.1rem;
+      max-width: 640px;
+      color: var(--body);
+      margin-top: 16px;
+      line-height: 1.7;
+    }
+    .code-block {
+      background: #1e2433;
+      color: #e2e8f4;
+      border-radius: var(--radius);
+      padding: 28px 32px;
+      font-family: 'Menlo', 'Consolas', 'Monaco', monospace;
+      font-size: .875rem;
+      line-height: 1.8;
+      overflow-x: auto;
+      position: relative;
+    }
+    .code-block .code-label {
+      position: absolute;
+      top: 12px;
+      right: 16px;
+      font-size: .7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #7a8fb0;
+      font-family: inherit;
+    }
+    .code-kw  { color: #79b8ff; }
+    .code-str { color: #9ecbff; }
+    .code-cmt { color: #6a737d; font-style: italic; }
+    .code-node { color: #b392f0; }
+    .code-edge { color: #f97583; }
+    .code-arrow { color: #85e89d; }
+
+    .type-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .type-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 18px 20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    .type-item-icon {
+      font-size: 1.4rem;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .type-item-body h3 {
+      font-size: .95rem;
+      margin: 0 0 4px;
+      font-weight: 700;
+    }
+    .type-item-body p {
+      font-size: .825rem;
+      color: var(--body);
+      margin: 0;
+      line-height: 1.5;
+    }
+
+    .benefit-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+    }
+    .benefit-item {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .benefit-num {
+      flex-shrink: 0;
+      width: 32px;
+      height: 32px;
+      background: var(--primary-light);
+      color: var(--primary);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .8rem;
+      font-weight: 800;
+      margin-top: 2px;
+    }
+    .benefit-item h3 {
+      font-size: 1rem;
+      margin: 0 0 6px;
+    }
+    .benefit-item p {
+      font-size: .875rem;
+      line-height: 1.6;
+      color: var(--body);
+      margin: 0;
+    }
+
+    .usecase-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 20px;
+    }
+    .usecase-card {
+      padding: 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    .usecase-card .team-tag {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 99px;
+      font-size: .7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      background: var(--primary-light);
+      color: var(--primary);
+      margin-bottom: 12px;
+    }
+    .usecase-card h3 {
+      font-size: 1rem;
+      margin: 0 0 8px;
+    }
+    .usecase-card p {
+      font-size: .875rem;
+      line-height: 1.6;
+      color: var(--body);
+      margin: 0;
+    }
+
+    .cta-section {
+      background: linear-gradient(135deg, #0052CC 0%, #0747A6 100%);
+      color: #fff;
+    }
+    .cta-section h2,
+    .cta-section p { color: #fff; }
+    .cta-section .btn-outline-white {
+      border: 2px solid rgba(255,255,255,.6);
+      color: #fff;
+      background: transparent;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: var(--radius);
+      font-weight: 600;
+      font-size: .9rem;
+      text-decoration: none;
+      transition: border-color .15s, background .15s;
+    }
+    .cta-section .btn-outline-white:hover {
+      border-color: #fff;
+      background: rgba(255,255,255,.12);
+      text-decoration: none;
+    }
+
+    .what-is-box {
+      max-width: 760px;
+      margin: 0 auto;
+    }
+    .what-is-box p {
+      font-size: 1rem;
+      line-height: 1.8;
+      color: var(--body);
+      margin-bottom: 16px;
+    }
+    .what-is-box p:last-child { margin-bottom: 0; }
+  </style>
+</head>
+
+<body>
+
+  <!-- ───── Navigation ───── -->
+  <nav class="nav" aria-label="Main navigation">
+    <a href="/" class="nav-logo" aria-label="ZenUML for Confluence home">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+        <rect width="28" height="28" rx="6" fill="#0052CC"/>
+        <path d="M7 20L11 8l4 8 4-8 4 12" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      ZenUML <span>for Confluence</span>
+    </a>
+    <ul class="nav-links" role="list">
+      <li><a href="/features/">Features</a></li>
+      <li><a href="/diagram-types/" aria-current="true">Diagram Types</a></li>
+      <li><a href="/pricing/">Pricing</a></li>
+      <li><a href="/install/">Install</a></li>
+      <li><a href="/faq/">FAQ</a></li>
+    </ul>
+    <a href="https://marketplace.atlassian.com/apps/1218014/zenuml-sequence-diagram" class="btn btn-primary" target="_blank" rel="noopener">
+      Get Free on Marketplace
+    </a>
+  </nav>
+
+  <!-- ───── Hero ───── -->
+  <section class="hero" aria-labelledby="hero-heading">
+    <div class="container">
+      <nav aria-label="Breadcrumb">
+        <ol class="breadcrumb" style="list-style:none;padding:0;">
+          <li><a href="/">Home</a></li>
+          <li aria-hidden="true"><span>›</span></li>
+          <li><a href="/diagram-types/">Diagram Types</a></li>
+          <li aria-hidden="true"><span>›</span></li>
+          <li aria-current="page">Mermaid</li>
+        </ol>
+      </nav>
+      <div class="label">Diagram Types</div>
+      <h1 id="hero-heading">Mermaid Diagrams in Confluence</h1>
+      <p class="hero-sub">
+        Write Mermaid.js syntax directly in your Confluence pages and get flowcharts, sequence
+        diagrams, class diagrams, Gantt charts, ER diagrams, and more — rendered live in the
+        browser, stored as text, and version-controlled alongside your documentation.
+      </p>
+      <div class="hero-cta">
+        <a href="https://marketplace.atlassian.com/apps/1218014/zenuml-sequence-diagram" class="btn btn-primary" target="_blank" rel="noopener">
+          Install Free on Marketplace
+        </a>
+        <a href="/diagram-types/" class="btn btn-ghost">All Diagram Types</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── What is Mermaid? ───── -->
+  <section class="section" aria-labelledby="what-is-heading">
+    <div class="container">
+      <div class="text-center mb-48">
+        <div class="label">About Mermaid</div>
+        <h2 id="what-is-heading">What is Mermaid?</h2>
+      </div>
+      <div class="what-is-box">
+        <p>
+          Mermaid is an open-source JavaScript library that generates diagrams from a plain-text
+          definition language. You write a short, human-readable description — similar to Markdown
+          — and Mermaid renders a fully styled diagram directly in the browser, with no image files
+          and no server required.
+        </p>
+        <p>
+          Mermaid is widely adopted across the developer toolchain. GitHub renders Mermaid code
+          blocks natively in READMEs and pull request descriptions. GitLab, Notion, and many
+          documentation platforms do the same. When you write a diagram as Mermaid source code,
+          it becomes a first-class text artifact: reviewable in a code review, diffable in version
+          control, and portable across every tool that speaks Mermaid.
+        </p>
+        <p>
+          ZenUML for Confluence brings the same Mermaid.js library into your Atlassian workspace.
+          Paste a diagram you drafted in a GitHub README, write one from scratch in the live editor,
+          or let AI generate a starting draft — all within the page you are already editing.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── Code Example ───── -->
+  <section class="section section-alt" aria-labelledby="example-heading">
+    <div class="container" style="max-width:760px;">
+      <div class="text-center mb-48">
+        <div class="label">Live Example</div>
+        <h2 id="example-heading">Mermaid syntax at a glance</h2>
+        <p class="mt-16" style="max-width:560px;margin-left:auto;margin-right:auto;">
+          The code below is a complete Mermaid flowchart. Paste it into a ZenUML macro set to the
+          Mermaid type and it renders immediately — no configuration required.
+        </p>
+      </div>
+      <pre class="code-block" aria-label="Mermaid flowchart example"><span class="code-label">Mermaid — flowchart</span><span class="code-kw">graph</span> TD
+  <span class="code-node">A</span>[<span class="code-str">User</span>] <span class="code-arrow">--&gt;</span> <span class="code-node">B</span>{<span class="code-str">Login?</span>}
+  <span class="code-node">B</span> <span class="code-edge">-- Yes --&gt;</span> <span class="code-node">C</span>[<span class="code-str">Dashboard</span>]
+  <span class="code-node">B</span> <span class="code-edge">-- No --&gt;</span>  <span class="code-node">D</span>[<span class="code-str">Login Page</span>]
+  <span class="code-node">D</span> <span class="code-arrow">--&gt;</span> <span class="code-node">B</span></pre>
+      <p class="mt-16 text-center" style="font-size:.875rem;color:var(--body);">
+        This syntax is identical to what you would write in a GitHub README fenced code block —
+        no changes required when moving between tools.
+      </p>
+    </div>
+  </section>
+
+  <!-- ───── Supported Diagram Types ───── -->
+  <section class="section" aria-labelledby="types-heading">
+    <div class="container">
+      <div class="text-center mb-48">
+        <div class="label">Supported Types</div>
+        <h2 id="types-heading">Supported Mermaid diagram types</h2>
+        <p class="mt-16" style="max-width:580px;margin-left:auto;margin-right:auto;">
+          ZenUML for Confluence supports eleven Mermaid diagram types, covering the full range
+          of software architecture, data modelling, project management, and analytics use cases.
+        </p>
+      </div>
+      <div class="type-grid">
+
+        <div class="type-item">
+          <div class="type-item-icon" aria-hidden="true">⬡</div>
+          <div class="type-item-body">
+            <h3>flowchart / graph</h3>
+            <p>Directed and undirected flowcharts with decision nodes, subgraphs, and custom shapes.</p>
+          </div>
+        </div>
+
+        <div class="type-item">
+          <div class="type-item-icon" aria-hidden="true">↔</div>
+          <div class="type-item-body">
+            <h3>sequence</h3>
+            <p>Participant-based sequence diagrams with messages, loops, alt/opt blocks, and notes.</p>
+          </div>
+        </div>
+
+        <div class="type-item">
+          <div class="type-item-icon" aria-hidden="true">◻</div>
+          <div class="type-item-body">
+            <h3>class</h3>
+            <p>UML class diagrams with attributes, methods, inheritance, and association relationships.</p>
+          </div>
+        </div>
+
+        <div class="type-item">
+          <div class="type-item-icon" aria-hidden="true">◈</div>
+          <div class="type-item-body">
+            <h3>stateDiagram</h3>
+            <p>State machine diagrams with transitions, composite states, and concurrency forks.</p>
+          </div>
+        </div>
+
+        <div class="type-item">
+          <div class="type-item-icon" aria-hidden="true">⊞</div>
+          <div class="type-item-body">
+            <h3>erDiagram</h3>
+            <p>Entity-relationship diagrams with cardinality notations — ideal for documenting database schemas.</p>
+          </div>
+        </div>
+
+        <div class="type-item">
+          <div class="type-item-icon" aria-hidden="true">▬</div>
+          <div class="type-item-body">
+            <h3>gantt</h3>
+            <p>Gantt charts with sections, tasks, durations, dependencies, and milestone markers.</p>
+          </div>
+        </div>
+
+        <div class="type-item">
+          <div class="type-item-icon" aria-hidden="true">◔</div>
+          <div class="type-item-body">
+            <h3>pie</h3>
+            <p>Pie charts with labelled slices — useful for showing distribution and proportions at a glance.</p>
+          </div>
+        </div>
+
+        <div class="type-item">
+          <div class="type-item-icon" aria-hidden="true">◎</div>
+          <div class="type-item-body">
+            <h3>journey</h3>
+            <p>User journey maps that plot tasks by actor and satisfaction score across a defined timeline.</p>
+          </div>
+        </div>
+
+        <div class="type-item">
+          <div class="type-item-icon" aria-hidden="true">⑂</div>
+          <div class="type-item-body">
+            <h3>gitgraph</h3>
+            <p>Git branch-and-commit graphs — useful for documenting branching strategies in engineering wikis.</p>
+          </div>
+        </div>
+
+        <div class="type-item">
+          <div class="type-item-icon" aria-hidden="true">⊕</div>
+          <div class="type-item-body">
+            <h3>quadrantChart</h3>
+            <p>Two-axis quadrant charts for plotting items by two dimensions — prioritisation, risk, or effort.</p>
+          </div>
+        </div>
+
+        <div class="type-item">
+          <div class="type-item-icon" aria-hidden="true">〜</div>
+          <div class="type-item-body">
+            <h3>xychart</h3>
+            <p>Bar and line charts on x/y axes — for visualising metrics, trends, and time-series data inline.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── Why use Mermaid in Confluence? ───── -->
+  <section class="section section-alt" aria-labelledby="benefits-heading">
+    <div class="container">
+      <div class="text-center mb-48">
+        <div class="label">Benefits</div>
+        <h2 id="benefits-heading">Why use Mermaid in Confluence?</h2>
+      </div>
+      <div class="benefit-list">
+
+        <div class="benefit-item">
+          <div class="benefit-num" aria-hidden="true">1</div>
+          <div>
+            <h3>Same syntax as GitHub and GitLab</h3>
+            <p>
+              Engineers who already write Mermaid in pull request descriptions and README files
+              can paste that exact code into Confluence without any translation. There is no
+              new syntax to learn and no format conversion step.
+            </p>
+          </div>
+        </div>
+
+        <div class="benefit-item">
+          <div class="benefit-num" aria-hidden="true">2</div>
+          <div>
+            <h3>Diagrams that live next to the docs</h3>
+            <p>
+              Because the diagram source is plain text stored in Confluence custom content, it
+              lives on the same page as the documentation that references it. No switching to
+              Lucidchart, no managing file attachments, no broken image links when files move.
+            </p>
+          </div>
+        </div>
+
+        <div class="benefit-item">
+          <div class="benefit-num" aria-hidden="true">3</div>
+          <div>
+            <h3>Browser-only rendering — your data stays local</h3>
+            <p>
+              Mermaid.js renders entirely in the visitor's browser. Diagram source code is never
+              sent to ZenUML servers or any third-party rendering service during the display
+              process. This matters for teams with strict data residency requirements.
+            </p>
+          </div>
+        </div>
+
+        <div class="benefit-item">
+          <div class="benefit-num" aria-hidden="true">4</div>
+          <div>
+            <h3>Version-controllable architecture documentation</h3>
+            <p>
+              Text-based diagrams integrate naturally with a "docs as code" workflow. Store the
+              Mermaid source in your repository, review diagram changes in pull requests, and
+              keep the Confluence page in sync by pasting updated code — no export/import loop.
+            </p>
+          </div>
+        </div>
+
+        <div class="benefit-item">
+          <div class="benefit-num" aria-hidden="true">5</div>
+          <div>
+            <h3>Live preview eliminates save-to-check cycles</h3>
+            <p>
+              The ZenUML editor renders the diagram in real time as you type. Syntax errors
+              surface inline before you save. You never have to publish a page just to check
+              whether your flowchart looks correct.
+            </p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── Use Cases ───── -->
+  <section class="section" aria-labelledby="usecases-heading">
+    <div class="container">
+      <div class="text-center mb-48">
+        <div class="label">Use Cases</div>
+        <h2 id="usecases-heading">Who uses Mermaid in Confluence — and how</h2>
+      </div>
+      <div class="usecase-grid">
+
+        <article class="usecase-card">
+          <div class="team-tag">Developers</div>
+          <h3>Documenting system architecture</h3>
+          <p>
+            Engineering teams use <code>flowchart</code> and <code>class</code> diagrams to document
+            microservice boundaries, dependency graphs, and component relationships alongside
+            their design documents — updating diagrams in the same PR that changes the code.
+          </p>
+        </article>
+
+        <article class="usecase-card">
+          <div class="team-tag">Architects</div>
+          <h3>Modelling database schemas</h3>
+          <p>
+            Solutions architects use <code>erDiagram</code> to capture entity-relationship models
+            in Confluence, giving product managers and QA engineers a readable view of the database
+            schema without requiring access to a database tool or migration files.
+          </p>
+        </article>
+
+        <article class="usecase-card">
+          <div class="team-tag">Developers</div>
+          <h3>Explaining Git branching strategies</h3>
+          <p>
+            Platform and DevOps teams use <code>gitgraph</code> to illustrate branching models
+            (GitFlow, trunk-based development, release branches) in onboarding wikis so new
+            engineers can visualise the workflow before touching the repository.
+          </p>
+        </article>
+
+        <article class="usecase-card">
+          <div class="team-tag">Product Managers</div>
+          <h3>Mapping user journeys and feature flows</h3>
+          <p>
+            PMs use <code>journey</code> and <code>flowchart</code> diagrams to sketch user flows
+            and satisfaction maps in product specification pages, giving designers and engineers
+            a shared reference without importing assets from a separate design tool.
+          </p>
+        </article>
+
+        <article class="usecase-card">
+          <div class="team-tag">Project Managers</div>
+          <h3>Tracking project timelines with Gantt charts</h3>
+          <p>
+            Project leads use <code>gantt</code> diagrams to embed lightweight project timelines
+            directly in Confluence milestone pages. The plain-text format means any team member
+            can update a task duration or add a dependency without needing a separate PM tool.
+          </p>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── FAQ ───── -->
+  <section class="section section-alt" aria-labelledby="faq-heading">
+    <div class="container" style="max-width:760px;">
+      <div class="text-center mb-48">
+        <div class="label">FAQ</div>
+        <h2 id="faq-heading">Frequently asked questions</h2>
+      </div>
+      <div class="faq-list" role="list">
+
+        <div class="faq-item" role="listitem">
+          <button class="faq-q" aria-expanded="false" onclick="toggleFaq(this)">
+            What Mermaid diagram types are supported in ZenUML for Confluence?
+            <span class="faq-toggle" aria-hidden="true">+</span>
+          </button>
+          <div class="faq-a" hidden>
+            ZenUML for Confluence supports eleven Mermaid diagram types: <strong>flowchart</strong>,
+            <strong>sequence</strong>, <strong>class</strong>, <strong>stateDiagram</strong>,
+            <strong>erDiagram</strong>, <strong>gantt</strong>, <strong>pie</strong>,
+            <strong>journey</strong>, <strong>gitgraph</strong>, <strong>quadrantChart</strong>,
+            and <strong>xychart</strong>. This covers all of the most commonly used Mermaid
+            diagram types available in the Mermaid.js library.
+          </div>
+        </div>
+
+        <div class="faq-item" role="listitem">
+          <button class="faq-q" aria-expanded="false" onclick="toggleFaq(this)">
+            Is Mermaid syntax the same as GitHub Markdown?
+            <span class="faq-toggle" aria-hidden="true">+</span>
+          </button>
+          <div class="faq-a" hidden>
+            Yes. ZenUML for Confluence uses the same Mermaid.js library that GitHub, GitLab, and Notion
+            use to render fenced Mermaid code blocks. A diagram that renders in a GitHub README will
+            render identically in Confluence using ZenUML — no syntax changes required. The only
+            difference is that in Confluence you paste the diagram body into the ZenUML macro editor
+            rather than wrapping it in a fenced code block.
+          </div>
+        </div>
+
+        <div class="faq-item" role="listitem">
+          <button class="faq-q" aria-expanded="false" onclick="toggleFaq(this)">
+            Can I copy a Mermaid diagram from GitHub into Confluence?
+            <span class="faq-toggle" aria-hidden="true">+</span>
+          </button>
+          <div class="faq-a" hidden>
+            Yes. Copy the Mermaid source code from your GitHub README or pull request (excluding the
+            opening and closing backtick fences and the <code>mermaid</code> language tag), paste it
+            into a ZenUML macro set to the Mermaid type, and it will render immediately. The syntax
+            is identical — there is no translation step. This also works in reverse: a diagram you
+            draft in Confluence can be pasted directly into a GitHub Markdown file.
+          </div>
+        </div>
+
+        <div class="faq-item" role="listitem">
+          <button class="faq-q" aria-expanded="false" onclick="toggleFaq(this)">
+            How do I create a flowchart in Confluence?
+            <span class="faq-toggle" aria-hidden="true">+</span>
+          </button>
+          <div class="faq-a" hidden>
+            Insert a ZenUML macro on your Confluence page, select the Mermaid diagram type in the
+            editor, and type your flowchart using Mermaid's <code>graph</code> or
+            <code>flowchart</code> syntax. A minimal example:
+            <br><br>
+            <code>graph TD<br>&nbsp;&nbsp;A[Start] --&gt; B{Decision}<br>&nbsp;&nbsp;B -- Yes --&gt; C[Action]<br>&nbsp;&nbsp;B -- No --&gt; D[End]</code>
+            <br><br>
+            The diagram renders live as you type. When you are satisfied, publish the page and the
+            rendered flowchart is visible to all page viewers without any plugin or export step.
+          </div>
+        </div>
+
+        <div class="faq-item" role="listitem">
+          <button class="faq-q" aria-expanded="false" onclick="toggleFaq(this)">
+            Does Mermaid support ER diagrams and database schemas?
+            <span class="faq-toggle" aria-hidden="true">+</span>
+          </button>
+          <div class="faq-a" hidden>
+            Yes. The <code>erDiagram</code> type in Mermaid lets you define entities, attributes,
+            and relationships — one-to-one, one-to-many, and many-to-many — using a simple text
+            syntax. For example: <code>CUSTOMER ||--o{ ORDER : "places"</code> defines a
+            one-to-many relationship between a customer and their orders.
+            ZenUML for Confluence renders <code>erDiagram</code> fully in the browser, with no
+            server-side processing. It is well suited for documenting database schemas directly
+            alongside your Confluence architecture and API design pages.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── CTA ───── -->
+  <section class="section cta-section" aria-labelledby="cta-heading">
+    <div class="container text-center">
+      <div class="label" style="background:rgba(255,255,255,.15);color:#fff;margin-bottom:24px;">Get started for free</div>
+      <h2 id="cta-heading">Add Mermaid diagrams to Confluence today</h2>
+      <p style="max-width:520px;margin:16px auto 32px;color:rgba(255,255,255,.8);font-size:1rem;">
+        Install ZenUML for Confluence from the Atlassian Marketplace — free, no credit card required.
+        Write your first Mermaid diagram in under two minutes.
+      </p>
+      <div class="hero-cta" style="justify-content:center;">
+        <a href="https://marketplace.atlassian.com/apps/1218014/zenuml-sequence-diagram"
+           class="btn"
+           style="background:#fff;color:var(--primary);font-weight:700;"
+           target="_blank" rel="noopener">
+          Install Free on Marketplace
+        </a>
+        <a href="/diagram-types/" class="btn-outline-white">See All Diagram Types</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── Footer ───── -->
+  <footer class="footer" aria-label="Site footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <div class="footer-brand">ZenUML for Confluence</div>
+          <p style="font-size:.875rem;line-height:1.6;max-width:280px;">
+            Sequence diagrams, flowcharts, OpenAPI specs, and more — directly in Confluence.
+            Built on Atlassian Forge.
+          </p>
+        </div>
+        <div>
+          <div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#5E6C84;margin-bottom:12px;">Product</div>
+          <nav class="footer-links" aria-label="Product links">
+            <a href="/features/">Features</a>
+            <a href="/diagram-types/">Diagram Types</a>
+            <a href="/pricing/">Pricing</a>
+            <a href="/install/">Install</a>
+          </nav>
+        </div>
+        <div>
+          <div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#5E6C84;margin-bottom:12px;">Resources</div>
+          <nav class="footer-links" aria-label="Resource links">
+            <a href="/faq/">FAQ</a>
+            <a href="https://docs.zenuml.com" target="_blank" rel="noopener">Documentation</a>
+            <a href="https://marketplace.atlassian.com/apps/1218014/zenuml-sequence-diagram" target="_blank" rel="noopener">Marketplace listing</a>
+          </nav>
+        </div>
+        <div>
+          <div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#5E6C84;margin-bottom:12px;">Company</div>
+          <nav class="footer-links" aria-label="Company links">
+            <a href="https://zenuml.com" target="_blank" rel="noopener">ZenUML.com</a>
+            <a href="https://diagramly.ai" target="_blank" rel="noopener">Diagramly AI</a>
+            <a href="https://zenuml.com/privacy" target="_blank" rel="noopener">Privacy Policy</a>
+            <a href="https://zenuml.com/terms" target="_blank" rel="noopener">Terms of Service</a>
+          </nav>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>© 2026 ZenUML. All rights reserved. ZenUML for Confluence is not affiliated with or endorsed by Atlassian.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    function toggleFaq(btn) {
+      var item = btn.closest('.faq-item');
+      var isOpen = item.classList.contains('open');
+      // Close all
+      document.querySelectorAll('.faq-item').forEach(function(el) {
+        el.classList.remove('open');
+        el.querySelector('.faq-q').setAttribute('aria-expanded', 'false');
+        el.querySelector('.faq-toggle').textContent = '+';
+        el.querySelector('.faq-a').hidden = true;
+      });
+      // Open clicked (unless it was already open)
+      if (!isOpen) {
+        item.classList.add('open');
+        btn.setAttribute('aria-expanded', 'true');
+        btn.querySelector('.faq-toggle').textContent = '−';
+        item.querySelector('.faq-a').hidden = false;
+      }
+    }
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,11 @@
+# Build-time-only directories — not needed in the Forge deployment package.
+# The AsyncAPI Studio is built from vendor/asyncapi-studio and its output is
+# already copied into static/asyncapi-studio -> dist/ by vite, so the
+# submodule source + its ~110k-file node_modules must not be walked/packaged
+# (doing so exhausts the file-descriptor limit during `forge deploy`).
+vendor/
+private/
+tests/
+storybook-static/
+coverage/
+.git/

@@ -223,6 +223,30 @@ function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max).trimEnd() + '…' : s
 }
 
+// Session-scoped cache of pageId → page title, populated lazily during
+// loadDocuments(). The v2 custom-content list endpoint doesn't include
+// container metadata, so we have to look up each parent page separately.
+// Cache survives across refresh() so the second load is instant for any
+// page the user has already seen.
+const pageTitleCache = new Map<string, string>()
+
+async function fetchPageTitle(pageId: string): Promise<string | undefined> {
+  if (pageTitleCache.has(pageId)) return pageTitleCache.get(pageId)
+  try {
+    const { requestConfluence } = await import('@forge/bridge')
+    const resp = await requestConfluence(`/wiki/api/v2/pages/${pageId}`, {
+      headers: { Accept: 'application/json' },
+    })
+    if (!resp.ok) return undefined
+    const page = await resp.json()
+    const title = page?.title as string | undefined
+    if (title) pageTitleCache.set(pageId, title)
+    return title
+  } catch {
+    return undefined
+  }
+}
+
 function formatTime(iso?: string, prefix?: string): string | undefined {
   if (!iso) return undefined
   const d = new Date(iso)
@@ -298,6 +322,29 @@ async function loadDocuments(isRefresh = false): Promise<void> {
         } as AsyncApiDoc
       })
       .filter((d): d is AsyncApiDoc => d !== null)
+
+    // The v2 custom-content list response doesn't include parent-page
+    // metadata, so we batch-fetch page titles in parallel and join them
+    // back into pageLabel. Without this the tiles all show "Page {id}".
+    // Failures are swallowed (we fall back to "Page {id}") so a single
+    // missing/deleted page doesn't break the whole dashboard.
+    const uniquePageIds = Array.from(
+      new Set(documents.value.map((d) => d.pageId).filter((id): id is string => !!id)),
+    )
+    if (uniquePageIds.length) {
+      const titles = await Promise.all(uniquePageIds.map(fetchPageTitle))
+      const titleByPageId = new Map<string, string>()
+      uniquePageIds.forEach((id, i) => {
+        const t = titles[i]
+        if (t) titleByPageId.set(id, t)
+      })
+      documents.value = documents.value.map((d) => ({
+        ...d,
+        pageLabel: d.pageId
+          ? titleByPageId.get(d.pageId) || `Page ${d.pageId}`
+          : d.pageLabel,
+      }))
+    }
 
     // Capture current space key for header subtitle ("found in space ZEN").
     try {

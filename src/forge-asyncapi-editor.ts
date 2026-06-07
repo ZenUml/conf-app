@@ -146,9 +146,24 @@ async function initializeMacro() {
     const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()])
     const idChanged = !!sourceId && !!savedId && savedId !== sourceId
     if (inserting || configuring || idChanged) {
-      await view.submit({
-        config: { customContentId: savedId, updatedAt: new Date().toISOString() },
-      })
+      // view.submit throws "this resource's view is not submittable" in
+      // surfaces where the Forge runtime hasn't actually opened the editor
+      // as a submit-capable modal — e.g. the dashboard-viewer Edit path
+      // and some re-edit-on-draft contexts. The save itself has already
+      // succeeded server-side at this point (saveToPlatform returned),
+      // so the safe fallback is view.close(): the modal dismisses
+      // cleanly and the macro picks up the new body on its next
+      // re-render. Without this guard the user sees a red
+      // "Error Loading AsyncAPI Studio — this resource's view is not
+      // submittable" overlay even though their edit DID persist.
+      try {
+        await view.submit({
+          config: { customContentId: savedId, updatedAt: new Date().toISOString() },
+        })
+      } catch (err) {
+        console.warn('view.submit unavailable; closing modal instead', err)
+        try { await view.close() } catch { /* best-effort */ }
+      }
     } else {
       await view.close()
     }

@@ -18,8 +18,9 @@ import globals from '@/model/globals'
 import { getContext as initForgeContext, getView, openModal } from '@/model/globals/forgeGlobal'
 import AsyncApiViewer from '@/components/Viewer/AsyncApiViewer/AsyncApiViewer'
 import macroMetrics from '@/services/MacroMetrics'
-import { DataSource, Diagram, DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram'
+import { Diagram, DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram'
 import { saveToPlatform } from '@/model/ContentProvider/Persistence'
+import { buildAsyncApiSaveDiagram } from '@/model/asyncapi/buildSaveDiagram'
 import { mountRoot } from '@/mount-root'
 import EventBus from './EventBus'
 
@@ -93,12 +94,17 @@ async function initializeMacro() {
           React.createElement(AsyncApiStudioEditor, {
             initialSpec: spec,
             onSave: async (newSpec: string) => {
-              const diagram: Diagram = {
-                ...(existing ?? {}),
-                diagramType: DiagramType.AsyncApi,
-                code: newSpec,
-                source: DataSource.CustomContent,
-              } as Diagram
+              // This in-place editor is only reached from the dashboard "View"
+              // modal, which targets a known document id. Pin the save to that
+              // id so it updates in place — the shared loader stamps a
+              // false-positive isCopy on dashboard loads (dashboard page is
+              // never the content's origin page), which would otherwise create
+              // a copy instead of updating ("editing made a new diagram").
+              const diagram = buildAsyncApiSaveDiagram({
+                existing,
+                spec: newSpec,
+                pinToId: customContentId,
+              })
               try {
                 await saveToPlatform(diagram)
               } catch (err) {

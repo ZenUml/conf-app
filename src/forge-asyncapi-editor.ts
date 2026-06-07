@@ -10,8 +10,9 @@ import yaml from 'js-yaml'
 import globals from '@/model/globals'
 import { getContext as initForgeContext, getView, isInserting } from '@/model/globals/forgeGlobal'
 import AsyncApiStudioEditor from '@/components/Editor/AsyncApiEditor/AsyncApiStudioEditor'
-import { DataSource, Diagram, DiagramType } from '@/model/Diagram/Diagram'
+import { Diagram } from '@/model/Diagram/Diagram'
 import { saveToPlatform } from '@/model/ContentProvider/Persistence'
+import { buildAsyncApiSaveDiagram } from '@/model/asyncapi/buildSaveDiagram'
 
 // Pull `info.title` out of an AsyncAPI spec so the custom-content title
 // in Confluence mirrors what the user wrote in the document. Both YAML
@@ -62,9 +63,18 @@ async function initializeMacro() {
   // Read customContentId from config (macro context) AND modal context —
   // the dashboard's Edit flow opens this editor via a modal with the
   // contentId passed through extension.modal.customContentId.
-  const customContentId =
-    context.extension?.config?.customContentId ||
-    context.extension?.modal?.customContentId
+  const configContentId = context.extension?.config?.customContentId
+  const modalContentId = context.extension?.modal?.customContentId
+  const customContentId = configContentId || modalContentId
+
+  // Dashboard edits open this editor as a standalone modal targeting a known
+  // document id (modal.customContentId, with no macro on the current page).
+  // The shared loader's cross-page-copy detection false-positives there — the
+  // dashboard space page is never the content's origin page, so it stamps
+  // isCopy=true and the save would CREATE a copy instead of updating in place
+  // ("editing made a new diagram"). For that path, pin the save to the known
+  // id; macro edits (config.customContentId) keep the normal copy-aware path.
+  const isDashboardEdit = !configContentId && !!modalContentId
 
   let existing: Diagram | undefined
   let initialSpec = DEFAULT_ASYNCAPI_SPEC
@@ -98,16 +108,16 @@ async function initializeMacro() {
 
   const handleSave = async (spec: string) => {
     const parsedTitle = extractAsyncApiTitle(spec)
-    const diagram: Diagram = {
-      ...(existing ?? {}),
-      diagramType: DiagramType.AsyncApi,
-      code: spec,
-      source: DataSource.CustomContent,
-      // Mirror the AsyncAPI doc's `info.title` into the custom-content
-      // title so dashboard cards, recent activity, search, etc. all
-      // surface the user-chosen name instead of "Untitled <iso-date>".
-      ...(parsedTitle ? { title: parsedTitle } : {}),
-    } as Diagram
+    // Mirror the AsyncAPI doc's `info.title` into the custom-content title so
+    // dashboard cards, recent activity, search, etc. surface the user-chosen
+    // name instead of "Untitled <iso-date>". pinToId forces an in-place update
+    // for dashboard edits (see isDashboardEdit above).
+    const diagram = buildAsyncApiSaveDiagram({
+      existing,
+      spec,
+      title: parsedTitle,
+      pinToId: isDashboardEdit ? customContentId : undefined,
+    })
     const savedId = await saveToPlatform(diagram)
     const view = await getView()
     if (await isInserting()) {

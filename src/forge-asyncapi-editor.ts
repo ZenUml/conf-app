@@ -8,7 +8,7 @@ import ReactDOM from 'react-dom'
 import yaml from 'js-yaml'
 
 import globals from '@/model/globals'
-import { getContext as initForgeContext, getView, isInserting } from '@/model/globals/forgeGlobal'
+import { getContext as initForgeContext, getView, isInserting, isConfiguring } from '@/model/globals/forgeGlobal'
 import AsyncApiStudioEditor from '@/components/Editor/AsyncApiEditor/AsyncApiStudioEditor'
 import { Diagram } from '@/model/Diagram/Diagram'
 import { saveToPlatform } from '@/model/ContentProvider/Persistence'
@@ -112,6 +112,7 @@ async function initializeMacro() {
     // dashboard cards, recent activity, search, etc. surface the user-chosen
     // name instead of "Untitled <iso-date>". pinToId forces an in-place update
     // for dashboard edits (see isDashboardEdit above).
+    const sourceId = existing?.id ? String(existing.id) : ''
     const diagram = buildAsyncApiSaveDiagram({
       existing,
       spec,
@@ -120,7 +121,31 @@ async function initializeMacro() {
     })
     const savedId = await saveToPlatform(diagram)
     const view = await getView()
-    if (await isInserting()) {
+    // Three reasons to write back the macro config via view.submit:
+    //
+    //  1. inserting — first save of a brand-new macro (page editor still
+    //     needs the customContentId to wire the macro to its body).
+    //  2. configuring — the user re-opened the editor on an existing
+    //     macro from the *page editor* (not a modal viewer). The draft
+    //     macro lives only in the page editor's ADF state until the
+    //     page is published; on save we must update its config so a
+    //     subsequent view-mode render reads the fresh content.
+    //  3. idChanged — saveCustomContentV2 forked a new custom-content
+    //     (cross-page-copy, same-page-duplicate, or the "count===0 on
+    //     unpublished page" case where the v2 update path falls through
+    //     to create). The macro params would otherwise still reference
+    //     the source id while the new record sits orphaned. This is the
+    //     same defect the OpenAPI/Swagger editor's save flow guards
+    //     against — see forge-swagger-editor.ts (ZEN-1170 Defect 2b).
+    //
+    // Without check #2, a user inserting an asyncapi macro and then
+    // re-editing it before publishing the page would call view.close()
+    // here, the customContent server-side gets a fork (Y), and the
+    // macro keeps rendering the original (X) — visible as "my edits
+    // didn't save".
+    const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()])
+    const idChanged = !!sourceId && !!savedId && savedId !== sourceId
+    if (inserting || configuring || idChanged) {
       await view.submit({
         config: { customContentId: savedId, updatedAt: new Date().toISOString() },
       })

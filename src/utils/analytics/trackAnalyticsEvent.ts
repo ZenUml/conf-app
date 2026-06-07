@@ -16,8 +16,7 @@ let _identified = false;
 
 function _initMixpanel() {
   if (!_initialized) {
-    const cloudId = forgeGlobal.forgeContext?.cloudId ?? "";
-    const isHighReplayClient = cloudId === "d1b3810b-db2f-4f83-8ec3-90f60944e570";
+    const isPageBanner = (forgeGlobal.forgeContext as any)?.moduleKey === 'zenuml-page-banner';
 
     mixpanel.init(import.meta.env.VITE_MIXPANEL_TOKEN, {
       debug: true,
@@ -25,7 +24,7 @@ function _initMixpanel() {
       autocapture: false,
       persistence: "localStorage",
       ignore_dnt: true,
-      record_sessions_percent: isHighReplayClient ? 20 : 4,
+      record_sessions_percent: isPageBanner ? 0 : 2,
     });
     _initialized = true;
   }

@@ -160,4 +160,27 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
     expect(btn.exists()).toBe(true)
     expect(btn.attributes('disabled')).toBeUndefined()
   })
+
+  it('hideEdit=true removes the Edit pencil entirely (embed reference — edit at source)', async () => {
+    // The AsyncAPI embed macro renders a reference to a document owned
+    // elsewhere; it must not offer an inline Edit affordance in view mode.
+    store.state.diagram.isCopy = false
+    const wrapper = mount(GenericViewer, {
+      props: { hideEdit: true },
+      global: { plugins: [store] },
+    })
+    await wrapper.vm.$nextTick()
+
+    const vm = wrapper.vm as any
+    expect(vm.showEdit).toBe(false)
+    expect(wrapper.find('button[aria-label="Edit"]').exists()).toBe(false)
+  })
+
+  it('hideEdit defaults to false so non-embed viewers keep their Edit pencil', async () => {
+    store.state.diagram.isCopy = false
+    const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('button[aria-label="Edit"]').exists()).toBe(true)
+  })
 })

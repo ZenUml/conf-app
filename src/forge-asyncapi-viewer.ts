@@ -69,6 +69,12 @@ async function initializeMacro() {
     return
   }
 
+  // The embed macro references a document owned elsewhere. On a published page
+  // it must not offer an inline Edit pencil — editing the source happens at the
+  // origin (dashboard / original macro), and re-targeting which document is
+  // embedded stays a page-editor (macro-config) operation.
+  const isEmbedMacro = (context.moduleKey ?? '').startsWith('zenuml-asyncapi-embed-macro')
+
   const macroMode = context.extension?.modal?.macroMode
   const isModal = !!macroMode
   // Both the macro Fullscreen viewer (macroMode 'fullscreen') and the
@@ -152,7 +158,7 @@ async function initializeMacro() {
     // the props arg too — same for loadError, propagated from the
     // getCustomContentByIdV2 failure above so the viewer can render a
     // real error instead of the "no saved spec yet" placeholder.
-    mountRoot(doc, AsyncApiMacroViewer, { doc, loadError })
+    mountRoot(doc, AsyncApiMacroViewer, { doc, loadError, hideEdit: isEmbedMacro })
   }
 
   // Match the metrics-reporting cadence of the other viewers so AsyncAPI

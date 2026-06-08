@@ -5,7 +5,7 @@
   @asyncapi/react-component via ReactDOM.render into a slot div.
 -->
 <template>
-  <generic-viewer :wide="true" :hideHeader="hideHeader">
+  <generic-viewer :wide="true" :hideHeader="hideHeader" :hideEdit="hideEdit">
     <div ref="reactRoot" class="asyncapi-react-root"></div>
   </generic-viewer>
 </template>
@@ -24,6 +24,10 @@ export default defineComponent({
   props: {
     doc: { type: Object as PropType<Diagram | null>, default: null },
     hideHeader: { type: Boolean, default: false },
+    // Embed macro path: suppress the GenericViewer Edit pencil. An embed is a
+    // reference — its content is edited at the source doc, and re-targeting
+    // which doc is embedded is a page-editor operation.
+    hideEdit: { type: Boolean, default: false },
     // Propagated from forge-asyncapi-viewer when getCustomContentByIdV2
     // fails (404, type-filtered, etc.) — surfaces a real error in the
     // viewer instead of the misleading "no saved spec yet" empty state.

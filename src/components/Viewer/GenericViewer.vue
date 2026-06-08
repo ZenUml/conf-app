@@ -157,7 +157,11 @@ const DEFAULT_TITLE = 'Untitled diagram'
 
 export default {
   name: "GenericViewer",
-  props: ['wide', 'hideHeader'],
+  // hideEdit: callers that render a reference to content they shouldn't edit
+  // in place (e.g. the AsyncAPI embed macro) suppress the Edit pencil entirely.
+  // Editing the source happens at the origin; re-targeting which doc is
+  // embedded is a page-editor (macro-config) operation.
+  props: ['wide', 'hideHeader', 'hideEdit'],
   data: () => ({
     canUserEdit: true,
     isHovering: false,
@@ -188,6 +192,9 @@ export default {
       return t || DEFAULT_TITLE
     },
     showEdit() {
+      // Embeds are references to content owned elsewhere — no inline Edit; the
+      // source is edited at its origin and re-targeting stays in the page editor.
+      if (this.hideEdit) return false;
       if (import.meta.env.DEV) return true;
       const isCustomContent = this.diagram.source === DataSource.CustomContent;
       // ZEN-1170 Defect 1: legacy-content-property recoveries set

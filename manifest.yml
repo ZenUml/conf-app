@@ -251,9 +251,13 @@ modules:
     # on those variants. Polls the enrollment KV and creates a demo page for
     # any enrolled space that doesn't yet have one. Interval is a safety net
     # — the admin button still processes synchronously.
+    # 'hour' (not 'fiveMinute'): each tick does 1 + N KV reads (enrollment
+    # scan + per-enabled-space marker get), so fiveMinute's 8,640 ticks/mo
+    # drove the Forge KV read overage alert. Hourly is 12x fewer reads and is
+    # an adequate fallback window for background demo-page creation.
     - key: diagramly-demo-page-pipeline
       function: createDemoPageScheduled
-      interval: fiveMinute
+      interval: hour
   endpoint:
     - key: remote-connect
       remote: connect

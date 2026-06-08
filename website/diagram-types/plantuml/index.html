@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PlantUML Diagrams in Confluence | ZenUML for Confluence</title>
+  <meta name="description" content="Create PlantUML UML diagrams in Confluence: class, component, deployment, activity, state, use case, and sequence diagrams. Text-based, version-controllable.">
+  <link rel="canonical" href="https://confluence.zenuml.com/diagram-types/plantuml/">
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://confluence.zenuml.com/diagram-types/plantuml/">
+  <meta property="og:title" content="PlantUML Diagrams in Confluence | ZenUML for Confluence">
+  <meta property="og:description" content="Create PlantUML UML diagrams in Confluence: class, component, deployment, activity, state, use case, and sequence diagrams. Text-based, version-controllable.">
+  <meta property="og:image" content="https://confluence.zenuml.com/assets/og-image.png">
+  <meta property="og:site_name" content="ZenUML for Confluence">
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="PlantUML Diagrams in Confluence | ZenUML for Confluence">
+  <meta name="twitter:description" content="Create PlantUML UML diagrams in Confluence: class, component, deployment, activity, state, use case, and sequence diagrams. Text-based, version-controllable.">
+  <link rel="stylesheet" href="../../assets/css/main.css">
+
+  <!-- Schema.org: SoftwareApplication feature -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "ZenUML for Confluence — PlantUML",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Atlassian Confluence Cloud",
+    "url": "https://confluence.zenuml.com/diagram-types/plantuml/",
+    "description": "ZenUML for Confluence renders PlantUML diagrams directly inside Confluence Cloud pages. Supports class, component, deployment, activity, state, use case, entity relationship, timing, and sequence diagram types. All rendering is client-side — diagram source is never sent to external servers.",
+    "publisher": {
+      "@type": "Organization",
+      "name": "P&D VISION"
+    }
+  }
+  </script>
+
+  <!-- Schema.org: FAQPage -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "What is PlantUML?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "PlantUML is an open-source tool that lets you write UML diagrams using a plain-text syntax. You describe the diagram elements and relationships in a simple, human-readable format and PlantUML renders them as images. Because diagrams are text, they can be stored in Git, reviewed in pull requests, and regenerated automatically whenever your system architecture changes. PlantUML is widely used by Java developers, architects, and teams who want diagram-as-code workflows. It supports class diagrams, component diagrams, deployment diagrams, activity diagrams, state diagrams, use case diagrams, entity relationship diagrams, timing diagrams, and sequence diagrams."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What PlantUML diagram types does ZenUML for Confluence support?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "ZenUML for Confluence supports all major PlantUML diagram types: sequence diagrams, class diagrams, component diagrams, deployment diagrams, activity diagrams, state diagrams, use case diagrams, entity relationship (ER) diagrams, and timing diagrams. You write standard PlantUML syntax in the editor and the diagram renders live as you type."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How does PlantUML compare to ZenUML DSL for sequence diagrams?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Both PlantUML and ZenUML DSL can produce UML 2.x-compliant sequence diagrams from text. ZenUML DSL is more concise for sequence diagrams specifically — it uses a method-call syntax that reads like code (e.g. 'A.method(B)'), which most developers find faster to write and easier to read for API flows and service interactions. PlantUML uses an arrow-based syntax ('A -> B: message') that is explicit and familiar to teams already using PlantUML across other diagram types. ZenUML DSL is the better choice for teams focused primarily on sequence diagrams. PlantUML is the better choice when your team already uses PlantUML for class, component, and deployment diagrams and wants one consistent syntax across all types."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I copy PlantUML code from my IDE into Confluence?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. ZenUML for Confluence uses the same PlantUML text syntax you already write in your IDE plugins (IntelliJ PlantUML Integration, VS Code PlantUML extension, etc.). Copy your @startuml ... @enduml block directly into the ZenUML macro editor and the diagram renders immediately. There is no format conversion or export step — the same source that works in your IDE works in Confluence."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does PlantUML render server-side or client-side in ZenUML?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "PlantUML in ZenUML for Confluence renders client-side in the browser. Your PlantUML source code is never sent to ZenUML servers or to the public PlantUML render server (plantuml.com). The rendering engine runs entirely inside the Confluence page — this is important for teams with data residency requirements or confidential architecture diagrams."
+        }
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+
+<!-- ═══ NAV ═══ -->
+<nav class="nav">
+  <a class="nav-logo" href="/">Zen<span>UML</span> for Confluence</a>
+  <div class="nav-links">
+    <a href="/diagram-types/">Diagram Types</a>
+    <a href="/features/">Features</a>
+    <a href="/pricing/">Pricing</a>
+    <a href="/faq/">FAQ</a>
+    <a href="/install/" class="btn btn-primary">Get Started Free</a>
+  </div>
+</nav>
+
+<!-- ═══ BREADCRUMB ═══ -->
+<div style="background:var(--bg-alt);border-bottom:1px solid var(--border);">
+  <div class="container" style="padding-top:12px;padding-bottom:12px;">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <a href="/">Home</a>
+      <span aria-hidden="true">›</span>
+      <a href="/diagram-types/">Diagram Types</a>
+      <span aria-hidden="true">›</span>
+      <span aria-current="page">PlantUML</span>
+    </nav>
+  </div>
+</div>
+
+<!-- ═══ HERO ═══ -->
+<header role="banner" class="hero">
+  <div class="container">
+    <div class="hero-badge">
+      🌿 PlantUML &nbsp;·&nbsp; Text-based UML &nbsp;·&nbsp; Client-side rendering
+    </div>
+    <h1>PlantUML Diagrams<br>in Confluence</h1>
+    <p style="font-size:1.2rem;max-width:640px;margin-top:20px;color:var(--body);">
+      Write PlantUML syntax directly inside a Confluence macro. Class diagrams,
+      component diagrams, deployment, activity, state, and more — rendered
+      live in the browser, stored as text, private by design.
+    </p>
+    <div class="hero-cta">
+      <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+         target="_blank" rel="noopener" class="btn btn-primary">
+        ⚡ Install Free — Lite Plan
+      </a>
+      <a href="/diagram-types/" class="btn btn-ghost">All Diagram Types</a>
+    </div>
+    <div style="margin-top:32px;display:flex;gap:24px;flex-wrap:wrap;">
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--muted);">
+        <span style="color:var(--green);font-weight:700;">✓</span> Same syntax as your IDE plugins
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--muted);">
+        <span style="color:var(--green);font-weight:700;">✓</span> No server-side rendering — stays in Confluence
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--muted);">
+        <span style="color:var(--green);font-weight:700;">✓</span> Version-controlled text diagrams
+      </span>
+    </div>
+  </div>
+</header>
+
+<!-- ═══ WHAT IS PLANTUML ═══ -->
+<section class="section" id="what-is-plantuml" aria-labelledby="what-heading">
+  <div class="container">
+    <span class="label">Background</span>
+    <h2 id="what-heading">What is PlantUML?</h2>
+    <div style="max-width:760px;margin-top:24px;display:flex;flex-direction:column;gap:20px;">
+      <p>
+        PlantUML is an <strong>open-source, text-to-diagram tool</strong> that converts a simple,
+        human-readable syntax into rendered UML and non-UML diagrams. Instead of dragging shapes
+        on a canvas, you describe participants, relationships, and flows in a plain-text block —
+        PlantUML turns that description into a diagram image.
+      </p>
+      <p>
+        Because the source is plain text, PlantUML diagrams fit naturally into
+        <strong>software development workflows</strong>: store them in Git alongside your code,
+        review changes in pull requests, generate them in CI pipelines, and regenerate them
+        automatically when your architecture changes. This is the approach that software architects
+        and Java-ecosystem teams have been using for over a decade.
+      </p>
+      <p>
+        PlantUML supports a wide surface of diagram types — from precise UML artefacts like class
+        diagrams and component diagrams to process-oriented views like activity and state diagrams.
+        It is the go-to choice when a team wants a <strong>single text syntax</strong> that covers the
+        full spectrum of UML without switching tools.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ SUPPORTED DIAGRAM TYPES ═══ -->
+<section class="section section-alt" id="diagram-types" aria-labelledby="types-heading">
+  <div class="container">
+    <span class="label">Coverage</span>
+    <h2 id="types-heading" class="text-center" style="margin-bottom:8px;">Supported PlantUML Diagram Types</h2>
+    <p class="text-center text-muted" style="margin-bottom:40px;max-width:580px;margin-left:auto;margin-right:auto;">
+      All major PlantUML diagram categories are supported. Write standard
+      <code>@startuml … @enduml</code> blocks and the diagram renders live.
+    </p>
+
+    <div style="max-width:900px;margin:0 auto;">
+      <table class="compare-table" aria-label="PlantUML diagram types supported in ZenUML for Confluence">
+        <thead>
+          <tr>
+            <th style="width:20%">Diagram Type</th>
+            <th style="width:45%">What it Shows</th>
+            <th style="width:35%">Typical Use</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Class</strong></td>
+            <td>Classes, interfaces, attributes, methods, and relationships (inheritance, composition, dependency)</td>
+            <td>Domain model, OOP design, API object hierarchy</td>
+          </tr>
+          <tr>
+            <td><strong>Component</strong></td>
+            <td>Software components, packages, interfaces, and their dependencies</td>
+            <td>System architecture, microservice topology, module structure</td>
+          </tr>
+          <tr>
+            <td><strong>Deployment</strong></td>
+            <td>Nodes, artifacts, and communication paths across infrastructure</td>
+            <td>Cloud deployment topology, infrastructure runbooks</td>
+          </tr>
+          <tr>
+            <td><strong>Activity</strong></td>
+            <td>Workflow steps, decision branches, parallel paths, and swim lanes</td>
+            <td>Business processes, CI/CD pipelines, on-call runbooks</td>
+          </tr>
+          <tr>
+            <td><strong>State</strong></td>
+            <td>States, transitions, guards, and entry/exit actions</td>
+            <td>Order lifecycle, auth flows, feature flag state machines</td>
+          </tr>
+          <tr>
+            <td><strong>Use Case</strong></td>
+            <td>Actors, use cases, and their relationships within a system boundary</td>
+            <td>Requirements documentation, stakeholder communication</td>
+          </tr>
+          <tr>
+            <td><strong>Entity Relationship</strong></td>
+            <td>Entities, attributes, and cardinality between database tables</td>
+            <td>Database schema documentation, data model overview</td>
+          </tr>
+          <tr>
+            <td><strong>Timing</strong></td>
+            <td>State changes on a shared time axis for multiple participants</td>
+            <td>Protocol timing, embedded system signal analysis</td>
+          </tr>
+          <tr>
+            <td><strong>Sequence</strong></td>
+            <td>Message exchanges between participants over time</td>
+            <td>API call flows, event-driven interactions</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CODE EXAMPLE ═══ -->
+<section class="section" id="example" aria-labelledby="example-heading">
+  <div class="container">
+    <span class="label">Example</span>
+    <h2 id="example-heading" style="margin-bottom:8px;">PlantUML in Action</h2>
+    <p style="color:var(--body);max-width:620px;margin-bottom:40px;">
+      The snippet below is a complete PlantUML class diagram. Paste it directly into the
+      ZenUML macro editor — no modifications needed.
+    </p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;align-items:start;max-width:1000px;">
+
+      <!-- Code block -->
+      <div>
+        <div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">
+          PlantUML source
+        </div>
+        <pre style="background:var(--bg-dark);color:#e6edf3;padding:28px;border-radius:var(--radius-lg);font-size:.85rem;line-height:1.7;overflow-x:auto;"><code>@startuml
+
+skinparam classAttributeIconSize 0
+
+package "Order Service" {
+
+  class Order {
+    +id: UUID
+    +status: OrderStatus
+    +createdAt: DateTime
+    +totalAmount: Money
+    +place()
+    +cancel()
+  }
+
+  class OrderItem {
+    +productId: UUID
+    +quantity: Int
+    +unitPrice: Money
+  }
+
+  enum OrderStatus {
+    PENDING
+    CONFIRMED
+    SHIPPED
+    DELIVERED
+    CANCELLED
+  }
+
+  class Customer {
+    +id: UUID
+    +email: String
+    +name: String
+  }
+
+}
+
+Customer "1" --&gt; "0..*" Order : places
+Order "1" *-- "1..*" OrderItem : contains
+Order -&gt; OrderStatus : has
+
+@enduml</code></pre>
+      </div>
+
+      <!-- Description -->
+      <div style="display:flex;flex-direction:column;gap:20px;padding-top:32px;">
+        <div class="card">
+          <div class="card-icon">📦</div>
+          <h3>Package grouping</h3>
+          <p style="font-size:.9rem;margin-top:8px;">
+            The <code>package</code> keyword groups related classes into a named boundary —
+            useful for bounded-context documentation and microservice domain maps.
+          </p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🔗</div>
+          <h3>Relationship multiplicity</h3>
+          <p style="font-size:.9rem;margin-top:8px;">
+            Arrow syntax expresses association (<code>--&gt;</code>), composition (<code>*--</code>),
+            and multiplicity labels (<code>"1"</code>, <code>"0..*"</code>) that map directly to
+            UML 2.x semantics.
+          </p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🗂️</div>
+          <h3>Enums and typing</h3>
+          <p style="font-size:.9rem;margin-top:8px;">
+            PlantUML supports <code>enum</code> alongside <code>class</code> and <code>interface</code>,
+            so your full domain vocabulary — including state machines — appears in a single diagram.
+          </p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═══ ZENUML DSL VS PLANTUML ═══ -->
+<section class="section section-alt" id="comparison" aria-labelledby="compare-heading">
+  <div class="container">
+    <span class="label">Comparison</span>
+    <h2 id="compare-heading" style="margin-bottom:8px;">ZenUML DSL vs PlantUML for Sequence Diagrams</h2>
+    <p style="color:var(--body);max-width:680px;margin-bottom:40px;">
+      ZenUML for Confluence supports both syntaxes. Here is how they differ for sequence
+      diagrams specifically — the diagram type where the choice matters most.
+    </p>
+
+    <div style="max-width:920px;">
+      <table class="compare-table" aria-label="ZenUML DSL vs PlantUML sequence diagram comparison">
+        <thead>
+          <tr>
+            <th style="width:30%">Dimension</th>
+            <th style="width:35%">ZenUML DSL</th>
+            <th style="width:35%">PlantUML</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Syntax style</strong></td>
+            <td>Method-call notation — reads like code (<code>OrderService.placeOrder(cart)</code>)</td>
+            <td>Arrow notation — explicit message passing (<code>Client -&gt; Server: placeOrder(cart)</code>)</td>
+          </tr>
+          <tr>
+            <td><strong>Conciseness</strong></td>
+            <td>More concise for multi-step API flows; nesting and return values implicit</td>
+            <td>More verbose; every arrow and return must be stated explicitly</td>
+          </tr>
+          <tr>
+            <td><strong>Readability for developers</strong></td>
+            <td>Familiar to developers — looks like function calls in any language</td>
+            <td>Familiar to architects and teams with prior PlantUML experience</td>
+          </tr>
+          <tr>
+            <td><strong>Diagram types</strong></td>
+            <td>Sequence diagrams only</td>
+            <td>Sequence plus eight other diagram types in the same syntax</td>
+          </tr>
+          <tr>
+            <td><strong>UML compliance</strong></td>
+            <td>OMG UML 2.5.1 compliant</td>
+            <td>UML 2.x aligned (community-driven)</td>
+          </tr>
+          <tr>
+            <td><strong>Best for</strong></td>
+            <td>Teams whose primary use case is API interaction documentation</td>
+            <td>Teams that document architecture across multiple UML diagram types</td>
+          </tr>
+          <tr>
+            <td><strong>IDE support</strong></td>
+            <td>ZenUML VS Code extension, IntelliJ plugin</td>
+            <td>PlantUML VS Code extension, IntelliJ PlantUML Integration (widely adopted)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="margin-top:28px;max-width:760px;">
+      <div class="card" style="background:var(--primary-light);border-color:var(--primary);">
+        <p style="color:var(--primary-dark);">
+          <strong>Recommendation:</strong> Use ZenUML DSL when your team's primary use case is
+          sequence diagrams for API or service interaction documentation. Use PlantUML when your team
+          already uses PlantUML in their IDE workflow and wants a single syntax for class,
+          component, deployment, and sequence diagrams. Both are available in the same macro —
+          you can mix and match across different Confluence pages.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ USE CASES ═══ -->
+<section class="section" id="use-cases" aria-labelledby="usecases-heading">
+  <div class="container">
+    <span class="label">Use Cases</span>
+    <h2 id="usecases-heading" class="text-center" style="margin-bottom:8px;">Who Uses PlantUML in Confluence</h2>
+    <p class="text-center text-muted" style="margin-bottom:40px;max-width:560px;margin-left:auto;margin-right:auto;">
+      Five common scenarios where engineering teams reach for PlantUML inside Confluence.
+    </p>
+
+    <div class="grid-3" style="gap:24px;">
+
+      <div class="card">
+        <div class="card-icon">🏛️</div>
+        <h3>Architecture Decision Records</h3>
+        <p style="font-size:.9rem;margin-top:8px;">
+          Software architects embed PlantUML component and deployment diagrams directly in
+          ADR pages. When the decision changes, they update the text source and the diagram
+          updates instantly — no stale PNG exports to hunt down and replace.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">☕</div>
+        <h3>Java Domain Model Documentation</h3>
+        <p style="font-size:.9rem;margin-top:8px;">
+          Java and Kotlin teams generate class diagrams from their existing PlantUML IDE plugin
+          annotations and paste them into Confluence. The same <code>@startuml</code> block that
+          renders in IntelliJ renders identically in the ZenUML macro.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">⚙️</div>
+        <h3>Infrastructure Runbooks</h3>
+        <p style="font-size:.9rem;margin-top:8px;">
+          SRE and platform teams use PlantUML deployment diagrams on runbook pages to show
+          node topology, service dependencies, and communication paths — keeping the diagram
+          in the same Confluence space as the on-call procedures.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🔄</div>
+        <h3>Business Process Documentation</h3>
+        <p style="font-size:.9rem;margin-top:8px;">
+          Business analysts and product managers use PlantUML activity diagrams with
+          swim lanes to model multi-team approval workflows, onboarding processes,
+          and incident escalation paths — without needing access to a separate diagram tool.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🗄️</div>
+        <h3>Database Schema Pages</h3>
+        <p style="font-size:.9rem;margin-top:8px;">
+          Backend teams use PlantUML entity relationship diagrams on Confluence data-model
+          pages. Schema changes are reviewed as text diffs in pull requests, then the
+          updated PlantUML block is pasted back into Confluence to keep documentation current.
+        </p>
+      </div>
+
+      <div class="card" style="background:var(--bg-alt);">
+        <div class="card-icon" style="background:var(--green-light);">🔁</div>
+        <h3>Already using ZenUML DSL?</h3>
+        <p style="font-size:.9rem;margin-top:8px;">
+          ZenUML DSL and PlantUML coexist in the same app. Use ZenUML DSL for your sequence
+          diagrams and PlantUML for everything else — class, component, deployment, and activity
+          diagrams. One Confluence macro, both syntaxes.
+        </p>
+        <a href="/diagram-types/sequence-diagrams/" class="tag" style="margin-top:16px;display:inline-block;">ZenUML Sequence →</a>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═══ FAQ ═══ -->
+<section class="section section-alt" id="faq" aria-labelledby="faq-heading">
+  <div class="container">
+    <span class="label">FAQ</span>
+    <h2 id="faq-heading" style="margin-bottom:8px;">Frequently Asked Questions</h2>
+    <p class="text-muted" style="margin-bottom:40px;max-width:580px;">
+      Common questions about PlantUML support in ZenUML for Confluence.
+    </p>
+
+    <div class="faq-list" style="max-width:800px;">
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          What is PlantUML?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          PlantUML is an <strong>open-source, text-to-diagram tool</strong> that converts a simple,
+          human-readable syntax into UML and non-UML diagrams. You describe participants,
+          classes, components, and their relationships in a plain-text block — PlantUML turns
+          that description into a rendered diagram. Because diagrams are plain text, they can be
+          stored in Git, reviewed in pull requests, and regenerated automatically when your
+          system architecture changes. PlantUML has been widely adopted by Java developers,
+          software architects, and teams across the JVM ecosystem for over a decade.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          What PlantUML diagram types does ZenUML for Confluence support?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          ZenUML for Confluence supports all major PlantUML diagram types:
+          <ul style="margin-top:10px;padding-left:20px;display:flex;flex-direction:column;gap:6px;">
+            <li><strong>Class diagrams</strong> — classes, interfaces, attributes, methods, and UML relationships</li>
+            <li><strong>Component diagrams</strong> — software components, packages, and dependencies</li>
+            <li><strong>Deployment diagrams</strong> — nodes, artifacts, and infrastructure topology</li>
+            <li><strong>Activity diagrams</strong> — workflow steps, decision branches, and swim lanes</li>
+            <li><strong>State diagrams</strong> — states, transitions, and guards</li>
+            <li><strong>Use case diagrams</strong> — actors, use cases, and system boundaries</li>
+            <li><strong>Entity relationship diagrams</strong> — entities and database cardinality</li>
+            <li><strong>Timing diagrams</strong> — state changes on a shared time axis</li>
+            <li><strong>Sequence diagrams</strong> — message exchanges between participants</li>
+          </ul>
+          Write a standard <code>@startuml … @enduml</code> block in the editor and the diagram renders live.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          How does PlantUML compare to ZenUML DSL for sequence diagrams?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          Both can produce UML 2.x-compliant sequence diagrams from text, but they differ in syntax style
+          and scope:
+          <ul style="margin-top:10px;padding-left:20px;display:flex;flex-direction:column;gap:6px;">
+            <li><strong>ZenUML DSL</strong> uses method-call notation that reads like code — more concise
+            for multi-step API flows and developer-facing interaction docs.</li>
+            <li><strong>PlantUML</strong> uses arrow notation — explicit, familiar to teams with prior
+            PlantUML experience, and consistent with the other eight PlantUML diagram types.</li>
+          </ul>
+          <strong>ZenUML DSL</strong> is the better choice for teams focused primarily on sequence
+          diagrams. <strong>PlantUML</strong> is the better choice when your team already uses PlantUML
+          across multiple diagram types and wants one consistent syntax throughout. Both are available
+          in the same ZenUML macro — there is no need to choose globally.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          Can I copy PlantUML code from my IDE into Confluence?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          Yes. ZenUML for Confluence accepts the same <strong>standard PlantUML syntax</strong> that
+          your IDE plugins produce — IntelliJ PlantUML Integration, the VS Code PlantUML extension,
+          or any other tool that generates <code>@startuml … @enduml</code> blocks. Paste the
+          source directly into the ZenUML macro editor and it renders immediately. There is no
+          format conversion or image export step. The same source that renders in your IDE renders
+          identically in Confluence.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          Does PlantUML render server-side or client-side in ZenUML?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          PlantUML in ZenUML for Confluence renders <strong>entirely client-side in the browser</strong>.
+          Your PlantUML source code is never sent to ZenUML servers or to the public PlantUML render
+          server at plantuml.com. The rendering engine runs inside the Confluence page, scoped to
+          your Atlassian instance. Diagrams are stored as Confluence custom content — plain text,
+          within your instance. This design is important for teams with data residency requirements
+          or confidential architecture diagrams that must not leave the organisation's infrastructure.
+        </div>
+      </div>
+
+    </div>
+
+    <div class="mt-32">
+      <a href="/faq/" class="btn btn-ghost">View full FAQ →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CTA ═══ -->
+<section class="section" id="install" aria-labelledby="cta-heading">
+  <div class="container text-center">
+    <span class="label label-green">Get Started</span>
+    <h2 id="cta-heading" style="margin-bottom:8px;">Add PlantUML to Your Confluence</h2>
+    <p class="text-muted" style="margin-bottom:48px;max-width:520px;margin-left:auto;margin-right:auto;">
+      Install ZenUML for Confluence and start writing PlantUML diagrams directly on your pages.
+      Free Lite plan. No credit card. No external accounts. Installs in under two minutes.
+    </p>
+
+    <div class="grid-3" style="max-width:840px;margin:0 auto 40px;text-align:left;">
+      <div class="card">
+        <div style="font-size:2rem;font-weight:800;color:var(--primary);margin-bottom:12px;">1</div>
+        <h3>Install from Marketplace</h3>
+        <p style="font-size:.9rem;margin-top:8px;">
+          Search for <strong>"ZenUML"</strong> on the Atlassian Marketplace.
+          Choose Lite (free) or Full (paid). Admin permission required.
+        </p>
+        <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+           target="_blank" rel="noopener" class="tag" style="margin-top:16px;display:inline-block;">
+          Open Marketplace →
+        </a>
+      </div>
+      <div class="card">
+        <div style="font-size:2rem;font-weight:800;color:var(--primary);margin-bottom:12px;">2</div>
+        <h3>Insert a ZenUML macro</h3>
+        <p style="font-size:.9rem;margin-top:8px;">
+          On any Confluence page, type <code>/ZenUML</code> or use the macro picker.
+          Select <strong>PlantUML</strong> as the diagram type in the macro dialog.
+        </p>
+      </div>
+      <div class="card">
+        <div style="font-size:2rem;font-weight:800;color:var(--primary);margin-bottom:12px;">3</div>
+        <h3>Paste your PlantUML code</h3>
+        <p style="font-size:.9rem;margin-top:8px;">
+          Paste your existing <code>@startuml … @enduml</code> block into the editor.
+          The diagram renders live as you type. Click Publish to save.
+        </p>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;">
+      <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+         target="_blank" rel="noopener" class="btn btn-primary">
+        ⚡ Install Lite — Free
+      </a>
+      <a href="https://marketplace.atlassian.com/search?query=zenuml+confluence&hosting=cloud&product=confluence"
+         target="_blank" rel="noopener" class="btn btn-green">
+        Install Full — Paid
+      </a>
+      <a href="/diagram-types/" class="btn btn-ghost">All Diagram Types</a>
+    </div>
+
+    <p style="margin-top:24px;font-size:.85rem;color:var(--muted);">
+      Used by engineering teams at Amazon, ThoughtWorks, and more.
+      &nbsp;|&nbsp; Published by <strong>P&amp;D VISION</strong> on Atlassian Marketplace.
+    </p>
+  </div>
+</section>
+
+<!-- ═══ FOOTER ═══ -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-brand">ZenUML for Confluence</div>
+        <p style="font-size:.875rem;line-height:1.7">All-in-one diagramming for Atlassian Confluence Cloud. Sequence diagrams, Mermaid, DrawIO, PlantUML, and OpenAPI — all in one app.</p>
+      </div>
+      <div>
+        <div class="bold" style="color:#fff;margin-bottom:12px;font-size:.875rem">Diagram Types</div>
+        <div class="footer-links">
+          <a href="/diagram-types/sequence-diagrams/">Sequence Diagrams</a>
+          <a href="/diagram-types/mermaid/">Mermaid</a>
+          <a href="/diagram-types/drawio/">DrawIO / Flowcharts</a>
+          <a href="/diagram-types/openapi/">OpenAPI / Swagger</a>
+          <a href="/diagram-types/plantuml/">PlantUML</a>
+        </div>
+      </div>
+      <div>
+        <div class="bold" style="color:#fff;margin-bottom:12px;font-size:.875rem">Product</div>
+        <div class="footer-links">
+          <a href="/features/">Features</a>
+          <a href="/pricing/">Pricing</a>
+          <a href="/install/">Install</a>
+          <a href="/faq/">FAQ</a>
+        </div>
+      </div>
+      <div>
+        <div class="bold" style="color:#fff;margin-bottom:12px;font-size:.875rem">Marketplace</div>
+        <div class="footer-links">
+          <a href="https://marketplace.atlassian.com/search?query=zenuml" target="_blank" rel="noopener">ZenUML on Marketplace</a>
+          <a href="https://zenuml.com" target="_blank" rel="noopener">ZenUML.com</a>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">© 2026 ZenUML · Built for Atlassian Confluence Cloud · <a href="/faq/" style="color:#8993A4">FAQ</a></div>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll('.faq-q').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('.faq-item');
+      const wasOpen = item.classList.contains('open');
+      document.querySelectorAll('.faq-item.open').forEach(el => el.classList.remove('open'));
+      if (!wasOpen) item.classList.add('open');
+      document.querySelectorAll('.faq-q').forEach(b => b.setAttribute('aria-expanded', 'false'));
+      if (!wasOpen) btn.setAttribute('aria-expanded', 'true');
+    });
+  });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZenUML for Confluence — Sequence Diagrams, Mermaid, DrawIO &amp; OpenAPI</title>
+  <meta name="description" content="ZenUML for Confluence is an Atlassian Forge app that lets teams create sequence diagrams, Mermaid charts, DrawIO flowcharts, PlantUML diagrams, and OpenAPI specs directly inside Confluence Cloud. Free Lite plan. 1,000+ installs. Rated 4.8★ on Atlassian Marketplace.">
+  <link rel="canonical" href="https://confluence.zenuml.com/">
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://confluence.zenuml.com/">
+  <meta property="og:title" content="ZenUML for Confluence — Sequence Diagrams, Mermaid, DrawIO &amp; OpenAPI">
+  <meta property="og:description" content="All-in-one diagramming for Atlassian Confluence Cloud. Sequence diagrams, Mermaid, DrawIO, PlantUML, OpenAPI — in one Forge app. Free Lite plan, 1,000+ installs, 4.8★ rated.">
+  <meta property="og:image" content="https://confluence.zenuml.com/assets/og-image.png">
+  <meta property="og:site_name" content="ZenUML for Confluence">
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="ZenUML for Confluence — Diagrams Inside Confluence Cloud">
+  <meta name="twitter:description" content="Sequence diagrams, Mermaid, DrawIO, PlantUML, and OpenAPI specs — all in one Forge app for Confluence Cloud.">
+  <link rel="stylesheet" href="/assets/css/main.css">
+
+  <!-- Schema.org: SoftwareApplication -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "ZenUML for Confluence",
+    "alternateName": ["ZenUML Sequence Diagrams for Confluence", "ZenUML Lite"],
+    "applicationCategory": "BusinessApplication",
+    "applicationSubCategory": "Diagramming",
+    "operatingSystem": "Atlassian Confluence Cloud",
+    "url": "https://confluence.zenuml.com/",
+    "description": "ZenUML for Confluence is an Atlassian Forge app that enables teams to create and maintain diagrams directly inside Confluence Cloud pages. It supports six diagram types: ZenUML sequence diagrams (OMG UML 2.5.1), Mermaid, PlantUML, DrawIO flowcharts, OpenAPI/Swagger specs, and embedded diagrams. Diagrams are rendered in the browser — no content is sent to external servers.",
+    "featureList": [
+      "ZenUML sequence diagrams (OMG UML 2.5.1 compliant)",
+      "Mermaid diagrams",
+      "DrawIO flowcharts and graphs",
+      "PlantUML diagrams",
+      "OpenAPI / Swagger specification rendering",
+      "Diagram embedding",
+      "Fullscreen editor with live preview",
+      "Export to PNG and PDF",
+      "Version history",
+      "AI-assisted diagram generation",
+      "Privacy-first: all rendering in-browser",
+      "Copy diagram source code"
+    ],
+    "offers": [
+      {
+        "@type": "Offer",
+        "name": "Lite (Free)",
+        "price": "0",
+        "priceCurrency": "USD",
+        "description": "Free plan — up to 100 diagrams per Confluence space. Includes ZenUML, Mermaid, DrawIO, PlantUML, OpenAPI, and Embed types."
+      },
+      {
+        "@type": "Offer",
+        "name": "Full (Paid)",
+        "description": "Unlimited diagrams. Available via Atlassian Marketplace subscription, billed per-user.",
+        "url": "https://marketplace.atlassian.com/search?query=zenuml+confluence&hosting=cloud&product=confluence"
+      }
+    ],
+    "aggregateRating": {
+      "@type": "AggregateRating",
+      "ratingValue": "4.8",
+      "bestRating": "5",
+      "worstRating": "1",
+      "reviewCount": "1000"
+    },
+    "publisher": {
+      "@type": "Organization",
+      "name": "P&D VISION"
+    },
+    "downloadUrl": "https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence",
+    "softwareVersion": "latest",
+    "releaseNotes": "https://confluence.zenuml.com/changelog/",
+    "screenshot": "https://confluence.zenuml.com/assets/screenshot-editor.png"
+  }
+  </script>
+
+  <!-- Schema.org: FAQPage -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "What diagram types does ZenUML for Confluence support?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "ZenUML for Confluence supports six diagram types in a single app: (1) ZenUML Sequence Diagrams — text-based UML 2.5.1 sequence diagrams written in ZenUML DSL; (2) Mermaid — the full Mermaid.js syntax covering flowcharts, sequence diagrams, Gantt charts, ER diagrams, and more; (3) PlantUML — class diagrams, activity diagrams, component diagrams, and other PlantUML diagram types; (4) DrawIO / Graph — drag-and-drop flowcharts and general diagrams using the DrawIO engine; (5) OpenAPI / Swagger — interactive OpenAPI 3.x and Swagger 2.0 spec rendering via swagger-ui; (6) Embed — embed an existing diagram from elsewhere in your Confluence space."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Is ZenUML for Confluence free?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes — ZenUML Lite is completely free to install and use, with no credit card required. The free Lite plan supports all six diagram types and allows up to 100 diagrams per Confluence space. It has been installed by more than 898 teams and carries a 4.5-star rating on the Atlassian Marketplace. For teams that need unlimited diagrams across all spaces, the paid Full version is available via the Atlassian Marketplace on a per-user subscription basis."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How does ZenUML compare to Gliffy and Lucidchart?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "ZenUML for Confluence is designed for diagram-as-code workflows, while Gliffy and Lucidchart focus on drag-and-drop visual editing. ZenUML's key differentiators are: (1) Diagram-as-code — diagrams are stored as source text (ZenUML DSL, Mermaid, PlantUML), making them easy to version, diff, and regenerate; (2) Privacy-first — all rendering happens in the browser; diagram content is never sent to ZenUML servers; (3) Multi-syntax support — one app handles ZenUML, Mermaid, PlantUML, DrawIO, and OpenAPI; (4) Free tier — the Lite plan is genuinely free, not a trial. Gliffy and Lucidchart are better choices if your team's primary workflow is drag-and-drop visual diagramming. ZenUML is better for engineering teams who prefer writing diagrams as code alongside documentation."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I use Mermaid syntax in Confluence with ZenUML?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. ZenUML for Confluence includes a full Mermaid renderer powered by Mermaid.js. You can write any Mermaid diagram — flowcharts, sequence diagrams, class diagrams, Gantt charts, ER diagrams, state diagrams, pie charts, and more — directly in the ZenUML macro editor. The live preview updates as you type. Diagrams are stored as Mermaid source text in Confluence custom content and rendered in the browser on every page view."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does ZenUML support DrawIO diagrams in Confluence?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. ZenUML for Confluence includes the DrawIO engine for creating flowcharts, network diagrams, org charts, and general-purpose graphs. The DrawIO editor opens inside Confluence via a fullscreen modal, providing the full DrawIO canvas experience — shapes, connectors, layers, and export. DrawIO diagrams are stored in Confluence custom content and rendered inline on the page, so no separate DrawIO account or subscription is required."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Is my diagram content sent to external servers?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. ZenUML for Confluence is privacy-first by design. All diagram rendering — ZenUML sequence diagrams, Mermaid charts, PlantUML, DrawIO, and OpenAPI — happens entirely in the browser using client-side rendering engines. Your diagram source code and rendered output are never transmitted to ZenUML servers. Diagrams are stored as Confluence custom content within your Atlassian instance. This design makes ZenUML suitable for teams with strict data residency or confidentiality requirements."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What is the difference between the Lite and Full versions?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Both versions include all six diagram types, the fullscreen editor, live preview, PNG/PDF export, version history, and the privacy-first rendering model. The key difference is scale: the Lite version is free and supports up to 100 diagrams per Confluence space. The Full version is a paid Atlassian Marketplace subscription that provides unlimited diagrams across all spaces, making it suitable for large teams or organizations with extensive documentation needs. Both are native Forge apps running on Atlassian's infrastructure."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I install ZenUML in Confluence?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Installation takes under two minutes and requires Confluence Cloud admin permissions. Go to the Atlassian Marketplace and search for 'ZenUML' — choose the Lite (free) or Full (paid) listing. Click 'Get it now', select your Confluence Cloud site, and confirm the installation. Once installed, ZenUML macros appear in the Confluence macro browser (use the '/' slash command or the macro picker). Insert a ZenUML macro onto any page, choose your diagram type, write your diagram code in the editor, and click Publish. No server setup, no credentials, no external accounts required."
+        }
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+
+<!-- ═══ NAV ═══ -->
+<nav class="nav">
+  <a class="nav-logo" href="/">Zen<span>UML</span> for Confluence</a>
+  <div class="nav-links">
+    <a href="/diagram-types/">Diagram Types</a>
+    <a href="/features/">Features</a>
+    <a href="/pricing/">Pricing</a>
+    <a href="/faq/">FAQ</a>
+    <a href="/install/" class="btn btn-primary">Get Started Free</a>
+  </div>
+</nav>
+
+<!-- ═══ HERO ═══ -->
+<header role="banner" class="hero">
+  <div class="container">
+    <div class="hero-badge">
+      ⭐ 4.8 on Atlassian Marketplace &nbsp;·&nbsp; 1,000+ installs &nbsp;·&nbsp; Used by enterprise teams
+    </div>
+    <h1>Diagrams that live inside<br>your Confluence pages</h1>
+    <p style="font-size:1.2rem;max-width:640px;margin-top:20px;color:var(--body);">
+      ZenUML for Confluence is an Atlassian Forge app that lets teams create, edit, and maintain
+      sequence diagrams, Mermaid charts, DrawIO flowcharts, PlantUML diagrams, and OpenAPI specs
+      directly on Confluence Cloud pages — no external tools, no copy-pasting images.
+    </p>
+    <div class="hero-cta">
+      <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+         target="_blank" rel="noopener" class="btn btn-primary">
+        ⚡ Install Free — Lite Plan
+      </a>
+      <a href="/features/" class="btn btn-ghost">See All Features</a>
+    </div>
+    <div style="margin-top:32px;display:flex;gap:24px;flex-wrap:wrap;">
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--muted);">
+        <span style="color:var(--green);font-weight:700;">✓</span> Free Lite plan — no credit card
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--muted);">
+        <span style="color:var(--green);font-weight:700;">✓</span> Installs in under 2 minutes
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--muted);">
+        <span style="color:var(--green);font-weight:700;">✓</span> Diagrams render in-browser — private by design
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--muted);">
+        <span style="color:var(--green);font-weight:700;">✓</span> Used by teams at Amazon &amp; ThoughtWorks
+      </span>
+    </div>
+  </div>
+</header>
+
+<!-- ═══ WHAT IS ZENUML ═══ -->
+<section class="section" id="about" aria-labelledby="about-heading">
+  <div class="container">
+    <span class="label">What is it?</span>
+    <h2 id="about-heading">What is ZenUML for Confluence?</h2>
+    <div style="max-width:760px;margin-top:24px;display:flex;flex-direction:column;gap:20px;">
+      <p>
+        ZenUML for Confluence is an add-on for <strong>Atlassian Confluence Cloud</strong> that embeds a
+        full-featured diagramming environment directly into the Confluence page editor. Rather than
+        exporting a diagram as an image from an external tool and uploading it, teams write or draw
+        diagrams inside a Confluence macro. The source code is stored in Confluence custom content,
+        and the diagram is re-rendered in the browser on every page view — keeping diagrams and
+        documentation in sync.
+      </p>
+      <p>
+        The app supports <strong>six diagram types</strong> in a single installation: ZenUML sequence
+        diagrams (standards-compliant with OMG UML 2.5.1), Mermaid charts, PlantUML diagrams,
+        DrawIO flowcharts, OpenAPI/Swagger specification rendering, and an embed type for
+        reusing existing diagrams. Engineering teams, solution architects, and technical writers
+        use it to keep architecture documentation, API specs, and process flows up to date
+        alongside their Confluence pages.
+      </p>
+      <p>
+        ZenUML for Confluence is published on the Atlassian Marketplace by <strong>P&amp;D VISION</strong>
+        and is available in two variants. The <strong>Lite</strong> plan is free and supports up to 100
+        diagrams per Confluence space — it has been installed by more than 898 teams and is rated
+        4.5 stars. The <strong>Full</strong> plan removes the per-space limit and is rated 4.8 stars.
+        Both variants are native Atlassian Forge apps: they run on Atlassian infrastructure and
+        never transmit diagram content to external servers.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 6 DIAGRAM TYPES ═══ -->
+<section class="section section-alt" id="diagram-types" aria-labelledby="types-heading">
+  <div class="container">
+    <span class="label">Diagram Types</span>
+    <h2 id="types-heading" class="text-center" style="margin-bottom:8px;">6 Diagram Types, One App</h2>
+    <p class="text-center text-muted" style="margin-bottom:40px;max-width:560px;margin-left:auto;margin-right:auto;">
+      Install once. Every diagram type your engineering team needs is available from the same
+      Confluence macro.
+    </p>
+    <div class="grid-3">
+
+      <div class="card">
+        <div class="card-icon">🔁</div>
+        <h3>ZenUML Sequence</h3>
+        <p style="margin-top:8px;font-size:.9rem;">
+          Write UML 2.5.1-compliant sequence diagrams in ZenUML DSL — a concise,
+          readable text syntax. Live preview, syntax highlighting, and AI-assisted generation
+          included. Ideal for API flows, service interactions, and system design docs.
+        </p>
+        <a href="/diagram-types/sequence-diagrams/" class="tag" style="margin-top:16px;display:inline-block;">Learn more →</a>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🧜</div>
+        <h3>Mermaid</h3>
+        <p style="margin-top:8px;font-size:.9rem;">
+          Full Mermaid.js support — flowcharts, sequence diagrams, Gantt charts,
+          ER diagrams, class diagrams, state diagrams, and pie charts. Write Mermaid
+          directly in Confluence without any external tool.
+        </p>
+        <a href="/diagram-types/mermaid/" class="tag" style="margin-top:16px;display:inline-block;">Learn more →</a>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🌿</div>
+        <h3>PlantUML</h3>
+        <p style="margin-top:8px;font-size:.9rem;">
+          Render PlantUML class diagrams, component diagrams, activity diagrams,
+          use-case diagrams, and deployment diagrams. Paste your existing PlantUML
+          code directly into the editor.
+        </p>
+        <a href="/diagram-types/plantuml/" class="tag" style="margin-top:16px;display:inline-block;">Learn more →</a>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🗺️</div>
+        <h3>DrawIO / Graph</h3>
+        <p style="margin-top:8px;font-size:.9rem;">
+          Drag-and-drop flowcharts, network diagrams, org charts, and general-purpose
+          graphs using the DrawIO engine — fully embedded in Confluence. No DrawIO
+          account required.
+        </p>
+        <a href="/diagram-types/drawio/" class="tag" style="margin-top:16px;display:inline-block;">Learn more →</a>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">📄</div>
+        <h3>OpenAPI / Swagger</h3>
+        <p style="margin-top:8px;font-size:.9rem;">
+          Paste an OpenAPI 3.x or Swagger 2.0 spec in YAML or JSON and get an
+          interactive swagger-ui rendered on the Confluence page — complete with
+          endpoint explorer and request/response schemas.
+        </p>
+        <a href="/diagram-types/openapi/" class="tag" style="margin-top:16px;display:inline-block;">Learn more →</a>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🔗</div>
+        <h3>Embed</h3>
+        <p style="margin-top:8px;font-size:.9rem;">
+          Reuse an existing ZenUML sequence diagram, DrawIO graph, or OpenAPI spec
+          from another Confluence page or space. Keep a single source of truth and
+          let all referencing pages stay in sync automatically.
+        </p>
+        <a href="/diagram-types/" class="tag" style="margin-top:16px;display:inline-block;">Learn more →</a>
+      </div>
+
+    </div>
+    <div class="text-center mt-32">
+      <a href="/diagram-types/" class="btn btn-ghost">Explore all diagram types</a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ KEY FEATURES ═══ -->
+<section class="section" id="features" aria-labelledby="features-heading">
+  <div class="container">
+    <span class="label">Features</span>
+    <h2 id="features-heading" class="text-center" style="margin-bottom:8px;">Built for engineering teams</h2>
+    <p class="text-center text-muted" style="margin-bottom:40px;max-width:540px;margin-left:auto;margin-right:auto;">
+      Everything you need to create, maintain, and share technical diagrams — without leaving Confluence.
+    </p>
+    <div class="grid-4">
+
+      <div style="padding:20px 0;">
+        <div class="feature-icon">🖥️</div>
+        <h3>Fullscreen Editor</h3>
+        <p style="font-size:.875rem;margin-top:8px;">
+          A distraction-free fullscreen editing modal with split-pane layout:
+          code on the left, live diagram on the right. Resize panes to suit your workflow.
+        </p>
+      </div>
+
+      <div style="padding:20px 0;">
+        <div class="feature-icon">⚡</div>
+        <h3>Live Preview</h3>
+        <p style="font-size:.875rem;margin-top:8px;">
+          See your diagram update in real time as you type. No save-to-preview cycle —
+          the rendered output tracks the editor cursor-by-cursor.
+        </p>
+      </div>
+
+      <div style="padding:20px 0;">
+        <div class="feature-icon">📤</div>
+        <h3>Export PNG &amp; PDF</h3>
+        <p style="font-size:.875rem;margin-top:8px;">
+          Export any diagram to PNG or PDF directly from the viewer. Share diagrams
+          in presentations, design docs, or review threads without re-screenshotting.
+        </p>
+      </div>
+
+      <div style="padding:20px 0;">
+        <div class="feature-icon">🕐</div>
+        <h3>Version History</h3>
+        <p style="font-size:.875rem;margin-top:8px;">
+          Every save is a new Confluence custom content version. Browse, restore, and
+          compare previous diagram states through Confluence's built-in version history.
+        </p>
+      </div>
+
+      <div style="padding:20px 0;">
+        <div class="feature-icon">📋</div>
+        <h3>Copy Code</h3>
+        <p style="font-size:.875rem;margin-top:8px;">
+          Copy the diagram source to clipboard with one click. Move diagrams between
+          pages, share in Slack, or check them into a Git repository alongside your code.
+        </p>
+      </div>
+
+      <div style="padding:20px 0;">
+        <div class="feature-icon">✍️</div>
+        <h3>Diagram as Code</h3>
+        <p style="font-size:.875rem;margin-top:8px;">
+          Diagrams are stored as plain text — ZenUML DSL, Mermaid, PlantUML, or
+          DrawIO XML. Diffs are readable, merges are possible, and regeneration is
+          instant when your architecture changes.
+        </p>
+      </div>
+
+      <div style="padding:20px 0;">
+        <div class="feature-icon">🤖</div>
+        <h3>AI-Assisted Generation</h3>
+        <p style="font-size:.875rem;margin-top:8px;">
+          Describe a flow in natural language and let AI generate the ZenUML or Mermaid
+          source for you. Edit the output directly in the editor — AI is a starting point,
+          not a black box.
+        </p>
+      </div>
+
+      <div style="padding:20px 0;">
+        <div class="feature-icon">🔒</div>
+        <h3>Privacy-First</h3>
+        <p style="font-size:.875rem;margin-top:8px;">
+          All rendering happens in the browser. Diagram content — including confidential
+          architecture diagrams and API specs — is never sent to ZenUML servers.
+          Suitable for teams with strict data residency requirements.
+        </p>
+      </div>
+
+    </div>
+    <div class="text-center mt-32">
+      <a href="/features/" class="btn btn-ghost">See full feature list</a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ PRICING PREVIEW ═══ -->
+<section class="section section-alt" id="pricing" aria-labelledby="pricing-heading">
+  <div class="container">
+    <span class="label">Pricing</span>
+    <h2 id="pricing-heading" class="text-center" style="margin-bottom:8px;">Free vs Paid</h2>
+    <p class="text-center text-muted" style="margin-bottom:40px;max-width:520px;margin-left:auto;margin-right:auto;">
+      Start free. Upgrade when your team grows. Both variants include all six diagram types.
+    </p>
+
+    <!-- Simple comparison table -->
+    <div style="max-width:740px;margin:0 auto;">
+      <table class="compare-table" aria-label="Lite vs Full feature comparison">
+        <thead>
+          <tr>
+            <th style="width:50%">Feature</th>
+            <th style="width:25%;text-align:center;">Lite <span class="tag" style="margin-left:6px;">Free</span></th>
+            <th style="width:25%;text-align:center;">Full <span class="tag" style="background:var(--green-light);color:var(--green);margin-left:6px;">Paid</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>All 6 diagram types</td>
+            <td class="check" style="text-align:center;">✓</td>
+            <td class="check" style="text-align:center;">✓</td>
+          </tr>
+          <tr>
+            <td>Fullscreen editor + live preview</td>
+            <td class="check" style="text-align:center;">✓</td>
+            <td class="check" style="text-align:center;">✓</td>
+          </tr>
+          <tr>
+            <td>Export PNG &amp; PDF</td>
+            <td class="check" style="text-align:center;">✓</td>
+            <td class="check" style="text-align:center;">✓</td>
+          </tr>
+          <tr>
+            <td>Version history</td>
+            <td class="check" style="text-align:center;">✓</td>
+            <td class="check" style="text-align:center;">✓</td>
+          </tr>
+          <tr>
+            <td>AI-assisted diagram generation</td>
+            <td class="check" style="text-align:center;">✓</td>
+            <td class="check" style="text-align:center;">✓</td>
+          </tr>
+          <tr>
+            <td>Privacy-first in-browser rendering</td>
+            <td class="check" style="text-align:center;">✓</td>
+            <td class="check" style="text-align:center;">✓</td>
+          </tr>
+          <tr>
+            <td>Diagrams per Confluence space</td>
+            <td style="text-align:center;font-weight:600;color:var(--body);">Up to 100</td>
+            <td class="check" style="text-align:center;">Unlimited</td>
+          </tr>
+          <tr>
+            <td>Atlassian Marketplace rating</td>
+            <td style="text-align:center;">⭐ 4.5</td>
+            <td style="text-align:center;">⭐ 4.8</td>
+          </tr>
+          <tr>
+            <td>Installs</td>
+            <td style="text-align:center;">898+</td>
+            <td style="text-align:center;">—</td>
+          </tr>
+          <tr>
+            <td>Price</td>
+            <td style="text-align:center;font-weight:700;color:var(--green);">Free</td>
+            <td style="text-align:center;font-weight:700;">Marketplace subscription</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;gap:16px;justify-content:center;margin-top:40px;flex-wrap:wrap;">
+      <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+         target="_blank" rel="noopener" class="btn btn-primary">
+        Install Lite — Free
+      </a>
+      <a href="https://marketplace.atlassian.com/search?query=zenuml+confluence&hosting=cloud&product=confluence"
+         target="_blank" rel="noopener" class="btn btn-green">
+        Install Full — Paid
+      </a>
+      <a href="/pricing/" class="btn btn-ghost">Full pricing details</a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ FAQ ═══ -->
+<section class="section" id="faq" aria-labelledby="faq-heading">
+  <div class="container">
+    <span class="label">FAQ</span>
+    <h2 id="faq-heading" style="margin-bottom:8px;">Frequently Asked Questions</h2>
+    <p class="text-muted" style="margin-bottom:40px;max-width:580px;">
+      Common questions about ZenUML for Confluence — diagram types, privacy, pricing, and getting started.
+    </p>
+
+    <div class="faq-list" style="max-width:800px;">
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          What diagram types does ZenUML for Confluence support?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          ZenUML for Confluence supports <strong>six diagram types</strong> in a single app:
+          <ul style="margin-top:10px;padding-left:20px;display:flex;flex-direction:column;gap:6px;">
+            <li><strong>ZenUML Sequence</strong> — text-based UML 2.5.1 sequence diagrams using ZenUML DSL</li>
+            <li><strong>Mermaid</strong> — full Mermaid.js syntax (flowcharts, Gantt, ER, class, state, pie, and more)</li>
+            <li><strong>PlantUML</strong> — class, activity, component, use-case, and deployment diagrams</li>
+            <li><strong>DrawIO / Graph</strong> — drag-and-drop flowcharts and graphs using the DrawIO engine</li>
+            <li><strong>OpenAPI / Swagger</strong> — interactive rendering of OpenAPI 3.x and Swagger 2.0 specs</li>
+            <li><strong>Embed</strong> — reuse a diagram from another page or space as a live reference</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          Is ZenUML for Confluence free?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          Yes — <strong>ZenUML Lite is completely free</strong>, no credit card required. The free Lite plan
+          supports all six diagram types and allows up to 100 diagrams per Confluence space. It has
+          been installed by more than 898 teams and carries a 4.5-star rating on the Atlassian
+          Marketplace. For teams that need unlimited diagrams across all spaces, the paid
+          <strong>Full version</strong> is available via the Atlassian Marketplace on a per-user
+          subscription basis and is rated 4.8 stars.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          How does ZenUML compare to Gliffy and Lucidchart?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          ZenUML for Confluence is built for <strong>diagram-as-code workflows</strong>, while Gliffy and
+          Lucidchart focus on drag-and-drop visual editing. Key differences:
+          <ul style="margin-top:10px;padding-left:20px;display:flex;flex-direction:column;gap:6px;">
+            <li><strong>Diagram as code</strong> — ZenUML stores diagrams as plain text (ZenUML DSL, Mermaid, PlantUML), making them versionable and diffable</li>
+            <li><strong>Multi-syntax</strong> — one app covers ZenUML, Mermaid, PlantUML, DrawIO, and OpenAPI; Gliffy/Lucidchart are format-specific</li>
+            <li><strong>Privacy-first</strong> — all rendering is in-browser; diagram content never reaches ZenUML servers</li>
+            <li><strong>Genuinely free tier</strong> — Lite is free, not a timed trial</li>
+          </ul>
+          If your team's primary workflow is visual drag-and-drop, Gliffy or Lucidchart may be a better fit. For engineering teams who prefer writing diagrams as code alongside documentation, ZenUML is the natural choice.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          Can I use Mermaid syntax in Confluence with ZenUML?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          Yes. ZenUML for Confluence includes a full <strong>Mermaid.js renderer</strong>. You can write any
+          valid Mermaid diagram — flowcharts, sequence diagrams, Gantt charts, ER diagrams, class
+          diagrams, state diagrams, pie charts, and more — directly in the ZenUML macro editor.
+          The live preview updates as you type. Diagrams are stored as Mermaid source text in
+          Confluence custom content and rendered in the browser on every page view. No external
+          Mermaid account or service is required.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          Does ZenUML support DrawIO diagrams in Confluence?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          Yes. ZenUML for Confluence includes the <strong>DrawIO engine</strong> for creating flowcharts,
+          network diagrams, org charts, and general-purpose graphs. The DrawIO editor opens in a
+          fullscreen modal inside Confluence, providing the full DrawIO canvas — shapes, connectors,
+          layers, and export. Diagrams are stored in Confluence custom content and rendered inline
+          on the page. No separate DrawIO account or subscription is required.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          Is my diagram content sent to external servers?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          <strong>No.</strong> ZenUML for Confluence is privacy-first by design. All diagram rendering —
+          ZenUML sequence diagrams, Mermaid charts, PlantUML diagrams, DrawIO graphs, and
+          OpenAPI specs — happens entirely in the <strong>browser using client-side engines</strong>.
+          Your diagram source code and rendered output are never transmitted to ZenUML servers.
+          Diagrams are stored as Confluence custom content within your Atlassian instance. This
+          design makes ZenUML suitable for teams with strict data residency or confidentiality
+          requirements.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          What is the difference between the Lite and Full versions?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          Both versions include all six diagram types, the fullscreen editor with live preview,
+          PNG/PDF export, version history, AI-assisted generation, and the privacy-first in-browser
+          rendering model. The key difference is <strong>scale</strong>:
+          <ul style="margin-top:10px;padding-left:20px;display:flex;flex-direction:column;gap:6px;">
+            <li><strong>Lite (free)</strong> — up to 100 diagrams per Confluence space. Rated 4.5★, 898+ installs.</li>
+            <li><strong>Full (paid)</strong> — unlimited diagrams across all spaces. Rated 4.8★. Billed per user via Atlassian Marketplace.</li>
+          </ul>
+          Both are native Atlassian Forge apps running on Atlassian's own infrastructure.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          How do I install ZenUML in Confluence?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          Installation takes under two minutes and requires Confluence Cloud admin permissions:
+          <ol style="margin-top:10px;padding-left:20px;display:flex;flex-direction:column;gap:6px;">
+            <li>Go to the <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence" target="_blank" rel="noopener">Atlassian Marketplace</a> and search for "ZenUML".</li>
+            <li>Choose the <strong>Lite</strong> (free) or <strong>Full</strong> (paid) listing and click <strong>"Get it now"</strong>.</li>
+            <li>Select your Confluence Cloud site and confirm the installation.</li>
+          </ol>
+          Once installed, ZenUML macros appear in the Confluence macro browser. Use the <code>/</code> slash command or the macro picker to insert a ZenUML macro on any page, choose your diagram type, write your code in the editor, and click Publish. No server setup, no external accounts, no credentials required.
+        </div>
+      </div>
+
+    </div>
+
+    <div class="mt-32">
+      <a href="/faq/" class="btn btn-ghost">View full FAQ →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ INSTALL IN MINUTES ═══ -->
+<section class="section section-alt" id="install" aria-labelledby="install-heading">
+  <div class="container text-center">
+    <span class="label label-green">Get Started</span>
+    <h2 id="install-heading" style="margin-bottom:8px;">Install in Minutes</h2>
+    <p class="text-muted" style="margin-bottom:48px;max-width:500px;margin-left:auto;margin-right:auto;">
+      ZenUML is a native Atlassian Forge app — no servers to configure, no external accounts to create.
+    </p>
+
+    <div class="grid-3" style="max-width:840px;margin:0 auto;text-align:left;">
+
+      <div class="card">
+        <div style="font-size:2rem;font-weight:800;color:var(--primary);margin-bottom:12px;">1</div>
+        <h3>Find on Marketplace</h3>
+        <p style="font-size:.9rem;margin-top:8px;">
+          Go to the Atlassian Marketplace and search for
+          <strong>"ZenUML"</strong>. Choose Lite (free) or Full (paid)
+          based on your team's needs.
+        </p>
+        <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+           target="_blank" rel="noopener" class="tag" style="margin-top:16px;display:inline-block;">
+          Open Marketplace →
+        </a>
+      </div>
+
+      <div class="card">
+        <div style="font-size:2rem;font-weight:800;color:var(--primary);margin-bottom:12px;">2</div>
+        <h3>Click "Get it now"</h3>
+        <p style="font-size:.9rem;margin-top:8px;">
+          Select your Confluence Cloud site and confirm. Atlassian handles
+          the install — no download, no ZIP file, no server configuration.
+          Admin permission required.
+        </p>
+      </div>
+
+      <div class="card">
+        <div style="font-size:2rem;font-weight:800;color:var(--primary);margin-bottom:12px;">3</div>
+        <h3>Insert a macro and diagram</h3>
+        <p style="font-size:.9rem;margin-top:8px;">
+          On any Confluence page, type <code style="background:var(--bg-alt);padding:2px 6px;border-radius:4px;">/ZenUML</code>
+          or use the macro picker to insert a diagram. Choose your type,
+          write or paste your code, and click Publish.
+        </p>
+      </div>
+
+    </div>
+
+    <div style="margin-top:40px;display:flex;gap:16px;justify-content:center;flex-wrap:wrap;">
+      <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+         target="_blank" rel="noopener" class="btn btn-primary">
+        ⚡ Install Lite — Free
+      </a>
+      <a href="https://marketplace.atlassian.com/search?query=zenuml+confluence&hosting=cloud&product=confluence"
+         target="_blank" rel="noopener" class="btn btn-green">
+        Install Full — Paid
+      </a>
+    </div>
+
+    <p style="margin-top:24px;font-size:.85rem;color:var(--muted);">
+      Used by engineering teams at Amazon, ThoughtWorks, and more.
+      &nbsp;|&nbsp; Published by <strong>P&amp;D VISION</strong> on Atlassian Marketplace.
+    </p>
+  </div>
+</section>
+
+<!-- ═══ FOOTER ═══ -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-brand">ZenUML for Confluence</div>
+        <p style="font-size:.875rem;line-height:1.7">All-in-one diagramming for Atlassian Confluence Cloud. Sequence diagrams, Mermaid, DrawIO, PlantUML, and OpenAPI — all in one app.</p>
+      </div>
+      <div>
+        <div class="bold" style="color:#fff;margin-bottom:12px;font-size:.875rem">Diagram Types</div>
+        <div class="footer-links">
+          <a href="/diagram-types/sequence-diagrams/">Sequence Diagrams</a>
+          <a href="/diagram-types/mermaid/">Mermaid</a>
+          <a href="/diagram-types/drawio/">DrawIO / Flowcharts</a>
+          <a href="/diagram-types/openapi/">OpenAPI / Swagger</a>
+          <a href="/diagram-types/plantuml/">PlantUML</a>
+        </div>
+      </div>
+      <div>
+        <div class="bold" style="color:#fff;margin-bottom:12px;font-size:.875rem">Product</div>
+        <div class="footer-links">
+          <a href="/features/">Features</a>
+          <a href="/pricing/">Pricing</a>
+          <a href="/install/">Install</a>
+          <a href="/faq/">FAQ</a>
+        </div>
+      </div>
+      <div>
+        <div class="bold" style="color:#fff;margin-bottom:12px;font-size:.875rem">Marketplace</div>
+        <div class="footer-links">
+          <a href="https://marketplace.atlassian.com/search?query=zenuml" target="_blank" rel="noopener">ZenUML on Marketplace</a>
+          <a href="https://zenuml.com" target="_blank" rel="noopener">ZenUML.com</a>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">© 2026 ZenUML · Built for Atlassian Confluence Cloud · <a href="/faq/" style="color:#8993A4">FAQ</a></div>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll('.faq-q').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('.faq-item');
+      const wasOpen = item.classList.contains('open');
+      document.querySelectorAll('.faq-item.open').forEach(el => el.classList.remove('open'));
+      if (!wasOpen) item.classList.add('open');
+      // Update aria-expanded
+      document.querySelectorAll('.faq-q').forEach(b => b.setAttribute('aria-expanded', 'false'));
+      if (!wasOpen) btn.setAttribute('aria-expanded', 'true');
+    });
+  });
+</script>
+
+</body>
+</html>

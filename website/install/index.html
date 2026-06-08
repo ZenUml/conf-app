@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Install ZenUML for Confluence — Free in 2 Minutes</title>
+  <meta name="description" content="Install ZenUML for Confluence in minutes from the Atlassian Marketplace. Free Lite plan available. No credit card required for Confluence Cloud." />
+  <link rel="canonical" href="https://confluence.zenuml.com/install/" />
+  <link rel="stylesheet" href="../assets/css/main.css" />
+
+  <!-- Schema.org HowTo structured data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "HowTo",
+    "name": "How to Install ZenUML for Confluence",
+    "description": "Install ZenUML for Confluence Cloud from the Atlassian Marketplace and create your first diagram in under 2 minutes.",
+    "totalTime": "PT2M",
+    "estimatedCost": {
+      "@type": "MonetaryAmount",
+      "currency": "USD",
+      "value": "0"
+    },
+    "supply": [
+      {
+        "@type": "HowToSupply",
+        "name": "Confluence Cloud site"
+      },
+      {
+        "@type": "HowToSupply",
+        "name": "Atlassian account with admin or space-admin role"
+      }
+    ],
+    "step": [
+      {
+        "@type": "HowToStep",
+        "position": 1,
+        "name": "Go to the Atlassian Marketplace",
+        "text": "Visit the Atlassian Marketplace and search for ZenUML. You can go directly to the Lite (free) or Full (paid) listing.",
+        "url": "https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+      },
+      {
+        "@type": "HowToStep",
+        "position": 2,
+        "name": "Choose Lite (free) or Full (paid)",
+        "text": "Lite is free forever and supports all six diagram types for up to 100 macros per space. Full adds unlimited macros, priority support, and advanced export options."
+      },
+      {
+        "@type": "HowToStep",
+        "position": 3,
+        "name": "Click Get app and approve Forge permissions",
+        "text": "Click 'Try it free' or 'Get app'. Atlassian will show you the Forge permissions the app needs — read and write access to Confluence content in the spaces where you use diagrams."
+      },
+      {
+        "@type": "HowToStep",
+        "position": 4,
+        "name": "Open a Confluence page in edit mode and type /diagram",
+        "text": "Navigate to any Confluence page, enter edit mode, then type /diagram in the page body. The ZenUML macro will appear in the insert menu."
+      },
+      {
+        "@type": "HowToStep",
+        "position": 5,
+        "name": "Choose your diagram type",
+        "text": "Select from Sequence (ZenUML DSL), Mermaid, DrawIO, PlantUML, OpenAPI/Swagger, or Embed."
+      },
+      {
+        "@type": "HowToStep",
+        "position": 6,
+        "name": "Write or generate your diagram and click Publish",
+        "text": "Type your diagram code in the editor, or use AI generation if available. Click Publish to save the diagram to your Confluence page."
+      }
+    ]
+  }
+  </script>
+
+  <style>
+    /* Install-page-specific styles */
+    .steps { display:flex; flex-direction:column; gap:0; max-width:800px; margin:0 auto; }
+    .step { display:grid; grid-template-columns:64px 1fr; gap:24px; padding:32px 0; border-bottom:1px solid var(--border); }
+    .step:last-child { border-bottom:none; }
+    .step-num { width:48px; height:48px; border-radius:50%; background:var(--primary); color:#fff; font-size:1.25rem; font-weight:800; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:4px; }
+    .step-body h3 { margin-bottom:8px; }
+    .step-body p { margin-bottom:0; font-size:.95rem; }
+    .step-body .step-tip { margin-top:10px; font-size:.85rem; background:var(--primary-light); color:var(--primary-dark); border-radius:var(--radius); padding:10px 14px; display:inline-block; }
+    .step-body .step-cmd { font-family:monospace; background:var(--bg-alt); border:1px solid var(--border); border-radius:4px; padding:2px 8px; font-size:.9em; color:var(--dark); }
+    .trust-badges { display:flex; gap:20px; flex-wrap:wrap; align-items:center; margin-top:24px; }
+    .trust-badge { display:inline-flex; align-items:center; gap:8px; font-size:.85rem; font-weight:600; color:var(--muted); }
+    .trust-badge svg { flex-shrink:0; }
+    .plan-split { display:grid; grid-template-columns:repeat(2,1fr); gap:24px; max-width:860px; margin:0 auto; }
+    .plan-card { border:1px solid var(--border); border-radius:var(--radius-lg); padding:28px; }
+    .plan-card.plan-lite { border-color:var(--green); }
+    .plan-card.plan-full { border-color:var(--primary); }
+    .plan-name { font-size:1.35rem; font-weight:800; margin-bottom:6px; }
+    .plan-price { font-size:2rem; font-weight:800; color:var(--dark); }
+    .plan-price span { font-size:1rem; font-weight:400; color:var(--muted); }
+    .permissions-list { display:flex; flex-direction:column; gap:14px; max-width:680px; }
+    .permission-item { display:flex; gap:14px; align-items:flex-start; }
+    .perm-icon { width:36px; height:36px; border-radius:8px; background:var(--primary-light); display:flex; align-items:center; justify-content:center; font-size:1.1rem; flex-shrink:0; margin-top:2px; }
+    .who-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:24px; max-width:800px; margin:0 auto; }
+    .who-card { border:1px solid var(--border); border-radius:var(--radius-lg); padding:24px 28px; }
+    .who-card h3 { margin-bottom:8px; display:flex; align-items:center; gap:10px; }
+    @media(max-width:768px) {
+      .plan-split, .who-grid { grid-template-columns:1fr; }
+      .step { grid-template-columns:48px 1fr; gap:16px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Nav ── -->
+<nav class="nav">
+  <a class="nav-logo" href="/">
+    <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+      <rect width="26" height="26" rx="6" fill="#0052CC"/>
+      <path d="M7 18 L13 8 L19 18" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M9.5 14 H16.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+    ZenUML <span>for Confluence</span>
+  </a>
+  <div class="nav-links">
+    <a href="/features/">Features</a>
+    <a href="/diagram-types/">Diagram Types</a>
+    <a href="/pricing/">Pricing</a>
+    <a href="/faq/">FAQ</a>
+    <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+       class="btn btn-primary" target="_blank" rel="noopener">Install Free</a>
+  </div>
+</nav>
+
+<!-- ── Hero ── -->
+<section class="hero">
+  <div class="container text-center">
+    <div class="breadcrumb" style="justify-content:center;">
+      <a href="/">Home</a>
+      <span>›</span>
+      <span>Install</span>
+    </div>
+    <span class="label">Get Started</span>
+    <h1>Get ZenUML in Your Confluence<br>in 2 Minutes</h1>
+    <p class="mt-16" style="max-width:600px;margin-left:auto;margin-right:auto;font-size:1.1rem;">
+      Install directly from the Atlassian Marketplace — no dev setup, no credit card.
+      The Lite plan is free forever.
+    </p>
+    <div class="trust-badges" style="justify-content:center;">
+      <span class="trust-badge">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="8" stroke="#00875A" stroke-width="1.5"/><path d="M5.5 9.5L8 12L12.5 7" stroke="#00875A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Atlassian Marketplace verified
+      </span>
+      <span class="trust-badge">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="8" stroke="#00875A" stroke-width="1.5"/><path d="M5.5 9.5L8 12L12.5 7" stroke="#00875A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Forge-native — no external servers required
+      </span>
+      <span class="trust-badge">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="8" stroke="#00875A" stroke-width="1.5"/><path d="M5.5 9.5L8 12L12.5 7" stroke="#00875A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Free Lite plan, no credit card needed
+      </span>
+      <span class="trust-badge">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="8" stroke="#00875A" stroke-width="1.5"/><path d="M5.5 9.5L8 12L12.5 7" stroke="#00875A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Confluence Cloud only
+      </span>
+    </div>
+    <div class="hero-cta" style="justify-content:center;">
+      <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+         class="btn btn-green" target="_blank" rel="noopener">
+        Install Lite — Free
+      </a>
+      <a href="https://marketplace.atlassian.com/search?query=zenuml+confluence&hosting=cloud&product=confluence"
+         class="btn btn-ghost" target="_blank" rel="noopener">
+        View Full Plan
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ── Step-by-step guide ── -->
+<section class="section">
+  <div class="container">
+    <div class="text-center mb-48">
+      <span class="label">Installation guide</span>
+      <h2>Six steps from zero to your first diagram</h2>
+      <p class="mt-16" style="max-width:520px;margin-left:auto;margin-right:auto;">
+        No developer skills required. If you can edit a Confluence page, you can create a diagram.
+      </p>
+    </div>
+
+    <div class="steps">
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>Go to the Atlassian Marketplace</h3>
+          <p>
+            Open
+            <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+               target="_blank" rel="noopener">marketplace.atlassian.com</a>
+            and search for <strong>ZenUML</strong>. You can search directly for "ZenUML Lite" (free)
+            or "ZenUML for Confluence" (Full paid plan). The listing is published by
+            <em>ZenUML</em> and shows the Atlassian verified badge.
+          </p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>Choose Lite (free) or Full (paid)</h3>
+          <p>
+            <strong>Lite</strong> is free forever — all six diagram types, up to 100 macros per
+            space, no time limit.<br>
+            <strong>Full</strong> removes the per-space macro limit, adds priority support, and
+            unlocks advanced PDF export and custom branding options.
+          </p>
+          <span class="step-tip">
+            Not sure which to pick? Start with Lite. You can upgrade at any time from the
+            Atlassian admin panel without losing your diagrams.
+          </span>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h3>Click "Try it free" / "Get app" and approve Forge permissions</h3>
+          <p>
+            Atlassian will display the Forge permission scopes the app requests before you
+            confirm installation. ZenUML requests:
+          </p>
+          <ul style="margin-top:10px;margin-left:20px;font-size:.9rem;color:var(--body);line-height:1.9;">
+            <li><strong>Read</strong> Confluence content (pages, spaces) — to display diagrams stored as custom content</li>
+            <li><strong>Write</strong> Confluence content — to save and update diagram data when you publish</li>
+          </ul>
+          <p style="margin-top:10px;">
+            No scopes outside Confluence content are requested. Your diagram data is stored
+            as Confluence custom content — it lives inside your Confluence site, not on a
+            third-party server.
+          </p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h3>Open a Confluence page in edit mode and type <span class="step-cmd">/diagram</span></h3>
+          <p>
+            Navigate to any Confluence page, click <strong>Edit</strong> to enter edit mode, then
+            click in the page body and type <span class="step-cmd">/diagram</span>. The
+            ZenUML — Diagram as Code macro will appear in the insert menu. Click it to open
+            the diagram editor.
+          </p>
+          <span class="step-tip">
+            The slash command works in the Confluence Cloud editor (both new-editor and legacy
+            editor). If you do not see it, confirm the app is installed under
+            <em>Settings → Manage apps</em>.
+          </span>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <h3>Choose your diagram type</h3>
+          <p>
+            The editor opens a type picker. Six options are available:
+          </p>
+          <ul style="margin-top:10px;margin-left:20px;font-size:.9rem;color:var(--body);line-height:2;">
+            <li><strong>Sequence</strong> — ZenUML DSL for sequence / interaction diagrams</li>
+            <li><strong>Mermaid</strong> — flowcharts, ER diagrams, Gantt charts, and more</li>
+            <li><strong>DrawIO</strong> — full visual graph editor (drag-and-drop)</li>
+            <li><strong>PlantUML</strong> — class, component, state, and activity diagrams</li>
+            <li><strong>OpenAPI</strong> — render any OpenAPI/Swagger spec as interactive docs</li>
+            <li><strong>Embed</strong> — embed an existing ZenUML, DrawIO, or API diagram</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">6</div>
+        <div class="step-body">
+          <h3>Write or generate your diagram and click Publish</h3>
+          <p>
+            Type your diagram code (or use a template) in the left-hand editor panel. The
+            diagram renders live on the right. When you are happy with the result, click
+            <strong>Publish</strong>. The diagram is saved to your Confluence page as custom
+            content and is visible to anyone with page-view permissions.
+          </p>
+          <span class="step-tip">
+            Tip: paste any existing Mermaid or PlantUML code you already have — it will render
+            immediately without any changes.
+          </span>
+        </div>
+      </div>
+
+    </div><!-- /steps -->
+
+    <div class="text-center mt-48">
+      <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+         class="btn btn-green" target="_blank" rel="noopener" style="font-size:1rem;padding:14px 32px;">
+        Install Lite Free — Start Now
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ── Permissions ── -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="text-center mb-48">
+      <span class="label">Transparency</span>
+      <h2>What permissions does ZenUML need?</h2>
+      <p class="mt-16" style="max-width:560px;margin-left:auto;margin-right:auto;">
+        ZenUML is a Forge-native app. Atlassian's Forge platform enforces permission scopes
+        at the platform level — the app can only do what the scopes allow.
+      </p>
+    </div>
+
+    <div class="permissions-list" style="margin:0 auto;">
+      <div class="permission-item">
+        <div class="perm-icon">📄</div>
+        <div>
+          <strong>Read Confluence content (pages &amp; spaces)</strong>
+          <p style="margin-top:4px;font-size:.9rem;">
+            ZenUML reads page context so it can load diagram data stored as custom content
+            on that page. It never reads or indexes content outside pages where a ZenUML
+            macro is present.
+          </p>
+        </div>
+      </div>
+      <div class="permission-item">
+        <div class="perm-icon">✏️</div>
+        <div>
+          <strong>Write Confluence content</strong>
+          <p style="margin-top:4px;font-size:.9rem;">
+            When you click Publish, ZenUML saves your diagram code as Confluence custom
+            content (a first-class Confluence data type). This is the only write operation —
+            it does not modify page text, titles, or any other page content.
+          </p>
+        </div>
+      </div>
+      <div class="permission-item">
+        <div class="perm-icon">🔒</div>
+        <div>
+          <strong>No external data transfer for your diagram content</strong>
+          <p style="margin-top:4px;font-size:.9rem;">
+            Diagram source code and rendered output stay inside your Confluence site.
+            ZenUML uses a Cloudflare Workers backend only for license checks and optional
+            telemetry — your diagram content is never sent there.
+          </p>
+        </div>
+      </div>
+      <div class="permission-item">
+        <div class="perm-icon">🚫</div>
+        <div>
+          <strong>No scopes beyond Confluence content</strong>
+          <p style="margin-top:4px;font-size:.9rem;">
+            ZenUML does not request access to Jira, Bitbucket, user profiles, email
+            addresses, or any Atlassian product outside the Confluence content API.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Plan comparison ── -->
+<section class="section">
+  <div class="container">
+    <div class="text-center mb-48">
+      <span class="label label-green">Flexible plans</span>
+      <h2>Start with Lite, upgrade when ready</h2>
+      <p class="mt-16" style="max-width:540px;margin-left:auto;margin-right:auto;">
+        Every ZenUML feature is available on both plans. The difference is scale and support.
+      </p>
+    </div>
+
+    <div class="plan-split">
+      <div class="plan-card plan-lite">
+        <div class="label label-green" style="margin-bottom:12px;">Free forever</div>
+        <div class="plan-name">Lite</div>
+        <div class="plan-price">$0 <span>/ month</span></div>
+        <p style="margin-top:12px;font-size:.9rem;color:var(--muted);">No credit card. No expiry.</p>
+        <ul class="check-list mt-24">
+          <li>All 6 diagram types</li>
+          <li>Up to 100 macros per space</li>
+          <li>Full diagram editor (code + visual)</li>
+          <li>Confluence Cloud only</li>
+          <li>Community support</li>
+        </ul>
+        <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+           class="btn btn-green mt-24" target="_blank" rel="noopener" style="width:100%;justify-content:center;">
+          Install Lite Free
+        </a>
+      </div>
+
+      <div class="plan-card plan-full">
+        <div class="label" style="margin-bottom:12px;">Paid plan</div>
+        <div class="plan-name">Full</div>
+        <div class="plan-price" style="font-size:1.5rem;padding-top:6px;">Marketplace pricing</div>
+        <p style="margin-top:12px;font-size:.9rem;color:var(--muted);">Per-user Atlassian billing. 30-day free trial.</p>
+        <ul class="check-list mt-24">
+          <li>Everything in Lite</li>
+          <li>Unlimited macros per space</li>
+          <li>Advanced PDF export</li>
+          <li>Priority email support</li>
+          <li>SLA for enterprise customers</li>
+        </ul>
+        <a href="https://marketplace.atlassian.com/search?query=zenuml+confluence&hosting=cloud&product=confluence"
+           class="btn btn-primary mt-24" target="_blank" rel="noopener" style="width:100%;justify-content:center;">
+          View Full on Marketplace
+        </a>
+      </div>
+    </div>
+
+    <p class="text-center mt-32" style="font-size:.9rem;color:var(--muted);">
+      Upgrading from Lite to Full preserves all your existing diagrams — no migration needed.
+    </p>
+  </div>
+</section>
+
+<!-- ── Who installs ── -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="text-center mb-48">
+      <span class="label">Roles</span>
+      <h2>Who installs ZenUML?</h2>
+      <p class="mt-16" style="max-width:520px;margin-left:auto;margin-right:auto;">
+        Installation scope depends on your Confluence role. Both paths are fully supported.
+      </p>
+    </div>
+
+    <div class="who-grid">
+      <div class="who-card">
+        <h3>
+          <span style="font-size:1.6rem;">🏢</span>
+          Confluence Site Admin
+        </h3>
+        <p style="font-size:.95rem;">
+          A site admin (Confluence administrator) can install ZenUML for the
+          <strong>entire Confluence site</strong>. Once installed at site level, the
+          <span class="step-cmd">/diagram</span> macro is available in every space
+          immediately — no per-space action needed.
+        </p>
+        <p class="mt-16" style="font-size:.9rem;color:var(--muted);">
+          Install path: Confluence Settings → Manage apps → Find new apps → search ZenUML.
+        </p>
+      </div>
+
+      <div class="who-card">
+        <h3>
+          <span style="font-size:1.6rem;">📁</span>
+          Space Admin
+        </h3>
+        <p style="font-size:.95rem;">
+          A space admin can install Marketplace apps scoped to their own space if the
+          Confluence site allows user-installed apps. This gives teams autonomy to add
+          ZenUML without waiting for a global admin.
+        </p>
+        <p class="mt-16" style="font-size:.9rem;color:var(--muted);">
+          Install path: Space Settings → Apps → Find apps → search ZenUML.
+          (Option visibility depends on site-level permissions set by the site admin.)
+        </p>
+      </div>
+    </div>
+
+    <div class="card mt-32" style="max-width:680px;margin-left:auto;margin-right:auto;background:var(--primary-light);border-color:var(--primary);">
+      <p style="font-size:.95rem;color:var(--primary-dark);">
+        <strong>Not an admin?</strong> Share this page with your Confluence site admin and ask
+        them to install ZenUML Lite — it takes under 2 minutes and is completely free.
+        Once installed, every editor on the site can insert diagrams immediately.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ── FAQ ── -->
+<section class="section">
+  <div class="container" style="max-width:760px;">
+    <div class="text-center mb-48">
+      <span class="label">FAQ</span>
+      <h2>Installation questions</h2>
+    </div>
+
+    <div class="faq-list">
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          Does ZenUML work on Confluence Server or Data Center?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a">
+          ZenUML for Confluence is a <strong>Confluence Cloud-only</strong> app built on
+          Atlassian's Forge platform. It is not compatible with Confluence Server or
+          Confluence Data Center. If you are on Server or Data Center, the app will not
+          appear as an installable option in your Marketplace.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          Do I need a credit card to install the Lite plan?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a">
+          No. The Lite plan is free with no trial period and no credit card required.
+          Atlassian handles billing for all Marketplace apps — you will only be asked for
+          payment details if you choose to upgrade to the Full paid plan, which starts a
+          30-day free trial.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          How do I verify the installation was successful?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a">
+          After installation, navigate to any Confluence page and enter edit mode. Type
+          <code>/diagram</code> in the page body. If the ZenUML macro appears in the
+          suggestion list, the installation is working. You can also confirm under
+          <em>Confluence Settings → Manage apps</em> — ZenUML should appear as "Enabled".
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          What happens to my diagrams if I uninstall ZenUML?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a">
+          Your diagram source code is stored as Confluence custom content, which is
+          part of your Confluence data. If you uninstall ZenUML, the macro placeholders
+          remain on your pages but will no longer render. If you reinstall ZenUML,
+          all diagrams will render again from the stored custom content — nothing is lost.
+          Atlassian's data retention policy applies to all custom content on your site.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          Can I switch from the Lite plan to the Full plan without losing diagrams?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a">
+          Yes. Upgrading from Lite to Full is a plan change within the same Atlassian
+          Marketplace app — it does not require uninstalling and reinstalling. All your
+          existing diagrams are preserved exactly as they are. The upgrade takes effect
+          immediately after you confirm billing in the Atlassian admin panel.
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── Final CTA ── -->
+<section class="section section-dark">
+  <div class="container text-center">
+    <h2 style="color:#fff;">Ready to install?</h2>
+    <p class="mt-16" style="max-width:480px;margin-left:auto;margin-right:auto;">
+      Install ZenUML Lite for free in under 2 minutes — no credit card, no expiry.
+      Upgrade to Full any time.
+    </p>
+    <div class="hero-cta" style="justify-content:center;margin-top:32px;">
+      <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+         class="btn btn-green" target="_blank" rel="noopener" style="font-size:1rem;padding:14px 32px;">
+        Install Lite Free on Marketplace
+      </a>
+      <a href="https://marketplace.atlassian.com/search?query=zenuml+confluence&hosting=cloud&product=confluence"
+         class="btn btn-ghost" target="_blank" rel="noopener"
+         style="border-color:#8993A4;color:#fff;font-size:1rem;padding:14px 32px;">
+        View Full Plan
+      </a>
+    </div>
+    <p class="mt-24" style="font-size:.85rem;color:#8993A4;">
+      Questions? Visit our <a href="/faq/" style="color:#B8C4D6;">FAQ</a> or
+      <a href="mailto:support@zenuml.com" style="color:#B8C4D6;">contact support</a>.
+    </p>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-brand">ZenUML for Confluence</div>
+        <p style="font-size:.875rem;max-width:280px;line-height:1.7;">
+          Diagram as Code for Confluence Cloud. Six diagram types — ZenUML, Mermaid,
+          DrawIO, PlantUML, OpenAPI, and Embed — in one Forge-native add-on.
+        </p>
+      </div>
+      <div>
+        <p style="font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#fff;margin-bottom:12px;">Product</p>
+        <div class="footer-links">
+          <a href="/features/">Features</a>
+          <a href="/diagram-types/">Diagram Types</a>
+          <a href="/pricing/">Pricing</a>
+          <a href="/install/">Install Guide</a>
+        </div>
+      </div>
+      <div>
+        <p style="font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#fff;margin-bottom:12px;">Support</p>
+        <div class="footer-links">
+          <a href="/faq/">FAQ</a>
+          <a href="https://community.atlassian.com/" target="_blank" rel="noopener">Atlassian Community</a>
+          <a href="mailto:support@zenuml.com">Contact Support</a>
+        </div>
+      </div>
+      <div>
+        <p style="font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#fff;margin-bottom:12px;">Marketplace</p>
+        <div class="footer-links">
+          <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+             target="_blank" rel="noopener">Install Lite (Free)</a>
+          <a href="https://marketplace.atlassian.com/search?query=zenuml+confluence&hosting=cloud&product=confluence"
+             target="_blank" rel="noopener">Install Full</a>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>&copy; 2026 ZenUML. Atlassian Marketplace Partner. Confluence Cloud add-on built on Atlassian Forge.</p>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // FAQ accordion
+  document.querySelectorAll('.faq-q').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('.faq-item');
+      const isOpen = item.classList.contains('open');
+      document.querySelectorAll('.faq-item.open').forEach(el => {
+        el.classList.remove('open');
+        el.querySelector('.faq-q').setAttribute('aria-expanded', 'false');
+        el.querySelector('.faq-toggle').textContent = '+';
+      });
+      if (!isOpen) {
+        item.classList.add('open');
+        btn.setAttribute('aria-expanded', 'true');
+        btn.querySelector('.faq-toggle').textContent = '−';
+      }
+    });
+  });
+</script>
+
+</body>
+</html>

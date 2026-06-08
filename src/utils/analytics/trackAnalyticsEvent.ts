@@ -16,8 +16,6 @@ let _identified = false;
 
 function _initMixpanel() {
   if (!_initialized) {
-    const cloudId = forgeGlobal.forgeContext?.cloudId ?? "";
-    const isHighReplayClient = cloudId === "d1b3810b-db2f-4f83-8ec3-90f60944e570";
     // The page-banner iframe is short-lived and has no macro context — session
     // replay there adds noise without value. Keep replay in macro iframes only.
     const isPageBanner = (forgeGlobal.forgeContext as any)?.moduleKey === "zenuml-page-banner";
@@ -28,7 +26,7 @@ function _initMixpanel() {
       autocapture: false,
       persistence: "localStorage",
       ignore_dnt: true,
-      record_sessions_percent: isPageBanner ? 0 : (isHighReplayClient ? 20 : 4),
+      record_sessions_percent: isPageBanner ? 0 : 2,
     });
     _initialized = true;
   }

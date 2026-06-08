@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DrawIO Diagrams in Confluence — Flowcharts &amp; Graphs | ZenUML</title>
+  <meta name="description" content="Create DrawIO flowcharts, network diagrams, org charts, and graphs directly in Confluence. Full drag-and-drop DrawIO editor embedded — no separate account required.">
+  <link rel="canonical" href="https://confluence.zenuml.com/diagram-types/drawio/">
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://confluence.zenuml.com/diagram-types/drawio/">
+  <meta property="og:title" content="DrawIO Diagrams in Confluence — Flowcharts &amp; Graphs | ZenUML">
+  <meta property="og:description" content="Create DrawIO flowcharts, network diagrams, org charts, and graphs directly in Confluence. Full drag-and-drop DrawIO editor embedded — no separate account required.">
+  <meta property="og:image" content="https://confluence.zenuml.com/assets/og-image.png">
+  <meta property="og:site_name" content="ZenUML for Confluence">
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="DrawIO Diagrams in Confluence | ZenUML">
+  <meta name="twitter:description" content="Full drag-and-drop DrawIO editor embedded in Confluence. Flowcharts, network diagrams, org charts, and more — no DrawIO account needed.">
+  <link rel="stylesheet" href="/assets/css/main.css">
+
+  <!-- Schema.org: WebPage -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "name": "DrawIO Diagrams in Confluence — Flowcharts & Graphs | ZenUML",
+    "url": "https://confluence.zenuml.com/diagram-types/drawio/",
+    "description": "Create DrawIO flowcharts, network diagrams, org charts, and graphs directly in Confluence using ZenUML's embedded DrawIO editor. No separate DrawIO account required.",
+    "breadcrumb": {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://confluence.zenuml.com/" },
+        { "@type": "ListItem", "position": 2, "name": "Diagram Types", "item": "https://confluence.zenuml.com/diagram-types/" },
+        { "@type": "ListItem", "position": 3, "name": "DrawIO / Flowcharts" }
+      ]
+    },
+    "isPartOf": {
+      "@type": "SoftwareApplication",
+      "name": "ZenUML for Confluence",
+      "url": "https://confluence.zenuml.com/"
+    }
+  }
+  </script>
+
+  <!-- Schema.org: FAQPage -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Does DrawIO work the same as diagrams.net in ZenUML?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes — ZenUML embeds the same open-source DrawIO engine that powers diagrams.net. You get the full canvas: shape libraries, connectors, layers, styling, and multi-page diagrams. The editor runs entirely in your browser inside Confluence, so the experience is functionally identical to diagrams.net without needing to leave Confluence or maintain a separate account."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I import an existing .drawio file into Confluence?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. DrawIO diagrams are stored as DrawIO XML, which is the same format used by .drawio and .xml files created in diagrams.net or the DrawIO desktop app. To import an existing diagram, open the DrawIO editor in ZenUML, use the Extras > Edit Diagram option to paste the XML directly, or use the File > Import from menu inside the editor. Your existing diagram will render exactly as it did in the standalone DrawIO tool."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Do I need a DrawIO account?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. ZenUML embeds the open-source DrawIO engine and runs it entirely inside Confluence. You do not need a diagrams.net account, a DrawIO subscription, or any external service. The only requirement is that ZenUML for Confluence is installed in your Atlassian Confluence Cloud instance."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can multiple people edit the same DrawIO diagram?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes, in the same way that any Confluence page content can be edited by multiple people. When a user opens the DrawIO editor and saves, the new version becomes the current state of the diagram on the page. Confluence's built-in version history keeps every previous save, so earlier states can be reviewed and restored at any time. Simultaneous real-time co-editing (multiple cursors in the same DrawIO canvas at the same moment) is not supported — edits are sequential, last save wins."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I export a DrawIO diagram from Confluence?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "There are two ways. From the page viewer, click the diagram to open the fullscreen viewer and use the Export button to download a PNG or PDF of the rendered diagram. From inside the DrawIO editor itself, use File > Export As to export in DrawIO XML, SVG, PNG, PDF, or HTML format. The XML export gives you a .drawio-compatible file you can open in diagrams.net or the DrawIO desktop app."
+        }
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav">
+  <a class="nav-logo" href="/">Zen<span>UML</span> for Confluence</a>
+  <div class="nav-links">
+    <a href="/diagram-types/">Diagram Types</a>
+    <a href="/features/">Features</a>
+    <a href="/pricing/">Pricing</a>
+    <a href="/faq/">FAQ</a>
+    <a href="/install/" class="btn btn-primary">Get Started Free</a>
+  </div>
+</nav>
+
+<!-- BREADCRUMB -->
+<div class="section-sm" style="padding-bottom:0;border-bottom:1px solid var(--border);">
+  <div class="container">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <a href="/">Home</a>
+      <span aria-hidden="true">/</span>
+      <a href="/diagram-types/">Diagram Types</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">DrawIO / Flowcharts</span>
+    </nav>
+  </div>
+</div>
+
+<!-- HERO -->
+<header role="banner" class="hero">
+  <div class="container">
+    <div class="hero-badge">
+      Part of ZenUML for Confluence &nbsp;·&nbsp; 6 diagram types, one app
+    </div>
+    <h1>Full DrawIO Editor,<br>Right in Confluence</h1>
+    <p style="font-size:1.2rem;max-width:640px;margin-top:20px;color:var(--body);">
+      Create flowcharts, network diagrams, org charts, and any visual diagram
+      using the open-source DrawIO engine — embedded directly into Confluence Cloud.
+      No DrawIO account, no external tool, no copy-pasting images.
+    </p>
+    <div class="hero-cta">
+      <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+         target="_blank" rel="noopener" class="btn btn-primary">
+        Install Free — Lite Plan
+      </a>
+      <a href="/diagram-types/" class="btn btn-ghost">All Diagram Types</a>
+    </div>
+    <div style="margin-top:32px;display:flex;gap:24px;flex-wrap:wrap;">
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--muted);">
+        <span style="color:var(--green);font-weight:700;">✓</span> Powered by the diagrams.net open-source engine
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--muted);">
+        <span style="color:var(--green);font-weight:700;">✓</span> No DrawIO account required
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--muted);">
+        <span style="color:var(--green);font-weight:700;">✓</span> Import existing .drawio files
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--muted);">
+        <span style="color:var(--green);font-weight:700;">✓</span> Renders in-browser — private by design
+      </span>
+    </div>
+  </div>
+</header>
+
+<!-- WHAT IS DRAWIO IN ZENUML -->
+<section class="section" id="about" aria-labelledby="about-heading">
+  <div class="container">
+    <span class="label">What is it?</span>
+    <h2 id="about-heading">What is DrawIO in ZenUML for Confluence?</h2>
+    <div style="max-width:760px;margin-top:24px;display:flex;flex-direction:column;gap:20px;">
+      <p>
+        ZenUML for Confluence includes a <strong>full DrawIO diagram editor</strong> as one of its six
+        built-in diagram types. DrawIO (also known as diagrams.net) is the world's most widely used
+        open-source diagramming engine — the same one that powers diagrams.net and the DrawIO desktop
+        app. ZenUML embeds that engine directly inside Confluence Cloud, so you can create and edit
+        visual diagrams without leaving your documentation.
+      </p>
+      <p>
+        When you insert a ZenUML Graph macro on a Confluence page and choose the DrawIO type, the
+        editor opens in a <strong>fullscreen modal</strong> inside Confluence. The full DrawIO canvas is
+        available: shape libraries (general, network, flowchart, UML, BPMN, and more), smart connectors,
+        layers, styling controls, and multi-page diagrams. When you click Save &amp; Exit, the diagram
+        is stored as <strong>DrawIO XML</strong> in Confluence custom content and displayed inline on the page.
+      </p>
+      <p>
+        Because the DrawIO engine runs client-side in the browser, your diagram content is
+        <strong>never transmitted to ZenUML servers</strong>. Diagrams are stored entirely within your
+        Atlassian Confluence instance. No DrawIO account, no diagrams.net login, and no external
+        subscription is required — only ZenUML for Confluence installed from the Atlassian Marketplace.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- WHAT YOU CAN CREATE -->
+<section class="section section-alt" id="diagram-types" aria-labelledby="types-heading">
+  <div class="container">
+    <span class="label">What you can create</span>
+    <h2 id="types-heading" class="text-center" style="margin-bottom:8px;">8 Types of Diagrams You Can Build</h2>
+    <p class="text-center text-muted" style="margin-bottom:40px;max-width:560px;margin-left:auto;margin-right:auto;">
+      DrawIO's built-in shape libraries cover every common visual diagram type your team needs.
+    </p>
+    <div class="grid-4">
+
+      <div class="card">
+        <div class="card-icon">🔀</div>
+        <h3>Flowcharts</h3>
+        <p style="margin-top:8px;font-size:.9rem;">
+          Map decisions, processes, and workflows with standard flowchart shapes —
+          start/end terminals, decision diamonds, process boxes, and connectors
+          with condition labels.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🌐</div>
+        <h3>Network Diagrams</h3>
+        <p style="margin-top:8px;font-size:.9rem;">
+          Document cloud and on-premise infrastructure: servers, load balancers,
+          databases, firewalls, and network zones. Includes AWS, Azure, and GCP
+          icon libraries.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🏢</div>
+        <h3>Org Charts</h3>
+        <p style="margin-top:8px;font-size:.9rem;">
+          Visualise team structures and reporting hierarchies. Add photos,
+          titles, and department labels. Rearrange by dragging nodes — the
+          connectors follow automatically.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🧠</div>
+        <h3>Mind Maps</h3>
+        <p style="margin-top:8px;font-size:.9rem;">
+          Capture brainstorming sessions and topic hierarchies in a radial
+          layout. Add branches, sub-branches, and colour coding directly on
+          the canvas.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">⚙️</div>
+        <h3>BPMN Process Flows</h3>
+        <p style="margin-top:8px;font-size:.9rem;">
+          Model business processes using BPMN 2.0 notation — events, gateways,
+          tasks, pools, and lanes. Suitable for process analysis, audit trails,
+          and compliance documentation.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">📐</div>
+        <h3>UML Class Diagrams</h3>
+        <p style="margin-top:8px;font-size:.9rem;">
+          Draw class relationships, inheritance hierarchies, and interface
+          implementations visually. Useful when a code-based tool like PlantUML
+          is less convenient than direct canvas editing.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🗄️</div>
+        <h3>ER Diagrams</h3>
+        <p style="margin-top:8px;font-size:.9rem;">
+          Design database schemas visually with entities, attributes, and
+          relationship cardinality lines. Export to PNG for handoff or keep
+          updated inline on your Confluence data model page.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🏗️</div>
+        <h3>Architecture Diagrams</h3>
+        <p style="margin-top:8px;font-size:.9rem;">
+          Sketch system architecture — microservices, event buses, storage layers,
+          and external integrations — with free-form shapes and custom icons. No
+          fixed notation required.
+        </p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- VISUAL VS CODE-BASED -->
+<section class="section" id="visual-vs-code" aria-labelledby="compare-heading">
+  <div class="container">
+    <span class="label">Visual vs. Code-based</span>
+    <h2 id="compare-heading" style="margin-bottom:8px;">When to use DrawIO vs. ZenUML DSL or Mermaid</h2>
+    <p style="max-width:700px;margin-top:16px;margin-bottom:40px;color:var(--body);">
+      ZenUML for Confluence offers both visual and code-based diagram types. The right choice
+      depends on your diagram style and who will maintain it.
+    </p>
+
+    <div class="grid-2" style="gap:32px;max-width:900px;">
+
+      <div class="card" style="border-top:4px solid var(--primary);">
+        <h3 style="color:var(--primary);">Use DrawIO when&hellip;</h3>
+        <ul class="check-list" style="margin-top:20px;">
+          <li>Your team includes non-technical members who prefer a visual canvas</li>
+          <li>The diagram is spatial or network-topology-based, where layout matters as much as structure</li>
+          <li>You are working with existing <code>.drawio</code> or <code>.xml</code> files you want to reuse</li>
+          <li>You need custom icons, logos, or free-form shapes that cannot be expressed in text syntax</li>
+          <li>The diagram is an org chart, BPMN process flow, or infrastructure map</li>
+          <li>Precise pixel-level control over layout is important</li>
+        </ul>
+      </div>
+
+      <div class="card" style="border-top:4px solid var(--green);">
+        <h3 style="color:var(--green);">Use ZenUML DSL or Mermaid when&hellip;</h3>
+        <ul class="check-list" style="margin-top:20px;">
+          <li>Your team lives in code editors and prefers text over drag-and-drop</li>
+          <li>The diagram represents a <em>sequence</em> of interactions — API calls, service flows, authentication flows</li>
+          <li>You want the diagram source checked into a Git repository alongside your code</li>
+          <li>You need to generate or regenerate diagrams from templates or scripts</li>
+          <li>You want diffs between diagram versions to be readable as text</li>
+          <li>The diagram will change frequently and textual editing is faster than canvas editing</li>
+        </ul>
+      </div>
+
+    </div>
+
+    <p style="margin-top:32px;max-width:700px;color:var(--muted);font-size:.9rem;">
+      Both diagram types coexist in the same ZenUML for Confluence installation. You can use DrawIO
+      for your architecture overview and ZenUML DSL for the API sequence diagrams — on the same page,
+      in the same Confluence space.
+    </p>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="section section-alt" id="how-it-works" aria-labelledby="how-heading">
+  <div class="container">
+    <span class="label">How it works</span>
+    <h2 id="how-heading" class="text-center" style="margin-bottom:8px;">Four steps from page to diagram</h2>
+    <p class="text-center text-muted" style="margin-bottom:48px;max-width:540px;margin-left:auto;margin-right:auto;">
+      The DrawIO editor is embedded inside Confluence — nothing to install beyond the ZenUML Forge app.
+    </p>
+
+    <div class="grid-4" style="max-width:1000px;margin:0 auto;">
+
+      <div class="card" style="text-align:center;">
+        <div style="font-size:2.5rem;font-weight:800;color:var(--primary);margin-bottom:16px;">1</div>
+        <h3>Insert the macro</h3>
+        <p style="font-size:.9rem;margin-top:8px;">
+          On any Confluence page, type <code style="background:var(--bg-alt);padding:2px 6px;border-radius:4px;">/ZenUML</code>
+          or open the macro picker. Select <strong>Graph</strong> as the diagram type.
+        </p>
+      </div>
+
+      <div class="card" style="text-align:center;">
+        <div style="font-size:2.5rem;font-weight:800;color:var(--primary);margin-bottom:16px;">2</div>
+        <h3>DrawIO editor opens</h3>
+        <p style="font-size:.9rem;margin-top:8px;">
+          The full DrawIO canvas opens in a <strong>fullscreen modal</strong> — shape panel on the left,
+          canvas in the centre, properties on the right. The complete diagrams.net experience, inside Confluence.
+        </p>
+      </div>
+
+      <div class="card" style="text-align:center;">
+        <div style="font-size:2.5rem;font-weight:800;color:var(--primary);margin-bottom:16px;">3</div>
+        <h3>Create or edit your diagram</h3>
+        <p style="font-size:.9rem;margin-top:8px;">
+          Drag shapes from the library, draw connectors, add labels, apply styles, and arrange
+          your layout. You can also paste in existing DrawIO XML to import a diagram you
+          already have.
+        </p>
+      </div>
+
+      <div class="card" style="text-align:center;">
+        <div style="font-size:2.5rem;font-weight:800;color:var(--primary);margin-bottom:16px;">4</div>
+        <h3>Click Save &amp; Exit</h3>
+        <p style="font-size:.9rem;margin-top:8px;">
+          The diagram is saved as DrawIO XML in Confluence custom content and displayed
+          inline on the page. Every save creates a new version — recoverable at any time
+          through Confluence version history.
+        </p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- USE CASES -->
+<section class="section" id="use-cases" aria-labelledby="usecases-heading">
+  <div class="container">
+    <span class="label">Use Cases</span>
+    <h2 id="usecases-heading" style="margin-bottom:8px;">Who uses DrawIO in Confluence and why</h2>
+    <p style="margin-bottom:40px;max-width:680px;color:var(--body);">
+      DrawIO in ZenUML for Confluence serves teams across disciplines — from infrastructure engineers
+      to product managers to HR operations.
+    </p>
+
+    <div style="max-width:900px;display:flex;flex-direction:column;gap:24px;">
+
+      <div class="card" style="display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:start;">
+        <div class="card-icon" style="flex-shrink:0;">🔧</div>
+        <div>
+          <h3>Infrastructure teams documenting cloud architecture</h3>
+          <p style="margin-top:8px;font-size:.9rem;">
+            A DevOps or platform engineer uses DrawIO to maintain a network topology diagram on the
+            Confluence space for their service. They drag in AWS and GCP shape icons, connect
+            services with labelled arrows, and add firewall boundaries as swim lanes. Because the
+            diagram lives on the Confluence page rather than in a separate draw.io file or Lucidchart
+            document, it stays next to the runbooks and is updated by the same engineers who update the
+            infrastructure.
+          </p>
+        </div>
+      </div>
+
+      <div class="card" style="display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:start;">
+        <div class="card-icon" style="flex-shrink:0;">📋</div>
+        <div>
+          <h3>Business analysts mapping BPMN process flows</h3>
+          <p style="margin-top:8px;font-size:.9rem;">
+            A business analyst uses the BPMN shape library to model an order-fulfilment process across
+            three departments — Sales, Warehouse, and Finance — using pools and lanes. The diagram is
+            attached to the process documentation Confluence page and reviewed in quarterly audits. When
+            a step changes, the analyst opens the DrawIO editor directly from the page, makes the update,
+            and publishes — no version mismatch between the document and the diagram.
+          </p>
+        </div>
+      </div>
+
+      <div class="card" style="display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:start;">
+        <div class="card-icon" style="flex-shrink:0;">👥</div>
+        <div>
+          <h3>HR and operations building org charts</h3>
+          <p style="margin-top:8px;font-size:.9rem;">
+            An HR operations manager keeps the company org chart on a Confluence page using DrawIO.
+            Employee names, titles, and reporting lines are maintained in the canvas. When someone
+            joins, leaves, or moves teams, the manager opens the macro, edits the node, and publishes.
+            The org chart is always live — no stale PowerPoint exports pinned to the page.
+          </p>
+        </div>
+      </div>
+
+      <div class="card" style="display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:start;">
+        <div class="card-icon" style="flex-shrink:0;">🗄️</div>
+        <div>
+          <h3>Data engineers maintaining ER diagrams</h3>
+          <p style="margin-top:8px;font-size:.9rem;">
+            A data engineer uses DrawIO to draw an entity-relationship diagram for the core data model
+            and embeds it on the data platform Confluence space. When the schema evolves, they open the
+            editor, move the affected entities and relationships, and save. The Confluence page becomes
+            the authoritative source-of-truth for the data model — reviewable by anyone on the team
+            without a database tool.
+          </p>
+        </div>
+      </div>
+
+      <div class="card" style="display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:start;">
+        <div class="card-icon" style="flex-shrink:0;">🎯</div>
+        <div>
+          <h3>Product managers facilitating workshop mind maps</h3>
+          <p style="margin-top:8px;font-size:.9rem;">
+            A product manager runs a discovery workshop and captures the output as a mind map in DrawIO
+            directly on the meeting-notes Confluence page. Participants can see the diagram grow in real
+            time as the PM updates it. After the session, the mind map stays embedded in the Confluence
+            page — no need to export a screenshot and attach a file that immediately becomes out of date.
+          </p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="section section-alt" id="faq" aria-labelledby="faq-heading">
+  <div class="container">
+    <span class="label">FAQ</span>
+    <h2 id="faq-heading" style="margin-bottom:8px;">DrawIO in Confluence — Frequently Asked Questions</h2>
+    <p class="text-muted" style="margin-bottom:40px;max-width:580px;">
+      Common questions about using DrawIO diagrams in Confluence via ZenUML.
+    </p>
+
+    <div class="faq-list" style="max-width:800px;">
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          Does DrawIO work the same as diagrams.net in ZenUML?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          Yes — ZenUML embeds the <strong>same open-source DrawIO engine</strong> that powers diagrams.net.
+          You get the full canvas: shape libraries (general, network, flowchart, UML, BPMN, AWS, Azure, GCP),
+          smart connectors, layers, styling, and multi-page diagrams. The editor runs entirely in your
+          browser inside Confluence, so the experience is functionally identical to diagrams.net without
+          needing to leave Confluence or maintain a separate account.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          Can I import an existing .drawio file into Confluence?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          Yes. DrawIO diagrams are stored as <strong>DrawIO XML</strong>, which is the same format used by
+          <code>.drawio</code> and <code>.xml</code> files created in diagrams.net or the DrawIO desktop app.
+          To import an existing diagram, open the DrawIO editor in ZenUML and use <strong>Extras &gt; Edit Diagram</strong>
+          to paste the XML directly, or use <strong>File &gt; Import from</strong> inside the editor. Your
+          existing diagram will render exactly as it did in the standalone DrawIO tool.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          Do I need a DrawIO account?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          <strong>No.</strong> ZenUML embeds the open-source DrawIO engine and runs it entirely inside Confluence.
+          You do not need a diagrams.net account, a DrawIO subscription, or any external service. The only
+          requirement is that <strong>ZenUML for Confluence</strong> is installed in your Atlassian Confluence
+          Cloud instance — available free on the Atlassian Marketplace.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          Can multiple people edit the same DrawIO diagram?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          Yes, in the same way that any Confluence page content can be edited by multiple people. When a user
+          opens the DrawIO editor and saves, the new version becomes the current state of the diagram on the
+          page. Confluence's built-in <strong>version history</strong> keeps every previous save, so earlier
+          states can be reviewed and restored at any time.
+          <br><br>
+          Note: simultaneous real-time co-editing (multiple cursors in the same DrawIO canvas at the same
+          moment) is not supported — edits are sequential, last save wins.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          How do I export a DrawIO diagram from Confluence?
+          <span class="faq-toggle" aria-hidden="true">+</span>
+        </button>
+        <div class="faq-a" role="region">
+          There are two ways:
+          <ul style="margin-top:10px;padding-left:20px;display:flex;flex-direction:column;gap:8px;">
+            <li>
+              <strong>From the page viewer</strong> — click the diagram to open the fullscreen viewer and use
+              the Export button to download a <strong>PNG or PDF</strong> of the rendered diagram.
+            </li>
+            <li>
+              <strong>From inside the DrawIO editor</strong> — use <strong>File &gt; Export As</strong> to export
+              in DrawIO XML, SVG, PNG, PDF, or HTML format. The XML export gives you a
+              <code>.drawio</code>-compatible file you can open in diagrams.net or the DrawIO desktop app.
+            </li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="mt-32">
+      <a href="/faq/" class="btn btn-ghost">View full FAQ →</a>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="section" id="install" aria-labelledby="cta-heading">
+  <div class="container text-center">
+    <span class="label label-green">Get Started</span>
+    <h2 id="cta-heading" style="margin-bottom:8px;">Add DrawIO diagrams to your Confluence space today</h2>
+    <p class="text-muted" style="margin-bottom:40px;max-width:520px;margin-left:auto;margin-right:auto;">
+      Install ZenUML for Confluence free from the Atlassian Marketplace. DrawIO, sequence diagrams,
+      Mermaid, PlantUML, and OpenAPI — all in one app. No server setup, no external accounts.
+    </p>
+
+    <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-bottom:48px;">
+      <a href="https://marketplace.atlassian.com/search?query=zenuml+lite&hosting=cloud&product=confluence"
+         target="_blank" rel="noopener" class="btn btn-primary">
+        Install Lite — Free
+      </a>
+      <a href="https://marketplace.atlassian.com/search?query=zenuml+confluence&hosting=cloud&product=confluence"
+         target="_blank" rel="noopener" class="btn btn-green">
+        Install Full — Paid
+      </a>
+      <a href="/pricing/" class="btn btn-ghost">Compare plans</a>
+    </div>
+
+    <div style="display:flex;gap:40px;justify-content:center;flex-wrap:wrap;">
+      <div style="text-align:center;">
+        <div style="font-size:1.75rem;font-weight:800;color:var(--dark);">1,000+</div>
+        <div style="font-size:.85rem;color:var(--muted);margin-top:4px;">Confluence installs</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:1.75rem;font-weight:800;color:var(--dark);">4.8 ★</div>
+        <div style="font-size:.85rem;color:var(--muted);margin-top:4px;">Marketplace rating</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:1.75rem;font-weight:800;color:var(--dark);">6</div>
+        <div style="font-size:.85rem;color:var(--muted);margin-top:4px;">Diagram types in one app</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:1.75rem;font-weight:800;color:var(--dark);">Free</div>
+        <div style="font-size:.85rem;color:var(--muted);margin-top:4px;">Lite plan — no credit card</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-brand">ZenUML for Confluence</div>
+        <p style="font-size:.875rem;line-height:1.7">All-in-one diagramming for Atlassian Confluence Cloud. Sequence diagrams, Mermaid, DrawIO, PlantUML, and OpenAPI — all in one app.</p>
+      </div>
+      <div>
+        <div class="bold" style="color:#fff;margin-bottom:12px;font-size:.875rem">Diagram Types</div>
+        <div class="footer-links">
+          <a href="/diagram-types/sequence-diagrams/">Sequence Diagrams</a>
+          <a href="/diagram-types/mermaid/">Mermaid</a>
+          <a href="/diagram-types/drawio/">DrawIO / Flowcharts</a>
+          <a href="/diagram-types/openapi/">OpenAPI / Swagger</a>
+          <a href="/diagram-types/plantuml/">PlantUML</a>
+        </div>
+      </div>
+      <div>
+        <div class="bold" style="color:#fff;margin-bottom:12px;font-size:.875rem">Product</div>
+        <div class="footer-links">
+          <a href="/features/">Features</a>
+          <a href="/pricing/">Pricing</a>
+          <a href="/install/">Install</a>
+          <a href="/faq/">FAQ</a>
+        </div>
+      </div>
+      <div>
+        <div class="bold" style="color:#fff;margin-bottom:12px;font-size:.875rem">Marketplace</div>
+        <div class="footer-links">
+          <a href="https://marketplace.atlassian.com/search?query=zenuml" target="_blank" rel="noopener">ZenUML on Marketplace</a>
+          <a href="https://zenuml.com" target="_blank" rel="noopener">ZenUML.com</a>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">© 2026 ZenUML · Built for Atlassian Confluence Cloud · <a href="/faq/" style="color:#8993A4">FAQ</a></div>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll('.faq-q').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('.faq-item');
+      const wasOpen = item.classList.contains('open');
+      document.querySelectorAll('.faq-item.open').forEach(el => el.classList.remove('open'));
+      if (!wasOpen) item.classList.add('open');
+      document.querySelectorAll('.faq-q').forEach(b => b.setAttribute('aria-expanded', 'false'));
+      if (!wasOpen) btn.setAttribute('aria-expanded', 'true');
+    });
+  });
+</script>
+
+</body>
+</html>

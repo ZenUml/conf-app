@@ -278,6 +278,25 @@ describe("trackAnalyticsEvent", () => {
     );
   });
 
+  it("sets record_sessions_percent to 2 in a normal macro context", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: undefined,
+      moduleKey: "zenuml-sequence-macro",
+      environmentType: "production",
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(mixpanel.init).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ record_sessions_percent: 2 })
+    );
+  });
+
   it("does not throw when mixpanel.track throws", async () => {
     vi.mocked(mixpanel.track).mockImplementation(() => {
       throw new Error("mixpanel down");

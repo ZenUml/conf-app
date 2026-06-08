@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenAPI &amp; Swagger Docs in Confluence | ZenUML for Confluence</title>
+  <meta name="description" content="Embed OpenAPI 3.0 and Swagger 2.0 specifications in Confluence with interactive Swagger UI. Keep API docs in Confluence alongside team documentation." />
+  <link rel="canonical" href="https://confluence.zenuml.com/diagram-types/openapi/" />
+  <link rel="stylesheet" href="../../assets/css/main.css" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="OpenAPI &amp; Swagger Docs in Confluence | ZenUML for Confluence" />
+  <meta property="og:description" content="Embed OpenAPI 3.0 and Swagger 2.0 specifications in Confluence with interactive Swagger UI. Keep API docs in Confluence alongside team documentation." />
+  <meta property="og:url" content="https://confluence.zenuml.com/diagram-types/openapi/" />
+
+  <!-- Schema.org FAQPage -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "What OpenAPI versions does ZenUML support?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "ZenUML for Confluence supports OpenAPI 3.0 (and 3.1) and Swagger 2.0 specifications. Both YAML and JSON formats are accepted. Paste the spec directly into the macro editor — no file upload or conversion step required."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I test API endpoints from Confluence with ZenUML?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "The Swagger UI rendered by ZenUML includes the 'Try it out' panel for each endpoint. Whether live requests succeed depends on whether your API backend is accessible from the browser and whether CORS is configured to allow the request origin. ZenUML itself does not proxy or restrict the requests — the browser sends them directly to the URL defined in the spec's servers field."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does the OpenAPI viewer support authentication headers in Swagger UI?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. Swagger UI renders the Authorize button and auth dialogs defined in your spec's securitySchemes — including HTTP Basic, Bearer tokens, API keys, and OAuth 2.0 flows. Users can enter credentials in Swagger UI's auth dialog and they will be included in 'Try it out' requests. Credentials are held in browser memory only and are not persisted by ZenUML."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I keep my OpenAPI spec updated in Confluence?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Edit the macro and paste the updated spec into the editor, then publish the Confluence page. Each save creates a new Confluence custom content version, so the full edit history is preserved and any past spec version can be restored. For teams using CI/CD, the Confluence REST API can be used to update page content programmatically — the spec lives as plain text, making automation straightforward."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I embed an OpenAPI spec from a URL?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "The ZenUML OpenAPI viewer requires the spec to be pasted directly into the macro editor — it does not fetch specs from an external URL at render time. This keeps the rendering fully in-browser and avoids exposing internal API URLs or requiring outbound network access from the viewer. If your spec is hosted externally, copy its content into the macro editor and update it manually when the spec changes."
+        }
+      }
+    ]
+  }
+  </script>
+
+  <style>
+    .hero-sub { font-size: 1.1rem; max-width: 640px; color: var(--body); margin-top: 16px; line-height: 1.7; }
+    .code-block {
+      background: var(--bg-dark);
+      border-radius: var(--radius-lg);
+      padding: 28px 32px;
+      overflow-x: auto;
+      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: .85rem;
+      line-height: 1.75;
+      color: #e6edf3;
+    }
+    .code-block .c-key   { color: #79c0ff; }
+    .code-block .c-str   { color: #a5d6ff; }
+    .code-block .c-val   { color: #ffa657; }
+    .code-block .c-cmt   { color: #8b949e; }
+    .code-block .c-method-get  { color: #7ee787; font-weight: 700; }
+    .code-block .c-method-post { color: #ffa657; font-weight: 700; }
+    .format-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 18px;
+      font-weight: 600;
+      font-size: .9rem;
+    }
+    .format-badge .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .use-case-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+    }
+    .use-case-card h3 { margin-bottom: 8px; font-size: 1.1rem; }
+    .use-case-card p { font-size: .9rem; line-height: 1.65; }
+    .use-case-num {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--primary-light);
+      line-height: 1;
+      margin-bottom: 12px;
+    }
+    .compare-pill {
+      display: inline-block;
+      border-radius: 99px;
+      padding: 3px 12px;
+      font-size: .75rem;
+      font-weight: 700;
+    }
+    .pill-blue { background: var(--primary-light); color: var(--primary); }
+    .pill-green { background: var(--green-light); color: var(--green); }
+    .pill-gray { background: var(--bg-alt); color: var(--muted); }
+    .cta-section {
+      background: linear-gradient(135deg, #0052CC 0%, #0747A6 100%);
+      color: #fff;
+    }
+    .cta-section h2, .cta-section p { color: #fff; }
+    .btn-outline-white {
+      border: 2px solid rgba(255,255,255,.6);
+      color: #fff;
+      background: transparent;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: var(--radius);
+      font-weight: 600;
+      font-size: .9rem;
+      text-decoration: none;
+      transition: border-color .15s, background .15s;
+    }
+    .btn-outline-white:hover {
+      border-color: #fff;
+      background: rgba(255,255,255,.12);
+      text-decoration: none;
+    }
+    .audience-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .audience-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: var(--primary-light);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      flex-shrink: 0;
+    }
+    .audience-card h3 { font-size: 1rem; margin-bottom: 4px; }
+    .audience-card p { font-size: .875rem; line-height: 1.6; }
+  </style>
+</head>
+
+<body>
+
+  <!-- ───── Navigation ───── -->
+  <nav class="nav" aria-label="Main navigation">
+    <a href="/" class="nav-logo" aria-label="ZenUML for Confluence home">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+        <rect width="28" height="28" rx="6" fill="#0052CC"/>
+        <path d="M7 20L11 8l4 8 4-8 4 12" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      ZenUML <span>for Confluence</span>
+    </a>
+    <ul class="nav-links" role="list">
+      <li><a href="/features/">Features</a></li>
+      <li><a href="/diagram-types/" aria-current="page">Diagram Types</a></li>
+      <li><a href="/pricing/">Pricing</a></li>
+      <li><a href="/install/">Install</a></li>
+      <li><a href="/faq/">FAQ</a></li>
+    </ul>
+    <a href="https://marketplace.atlassian.com/apps/1218014/zenuml-sequence-diagram" class="btn btn-primary" target="_blank" rel="noopener">
+      Get Free on Marketplace
+    </a>
+  </nav>
+
+  <!-- ───── Hero ───── -->
+  <section class="hero" aria-labelledby="hero-heading">
+    <div class="container">
+      <nav aria-label="Breadcrumb">
+        <ol class="breadcrumb" style="list-style:none;padding:0;">
+          <li><a href="/">Home</a></li>
+          <li aria-hidden="true"><span>›</span></li>
+          <li><a href="/diagram-types/">Diagram Types</a></li>
+          <li aria-hidden="true"><span>›</span></li>
+          <li aria-current="page">OpenAPI</li>
+        </ol>
+      </nav>
+      <div class="label">OpenAPI &amp; Swagger</div>
+      <h1 id="hero-heading">Interactive API Docs in Confluence<br>— OpenAPI &amp; Swagger</h1>
+      <p class="hero-sub">
+        Paste an OpenAPI 3.0 or Swagger 2.0 specification into a Confluence macro and it renders
+        as a fully interactive Swagger UI — browse endpoints, expand schemas, and test calls
+        without leaving your Confluence page.
+      </p>
+      <div class="hero-cta">
+        <a href="https://marketplace.atlassian.com/apps/1218014/zenuml-sequence-diagram" class="btn btn-primary" target="_blank" rel="noopener">
+          Install Free on Marketplace
+        </a>
+        <a href="/diagram-types/" class="btn btn-ghost">All Diagram Types</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── What is the OpenAPI viewer? ───── -->
+  <section class="section" aria-labelledby="what-heading">
+    <div class="container">
+      <div class="label">What is it?</div>
+      <h2 id="what-heading">What is the OpenAPI viewer?</h2>
+      <div style="max-width:760px;margin-top:24px;display:flex;flex-direction:column;gap:20px;">
+        <p>
+          The ZenUML OpenAPI viewer is a Confluence macro that accepts an
+          <strong>OpenAPI or Swagger specification</strong> written in YAML or JSON and renders it as an
+          interactive <a href="https://swagger.io/tools/swagger-ui/" target="_blank" rel="noopener">Swagger UI</a>
+          directly on the page. Readers can expand endpoints, read request and response schemas, view
+          example payloads, and — when a backend is reachable — send live test requests, all from inside
+          Confluence.
+        </p>
+        <p>
+          The spec is stored as plain text in Confluence custom content. Rendering happens entirely
+          in the browser using the Swagger UI library — your API specification never leaves your
+          Confluence instance during the rendering process. There is no external API documentation
+          hosting service involved, and no ZenUML server receives the spec content.
+        </p>
+        <p>
+          The viewer is one of six diagram types bundled in a single ZenUML for Confluence installation.
+          It is available in both the <strong>free Lite plan</strong> and the paid Full plan with no
+          difference in OpenAPI functionality between the two.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── Supported formats ───── -->
+  <section class="section section-alt" aria-labelledby="formats-heading">
+    <div class="container">
+      <div class="label">Supported Formats</div>
+      <h2 id="formats-heading">OpenAPI 3.0, Swagger 2.0, JSON, YAML</h2>
+      <p style="max-width:640px;margin-top:16px;margin-bottom:40px;">
+        The viewer accepts all common OpenAPI and Swagger specification formats. Paste whichever
+        format your toolchain already produces — no conversion step is required.
+      </p>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:48px;">
+        <div class="format-badge">
+          <span class="dot" style="background:#0052CC;"></span>
+          OpenAPI 3.0 / 3.1
+        </div>
+        <div class="format-badge">
+          <span class="dot" style="background:#00875A;"></span>
+          Swagger 2.0
+        </div>
+        <div class="format-badge">
+          <span class="dot" style="background:#FF8B00;"></span>
+          YAML
+        </div>
+        <div class="format-badge">
+          <span class="dot" style="background:#5E6C84;"></span>
+          JSON
+        </div>
+      </div>
+
+      <div class="grid-3">
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">📄</div>
+          <h3>OpenAPI 3.x</h3>
+          <p style="margin-top:8px;font-size:.9rem;line-height:1.65;">
+            The current OpenAPI Specification standard. Supports
+            <code>components</code>, <code>requestBody</code>, multiple server
+            URLs, and link objects. ZenUML renders OpenAPI 3.0 and 3.1 documents.
+          </p>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">📋</div>
+          <h3>Swagger 2.0</h3>
+          <p style="margin-top:8px;font-size:.9rem;line-height:1.65;">
+            The widely-used predecessor to OpenAPI 3.x. If your existing toolchain
+            generates Swagger 2.0 JSON or YAML, paste it as-is — the viewer handles
+            it without any migration.
+          </p>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">✏️</div>
+          <h3>YAML or JSON</h3>
+          <p style="margin-top:8px;font-size:.9rem;line-height:1.65;">
+            Both serialisation formats are accepted. YAML is the more readable choice
+            for hand-authored specs; JSON integrates cleanly with code-generation tools.
+            Either format renders identically in Swagger UI.
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── Code snippet ───── -->
+  <section class="section" aria-labelledby="example-heading">
+    <div class="container">
+      <div class="label">Example</div>
+      <h2 id="example-heading">A minimal OpenAPI spec in Confluence</h2>
+      <p style="max-width:640px;margin-top:16px;margin-bottom:32px;">
+        Paste any valid OpenAPI YAML or JSON directly into the ZenUML macro editor. The snippet below
+        is a self-contained example — copy it into the editor to see the Swagger UI rendered on your page.
+      </p>
+      <div class="code-block" role="region" aria-label="Minimal OpenAPI 3.0 YAML example">
+<span class="c-key">openapi</span>: <span class="c-str">"3.0.3"</span>
+<span class="c-key">info</span>:
+  <span class="c-key">title</span>: <span class="c-str">Petstore API</span>
+  <span class="c-key">version</span>: <span class="c-str">"1.0.0"</span>
+  <span class="c-key">description</span>: <span class="c-str">A sample API for demonstration purposes</span>
+<span class="c-key">servers</span>:
+  - <span class="c-key">url</span>: <span class="c-str">https://petstore.example.com/v1</span>
+<span class="c-key">paths</span>:
+  <span class="c-key">/pets</span>:
+    <span class="c-method-get">get</span>:
+      <span class="c-key">summary</span>: <span class="c-str">List all pets</span>
+      <span class="c-key">operationId</span>: <span class="c-str">listPets</span>
+      <span class="c-key">parameters</span>:
+        - <span class="c-key">name</span>: <span class="c-str">limit</span>
+          <span class="c-key">in</span>: <span class="c-str">query</span>
+          <span class="c-key">schema</span>:
+            <span class="c-key">type</span>: <span class="c-str">integer</span>
+      <span class="c-key">responses</span>:
+        <span class="c-val">"200"</span>:
+          <span class="c-key">description</span>: <span class="c-str">A list of pets</span>
+    <span class="c-method-post">post</span>:
+      <span class="c-key">summary</span>: <span class="c-str">Create a pet</span>
+      <span class="c-key">operationId</span>: <span class="c-str">createPet</span>
+      <span class="c-key">requestBody</span>:
+        <span class="c-key">required</span>: <span class="c-val">true</span>
+        <span class="c-key">content</span>:
+          <span class="c-str">application/json</span>:
+            <span class="c-key">schema</span>:
+              <span class="c-key">$ref</span>: <span class="c-str">"#/components/schemas/Pet"</span>
+      <span class="c-key">responses</span>:
+        <span class="c-val">"201"</span>:
+          <span class="c-key">description</span>: <span class="c-str">Pet created</span>
+<span class="c-key">components</span>:
+  <span class="c-key">schemas</span>:
+    <span class="c-key">Pet</span>:
+      <span class="c-key">type</span>: <span class="c-str">object</span>
+      <span class="c-key">required</span>: [<span class="c-str">id</span>, <span class="c-str">name</span>]
+      <span class="c-key">properties</span>:
+        <span class="c-key">id</span>:
+          <span class="c-key">type</span>: <span class="c-str">integer</span>
+        <span class="c-key">name</span>:
+          <span class="c-key">type</span>: <span class="c-str">string</span>
+      </div>
+      <p style="margin-top:16px;font-size:.875rem;color:var(--muted);">
+        The rendered Swagger UI shows collapsible endpoint sections, parameter tables,
+        request body schemas, response codes, and a "Try it out" panel — all generated
+        from the spec text above.
+      </p>
+    </div>
+  </section>
+
+  <!-- ───── Who is this for? ───── -->
+  <section class="section section-alt" aria-labelledby="audience-heading">
+    <div class="container">
+      <div class="label">Who is this for?</div>
+      <h2 id="audience-heading">API developers, technical writers, and platform teams</h2>
+      <p style="max-width:640px;margin-top:16px;margin-bottom:40px;">
+        Any team that maintains API documentation benefits from keeping specs in Confluence
+        alongside the rest of their technical documentation.
+      </p>
+      <div class="grid-3">
+        <div class="audience-card">
+          <div class="audience-icon" aria-hidden="true">👩‍💻</div>
+          <div>
+            <h3>API Developers</h3>
+            <p>
+              Paste your spec into a Confluence page and share a readable, interactive
+              API reference with your teammates — without setting up a separate Swagger UI
+              hosting environment. When the spec changes, update the macro content and
+              republish.
+            </p>
+          </div>
+        </div>
+        <div class="audience-card">
+          <div class="audience-icon" aria-hidden="true">✍️</div>
+          <div>
+            <h3>Technical Writers</h3>
+            <p>
+              Keep the canonical API spec on the same Confluence page as the narrative
+              documentation, ADRs, and usage guides. Readers see both the reference and
+              the context in one place, with no link-jumping to an external tool.
+            </p>
+          </div>
+        </div>
+        <div class="audience-card">
+          <div class="audience-icon" aria-hidden="true">🏗️</div>
+          <div>
+            <h3>Platform &amp; Integration Teams</h3>
+            <p>
+              Document internal APIs and integration contracts in the same Confluence spaces
+              where implementation notes and runbooks live. Consumers can explore the spec
+              interactively and test endpoints against staging without switching tools.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── Use cases ───── -->
+  <section class="section" aria-labelledby="usecases-heading">
+    <div class="container">
+      <div class="label">Use Cases</div>
+      <h2 id="usecases-heading">Four ways teams use the OpenAPI viewer</h2>
+      <p style="max-width:640px;margin-top:16px;margin-bottom:40px;">
+        From internal microservices to public developer portals, the viewer fits wherever your API
+        documentation needs to live close to your team's work.
+      </p>
+      <div class="grid-2" style="gap:28px;">
+
+        <div class="use-case-card">
+          <div class="use-case-num">01</div>
+          <h3>Internal microservice contracts</h3>
+          <p>
+            Engineering teams document internal REST APIs in the Confluence spaces where sprint
+            plans and architecture decision records live. When a service adds a new endpoint or
+            changes a response schema, the spec is updated in the macro and the page re-published.
+            All consumers see the latest spec — formatted, searchable, and interactive — on the
+            same page they already bookmark.
+          </p>
+        </div>
+
+        <div class="use-case-card">
+          <div class="use-case-num">02</div>
+          <h3>API design review in Confluence</h3>
+          <p>
+            Before implementation begins, API designers share a draft spec on a Confluence design
+            doc. Stakeholders explore the proposed endpoints in Swagger UI, leave inline Confluence
+            comments on specific fields, and flag breaking changes — all within the page. Iteration
+            happens on the spec text rather than on a static PDF or a screenshot of an external tool.
+          </p>
+        </div>
+
+        <div class="use-case-card">
+          <div class="use-case-num">03</div>
+          <h3>Runbooks with embedded API reference</h3>
+          <p>
+            Operations and platform teams embed the relevant API spec sections in runbooks and
+            incident response pages. When an on-call engineer responds to an alert, the Swagger UI
+            is right there on the runbook page — they can read parameters, check response codes,
+            and test calls against a staging endpoint without opening a separate tab.
+          </p>
+        </div>
+
+        <div class="use-case-card">
+          <div class="use-case-num">04</div>
+          <h3>Partner and integration documentation</h3>
+          <p>
+            Teams that share APIs with external partners or other internal divisions publish the
+            spec on a Confluence space shared with those audiences. The interactive Swagger UI
+            gives consumers a self-service reference experience without requiring a dedicated
+            developer portal or external hosting infrastructure.
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── OpenAPI vs. other API doc tools ───── -->
+  <section class="section section-alt" aria-labelledby="compare-heading">
+    <div class="container">
+      <div class="label">Comparison</div>
+      <h2 id="compare-heading">OpenAPI viewer vs. other API documentation tools</h2>
+      <p style="max-width:640px;margin-top:16px;margin-bottom:40px;">
+        ZenUML's OpenAPI viewer is not a replacement for purpose-built API portals — it solves a
+        different problem: keeping your spec readable and interactive inside the Confluence workspace
+        where your team's documentation already lives.
+      </p>
+      <div style="overflow-x:auto;">
+        <table class="compare-table" aria-label="OpenAPI viewer comparison with other tools">
+          <thead>
+            <tr>
+              <th style="width:28%;">Dimension</th>
+              <th style="width:24%;">
+                ZenUML OpenAPI viewer
+                <span class="compare-pill pill-blue" style="margin-left:6px;">in Confluence</span>
+              </th>
+              <th style="width:24%;">
+                Standalone Swagger UI
+                <span class="compare-pill pill-gray" style="margin-left:6px;">self-hosted</span>
+              </th>
+              <th style="width:24%;">
+                API portals
+                <span class="compare-pill pill-green" style="margin-left:6px;">e.g. Stoplight, Readme</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Where it lives</strong></td>
+              <td>Inside a Confluence page, next to your team docs</td>
+              <td>Separate URL, separate infrastructure</td>
+              <td>External SaaS portal, separate login</td>
+            </tr>
+            <tr>
+              <td><strong>Spec storage</strong></td>
+              <td>Confluence custom content (version-controlled)</td>
+              <td>File system or environment variable</td>
+              <td>Proprietary platform storage</td>
+            </tr>
+            <tr>
+              <td><strong>Rendering</strong></td>
+              <td>In-browser, Swagger UI — spec never leaves Confluence</td>
+              <td>In-browser, Swagger UI</td>
+              <td>Cloud-rendered, vendor-hosted</td>
+            </tr>
+            <tr>
+              <td><strong>Infrastructure needed</strong></td>
+              <td>None — included in the Confluence macro</td>
+              <td>A server or container to host the app</td>
+              <td>Vendor subscription</td>
+            </tr>
+            <tr>
+              <td><strong>Context alongside spec</strong></td>
+              <td>Full Confluence page content — ADRs, guides, diagrams</td>
+              <td>None (standalone app)</td>
+              <td>Guides supported, separate from org docs</td>
+            </tr>
+            <tr>
+              <td><strong>Audience</strong></td>
+              <td>Teams already working in Confluence</td>
+              <td>Internal developers with server access</td>
+              <td>External developers, large API products</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px;font-size:.875rem;color:var(--muted);max-width:680px;">
+        If you need a polished public developer portal with custom branding, versioning across
+        many releases, and a dedicated consumer sign-up flow, a purpose-built API portal is the
+        right tool. If you need your API spec to be readable and testable where your engineers
+        and writers already work, the ZenUML OpenAPI viewer is the lower-friction choice.
+      </p>
+    </div>
+  </section>
+
+  <!-- ───── FAQ ───── -->
+  <section class="section" aria-labelledby="faq-heading">
+    <div class="container" style="max-width:760px;">
+      <div class="text-center mb-48">
+        <div class="label">FAQ</div>
+        <h2 id="faq-heading">Frequently asked questions</h2>
+      </div>
+      <div class="faq-list" role="list">
+
+        <div class="faq-item" role="listitem">
+          <button class="faq-q" aria-expanded="false" onclick="toggleFaq(this)">
+            What OpenAPI versions does ZenUML support?
+            <span class="faq-toggle" aria-hidden="true">+</span>
+          </button>
+          <div class="faq-a" hidden>
+            ZenUML for Confluence supports <strong>OpenAPI 3.0</strong> (and 3.1) and
+            <strong>Swagger 2.0</strong> specifications. Both YAML and JSON formats are accepted.
+            Paste the spec directly into the macro editor — no file upload or conversion step required.
+          </div>
+        </div>
+
+        <div class="faq-item" role="listitem">
+          <button class="faq-q" aria-expanded="false" onclick="toggleFaq(this)">
+            Can I test API endpoints from Confluence with ZenUML?
+            <span class="faq-toggle" aria-hidden="true">+</span>
+          </button>
+          <div class="faq-a" hidden>
+            The Swagger UI rendered by ZenUML includes the "Try it out" panel for each endpoint.
+            Whether live requests succeed depends on whether your API backend is accessible from
+            the browser and whether CORS is configured to allow the request origin. ZenUML itself
+            does not proxy or restrict the requests — the browser sends them directly to the URL
+            defined in the spec's <code>servers</code> field.
+          </div>
+        </div>
+
+        <div class="faq-item" role="listitem">
+          <button class="faq-q" aria-expanded="false" onclick="toggleFaq(this)">
+            Does the OpenAPI viewer support authentication headers in Swagger UI?
+            <span class="faq-toggle" aria-hidden="true">+</span>
+          </button>
+          <div class="faq-a" hidden>
+            Yes. Swagger UI renders the <strong>Authorize button</strong> and auth dialogs defined in your
+            spec's <code>securitySchemes</code> — including HTTP Basic, Bearer tokens, API keys, and
+            OAuth 2.0 flows. Users can enter credentials in Swagger UI's auth dialog and they will be
+            included in "Try it out" requests. Credentials are held in browser memory only and are not
+            persisted by ZenUML.
+          </div>
+        </div>
+
+        <div class="faq-item" role="listitem">
+          <button class="faq-q" aria-expanded="false" onclick="toggleFaq(this)">
+            How do I keep my OpenAPI spec updated in Confluence?
+            <span class="faq-toggle" aria-hidden="true">+</span>
+          </button>
+          <div class="faq-a" hidden>
+            Edit the macro and paste the updated spec into the editor, then publish the Confluence page.
+            Each save creates a new Confluence custom content version, so the full edit history is
+            preserved and any past spec version can be restored. For teams using CI/CD, the Confluence
+            REST API can be used to update page content programmatically — the spec lives as plain text,
+            making automation straightforward.
+          </div>
+        </div>
+
+        <div class="faq-item" role="listitem">
+          <button class="faq-q" aria-expanded="false" onclick="toggleFaq(this)">
+            Can I embed an OpenAPI spec from a URL?
+            <span class="faq-toggle" aria-hidden="true">+</span>
+          </button>
+          <div class="faq-a" hidden>
+            The ZenUML OpenAPI viewer requires the spec to be <strong>pasted directly into the macro editor</strong>
+            — it does not fetch specs from an external URL at render time. This keeps the rendering
+            fully in-browser and avoids exposing internal API URLs or requiring outbound network access
+            from the viewer. If your spec is hosted externally, copy its content into the macro editor
+            and update it manually when the spec changes.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── CTA ───── -->
+  <section class="section cta-section" aria-labelledby="cta-heading">
+    <div class="container text-center">
+      <div class="label" style="background:rgba(255,255,255,.15);color:#fff;margin-bottom:24px;">Get started for free</div>
+      <h2 id="cta-heading">Embed your first API spec in Confluence today</h2>
+      <p style="max-width:520px;margin:16px auto 32px;color:rgba(255,255,255,.8);font-size:1rem;">
+        ZenUML Lite is free on the Atlassian Marketplace — no credit card, no external accounts.
+        The OpenAPI viewer is included in the free plan alongside five other diagram types.
+      </p>
+      <div class="hero-cta" style="justify-content:center;">
+        <a href="https://marketplace.atlassian.com/apps/1218014/zenuml-sequence-diagram"
+           class="btn"
+           style="background:#fff;color:var(--primary);font-weight:700;"
+           target="_blank" rel="noopener">
+          Install Free on Marketplace
+        </a>
+        <a href="/diagram-types/" class="btn-outline-white">All Diagram Types</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── Footer ───── -->
+  <footer class="footer" aria-label="Site footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <div class="footer-brand">ZenUML for Confluence</div>
+          <p style="font-size:.875rem;line-height:1.6;max-width:280px;">
+            Sequence diagrams, flowcharts, OpenAPI specs, and more — directly in Confluence.
+            Built on Atlassian Forge.
+          </p>
+        </div>
+        <div>
+          <div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#5E6C84;margin-bottom:12px;">Diagram Types</div>
+          <nav class="footer-links" aria-label="Diagram type links">
+            <a href="/diagram-types/sequence-diagrams/">Sequence Diagrams</a>
+            <a href="/diagram-types/mermaid/">Mermaid</a>
+            <a href="/diagram-types/drawio/">DrawIO / Flowcharts</a>
+            <a href="/diagram-types/openapi/">OpenAPI / Swagger</a>
+            <a href="/diagram-types/plantuml/">PlantUML</a>
+          </nav>
+        </div>
+        <div>
+          <div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#5E6C84;margin-bottom:12px;">Product</div>
+          <nav class="footer-links" aria-label="Product links">
+            <a href="/features/">Features</a>
+            <a href="/pricing/">Pricing</a>
+            <a href="/install/">Install</a>
+            <a href="/faq/">FAQ</a>
+          </nav>
+        </div>
+        <div>
+          <div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#5E6C84;margin-bottom:12px;">Company</div>
+          <nav class="footer-links" aria-label="Company links">
+            <a href="https://zenuml.com" target="_blank" rel="noopener">ZenUML.com</a>
+            <a href="https://diagramly.ai" target="_blank" rel="noopener">Diagramly AI</a>
+            <a href="https://zenuml.com/privacy" target="_blank" rel="noopener">Privacy Policy</a>
+            <a href="https://zenuml.com/terms" target="_blank" rel="noopener">Terms of Service</a>
+          </nav>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>© 2026 ZenUML. All rights reserved. ZenUML for Confluence is not affiliated with or endorsed by Atlassian.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    function toggleFaq(btn) {
+      var item = btn.closest('.faq-item');
+      var isOpen = item.classList.contains('open');
+      document.querySelectorAll('.faq-item').forEach(function(el) {
+        el.classList.remove('open');
+        el.querySelector('.faq-q').setAttribute('aria-expanded', 'false');
+        el.querySelector('.faq-toggle').textContent = '+';
+        el.querySelector('.faq-a').hidden = true;
+      });
+      if (!isOpen) {
+        item.classList.add('open');
+        btn.setAttribute('aria-expanded', 'true');
+        btn.querySelector('.faq-toggle').textContent = '−';
+        item.querySelector('.faq-a').hidden = false;
+      }
+    }
+  </script>
+
+</body>
+</html>

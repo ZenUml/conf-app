@@ -73,6 +73,9 @@ export type AnalyticsEventName =
   // there, so the embed's document reference cannot be changed — the user
   // must re-target from the page editor. Tracks how often users hit this.
   | "embed_retarget_blocked"
+  // AsyncAPI dashboard: user clicked a document card's "Page:" reference to
+  // open the Confluence page hosting the doc. Tracks dashboard → page nav.
+  | "asyncapi_dashboard_page_opened"
   | "macro_export_requested"
   | "macro_export_succeeded"
   | "macro_export_failed"

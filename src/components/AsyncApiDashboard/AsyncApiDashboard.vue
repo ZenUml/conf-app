@@ -114,7 +114,7 @@
         <div v-if="doc.pageLabel" class="card-page-ref">
           <span class="card-page-icon" aria-hidden="true">📄</span>
           Page:
-          <a v-if="doc.pageUrl" :href="doc.pageUrl" target="_blank" rel="noopener" class="card-page-link">
+          <a v-if="doc.pageUrl" :href="doc.pageUrl" target="_blank" rel="noopener" class="card-page-link" @click.prevent="openPage(doc)">
             {{ doc.pageLabel }} →
           </a>
           <span v-else class="card-page-link">{{ doc.pageLabel }}</span>
@@ -143,7 +143,9 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import yaml from 'js-yaml'
 import globals from '@/model/globals'
-import { openModal } from '@/model/globals/forgeGlobal'
+import { openModal, openUrl } from '@/model/globals/forgeGlobal'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { derivePageUrl } from '@/model/asyncapi/derivePageUrl'
 import type { ICustomContent } from '@/model/ICustomContent'
 
 interface AsyncApiDoc {
@@ -223,27 +225,39 @@ function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max).trimEnd() + '…' : s
 }
 
-// Session-scoped cache of pageId → page title, populated lazily during
-// loadDocuments(). The v2 custom-content list endpoint doesn't include
-// container metadata, so we have to look up each parent page separately.
-// Cache survives across refresh() so the second load is instant for any
-// page the user has already seen.
-const pageTitleCache = new Map<string, string>()
+interface PageMeta {
+  title?: string
+  url?: string
+}
 
-async function fetchPageTitle(pageId: string): Promise<string | undefined> {
-  if (pageTitleCache.has(pageId)) return pageTitleCache.get(pageId)
+// Session-scoped cache of pageId → { title, url }, populated lazily during
+// loadDocuments(). The v2 custom-content list endpoint includes a top-level
+// pageId but NO container link, so the card has no working page URL on its
+// own — we look up each parent page separately to get both the title and a
+// navigable URL. Cache survives across refresh() so the second load is
+// instant for any page the user has already seen.
+const pageMetaCache = new Map<string, PageMeta>()
+
+async function fetchPageMeta(pageId: string): Promise<PageMeta> {
+  const cached = pageMetaCache.get(pageId)
+  if (cached) return cached
   try {
     const { requestConfluence } = await import('@forge/bridge')
     const resp = await requestConfluence(`/wiki/api/v2/pages/${pageId}`, {
       headers: { Accept: 'application/json' },
     })
-    if (!resp.ok) return undefined
+    if (!resp.ok) return {}
     const page = await resp.json()
     const title = page?.title as string | undefined
-    if (title) pageTitleCache.set(pageId, title)
-    return title
+    // Absolute page URL from `_links.base + _links.webui` (same source the
+    // viewer's Copy-link uses). Without it the "Page:" reference has no href
+    // and renders as dead text.
+    const url = derivePageUrl(page)
+    const meta: PageMeta = { title, url }
+    if (title || url) pageMetaCache.set(pageId, meta)
+    return meta
   } catch {
-    return undefined
+    return {}
   }
 }
 
@@ -324,26 +338,27 @@ async function loadDocuments(isRefresh = false): Promise<void> {
       .filter((d): d is AsyncApiDoc => d !== null)
 
     // The v2 custom-content list response doesn't include parent-page
-    // metadata, so we batch-fetch page titles in parallel and join them
-    // back into pageLabel. Without this the tiles all show "Page {id}".
-    // Failures are swallowed (we fall back to "Page {id}") so a single
+    // metadata, so we batch-fetch page title + URL in parallel and join them
+    // back into pageLabel / pageUrl. Without this the tiles all show
+    // "Page {id}" and the "Page:" reference has no working link. Failures are
+    // swallowed (we fall back to "Page {id}", no link) so a single
     // missing/deleted page doesn't break the whole dashboard.
     const uniquePageIds = Array.from(
       new Set(documents.value.map((d) => d.pageId).filter((id): id is string => !!id)),
     )
     if (uniquePageIds.length) {
-      const titles = await Promise.all(uniquePageIds.map(fetchPageTitle))
-      const titleByPageId = new Map<string, string>()
-      uniquePageIds.forEach((id, i) => {
-        const t = titles[i]
-        if (t) titleByPageId.set(id, t)
+      const metas = await Promise.all(uniquePageIds.map(fetchPageMeta))
+      const metaByPageId = new Map<string, PageMeta>()
+      uniquePageIds.forEach((id, i) => metaByPageId.set(id, metas[i]))
+      documents.value = documents.value.map((d) => {
+        if (!d.pageId) return d
+        const meta = metaByPageId.get(d.pageId)
+        return {
+          ...d,
+          pageLabel: meta?.title || `Page ${d.pageId}`,
+          pageUrl: meta?.url || d.pageUrl,
+        }
       })
-      documents.value = documents.value.map((d) => ({
-        ...d,
-        pageLabel: d.pageId
-          ? titleByPageId.get(d.pageId) || `Page ${d.pageId}`
-          : d.pageLabel,
-      }))
     }
 
     // Capture current space key for header subtitle ("found in space ZEN").
@@ -488,6 +503,30 @@ async function openEdit(doc: AsyncApiDoc) {
     })
   } catch (err) {
     console.error('Failed to open Edit modal:', err)
+  }
+}
+
+async function openPage(doc: AsyncApiDoc) {
+  // Inside the Forge OOPIF a plain <a target="_blank"> to a product URL is
+  // unreliable (sandboxed) — route through Forge's router (openUrl → router.open)
+  // so the hosting Confluence page actually opens in a new tab.
+  if (!doc.pageUrl) return
+  try {
+    trackAnalyticsEvent('asyncapi_dashboard_page_opened', {
+      feature_area: 'confluence',
+      surface: 'dashboard',
+      macro_type: 'asyncapi',
+      entry_point: 'dashboard',
+      page_id: doc.pageId,
+      custom_content_id: doc.contentId,
+    })
+  } catch {
+    // tracking must never block navigation
+  }
+  try {
+    await openUrl(doc.pageUrl)
+  } catch (err) {
+    console.error('Failed to open page from dashboard:', err)
   }
 }
 

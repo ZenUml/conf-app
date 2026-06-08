@@ -49,6 +49,35 @@ jobs:
         # only — initialise it explicitly below.
       - name: Init asyncapi-studio submodule
         run: git submodule update --init --depth 1 vendor/asyncapi-studio
+      # Capture the submodule SHA so the cache key changes only when the
+      # studio pin moves — every PR that doesn't bump vendor/asyncapi-studio
+      # reuses the previous build artifacts.
+      - name: Resolve asyncapi-studio submodule SHA
+        id: studio-sha
+        run: echo "sha=$(git -C vendor/asyncapi-studio rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      # Cache Studio build output + its node_modules. On a cache hit:
+      #   - static/asyncapi-studio/.studio-commit already matches the pin,
+      #     so scripts/build-studio.sh fast-paths out (no pnpm install,
+      #     no Next.js build) — saves ~60–90s per CI run.
+      #   - vendor/asyncapi-studio/node_modules being restored means a
+      #     forced rebuild (FORCE_REBUILD=1) is also cheap because pnpm
+      #     install in the submodule short-circuits.
+      # Cache key includes scripts/build-studio.sh hash so changes to the
+      # build logic invalidate the cache. The fallback restore-keys lets
+      # us still pull node_modules even if the submodule SHA moved (saves
+      # most of the pnpm install on pin bumps).
+      - name: Cache asyncapi Studio build
+        uses: actions/cache@v4
+        with:
+          path: |
+            static/asyncapi-studio
+            vendor/asyncapi-studio/node_modules
+            vendor/asyncapi-studio/apps/*/node_modules
+            vendor/asyncapi-studio/packages/*/node_modules
+          key: studio-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
+          restore-keys: |
+            studio-${{ steps.studio-sha.outputs.sha }}-
+            studio-
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
         with:
@@ -66,6 +95,7 @@ jobs:
       # Verify the asyncapi variant builds. lite/full/diagramly are already
       # exercised by their respective staging-deploy jobs; asyncapi has no
       # staging-deploy job yet (PR #2 wires that up after Studio assets land).
+      # The Cache step above usually makes this near-instant (vite build only).
       - name: Verify asyncapi build
         run: pnpm build:asyncapi
         env:

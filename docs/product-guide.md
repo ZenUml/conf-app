@@ -10,7 +10,7 @@ ZenUML for Confluence lets you create professional technical diagrams directly i
 
 1. Open any Confluence page in edit mode.
 2. Click the **+** button in the Confluence editor toolbar (or type `/` to open the macro menu).
-3. Search for **ZenUML** and select the diagram type you want to create (for example, "ZenUML Sequence" or "ZenUML Graph").
+3. Search for **ZenUML** or **Diagram** and select the diagram type you want to insert. The main diagramming macro is named **"Diagram (Mermaid, PlantUML & ZenUML)"** (or **"… Lite"** on the Lite edition); other macros include **"Graph (DrawIO)"**, **"OpenAPI / Swagger"**, and **"Embed a Diagram, Graph or API Spec"**.
 4. The ZenUML editor opens in a full-screen workspace.
 5. Type your diagram code in the left panel — a live preview appears on the right as you type.
 6. Enter a title in the **TITLE** field at the top.
@@ -31,7 +31,7 @@ Sequence diagrams show how people, services, or systems exchange messages over t
 
 **To create one:** Insert the **ZenUML Sequence** macro. In the editor, type participant names and use arrow-style method calls to describe message flows. The diagram updates in real time as you type.
 
-**What you will see:** A vertical timeline for each participant, with horizontal arrows representing messages between them. The preview updates instantly. Published, the diagram renders inline on the Confluence page with pan and zoom built in.
+**What you will see:** A vertical timeline for each participant, with horizontal arrows representing messages between them. The preview updates instantly. Published, the diagram renders inline on the Confluence page and scales automatically to fit the available column width.
 
 ![Sequence diagram on a Confluence page](screenshots/sequence-diagram.png)
 
@@ -157,7 +157,7 @@ On a published Confluence page, diagrams appear inline in the page body. Readers
 
 **Multi-page Graph diagrams:** If a DrawIO diagram has multiple pages, navigation arrows and a page counter appear in the bottom bar so readers can step through each page.
 
-**Pan and zoom (Sequence diagrams):** ZenUML sequence diagrams scale automatically to fit the available width. In fullscreen mode, you have more room to view wide diagrams.
+**Auto-scaling (Sequence diagrams):** ZenUML sequence diagrams scale automatically to fit the available column width (the scale is capped at 1× — the diagram shrinks to fit but never magnifies). There is no interactive pan or zoom; use the Fullscreen button to see a wide diagram at a larger size.
 
 ---
 

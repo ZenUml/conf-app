@@ -1,38 +1,33 @@
-# Upgrade Tracking Events — Quick Reference
+# Upgrade / Paywall Events
 
-Canonical event names match `src/utils/analytics/catalog.ts` and `src/utils/upgradeTracking.ts`.
+Full event descriptions, properties, and trigger sources are in [events-catalog.md](events-catalog.md) under the **Upgrade / paywall** section.
 
-General analytics sources and `clientDomain` conventions: [analytics-reference.md](analytics-reference.md).
+## Quick-reference table
 
-## Lite paywall (current modal)
+| Event | Trigger |
+|---|---|
+| `paywall_triggered` | Paywall gate fires (fullscreen viewer or page editor) |
+| `paywall_blocked_create` | Create blocked because space is at the macro limit |
+| `upgrade_modal_shown` | Upgrade modal becomes visible |
+| `upgrade_modal_dismissed` | User closes the modal without acting |
+| `paywall_continue_used` | User clicks "Continue editing" (decrements grace counter) |
+| `paywall_attempts_exhausted` | Grace counter reaches 0 — user locked out |
+| `paywall_banner_shown` | Paywall warning banner renders (pageBanner iframe) |
+| `paywall_banner_dismissed` | User dismisses the warning banner |
+| `space_admin_active` | Space admin detected active (once per 30 days per space) |
+| `advocacy_message_copied` | User copies the pre-drafted advocacy message |
+| `advocacy_draft_preview_clicked` | User expands/collapses the draft preview |
+| `extension_request_clicked` | User clicks the extension-request button |
 
-The paywall modal (`UpgradePrompt.vue`) is **advocacy-only**. In-modal intent is captured when the user successfully copies the templated message.
+## `UIComponent` enum values
 
-| Scenario | Mixpanel `event` / name | Notes |
-|----------|-------------------------|--------|
-| Modal shown | `upgrade_modal_shown` | `trigger_source`, upgrade context from `getUpgradeContext()` |
-| User copies advocacy text (clipboard succeeds) | `advocacy_message_copied` | `ui_component: modal` |
-| User toggles draft preview | `advocacy_draft_preview_clicked` | `ui_component: modal`, `expanded` |
-| Modal dismissed (backdrop / Escape / flow that calls close) | `upgrade_modal_dismissed` | `time_spent` (seconds) |
-| Continue without upgrading | `paywall_continued_editing` | Footer CTA |
+`header_badge`, `tooltip`, `viewer_notice`, `banner`, `modal` — defined in `src/utils/upgradeTracking.ts`.
 
-## Viewer / editor (not the modal)
+## Source files
 
-| Scenario | Event |
-|----------|--------|
-| Clicks **Upgrade** in viewer header (Lite) | `paywall_triggered` with `action_type: header_badge`, `ui_component: viewer_notice` |
-| Blocked at edit gate | `paywall_blocked_edit` / `paywall_triggered` per entry point |
-
-## Session / tenant signals
-
-| Scenario | Event |
-|----------|--------|
-| CSS flag enabled or paid space detected | `upgrade_feature_enabled` (from `useCustomerSuccessService.ts`) |
-
-## `UIComponent` enum
-
-- `header_badge`, `tooltip`, `viewer_notice`, `banner`, `modal` — see `src/utils/upgradeTracking.ts`
-
-## Legacy SQL examples
-
-Historical dashboards may still reference removed event names from older app versions. Prefer Mixpanel Lexicon / Insights for current production names.
+- `src/utils/upgradeTracking.ts` — `trackUpgradeEvent` wrapper, `UpgradeEventName` enum
+- `src/utils/paywall/mountPaywallGate.ts` — `paywall_triggered`, `paywall_blocked_create`
+- `src/components/UpgradePrompt/useUpgradeTracking.ts` — modal shown/dismissed/copy/preview/request
+- `src/components/UpgradePrompt/UpgradePrompt.vue` — continue/exhausted
+- `src/components/UpgradePrompt/PaywallWarningBanner.vue` — banner shown/dismissed/copy/request
+- `src/utils/paywall/spaceAdminProbe.ts` — `space_admin_active`

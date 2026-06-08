@@ -2,9 +2,7 @@
 
 For Mixpanel/D1 query patterns, JQL examples, and analysis workflows, use the **conf-app** agent skill (triggers on "analytics", "mixpanel", "D1 query", etc.).
 
-Paywall and upgrade event names: [upgrade-tracking-event-reference.md](upgrade-tracking-event-reference.md).
-
-**Related reading:** [events-flow.md](events-flow.md) — end-to-end event pipeline; [improvements.md](improvements.md) — analytics improvement backlog.
+**Related reading:** [events-catalog.md](events-catalog.md) — every event, its trigger, and its properties; [upgrade-tracking-events.md](upgrade-tracking-events.md) — paywall/upgrade quick reference; [improvements.md](improvements.md) — analytics improvement backlog.
 
 ## Event storage
 

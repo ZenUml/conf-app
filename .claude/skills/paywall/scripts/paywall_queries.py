@@ -326,15 +326,19 @@ def call_event(
 
 
 def date_range(window_days: int) -> tuple[str, str]:
-    # window_days=1 → today only (last ~24h rolling, includes partial day).
-    # window_days=N → N days ending today inclusive.
-    # Trade-off: Mixpanel ingestion lag is ~5-10min, so today's data is fresh
-    # enough to monitor "as of now". Earlier behavior used yesterday-only,
-    # which created a 24h blind spot for daily monitoring.
-    today = dt.date.today()
+    # Mixpanel resolves date strings in the PROJECT timezone (US-based),
+    # not the local machine's. Using local dt.date.today() from AEST asked
+    # for a project-tz day that hadn't started yet, so daily runs returned
+    # near-empty data with empty __unique maps (2026-06-03/04/10 incidents).
+    # Fix: anchor the window start on the earliest plausible project-tz
+    # date (UTC-8) and end on the local date — the span always contains
+    # the live project day. window_days=1 therefore covers ~1-2 calendar
+    # days (rolling "today, tz-safe"), summed by the callers.
+    local_today = dt.date.today()
+    project_today = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=8)).date()
     return (
-        (today - dt.timedelta(days=window_days - 1)).isoformat(),
-        today.isoformat(),
+        (project_today - dt.timedelta(days=window_days - 1)).isoformat(),
+        local_today.isoformat(),
     )
 
 

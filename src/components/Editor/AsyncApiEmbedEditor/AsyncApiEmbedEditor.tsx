@@ -78,7 +78,12 @@ const AsyncApiEmbedEditor: React.FC<AsyncApiEmbedEditorProps> = ({ onSelect, onC
             if (!contentId) return null
             return {
               contentId,
-              title: entry.title || parsed.title || 'Untitled AsyncAPI',
+              // Prefer the spec's `info.title` over the custom-content
+              // top-level title. The CC title lags behind on dashboard
+              // edits (the body code updates but the title write
+              // race-loses), so reading entry.title first surfaced a
+              // stale name. Mirrors AsyncApiDashboard.vue's precedence.
+              title: parsed.title || entry.title || 'Untitled AsyncAPI',
               apiVersion: parsed.apiVersion,
               schemaVersion: parsed.schemaVersion,
               description: parsed.description,

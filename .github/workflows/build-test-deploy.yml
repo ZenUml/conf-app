@@ -175,10 +175,17 @@ jobs:
     secrets: inherit
 
   staging-asyncapi:
-    # See note on staging-full — default-branch-only. AsyncAPI shares the
-    # lite Cloudflare Pages project for now (per scripts/forge-wizard.mjs);
-    # swap to a dedicated `conf-stg-asyncapi` project when one is stood up.
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    # Default-branch-only after asyncapi lands on main (matches staging-full /
+    # staging-diagramly). While the asyncapi feature work is still on its own
+    # PR branch (claude/asyncapi-pr3-viewer-save), also fire there so the team
+    # can validate end-to-end against asyncapi-stg.atlassian.net before merge.
+    # Drop the second clause once this PR merges to main.
+    # AsyncAPI shares the lite Cloudflare Pages project for now (per
+    # scripts/forge-wizard.mjs); swap to a dedicated `conf-stg-asyncapi`
+    # project when one is stood up.
+    if: |
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+      github.ref == 'refs/heads/claude/asyncapi-pr3-viewer-save'
     name: "Deploy: AsyncAPI"
     uses: ./.github/workflows/staging-deploy.yml
     with:

@@ -28,7 +28,7 @@ The project is built as a full-stack application with:
 
 - **Frontend**: Vue 3 with TypeScript, Vite build system, Forge Custom UI
 - **Backend**: Cloudflare Workers with D1 database (accessed via Forge remotes)
-- **Deployment**: Cloudflare Pages + Forge CLI
+- **Deployment**: Cloudflare Pages (backend API — `functions/` Workers + D1) + Forge CLI (manifest, Custom UI static assets → Atlassian's Forge CDN, and Forge Functions → Atlassian's Forge runtime)
 - **Platform**: Atlassian Forge (Connect runtime was removed; `app.connect` migration bridge in manifest.yml is kept for backward compatibility)
 
 ### Product variants

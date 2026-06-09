@@ -10,7 +10,7 @@ on:
       suite:
         type: string
         default: 'all'
-        description: 'Test suite: all, insert, render'
+        description: 'Test suite: all, insert, render, asyncapi'
       artifact-suffix:
         type: string
         required: true
@@ -176,6 +176,12 @@ jobs:
               ;;
             render)
               PROJECTS="--project=auth --project=pages --project=render"
+              ;;
+            asyncapi)
+              # Single-spec smoke; no sharding needed. The shard matrix below
+              # still creates 4 runners but `--shard=N/4` will route the one
+              # test to shard 1 and 2-4 will be empty / pass instantly.
+              PROJECTS="--project=auth --project=asyncapi"
               ;;
             *)
               PROJECTS="--project=auth --project=pages --project=render --project=insert --project=syntax-validation"

@@ -86,6 +86,15 @@ export default defineConfig({
       timeout: 300000,
     },
     {
+      // AsyncAPI variant smoke. Single space-page-loads test against
+      // asyncapi-stg.atlassian.net; see tests/asyncapi/ for rationale.
+      name: 'asyncapi',
+      testMatch: 'asyncapi/**/*.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['auth'],
+      timeout: 120000,
+    },
+    {
       // Standalone visual snapshots against local Vite dev server (pnpm start:local).
       // No Confluence/Forge auth required.
       name: 'preview',

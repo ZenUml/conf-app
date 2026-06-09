@@ -52,7 +52,12 @@ test-results/
 # Local runtime / agent cruft
 .claude/scheduled_tasks.lock
 .claude/skills/**/__pycache__/
+.claude/projects/
 .codex/
+.superpowers/
+
+# Generated release-notes drafts from /release-app runs (published to GitHub releases)
+/release-notes-*.md
 
 # Local Mixpanel exports — raw production telemetry, never commit
 mixpanel-export*

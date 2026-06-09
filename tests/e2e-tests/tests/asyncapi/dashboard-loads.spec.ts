@@ -55,11 +55,17 @@ test.describe('AsyncAPI smoke', () => {
 
     await page.goto(url);
 
-    // Forge renders the custom UI inside a CDN-hosted iframe. The dashboard's
-    // "+ Create New API" button is the strongest "rendered end-to-end" signal:
-    // it's after the search call to v2/custom-content has resolved AND
-    // after the Vue tree has hydrated.
-    const frame = page.frameLocator('iframe[src*="cdn.prod.atlassian-dev.net"]');
+    // Forge renders the custom UI inside a CDN-hosted iframe. A vanilla
+    // Confluence page actually mounts at least one OTHER Forge iframe (the
+    // app-strip rail in the left nav, plus any other installed Forge apps),
+    // so a bare `iframe[src*="cdn.prod.atlassian-dev.net"]` selector trips
+    // Playwright's strict-mode resolved-to-N-elements check. Scope the match
+    // to this app's APP_ID — Forge bakes the app id into every iframe URL
+    // — so we pick the asyncapi iframe specifically.
+    const frame = page.frameLocator(`iframe[src*="${APP_ID}"]`);
+    // The dashboard's "+ Create New API" button is the strongest "rendered
+    // end-to-end" signal: it's after the search call to v2/custom-content
+    // has resolved AND after the Vue tree has hydrated.
     await expect(frame.getByRole('button', { name: /create new api/i })).toBeVisible({
       timeout: 60000,
     });

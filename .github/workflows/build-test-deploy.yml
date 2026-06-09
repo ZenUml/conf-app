@@ -92,9 +92,9 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
       - run: pnpm test:unit
-      # Verify the asyncapi variant builds. lite/full/diagramly are already
-      # exercised by their respective staging-deploy jobs; asyncapi has no
-      # staging-deploy job yet (PR #2 wires that up after Studio assets land).
+      # Verify the asyncapi variant builds even on feature-branch PRs. The
+      # staging-asyncapi job below only runs on the default branch (like
+      # full/diagramly), so this is the smoke test for PRs.
       # The Cache step above usually makes this near-instant (vite build only).
       - name: Verify asyncapi build
         run: pnpm build:asyncapi
@@ -172,6 +172,20 @@ jobs:
       license: diagramly
       project: conf-stg-lite
       environment: staging-diagramly
+    secrets: inherit
+
+  staging-asyncapi:
+    # See note on staging-full — default-branch-only. AsyncAPI shares the
+    # lite Cloudflare Pages project for now (per scripts/forge-wizard.mjs);
+    # swap to a dedicated `conf-stg-asyncapi` project when one is stood up.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    name: "Deploy: AsyncAPI"
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      variant: asyncapi
+      license: asyncapi
+      project: conf-stg-lite
+      environment: staging-asyncapi
     secrets: inherit
 
   staging-diagramly-e2e:

@@ -6,7 +6,7 @@ on:
       variant:
         required: true
         type: string
-        description: 'lite, full, or diagramly'
+        description: 'lite, full, diagramly, or asyncapi'
       license:
         required: true
         type: string
@@ -30,6 +30,12 @@ jobs:
       FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN }}"
     steps:
       - uses: actions/checkout@v5
+      # The asyncapi build (pnpm build:asyncapi) needs vendor/asyncapi-studio
+      # checked out before scripts/build-studio.sh runs. Init explicitly so
+      # `actions/checkout@v5` doesn't try to clone the private submodule.
+      - name: Init asyncapi-studio submodule
+        if: inputs.variant == 'asyncapi'
+        run: git submodule update --init --depth 1 vendor/asyncapi-studio
       - name: Build and publish
         uses: ./.github/actions/wrangler-publish
         with:
@@ -89,6 +95,31 @@ jobs:
         with:
           cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))' -i manifest.yml
 
+      # AsyncAPI: keep only the asyncapi macros, drop the dashboard /
+      # get-started / byline modules, and grant `unsafe-eval` in CSP so
+      # Studio's runtime schema compilation works inside Forge's iframe.
+      # Mirrors the asyncapi block in scripts/forge-wizard.mjs.
+      - name: Remove non-asyncapi macros from manifest (AsyncAPI)
+        if: inputs.variant == 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi") | not))' -i manifest.yml
+      - name: Remove globalSettings + globalPage + contentBylineItem (AsyncAPI uses spacePage only)
+        if: inputs.variant == 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"])' -i manifest.yml
+      - name: Remove non-asyncapi custom content types (AsyncAPI)
+        if: inputs.variant == 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc") | not))' -i manifest.yml
+      - name: Allow 'unsafe-eval' in CSP (AsyncAPI Studio runtime schema compilation)
+        if: inputs.variant == 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval '.permissions.content.scripts = ["unsafe-eval"]' -i manifest.yml
+
       # Lite/Full: strip the diagramly-only admin module + its function entries
       # + scheduled trigger
       - name: Remove diagramly admin module from Lite/Full manifest
@@ -118,6 +149,13 @@ jobs:
               APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
               APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
               ;;
+            asyncapi)
+              APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
+              # Asyncapi shares the lite Cloudflare Pages project for now
+              # (per scripts/forge-wizard.mjs); revisit when a dedicated
+              # conf-stg-asyncapi project is stood up.
+              APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
+              ;;
             *)
               pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
               pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
@@ -137,6 +175,9 @@ jobs:
             diagramly)
               APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e staging
               ;;
+            asyncapi)
+              APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e staging
+              ;;
           esac
         env:
           PAGE_CAPTURE_SECRET: ${{ vars.PAGE_CAPTURE_SECRET }}
@@ -152,14 +193,19 @@ jobs:
         if: inputs.variant == 'diagramly'
         run: pnpm forge:install:diagramly:staging || pnpm forge:upgrade:diagramly:staging
         continue-on-error: true
+      - name: Install AsyncAPI to asyncapi-stg.atlassian.net
+        if: inputs.variant == 'asyncapi'
+        run: pnpm forge:install:asyncapi:staging || pnpm forge:upgrade:asyncapi:staging
+        continue-on-error: true
 
       - name: Write deployment summary
         if: always()
         run: |
           case "${{ inputs.variant }}" in
-            lite)      SITE="zenuml-stg.atlassian.net"; TYPE="Forge" ;;
-            full)      SITE="full-stg.atlassian.net";   TYPE="Forge" ;;
-            diagramly) SITE="dia-stg.atlassian.net";    TYPE="Forge" ;;
+            lite)      SITE="zenuml-stg.atlassian.net";  TYPE="Forge" ;;
+            full)      SITE="full-stg.atlassian.net";    TYPE="Forge" ;;
+            diagramly) SITE="dia-stg.atlassian.net";     TYPE="Forge" ;;
+            asyncapi)  SITE="asyncapi-stg.atlassian.net";TYPE="Forge" ;;
           esac
           echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY

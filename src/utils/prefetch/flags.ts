@@ -1,108 +1,87 @@
 /**
- * Kill switch for the idle renderer prefetch.
+ * Kill switch for the idle renderer prefetch — Forge feature flags.
  *
- * Flags live in the existing `/api/features` KV JSON (functions/api/features.ts)
- * and are fetched via callRemote (Forge remote → Cloudflare backend) — the only
- * fetch path that works inside Forge CDN iframes. (FeatureService.ts fetches
- * `window.location.origin/api/features`, which inside a Forge iframe is the CDN
- * origin and never reaches our backend — that service is dormant; don't use it.)
+ * Uses the @forge/bridge client-side FeatureFlags SDK (bridge ≥ 5.15):
+ * `initialize()` downloads the flag configuration once through the Forge
+ * bridge, then `checkFlag()` evaluates locally and synchronously. No Forge
+ * Function is invoked (zero GB-seconds) and our Cloudflare backend is not in
+ * the path. Targeting (per-site via installContext, percentage rollouts,
+ * per-environment) and toggling live in the Developer Console per app
+ * (lite / full / diagramly are separate Forge apps — each needs the flags
+ * created once).
  *
  * - `renderer-prefetch`        — master switch (macro-iframe host)
  * - `renderer-prefetch-banner` — page-banner host (requires master too)
  *
- * The evaluated result is memoized in localStorage for FLAG_MEMO_TTL_MS so the
- * flag-off path costs zero network on subsequent page loads. Worst-case kill
- * latency is therefore one TTL window for browsers that already memoized "on".
- * Fail-closed: unreachable backend or malformed JSON evaluates to off.
+ * Fail-closed: any init/context error, the standalone (non-Forge) dev
+ * environment, and flags that don't exist yet all evaluate to off
+ * (`checkFlag` default false). No memoization here — the orchestrator's
+ * once-per-deploy throttle already makes this a rare call, and a fresh
+ * config read per attempt means Console toggles apply on the next attempt.
  */
 
-import { callRemote } from '@/utils/requestUtil';
-import { getClientDomain } from '@/utils/ContextParameters/ContextParameters';
-import type { FeatureFlags } from '@/types/feature-flags';
-import type { KvStore } from './throttle';
+import { getContext } from '@/model/globals/forgeGlobal';
 
 export const MASTER_FLAG = 'renderer-prefetch';
 export const BANNER_FLAG = 'renderer-prefetch-banner';
-const FLAG_MEMO_KEY = 'zenuml:prefetch:flags';
-const FLAG_MEMO_TTL_MS = 6 * 60 * 60 * 1000;
 
 export interface PrefetchFlags {
   macroHost: boolean;
   bannerHost: boolean;
 }
 
-export function evaluateFlag(
-  flags: FeatureFlags | null | undefined,
-  name: string,
-  clientDomain: string | undefined,
-): boolean {
-  const feature = flags?.flags?.[name];
-  if (!feature?.enabled) return false;
-  const domains = feature.rules?.domains;
-  if (clientDomain && domains) {
-    if (domains.exclude?.includes(clientDomain)) return false;
-    if (domains.include?.includes(clientDomain)) return true;
-  }
-  return feature.rules?.default === true;
+type FeatureFlagEnvironment = 'development' | 'staging' | 'production';
+
+// Forge context reports DEVELOPMENT/STAGING/PRODUCTION; the SDK wants
+// lowercase. Unknown/missing maps to 'production', where flags are off until
+// explicitly configured — the fail-closed direction.
+export function mapEnvironment(environmentType: unknown): FeatureFlagEnvironment {
+  const env = typeof environmentType === 'string' ? environmentType.toLowerCase() : '';
+  return env === 'development' || env === 'staging' ? env : 'production';
 }
 
-interface FlagMemo {
-  at: number;
-  macroHost: boolean;
-  bannerHost: boolean;
+interface FlagClient {
+  initialize(
+    user: { identifiers?: { installContext?: string; accountId?: string } },
+    config?: { environment: FeatureFlagEnvironment },
+  ): Promise<void>;
+  checkFlag(flagName: string, defaultValue?: boolean): boolean;
+  shutdown(): void;
 }
 
-function readMemo(store: KvStore, now: number): PrefetchFlags | null {
-  try {
-    const raw = store.getItem(FLAG_MEMO_KEY);
-    if (!raw) return null;
-    const memo = JSON.parse(raw) as FlagMemo;
-    if (typeof memo.at !== 'number' || now - memo.at > FLAG_MEMO_TTL_MS) return null;
-    return { macroHost: memo.macroHost === true, bannerHost: memo.bannerHost === true };
-  } catch {
-    return null;
-  }
+async function defaultCreateClient(): Promise<FlagClient> {
+  const { FeatureFlags } = await import('@forge/bridge');
+  return new FeatureFlags();
 }
 
 export async function getPrefetchFlags(deps?: {
-  store?: KvStore;
-  now?: number;
-  fetchFlags?: () => Promise<FeatureFlags>;
-  clientDomain?: string;
+  createClient?: () => Promise<FlagClient>;
+  getForgeContext?: () => Promise<{ installContext?: string; environmentType?: string } | undefined>;
 }): Promise<PrefetchFlags> {
-  const now = deps?.now ?? Date.now();
-  let store: KvStore | null = null;
+  const off: PrefetchFlags = { macroHost: false, bannerHost: false };
+  let client: FlagClient | undefined;
   try {
-    store = deps?.store ?? window.localStorage;
-  } catch {
-    store = null;
-  }
+    const context = await (deps?.getForgeContext ?? getContext)();
+    const installContext = context?.installContext;
+    if (!installContext) return off; // standalone/dev — no install to target
 
-  if (store) {
-    const memo = readMemo(store, now);
-    if (memo) return memo;
-  }
-
-  let result: PrefetchFlags = { macroHost: false, bannerHost: false };
-  try {
-    const fetchFlags = deps?.fetchFlags ?? (() => callRemote('/api/features', 'GET'));
-    const flags = (await fetchFlags()) as FeatureFlags;
-    const domain = deps?.clientDomain ?? getClientDomain();
-    const master = evaluateFlag(flags, MASTER_FLAG, domain);
-    result = {
+    client = await (deps?.createClient ?? defaultCreateClient)();
+    await client.initialize(
+      { identifiers: { installContext } },
+      { environment: mapEnvironment(context?.environmentType) },
+    );
+    const master = client.checkFlag(MASTER_FLAG, false);
+    return {
       macroHost: master,
-      bannerHost: master && evaluateFlag(flags, BANNER_FLAG, domain),
+      bannerHost: master && client.checkFlag(BANNER_FLAG, false),
     };
   } catch {
-    // fail-closed; memoized below so an outage doesn't cause refetch storms
-  }
-
-  if (store) {
+    return off;
+  } finally {
     try {
-      store.setItem(FLAG_MEMO_KEY, JSON.stringify({ at: now, ...result } satisfies FlagMemo));
+      client?.shutdown();
     } catch {
-      // quota/blocked — next load refetches
+      // shutdown is best-effort cleanup
     }
   }
-  return result;
 }

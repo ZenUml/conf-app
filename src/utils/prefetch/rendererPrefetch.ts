@@ -104,11 +104,11 @@ async function run(opts: RunOptions): Promise<void> {
   const deadlineMs = opts.deadlineMs ?? 30_000;
   let attempted = false;
   try {
-    // The flag fetch shares the deadline budget: on a cold memo it goes over
-    // the Forge bridge (no client timeout of its own), and the banner host is
-    // holding view.close() while we wait. Timing out resolves false
-    // (fail-closed); attempted stays false so the throttle doesn't mark done,
-    // and the straggler fetch still memoizes when it eventually settles.
+    // The flag check shares the deadline budget: the Forge feature-flags
+    // client downloads config over the bridge (no client timeout of its own),
+    // and the banner host is holding view.close() while we wait. Timing out
+    // resolves false (fail-closed); attempted stays false so the throttle
+    // doesn't mark done and a later attempt can still warm.
     const flagPromise = opts.getFlags ? opts.getFlags(opts.host) : defaultFlagCheck(opts.host);
     const flagEnabled = await Promise.race([
       flagPromise.catch(() => false),

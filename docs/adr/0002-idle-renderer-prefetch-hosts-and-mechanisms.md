@@ -48,13 +48,21 @@ page) as the warmer.
      chunks. Entry+core is ~30KB; per-type chunks stay lazy.
    - PlantUML: server-rendered, nothing to prefetch.
 
-4. **Kill switch via `/api/features` KV fetched with `callRemote`.** Inside
-   Forge CDN iframes, `window.location.origin` is the CDN host, so
-   `FeatureService.ts` (which fetches that origin) cannot work and is in
-   fact dormant (zero callers). `callRemote` → Forge remote → Cloudflare is
-   the path every backend call already uses, bills no Forge GB-seconds, and
-   is variant-neutral. Results are memoized 6h in localStorage so the
-   flag-off steady state costs zero network; fail-closed.
+4. **Kill switch via Forge feature flags (client SDK).** Superseded the
+   original `/api/features` KV + `callRemote` approach (shipped in PR #249,
+   replaced before any flag was ever seeded): the `@forge/bridge ≥ 5.15`
+   `FeatureFlags` client downloads config once at `initialize()` and
+   `checkFlag()` evaluates locally — no Forge Function invocation (the
+   quickstart's `invoke('getFlagValue')` resolver pattern is explicitly
+   avoided: it would bill GB-seconds), no dependency on our Cloudflare
+   backend, native per-site (`installContext`) + percentage + per-environment
+   targeting, and instant Developer Console toggles instead of wrangler KV
+   read-modify-writes per variant project. Fail-closed on missing
+   installContext (standalone dev), init errors, and absent flags. The 6h
+   localStorage memo was dropped — the once-per-deploy throttle already
+   bounds evaluation volume, and fresh reads make Console kills take effect
+   on the next attempt. (`FeatureService.ts` remains dormant — its
+   `window.location.origin` fetch cannot work inside Forge CDN iframes.)
 
 ## Consequences
 
@@ -62,8 +70,9 @@ page) as the warmer.
   instrumentation.
 - Each release re-colds the cache and triggers one re-warm (~4–8MB) per
   active browser; release cadence multiplies bandwidth, bounded per browser.
-- Two flags must be seeded in each variant's KV before anything activates;
-  shipped dark by default.
+- Two flags must be created in each app's Developer Console (lite, full,
+  diagramly are separate Forge apps) before anything activates; shipped dark
+  by default.
 - If a refactor renames the `zenuml.esm-*` / `forge-swagger-ui-*` /
   `OpenApiViewer-*` chunk families, the manifest silently drops them — the
   build-verification step in the feature doc is the guard.

@@ -28,7 +28,9 @@ import { DRAWIO_PREFETCH_ASSETS } from '@/utils/drawio/loadDrawioViewer';
 import { loadMermaid } from '@/utils/mermaid/loadMermaid';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { PrefetchHost, PrefetchOutcome } from '@/utils/analytics/catalog';
-import { getBuildKey, isPrefetchDone, markPrefetchDone, tryClaimLock, releaseLock, type KvStore } from './throttle';
+import { getBuildKey, isPrefetchDone, isPrefetchDue, markPrefetchDone, tryClaimLock, releaseLock, type KvStore } from './throttle';
+
+export { isPrefetchDue };
 import { getPrefetchFlags, type PrefetchFlags } from './flags';
 import { prefetchUrls, fetchPrefetchManifest, type PrefetchResult, type PrefetchManifest } from './prefetchAssets';
 
@@ -74,14 +76,6 @@ function readGuards(opts: RunOptions): Guards {
     allowImportWarm: !(typeof nav.deviceMemory === 'number' && nav.deviceMemory < MIN_DEVICE_MEMORY_FOR_IMPORT_WARM),
     visible: doc.visibilityState !== 'hidden',
   };
-}
-
-/**
- * Cheap synchronous pre-check for call sites, so the orchestrator chunk is
- * only dynamically imported when an attempt is actually possible.
- */
-export function isPrefetchDue(store?: KvStore): boolean {
-  return !isPrefetchDone(getBuildKey(), store);
 }
 
 export async function runRendererPrefetchIfDue(opts: RunOptions): Promise<void> {

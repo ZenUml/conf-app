@@ -1,6 +1,8 @@
 import { trackAnalyticsEvent } from './trackAnalyticsEvent';
 import type { CacheState, MacroTypeValue, RenderMode, CacheSource } from './catalog';
 import { getTimings } from './renderPerf';
+import { isPrefetchDue } from '@/utils/prefetch/throttle';
+import type { PrefetchRenderer } from '@/utils/prefetch/rendererPrefetch';
 
 // Below this many summed wire bytes across same-origin scripts we treat the boot
 // as warm: a disk-cache hit reports transferSize 0 and a 304 revalidation only a
@@ -76,4 +78,38 @@ export function trackRenderTime(
     ...(transferBytes !== undefined ? { transfer_bytes: transferBytes } : {}),
     ...timings,
   });
+
+  scheduleRendererPrefetch(macroType);
+}
+
+const PREFETCHABLE: readonly PrefetchRenderer[] = ['graph', 'mermaid', 'sequence', 'openapi'];
+
+// Macro-host half of the idle renderer prefetch (EAG-64): this iframe just
+// finished rendering and will stay alive, so at idle it warms the OTHER
+// renderer families' bundles (utils/prefetch/rendererPrefetch.ts). The render
+// path is untouched — the orchestrator chunk is only imported at idle, and
+// only when the cheap due-check says an attempt is possible (≤1 per deploy
+// per browser). `macro_viewed` for THIS render has already been measured and
+// sent above, so the extra resource fetches cannot skew its cache_state.
+function scheduleRendererPrefetch(macroType: MacroTypeValue): void {
+  try {
+    if (!isPrefetchDue()) return;
+    const idle = window.requestIdleCallback
+      ? (cb: () => void) => window.requestIdleCallback(cb, { timeout: 10_000 })
+      : (cb: () => void) => window.setTimeout(cb, 3_000);
+    idle(() => {
+      import('@/utils/prefetch/rendererPrefetch')
+        .then(({ runRendererPrefetchIfDue }) =>
+          runRendererPrefetchIfDue({
+            host: 'macro',
+            // This iframe's own family is already loaded; embed/plantuml hosts
+            // exclude nothing (embed can wrap any type, plantuml has no bundle).
+            excludeRenderers: PREFETCHABLE.filter((r) => r === macroType),
+          }),
+        )
+        .catch(() => undefined);
+    });
+  } catch {
+    // Prefetch is an optimization — never let it surface to the render path.
+  }
 }

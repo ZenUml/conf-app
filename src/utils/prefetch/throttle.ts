@@ -36,6 +36,15 @@ export function getBuildKey(): string {
   return import.meta.env.VITE_APP_COMMIT || 'unknown';
 }
 
+/**
+ * Cheap synchronous pre-check for call sites (banner fast-path,
+ * trackRenderTime), so the orchestrator chunk is only dynamically imported
+ * when an attempt is actually possible.
+ */
+export function isPrefetchDue(store?: KvStore): boolean {
+  return !isPrefetchDone(getBuildKey(), store);
+}
+
 export function isPrefetchDone(buildKey: string, store?: KvStore): boolean {
   const s = safeStore(store);
   if (!s) return true; // can't track → don't prefetch

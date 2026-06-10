@@ -19,6 +19,20 @@ vi.mock("./renderPerf", () => ({
   })),
 }));
 
+// Keep the post-render prefetch hook inert by default (jsdom would otherwise
+// schedule real timers/imports); the scheduleRendererPrefetch suite below
+// flips isPrefetchDue per test.
+vi.mock("@/utils/prefetch/throttle", () => ({
+  isPrefetchDue: vi.fn(() => false),
+}));
+
+vi.mock("@/utils/prefetch/rendererPrefetch", () => ({
+  runRendererPrefetchIfDue: vi.fn(async () => undefined),
+}));
+
+import { isPrefetchDue } from "@/utils/prefetch/throttle";
+import { runRendererPrefetchIfDue } from "@/utils/prefetch/rendererPrefetch";
+
 const ORIGIN = location.origin;
 
 function entry(
@@ -177,5 +191,50 @@ describe("trackRenderTime", () => {
         tab_hidden: false,
       })
     );
+  });
+});
+
+describe("scheduleRendererPrefetch (post-render hook)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    window.__macroLoadStart = performance.now();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    delete (window as { __macroLoadStart?: number }).__macroLoadStart;
+    vi.restoreAllMocks();
+  });
+
+  it("schedules the orchestrator at idle, excluding the just-rendered family", async () => {
+    vi.mocked(isPrefetchDue).mockReturnValue(true);
+
+    trackRenderTime("mermaid", true);
+    expect(runRendererPrefetchIfDue).not.toHaveBeenCalled(); // idle-deferred
+
+    await vi.advanceTimersByTimeAsync(3_000); // jsdom has no rIC → setTimeout fallback
+    await vi.waitFor(() => expect(runRendererPrefetchIfDue).toHaveBeenCalledOnce());
+    expect(runRendererPrefetchIfDue).toHaveBeenCalledWith({
+      host: "macro",
+      excludeRenderers: ["mermaid"],
+    });
+  });
+
+  it("excludes nothing for embed (it can wrap any renderer)", async () => {
+    vi.mocked(isPrefetchDue).mockReturnValue(true);
+
+    trackRenderTime("embed", true);
+    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.waitFor(() => expect(runRendererPrefetchIfDue).toHaveBeenCalledOnce());
+    expect(vi.mocked(runRendererPrefetchIfDue).mock.calls[0][0].excludeRenderers).toEqual([]);
+  });
+
+  it("does not schedule anything when the prefetch is not due", async () => {
+    vi.mocked(isPrefetchDue).mockReturnValue(false);
+
+    trackRenderTime("graph", true);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(runRendererPrefetchIfDue).not.toHaveBeenCalled();
   });
 });

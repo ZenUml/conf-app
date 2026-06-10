@@ -10,7 +10,8 @@ function fakeClient(flags: Record<string, boolean>) {
 }
 
 const FORGE_CONTEXT = {
-  installContext: 'ari:cloud:confluence::site/example-cloud-id',
+  cloudId: 'example-cloud-id',
+  accountId: 'account-123',
   environmentType: 'PRODUCTION',
 }
 
@@ -34,8 +35,13 @@ describe('getPrefetchFlags (Forge feature flags)', () => {
       getForgeContext: async () => FORGE_CONTEXT,
     })
     expect(result).toEqual({ macroHost: true, bannerHost: true })
+    // Custom UI context has no installContext field — the install ARI is
+    // constructed from cloudId and passed as an attribute (client-SDK docs).
     expect(client.initialize).toHaveBeenCalledWith(
-      { identifiers: { installContext: FORGE_CONTEXT.installContext } },
+      {
+        attributes: { installContext: 'ari:cloud:confluence::site/example-cloud-id' },
+        identifiers: { accountId: 'account-123' },
+      },
       { environment: 'production' },
     )
     expect(client.checkFlag).toHaveBeenCalledWith(MASTER_FLAG, false)
@@ -59,7 +65,7 @@ describe('getPrefetchFlags (Forge feature flags)', () => {
     expect(result).toEqual({ macroHost: true, bannerHost: false })
   })
 
-  it('fails closed without an installContext (standalone/local dev)', async () => {
+  it('fails closed without a cloudId (standalone/local dev)', async () => {
     const createClient = vi.fn()
     const result = await getPrefetchFlags({
       createClient,

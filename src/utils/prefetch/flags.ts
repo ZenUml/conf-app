@@ -42,7 +42,10 @@ export function mapEnvironment(environmentType: unknown): FeatureFlagEnvironment
 
 interface FlagClient {
   initialize(
-    user: { identifiers?: { installContext?: string; accountId?: string } },
+    user: {
+      attributes?: Record<string, string | number>;
+      identifiers?: { installContext?: string; accountId?: string };
+    },
     config?: { environment: FeatureFlagEnvironment },
   ): Promise<void>;
   checkFlag(flagName: string, defaultValue?: boolean): boolean;
@@ -56,26 +59,41 @@ async function defaultCreateClient(): Promise<FlagClient> {
 
 export async function getPrefetchFlags(deps?: {
   createClient?: () => Promise<FlagClient>;
-  getForgeContext?: () => Promise<{ installContext?: string; environmentType?: string } | undefined>;
+  getForgeContext?: () => Promise<{ cloudId?: string; accountId?: string; environmentType?: string } | undefined>;
 }): Promise<PrefetchFlags> {
   const off: PrefetchFlags = { macroHost: false, bannerHost: false };
   let client: FlagClient | undefined;
   try {
     const context = await (deps?.getForgeContext ?? getContext)();
-    const installContext = context?.installContext;
-    if (!installContext) return off; // standalone/dev — no install to target
+    const cloudId = context?.cloudId;
+    if (!cloudId) {
+      // Diagnosable fail-closed: without a cloudId there is no install to
+      // target (standalone dev, or an unexpected context shape). NOTE: the
+      // Custom UI context has NO `installContext` field (that's the resolver
+      // context) — per the client-SDK docs the install ARI is constructed
+      // from cloudId and passed as an ATTRIBUTE, with accountId as the
+      // bucketing identifier (verified live on lite-dev, 2026-06-10).
+      console.debug('[renderer-prefetch] flags off: no cloudId in context', Object.keys(context ?? {}));
+      return off;
+    }
 
     client = await (deps?.createClient ?? defaultCreateClient)();
     await client.initialize(
-      { identifiers: { installContext } },
+      {
+        attributes: { installContext: `ari:cloud:confluence::site/${cloudId}` },
+        identifiers: { accountId: context?.accountId },
+      },
       { environment: mapEnvironment(context?.environmentType) },
     );
     const master = client.checkFlag(MASTER_FLAG, false);
-    return {
+    const result = {
       macroHost: master,
       bannerHost: master && client.checkFlag(BANNER_FLAG, false),
     };
-  } catch {
+    console.debug('[renderer-prefetch] flags', mapEnvironment(context?.environmentType), result);
+    return result;
+  } catch (e) {
+    console.debug('[renderer-prefetch] flags off: evaluation failed', e);
     return off;
   } finally {
     try {

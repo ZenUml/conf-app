@@ -114,7 +114,33 @@ Mixpanel — zero Forge Functions GB-seconds.
    cadence, not traffic. Forge Functions GB-seconds (Developer console) must
    stay flat — this feature adds no Forge Function calls.
 
-## Live verification gates (before trusting the rollout)
+## Live verification gates — VERIFIED on lite-dev (development env, 2026-06-10)
+
+All three gates below were verified live against the deployed development app
+on lite-dev (branch feat/forge-feature-flags, flags enabled for the
+development environment only):
+
+- **CDN cache headers: GO.** `drawio/js/viewer-static.min.js` served with
+  `cache-control: max-age=1728000, s-maxage=1728000,
+  stale-while-revalidate=86400, immutable` — 20-day immutable cache; prefetch
+  warms it reliably.
+- **Warm flip: CONFIRMED.** After a banner-host prefetch on a macro-free
+  page, the Graph page loaded `viewer-static.min.js` with `transferSize=0,
+  duration=19ms` (cold baseline on the same setup: ~780KB wire, ~2s).
+- **Banner empty-slot: NO FLICKER.** Screenshots of the page top strip during
+  the held-open prefetch (~4s in) and after (~30s) are pixel-identical — no
+  reserved slot, no layout shift. Observation: the banner iframe node stays
+  in the DOM (hidden) after `view.close()` on this path; no visual impact.
+- **Flags: CONFIRMED** evaluating client-side in both macro and banner
+  iframes (`[renderer-prefetch] flags development {macroHost: true,
+  bannerHost: true}`), with the full 25-link prefetch (5 DrawIO + manifest
+  chunk closure) and the done-key written. NOTE the context contract: Custom
+  UI `getContext()` has NO `installContext` field — the install ARI must be
+  constructed from `cloudId` and passed as an attribute (see flags.ts).
+
+Production/staging remain dark (flags scoped to the development environment).
+
+### Gate definitions (for re-verification after major changes)
 
 - **CDN cache headers (load-bearing go/no-go)**: on a real deploy, check
   `Cache-Control`/`Age` of `<cdn-host>/<bundle-hash>/drawio/js/viewer-static.min.js`.

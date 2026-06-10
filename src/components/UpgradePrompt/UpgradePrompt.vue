@@ -117,7 +117,7 @@ import {
 import {
   buildExtensionRequestContext,
   buildExtensionRequestMessage,
-  extensionRequestUrl,
+  buildExtensionRequestUrl,
 } from './buildExtensionRequest'
 import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
 import { openUrl } from '@/model/globals/forgeGlobal'
@@ -237,20 +237,22 @@ async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 async function onRequestExtension() {
-  const requestUrl = extensionRequestUrl()
   const requestContext = buildExtensionRequestContext({
     spaceKey: messageContext.value.spaceKey,
     macroCount: props.macrosCreated,
     macrosLimit: props.macrosLimit,
     macroKind: props.macroKind,
   })
+  const requestUrl = buildExtensionRequestUrl(requestContext)
   const requestMessage = buildExtensionRequestMessage(requestContext)
+  // Clipboard copy is a safety net: JSM drops the prefill params if the user
+  // navigates within the portal before submitting.
   const copied = await copyToClipboard(requestMessage)
 
   tracking.trackExtensionRequestClick(copied, requestUrl)
   extensionRequestStatus.value = copied
-    ? 'Request details copied. Paste them into the support form that opens next.'
-    : 'Support form opened. Include the space key and macro count in your request.'
+    ? 'Support form opened with your details pre-filled (also copied to your clipboard as backup).'
+    : 'Support form opened with your details pre-filled — just confirm and submit.'
 
   await openUrl(requestUrl)
 }

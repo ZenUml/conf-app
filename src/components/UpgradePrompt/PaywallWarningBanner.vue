@@ -56,7 +56,7 @@ import {
 import {
   buildExtensionRequestContext,
   buildExtensionRequestMessage,
-  extensionRequestUrl,
+  buildExtensionRequestUrl,
 } from './buildExtensionRequest'
 import { getView, openUrl } from '@/model/globals/forgeGlobal'
 import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
@@ -214,14 +214,16 @@ async function onCopyAdminMessage() {
 }
 
 async function onRequestExtension() {
-  const requestUrl = extensionRequestUrl()
   const requestContext = buildExtensionRequestContext({
     spaceKey: identity.spaceKey,
     macroCount: macroCount.value,
     macrosLimit,
     macroKind: 'unknown',
   })
+  const requestUrl = buildExtensionRequestUrl(requestContext)
   const requestMessage = buildExtensionRequestMessage(requestContext)
+  // Clipboard copy is a safety net: JSM drops the prefill params if the user
+  // navigates within the portal before submitting.
   await copyToClipboard(requestMessage)
   trackUpgradeEvent(UpgradeEventName.EXTENSION_REQUEST_CLICKED, {
     surface: 'page_banner',

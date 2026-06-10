@@ -59,31 +59,36 @@ module treats it as "no manifest" (only DrawIO + Mermaid are warmed locally).
 
 ### Kill switch / rollout
 
-Flags in the existing `/api/features` KV JSON (`functions/api/features.ts`),
-fetched via `callRemote` (Forge remote → Cloudflare backend — the only fetch
-path that works inside Forge CDN iframes; `FeatureService.ts` fetches the CDN
-origin and is dormant — do not use it for iframe-side flags):
+**Forge feature flags**, evaluated with the `@forge/bridge` client-side
+`FeatureFlags` SDK (bridge ≥ 5.15; we ship 5.16). `initialize()` downloads
+the flag configuration once through the Forge bridge, then `checkFlag()`
+evaluates locally and synchronously — no Forge Function invocation (zero
+GB-seconds) and no dependency on our Cloudflare backend. (Do NOT use the
+quickstart's `invoke('getFlagValue')` pattern — that routes through a Forge
+Function resolver and bills GB-seconds. Also not `FeatureService.ts`, which
+fetches the CDN origin and is dormant.)
 
 - `renderer-prefetch` — master, gates the macro host
 - `renderer-prefetch-banner` — banner host (requires master too)
 
-Evaluated client-side (`enabled` + `rules.domains.include/exclude` +
-`rules.default`) against `getClientDomain()`. Result memoized in localStorage
-for 6h — so flag-off costs zero network after the first check, and kill
-latency is ≤6h for browsers that already memoized "on". Fail-closed on any
-fetch error. Flag-off attempts are NOT marked done, so a later flag flip
-still warms.
+Flags are created and toggled in the **Developer Console** (App → Feature
+flags), per app — lite, full, and diagramly are separate Forge apps, so the
+two flags must be created in each. ID type: `installContext` (targets a
+specific Confluence site). Targeting supports specific sites, percentage
+rollouts, and per-environment (development/staging/production) configs;
+toggles apply without redeploy.
 
-Rollout: ship dark (flags absent = off) → add flags to each variant's KV with
-`default:false` + canary `domains.include` → watch monitoring (below) → flip
-`default:true`. Kill: set `enabled:false` in KV.
+Fail-closed: missing flags, init errors, and the standalone (non-Forge) dev
+server all evaluate to off (`checkFlag` default `false`). Flag-off attempts
+are NOT marked done, so a later flag flip still warms. No client-side
+memoization — the once-per-deploy throttle already bounds evaluation volume,
+and each due attempt reads fresh config, so a Console kill applies to the
+next attempt immediately.
 
-```bash
-# per Cloudflare Pages project (conf-lite / conf-full / ...): read-modify-write
-# the feature_flags key in the confluence_plugin_features KV namespace, adding
-#   renderer-prefetch        {enabled:true, rules:{domains:{include:[<canaries>]}, default:false}}
-#   renderer-prefetch-banner {enabled:true, rules:{domains:{include:[<canaries>]}, default:false}}
-```
+Rollout: ship dark (flags don't exist = off) → create both flags in each
+app's Developer Console, target canary sites (or a small percentage) in the
+target environment → watch monitoring (below) → raise to 100%. Kill: toggle
+the flag off in the Console.
 
 ### Analytics
 
@@ -109,14 +114,41 @@ Mixpanel — zero Forge Functions GB-seconds.
    cadence, not traffic. Forge Functions GB-seconds (Developer console) must
    stay flat — this feature adds no Forge Function calls.
 
-## Live verification gates (before trusting the rollout)
+## Live verification gates — VERIFIED on lite-dev (development env, 2026-06-10)
+
+All three gates below were verified live against the deployed development app
+on lite-dev (branch feat/forge-feature-flags, flags enabled for the
+development environment only):
+
+- **CDN cache headers: GO.** `drawio/js/viewer-static.min.js` served with
+  `cache-control: max-age=1728000, s-maxage=1728000,
+  stale-while-revalidate=86400, immutable` — 20-day immutable cache; prefetch
+  warms it reliably.
+- **Warm flip: CONFIRMED.** After a banner-host prefetch on a macro-free
+  page, the Graph page loaded `viewer-static.min.js` with `transferSize=0,
+  duration=19ms` (cold baseline on the same setup: ~780KB wire, ~2s).
+- **Banner empty-slot: NO FLICKER.** Screenshots of the page top strip during
+  the held-open prefetch (~4s in) and after (~30s) are pixel-identical — no
+  reserved slot, no layout shift. Observation: the banner iframe node stays
+  in the DOM (hidden) after `view.close()` on this path; no visual impact.
+- **Flags: CONFIRMED** evaluating client-side in both macro and banner
+  iframes (`[renderer-prefetch] flags development {macroHost: true,
+  bannerHost: true}`), with the full 25-link prefetch (5 DrawIO + manifest
+  chunk closure) and the done-key written. NOTE the context contract: Custom
+  UI `getContext()` has NO `installContext` field — the install ARI must be
+  constructed from `cloudId` and passed as an attribute (see flags.ts).
+
+Production/staging remain dark (flags scoped to the development environment).
+
+### Gate definitions (for re-verification after major changes)
 
 - **CDN cache headers (load-bearing go/no-go)**: on a real deploy, check
   `Cache-Control`/`Age` of `<cdn-host>/<bundle-hash>/drawio/js/viewer-static.min.js`.
   If assets are `no-store`/`no-cache`, prefetch warms nothing and cache_state
   will not shift — stop and rethink.
-- **Cross-iframe warm flip**: forge tunnel on lite-dev with the flag on for
-  the tunnel domain: render a non-graph macro, then open a Graph page;
+- **Cross-iframe warm flip**: forge tunnel on lite-dev with the flags
+  enabled for the `development` environment in the Developer Console:
+  render a non-graph macro, then open a Graph page;
   DevTools should show `viewer-static.min.js` served from cache
   (transferSize≈0) and `macro_viewed.cache_state=warm`.
 - **Banner empty-slot check (gates `renderer-prefetch-banner` only)**: with

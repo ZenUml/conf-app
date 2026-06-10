@@ -8,6 +8,11 @@
  * import-warm pulls the real module, and the localStorage throttle makes a
  * second run a no-op.
  *
+ * Flags are Forge feature flags (@forge/bridge client SDK) and cannot
+ * evaluate outside a Forge iframe — the run helper injects the getFlags
+ * result; flag evaluation itself is unit-tested in flags.spec.ts. The
+ * no-override case exercises the production fail-closed path.
+ *
  * Status: local-first (preview project), like all viewer-preview-* specs.
  *
  *   # terminal 1, repo root:        pnpm start:local
@@ -15,16 +20,11 @@
  *
  * NOT covered here (needs a deployed bundle / live Confluence):
  * - prefetch-manifest.json chunk lists (build-only artifact)
- * - real CDN cache headers / cross-iframe warm flip (forge tunnel item — see
- *   docs/features/renderer-prefetch.md "Live verification")
+ * - real Forge flag evaluation, CDN cache headers, cross-iframe warm flip
+ *   (forge tunnel items — see docs/features/renderer-prefetch.md)
  */
 import { test, expect } from '@playwright/test'
-import {
-  seedFlagMemo,
-  clearPrefetchState,
-  runPrefetchInPage,
-  probeUrls,
-} from '../helpers/rendererPrefetch'
+import { clearPrefetchState, runPrefetchInPage, probeUrls } from '../helpers/rendererPrefetch'
 
 const BASE = 'http://127.0.0.1:8080/viewer-preview.html'
 
@@ -35,9 +35,7 @@ test.describe('renderer prefetch — browser mechanics', () => {
   })
 
   test('flag on: injects DrawIO prefetch links that all resolve, warms mermaid, writes the done-key', async ({ page }) => {
-    await seedFlagMemo(page, { macroHost: true, bannerHost: true })
-
-    const result = await runPrefetchInPage(page, 'macro')
+    const result = await runPrefetchInPage(page, 'macro', true)
 
     // 4 DrawIO scripts + common.css (manifest chunks absent on the dev server).
     expect(result.links).toHaveLength(5)
@@ -54,32 +52,23 @@ test.describe('renderer prefetch — browser mechanics', () => {
   })
 
   test('second run is a no-op (deploy-keyed throttle)', async ({ page }) => {
-    await seedFlagMemo(page, { macroHost: true, bannerHost: true })
-
-    await runPrefetchInPage(page, 'macro')
+    await runPrefetchInPage(page, 'macro', true)
     await page.evaluate(() =>
       document.head.querySelectorAll('link[rel="prefetch"]').forEach((l) => l.remove()),
     )
-    const second = await runPrefetchInPage(page, 'macro')
+    const second = await runPrefetchInPage(page, 'macro', true)
     expect(second.links).toHaveLength(0)
   })
 
   test('flag off: no links, no done-key (a later flag flip can still warm)', async ({ page }) => {
-    await seedFlagMemo(page, { macroHost: false, bannerHost: false })
-
-    const result = await runPrefetchInPage(page, 'banner')
+    const result = await runPrefetchInPage(page, 'banner', false)
     expect(result.links).toHaveLength(0)
     expect(result.doneKeySet).toBe(false)
   })
 
-  test('banner host respects the banner sub-flag independently of master', async ({ page }) => {
-    await seedFlagMemo(page, { macroHost: true, bannerHost: false })
-
-    const banner = await runPrefetchInPage(page, 'banner')
-    expect(banner.links).toHaveLength(0)
-    expect(banner.doneKeySet).toBe(false)
-
-    const macro = await runPrefetchInPage(page, 'macro')
-    expect(macro.links.length).toBeGreaterThan(0)
+  test('no flag override (production path outside Forge): fails closed', async ({ page }) => {
+    const result = await runPrefetchInPage(page, 'macro')
+    expect(result.links).toHaveLength(0)
+    expect(result.doneKeySet).toBe(false)
   })
 })

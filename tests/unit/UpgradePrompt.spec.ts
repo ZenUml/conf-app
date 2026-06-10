@@ -392,17 +392,22 @@ describe('UpgradePrompt', () => {
       expect.objectContaining({
         ui_component: 'modal',
         copied_request_details: true,
-        request_url: 'https://zenuml.atlassian.net/servicedesk/customer/portals',
+        request_url: expect.stringContaining(
+          'https://zenuml.atlassian.net/servicedesk/customer/portal/1/group/1/create/9?'
+        ),
         macro_count: 100,
         space_key: 'engineering-architecture',
       })
     )
-    expect(openUrl).toHaveBeenCalledWith(
-      'https://zenuml.atlassian.net/servicedesk/customer/portals'
+    const openedUrl = new URL(vi.mocked(openUrl).mock.calls[0][0] as string)
+    expect(`${openedUrl.origin}${openedUrl.pathname}`).toBe(
+      'https://zenuml.atlassian.net/servicedesk/customer/portal/1/group/1/create/9'
     )
+    expect(openedUrl.searchParams.get('description')).toBe(copiedMessage)
+    expect(openedUrl.searchParams.get('customfield_10070')).toBe('10037')
 
     const status = document.querySelector('[data-testid="request-extension-status"]') as HTMLElement
-    expect(status.textContent).toContain('Request details copied')
+    expect(status.textContent).toContain('pre-filled')
 
     wrapper.unmount()
   })

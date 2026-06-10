@@ -20,6 +20,7 @@ import { handleAiAideRoute } from './routes/aiAide';
 import { decidePageBanner, handlePageBannerRoute } from './routes/pageBanner';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { maybeProbeSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
+import { isPrefetchDue } from '@/utils/prefetch/throttle';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
@@ -115,6 +116,19 @@ async function initializeCriticalPath() {
 
       const choice = decidePageBanner();
       if (choice === 'none') {
+        // Idle renderer prefetch (EAG-64): the banner mounts on every page —
+        // including pages with no macros — making it the only surface that can
+        // warm the renderer-bundle cache for macro-free browsing. Gated by a
+        // cheap synchronous due-check (≤1 attempt per deploy per browser, see
+        // utils/prefetch/throttle.ts) so the ~daily-or-rarer due load is the
+        // only one that delays view.close() — bounded by the deadline plus a
+        // 2s straggler grace (10s worst case).
+        // Awaited before view.close() for the same reason as the admin probe:
+        // closing the iframe aborts in-flight work. Never throws.
+        if (isPrefetchDue()) {
+          const { runRendererPrefetchIfDue } = await import('@/utils/prefetch/rendererPrefetch');
+          await runRendererPrefetchIfDue({ host: 'banner', deadlineMs: 8_000 });
+        }
         const { view } = await import('@forge/bridge');
         view.close();
         return { macroData: null };

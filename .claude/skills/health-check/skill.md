@@ -19,7 +19,7 @@ Run a quick health check by querying Mixpanel for key event volumes across multi
 ## Mixpanel Project
 
 - **Project ID**: `3373228` (ZenUML)
-- **Internal sites to exclude**: all `zenuml*` domains, all `whimet*` domains, `diagramly`, `dia-stg` (always filter these out)
+- **Internal sites to exclude**: all `zenuml*` domains, all `whimet*` domains, `diagramly`, `dia-stg`, `lite-stg`, `full-stg`, `lite-dev` (always filter these out). The three `*-stg`/`*-dev` staging sites matter: CI/E2E runs (and `/release-app` pipelines) render macros on `lite-stg`/`full-stg`, which inflate activity totals by a few hundred/day on busy build days if not excluded.
 
 ## Key Events
 
@@ -50,7 +50,10 @@ Run these queries using `mcp__mixpanel__Run-Query` with `project_id: 3373228`. A
 {"type": "string", "propertyName": "client_domain", "operator": "does not contain", "value": "zenuml"},
 {"type": "string", "propertyName": "client_domain", "operator": "does not contain", "value": "whimet"},
 {"type": "string", "propertyName": "client_domain", "operator": "does not equal", "value": "diagramly"},
-{"type": "string", "propertyName": "client_domain", "operator": "does not equal", "value": "dia-stg"}
+{"type": "string", "propertyName": "client_domain", "operator": "does not equal", "value": "dia-stg"},
+{"type": "string", "propertyName": "client_domain", "operator": "does not equal", "value": "lite-stg"},
+{"type": "string", "propertyName": "client_domain", "operator": "does not equal", "value": "full-stg"},
+{"type": "string", "propertyName": "client_domain", "operator": "does not equal", "value": "lite-dev"}
 ```
 
 > **Note:** `does not contain` covers all `zenuml*` variants (zenuml, zenuml-stg, zenuml-connect, etc.) and all `whimet*` variants in one filter. No customer domain contains "zenuml" or "whimet" as a substring.
@@ -109,7 +112,15 @@ Query both old (legacy) and new (canonical) event names — the migration deploy
 
 ### Query 2: Past 1 day — activity events (current + previous)
 
-Run sub-queries per time window — legacy events with `event_category` breakdown, canonical events with `macro_type` breakdown. Sum per-category totals across both.
+> **⚠️ Window-overlap gotcha — do NOT use `{ "unit": "day", "value": 1 }` for the "current day".** Mixpanel interprets that relative range as **start-of-yesterday → now** (≈ 1.8 calendar days when run late in the day), so it *contains* the entire previous-day window. Comparing it to an absolute "previous day" double-counts yesterday and makes "current ≥ previous" a tautology (verified 2026-06-06: relative-1d = 15,679 = Fri 12,086 + Sat-so-far 3,604).
+>
+> **Use clean, non-overlapping absolute windows instead:**
+> - **Current day** = `{ "type": "absolute", "from": "<today>", "to": "<today>" }`
+> - **Previous day** = `{ "type": "absolute", "from": "<yesterday>", "to": "<yesterday>" }`
+>
+> Note the current day is **partial** until midnight — when comparing a partial today against a full yesterday, say so (and remember weekends run ~85% below weekday peaks; a partial weekend day will look far lower, which is normal). For a true like-for-like, compare today-to-now against yesterday up to the same hour.
+
+Run sub-queries per time window — legacy events with `event_category` breakdown, canonical events with `macro_type` breakdown. Sum per-category totals across both. (The JSON blocks below still show the old relative `{unit:day,value:1}` for reference — substitute the absolute `today` range per the warning above.)
 
 **Current day — legacy (`event_category`):**
 ```json
@@ -212,7 +223,7 @@ For 1d and 1w comparisons, follow the same current+previous pattern as queries 2
 ## Health Check Plan
 
 Checking ZenUML Confluence app health via Mixpanel (project 3373228).
-Excluding internal sites: zenuml* (all variants), whimet* (all variants), diagramly, dia-stg.
+Excluding internal sites: zenuml* (all variants), whimet* (all variants), diagramly, dia-stg, lite-stg, full-stg, lite-dev.
 Note: querying both legacy and canonical event names (migration deployed 2026-04-27; legacy confirmed zero as of 2026-05-05).
 
 **Queries to run** (10 in parallel):

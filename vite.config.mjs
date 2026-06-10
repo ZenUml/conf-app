@@ -160,6 +160,45 @@ export default defineConfig(({ command }) => ({
     gzipSize: true,
     brotliSize: true,
   })] : []),
+  // Build-only: emit dist/prefetch-manifest.json mapping renderer family →
+  // hashed chunk paths (entry chunk + static import closure + CSS), consumed
+  // by the idle renderer prefetch (src/utils/prefetch/prefetchAssets.ts).
+  // Hashed names are unknowable at runtime (no build.manifest); this is the
+  // only bridge. DrawIO/Mermaid use stable URLs and don't need the manifest.
+  // If a refactor renames these entry chunks the family silently drops out of
+  // the manifest — the renderer-prefetch unit test on family presence guards
+  // a built dist (see docs/features/renderer-prefetch.md).
+  {
+    name: 'prefetch-manifest',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      const FAMILIES = {
+        sequence: [/^assets\/zenuml\.esm-/],
+        openapi: [/^assets\/forge-swagger-ui-/, /^assets\/OpenApiViewer-.*\.js$/],
+      };
+      const renderers = {};
+      for (const [family, patterns] of Object.entries(FAMILIES)) {
+        const out = new Set();
+        const addWithDeps = (fileName) => {
+          if (out.has(fileName)) return;
+          const chunk = bundle[fileName];
+          if (!chunk) return;
+          out.add(fileName);
+          for (const dep of chunk.imports || []) addWithDeps(dep);
+          for (const css of chunk.viteMetadata?.importedCss || []) out.add(css);
+        };
+        Object.keys(bundle)
+          .filter((f) => patterns.some((re) => re.test(f)))
+          .forEach(addWithDeps);
+        if (out.size > 0) renderers[family] = [...out].sort();
+      }
+      this.emitFile({
+        type: 'asset',
+        fileName: 'prefetch-manifest.json',
+        source: JSON.stringify({ version: 1, renderers }, null, 1),
+      });
+    },
+  },
   // Dev-only plugin: serve /vendor/mermaid/* from node_modules/mermaid/dist/*.
   // The runtime loads mermaid via a dynamic URL import (src/utils/mermaid/loadMermaid.ts)
   // resolved against document.baseURI. rollup-plugin-copy puts the assets in dist/

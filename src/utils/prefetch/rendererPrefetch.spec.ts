@@ -152,6 +152,61 @@ describe('runRendererPrefetchIfDue', () => {
     await expect(runRendererPrefetchIfDue(opts)).resolves.toBeUndefined()
   })
 
+  it('bounds a hung flag fetch by the deadline: no events, not marked done', async () => {
+    vi.useFakeTimers()
+    try {
+      const opts = makeOpts({
+        deadlineMs: 1_000,
+        getFlags: vi.fn(() => new Promise<boolean>(() => undefined)), // never resolves
+      })
+      const pending = runRendererPrefetchIfDue(opts)
+      await vi.advanceTimersByTimeAsync(1_001)
+      await pending
+      expect(opts.track).not.toHaveBeenCalled()
+      expect(isPrefetchDue(opts.store)).toBe(true)
+      expect(tryClaimLock(Date.now(), opts.store)).toBe(true) // lock released
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reports timed_out when the manifest fetch hangs past deadline + grace', async () => {
+    vi.useFakeTimers()
+    try {
+      const opts = makeOpts({
+        deadlineMs: 1_000,
+        getManifest: vi.fn(() => new Promise<never>(() => undefined)), // never resolves
+      })
+      const pending = runRendererPrefetchIfDue(opts)
+      await vi.advanceTimersByTimeAsync(3_001) // deadline + 2s grace
+      await pending
+      const completed = opts.track.mock.calls.find((c) => c[0] === 'renderer_prefetch_completed')
+      expect(completed?.[1].prefetch_outcome).toBe('timed_out')
+      expect(completed?.[1].prefetch_assets_count).toBe(0)
+      expect(isPrefetchDue(opts.store)).toBe(false) // attempt counted, no retry storm
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('bounds a hung mermaid warm by the remaining deadline and counts it failed', async () => {
+    vi.useFakeTimers()
+    try {
+      const opts = makeOpts({
+        deadlineMs: 1_000,
+        warmMermaid: vi.fn(() => new Promise<void>(() => undefined)), // never resolves
+      })
+      const pending = runRendererPrefetchIfDue(opts)
+      await vi.advanceTimersByTimeAsync(1_001)
+      await pending
+      const completed = opts.track.mock.calls.find((c) => c[0] === 'renderer_prefetch_completed')
+      expect(completed?.[1].prefetch_outcome).toBe('partial') // links ok, warm timed out
+      expect(completed?.[1].prefetch_failed_count).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('uses page_banner surface and banner host flag for the banner host', async () => {
     const opts = makeOpts({ host: 'banner', deadlineMs: 5000 })
     await runRendererPrefetchIfDue(opts)

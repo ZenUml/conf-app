@@ -23,7 +23,7 @@ manifest fetch).
 | Host | Where wired | When it runs |
 |---|---|---|
 | `macro` | `trackRenderTime.ts` — after `macro_viewed` is emitted | `requestIdleCallback` after a macro render settles; warms the OTHER renderer families (the calling iframe's own family is excluded) |
-| `banner` | `forgeIndex.ts` — `zenuml-page-banner` `'none'` fast-path | Only when the cheap sync due-check passes (≤1 per deploy per browser); holds `view.close()` up to an 8s deadline. This is the only surface that covers **macro-free** pages. |
+| `banner` | `forgeIndex.ts` — `zenuml-page-banner` `'none'` fast-path | Only when the cheap sync due-check passes (≤1 per deploy per browser); holds `view.close()` up to the 8s deadline (+2s straggler grace, 10s worst case); the flag fetch and the Mermaid import-warm share that budget. This is the only surface that covers **macro-free** pages. |
 
 The banner fast-path stays byte-cheap on the ~99.9% of loads where the
 prefetch is not due: two localStorage reads, then `view.close()` as before.
@@ -91,7 +91,7 @@ Rollout: ship dark (flags absent = off) → add flags to each variant's KV with
 fired ONLY on an actual attempt (≤1 per deploy per browser — bounded volume,
 never page-view scale; flag-off and throttled loads emit nothing).
 Properties: `prefetch_host`, `prefetch_renderers`, `prefetch_outcome`
-(completed/partial/failed), `prefetch_assets_count`, `prefetch_failed_count`,
+(completed/partial/failed/timed_out), `prefetch_assets_count`, `prefetch_failed_count`,
 `prefetch_duration_ms`, `effective_type`, `save_data`. Purely client-side
 Mixpanel — zero Forge Functions GB-seconds.
 
@@ -121,7 +121,7 @@ Mixpanel — zero Forge Functions GB-seconds.
   (transferSize≈0) and `macro_viewed.cache_state=warm`.
 - **Banner empty-slot check (gates `renderer-prefetch-banner` only)**: with
   the banner flag on and the due-key cleared, confirm the held-open banner
-  (≤8s) does not show a visible empty slot / layout shift vs immediate close
+  (≤10s worst case) does not show a visible empty slot / layout shift vs immediate close
   (the ~150px flicker documented in [page-banner.md](page-banner.md)). If it
   flickers, leave the banner flag off — the macro host still covers
   macro-page browsing.

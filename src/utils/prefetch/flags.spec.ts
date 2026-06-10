@@ -110,6 +110,23 @@ describe('getPrefetchFlags', () => {
     expect(calls).toBe(1)
   })
 
+  it('coerces non-boolean truthy memo values to false (fail-closed) without refetching', async () => {
+    const store = memoryStore()
+    store.setItem('zenuml:prefetch:flags', JSON.stringify({ at: 1000, macroHost: 1, bannerHost: 'yes' }))
+    let calls = 0
+    const result = await getPrefetchFlags({
+      store,
+      clientDomain: 'acme',
+      now: 2000,
+      fetchFlags: async () => {
+        calls++
+        return flagsJson({ masterDefault: true })
+      },
+    })
+    expect(result).toEqual({ macroHost: false, bannerHost: false })
+    expect(calls).toBe(0) // memo hit — corrupted values fail closed, not refetched
+  })
+
   it('refetches after the TTL expires', async () => {
     const store = memoryStore()
     let calls = 0

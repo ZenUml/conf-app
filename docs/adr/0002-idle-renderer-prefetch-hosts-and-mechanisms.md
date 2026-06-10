@@ -20,7 +20,8 @@ page) as the warmer.
    browsing). The page banner warms on its `'none'` fast-path (covers
    macro-free pages — EAG-64's core idea) but only when the once-per-deploy
    throttle says an attempt is due, holding `view.close()` behind an 8s
-   deadline. A design review argued for deferring the banner host entirely
+   deadline (+2s straggler grace; the flag fetch and Mermaid warm share the
+   budget, so 10s is the hard worst case). A design review argued for deferring the banner host entirely
    because of the documented ~150px banner flicker risk; we keep it because
    it is the only macro-free-page coverage, but gate it behind its own flag
    (`renderer-prefetch-banner`) plus a live flicker verification before

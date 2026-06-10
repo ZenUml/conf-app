@@ -119,5 +119,6 @@ export type AnalyticsEventName =
 export type PrefetchHost = "macro" | "banner";
 
 // Terminal outcome of a prefetch attempt: every asset settled ok, some assets
-// failed/timed out, or nothing was warmed at all.
-export type PrefetchOutcome = "completed" | "partial" | "failed";
+// failed/timed out, nothing was warmed at all, or the deadline fired before
+// any per-asset result arrived (timed_out).
+export type PrefetchOutcome = "completed" | "partial" | "failed" | "timed_out";

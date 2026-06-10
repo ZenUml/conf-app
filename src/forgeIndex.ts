@@ -121,7 +121,8 @@ async function initializeCriticalPath() {
         // warm the renderer-bundle cache for macro-free browsing. Gated by a
         // cheap synchronous due-check (≤1 attempt per deploy per browser, see
         // utils/prefetch/throttle.ts) so the ~daily-or-rarer due load is the
-        // only one that delays view.close(), and only up to the deadline.
+        // only one that delays view.close() — bounded by the deadline plus a
+        // 2s straggler grace (10s worst case).
         // Awaited before view.close() for the same reason as the admin probe:
         // closing the iframe aborts in-flight work. Never throws.
         if (isPrefetchDue()) {

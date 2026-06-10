@@ -101,11 +101,19 @@ async function run(opts: RunOptions): Promise<void> {
 
   if (!tryClaimLock(now(), store)) return;
 
+  const deadlineMs = opts.deadlineMs ?? 30_000;
   let attempted = false;
   try {
-    const flagEnabled = opts.getFlags
-      ? await opts.getFlags(opts.host)
-      : await defaultFlagCheck(opts.host);
+    // The flag fetch shares the deadline budget: on a cold memo it goes over
+    // the Forge bridge (no client timeout of its own), and the banner host is
+    // holding view.close() while we wait. Timing out resolves false
+    // (fail-closed); attempted stays false so the throttle doesn't mark done,
+    // and the straggler fetch still memoizes when it eventually settles.
+    const flagPromise = opts.getFlags ? opts.getFlags(opts.host) : defaultFlagCheck(opts.host);
+    const flagEnabled = await Promise.race([
+      flagPromise.catch(() => false),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), deadlineMs)),
+    ]);
     if (!flagEnabled) return;
 
     attempted = true;
@@ -123,9 +131,8 @@ async function run(opts: RunOptions): Promise<void> {
       save_data: guards.saveData,
     });
 
-    const deadlineMs = opts.deadlineMs ?? 30_000;
     const outcome = await withDeadline(
-      executePrefetch(renderers, guards, deadlineMs, opts),
+      executePrefetch(renderers, guards, deadlineMs, opts, now),
       deadlineMs,
     );
 
@@ -163,7 +170,9 @@ async function executePrefetch(
   guards: Guards,
   deadlineMs: number,
   opts: RunOptions,
+  now: () => number,
 ): Promise<ExecOutcome> {
+  const startedAt = now();
   const paths: string[] = [];
   if (renderers.includes('graph')) paths.push(...DRAWIO_PREFETCH_ASSETS);
 
@@ -176,38 +185,52 @@ async function executePrefetch(
 
   const prefetch = opts.prefetch ?? prefetchUrls;
   const linkResult: PrefetchResult = await prefetch(paths, {
-    timeoutMs: deadlineMs,
+    timeoutMs: Math.max(deadlineMs - (now() - startedAt), 0),
     ...(opts.doc ? { doc: opts.doc } : {}),
   });
 
   let requested = linkResult.requested;
   let failed = linkResult.failed;
+  let timedOut = linkResult.timedOut;
 
   // Import-warm goes through the real loader (singleton, idempotent), pulling
   // the entry AND its static-import chunks — which a bare <link rel=prefetch>
   // would miss. Costs one-off parse/execute in this hidden/idle iframe, so
-  // it's gated on deviceMemory.
+  // it's gated on deviceMemory. Raced against the remaining deadline budget —
+  // loadMermaid has no timeout of its own and the banner host is holding
+  // view.close() while we wait.
   if (renderers.includes('mermaid') && guards.allowImportWarm) {
     requested++;
+    const remaining = Math.max(deadlineMs - (now() - startedAt), 0);
     try {
       const warm = opts.warmMermaid ?? loadMermaid;
-      await warm();
+      const warmResult = await Promise.race([
+        warm().then(() => 'warmed' as const),
+        new Promise<'timed_out'>((resolve) => setTimeout(() => resolve('timed_out'), remaining)),
+      ]);
+      if (warmResult === 'timed_out') {
+        failed++;
+        timedOut = true;
+      }
     } catch {
       failed++;
     }
   }
 
   const outcome: PrefetchOutcome =
-    failed === 0 && !linkResult.timedOut ? 'completed' : failed >= requested ? 'failed' : 'partial';
+    failed === 0 && !timedOut ? 'completed' : failed >= requested ? 'failed' : 'partial';
   return { outcome, requested, failed };
 }
 
 function withDeadline(work: Promise<ExecOutcome>, deadlineMs: number): Promise<ExecOutcome> {
-  const fallback: ExecOutcome = { outcome: 'partial', requested: 0, failed: 0 };
+  // 'timed_out': the deadline fired before any per-asset result arrived —
+  // distinct from 'partial'/'failed', which carry real counts.
+  const fallback: ExecOutcome = { outcome: 'timed_out', requested: 0, failed: 0 };
   return Promise.race([
     work,
-    // Grace over the inner timeout so the inner settle (with real counts)
-    // normally wins; this race only catches a hung manifest/flag fetch.
+    // Grace over the inner per-step timeouts so the inner settle (with real
+    // counts) normally wins; this race is the backstop for a hung manifest
+    // fetch (the only inner await without its own budget).
     new Promise<ExecOutcome>((resolve) => setTimeout(() => resolve(fallback), deadlineMs + 2_000)),
   ]);
 }

@@ -10,6 +10,8 @@ import type {
   RenderMode,
   CacheState,
   CacheSource,
+  PrefetchHost,
+  PrefetchOutcome,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -80,6 +82,18 @@ export type AnalyticsProperties = {
   render_ms?: number;      // viewer render (lib load + diagram render)
   measured_sum_ms?: number; // bootstrap+context+fetch+render; duration_ms − this = unattributed remainder
   tab_hidden?: boolean;    // tab was backgrounded during load → exclude from percentiles (artifact)
+  // Renderer-bundle prefetch (renderer_prefetch_started / _completed). Fired
+  // only on an actual attempt (throttled to ≤1 per deploy per browser), never
+  // on the skip path — volume stays far below page-view scale. See
+  // utils/prefetch/rendererPrefetch.ts.
+  prefetch_host?: PrefetchHost;
+  prefetch_renderers?: string; // comma list, e.g. "graph,mermaid,sequence,openapi"
+  prefetch_outcome?: PrefetchOutcome;
+  prefetch_assets_count?: number;
+  prefetch_failed_count?: number;
+  prefetch_duration_ms?: number;
+  effective_type?: string; // navigator.connection.effectiveType at attempt time
+  save_data?: boolean;
   // Error
   error_code?: string;
   error_name?: string;

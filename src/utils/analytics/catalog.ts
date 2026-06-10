@@ -109,4 +109,15 @@ export type AnalyticsEventName =
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
   | "viewer_load_failed"
-  | "close_guard_rejected";
+  | "close_guard_rejected"
+  | "renderer_prefetch_started"
+  | "renderer_prefetch_completed";
+
+// Where an idle renderer-bundle prefetch ran: an alive macro iframe after its
+// own render settled, or the page-banner iframe on its no-banner fast-path.
+// See utils/prefetch/rendererPrefetch.ts.
+export type PrefetchHost = "macro" | "banner";
+
+// Terminal outcome of a prefetch attempt: every asset settled ok, some assets
+// failed/timed out, or nothing was warmed at all.
+export type PrefetchOutcome = "completed" | "partial" | "failed";

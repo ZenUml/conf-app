@@ -88,6 +88,7 @@ Output is a JSON object — `{"zenuml-stg":true,"tenant-a":true,...}` — keys a
 | D1 production DB | `conf-zenuml-prod` |
 | metrics-inspect URL | `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>&addonKey=com.zenuml.confluence-addon-lite` |
 | Mixpanel project ID | `3373228` |
+| Marketplace license report | `https://marketplace.atlassian.com/manage/vendors/1215266/reporting/licenses` (vendor login required — see **Conversion check**) |
 
 > **D1 note:** There are several D1 databases in the account. Only `conf-zenuml-prod` has production data (2.2 GB). `conf-zenuml-dev` and others are empty or staging-only.
 
@@ -406,6 +407,32 @@ Snapshots from prior A/B runs live in `private/paywall/baseline.md` (most recent
 1. Read the most recent snapshot to compute Δ versus today.
 2. Prepend today's snapshot to that file (don't overwrite — the longitudinal record is the point).
 3. Quote week-over-week deltas in the daily report.
+
+---
+
+## Conversion check (both payment rails)
+
+Paywall conversion has **two rails**, each with its own source of truth. Check both before claiming a conversion number — KV alone only covers rail 2.
+
+| Rail | Buyer path | Source of truth |
+|------|-----------|-----------------|
+| 1. Marketplace plan | admin switches tenant Lite → paid Full SKU (per-user billing via Atlassian) | Marketplace license report: `https://marketplace.atlassian.com/manage/vendors/1215266/reporting/licenses` |
+| 2. Enterprise Bundle | direct Stripe payment ($299/space/yr, no admin needed), manual KV activation | KV `license:*` keys in namespace `fe9042cb20994651b0a2ef9e68f9037c` (`npx wrangler kv key list --namespace-id fe9042cb20994651b0a2ef9e68f9037c --remote`) |
+
+**Rail 1 — Marketplace report.** The page needs a vendor-account login, so use the user's browser session (claude-in-chrome works — it's a normal page, no Forge iframe). Don't scrape the UI table; hit the same-origin REST API from the page context and **aggregate in-page** (the extension's DLP filter blocks raw response bodies as credential-like data):
+
+```js
+// in page context on marketplace.atlassian.com (vendor 1215266)
+fetch('/rest/2/vendors/1215266/reporting/licenses?limit=200&dateType=start&startDate=<YYYY-MM-DD>&endDate=<YYYY-MM-DD>&addon=com.zenuml.confluence-addon',
+  {credentials:'include', headers:{accept:'application/json'}})
+```
+
+- Filter to the **paid app** (`addon=com.zenuml.confluence-addon`) — unfiltered windows are dominated by hundreds of Lite `FREE` rows.
+- Conversion signal = `licenseType: COMMERCIAL` (purchase) and `EVALUATION` (trial — a leading indicator that an admin engaged at all). Ignore `FREE` / `LEGACY_FREE` (entitlement churn; the Forge migration re-dated many Lite FREE rows to 2026-04-27).
+- Match `cloudSiteHostname` against the CSS tenant list to attribute a conversion to the paywall. Return hostnames with `.` escaped (e.g. `foo[.]atlassian[.]net`) or the DLP filter may redact them.
+- Useful params: `dateType=start|end|update`, `offset` for pagination (50/page unfiltered), `order` is NOT a valid param (400).
+
+**Baseline (2026-06-10, 6 weeks of paywall):** zero conversions from paywalled tenants on either rail — 0 COMMERCIAL/EVALUATION from the CSS cohort on rail 1 (only 2 unrelated 1-user organic licenses project-wide), 0 `license:*` keys on rail 2, 0 service-desk extension tickets despite 44 in-product extension clicks. The funnel dies before reaching anyone with budget; track this check weekly alongside the A/B run.
 
 ---
 

@@ -8,6 +8,7 @@
  */
 
 const DRAWIO_COMMON_CSS_ID = 'drawio-common-css';
+const DRAWIO_COMMON_CSS_PATH = 'drawio/mxgraph/css/common.css';
 
 const VIEWER_SCRIPTS = [
   'drawio/js/viewer-static.min.js',
@@ -15,6 +16,13 @@ const VIEWER_SCRIPTS = [
   'drawio/shapes/mxAWS3D.js',
   'drawio/shapes/mxAWS4.js',
 ] as const;
+
+// Single source of truth for the idle renderer prefetch (utils/prefetch/):
+// the prefetch list is derived from the load list, so they cannot drift.
+export const DRAWIO_PREFETCH_ASSETS: readonly string[] = [
+  ...VIEWER_SCRIPTS,
+  DRAWIO_COMMON_CSS_PATH,
+];
 
 let loading: Promise<void> | null = null;
 let loaded = false;
@@ -68,7 +76,7 @@ function ensureDrawioStylesheet(): void {
   const link = document.createElement('link');
   link.id = DRAWIO_COMMON_CSS_ID;
   link.rel = 'stylesheet';
-  link.href = resolveDrawioAsset('drawio/mxgraph/css/common.css');
+  link.href = resolveDrawioAsset(DRAWIO_COMMON_CSS_PATH);
   document.head.appendChild(link);
 }
 

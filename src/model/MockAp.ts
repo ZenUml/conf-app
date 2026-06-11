@@ -64,6 +64,26 @@ export default class MockAp implements IAp {
       return {body: JSON.stringify(customContentByIdV1DiagramOpenapi)};
     }
 
+    const requestMethod = String(req.type || 'GET').toUpperCase();
+    if (
+      requestMethod === 'GET' &&
+      /^\/api\/v2\/pages\/[^/]+\/attachments(?:\?|$)/.test(req.url)
+    ) {
+      return {body: JSON.stringify({results: []})};
+    }
+    if (
+      requestMethod === 'POST' &&
+      /^\/rest\/api\/content\/[^/]+\/child\/attachment(?:\/[^/]+\/data)?$/.test(req.url)
+    ) {
+      return {body: JSON.stringify({results: [{id: 'local-dev-attachment'}]})};
+    }
+    if (
+      requestMethod === 'PUT' &&
+      /^\/rest\/api\/content\/[^/]+\/child\/attachment\/[^/]+$/.test(req.url)
+    ) {
+      return {body: JSON.stringify({id: 'local-dev-attachment', version: {number: 1}})};
+    }
+
     // if request.url start with '/rest/api/content?', return {}
     if (req.url.startsWith('/rest/api/content?')) {
       console.log('req.url.startsWith(\'/rest/api/content?\')');

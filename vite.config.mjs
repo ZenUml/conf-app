@@ -51,6 +51,7 @@ const DEV_ONLY_HTML_ENTRIES = new Set([
   'test-viewer.html',
   'viewer-preview.html',
   'sandbox.html',
+  'sandbox-app.html',
 ]);
 
 function getHtmlFiles(dir, { isBuild = false } = {}) {
@@ -134,9 +135,19 @@ export default defineConfig(({ command }) => ({
     apply: 'serve',
     configureServer(server) {
       server.middlewares.use((req, _res, next) => {
+        // Preserve old sandbox bookmarks while keeping non-sandbox index.html
+        // query strings available for Forge tunnel development.
+        const url = new URL(req.url || '/', 'http://vite.local');
+        if (
+          (url.pathname === '/' || url.pathname === '/index.html')
+          && url.searchParams.has('sandbox')
+        ) {
+          req.url = `/sandbox-app.html${url.search}`;
+          next();
+          return;
+        }
+
         // Show sandbox cards at the root and at the bare /index.html.
-        // Sandbox cards link to ./index.html?sandbox=<id>... — those (with a
-        // query string) pass through unchanged so the actual Forge app mounts.
         if (req.url === '/' || req.url === '/index.html') {
           req.url = '/sandbox.html';
         }

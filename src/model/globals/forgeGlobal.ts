@@ -1,5 +1,3 @@
-import { getPresetById } from '@/sandbox/presets';
-
 const global = {
   isForge: true,
   forgeContext: undefined,
@@ -36,49 +34,7 @@ const STANDALONE_VIEW_STUB = {
   },
 };
 
-/**
- * Sandbox presets with `paywall: true` auto-populate the localStorage knobs
- * that useCustomerSuccessService reads, so opening one of the Paywall cards
- * lands directly on a blocked editor with the advocacy modal on top.
- */
-function applyPaywallSandboxMocks(): void {
-  try {
-    if (!localStorage.getItem('mockMacroCount')) localStorage.setItem('mockMacroCount', '105');
-    if (!localStorage.getItem('mockCSSEnabled')) localStorage.setItem('mockCSSEnabled', 'true');
-    if (!localStorage.getItem('mockSpacePaid')) localStorage.setItem('mockSpacePaid', 'false');
-    if (!localStorage.getItem('mockSpaceKey')) localStorage.setItem('mockSpaceKey', 'SD');
-    if (!localStorage.getItem('mockClientDomain')) localStorage.setItem('mockClientDomain', 'lite-stg');
-  } catch {
-    // localStorage unavailable in sandboxed iframe — non-fatal, mocks stay unset.
-  }
-}
-
 function getStandaloneContext(): any {
-  const sandboxId = new URLSearchParams(window.location.search).get('sandbox');
-  if (sandboxId) {
-    const preset = getPresetById(sandboxId);
-    if (preset) {
-      if (preset.paywall) applyPaywallSandboxMocks();
-      const isEditor = preset.macroMode === 'editor';
-      return {
-        extension: {
-          type: 'standalone',
-          content: { id: 'local-dev-page' },
-          config: { uuid: 'local-dev-uuid', customContentId: preset.customContentId },
-          // In a real Forge page macro, extension.modal is only set when the app is opened
-          // as a dialog (editor). Viewer mode has no modal — isDisplayMode() checks for this.
-          modal: isEditor ? { macroMode: preset.macroMode, diagramType: preset.diagramType } : undefined,
-          macro: { isConfiguring: isEditor, isInserting: false },
-        },
-        moduleKey: preset.moduleKey,
-        environmentType: 'DEVELOPMENT',
-        localId: undefined,
-        license: undefined,
-      };
-    }
-    console.warn(`[sandbox] Unknown preset "${sandboxId}", falling back to defaults`);
-  }
-
   return {
     extension: {
       type: 'standalone',

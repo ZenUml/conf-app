@@ -1,9 +1,5 @@
 import './assets/tailwind.css'
-import { createApp, h } from 'vue'
-import store from '@/model/store2'
-import GenericViewer from '@/components/Viewer/GenericViewer.vue'
-import EventBus from '@/EventBus'
-import { getContext } from '@/model/globals/forgeGlobal'
+import { installSandboxRuntime } from '@/sandbox/runtime'
 
 async function bootstrap() {
   const params = new URLSearchParams(location.search)
@@ -18,7 +14,19 @@ async function bootstrap() {
   localStorage.mockMacroCount = noBlock ? '60' : '120'
   localStorage.mockSpacePaid = 'false'
 
-  await getContext()
+  installSandboxRuntime()
+
+  const [
+    { createApp, h },
+    { default: store },
+    { default: GenericViewer },
+    { default: EventBus },
+  ] = await Promise.all([
+    import('vue'),
+    import('@/model/store2'),
+    import('@/components/Viewer/GenericViewer.vue'),
+    import('@/EventBus'),
+  ])
 
   ;(window as any).__editFiredCount = 0
   EventBus.$on('edit', () => {

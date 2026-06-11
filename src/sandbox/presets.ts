@@ -7,8 +7,8 @@ export interface SandboxPreset {
   diagramType: string;
   customContentId?: string;
   /**
-   * When true, the standalone bootstrap (forgeGlobal.applyStandaloneContext)
-   * sets localStorage.mock{MacroCount,CSSEnabled,SpacePaid,SpaceKey,ClientDomain}
+   * When true, the sandbox runtime sets
+   * localStorage.mock{MacroCount,CSSEnabled,SpacePaid,SpaceKey,ClientDomain}
    * so the paywall fires immediately. Used for visual review of the editor +
    * advocacy-modal overlay UX without needing to type the mocks by hand.
    */

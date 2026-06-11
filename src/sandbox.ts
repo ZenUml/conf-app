@@ -1,4 +1,4 @@
-import { SANDBOX_PRESETS, getPresetGroups, type SandboxPreset } from './sandbox/presets';
+import { getPresetGroups, type SandboxPreset } from './sandbox/presets';
 
 function createCard(preset: SandboxPreset): HTMLAnchorElement {
   const a = document.createElement('a');
@@ -7,7 +7,7 @@ function createCard(preset: SandboxPreset): HTMLAnchorElement {
   if (preset.macroMode === 'viewer') {
     params.set('outputType', 'display');
   }
-  a.href = `./index.html?${params}`;
+  a.href = `./sandbox-app.html?${params}`;
 
   const isEditor = preset.macroMode === 'editor';
   const badgeClass = isEditor ? 'badge-editor' : 'badge-viewer';

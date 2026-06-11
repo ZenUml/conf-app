@@ -25,7 +25,7 @@
 
 import { test, expect } from '@playwright/test';
 
-const URL = 'http://127.0.0.1:8080/index.html?sandbox=graph-view&outputType=display';
+const URL = 'http://127.0.0.1:8080/sandbox-app.html?sandbox=graph-view&outputType=display';
 
 test.describe('Graph viewer — AWS icon stencils', () => {
   test.use({ viewport: { width: 1100, height: 720 } });

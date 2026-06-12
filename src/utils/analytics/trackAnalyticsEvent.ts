@@ -10,26 +10,46 @@ import type { AnalyticsEventName } from "./catalog";
 import type { AnalyticsProperties } from "./types";
 import type { SpaceAdmin } from "@/model/SpaceAdmin";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
+import { getSessionReplayConfig } from "./sessionReplayFlags";
 
-let _initialized = false;
+// Singleton init promise: the first tracked event per iframe resolves the
+// session-replay flag (one Forge bridge round-trip) and inits Mixpanel;
+// concurrent early events all await the same promise instead of racing into a
+// second init.
+let _initPromise: Promise<void> | null = null;
 let _identified = false;
 
-function _initMixpanel() {
-  if (!_initialized) {
-    // The page-banner iframe is short-lived and has no macro context — session
-    // replay there adds noise without value. Keep replay in macro iframes only.
-    const isPageBanner = (forgeGlobal.forgeContext as any)?.moduleKey === "zenuml-page-banner";
+function _initMixpanel(): Promise<void> {
+  if (!_initPromise) {
+    _initPromise = (async () => {
+      // The page-banner iframe is short-lived and has no macro context — session
+      // replay there adds noise without value, so it never records and we skip
+      // the flag fetch entirely. Every other iframe's sampling rate is set live
+      // from the Forge Developer Console (see sessionReplayFlags.ts) — there is
+      // deliberately no hardcoded percentage here.
+      const isPageBanner =
+        (forgeGlobal.forgeContext as any)?.moduleKey === "zenuml-page-banner";
+      const { percent, source } = isPageBanner
+        ? { percent: 0, source: "off" as const }
+        : await getSessionReplayConfig();
 
-    mixpanel.init(import.meta.env.VITE_MIXPANEL_TOKEN, {
-      debug: true,
-      track_pageview: false,
-      autocapture: false,
-      persistence: "localStorage",
-      ignore_dnt: true,
-      record_sessions_percent: isPageBanner ? 0 : 2,
-    });
-    _initialized = true;
+      mixpanel.init(import.meta.env.VITE_MIXPANEL_TOKEN, {
+        debug: true,
+        track_pageview: false,
+        autocapture: false,
+        persistence: "localStorage",
+        ignore_dnt: true,
+        record_sessions_percent: percent,
+      });
+      // Stamp every event with the resolved rate + why, so the throttle and
+      // targeting can be confirmed live in Mixpanel.
+      mixpanel.register({
+        session_replay_percent: percent,
+        session_replay_source: source,
+      });
+    })();
   }
+  return _initPromise;
 }
 
 function _getCurrentUserAccountId(): string {
@@ -138,7 +158,7 @@ export async function _awaitableTrackAnalyticsEvent(
   callerProps: AnalyticsProperties
 ): Promise<void> {
   try {
-    _initMixpanel();
+    await _initMixpanel();
     _identify();
 
     const contentIds = _getContentIdentifiers();
@@ -184,6 +204,6 @@ export function trackAnalyticsEvent(
 }
 
 export function _resetForTesting(): void {
-  _initialized = false;
+  _initPromise = null;
   _identified = false;
 }

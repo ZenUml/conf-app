@@ -80,6 +80,8 @@ Output is a JSON object — `{"zenuml-stg":true,"tenant-a":true,...}` — keys a
 
 **Authentication:** the wrapper relies on `npx wrangler` being authenticated. If you get `401 Unauthorized`, run `npx wrangler login` in an interactive terminal or export `CLOUDFLARE_API_TOKEN` with Workers KV read (and write if updating CSS). Until auth works, skip the "on CSS?" column and state clearly that the CSS list was unavailable — do not infer enrollment from Mixpanel alone.
 
+**Remote execution environments (claude.ai/code sessions):** wrangler auth is typically unavailable — the script will exit non-zero. If it fails, proceed without the CSS list; do **not** attempt to re-authenticate interactively. The MCP fallback path must be used for all queries in that session.
+
 ## Infrastructure constants
 
 | Resource | Value |
@@ -97,6 +99,8 @@ Output is a JSON object — `{"zenuml-stg":true,"tenant-a":true,...}` — keys a
 ## Step 2: Daily Monitoring Queries
 
 Prefer `scripts/paywall_queries.py` over hand-built Mixpanel payloads. It centralises the segmentation query for every event in this skill so a filter-shape mistake can't silently substitute a global aggregate. It pulls the API secret from `.env.mixpanel` and prints `{event: {breakdown: count}}` as JSON.
+
+> **Remote sessions / missing `.env.mixpanel`:** if the script exits immediately with `error: /home/user/conf-app/.env.mixpanel not found`, skip directly to the MCP fallback below — do not attempt to create the file. All queries can be reproduced via `mcp__39c891c7-0b54-4d8e-8fdb-d20ce4460ba4__Run-Query`.
 
 > **CORRUPTION GUARD — empty `__unique` maps mean the WHOLE run is bad.** Observed 2026-06-03, 2026-06-04, 2026-06-10: `daily` returned `{}` for every `__unique` key while totals were silently undercounted 10–30× (e.g. vin3s triggered 3 vs actual 91). Root cause (found 2026-06-10): `date_range()` used local-time `dt.date.today()` — in an AEST morning that date hasn't started in the Mixpanel project timezone, so the script queried a near-future day. Fixed in the script (project-tz-safe window), but keep the tripwire: **if any `__unique` map comes back empty, discard ALL script output from that run (`daily` AND `per-space-all`) and re-pull via MCP Insights.** `ab-metrics --window-days 7` only loses a leading sliver and has stayed reliable.
 
@@ -175,7 +179,7 @@ python3 .claude/skills/paywall/scripts/paywall_queries.py per-space-all \
 
 Output: `{event: {domain: {space: count}}}`. From this output, focus only on domains where triggered > 0 OR saves > 10 OR creates > 0. Wall time ≈ the slowest single segmentation call rather than N×4 sequential batches.
 
-Cross-reference space keys against metrics-inspect (`curl "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>&addonKey=com.zenuml.confluence-addon-lite"`) to get each space's macro count. **Always pass `addonKey=com.zenuml.confluence-addon-lite`** — omitting it reads the Full KV bucket, whose counts diverge badly from Lite (2026-05-28 postmortem in `private/paywall/runbook.md`; e.g. colesgroup DNLT reads 278 without the param vs 505 Lite). This catches the pattern where a tenant has heavy spaces (>100 macros) but saves happen in light spaces — which explains zero blocks despite high activity. See `private/paywall/runbook.md` for the canonical case study (heavy-space-but-light-saves).
+Cross-reference space keys against metrics-inspect (`curl "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>&addonKey=com.zenuml.confluence-addon-lite"`) to get each space's macro count. **If metrics-inspect is unreachable (common in remote containers — network policy blocks outbound to `conf-lite.zenuml.com`), omit the `macros` column and mark as N/A; note the gap in the self-review.** As a partial fallback, `npx wrangler kv key get "metrics:<domain>:lite" --namespace-id 9531a58d3f5b47a6af77750240c09548 --remote` returns the total macro count for the tenant (not per-space), which at least confirms whether the tenant is above the threshold overall. **Always pass `addonKey=com.zenuml.confluence-addon-lite`** — omitting it reads the Full KV bucket, whose counts diverge badly from Lite (2026-05-28 postmortem in `private/paywall/runbook.md`; e.g. colesgroup DNLT reads 278 without the param vs 505 Lite). This catches the pattern where a tenant has heavy spaces (>100 macros) but saves happen in light spaces — which explains zero blocks despite high activity. See `private/paywall/runbook.md` for the canonical case study (heavy-space-but-light-saves).
 
 When `paywall_continued_editing` is high for a tenant, the per-space split tells you which space the bouncing user is on — the script already includes that event. See `private/paywall/runbook.md` for a worked case where this concentrates in a single user/space pair.
 
@@ -356,6 +360,8 @@ Periodic comparison: are paywall-affected tenants editing less than comparable u
 **Group B (control — paywall off).** Comparable tenants NOT on CSS, with ≥1 space ≥100 macros AND save volume of the same order as Group A. The macro-count requirement matters: a control tenant with no spaces over the threshold would never trigger the paywall even if enrolled — there's nothing to compare.
 
 > **Current Group A and Group B cohort tables (with per-tenant rationale, excluded controls, and low-volume exemptions) live in `private/paywall/runbook.md`.** Refresh that file when enrollments or volume bands change — no edits to this SKILL.md needed.
+>
+> **If the private submodule is not initialized** (`ls private/paywall/` returns no such file), construct cohorts from Mixpanel directly: **Group A** = all `client_domain` values with `paywall_triggered` > 0 in the 7-day window (excluding internals); **Group B** = top-10 `client_domain` values by `macro_save_succeeded` with zero `paywall_triggered` in that same window. Note in the report that formal cohort validation was skipped and week-over-week deltas are unavailable.
 
 ### Step A1: Run the comparison queries
 

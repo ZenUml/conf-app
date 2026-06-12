@@ -48,9 +48,20 @@ body {
   overflow: hidden;
 }
 
+.swagger-editor-workspace.code-editor-hidden #swagger-editor .Pane1,
+.swagger-editor-workspace.code-editor-hidden #swagger-editor .Resizer {
+  display: none !important;
+}
+
+.swagger-editor-workspace.code-editor-hidden #swagger-editor .Pane2 {
+  width: auto !important;
+  min-width: 0 !important;
+  flex: 1 1 0% !important;
+}
+
 .react-ai-chat-panel-container {
-  width: 360px;
-  min-width: 320px;
+  width: 368px;
+  min-width: 340px;
   flex-shrink: 0;
   overflow: hidden;
   border-right: 1px solid #e2e8f0;
@@ -58,34 +69,11 @@ body {
   z-index: 20;
 }
 
-.react-ai-chat-dot {
-  animation: react-ai-chat-pulse 1.2s infinite;
-}
-
-.react-ai-chat-dot:nth-child(2) {
-  animation-delay: 0.15s;
-}
-
-.react-ai-chat-dot:nth-child(3) {
-  animation-delay: 0.3s;
-}
-
-@keyframes react-ai-chat-pulse {
-  0%,
-  60%,
-  100% {
-    opacity: 0.25;
-  }
-  30% {
-    opacity: 1;
-  }
-}
-
-@media (max-width: 980px) {
+@media (max-width: 720px) {
   .react-ai-chat-panel-container {
     position: absolute;
     inset: 0 auto 0 0;
-    width: min(360px, 90vw);
+    width: min(368px, 94vw);
     min-width: 0;
   }
 }

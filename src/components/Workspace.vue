@@ -8,28 +8,42 @@
         />
       </div>
       <div class="workspace flex-grow split" style="overflow: hidden; position: relative;">
-        <Transition name="ai-chat-panel">
-          <div v-if="showAIChat" class="ai-chat-panel-container">
-            <AIChatPanel
-              :open="showAIChat"
-              :diagram-type="diagramType"
-              prototype-mode
-              @close="closeAIChat"
-            />
-          </div>
-        </Transition>
-        <div class="workspace-main flex min-w-0 flex-1 split">
-          <div id="workspace-left" class="editor flex flex-col flex-grow" style="overflow: hidden;">
+        <div v-if="showAIChat" class="ai-chat-panel-container">
+          <AIChatPanel
+            :open="showAIChat"
+            :code-visible="showCodeEditor"
+            :diagram-type="diagramType"
+            :syntax-error="syntaxError"
+            prototype-mode
+            @close="closeAIChat"
+            @toggle-code="toggleCodeEditor"
+          />
+        </div>
+        <div
+          class="workspace-main flex min-w-0 flex-1 split"
+          :class="{ 'code-editor-hidden': !showCodeEditor }"
+        >
+          <div
+            v-show="showCodeEditor"
+            id="workspace-left"
+            class="editor flex flex-col flex-grow"
+            style="overflow: hidden;"
+          >
             <div class="flex-grow overflow-auto" style="min-height: 0;">
               <editor/>
             </div>
           </div>
-          <div id="workspace-right" class="diagram overflow-auto" style="overflow: auto;">
+          <div id="workspace-right" class="diagram min-w-0 overflow-auto" style="overflow: auto;">
             <DiagramPortal :hide-header="true" />
           </div>
         </div>
       </div>
-      <div id="syntax-error-box" class="sticky bottom-0 left-0 right-0 z-[1000] bg-white flex-shrink-0" style="position: sticky !important;">
+      <div
+        v-show="!showAIChat"
+        id="syntax-error-box"
+        class="sticky bottom-0 left-0 right-0 z-[1000] bg-white flex-shrink-0"
+        style="position: sticky !important;"
+      >
         <SyntaxErrorBox />
       </div>
     </div>
@@ -53,11 +67,16 @@
     data() {
       return {
         showAIChat: false,
+        showCodeEditor: true,
+        splitInstance: null as ReturnType<typeof Split> | null,
       }
     },
     computed: {
       diagramType() {
         return this.$store.state.diagram.diagramType
+      },
+      syntaxError() {
+        return this.$store.state.error?.toString() || ''
       },
     },
     methods: {
@@ -66,7 +85,9 @@
           this.closeAIChat()
           return
         }
+        this.destroySplit()
         this.showAIChat = true
+        this.showCodeEditor = false
         trackAnalyticsEvent('ai_chat_opened', {
           feature_area: 'ai',
           surface: 'editor',
@@ -77,18 +98,40 @@
       closeAIChat() {
         if (!this.showAIChat) return
         this.showAIChat = false
+        this.showCodeEditor = true
+        this.initializeSplit()
         trackAnalyticsEvent('ai_chat_closed', {
           feature_area: 'ai',
           surface: 'editor',
           macro_type: this.diagramType || 'none',
         })
       },
+      toggleCodeEditor() {
+        this.showCodeEditor = !this.showCodeEditor
+        if (this.showCodeEditor) {
+          this.initializeSplit()
+          return
+        }
+        this.destroySplit()
+      },
+      initializeSplit() {
+        if (!this.showCodeEditor) return
+        this.$nextTick(() => {
+          if (!document.querySelector('#workspace-left') || !document.querySelector('#workspace-right')) return
+          this.destroySplit()
+          this.splitInstance = Split(['#workspace-left', '#workspace-right'], { sizes: [35, 65] })
+        })
+      },
+      destroySplit() {
+        this.splitInstance?.destroy()
+        this.splitInstance = null
+      },
     },
     async mounted () {
-      // @ts-ignore
-      if (window.split) {
-        Split(['#workspace-left', '#workspace-right'], { sizes: [35, 65] })
-      }
+      this.initializeSplit()
+    },
+    beforeUnmount() {
+      this.destroySplit()
     },
     components: {
       DiagramPortal,
@@ -111,26 +154,19 @@
   overflow: hidden;
 }
 
+.workspace-main.code-editor-hidden #workspace-right {
+  width: 100% !important;
+  flex: 1 1 auto;
+}
+
 .ai-chat-panel-container {
-  width: 360px;
-  min-width: 320px;
+  width: 368px;
+  min-width: 340px;
   flex-shrink: 0;
   overflow: hidden;
   border-right: 1px solid #e2e8f0;
   box-shadow: 4px 0 16px rgba(15, 23, 42, 0.06);
   z-index: 20;
-}
-
-.ai-chat-panel-enter-active,
-.ai-chat-panel-leave-active {
-  transition: width 180ms ease, min-width 180ms ease, opacity 140ms ease;
-}
-
-.ai-chat-panel-enter-from,
-.ai-chat-panel-leave-to {
-  width: 0;
-  min-width: 0;
-  opacity: 0;
 }
 
 #workspace-right {
@@ -176,11 +212,11 @@
   background-color: #6b7280;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 720px) {
   .ai-chat-panel-container {
     position: absolute;
     inset: 0 auto 0 0;
-    width: min(360px, 90vw);
+    width: min(368px, 94vw);
     min-width: 0;
   }
 }

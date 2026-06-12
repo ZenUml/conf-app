@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Header from "@/components/react/Header";
 import AIChatPanel from "@/components/react/AIChatPanel";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import store from "@/model/store2";
 
 interface Props {
   saveAndExit: VoidFunction;
@@ -9,10 +10,21 @@ interface Props {
 }
 const Component = ({ saveAndExit, exit }: Props) => {
   const [showAIChat, setShowAIChat] = useState(false);
+  const [showCodeEditor, setShowCodeEditor] = useState(true);
+  const [syntaxError, setSyntaxError] = useState(() => store.state.error?.toString() || "");
+
+  useEffect(() => {
+    return store.subscribe((mutation, state) => {
+      if (mutation.type === "updateError") {
+        setSyntaxError(state.error?.toString() || "");
+      }
+    });
+  }, []);
 
   const toggleAIChat = () => {
     setShowAIChat((current) => {
       const next = !current;
+      setShowCodeEditor(!next);
       trackAnalyticsEvent(next ? "ai_chat_opened" : "ai_chat_closed", {
         feature_area: "ai",
         surface: "editor",
@@ -26,6 +38,7 @@ const Component = ({ saveAndExit, exit }: Props) => {
   const closeAIChat = () => {
     if (!showAIChat) return;
     setShowAIChat(false);
+    setShowCodeEditor(true);
     trackAnalyticsEvent("ai_chat_closed", {
       feature_area: "ai",
       surface: "editor",
@@ -43,20 +56,26 @@ const Component = ({ saveAndExit, exit }: Props) => {
           onToggleAiChat={toggleAIChat}
         />
       </div>
-      <div className="swagger-editor-workspace">
+      <div
+        className={`swagger-editor-workspace ${showCodeEditor ? "" : "code-editor-hidden"}`}
+      >
         {showAIChat && (
           <div className="react-ai-chat-panel-container">
             <AIChatPanel
               open={showAIChat}
+              codeVisible={showCodeEditor}
               diagramType="openapi"
+              syntaxError={syntaxError}
               prototypeMode
               onClose={closeAIChat}
+              onToggleCode={() => setShowCodeEditor((current) => !current)}
             />
           </div>
         )}
         <div id="swagger-editor" style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}></div>
       </div>
       <div id="syntax-error-box" style={{
+        display: showAIChat ? 'none' : 'block',
         position: 'sticky',
         bottom: 0,
         left: 0,

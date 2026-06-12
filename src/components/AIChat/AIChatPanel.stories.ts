@@ -11,14 +11,14 @@ const meta: Meta<typeof AIChatPanel> = {
     docs: {
       description: {
         component:
-          'Presentation-first AI chat panel for requesting diagram changes. The preview mode demonstrates the conversation and review states without calling an AI backend.',
+          'Guided AI diagram editing with explicit understanding, update, review, and apply states.',
       },
     },
   },
   decorators: [
     () => ({
       template:
-        '<div class="border-r border-slate-200 shadow-lg" style="width: 360px; height: 100vh"><story /></div>',
+        '<div class="border-r border-slate-200 shadow-lg" style="width: 368px; height: 100vh"><story /></div>',
     }),
   ],
 }
@@ -37,6 +37,44 @@ export const Mermaid: Story = {
   args: {
     open: true,
     diagramType: 'mermaid',
+    prototypeMode: true,
+  },
+}
+
+export const ChangeReady: Story = {
+  args: {
+    open: true,
+    diagramType: 'sequence',
+    prototypeMode: true,
+    initialMessages: [
+      {
+        id: 'user-ready',
+        role: 'user',
+        text: 'Add an error handling path',
+      },
+      {
+        id: 'assistant-ready',
+        role: 'assistant',
+        text: 'I prepared a focused update that keeps the current diagram structure intact.',
+        preview: {
+          title: 'Update ready',
+          items: [
+            'Keep the current Sequence format',
+            'Add an alternate branch for failed requests',
+            'Return a clear error response to the client',
+          ],
+        },
+      },
+    ],
+  },
+}
+
+export const WithSyntaxIssue: Story = {
+  args: {
+    open: true,
+    diagramType: 'sequence',
+    syntaxError:
+      "Sequence syntax error: at line 12, column 21: no viable alternative at input '.1post('",
     prototypeMode: true,
   },
 }

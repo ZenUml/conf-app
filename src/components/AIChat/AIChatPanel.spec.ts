@@ -45,6 +45,7 @@ describe('AIChatPanel', () => {
 
     expect(wrapper.emitted('send')).toEqual([['Add a retry path']])
     expect(wrapper.get('[data-testid="ai-chat-thinking"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Updating diagram')
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'ai_chat_prompt_submitted',
       expect.objectContaining({ prompt_length: 16, macro_type: 'mermaid' }),
@@ -52,7 +53,9 @@ describe('AIChatPanel', () => {
 
     await vi.advanceTimersByTimeAsync(700)
     expect(wrapper.get('[data-testid="ai-change-preview"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="ai-chat-complete-status"]').text()).toContain('Ready to review')
     expect(wrapper.text()).toContain('Keep the current Mermaid format')
+    expect(wrapper.text()).toContain('Your current diagram stays unchanged until you click Apply')
   })
 
   it('emits close from the panel header', async () => {
@@ -63,5 +66,41 @@ describe('AIChatPanel', () => {
     await wrapper.get('[data-testid="ai-chat-close"]').trigger('click')
 
     expect(wrapper.emitted('close')).toHaveLength(1)
+  })
+
+  it('emits a code visibility toggle from the panel header', async () => {
+    const wrapper = mount(AIChatPanel, {
+      props: { open: true, codeVisible: false },
+    })
+
+    expect(wrapper.get('[data-testid="ai-chat-code-toggle"]').text()).toContain('Show')
+    expect(wrapper.get('[data-testid="ai-chat-header-row"]').text()).not.toContain('Sequence diagram')
+    expect(wrapper.get('[data-testid="ai-chat-header-row"]').find('[data-testid="ai-chat-code-toggle"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="ai-chat-code-toggle"]').trigger('click')
+
+    expect(wrapper.emitted('toggle-code')).toHaveLength(1)
+  })
+
+  it('shows a small expandable syntax indicator without a repair button', async () => {
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        codeVisible: false,
+        syntaxError: "Sequence syntax error at line 12\nmismatched input ')' expecting <EOF>",
+      },
+    })
+
+    expect(wrapper.get('[data-testid="ai-chat-syntax-indicator"]').text()).toContain('Syntax')
+    expect(wrapper.find('[data-testid="ai-chat-syntax-details"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('AI Repair')
+
+    await wrapper.get('[data-testid="ai-chat-syntax-indicator"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="ai-chat-syntax-details"]').text()).toContain('line 12')
+    expect(wrapper.get('[data-testid="ai-chat-syntax-indicator"]').attributes('aria-expanded')).toBe('true')
+
+    await wrapper.setProps({ codeVisible: true })
+    expect(wrapper.get('[data-testid="ai-chat-code-toggle"]').text()).toContain('Hide')
+    expect(wrapper.get('[data-testid="ai-chat-syntax-indicator"]').text()).toContain('Syntax')
   })
 })

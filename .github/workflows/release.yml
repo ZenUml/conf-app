@@ -35,14 +35,19 @@ jobs:
           {
             echo "variant=$VARIANT"
             echo "license=$LICENSE"
-            # Both diagramly and asyncapi share the lite Cloudflare Pages project
-            # (per scripts/forge-wizard.mjs backendUrls comments). Swap once
-            # dedicated conf-diagramly / conf-asyncapi projects are stood up.
-            if [ "$LICENSE" = "diagramly" ] || [ "$LICENSE" = "asyncapi" ]; then
-              echo "cf_project=lite"
-            else
-              echo "cf_project=$LICENSE"
-            fi
+            # cf_project is the FULL Cloudflare Pages project name.
+            # - diagramly shares conf-lite (swap once a dedicated
+            #   conf-diagramly project is stood up).
+            # - asyncapi keeps the ORIGINAL AsyncAPI-Conf-V2 project
+            #   (asyncapi-confluence-prod, domain zenapi.zenuml.com) so the
+            #   connect remote baseUrl existing installs consented to stays
+            #   unchanged. The deploy replaces that project's worker with
+            #   conf-app's functions (D1 rebinds to conf-app's database).
+            case "$LICENSE" in
+              diagramly) echo "cf_project=conf-lite" ;;
+              asyncapi)  echo "cf_project=asyncapi-confluence-prod" ;;
+              *)         echo "cf_project=conf-$LICENSE" ;;
+            esac
           } >> "$GITHUB_OUTPUT"
       # The asyncapi build (pnpm build:asyncapi) needs vendor/asyncapi-studio
       # checked out so scripts/build-studio.sh can rebuild Studio from source.
@@ -58,7 +63,7 @@ jobs:
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           license: ${{ steps.properties.outputs.license }}
-          project: conf-${{ steps.properties.outputs.cf_project }}
+          project: ${{ steps.properties.outputs.cf_project }}
           environment: prod
           vite-mixpanel-token: ${{ vars.VITE_MIXPANEL_TOKEN }}
           vite-app-version: ${{ github.event.release.tag_name }}
@@ -165,9 +170,10 @@ jobs:
         run: |
           pnpm forge:deploy:disable-analytics
           APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
-          # AsyncAPI shares the lite backend (per scripts/forge-wizard.mjs);
-          # swap to a dedicated conf-asyncapi.zenuml.com when one is stood up.
-          APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-lite.zenuml.com" -e production
+          # AsyncAPI keeps the ORIGINAL AsyncAPI-Conf-V2 backend
+          # (zenapi.zenuml.com, CF Pages project asyncapi-confluence-prod):
+          # existing installs' connect remote baseUrl stays unchanged.
+          APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set BACKEND_API_BASE_URL "https://zenapi.zenuml.com" -e production
           pnpm forge:deploy:asyncapi:prod
       - name: Deploy "ZenUML for Confluence Full" to Forge Production
         if: ${{ steps.properties.outputs.variant == 'full' }}

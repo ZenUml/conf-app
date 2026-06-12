@@ -161,10 +161,16 @@ export const APPS = {
     liteTitleSuffix: '',
     appLabel: 'AsyncAPI for Confluence',
     backendUrls: {
-      // Shared with the lite Cloudflare Pages projects until a dedicated
-      // conf-(stg-)asyncapi project is stood up. Revisit before GA.
+      // Staging shares the lite Cloudflare Pages project until a dedicated
+      // staging project is stood up. Production keeps the ORIGINAL
+      // AsyncAPI-Conf-V2 domain (CF Pages project `asyncapi-confluence-prod`,
+      // zenapi.zenuml.com) so existing installs' connect remote baseUrl —
+      // the one admins already consented to — stays unchanged. Note the
+      // release deploy still replaces that project's worker with conf-app's
+      // functions and rebinds D1 to conf-app's database; only the domain is
+      // continuous, not the old worker's data.
       staging: 'https://conf-stg-lite.zenuml.com',
-      production: 'https://conf-lite.zenuml.com',
+      production: 'https://zenapi.zenuml.com',
     },
     // AsyncAPI is a single-purpose variant: strip every macro except the
     // AsyncAPI one, and drop the dashboard / get-started / byline modules

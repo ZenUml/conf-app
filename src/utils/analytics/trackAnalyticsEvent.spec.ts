@@ -5,13 +5,19 @@ import mixpanel from "mixpanel-browser";
 import { getClientDomain, getSpaceKey } from "@/utils/ContextParameters/ContextParameters";
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import { _awaitableTrackAnalyticsEvent, _resetForTesting } from "./trackAnalyticsEvent";
+import { getSessionReplayConfig } from "./sessionReplayFlags";
 
 vi.mock("mixpanel-browser", () => ({
   default: {
     init: vi.fn(),
     identify: vi.fn(),
     track: vi.fn(),
+    register: vi.fn(),
   },
+}));
+
+vi.mock("./sessionReplayFlags", () => ({
+  getSessionReplayConfig: vi.fn(),
 }));
 
 vi.mock("@/model/globals/forgeGlobal", () => ({
@@ -50,6 +56,11 @@ describe("trackAnalyticsEvent", () => {
     } as any;
     vi.mocked(getClientDomain).mockReturnValue("example.atlassian.net");
     vi.mocked(getSpaceKey).mockReturnValue("ENG");
+    // Default: replay off. Tests that care about the rate override this.
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
   });
 
   it("sends macro_viewed with correct event name to Mixpanel", async () => {
@@ -260,30 +271,44 @@ describe("trackAnalyticsEvent", () => {
     );
   });
 
-  it("sets record_sessions_percent to 0 in the page-banner context", async () => {
+  it("never records the page-banner iframe and skips the flag fetch", async () => {
     vi.mocked(forgeGlobal).forgeContext = {
       localId: undefined,
       moduleKey: "zenuml-page-banner",
       environmentType: "production",
     } as any;
+    // Even if the flag would say record, the banner short-circuits to 0.
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 100,
+      source: "sampled",
+    });
 
     await _awaitableTrackAnalyticsEvent("paywall_banner_shown", {
       feature_area: "upgrade",
       surface: "page_banner",
     });
 
+    expect(getSessionReplayConfig).not.toHaveBeenCalled();
     expect(mixpanel.init).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({ record_sessions_percent: 0 })
     );
+    expect(mixpanel.register).toHaveBeenCalledWith({
+      session_replay_percent: 0,
+      session_replay_source: "off",
+    });
   });
 
-  it("sets record_sessions_percent to 2 in a normal macro context", async () => {
+  it("takes record_sessions_percent from the Forge flag config in a macro context", async () => {
     vi.mocked(forgeGlobal).forgeContext = {
       localId: undefined,
       moduleKey: "zenuml-sequence-macro",
       environmentType: "production",
     } as any;
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 100,
+      source: "targeted",
+    });
 
     await _awaitableTrackAnalyticsEvent("macro_viewed", {
       feature_area: "macro",
@@ -293,7 +318,34 @@ describe("trackAnalyticsEvent", () => {
 
     expect(mixpanel.init).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ record_sessions_percent: 2 })
+      expect.objectContaining({ record_sessions_percent: 100 })
+    );
+    expect(mixpanel.register).toHaveBeenCalledWith({
+      session_replay_percent: 100,
+      session_replay_source: "targeted",
+    });
+  });
+
+  it("records nothing when the flag config resolves off", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: undefined,
+      moduleKey: "zenuml-sequence-macro",
+      environmentType: "production",
+    } as any;
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(mixpanel.init).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ record_sessions_percent: 0 })
     );
   });
 

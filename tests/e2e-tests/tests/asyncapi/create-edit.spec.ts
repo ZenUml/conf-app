@@ -96,6 +96,7 @@ test.describe('AsyncAPI create + edit', () => {
   test.skip(skip, `Profile ${testConfig.domain} is not the asyncapi variant`);
 
   test('create: "+ Create New API" → Publish persists a new document', async ({ page, request }) => {
+    test.slow(); // dashboard load + studio load + publish exceed the project's 120s default
     const dashboard = await openDashboard(page, request);
     await dashboard.getByRole('button', { name: /create new api/i }).click();
     // No customContentId → editor opens on DEFAULT_ASYNCAPI_SPEC; Publish
@@ -104,6 +105,7 @@ test.describe('AsyncAPI create + edit', () => {
   });
 
   test('edit: a card\'s "Edit" → Publish updates it in place', async ({ page, request }) => {
+    test.slow();
     const dashboard = await openDashboard(page, request);
     // Cards render View / Edit / Archive; the create test above (serial) and
     // the existing seed data both guarantee at least one editable card.

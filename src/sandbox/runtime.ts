@@ -4,6 +4,15 @@ import { getPresetById, type SandboxPreset } from '@/sandbox/presets';
 
 const DEVELOPMENT_REMOTE_BASE_URL = 'https://confluence-plugin.pages.dev';
 const mockAp = new MockAp();
+const PAYWALL_MOCKS: Record<string, string> = {
+  mockMacroCount: '105',
+  mockCSSEnabled: 'true',
+  mockSpacePaid: 'false',
+  mockSpaceKey: 'SD',
+  mockClientDomain: 'lite-stg',
+};
+const SANDBOX_CONTINUE_ATTEMPTS_KEY =
+  'paywallContinueAttempts:lite-stg:SD:forge-sandbox-user';
 
 interface BridgeFetchPayload {
   restPath?: string;
@@ -52,13 +61,19 @@ function createViewStub() {
   };
 }
 
-function applyPaywallMocks(): void {
+function configurePaywallMocks(enabled: boolean): void {
   try {
-    if (!localStorage.getItem('mockMacroCount')) localStorage.setItem('mockMacroCount', '105');
-    if (!localStorage.getItem('mockCSSEnabled')) localStorage.setItem('mockCSSEnabled', 'true');
-    if (!localStorage.getItem('mockSpacePaid')) localStorage.setItem('mockSpacePaid', 'false');
-    if (!localStorage.getItem('mockSpaceKey')) localStorage.setItem('mockSpaceKey', 'SD');
-    if (!localStorage.getItem('mockClientDomain')) localStorage.setItem('mockClientDomain', 'lite-stg');
+    for (const [key, value] of Object.entries(PAYWALL_MOCKS)) {
+      if (enabled) {
+        localStorage.setItem(key, value);
+      } else {
+        localStorage.removeItem(key);
+      }
+    }
+
+    if (!enabled) {
+      localStorage.removeItem(SANDBOX_CONTINUE_ATTEMPTS_KEY);
+    }
   } catch {
     // Local storage is optional in restrictive browser contexts.
   }
@@ -152,7 +167,7 @@ function installBridgeShim(): void {
 export function installSandboxRuntime(): SandboxPreset {
   const params = new URLSearchParams(window.location.search);
   const preset = getPreset(params);
-  if (preset.paywall) applyPaywallMocks();
+  configurePaywallMocks(preset.paywall === true);
 
   installBridgeShim();
   forgeGlobal.isForge = false;

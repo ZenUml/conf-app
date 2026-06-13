@@ -4,11 +4,13 @@ import { callSandboxBridge, installSandboxRuntime } from './runtime';
 
 describe('sandbox runtime', () => {
   beforeEach(() => {
+    localStorage.clear();
     history.replaceState(null, '', '/sandbox-app.html?sandbox=seq-edit');
   });
 
   afterEach(() => {
     delete (globalThis as any).__bridge;
+    localStorage.clear();
   });
 
   it('installs a standalone Forge context for the selected preset', () => {
@@ -22,6 +24,41 @@ describe('sandbox runtime', () => {
       },
       accountId: 'forge-sandbox-user',
     });
+  });
+
+  it('clears paywall mock state for ordinary sandbox presets', () => {
+    localStorage.setItem('mockMacroCount', '105');
+    localStorage.setItem('mockCSSEnabled', 'true');
+    localStorage.setItem('mockSpacePaid', 'false');
+    localStorage.setItem('mockSpaceKey', 'SD');
+    localStorage.setItem('mockClientDomain', 'lite-stg');
+    localStorage.setItem(
+      'paywallContinueAttempts:lite-stg:SD:forge-sandbox-user',
+      JSON.stringify({ remainingAttempts: 0 }),
+    );
+
+    installSandboxRuntime();
+
+    expect(localStorage.getItem('mockMacroCount')).toBeNull();
+    expect(localStorage.getItem('mockCSSEnabled')).toBeNull();
+    expect(localStorage.getItem('mockSpacePaid')).toBeNull();
+    expect(localStorage.getItem('mockSpaceKey')).toBeNull();
+    expect(localStorage.getItem('mockClientDomain')).toBeNull();
+    expect(localStorage.getItem(
+      'paywallContinueAttempts:lite-stg:SD:forge-sandbox-user',
+    )).toBeNull();
+  });
+
+  it('applies paywall mock state only for paywall presets', () => {
+    history.replaceState(null, '', '/sandbox-app.html?sandbox=paywall-seq-edit');
+
+    installSandboxRuntime();
+
+    expect(localStorage.getItem('mockMacroCount')).toBe('105');
+    expect(localStorage.getItem('mockCSSEnabled')).toBe('true');
+    expect(localStorage.getItem('mockSpacePaid')).toBe('false');
+    expect(localStorage.getItem('mockSpaceKey')).toBe('SD');
+    expect(localStorage.getItem('mockClientDomain')).toBe('lite-stg');
   });
 
   it('returns Forge-compatible response shapes for product requests', async () => {

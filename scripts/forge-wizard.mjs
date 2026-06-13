@@ -161,14 +161,22 @@ export const APPS = {
     liteTitleSuffix: '',
     appLabel: 'AsyncAPI for Confluence',
     backendUrls: {
-      // Staging shares the lite Cloudflare Pages project until a dedicated
-      // staging project is stood up. Production keeps the ORIGINAL
-      // AsyncAPI-Conf-V2 domain (CF Pages project `asyncapi-confluence-prod`,
-      // zenapi.zenuml.com) so existing installs' connect remote baseUrl —
-      // the one admins already consented to — stays unchanged. Note the
-      // release deploy still replaces that project's worker with conf-app's
-      // functions and rebinds D1 to conf-app's database; only the domain is
-      // continuous, not the old worker's data.
+      // Production keeps the ORIGINAL AsyncAPI-Conf-V2 domain
+      // (zenapi.zenuml.com) as the connect remote baseUrl so existing installs
+      // — the baseUrl admins already consented to — stay unchanged (avoids a
+      // remotes delta → major version → admin re-consent).
+      //
+      // zenapi.zenuml.com is the live Connect *Worker* (asyncapi-confluence-prod),
+      // still serving Connect-installed tenants. It is NOT replaced. Instead it
+      // gains a proxy clause that forwards Forge-app backend paths (/forge-*,
+      // /api/*, /diagram-likes, …) to the conf-lite Pages deployment (where the
+      // functions + D1/KV actually run), while continuing to serve the Connect
+      // surface itself. So the Forge app's backend lives on conf-lite; only the
+      // *origin it's reached through* is zenapi. See AsyncAPI-Conf-V2 connect
+      // branch, src/worker.ts (FORGE_PREFIXES proxy).
+      //
+      // Staging shares conf-stg-lite directly until a staging zenapi worker
+      // exists.
       staging: 'https://conf-stg-lite.zenuml.com',
       production: 'https://zenapi.zenuml.com',
     },

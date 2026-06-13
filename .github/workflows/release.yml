@@ -35,17 +35,24 @@ jobs:
           {
             echo "variant=$VARIANT"
             echo "license=$LICENSE"
-            # cf_project is the FULL Cloudflare Pages project name.
-            # - diagramly shares conf-lite (swap once a dedicated
-            #   conf-diagramly project is stood up).
-            # - asyncapi keeps the ORIGINAL AsyncAPI-Conf-V2 project
-            #   (asyncapi-confluence-prod, domain zenapi.zenuml.com) so the
-            #   connect remote baseUrl existing installs consented to stays
-            #   unchanged. The deploy replaces that project's worker with
-            #   conf-app's functions (D1 rebinds to conf-app's database).
+            # cf_project is the FULL Cloudflare Pages project name (the
+            # Forge-app BACKEND host — functions/, D1/KV/R2/AI).
+            # - diagramly and asyncapi both share conf-lite for now (functions
+            #   are identical across variants; the Forge FRONTEND is served by
+            #   Forge's CDN, not Cloudflare, so the shared Pages static deploy
+            #   is backend-only). Swap to dedicated conf-diagramly /
+            #   conf-asyncapi projects before GA.
+            # - asyncapi must NOT publish to asyncapi-confluence-prod: that
+            #   Cloudflare project is the live Connect *Worker* bound to
+            #   zenapi.zenuml.com, still serving Connect-installed tenants
+            #   (descriptor, lifecycle, /confluence-plugin/*viewer.html).
+            #   Domain continuity for the connect remote baseUrl is preserved
+            #   instead by a proxy clause IN that worker, which forwards Forge
+            #   paths (/forge-*, /api/*, …) to this conf-lite backend. See
+            #   AsyncAPI-Conf-V2 connect branch, src/worker.ts.
             case "$LICENSE" in
               diagramly) echo "cf_project=conf-lite" ;;
-              asyncapi)  echo "cf_project=asyncapi-confluence-prod" ;;
+              asyncapi)  echo "cf_project=conf-lite" ;;
               *)         echo "cf_project=conf-$LICENSE" ;;
             esac
           } >> "$GITHUB_OUTPUT"
@@ -170,9 +177,13 @@ jobs:
         run: |
           pnpm forge:deploy:disable-analytics
           APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
-          # AsyncAPI keeps the ORIGINAL AsyncAPI-Conf-V2 backend
-          # (zenapi.zenuml.com, CF Pages project asyncapi-confluence-prod):
-          # existing installs' connect remote baseUrl stays unchanged.
+          # AsyncAPI keeps zenapi.zenuml.com as the connect remote baseUrl
+          # (existing installs' consented baseUrl stays unchanged). zenapi is
+          # the live Connect worker, which proxies Forge backend paths to the
+          # conf-lite Pages deployment built above. DEPENDENCY: that worker
+          # proxy clause (AsyncAPI-Conf-V2 connect branch, src/worker.ts) must
+          # ship before this release, else Forge backend calls — all telemetry/
+          # sync, non-critical — 404. Core render/edit goes direct to Confluence.
           APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set BACKEND_API_BASE_URL "https://zenapi.zenuml.com" -e production
           pnpm forge:deploy:asyncapi:prod
       - name: Deploy "ZenUML for Confluence Full" to Forge Production

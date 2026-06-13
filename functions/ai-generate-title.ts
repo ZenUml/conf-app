@@ -23,11 +23,17 @@ export function extractTitle(raw: string): string {
   return title.slice(0, 80);
 }
 
-const MODEL = '@cf/meta/llama-3.1-8b-instruct';
+// Two strategies deliberately run on *different* models so a single model
+// deprecation/outage degrades the fallback chain instead of breaking it. This
+// endpoint has been taken down twice by Cloudflare deprecating the one shared
+// model (llama-2-7b-chat-int8, then llama-3.1-8b-instruct); diverging the models
+// closes that failure mode. Verify replacements against `wrangler ai models`.
+const PRIMARY_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
+const FALLBACK_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
 const strategies: Strategy[] = [
   async (ai, dsl, type) => {
-    const result = await (ai as any).run(MODEL, {
+    const result = await (ai as any).run(PRIMARY_MODEL, {
       messages: [
         {
           role: 'system',
@@ -39,7 +45,7 @@ const strategies: Strategy[] = [
     return extractTitle((result as any).response);
   },
   async (ai, dsl) => {
-    const result = await (ai as any).run(MODEL, {
+    const result = await (ai as any).run(FALLBACK_MODEL, {
       messages: [
         {
           role: 'system',

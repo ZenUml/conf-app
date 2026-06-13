@@ -220,8 +220,16 @@ const AsyncApiStudioEditor: React.FC<AsyncApiStudioEditorProps> = ({
     setSpecSet(false);
     setStudioUrl('');
     if (initialSpec) {
-      localStorage.setItem('document', initialSpec);
-      setSpecSet(true);
+      // Guard the localStorage write like the mount effect does — retry is
+      // most likely reached after a storage failure (quota/unavailable), so a
+      // bare setItem would throw uncaught here and silently kill the retry.
+      try {
+        localStorage.setItem('document', initialSpec);
+        setSpecSet(true);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        setError('Failed to prepare initial specification: ' + msg);
+      }
     }
   };
 

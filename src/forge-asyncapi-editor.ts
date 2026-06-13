@@ -5,7 +5,6 @@
 
 import React from 'react'
 import ReactDOM from 'react-dom'
-import yaml from 'js-yaml'
 
 import globals from '@/model/globals'
 import { getContext as initForgeContext, getView, isInserting, isConfiguring } from '@/model/globals/forgeGlobal'
@@ -13,26 +12,9 @@ import AsyncApiStudioEditor from '@/components/Editor/AsyncApiEditor/AsyncApiStu
 import { Diagram } from '@/model/Diagram/Diagram'
 import { saveToPlatform } from '@/model/ContentProvider/Persistence'
 import { buildAsyncApiSaveDiagram } from '@/model/asyncapi/buildSaveDiagram'
-
-// Pull `info.title` out of an AsyncAPI spec so the custom-content title
-// in Confluence mirrors what the user wrote in the document. Both YAML
-// and JSON parse via js-yaml. Falls back to undefined if the spec is
-// malformed or has no `info.title` — the persistence layer then keeps
-// either the previous title (on update) or generates an "Untitled <ts>"
-// placeholder (on create).
-function extractAsyncApiTitle(spec: string): string | undefined {
-  try {
-    const doc = yaml.load(spec) as Record<string, any> | null
-    if (!doc || typeof doc !== 'object') return undefined
-    const info = doc.info as Record<string, any> | undefined
-    const title = info?.title
-    if (typeof title !== 'string') return undefined
-    const trimmed = title.trim()
-    return trimmed.length > 0 ? trimmed : undefined
-  } catch {
-    return undefined
-  }
-}
+// info.title → custom-content title mirroring now lives in
+// buildAsyncApiSaveDiagram (it parses the spec when no explicit title is
+// passed), so every save path stays in sync without each entry re-parsing.
 
 const DEFAULT_ASYNCAPI_SPEC = `asyncapi: 3.0.0
 info:
@@ -78,6 +60,7 @@ async function initializeMacro() {
 
   let existing: Diagram | undefined
   let initialSpec = DEFAULT_ASYNCAPI_SPEC
+  let loadFailed = false
   if (customContentId) {
     try {
       const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId)
@@ -88,12 +71,40 @@ async function initializeMacro() {
       }
     } catch (err) {
       console.error('Failed to load existing AsyncAPI spec:', err)
+      loadFailed = true
     }
   }
 
   const root = document.getElementById('app')
   if (!root) {
     console.error('forge-asyncapi-editor: #app element missing')
+    return
+  }
+
+  // If we were asked to edit a specific document but its load threw, do NOT
+  // silently fall through to the DEFAULT_ASYNCAPI_SPEC editor: the user would
+  // edit a blank template and the save would fork a brand-new document,
+  // orphaning the one they meant to edit. Surface the failure instead.
+  if (loadFailed) {
+    ReactDOM.render(
+      React.createElement(
+        'div',
+        {
+          style: {
+            display: 'flex', flexDirection: 'column', gap: '10px',
+            alignItems: 'center', justifyContent: 'center', height: '100vh',
+            padding: '20px', textAlign: 'center', color: '#DE350B',
+          },
+        },
+        React.createElement('strong', null, 'Could not load this AsyncAPI document'),
+        React.createElement(
+          'span',
+          { style: { color: '#42526E' } },
+          'Close this dialog and try again. Editing now would create a new, separate document.',
+        ),
+      ),
+      root,
+    )
     return
   }
 
@@ -107,16 +118,13 @@ async function initializeMacro() {
   }
 
   const handleSave = async (spec: string) => {
-    const parsedTitle = extractAsyncApiTitle(spec)
-    // Mirror the AsyncAPI doc's `info.title` into the custom-content title so
-    // dashboard cards, recent activity, search, etc. surface the user-chosen
-    // name instead of "Untitled <iso-date>". pinToId forces an in-place update
-    // for dashboard edits (see isDashboardEdit above).
+    // buildAsyncApiSaveDiagram mirrors the spec's info.title onto the CC title
+    // and (via pinToId) forces an in-place update for dashboard edits — see
+    // isDashboardEdit above and the builder's docs.
     const sourceId = existing?.id ? String(existing.id) : ''
     const diagram = buildAsyncApiSaveDiagram({
       existing,
       spec,
-      title: parsedTitle,
       pinToId: isDashboardEdit ? customContentId : undefined,
     })
     const savedId = await saveToPlatform(diagram)

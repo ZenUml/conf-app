@@ -11,10 +11,11 @@
     already returns.
   - "Rev N" comes from custom-content v2 version.number; "ID" is the
     custom-content id.
-  - Archive is wired to the same DELETE that the old Delete button used —
-    custom-content v2 doesn't expose a dedicated archive status transition,
-    so DELETE (which trashes the content, restorable from Confluence) is
-    the closest matching behaviour.
+  - Archive is a PUT-based soft-delete: it writes status:'trashed' into the
+    body JSON and appends " (Deleted)" to the title (see confirmDelete).
+    v2 DELETE 401s for the legacy connect-authored content, and v2 exposes
+    no dedicated archive status transition, so an in-place PUT — which the
+    app is already authorized for — is the closest matching behaviour.
 -->
 <template>
   <div class="asyncapi-dashboard">

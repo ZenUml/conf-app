@@ -1,7 +1,7 @@
 export type MacroType = 'sequence' | 'graph' | 'openapi' | 'embed' | 'mermaid';
 
-/** Same axis as `PRODUCT_TYPE` in Vite / `scripts/forge-wizard.mjs` (`lite` | `full` | `diagramly`). */
-export type ProductType = 'lite' | 'full' | 'diagramly';
+/** Same axis as `PRODUCT_TYPE` in Vite / `scripts/forge-wizard.mjs` (`lite` | `full` | `diagramly` | `asyncapi`). */
+export type ProductType = 'lite' | 'full' | 'diagramly' | 'asyncapi';
 
 export interface AppProfile {
   /** Unique identifier: <app>@<env> */
@@ -114,6 +114,28 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     sequenceMacroKey: 'gpt-diagram-macro',
     customContentKey: 'gpt-custom-content-key',
     appLabel: 'Diagramly for Confluence',
+  },
+  // Single-purpose AsyncAPI variant. Doesn't ship the ZenUML/Mermaid/Graph/
+  // OpenAPI macro family, so the `macros` axis is empty — tests that loop
+  // ALL_MACROS skip automatically via testConfig.macros.includes(...). The
+  // current asyncapi e2e is a single space-page-loads smoke (see
+  // tests/asyncapi/), and it discovers the space at runtime, so the
+  // `spaceKey` here is only a fallback for future expansion.
+  'asyncapi@stg': {
+    id: 'asyncapi@stg',
+    domain: 'asyncapi-stg.atlassian.net',
+    spaceKey: 'ZEN',
+    parentPageId: '',
+    parentPageName: '',
+    isLite: false,
+    productType: 'asyncapi',
+    isForge: true,
+    macros: [],
+    renderMacros: [],
+    addonKey: 'my-api',
+    sequenceMacroKey: 'zenuml-asyncapi-macro',
+    customContentKey: 'async-api-doc',
+    appLabel: 'AsyncAPI for Confluence',
   },
   'zenuml-lite@prod': {
     id: 'zenuml-lite@prod',

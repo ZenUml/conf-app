@@ -8,6 +8,7 @@ const global = {
   zenumlRemoteBaseUrl: undefined,
   isLite: undefined,
   isDiagramly: undefined,
+  isAsyncApi: undefined,
 } as any;
 
 const REMOTE_BASE_URL_MAP = {
@@ -101,6 +102,7 @@ function applyStandaloneContext() {
   global.forgeContext = getStandaloneContext();
   global.isDiagramly = import.meta.env.PRODUCT_TYPE === 'diagramly';
   global.isLite = import.meta.env.PRODUCT_TYPE === 'lite';
+  global.isAsyncApi = import.meta.env.PRODUCT_TYPE === 'asyncapi';
   const urlVariant = (global.isLite || global.isDiagramly) ? 'LITE' : 'FULL';
   global.zenumlRemoteBaseUrl = REMOTE_BASE_URL_MAP[`DEVELOPMENT_${urlVariant}`];
   console.log('forgeGlobal - standalone (local dev), no Forge bridge');
@@ -126,6 +128,7 @@ export async function getView() {
     global.forgeContext = ctx;
     global.isDiagramly = import.meta.env.PRODUCT_TYPE === 'diagramly';
     global.isLite = import.meta.env.PRODUCT_TYPE === 'lite';
+    global.isAsyncApi = import.meta.env.PRODUCT_TYPE === 'asyncapi';
     const urlVariant = (global.isLite || global.isDiagramly) ? 'LITE' : 'FULL';
     global.zenumlRemoteBaseUrl = REMOTE_BASE_URL_MAP[`${ctx.environmentType}_${urlVariant}`];
     console.log('forgeGlobal - context', global.forgeContext);

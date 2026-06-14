@@ -29,19 +29,40 @@ jobs:
         id: properties
         shell: bash
         run: |
-          # extract variant from tag: v{TS}-{variant} (e.g. full, lite, diagramly)
+          # extract variant from tag: v{TS}-{variant} (e.g. full, lite, diagramly, asyncapi)
           VARIANT=$(echo ${{ github.event.release.tag_name }} | sed 's/^v[0-9.]*-//')
           LICENSE="$VARIANT"
           {
             echo "variant=$VARIANT"
             echo "license=$LICENSE"
-            # Map diagramly to lite for Cloudflare project (diagramly uses conf-lite)
-            if [ "$LICENSE" = "diagramly" ]; then
-              echo "cf_project=lite"
-            else
-              echo "cf_project=$LICENSE"
-            fi
+            # cf_project is the FULL Cloudflare Pages project name (the
+            # Forge-app BACKEND host — functions/, D1/KV/R2/AI).
+            # - diagramly and asyncapi both share conf-lite for now (functions
+            #   are identical across variants; the Forge FRONTEND is served by
+            #   Forge's CDN, not Cloudflare, so the shared Pages static deploy
+            #   is backend-only). Swap to dedicated conf-diagramly /
+            #   conf-asyncapi projects before GA.
+            # - asyncapi must NOT publish to asyncapi-confluence-prod: that
+            #   Cloudflare project is the live Connect *Worker* bound to
+            #   zenapi.zenuml.com, still serving Connect-installed tenants
+            #   (descriptor, lifecycle, /confluence-plugin/*viewer.html).
+            #   Domain continuity for the connect remote baseUrl is preserved
+            #   instead by a proxy clause IN that worker, which forwards Forge
+            #   paths (/forge-*, /api/*, …) to this conf-lite backend. See
+            #   AsyncAPI-Conf-V2 connect branch, src/worker.ts.
+            case "$LICENSE" in
+              diagramly) echo "cf_project=conf-lite" ;;
+              asyncapi)  echo "cf_project=conf-lite" ;;
+              *)         echo "cf_project=conf-$LICENSE" ;;
+            esac
           } >> "$GITHUB_OUTPUT"
+      # The asyncapi build (pnpm build:asyncapi) needs vendor/asyncapi-studio
+      # checked out so scripts/build-studio.sh can rebuild Studio from source.
+      # Default checkout above does NOT init submodules — we init explicitly
+      # (and only for asyncapi) so the private submodule isn't attempted.
+      - name: Init asyncapi-studio submodule
+        if: ${{ steps.properties.outputs.license == 'asyncapi' }}
+        run: git submodule update --init --depth 1 vendor/asyncapi-studio
       - name: Build and publish to Cloudflare
         uses: ./.github/actions/wrangler-publish
         with:
@@ -49,13 +70,23 @@ jobs:
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           license: ${{ steps.properties.outputs.license }}
-          project: conf-${{ steps.properties.outputs.cf_project }}
+          project: ${{ steps.properties.outputs.cf_project }}
           environment: prod
           vite-mixpanel-token: ${{ vars.VITE_MIXPANEL_TOKEN }}
           vite-app-version: ${{ github.event.release.tag_name }}
           sentry-dsn: ${{ vars.SENTRY_DSN }}
           page-capture-secret: ${{ vars.PAGE_CAPTURE_SECRET }}
           page-capture-allowed-domains: ${{ vars.PAGE_CAPTURE_ALLOWED_DOMAINS_PROD }}
+      # All non-asyncapi variants: strip the asyncapi-only modules so they never
+      # leak into the lite/full/diagramly production apps. They live in
+      # manifest.yml only so the asyncapi variant can ship them. Mirrors
+      # scripts/forge-wizard.mjs (zenuml-asyncapi-* macros, async-api-doc custom
+      # content, and the asyncapi-only confluence:spacePage dashboard).
+      - name: Remove asyncapi modules in manifest.yml
+        if: ${{ steps.properties.outputs.license != 'asyncapi' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi"))) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"])' -i manifest.yml
       - name: Remove contentBylineItem in manifest.yml
         if: ${{ steps.properties.outputs.license != 'diagramly' }}
         uses: mikefarah/yq@master
@@ -86,6 +117,30 @@ jobs:
               | del(.modules.function[] | select(.key == "createDemoPageScheduled"))
               | del(.modules.scheduledTrigger)
             ' -i manifest.yml
+      # AsyncAPI: keep only the asyncapi macros, drop the dashboard /
+      # get-started / byline modules, and grant `unsafe-eval` in CSP so
+      # Studio's runtime schema compilation works inside Forge's iframe.
+      # Mirrors the asyncapi block in scripts/forge-wizard.mjs.
+      - name: Remove non-asyncapi macros from manifest (AsyncAPI)
+        if: ${{ steps.properties.outputs.license == 'asyncapi' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi") | not))' -i manifest.yml
+      - name: Remove globalSettings + globalPage + contentBylineItem (AsyncAPI uses spacePage only)
+        if: ${{ steps.properties.outputs.license == 'asyncapi' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"])' -i manifest.yml
+      - name: Remove non-asyncapi custom content types (AsyncAPI)
+        if: ${{ steps.properties.outputs.license == 'asyncapi' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc") | not))' -i manifest.yml
+      - name: Allow 'unsafe-eval' in CSP (AsyncAPI Studio runtime schema compilation)
+        if: ${{ steps.properties.outputs.license == 'asyncapi' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval '.permissions.content.scripts = ["unsafe-eval"]' -i manifest.yml
       - name: Remove licensing for Lite
         if: ${{ steps.properties.outputs.license == 'lite' }}
         uses: mikefarah/yq@master
@@ -117,6 +172,20 @@ jobs:
           APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
           APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-lite.zenuml.com" -e production
           pnpm forge:deploy:diagramly:prod
+      - name: Deploy "AsyncAPI for Confluence" to Forge Production
+        if: ${{ steps.properties.outputs.license == 'asyncapi' }}
+        run: |
+          pnpm forge:deploy:disable-analytics
+          APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
+          # AsyncAPI keeps zenapi.zenuml.com as the connect remote baseUrl
+          # (existing installs' consented baseUrl stays unchanged). zenapi is
+          # the live Connect worker, which proxies Forge backend paths to the
+          # conf-lite Pages deployment built above. DEPENDENCY: that worker
+          # proxy clause (AsyncAPI-Conf-V2 connect branch, src/worker.ts) must
+          # ship before this release, else Forge backend calls — all telemetry/
+          # sync, non-critical — 404. Core render/edit goes direct to Confluence.
+          APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set BACKEND_API_BASE_URL "https://zenapi.zenuml.com" -e production
+          pnpm forge:deploy:asyncapi:prod
       - name: Deploy "ZenUML for Confluence Full" to Forge Production
         if: ${{ steps.properties.outputs.variant == 'full' }}
         run: |
@@ -136,6 +205,9 @@ jobs:
               ;;
             diagramly)
               APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e production
+              ;;
+            asyncapi)
+              APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e production
               ;;
           esac
         env:
@@ -164,6 +236,11 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
   smoke-test:
+    # AsyncAPI has no prod tenant + no `asyncapi@prod` profile in
+    # tests/e2e-tests/config/apps.ts yet. Skip the prod smoke for that variant
+    # until both land — wire them up alongside the conf-asyncapi Cloudflare
+    # Pages project mentioned in scripts/forge-wizard.mjs.
+    if: ${{ needs.release.outputs.license != 'asyncapi' }}
     needs: release
     name: Smoke Test (Prod) — ${{ needs.release.outputs.license }}
     uses: ./.github/workflows/e2e-test.yml

@@ -42,6 +42,42 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        # Skip submodules at checkout — `submodules: recursive` tries to clone
+        # the `private` submodule (ZenUml/conf-app-private) which the default
+        # GITHUB_TOKEN cannot access ("Repository not found"), aborting checkout
+        # before the build runs. The asyncapi build needs vendor/asyncapi-studio
+        # only — initialise it explicitly below.
+      - name: Init asyncapi-studio submodule
+        run: git submodule update --init --depth 1 vendor/asyncapi-studio
+      # Capture the submodule SHA so the cache key changes only when the
+      # studio pin moves — every PR that doesn't bump vendor/asyncapi-studio
+      # reuses the previous build artifacts.
+      - name: Resolve asyncapi-studio submodule SHA
+        id: studio-sha
+        run: echo "sha=$(git -C vendor/asyncapi-studio rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      # Cache Studio build output + its node_modules. On a cache hit:
+      #   - static/asyncapi-studio/.studio-commit already matches the pin,
+      #     so scripts/build-studio.sh fast-paths out (no pnpm install,
+      #     no Next.js build) — saves ~60–90s per CI run.
+      #   - vendor/asyncapi-studio/node_modules being restored means a
+      #     forced rebuild (FORCE_REBUILD=1) is also cheap because pnpm
+      #     install in the submodule short-circuits.
+      # Cache key includes scripts/build-studio.sh hash so changes to the
+      # build logic invalidate the cache. The fallback restore-keys lets
+      # us still pull node_modules even if the submodule SHA moved (saves
+      # most of the pnpm install on pin bumps).
+      - name: Cache asyncapi Studio build
+        uses: actions/cache@v4
+        with:
+          path: |
+            static/asyncapi-studio
+            vendor/asyncapi-studio/node_modules
+            vendor/asyncapi-studio/apps/*/node_modules
+            vendor/asyncapi-studio/packages/*/node_modules
+          key: studio-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
+          restore-keys: |
+            studio-${{ steps.studio-sha.outputs.sha }}-
+            studio-
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
         with:
@@ -56,6 +92,18 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
       - run: pnpm test:unit
+      # Verify the asyncapi variant builds even on feature-branch PRs. The
+      # staging-asyncapi job below only runs on the default branch (like
+      # full/diagramly), so this is the smoke test for PRs.
+      # The Cache step above usually makes this near-instant (vite build only).
+      - name: Verify asyncapi build
+        run: pnpm build:asyncapi
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          # Skip Puppeteer's chromium download inside the Studio submodule's
+          # pnpm install (some transitive deps pull it in but the Studio
+          # build doesn't need it).
+          PUPPETEER_SKIP_DOWNLOAD: "true"
   
   staging-lite:
     name: "Deploy: Lite"
@@ -125,6 +173,56 @@ jobs:
       project: conf-stg-lite
       environment: staging-diagramly
     secrets: inherit
+
+  staging-asyncapi:
+    # Default-branch-only after asyncapi lands on main (matches staging-full /
+    # staging-diagramly). While the asyncapi feature work is still on its own
+    # PR branch (claude/asyncapi-pr3-viewer-save), also fire there so the team
+    # can validate end-to-end against asyncapi-stg.atlassian.net before merge.
+    # Drop the second clause once this PR merges to main.
+    #
+    # On a `pull_request` event `github.ref` is `refs/pull/<N>/merge`, so the
+    # branch comparison only works against `github.head_ref` (set on PR
+    # events) — `github.ref_name` covers the push event variant. Mirrors the
+    # workflow's own concurrency group which uses the same `head_ref ||
+    # ref_name` idiom.
+    #
+    # AsyncAPI shares the lite Cloudflare Pages project for now (per
+    # scripts/forge-wizard.mjs); swap to a dedicated `conf-stg-asyncapi`
+    # project when one is stood up.
+    if: |
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+      github.head_ref == 'claude/asyncapi-pr3-viewer-save' ||
+      github.ref_name == 'claude/asyncapi-pr3-viewer-save'
+    name: "Deploy: AsyncAPI"
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      variant: asyncapi
+      license: asyncapi
+      project: conf-stg-lite
+      environment: staging-asyncapi
+    secrets: inherit
+
+  staging-asyncapi-e2e:
+    # Mirror the staging-asyncapi gate so the e2e runs whenever a fresh build
+    # is deployed. See the note on staging-asyncapi for why we need
+    # head_ref/ref_name (pull_request vs push event). Skips on draft PRs
+    # (matches staging-lite-e2e behaviour).
+    if: |
+      (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+       github.head_ref == 'claude/asyncapi-pr3-viewer-save' ||
+       github.ref_name == 'claude/asyncapi-pr3-viewer-save')
+      && !(github.event_name == 'pull_request' && github.event.pull_request.draft == true)
+    needs: [staging-asyncapi, build]
+    name: "E2E: AsyncAPI"
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      app: asyncapi@stg
+      suite: asyncapi
+      artifact-suffix: asyncapi-stg
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
 
   staging-diagramly-e2e:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
@@ -235,6 +333,41 @@ jobs:
           tag: v${{ env.version }}-diagramly
           name: v${{ env.version }}-diagramly
           body: 'This is a draft release for the Diagramly version of the plugin.'
+          draft: true
+
+  draft-release-asyncapi:
+    name: "Draft: AsyncAPI"
+    # Mirrors the lite/full/diagramly drafts. Production release.yml does not
+    # yet handle the `asyncapi` variant — when it does, an `asyncapi` tag
+    # published from this draft will trigger the prod deploy automatically.
+    # Until then the draft is a no-op artifact (intentional: keeps the
+    # release cadence aligned across variants).
+    if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    needs: [staging-asyncapi-e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      repository-projects: write
+    steps:
+      - name: Fetch Sources
+        uses: actions/checkout@v5
+
+      - name: Export Properties
+        id: properties
+        shell: bash
+        run: |
+          VERSION="$(echo $(date +'%Y.%m.%d%H%M'))"
+          echo "version=$VERSION" >> $GITHUB_ENV
+
+      - name: Create Release Draft
+        id: createDraft
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ env.version }}-asyncapi
+          name: v${{ env.version }}-asyncapi
+          body: 'This is a draft release for the AsyncAPI variant of the plugin.'
           draft: true
 
   deploy-cron-worker:

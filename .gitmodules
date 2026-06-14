@@ -1,3 +1,6 @@
 [submodule "private"]
 	path = private
 	url = git@github.com:ZenUml/conf-app-private.git
+[submodule "vendor/asyncapi-studio"]
+	path = vendor/asyncapi-studio
+	url = https://github.com/asyncapi/studio.git

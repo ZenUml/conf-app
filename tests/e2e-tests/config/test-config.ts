@@ -33,7 +33,7 @@ interface TestConfig {
 /** Optional override when using legacy env vars (`APP` unset) — matches build `PRODUCT_TYPE`. */
 function productTypeFromEnv(): ProductType | undefined {
   const t = process.env.PRODUCT_TYPE;
-  if (t === 'lite' || t === 'full' || t === 'diagramly') return t;
+  if (t === 'lite' || t === 'full' || t === 'diagramly' || t === 'asyncapi') return t;
   return undefined;
 }
 

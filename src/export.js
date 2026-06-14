@@ -23,7 +23,7 @@ import api, { route } from '@forge/api';
  * `macro_export_requested`) can carry the join keys we use to correlate
  * with frontend `attachment_upload_*` events.
  */
-function extractExportContext(payload) {
+export function extractExportContext(payload) {
   const format = payload.exportType ?? (payload.context?.content?.id || payload.context?.contentId ? 'word' : 'pdf');
 
   const cloudId = payload.context?.cloudId ?? 'unknown';
@@ -63,7 +63,7 @@ function extractExportContext(payload) {
  * left-join to the frontend `attachment_upload_*` events on
  * (cloud_id, custom_content_id, page_id).
  */
-function joinKeyProps(ctx) {
+export function joinKeyProps(ctx) {
   return {
     account_id: ctx.accountId,
     client_domain: ctx.clientDomain,
@@ -83,7 +83,7 @@ function joinKeyProps(ctx) {
  * Uses a 3-second timeout so a slow Mixpanel call never blocks the export response.
  * Never throws — a tracking failure must never break the export function.
  */
-async function trackExportEvent(eventName, properties) {
+export async function trackExportEvent(eventName, properties) {
   const token = process.env.MIXPANEL_TOKEN;
   if (!token) {
     console.debug('Export: MIXPANEL_TOKEN not set — skipping analytics');
@@ -248,7 +248,7 @@ export const handler = async (payload) => {
 // ADF helpers
 // ---------------------------------------------------------------------------
 
-function createErrorDocument(message) {
+export function createErrorDocument(message) {
   return {
     type: "doc",
     version: 1,

@@ -147,6 +147,7 @@ import globals from '@/model/globals'
 import { openModal, openUrl } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { derivePageUrl } from '@/model/asyncapi/derivePageUrl'
+import { docMatchesSearch } from './docMatchesSearch'
 import type { ICustomContent } from '@/model/ICustomContent'
 
 interface AsyncApiDoc {
@@ -391,16 +392,8 @@ const filteredDocs = computed(() => {
     })
   }
   if (term) {
-    // Match only the user-facing title + description, NOT the raw spec
-    // body. Every AsyncAPI spec shares the same YAML keywords (channels,
-    // operations, info, payload, version, …), so including d.code meant a
-    // search for any such term matched nearly every document — the filter
-    // appeared to do nothing. Title + description match what the card shows.
-    list = list.filter(
-      (d) =>
-        (d.displayTitle || '').toLowerCase().includes(term) ||
-        (d.description || '').toLowerCase().includes(term),
-    )
+    // Title + description only (NOT the raw spec body) — see docMatchesSearch.
+    list = list.filter((d) => docMatchesSearch(d, term))
   }
   return [...list].sort((a, b) => {
     switch (sortBy.value) {

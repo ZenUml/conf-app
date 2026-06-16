@@ -12,8 +12,6 @@ const AUTHENTICATED_PATHS = [
 // Create a middleware function that handles authentication
 const authMiddleware = async ({next, request, env}) => {
   try {
-    console.log('Function request url:', request.url);
-
     if (AUTHENTICATED_PATHS.some(path => new URL(request.url).pathname.startsWith(path))) {
       const response = await authenticate({request, env});
       if(response.status !== 200) {

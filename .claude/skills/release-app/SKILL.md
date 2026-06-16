@@ -21,8 +21,22 @@ End-to-end release pipeline for ZenUML Forge apps (lite, full, and/or diagramly)
 
 Usage: `/release-app [lite] [full] [diagramly]`
 
-- If no variant specified, release **all three** (lite, full, and diagramly).
-- User can specify one or more variants to release only those.
+- User specifies which variant(s) to release in this invocation.
+- Never release all three in one invocation — they follow a **staged rollout** (see below).
+
+## Release Order — Staged Rollout
+
+Releases always follow this order. Never skip stages or release out of order.
+
+| Stage | Variant | When |
+|-------|---------|------|
+| 1 | **Diagramly** | First — canary audience, lowest blast radius |
+| 2 | **Lite** | After Diagramly PVT passes — same day or next day |
+| 3 | **Full** | ~1 week after Lite — final rollout |
+
+**Why this order:** Diagramly is the canary — if something goes wrong, impact is limited. Lite follows once Diagramly is confirmed clean; Lite clients are on the free tier so the risk tolerance is higher. Full is last because it has **paid clients** — we want any issues to surface on free tiers first before touching paying customers.
+
+**When a user says "release" without specifying a variant:** ask which stage they're at. Do not assume all three.
 
 ## Variant Configuration
 
@@ -162,7 +176,7 @@ This triggers the Release workflow (`release.yml`) which:
 - Builds and publishes to Cloudflare production
 - Deploys to Forge production
 
-If releasing multiple variants, set notes + publish them one at a time and wait for each Release workflow to complete before publishing the next. Each variant gets its **own** notes (the per-variant delta can differ).
+Release one variant at a time, always following the staged order: Diagramly → Lite → Full (~1 week later). Wait for PVT to pass before proceeding to the next variant. Each variant gets its **own** notes (the per-variant delta can differ).
 
 ### Step 4: Wait for Release Workflow
 
@@ -325,3 +339,4 @@ Summarize the release:
 - Draft releases are only created on the `main` branch (not on PRs or other branches)
 - All three variants (lite, full, diagramly) are Forge apps deployed to the same production site (`zenuml.atlassian.net`)
 - Always confirm with the user before pushing to main or publishing releases
+- **Staged rollout order: Diagramly → Lite → Full (~1 week gap before Full).** Never release out of order. Never release multiple variants in a single invocation.

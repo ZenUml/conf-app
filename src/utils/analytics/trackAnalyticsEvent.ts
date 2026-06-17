@@ -11,6 +11,7 @@ import type { AnalyticsProperties } from "./types";
 import type { SpaceAdmin } from "@/model/SpaceAdmin";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
 import { getSessionReplayConfig } from "./sessionReplayFlags";
+import { decideSample } from "./eventSampling";
 
 // Singleton init promise: the first tracked event per iframe resolves the
 // session-replay flag (one Forge bridge round-trip) and inits Mixpanel;
@@ -158,6 +159,12 @@ export async function _awaitableTrackAnalyticsEvent(
   callerProps: AnalyticsProperties
 ): Promise<void> {
   try {
+    // Volume sampling first: a dropped event must not pay the init cost — the
+    // first tracked event per iframe otherwise triggers a Forge-bridge round
+    // trip (session-replay flag) inside _initMixpanel.
+    const sample = decideSample(eventName);
+    if (!sample.keep) return;
+
     await _initMixpanel();
     _identify();
 
@@ -165,6 +172,7 @@ export async function _awaitableTrackAnalyticsEvent(
 
     const enriched: Record<string, unknown> = {
       ...callerProps,
+      ...(sample.rate < 1 ? { sample_rate: sample.rate } : {}),
       user_account_id:
         callerProps.user_account_id ?? _getCurrentUserAccountId(),
       client_domain:

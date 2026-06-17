@@ -205,6 +205,46 @@ describe('useAutoTitle', () => {
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_title_modified', expect.objectContaining({ feature_area: 'ai' }))
   })
 
+  it('fires ai_title_modified at most once per generated title across many keystrokes', async () => {
+    vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Order Checkout'))
+    const { initFlag, generate, markManualEdit } = useAutoTitle()
+    await initFlag()
+    const p = generate('init', SEQ)
+    await runAnimation('Order Checkout')
+    await p
+    // onInput calls markManualEdit on every keystroke — simulate typing 5 chars
+    markManualEdit()
+    markManualEdit()
+    markManualEdit()
+    markManualEdit()
+    markManualEdit()
+    const modifiedCalls = vi
+      .mocked(trackAnalyticsEvent)
+      .mock.calls.filter((c) => c[0] === 'ai_title_modified')
+    expect(modifiedCalls).toHaveLength(1)
+  })
+
+  it('re-arms ai_title_modified after a fresh generation', async () => {
+    vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Order Checkout'))
+    const { initFlag, generate, markManualEdit } = useAutoTitle()
+    await initFlag()
+    const p1 = generate('init', SEQ)
+    await runAnimation('Order Checkout')
+    await p1
+    markManualEdit() // first edit episode → 1 event
+    markManualEdit()
+    vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('New Title'))
+    const p2 = generate('user', SEQ)
+    await runAnimation('New Title')
+    await p2
+    markManualEdit() // new title → eligible again → 1 more event
+    markManualEdit()
+    const modifiedCalls = vi
+      .mocked(trackAnalyticsEvent)
+      .mock.calls.filter((c) => c[0] === 'ai_title_modified')
+    expect(modifiedCalls).toHaveLength(2)
+  })
+
   it('second user-triggered generate uses generation_source regenerate', async () => {
     vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Order Checkout'))
     const { initFlag, generate } = useAutoTitle()

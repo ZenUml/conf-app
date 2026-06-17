@@ -63,6 +63,44 @@ describe("trackAnalyticsEvent", () => {
     });
   });
 
+  describe("event sampling", () => {
+    it("drops a rate-0 event without initializing mixpanel", async () => {
+      await _awaitableTrackAnalyticsEvent("renderer_prefetch_started", {
+        feature_area: "system",
+        surface: "viewer",
+      });
+      expect(mixpanel.track).not.toHaveBeenCalled();
+      // Dropped before _initMixpanel, so no Forge-bridge round trip is paid.
+      expect(mixpanel.init).not.toHaveBeenCalled();
+    });
+
+    it("stamps sample_rate on a down-sampled event when kept", async () => {
+      const rnd = vi.spyOn(Math, "random").mockReturnValue(0.01); // < 0.1 → keep
+      await _awaitableTrackAnalyticsEvent("space_admin_active", {
+        feature_area: "upgrade",
+        surface: "page_banner",
+        is_space_admin: true,
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "space_admin_active",
+        expect.objectContaining({ sample_rate: 0.1 }),
+      );
+      rnd.mockRestore();
+    });
+
+    it("does not stamp sample_rate on full-rate events", async () => {
+      await _awaitableTrackAnalyticsEvent("macro_save_succeeded", {
+        feature_area: "macro",
+        surface: "editor",
+      });
+      const call = vi
+        .mocked(mixpanel.track)
+        .mock.calls.find((c) => c[0] === "macro_save_succeeded");
+      expect(call).toBeTruthy();
+      expect(call![1]).not.toHaveProperty("sample_rate");
+    });
+  });
+
   it("sends macro_viewed with correct event name to Mixpanel", async () => {
     await _awaitableTrackAnalyticsEvent("macro_viewed", {
       feature_area: "macro",

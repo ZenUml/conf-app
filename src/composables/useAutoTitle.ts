@@ -19,6 +19,11 @@ const sparkFadingOut = ref(false)
 const showDismiss = ref(false)
 const autoNameAnimationDone = ref(false)
 const hasManuallyEditedTitle = ref(false)
+// True once we've recorded `ai_title_modified` for the CURRENT generated title.
+// onInput fires on every keystroke (DiagramTitleInput.vue), so without this latch
+// a single edit emitted one event per character. Reset whenever a fresh title is
+// generated, so each generated-then-edited title records exactly one modify.
+const aiTitleModifyTracked = ref(false)
 const lastGeneratedContentHash = ref<string | null>(null)
 
 let genToken = 0
@@ -156,6 +161,7 @@ export function useAutoTitle() {
       isAnimating.value = false
       isGeneratingTitle.value = false
       autoNameAnimationDone.value = true
+      aiTitleModifyTracked.value = false // fresh title → next manual edit is recordable
 
       sparkFadingOut.value = true
       await delay(SPARK_FADEOUT_MS)
@@ -189,8 +195,9 @@ export function useAutoTitle() {
   }
 
   function markManualEdit(): void {
-    if (autoNameAnimationDone.value) {
+    if (autoNameAnimationDone.value && !aiTitleModifyTracked.value) {
       trackAnalyticsEvent('ai_title_modified', { feature_area: 'ai', surface: 'editor' })
+      aiTitleModifyTracked.value = true // latch: ignore the rest of this edit's keystrokes
     }
     hasManuallyEditedTitle.value = true
     genToken += 1
@@ -256,6 +263,7 @@ export function notifyAiTitleSaved(opts?: { title?: string; contentId?: string }
   showDismiss.value = false
   autoNameAnimationDone.value = false
   hasManuallyEditedTitle.value = false
+  aiTitleModifyTracked.value = false
   lastGeneratedContentHash.value = null
   genToken = 0
   flagLoaded = false

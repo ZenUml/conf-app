@@ -18,6 +18,8 @@ Run a quick health check by querying Mixpanel for key event volumes across multi
 
 ## Mixpanel Project
 
+> Canonical Mixpanel reference (project, event names + the 2026-04 rename, internal filter, isForge/product_type, MCP-vs-JQL): the **mixpanel** skill. The facts repeated below are just the ones this health check needs inline.
+
 - **Project ID**: `3373228` (ZenUML)
 - **Internal sites to exclude**: all `zenuml*` domains, all `whimet*` domains, `diagramly`, `dia-stg`, `lite-stg`, `full-stg`, `lite-dev` (always filter these out). The three `*-stg`/`*-dev` staging sites matter: CI/E2E runs (and `/release-app` pipelines) render macros on `lite-stg`/`full-stg`, which inflate activity totals by a few hundred/day on busy build days if not excluded.
 

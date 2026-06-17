@@ -25,7 +25,7 @@ This makes `duration_ms` a reliable regression detector for **our own code's** c
 
 ## Baseline (captured 2026-06-05, last 7 days)
 
-Mixpanel project `3373228`, event `macro_viewed`, filter `duration_ms > 0`.
+Mixpanel project `3373228`, event `macro_viewed`, filter `duration_ms > 0`. (Project/event/filter reference: the **mixpanel** skill.)
 
 | Macro type | p50 | p90 | p99 |
 |---|---|---|---|

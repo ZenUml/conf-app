@@ -87,7 +87,7 @@ Output is a JSON object — `{"zenuml-stg":true,"tenant-a":true,...}` — keys a
 | KV namespace | `fe9042cb20994651b0a2ef9e68f9037c` |
 | D1 production DB | `conf-zenuml-prod` |
 | metrics-inspect URL | `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>&addonKey=com.zenuml.confluence-addon-lite` |
-| Mixpanel project ID | `3373228` |
+| Mixpanel project ID | `3373228` (full reference: the **mixpanel** skill) |
 | Marketplace license report | `https://marketplace.atlassian.com/manage/vendors/1215266/reporting/licenses` (vendor login required — see **Conversion check**) |
 
 > **D1 note:** There are several D1 databases in the account. Only `conf-zenuml-prod` has production data (2.2 GB). `conf-zenuml-dev` and others are empty or staging-only.

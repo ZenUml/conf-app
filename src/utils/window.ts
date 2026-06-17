@@ -5,6 +5,7 @@ import {
 import mixpanel from "mixpanel-browser";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import forgeGlobal from "@/model/globals/forgeGlobal";
+import { decideSample } from "@/utils/analytics/eventSampling";
 
 let initialized = false;
 let identified = false;
@@ -60,7 +61,9 @@ interface EventDetails {
   event_label: string;
   app_version?: string;
   app_commit?: string;
-  [key: string]: string | boolean | undefined;
+  // Volume-sampling marker — present (< 1) when this event was down-sampled.
+  sample_rate?: number;
+  [key: string]: string | number | boolean | undefined;
 }
 
 export type EventCategory = DiagramType
@@ -104,6 +107,10 @@ export async function _awaitableTrackEvent(
   if (MIGRATED_ACTIONS.has(action)) {
     console.warn(`[analytics] Legacy action "${action}" was migrated to trackAnalyticsEvent — use that instead.`);
   }
+  // Volume sampling: drop / down-sample high-volume diagnostics before any init
+  // or network cost. Keyed on `action` (the Mixpanel event name for this path).
+  const sample = decideSample(action);
+  if (!sample.keep) return;
   try {
     initMixpanel();
     mixpanelIdentify();
@@ -111,6 +118,7 @@ export async function _awaitableTrackEvent(
     let eventDetails = {
       event_category: category || "unknown",
       event_label: label || "",
+      ...(sample.rate < 1 ? { sample_rate: sample.rate } : {}),
       ...resetEventDetails,
     } as EventDetails;
     // make sure event is still sent out even if there are errors in setting up the event details

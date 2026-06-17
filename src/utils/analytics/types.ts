@@ -94,6 +94,11 @@ export type AnalyticsProperties = {
   prefetch_duration_ms?: number;
   effective_type?: string; // navigator.connection.effectiveType at attempt time
   save_data?: boolean;
+  // Volume sampling: present (and < 1) only when this event was emitted under a
+  // keep-probability < 1 (see utils/analytics/eventSampling.ts). Downstream
+  // analysis extrapolates true volume as `count / sample_rate`. Absent ⇒ 1.0
+  // (every occurrence emitted).
+  sample_rate?: number;
   // Error
   error_code?: string;
   error_name?: string;

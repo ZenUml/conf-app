@@ -56,6 +56,34 @@ describe('window utils', async () => {
     vi.mocked(forgeGlobal).forgeContext = { localId: 'forge-local-id-123' } as any
   })
 
+  describe('event sampling (legacy trackEvent path)', () => {
+    it('drops a down-sampled action when the sampling roll misses', async () => {
+      const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.99) // ≥ 0.1 → drop
+      await _awaitableTrackEvent('toPng', 'convert_to_png', 'export')
+      expect(mixpanel.track).not.toHaveBeenCalled()
+      rnd.mockRestore()
+    })
+
+    it('stamps sample_rate when a down-sampled action is kept', async () => {
+      const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.01) // < 0.1 → keep
+      await _awaitableTrackEvent('toPng', 'convert_to_png', 'export')
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        'convert_to_png',
+        expect.objectContaining({ sample_rate: 0.1 }),
+      )
+      rnd.mockRestore()
+    })
+
+    it('leaves full-rate actions unsampled (no sample_rate)', async () => {
+      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
+      const call = vi
+        .mocked(mixpanel.track)
+        .mock.calls.find((c) => c[0] === 'test-action')
+      expect(call).toBeTruthy()
+      expect(call![1]).not.toHaveProperty('sample_rate')
+    })
+  })
+
   describe('getUrlParam', () => {
     it('should return undefined for non-existent parameter', () => {
       window.location.search = ''

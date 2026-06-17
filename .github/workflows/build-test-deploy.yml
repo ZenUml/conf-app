@@ -67,7 +67,7 @@ jobs:
       # us still pull node_modules even if the submodule SHA moved (saves
       # most of the pnpm install on pin bumps).
       - name: Cache asyncapi Studio build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             static/asyncapi-studio

@@ -1,6 +1,7 @@
 import { Page, FrameLocator, expect } from '@playwright/test';
 import { testConfig, TIMEOUTS } from '../config/test-config.js';
 import { dismissPaywallGate } from '../helpers/paywallGate.js';
+import { expectVisibleOrFailOnLogin } from '../helpers/authGuard.js';
 
 export class ConfluenceEditorPage {
   constructor(private page: Page) {}
@@ -42,7 +43,10 @@ export class ConfluenceEditorPage {
     }
     const url = `https://${testConfig.domain}/wiki/spaces/${testConfig.spaceKey}/pages/${testConfig.parentPageId}/${encodeURIComponent(testConfig.parentPageName)}`;
     await this.page.goto(url);
-    await expect(this.page.locator('#title-text')).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
+    // Fail fast if the reused session bounced us to the Atlassian login screen,
+    // rather than waiting out FRAME_LOAD (×retries) on a #title-text that can
+    // never appear there — the prod-smoke wedge this guard exists for.
+    await expectVisibleOrFailOnLogin(this.page, this.page.locator('#title-text'), TIMEOUTS.FRAME_LOAD);
   }
 
   // ── Page Creation ──

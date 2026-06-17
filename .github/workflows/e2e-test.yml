@@ -115,12 +115,21 @@ jobs:
     name: shard ${{ matrix.shard }}/4
     needs: auth
     runs-on: ubuntu-latest
-    # Fail fast. Slowest passing shard observed is ~3m20s (Lite 1/4); 5 min
-    # reaps a wedged shard (one test stuck at the 300s test timeout x3 retries
-    # = ~15 min) quickly, before a human cancels so the on-first-retry trace
-    # still uploads as failure evidence. See run 26862568693 shard 2/4:
-    # parent-page load wedged, cancelled at ~11 min, trace lost.
-    timeout-minutes: 5
+    # Reap a wedged shard before a human would (a test stuck at the 300s test
+    # timeout x3 retries = ~15 min), while leaving room for the SLOWEST legit
+    # shard to finish AND for a wedge to fail named-with-trace.
+    #
+    # 8, not 5: staging shards finish in ~3m20s (slowest: Lite 1/4), but on PROD
+    # the lite smoke's shard 3 runs the lite-only specs that full/diagramly skip
+    # and needs ~5.3 min — so a 5 min cap reaped it deterministically every lite
+    # release (e.g. v2026.06.131152-lite run 27466212531 and v2026.06.171149-lite
+    # run 27689056495, both shard 3/4 cancelled at ~5m20s). Worse, 5 min EQUALS
+    # the 300s per-test timeout, so a real wedge was cancelled at the same instant
+    # its trace would upload — losing the evidence (shard-3 report artifact missing).
+    # 8 min sits safely above one 300s test-timeout: a slow-but-passing shard
+    # completes, a genuinely-wedged test fails NAMED with a trace at 300s before
+    # the cap, and a 2-retry wedge (~15 min) is still reaped far faster than a human.
+    timeout-minutes: 8
     strategy:
       fail-fast: false
       matrix:

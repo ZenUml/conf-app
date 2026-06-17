@@ -2,6 +2,7 @@ import { Page, APIRequestContext, expect } from '@playwright/test';
 import { ConfluenceEditorPage } from '../../pages/EditorPage.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 import { testConfig, TIMEOUTS } from '../../config/test-config.js';
+import { expectVisibleOrFailOnLogin } from '../../helpers/authGuard.js';
 
 /**
  * Creates a child page in Confluence and types a smoke-test title.
@@ -51,14 +52,14 @@ export async function publishAndVerifyMacros(
 
   if (testConfig.isForge || testConfig.isLite) {
     const forgeIframes = page.locator('[data-testid="ForgeExtensionContainer"] [data-testid="hosted-resources-iframe"]');
-    await expect(forgeIframes.first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
+    await expectVisibleOrFailOnLogin(page, forgeIframes.first(), TIMEOUTS.FRAME_LOAD);
     await expect(forgeIframes).toHaveCount(macroCount, { timeout: TIMEOUTS.FRAME_LOAD });
   } else {
     // Connect macro iframes have IDs like "{addonKey}__{macroKey}__{hash}".
     // Avoid using iframe.ap-iframe (class added by AC.js asynchronously)
     // or iframe[src*=domain] (src is the Cloudflare URL, not the Confluence domain).
     const connectIframes = page.locator(`iframe[id*="${testConfig.addonKey}"]`);
-    await expect(connectIframes.first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
+    await expectVisibleOrFailOnLogin(page, connectIframes.first(), TIMEOUTS.FRAME_LOAD);
     await expect(connectIframes).toHaveCount(macroCount, { timeout: TIMEOUTS.FRAME_LOAD });
   }
 

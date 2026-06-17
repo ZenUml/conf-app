@@ -15,6 +15,7 @@ import { test, expect } from '@playwright/test';
 import { testConfig, TIMEOUTS } from '../../config/test-config.js';
 import { AUTH_STATE_PATH } from '../../config/auth-state.js';
 import { createPageAndSetup, publishAndVerifyMacros } from './insert-helpers.js';
+import { expectVisibleOrFailOnLogin } from '../../helpers/authGuard.js';
 import {
   pageBannerFrame,
   showWarningBanner,
@@ -78,7 +79,7 @@ test.describe.serial('Paywall page banner', () => {
     // frame exists for mock injection, then clear any banner state written by
     // this initial load before the scenario is set up.
     await page.goto(testConfig.pageUrl(pageId));
-    await expect(page.locator(MACRO_IFRAME).first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
+    await expectVisibleOrFailOnLogin(page, page.locator(MACRO_IFRAME).first(), TIMEOUTS.FRAME_LOAD);
     await clearAllBannerState(page);
   });
 

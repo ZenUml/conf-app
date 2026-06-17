@@ -21,7 +21,7 @@ End-to-end release pipeline for ZenUML Forge apps (lite, full, and/or diagramly)
 
 Usage: `/release-app [lite] [full] [diagramly]`
 
-- If no variant specified, release **all three** (lite, full, and diagramly).
+- If no variant specified, release **all three** — in canary order **diagramly → lite → full** (see "Release order" below).
 - User can specify one or more variants to release only those.
 
 ## Variant Configuration
@@ -33,6 +33,26 @@ Usage: `/release-app [lite] [full] [diagramly]`
 | diagramly | `zenuml-stg.atlassian.net` | `zenuml.atlassian.net` | `v{version}-diagramly` |
 
 All three variants are Forge apps deployed to the same Confluence sites. On production (`zenuml.atlassian.net`), all three coexist — they're distinguished by their addon keys and macro names.
+
+## Release order — canary sequence (diagramly → lite → full)
+
+Releases go low-risk first. When releasing more than one variant (including the no-arg "all three"), publish in this sequence; when releasing a single variant, the **prerequisite gate** below still applies.
+
+1. **Diagramly** — first. It has the **fewest users**, so it's the canary: its publish + PVT + spot check prove the build is safe on real production before more users are exposed.
+2. **Lite** — second. Free users; a larger base than Diagramly.
+3. **Full** — last. **Paying users** — a regression here hits customers who pay, so Full gets the most caution and only ships after the lower-risk tiers are validated.
+
+### Prerequisite gate
+
+All three variants are built from the **same commit and share the same `{version}`**. Before publishing a tier, confirm the lower-risk tier for the *same `{version}`* is already **published** (not a draft):
+
+| Publishing | Prerequisite (same `{version}`) |
+|---|---|
+| diagramly | none — it's the canary |
+| lite | `v{version}-diagramly` published |
+| full | `v{version}-lite` published |
+
+(`full`'s check on `lite` is transitive — `lite` can't have published without `diagramly`.) If the prerequisite is still a draft or absent, **stop and report**: name the required order and offer to release the prerequisite tier(s) first. Proceed out of order **only** if the user explicitly asks (e.g. a Full-only hotfix). In an all-variants run, satisfy the gate by completing each tier's full cycle — publish → Step 4 → PVT (Step 5) → spot check (Step 5.5) — **before** starting the next tier.
 
 ## Pipeline Steps
 
@@ -98,6 +118,22 @@ The draft releases are auto-created by the build workflow with a **generic place
 
 For each variant being released:
 
+#### 3.0 Prerequisite gate (canary order)
+
+Before composing notes or publishing, confirm the lower-risk tier for the **same `{version}`** is already published (see "Release order"). `diagramly` skips this gate.
+
+```bash
+# {variant} = the one you're about to publish; PREREQ: lite→diagramly, full→lite, diagramly→(none)
+PREREQ="diagramly"     # set to "" for diagramly, "diagramly" for lite, "lite" for full
+if [ -n "$PREREQ" ]; then
+  gh release view "v{version}-$PREREQ" --repo ZenUml/conf-app --json isDraft,publishedAt \
+    -q 'if .isDraft then "BLOCK: " + .tagName + " is still a draft" else "OK: " + .tagName + " published " + .publishedAt end' \
+    2>/dev/null || echo "BLOCK: v{version}-$PREREQ not found — prerequisite not released"
+fi
+```
+
+If the result starts with `BLOCK`, **stop and report** — the prerequisite tier hasn't been released at this version. Recommend releasing it first in canary order, and proceed only if the user explicitly overrides.
+
 #### 3.1 Find the draft tag and the previous published tag
 
 ```bash
@@ -162,7 +198,7 @@ This triggers the Release workflow (`release.yml`) which:
 - Builds and publishes to Cloudflare production
 - Deploys to Forge production
 
-If releasing multiple variants, set notes + publish them one at a time and wait for each Release workflow to complete before publishing the next. Each variant gets its **own** notes (the per-variant delta can differ).
+If releasing multiple variants, publish them **in canary order — diagramly → lite → full** (see "Release order"), one at a time. Complete each tier's full cycle — publish → Step 4 (Release workflow) → Step 5 (PVT) → Step 5.5 (spot check) — and confirm it passed **before** publishing the next tier. Each variant gets its **own** notes (the per-variant delta can differ).
 
 ### Step 4: Wait for Release Workflow
 
@@ -325,3 +361,4 @@ Summarize the release:
 - Draft releases are only created on the `main` branch (not on PRs or other branches)
 - All three variants (lite, full, diagramly) are Forge apps deployed to the same production site (`zenuml.atlassian.net`)
 - Always confirm with the user before pushing to main or publishing releases
+- **Release in canary order — diagramly → lite → full** (fewest users → paying users). Never publish a tier until the lower-risk tier for the **same `{version}`** is published and validated (PVT passed). See "Release order".

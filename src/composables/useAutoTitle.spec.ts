@@ -12,7 +12,7 @@ const fakeStore = vi.hoisted(() => {
 })
 vi.mock('@/model/store2', () => ({ default: fakeStore }))
 vi.mock('@/apis/aiGenerateTitle', () => ({ default: vi.fn() }))
-vi.mock('@/apis/aiTitleFeatureFlag', () => ({
+vi.mock('@/apis/aiFeatureFlags', () => ({
   isAiTitleEnabled: vi.fn().mockResolvedValue(true),
   resetAiTitleFlagForTests: vi.fn(),
 }))
@@ -21,7 +21,7 @@ vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: v
 
 import { useAutoTitle, notifyAiTitleSaved, TYPEWRITER_MS_PER_CHAR, SPARK_FADEOUT_MS } from './useAutoTitle'
 import aiGenerateTitle from '@/apis/aiGenerateTitle'
-import { isAiTitleEnabled } from '@/apis/aiTitleFeatureFlag'
+import { isAiTitleEnabled } from '@/apis/aiFeatureFlags'
 import { toast } from '@/utils/toast'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 

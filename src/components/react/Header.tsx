@@ -5,7 +5,7 @@ import { setupCloseGuard } from "@/utils/closeGuard";
 import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
 import EventBus from "@/EventBus";
 import yaml from "js-yaml";
-import { isAiTitleEnabled } from "@/apis/aiTitleFeatureFlag";
+import { isAiChatEnabled } from "@/apis/aiFeatureFlags";
 
 interface Props {
   saveAndExit: VoidFunction;
@@ -23,7 +23,7 @@ const Component = ({ saveAndExit, exit: _exit, aiChatOpen = false, onToggleAiCha
   useEffect(() => {
     let cancelled = false;
 
-    isAiTitleEnabled()
+    isAiChatEnabled()
       .then((enabled) => {
         if (!cancelled) setAiChatEnabled(enabled);
       })

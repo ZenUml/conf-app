@@ -3,10 +3,10 @@ import ReactDOM from "react-dom";
 import { act } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Header from "./Header";
-import { isAiTitleEnabled } from "@/apis/aiTitleFeatureFlag";
+import { isAiChatEnabled } from "@/apis/aiFeatureFlags";
 
-vi.mock("@/apis/aiTitleFeatureFlag", () => ({
-  isAiTitleEnabled: vi.fn(),
+vi.mock("@/apis/aiFeatureFlags", () => ({
+  isAiChatEnabled: vi.fn(),
 }));
 
 vi.mock("@/utils/closeGuard", () => ({
@@ -41,7 +41,7 @@ describe("React Header AI Chat feature flag", () => {
   });
 
   async function renderHeader(enabled: boolean) {
-    vi.mocked(isAiTitleEnabled).mockResolvedValue(enabled);
+    vi.mocked(isAiChatEnabled).mockResolvedValue(enabled);
 
     await act(async () => {
       ReactDOM.render(

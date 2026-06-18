@@ -64,7 +64,7 @@ import LightBulbIcon from '@heroicons/vue/24/outline/LightBulbIcon';
 import QuestionMarkCircleIcon from '@heroicons/vue/24/outline/QuestionMarkCircleIcon';
 import SparklesIcon from '@heroicons/vue/24/outline/SparklesIcon';
 import DiagramTitleInput from "@/components/Header/DiagramTitleInput.vue";
-import { isAiTitleEnabled } from '@/apis/aiTitleFeatureFlag';
+import { isAiChatEnabled } from '@/apis/aiFeatureFlags';
 
 export default {
   name: "Header",
@@ -162,7 +162,7 @@ export default {
   },
   async mounted() {
     try {
-      this.aiChatEnabled = await isAiTitleEnabled();
+      this.aiChatEnabled = await isAiChatEnabled();
     } catch (error) {
       console.error('Failed to load AI Chat feature flag:', error);
       this.aiChatEnabled = false;

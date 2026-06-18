@@ -27,7 +27,7 @@
           <p>Syntax error</p>
         </div>
         <button
-          v-if="isAiRepairEnabled"
+          v-if="shouldShowAiRepair"
           @click="showAIRepairDialog = true"
           class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1"
         >
@@ -62,7 +62,7 @@ import { useStore } from "vuex";
 import AIRepair from "@/components/AIRepair.vue";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
-import { isAiTitleEnabled } from '@/apis/aiTitleFeatureFlag';
+import { isAiRepairEnabled } from '@/apis/aiFeatureFlags';
 const store = useStore();
 const showAIRepairDialog = ref(false);
 const aiRepairFeatureEnabled = ref(false);
@@ -75,7 +75,7 @@ const code = computed(() => {
 // Get the diagram type
 const diagramType = computed(() => store.state.diagram.diagramType);
 // Computed property to determine if AI repair is enabled
-const isAiRepairEnabled = computed(() => {
+const shouldShowAiRepair = computed(() => {
   return aiRepairFeatureEnabled.value;
 });
 // Handle applying the repair
@@ -86,7 +86,7 @@ const handleApplyRepair = (repairedCode) => {
 // Load the AI repair feature flag when component mounts
 onMounted(async () => {
   try {
-    aiRepairFeatureEnabled.value = await isAiTitleEnabled();
+    aiRepairFeatureEnabled.value = await isAiRepairEnabled();
   } catch (error) {
     console.error('Failed to load AI repair feature flag:', error);
     aiRepairFeatureEnabled.value = false;

@@ -2,14 +2,16 @@ import {flushPromises, mount} from '@vue/test-utils'
 import Header from '@/components/Header/Header.vue'
 import {DiagramType} from "@/model/Diagram/Diagram";
 import store from "@/model/store2/";
-import { isAiTitleEnabled } from '@/apis/aiTitleFeatureFlag'
+import { isAiChatEnabled, isAiTitleEnabled } from '@/apis/aiFeatureFlags'
 
-vi.mock('@/apis/aiTitleFeatureFlag', () => ({
+vi.mock('@/apis/aiFeatureFlags', () => ({
+  isAiChatEnabled: vi.fn().mockResolvedValue(true),
   isAiTitleEnabled: vi.fn().mockResolvedValue(true),
 }))
 
 describe('Header', () => {
   beforeEach(() => {
+    vi.mocked(isAiChatEnabled).mockResolvedValue(true)
     vi.mocked(isAiTitleEnabled).mockResolvedValue(true)
   })
 
@@ -63,7 +65,7 @@ describe('Header', () => {
   })
 
   it('hides AI chat when the AI feature flag is disabled', async () => {
-    vi.mocked(isAiTitleEnabled).mockResolvedValue(false)
+    vi.mocked(isAiChatEnabled).mockResolvedValue(false)
 
     const headerWrapper = mount(Header, {
       global: {

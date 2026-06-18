@@ -34,9 +34,9 @@ vi.mock('@forge/bridge', () => ({
   }),
 }))
 
-import { isAiTitleEnabled, resetAiTitleFlagForTests } from './aiTitleFeatureFlag'
+import { isAiChatEnabled, isAiRepairEnabled, isAiTitleEnabled, resetAiTitleFlagForTests } from './aiFeatureFlags'
 
-describe('isAiTitleEnabled', () => {
+describe('AI feature flag helpers', () => {
   beforeEach(() => {
     resetAiTitleFlagForTests()
     forgeState.isForge = true
@@ -71,21 +71,38 @@ describe('isAiTitleEnabled', () => {
     expect(instance.checkFlag).toHaveBeenCalledWith('ai-title-enabled', false)
   })
 
+  it('checks the separate Forge AI Chat and AI Repair flags', async () => {
+    await expect(isAiChatEnabled()).resolves.toBe(true)
+    await expect(isAiRepairEnabled()).resolves.toBe(true)
+
+    const instance = featureFlagsState.instances[0]
+    expect(featureFlagsState.instances).toHaveLength(1)
+    expect(instance.checkFlag).toHaveBeenCalledWith('ai-chat-enabled', false)
+    expect(instance.checkFlag).toHaveBeenCalledWith('ai-repair-enabled', false)
+  })
+
   it('reuses the initialized Forge client between checks', async () => {
     await isAiTitleEnabled()
-    await isAiTitleEnabled()
+    await isAiChatEnabled()
+    await isAiRepairEnabled()
 
     expect(featureFlagsState.instances).toHaveLength(1)
     expect(featureFlagsState.instances[0].initialize).toHaveBeenCalledTimes(1)
-    expect(featureFlagsState.instances[0].checkFlag).toHaveBeenCalledTimes(2)
+    expect(featureFlagsState.instances[0].checkFlag).toHaveBeenCalledTimes(3)
   })
 
-  it('defaults to enabled in standalone local dev unless localStorage disables it', async () => {
+  it('defaults each standalone local dev flag to enabled unless its localStorage override disables it', async () => {
     forgeState.isForge = false
     await expect(isAiTitleEnabled()).resolves.toBe(true)
+    await expect(isAiChatEnabled()).resolves.toBe(true)
+    await expect(isAiRepairEnabled()).resolves.toBe(true)
 
     localStorage.setItem('mockAiTitleEnabled', 'false')
+    localStorage.setItem('mockAiChatEnabled', 'false')
+    localStorage.setItem('mockAiRepairEnabled', 'false')
     await expect(isAiTitleEnabled()).resolves.toBe(false)
+    await expect(isAiChatEnabled()).resolves.toBe(false)
+    await expect(isAiRepairEnabled()).resolves.toBe(false)
     expect(featureFlagsState.instances).toHaveLength(0)
   })
 

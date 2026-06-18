@@ -2,13 +2,15 @@ import { FeatureFlags, type FeatureFlagUser, type ForgeFeatureFlagConfig } from 
 import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
 
 const AI_TITLE_FLAG_ID = 'ai-title-enabled'
+const AI_CHAT_FLAG_ID = 'ai-chat-enabled'
+const AI_REPAIR_FLAG_ID = 'ai-repair-enabled'
 
 let featureFlags: FeatureFlags | undefined
 let initializePromise: Promise<FeatureFlags> | undefined
 
-function standaloneAiTitleEnabled(): boolean {
+function standaloneFeatureEnabled(storageKey: string): boolean {
   try {
-    return localStorage.getItem('mockAiTitleEnabled') !== 'false'
+    return localStorage.getItem(storageKey) !== 'false'
   } catch {
     return true
   }
@@ -51,11 +53,23 @@ async function getFeatureFlagsClient(): Promise<FeatureFlags> {
   }
 }
 
-export async function isAiTitleEnabled(): Promise<boolean> {
-  if (!forgeGlobal.isForge) return standaloneAiTitleEnabled()
+async function isAiFeatureEnabled(flagId: string, standaloneStorageKey: string): Promise<boolean> {
+  if (!forgeGlobal.isForge) return standaloneFeatureEnabled(standaloneStorageKey)
 
   const client = await getFeatureFlagsClient()
-  return client.checkFlag(AI_TITLE_FLAG_ID, false)
+  return client.checkFlag(flagId, false)
+}
+
+export async function isAiTitleEnabled(): Promise<boolean> {
+  return isAiFeatureEnabled(AI_TITLE_FLAG_ID, 'mockAiTitleEnabled')
+}
+
+export async function isAiChatEnabled(): Promise<boolean> {
+  return isAiFeatureEnabled(AI_CHAT_FLAG_ID, 'mockAiChatEnabled')
+}
+
+export async function isAiRepairEnabled(): Promise<boolean> {
+  return isAiFeatureEnabled(AI_REPAIR_FLAG_ID, 'mockAiRepairEnabled')
 }
 
 export function resetAiTitleFlagForTests(): void {

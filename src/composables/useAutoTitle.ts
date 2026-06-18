@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import store from '@/model/store2'
 import aiGenerateTitle from '@/apis/aiGenerateTitle'
-import { isAiTitleEnabled, resetAiTitleFlagForTests } from '@/apis/aiTitleFeatureFlag'
+import { isAiTitleEnabled, resetAiTitleFlagForTests } from '@/apis/aiFeatureFlags'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import { hashString } from '@/utils/hashString'
 import { toast } from '@/utils/toast'

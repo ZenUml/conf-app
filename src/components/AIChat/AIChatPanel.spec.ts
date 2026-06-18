@@ -34,7 +34,7 @@ describe('AIChatPanel', () => {
     )
   })
 
-  it('submits a prompt and renders the prototype change preview', async () => {
+  it('runs the staged update, auto-applies it, and exposes the diff', async () => {
     vi.useFakeTimers()
     const wrapper = mount(AIChatPanel, {
       props: { open: true, diagramType: 'mermaid', prototypeMode: true },
@@ -45,62 +45,116 @@ describe('AIChatPanel', () => {
 
     expect(wrapper.emitted('send')).toEqual([['Add a retry path']])
     expect(wrapper.get('[data-testid="ai-chat-thinking"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Updating diagram')
+    expect(wrapper.text()).toContain('Understanding request')
+
+    await vi.advanceTimersByTimeAsync(1100)
+
+    expect(wrapper.get('[data-testid="ai-change-preview"]').text()).toContain('Changes applied')
+    expect(wrapper.text()).toContain('Added failure and timeout paths')
+    expect(wrapper.get('[data-testid="ai-chat-history-trigger"]').text()).toContain('2')
+    expect(wrapper.emitted('apply')).toHaveLength(1)
+
+    const diffToggle = wrapper.get('.ai-chat-diff-toggle')
+    await diffToggle.trigger('click')
+    expect(wrapper.get('[data-testid="ai-chat-diff"]').text()).toContain('Payment.charge()')
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
-      'ai_chat_prompt_submitted',
-      expect.objectContaining({ prompt_length: 16, macro_type: 'mermaid' }),
+      'ai_chat_change_applied',
+      expect.objectContaining({ change_kind: 'request', version_id: 2 }),
     )
-
-    await vi.advanceTimersByTimeAsync(700)
-    expect(wrapper.get('[data-testid="ai-change-preview"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="ai-chat-complete-status"]').text()).toContain('Ready to review')
-    expect(wrapper.text()).toContain('Keep the current Mermaid format')
-    expect(wrapper.text()).toContain('Your current diagram stays unchanged until you click Apply')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_chat_diff_toggled',
+      expect.objectContaining({ interaction_state: 'opened' }),
+    )
   })
 
-  it('emits close from the panel header', async () => {
+  it('undoes an applied change and records a new version', async () => {
+    vi.useFakeTimers()
     const wrapper = mount(AIChatPanel, {
-      props: { open: true },
+      props: { open: true, diagramType: 'sequence', prototypeMode: true },
     })
 
-    await wrapper.get('[data-testid="ai-chat-close"]').trigger('click')
+    await wrapper.get('[data-testid="ai-chat-input"]').setValue('Simplify the flow')
+    await wrapper.get('form').trigger('submit')
+    await vi.advanceTimersByTimeAsync(1100)
+    await wrapper.get('[data-testid="ai-chat-undo"]').trigger('click')
 
-    expect(wrapper.emitted('close')).toHaveLength(1)
+    expect(wrapper.text()).toContain('Changes undone')
+    expect(wrapper.get('[data-testid="ai-chat-history-trigger"]').text()).toContain('3')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_chat_change_undone',
+      expect.objectContaining({ change_kind: 'undo', version_id: 1 }),
+    )
   })
 
-  it('emits a code visibility toggle from the panel header', async () => {
+  it('opens version history and restores an earlier version', async () => {
+    vi.useFakeTimers()
     const wrapper = mount(AIChatPanel, {
-      props: { open: true, codeVisible: false },
+      props: { open: true, diagramType: 'sequence', prototypeMode: true },
     })
 
-    expect(wrapper.get('[data-testid="ai-chat-code-toggle"]').text()).toContain('Show')
-    expect(wrapper.get('[data-testid="ai-chat-header-row"]').text()).not.toContain('Sequence diagram')
-    expect(wrapper.get('[data-testid="ai-chat-header-row"]').find('[data-testid="ai-chat-code-toggle"]').exists()).toBe(true)
-    await wrapper.get('[data-testid="ai-chat-code-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="ai-chat-input"]').setValue('Highlight the key steps')
+    await wrapper.get('form').trigger('submit')
+    await vi.advanceTimersByTimeAsync(1100)
+    await wrapper.get('[data-testid="ai-chat-history-trigger"]').trigger('click')
 
-    expect(wrapper.emitted('toggle-code')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="ai-chat-history-panel"]').text()).toContain('Initial version')
+    const restore = wrapper.findAll('.ai-chat-rollback').find((button) => button.text() === 'Restore')
+    expect(restore).toBeDefined()
+    await restore!.trigger('click')
+
+    expect(wrapper.find('[data-testid="ai-chat-history-panel"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Version restored')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_chat_version_restored',
+      expect.objectContaining({ change_kind: 'rollback', version_id: 1 }),
+    )
   })
 
-  it('shows a small expandable syntax indicator without a repair button', async () => {
+  it('keeps syntax visible across code states and supports automatic repair', async () => {
+    vi.useFakeTimers()
     const wrapper = mount(AIChatPanel, {
       props: {
         open: true,
         codeVisible: false,
+        prototypeMode: true,
         syntaxError: "Sequence syntax error at line 12\nmismatched input ')' expecting <EOF>",
       },
     })
 
     expect(wrapper.get('[data-testid="ai-chat-syntax-indicator"]').text()).toContain('Syntax')
-    expect(wrapper.find('[data-testid="ai-chat-syntax-details"]').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('AI Repair')
-
-    await wrapper.get('[data-testid="ai-chat-syntax-indicator"]').trigger('click')
-
-    expect(wrapper.get('[data-testid="ai-chat-syntax-details"]').text()).toContain('line 12')
-    expect(wrapper.get('[data-testid="ai-chat-syntax-indicator"]').attributes('aria-expanded')).toBe('true')
-
     await wrapper.setProps({ codeVisible: true })
     expect(wrapper.get('[data-testid="ai-chat-code-toggle"]').text()).toContain('Hide')
-    expect(wrapper.get('[data-testid="ai-chat-syntax-indicator"]').text()).toContain('Syntax')
+    expect(wrapper.get('[data-testid="ai-chat-syntax-indicator"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="ai-chat-syntax-indicator"]').trigger('click')
+    expect(wrapper.get('[data-testid="ai-chat-syntax-details"]').text()).toContain('line 12')
+    expect(wrapper.get('[data-testid="ai-chat-auto-fix"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="ai-chat-auto-fix"]').trigger('click')
+    expect(wrapper.get('[data-testid="ai-chat-thinking"]').exists()).toBe(true)
+    await vi.advanceTimersByTimeAsync(1100)
+
+    expect(wrapper.find('[data-testid="ai-chat-syntax-indicator"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Syntax fixed')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_chat_syntax_repair_requested',
+      expect.objectContaining({ change_kind: 'syntax_repair' }),
+    )
+  })
+
+  it('emits close and code visibility changes from the header', async () => {
+    const wrapper = mount(AIChatPanel, {
+      props: { open: true, codeVisible: false },
+    })
+
+    await wrapper.get('[data-testid="ai-chat-code-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="ai-chat-close"]').trigger('click')
+
+    expect(wrapper.emitted('toggle-code')).toHaveLength(1)
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_chat_code_visibility_toggled',
+      expect.objectContaining({ interaction_state: 'shown' }),
+    )
   })
 })

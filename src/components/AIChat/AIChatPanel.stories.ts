@@ -18,7 +18,7 @@ const meta: Meta<typeof AIChatPanel> = {
   decorators: [
     () => ({
       template:
-        '<div class="border-r border-slate-200 shadow-lg" style="width: 368px; height: 100vh"><story /></div>',
+        '<div class="border-r border-slate-200 shadow-lg" style="width: min(368px, 94vw); height: 100vh"><story /></div>',
     }),
   ],
 }
@@ -57,12 +57,18 @@ export const ChangeReady: Story = {
         role: 'assistant',
         text: 'I prepared a focused update that keeps the current diagram structure intact.',
         preview: {
-          title: 'Update ready',
+          title: 'Changes applied',
           items: [
-            'Keep the current Sequence format',
-            'Add an alternate branch for failed requests',
-            'Return a clear error response to the client',
+            'Added failure and timeout paths while preserving the existing success flow.',
           ],
+          diffLocation: 'diagram.zenuml · error path',
+          diffLines: [
+            { type: 'context', code: 'Payment.charge()' },
+            { type: 'add', code: 'Payment -> Checkout: "payment failed"' },
+            { type: 'add', code: 'Payment -> Checkout: "payment timeout"' },
+          ],
+          versionId: 2,
+          previousVersionId: 1,
         },
       },
     ],

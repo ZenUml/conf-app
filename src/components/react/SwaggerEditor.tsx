@@ -72,6 +72,15 @@ const Component = ({ saveAndExit, exit }: Props) => {
             />
           </div>
         )}
+        {showAIChat && (
+          <button
+            type="button"
+            className="react-ai-chat-workspace-backdrop"
+            aria-label="Close AI chat"
+            data-testid="react-ai-chat-backdrop"
+            onClick={closeAIChat}
+          />
+        )}
         <div id="swagger-editor" style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}></div>
       </div>
       <div id="syntax-error-box" style={{

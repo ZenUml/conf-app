@@ -56,7 +56,7 @@ const ReactAIChatPanelPreview = defineComponent({
         "div",
         {
           class: "border-r border-slate-200 shadow-lg",
-          style: { width: "368px", height: "100vh" },
+          style: { width: "min(368px, 94vw)", height: "100vh" },
         },
         [h("div", { ref: mountPoint, style: { height: "100%" } })],
       );
@@ -103,12 +103,18 @@ export const ChangeReady: Story = {
         role: "assistant",
         text: "I prepared a focused update that keeps the current API structure intact.",
         preview: {
-          title: "Update ready",
+          title: "Changes applied",
           items: [
-            "Keep the current OpenAPI format",
-            "Preserve existing operations and schemas",
-            "Add a documented error response",
+            "Added a documented failure response while preserving the current API structure.",
           ],
+          diffLocation: "openapi.yaml · responses",
+          diffLines: [
+            { type: "context", code: "responses:" },
+            { type: "add", code: '  "400":' },
+            { type: "add", code: "    description: Invalid request" },
+          ],
+          versionId: 2,
+          previousVersionId: 1,
         },
       },
     ],

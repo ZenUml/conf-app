@@ -1,255 +1,290 @@
 <template>
   <aside
     v-if="open"
-    class="flex h-full w-full flex-col bg-white"
+    class="ai-chat-panel"
     aria-label="AI diagram assistant"
     data-testid="ai-chat-panel"
+    @keydown.esc="handleEscape"
   >
-    <header class="shrink-0 border-b border-slate-200 px-3.5 py-2.5">
-      <div class="flex min-w-0 items-center gap-2" data-testid="ai-chat-header-row">
-        <div class="flex min-w-0 flex-1 items-center gap-2">
-          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-700">
-            <SparklesIcon class="h-[18px] w-[18px]" />
-          </div>
-          <h2 class="truncate text-sm font-semibold text-slate-900">AI Assistant</h2>
+    <header class="ai-chat-header">
+      <div class="ai-chat-head-row" data-testid="ai-chat-header-row">
+        <div class="ai-chat-identity">
+          <span class="ai-chat-identity-icon" aria-hidden="true">
+            <SparklesIcon />
+          </span>
+          <span class="ai-chat-identity-label">AI</span>
           <button
-            v-if="syntaxError"
+            v-if="visibleSyntaxError"
             type="button"
-            class="flex shrink-0 items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-rose-700 transition-colors hover:border-rose-300 hover:bg-rose-100 focus:outline-none focus:ring-2 focus:ring-rose-200"
-            aria-label="Show syntax issue details"
+            class="ai-chat-syntax"
+            aria-label="Show 1 syntax issue"
             :aria-expanded="syntaxDetailsOpen"
             data-testid="ai-chat-syntax-indicator"
-            @click="syntaxDetailsOpen = !syntaxDetailsOpen"
+            @click.stop="toggleSyntaxDetails"
           >
-            <ExclamationTriangleIcon class="h-3 w-3" />
+            <ExclamationTriangleIcon aria-hidden="true" />
             <span>Syntax</span>
+            <span class="ai-chat-syntax-count">1</span>
           </button>
         </div>
-        <div class="flex shrink-0 items-center gap-1">
+
+        <div class="ai-chat-head-actions">
           <button
             type="button"
-            class="flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1.5 text-[11px] font-medium text-slate-600 transition-colors hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-200"
+            class="ai-chat-head-button"
             :aria-label="codeVisible ? 'Hide code editor' : 'Show code editor'"
+            :aria-pressed="codeVisible"
             data-testid="ai-chat-code-toggle"
-            @click="emit('toggle-code')"
+            @click="toggleCode"
           >
-            <CodeBracketSquareIcon class="h-3.5 w-3.5" />
-            <span>{{ codeVisible ? 'Hide' : 'Show' }}</span>
+            <CodeBracketSquareIcon aria-hidden="true" />
+            <span>{{ codeVisible ? 'Hide code' : 'Show code' }}</span>
           </button>
           <button
             type="button"
-            class="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-200"
+            class="ai-chat-head-button ai-chat-close"
             aria-label="Close AI chat"
             data-testid="ai-chat-close"
-            @click="emit('close')"
+            @click="closePanel"
           >
-            <XMarkIcon class="h-5 w-5" />
+            <XMarkIcon aria-hidden="true" />
           </button>
         </div>
       </div>
+
       <div
-        v-if="syntaxError && syntaxDetailsOpen"
-        class="mt-2 rounded-lg border border-rose-100 bg-rose-50/70 px-2.5 py-2"
+        v-if="visibleSyntaxError && syntaxDetailsOpen"
+        class="ai-chat-popover"
+        role="dialog"
+        aria-label="Syntax issue details"
         data-testid="ai-chat-syntax-details"
+        @click.stop
       >
-        <p class="break-words text-xs leading-4 text-rose-800">{{ syntaxErrorSummary }}</p>
+        <strong>1 syntax issue</strong>
+        <p>{{ syntaxErrorSummary }}</p>
+        <div class="ai-chat-popover-action">
+          <button
+            type="button"
+            class="ai-chat-primary-button"
+            data-testid="ai-chat-auto-fix"
+            @click="repairSyntax"
+          >
+            Fix syntax
+          </button>
+        </div>
       </div>
     </header>
 
-    <div ref="messageList" class="min-h-0 flex-1 overflow-y-auto">
-      <div
+    <div ref="messageList" class="ai-chat-scroll" :inert="historyOpen || undefined">
+      <section
         v-if="messages.length === 0 && !isThinking"
-        class="px-3.5 py-4"
+        class="ai-chat-empty"
         data-testid="ai-chat-empty-state"
       >
-        <div class="rounded-xl bg-slate-50 px-3.5 py-3.5">
-          <h3 class="text-base font-semibold text-slate-900">
-            How should I update this diagram?
-          </h3>
-          <p class="mt-1.5 text-sm leading-5 text-slate-600">
-            Describe the outcome. I will prepare the change and show you exactly what will be updated.
-          </p>
-          <div class="mt-3 flex items-start gap-2 text-xs leading-4 text-slate-500">
-            <ShieldCheckIcon class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-            <span>Your diagram stays unchanged until you apply the proposal.</span>
-          </div>
-        </div>
-
-        <div class="mt-4">
-          <p class="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-            Common changes
-          </p>
-          <div class="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
+        <h3>What should change?</h3>
+        <div class="ai-chat-quick">
+          <p class="ai-chat-label">Suggested edits</p>
+          <div class="ai-chat-quick-list">
             <button
               v-for="suggestion in suggestions"
               :key="suggestion.id"
               type="button"
-              class="group flex w-full items-center gap-3 px-3.5 py-2.5 text-left transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-violet-50/60 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-violet-200"
+              class="ai-chat-quick-button"
+              :title="suggestion.description"
+              :aria-label="`${suggestion.label}. ${suggestion.description}`"
               @click="selectSuggestion(suggestion)"
             >
-              <div class="min-w-0 flex-1">
-                <p class="text-sm font-medium text-slate-800 group-hover:text-violet-800">
-                  {{ suggestion.label }}
-                </p>
-                <p class="mt-0.5 text-xs leading-4 text-slate-500">
-                  {{ suggestion.description }}
-                </p>
-              </div>
-              <ArrowRightIcon class="h-4 w-4 shrink-0 text-slate-300 group-hover:text-violet-500" />
+              <span class="ai-chat-quick-copy">
+                <strong>{{ suggestion.label }}</strong>
+                <span class="ai-chat-quick-description">{{ suggestion.description }}</span>
+              </span>
+              <ArrowRightIcon class="ai-chat-quick-arrow" aria-hidden="true" />
             </button>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div v-else class="space-y-4 px-3.5 py-4" data-testid="ai-chat-conversation">
-        <div v-for="message in messages" :key="message.id">
-          <div v-if="message.role === 'user'" class="rounded-lg bg-slate-50 px-3 py-2.5">
-            <span class="text-[11px] font-semibold text-slate-500">You</span>
-            <p class="text-sm leading-5 text-slate-800">{{ message.text }}</p>
+      <section v-else class="ai-chat-conversation" data-testid="ai-chat-conversation">
+        <article v-for="message in messages" :key="message.id" class="ai-chat-turn">
+          <div v-if="message.role === 'user'" class="ai-chat-user-bubble">
+            {{ message.text }}
           </div>
 
-          <div v-else class="w-full">
-            <div class="flex items-center gap-2">
-              <div class="flex h-6 w-6 items-center justify-center rounded-md bg-violet-50 text-violet-700">
-                <SparklesIcon class="h-3.5 w-3.5" />
+          <div v-else class="ai-chat-assistant-message">
+            <p v-if="message.text" class="ai-chat-assistant-text">{{ message.text }}</p>
+            <div v-if="message.preview" class="ai-chat-preview" data-testid="ai-change-preview">
+              <div class="ai-chat-preview-header">
+                <span>{{ message.preview.title }}</span>
+                <button
+                  v-if="message.preview.previousVersionId"
+                  type="button"
+                  class="ai-chat-undo"
+                  data-testid="ai-chat-undo"
+                  @click="undoPreview(message.preview)"
+                >
+                  Undo
+                </button>
               </div>
-              <span class="text-xs font-semibold text-slate-700">AI Assistant</span>
+              <ul class="ai-chat-changes">
+                <li v-for="item in message.preview.items" :key="item">
+                  <CheckCircleIcon class="ai-chat-change-icon" aria-hidden="true" />
+                  <span>{{ item }}</span>
+                </li>
+              </ul>
+              <button
+                type="button"
+                class="ai-chat-diff-toggle"
+                :aria-expanded="isDiffOpen(message.id)"
+                @click="toggleDiff(message.id)"
+              >
+                <span>{{ isDiffOpen(message.id) ? 'Hide code diff' : 'View code diff' }}</span>
+                <ChevronDownIcon
+                  class="ai-chat-disclosure-icon"
+                  :class="{ 'is-open': isDiffOpen(message.id) }"
+                  aria-hidden="true"
+                />
+              </button>
+              <div v-if="isDiffOpen(message.id)" class="ai-chat-diff" data-testid="ai-chat-diff">
+                <div class="ai-chat-diff-header">
+                  <span>Code diff</span>
+                  <span class="ai-chat-diff-location">{{ message.preview.diffLocation }}</span>
+                </div>
+                <div class="ai-chat-diff-code">
+                  <div
+                    v-for="(line, index) in message.preview.diffLines"
+                    :key="`${message.id}-${index}`"
+                    class="ai-chat-diff-line"
+                    :class="`is-${line.type}`"
+                  >
+                    <span aria-hidden="true">
+                      {{ line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' ' }}
+                    </span>
+                    <code>{{ line.code }}</code>
+                  </div>
+                </div>
+              </div>
+              <div class="ai-chat-preview-actions">
+                <button type="button" class="ai-chat-secondary-button" @click="refineChange">
+                  Refine
+                </button>
+              </div>
             </div>
-            <p class="mt-2 text-sm leading-5 text-slate-600">{{ message.text }}</p>
-
-            <template v-if="message.preview">
-              <div
-                class="mt-3 flex items-center gap-1.5 text-[11px] font-medium text-slate-500"
-                data-testid="ai-chat-complete-status"
-              >
-                <span class="flex items-center gap-1 text-emerald-700">
-                  <CheckCircleIcon class="h-3.5 w-3.5" />
-                  Understood
-                </span>
-                <span aria-hidden="true">·</span>
-                <span class="flex items-center gap-1 text-emerald-700">
-                  <CheckCircleIcon class="h-3.5 w-3.5" />
-                  Updated
-                </span>
-                <span aria-hidden="true">·</span>
-                <span class="font-semibold text-violet-700">Ready to review</span>
-              </div>
-
-              <div
-                class="mt-3 overflow-hidden rounded-xl border border-violet-200 bg-violet-50/50"
-                data-testid="ai-change-preview"
-              >
-                <div class="flex items-center gap-2 border-b border-violet-100 px-3 py-2.5">
-                  <DocumentCheckIcon class="h-[18px] w-[18px] text-violet-700" />
-                  <span class="text-sm font-semibold text-violet-900">{{ message.preview.title }}</span>
-                </div>
-                <ul class="space-y-2 px-3 py-3 text-xs leading-4 text-slate-700">
-                  <li
-                    v-for="item in message.preview.items"
-                    :key="item"
-                    class="flex items-start gap-2"
-                  >
-                    <CheckCircleIcon class="mt-px h-4 w-4 shrink-0 text-violet-600" />
-                    <span>{{ item }}</span>
-                  </li>
-                </ul>
-                <div class="mx-3 flex items-start gap-2 border-t border-violet-100 py-2.5 text-[11px] leading-4 text-slate-500">
-                  <ShieldCheckIcon class="mt-px h-4 w-4 shrink-0 text-slate-400" />
-                  <span>Your current diagram stays unchanged until you click Apply.</span>
-                </div>
-                <div class="flex gap-2 bg-white/70 px-2.5 py-2.5">
-                  <button
-                    type="button"
-                    class="flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-300 focus:ring-offset-1 disabled:cursor-not-allowed disabled:bg-violet-400"
-                    :disabled="prototypeMode"
-                    :title="prototypeMode ? 'Available when the AI service is connected' : undefined"
-                    @click="applyChange(message)"
-                  >
-                    <span>Apply to diagram</span>
-                    <SparklesIcon class="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    class="min-h-9 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-200"
-                    @click="focusInput"
-                  >
-                    Refine
-                  </button>
-                </div>
-              </div>
-            </template>
           </div>
-        </div>
+        </article>
 
-        <div
+        <article
           v-if="isThinking"
-          class="w-full"
+          class="ai-chat-turn ai-chat-assistant-message"
           role="status"
           aria-live="polite"
           data-testid="ai-chat-thinking"
         >
-          <div class="flex items-center gap-2">
-            <div class="flex h-6 w-6 items-center justify-center rounded-md bg-violet-50 text-violet-700">
-              <SparklesIcon class="h-3.5 w-3.5" />
-            </div>
-            <span class="text-xs font-semibold text-slate-700">AI Assistant</span>
-          </div>
-          <ol class="ai-stage-list mt-3 ml-2.5 border-l border-slate-200 pl-5">
-            <li class="ai-stage-item pb-3">
-              <span class="ai-stage-marker bg-emerald-500 text-white">
-                <CheckIcon class="h-3 w-3" />
+          <ol class="ai-chat-progress">
+            <li
+              v-for="(stage, index) in stages"
+              :key="stage"
+              class="ai-chat-stage"
+              :class="stageClass(index)"
+            >
+              <span class="ai-chat-stage-marker">
+                <CheckIcon v-if="stageIndex > index" aria-hidden="true" />
+                <template v-else>{{ index + 1 }}</template>
               </span>
-              <p class="text-xs font-semibold text-slate-800">Understanding request</p>
-              <p class="mt-0.5 text-xs leading-4 text-slate-500">
-                Reading the current {{ diagramTypeLabel }} diagram and your instruction.
-              </p>
-            </li>
-            <li class="ai-stage-item pb-3">
-              <span class="ai-stage-marker ai-stage-marker-active bg-violet-600 text-white">2</span>
-              <p class="text-xs font-semibold text-violet-800">Updating diagram</p>
-              <p class="mt-0.5 text-xs leading-4 text-slate-500">
-                Building a safe proposal for you to review.
-              </p>
-            </li>
-            <li class="ai-stage-item">
-              <span class="ai-stage-marker border border-slate-200 bg-white text-slate-400">3</span>
-              <p class="text-xs font-medium text-slate-400">Preparing preview</p>
+              <strong>{{ stageIndex > index ? completedStages[index] : stage }}</strong>
             </li>
           </ol>
-        </div>
-      </div>
+        </article>
+      </section>
     </div>
 
-    <form class="shrink-0 border-t border-slate-200 bg-white p-2.5" @submit.prevent="submitPrompt">
-      <div
-        class="rounded-xl border border-slate-300 bg-white p-2 shadow-sm transition focus-within:border-violet-400 focus-within:ring-2 focus-within:ring-violet-100"
-      >
+    <section
+      v-if="historyOpen"
+      class="ai-chat-history-panel"
+      role="region"
+      aria-label="Version history"
+      data-testid="ai-chat-history-panel"
+    >
+      <header class="ai-chat-history-header">
+        <h3>Version history</h3>
+        <button
+          type="button"
+          class="ai-chat-head-button ai-chat-close"
+          aria-label="Close version history"
+          @click="closeHistory"
+        >
+          <XMarkIcon aria-hidden="true" />
+        </button>
+      </header>
+      <ol class="ai-chat-history-list">
+        <li
+          v-for="version in reversedVersions"
+          :key="version.id"
+          class="ai-chat-history-item"
+          :class="{ 'is-current': version.id === currentVersionId }"
+        >
+          <div>
+            <p class="ai-chat-history-title">
+              <strong>v{{ version.id }}</strong>
+              <span>{{ version.summary }}</span>
+            </p>
+            <p class="ai-chat-history-detail">{{ version.detail }}</p>
+          </div>
+          <button
+            type="button"
+            class="ai-chat-rollback"
+            :disabled="version.id === currentVersionId"
+            @click="restoreVersion(version)"
+          >
+            {{ version.id === currentVersionId ? 'Current' : 'Restore' }}
+          </button>
+          <div class="ai-chat-history-meta">
+            {{ version.time }} · {{ version.syntaxResolved ? 'Syntax valid' : '1 syntax issue' }}
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <form
+      class="ai-chat-composer"
+      :inert="historyOpen || undefined"
+      @submit.prevent="submitPrompt()"
+    >
+      <div class="ai-chat-compose-box">
         <textarea
           ref="input"
           v-model="prompt"
           rows="2"
-          class="block max-h-28 min-h-11 w-full resize-none border-0 bg-transparent px-1 py-0.5 text-sm leading-5 text-slate-800 outline-none placeholder:text-slate-400"
-          placeholder="Describe how you want to change the diagram..."
+          placeholder="Describe the diagram change..."
           aria-label="AI change request"
           data-testid="ai-chat-input"
           :disabled="isThinking"
-          @keydown.enter.exact.prevent="submitPrompt"
+          @keydown.enter.exact.prevent="submitPrompt()"
         />
-        <div class="mt-1 flex items-center justify-between gap-2 px-1">
-          <span class="flex min-w-0 items-center gap-1 text-[10px] font-medium text-slate-500">
-            <PencilSquareIcon class="h-3 w-3 shrink-0" />
-            Editing {{ diagramTypeLabel }}
-          </span>
-          <span class="ml-auto text-[10px] text-slate-400">Enter ↵</span>
+        <div class="ai-chat-compose-meta">
           <button
-            type="submit"
-            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-600 text-white transition-colors hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-300 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
-            aria-label="Send message"
-            data-testid="ai-chat-send"
-            :disabled="!canSubmit"
+            type="button"
+            class="ai-chat-history-trigger"
+            :aria-expanded="historyOpen"
+            aria-label="Open version history"
+            data-testid="ai-chat-history-trigger"
+            @click="openHistory"
           >
-            <PaperAirplaneIcon class="h-4 w-4" />
+            <ClockIcon aria-hidden="true" />
+            <span>History</span>
+            <span class="ai-chat-history-count">{{ versions.length }}</span>
           </button>
+          <span class="ai-chat-compose-actions">
+            <span class="ai-chat-compose-status">{{ isThinking ? 'Updating' : 'Ready' }}</span>
+            <button
+              type="submit"
+              class="ai-chat-send"
+              aria-label="Send message"
+              data-testid="ai-chat-send"
+              :disabled="!canSubmit"
+            >
+              <PaperAirplaneIcon aria-hidden="true" />
+            </button>
+          </span>
         </div>
       </div>
     </form>
@@ -261,46 +296,36 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import ArrowRightIconRender from '@heroicons/vue/24/outline/ArrowRightIcon'
 import CheckCircleIconRender from '@heroicons/vue/24/outline/CheckCircleIcon'
 import CheckIconRender from '@heroicons/vue/24/outline/CheckIcon'
+import ChevronDownIconRender from '@heroicons/vue/24/outline/ChevronDownIcon'
+import ClockIconRender from '@heroicons/vue/24/outline/ClockIcon'
 import CodeBracketSquareIconRender from '@heroicons/vue/24/outline/CodeBracketSquareIcon'
-import DocumentCheckIconRender from '@heroicons/vue/24/outline/DocumentCheckIcon'
 import ExclamationTriangleIconRender from '@heroicons/vue/24/outline/ExclamationTriangleIcon'
 import PaperAirplaneIconRender from '@heroicons/vue/24/outline/PaperAirplaneIcon'
-import PencilSquareIconRender from '@heroicons/vue/24/outline/PencilSquareIcon'
-import ShieldCheckIconRender from '@heroicons/vue/24/outline/ShieldCheckIcon'
 import SparklesIconRender from '@heroicons/vue/24/outline/SparklesIcon'
 import XMarkIconRender from '@heroicons/vue/24/outline/XMarkIcon'
+import {
+  AI_CHAT_SUGGESTIONS,
+  createPrototypePreview,
+  formatVersionTime,
+  type AIChatChangeKind,
+  type AIChatChangePreview,
+  type AIChatMessage,
+  type AIChatSuggestion,
+  type AIChatVersion,
+} from './aiChatPrototype'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import type { MacroTypeValue } from '@/utils/analytics/catalog'
 
 const ArrowRightIcon = { render: ArrowRightIconRender }
 const CheckCircleIcon = { render: CheckCircleIconRender }
 const CheckIcon = { render: CheckIconRender }
+const ChevronDownIcon = { render: ChevronDownIconRender }
+const ClockIcon = { render: ClockIconRender }
 const CodeBracketSquareIcon = { render: CodeBracketSquareIconRender }
-const DocumentCheckIcon = { render: DocumentCheckIconRender }
 const ExclamationTriangleIcon = { render: ExclamationTriangleIconRender }
 const PaperAirplaneIcon = { render: PaperAirplaneIconRender }
-const PencilSquareIcon = { render: PencilSquareIconRender }
-const ShieldCheckIcon = { render: ShieldCheckIconRender }
 const SparklesIcon = { render: SparklesIconRender }
 const XMarkIcon = { render: XMarkIconRender }
-
-type Suggestion = {
-  id: string
-  label: string
-  description: string
-}
-
-type ChangePreview = {
-  title: string
-  items: string[]
-}
-
-type ChatMessage = {
-  id: string
-  role: 'user' | 'assistant'
-  text: string
-  preview?: ChangePreview
-}
 
 type Props = {
   open: boolean
@@ -308,7 +333,7 @@ type Props = {
   diagramType?: string
   syntaxError?: string
   prototypeMode?: boolean
-  initialMessages?: ChatMessage[]
+  initialMessages?: AIChatMessage[]
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -323,34 +348,33 @@ const emit = defineEmits<{
   close: []
   'toggle-code': []
   send: [prompt: string]
-  apply: [message: ChatMessage]
+  apply: [message: AIChatMessage]
 }>()
 
-const suggestions: Suggestion[] = [
-  {
-    id: 'add-error-path',
-    label: 'Add an error handling path',
-    description: 'Include failure, retry, or timeout behavior.',
-  },
-  {
-    id: 'simplify-flow',
-    label: 'Simplify the main flow',
-    description: 'Reduce noise and make the happy path easier to scan.',
-  },
-  {
-    id: 'highlight-steps',
-    label: 'Highlight the key steps',
-    description: 'Emphasize the most important interactions.',
-  },
-]
+const suggestions = AI_CHAT_SUGGESTIONS
+const stages = ['Understanding request', 'Updating diagram', 'Syncing changes']
+const completedStages = ['Understood', 'Updated', 'Synced']
 
 const prompt = ref('')
 const input = ref<HTMLTextAreaElement | null>(null)
 const messageList = ref<HTMLElement | null>(null)
-const messages = ref<ChatMessage[]>(props.initialMessages.map((message) => ({ ...message })))
+const messages = ref<AIChatMessage[]>(props.initialMessages.map((message) => ({ ...message })))
 const isThinking = ref(false)
+const stageIndex = ref(0)
 const syntaxDetailsOpen = ref(false)
-let previewTimer: ReturnType<typeof setTimeout> | undefined
+const syntaxResolved = ref(false)
+const historyOpen = ref(false)
+const openDiffIds = ref<string[]>([])
+const versions = ref<AIChatVersion[]>([
+  {
+    id: 1,
+    summary: 'Initial version',
+    detail: 'Diagram state before the current AI Chat session.',
+    syntaxResolved: !props.syntaxError,
+    time: formatVersionTime(),
+  },
+])
+const timers: ReturnType<typeof setTimeout>[] = []
 
 const diagramTypeLabel = computed(() => {
   const labels: Record<string, string> = {
@@ -371,131 +395,292 @@ const macroType = computed<MacroTypeValue>(() => {
 
 const canSubmit = computed(() => prompt.value.trim().length > 0 && !isThinking.value)
 const syntaxErrorSummary = computed(() => props.syntaxError.split('\n')[0])
+const visibleSyntaxError = computed(() => Boolean(props.syntaxError) && !syntaxResolved.value)
+const currentVersionId = computed(() => versions.value[versions.value.length - 1]?.id || 0)
+const reversedVersions = computed(() => [...versions.value].reverse())
 
-function selectSuggestion(suggestion: Suggestion) {
+function analyticsBase() {
+  return {
+    feature_area: 'ai' as const,
+    surface: 'editor' as const,
+    macro_type: macroType.value,
+  }
+}
+
+function selectSuggestion(suggestion: AIChatSuggestion) {
   prompt.value = suggestion.label
   trackAnalyticsEvent('ai_chat_suggestion_selected', {
-    feature_area: 'ai',
-    surface: 'editor',
-    macro_type: macroType.value,
+    ...analyticsBase(),
     suggestion_id: suggestion.id,
   })
   focusInput()
 }
 
 function focusInput() {
-  nextTick(() => {
-    input.value?.focus()
-  })
+  historyOpen.value = false
+  nextTick(() => input.value?.focus())
 }
 
-function submitPrompt() {
-  const text = prompt.value.trim()
+function clearTimers() {
+  timers.splice(0).forEach(clearTimeout)
+}
+
+function submitPrompt(kind: AIChatChangeKind = 'request', textOverride?: string) {
+  const text = (textOverride ?? prompt.value).trim()
   if (!text || isThinking.value) return
 
+  clearTimers()
   messages.value.push({
     id: `user-${Date.now()}`,
     role: 'user',
     text,
   })
   prompt.value = ''
+  historyOpen.value = false
 
   trackAnalyticsEvent('ai_chat_prompt_submitted', {
-    feature_area: 'ai',
-    surface: 'editor',
-    macro_type: macroType.value,
-    generation_source: 'chat_panel',
+    ...analyticsBase(),
+    generation_source: kind === 'syntax_repair' ? 'syntax_repair' : 'chat_panel',
     prompt_length: text.length,
     chat_message_count: messages.value.length,
+    change_kind: kind,
   })
   emit('send', text)
 
-  if (props.prototypeMode) {
-    isThinking.value = true
-    previewTimer = setTimeout(() => {
-      messages.value.push({
-        id: `assistant-${Date.now()}`,
-        role: 'assistant',
-        text: 'I prepared a focused update that keeps the current diagram structure intact.',
-        preview: {
-          title: 'Update ready',
-          items: [
-            `Keep the current ${diagramTypeLabel.value} format`,
-            'Preserve the existing diagram content',
-            'Add a review step before any change is applied',
-          ],
-        },
-      })
-      isThinking.value = false
-    }, 700)
-  }
+  if (!props.prototypeMode) return
+
+  isThinking.value = true
+  stageIndex.value = 0
+  timers.push(
+    setTimeout(() => {
+      stageIndex.value = 1
+    }, 350),
+    setTimeout(() => {
+      stageIndex.value = 2
+    }, 700),
+    setTimeout(() => completePrototypeRequest(kind), 1050),
+  )
 }
 
-function applyChange(message: ChatMessage) {
+function completePrototypeRequest(kind: AIChatChangeKind) {
+  const previousVersionId = currentVersionId.value
+  const preview = createPrototypePreview(diagramTypeLabel.value, kind, syntaxResolved.value)
+  const nextVersion = addVersion(
+    kind === 'syntax_repair' ? 'Fixed syntax issue' : 'Updated diagram flow',
+    kind === 'syntax_repair'
+      ? 'Corrected the invalid syntax and synchronized the preview.'
+      : 'Applied the requested change and synchronized the preview.',
+    true,
+  )
+  preview.versionId = nextVersion.id
+  preview.previousVersionId = previousVersionId
+
+  const message: AIChatMessage = {
+    id: `assistant-${Date.now()}`,
+    role: 'assistant',
+    text: '',
+    preview,
+  }
+  messages.value.push(message)
+  syntaxResolved.value = true
+  syntaxDetailsOpen.value = false
+  isThinking.value = false
   trackAnalyticsEvent('ai_chat_change_applied', {
-    feature_area: 'ai',
-    surface: 'editor',
-    macro_type: macroType.value,
+    ...analyticsBase(),
     chat_message_count: messages.value.length,
+    change_kind: kind,
+    version_id: nextVersion.id,
   })
   emit('apply', message)
 }
 
+function addVersion(
+  summary: string,
+  detail: string,
+  resolved = syntaxResolved.value,
+): AIChatVersion {
+  const version: AIChatVersion = {
+    id: (versions.value[versions.value.length - 1]?.id || 0) + 1,
+    summary,
+    detail,
+    syntaxResolved: resolved,
+    time: formatVersionTime(),
+  }
+  versions.value.push(version)
+  return version
+}
+
+function stageClass(index: number) {
+  return {
+    'is-done': stageIndex.value > index,
+    'is-active': stageIndex.value === index,
+  }
+}
+
+function isDiffOpen(messageId: string) {
+  return openDiffIds.value.includes(messageId)
+}
+
+function toggleDiff(messageId: string) {
+  const opened = !isDiffOpen(messageId)
+  openDiffIds.value = opened
+    ? [...openDiffIds.value, messageId]
+    : openDiffIds.value.filter((id) => id !== messageId)
+  trackAnalyticsEvent('ai_chat_diff_toggled', {
+    ...analyticsBase(),
+    interaction_state: opened ? 'opened' : 'closed',
+  })
+}
+
+function undoPreview(preview: AIChatChangePreview) {
+  const targetId = preview.previousVersionId
+  if (!targetId) return
+  const target = versions.value.find((version) => version.id === targetId)
+  if (!target) return
+
+  syntaxResolved.value = target.syntaxResolved
+  preview.previousVersionId = undefined
+  const restored = addVersion(
+    `Undo to v${target.id}`,
+    `Restored the diagram state from ${target.summary}.`,
+    target.syntaxResolved,
+  )
+  messages.value.push({
+    id: `assistant-undo-${Date.now()}`,
+    role: 'assistant',
+    text: '',
+    preview: {
+      title: 'Changes undone',
+      kind: 'undo',
+      versionId: restored.id,
+      items: [`Restored v${target.id} and saved the result as v${restored.id}.`],
+      diffLocation: 'Complete diagram version',
+      diffLines: [{ type: 'context', code: `Restored v${target.id}: ${target.summary}` }],
+    },
+  })
+  trackAnalyticsEvent('ai_chat_change_undone', {
+    ...analyticsBase(),
+    change_kind: 'undo',
+    version_id: target.id,
+  })
+}
+
+function refineChange() {
+  prompt.value = 'Keep the retry path, but make the timeout return a clear user-facing response.'
+  focusInput()
+}
+
+function openHistory() {
+  syntaxDetailsOpen.value = false
+  historyOpen.value = true
+  trackAnalyticsEvent('ai_chat_history_opened', {
+    ...analyticsBase(),
+    version_id: currentVersionId.value,
+  })
+}
+
+function closeHistory() {
+  historyOpen.value = false
+}
+
+function restoreVersion(version: AIChatVersion) {
+  if (version.id === currentVersionId.value) return
+  syntaxResolved.value = version.syntaxResolved
+  const restored = addVersion(
+    `Restored v${version.id}`,
+    `Restored the complete diagram state from ${version.summary}.`,
+    version.syntaxResolved,
+  )
+  messages.value.push({
+    id: `assistant-restore-${Date.now()}`,
+    role: 'assistant',
+    text: '',
+    preview: {
+      title: 'Version restored',
+      kind: 'rollback',
+      versionId: restored.id,
+      items: [`Restored v${version.id} and saved the result as v${restored.id}.`],
+      diffLocation: 'Complete diagram version',
+      diffLines: [{ type: 'context', code: `Restored v${version.id}: ${version.summary}` }],
+    },
+  })
+  historyOpen.value = false
+  trackAnalyticsEvent('ai_chat_version_restored', {
+    ...analyticsBase(),
+    change_kind: 'rollback',
+    version_id: version.id,
+  })
+}
+
+function toggleSyntaxDetails() {
+  if (!visibleSyntaxError.value) return
+  syntaxDetailsOpen.value = !syntaxDetailsOpen.value
+  trackAnalyticsEvent('ai_chat_syntax_details_toggled', {
+    ...analyticsBase(),
+    interaction_state: syntaxDetailsOpen.value ? 'opened' : 'closed',
+  })
+}
+
+function repairSyntax() {
+  const repairText = 'Fix the current syntax issue without changing the rest of the diagram.'
+  syntaxDetailsOpen.value = false
+  trackAnalyticsEvent('ai_chat_syntax_repair_requested', {
+    ...analyticsBase(),
+    change_kind: 'syntax_repair',
+  })
+  submitPrompt('syntax_repair', repairText)
+}
+
+function toggleCode() {
+  trackAnalyticsEvent('ai_chat_code_visibility_toggled', {
+    ...analyticsBase(),
+    interaction_state: props.codeVisible ? 'hidden' : 'shown',
+  })
+  emit('toggle-code')
+}
+
+function closePanel() {
+  historyOpen.value = false
+  syntaxDetailsOpen.value = false
+  emit('close')
+}
+
+function handleEscape() {
+  if (historyOpen.value) {
+    closeHistory()
+    return
+  }
+  if (syntaxDetailsOpen.value) {
+    syntaxDetailsOpen.value = false
+    return
+  }
+  closePanel()
+}
+
 async function scrollToBottom() {
   await nextTick()
-  const scroll = () => {
-    if (messageList.value) {
-      messageList.value.scrollTop = messageList.value.scrollHeight
-    }
+  if (messageList.value) {
+    messageList.value.scrollTop = messageList.value.scrollHeight
   }
-  scroll()
-  window.setTimeout(scroll, 0)
 }
 
-watch([messages, isThinking], scrollToBottom, { deep: true })
+watch([messages, isThinking, stageIndex], scrollToBottom, { deep: true })
 watch(
   () => props.syntaxError,
-  (error) => {
-    if (!error) syntaxDetailsOpen.value = false
+  () => {
+    syntaxResolved.value = false
+    syntaxDetailsOpen.value = false
   },
 )
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (isOpen) focusInput()
+  },
+  { immediate: true },
+)
 
-onBeforeUnmount(() => {
-  if (previewTimer) clearTimeout(previewTimer)
-})
+onBeforeUnmount(clearTimers)
 </script>
 
-<style scoped>
-.ai-stage-item {
-  position: relative;
-}
-
-.ai-stage-marker {
-  position: absolute;
-  left: -30px;
-  top: -1px;
-  display: flex;
-  width: 18px;
-  height: 18px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9999px;
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.ai-stage-marker-active {
-  box-shadow: 0 0 0 4px rgb(237 233 254);
-  animation: ai-stage-pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes ai-stage-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 3px rgb(237 233 254);
-  }
-  50% {
-    box-shadow: 0 0 0 6px rgb(245 243 255);
-  }
-}
-</style>
+<style src="@/assets/ai-chat.css"></style>

@@ -19,6 +19,14 @@
             @toggle-code="toggleCodeEditor"
           />
         </div>
+        <button
+          v-if="showAIChat"
+          type="button"
+          class="ai-chat-workspace-backdrop"
+          aria-label="Close AI chat"
+          data-testid="ai-chat-backdrop"
+          @click="closeAIChat"
+        />
         <div
           class="workspace-main flex min-w-0 flex-1 split"
           :class="{ 'code-editor-hidden': !showCodeEditor }"
@@ -164,9 +172,13 @@
   min-width: 340px;
   flex-shrink: 0;
   overflow: hidden;
-  border-right: 1px solid #e2e8f0;
-  box-shadow: 4px 0 16px rgba(15, 23, 42, 0.06);
+  border-right: 1px solid #dfe1e6;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   z-index: 20;
+}
+
+.ai-chat-workspace-backdrop {
+  display: none;
 }
 
 #workspace-right {
@@ -212,12 +224,21 @@
   background-color: #6b7280;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 980px) {
   .ai-chat-panel-container {
     position: absolute;
     inset: 0 auto 0 0;
     width: min(368px, 94vw);
     min-width: 0;
+  }
+
+  .ai-chat-workspace-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 19;
+    display: block;
+    border: 0;
+    background: rgba(0, 0, 0, 0.5);
   }
 }
 </style>

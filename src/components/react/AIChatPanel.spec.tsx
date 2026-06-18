@@ -24,21 +24,44 @@ describe("React AIChatPanel", () => {
     vi.useRealTimers();
   });
 
-  function renderPanel(onClose = vi.fn(), onToggleCode = vi.fn()) {
+  function renderPanel(
+    overrides: Partial<React.ComponentProps<typeof AIChatPanel>> = {},
+  ) {
+    const props = {
+      open: true,
+      codeVisible: false,
+      diagramType: "openapi",
+      prototypeMode: true,
+      onClose: vi.fn(),
+      onToggleCode: vi.fn(),
+      ...overrides,
+    };
     act(() => {
-      ReactDOM.render(
-        <AIChatPanel
-          open
-          codeVisible={false}
-          diagramType="openapi"
-          prototypeMode
-          onClose={onClose}
-          onToggleCode={onToggleCode}
-        />,
-        container,
-      );
+      ReactDOM.render(<AIChatPanel {...props} />, container);
     });
-    return { onClose, onToggleCode };
+    return props;
+  }
+
+  function setInput(value: string) {
+    const input = container.querySelector(
+      '[data-testid="react-ai-chat-input"]',
+    ) as HTMLTextAreaElement;
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(input, value);
+      Simulate.change(input);
+    });
+    return input;
+  }
+
+  function submitPrompt(value: string) {
+    setInput(value);
+    act(() => {
+      Simulate.submit(container.querySelector("form")!);
+    });
   }
 
   it("fills the input from a suggestion and tracks the selection", () => {
@@ -52,7 +75,9 @@ describe("React AIChatPanel", () => {
       Simulate.click(suggestion!);
     });
 
-    const input = container.querySelector('[data-testid="react-ai-chat-input"]') as HTMLTextAreaElement;
+    const input = container.querySelector(
+      '[data-testid="react-ai-chat-input"]',
+    ) as HTMLTextAreaElement;
     expect(input.value).toBe("Add an error handling path");
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "ai_chat_suggestion_selected",
@@ -60,116 +85,129 @@ describe("React AIChatPanel", () => {
     );
   });
 
-  it("renders the prototype preview after submitting", () => {
+  it("runs the staged update, auto-applies it, and exposes the diff", () => {
     vi.useFakeTimers();
-    renderPanel();
-    const input = container.querySelector('[data-testid="react-ai-chat-input"]') as HTMLTextAreaElement;
-
-    act(() => {
-      const valueSetter = Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      )?.set;
-      valueSetter?.call(input, "Add a retry response");
-      Simulate.change(input);
-    });
-    expect(input.value).toBe("Add a retry response");
-    const form = container.querySelector("form")!;
-    act(() => {
-      Simulate.submit(form);
-    });
+    const props = renderPanel({ onApply: vi.fn() });
+    submitPrompt("Add a retry response");
 
     expect(container.querySelector('[data-testid="react-ai-chat-thinking"]')).not.toBeNull();
-    expect(container.textContent).toContain("Updating diagram");
+    expect(container.textContent).toContain("Understanding request");
 
     act(() => {
-      vi.advanceTimersByTime(700);
+      vi.advanceTimersByTime(1100);
     });
 
     expect(container.querySelector('[data-testid="react-ai-change-preview"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="react-ai-chat-complete-status"]')).not.toBeNull();
-    expect(container.textContent).toContain("Preserve the existing API operations and schemas");
-    expect(container.textContent).toContain(
-      "Your current API diagram stays unchanged until you click Apply",
+    expect(container.textContent).toContain("Changes applied");
+    expect(container.textContent).toContain("documented failure response");
+    expect(props.onApply).toHaveBeenCalledOnce();
+
+    const diffToggle = container.querySelector(".ai-chat-diff-toggle")!;
+    act(() => {
+      Simulate.click(diffToggle);
+    });
+    expect(container.querySelector('[data-testid="react-ai-chat-diff"]')?.textContent).toContain(
+      "responses:",
+    );
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_change_applied",
+      expect.objectContaining({ change_kind: "request", version_id: 2 }),
     );
   });
 
-  it("closes from the header button", () => {
-    const { onClose } = renderPanel();
-    const close = container.querySelector('[data-testid="react-ai-chat-close"]')!;
-
+  it("undoes an applied change and records a new version", () => {
+    vi.useFakeTimers();
+    renderPanel();
+    submitPrompt("Simplify the operation");
     act(() => {
-      Simulate.click(close);
+      vi.advanceTimersByTime(1100);
     });
 
-    expect(onClose).toHaveBeenCalledOnce();
-  });
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-undo"]')!);
+    });
 
-  it("toggles code visibility from the panel header", () => {
-    const { onToggleCode } = renderPanel();
-    const toggle = container.querySelector('[data-testid="react-ai-chat-code-toggle"]')!;
-
-    expect(toggle.textContent).toContain("Show");
+    expect(container.textContent).toContain("Changes undone");
     expect(
-      container.querySelector('[data-testid="react-ai-chat-header-row"]')?.textContent,
-    ).not.toContain("OpenAPI diagram");
-    expect(
-      container
-        .querySelector('[data-testid="react-ai-chat-header-row"]')
-        ?.querySelector('[data-testid="react-ai-chat-code-toggle"]'),
-    ).toBe(toggle);
-    act(() => {
-      Simulate.click(toggle);
-    });
-
-    expect(onToggleCode).toHaveBeenCalledOnce();
-  });
-
-  it("shows a small expandable syntax indicator without a repair button", () => {
-    act(() => {
-      ReactDOM.render(
-        <AIChatPanel
-          open
-          codeVisible={false}
-          syntaxError={"OpenAPI syntax error at line 8\nUnexpected token"}
-          onClose={vi.fn()}
-        />,
-        container,
-      );
-    });
-
-    const indicator = container.querySelector(
-      '[data-testid="react-ai-chat-syntax-indicator"]',
-    )!;
-    expect(indicator.textContent).toContain("Syntax");
-    expect(container.querySelector('[data-testid="react-ai-chat-syntax-details"]')).toBeNull();
-    expect(container.textContent).not.toContain("AI Repair");
-
-    act(() => {
-      Simulate.click(indicator);
-    });
-
-    expect(
-      container.querySelector('[data-testid="react-ai-chat-syntax-details"]')?.textContent,
-    ).toContain("line 8");
-    expect(indicator.getAttribute("aria-expanded")).toBe("true");
-
-    act(() => {
-      ReactDOM.render(
-        <AIChatPanel
-          open
-          codeVisible
-          syntaxError={"OpenAPI syntax error at line 8\nUnexpected token"}
-          onClose={vi.fn()}
-          onToggleCode={vi.fn()}
-        />,
-        container,
-      );
-    });
-
-    expect(container.querySelector('[data-testid="react-ai-chat-code-toggle"]')?.textContent).toContain(
-      "Hide",
+      container.querySelector('[data-testid="react-ai-chat-history-trigger"]')?.textContent,
+    ).toContain("3");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_change_undone",
+      expect.objectContaining({ change_kind: "undo", version_id: 1 }),
     );
+  });
+
+  it("opens version history and restores an earlier version", () => {
+    vi.useFakeTimers();
+    renderPanel();
+    submitPrompt("Add an error response");
+    act(() => {
+      vi.advanceTimersByTime(1100);
+      Simulate.click(
+        container.querySelector('[data-testid="react-ai-chat-history-trigger"]')!,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-testid="react-ai-chat-history-panel"]')?.textContent,
+    ).toContain("Initial version");
+    const restore = Array.from(container.querySelectorAll(".ai-chat-rollback")).find(
+      (button) => button.textContent === "Restore",
+    );
+    expect(restore).toBeDefined();
+    act(() => {
+      Simulate.click(restore!);
+    });
+
+    expect(container.querySelector('[data-testid="react-ai-chat-history-panel"]')).toBeNull();
+    expect(container.textContent).toContain("Version restored");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_version_restored",
+      expect.objectContaining({ change_kind: "rollback", version_id: 1 }),
+    );
+  });
+
+  it("keeps syntax visible across code states and supports automatic repair", () => {
+    vi.useFakeTimers();
+    renderPanel({
+      syntaxError: "OpenAPI syntax error at line 8\nUnexpected token",
+    });
+
     expect(container.querySelector('[data-testid="react-ai-chat-syntax-indicator"]')).not.toBeNull();
+    act(() => {
+      Simulate.click(
+        container.querySelector('[data-testid="react-ai-chat-syntax-indicator"]')!,
+      );
+    });
+    expect(container.querySelector('[data-testid="react-ai-chat-syntax-details"]')?.textContent).toContain(
+      "line 8",
+    );
+
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-auto-fix"]')!);
+      vi.runAllTimers();
+    });
+
+    expect(container.querySelector('[data-testid="react-ai-chat-syntax-indicator"]')).toBeNull();
+    expect(container.textContent).toContain("Syntax fixed");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_syntax_repair_requested",
+      expect.objectContaining({ change_kind: "syntax_repair" }),
+    );
+  });
+
+  it("closes and toggles code visibility from the header", () => {
+    const props = renderPanel();
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-code-toggle"]')!);
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-close"]')!);
+    });
+
+    expect(props.onToggleCode).toHaveBeenCalledOnce();
+    expect(props.onClose).toHaveBeenCalledOnce();
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_code_visibility_toggled",
+      expect.objectContaining({ interaction_state: "shown" }),
+    );
   });
 });

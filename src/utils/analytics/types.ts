@@ -40,6 +40,9 @@ export type AnalyticsProperties = {
   accepted_title?: string;
   suggestion_id?: string;
   chat_message_count?: number;
+  interaction_state?: "opened" | "closed" | "shown" | "hidden";
+  change_kind?: "request" | "syntax_repair" | "undo" | "rollback";
+  version_id?: number;
   // Feedback
   feedback_value?: FeedbackValue;
   feedback_score?: number;

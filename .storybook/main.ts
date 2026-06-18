@@ -21,11 +21,18 @@ const config: StorybookConfig = {
         'import.meta.env.VITE_MIXPANEL_TOKEN': JSON.stringify(''),
       },
       resolve: {
-        alias: {
-          vue: '@vue/compat',
-          '@': path.resolve(__dirname, '../src'),
-          '@forge/bridge': path.resolve(__dirname, '../src/stubs/forge-bridge.ts'),
-        },
+        alias: [
+          {
+            find: /^@\/utils\/analytics\/trackAnalyticsEvent$/,
+            replacement: path.resolve(__dirname, './mocks/trackAnalyticsEvent.ts'),
+          },
+          { find: 'vue', replacement: '@vue/compat' },
+          { find: '@', replacement: path.resolve(__dirname, '../src') },
+          {
+            find: '@forge/bridge',
+            replacement: path.resolve(__dirname, '../src/stubs/forge-bridge.ts'),
+          },
+        ],
         dedupe: ['vue', '@vue/compat'],
       },
     } satisfies UserConfig)

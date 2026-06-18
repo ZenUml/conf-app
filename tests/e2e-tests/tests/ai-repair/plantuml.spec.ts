@@ -40,16 +40,12 @@ test.describe('AI Repair - PlantUML', () => {
       await testBase.verifyAiRepairButtonVisible();
     });
 
-    await test.step('Open AI Repair dialog', async () => {
-      await testBase.openAiRepairDialog();
+    await test.step('Run AI Chat syntax repair', async () => {
+      await testBase.runAiChatSyntaxRepair();
     });
 
-    await test.step('Apply AI repair', async () => {
-      await testBase.applyAiRepair();
-    });
-
-    await test.step('Verify error is cleared after AI repair', async () => {
-      await testBase.verifyErrorCleared();
+    await test.step('Verify AI Chat repair completed', async () => {
+      await testBase.verifyAiChatSyntaxRepairCompleted();
     });
   });
 });

@@ -37,6 +37,7 @@ interface Props {
   codeVisible?: boolean;
   diagramType?: string;
   syntaxError?: string;
+  syntaxRepairRequestId?: number;
   prototypeMode?: boolean;
   initialMessages?: AIChatMessage[];
   onClose: () => void;
@@ -57,6 +58,7 @@ export default function AIChatPanel({
   codeVisible = false,
   diagramType = "openapi",
   syntaxError = "",
+  syntaxRepairRequestId = 0,
   prototypeMode = false,
   initialMessages = [],
   onClose,
@@ -86,6 +88,7 @@ export default function AIChatPanel({
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const timersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+  const lastHandledSyntaxRepairRequestId = useRef(0);
 
   const diagramTypeLabel = useMemo(() => {
     const labels: Record<string, string> = {
@@ -123,8 +126,6 @@ export default function AIChatPanel({
     if (!open) return;
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }, [open]);
-
-  if (!open) return null;
 
   const analyticsBase = () => ({
     feature_area: "ai" as const,
@@ -318,6 +319,7 @@ export default function AIChatPanel({
   };
 
   const repairSyntax = () => {
+    if (isThinking) return;
     const repairText = "Fix the current syntax issue without changing the rest of the diagram.";
     setSyntaxDetailsOpen(false);
     trackAnalyticsEvent("ai_chat_syntax_repair_requested", {
@@ -326,6 +328,18 @@ export default function AIChatPanel({
     });
     runPrompt(repairText, "syntax_repair");
   };
+
+  useEffect(() => {
+    if (
+      !open ||
+      !syntaxRepairRequestId ||
+      syntaxRepairRequestId === lastHandledSyntaxRepairRequestId.current
+    ) {
+      return;
+    }
+    lastHandledSyntaxRepairRequestId.current = syntaxRepairRequestId;
+    repairSyntax();
+  }, [open, syntaxRepairRequestId]);
 
   const closePanel = () => {
     setHistoryOpen(false);
@@ -345,6 +359,8 @@ export default function AIChatPanel({
     }
     closePanel();
   };
+
+  if (!open) return null;
 
   return (
     <aside

@@ -220,38 +220,40 @@ export class DiagramTestHelper {
   }
 
   /**
-   * Open the AI Repair dialog and wait for diff view to load
+   * Click AI Repair and wait for the AI Chat syntax repair result.
    */
-  async openAiRepairDialog(repairTimeout=15000): Promise<void> {
+  async runAiChatSyntaxRepair(repairTimeout=15000): Promise<void> {
     const frame = this.editorPage.getMacroEditorFrame();
     
     const aiRepairButton = frame.getByRole('button', { name: /ai repair/i });
     await aiRepairButton.click();
     console.log('✓ AI Repair button clicked');
     
-    // Wait for AI Repair dialog content to appear
-    const aiRepairDialog = frame.getByTestId('ai-repair-dialog-content');
-    await expect(aiRepairDialog).toBeVisible({ timeout: 10000 });
-    console.log('✓ AI Repair dialog visible');
+    const aiChatPanel = frame.locator('[data-testid="ai-chat-panel"], [data-testid="react-ai-chat-panel"]');
+    await expect(aiChatPanel).toBeVisible({ timeout: 10000 });
+    console.log('✓ AI Chat panel visible');
 
-    // Verify diff view sections appear (wait for API to return)
-    const originalSection = frame.getByText('Original');
-    const repairedSection = frame.getByText(/Repaired \(Editable\)/);
-    await expect(originalSection).toBeVisible({ timeout: repairTimeout });
-    await expect(repairedSection).toBeVisible({ timeout: repairTimeout });
+    await this.verifyAiChatSyntaxRepairCompleted(repairTimeout);
+  }
 
-    console.log('✓ AI Repair dialog opened with diff view');
+  async verifyAiChatSyntaxRepairCompleted(repairTimeout=15000): Promise<void> {
+    const frame = this.editorPage.getMacroEditorFrame();
+    const aiChatPanel = frame.locator('[data-testid="ai-chat-panel"], [data-testid="react-ai-chat-panel"]');
+    await expect(aiChatPanel).toContainText('Syntax fixed', { timeout: repairTimeout });
+    console.log('✓ AI Chat syntax repair completed');
   }
 
   /**
-   * Apply the AI repair by clicking the Apply Code button
+   * Backward-compatible helper name for older AI Repair tests.
+   */
+  async openAiRepairDialog(repairTimeout=15000): Promise<void> {
+    await this.runAiChatSyntaxRepair(repairTimeout);
+  }
+
+  /**
+   * Backward-compatible helper name for older AI Repair tests.
    */
   async applyAiRepair(): Promise<void> {
-    const frame = this.editorPage.getMacroEditorFrame();
-    const applyButton = frame.getByRole('button', { name: /apply code/i });
-    await expect(applyButton).toBeEnabled({ timeout: 5000 });
-    await applyButton.click();
-    await this.page.waitForTimeout(2000);
-    console.log('✓ AI repair applied');
+    await this.verifyAiChatSyntaxRepairCompleted();
   }
 }

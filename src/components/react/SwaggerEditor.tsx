@@ -12,6 +12,7 @@ const Component = ({ saveAndExit, exit }: Props) => {
   const [showAIChat, setShowAIChat] = useState(false);
   const [showCodeEditor, setShowCodeEditor] = useState(true);
   const [syntaxError, setSyntaxError] = useState(() => store.state.error?.toString() || "");
+  const [syntaxRepairRequestId, setSyntaxRepairRequestId] = useState(0);
 
   useEffect(() => {
     return store.subscribe((mutation, state) => {
@@ -34,6 +35,33 @@ const Component = ({ saveAndExit, exit }: Props) => {
       return next;
     });
   };
+
+  const openAIChat = (entryPoint: "ai_prompt" | "ai_repair") => {
+    setShowAIChat((current) => {
+      if (!current) {
+        trackAnalyticsEvent("ai_chat_opened", {
+          feature_area: "ai",
+          surface: "editor",
+          macro_type: "openapi",
+          entry_point: entryPoint,
+        });
+      }
+      return true;
+    });
+    setShowCodeEditor(false);
+  };
+
+  useEffect(() => {
+    const requestSyntaxRepair = () => {
+      openAIChat("ai_repair");
+      setSyntaxRepairRequestId((current) => current + 1);
+    };
+
+    window.addEventListener("ai-chat-request-syntax-repair", requestSyntaxRepair);
+    return () => {
+      window.removeEventListener("ai-chat-request-syntax-repair", requestSyntaxRepair);
+    };
+  }, []);
 
   const closeAIChat = () => {
     if (!showAIChat) return;
@@ -66,6 +94,7 @@ const Component = ({ saveAndExit, exit }: Props) => {
               codeVisible={showCodeEditor}
               diagramType="openapi"
               syntaxError={syntaxError}
+              syntaxRepairRequestId={syntaxRepairRequestId}
               prototypeMode
               onClose={closeAIChat}
               onToggleCode={() => setShowCodeEditor((current) => !current)}

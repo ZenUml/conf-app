@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
 import { ConfluenceEditorPage } from '../../pages/EditorPage.js';
 import { DiagramTestHelper } from '../../helpers/DiagramTestHelper.js';
 
@@ -55,17 +55,12 @@ paths:
       await testBase.verifyAiRepairButtonVisible();
     });
 
-    await test.step('Open AI Repair dialog', async () => {
-      await testBase.openAiRepairDialog();
+    await test.step('Run AI Chat syntax repair', async () => {
+      await testBase.runAiChatSyntaxRepair(120000);
     });
 
-    await test.step('Apply AI repair', async () => {
-      // AI repair may take up to 2 minutes for more complex examples
-      await testBase.applyAiRepair();
-    });
-
-    await test.step('Verify error is cleared after AI repair', async () => {
-      await testBase.verifyErrorCleared();
+    await test.step('Verify AI Chat repair completed', async () => {
+      await testBase.verifyAiChatSyntaxRepairCompleted(120000);
     });
   });
 });

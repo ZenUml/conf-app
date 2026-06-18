@@ -196,6 +196,27 @@ describe("React AIChatPanel", () => {
     );
   });
 
+  it("runs syntax repair when the parent requests it", () => {
+    vi.useFakeTimers();
+    renderPanel({
+      syntaxError: "OpenAPI syntax error at line 8\nUnexpected token",
+      syntaxRepairRequestId: 1,
+    });
+
+    expect(container.querySelector('[data-testid="react-ai-chat-thinking"]')).not.toBeNull();
+
+    act(() => {
+      vi.runAllTimers();
+    });
+
+    expect(container.querySelector('[data-testid="react-ai-chat-syntax-indicator"]')).toBeNull();
+    expect(container.textContent).toContain("Syntax fixed");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_syntax_repair_requested",
+      expect.objectContaining({ change_kind: "syntax_repair" }),
+    );
+  });
+
   it("closes and toggles code visibility from the header", () => {
     const props = renderPanel();
     act(() => {

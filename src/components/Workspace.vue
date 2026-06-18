@@ -14,6 +14,7 @@
             :code-visible="showCodeEditor"
             :diagram-type="diagramType"
             :syntax-error="syntaxError"
+            :syntax-repair-request-id="syntaxRepairRequestId"
             prototype-mode
             @close="closeAIChat"
             @toggle-code="toggleCodeEditor"
@@ -52,7 +53,7 @@
         class="sticky bottom-0 left-0 right-0 z-[1000] bg-white flex-shrink-0"
         style="position: sticky !important;"
       >
-        <SyntaxErrorBox />
+        <SyntaxErrorBox @request-ai-chat-repair="requestAIChatSyntaxRepair" />
       </div>
     </div>
   </div>
@@ -76,6 +77,7 @@
       return {
         showAIChat: false,
         showCodeEditor: true,
+        syntaxRepairRequestId: 0,
         splitInstance: null as ReturnType<typeof Split> | null,
       }
     },
@@ -93,6 +95,10 @@
           this.closeAIChat()
           return
         }
+        this.openAIChat('ai_prompt')
+      },
+      openAIChat(entryPoint: 'ai_prompt' | 'ai_repair') {
+        if (this.showAIChat) return
         this.destroySplit()
         this.showAIChat = true
         this.showCodeEditor = false
@@ -100,8 +106,12 @@
           feature_area: 'ai',
           surface: 'editor',
           macro_type: this.diagramType || 'none',
-          entry_point: 'ai_prompt',
+          entry_point: entryPoint,
         })
+      },
+      requestAIChatSyntaxRepair() {
+        this.openAIChat('ai_repair')
+        this.syntaxRepairRequestId += 1
       },
       closeAIChat() {
         if (!this.showAIChat) return

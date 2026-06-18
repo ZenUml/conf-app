@@ -28,7 +28,7 @@
         </div>
         <button
           v-if="shouldShowAiRepair"
-          @click="showAIRepairDialog = true"
+          @click="requestAiChatRepair"
           class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1"
         >
           AI Repair
@@ -46,42 +46,24 @@
       >
     </output>
   </div>
-  <AIRepair
-    :show-dialog="showAIRepairDialog"
-    :original-code="code"
-    :diagram-type="diagramType"
-    :error="error"
-    @close="showAIRepairDialog = false"
-    @apply="handleApplyRepair"
-  />
 </template>
 
 <script setup>
 import { computed, ref, onMounted } from "vue";
 import { useStore } from "vuex";
-import AIRepair from "@/components/AIRepair.vue";
-import { DiagramType } from "@/model/Diagram/Diagram";
-import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import { isAiRepairEnabled } from '@/apis/aiFeatureFlags';
 const store = useStore();
-const showAIRepairDialog = ref(false);
+const emit = defineEmits(["request-ai-chat-repair"]);
 const aiRepairFeatureEnabled = ref(false);
 // Get the error from the store
 const error = computed(() => store.state.error);
-// Get the current code from the store
-const code = computed(() => {
-  return getCodeFromDiagram(store.state.diagram, store.state.diagram.diagramType);
-});
-// Get the diagram type
-const diagramType = computed(() => store.state.diagram.diagramType);
 // Computed property to determine if AI repair is enabled
 const shouldShowAiRepair = computed(() => {
   return aiRepairFeatureEnabled.value;
 });
-// Handle applying the repair
-const handleApplyRepair = (repairedCode) => {
-  store.dispatch(getStoreUpdateAction(store.state.diagram.diagramType), repairedCode);
-  showAIRepairDialog.value = false;
+
+const requestAiChatRepair = () => {
+  emit("request-ai-chat-repair");
 };
 // Load the AI repair feature flag when component mounts
 onMounted(async () => {

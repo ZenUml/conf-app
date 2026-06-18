@@ -332,6 +332,7 @@ type Props = {
   codeVisible?: boolean
   diagramType?: string
   syntaxError?: string
+  syntaxRepairRequestId?: number
   prototypeMode?: boolean
   initialMessages?: AIChatMessage[]
 }
@@ -340,6 +341,7 @@ const props = withDefaults(defineProps<Props>(), {
   codeVisible: false,
   diagramType: 'sequence',
   syntaxError: '',
+  syntaxRepairRequestId: 0,
   prototypeMode: false,
   initialMessages: () => [],
 })
@@ -363,6 +365,7 @@ const isThinking = ref(false)
 const stageIndex = ref(0)
 const syntaxDetailsOpen = ref(false)
 const syntaxResolved = ref(false)
+const lastHandledSyntaxRepairRequestId = ref(0)
 const historyOpen = ref(false)
 const openDiffIds = ref<string[]>([])
 const versions = ref<AIChatVersion[]>([
@@ -622,6 +625,7 @@ function toggleSyntaxDetails() {
 }
 
 function repairSyntax() {
+  if (isThinking.value) return
   const repairText = 'Fix the current syntax issue without changing the rest of the diagram.'
   syntaxDetailsOpen.value = false
   trackAnalyticsEvent('ai_chat_syntax_repair_requested', {
@@ -629,6 +633,13 @@ function repairSyntax() {
     change_kind: 'syntax_repair',
   })
   submitPrompt('syntax_repair', repairText)
+}
+
+function handleRequestedSyntaxRepair() {
+  const requestId = props.syntaxRepairRequestId
+  if (!props.open || !requestId || requestId === lastHandledSyntaxRepairRequestId.value) return
+  lastHandledSyntaxRepairRequestId.value = requestId
+  repairSyntax()
 }
 
 function toggleCode() {
@@ -679,6 +690,8 @@ watch(
   },
   { immediate: true },
 )
+watch(() => props.syntaxRepairRequestId, handleRequestedSyntaxRepair, { immediate: true })
+watch(() => props.open, handleRequestedSyntaxRepair)
 
 onBeforeUnmount(clearTimers)
 </script>

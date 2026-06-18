@@ -142,6 +142,33 @@ describe('AIChatPanel', () => {
     )
   })
 
+  it('runs syntax repair when the parent requests it', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        prototypeMode: true,
+        syntaxError: "Sequence syntax error at line 12\nmismatched input ')' expecting <EOF>",
+      },
+    })
+
+    await wrapper.setProps({ syntaxRepairRequestId: 1 })
+
+    expect(wrapper.get('[data-testid="ai-chat-thinking"]').exists()).toBe(true)
+    expect(wrapper.emitted('send')).toEqual([
+      ['Fix the current syntax issue without changing the rest of the diagram.'],
+    ])
+
+    await vi.advanceTimersByTimeAsync(1100)
+
+    expect(wrapper.find('[data-testid="ai-chat-syntax-indicator"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Syntax fixed')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_chat_syntax_repair_requested',
+      expect.objectContaining({ change_kind: 'syntax_repair' }),
+    )
+  })
+
   it('emits close and code visibility changes from the header', async () => {
     const wrapper = mount(AIChatPanel, {
       props: { open: true, codeVisible: false },

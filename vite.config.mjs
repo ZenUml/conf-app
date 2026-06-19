@@ -82,7 +82,6 @@ export default defineConfig(({ command }) => ({
   optimizeDeps: {
     include: [
       'vue',
-      '@vue/compat',
       '@codemirror/state',
       '@codemirror/view',
       '@codemirror/language',
@@ -137,7 +136,6 @@ export default defineConfig(({ command }) => ({
   },
   resolve: {
     alias: {
-      'vue': '@vue/compat',
       '@': resolve(__dirname, './src'),
       // AsyncAPI variant: @asyncapi/parser pulls in Node's `fs` for its
       // fromURL/fromFile helpers (which we never call — we always pass a
@@ -167,9 +165,10 @@ export default defineConfig(({ command }) => ({
   plugins: [createVuePlugin({
     template: {
       compilerOptions: {
-        compatConfig: {
-          MODE: 2,
-        },
+        // @vue/compat removed. Pin whitespace to the pre-removal default
+        // ('preserve') so rendered template whitespace stays byte-identical.
+        // Vue 3's native default is 'condense'; adopting it is a separate change.
+        whitespace: 'preserve',
       },
     },
   }),

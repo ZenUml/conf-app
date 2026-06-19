@@ -251,3 +251,6 @@ jobs:
       username: ${{ vars.ZENUML_PROD_USERNAME }}
       password: ${{ vars.ZENUML_PROD_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}
+      # Post-deploy smoke: a cold-render wedge can't pass on retry, so retries
+      # just burn the shard's 8-min budget. Fail fast (with trace) instead.
+      retries: '1'

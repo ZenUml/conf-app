@@ -141,7 +141,6 @@ permissions:
         - https://zenuml.com
         - https://*.zenuml.com
         - https://*.mixpanel.com
-        - https://*.pages.dev
         - remote: connect
         - remote: diagramly
       client:

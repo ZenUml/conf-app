@@ -126,9 +126,6 @@ importers:
       '@vitejs/plugin-vue':
         specifier: ^6.0.2
         version: 6.0.3(vite@7.3.0(@types/node@25.0.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.44.1)(tsx@4.21.0)(yaml@2.8.4))(vue@3.5.26(typescript@5.9.3))
-      '@vue/compat':
-        specifier: ^3.1.0
-        version: 3.5.26(vue@3.5.26(typescript@5.9.3))
       '@vue/compiler-sfc':
         specifier: ^3.1.0
         version: 3.5.26
@@ -5704,11 +5701,6 @@ packages:
 
   '@volar/typescript@2.4.15':
     resolution: {integrity: sha512-2aZ8i0cqPGjXb4BhkMsPYDkkuc2ZQ6yOpqwAuNwUoncELqoy5fRgOQtLR9gB0g902iS0NAkvpIzs27geVyVdPg==}
-
-  '@vue/compat@3.5.26':
-    resolution: {integrity: sha512-SoJkRzo5FzR894IKA+s+a47IifVJ9PpAr11xzQHS0VRZflweyCGVgcpQUpW9TVuPMWpgdsop3cyP4OPtyS2XVA==}
-    peerDependencies:
-      vue: 3.5.26
 
   '@vue/compiler-core@3.5.26':
     resolution: {integrity: sha512-vXyI5GMfuoBCnv5ucIT7jhHKl55Y477yxP6fc4eUswjP8FG3FFVFd41eNDArR+Uk3QKn2Z85NavjaxLxOC19/w==}
@@ -21649,13 +21641,6 @@ snapshots:
       '@volar/language-core': 2.4.15
       path-browserify: 1.0.1
       vscode-uri: 3.0.8
-
-  '@vue/compat@3.5.26(vue@3.5.26(typescript@5.9.3))':
-    dependencies:
-      '@babel/parser': 7.28.5
-      estree-walker: 2.0.2
-      source-map-js: 1.2.1
-      vue: 3.5.26(typescript@5.9.3)
 
   '@vue/compiler-core@3.5.26':
     dependencies:

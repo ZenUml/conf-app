@@ -21,9 +21,6 @@
 <script>
 export default {
   name: 'TabSwitcher',
-  compatConfig: {
-    COMPONENT_V_MODEL: false
-  },
   props: {
     modelValue: {
       type: String,

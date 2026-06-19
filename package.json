@@ -97,7 +97,6 @@
     "@sentry/node": "^9.5.0",
     "@vitejs/plugin-react": "^5.2.0",
     "@vitejs/plugin-vue": "^6.0.2",
-    "@vue/compat": "^3.1.0",
     "@vue/compiler-sfc": "^3.1.0",
     "@zenuml/codemirror-extensions": "^0.3.1",
     "@zenuml/core": "^3.47.5",

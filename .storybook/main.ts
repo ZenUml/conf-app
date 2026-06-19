@@ -22,11 +22,10 @@ const config: StorybookConfig = {
       },
       resolve: {
         alias: {
-          vue: '@vue/compat',
           '@': path.resolve(__dirname, '../src'),
           '@forge/bridge': path.resolve(__dirname, '../src/stubs/forge-bridge.ts'),
         },
-        dedupe: ['vue', '@vue/compat'],
+        dedupe: ['vue'],
       },
     } satisfies UserConfig)
   },

@@ -29,6 +29,15 @@ on:
         type: string
         required: true
         description: 'TOTP secret used by tests/e2e-tests/utils/otp.js'
+      retries:
+        type: string
+        default: ''
+        required: false
+        description: >-
+          Override Playwright --retries. The post-deploy prod smoke passes "1":
+          a cold-render content-verify wedge cannot pass on retry (the render is
+          cold on every attempt), so the config default (2 on CI) just burns the
+          shard's 8-min budget toward a reap. Empty = keep the config default.
 
 # Auth is DEDUPLICATED. A single `auth` job logs in once and uploads the
 # Playwright storageState as an artifact; every shard downloads it, so
@@ -196,8 +205,11 @@ jobs:
               PROJECTS="--project=auth --project=pages --project=render --project=insert --project=syntax-validation"
               ;;
           esac
+          # Optional --retries override (empty input → keep playwright.config default).
+          RETRY_FLAG=""
+          [ -n "${{ inputs.retries }}" ] && RETRY_FLAG="--retries=${{ inputs.retries }}"
           pnpm exec playwright test --ignore-snapshots $PROJECTS \
-            --shard=${{ matrix.shard }}/${{ env.SHARD_COUNT }}
+            --shard=${{ matrix.shard }}/${{ env.SHARD_COUNT }} $RETRY_FLAG
         env:
           APP: ${{ inputs.app }}
           CI: true

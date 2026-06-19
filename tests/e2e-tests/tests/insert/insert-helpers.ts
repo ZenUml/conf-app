@@ -50,6 +50,12 @@ export async function publishAndVerifyMacros(
 
   await expect(page.locator('#title-text')).toContainText('Smoke Test');
 
+  // Timing instrumentation. The prod release smoke runs immediately after a
+  // Forge deploy, so the first render fetches the Custom UI bundle + the lazy
+  // @zenuml/core chunk from a cold CDN. Logging frame-visible and content-verify
+  // durations makes a slow-but-correct cold render distinguishable from a real
+  // failure in CI — and gives the before/after signal for any warm-up step.
+  const frameStart = Date.now();
   if (testConfig.isForge || testConfig.isLite) {
     const forgeIframes = page.locator('[data-testid="ForgeExtensionContainer"] [data-testid="hosted-resources-iframe"]');
     await expectVisibleOrFailOnLogin(page, forgeIframes.first(), TIMEOUTS.FRAME_LOAD);
@@ -63,14 +69,15 @@ export async function publishAndVerifyMacros(
     await expect(connectIframes).toHaveCount(macroCount, { timeout: TIMEOUTS.FRAME_LOAD });
   }
 
-  console.log(`  ✓ ${macroCount} macro iframe(s) visible on published page`);
+  console.log(`  ✓ ${macroCount} macro iframe(s) visible on published page [frame_visible_ms=${Date.now() - frameStart}]`);
 
   // ZEN-1172: assert the macro actually RENDERED its content, not just that an
   // iframe exists. The load-failed panel renders inside the same iframe, so
   // visibility+count is not enough to catch a broken viewer.
   if (verifyContent) {
+    const verifyStart = Date.now();
     await verifyContent(macroPage);
-    console.log(`  ✓ macro rendered content verified (inside iframe)`);
+    console.log(`  ✓ macro rendered content verified (inside iframe) [content_verify_ms=${Date.now() - verifyStart}]`);
   }
 
   await page.screenshot({

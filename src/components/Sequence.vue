@@ -1,6 +1,6 @@
 <template>
   <ViewResizer v-if="autoResize">
-    <template>
+    <template #default>
       <div ref="zenuml" class="resize-target"></div>
     </template>
   </ViewResizer>

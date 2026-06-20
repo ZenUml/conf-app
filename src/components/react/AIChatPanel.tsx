@@ -17,8 +17,10 @@ import CrossIcon from "@atlaskit/icon/glyph/cross";
 import ErrorIcon from "@atlaskit/icon/glyph/error";
 import SendIcon from "@atlaskit/icon/glyph/send";
 import StarIcon from "@atlaskit/icon/glyph/star";
+import FullScreenOnIcon from "@atlaskit/icon/glyph/vid-full-screen-on";
 import {
   AI_CHAT_SUGGESTIONS,
+  createCodePreview,
   createPrototypePreview,
   formatVersionTime,
   type AIChatChangeKind,
@@ -28,6 +30,11 @@ import {
   type AIChatVersion,
 } from "@/components/AIChat/aiChatPrototype";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import {
+  getDiagramlyJobStatus,
+  startDiagramChatModification,
+  type DiagramlyJobStatus,
+} from "@/services/GenerateService";
 import "@/assets/ai-chat.css";
 
 export type { AIChatMessage };
@@ -39,11 +46,13 @@ interface Props {
   syntaxError?: string;
   syntaxRepairRequestId?: number;
   prototypeMode?: boolean;
+  currentCode?: string;
   initialMessages?: AIChatMessage[];
   onClose: () => void;
   onToggleCode?: () => void;
   onSend?: (prompt: string) => void;
   onApply?: (message: AIChatMessage) => void;
+  onApplyCode?: (code: string) => void;
 }
 
 const stages = ["Understanding request", "Updating diagram", "Syncing changes"];
@@ -60,11 +69,13 @@ export default function AIChatPanel({
   syntaxError = "",
   syntaxRepairRequestId = 0,
   prototypeMode = false,
+  currentCode = "",
   initialMessages = [],
   onClose,
   onToggleCode,
   onSend,
   onApply,
+  onApplyCode,
 }: Props) {
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<AIChatMessage[]>(() =>
@@ -76,6 +87,7 @@ export default function AIChatPanel({
   const [syntaxResolved, setSyntaxResolved] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [openDiffIds, setOpenDiffIds] = useState<string[]>([]);
+  const [expandedDiffMessageId, setExpandedDiffMessageId] = useState<string | null>(null);
   const [versions, setVersions] = useState<AIChatVersion[]>([
     {
       id: 1,
@@ -83,12 +95,14 @@ export default function AIChatPanel({
       detail: "Diagram state before the current AI Chat session.",
       syntaxResolved: !syntaxError,
       time: formatVersionTime(),
+      code: currentCode,
     },
   ]);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const timersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const lastHandledSyntaxRepairRequestId = useRef(0);
+  const activeRequestId = useRef(0);
 
   const diagramTypeLabel = useMemo(() => {
     const labels: Record<string, string> = {
@@ -103,6 +117,11 @@ export default function AIChatPanel({
 
   const currentVersionId = versions[versions.length - 1]?.id || 0;
   const visibleSyntaxError = Boolean(syntaxError) && !syntaxResolved;
+  const expandedDiffPreview = useMemo(
+    () => messages.find((message) => message.id === expandedDiffMessageId)?.preview || null,
+    [expandedDiffMessageId, messages],
+  );
+  const overlayOpen = historyOpen || Boolean(expandedDiffPreview);
 
   useLayoutEffect(() => {
     const messageList = messageListRef.current;
@@ -113,9 +132,19 @@ export default function AIChatPanel({
 
   useEffect(() => {
     return () => {
+      activeRequestId.current += 1;
       timersRef.current.forEach(clearTimeout);
     };
   }, []);
+
+  useEffect(() => {
+    setVersions((current) => {
+      if (current.length !== 1) return current;
+      const [first] = current;
+      if (first.code === currentCode) return current;
+      return [{ ...first, code: currentCode }];
+    });
+  }, [currentCode]);
 
   useEffect(() => {
     setSyntaxResolved(false);
@@ -151,6 +180,7 @@ export default function AIChatPanel({
     summary: string,
     detail: string,
     resolved: boolean,
+    code?: string,
   ): AIChatVersion => {
     const version: AIChatVersion = {
       id: currentVersionId + 1,
@@ -158,6 +188,7 @@ export default function AIChatPanel({
       detail,
       syntaxResolved: resolved,
       time: formatVersionTime(),
+      code,
     };
     setVersions((current) => [...current, version]);
     return version;
@@ -195,6 +226,126 @@ export default function AIChatPanel({
     onApply?.(message);
   };
 
+  const updateStageFromJob = (job: DiagramlyJobStatus) => {
+    if (job.status === "GENERATING") {
+      setStageIndex(2);
+      return;
+    }
+    if (job.status === "PROCESSING") {
+      setStageIndex(1);
+    }
+  };
+
+  const handleDiagramlyError = (error: unknown, requestId: number) => {
+    if (activeRequestId.current !== requestId) return;
+    const text = error instanceof Error ? error.message : String(error || "Diagram update failed");
+    setMessages((current) => [
+      ...current,
+      { id: `assistant-error-${Date.now()}`, role: "assistant", text },
+    ]);
+    setIsThinking(false);
+    setStageIndex(0);
+  };
+
+  const completeDiagramlyRequest = (
+    kind: AIChatChangeKind,
+    previousCode: string,
+    updatedCode: string,
+  ) => {
+    const previousVersionId = currentVersionId;
+    const preview = createCodePreview(diagramTypeLabel, kind, previousCode, updatedCode);
+    const nextVersion = addVersion(
+      kind === "syntax_repair" ? "Fixed syntax issue" : "Updated diagram flow",
+      kind === "syntax_repair"
+        ? "Corrected the invalid syntax and synchronized the preview."
+        : "Applied the requested change and synchronized the preview.",
+      true,
+      updatedCode,
+    );
+    preview.versionId = nextVersion.id;
+    preview.previousVersionId = previousVersionId;
+
+    const message: AIChatMessage = {
+      id: `assistant-${Date.now()}`,
+      role: "assistant",
+      text: "",
+      preview,
+    };
+    setMessages((current) => [...current, message]);
+    setSyntaxResolved(true);
+    setSyntaxDetailsOpen(false);
+    setIsThinking(false);
+    setStageIndex(0);
+    trackAnalyticsEvent("ai_chat_change_applied", {
+      ...analyticsBase(),
+      chat_message_count: messages.length + 2,
+      change_kind: kind,
+      version_id: nextVersion.id,
+    });
+    onApplyCode?.(updatedCode);
+    onApply?.(message);
+  };
+
+  const pollDiagramlyJob = (
+    jobId: string,
+    requestId: number,
+    kind: AIChatChangeKind,
+    previousCode: string,
+    attempts = 0,
+  ) => {
+    if (activeRequestId.current !== requestId) return;
+
+    getDiagramlyJobStatus(jobId)
+      .then((job) => {
+        if (activeRequestId.current !== requestId) return;
+        updateStageFromJob(job);
+
+        if (job.status === "COMPLETED") {
+          const updatedCode = job.output?.diagramCode;
+          if (!updatedCode) {
+            throw new Error("Job completed but no diagram code was returned");
+          }
+          completeDiagramlyRequest(kind, previousCode, updatedCode);
+          return;
+        }
+
+        if (job.status === "FAILED" || job.status === "CANCELLED") {
+          throw new Error(job.error || job.message || `Diagram update ${job.status.toLowerCase()}`);
+        }
+
+        if (attempts >= 30) {
+          throw new Error("Diagram update timed out after 60 seconds");
+        }
+
+        timersRef.current.push(
+          setTimeout(() => pollDiagramlyJob(jobId, requestId, kind, previousCode, attempts + 1), 2000),
+        );
+      })
+      .catch((error) => handleDiagramlyError(error, requestId));
+  };
+
+  const runDiagramlyRequest = (text: string, kind: AIChatChangeKind) => {
+    const requestId = activeRequestId.current + 1;
+    activeRequestId.current = requestId;
+    const previousCode = currentCode;
+
+    setIsThinking(true);
+    setStageIndex(0);
+
+    startDiagramChatModification({
+      diagramCode: previousCode,
+      prompt: text,
+      diagramType,
+      errorMessage: kind === "syntax_repair" ? syntaxError : undefined,
+    })
+      .then(({ jobId }) => {
+        if (activeRequestId.current !== requestId) return;
+        setStageIndex(1);
+        pollDiagramlyJob(jobId, requestId, kind, previousCode);
+      })
+      .catch((error) => handleDiagramlyError(error, requestId));
+  };
+
   const runPrompt = (text: string, kind: AIChatChangeKind = "request") => {
     if (!text || isThinking) return;
 
@@ -216,15 +367,18 @@ export default function AIChatPanel({
     });
     onSend?.(text);
 
-    if (!prototypeMode) return;
+    if (prototypeMode) {
+      setIsThinking(true);
+      setStageIndex(0);
+      timersRef.current = [
+        setTimeout(() => setStageIndex(1), 350),
+        setTimeout(() => setStageIndex(2), 700),
+        setTimeout(() => completePrototypeRequest(kind), 1050),
+      ];
+      return;
+    }
 
-    setIsThinking(true);
-    setStageIndex(0);
-    timersRef.current = [
-      setTimeout(() => setStageIndex(1), 350),
-      setTimeout(() => setStageIndex(2), 700),
-      setTimeout(() => completePrototypeRequest(kind), 1050),
-    ];
+    runDiagramlyRequest(text, kind);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -239,14 +393,39 @@ export default function AIChatPanel({
     runPrompt(prompt.trim(), kind);
   };
 
+  const closeExpandedDiff = () => {
+    if (!expandedDiffMessageId) return;
+    setExpandedDiffMessageId(null);
+    trackAnalyticsEvent("ai_chat_diff_toggled", {
+      ...analyticsBase(),
+      interaction_state: "hidden",
+      ui_component: "code_diff_fullscreen",
+    });
+  };
+
   const toggleDiff = (messageId: string) => {
     const opened = !openDiffIds.includes(messageId);
     setOpenDiffIds((current) =>
       opened ? [...current, messageId] : current.filter((id) => id !== messageId),
     );
+    if (!opened && expandedDiffMessageId === messageId) {
+      closeExpandedDiff();
+    }
     trackAnalyticsEvent("ai_chat_diff_toggled", {
       ...analyticsBase(),
       interaction_state: opened ? "opened" : "closed",
+    });
+  };
+
+  const openExpandedDiff = (messageId: string) => {
+    if (!messages.some((message) => message.id === messageId && message.preview)) return;
+    setExpandedDiffMessageId(messageId);
+    setHistoryOpen(false);
+    setSyntaxDetailsOpen(false);
+    trackAnalyticsEvent("ai_chat_diff_toggled", {
+      ...analyticsBase(),
+      interaction_state: "shown",
+      ui_component: "code_diff_fullscreen",
     });
   };
 
@@ -262,6 +441,7 @@ export default function AIChatPanel({
       `Undo to v${target.id}`,
       `Restored the diagram state from ${target.summary}.`,
       target.syntaxResolved,
+      target.code,
     );
     setMessages((current) => [
       ...current,
@@ -279,6 +459,9 @@ export default function AIChatPanel({
         },
       },
     ]);
+    if (target.code !== undefined) {
+      onApplyCode?.(target.code);
+    }
     trackAnalyticsEvent("ai_chat_change_undone", {
       ...analyticsBase(),
       change_kind: "undo",
@@ -293,6 +476,7 @@ export default function AIChatPanel({
       `Restored v${version.id}`,
       `Restored the complete diagram state from ${version.summary}.`,
       version.syntaxResolved,
+      version.code,
     );
     setMessages((current) => [
       ...current,
@@ -311,6 +495,9 @@ export default function AIChatPanel({
       },
     ]);
     setHistoryOpen(false);
+    if (version.code !== undefined) {
+      onApplyCode?.(version.code);
+    }
     trackAnalyticsEvent("ai_chat_version_restored", {
       ...analyticsBase(),
       change_kind: "rollback",
@@ -342,6 +529,7 @@ export default function AIChatPanel({
   }, [open, syntaxRepairRequestId]);
 
   const closePanel = () => {
+    setExpandedDiffMessageId(null);
     setHistoryOpen(false);
     setSyntaxDetailsOpen(false);
     onClose();
@@ -349,6 +537,10 @@ export default function AIChatPanel({
 
   const handleEscape = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== "Escape") return;
+    if (expandedDiffPreview) {
+      closeExpandedDiff();
+      return;
+    }
     if (historyOpen) {
       setHistoryOpen(false);
       return;
@@ -459,7 +651,7 @@ export default function AIChatPanel({
       <div
         ref={messageListRef}
         className="ai-chat-scroll"
-        {...(historyOpen ? { inert: "" } : {})}
+        {...(overlayOpen ? { inert: "" } : {})}
       >
         {messages.length === 0 && !isThinking ? (
           <section className="ai-chat-empty" data-testid="react-ai-chat-empty-state">
@@ -563,9 +755,29 @@ export default function AIChatPanel({
                         {openDiffIds.includes(message.id) && (
                           <div className="ai-chat-diff" data-testid="react-ai-chat-diff">
                             <div className="ai-chat-diff-header">
-                              <span>Code diff</span>
-                              <span className="ai-chat-diff-location">
-                                {message.preview.diffLocation}
+                              <span className="ai-chat-diff-title">
+                                <span>Code diff</span>
+                                <span className="ai-chat-diff-location">
+                                  {message.preview.diffLocation}
+                                </span>
+                              </span>
+                              <span className="ai-chat-diff-actions">
+                                <button
+                                  type="button"
+                                  className="ai-chat-diff-action"
+                                  aria-label="Expand code diff"
+                                  title="Expand code diff"
+                                  data-testid="react-ai-chat-diff-expand"
+                                  onClick={() => openExpandedDiff(message.id)}
+                                >
+                                  {icon(
+                                    <FullScreenOnIcon
+                                      label=""
+                                      size="small"
+                                      primaryColor="currentColor"
+                                    />,
+                                  )}
+                                </button>
                               </span>
                             </div>
                             <div className="ai-chat-diff-code">
@@ -642,6 +854,53 @@ export default function AIChatPanel({
         )}
       </div>
 
+      {expandedDiffPreview && (
+        <section
+          className="ai-chat-diff-fullscreen"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Expanded code diff"
+          data-testid="react-ai-chat-diff-fullscreen"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) closeExpandedDiff();
+          }}
+        >
+          <div className="ai-chat-diff-fullscreen-panel">
+            <header className="ai-chat-diff-fullscreen-header">
+              <span className="ai-chat-diff-fullscreen-title">
+                <span>Code diff</span>
+                <span className="ai-chat-diff-location">
+                  {expandedDiffPreview.diffLocation}
+                </span>
+              </span>
+              <button
+                type="button"
+                className="ai-chat-diff-action"
+                aria-label="Close expanded code diff"
+                title="Close expanded code diff"
+                data-testid="react-ai-chat-diff-fullscreen-close"
+                onClick={closeExpandedDiff}
+              >
+                {icon(<CrossIcon label="" size="small" primaryColor="currentColor" />)}
+              </button>
+            </header>
+            <div className="ai-chat-diff-code ai-chat-diff-code-expanded">
+              {expandedDiffPreview.diffLines.map((line, index) => (
+                <div
+                  key={`expanded-${expandedDiffMessageId}-${index}`}
+                  className={`ai-chat-diff-line is-${line.type}`}
+                >
+                  <span aria-hidden="true">
+                    {line.type === "add" ? "+" : line.type === "remove" ? "-" : " "}
+                  </span>
+                  <code>{line.code}</code>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {historyOpen && (
         <section
           className="ai-chat-history-panel"
@@ -694,7 +953,7 @@ export default function AIChatPanel({
 
       <form
         className="ai-chat-composer"
-        {...(historyOpen ? { inert: "" } : {})}
+        {...(overlayOpen ? { inert: "" } : {})}
         onSubmit={submitPrompt}
       >
         <div className="ai-chat-compose-box">

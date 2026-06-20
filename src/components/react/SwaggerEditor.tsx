@@ -12,12 +12,16 @@ const Component = ({ saveAndExit, exit }: Props) => {
   const [showAIChat, setShowAIChat] = useState(false);
   const [showCodeEditor, setShowCodeEditor] = useState(true);
   const [syntaxError, setSyntaxError] = useState(() => store.state.error?.toString() || "");
+  const [currentCode, setCurrentCode] = useState(() => store.state.diagram.code || "");
   const [syntaxRepairRequestId, setSyntaxRepairRequestId] = useState(0);
 
   useEffect(() => {
     return store.subscribe((mutation, state) => {
       if (mutation.type === "updateError") {
         setSyntaxError(state.error?.toString() || "");
+      }
+      if (mutation.type === "updateCode2") {
+        setCurrentCode(state.diagram.code || "");
       }
     });
   }, []);
@@ -95,9 +99,10 @@ const Component = ({ saveAndExit, exit }: Props) => {
               diagramType="openapi"
               syntaxError={syntaxError}
               syntaxRepairRequestId={syntaxRepairRequestId}
-              prototypeMode
+              currentCode={currentCode}
               onClose={closeAIChat}
               onToggleCode={() => setShowCodeEditor((current) => !current)}
+              onApplyCode={(code) => store.dispatch("updateCode2", code)}
             />
           </div>
         )}

@@ -1,15 +1,23 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AIChatPanel from './AIChatPanel.vue'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { getDiagramlyJobStatus, startDiagramChatModification } from '@/services/GenerateService'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
 }))
 
+vi.mock('@/services/GenerateService', () => ({
+  startDiagramChatModification: vi.fn(),
+  getDiagramlyJobStatus: vi.fn(),
+}))
+
 describe('AIChatPanel', () => {
   beforeEach(() => {
     vi.mocked(trackAnalyticsEvent).mockClear()
+    vi.mocked(startDiagramChatModification).mockReset()
+    vi.mocked(getDiagramlyJobStatus).mockReset()
   })
 
   afterEach(() => {
@@ -57,6 +65,10 @@ describe('AIChatPanel', () => {
     const diffToggle = wrapper.get('.ai-chat-diff-toggle')
     await diffToggle.trigger('click')
     expect(wrapper.get('[data-testid="ai-chat-diff"]').text()).toContain('Payment.charge()')
+    await wrapper.get('[data-testid="ai-chat-diff-expand"]').trigger('click')
+    expect(wrapper.get('[data-testid="ai-chat-diff-fullscreen"]').text()).toContain('Payment.charge()')
+    await wrapper.get('[data-testid="ai-chat-diff-fullscreen-close"]').trigger('click')
+    expect(wrapper.find('[data-testid="ai-chat-diff-fullscreen"]').exists()).toBe(false)
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'ai_chat_change_applied',
       expect.objectContaining({ change_kind: 'request', version_id: 2 }),
@@ -64,6 +76,14 @@ describe('AIChatPanel', () => {
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'ai_chat_diff_toggled',
       expect.objectContaining({ interaction_state: 'opened' }),
+    )
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_chat_diff_toggled',
+      expect.objectContaining({ interaction_state: 'shown', ui_component: 'code_diff_fullscreen' }),
+    )
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_chat_diff_toggled',
+      expect.objectContaining({ interaction_state: 'hidden', ui_component: 'code_diff_fullscreen' }),
     )
   })
 
@@ -183,5 +203,38 @@ describe('AIChatPanel', () => {
       'ai_chat_code_visibility_toggled',
       expect.objectContaining({ interaction_state: 'shown' }),
     )
+  })
+
+  it('runs a real async Diagramly job and emits updated code', async () => {
+    vi.mocked(startDiagramChatModification).mockResolvedValueOnce({ jobId: 'job-1' })
+    vi.mocked(getDiagramlyJobStatus).mockResolvedValueOnce({
+      id: 'job-1',
+      status: 'COMPLETED',
+      progress: 100,
+      message: 'Complete',
+      output: { diagramCode: 'A->B: updated' },
+    })
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        diagramType: 'sequence',
+        currentCode: 'A->B: original',
+      },
+    })
+
+    await wrapper.get('[data-testid="ai-chat-input"]').setValue('Update the message')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    await flushPromises()
+
+    expect(startDiagramChatModification).toHaveBeenCalledWith({
+      diagramCode: 'A->B: original',
+      prompt: 'Update the message',
+      diagramType: 'sequence',
+      errorMessage: undefined,
+    })
+    expect(wrapper.emitted('apply-code')).toEqual([['A->B: updated']])
+    expect(wrapper.get('[data-testid="ai-change-preview"]').text()).toContain('Changes applied')
+    expect(wrapper.get('[data-testid="ai-chat-history-trigger"]').text()).toContain('2')
   })
 })

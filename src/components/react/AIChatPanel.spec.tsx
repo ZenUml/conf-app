@@ -4,9 +4,15 @@ import { act, Simulate } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AIChatPanel from "./AIChatPanel";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { getDiagramlyJobStatus, startDiagramChatModification } from "@/services/GenerateService";
 
 vi.mock("@/utils/analytics/trackAnalyticsEvent", () => ({
   trackAnalyticsEvent: vi.fn(),
+}));
+
+vi.mock("@/services/GenerateService", () => ({
+  startDiagramChatModification: vi.fn(),
+  getDiagramlyJobStatus: vi.fn(),
 }));
 
 describe("React AIChatPanel", () => {
@@ -16,6 +22,8 @@ describe("React AIChatPanel", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     vi.mocked(trackAnalyticsEvent).mockClear();
+    vi.mocked(startDiagramChatModification).mockReset();
+    vi.mocked(getDiagramlyJobStatus).mockReset();
   });
 
   afterEach(() => {
@@ -64,6 +72,14 @@ describe("React AIChatPanel", () => {
     });
   }
 
+  async function flushAsyncWork() {
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
   it("fills the input from a suggestion and tracks the selection", () => {
     renderPanel();
     const suggestion = Array.from(container.querySelectorAll("button")).find((button) =>
@@ -109,9 +125,27 @@ describe("React AIChatPanel", () => {
     expect(container.querySelector('[data-testid="react-ai-chat-diff"]')?.textContent).toContain(
       "responses:",
     );
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-diff-expand"]')!);
+    });
+    expect(
+      container.querySelector('[data-testid="react-ai-chat-diff-fullscreen"]')?.textContent,
+    ).toContain("responses:");
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-diff-fullscreen-close"]')!);
+    });
+    expect(container.querySelector('[data-testid="react-ai-chat-diff-fullscreen"]')).toBeNull();
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "ai_chat_change_applied",
       expect.objectContaining({ change_kind: "request", version_id: 2 }),
+    );
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_diff_toggled",
+      expect.objectContaining({ interaction_state: "shown", ui_component: "code_diff_fullscreen" }),
+    );
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_diff_toggled",
+      expect.objectContaining({ interaction_state: "hidden", ui_component: "code_diff_fullscreen" }),
     );
   });
 
@@ -230,5 +264,35 @@ describe("React AIChatPanel", () => {
       "ai_chat_code_visibility_toggled",
       expect.objectContaining({ interaction_state: "shown" }),
     );
+  });
+
+  it("runs a real async Diagramly job and applies returned code", async () => {
+    vi.mocked(startDiagramChatModification).mockResolvedValueOnce({ jobId: "job-1" });
+    vi.mocked(getDiagramlyJobStatus).mockResolvedValueOnce({
+      id: "job-1",
+      status: "COMPLETED",
+      progress: 100,
+      message: "Complete",
+      output: { diagramCode: "openapi: 3.0.0\ninfo:\n  title: Updated" },
+    });
+    const onApplyCode = vi.fn();
+    renderPanel({
+      prototypeMode: false,
+      currentCode: "openapi: 3.0.0\ninfo:\n  title: Original",
+      onApplyCode,
+    });
+
+    submitPrompt("Update the API title");
+    await flushAsyncWork();
+
+    expect(startDiagramChatModification).toHaveBeenCalledWith({
+      diagramCode: "openapi: 3.0.0\ninfo:\n  title: Original",
+      prompt: "Update the API title",
+      diagramType: "openapi",
+      errorMessage: undefined,
+    });
+    expect(onApplyCode).toHaveBeenCalledWith("openapi: 3.0.0\ninfo:\n  title: Updated");
+    expect(container.querySelector('[data-testid="react-ai-change-preview"]')).not.toBeNull();
+    expect(container.textContent).toContain("Changes applied");
   });
 });

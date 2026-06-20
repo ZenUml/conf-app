@@ -1,5 +1,5 @@
 import path, { resolve, dirname } from 'path';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import createVuePlugin from '@vitejs/plugin-vue';
 import { execSync } from "child_process";
 import fs from 'fs'
@@ -68,7 +68,45 @@ function getHtmlFiles(dir, { isBuild = false } = {}) {
   return htmlFiles;
 }
 
-export default defineConfig(({ command }) => ({
+function readEnvValue(filePath, key) {
+  try {
+    if (!fs.existsSync(filePath)) return '';
+    const content = fs.readFileSync(filePath, 'utf8');
+    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = content.match(new RegExp(`^\\s*(?:export\\s+)?${escapedKey}\\s*=\\s*(.*)\\s*$`, 'm'));
+    if (!match) return '';
+
+    const rawValue = match[1].trim();
+    if (
+      (rawValue.startsWith('"') && rawValue.endsWith('"')) ||
+      (rawValue.startsWith("'") && rawValue.endsWith("'"))
+    ) {
+      return rawValue.slice(1, -1);
+    }
+
+    return rawValue.replace(/\s+#.*$/, '').trim();
+  } catch {
+    return '';
+  }
+}
+
+function getDiagramlyLocalApiKey(env) {
+  return env.DIAGRAMLY_LOCAL_API_KEY ||
+    env.DIAGRAMLY_API_KEY ||
+    env.VITE_DIAGRAMLY_LOCAL_API_KEY ||
+    readEnvValue(path.resolve(__dirname, '../diagramly.ai/.env'), 'DIAGRAMLY_API_KEY');
+}
+
+export default defineConfig(({ command, mode }) => {
+  const env = loadEnv(mode, __dirname, '');
+  const diagramlyLocalApiBaseUrl = (
+    env.DIAGRAMLY_LOCAL_API_BASE_URL ||
+    env.VITE_DIAGRAMLY_LOCAL_API_BASE_URL ||
+    'http://127.0.0.1:3000'
+  ).replace(/\/$/, '');
+  const diagramlyLocalApiKey = getDiagramlyLocalApiKey(env);
+
+  return ({
   base: './',
   define: {
     'import.meta.env.PRODUCT_TYPE': JSON.stringify(process.env.PRODUCT_TYPE || 'full'),
@@ -281,6 +319,18 @@ export default defineConfig(({ command }) => ({
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true
       },
+      '/api/chat': {
+        target: diagramlyLocalApiBaseUrl,
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            if (diagramlyLocalApiKey && !proxyReq.getHeader('x-api-key')) {
+              proxyReq.setHeader('x-api-key', diagramlyLocalApiKey);
+              proxyReq.setHeader('x-diagramly-local-debug', 'true');
+            }
+          });
+        },
+      },
       '/attachment': {
         target: 'http://127.0.0.1:8788/',
         changeOrigin: true
@@ -304,4 +354,5 @@ export default defineConfig(({ command }) => ({
     },
     allowedHosts: ['yanhui8080.zenuml.com', '8080.diagramly.net', 'precise-oriented-mink.ngrok-free.app', 'special-lemming-radically.ngrok-free.app', 'poc-fullscreen-app.zenuml.com'],
   }
-}));
+  });
+});

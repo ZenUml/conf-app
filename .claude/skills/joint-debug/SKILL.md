@@ -79,18 +79,10 @@ When user says "enable joint debug" or "start joint debug":
    ];
    ```
 
-6. **Modify `src/components/SyntaxErrorBox.vue`**
-   - Find the `isAiRepairEnabled` computed property
-   - Make it return `true` directly:
-   ```typescript
-   // Computed property to determine if AI repair is enabled
-   const isAiRepairEnabled = computed(() => {
-     // [JOINT-DEBUG-START]
-     return true;
-     // [JOINT-DEBUG-END]
-     // return aiRepairFeatureEnabled.value;  // [JOINT-DEBUG-ORIGINAL]
-   });
-   ```
+6. **Leave AI Repair visibility unchanged**
+   - Do not modify `src/components/SyntaxErrorBox.vue`
+   - Do not force `isAiRepairEnabled` or `shouldShowAiRepair` to return `true`
+   - Joint debug mode should use the existing feature-flag/runtime behavior for AI Repair visibility
 
 7. **Provide script execution instructions to user**
 
@@ -152,9 +144,9 @@ When user says "disable joint debug" or "stop joint debug":
 3. **Revert `functions/_middleware.ts`**
    - Uncomment lines marked with `// [JOINT-DEBUG-DISABLED]`
 
-4. **Revert `src/components/SyntaxErrorBox.vue`**
-   - Remove lines between `// [JOINT-DEBUG-START]` and `// [JOINT-DEBUG-END]`
-   - Uncomment lines marked with `// [JOINT-DEBUG-ORIGINAL]`
+4. **Leave AI Repair visibility unchanged**
+   - No `SyntaxErrorBox.vue` changes should be made or reverted by joint debug mode
+   - If older joint-debug changes exist in `SyntaxErrorBox.vue`, remove only the `[JOINT-DEBUG]` override and restore the normal feature-flag/runtime behavior
 
 **Note**: User should manually stop any running services in their terminals if needed (Ctrl+C in each terminal window).
 

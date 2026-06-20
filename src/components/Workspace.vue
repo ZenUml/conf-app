@@ -15,9 +15,10 @@
             :diagram-type="diagramType"
             :syntax-error="syntaxError"
             :syntax-repair-request-id="syntaxRepairRequestId"
-            prototype-mode
+            :current-code="currentCode"
             @close="closeAIChat"
             @toggle-code="toggleCodeEditor"
+            @apply-code="applyAIChatCode"
           />
         </div>
         <button
@@ -67,6 +68,8 @@
   import SyntaxErrorBox from '@/components/SyntaxErrorBox.vue'
   import AIChatPanel from '@/components/AIChat/AIChatPanel.vue'
   import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+  import { DiagramType } from '@/model/Diagram/Diagram'
+  import { getCodeFromDiagram, getStoreUpdateAction } from '@/model/Diagram/DiagramTypeConfig'
 
   export default {
     name: 'Workspace',
@@ -88,6 +91,9 @@
       syntaxError() {
         return this.$store.state.error?.toString() || ''
       },
+      currentCode() {
+        return getCodeFromDiagram(this.$store.state.diagram, this.diagramType)
+      },
     },
     methods: {
       toggleAIChat() {
@@ -98,6 +104,7 @@
         this.openAIChat('ai_prompt')
       },
       openAIChat(entryPoint: 'ai_prompt' | 'ai_repair') {
+        if (this.diagramType === DiagramType.Graph) return
         if (this.showAIChat) return
         this.destroySplit()
         this.showAIChat = true
@@ -131,6 +138,11 @@
           return
         }
         this.destroySplit()
+      },
+      applyAIChatCode(code: string) {
+        const action = getStoreUpdateAction(this.diagramType)
+        if (!action) return
+        this.$store.dispatch(action, code)
       },
       initializeSplit() {
         if (!this.showCodeEditor) return

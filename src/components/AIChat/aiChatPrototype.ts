@@ -1,3 +1,5 @@
+import * as Diff from 'diff'
+
 export type AIChatChangeKind = 'request' | 'syntax_repair'
 
 export type AIChatSuggestion = {
@@ -19,6 +21,7 @@ export type AIChatChangePreview = {
   kind?: AIChatChangeKind | 'undo' | 'rollback'
   versionId?: number
   previousVersionId?: number
+  updatedCode?: string
 }
 
 export type AIChatMessage = {
@@ -34,6 +37,7 @@ export type AIChatVersion = {
   detail: string
   syntaxResolved: boolean
   time: string
+  code?: string
 }
 
 export const AI_CHAT_SUGGESTIONS: AIChatSuggestion[] = [
@@ -116,6 +120,71 @@ export function createPrototypePreview(
       { type: 'add', code: 'Payment -> Checkout: "payment timeout"' },
     ],
   }
+}
+
+export function createCodePreview(
+  diagramTypeLabel: string,
+  kind: AIChatChangeKind,
+  previousCode: string,
+  updatedCode: string,
+): AIChatChangePreview {
+  const diffLines = buildDiffLines(previousCode, updatedCode)
+  return {
+    title: kind === 'syntax_repair' ? 'Syntax fixed' : 'Changes applied',
+    kind,
+    updatedCode,
+    items: [
+      kind === 'syntax_repair'
+        ? 'Generated a syntax-safe update while preserving the existing diagram intent.'
+        : 'Generated an updated diagram from your request.',
+    ],
+    diffLocation: `${diagramTypeLabel} diagram`,
+    diffLines,
+  }
+}
+
+export function buildDiffLines(previousCode: string, updatedCode: string): AIChatDiffLine[] {
+  const diff = Diff.diffLines(previousCode || '', updatedCode || '')
+  const lines: AIChatDiffLine[] = []
+
+  for (const part of diff) {
+    const type: AIChatDiffLine['type'] = part.added ? 'add' : part.removed ? 'remove' : 'context'
+    const partLines = part.value.replace(/\n$/, '').split('\n')
+    for (const line of partLines) {
+      if (line === '' && partLines.length === 1) continue
+      lines.push({ type, code: line })
+    }
+  }
+
+  return collapseDiffContext(lines)
+}
+
+function collapseDiffContext(lines: AIChatDiffLine[]): AIChatDiffLine[] {
+  if (lines.length <= 80) return lines
+
+  const interesting = new Set<number>()
+  lines.forEach((line, index) => {
+    if (line.type !== 'context') {
+      for (let offset = -3; offset <= 3; offset += 1) {
+        const target = index + offset
+        if (target >= 0 && target < lines.length) interesting.add(target)
+      }
+    }
+  })
+
+  const result: AIChatDiffLine[] = []
+  let lastIndex = -1
+  Array.from(interesting)
+    .sort((a, b) => a - b)
+    .forEach((index) => {
+      if (lastIndex >= 0 && index > lastIndex + 1) {
+        result.push({ type: 'context', code: '...' })
+      }
+      result.push(lines[index])
+      lastIndex = index
+    })
+
+  return result.length ? result : lines.slice(0, 80)
 }
 
 export function formatVersionTime(date = new Date()): string {

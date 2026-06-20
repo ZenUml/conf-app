@@ -9,7 +9,7 @@
     </div>
     <div class="flex items-center gap-3 shrink-0">
       <button
-        v-if="aiChatEnabled"
+        v-if="aiChatAvailable"
         class="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors duration-200"
         :class="
           aiChatOpen
@@ -145,6 +145,9 @@ export default {
     },
     isPublishDisabled: function () {
       return !this.$store.state.diagram.title;
+    },
+    aiChatAvailable: function () {
+      return this.aiChatEnabled && this.diagramType !== DiagramType.Graph;
     },
   },
   methods: {

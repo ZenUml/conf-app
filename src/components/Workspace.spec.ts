@@ -123,4 +123,36 @@ describe('Workspace AI Chat code visibility', () => {
       expect.objectContaining({ entry_point: 'ai_repair', macro_type: 'sequence' }),
     )
   })
+
+  it('does not open AI Chat for Graph diagrams', async () => {
+    const store = createStore({
+      state: {
+        diagram: { diagramType: 'graph' },
+        error: 'Graph syntax error',
+      },
+    })
+
+    const wrapper = shallowMount(Workspace, {
+      global: {
+        plugins: [store],
+        stubs: {
+          Header: true,
+          DiagramPortal: true,
+          SyntaxErrorBox: true,
+          AIChatPanel: true,
+          Editor: true,
+          editor: true,
+        },
+      },
+    })
+
+    ;(wrapper.vm as any).toggleAIChat()
+    await wrapper.vm.$nextTick()
+
+    expect((wrapper.vm as any).showAIChat).toBe(false)
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+      'ai_chat_opened',
+      expect.objectContaining({ macro_type: 'graph' }),
+    )
+  })
 })

@@ -1,15 +1,40 @@
 const typeMap = {
-  'sequence': {diagramType: 'sequence', languageKey: 'LANG_ZENUML'},
+  'sequence': {diagramType: 'sequence', languageKey: 'LANG_ZENUML', subTypeKey: "GENERAL"},
   'mermaid': {diagramType: 'flow', languageKey: 'LANG_MERMAID', subTypeKey: "FLOWCHART"},
-  'OpenAPI': {diagramType: 'openapi', languageKey: 'LANG_OPENAPI'},
-  'plantuml': {diagramType: 'plantuml', languageKey: 'LANG_PLANTUML'},
+  'OpenAPI': {diagramType: 'openapi', languageKey: 'LANG_OPENAPI', subTypeKey: "GENERAL"},
+  'openapi': {diagramType: 'openapi', languageKey: 'LANG_OPENAPI', subTypeKey: "GENERAL"},
+  'plantuml': {diagramType: 'plantuml', languageKey: 'LANG_PLANTUML', subTypeKey: "GENERAL"},
+}
+
+function getTypeInfo(diagramType = 'sequence') {
+  const typeInfo = typeMap[diagramType];
+  if (!typeInfo) {
+    throw new Error(`Unsupported diagram type for AI Chat: ${diagramType}`);
+  }
+  return typeInfo;
+}
+
+function extractJobId(result) {
+  const jobId = result?.jobId || result?.data?.jobId || result?.id;
+  if (!jobId) {
+    console.error('[modifyDiagram] No jobId found in response:', result);
+    throw new Error('No jobId returned from Diagramly API');
+  }
+  return jobId;
 }
 
 // Asynchronous diagram modification - returns jobId for polling
-export async function modifyDiagram(context, diagramCode, errorMessage, diagramType = 'sequence') {
-  const typeInfo = typeMap[diagramType];
-
-  const command = `Please resolve the issue with minimal code modifications. Preserve the original style and comments. Only address the errors; if the code lacks clarity, use the fewest words possible to improve it.`;
+export async function modifyDiagramWithCommand(
+  context,
+  diagramCode,
+  command,
+  errorMessage,
+  diagramType = 'sequence'
+) {
+  const typeInfo = getTypeInfo(diagramType);
+  if (!command?.trim()) {
+    throw new Error('Missing diagram modification command');
+  }
 
   const diagramData = {
     diagramCode,
@@ -22,14 +47,13 @@ export async function modifyDiagram(context, diagramCode, errorMessage, diagramT
 
   const result = await callDiagramly(context, `/api/chat/modify-async`, diagramData);
 
-  const jobId = result?.jobId || result?.data?.jobId || result?.id;
+  return { jobId: extractJobId(result) };
+}
 
-  if (!jobId) {
-    console.error('[modifyDiagram] No jobId found in response:', result);
-    throw new Error('No jobId returned from Diagramly API');
-  }
+export async function modifyDiagram(context, diagramCode, errorMessage, diagramType = 'sequence') {
+  const command = `Please resolve the issue with minimal code modifications. Preserve the original style and comments. Only address the errors; if the code lacks clarity, use the fewest words possible to improve it.`;
 
-  return { jobId };
+  return modifyDiagramWithCommand(context, diagramCode, command, errorMessage, diagramType);
 }
 
 export async function chat(context, messages) {
@@ -70,7 +94,7 @@ export async function callDiagramly(context, uri, payload) {
 
   try {
     const userId = context.accountId;
-    const teamId = context.cloudId;
+    const teamId = context.teamId || context.cloudId;
 
     const diagramlyApiKey = context.env.DIAGRAMLY_API_KEY;
     if(!diagramlyApiKey) {

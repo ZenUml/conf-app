@@ -11,6 +11,7 @@ vi.mock('@/apis/aiFeatureFlags', () => ({
 
 describe('Header', () => {
   beforeEach(() => {
+    store.commit('updateDiagramType', DiagramType.Sequence)
     vi.mocked(isAiChatEnabled).mockResolvedValue(true)
     vi.mocked(isAiTitleEnabled).mockResolvedValue(true)
   })
@@ -66,6 +67,19 @@ describe('Header', () => {
 
   it('hides AI chat when the AI feature flag is disabled', async () => {
     vi.mocked(isAiChatEnabled).mockResolvedValue(false)
+
+    const headerWrapper = mount(Header, {
+      global: {
+        plugins: [store]
+      }
+    })
+    await flushPromises()
+
+    expect(headerWrapper.find('[data-testid="ai-chat-toggle"]').exists()).toBe(false)
+  })
+
+  it('hides AI chat for Graph diagrams', async () => {
+    store.commit('updateDiagramType', DiagramType.Graph)
 
     const headerWrapper = mount(Header, {
       global: {

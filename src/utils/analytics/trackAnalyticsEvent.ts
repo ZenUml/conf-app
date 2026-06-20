@@ -15,6 +15,9 @@ let _initialized = false;
 let _identified = false;
 
 function _initMixpanel() {
+  if (import.meta.env.MODE !== "test" && import.meta.env.VITE_MIXPANEL_TOKEN === "") {
+    return false;
+  }
   if (!_initialized) {
     const cloudId = forgeGlobal.forgeContext?.cloudId ?? "";
     const isHighReplayClient = cloudId === "d1b3810b-db2f-4f83-8ec3-90f60944e570";
@@ -29,6 +32,7 @@ function _initMixpanel() {
     });
     _initialized = true;
   }
+  return true;
 }
 
 function _getCurrentUserAccountId(): string {
@@ -137,7 +141,7 @@ export async function _awaitableTrackAnalyticsEvent(
   callerProps: AnalyticsProperties
 ): Promise<void> {
   try {
-    _initMixpanel();
+    if (!_initMixpanel()) return;
     _identify();
 
     const contentIds = _getContentIdentifiers();

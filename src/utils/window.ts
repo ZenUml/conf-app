@@ -11,6 +11,9 @@ let identified = false;
 const unknownUserAccountId  = "unknown_user_account_id";
 
 const initMixpanel = () => {
+  if (import.meta.env.MODE !== 'test' && import.meta.env.VITE_MIXPANEL_TOKEN === '') {
+    return false;
+  }
   if(!initialized) {
     mixpanel.init(import.meta.env.VITE_MIXPANEL_TOKEN, {
       debug: true,
@@ -21,6 +24,7 @@ const initMixpanel = () => {
     });
     initialized = true;
   }
+  return true;
 };
 
 const mixpanelIdentify = () => {
@@ -105,7 +109,7 @@ export async function _awaitableTrackEvent(
     console.warn(`[analytics] Legacy action "${action}" was migrated to trackAnalyticsEvent — use that instead.`);
   }
   try {
-    initMixpanel();
+    if (!initMixpanel()) return;
     mixpanelIdentify();
 
     let eventDetails = {

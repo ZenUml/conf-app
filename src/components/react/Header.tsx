@@ -184,9 +184,9 @@ const Component = ({ saveAndExit, exit }: Props) => {
 
   return (
     <header className="toolbar header border-b border-gray-800 p-2 flex items-center justify-between w-full">
-      <div className="flex flex-col">
+      <div className="flex flex-col flex-1 min-w-0 max-w-2xl mr-2">
         <input
-          className="px-1 border-2 border-solid border-[#091e4224] rounded-[3px] focus:border-[#388bff] hover:border-[#388bff] outline-none transition-[border-color] leading-7"
+          className="w-full px-1 border-2 border-solid border-[#091e4224] rounded-[3px] focus:border-[#388bff] hover:border-[#388bff] outline-none transition-[border-color] leading-7"
           type="text"
           placeholder="Title"
           value={title}

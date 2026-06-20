@@ -174,6 +174,8 @@
 import { ref, watch, computed, nextTick, onUnmounted, onBeforeUnmount, Directive } from 'vue';
 import * as Diff from 'diff';
 import { startFixDiagram, getFixDiagramStatus } from "@/services/GenerateService";
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import type { MacroTypeValue } from '@/utils/analytics/catalog';
 
 const props = defineProps({
   showDialog: Boolean,
@@ -369,6 +371,15 @@ const getFinalCode = () => {
 const applyRepair = () => {
   if (diffRows.value.length > 0) {
     const finalCode = getFinalCode();
+    wasApplied.value = true;
+    const hasModifiedLines = diffRows.value.some(r => r.customContent !== null);
+    const hasRejectedLines = diffRows.value.some(r => r.hasChange && !r.accepted);
+    trackAnalyticsEvent('ai_repair_applied', {
+      feature_area: 'ai',
+      surface: 'modal',
+      macro_type: macroType.value,
+      result: hasModifiedLines || hasRejectedLines ? 'applied_modified' : 'applied_as_is',
+    });
     emit('apply', finalCode);
     closeDialog();
   }
@@ -441,11 +452,21 @@ const repairStatus = ref<string>('');
 const repairProgress = ref<number>(0);
 const currentJobId = ref<string | null>(null);
 let pollIntervalId: number | null = null;
+const wasApplied = ref(false);
+const macroType = computed(
+  () => (props.diagramType?.toString().toLowerCase() ?? 'none') as MacroTypeValue
+);
 
 const triggerAiRepair = async () => {
   try {
     repairStatus.value = 'Starting AI repair...';
     repairProgress.value = 0;
+    trackAnalyticsEvent('ai_repair_requested', {
+      feature_area: 'ai',
+      surface: 'modal',
+      macro_type: macroType.value,
+      prompt_length: (props.originalCode || '').length,
+    });
 
     const { jobId } = await startFixDiagram(
       props.originalCode || '',
@@ -459,6 +480,12 @@ const triggerAiRepair = async () => {
   } catch (err: any) {
     repairResult.value = `// Error: ${err.message}`;
     repairStatus.value = `Error: ${err.message}`;
+    trackAnalyticsEvent('ai_repair_failed', {
+      feature_area: 'ai',
+      surface: 'modal',
+      macro_type: macroType.value,
+      failure_reason: err.message,
+    });
     stopPolling();
   }
 };
@@ -489,6 +516,11 @@ const startPolling = (jobId: string) => {
         } else {
           throw new Error('Job completed but no diagram code in output');
         }
+        trackAnalyticsEvent('ai_repair_succeeded', {
+          feature_area: 'ai',
+          surface: 'modal',
+          macro_type: macroType.value,
+        });
         stopPolling();
         return;
       } else if (status.status === 'FAILED') {
@@ -506,6 +538,12 @@ const startPolling = (jobId: string) => {
       console.error('[AIRepair] Polling error:', err.message);
       repairResult.value = `// Error: ${err.message}`;
       repairStatus.value = `Error: ${err.message}`;
+      trackAnalyticsEvent('ai_repair_failed', {
+        feature_area: 'ai',
+        surface: 'modal',
+        macro_type: macroType.value,
+        failure_reason: err.message,
+      });
       stopPolling();
     }
   };
@@ -525,7 +563,15 @@ const stopPolling = () => {
 };
 
 const closeDialog = () => {
-  stopPolling(); // Stop polling when dialog closes
+  stopPolling();
+  if (!wasApplied.value && repairResult.value !== null) {
+    trackAnalyticsEvent('ai_repair_dismissed', {
+      feature_area: 'ai',
+      surface: 'modal',
+      macro_type: macroType.value,
+    });
+  }
+  wasApplied.value = false;
   emit('close');
   repairResult.value = null;
   diffRows.value = [];

@@ -2,6 +2,7 @@ import { FeatureFlags, type FeatureFlagUser, type ForgeFeatureFlagConfig } from 
 import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
 
 const AI_TITLE_FLAG_ID = 'ai-title-enabled'
+const AI_REPAIR_FLAG_ID = 'ai-repair-enabled'
 
 let featureFlags: FeatureFlags | undefined
 let initializePromise: Promise<FeatureFlags> | undefined
@@ -9,6 +10,14 @@ let initializePromise: Promise<FeatureFlags> | undefined
 function standaloneAiTitleEnabled(): boolean {
   try {
     return localStorage.getItem('mockAiTitleEnabled') !== 'false'
+  } catch {
+    return true
+  }
+}
+
+function standaloneAiRepairEnabled(): boolean {
+  try {
+    return localStorage.getItem('mockAiRepairEnabled') !== 'false'
   } catch {
     return true
   }
@@ -56,6 +65,13 @@ export async function isAiTitleEnabled(): Promise<boolean> {
 
   const client = await getFeatureFlagsClient()
   return client.checkFlag(AI_TITLE_FLAG_ID, false)
+}
+
+export async function isAiRepairEnabled(): Promise<boolean> {
+  if (!forgeGlobal.isForge) return standaloneAiRepairEnabled()
+
+  const client = await getFeatureFlagsClient()
+  return client.checkFlag(AI_REPAIR_FLAG_ID, false)
 }
 
 export function resetAiTitleFlagForTests(): void {

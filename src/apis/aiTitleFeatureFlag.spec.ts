@@ -34,7 +34,7 @@ vi.mock('@forge/bridge', () => ({
   }),
 }))
 
-import { isAiTitleEnabled, resetAiTitleFlagForTests } from './aiTitleFeatureFlag'
+import { isAiTitleEnabled, isAiRepairEnabled, resetAiTitleFlagForTests } from './aiTitleFeatureFlag'
 
 describe('isAiTitleEnabled', () => {
   beforeEach(() => {
@@ -96,5 +96,46 @@ describe('isAiTitleEnabled', () => {
     featureFlagsState.initializeError = undefined
     await expect(isAiTitleEnabled()).resolves.toBe(true)
     expect(featureFlagsState.instances).toHaveLength(2)
+  })
+})
+
+describe('isAiRepairEnabled', () => {
+  beforeEach(() => {
+    resetAiTitleFlagForTests()
+    forgeState.isForge = true
+    forgeState.context = {
+      cloudId: 'cloud-1',
+      accountId: 'account-1',
+      environmentType: 'STAGING',
+    }
+    featureFlagsState.instances = []
+    featureFlagsState.nextValue = true
+    featureFlagsState.initializeError = undefined
+    localStorage.clear()
+  })
+
+  it('checks the Forge ai-repair-enabled flag using site, account, and environment context', async () => {
+    await expect(isAiRepairEnabled()).resolves.toBe(true)
+
+    const instance = featureFlagsState.instances[0]
+    expect(instance.checkFlag).toHaveBeenCalledWith('ai-repair-enabled', false)
+  })
+
+  it('reuses the initialized Forge client shared with ai-title-enabled', async () => {
+    await isAiRepairEnabled()
+    await isAiRepairEnabled()
+
+    expect(featureFlagsState.instances).toHaveLength(1)
+    expect(featureFlagsState.instances[0].initialize).toHaveBeenCalledTimes(1)
+    expect(featureFlagsState.instances[0].checkFlag).toHaveBeenCalledTimes(2)
+  })
+
+  it('defaults to enabled in standalone local dev unless localStorage disables it', async () => {
+    forgeState.isForge = false
+    await expect(isAiRepairEnabled()).resolves.toBe(true)
+
+    localStorage.setItem('mockAiRepairEnabled', 'false')
+    await expect(isAiRepairEnabled()).resolves.toBe(false)
+    expect(featureFlagsState.instances).toHaveLength(0)
   })
 })

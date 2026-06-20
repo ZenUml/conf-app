@@ -62,7 +62,7 @@ import { useStore } from "vuex";
 import AIRepair from "@/components/AIRepair.vue";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
-import { isAiTitleEnabled } from '@/apis/aiTitleFeatureFlag';
+import { isAiRepairEnabled as checkAiRepairEnabled } from '@/apis/aiTitleFeatureFlag';
 const store = useStore();
 const showAIRepairDialog = ref(false);
 const aiRepairFeatureEnabled = ref(false);
@@ -86,7 +86,7 @@ const handleApplyRepair = (repairedCode) => {
 // Load the AI repair feature flag when component mounts
 onMounted(async () => {
   try {
-    aiRepairFeatureEnabled.value = await isAiTitleEnabled();
+    aiRepairFeatureEnabled.value = await checkAiRepairEnabled();
   } catch (error) {
     console.error('Failed to load AI repair feature flag:', error);
     aiRepairFeatureEnabled.value = false;

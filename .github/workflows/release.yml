@@ -248,9 +248,11 @@ jobs:
       app: ${{ needs.release.outputs.license == 'lite' && 'zenuml-lite@prod' || needs.release.outputs.license == 'full' && 'zenuml-full@prod' || 'diagramly@prod' }}
       suite: insert
       artifact-suffix: ${{ needs.release.outputs.license }}-prod-smoke
-      username: ${{ vars.ZENUML_PROD_USERNAME }}
-      password: ${{ vars.ZENUML_PROD_PASSWORD }}
-      otp: ${{ vars.ATLASSIAN_OTP }}
       # Post-deploy smoke: a cold-render wedge can't pass on retry, so retries
       # just burn the shard's 8-min budget. Fail fast (with trace) instead.
       retries: '1'
+    # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
+    secrets:
+      username: ${{ vars.ZENUML_PROD_USERNAME }}
+      password: ${{ vars.ZENUML_PROD_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}

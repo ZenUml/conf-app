@@ -131,6 +131,8 @@ jobs:
       app: zenuml-lite@stg
       suite: insert
       artifact-suffix: lite-stg
+    # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
+    secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}
@@ -158,6 +160,7 @@ jobs:
       app: zenuml-full@stg
       suite: insert
       artifact-suffix: full-stg
+    secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}
@@ -220,6 +223,7 @@ jobs:
       app: asyncapi@stg
       suite: asyncapi
       artifact-suffix: asyncapi-stg
+    secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}
@@ -233,6 +237,7 @@ jobs:
       app: diagramly@stg
       suite: insert
       artifact-suffix: diagramly-stg
+    secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}

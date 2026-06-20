@@ -13,6 +13,8 @@ jobs:
       app: zenuml-lite@prod
       suite: insert
       artifact-suffix: lite-prod-smoke
+    # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
+    secrets:
       username: ${{ vars.ZENUML_PROD_USERNAME }}
       password: ${{ vars.ZENUML_PROD_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}
@@ -25,6 +27,7 @@ jobs:
       app: zenuml-full@prod
       suite: insert
       artifact-suffix: full-prod-smoke
+    secrets:
       username: ${{ vars.ZENUML_PROD_USERNAME }}
       password: ${{ vars.ZENUML_PROD_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}
@@ -37,6 +40,7 @@ jobs:
       app: diagramly@prod
       suite: insert
       artifact-suffix: diagramly-prod-smoke
+    secrets:
       username: ${{ vars.ZENUML_PROD_USERNAME }}
       password: ${{ vars.ZENUML_PROD_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}

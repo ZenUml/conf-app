@@ -17,18 +17,6 @@ on:
       node-version:
         type: string
         default: '24.x'
-      username:
-        type: string
-        required: true
-        description: 'Confluence username used by the Playwright auth bootstrap'
-      password:
-        type: string
-        required: true
-        description: 'Confluence password used by the Playwright auth bootstrap'
-      otp:
-        type: string
-        required: true
-        description: 'TOTP secret used by tests/e2e-tests/utils/otp.js'
       retries:
         type: string
         default: ''
@@ -38,6 +26,23 @@ on:
           a cold-render content-verify wedge cannot pass on retry (the render is
           cold on every attempt), so the config default (2 on CI) just burns the
           shard's 8-min budget toward a reap. Empty = keep the config default.
+    # Credentials are SECRETS, not inputs. A reusable workflow's `inputs` are
+    # echoed verbatim in the run logs (GitHub does not mask them), so the
+    # Atlassian username/password and the TOTP seed leaked into every E2E log
+    # when passed via `with:`. Declaring them under `secrets:` means GitHub
+    # registers the values for masking and renders them as `***`. Callers pass
+    # them through a job-level `secrets:` block (sourced from repo vars.*),
+    # never `with:`.
+    secrets:
+      username:
+        required: true
+        description: 'Confluence username used by the Playwright auth bootstrap'
+      password:
+        required: true
+        description: 'Confluence password used by the Playwright auth bootstrap'
+      otp:
+        required: true
+        description: 'TOTP secret used by tests/e2e-tests/utils/otp.js'
 
 # Auth is DEDUPLICATED. A single `auth` job logs in once and uploads the
 # Playwright storageState as an artifact; every shard downloads it, so
@@ -109,9 +114,9 @@ jobs:
         env:
           APP: ${{ inputs.app }}
           CI: true
-          ZENUML_STAGE_USERNAME: ${{ inputs.username }}
-          ZENUML_STAGE_PASSWORD: ${{ inputs.password }}
-          ATLASSIAN_OTP: ${{ inputs.otp }}
+          ZENUML_STAGE_USERNAME: ${{ secrets.username }}
+          ZENUML_STAGE_PASSWORD: ${{ secrets.password }}
+          ATLASSIAN_OTP: ${{ secrets.otp }}
       - name: Upload shared auth state
         uses: actions/upload-artifact@v6
         with:
@@ -213,9 +218,9 @@ jobs:
         env:
           APP: ${{ inputs.app }}
           CI: true
-          ZENUML_STAGE_USERNAME: ${{ inputs.username }}
-          ZENUML_STAGE_PASSWORD: ${{ inputs.password }}
-          ATLASSIAN_OTP: ${{ inputs.otp }}
+          ZENUML_STAGE_USERNAME: ${{ secrets.username }}
+          ZENUML_STAGE_PASSWORD: ${{ secrets.password }}
+          ATLASSIAN_OTP: ${{ secrets.otp }}
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v6

@@ -1,26 +1,50 @@
 import { response, OkResponse } from "./OkResponse";
 import { getCustomContentFromConfluenceForForge } from "./utils/confluenceUtils";
 import { upsertAtlassianInstance } from "./utils/dbUtils";
+import { captureError } from "./utils/sentry";
 
 export interface Env {
   DB: D1Database;
 }
 
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 export const onRequest = async ({ request, env }) => {
+  // Input validation — return parseable 4xx JSON, never throw into a generic 500.
+  const forgeOAuthUser = request.headers.get('x-forge-oauth-user');
+  if (!forgeOAuthUser) {
+    return response(400, 'Missing x-forge-oauth-user header - not a valid Forge request');
+  }
+
+  let body: any;
   try {
-    const apiBaseUrl = env.FORGE_CONTEXT.apiBaseUrl;
-    const forgeAppId = env.FORGE_CONTEXT.forgeAppId;
-    console.log('Using apiBaseUrl from forge token:', apiBaseUrl);
+    body = await request.json();
+  } catch (e) {
+    return response(400, 'Invalid JSON body');
+  }
 
-    const forgeOAuthUser = request.headers.get('x-forge-oauth-user');
-    if (!forgeOAuthUser) {
-      throw 'Missing x-forge-oauth-user header - not a valid Forge request';
-    }
+  const apiBaseUrl = env.FORGE_CONTEXT?.apiBaseUrl;
+  const forgeAppId = env.FORGE_CONTEXT?.forgeAppId;
+  console.log('Using apiBaseUrl from forge token:', apiBaseUrl);
 
-    const body: any = await request.json();
+  // Best-effort re-fetch of the just-saved custom content. Confluence is the
+  // system of record; mirroring into D1 is telemetry only. If the re-fetch
+  // fails (user OAuth grant missing/expired → 401/403, content already gone →
+  // 404, or a transient upstream 5xx), that is NOT a server error: return a
+  // parseable 2xx so the client's best-effort sync does not log a (previously
+  // masked) error event. This is the expected, non-actionable case and was the
+  // most likely trigger of the historical text/plain 500s (conf-app#267).
+  let customContent: any;
+  try {
+    customContent = await getCustomContentFromConfluenceForForge(apiBaseUrl, body.contentId, forgeOAuthUser);
+  } catch (e) {
+    console.warn('Skipping custom-content sync; Confluence re-fetch failed:', e);
+    return OkResponse({ synced: false, reason: 'content_fetch_failed', detail: errMessage(e) });
+  }
 
-    const customContent = await getCustomContentFromConfluenceForForge(apiBaseUrl, body.contentId, forgeOAuthUser);
-
+  try {
     // Version insert is idempotent (skips when the version row is already
     // recorded); the CustomContent upsert must run unconditionally so the
     // macroUuid/diagramType backfill still happens on retries, and so we
@@ -36,8 +60,13 @@ export const onRequest = async ({ request, env }) => {
 
     return OkResponse();
   } catch (error) {
-    console.error('Error in forge-custom-content:', error);
-    return response(500, 'Internal server error');
+    // Unexpected failure (e.g. a D1 write) — unlike the benign re-fetch case
+    // above, this is a real server-side defect. Surface it, but as parseable
+    // JSON carrying the real message so the client's error event captures the
+    // true cause instead of a generic content-type complaint.
+    console.error('Error in forge-custom-content (D1 write):', error);
+    captureError(error);
+    return response(500, `Internal server error: ${errMessage(error)}`);
   }
 };
 

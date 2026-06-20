@@ -82,6 +82,20 @@ describe('window utils', async () => {
       expect(call).toBeTruthy()
       expect(call![1]).not.toHaveProperty('sample_rate')
     })
+
+    it('never down-samples error events, even for a sampled action (conf-app#267)', async () => {
+      // `sync_custom_content` is configured at rate 0.1, but its *error* path
+      // must always emit so failures are not under-counted ~10×.
+      const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.99) // would drop a 0.1 action
+      await _awaitableTrackEvent('boom', 'sync_custom_content', 'error')
+      const call = vi
+        .mocked(mixpanel.track)
+        .mock.calls.find((c) => c[0] === 'sync_custom_content')
+      expect(call).toBeTruthy()
+      expect(call![1]).toMatchObject({ event_category: 'error', event_label: 'boom' })
+      expect(call![1]).not.toHaveProperty('sample_rate') // emitted at full rate
+      rnd.mockRestore()
+    })
   })
 
   describe('getUrlParam', () => {

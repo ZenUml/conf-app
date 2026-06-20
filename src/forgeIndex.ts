@@ -785,6 +785,42 @@ EventBus.$on('save', async () => {
     endEditJourney('saved');
   }
 
+  // #212: create the diagram-backup attachment deterministically at SAVE time,
+  // rather than relying on a later display-mode view firing. Production data
+  // showed ~33% of created macros never trigger a qualifying view, so their
+  // backup PNG is never generated and PDF/Word export later fails with
+  // attachment_not_found. At save the user has write permission (no 403) and the
+  // content is known, so we can write it directly.
+  //
+  // Scope: the zenuml-sequence-macro family (sequence/mermaid/plantuml) only —
+  // it's the one editor with a capturable preview (.screen-capture-content).
+  // graph/openapi editors have no diagram to snapshot here (tracked separately).
+  //
+  // Fail-safe + time-boxed: a backup is best-effort and must NEVER break or hang
+  // the publish. Runs before view.submit (which tears down the iframe). If it
+  // exceeds the cap or throws, we proceed to submit anyway — the view-time path
+  // remains as a backfill.
+  const savedDiagramType = store.state.diagram.diagramType;
+  if (id && (savedDiagramType === 'sequence' || savedDiagramType === 'mermaid' || savedDiagramType === 'plantuml')) {
+    try {
+      const createAttachmentIfContentChanged = await createAttachmentIfContentChangedPromise;
+      await Promise.race([
+        createAttachmentIfContentChanged(store.state.diagram.code ?? '', savedDiagramType, {
+          customContentId: String(id),
+          fromSave: true,
+        }),
+        // Cap chosen to actually AWAIT the upload (render + POST + properties PUT
+        // ~2–5s on staging) so it completes before view.submit tears down the
+        // iframe. A 2.5s cap abandoned the await early and risked aborting the
+        // in-flight write (verified on lite-stg: the create finished ~just after
+        // a 2.5s race fired).
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('save-attachment timeout')), 8000)),
+      ]);
+    } catch (e) {
+      console.warn('save-time attachment creation skipped (non-fatal):', (e as Error)?.message ?? e);
+    }
+  }
+
   // ZEN-1170 Defect 2b: repair stale macro XML when we saved against the
   // recovered sibling id. view.submit({config:...}) only persists back to
   // the macro XML in surfaces where the parent is the macro-config editor —

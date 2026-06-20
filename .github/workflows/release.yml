@@ -121,11 +121,12 @@ jobs:
       # get-started / byline modules, and grant `unsafe-eval` in CSP so
       # Studio's runtime schema compilation works inside Forge's iframe.
       # Mirrors the asyncapi block in scripts/forge-wizard.mjs.
-      - name: Remove non-asyncapi macros from manifest (AsyncAPI)
+      - name: Remove non-asyncapi macros from manifest (AsyncAPI; keep asyncapi + openapi)
         if: ${{ steps.properties.outputs.license == 'asyncapi' }}
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi") | not))' -i manifest.yml
+          # Keep the asyncapi macros AND the OpenAPI macro — see scripts/forge-wizard.mjs.
+          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi|zenuml-openapi-macro") | not))' -i manifest.yml
       - name: Remove globalSettings + globalPage + contentBylineItem (AsyncAPI uses spacePage only)
         if: ${{ steps.properties.outputs.license == 'asyncapi' }}
         uses: mikefarah/yq@master

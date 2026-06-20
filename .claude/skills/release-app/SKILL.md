@@ -1,58 +1,63 @@
 ---
 name: release-app
 description: >
-  Release ZenUML Forge apps (lite, full, and/or diagramly) to production via the full CI/CD pipeline.
+  Release ZenUML Forge apps (lite, full, diagramly, and/or asyncapi) to production via the full CI/CD pipeline.
   Reuses an existing fresh draft release when available (the common case after a recent merge),
   composes delta-derived release notes (replacing the auto-draft placeholder), publishes it to
   production, verifies with PVT, then runs a spot check — targeted coverage for what shipped this
   iteration (not keyword→skill matching alone). Falls back to triggering a
   fresh build via a changelog push only when no recent draft exists.
-  Use when the user wants to release, deploy, ship, or push the lite, full, or diagramly Forge app to
-  production. Triggers on "release lite", "release full", "release diagramly", "deploy to prod",
+  Use when the user wants to release, deploy, ship, or push the lite, full, diagramly, or asyncapi Forge app to
+  production. Triggers on "release lite", "release full", "release diagramly", "release asyncapi", "deploy to prod",
   "ship forge app", "push to production", "release forge app", "release app", or any request to
   promote staging builds to production for the conf-app project.
 ---
 
 # Release Forge App to Production
 
-End-to-end release pipeline for ZenUML Forge apps (lite, full, and/or diagramly) in the conf-app project.
+End-to-end release pipeline for ZenUML Forge apps (lite, full, diagramly, and asyncapi) in the conf-app project.
 
 ## Arguments
 
-Usage: `/release-app [lite] [full] [diagramly]`
+Usage: `/release-app [lite] [full] [diagramly] [asyncapi]`
 
-- If no variant specified, release **all three** — in canary order **diagramly → lite → full** (see "Release order" below).
-- User can specify one or more variants to release only those.
+- **If no variant is specified, STOP and ASK which variant(s) to release. Do NOT release anything by default.** There is no "release all" default — an unscoped invocation is a question to the user, never a command to ship.
+- The user must name one or more variants. Release **only** the named variant(s) — never a variant the user didn't name. `/release-app lite` releases lite and nothing else; do **not** continue to full (or any other tier) afterward. An explicit variant is not authorization for adjacent tiers.
+- `asyncapi` has **no canary ordering or timing constraint** — it can be released at any time, independently of the other three (see "Release order").
 
 ## Variant Configuration
 
-| Variant | Staging Site | Production Site | Draft Tag Pattern |
-|---------|-------------|-----------------|-------------------|
-| lite | `zenuml-stg.atlassian.net` | `zenuml.atlassian.net` | `v{version}-lite` |
-| full | `zenuml-stg.atlassian.net` | `zenuml.atlassian.net` | `v{version}-full` |
-| diagramly | `zenuml-stg.atlassian.net` | `zenuml.atlassian.net` | `v{version}-diagramly` |
+| Variant | Staging Site | Production Site | Draft Tag Pattern | Canary constraint |
+|---------|-------------|-----------------|-------------------|-------------------|
+| diagramly | `zenuml-stg.atlassian.net` | `zenuml.atlassian.net` | `v{version}-diagramly` | canary — release first |
+| lite | `zenuml-stg.atlassian.net` | `zenuml.atlassian.net` | `v{version}-lite` | after diagramly (same `{version}`) |
+| full | `zenuml-stg.atlassian.net` | `zenuml.atlassian.net` | `v{version}-full` | **≥ 1 week after lite** (same commit) |
+| asyncapi | `asyncapi-stg.atlassian.net` | Forge prod — **no prod tenant yet** (PVT N/A) | `v{version}-asyncapi` | **none — release any time** |
 
-All three variants are Forge apps deployed to the same Confluence sites. On production (`zenuml.atlassian.net`), all three coexist — they're distinguished by their addon keys and macro names.
+lite, full, and diagramly are Forge apps deployed to the same Confluence site (`zenuml.atlassian.net`), distinguished by their addon keys and macro names. asyncapi is a separate Forge app ("AsyncAPI for Confluence"); it shares the `conf-lite` Cloudflare Pages project for now and has **no production Confluence tenant we control**, so its post-release prod smoke / PVT is skipped (see Step 5).
 
-## Release order — canary sequence (diagramly → lite → full)
+## Release order — canary sequence (diagramly → lite → full); asyncapi is independent
 
-Releases go low-risk first. When releasing more than one variant (including the no-arg "all three"), publish in this sequence; when releasing a single variant, the **prerequisite gate** below still applies.
+Releases go low-risk first, by user count. This ordering applies to the three co-installed variants (diagramly, lite, full). **asyncapi is outside the canary** — separate app, no shared user base — so it has no prerequisite and no soak and can be released at any time.
 
 1. **Diagramly** — first. It has the **fewest users**, so it's the canary: its publish + PVT + spot check prove the build is safe on real production before more users are exposed.
 2. **Lite** — second. Free users; a larger base than Diagramly.
-3. **Full** — last. **Paying users** — a regression here hits customers who pay, so Full gets the most caution and only ships after the lower-risk tiers are validated.
+3. **Full** — last, and **never in the same session as lite**. **Paying users** — a regression here hits customers who pay. Full ships only after lite for the **same commit** has soaked in production for **at least 1 week** (see gate below).
 
 ### Prerequisite gate
 
-All three variants are built from the **same commit and share the same `{version}`**. Before publishing a tier, confirm the lower-risk tier for the *same `{version}`* is already **published** (not a draft):
+diagramly, lite, and full for a given build share the **same commit and `{version}`**. Before publishing a tier, confirm its prerequisite:
 
-| Publishing | Prerequisite (same `{version}`) |
+| Publishing | Prerequisite (same `{version}` / commit) |
 |---|---|
 | diagramly | none — it's the canary |
-| lite | `v{version}-diagramly` published |
-| full | `v{version}-lite` published |
+| lite | `v{version}-diagramly` **published** |
+| full | `v{version}-lite` **published ≥ 7 days ago** |
+| asyncapi | none — release any time, no soak |
 
-(`full`'s check on `lite` is transitive — `lite` can't have published without `diagramly`.) If the prerequisite is still a draft or absent, **stop and report**: name the required order and offer to release the prerequisite tier(s) first. Proceed out of order **only** if the user explicitly asks (e.g. a Full-only hotfix). In an all-variants run, satisfy the gate by completing each tier's full cycle — publish → Step 4 → PVT (Step 5) → spot check (Step 5.5) — **before** starting the next tier.
+(`full`'s check on `lite` is transitive — `lite` can't have published without `diagramly`.) The 1-week full gate is a **hard soak**: full for a commit therefore **cannot** be released in the same run as lite — it is always a separate, later invocation. If a prerequisite is still a draft, absent, or (for full) published less than 7 days ago, **stop and report**: name what's missing and, for the soak, how many days remain. Proceed early **only** if the user explicitly overrides (e.g. a Full-only hotfix).
+
+There is **no "release all variants" run.** Diagramly and lite for one commit may be released in the same session (diagramly first, validated, then lite). Full always waits out the soak; asyncapi is released on its own whenever asked.
 
 ## Pipeline Steps
 
@@ -106,11 +111,11 @@ Whether the run was triggered by a real merge (Step 1) or your changelog push (S
 
 The workflow runs these jobs on main:
 - Build and unit test
-- Deploy 3 variants to staging (lite, full, diagramly)
-- E2E tests on all 3 staging variants
-- Create 3 draft releases (lite, full, diagramly)
+- Deploy variants to staging (lite, full, diagramly, asyncapi)
+- E2E tests on the staging variants
+- Create draft releases (lite, full, diagramly, asyncapi)
 
-If only some variants succeeded (e.g. lite is still deploying but full and diagramly are done), you can publish the completed ones immediately.
+If only some variants succeeded (e.g. lite is still deploying but full and diagramly are done), you can publish the completed ones immediately — subject to the canary gates (see "Release order").
 
 ### Step 3: Add release notes, then publish the Draft Release
 
@@ -118,21 +123,33 @@ The draft releases are auto-created by the build workflow with a **generic place
 
 For each variant being released:
 
-#### 3.0 Prerequisite gate (canary order)
+#### 3.0 Prerequisite gate (canary order + full soak)
 
-Before composing notes or publishing, confirm the lower-risk tier for the **same `{version}`** is already published (see "Release order"). `diagramly` skips this gate.
+Before composing notes or publishing, confirm this variant's prerequisite (see "Release order"). `diagramly` and `asyncapi` skip this gate. `lite` needs diagramly published. `full` needs lite published **≥ 7 days ago** for the same commit.
 
 ```bash
-# {variant} = the one you're about to publish; PREREQ: lite→diagramly, full→lite, diagramly→(none)
-PREREQ="diagramly"     # set to "" for diagramly, "diagramly" for lite, "lite" for full
-if [ -n "$PREREQ" ]; then
-  gh release view "v{version}-$PREREQ" --repo ZenUml/conf-app --json isDraft,publishedAt \
-    -q 'if .isDraft then "BLOCK: " + .tagName + " is still a draft" else "OK: " + .tagName + " published " + .publishedAt end' \
-    2>/dev/null || echo "BLOCK: v{version}-$PREREQ not found — prerequisite not released"
-fi
+# VARIANT = the one you're about to publish.
+#   diagramly, asyncapi → no gate
+#   lite  → diagramly must be published
+#   full  → lite must be published AND ≥ 7 days old (hard soak)
+VARIANT="full"          # the variant you're about to publish
+case "$VARIANT" in
+  diagramly|asyncapi) echo "OK: $VARIANT has no prerequisite" ;;
+  lite)
+    gh release view "v{version}-diagramly" --repo ZenUml/conf-app --json isDraft,tagName,publishedAt \
+      -q 'if .isDraft then "BLOCK: " + .tagName + " is still a draft" else "OK: " + .tagName + " published " + .publishedAt end' \
+      2>/dev/null || echo "BLOCK: v{version}-diagramly not found — prerequisite not released" ;;
+  full)
+    gh release view "v{version}-lite" --repo ZenUml/conf-app --json isDraft,tagName,publishedAt 2>/dev/null \
+      | jq -r 'if .isDraft then "BLOCK: " + .tagName + " is still a draft"
+               elif ((now - (.publishedAt | fromdateiso8601)) < 604800)
+                 then "BLOCK: " + .tagName + " published " + .publishedAt + " — soak < 7 days, full must wait"
+               else "OK: " + .tagName + " published " + .publishedAt + " — soak ≥ 7 days" end' \
+      || echo "BLOCK: v{version}-lite not found — prerequisite not released" ;;
+esac
 ```
 
-If the result starts with `BLOCK`, **stop and report** — the prerequisite tier hasn't been released at this version. Recommend releasing it first in canary order, and proceed only if the user explicitly overrides.
+If the result starts with `BLOCK`, **stop and report** — name the missing/young prerequisite and, for the full soak, how many days remain until the 1-week mark. Proceed only if the user explicitly overrides.
 
 #### 3.1 Find the draft tag and the previous published tag
 
@@ -198,7 +215,7 @@ This triggers the Release workflow (`release.yml`) which:
 - Builds and publishes to Cloudflare production
 - Deploys to Forge production
 
-If releasing multiple variants, publish them **in canary order — diagramly → lite → full** (see "Release order"), one at a time. Complete each tier's full cycle — publish → Step 4 (Release workflow) → Step 5 (PVT) → Step 5.5 (spot check) — and confirm it passed **before** publishing the next tier. Each variant gets its **own** notes (the per-variant delta can differ).
+Release **only the variant(s) the user named** (see Arguments). diagramly and lite for the same commit may go in one session — publish diagramly, complete its full cycle (Step 4 → Step 5 → Step 5.5), confirm it passed, then do lite. **Full is never in the same session as lite** — it waits out the ≥ 1-week soak (§ Release order) and is a separate, later invocation. asyncapi is always its own release. Each variant gets its **own** notes (the per-variant delta can differ).
 
 ### Step 4: Wait for Release Workflow
 
@@ -215,6 +232,7 @@ For each variant released, run PVT:
 - **Lite**: `/pvt lite`
 - **Full**: `/pvt full`
 - **Diagramly**: `/pvt diagramly`
+- **AsyncAPI**: PVT is **N/A** — asyncapi has no production Confluence tenant we control, and the release workflow skips its prod smoke (`release.yml`: `needs.release.outputs.license != 'asyncapi'`). Record `PVT: N/A — no prod tenant` and rely on the staging E2E (`asyncapi-stg.atlassian.net`) that ran pre-release.
 
 Report PVT results to the user.
 
@@ -359,6 +377,7 @@ Summarize the release:
 - **Always check for an existing fresh draft first (Step 1).** A merge to main that completed in the last hour or so already produced the drafts you need — reuse them. Pushing a `chore: trigger release pipeline` changelog commit when fresh drafts exist wastes ~15 min of CI, pollutes main history, and gains nothing.
 - The build workflow has no `workflow_dispatch` — a push to main is the only fallback if no fresh draft exists
 - Draft releases are only created on the `main` branch (not on PRs or other branches)
-- All three variants (lite, full, diagramly) are Forge apps deployed to the same production site (`zenuml.atlassian.net`)
-- Always confirm with the user before pushing to main or publishing releases
-- **Release in canary order — diagramly → lite → full** (fewest users → paying users). Never publish a tier until the lower-risk tier for the **same `{version}`** is published and validated (PVT passed). See "Release order".
+- lite/full/diagramly are Forge apps on the same production site (`zenuml.atlassian.net`); asyncapi is a separate app with no prod tenant yet (its PVT / prod-smoke is skipped).
+- **If no variant is named, ASK — never release by default.** Release only the variant(s) the user explicitly names; an explicit variant does NOT authorize releasing any other tier (e.g. releasing lite does not license releasing full afterward).
+- Always confirm with the user before pushing to main or publishing releases.
+- **Canary order for the co-installed trio — diagramly → lite → full** (fewest users → paying users). lite needs diagramly published; **full needs lite published ≥ 1 week earlier for the same commit** (hard soak) and is therefore always a separate, later release. asyncapi is outside the canary — release any time. See "Release order".

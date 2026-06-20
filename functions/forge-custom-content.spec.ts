@@ -19,8 +19,12 @@ vi.mock('./utils/confluenceUtils', () => ({
 vi.mock('./utils/dbUtils', () => ({
   upsertAtlassianInstance: vi.fn(async () => undefined),
 }));
+vi.mock('./utils/sentry', () => ({
+  captureError: vi.fn(),
+}));
 
 import { onRequest } from './forge-custom-content';
+import { getCustomContentFromConfluenceForForge } from './utils/confluenceUtils';
 
 type PreparedCall = { sql: string; binds: unknown[] };
 
@@ -49,13 +53,27 @@ function makeDB(opts: { rowExists: boolean; versionExists?: boolean }) {
   return { prepare, calls };
 }
 
-function makeRequest(payload: any) {
+// A DB whose every write throws — simulates an unexpected D1 failure so we can
+// assert the handler returns a *parseable JSON* 500 carrying the real message.
+function makeFailingDB() {
+  const prepare = vi.fn(() => ({
+    bind: () => ({
+      first: async () => null,
+      all: async () => ({ results: [] }),
+      run: async () => {
+        throw new Error('D1_ERROR: no such table: CustomContentVersion');
+      },
+    }),
+  }));
+  return { prepare };
+}
+
+function makeRequest(payload: any, withAuth = true) {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (withAuth) headers['x-forge-oauth-user'] = 'token-abc';
   return new Request('https://example.com/forge-custom-content', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-forge-oauth-user': 'token-abc',
-    },
+    headers,
     body: JSON.stringify(payload),
   });
 }
@@ -174,5 +192,77 @@ describe('forge-custom-content createOrUpdateContent', () => {
     //               title, pageId, macroUuid, diagramType, status
     expect(insertCall!.binds[9]).toBe('local-id-abc');
     expect(insertCall!.binds[10]).toBe('mermaid');
+  });
+});
+
+describe('forge-custom-content error handling (conf-app#267)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns a JSON 400 (not a text/plain 500) when the OAuth user header is missing', async () => {
+    const db = makeDB({ rowExists: true });
+    const env = { DB: { prepare: db.prepare }, FORGE_CONTEXT };
+    const req = makeRequest({ contentId: 'cc-1' }, /* withAuth */ false);
+
+    const res = await onRequest({ request: req, env } as any);
+
+    expect(res.status).toBe(400);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    const json: any = await res.json();
+    expect(json.error).toContain('x-forge-oauth-user');
+    // No re-fetch, no DB writes when input is rejected up front.
+    expect(getCustomContentFromConfluenceForForge).not.toHaveBeenCalled();
+    expect(db.calls.length).toBe(0);
+  });
+
+  it('treats a Confluence re-fetch failure as a benign 2xx skip — no error, no D1 writes', async () => {
+    // The most likely historical trigger: the user-OAuth re-fetch returns
+    // non-2xx (permission / content gone / transient) and confluenceUtils throws.
+    (getCustomContentFromConfluenceForForge as any).mockRejectedValueOnce(
+      new Error('HTTP error! Status: 404, Text: Not Found'),
+    );
+    const db = makeDB({ rowExists: true });
+    const env = { DB: { prepare: db.prepare }, FORGE_CONTEXT };
+
+    const res = await onRequest({ request: makeRequest({ contentId: 'cc-1' }), env } as any);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    const json: any = await res.json();
+    expect(json.synced).toBe(false);
+    expect(json.reason).toBe('content_fetch_failed');
+    // Best-effort sync: nothing is written to D1 when the source content is unreadable.
+    expect(db.calls.length).toBe(0);
+  });
+
+  it('returns a JSON 500 carrying the real message when a D1 write fails (unmasked)', async () => {
+    const env = { DB: makeFailingDB(), FORGE_CONTEXT };
+
+    const res = await onRequest({ request: makeRequest({ contentId: 'cc-1' }), env } as any);
+
+    expect(res.status).toBe(500);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    const json: any = await res.json();
+    // The real cause is surfaced — not a generic 'Internal server error' /
+    // content-type complaint that the Forge bridge would have masked.
+    expect(json.error).toContain('D1_ERROR');
+  });
+
+  it('returns a JSON 400 when the request body is not valid JSON', async () => {
+    const db = makeDB({ rowExists: true });
+    const env = { DB: { prepare: db.prepare }, FORGE_CONTEXT };
+    const req = new Request('https://example.com/forge-custom-content', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forge-oauth-user': 'token-abc' },
+      body: 'not-json',
+    });
+
+    const res = await onRequest({ request: req, env } as any);
+
+    expect(res.status).toBe(400);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    const json: any = await res.json();
+    expect(json.error).toContain('Invalid JSON body');
   });
 });

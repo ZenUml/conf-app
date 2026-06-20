@@ -109,7 +109,11 @@ export async function _awaitableTrackEvent(
   }
   // Volume sampling: drop / down-sample high-volume diagnostics before any init
   // or network cost. Keyed on `action` (the Mixpanel event name for this path).
-  const sample = decideSample(action);
+  // Error events are never down-sampled: decideSample keys only on the action
+  // name, so a sampled action like `sync_custom_content` (0.1) would otherwise
+  // drop ~90% of its *error* occurrences too, undercounting failures ~10×
+  // (conf-app#267). eventSampling.ts documents rate 1 for error events — honor it.
+  const sample = category === 'error' ? { keep: true, rate: 1 } : decideSample(action);
   if (!sample.keep) return;
   try {
     initMixpanel();

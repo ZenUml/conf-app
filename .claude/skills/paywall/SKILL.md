@@ -78,6 +78,8 @@ python3 .claude/skills/paywall/scripts/css_flag.py get
 
 Output is a JSON object — `{"zenuml-stg":true,"tenant-a":true,...}` — keys are subdomain prefixes. The script bakes in `--remote` and the namespace ID, so the common local-Miniflare and stderr-redirection footguns can't be hit; read the script header for details if you need them.
 
+> **`-x-` keys are DISABLED tenants, not customers or bugs.** To turn the paywall **off** for an enrolled tenant without losing the record (e.g. they started a Full trial or converted), we **mangle the key by inserting `-x-`** so it no longer matches the live client domain — e.g. `acmecorp` → `acme-x-corp`. The backend matches CSS by exact string equality (`functions/feature-flags.ts`), so the mangled key resolves to "not enrolled" → the paywall short-circuits for that tenant. The entry stays `true` but matches nothing. A `-x-` key is a *soft-disabled* tenant: it is NOT a real customer domain, must NOT be counted as enrolled, and must NOT be queried in the monitoring/per-space steps. To re-enable, remove the `-x-`; to clean up permanently, delete the key (see **Disable a tenant on CSS** in Step 5).
+
 **Authentication:** the wrapper relies on `npx wrangler` being authenticated. If you get `401 Unauthorized`, run `npx wrangler login` in an interactive terminal or export `CLOUDFLARE_API_TOKEN` with Workers KV read (and write if updating CSS). Until auth works, skip the "on CSS?" column and state clearly that the CSS list was unavailable — do not infer enrollment from Mixpanel alone.
 
 ## Infrastructure constants
@@ -117,7 +119,8 @@ python3 .claude/skills/paywall/scripts/paywall_queries.py daily
 # Pass the live CSS list (subdomain prefixes); never hardcode tenant names here.
 CSS_DOMAINS=$(python3 .claude/skills/paywall/scripts/css_flag.py get \
   | jq -r 'to_entries[] | select(.value==true) | .key' \
-  | grep -vE '^(zenuml|zenuml-stg|zenuml-connect|lite-stg)$')
+  | grep -vE '^(zenuml|zenuml-stg|zenuml-connect|lite-stg)$' \
+  | grep -v -- '-x-')   # drop soft-disabled tenants (see -x- note in Step 1)
 python3 .claude/skills/paywall/scripts/paywall_queries.py per-space-all \
   --domains $CSS_DOMAINS
 
@@ -175,7 +178,7 @@ python3 .claude/skills/paywall/scripts/paywall_queries.py per-space-all \
 
 Output: `{event: {domain: {space: count}}}`. From this output, focus only on domains where triggered > 0 OR saves > 10 OR creates > 0. Wall time ≈ the slowest single segmentation call rather than N×4 sequential batches.
 
-Cross-reference space keys against metrics-inspect (`curl "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>&addonKey=com.zenuml.confluence-addon-lite"`) to get each space's macro count. **Always pass `addonKey=com.zenuml.confluence-addon-lite`** — omitting it reads the Full KV bucket, whose counts diverge badly from Lite (2026-05-28 postmortem in `private/paywall/runbook.md`; e.g. colesgroup DNLT reads 278 without the param vs 505 Lite). This catches the pattern where a tenant has heavy spaces (>100 macros) but saves happen in light spaces — which explains zero blocks despite high activity. See `private/paywall/runbook.md` for the canonical case study (heavy-space-but-light-saves).
+Cross-reference space keys against metrics-inspect (`curl "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>&addonKey=com.zenuml.confluence-addon-lite"`) to get each space's macro count. **Always pass `addonKey=com.zenuml.confluence-addon-lite`** — omitting it reads the Full KV bucket, whose counts diverge badly from Lite (2026-05-28 postmortem in `private/paywall/runbook.md`; e.g. one heavy tenant's top space read 278 macros without the param vs 505 with the Lite bucket). This catches the pattern where a tenant has heavy spaces (>100 macros) but saves happen in light spaces — which explains zero blocks despite high activity. See `private/paywall/runbook.md` for the canonical case study (heavy-space-but-light-saves).
 
 When `paywall_continued_editing` is high for a tenant, the per-space split tells you which space the bouncing user is on — the script already includes that event. See `private/paywall/runbook.md` for a worked case where this concentrates in a single user/space pair.
 
@@ -333,6 +336,27 @@ python3 .claude/skills/paywall/scripts/css_flag.py put \
 ```
 
 The wrapper validates that the payload is a JSON object before writing — guards against a malformed CSS flag silently breaking the paywall for everyone.
+
+### Disable a tenant on CSS (soft-disable `-x-` convention)
+
+When an enrolled tenant should no longer see the paywall — e.g. they started a **Full trial/evaluation** or converted to a paid plan — **don't delete the key outright**; mangle it by inserting `-x-` so it stops matching the live client domain while preserving the record that they were once enrolled (placeholder `acmecorp` below — never put a real tenant name in this public file):
+
+```bash
+# disable: acmecorp -> acme-x-corp (paywall short-circuits; record kept)
+CURRENT=$(python3 .claude/skills/paywall/scripts/css_flag.py get)
+NEW=$(echo "$CURRENT" | jq -c '. + {"acme-x-corp": .acmecorp} | del(.acmecorp)')
+python3 .claude/skills/paywall/scripts/css_flag.py put "$NEW"
+```
+
+To **re-enable**, reverse it (remove the `-x-`). To **clean up permanently** (e.g. the trial converted and the disabled entry is dead weight), delete the key — always read→`jq del`→write so a concurrent edit isn't clobbered:
+
+```bash
+CURRENT=$(python3 .claude/skills/paywall/scripts/css_flag.py get)
+NEW=$(echo "$CURRENT" | jq -c 'del(."acme-x-corp")')
+python3 .claude/skills/paywall/scripts/css_flag.py put "$NEW"
+```
+
+> A `-x-` key matches no live domain (it reads 0 macros in metrics-inspect), so disable vs. delete are functionally identical for the paywall — the difference is whether you keep the record. A soft-disabled tenant whose trial lapses back to Lite is re-enabled by removing the `-x-` (re-adding the real key). For tenant-specific disable/delete history (real names), see `private/paywall/runbook.md` and the team's memory — not this file.
 
 ### Activate a space license
 

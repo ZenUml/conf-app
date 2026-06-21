@@ -211,7 +211,22 @@ export const handler = async (payload) => {
     }
 
     const attachment = attachmentsData.results[0];
-    const downloadLink = `${attachmentsData._links.base}${attachment.downloadLink}`;
+    // The v2 attachments list normally carries a top-level `_links.base`, but
+    // some tenants/proxies return a 200 body without it (the unexpected-shape
+    // case that crashed the upload path as `_links.base` TypeError until that
+    // path moved to V2). Guard the read so a missing `_links` surfaces as a
+    // tracked `macro_export_failed` instead of an opaque runtime TypeError.
+    const baseUrl = attachmentsData._links?.base;
+    if (!baseUrl) {
+      console.error(`Export: attachments response missing _links.base for ${attachmentName} on page ${pageId}`);
+      await trackExportEvent('macro_export_failed', {
+        ...joinKeyProps(ctx),
+        failure_reason: 'missing_links_base',
+        ...fallbackProps(fallbackInfo),
+      });
+      return createErrorDocument("Failed to resolve the diagram download link. Please reopen the Confluence page to regenerate the image, then export again.");
+    }
+    const downloadLink = `${baseUrl}${attachment.downloadLink}`;
 
     console.info(`Export: found ${attachmentName} on page ${pageId}`);
 

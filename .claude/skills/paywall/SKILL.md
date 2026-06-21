@@ -313,13 +313,26 @@ Build an enrollment recommendation table with these columns:
 
 The paywall is per-space (fires when any single space ≥ 100 macros). So enrollment only matters for tenants with a real chance of crossing that threshold.
 
-- `enroll` — at least 1 space ≥ 100 macros (or top space ≥ 85 and trending up), install ≥ 14d, viewers_30d ≥ 3, saves_7d ≥ 5. Enroll in CSS.
+### Guiding principle — lead with deeply-adopted tenants
+
+Enrollment should surface the upgrade path to the teams for whom it is genuinely relevant: those who rely on ZenUML heavily and reach the free-tier limits in the normal course of their work. Prioritise depth of adoption; de-prioritise lightly-engaged tenants.
+
+- **Relevance to the customer.** For a deeply-adopted team the paid tier is a natural fit, and the upgrade prompt is useful information at the moment they need it. For a lightly-engaged tenant the same prompt is mostly an interruption with little benefit to them — and a lightly-engaged team is more likely to remove the app than to act on it. Leading with engaged teams respects both sides.
+- **Signal quality.** Heavily-adopted tenants give a clean read on whether the limits and upgrade path are landing well; marginal tenants mostly add noise to the A/B and monitoring.
+- **Goal.** Maximise *relevant* reach (engaged teams that benefit from upgrading), not raw count of enrolled tenants.
+
+- `enroll` — at least 1 space ≥ 100 macros (or top space ≥ 85 and trending up), install ≥ 14d, viewers_30d ≥ 3, saves_7d ≥ 5, **and genuine depth of adoption (see ranking below)**. Enroll in CSS.
 - `monitor` — top space 50–99 macros, active editors. Re-check in a few weeks; not worth enrolling yet.
 - `skip` — top space < 50 macros OR viewers_30d < 3. Zero paywall surface area; enrolling would be invisible noise.
 - `already_enrolled` — already on CSS. Use the daily monitoring table to track friction.
 - `internal` — ZenUML's own site; skip enrollment decisions.
 
-When multiple tenants are `enroll`, add them in order of `top_space_macros` descending (most likely to trigger soonest).
+**Rank `enroll` candidates by depth of adoption, not by recent edit volume alone.** The strongest single proxy is sustained engagement — `macro_viewed` over a long window (60–90d), which shows the diagrams are woven into day-to-day work — read together with total macros and the number of spaces over the limit. Prefer a tenant with one deep space (hundreds of macros, thousands of views) over one with the same headline macro count spread thinly across many small spaces, where few spaces ever cross the limit. Two refinements:
+
+- **Sustained engagement over edit bursts.** A spike of recent saves can be a one-off; weeks of steady views show real, ongoing reliance — a better fit for the paid tier.
+- **Weight very small teams cautiously.** A tiny team can show high per-user macro density, but a single admin's decision swings the whole account, so it is a less stable enrollment than a large, broadly-adopted tenant. This is a caution, not an exclusion.
+
+(`top_space_macros` descending is still a reasonable tiebreaker once the above filters are applied — it surfaces the spaces most likely to reach the limit soonest.)
 
 ## Step 5: Execute changes
 

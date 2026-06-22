@@ -146,11 +146,22 @@ function afterLoad(doc: Diagram | undefined) {
 }
 
 async function initializeMacro() {
-  await ensureDrawioViewerLoaded();
+  // Perf (controllable resource_load ∥ fetch): the DrawIO scripts (our resource)
+  // are independent of the Forge context + custom-content fetch, and are only
+  // needed once graphXml reaches the store — ForgeGraphViewer.renderViewer() guards
+  // on effectiveGraphXml, so the empty-diagram mount never touches DrawIO. Start the
+  // DrawIO load CONCURRENTLY with bootstrap's context+fetch and join it just before
+  // the diagram is published (which triggers the GraphViewer render), instead of
+  // serializing the whole DrawIO load before bootstrap even begins.
+  const drawioReady = ensureDrawioViewerLoaded();
   await bootstrapForgeViewer({
     macroKind: 'graph',
     content: ForgeGraphViewer,
-    loadDiagram,
+    loadDiagram: async () => {
+      const doc = await loadDiagram();
+      await drawioReady; // DrawIO must be ready before publishLoadedDiagram → render
+      return doc;
+    },
     afterLoad,
     onError: (error) => {
       console.error('Error loading graph viewer', error);

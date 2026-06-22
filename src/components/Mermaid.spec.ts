@@ -4,6 +4,7 @@ import Mermaid from '@/components/Mermaid.vue';
 import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import globals from '@/model/globals';
+import * as renderPerf from '@/utils/analytics/renderPerf';
 
 // loadMermaid is the renderer-bundle load Lever D aims to SKIP on a cache hit —
 // assert against this mock to prove the skip.
@@ -21,6 +22,7 @@ describe('Mermaid.vue — Lever D cached-SVG read path', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    renderPerf._resetForTesting();
     store.state.diagram = { ...NULL_DIAGRAM };
     // mermaid.render() output for the LIVE fallback path
     loadMermaidMock.fn.mockResolvedValue({
@@ -52,6 +54,7 @@ describe('Mermaid.vue — Lever D cached-SVG read path', () => {
     await flushPromises();
 
     expect(loadMermaidMock.fn).not.toHaveBeenCalled(); // renderer bundle NOT loaded
+    expect(renderPerf.getTimings().resource_load_ms).toBeUndefined(); // no bundle load on cache hit
     expect(wrapper.html()).toContain('CACHED');
     expect(wrapper.html()).not.toContain('LIVE');
     expect(trackMock.fn).toHaveBeenCalledWith('mermaid', expect.anything(), 'cached_svg', 'cc_body');
@@ -67,6 +70,7 @@ describe('Mermaid.vue — Lever D cached-SVG read path', () => {
     await flushPromises();
 
     expect(loadMermaidMock.fn).toHaveBeenCalledTimes(1);
+    expect(typeof renderPerf.getTimings().resource_load_ms).toBe('number'); // loadMermaid now timed as resource_load_ms (gap fixed)
     expect(wrapper.html()).toContain('LIVE');
     expect(trackMock.fn).toHaveBeenCalledWith('mermaid', expect.anything(), 'live_render', 'none');
   });
@@ -82,6 +86,7 @@ describe('Mermaid.vue — Lever D cached-SVG read path', () => {
     await flushPromises();
 
     expect(loadMermaidMock.fn).toHaveBeenCalledTimes(1);
+    expect(typeof renderPerf.getTimings().resource_load_ms).toBe('number'); // loadMermaid now timed as resource_load_ms (gap fixed)
     expect(wrapper.html()).toContain('LIVE');
     expect(trackMock.fn).toHaveBeenCalledWith('mermaid', expect.anything(), 'live_render', 'none');
   });

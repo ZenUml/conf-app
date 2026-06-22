@@ -14,6 +14,7 @@ import {
 } from '@/utils/legacyContentPropertyTelemetry';
 import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
 import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
+import * as renderPerf from '@/utils/analytics/renderPerf';
 
 async function loadDiagram(): Promise<Diagram | undefined> {
   const context = await initForgeContext();
@@ -153,7 +154,7 @@ async function initializeMacro() {
   // DrawIO load CONCURRENTLY with bootstrap's context+fetch and join it just before
   // the diagram is published (which triggers the GraphViewer render), instead of
   // serializing the whole DrawIO load before bootstrap even begins.
-  const drawioReady = ensureDrawioViewerLoaded();
+  const drawioReady = renderPerf.time('resource', () => ensureDrawioViewerLoaded());
   await bootstrapForgeViewer({
     macroKind: 'graph',
     content: ForgeGraphViewer,

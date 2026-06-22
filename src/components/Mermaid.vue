@@ -79,9 +79,12 @@ export default {
       // Generate a unique ID to avoid conflicts
       this.renderId = `mermaid-${crypto.randomUUID()}`;
       try {
-        const mermaid = await loadMermaid();
+        // resource_load_ms = loading our mermaid vendor bundle; render_ms =
+        // mermaid's own layout/render. Disjoint phases — the nested time('render')
+        // resolves before the mounted() wrapper, so render_ms isn't double-counted.
+        const mermaid = await renderPerf.time('resource', () => loadMermaid());
         // Use the unique ID to render, avoiding creating extra elements in the body
-        const { svg } = await mermaid.render(this.renderId, code);
+        const { svg } = await renderPerf.time('render', () => mermaid.render(this.renderId, code));
         return svg;
       } catch (error) {
         console.error('mermaid render error', error);

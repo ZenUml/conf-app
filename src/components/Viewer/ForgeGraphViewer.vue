@@ -45,6 +45,7 @@
 <script>
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import * as renderPerf from "@/utils/analytics/renderPerf";
 export default {
   name: "ForgeGraphViewer",
   components: {
@@ -74,25 +75,32 @@ export default {
     }
   },
   methods: {
-    renderViewer() {
+    async renderViewer() {
       const container = this.$refs.graphContainer;
       if (!container || !this.effectiveGraphXml) return;
       container.innerHTML = '';
       try {
-        // GraphViewer accepts <mxfile> (multi-page) and raw <mxGraphModel>
-        // (legacy single-page) via its Editor.extractGraphModel pipeline.
-        // We omit the 'toolbar' config so GraphViewer doesn't render its own
-        // page-nav strip — page nav is rendered into the GenericViewer
-        // bottom pill via the #pill-prefix slot above.
-        // @ts-ignore
-        const xmlNode = mxUtils.parseXml(this.effectiveGraphXml).documentElement;
-        // @ts-ignore
-        this.graphViewer = new GraphViewer(container, xmlNode, {
-          'auto-fit': true,
-          'border': 10,
+        // render_ms = the synchronous mxgraph work (parse + GraphViewer
+        // layout/paint), wrapped in renderPerf.time('render') so graph finally
+        // emits render_ms like sequence/mermaid/plantuml. It EXCLUDES the DrawIO
+        // script load (resource_load, parallelized in forge-graph-viewer.ts) —
+        // only the construction is "render". Records once (renderPerf).
+        await renderPerf.time('render', async () => {
+          // GraphViewer accepts <mxfile> (multi-page) and raw <mxGraphModel>
+          // (legacy single-page) via its Editor.extractGraphModel pipeline.
+          // We omit the 'toolbar' config so GraphViewer doesn't render its own
+          // page-nav strip — page nav is rendered into the GenericViewer
+          // bottom pill via the #pill-prefix slot above.
+          // @ts-ignore
+          const xmlNode = mxUtils.parseXml(this.effectiveGraphXml).documentElement;
+          // @ts-ignore
+          this.graphViewer = new GraphViewer(container, xmlNode, {
+            'auto-fit': true,
+            'border': 10,
+          });
+          this.pageCount = this.graphViewer.diagrams?.length || 0;
+          this.currentPage = this.graphViewer.currentPage || 0;
         });
-        this.pageCount = this.graphViewer.diagrams?.length || 0;
-        this.currentPage = this.graphViewer.currentPage || 0;
         trackRenderTime('graph', this.$store.getters.isDisplayMode);
       } catch (e) {
         console.error('ForgeGraphViewer: GraphViewer init failed:', e);

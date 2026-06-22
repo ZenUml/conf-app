@@ -2,7 +2,8 @@
 <!-- screen-capture-content class is used in Attachment.ts to select the node. -->
 <div class="generic viewer">
   <Debug />
-  <error-boundary>
+    <!-- Syntax errors are surfaced by the SyntaxErrorBox (with AI Repair); no
+         "Submit a ticket" error panel here. -->
     <!-- Embed/portal hosts request a chrome-less surface — render the diagram only. -->
     <template v-if="!isDisplayMode || hideHeader">
       <div class="screen-capture-content" :class="{'w-full': wide}">
@@ -130,7 +131,6 @@
         </div>
       </div>
     </template>
-  </error-boundary>
 
   <ExportModal :visible="showExportModal" @close="showExportModal = false" />
 </div>
@@ -143,7 +143,6 @@ import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import {mapState, mapGetters} from "vuex";
 import EventBus from '../../EventBus'
 import Debug from '@/components/Debug/Debug.vue'
-import ErrorBoundary from "@/components/ErrorBoundary.vue";
 import globals from '@/model/globals';
 import {DataSource} from "@/model/Diagram/Diagram";
 import { getCodeFromDiagram } from "@/model/Diagram/DiagramTypeConfig";
@@ -170,7 +169,6 @@ export default {
   }),
   components: {
     Debug,
-    ErrorBoundary,
     ExportModal,
     OverflowMenu,
   },

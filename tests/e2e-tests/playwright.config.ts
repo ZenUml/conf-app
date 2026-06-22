@@ -45,9 +45,22 @@ export default defineConfig({
     {
       name: 'render',
       testMatch: 'render/**/*.spec.ts',
+      testIgnore: ['render/render-benchmark.spec.ts'],
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['pages'],
       fullyParallel: false,
+    },
+    {
+      // Controlled render_ms/duration_ms benchmark. Depends on 'auth' ONLY (not
+      // 'pages') so repeated before/after runs reuse the existing test-pages.json
+      // instead of recreating pages and orphaning the old set on the test space.
+      // Run: APP=zenuml-lite@stg PERF_RUNS=6 playwright test --project=benchmark
+      name: 'benchmark',
+      testMatch: 'render/render-benchmark.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['auth'],
+      fullyParallel: false,
+      timeout: 0,
     },
     {
       name: 'insert',

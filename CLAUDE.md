@@ -194,6 +194,22 @@ pnpm forge:deploy:full:prod
 pnpm forge:tunnel
 ```
 
+### Bulk-upgrade all tenant installs to the latest version
+
+Use `forge version bulk-upgrade start` to push a new major version to all installed tenants (up to 500 per request). Minor versions auto-upgrade; this command is for major version bumps that require admin consent.
+
+```bash
+# lite / full / diagramly (APP_ID from .env.forge.lite / .env.forge.full / .env.forge.dia)
+APP_ID=8ad26115-211f-4216-971b-0540f606303d forge version bulk-upgrade start -e production   # lite
+APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 forge version bulk-upgrade start -e production   # full
+APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf forge version bulk-upgrade start -e production   # diagramly
+
+# asyncapi variant
+APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 forge version bulk-upgrade start -e production
+```
+
+The command is interactive — select the source version and target version from the table. It returns a `requestId`; track progress with `forge version bulk-upgrade list`.
+
 #### Forge CLI auth
 
 If `forge whoami` says not logged in (or `forge login` fails on keychain), see [docs/debugging/forge-cli-auth.md](docs/debugging/forge-cli-auth.md). Common in IDE/non-TTY shells: rebuild `keytar`, unlock macOS keychain, re-login from Terminal.app, or use `FORGE_EMAIL` / `FORGE_API_TOKEN`.

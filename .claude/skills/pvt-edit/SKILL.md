@@ -3,7 +3,7 @@ name: pvt-edit
 description: >
   Focused production validation for the macro edit path (Forge custom UI modal, editor mount,
   Publish). Confirms opening Edit from the viewer loads the editor iframe and can publish or
-  cancel without blank states. Invoked by release-app Step 5.5 when editor-related commits are detected.
+  cancel without blank states. Invoked by release-app Step 2.6 when editor-related commits are detected.
   Triggers on "pvt-edit", "test macro edit", "validate editor", "pvt-editor".
 ---
 
@@ -18,7 +18,7 @@ Usage: `/pvt-edit [lite] [full] [diagramly]`
 ### Which product (variant) to test
 
 1. **Explicit flags** — Test only the variants named on the command.
-2. **Infer from conversation** — If no flags: use release context, `/release-app` target, Step 5.5 release variant, or user/branch language → **one** variant unless the user clearly asked to compare multiple.
+2. **Infer from conversation** — If no flags: use release context, `/release-app` target, Step 2.6 release variant, or user/branch language → **one** variant unless the user clearly asked to compare multiple.
 3. **If still ambiguous** — Ask which variant. **Do not** run lite → full → diagramly by default.
 
 Site: always production (`zenuml.atlassian.net`).

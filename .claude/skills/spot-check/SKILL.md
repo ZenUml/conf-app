@@ -45,7 +45,7 @@ Target: <site / page URL / API path>
 Skipped: <anything out of scope> — <reason>
 ```
 
-For **post-release** spot checks (release delta, commit triage, N/A rules), follow Step 5.5 in the **release-app** skill — it extends this plan format.
+For **post-release** spot checks (release delta, commit triage, N/A rules), follow Step 2.6 in the **release-app** skill — it extends this plan format.
 
 For **branch validation** before push (Forge tunnel vs dev site), follow Step 2 in the **validate-branch** skill after writing the plan here.
 
@@ -113,7 +113,7 @@ Forge Custom UI renders in sandboxed cross-origin iframes (OOPIFs). Only Playwri
 |---------------------------------------|-----------------------------------------------------------------------------|
 | **repro**                             | Confirm a bug exists before fixing                                          |
 | **validate-branch**                   | Pre-push branch smoke via tunnel or dev site                                |
-| **release-app**                       | Step 5.5 — release-delta spot check after PVT                               |
+| **release-app**                       | Step 2.6 — release-delta spot check after PVT                               |
 | **pvt** / **pvt-***                   | Reusable production recipes — methods, not substitutes for writing assertions |
 | **create-test-page**                  | API-only page setup when you need specific macro content without the editor |
 | **graph-macro**, **copy-macro**, etc. | Focused recipes for specific macro flows                                    |

@@ -112,4 +112,4 @@ iframe hasn't loaded yet. Common causes:
 
 - **spot-check** — general post-deploy verification harness
 - **pvt** — runs `/smoke-test` for each variant; check-version is a sub-step
-- **release-app** — Step 5 (PVT) and Step 5.5 (spot check) both use version confirmation
+- **release-app** — Step 2.5 (PVT) and Step 2.6 (spot check) both use version confirmation

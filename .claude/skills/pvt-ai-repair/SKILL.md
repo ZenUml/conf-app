@@ -3,7 +3,7 @@ name: pvt-ai-repair
 description: >
   Focused production validation for the AI Repair flow in diagram editors: syntax error banner,
   AI Repair modal, asynchronous fix-diagram job polling, editable diff, Apply Code, and save/render
-  after applying the repair. Invoked by release-app Step 5.5 when AI repair, SyntaxErrorBox,
+  after applying the repair. Invoked by release-app Step 2.6 when AI repair, SyntaxErrorBox,
   GenerateService, diagramly fix-diagram, or validation/error-surface commits are detected.
   Triggers on "pvt-ai-repair", "test ai repair", "validate ai repair", "repair broken diagram".
 ---
@@ -23,7 +23,7 @@ Usage: `/pvt-ai-repair [lite] [full] [diagramly] [mermaid|sequence|plantuml|open
 ### Which product (variant) to test
 
 1. **Explicit flags** - Test only named variants, in order.
-2. **Infer from conversation** - Release tag, `/release-app` variant, Step 5.5 pass-through, branch/PR wording, or user wording -> test that product only when unspecified.
+2. **Infer from conversation** - Release tag, `/release-app` variant, Step 2.6 pass-through, branch/PR wording, or user wording -> test that product only when unspecified.
 3. **If still ambiguous** - Prefer **lite** for AI feature validation because Lite is where AI affordances are commonly exposed. If the conversation is clearly about another product but not explicit, ask once. Do **not** run all three automatically.
 
 Site: always production (`zenuml.atlassian.net`).

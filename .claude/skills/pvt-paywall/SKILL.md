@@ -6,7 +6,7 @@ description: >
   element, every dismissal path, post-dismiss state per trigger, and Mixpanel events
   (upgrade_modal_shown, paywall_triggered with action_type={page_editor,fullscreen_viewer},
   advocacy_message_copied with ui_component=modal, paywall_continued_editing).
-  Invoked automatically by release-app Step 5.5 when paywall-related commits are detected.
+  Invoked automatically by release-app Step 2.6 when paywall-related commits are detected.
   Triggers on "pvt-paywall", "test paywall", "validate paywall".
 ---
 

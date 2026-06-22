@@ -19,6 +19,7 @@ import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
 import * as renderPerf from '@/utils/analytics/renderPerf';
+import { sanitizeSvg } from '@/utils/mermaid/sanitizeSvg';
 
 export default {
   name: "Mermaid",
@@ -38,11 +39,26 @@ export default {
   },
   async mounted() {
     if (!this.mermaidCode) return;
-    // Phase 0b: render_ms = loadMermaid + mermaid.render — exactly what an SVG
-    // cache (Lever D) would skip. Only the initial mount render is timed
-    // (renderPerf records once); the watch-driven re-render below is not.
-    this.svg = await renderPerf.time('render', () => this.render(this.mermaidCode));
-    trackRenderTime('mermaid', this.isDisplayMode);
+    // Phase 0b: render_ms = loadMermaid + mermaid.render. Lever D skips BOTH when a
+    // pre-rendered SVG is present in the custom-content body: sanitize it and inject
+    // directly (render_ms collapses to the cheap scrub; resource_load avoids the
+    // mermaid vendor bundle). Falls back to live render when absent/rejected. Only
+    // the initial mount render is timed (renderPerf records once).
+    let renderMode = 'live_render';
+    let cacheSource = 'none';
+    const cachedSvg = this.$store.state.diagram.mermaidSvg;
+    this.svg = await renderPerf.time('render', async () => {
+      if (cachedSvg) {
+        const safe = sanitizeSvg(cachedSvg);
+        if (safe) {
+          renderMode = 'cached_svg';
+          cacheSource = 'cc_body';
+          return safe;
+        }
+      }
+      return this.render(this.mermaidCode);
+    });
+    trackRenderTime('mermaid', this.isDisplayMode, renderMode, cacheSource);
     EventBus.$emit('diagramLoaded', this.mermaidCode, this.$store.state.diagram.diagramType);
     await globals.apWrapper.initializeContext();
   },

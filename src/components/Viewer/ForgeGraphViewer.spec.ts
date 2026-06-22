@@ -49,9 +49,24 @@ describe('ForgeGraphViewer — render_ms instrumentation', () => {
     await flushPromises();
 
     expect((window as any).GraphViewer).toHaveBeenCalledTimes(1);
-    expect(trackMock.fn).toHaveBeenCalledWith('graph', true);
+    expect(trackMock.fn).toHaveBeenCalledWith('graph', true, 'live_render', 'none');
     // render_ms is now populated for graph (previously undefined).
     expect(typeof renderPerf.getTimings().render_ms).toBe('number');
+  });
+
+  it('injects the cached graphSvg and SKIPS GraphViewer construction (Lever D cached_svg)', async () => {
+    store.state.diagram = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Graph,
+      graphXml: '<mxGraphModel><root/></mxGraphModel>',
+      graphSvg: '<svg id="cached" xmlns="http://www.w3.org/2000/svg"><text>GCACHE</text></svg>',
+    };
+    wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await flushPromises();
+
+    expect((window as any).GraphViewer).not.toHaveBeenCalled(); // construction skipped
+    expect(wrapper.html()).toContain('GCACHE');
+    expect(trackMock.fn).toHaveBeenCalledWith('graph', true, 'cached_svg', 'cc_body');
   });
 
   it('does not render or emit when graphXml is empty (no DrawIO touched)', async () => {

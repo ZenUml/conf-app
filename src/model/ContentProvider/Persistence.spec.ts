@@ -1,6 +1,7 @@
-import {saveToPlatform, LegacyLoadBlockedSaveError, maybeAttachMermaidSvg} from "@/model/ContentProvider/Persistence";
+import {saveToPlatform, LegacyLoadBlockedSaveError, maybeAttachMermaidSvg, maybeAttachGraphSvg} from "@/model/ContentProvider/Persistence";
 import {NULL_DIAGRAM, DiagramType} from "@/model/Diagram/Diagram";
 import { renderMermaidToSvg } from "@/utils/mermaid/renderMermaidToSvg";
+import { renderGraphToSvg } from "@/utils/drawio/renderGraphToSvg";
 import {vi} from "vitest";
 import ApWrapper2 from "../ApWrapper2";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
@@ -32,6 +33,10 @@ vi.mock("@/services/CustomContent", () => ({
 
 vi.mock("@/utils/mermaid/renderMermaidToSvg", () => ({
   renderMermaidToSvg: vi.fn(),
+}));
+
+vi.mock("@/utils/drawio/renderGraphToSvg", () => ({
+  renderGraphToSvg: vi.fn(),
 }));
 
 vi.mock("@/services/MacroMetrics", () => ({
@@ -89,6 +94,32 @@ describe('Persistence', function () {
       const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: 'big', mermaidSvg: '<svg>STALE</svg>' };
       await maybeAttachMermaidSvg(d);
       expect(d.mermaidSvg).toBeUndefined();
+    });
+  });
+
+  describe('maybeAttachGraphSvg (Lever D render cache, graph)', () => {
+    beforeEach(() => vi.mocked(renderGraphToSvg).mockReset());
+
+    it('renders and attaches graphSvg for a Graph diagram with xml', async () => {
+      vi.mocked(renderGraphToSvg).mockResolvedValue('<svg>graph</svg>');
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '<mxGraphModel/>' };
+      await maybeAttachGraphSvg(d);
+      expect(renderGraphToSvg).toHaveBeenCalledWith('<mxGraphModel/>');
+      expect(d.graphSvg).toBe('<svg>graph</svg>');
+    });
+
+    it('skips non-Graph diagrams (no render, no field set)', async () => {
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: 'x' };
+      await maybeAttachGraphSvg(d);
+      expect(renderGraphToSvg).not.toHaveBeenCalled();
+      expect(d.graphSvg).toBeUndefined();
+    });
+
+    it('clears a stale graphSvg when render fails — no SVG outlives its xml (atomicity)', async () => {
+      vi.mocked(renderGraphToSvg).mockResolvedValue(undefined);
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '<edited/>', graphSvg: '<svg>STALE</svg>' };
+      await maybeAttachGraphSvg(d);
+      expect(d.graphSvg).toBeUndefined();
     });
   });
 

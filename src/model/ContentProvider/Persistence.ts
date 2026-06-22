@@ -10,6 +10,7 @@ import forgeGlobal from '@/model/globals/forgeGlobal';
 import { reportSaveRefusedLegacyLoadBlocked } from '@/utils/legacyContentPropertyTelemetry';
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { renderMermaidToSvg } from "@/utils/mermaid/renderMermaidToSvg";
+import { renderGraphToSvg } from "@/utils/drawio/renderGraphToSvg";
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -54,6 +55,34 @@ export async function maybeAttachMermaidSvg(diagram: Diagram): Promise<void> {
   }
 }
 
+/**
+ * Lever D cap for the cached graph SVG. Graph SVGs (stencils) run larger than
+ * mermaid's, so a higher cap; refine after measuring real customer graphs.
+ */
+const GRAPH_SVG_CACHE_CAP_BYTES = 512 * 1024;
+
+/**
+ * Render the DrawIO graph to a standalone SVG at save and attach it so the viewer
+ * can inject it and skip ensureDrawioViewerLoaded() + new GraphViewer() (Lever D).
+ * ALWAYS refreshes/clears diagram.graphSvg so a stale SVG never co-persists with
+ * edited XML. Best-effort — never throws. Exported for unit testing.
+ */
+export async function maybeAttachGraphSvg(diagram: Diagram): Promise<void> {
+  if (diagram.diagramType !== DiagramType.Graph || !diagram.graphXml) {
+    return;
+  }
+  try {
+    const svg = await renderGraphToSvg(diagram.graphXml);
+    if (svg && svg.length <= GRAPH_SVG_CACHE_CAP_BYTES) {
+      diagram.graphSvg = svg;
+    } else {
+      delete diagram.graphSvg;
+    }
+  } catch {
+    delete diagram.graphSvg;
+  }
+}
+
 export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = globals.apWrapper): Promise<string> {
   // ZEN-1170 Defect 1: refuse to save when the editor was mounted with a
   // failed legacy-content-property load. Saving would create fresh custom
@@ -65,9 +94,10 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
     throw new LegacyLoadBlockedSaveError();
   }
 
-  // Lever D render cache (Mermaid only): pre-render the SVG at save so the viewer
-  // can inject it and skip loadMermaid()+mermaid.render(). Best-effort.
+  // Lever D render cache: pre-render the SVG at save so the viewer can inject it
+  // and skip the renderer load+render. Best-effort, per diagram type.
   await maybeAttachMermaidSvg(diagram);
+  await maybeAttachGraphSvg(diagram);
 
   console.log('Saving diagram to platform content provider', diagram);
   const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);

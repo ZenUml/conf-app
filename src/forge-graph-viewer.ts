@@ -147,20 +147,21 @@ function afterLoad(doc: Diagram | undefined) {
 }
 
 async function initializeMacro() {
-  // Perf (controllable resource_load ∥ fetch): the DrawIO scripts (our resource)
-  // are independent of the Forge context + custom-content fetch, and are only
-  // needed once graphXml reaches the store — ForgeGraphViewer.renderViewer() guards
-  // on effectiveGraphXml, so the empty-diagram mount never touches DrawIO. Start the
-  // DrawIO load CONCURRENTLY with bootstrap's context+fetch and join it just before
-  // the diagram is published (which triggers the GraphViewer render), instead of
-  // serializing the whole DrawIO load before bootstrap even begins.
-  const drawioReady = renderPerf.time('resource', () => ensureDrawioViewerLoaded());
+  // Lever D fetch-skip (the real ~6s win): resolve the doc FIRST. If it carries a
+  // pre-rendered graphSvg (cache hit), ForgeGraphViewer injects that SVG and never
+  // needs DrawIO — so we skip the ~3.8MB ensureDrawioViewerLoaded() ENTIRELY (just
+  // skipping new GraphViewer() would still pay most of the 6s — the load is the cost).
+  // On a cache MISS, load DrawIO (timed as resource_load) before the diagram publishes,
+  // since publishLoadedDiagram triggers the live GraphViewer render. renderViewer()
+  // guards on effectiveGraphXml, so the empty-diagram mount never touches DrawIO.
   await bootstrapForgeViewer({
     macroKind: 'graph',
     content: ForgeGraphViewer,
     loadDiagram: async () => {
       const doc = await loadDiagram();
-      await drawioReady; // DrawIO must be ready before publishLoadedDiagram → render
+      if (!doc?.graphSvg) {
+        await renderPerf.time('resource', () => ensureDrawioViewerLoaded());
+      }
       return doc;
     },
     afterLoad,

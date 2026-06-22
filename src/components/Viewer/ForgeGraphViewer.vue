@@ -46,6 +46,7 @@
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
 import * as renderPerf from "@/utils/analytics/renderPerf";
+import { sanitizeSvg } from "@/utils/mermaid/sanitizeSvg";
 export default {
   name: "ForgeGraphViewer",
   components: {
@@ -67,6 +68,9 @@ export default {
   computed: {
     effectiveGraphXml() {
       return this.graphXml || this.$store.state.diagram?.graphXml;
+    },
+    effectiveGraphSvg() {
+      return this.$store.state.diagram?.graphSvg;
     }
   },
   watch: {
@@ -79,6 +83,20 @@ export default {
       const container = this.$refs.graphContainer;
       if (!container || !this.effectiveGraphXml) return;
       container.innerHTML = '';
+      // Lever D: inject the SVG pre-rendered at save and skip new GraphViewer()
+      // (and, on the bootstrap side, ensureDrawioViewerLoaded — the ~6s DrawIO load).
+      // Falls back to live render if absent or if sanitization rejects it.
+      const cachedSvg = this.effectiveGraphSvg;
+      if (cachedSvg) {
+        const safe = await renderPerf.time('render', async () => sanitizeSvg(cachedSvg));
+        if (safe) {
+          container.innerHTML = safe;
+          this.pageCount = 0; // single-page only (multi-page is never cached)
+          this.currentPage = 0;
+          trackRenderTime('graph', this.$store.getters.isDisplayMode, 'cached_svg', 'cc_body');
+          return;
+        }
+      }
       try {
         // render_ms = the synchronous mxgraph work (parse + GraphViewer
         // layout/paint), wrapped in renderPerf.time('render') so graph finally
@@ -101,7 +119,7 @@ export default {
           this.pageCount = this.graphViewer.diagrams?.length || 0;
           this.currentPage = this.graphViewer.currentPage || 0;
         });
-        trackRenderTime('graph', this.$store.getters.isDisplayMode);
+        trackRenderTime('graph', this.$store.getters.isDisplayMode, 'live_render', 'none');
       } catch (e) {
         console.error('ForgeGraphViewer: GraphViewer init failed:', e);
       }

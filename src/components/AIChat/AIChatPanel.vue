@@ -257,15 +257,15 @@
       v-if="historyOpen"
       class="ai-chat-history-panel"
       role="region"
-      aria-label="Version history"
+      aria-label="Diagram versions"
       data-testid="ai-chat-history-panel"
     >
       <header class="ai-chat-history-header">
-        <h3>Version history</h3>
+        <h3>Diagram versions</h3>
         <button
           type="button"
           class="ai-chat-head-button ai-chat-close"
-          aria-label="Close version history"
+          aria-label="Close diagram versions"
           @click="closeHistory"
         >
           <XMarkIcon aria-hidden="true" />
@@ -291,7 +291,7 @@
             :disabled="version.id === currentVersionId"
             @click="restoreVersion(version)"
           >
-            {{ version.id === currentVersionId ? 'Current' : 'Restore' }}
+            {{ version.id === currentVersionId ? 'Current' : 'Restore version' }}
           </button>
           <div class="ai-chat-history-meta">
             {{ version.time }} · {{ version.syntaxResolved ? 'Syntax valid' : '1 syntax issue' }}
@@ -321,12 +321,12 @@
             type="button"
             class="ai-chat-history-trigger"
             :aria-expanded="historyOpen"
-            aria-label="Open version history"
+            aria-label="Open diagram versions"
             data-testid="ai-chat-history-trigger"
             @click="openHistory"
           >
             <ClockIcon aria-hidden="true" />
-            <span>History</span>
+            <span>Diagram versions</span>
             <span class="ai-chat-history-count">{{ versions.length }}</span>
           </button>
           <span class="ai-chat-compose-actions">

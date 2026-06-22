@@ -171,7 +171,7 @@ describe("React AIChatPanel", () => {
     );
   });
 
-  it("opens version history and restores an earlier version", () => {
+  it("opens diagram versions and restores an earlier version", () => {
     vi.useFakeTimers();
     renderPanel();
     submitPrompt("Add an error response");
@@ -186,7 +186,7 @@ describe("React AIChatPanel", () => {
       container.querySelector('[data-testid="react-ai-chat-history-panel"]')?.textContent,
     ).toContain("Initial version");
     const restore = Array.from(container.querySelectorAll(".ai-chat-rollback")).find(
-      (button) => button.textContent === "Restore",
+      (button) => button.textContent === "Restore version",
     );
     expect(restore).toBeDefined();
     act(() => {

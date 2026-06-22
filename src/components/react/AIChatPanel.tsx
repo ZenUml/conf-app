@@ -905,15 +905,15 @@ export default function AIChatPanel({
         <section
           className="ai-chat-history-panel"
           role="region"
-          aria-label="Version history"
+          aria-label="Diagram versions"
           data-testid="react-ai-chat-history-panel"
         >
           <header className="ai-chat-history-header">
-            <h3>Version history</h3>
+            <h3>Diagram versions</h3>
             <button
               type="button"
               className="ai-chat-head-button ai-chat-close"
-              aria-label="Close version history"
+              aria-label="Close diagram versions"
               onClick={() => setHistoryOpen(false)}
             >
               {icon(<CrossIcon label="" size="small" primaryColor="currentColor" />)}
@@ -940,7 +940,7 @@ export default function AIChatPanel({
                   disabled={version.id === currentVersionId}
                   onClick={() => restoreVersion(version)}
                 >
-                  {version.id === currentVersionId ? "Current" : "Restore"}
+                  {version.id === currentVersionId ? "Current" : "Restore version"}
                 </button>
                 <div className="ai-chat-history-meta">
                   {version.time} · {version.syntaxResolved ? "Syntax valid" : "1 syntax issue"}
@@ -973,7 +973,7 @@ export default function AIChatPanel({
               type="button"
               className="ai-chat-history-trigger"
               aria-expanded={historyOpen}
-              aria-label="Open version history"
+              aria-label="Open diagram versions"
               data-testid="react-ai-chat-history-trigger"
               onClick={() => {
                 setSyntaxDetailsOpen(false);
@@ -985,7 +985,7 @@ export default function AIChatPanel({
               }}
             >
               {icon(<ClockIcon label="" size="small" primaryColor="currentColor" />)}
-              <span>History</span>
+              <span>Diagram versions</span>
               <span className="ai-chat-history-count">{versions.length}</span>
             </button>
             <span className="ai-chat-compose-actions">

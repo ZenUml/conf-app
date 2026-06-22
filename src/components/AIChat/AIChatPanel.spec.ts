@@ -106,7 +106,7 @@ describe('AIChatPanel', () => {
     )
   })
 
-  it('opens version history and restores an earlier version', async () => {
+  it('opens diagram versions and restores an earlier version', async () => {
     vi.useFakeTimers()
     const wrapper = mount(AIChatPanel, {
       props: { open: true, diagramType: 'sequence', prototypeMode: true },
@@ -118,7 +118,7 @@ describe('AIChatPanel', () => {
     await wrapper.get('[data-testid="ai-chat-history-trigger"]').trigger('click')
 
     expect(wrapper.get('[data-testid="ai-chat-history-panel"]').text()).toContain('Initial version')
-    const restore = wrapper.findAll('.ai-chat-rollback').find((button) => button.text() === 'Restore')
+    const restore = wrapper.findAll('.ai-chat-rollback').find((button) => button.text() === 'Restore version')
     expect(restore).toBeDefined()
     await restore!.trigger('click')
 

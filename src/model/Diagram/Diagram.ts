@@ -77,6 +77,15 @@ export class Diagram {
   plantUmlCode?: string = '';
   graphXml?: string = '';
   /**
+   * Lever D render cache for Graph (DrawIO): a standalone SVG produced at save,
+   * injected at view to skip ensureDrawioViewerLoaded() + new GraphViewer() (the
+   * ~6s DrawIO load). Co-stored atomically in the same CC body version as graphXml,
+   * sanitized on read. Best-effort: absent on render failure, over the size cap, or
+   * when graphXml references external images (getSvg doesn't inline those) ⇒ viewer
+   * live-renders. See utils/drawio/renderGraphToSvg.ts + Persistence.maybeAttachGraphSvg.
+   */
+  graphSvg?: string = undefined;
+  /**
    * No diagrams need to be compressed anymore. This is kept for backward compatibility.
    * @deprecated This will be removed soon.
    */

@@ -4,8 +4,18 @@ import { plantumlEncode } from './encode';
 const PLANTUML_SERVER = 'https://www.plantuml.com/plantuml';
 
 // Cache validation results to avoid duplicate API calls
-const validationCache = new Map<string, { result: SyntaxValidationResult; timestamp: number }>();
+const validationCache = new Map<string, { result: PlantUmlValidationResult; timestamp: number }>();
 const CACHE_TTL = 2000; // Cache for 2 seconds
+
+/**
+ * PlantUML validation result. Extends the shared result with the SVG already
+ * fetched from the PlantUML server on the valid path, so the viewer can reuse it
+ * instead of issuing a SECOND identical request (the render fetch) — eliminating a
+ * full ~multi-second third-party round trip per render.
+ */
+export interface PlantUmlValidationResult extends SyntaxValidationResult {
+  svg?: string;
+}
 
 /**
  * Validates PlantUML syntax using the official PlantUML server.
@@ -13,7 +23,7 @@ const CACHE_TTL = 2000; // Cache for 2 seconds
  * and checks if the SVG contains syntax error indicators.
  * Results are cached for 2 seconds to avoid duplicate API calls.
  */
-export async function validatePlantUmlSyntax(code: string): Promise<SyntaxValidationResult> {
+export async function validatePlantUmlSyntax(code: string): Promise<PlantUmlValidationResult> {
   // Check cache first
   const cached = validationCache.get(code);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
@@ -116,8 +126,9 @@ export async function validatePlantUmlSyntax(code: string): Promise<SyntaxValida
       return errorResult;
     }
     
-    // No error found, diagram is valid
-    const validResult = { valid: true, error: null, location: null };
+    // No error found, diagram is valid. Carry the SVG we already downloaded so the
+    // viewer reuses it instead of re-fetching the identical URL.
+    const validResult: PlantUmlValidationResult = { valid: true, error: null, location: null, svg: svgText };
     validationCache.set(code, { result: validResult, timestamp: Date.now() });
     return validResult;
   } catch (error) {

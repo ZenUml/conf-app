@@ -92,11 +92,12 @@ export default {
       
       // Clear errors if validation passes
       this.$store.dispatch('updateError', null);
-      
-      // Proceed with rendering
-      this.debouncedRender(code);
+
+      // Proceed with rendering, reusing the SVG validation already fetched so we
+      // don't issue a second identical request to the PlantUML server.
+      this.debouncedRender(code, validationResult.svg);
     },
-    async fetchSvg(code) {
+    async fetchSvg(code, prefetchedSvg) {
       if (!code) return;
       this.loading = true;
       this.error = null;
@@ -105,6 +106,10 @@ export default {
         // Note this excludes the 500ms mount debounce, which lands in the
         // unattributed remainder — itself a finding for Phase 1.
         this.svg = await renderPerf.time('render', async () => {
+          // Reuse the SVG the validator already downloaded (same encoded URL) —
+          // eliminates a duplicate ~multi-second third-party round trip. Fall back
+          // to a fetch only when no validated SVG is available.
+          if (prefetchedSvg) return prefetchedSvg;
           const encoded = plantumlEncode(code);
           const response = await fetch(`${PLANTUML_SERVER}${encoded}`);
           if (!response.ok) {

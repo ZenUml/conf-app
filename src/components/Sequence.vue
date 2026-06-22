@@ -1,5 +1,7 @@
 <template>
-  <ViewResizer v-if="autoResize">
+  <!-- Display-mode static SVG (renderToSvg, no React mount); themed/editor paths use ref="zenuml" -->
+  <div v-if="usedSyncPath" class="flex justify-center" v-html="staticSvg"></div>
+  <ViewResizer v-else-if="autoResize">
     <template #default>
       <div ref="zenuml" class="resize-target"></div>
     </template>
@@ -17,6 +19,7 @@ import globals from "@/model/globals";
 import ViewResizer from "./Viewer/ViewResizer.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
 import * as renderPerf from "@/utils/analytics/renderPerf";
+import { sanitizeSvg } from "@/utils/mermaid/sanitizeSvg";
 
 // Create a promise to load ZenUml only when needed
 const loadZenUml = () => import("@zenuml/core").then(module => module.default);
@@ -39,6 +42,12 @@ export default {
       default: false
     }
   },
+  data() {
+    return {
+      staticSvg: null,
+      usedSyncPath: false,
+    };
+  },
   computed: {
     code() {
       return (
@@ -52,13 +61,23 @@ export default {
   },
   async mounted() {
     try {
-      // Load ZenUml dynamically
+      const code = this.$store.state.diagram.code;
+      // Display-mode + default-theme fast path: render to a static SVG via
+      // @zenuml/core's synchronous renderToSvg(), skipping the React mount. Themed
+      // or editable macros fall through to the interactive ZenUml render below
+      // (renderToSvg ignores theme in v3.47.5; interactivity is editor-only anyway).
+      if (this.canUseSyncSvg() && (await this.tryRenderSyncSvg(code))) {
+        trackRenderTime('sequence', this.isDisplayMode, 'sync_svg', 'none');
+        EventBus.$emit("diagramLoaded", code, this.$store.state.diagram.diagramType);
+        return;
+      }
+      // Load ZenUml dynamically (interactive React render)
       const ZenUml = await renderPerf.time('resource', () => loadZenUml());
       console.log("ZenUML Core version: ", ZenUml.version);
       zenuml = new ZenUml(this.$refs["zenuml"]);
       // Phase 0b: render_ms for the initial mount render (recorded once).
       await renderPerf.time('render', () => this.render());
-      trackRenderTime('sequence', this.isDisplayMode);
+      trackRenderTime('sequence', this.isDisplayMode, 'live_render', 'none');
       EventBus.$emit(
         "diagramLoaded",
         this.$store.state.diagram.code,
@@ -113,6 +132,35 @@ export default {
     updateCode(newCode) {
       this.$store.dispatch("updateCode2", newCode);
       EventBus.$emit("updateContent", this.$store.state.diagram);
+    },
+    canUseSyncSvg() {
+      // Only the read-only viewer with the default theme can use the static SVG:
+      // renderToSvg ignores the theme option, and editor interactivity needs React.
+      if (!this.isDisplayMode) return false;
+      const id = this.$store.state.diagram.id;
+      const globalTheme = localStorage.getItem(getThemeStorageKey("global"));
+      const scopeTheme = id
+        ? localStorage.getItem(getThemeStorageKey(id))
+        : sessionStorage.getItem(getThemeStorageKey());
+      return !scopeTheme && (!globalTheme || globalTheme === "theme-default");
+    },
+    async tryRenderSyncSvg(code) {
+      // resource_load_ms is still measured honestly (same ~2.4MB @zenuml/core bundle —
+      // the sync path saves the React mount, NOT the bundle). render_ms wraps renderToSvg.
+      let result;
+      try {
+        const mod = await renderPerf.time('resource', () => import("@zenuml/core"));
+        if (typeof mod.renderToSvg !== "function") return false;
+        result = await renderPerf.time('render', async () => mod.renderToSvg(code));
+      } catch (e) {
+        console.warn("renderToSvg failed; falling back to interactive render", e);
+        return false;
+      }
+      const safe = sanitizeSvg(result && result.svg);
+      if (!safe) return false;
+      this.staticSvg = safe;
+      this.usedSyncPath = true;
+      return true;
     }
   },
   watch: {
@@ -120,7 +168,11 @@ export default {
     // another way would be use the https://www.npmjs.com/package/vue-async-computed
     async code() {
       if (!this.code) return;
-      await this.render();
+      if (this.usedSyncPath) {
+        await this.tryRenderSyncSvg(this.code);
+      } else {
+        await this.render();
+      }
     },
   },
 };

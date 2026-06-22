@@ -42,7 +42,9 @@ export type EntryPoint =
 
 export type OperationMode = "create" | "edit" | "unknown";
 
-export type RenderMode = "live_render" | "cached_svg";
+// 'sync_svg' = sequence rendered via @zenuml/core's synchronous renderToSvg() in
+// display mode (skips the React mount), distinct from the live React render.
+export type RenderMode = "live_render" | "cached_svg" | "sync_svg";
 
 // Browser cache state at macro render time, derived from Resource Timing
 // transferSize of the macro's same-origin JS bundle:

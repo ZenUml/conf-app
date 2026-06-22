@@ -25,6 +25,8 @@ export type AnalyticsProperties = {
   environment_type?: string;
   // Contextual — required when scope implies them
   macro_type?: MacroTypeValue;
+  // For macro_type='embed': the inner diagram type the embed actually rendered.
+  wrapped_type?: MacroTypeValue;
   entry_point?: EntryPoint;
   confluence_space?: string;
   macro_uuid?: string;

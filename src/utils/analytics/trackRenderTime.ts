@@ -56,6 +56,9 @@ export function trackRenderTime(
   isDisplayMode: boolean,
   renderMode: RenderMode = 'live_render',
   cacheSource: CacheSource = 'none',
+  // For embed: the inner diagram type the embed host actually rendered. The host
+  // emits one macro_viewed with macro_type='embed' + wrapped_type=<inner>.
+  wrappedType?: MacroTypeValue,
 ): void {
   const t0 = window.__macroLoadStart;
   if (typeof t0 !== 'number') return;
@@ -71,6 +74,7 @@ export function trackRenderTime(
     feature_area: 'macro',
     surface: isDisplayMode ? 'viewer' : 'editor',
     macro_type: macroType,
+    ...(wrappedType ? { wrapped_type: wrappedType } : {}),
     render_mode: renderMode,
     cache_source: cacheSource,
     duration_ms,

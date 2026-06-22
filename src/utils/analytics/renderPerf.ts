@@ -9,7 +9,7 @@
 // cross-macro contamination). Every export is read-only on render behavior:
 // it reads clocks or wraps a promise without altering what runs.
 
-export type RenderPhase = 'context' | 'fetch' | 'render';
+export type RenderPhase = 'context' | 'fetch' | 'render' | 'resource';
 
 const durations: Partial<Record<RenderPhase, number>> = {};
 let bootstrapMs: number | undefined;
@@ -69,6 +69,7 @@ export interface RenderTimings {
   context_ms?: number;
   fetch_ms?: number;
   render_ms?: number;
+  resource_load_ms?: number;
   measured_sum_ms?: number;
   tab_hidden?: boolean;
 }
@@ -82,13 +83,14 @@ export interface RenderTimings {
  * paywall predicates, gaps.
  */
 export function getTimings(): RenderTimings {
-  const parts = [bootstrapMs, durations.context, durations.fetch, durations.render];
+  const parts = [bootstrapMs, durations.context, durations.fetch, durations.resource, durations.render];
   const measured = parts.filter((n): n is number => typeof n === 'number');
   return {
     bootstrap_ms: bootstrapMs,
     context_ms: durations.context,
     fetch_ms: durations.fetch,
     render_ms: durations.render,
+    resource_load_ms: durations.resource,
     measured_sum_ms: measured.length ? measured.reduce((a, b) => a + b, 0) : undefined,
     tab_hidden: everHidden,
   };
@@ -99,6 +101,7 @@ export function _resetForTesting(): void {
   delete durations.context;
   delete durations.fetch;
   delete durations.render;
+  delete durations.resource;
   bootstrapMs = undefined;
   everHidden = typeof document !== 'undefined' ? document.hidden : false;
 }

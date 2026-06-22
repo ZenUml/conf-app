@@ -79,7 +79,11 @@ export type AnalyticsProperties = {
   bootstrap_ms?: number;   // __macroLoadStart → first app code (head scripts incl. DrawIO + bundle eval)
   context_ms?: number;     // Forge getContext() resolution
   fetch_ms?: number;       // custom-content REST round trip
-  render_ms?: number;      // viewer render (lib load + diagram render)
+  render_ms?: number;      // viewer diagram render (mermaid still folds loadMermaid here; disjoint goal = render-only)
+  // "Load our resources" half of the user-defined metric: loadZenUml()/loadMermaid()/
+  // ensureDrawioViewerLoaded()/swagger-ui. our-controllable-client-time = resource_load_ms + render_ms
+  // (disjoint). Excludes Forge macro-shell bootstrap and platform fetch_ms. Absent ⇒ omitted, never 0.
+  resource_load_ms?: number;
   measured_sum_ms?: number; // bootstrap+context+fetch+render; duration_ms − this = unattributed remainder
   tab_hidden?: boolean;    // tab was backgrounded during load → exclude from percentiles (artifact)
   // Renderer-bundle prefetch (renderer_prefetch_started / _completed). Fired

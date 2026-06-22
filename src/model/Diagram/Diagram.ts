@@ -65,6 +65,15 @@ export class Diagram {
   title?: string = '';
   styles?: object = {};
   mermaidCode?: string = '';
+  /**
+   * Lever D render cache: the Mermaid SVG produced at save, injected at view to
+   * skip loadMermaid()+mermaid.render(). Co-stored in the same CC body version as
+   * mermaidCode (atomic — refreshed/cleared on every save so a stale SVG can't
+   * outlive its code). Best-effort: absent on render failure or over the size cap
+   * ⇒ viewer live-renders. Sanitized on READ before injection (stored-XSS guard).
+   * See utils/mermaid/renderMermaidToSvg.ts + Persistence.maybeAttachMermaidSvg.
+   */
+  mermaidSvg?: string = undefined;
   plantUmlCode?: string = '';
   graphXml?: string = '';
   /**

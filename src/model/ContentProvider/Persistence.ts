@@ -9,6 +9,7 @@ import globals from '@/model/globals';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import { reportSaveRefusedLegacyLoadBlocked } from '@/utils/legacyContentPropertyTelemetry';
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
+import { renderMermaidToSvg } from "@/utils/mermaid/renderMermaidToSvg";
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -17,6 +18,39 @@ export class LegacyLoadBlockedSaveError extends Error {
   constructor(message = 'Save refused: legacy content failed to load.') {
     super(message);
     this.name = 'LegacyLoadBlockedSaveError';
+  }
+}
+
+/**
+ * Lever D: cap on the cached Mermaid SVG stored in the CC body. Above this the
+ * body-parse cost outweighs the render-skip benefit, so we skip caching and the
+ * viewer live-renders. Typical mermaid SVGs are 5–50KB.
+ */
+const MERMAID_SVG_CACHE_CAP_BYTES = 256 * 1024;
+
+/**
+ * Render the Mermaid SVG at save and attach it to the diagram so the viewer can
+ * inject it and skip loadMermaid()+mermaid.render() (Lever D). ALWAYS refreshes
+ * or clears diagram.mermaidSvg so a stale SVG never co-persists with edited code
+ * (atomic with mermaidCode in the same CC body version). Best-effort: never
+ * throws — a failed/oversized render just leaves the diagram un-cached.
+ * Exported for unit testing.
+ */
+export async function maybeAttachMermaidSvg(diagram: Diagram): Promise<void> {
+  if (diagram.diagramType !== DiagramType.Mermaid || !diagram.mermaidCode) {
+    return;
+  }
+  try {
+    const svg = await renderMermaidToSvg(diagram.mermaidCode);
+    if (svg && svg.length <= MERMAID_SVG_CACHE_CAP_BYTES) {
+      diagram.mermaidSvg = svg;
+    } else {
+      // render failed or over cap → ensure no stale SVG rides along with the
+      // (possibly edited) code; the viewer will live-render.
+      delete diagram.mermaidSvg;
+    }
+  } catch {
+    delete diagram.mermaidSvg;
   }
 }
 
@@ -30,6 +64,10 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
     reportSaveRefusedLegacyLoadBlocked(String(diagram.diagramType), diagram.source);
     throw new LegacyLoadBlockedSaveError();
   }
+
+  // Lever D render cache (Mermaid only): pre-render the SVG at save so the viewer
+  // can inject it and skip loadMermaid()+mermaid.render(). Best-effort.
+  await maybeAttachMermaidSvg(diagram);
 
   console.log('Saving diagram to platform content provider', diagram);
   const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);

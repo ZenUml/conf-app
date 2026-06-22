@@ -1,5 +1,6 @@
-import {saveToPlatform, LegacyLoadBlockedSaveError} from "@/model/ContentProvider/Persistence";
+import {saveToPlatform, LegacyLoadBlockedSaveError, maybeAttachMermaidSvg} from "@/model/ContentProvider/Persistence";
 import {NULL_DIAGRAM, DiagramType} from "@/model/Diagram/Diagram";
+import { renderMermaidToSvg } from "@/utils/mermaid/renderMermaidToSvg";
 import {vi} from "vitest";
 import ApWrapper2 from "../ApWrapper2";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
@@ -29,6 +30,10 @@ vi.mock("@/services/CustomContent", () => ({
   syncCustomContent: vi.fn(),
 }));
 
+vi.mock("@/utils/mermaid/renderMermaidToSvg", () => ({
+  renderMermaidToSvg: vi.fn(),
+}));
+
 vi.mock("@/services/MacroMetrics", () => ({
   default: {
     reportMacroMetrics: vi.fn(() => Promise.resolve()),
@@ -52,6 +57,39 @@ describe('Persistence', function () {
     vi.mocked(syncCustomContent).mockClear();
     // Reset Forge context so each test starts from a known baseline.
     (forgeGlobal as any).forgeContext = undefined;
+  });
+
+  describe('maybeAttachMermaidSvg (Lever D render cache)', () => {
+    beforeEach(() => vi.mocked(renderMermaidToSvg).mockReset());
+
+    it('renders and attaches mermaidSvg for a Mermaid diagram with code', async () => {
+      vi.mocked(renderMermaidToSvg).mockResolvedValue('<svg>cached</svg>');
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: 'graph TD;A-->B' };
+      await maybeAttachMermaidSvg(d);
+      expect(renderMermaidToSvg).toHaveBeenCalledWith('graph TD;A-->B');
+      expect(d.mermaidSvg).toBe('<svg>cached</svg>');
+    });
+
+    it('skips non-Mermaid diagrams (no render, no field set)', async () => {
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: 'A.method()' };
+      await maybeAttachMermaidSvg(d);
+      expect(renderMermaidToSvg).not.toHaveBeenCalled();
+      expect(d.mermaidSvg).toBeUndefined();
+    });
+
+    it('clears a stale SVG when re-render fails — no SVG outlives its code (atomicity)', async () => {
+      vi.mocked(renderMermaidToSvg).mockResolvedValue(undefined);
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: 'edited', mermaidSvg: '<svg>STALE</svg>' };
+      await maybeAttachMermaidSvg(d);
+      expect(d.mermaidSvg).toBeUndefined();
+    });
+
+    it('does not cache an oversized SVG (clears instead of bloating the body)', async () => {
+      vi.mocked(renderMermaidToSvg).mockResolvedValue('<svg>' + 'x'.repeat(300 * 1024) + '</svg>');
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: 'big', mermaidSvg: '<svg>STALE</svg>' };
+      await maybeAttachMermaidSvg(d);
+      expect(d.mermaidSvg).toBeUndefined();
+    });
   });
 
   it('does NOT report macro metrics on save — the editor iframe is torn down on submit/close, which would kill a long enumeration; reporting is moved to editor-open', async () => {

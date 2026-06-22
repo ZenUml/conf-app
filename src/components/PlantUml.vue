@@ -50,7 +50,7 @@ export default {
   async mounted() {
     this.debouncedRender = debounce(this.fetchSvg, 500);
     if (!this.plantUmlCode) return;
-    await this.validateAndRender(this.plantUmlCode);
+    await this.validateAndRender(this.plantUmlCode, true);
     EventBus.$emit('diagramLoaded', this.plantUmlCode, this.$store.state.diagram.diagramType);
     await globals.apWrapper.initializeContext();
   },
@@ -71,7 +71,7 @@ export default {
     },
   },
   methods: {
-    async validateAndRender(code) {
+    async validateAndRender(code, immediate = false) {
       // Check if linter already validated and found an error
       // This avoids duplicate validation calls
       const currentError = this.$store.state.error;
@@ -94,8 +94,13 @@ export default {
       this.$store.dispatch('updateError', null);
 
       // Proceed with rendering, reusing the SVG validation already fetched so we
-      // don't issue a second identical request to the PlantUML server.
-      this.debouncedRender(code, validationResult.svg);
+      // don't issue a second identical request to the PlantUML server. The initial
+      // view renders immediately; the 500ms debounce only coalesces live edits.
+      if (immediate) {
+        await this.fetchSvg(code, validationResult.svg);
+      } else {
+        this.debouncedRender(code, validationResult.svg);
+      }
     },
     async fetchSvg(code, prefetchedSvg) {
       if (!code) return;

@@ -9,13 +9,12 @@ const validateMock = vi.hoisted(() => ({ fn: vi.fn() }));
 vi.mock('@/utils/plantuml/validate', () => ({ validatePlantUmlSyntax: validateMock.fn }));
 vi.mock('@/utils/analytics/trackRenderTime', () => ({ trackRenderTime: vi.fn() }));
 
-describe('PlantUml.vue — reuses the validated SVG (no duplicate fetch)', () => {
+describe('PlantUml.vue — reuses validated SVG, renders the first view immediately', () => {
   let wrapper: VueWrapper | undefined;
   let fetchSpy: any;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.useFakeTimers();
     store.state.diagram = { ...NULL_DIAGRAM };
     (globals as any).apWrapper = {
       initializeContext: vi.fn().mockResolvedValue(undefined),
@@ -29,11 +28,10 @@ describe('PlantUml.vue — reuses the validated SVG (no duplicate fetch)', () =>
   afterEach(() => {
     wrapper?.unmount();
     wrapper = undefined;
-    vi.useRealTimers();
     fetchSpy.mockRestore();
   });
 
-  it('renders the validator-provided SVG and never re-fetches the PlantUML server', async () => {
+  it('renders the validator-provided SVG on mount without the 500ms debounce or a 2nd fetch', async () => {
     validateMock.fn.mockResolvedValue({ valid: true, error: null, svg: '<svg>VALIDATED</svg>' });
     store.state.diagram = {
       ...NULL_DIAGRAM,
@@ -41,8 +39,8 @@ describe('PlantUml.vue — reuses the validated SVG (no duplicate fetch)', () =>
       plantUmlCode: '@startuml\nA -> B\n@enduml',
     };
     wrapper = mount(PlantUml, { global: { plugins: [store] } });
-    await flushPromises(); // mounted → validateAndRender → schedules the 500ms debounce
-    await vi.advanceTimersByTimeAsync(600); // fire the debounce → fetchSvg
+    // No fake-timer advance: the initial view must render immediately (debounce is
+    // for live edits only), so flushing microtasks is enough.
     await flushPromises();
 
     expect(wrapper.html()).toContain('VALIDATED');

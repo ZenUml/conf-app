@@ -56,9 +56,11 @@ export type RenderMode = "live_render" | "cached_svg" | "sync_svg";
 export type CacheState = "cold" | "warm" | "unknown";
 
 // Where a `cached_svg` render sourced its SVG. `none` for `live_render`.
-// `cc_body` = SVG co-stored in the custom-content body (Phase 2);
+// `cc_body` = SVG co-stored in the custom-content body at save (Lever D);
+// `content_property` = SVG persisted to a content property by the view-time render
+//   cache (back-catalog coverage — macros never re-saved since Lever D shipped);
 // `attachment` / `localstorage` reserved for a future static fast-path viewer.
-export type CacheSource = "none" | "cc_body" | "attachment" | "localstorage";
+export type CacheSource = "none" | "cc_body" | "content_property" | "attachment" | "localstorage";
 
 export type FeedbackValue = "good" | "partial" | "bad";
 
@@ -122,6 +124,7 @@ export type AnalyticsEventName =
   | "custom_content_update_failed"
   | "graph_editor_init_empty"
   | "graph_svg_cached_at_save"
+  | "render_cache_write"
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"

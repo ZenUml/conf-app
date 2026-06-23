@@ -92,6 +92,10 @@ export type AnalyticsProperties = {
   // editor's own DrawIO at publish, so the viewer can inject it and skip the ~6s DrawIO load.
   svg_cache_outcome?: 'cached' | 'empty' | 'oversized'; // cached=stored; empty=no/invalid export; oversized=over cap
   svg_bytes?: number;
+  // render_cache_write (back-catalog view-time render cache): outcome of persisting a
+  // live-rendered SVG to a content property on first view, so later views are cached_svg
+  // (cache_source='content_property') without a re-save. skipped_* never attempt a write.
+  render_cache_outcome?: 'persisted' | 'failed' | 'skipped_oversized' | 'skipped_unsupported' | 'skipped_no_write';
   // Renderer-bundle prefetch (renderer_prefetch_started / _completed). Fired
   // only on an actual attempt (throttled to ≤1 per deploy per browser), never
   // on the skip path — volume stays far below page-view scale. See

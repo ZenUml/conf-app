@@ -40,7 +40,9 @@ export default {
     autoResize: {
       type: Boolean,
       default: false
-    }
+    },
+    // When wrapped by the embed host, suppress this viewer's own macro_viewed.
+    embedded: { type: Boolean, default: false },
   },
   data() {
     return {
@@ -67,7 +69,8 @@ export default {
       // or editable macros fall through to the interactive ZenUml render below
       // (renderToSvg ignores theme in v3.47.5; interactivity is editor-only anyway).
       if (this.canUseSyncSvg() && (await this.tryRenderSyncSvg(code))) {
-        trackRenderTime('sequence', this.isDisplayMode, 'sync_svg', 'none');
+        if (!this.embedded) trackRenderTime('sequence', this.isDisplayMode, 'sync_svg', 'none');
+        this.$emit('rendered');
         EventBus.$emit("diagramLoaded", code, this.$store.state.diagram.diagramType);
         return;
       }
@@ -77,7 +80,8 @@ export default {
       zenuml = new ZenUml(this.$refs["zenuml"]);
       // Phase 0b: render_ms for the initial mount render (recorded once).
       await renderPerf.time('render', () => this.render());
-      trackRenderTime('sequence', this.isDisplayMode, 'live_render', 'none');
+      if (!this.embedded) trackRenderTime('sequence', this.isDisplayMode, 'live_render', 'none');
+      this.$emit('rendered');
       EventBus.$emit(
         "diagramLoaded",
         this.$store.state.diagram.code,

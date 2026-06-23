@@ -30,6 +30,10 @@ const PLANTUML_SERVER = 'https://www.plantuml.com/plantuml/svg/';
 
 export default {
   name: 'PlantUml',
+  props: {
+    // When wrapped by the embed host, suppress this viewer's own macro_viewed.
+    embedded: { type: Boolean, default: false },
+  },
   data() {
     return {
       svg: null,
@@ -124,7 +128,8 @@ export default {
         });
         if (!this.initialRenderTracked) {
           this.initialRenderTracked = true;
-          trackRenderTime('plantuml', this.isDisplayMode);
+          if (!this.embedded) trackRenderTime('plantuml', this.isDisplayMode);
+          this.$emit('rendered');
         }
       } catch (err) {
         console.error('PlantUML render error', err);

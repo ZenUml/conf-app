@@ -23,6 +23,11 @@ import { sanitizeSvg } from '@/utils/mermaid/sanitizeSvg';
 
 export default {
   name: "Mermaid",
+  props: {
+    // When wrapped by the embed host, suppress this viewer's own macro_viewed —
+    // the host emits a single macro_type='embed' event instead.
+    embedded: { type: Boolean, default: false },
+  },
   data() {
     return {
       svg: null,
@@ -58,7 +63,8 @@ export default {
       }
       return this.render(this.mermaidCode);
     });
-    trackRenderTime('mermaid', this.isDisplayMode, renderMode, cacheSource);
+    if (!this.embedded) trackRenderTime('mermaid', this.isDisplayMode, renderMode, cacheSource);
+    this.$emit('rendered');
     EventBus.$emit('diagramLoaded', this.mermaidCode, this.$store.state.diagram.diagramType);
     await globals.apWrapper.initializeContext();
   },

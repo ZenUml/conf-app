@@ -24,7 +24,9 @@ export default {
     hideHeader: {
       type: Boolean,
       default: false
-    }
+    },
+    // When wrapped by the embed host, suppress this viewer's own macro_viewed.
+    embedded: { type: Boolean, default: false }
   },
   mounted() {
     // render_ms is measured around the REAL swagger-ui render (updateSpecFromDiagram),
@@ -97,7 +99,8 @@ export default {
       });
       if (!this._tracked) {
         this._tracked = true;
-        trackRenderTime('openapi', this.$store.getters.isDisplayMode);
+        if (!this.embedded) trackRenderTime('openapi', this.$store.getters.isDisplayMode);
+        this.$emit('rendered');
       }
     },
     awaitNextSettle() {

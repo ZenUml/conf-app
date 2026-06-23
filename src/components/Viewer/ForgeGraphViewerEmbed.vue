@@ -43,6 +43,7 @@ import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { decompress } from '@/utils/compress';
 import { trackEvent } from '@/utils/window';
 import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
+import * as renderPerf from '@/utils/analytics/renderPerf';
 
 export default {
   name: "ForgeGraphViewerEmbed",
@@ -76,7 +77,7 @@ export default {
     async initializeGraph() {
       try {
         await ensureDrawioViewerLoaded();
-        this.initGraph();
+        await this.initGraph();
       } catch (error) {
         console.error('Failed to load DrawIO scripts:', error);
         this.error = 'Failed to load graph viewer';
@@ -84,7 +85,7 @@ export default {
       }
     },
     
-    initGraph() {
+    async initGraph() {
       let graphXml = this.graphXml || this.doc?.value?.graphXml || this.doc?.graphXml;
 
       // Legacy compressed records — flag still controls decompression.
@@ -103,18 +104,20 @@ export default {
       }
 
       try {
-        // GraphViewer accepts either <mxfile> (multi-page) or raw <mxGraphModel>
-        // (legacy single-page) via its Editor.extractGraphModel pipeline.
-        // No 'toolbar' config — page nav is rendered into the GenericViewer
-        // bottom pill via the #pill-prefix slot above.
-        const xmlNode = mxUtils.parseXml(graphXml).documentElement;
-        this.graphViewer = new window.GraphViewer(this.$refs.graphContainer, xmlNode, {
-          'auto-fit': true,
-          'border': 10,
+        // render_ms for graph-embed (previously untimed — the gap). The embed host
+        // reads this via getTimings() to emit a single macro_viewed for the embed.
+        // GraphViewer accepts <mxfile> (multi-page) or raw <mxGraphModel> (legacy).
+        await renderPerf.time('render', async () => {
+          const xmlNode = mxUtils.parseXml(graphXml).documentElement;
+          this.graphViewer = new window.GraphViewer(this.$refs.graphContainer, xmlNode, {
+            'auto-fit': true,
+            'border': 10,
+          });
+          this.pageCount = this.graphViewer.diagrams?.length || 0;
+          this.currentPage = this.graphViewer.currentPage || 0;
         });
-        this.pageCount = this.graphViewer.diagrams?.length || 0;
-        this.currentPage = this.graphViewer.currentPage || 0;
         this.loading = false;
+        this.$emit('rendered');
       } catch (error) {
         console.error('Failed to initialize graph viewer:', error);
         this.error = 'Failed to initialize graph';

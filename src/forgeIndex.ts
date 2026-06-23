@@ -36,6 +36,7 @@ import {
 } from '@/utils/legacyContentPropertyTelemetry';
 import { LegacyLoadBlockedSaveError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
+import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -236,11 +237,90 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // ZEN-1170 Defect 1: see forge-graph-editor.ts for why this uses
     // config.uuid and not forgeGlobal.localId.
     const storageUuid: string | undefined = context.extension?.config?.uuid;
+
+    // Renders the plain (display-mode) sequence-family viewer: hides the skeleton
+    // and mounts DiagramPortal. Shared by the live-fetch path and the content-SWR
+    // fast path so both render identically. autoResize matches the happy-path
+    // mount for a non-editor, non-fullscreen view (see the `mountRoot` call below).
+    const mountSequenceViewer = async (viewerDoc: Diagram) => {
+      const skeleton = document.getElementById('skeleton-loader');
+      if (skeleton) skeleton.style.display = 'none';
+      const DiagramPortal = (await import('@/components/DiagramPortal.vue')).default;
+      // @ts-ignore - viewerDoc may be a partial spread type; matches the happy-path mount
+      mountRoot(viewerDoc, DiagramPortal, { autoResize: true });
+    };
+
+    // Background half of the content SWR: refetch the macro's content, refresh the
+    // cache, and re-render ONLY if the content changed since it was cached. Never
+    // awaited on the critical path — the whole point is to keep the fetch off it.
+    // Read-only (no save path): on any failure we leave the cached render in place
+    // rather than blank the viewer.
+    const revalidateSequenceViewer = async (
+      ccId: string,
+      pageId: string | undefined,
+      cachedHash: string,
+    ) => {
+      try {
+        const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(pageId, ccId);
+        const fresh = loaded.customContent?.value;
+        if (!fresh) return; // content unreadable now — keep last-known-good
+        const serialized = JSON.stringify(fresh);
+        putCachedContent(ccId, serialized);
+        if (hashContent(serialized) !== cachedHash) {
+          renderPerf.markContentSource('fetch');
+          const freshDoc: Diagram = fresh.plantUmlCode ? fresh : { ...fresh, plantUmlCode: Example.PlantUml };
+          await mountSequenceViewer(freshDoc);
+        }
+      } catch (e) {
+        console.warn('[content-swr] background revalidate failed; cached render stands', e);
+      }
+    };
+
+    // ── Content SWR: cache-first render on a viewer revisit ──────────────────
+    // Most macro views are revisits, and a view's time is dominated by the content
+    // fetch (~1337ms, ~57% of duration). The cache is keyed by customContentId —
+    // known from the Forge context BEFORE any fetch — so on a hit we mount the
+    // cached doc immediately and revalidate in the background, taking the fetch off
+    // the critical path. Scoped to the plain (non-fullscreen) sequence-family
+    // VIEWER: it's the dominant macro_viewed surface and is read-only (no save path
+    // → no data-loss risk). Fullscreen is excluded so its paywall gate still fires;
+    // the editor is excluded because its load drives save/recovery/paywall logic.
+    // See utils/renderCache/contentCacheStore.ts.
+    const isSequenceMacro =
+      context.moduleKey.startsWith('zenuml-sequence-macro') ||
+      context.moduleKey.startsWith('gpt-diagram-macro') ||
+      context.extension.modal?.diagramType === 'sequence' ||
+      context.extension.modal?.diagramType === 'mermaid';
+    if (customContentId && isSequenceMacro && !(await isEditorMode()) && !(await isFullscreenMode())) {
+      const cached = getCachedContent(customContentId);
+      if (cached) {
+        try {
+          const cachedDoc = JSON.parse(cached.doc) as Diagram;
+          const viewerDoc: Diagram = cachedDoc.plantUmlCode ? cachedDoc : { ...cachedDoc, plantUmlCode: Example.PlantUml };
+          renderPerf.markContentSource('swr_cache');
+          await mountSequenceViewer(viewerDoc);
+          void revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash);
+          return; // rendered from cache — skip the live-fetch + mount path entirely
+        } catch (e) {
+          console.warn('[content-swr] cache hit failed to render; falling back to live fetch', e);
+          // fall through to the normal fetch path below
+        }
+      }
+    }
+
     if (customContentId) {
       const loaded = await renderPerf.time('fetch', () =>
         globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId));
       console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
       doc = loaded.customContent?.value;
+      if (isSequenceMacro && loaded.customContent?.value) {
+        // Prime the id-keyed SWR cache so a later viewer revisit can render before
+        // the fetch. Cache the RAW fetched value (pre-backfill) so its hash matches
+        // a future fetch for change detection; a stale entry is self-corrected by
+        // the next revalidate's hash comparison.
+        putCachedContent(customContentId, JSON.stringify(loaded.customContent.value));
+        renderPerf.markContentSource('fetch');
+      }
       if (loaded.recoveredFromOrphanId && doc) {
         doc.recoveredFromOrphan = true;
         doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
@@ -489,7 +569,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       skeletonLoader.style.display = 'none';
     }
 
-    const isSequence = context.moduleKey.startsWith('zenuml-sequence-macro') || context.moduleKey.startsWith('gpt-diagram-macro') || context.extension.modal?.diagramType === 'sequence' || context.extension.modal?.diagramType === 'mermaid';
+    const isSequence = isSequenceMacro; // computed above for the content-SWR fast path
     const isGraph = context.moduleKey.startsWith('zenuml-graph-macro');
     const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
     // AsyncAPI ships two macros — `zenuml-asyncapi-macro` (page-rendered

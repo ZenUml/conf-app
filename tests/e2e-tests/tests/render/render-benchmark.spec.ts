@@ -55,6 +55,10 @@ interface Sample {
   cache_state?: string;
   render_mode?: string;
   cache_source?: string;
+  // Content SWR: 'fetch' (network) vs 'swr_cache' (id-keyed content cache hit, the
+  // revisit fast path). On this serial reload loop run 0 is 'fetch' and runs 1+ are
+  // 'swr_cache', so duration_ms split by content_source IS the revisit before/after.
+  content_source?: string;
   tab_hidden?: boolean;
   app_commit?: string;
 }
@@ -160,12 +164,13 @@ test.describe('render benchmark', () => {
           cache_state: p.cache_state as string | undefined,
           render_mode: p.render_mode as string | undefined,
           cache_source: p.cache_source as string | undefined,
+          content_source: p.content_source as string | undefined,
           wrapped_type: p.wrapped_type as string | undefined,
           tab_hidden: p.tab_hidden as boolean | undefined,
           app_commit: p.app_commit as string | undefined,
         });
         // eslint-disable-next-line no-console
-        console.log(`[bench] ${macro}${macro === 'embed' ? `(wrapped:${p.macro_type})` : ''} run ${run}: duration=${p.duration_ms} render=${p.render_ms ?? 'n/a'} mode=${p.render_mode ?? '?'} src=${p.cache_source ?? '?'} cache=${p.cache_state ?? '?'} hidden=${p.tab_hidden}`);
+        console.log(`[bench] ${macro}${macro === 'embed' ? `(wrapped:${p.macro_type})` : ''} run ${run}: duration=${p.duration_ms} render=${p.render_ms ?? 'n/a'} mode=${p.render_mode ?? '?'} src=${p.cache_source ?? '?'} content=${p.content_source ?? '?'} cache=${p.cache_state ?? '?'} hidden=${p.tab_hidden}`);
 
         if (NO_RENDER_CACHE) {
           // Drop the render-cache (only) so the NEXT run is warm-live, not warm-cached.
@@ -211,6 +216,23 @@ test.describe('render benchmark', () => {
           acc[k] = (acc[k] ?? 0) + 1;
           return acc;
         }, {}),
+        content_sources: ok.reduce<Record<string, number>>((acc, r) => {
+          const k = r.content_source ?? '?';
+          acc[k] = (acc[k] ?? 0) + 1;
+          return acc;
+        }, {}),
+        // The revisit before/after: duration split by where the content came from.
+        // fetch = first view (cache miss); swr_cache = revisit served before the fetch.
+        duration_ms_by_content: {
+          fetch: (() => {
+            const d = nums(ok.filter((r) => r.content_source === 'fetch').map((r) => r.duration_ms));
+            return d.length ? { n: d.length, median: median(d), p90: pct(d, 90) } : 'none';
+          })(),
+          swr_cache: (() => {
+            const d = nums(ok.filter((r) => r.content_source === 'swr_cache').map((r) => r.duration_ms));
+            return d.length ? { n: d.length, median: median(d), p90: pct(d, 90) } : 'none';
+          })(),
+        },
         duration_ms: { median: median(dur), p90: pct(dur, 90) },
         render_ms: ren.length ? { median: median(ren), p90: pct(ren, 90) } : 'not-emitted (stale build / uninstrumented macro)',
       };

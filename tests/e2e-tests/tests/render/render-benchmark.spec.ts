@@ -31,6 +31,10 @@ import path from 'path';
  */
 
 const RUNS = Number(process.env.PERF_RUNS || 6);
+// PERF_NO_RENDER_CACHE=1 clears ONLY the render-cache localStorage between runs (the
+// HTTP/bundle cache stays warm), so runs 1+ are "warm-live" — isolating the render
+// cache's effect (warm-live vs warm-cached) from the cold→warm bundle download.
+const NO_RENDER_CACHE = process.env.PERF_NO_RENDER_CACHE === '1';
 const ONLY = (process.env.PERF_MACROS || '')
   .split(',')
   .map((s) => s.trim())
@@ -161,7 +165,22 @@ test.describe('render benchmark', () => {
           app_commit: p.app_commit as string | undefined,
         });
         // eslint-disable-next-line no-console
-        console.log(`[bench] ${macro}${macro === 'embed' ? `(wrapped:${p.macro_type})` : ''} run ${run}: duration=${p.duration_ms} render=${p.render_ms ?? 'n/a'} cache=${p.cache_state ?? '?'} hidden=${p.tab_hidden}`);
+        console.log(`[bench] ${macro}${macro === 'embed' ? `(wrapped:${p.macro_type})` : ''} run ${run}: duration=${p.duration_ms} render=${p.render_ms ?? 'n/a'} mode=${p.render_mode ?? '?'} src=${p.cache_source ?? '?'} cache=${p.cache_state ?? '?'} hidden=${p.tab_hidden}`);
+
+        if (NO_RENDER_CACHE) {
+          // Drop the render-cache (only) so the NEXT run is warm-live, not warm-cached.
+          for (const f of page.frames()) {
+            try {
+              await f.evaluate(() => {
+                for (const k of Object.keys(localStorage)) {
+                  if (k.startsWith('zenuml:rcache:')) localStorage.removeItem(k);
+                }
+              });
+            } catch {
+              /* cross-origin / detached frame — skip */
+            }
+          }
+        }
       }
     }
 

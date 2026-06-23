@@ -86,6 +86,19 @@ export class Diagram {
    */
   graphSvg?: string = undefined;
   /**
+   * Lever D render cache for Sequence (ZenUML): the synchronous renderToSvg() output
+   * produced at save, injected at view to skip loadZenUml() — the ~2.1s @zenuml/core
+   * bundle — AND the React mount. This is the part the at-view sync_svg path could NOT
+   * win: sync_svg still loads the bundle to call renderToSvg in the browser; Lever D
+   * moves that render to save (where @zenuml/core is already warm in the editor) so the
+   * read-only viewer needs no bundle at all. renderToSvg ignores theme (v3.47.5), so the
+   * cached SVG is always the default-theme render — the viewer uses it only when
+   * canUseSyncSvg() holds (display mode, default theme); themed/editor views live-render.
+   * Co-stored atomically with code, sanitized on read. See
+   * utils/sequence/renderSequenceToSvg.ts + Persistence.maybeAttachSequenceSvg.
+   */
+  sequenceSvg?: string = undefined;
+  /**
    * No diagrams need to be compressed anymore. This is kept for backward compatibility.
    * @deprecated This will be removed soon.
    */

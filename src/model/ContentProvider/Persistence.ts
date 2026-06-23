@@ -11,6 +11,7 @@ import { reportSaveRefusedLegacyLoadBlocked } from '@/utils/legacyContentPropert
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { renderMermaidToSvg } from "@/utils/mermaid/renderMermaidToSvg";
 import { renderGraphToSvg } from "@/utils/drawio/renderGraphToSvg";
+import { renderSequenceToSvg } from "@/utils/sequence/renderSequenceToSvg";
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -83,6 +84,35 @@ export async function maybeAttachGraphSvg(diagram: Diagram): Promise<void> {
   }
 }
 
+/**
+ * Lever D cap for the cached sequence SVG. ZenUML SVGs are compact (text + simple
+ * vector lifelines), so mermaid's cap is plenty; over it the viewer live-renders.
+ */
+const SEQUENCE_SVG_CACHE_CAP_BYTES = 256 * 1024;
+
+/**
+ * Render the ZenUML sequence SVG at save and attach it so the read-only viewer can
+ * inject it and skip loadZenUml() + the React mount (Lever D). ALWAYS refreshes or
+ * clears diagram.sequenceSvg so a stale SVG never co-persists with edited code
+ * (atomic with `code` in the same CC body version). Best-effort — never throws.
+ * Exported for unit testing.
+ */
+export async function maybeAttachSequenceSvg(diagram: Diagram): Promise<void> {
+  if (diagram.diagramType !== DiagramType.Sequence || !diagram.code) {
+    return;
+  }
+  try {
+    const svg = await renderSequenceToSvg(diagram.code);
+    if (svg && svg.length <= SEQUENCE_SVG_CACHE_CAP_BYTES) {
+      diagram.sequenceSvg = svg;
+    } else {
+      delete diagram.sequenceSvg;
+    }
+  } catch {
+    delete diagram.sequenceSvg;
+  }
+}
+
 export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = globals.apWrapper): Promise<string> {
   // ZEN-1170 Defect 1: refuse to save when the editor was mounted with a
   // failed legacy-content-property load. Saving would create fresh custom
@@ -98,6 +128,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   // and skip the renderer load+render. Best-effort, per diagram type.
   await maybeAttachMermaidSvg(diagram);
   await maybeAttachGraphSvg(diagram);
+  await maybeAttachSequenceSvg(diagram);
 
   console.log('Saving diagram to platform content provider', diagram);
   const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);

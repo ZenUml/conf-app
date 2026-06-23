@@ -90,3 +90,56 @@ describe('Sequence.vue — Lever D sync-SVG path', () => {
     expect(trackMock.fn).toHaveBeenCalledWith('sequence', true, 'live_render', 'none');
   });
 });
+
+describe('Sequence.vue — Lever D cached-SVG path (save-time pre-render)', () => {
+  let wrapper: VueWrapper | undefined;
+  const CACHED = '<svg id="cached" xmlns="http://www.w3.org/2000/svg"><text>CACHED</text></svg>';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    renderPerf._resetForTesting();
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = undefined;
+  });
+
+  it('E: display + default theme + cached sequenceSvg → inject it, NO bundle (no renderToSvg, no React), cached_svg/cc_body', async () => {
+    wrapper = mountSeq(true, { ...SEQ_DOC, sequenceSvg: CACHED });
+    await flushPromises();
+    // The whole point of Lever D: neither the static export NOR the React mount runs —
+    // the @zenuml/core bundle is never touched on a cache hit (resource_load eliminated).
+    expect(z.renderToSvg).not.toHaveBeenCalled();
+    expect(z.ZenUmlCtor).not.toHaveBeenCalled();
+    expect(wrapper.html()).toContain('CACHED');
+    expect(trackMock.fn).toHaveBeenCalledWith('sequence', true, 'cached_svg', 'cc_body');
+  });
+
+  it('F: cached SVG fails sanitization → falls back to at-view sync_svg', async () => {
+    wrapper = mountSeq(true, { ...SEQ_DOC, sequenceSvg: '<div>tampered, not an svg</div>' });
+    await flushPromises();
+    expect(z.renderToSvg).toHaveBeenCalledWith('A.method()'); // sync_svg fallback ran
+    expect(z.ZenUmlCtor).not.toHaveBeenCalled();
+    expect(trackMock.fn).toHaveBeenCalledWith('sequence', true, 'sync_svg', 'none');
+  });
+
+  it('G: editor (not display mode) ignores the cache → interactive React render', async () => {
+    wrapper = mountSeq(false, { ...SEQ_DOC, sequenceSvg: CACHED });
+    await flushPromises();
+    expect(z.ZenUmlCtor).toHaveBeenCalledTimes(1);
+    expect(z.renderToSvg).not.toHaveBeenCalled();
+    expect(trackMock.fn).toHaveBeenCalledWith('sequence', false, 'live_render', 'none');
+  });
+
+  it('H: non-default theme ignores the cache (cached SVG is default-theme only)', async () => {
+    localStorage.setItem(`${location.hostname}-zenuml-conf-theme`, 'theme-dark');
+    wrapper = mountSeq(true, { ...SEQ_DOC, sequenceSvg: CACHED });
+    await flushPromises();
+    expect(z.ZenUmlCtor).toHaveBeenCalledTimes(1);
+    expect(z.renderToSvg).not.toHaveBeenCalled();
+    expect(trackMock.fn).toHaveBeenCalledWith('sequence', true, 'live_render', 'none');
+  });
+});

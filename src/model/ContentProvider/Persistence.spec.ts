@@ -1,7 +1,8 @@
-import {saveToPlatform, LegacyLoadBlockedSaveError, maybeAttachMermaidSvg, maybeAttachGraphSvg} from "@/model/ContentProvider/Persistence";
+import {saveToPlatform, LegacyLoadBlockedSaveError, maybeAttachMermaidSvg, maybeAttachGraphSvg, maybeAttachSequenceSvg} from "@/model/ContentProvider/Persistence";
 import {NULL_DIAGRAM, DiagramType} from "@/model/Diagram/Diagram";
 import { renderMermaidToSvg } from "@/utils/mermaid/renderMermaidToSvg";
 import { renderGraphToSvg } from "@/utils/drawio/renderGraphToSvg";
+import { renderSequenceToSvg } from "@/utils/sequence/renderSequenceToSvg";
 import {vi} from "vitest";
 import ApWrapper2 from "../ApWrapper2";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
@@ -37,6 +38,10 @@ vi.mock("@/utils/mermaid/renderMermaidToSvg", () => ({
 
 vi.mock("@/utils/drawio/renderGraphToSvg", () => ({
   renderGraphToSvg: vi.fn(),
+}));
+
+vi.mock("@/utils/sequence/renderSequenceToSvg", () => ({
+  renderSequenceToSvg: vi.fn(),
 }));
 
 vi.mock("@/services/MacroMetrics", () => ({
@@ -120,6 +125,39 @@ describe('Persistence', function () {
       const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '<edited/>', graphSvg: '<svg>STALE</svg>' };
       await maybeAttachGraphSvg(d);
       expect(d.graphSvg).toBeUndefined();
+    });
+  });
+
+  describe('maybeAttachSequenceSvg (Lever D render cache, sequence)', () => {
+    beforeEach(() => vi.mocked(renderSequenceToSvg).mockReset());
+
+    it('renders and attaches sequenceSvg for a Sequence diagram with code', async () => {
+      vi.mocked(renderSequenceToSvg).mockResolvedValue('<svg>seq</svg>');
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: 'A.b()' };
+      await maybeAttachSequenceSvg(d);
+      expect(renderSequenceToSvg).toHaveBeenCalledWith('A.b()');
+      expect(d.sequenceSvg).toBe('<svg>seq</svg>');
+    });
+
+    it('skips non-Sequence diagrams (no render, no field set)', async () => {
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: 'x' };
+      await maybeAttachSequenceSvg(d);
+      expect(renderSequenceToSvg).not.toHaveBeenCalled();
+      expect(d.sequenceSvg).toBeUndefined();
+    });
+
+    it('clears a stale sequenceSvg when render fails — no SVG outlives its code (atomicity)', async () => {
+      vi.mocked(renderSequenceToSvg).mockResolvedValue(undefined);
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: 'A.edited()', sequenceSvg: '<svg>STALE</svg>' };
+      await maybeAttachSequenceSvg(d);
+      expect(d.sequenceSvg).toBeUndefined();
+    });
+
+    it('skips caching when the rendered SVG exceeds the size cap', async () => {
+      vi.mocked(renderSequenceToSvg).mockResolvedValue('<svg>' + 'x'.repeat(300 * 1024) + '</svg>');
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: 'A.b()' };
+      await maybeAttachSequenceSvg(d);
+      expect(d.sequenceSvg).toBeUndefined();
     });
   });
 

@@ -64,15 +64,28 @@ export default {
   async mounted() {
     try {
       const code = this.$store.state.diagram.code;
-      // Display-mode + default-theme fast path: render to a static SVG via
-      // @zenuml/core's synchronous renderToSvg(), skipping the React mount. Themed
-      // or editable macros fall through to the interactive ZenUml render below
+      // Display-mode + default-theme fast path. Two tiers, both skipping the React mount:
+      //   1. Lever D (cached_svg): a pre-rendered SVG in the CC body — inject it and skip
+      //      the @zenuml/core bundle ENTIRELY (no loadZenUml, no resource_load). The real
+      //      50% cut; only present for macros saved after Lever D shipped.
+      //   2. sync_svg: no cached SVG (back-catalog) — render to a static SVG at view via
+      //      @zenuml/core's synchronous renderToSvg(). Still loads the bundle, but skips
+      //      the React mount.
+      // Themed or editable macros fall through to the interactive ZenUml render below
       // (renderToSvg ignores theme in v3.47.5; interactivity is editor-only anyway).
-      if (this.canUseSyncSvg() && (await this.tryRenderSyncSvg(code))) {
-        if (!this.embedded) trackRenderTime('sequence', this.isDisplayMode, 'sync_svg', 'none');
-        this.$emit('rendered');
-        EventBus.$emit("diagramLoaded", code, this.$store.state.diagram.diagramType);
-        return;
+      if (this.canUseSyncSvg()) {
+        if (await this.tryInjectCachedSvg()) {
+          if (!this.embedded) trackRenderTime('sequence', this.isDisplayMode, 'cached_svg', 'cc_body');
+          this.$emit('rendered');
+          EventBus.$emit("diagramLoaded", code, this.$store.state.diagram.diagramType);
+          return;
+        }
+        if (await this.tryRenderSyncSvg(code)) {
+          if (!this.embedded) trackRenderTime('sequence', this.isDisplayMode, 'sync_svg', 'none');
+          this.$emit('rendered');
+          EventBus.$emit("diagramLoaded", code, this.$store.state.diagram.diagramType);
+          return;
+        }
       }
       // Load ZenUml dynamically (interactive React render)
       const ZenUml = await renderPerf.time('resource', () => loadZenUml());
@@ -147,6 +160,19 @@ export default {
         ? localStorage.getItem(getThemeStorageKey(id))
         : sessionStorage.getItem(getThemeStorageKey());
       return !scopeTheme && (!globalTheme || globalTheme === "theme-default");
+    },
+    async tryInjectCachedSvg() {
+      // Lever D read path: inject the SVG rendered at save (Persistence.maybeAttachSequenceSvg),
+      // skipping the @zenuml/core bundle altogether. render_ms = the cheap sanitize scrub;
+      // resource_load_ms is absent (no import). Sanitized on read (stored-XSS guard, mirrors
+      // Mermaid.vue). Returns false when no cached SVG or the scrub rejects it.
+      const cached = this.$store.state.diagram.sequenceSvg;
+      if (!cached) return false;
+      const safe = await renderPerf.time('render', async () => sanitizeSvg(cached));
+      if (!safe) return false;
+      this.staticSvg = safe;
+      this.usedSyncPath = true;
+      return true;
     },
     async tryRenderSyncSvg(code) {
       // resource_load_ms is still measured honestly (same ~2.4MB @zenuml/core bundle —

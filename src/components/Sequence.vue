@@ -18,8 +18,10 @@ import { trackEvent } from "@/utils/window";
 import globals from "@/model/globals";
 import ViewResizer from "./Viewer/ViewResizer.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import * as renderPerf from "@/utils/analytics/renderPerf";
 import { sanitizeSvg } from "@/utils/mermaid/sanitizeSvg";
+import { getCachedSvg, putCachedSvg } from "@/utils/renderCache/renderCacheStore";
 
 // Create a promise to load ZenUml only when needed
 const loadZenUml = () => import("@zenuml/core").then(module => module.default);
@@ -80,7 +82,17 @@ export default {
           EventBus.$emit("diagramLoaded", code, this.$store.state.diagram.diagramType);
           return;
         }
+        // Back-catalog localStorage view-cache: a prior sync_svg render stored this
+        // code's SVG — inject it and skip the @zenuml/core bundle (load + EVAL) entirely.
+        if (await this.tryInjectLocalCacheSvg(code)) {
+          if (!this.embedded) trackRenderTime('sequence', this.isDisplayMode, 'cached_svg', 'localstorage');
+          this.$emit('rendered');
+          EventBus.$emit("diagramLoaded", code, this.$store.state.diagram.diagramType);
+          return;
+        }
         if (await this.tryRenderSyncSvg(code)) {
+          // Warm the view cache so the next visit skips the bundle entirely.
+          this.maybeCacheSvg(code, this.staticSvg);
           if (!this.embedded) trackRenderTime('sequence', this.isDisplayMode, 'sync_svg', 'none');
           this.$emit('rendered');
           EventBus.$emit("diagramLoaded", code, this.$store.state.diagram.diagramType);
@@ -173,6 +185,37 @@ export default {
       this.staticSvg = safe;
       this.usedSyncPath = true;
       return true;
+    },
+    async tryInjectLocalCacheSvg(code) {
+      // Back-catalog read: inject a localStorage-cached SVG (from a prior sync_svg
+      // render), skipping the @zenuml/core bundle. Sanitized on read (tamper surface).
+      const cached = getCachedSvg(code);
+      if (!cached) return false;
+      const safe = await renderPerf.time('render', async () => sanitizeSvg(cached));
+      if (!safe) return false;
+      this.staticSvg = safe;
+      this.usedSyncPath = true;
+      return true;
+    },
+    maybeCacheSvg(code, svg) {
+      try {
+        const skip = putCachedSvg(code, svg);
+        const OUTCOME = {
+          null: 'persisted',
+          oversized: 'skipped_oversized',
+          unsupported: 'skipped_unsupported',
+          no_write: 'skipped_no_write',
+        };
+        trackAnalyticsEvent('render_cache_write', {
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: 'sequence',
+          render_cache_outcome: OUTCOME[skip === null ? 'null' : skip],
+          ...(skip === null ? { svg_bytes: svg.length } : {}),
+        });
+      } catch (e) {
+        console.warn('sequence render-cache write failed', e);
+      }
     },
     async tryRenderSyncSvg(code) {
       // resource_load_ms is still measured honestly (same ~2.4MB @zenuml/core bundle —

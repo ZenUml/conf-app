@@ -18,8 +18,10 @@ import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { sanitizeSvg } from '@/utils/mermaid/sanitizeSvg';
+import { getCachedSvg, putCachedSvg } from '@/utils/renderCache/renderCacheStore';
 
 export default {
   name: "Mermaid",
@@ -51,8 +53,11 @@ export default {
     // the initial mount render is timed (renderPerf records once).
     let renderMode = 'live_render';
     let cacheSource = 'none';
+    let liveRendered = null;
+    const code = this.mermaidCode;
     const cachedSvg = this.$store.state.diagram.mermaidSvg;
     this.svg = await renderPerf.time('render', async () => {
+      // 1) cc_body (Lever D save-time cache, re-saved macros).
       if (cachedSvg) {
         const safe = sanitizeSvg(cachedSvg);
         if (safe) {
@@ -61,8 +66,24 @@ export default {
           return safe;
         }
       }
-      return this.render(this.mermaidCode);
+      // 2) back-catalog localStorage view-cache — skips loadMermaid()+render() AND the
+      //    mermaid bundle eval on revisit (the bundle bytes are HTTP-warm but parsing/
+      //    executing them is real CPU). Sanitized on read (tamper surface).
+      const lsSvg = getCachedSvg(code);
+      if (lsSvg) {
+        const safe = sanitizeSvg(lsSvg);
+        if (safe) {
+          renderMode = 'cached_svg';
+          cacheSource = 'localstorage';
+          return safe;
+        }
+      }
+      // 3) live render.
+      liveRendered = await this.render(code);
+      return liveRendered;
     });
+    // Warm the view cache so the next visit skips the bundle entirely.
+    if (liveRendered) this.maybeCacheSvg(code, liveRendered);
     if (!this.embedded) trackRenderTime('mermaid', this.isDisplayMode, renderMode, cacheSource);
     this.$emit('rendered');
     EventBus.$emit('diagramLoaded', this.mermaidCode, this.$store.state.diagram.diagramType);
@@ -98,6 +119,26 @@ export default {
           const tempElement = document.getElementById(`d${this.renderId}`);
           tempElement?.remove();
         }
+      }
+    },
+    maybeCacheSvg(code, svg) {
+      try {
+        const skip = putCachedSvg(code, svg);
+        const OUTCOME = {
+          null: 'persisted',
+          oversized: 'skipped_oversized',
+          unsupported: 'skipped_unsupported',
+          no_write: 'skipped_no_write',
+        };
+        trackAnalyticsEvent('render_cache_write', {
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: 'mermaid',
+          render_cache_outcome: OUTCOME[skip === null ? 'null' : skip],
+          ...(skip === null ? { svg_bytes: svg.length } : {}),
+        });
+      } catch (e) {
+        console.warn('mermaid render-cache write failed', e);
       }
     }
   }

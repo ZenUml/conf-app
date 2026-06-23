@@ -22,6 +22,11 @@ vi.mock('@zenuml/core', () => ({ default: z.ZenUmlCtor, renderToSvg: z.renderToS
 const trackMock = vi.hoisted(() => ({ fn: vi.fn() }));
 vi.mock('@/utils/analytics/trackRenderTime', () => ({ trackRenderTime: trackMock.fn }));
 
+const trackEventMock = vi.hoisted(() => ({ fn: vi.fn() }));
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: trackEventMock.fn }));
+
+import { getCachedSvg, putCachedSvg } from '@/utils/renderCache/renderCacheStore';
+
 vi.mock('@/components/Viewer/ViewResizer.vue', () => ({
   default: { name: 'ViewResizer', template: '<div><slot /></div>' },
 }));
@@ -141,5 +146,26 @@ describe('Sequence.vue — Lever D cached-SVG path (save-time pre-render)', () =
     expect(z.ZenUmlCtor).toHaveBeenCalledTimes(1);
     expect(z.renderToSvg).not.toHaveBeenCalled();
     expect(trackMock.fn).toHaveBeenCalledWith('sequence', true, 'live_render', 'none');
+  });
+
+  it('I: back-catalog localStorage hit → inject, skip renderToSvg AND the bundle (cache_source localstorage)', async () => {
+    putCachedSvg('A.method()', '<svg id="ls" xmlns="http://www.w3.org/2000/svg"><text>LS_SEQ</text></svg>');
+    wrapper = mountSeq(true); // display + default theme, no cc_body sequenceSvg
+    await flushPromises();
+    expect(z.renderToSvg).not.toHaveBeenCalled(); // no at-view render
+    expect(z.ZenUmlCtor).not.toHaveBeenCalled(); // no bundle / React mount
+    expect(wrapper.html()).toContain('LS_SEQ');
+    expect(trackMock.fn).toHaveBeenCalledWith('sequence', true, 'cached_svg', 'localstorage');
+  });
+
+  it('J: a sync_svg render warms the localStorage cache for the next view', async () => {
+    wrapper = mountSeq(true); // no cache → sync_svg path renders + warms
+    await flushPromises();
+    expect(z.renderToSvg).toHaveBeenCalled();
+    expect(getCachedSvg('A.method()')).toContain('SYNC'); // warmed for next view
+    expect(trackEventMock.fn).toHaveBeenCalledWith(
+      'render_cache_write',
+      expect.objectContaining({ macro_type: 'sequence', render_cache_outcome: 'persisted' }),
+    );
   });
 });

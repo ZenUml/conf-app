@@ -5,6 +5,7 @@ import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import globals from '@/model/globals';
 import * as renderPerf from '@/utils/analytics/renderPerf';
+import { getCachedSvg, putCachedSvg } from '@/utils/renderCache/renderCacheStore';
 
 // loadMermaid is the renderer-bundle load Lever D aims to SKIP on a cache hit —
 // assert against this mock to prove the skip.
@@ -13,6 +14,9 @@ vi.mock('@/utils/mermaid/loadMermaid', () => ({ loadMermaid: loadMermaidMock.fn 
 
 const trackMock = vi.hoisted(() => ({ fn: vi.fn() }));
 vi.mock('@/utils/analytics/trackRenderTime', () => ({ trackRenderTime: trackMock.fn }));
+
+const trackEventMock = vi.hoisted(() => ({ fn: vi.fn() }));
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: trackEventMock.fn }));
 
 // NOTE: sanitizeSvg is NOT mocked — exercised for real so the cache path is
 // verified end-to-end (DOMParser scrub running in jsdom, same code as the browser).
@@ -23,6 +27,7 @@ describe('Mermaid.vue — Lever D cached-SVG read path', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     renderPerf._resetForTesting();
+    localStorage.clear(); // isolate the back-catalog view cache between tests
     store.state.diagram = { ...NULL_DIAGRAM };
     // mermaid.render() output for the LIVE fallback path
     loadMermaidMock.fn.mockResolvedValue({
@@ -73,6 +78,49 @@ describe('Mermaid.vue — Lever D cached-SVG read path', () => {
     expect(typeof renderPerf.getTimings().resource_load_ms).toBe('number'); // loadMermaid now timed as resource_load_ms (gap fixed)
     expect(wrapper.html()).toContain('LIVE');
     expect(trackMock.fn).toHaveBeenCalledWith('mermaid', expect.anything(), 'live_render', 'none');
+  });
+
+  it('back-catalog: injects a localStorage-cached SVG and SKIPS loadMermaid (cache_source localstorage)', async () => {
+    const code = 'sequenceDiagram\n A->>B: hi';
+    putCachedSvg(code, '<svg id="ls" xmlns="http://www.w3.org/2000/svg"><text>LS_MERMAID</text></svg>');
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: code };
+    wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await flushPromises();
+
+    expect(loadMermaidMock.fn).not.toHaveBeenCalled(); // bundle skipped (load + eval)
+    expect(wrapper.html()).toContain('LS_MERMAID');
+    expect(trackMock.fn).toHaveBeenCalledWith('mermaid', expect.anything(), 'cached_svg', 'localstorage');
+  });
+
+  it('back-catalog: a live render warms the localStorage cache for the next view', async () => {
+    const code = 'sequenceDiagram\n A->>B: hi';
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: code };
+    wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await flushPromises();
+
+    expect(loadMermaidMock.fn).toHaveBeenCalledTimes(1); // live render this time
+    expect(getCachedSvg(code)).toContain('LIVE'); // warmed for next view
+    expect(trackEventMock.fn).toHaveBeenCalledWith(
+      'render_cache_write',
+      expect.objectContaining({ macro_type: 'mermaid', render_cache_outcome: 'persisted' }),
+    );
+  });
+
+  it('cc_body cache takes precedence over the localStorage cache', async () => {
+    const code = 'sequenceDiagram\n A->>B: hi';
+    putCachedSvg(code, '<svg id="ls"><text>LS_MERMAID</text></svg>');
+    store.state.diagram = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Mermaid,
+      mermaidCode: code,
+      mermaidSvg: '<svg id="cc" xmlns="http://www.w3.org/2000/svg"><text>CCBODY</text></svg>',
+    };
+    wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await flushPromises();
+
+    expect(wrapper.html()).toContain('CCBODY');
+    expect(wrapper.html()).not.toContain('LS_MERMAID');
+    expect(trackMock.fn).toHaveBeenCalledWith('mermaid', expect.anything(), 'cached_svg', 'cc_body');
   });
 
   it('falls back to live render when the cached SVG fails sanitization', async () => {

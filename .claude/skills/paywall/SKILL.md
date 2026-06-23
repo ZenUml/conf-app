@@ -82,6 +82,24 @@ Output is a JSON object — `{"zenuml-stg":true,"tenant-a":true,...}` — keys a
 
 **Authentication:** the wrapper relies on `npx wrangler` being authenticated. If you get `401 Unauthorized`, run `npx wrangler login` in an interactive terminal or export `CLOUDFLARE_API_TOKEN` with Workers KV read (and write if updating CSS). Until auth works, skip the "on CSS?" column and state clearly that the CSS list was unavailable — do not infer enrollment from Mixpanel alone.
 
+### Refresh the Ops Console "Paywalled" list
+
+Whenever Step 1 returns a live flag, also refresh `private/src/data/paywall-enrolled.json` so the Handbook **Ops Console** client-profiles page ("Customers") shows the **Paywalled** filter accurately. Take the flag keys whose value is `true`, **exclude** internal sites (`zenuml`, `zenuml-connect`, `zenuml-stg`, `lite-stg`) and any **`-x-` soft-disabled** key (those resolve to "not enrolled"), and write (Write tool):
+
+```json
+{
+  "asOf": "<today YYYY-MM-DD>",
+  "source": "Live CUSTOMER_SUCCESS_SERVICE KV flag (paywall skill Step 1).",
+  "domains": ["<enrolled subdomain prefixes, internals + -x- excluded>"]
+}
+```
+
+If auth failed and the live flag was unavailable, **do not** overwrite the file — leave the last good snapshot in place. Commit it with the run:
+
+```bash
+cd ~/workspaces/zenuml/conf-app/private && git add src/data/paywall-enrolled.json && git commit -m "chore(cockpit): paywall-enrolled list $(date +%Y-%m-%d)"
+```
+
 ## Infrastructure constants
 
 | Resource | Value |

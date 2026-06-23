@@ -78,26 +78,28 @@ export default {
     },
   },
   methods: {
-    async validateAndRender(code, immediate = false) {
-      // Back-catalog view cache: a prior render stored this code's SVG in localStorage.
-      // Inject it and skip the plantuml.com round-trip (validation fetch + render fetch)
-      // ENTIRELY. Sanitized on read (localStorage is a tamper surface). Falls through to
-      // a live render on miss / rejection.
-      const cached = getCachedSvg(code);
-      if (cached) {
-        const safe = sanitizeSvg(cached);
-        if (safe) {
-          this.$store.dispatch('updateError', null);
-          this.error = null;
-          this.svg = safe;
-          if (!this.initialRenderTracked) {
-            this.initialRenderTracked = true;
-            if (!this.embedded) trackRenderTime('plantuml', this.isDisplayMode, 'cached_svg', 'localstorage');
-            this.$emit('rendered');
-          }
-          return;
-        }
+    tryInjectCached(rawSvg, cacheSource) {
+      // Inject a cached SVG and skip the plantuml.com round-trip ENTIRELY. Sanitized on
+      // read (both the body and localStorage are tamper surfaces). Returns false on a
+      // miss / rejection so the caller falls through to the next tier.
+      if (!rawSvg) return false;
+      const safe = sanitizeSvg(rawSvg);
+      if (!safe) return false;
+      this.$store.dispatch('updateError', null);
+      this.error = null;
+      this.svg = safe;
+      if (!this.initialRenderTracked) {
+        this.initialRenderTracked = true;
+        if (!this.embedded) trackRenderTime('plantuml', this.isDisplayMode, 'cached_svg', cacheSource);
+        this.$emit('rendered');
       }
+      return true;
+    },
+    async validateAndRender(code, immediate = false) {
+      // Read order: cc_body (save-time, CROSS-USER — rides in the body) → localStorage
+      // (per-browser view cache) → live render (validate + fetch plantuml.com).
+      if (this.tryInjectCached(this.$store.state.diagram.plantUmlSvg, 'cc_body')) return;
+      if (this.tryInjectCached(getCachedSvg(code), 'localstorage')) return;
 
       // Check if linter already validated and found an error
       // This avoids duplicate validation calls

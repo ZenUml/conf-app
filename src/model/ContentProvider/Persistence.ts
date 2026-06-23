@@ -12,6 +12,7 @@ import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { renderMermaidToSvg } from "@/utils/mermaid/renderMermaidToSvg";
 import { renderGraphToSvg } from "@/utils/drawio/renderGraphToSvg";
 import { renderSequenceToSvg } from "@/utils/sequence/renderSequenceToSvg";
+import { validatePlantUmlSyntax } from "@/utils/plantuml/validate";
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -135,6 +136,36 @@ export async function maybeAttachSequenceSvg(diagram: Diagram): Promise<void> {
 }
 
 /**
+ * Lever D cap for the cached PlantUML SVG.
+ */
+const PLANTUML_SVG_CACHE_CAP_BYTES = 256 * 1024;
+
+/**
+ * Attach the PlantUML SVG at save so the viewer can inject it and skip the plantuml.com
+ * round-trip (Lever D) — and so it works CROSS-USER (it rides in the body, not per-browser
+ * localStorage). Reuses validatePlantUmlSyntax, which returns the SVG it already fetched
+ * during editing (its own cache), so the marginal save cost is usually zero. ALWAYS
+ * refreshes/clears diagram.plantUmlSvg so a stale SVG never co-persists with edited code.
+ * Best-effort — never throws. Exported for unit testing.
+ */
+export async function maybeAttachPlantUmlSvg(diagram: Diagram): Promise<void> {
+  if (diagram.diagramType !== DiagramType.PlantUml || !diagram.plantUmlCode) {
+    return;
+  }
+  try {
+    const result = await validatePlantUmlSyntax(diagram.plantUmlCode);
+    const svg = result && result.valid ? result.svg : undefined;
+    if (svg && svg.length <= PLANTUML_SVG_CACHE_CAP_BYTES) {
+      diagram.plantUmlSvg = svg;
+    } else {
+      delete diagram.plantUmlSvg;
+    }
+  } catch {
+    delete diagram.plantUmlSvg;
+  }
+}
+
+/**
  * The Lever D pre-renders run in saveToPlatform's critical path — the SVG must be in
  * the body before it is serialized — so a slow or stalled renderer would hold the
  * user's save (and the editor modal) open. Graph is the real risk: maybeAttachGraphSvg
@@ -174,6 +205,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   await withSaveTimeout(maybeAttachMermaidSvg(diagram));
   await withSaveTimeout(maybeAttachGraphSvg(diagram));
   await withSaveTimeout(maybeAttachSequenceSvg(diagram));
+  await withSaveTimeout(maybeAttachPlantUmlSvg(diagram));
 
   console.log('Saving diagram to platform content provider', diagram);
   const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);

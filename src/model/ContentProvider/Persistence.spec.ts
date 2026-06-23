@@ -1,8 +1,9 @@
-import {saveToPlatform, LegacyLoadBlockedSaveError, maybeAttachMermaidSvg, maybeAttachGraphSvg, maybeAttachSequenceSvg, withSaveTimeout} from "@/model/ContentProvider/Persistence";
+import {saveToPlatform, LegacyLoadBlockedSaveError, maybeAttachMermaidSvg, maybeAttachGraphSvg, maybeAttachSequenceSvg, maybeAttachPlantUmlSvg, withSaveTimeout} from "@/model/ContentProvider/Persistence";
 import {NULL_DIAGRAM, DiagramType} from "@/model/Diagram/Diagram";
 import { renderMermaidToSvg } from "@/utils/mermaid/renderMermaidToSvg";
 import { renderGraphToSvg } from "@/utils/drawio/renderGraphToSvg";
 import { renderSequenceToSvg } from "@/utils/sequence/renderSequenceToSvg";
+import { validatePlantUmlSyntax } from "@/utils/plantuml/validate";
 import {vi} from "vitest";
 import ApWrapper2 from "../ApWrapper2";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
@@ -42,6 +43,10 @@ vi.mock("@/utils/drawio/renderGraphToSvg", () => ({
 
 vi.mock("@/utils/sequence/renderSequenceToSvg", () => ({
   renderSequenceToSvg: vi.fn(),
+}));
+
+vi.mock("@/utils/plantuml/validate", () => ({
+  validatePlantUmlSyntax: vi.fn(),
 }));
 
 vi.mock("@/services/MacroMetrics", () => ({
@@ -174,6 +179,32 @@ describe('Persistence', function () {
       const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: 'A.b()' };
       await maybeAttachSequenceSvg(d);
       expect(d.sequenceSvg).toBeUndefined();
+    });
+  });
+
+  describe('maybeAttachPlantUmlSvg (Lever D render cache, plantuml — cross-user)', () => {
+    beforeEach(() => vi.mocked(validatePlantUmlSyntax).mockReset());
+
+    it('attaches plantUmlSvg from the validator SVG for a valid PlantUml diagram', async () => {
+      vi.mocked(validatePlantUmlSyntax).mockResolvedValue({ valid: true, error: null, svg: '<svg>puml</svg>' });
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.PlantUml, plantUmlCode: '@startuml\nA->B\n@enduml' };
+      await maybeAttachPlantUmlSvg(d);
+      expect(validatePlantUmlSyntax).toHaveBeenCalledWith('@startuml\nA->B\n@enduml');
+      expect(d.plantUmlSvg).toBe('<svg>puml</svg>');
+    });
+
+    it('skips non-PlantUml diagrams (no validate, no field set)', async () => {
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: 'x' };
+      await maybeAttachPlantUmlSvg(d);
+      expect(validatePlantUmlSyntax).not.toHaveBeenCalled();
+      expect(d.plantUmlSvg).toBeUndefined();
+    });
+
+    it('clears a stale plantUmlSvg when validation fails (atomicity)', async () => {
+      vi.mocked(validatePlantUmlSyntax).mockResolvedValue({ valid: false, error: 'syntax error' });
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.PlantUml, plantUmlCode: '@bad', plantUmlSvg: '<svg>STALE</svg>' };
+      await maybeAttachPlantUmlSvg(d);
+      expect(d.plantUmlSvg).toBeUndefined();
     });
   });
 

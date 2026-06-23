@@ -89,6 +89,24 @@ describe('PlantUml.vue — back-catalog localStorage view cache', () => {
     expect(trackRenderMock.fn).toHaveBeenCalledWith('plantuml', expect.anything(), 'cached_svg', 'localstorage');
   });
 
+  it('cc_body hit (cross-user): injects the body SVG, skips validation, fetch, AND localStorage', async () => {
+    putCachedSvg(CODE, '<svg id="ls"><text>LS_PUML</text></svg>'); // localStorage also present
+    store.state.diagram = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.PlantUml,
+      plantUmlCode: CODE,
+      plantUmlSvg: '<svg id="cc" xmlns="http://www.w3.org/2000/svg"><text>CC_PUML</text></svg>',
+    };
+    wrapper = mount(PlantUml, { global: { plugins: [store] } });
+    await flushPromises();
+
+    expect(wrapper.html()).toContain('CC_PUML');
+    expect(wrapper.html()).not.toContain('LS_PUML'); // cc_body wins over localStorage
+    expect(validateMock.fn).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(trackRenderMock.fn).toHaveBeenCalledWith('plantuml', expect.anything(), 'cached_svg', 'cc_body');
+  });
+
   it('live render warms the cache (render_cache_write persisted) for the next view', async () => {
     validateMock.fn.mockResolvedValue({ valid: true, error: null, svg: '<svg>VALIDATED</svg>' });
     store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.PlantUml, plantUmlCode: CODE };

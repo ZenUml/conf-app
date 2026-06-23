@@ -99,6 +99,16 @@ export class Diagram {
    */
   sequenceSvg?: string = undefined;
   /**
+   * Lever D render cache for PlantUML: the SVG fetched from plantuml.com at save,
+   * co-stored in the body so the viewer injects it and skips the plantuml.com round-trip.
+   * Unlike mermaid/sequence/graph (rendered client-side), plantuml renders server-side, so
+   * this caches that third-party fetch — and makes it cross-user (any viewer of a re-saved
+   * macro gets it from the body, not just the same browser via localStorage). The SVG is
+   * deterministic for a given source, so it invalidates implicitly (changed code ⇒ re-render
+   * at save). See Persistence.maybeAttachPlantUmlSvg.
+   */
+  plantUmlSvg?: string = undefined;
+  /**
    * No diagrams need to be compressed anymore. This is kept for backward compatibility.
    * @deprecated This will be removed soon.
    */

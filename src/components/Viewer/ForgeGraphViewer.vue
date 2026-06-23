@@ -45,8 +45,10 @@
 <script>
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import * as renderPerf from "@/utils/analytics/renderPerf";
 import { sanitizeSvg } from "@/utils/mermaid/sanitizeSvg";
+import { getCachedSvg, putCachedSvg } from "@/utils/renderCache/renderCacheStore";
 export default {
   name: "ForgeGraphViewer",
   components: {
@@ -97,6 +99,20 @@ export default {
           return;
         }
       }
+      // Back-catalog view cache (per-browser localStorage): for graphs never re-saved
+      // since Lever D, a prior view stored the rendered SVG keyed by graphXml hash —
+      // inject it and skip the ~6s DrawIO render entirely. Falls back to live render.
+      const localSvg = getCachedSvg(this.effectiveGraphXml);
+      if (localSvg) {
+        const safe = await renderPerf.time('render', async () => sanitizeSvg(localSvg));
+        if (safe) {
+          container.innerHTML = safe;
+          this.pageCount = 0;
+          this.currentPage = 0;
+          trackRenderTime('graph', this.$store.getters.isDisplayMode, 'cached_svg', 'localstorage');
+          return;
+        }
+      }
       try {
         // render_ms = the synchronous mxgraph work (parse + GraphViewer
         // layout/paint), wrapped in renderPerf.time('render') so graph finally
@@ -120,8 +136,43 @@ export default {
           this.currentPage = this.graphViewer.currentPage || 0;
         });
         trackRenderTime('graph', this.$store.getters.isDisplayMode, 'live_render', 'none');
+        // Warm the back-catalog view cache so the NEXT view of this graph skips DrawIO.
+        this.maybeCacheRenderedSvg(this.effectiveGraphXml);
       } catch (e) {
         console.error('ForgeGraphViewer: GraphViewer init failed:', e);
+      }
+    },
+    // Persist the just-rendered SVG to the per-browser view cache. Best-effort, never
+    // throws. Skips multi-page (one SVG can't represent page-nav) and external-image
+    // graphs (getSvg/container SVG don't inline http(s) <image> cells → broken cache).
+    maybeCacheRenderedSvg(xml) {
+      try {
+        if (!xml || this.pageCount > 1 || /image=https?:\/\//i.test(xml)) return;
+        const gv = this.graphViewer;
+        let svgEl = null;
+        if (gv?.graph && typeof gv.graph.getSvg === 'function') {
+          // (background, scale, border, nocrop, crisp, ignoreSelection, showText)
+          svgEl = gv.graph.getSvg(null, 1, 10, false, true, true, true);
+        }
+        if (!svgEl) svgEl = this.$refs.graphContainer?.querySelector('svg');
+        if (!svgEl) return;
+        const svg = svgEl.outerHTML || new XMLSerializer().serializeToString(svgEl);
+        const skip = putCachedSvg(xml, svg);
+        const OUTCOME = {
+          null: 'persisted',
+          oversized: 'skipped_oversized',
+          unsupported: 'skipped_unsupported',
+          no_write: 'skipped_no_write',
+        };
+        trackAnalyticsEvent('render_cache_write', {
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: 'graph',
+          render_cache_outcome: OUTCOME[skip === null ? 'null' : skip],
+          ...(skip === null ? { svg_bytes: svg.length } : {}),
+        });
+      } catch (e) {
+        console.warn('graph render-cache write failed', e);
       }
     },
     goToPage(index) {

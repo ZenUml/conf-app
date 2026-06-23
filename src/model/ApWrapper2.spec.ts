@@ -245,6 +245,69 @@ describe('ApWrapper2', () => {
     });
   });
 
+  describe('getCustomContentForCurrentPage — parallel page-status + content (perf)', () => {
+    it('current page: returns the content (page-status check + content fetch both fire)', async () => {
+      const w = wrapper as any;
+      vi.spyOn(w, '_getCurrentPageId').mockResolvedValue('page-1');
+      const reqSpy = vi.spyOn(w, 'request').mockResolvedValue({ status: 'current' });
+      const contentSpy = vi.spyOn(w, 'getCustomContentByIdV2').mockResolvedValue({ id: 'cc-1', value: { code: 'A' } });
+      const verSpy = vi.spyOn(w, 'getCustomContentVersionBeforeDate').mockResolvedValue(undefined);
+
+      const result = await wrapper.getCustomContentForCurrentPage('cc-1');
+
+      expect(contentSpy).toHaveBeenCalledWith('cc-1');
+      expect(reqSpy).toHaveBeenCalledWith('/api/v2/pages/page-1');
+      expect(verSpy).not.toHaveBeenCalled();
+      expect((result as any)?.id).toBe('cc-1');
+    });
+
+    it('fires the content fetch BEFORE awaiting the page-status (concurrent, not serial)', async () => {
+      const w = wrapper as any;
+      const order: string[] = [];
+      vi.spyOn(w, '_getCurrentPageId').mockResolvedValue('page-1');
+      vi.spyOn(w, 'getCustomContentByIdV2').mockImplementation(async () => { order.push('content'); return { id: 'cc-1' }; });
+      vi.spyOn(w, 'request').mockImplementation(async () => { order.push('page'); return { status: 'current' }; });
+
+      await wrapper.getCustomContentForCurrentPage('cc-1');
+      // content must be kicked off before the page-status request (no serial wait in front).
+      expect(order[0]).toBe('content');
+    });
+
+    it('historical page: returns the version-before-date content', async () => {
+      const w = wrapper as any;
+      vi.spyOn(w, '_getCurrentPageId').mockResolvedValue('page-1');
+      vi.spyOn(w, 'request').mockResolvedValue({ status: 'historical', version: { createdAt: '2026-01-01T00:00:00Z' } });
+      vi.spyOn(w, 'getCustomContentByIdV2').mockResolvedValue({ id: 'current' });
+      const verSpy = vi.spyOn(w, 'getCustomContentVersionBeforeDate').mockResolvedValue({ id: 'historical-version' });
+
+      const result = await wrapper.getCustomContentForCurrentPage('cc-1');
+
+      expect(verSpy).toHaveBeenCalledWith('cc-1', '2026-01-01T00:00:00Z');
+      expect((result as any)?.id).toBe('historical-version');
+    });
+
+    it('a page-status fetch failure does NOT block the content load', async () => {
+      const w = wrapper as any;
+      vi.spyOn(w, '_getCurrentPageId').mockResolvedValue('page-1');
+      vi.spyOn(w, 'request').mockRejectedValue(new Error('page 500'));
+      vi.spyOn(w, 'getCustomContentByIdV2').mockResolvedValue({ id: 'cc-1' });
+
+      const result = await wrapper.getCustomContentForCurrentPage('cc-1');
+      expect((result as any)?.id).toBe('cc-1');
+    });
+
+    it('no pageId (dashboard): skips the page fetch entirely', async () => {
+      const w = wrapper as any;
+      vi.spyOn(w, '_getCurrentPageId').mockResolvedValue(undefined);
+      const reqSpy = vi.spyOn(w, 'request');
+      vi.spyOn(w, 'getCustomContentByIdV2').mockResolvedValue({ id: 'cc-1' });
+
+      const result = await wrapper.getCustomContentForCurrentPage('cc-1');
+      expect(reqSpy).not.toHaveBeenCalled();
+      expect((result as any)?.id).toBe('cc-1');
+    });
+  });
+
   // ZEN-1170 telemetry. When getCustomContentByIdV2 returns undefined the
   // viewer falls through to NULL_DIAGRAM (PR #115); we probe the page's
   // own custom-content children for a body whose embedded `id` matches the

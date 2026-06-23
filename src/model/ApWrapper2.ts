@@ -760,20 +760,38 @@ export default class ApWrapper2 implements IApWrapper {
 
   async getCustomContentForCurrentPage(customContentId: string): Promise<ICustomContentV2 | undefined> {
     const pageId = await this._getCurrentPageId();
-    
-    //No pageId in the dashboard page
-    if(pageId) {
-      const page = await this.request(`/api/v2/pages/${pageId}`);
 
-      if(page.status === 'historical') {
+    // PERF: fetch the content and the page-status check CONCURRENTLY. The page GET exists
+    // only to detect the rare 'historical' (old page version) view, so it must NOT serialize
+    // in front of the content fetch on every view's critical path — that added a full REST
+    // round-trip to fetch_ms for every non-graph macro view. Firing the content fetch first
+    // makes the total ≈ max(page, content) instead of page + content.
+    const contentPromise = this.getCustomContentByIdV2(customContentId);
+    // Guard the orphan case: if we take the historical branch we never await contentPromise,
+    // so attach a no-op handler to avoid an unhandled rejection. The common path below still
+    // awaits it and propagates any error.
+    void contentPromise.catch(() => {});
+
+    //No pageId in the dashboard page
+    if (pageId) {
+      let page: { status?: string; version?: { createdAt?: string } } | undefined;
+      try {
+        page = await this.request(`/api/v2/pages/${pageId}`);
+      } catch (e) {
+        // Best-effort: a page-status failure must not block the (already in-flight) content
+        // load. Fall through to the normal content; historical detection is a rare nicety.
+        page = undefined;
+      }
+
+      if (page?.status === 'historical' && page.version?.createdAt) {
         const pageVersionCreatedAt = page.version.createdAt;
         trackEvent(`page created at ${pageVersionCreatedAt}`, 'view_historical_page', 'macro');
-        
+
         return await this.getCustomContentVersionBeforeDate(customContentId, pageVersionCreatedAt);
       }
     }
 
-    return await this.getCustomContentByIdV2(customContentId);
+    return await contentPromise;
   }
 
   private async getCustomContentRaw(id: string): Promise<ICustomContentResponseBody | undefined> {

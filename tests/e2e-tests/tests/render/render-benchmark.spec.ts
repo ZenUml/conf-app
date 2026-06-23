@@ -50,7 +50,6 @@ interface Sample {
   measured_sum_ms?: number;
   cache_state?: string;
   render_mode?: string;
-  wrapped_type?: string;
   tab_hidden?: boolean;
   app_commit?: string;
 }
@@ -146,7 +145,6 @@ test.describe('render benchmark', () => {
         samples.push({
           macro_type: macro,
           run,
-          wrapped_type: macro === 'embed' ? (p.macro_type as string | undefined) : undefined,
           duration_ms: p.duration_ms as number | undefined,
           render_ms: p.render_ms as number | undefined,
           resource_load_ms: p.resource_load_ms as number | undefined,

@@ -24,7 +24,10 @@ import globals from '@/model/globals';
 import EventBus from '@/EventBus';
 import { debounce } from 'lodash';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import * as renderPerf from '@/utils/analytics/renderPerf';
+import { sanitizeSvg } from '@/utils/mermaid/sanitizeSvg';
+import { getCachedSvg, putCachedSvg } from '@/utils/renderCache/renderCacheStore';
 
 const PLANTUML_SERVER = 'https://www.plantuml.com/plantuml/svg/';
 
@@ -76,10 +79,30 @@ export default {
   },
   methods: {
     async validateAndRender(code, immediate = false) {
+      // Back-catalog view cache: a prior render stored this code's SVG in localStorage.
+      // Inject it and skip the plantuml.com round-trip (validation fetch + render fetch)
+      // ENTIRELY. Sanitized on read (localStorage is a tamper surface). Falls through to
+      // a live render on miss / rejection.
+      const cached = getCachedSvg(code);
+      if (cached) {
+        const safe = sanitizeSvg(cached);
+        if (safe) {
+          this.$store.dispatch('updateError', null);
+          this.error = null;
+          this.svg = safe;
+          if (!this.initialRenderTracked) {
+            this.initialRenderTracked = true;
+            if (!this.embedded) trackRenderTime('plantuml', this.isDisplayMode, 'cached_svg', 'localstorage');
+            this.$emit('rendered');
+          }
+          return;
+        }
+      }
+
       // Check if linter already validated and found an error
       // This avoids duplicate validation calls
       const currentError = this.$store.state.error;
-      
+
       // First validate syntax
       const validationResult = await validatePlantUmlSyntax(code);
       
@@ -126,9 +149,12 @@ export default {
           }
           return await response.text();
         });
+        // Warm the back-catalog view cache so the next view of this code skips the
+        // plantuml.com round-trip. Best-effort, never throws.
+        this.maybeCacheSvg(code, this.svg);
         if (!this.initialRenderTracked) {
           this.initialRenderTracked = true;
-          if (!this.embedded) trackRenderTime('plantuml', this.isDisplayMode);
+          if (!this.embedded) trackRenderTime('plantuml', this.isDisplayMode, 'live_render', 'none');
           this.$emit('rendered');
         }
       } catch (err) {
@@ -137,6 +163,26 @@ export default {
         this.$store.dispatch('updateError', this.error);
       } finally {
         this.loading = false;
+      }
+    },
+    maybeCacheSvg(code, svg) {
+      try {
+        const skip = putCachedSvg(code, svg);
+        const OUTCOME = {
+          null: 'persisted',
+          oversized: 'skipped_oversized',
+          unsupported: 'skipped_unsupported',
+          no_write: 'skipped_no_write',
+        };
+        trackAnalyticsEvent('render_cache_write', {
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: 'plantuml',
+          render_cache_outcome: OUTCOME[skip === null ? 'null' : skip],
+          ...(skip === null ? { svg_bytes: svg.length } : {}),
+        });
+      } catch (e) {
+        console.warn('plantuml render-cache write failed', e);
       }
     },
   },

@@ -19,8 +19,8 @@ export type AIChatChangePreview = {
   diffLocation: string
   diffLines: AIChatDiffLine[]
   kind?: AIChatChangeKind | 'undo' | 'rollback'
-  versionId?: number
-  previousVersionId?: number
+  versionId?: string
+  previousVersionId?: string
   updatedCode?: string
 }
 
@@ -32,7 +32,8 @@ export type AIChatMessage = {
 }
 
 export type AIChatVersion = {
-  id: number
+  id: string
+  versionNumber: number
   summary: string
   detail: string
   syntaxResolved: boolean
@@ -187,10 +188,11 @@ function collapseDiffContext(lines: AIChatDiffLine[]): AIChatDiffLine[] {
   return result.length ? result : lines.slice(0, 80)
 }
 
-export function formatVersionTime(date = new Date()): string {
+export function formatVersionTime(date: Date | string = new Date()): string {
+  const value = typeof date === 'string' ? new Date(date) : date
   return new Intl.DateTimeFormat('en', {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-  }).format(date)
+  }).format(Number.isNaN(value.getTime()) ? new Date() : value)
 }

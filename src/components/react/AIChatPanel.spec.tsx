@@ -4,15 +4,24 @@ import { act, Simulate } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AIChatPanel from "./AIChatPanel";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
-import { getDiagramlyJobStatus, startDiagramChatModification } from "@/services/GenerateService";
+import {
+  ensureDiagramlyDiagram,
+  getDiagramlyJobStatus,
+  getDiagramlyVersions,
+  restoreDiagramlyVersion,
+  startDiagramChatModification,
+} from "@/services/GenerateService";
 
 vi.mock("@/utils/analytics/trackAnalyticsEvent", () => ({
   trackAnalyticsEvent: vi.fn(),
 }));
 
 vi.mock("@/services/GenerateService", () => ({
+  ensureDiagramlyDiagram: vi.fn(),
   startDiagramChatModification: vi.fn(),
   getDiagramlyJobStatus: vi.fn(),
+  getDiagramlyVersions: vi.fn(),
+  restoreDiagramlyVersion: vi.fn(),
 }));
 
 describe("React AIChatPanel", () => {
@@ -22,8 +31,11 @@ describe("React AIChatPanel", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     vi.mocked(trackAnalyticsEvent).mockClear();
+    vi.mocked(ensureDiagramlyDiagram).mockReset();
     vi.mocked(startDiagramChatModification).mockReset();
     vi.mocked(getDiagramlyJobStatus).mockReset();
+    vi.mocked(getDiagramlyVersions).mockReset();
+    vi.mocked(restoreDiagramlyVersion).mockReset();
   });
 
   afterEach(() => {
@@ -137,7 +149,7 @@ describe("React AIChatPanel", () => {
     expect(container.querySelector('[data-testid="react-ai-chat-diff-fullscreen"]')).toBeNull();
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "ai_chat_change_applied",
-      expect.objectContaining({ change_kind: "request", version_id: 2 }),
+      expect.objectContaining({ change_kind: "request", version_id: expect.any(String) }),
     );
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "ai_chat_diff_toggled",
@@ -167,7 +179,7 @@ describe("React AIChatPanel", () => {
     ).toContain("3");
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "ai_chat_change_undone",
-      expect.objectContaining({ change_kind: "undo", version_id: 1 }),
+      expect.objectContaining({ change_kind: "undo", version_id: "local-initial" }),
     );
   });
 
@@ -197,8 +209,81 @@ describe("React AIChatPanel", () => {
     expect(container.textContent).toContain("Version restored");
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "ai_chat_version_restored",
-      expect.objectContaining({ change_kind: "rollback", version_id: 1 }),
+      expect.objectContaining({ change_kind: "rollback", version_id: "local-initial" }),
     );
+  });
+
+  it("shows progress while restoring a persisted Diagramly version", async () => {
+    vi.mocked(getDiagramlyVersions).mockResolvedValue({
+      versions: [
+        {
+          id: "version-1",
+          diagramId: "diagram-1",
+          versionNumber: 1,
+          createdAt: "2026-06-23T08:00:00.000Z",
+          content: { code: "openapi: 3.0.0\ninfo:\n  title: First" },
+        },
+        {
+          id: "version-2",
+          diagramId: "diagram-1",
+          versionNumber: 2,
+          createdAt: "2026-06-23T08:01:00.000Z",
+          instruction: "Updated title",
+          content: { code: "openapi: 3.0.0\ninfo:\n  title: Second" },
+        },
+      ],
+    });
+    let resolveRestore!: (value: Awaited<ReturnType<typeof restoreDiagramlyVersion>>) => void;
+    vi.mocked(restoreDiagramlyVersion).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveRestore = resolve;
+      }),
+    );
+    const onApplyCode = vi.fn();
+    renderPanel({
+      diagramlyDiagramId: "diagram-1",
+      onApplyCode,
+    });
+    await flushAsyncWork();
+
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-history-trigger"]')!);
+    });
+    await flushAsyncWork();
+    const restore = Array.from(container.querySelectorAll(".ai-chat-rollback")).find(
+      (button) => button.textContent === "Restore version",
+    );
+    expect(restore).toBeDefined();
+
+    await act(async () => {
+      Simulate.click(restore!);
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Restoring version");
+    expect(container.textContent).toContain("Restoring...");
+    expect(
+      (container.querySelector('[data-testid="react-ai-chat-input"]') as HTMLTextAreaElement).disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      resolveRestore({
+        diagramId: "diagram-1",
+        diagramCode: "openapi: 3.0.0\ninfo:\n  title: First",
+        version: {
+          id: "version-3",
+          diagramId: "diagram-1",
+          versionNumber: 3,
+          createdAt: "2026-06-23T08:02:00.000Z",
+          instruction: "Restored from version 1",
+          content: { code: "openapi: 3.0.0\ninfo:\n  title: First" },
+        },
+      });
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Version restored");
+    expect(onApplyCode).toHaveBeenCalledWith("openapi: 3.0.0\ninfo:\n  title: First");
   });
 
   it("keeps syntax visible across code states and supports automatic repair", () => {
@@ -267,13 +352,25 @@ describe("React AIChatPanel", () => {
   });
 
   it("runs a real async Diagramly job and applies returned code", async () => {
+    vi.mocked(ensureDiagramlyDiagram).mockResolvedValueOnce({
+      diagramId: "diagram-1",
+      versionId: "version-1",
+      versionNumber: 1,
+      createdAt: "2026-06-23T08:00:00.000Z",
+    });
     vi.mocked(startDiagramChatModification).mockResolvedValueOnce({ jobId: "job-1" });
     vi.mocked(getDiagramlyJobStatus).mockResolvedValueOnce({
       id: "job-1",
       status: "COMPLETED",
       progress: 100,
       message: "Complete",
-      output: { diagramCode: "openapi: 3.0.0\ninfo:\n  title: Updated" },
+      output: {
+        diagramId: "diagram-1",
+        diagramCode: "openapi: 3.0.0\ninfo:\n  title: Updated",
+        versionId: "version-2",
+        versionNumber: 2,
+        createdAt: "2026-06-23T08:01:00.000Z",
+      },
     });
     const onApplyCode = vi.fn();
     renderPanel({
@@ -286,6 +383,7 @@ describe("React AIChatPanel", () => {
     await flushAsyncWork();
 
     expect(startDiagramChatModification).toHaveBeenCalledWith({
+      diagramId: "diagram-1",
       diagramCode: "openapi: 3.0.0\ninfo:\n  title: Original",
       prompt: "Update the API title",
       diagramType: "openapi",

@@ -13,6 +13,9 @@ const Component = ({ saveAndExit, exit }: Props) => {
   const [showCodeEditor, setShowCodeEditor] = useState(true);
   const [syntaxError, setSyntaxError] = useState(() => store.state.error?.toString() || "");
   const [currentCode, setCurrentCode] = useState(() => store.state.diagram.code || "");
+  const [diagramlyDiagramId, setDiagramlyDiagramId] = useState(
+    () => (store.state.diagram.metadata as any)?.aiChat?.diagramlyDiagramId || "",
+  );
   const [syntaxRepairRequestId, setSyntaxRepairRequestId] = useState(0);
 
   useEffect(() => {
@@ -23,8 +26,21 @@ const Component = ({ saveAndExit, exit }: Props) => {
       if (mutation.type === "updateCode2") {
         setCurrentCode(state.diagram.code || "");
       }
+      if (mutation.type === "updateMetadata") {
+        setDiagramlyDiagramId((state.diagram.metadata as any)?.aiChat?.diagramlyDiagramId || "");
+      }
     });
   }, []);
+
+  const bindDiagramlyDiagram = (diagramId: string) => {
+    store.dispatch("updateMetadata", {
+      ...(store.state.diagram.metadata || {}),
+      aiChat: {
+        ...((store.state.diagram.metadata as any)?.aiChat || {}),
+        diagramlyDiagramId: diagramId,
+      },
+    });
+  };
 
   const toggleAIChat = () => {
     setShowAIChat((current) => {
@@ -100,9 +116,12 @@ const Component = ({ saveAndExit, exit }: Props) => {
               syntaxError={syntaxError}
               syntaxRepairRequestId={syntaxRepairRequestId}
               currentCode={currentCode}
+              diagramTitle={store.state.diagram.title || ""}
+              diagramlyDiagramId={diagramlyDiagramId}
               onClose={closeAIChat}
               onToggleCode={() => setShowCodeEditor((current) => !current)}
               onApplyCode={(code) => store.dispatch("updateCode2", code)}
+              onDiagramlyDiagramBound={bindDiagramlyDiagram}
             />
           </div>
         )}

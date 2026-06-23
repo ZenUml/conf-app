@@ -15,7 +15,10 @@ vi.mock('@/model/globals', () => ({
 import { callRemote } from '@/utils/requestUtil';
 import {
   diagramlyChat,
+  ensureDiagramlyDiagram,
   getDiagramlyJobStatus,
+  getDiagramlyVersions,
+  restoreDiagramlyVersion,
   startDiagramChatModification,
   startFixDiagram,
 } from '@/services/GenerateService';
@@ -60,10 +63,74 @@ describe('GenerateService URLs are Forge-clean (no xdm_e, no addonKey)', () => {
 
     expect(vi.mocked(callRemote)).toHaveBeenCalledWith('/diagramly/chat-modify', 'POST', {
       accountId: 'acc-1',
+      diagramId: undefined,
       diagramCode: 'A->B: hello',
       command: 'Add an error path',
       errorMessage: undefined,
       diagramType: DiagramType.Sequence,
+    });
+  });
+
+  it('starts versioned AI Chat modification when a Diagramly diagramId is bound', async () => {
+    vi.mocked(callRemote).mockResolvedValueOnce({ jobId: 'job-version-1' });
+
+    await expect(
+      startDiagramChatModification({
+        diagramId: 'diagram-1',
+        diagramCode: 'A->B: hello',
+        prompt: 'Add an error path',
+        diagramType: DiagramType.Sequence,
+      }),
+    ).resolves.toEqual({ jobId: 'job-version-1' });
+
+    expect(vi.mocked(callRemote)).toHaveBeenCalledWith('/diagramly/chat-modify', 'POST', {
+      accountId: 'acc-1',
+      diagramId: 'diagram-1',
+      diagramCode: 'A->B: hello',
+      command: 'Add an error path',
+      errorMessage: undefined,
+      diagramType: DiagramType.Sequence,
+    });
+  });
+
+  it('proxies Diagramly version management calls with the current account', async () => {
+    vi.mocked(callRemote)
+      .mockResolvedValueOnce({ diagramId: 'diagram-1', versionId: 'version-1' })
+      .mockResolvedValueOnce({ versions: [{ id: 'version-1', versionNumber: 1 }] })
+      .mockResolvedValueOnce({ diagramId: 'diagram-1', diagramCode: 'A->B: restored' });
+
+    await expect(ensureDiagramlyDiagram({
+      diagramCode: 'A->B: hello',
+      diagramType: DiagramType.Sequence,
+      title: 'My diagram',
+    })).resolves.toEqual({ diagramId: 'diagram-1', versionId: 'version-1' });
+
+    await expect(getDiagramlyVersions('diagram-1')).resolves.toEqual({
+      versions: [{ id: 'version-1', versionNumber: 1 }],
+    });
+
+    await expect(restoreDiagramlyVersion('diagram-1', 'version-1')).resolves.toEqual({
+      diagramId: 'diagram-1',
+      diagramCode: 'A->B: restored',
+    });
+
+    expect(vi.mocked(callRemote)).toHaveBeenNthCalledWith(1, '/diagramly/ensure-diagram', 'POST', {
+      accountId: 'acc-1',
+      diagramId: undefined,
+      diagramCode: 'A->B: hello',
+      diagramType: DiagramType.Sequence,
+      title: 'My diagram',
+      languageKey: 'LANG_ZENUML',
+      subTypeKey: 'GENERAL',
+    });
+    expect(vi.mocked(callRemote)).toHaveBeenNthCalledWith(2, '/diagramly/versions', 'POST', {
+      accountId: 'acc-1',
+      diagramId: 'diagram-1',
+    });
+    expect(vi.mocked(callRemote)).toHaveBeenNthCalledWith(3, '/diagramly/restore-version', 'POST', {
+      accountId: 'acc-1',
+      diagramId: 'diagram-1',
+      versionId: 'version-1',
     });
   });
 
@@ -156,6 +223,41 @@ describe('GenerateService URLs are Forge-clean (no xdm_e, no addonKey)', () => {
         'x-external-id': 'acc-1',
       }),
       body: JSON.stringify({ jobId: 'local-job-1' }),
+    }));
+  });
+
+  it('uses the local versioned modification endpoint when a Diagramly diagramId is bound', async () => {
+    vi.stubEnv('MODE', 'development');
+    vi.stubEnv('PRODUCT_TYPE', 'diagramly');
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ success: true, jobId: 'local-versioned-job-1' }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      startDiagramChatModification({
+        diagramId: 'diagram-1',
+        diagramCode: 'A->B: hello',
+        prompt: 'Add an error path',
+        diagramType: DiagramType.Sequence,
+      }),
+    ).resolves.toEqual({ jobId: 'local-versioned-job-1' });
+
+    expect(vi.mocked(callRemote)).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith('/api/chat/modify-version-async', expect.objectContaining({
+      method: 'POST',
+      credentials: 'include',
+      headers: expect.objectContaining({
+        'Content-Type': 'application/json',
+        'x-external-id': 'acc-1',
+      }),
+      body: JSON.stringify({
+        diagramId: 'diagram-1',
+        diagramCode: 'A->B: hello',
+        diagramType: 'sequence',
+        command: 'Add an error path',
+        subTypeKey: 'GENERAL',
+      }),
     }));
   });
 });

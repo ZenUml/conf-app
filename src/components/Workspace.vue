@@ -16,9 +16,12 @@
             :syntax-error="syntaxError"
             :syntax-repair-request-id="syntaxRepairRequestId"
             :current-code="currentCode"
+            :diagram-title="diagramTitle"
+            :diagramly-diagram-id="diagramlyDiagramId"
             @close="closeAIChat"
             @toggle-code="toggleCodeEditor"
             @apply-code="applyAIChatCode"
+            @diagramly-diagram-bound="bindDiagramlyDiagram"
           />
         </div>
         <button
@@ -94,6 +97,12 @@
       currentCode() {
         return getCodeFromDiagram(this.$store.state.diagram, this.diagramType)
       },
+      diagramTitle() {
+        return this.$store.state.diagram.title || ''
+      },
+      diagramlyDiagramId() {
+        return this.$store.state.diagram.metadata?.aiChat?.diagramlyDiagramId || ''
+      },
     },
     methods: {
       toggleAIChat() {
@@ -143,6 +152,15 @@
         const action = getStoreUpdateAction(this.diagramType)
         if (!action) return
         this.$store.dispatch(action, code)
+      },
+      bindDiagramlyDiagram(diagramId: string) {
+        this.$store.dispatch('updateMetadata', {
+          ...(this.$store.state.diagram.metadata || {}),
+          aiChat: {
+            ...(this.$store.state.diagram.metadata?.aiChat || {}),
+            diagramlyDiagramId: diagramId,
+          },
+        })
       },
       initializeSplit() {
         if (!this.showCodeEditor) return

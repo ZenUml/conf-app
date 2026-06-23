@@ -31,9 +31,13 @@ import {
 } from "@/components/AIChat/aiChatPrototype";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import {
+  ensureDiagramlyDiagram,
   getDiagramlyJobStatus,
+  getDiagramlyVersions,
+  restoreDiagramlyVersion,
   startDiagramChatModification,
   type DiagramlyJobStatus,
+  type DiagramlyVersion,
 } from "@/services/GenerateService";
 import "@/assets/ai-chat.css";
 
@@ -47,16 +51,21 @@ interface Props {
   syntaxRepairRequestId?: number;
   prototypeMode?: boolean;
   currentCode?: string;
+  diagramTitle?: string;
+  diagramlyDiagramId?: string;
   initialMessages?: AIChatMessage[];
   onClose: () => void;
   onToggleCode?: () => void;
   onSend?: (prompt: string) => void;
   onApply?: (message: AIChatMessage) => void;
   onApplyCode?: (code: string) => void;
+  onDiagramlyDiagramBound?: (diagramId: string) => void;
 }
 
 const stages = ["Understanding request", "Updating diagram", "Syncing changes"];
 const completedStages = ["Understood", "Updated", "Synced"];
+const restoreStages = ["Restoring version", "Applying code", "Saving history"];
+const completedRestoreStages = ["Restored", "Applied", "Saved"];
 
 function icon(icon: React.ReactNode) {
   return <span aria-hidden="true">{icon}</span>;
@@ -70,12 +79,15 @@ export default function AIChatPanel({
   syntaxRepairRequestId = 0,
   prototypeMode = false,
   currentCode = "",
+  diagramTitle = "",
+  diagramlyDiagramId = "",
   initialMessages = [],
   onClose,
   onToggleCode,
   onSend,
   onApply,
   onApplyCode,
+  onDiagramlyDiagramBound,
 }: Props) {
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<AIChatMessage[]>(() =>
@@ -86,11 +98,17 @@ export default function AIChatPanel({
   const [syntaxDetailsOpen, setSyntaxDetailsOpen] = useState(false);
   const [syntaxResolved, setSyntaxResolved] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [isLoadingVersions, setIsLoadingVersions] = useState(false);
+  const [isRestoringVersion, setIsRestoringVersion] = useState(false);
+  const [restoringVersionId, setRestoringVersionId] = useState("");
+  const [restoringAction, setRestoringAction] = useState<"undo" | "rollback" | null>(null);
   const [openDiffIds, setOpenDiffIds] = useState<string[]>([]);
   const [expandedDiffMessageId, setExpandedDiffMessageId] = useState<string | null>(null);
+  const [activeDiagramlyDiagramId, setActiveDiagramlyDiagramId] = useState(diagramlyDiagramId);
   const [versions, setVersions] = useState<AIChatVersion[]>([
     {
-      id: 1,
+      id: "local-initial",
+      versionNumber: 1,
       summary: "Initial version",
       detail: "Diagram state before the current AI Chat session.",
       syntaxResolved: !syntaxError,
@@ -115,8 +133,11 @@ export default function AIChatPanel({
     return labels[diagramType.toLowerCase()] || "Current";
   }, [diagramType]);
 
-  const currentVersionId = versions[versions.length - 1]?.id || 0;
+  const currentVersionId = versions[versions.length - 1]?.id || "";
   const visibleSyntaxError = Boolean(syntaxError) && !syntaxResolved;
+  const activeStages = isRestoringVersion ? restoreStages : stages;
+  const activeCompletedStages = isRestoringVersion ? completedRestoreStages : completedStages;
+  const composeStatus = isRestoringVersion ? "Restoring" : isThinking ? "Updating" : "Ready";
   const expandedDiffPreview = useMemo(
     () => messages.find((message) => message.id === expandedDiffMessageId)?.preview || null,
     [expandedDiffMessageId, messages],
@@ -147,6 +168,12 @@ export default function AIChatPanel({
   }, [currentCode]);
 
   useEffect(() => {
+    if (diagramlyDiagramId && diagramlyDiagramId !== activeDiagramlyDiagramId) {
+      setActiveDiagramlyDiagramId(diagramlyDiagramId);
+    }
+  }, [activeDiagramlyDiagramId, diagramlyDiagramId]);
+
+  useEffect(() => {
     setSyntaxResolved(false);
     setSyntaxDetailsOpen(false);
   }, [syntaxError]);
@@ -154,6 +181,7 @@ export default function AIChatPanel({
   useEffect(() => {
     if (!open) return;
     window.setTimeout(() => inputRef.current?.focus(), 0);
+    loadPersistedVersions();
   }, [open]);
 
   const analyticsBase = () => ({
@@ -166,6 +194,82 @@ export default function AIChatPanel({
     setHistoryOpen(false);
     window.setTimeout(() => inputRef.current?.focus(), 0);
   };
+
+  const nextVersionNumber = () => (
+    Math.max(0, ...versions.map((version) => version.versionNumber || 0)) + 1
+  );
+
+  const toAIChatVersion = (version: DiagramlyVersion): AIChatVersion => {
+    const instruction = version.instruction?.trim();
+    return {
+      id: version.id,
+      versionNumber: version.versionNumber,
+      summary: version.versionNumber === 1 ? "Initial version" : instruction || `Version ${version.versionNumber}`,
+      detail: instruction
+        ? `Created from: ${instruction}`
+        : `Saved Diagramly version ${version.versionNumber}.`,
+      syntaxResolved: true,
+      time: formatVersionTime(version.createdAt),
+      code: version.content?.code || "",
+    };
+  };
+
+  const loadPersistedVersions = async (diagramId = activeDiagramlyDiagramId) => {
+    if (!diagramId || isLoadingVersions) return;
+
+    setIsLoadingVersions(true);
+    try {
+      const result = await getDiagramlyVersions(diagramId);
+      if (result?.versions?.length) {
+        setVersions(
+          [...result.versions]
+            .sort((a, b) => a.versionNumber - b.versionNumber)
+            .map(toAIChatVersion),
+        );
+      }
+    } catch (error) {
+      console.warn("Failed to load Diagramly versions", error);
+    } finally {
+      setIsLoadingVersions(false);
+    }
+  };
+
+  const ensureActiveDiagramlyDiagram = async (initialCode: string) => {
+    if (activeDiagramlyDiagramId) return activeDiagramlyDiagramId;
+
+    const result = await ensureDiagramlyDiagram({
+      diagramCode: initialCode,
+      diagramType,
+      title: diagramTitle,
+    });
+    setActiveDiagramlyDiagramId(result.diagramId);
+    onDiagramlyDiagramBound?.(result.diagramId);
+
+    if (result.versionId) {
+      setVersions((current) => [
+        {
+          ...(current[0] || {
+            summary: "Initial version",
+            detail: "Diagram state before the current AI Chat session.",
+            syntaxResolved: !syntaxError,
+            code: initialCode,
+          }),
+          id: result.versionId!,
+          versionNumber: result.versionNumber || 1,
+          time: result.createdAt ? formatVersionTime(result.createdAt) : current[0]?.time || formatVersionTime(),
+          code: initialCode,
+        },
+      ]);
+    }
+
+    return result.diagramId;
+  };
+
+  useEffect(() => {
+    if (open && activeDiagramlyDiagramId) {
+      loadPersistedVersions(activeDiagramlyDiagramId);
+    }
+  }, [activeDiagramlyDiagramId, open]);
 
   const selectSuggestion = (suggestion: AIChatSuggestion) => {
     setPrompt(suggestion.label);
@@ -181,13 +285,15 @@ export default function AIChatPanel({
     detail: string,
     resolved: boolean,
     code?: string,
+    versionInfo: { id?: string; versionNumber?: number; time?: string } = {},
   ): AIChatVersion => {
     const version: AIChatVersion = {
-      id: currentVersionId + 1,
+      id: versionInfo.id || `local-${Date.now()}`,
+      versionNumber: versionInfo.versionNumber || nextVersionNumber(),
       summary,
       detail,
       syntaxResolved: resolved,
-      time: formatVersionTime(),
+      time: versionInfo.time || formatVersionTime(),
       code,
     };
     setVersions((current) => [...current, version]);
@@ -251,6 +357,7 @@ export default function AIChatPanel({
     kind: AIChatChangeKind,
     previousCode: string,
     updatedCode: string,
+    versionInfo?: DiagramlyJobStatus["output"],
   ) => {
     const previousVersionId = currentVersionId;
     const preview = createCodePreview(diagramTypeLabel, kind, previousCode, updatedCode);
@@ -261,6 +368,11 @@ export default function AIChatPanel({
         : "Applied the requested change and synchronized the preview.",
       true,
       updatedCode,
+      {
+        id: versionInfo?.versionId,
+        versionNumber: versionInfo?.versionNumber,
+        time: versionInfo?.createdAt ? formatVersionTime(versionInfo.createdAt) : undefined,
+      },
     );
     preview.versionId = nextVersion.id;
     preview.previousVersionId = previousVersionId;
@@ -305,7 +417,7 @@ export default function AIChatPanel({
           if (!updatedCode) {
             throw new Error("Job completed but no diagram code was returned");
           }
-          completeDiagramlyRequest(kind, previousCode, updatedCode);
+          completeDiagramlyRequest(kind, previousCode, updatedCode, job.output);
           return;
         }
 
@@ -324,7 +436,7 @@ export default function AIChatPanel({
       .catch((error) => handleDiagramlyError(error, requestId));
   };
 
-  const runDiagramlyRequest = (text: string, kind: AIChatChangeKind) => {
+  const runDiagramlyRequest = async (text: string, kind: AIChatChangeKind) => {
     const requestId = activeRequestId.current + 1;
     activeRequestId.current = requestId;
     const previousCode = currentCode;
@@ -332,22 +444,27 @@ export default function AIChatPanel({
     setIsThinking(true);
     setStageIndex(0);
 
-    startDiagramChatModification({
-      diagramCode: previousCode,
-      prompt: text,
-      diagramType,
-      errorMessage: kind === "syntax_repair" ? syntaxError : undefined,
-    })
-      .then(({ jobId }) => {
-        if (activeRequestId.current !== requestId) return;
-        setStageIndex(1);
-        pollDiagramlyJob(jobId, requestId, kind, previousCode);
-      })
-      .catch((error) => handleDiagramlyError(error, requestId));
+    try {
+      const diagramId = await ensureActiveDiagramlyDiagram(previousCode);
+      if (activeRequestId.current !== requestId) return;
+
+      const { jobId } = await startDiagramChatModification({
+        diagramId,
+        diagramCode: previousCode,
+        prompt: text,
+        diagramType,
+        errorMessage: kind === "syntax_repair" ? syntaxError : undefined,
+      });
+      if (activeRequestId.current !== requestId) return;
+      setStageIndex(1);
+      pollDiagramlyJob(jobId, requestId, kind, previousCode);
+    } catch (error) {
+      handleDiagramlyError(error, requestId);
+    }
   };
 
   const runPrompt = (text: string, kind: AIChatChangeKind = "request") => {
-    if (!text || isThinking) return;
+    if (!text || isThinking || isRestoringVersion) return;
 
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
@@ -429,84 +546,93 @@ export default function AIChatPanel({
     });
   };
 
-  const undoPreview = (preview: AIChatChangePreview) => {
+  const undoPreview = async (preview: AIChatChangePreview) => {
     const targetId = preview.previousVersionId;
     if (!targetId) return;
     const target = versions.find((version) => version.id === targetId);
     if (!target) return;
 
-    preview.previousVersionId = undefined;
-    setSyntaxResolved(target.syntaxResolved);
-    const restored = addVersion(
-      `Undo to v${target.id}`,
-      `Restored the diagram state from ${target.summary}.`,
-      target.syntaxResolved,
-      target.code,
-    );
-    setMessages((current) => [
-      ...current,
-      {
-        id: `assistant-undo-${Date.now()}`,
-        role: "assistant",
-        text: "",
-        preview: {
-          title: "Changes undone",
-          kind: "undo",
-          versionId: restored.id,
-          items: [`Restored v${target.id} and saved the result as v${restored.id}.`],
-          diffLocation: "Complete diagram version",
-          diffLines: [{ type: "context", code: `Restored v${target.id}: ${target.summary}` }],
-        },
-      },
-    ]);
-    if (target.code !== undefined) {
-      onApplyCode?.(target.code);
+    const restored = await restoreTargetVersion(target, "undo");
+    if (restored) {
+      preview.previousVersionId = undefined;
     }
-    trackAnalyticsEvent("ai_chat_change_undone", {
-      ...analyticsBase(),
-      change_kind: "undo",
-      version_id: target.id,
-    });
   };
 
   const restoreVersion = (version: AIChatVersion) => {
     if (version.id === currentVersionId) return;
+    restoreTargetVersion(version, "rollback");
+  };
+
+  const restoreTargetVersion = async (
+    version: AIChatVersion,
+    kind: "undo" | "rollback",
+  ): Promise<boolean> => {
+    if (isRestoringVersion || isThinking) return false;
+    setIsRestoringVersion(true);
+    setRestoringVersionId(version.id);
+    setRestoringAction(kind);
+    setStageIndex(0);
+
+    let restored: AIChatVersion;
+    try {
+      if (activeDiagramlyDiagramId && !version.id.startsWith("local-")) {
+        const result = await restoreDiagramlyVersion(activeDiagramlyDiagramId, version.id);
+        restored = toAIChatVersion(result.version);
+        setVersions((current) => [...current, restored]);
+        setStageIndex(1);
+        if (result.diagramCode !== undefined) {
+          onApplyCode?.(result.diagramCode);
+        }
+      } else {
+        restored = addVersion(
+          kind === "undo" ? `Undo to v${version.versionNumber}` : `Restored v${version.versionNumber}`,
+          `Restored the diagram state from ${version.summary}.`,
+          version.syntaxResolved,
+          version.code,
+        );
+        if (version.code !== undefined) {
+          onApplyCode?.(version.code);
+        }
+      }
+      setStageIndex(2);
+    } catch (error) {
+      handleDiagramlyError(error, activeRequestId.current);
+      return false;
+    } finally {
+      setIsRestoringVersion(false);
+      setRestoringVersionId("");
+      setRestoringAction(null);
+      setStageIndex(0);
+    }
+
     setSyntaxResolved(version.syntaxResolved);
-    const restored = addVersion(
-      `Restored v${version.id}`,
-      `Restored the complete diagram state from ${version.summary}.`,
-      version.syntaxResolved,
-      version.code,
-    );
     setMessages((current) => [
       ...current,
       {
-        id: `assistant-restore-${Date.now()}`,
+        id: `assistant-${kind}-${Date.now()}`,
         role: "assistant",
         text: "",
         preview: {
-          title: "Version restored",
-          kind: "rollback",
+          title: kind === "undo" ? "Changes undone" : "Version restored",
+          kind,
           versionId: restored.id,
-          items: [`Restored v${version.id} and saved the result as v${restored.id}.`],
+          items: [`Restored v${version.versionNumber} and saved the result as v${restored.versionNumber}.`],
           diffLocation: "Complete diagram version",
-          diffLines: [{ type: "context", code: `Restored v${version.id}: ${version.summary}` }],
+          diffLines: [{ type: "context", code: `Restored v${version.versionNumber}: ${version.summary}` }],
         },
       },
     ]);
     setHistoryOpen(false);
-    if (version.code !== undefined) {
-      onApplyCode?.(version.code);
-    }
-    trackAnalyticsEvent("ai_chat_version_restored", {
+    trackAnalyticsEvent(kind === "undo" ? "ai_chat_change_undone" : "ai_chat_version_restored", {
       ...analyticsBase(),
-      change_kind: "rollback",
+      change_kind: kind,
       version_id: version.id,
     });
+    return true;
   };
 
   const repairSyntax = () => {
-    if (isThinking) return;
+    if (isThinking || isRestoringVersion) return;
     const repairText = "Fix the current syntax issue without changing the rest of the diagram.";
     setSyntaxDetailsOpen(false);
     trackAnalyticsEvent("ai_chat_syntax_repair_requested", {
@@ -653,7 +779,7 @@ export default function AIChatPanel({
         className="ai-chat-scroll"
         {...(overlayOpen ? { inert: "" } : {})}
       >
-        {messages.length === 0 && !isThinking ? (
+        {messages.length === 0 && !isThinking && !isRestoringVersion ? (
           <section className="ai-chat-empty" data-testid="react-ai-chat-empty-state">
             <h3>What should change?</h3>
             <div className="ai-chat-quick">
@@ -705,9 +831,10 @@ export default function AIChatPanel({
                               type="button"
                               className="ai-chat-undo"
                               data-testid="react-ai-chat-undo"
+                              disabled={isRestoringVersion || isThinking}
                               onClick={() => undoPreview(message.preview!)}
                             >
-                              Undo
+                              {restoringAction === "undo" ? "Undoing..." : "Undo"}
                             </button>
                           )}
                         </div>
@@ -820,7 +947,7 @@ export default function AIChatPanel({
               </article>
             ))}
 
-            {isThinking && (
+            {(isThinking || isRestoringVersion) && (
               <article
                 className="ai-chat-turn ai-chat-assistant-message"
                 role="status"
@@ -828,7 +955,7 @@ export default function AIChatPanel({
                 data-testid="react-ai-chat-thinking"
               >
                 <ol className="ai-chat-progress">
-                  {stages.map((stage, index) => (
+                  {activeStages.map((stage, index) => (
                     <li
                       key={stage}
                       className={`ai-chat-stage ${
@@ -844,7 +971,7 @@ export default function AIChatPanel({
                           ? icon(<CheckIcon label="" size="small" primaryColor="currentColor" />)
                           : index + 1}
                       </span>
-                      <strong>{stageIndex > index ? completedStages[index] : stage}</strong>
+                      <strong>{stageIndex > index ? activeCompletedStages[index] : stage}</strong>
                     </li>
                   ))}
                 </ol>
@@ -929,7 +1056,7 @@ export default function AIChatPanel({
               >
                 <div>
                   <p className="ai-chat-history-title">
-                    <strong>v{version.id}</strong>
+                    <strong>v{version.versionNumber}</strong>
                     <span>{version.summary}</span>
                   </p>
                   <p className="ai-chat-history-detail">{version.detail}</p>
@@ -937,10 +1064,14 @@ export default function AIChatPanel({
                 <button
                   type="button"
                   className="ai-chat-rollback"
-                  disabled={version.id === currentVersionId}
+                  disabled={version.id === currentVersionId || isRestoringVersion}
                   onClick={() => restoreVersion(version)}
                 >
-                  {version.id === currentVersionId ? "Current" : "Restore version"}
+                  {version.id === currentVersionId
+                    ? "Current"
+                    : restoringVersionId === version.id
+                      ? "Restoring..."
+                      : "Restore version"}
                 </button>
                 <div className="ai-chat-history-meta">
                   {version.time} · {version.syntaxResolved ? "Syntax valid" : "1 syntax issue"}
@@ -964,7 +1095,7 @@ export default function AIChatPanel({
             placeholder="Describe the diagram change..."
             aria-label="AI change request"
             data-testid="react-ai-chat-input"
-            disabled={isThinking}
+            disabled={isThinking || isRestoringVersion}
             onChange={(event) => setPrompt(event.currentTarget.value)}
             onKeyDown={handleKeyDown}
           />
@@ -989,15 +1120,13 @@ export default function AIChatPanel({
               <span className="ai-chat-history-count">{versions.length}</span>
             </button>
             <span className="ai-chat-compose-actions">
-              <span className="ai-chat-compose-status">
-                {isThinking ? "Updating" : "Ready"}
-              </span>
+              <span className="ai-chat-compose-status">{composeStatus}</span>
               <button
                 type="submit"
                 className="ai-chat-send"
                 aria-label="Send message"
                 data-testid="react-ai-chat-send"
-                disabled={!prompt.trim() || isThinking}
+                disabled={!prompt.trim() || isThinking || isRestoringVersion}
               >
                 {icon(<SendIcon label="" size="small" primaryColor="currentColor" />)}
               </button>

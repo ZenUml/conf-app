@@ -29,7 +29,8 @@ export async function modifyDiagramWithCommand(
   diagramCode,
   command,
   errorMessage,
-  diagramType = 'sequence'
+  diagramType = 'sequence',
+  diagramId
 ) {
   const typeInfo = getTypeInfo(diagramType);
   if (!command?.trim()) {
@@ -45,7 +46,11 @@ export async function modifyDiagramWithCommand(
     subTypeKey: typeInfo.subTypeKey,
   };
 
-  const result = await callDiagramly(context, `/api/chat/modify-async`, diagramData);
+  const result = await callDiagramly(
+    context,
+    diagramId ? `/api/chat/modify-version-async` : `/api/chat/modify-async`,
+    diagramId ? { ...diagramData, diagramId } : diagramData
+  );
 
   return { jobId: extractJobId(result) };
 }
@@ -60,6 +65,52 @@ export async function chat(context, messages) {
   const response = await callDiagramly(context, `/api/chat/messages`, {messages});
 
   return { messages: response.messages };
+}
+
+export async function ensureDiagramlyDiagram(
+  context,
+  diagramCode,
+  diagramType = 'sequence',
+  title,
+  diagramId
+) {
+  const typeInfo = getTypeInfo(diagramType);
+  const response = await callDiagramly(context, `/api/chat/ensure-diagram`, {
+    diagramId,
+    diagramCode,
+    title,
+    teamId: context.teamId,
+    languageKey: typeInfo.languageKey,
+    subTypeKey: typeInfo.subTypeKey,
+  });
+
+  if (!response?.diagramId) {
+    throw new Error('No diagramId returned from Diagramly API');
+  }
+
+  return response;
+}
+
+export async function getDiagramlyVersions(context, diagramId) {
+  if (!diagramId) {
+    throw new Error('Missing diagramId');
+  }
+
+  return await callDiagramly(context, `/api/chat/versions`, { diagramId });
+}
+
+export async function restoreDiagramlyVersion(context, diagramId, versionId) {
+  if (!diagramId) {
+    throw new Error('Missing diagramId');
+  }
+  if (!versionId) {
+    throw new Error('Missing versionId');
+  }
+
+  return await callDiagramly(context, `/api/chat/restore-version`, {
+    diagramId,
+    versionId,
+  });
 }
 
 export async function getDiagram(context, diagramId) {

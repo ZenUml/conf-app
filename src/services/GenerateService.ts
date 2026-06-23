@@ -4,12 +4,12 @@ import { callRemote } from '@/utils/requestUtil';
 
 const DEFAULT_FIX_COMMAND = 'Please resolve the issue with minimal code modifications. Preserve the original style and comments. Only address the errors; if the code lacks clarity, use the fewest words possible to improve it.';
 
-const localDiagramlyTypeMap: Partial<Record<DiagramType | string, { diagramType: string; subTypeKey: string }>> = {
-  [DiagramType.Sequence]: { diagramType: 'sequence', subTypeKey: 'GENERAL' },
-  [DiagramType.Mermaid]: { diagramType: 'flow', subTypeKey: 'FLOWCHART' },
-  [DiagramType.OpenApi]: { diagramType: 'openapi', subTypeKey: 'GENERAL' },
-  openapi: { diagramType: 'openapi', subTypeKey: 'GENERAL' },
-  [DiagramType.PlantUml]: { diagramType: 'plantuml', subTypeKey: 'GENERAL' },
+const localDiagramlyTypeMap: Partial<Record<DiagramType | string, { diagramType: string; languageKey: string; subTypeKey: string }>> = {
+  [DiagramType.Sequence]: { diagramType: 'sequence', languageKey: 'LANG_ZENUML', subTypeKey: 'GENERAL' },
+  [DiagramType.Mermaid]: { diagramType: 'flow', languageKey: 'LANG_MERMAID', subTypeKey: 'FLOWCHART' },
+  [DiagramType.OpenApi]: { diagramType: 'openapi', languageKey: 'LANG_OPENAPI', subTypeKey: 'GENERAL' },
+  openapi: { diagramType: 'openapi', languageKey: 'LANG_OPENAPI', subTypeKey: 'GENERAL' },
+  [DiagramType.PlantUml]: { diagramType: 'plantuml', languageKey: 'LANG_PLANTUML', subTypeKey: 'GENERAL' },
 };
 
 export type DiagramlyJobStatus = {
@@ -17,8 +17,46 @@ export type DiagramlyJobStatus = {
   status: 'QUEUED' | 'PROCESSING' | 'GENERATING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
   progress: number;
   message: string;
-  output?: { diagramCode?: string };
+  output?: {
+    diagramId?: string;
+    diagramCode?: string;
+    versionId?: string;
+    versionNumber?: number;
+    createdAt?: string;
+  };
   error?: string;
+}
+
+export type DiagramlyVersion = {
+  id: string;
+  diagramId: string;
+  title?: string;
+  content?: { code?: string; subTypeKey?: string };
+  instruction?: string;
+  comment?: string;
+  versionNumber: number;
+  createdBy?: string;
+  createdAt: string;
+}
+
+export type DiagramlyVersionsResult = {
+  versions: DiagramlyVersion[];
+  diagram?: { id: string; currentVersionId?: string; languageType?: string } | null;
+  draft?: { content?: { code?: string; subTypeKey?: string } } | null;
+  seed?: unknown;
+}
+
+export type EnsureDiagramlyDiagramResult = {
+  diagramId: string;
+  versionId?: string;
+  versionNumber?: number;
+  createdAt?: string;
+}
+
+export type RestoreDiagramlyVersionResult = {
+  diagramId: string;
+  version: DiagramlyVersion;
+  diagramCode: string;
 }
 
 function isStandaloneEnv(): boolean {
@@ -151,11 +189,13 @@ export async function startFixDiagram(
 }
 
 export async function startDiagramChatModification({
+  diagramId,
   diagramCode,
   prompt,
   diagramType,
   errorMessage,
 }: {
+  diagramId?: string;
   diagramCode: string;
   prompt: string;
   diagramType: DiagramType | string;
@@ -169,7 +209,8 @@ export async function startDiagramChatModification({
 
   if (shouldUseLocalDiagramlyApi()) {
     const typeInfo = getLocalDiagramlyTypeInfo(diagramType);
-    const startResponse = await callLocalDiagramlyApi(`/api/chat/modify-async`, {
+    const startResponse = await callLocalDiagramlyApi(diagramId ? `/api/chat/modify-version-async` : `/api/chat/modify-async`, {
+      diagramId,
       diagramCode,
       diagramType: typeInfo.diagramType,
       command: prompt,
@@ -182,6 +223,7 @@ export async function startDiagramChatModification({
 
   const startResponse = await callRemote(`/diagramly/chat-modify`, 'POST', {
     accountId,
+    diagramId,
     diagramCode,
     command: prompt,
     errorMessage,
@@ -194,6 +236,77 @@ export async function startDiagramChatModification({
   }
 
   return { jobId };
+}
+
+export async function ensureDiagramlyDiagram({
+  diagramId,
+  diagramCode,
+  diagramType,
+  title,
+}: {
+  diagramId?: string;
+  diagramCode: string;
+  diagramType: DiagramType | string;
+  title?: string;
+}): Promise<EnsureDiagramlyDiagramResult> {
+  if (diagramType === DiagramType.Graph || diagramType === 'graph') {
+    throw new Error('Graph diagrams are not supported by AI Chat yet');
+  }
+
+  const accountId = await getCurrentAccountId();
+  const typeInfo = getLocalDiagramlyTypeInfo(diagramType);
+  const payload = {
+    accountId,
+    diagramId,
+    diagramCode,
+    diagramType,
+    title,
+    languageKey: typeInfo.languageKey,
+    subTypeKey: typeInfo.subTypeKey,
+  };
+
+  if (shouldUseLocalDiagramlyApi()) {
+    return await callLocalDiagramlyApi<EnsureDiagramlyDiagramResult>(
+      `/api/chat/ensure-diagram`,
+      payload,
+      accountId,
+    );
+  }
+
+  return await callRemote(`/diagramly/ensure-diagram`, 'POST', payload) as EnsureDiagramlyDiagramResult;
+}
+
+export async function getDiagramlyVersions(diagramId: string): Promise<DiagramlyVersionsResult> {
+  const accountId = await getCurrentAccountId();
+  const payload = { accountId, diagramId };
+
+  if (shouldUseLocalDiagramlyApi()) {
+    return await callLocalDiagramlyApi<DiagramlyVersionsResult>(
+      `/api/chat/versions`,
+      payload,
+      accountId,
+    );
+  }
+
+  return await callRemote(`/diagramly/versions`, 'POST', payload) as DiagramlyVersionsResult;
+}
+
+export async function restoreDiagramlyVersion(
+  diagramId: string,
+  versionId: string,
+): Promise<RestoreDiagramlyVersionResult> {
+  const accountId = await getCurrentAccountId();
+  const payload = { accountId, diagramId, versionId };
+
+  if (shouldUseLocalDiagramlyApi()) {
+    return await callLocalDiagramlyApi<RestoreDiagramlyVersionResult>(
+      `/api/chat/restore-version`,
+      payload,
+      accountId,
+    );
+  }
+
+  return await callRemote(`/diagramly/restore-version`, 'POST', payload) as RestoreDiagramlyVersionResult;
 }
 
 export async function getFixDiagramStatus(

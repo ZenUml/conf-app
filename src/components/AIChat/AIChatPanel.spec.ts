@@ -2,22 +2,34 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AIChatPanel from './AIChatPanel.vue'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
-import { getDiagramlyJobStatus, startDiagramChatModification } from '@/services/GenerateService'
+import {
+  ensureDiagramlyDiagram,
+  getDiagramlyJobStatus,
+  getDiagramlyVersions,
+  restoreDiagramlyVersion,
+  startDiagramChatModification,
+} from '@/services/GenerateService'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
 }))
 
 vi.mock('@/services/GenerateService', () => ({
+  ensureDiagramlyDiagram: vi.fn(),
   startDiagramChatModification: vi.fn(),
   getDiagramlyJobStatus: vi.fn(),
+  getDiagramlyVersions: vi.fn(),
+  restoreDiagramlyVersion: vi.fn(),
 }))
 
 describe('AIChatPanel', () => {
   beforeEach(() => {
     vi.mocked(trackAnalyticsEvent).mockClear()
+    vi.mocked(ensureDiagramlyDiagram).mockReset()
     vi.mocked(startDiagramChatModification).mockReset()
     vi.mocked(getDiagramlyJobStatus).mockReset()
+    vi.mocked(getDiagramlyVersions).mockReset()
+    vi.mocked(restoreDiagramlyVersion).mockReset()
   })
 
   afterEach(() => {
@@ -71,7 +83,7 @@ describe('AIChatPanel', () => {
     expect(wrapper.find('[data-testid="ai-chat-diff-fullscreen"]').exists()).toBe(false)
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'ai_chat_change_applied',
-      expect.objectContaining({ change_kind: 'request', version_id: 2 }),
+      expect.objectContaining({ change_kind: 'request', version_id: expect.any(String) }),
     )
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'ai_chat_diff_toggled',
@@ -102,7 +114,7 @@ describe('AIChatPanel', () => {
     expect(wrapper.get('[data-testid="ai-chat-history-trigger"]').text()).toContain('3')
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'ai_chat_change_undone',
-      expect.objectContaining({ change_kind: 'undo', version_id: 1 }),
+      expect.objectContaining({ change_kind: 'undo', version_id: 'local-initial' }),
     )
   })
 
@@ -126,8 +138,72 @@ describe('AIChatPanel', () => {
     expect(wrapper.text()).toContain('Version restored')
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'ai_chat_version_restored',
-      expect.objectContaining({ change_kind: 'rollback', version_id: 1 }),
+      expect.objectContaining({ change_kind: 'rollback', version_id: 'local-initial' }),
     )
+  })
+
+  it('shows progress while restoring a persisted Diagramly version', async () => {
+    vi.mocked(getDiagramlyVersions).mockResolvedValue({
+      versions: [
+        {
+          id: 'version-1',
+          diagramId: 'diagram-1',
+          versionNumber: 1,
+          createdAt: '2026-06-23T08:00:00.000Z',
+          content: { code: 'A->B: first' },
+        },
+        {
+          id: 'version-2',
+          diagramId: 'diagram-1',
+          versionNumber: 2,
+          createdAt: '2026-06-23T08:01:00.000Z',
+          instruction: 'Updated flow',
+          content: { code: 'A->B: second' },
+        },
+      ],
+    })
+    let resolveRestore!: (value: Awaited<ReturnType<typeof restoreDiagramlyVersion>>) => void
+    vi.mocked(restoreDiagramlyVersion).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveRestore = resolve
+      }),
+    )
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        diagramType: 'sequence',
+        diagramlyDiagramId: 'diagram-1',
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="ai-chat-history-trigger"]').trigger('click')
+    await flushPromises()
+    const restore = wrapper.findAll('.ai-chat-rollback').find((button) => button.text() === 'Restore version')
+    expect(restore).toBeDefined()
+    await restore!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Restoring version')
+    expect(wrapper.text()).toContain('Restoring...')
+    expect((wrapper.get('[data-testid="ai-chat-input"]').element as HTMLTextAreaElement).disabled).toBe(true)
+
+    resolveRestore({
+      diagramId: 'diagram-1',
+      diagramCode: 'A->B: first',
+      version: {
+        id: 'version-3',
+        diagramId: 'diagram-1',
+        versionNumber: 3,
+        createdAt: '2026-06-23T08:02:00.000Z',
+        instruction: 'Restored from version 1',
+        content: { code: 'A->B: first' },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Version restored')
+    expect(wrapper.emitted('apply-code')).toEqual([['A->B: first']])
   })
 
   it('keeps syntax visible across code states and supports automatic repair', async () => {
@@ -206,13 +282,25 @@ describe('AIChatPanel', () => {
   })
 
   it('runs a real async Diagramly job and emits updated code', async () => {
+    vi.mocked(ensureDiagramlyDiagram).mockResolvedValueOnce({
+      diagramId: 'diagram-1',
+      versionId: 'version-1',
+      versionNumber: 1,
+      createdAt: '2026-06-23T08:00:00.000Z',
+    })
     vi.mocked(startDiagramChatModification).mockResolvedValueOnce({ jobId: 'job-1' })
     vi.mocked(getDiagramlyJobStatus).mockResolvedValueOnce({
       id: 'job-1',
       status: 'COMPLETED',
       progress: 100,
       message: 'Complete',
-      output: { diagramCode: 'A->B: updated' },
+      output: {
+        diagramId: 'diagram-1',
+        diagramCode: 'A->B: updated',
+        versionId: 'version-2',
+        versionNumber: 2,
+        createdAt: '2026-06-23T08:01:00.000Z',
+      },
     })
     const wrapper = mount(AIChatPanel, {
       props: {
@@ -228,11 +316,13 @@ describe('AIChatPanel', () => {
     await flushPromises()
 
     expect(startDiagramChatModification).toHaveBeenCalledWith({
+      diagramId: 'diagram-1',
       diagramCode: 'A->B: original',
       prompt: 'Update the message',
       diagramType: 'sequence',
       errorMessage: undefined,
     })
+    expect(wrapper.emitted('diagramly-diagram-bound')).toEqual([['diagram-1']])
     expect(wrapper.emitted('apply-code')).toEqual([['A->B: updated']])
     expect(wrapper.get('[data-testid="ai-change-preview"]').text()).toContain('Changes applied')
     expect(wrapper.get('[data-testid="ai-chat-history-trigger"]').text()).toContain('2')

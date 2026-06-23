@@ -77,7 +77,7 @@
 
     <div ref="messageList" class="ai-chat-scroll" :inert="overlayOpen || undefined">
       <section
-        v-if="messages.length === 0 && !isThinking"
+        v-if="messages.length === 0 && !isThinking && !isRestoringVersion"
         class="ai-chat-empty"
         data-testid="ai-chat-empty-state"
       >
@@ -120,9 +120,10 @@
                   type="button"
                   class="ai-chat-undo"
                   data-testid="ai-chat-undo"
+                  :disabled="isRestoringVersion || isThinking"
                   @click="undoPreview(message.preview)"
                 >
-                  Undo
+                  {{ restoringAction === 'undo' ? 'Undoing...' : 'Undo' }}
                 </button>
               </div>
               <ul class="ai-chat-changes">
@@ -187,7 +188,7 @@
         </article>
 
         <article
-          v-if="isThinking"
+          v-if="isThinking || isRestoringVersion"
           class="ai-chat-turn ai-chat-assistant-message"
           role="status"
           aria-live="polite"
@@ -195,7 +196,7 @@
         >
           <ol class="ai-chat-progress">
             <li
-              v-for="(stage, index) in stages"
+              v-for="(stage, index) in activeStages"
               :key="stage"
               class="ai-chat-stage"
               :class="stageClass(index)"
@@ -204,7 +205,7 @@
                 <CheckIcon v-if="stageIndex > index" aria-hidden="true" />
                 <template v-else>{{ index + 1 }}</template>
               </span>
-              <strong>{{ stageIndex > index ? completedStages[index] : stage }}</strong>
+              <strong>{{ stageIndex > index ? activeCompletedStages[index] : stage }}</strong>
             </li>
           </ol>
         </article>
@@ -280,7 +281,7 @@
         >
           <div>
             <p class="ai-chat-history-title">
-              <strong>v{{ version.id }}</strong>
+              <strong>v{{ version.versionNumber }}</strong>
               <span>{{ version.summary }}</span>
             </p>
             <p class="ai-chat-history-detail">{{ version.detail }}</p>
@@ -288,10 +289,16 @@
           <button
             type="button"
             class="ai-chat-rollback"
-            :disabled="version.id === currentVersionId"
+            :disabled="version.id === currentVersionId || isRestoringVersion"
             @click="restoreVersion(version)"
           >
-            {{ version.id === currentVersionId ? 'Current' : 'Restore version' }}
+            {{
+              version.id === currentVersionId
+                ? 'Current'
+                : restoringVersionId === version.id
+                  ? 'Restoring...'
+                  : 'Restore version'
+            }}
           </button>
           <div class="ai-chat-history-meta">
             {{ version.time }} · {{ version.syntaxResolved ? 'Syntax valid' : '1 syntax issue' }}
@@ -313,7 +320,7 @@
           placeholder="Describe the diagram change..."
           aria-label="AI change request"
           data-testid="ai-chat-input"
-          :disabled="isThinking"
+          :disabled="isThinking || isRestoringVersion"
           @keydown.enter.exact.prevent="submitPrompt()"
         />
         <div class="ai-chat-compose-meta">
@@ -330,7 +337,7 @@
             <span class="ai-chat-history-count">{{ versions.length }}</span>
           </button>
           <span class="ai-chat-compose-actions">
-            <span class="ai-chat-compose-status">{{ isThinking ? 'Updating' : 'Ready' }}</span>
+            <span class="ai-chat-compose-status">{{ composeStatus }}</span>
             <button
               type="submit"
               class="ai-chat-send"
@@ -374,9 +381,13 @@ import {
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import type { MacroTypeValue } from '@/utils/analytics/catalog'
 import {
+  ensureDiagramlyDiagram,
   getDiagramlyJobStatus,
+  getDiagramlyVersions,
+  restoreDiagramlyVersion,
   startDiagramChatModification,
   type DiagramlyJobStatus,
+  type DiagramlyVersion,
 } from '@/services/GenerateService'
 
 const ArrowRightIcon = { render: ArrowRightIconRender }
@@ -399,6 +410,8 @@ type Props = {
   syntaxRepairRequestId?: number
   prototypeMode?: boolean
   currentCode?: string
+  diagramTitle?: string
+  diagramlyDiagramId?: string
   initialMessages?: AIChatMessage[]
 }
 
@@ -409,6 +422,8 @@ const props = withDefaults(defineProps<Props>(), {
   syntaxRepairRequestId: 0,
   prototypeMode: false,
   currentCode: '',
+  diagramTitle: '',
+  diagramlyDiagramId: '',
   initialMessages: () => [],
 })
 
@@ -418,11 +433,14 @@ const emit = defineEmits<{
   send: [prompt: string]
   apply: [message: AIChatMessage]
   'apply-code': [code: string]
+  'diagramly-diagram-bound': [diagramId: string]
 }>()
 
 const suggestions = AI_CHAT_SUGGESTIONS
 const stages = ['Understanding request', 'Updating diagram', 'Syncing changes']
 const completedStages = ['Understood', 'Updated', 'Synced']
+const restoreStages = ['Restoring version', 'Applying code', 'Saving history']
+const completedRestoreStages = ['Restored', 'Applied', 'Saved']
 
 const prompt = ref('')
 const input = ref<HTMLTextAreaElement | null>(null)
@@ -434,11 +452,17 @@ const syntaxDetailsOpen = ref(false)
 const syntaxResolved = ref(false)
 const lastHandledSyntaxRepairRequestId = ref(0)
 const historyOpen = ref(false)
+const isLoadingVersions = ref(false)
+const isRestoringVersion = ref(false)
+const restoringVersionId = ref('')
+const restoringAction = ref<'undo' | 'rollback' | null>(null)
 const openDiffIds = ref<string[]>([])
 const expandedDiffMessageId = ref<string | null>(null)
+const activeDiagramlyDiagramId = ref(props.diagramlyDiagramId || '')
 const versions = ref<AIChatVersion[]>([
   {
-    id: 1,
+    id: 'local-initial',
+    versionNumber: 1,
     summary: 'Initial version',
     detail: 'Diagram state before the current AI Chat session.',
     syntaxResolved: !props.syntaxError,
@@ -466,12 +490,19 @@ const macroType = computed<MacroTypeValue>(() => {
   return supported.includes(value as MacroTypeValue) ? (value as MacroTypeValue) : 'none'
 })
 
-const canSubmit = computed(() => prompt.value.trim().length > 0 && !isThinking.value)
+const canSubmit = computed(() => prompt.value.trim().length > 0 && !isThinking.value && !isRestoringVersion.value)
 const syntaxErrorSummary = computed(() => props.syntaxError.split('\n')[0])
 const visibleSyntaxError = computed(() => Boolean(props.syntaxError) && !syntaxResolved.value)
-const currentVersionId = computed(() => versions.value[versions.value.length - 1]?.id || 0)
+const currentVersionId = computed(() => versions.value[versions.value.length - 1]?.id || '')
 const reversedVersions = computed(() => [...versions.value].reverse())
 const currentCode = computed(() => props.currentCode || '')
+const activeStages = computed(() => (isRestoringVersion.value ? restoreStages : stages))
+const activeCompletedStages = computed(() => (isRestoringVersion.value ? completedRestoreStages : completedStages))
+const composeStatus = computed(() => {
+  if (isRestoringVersion.value) return 'Restoring'
+  if (isThinking.value) return 'Updating'
+  return 'Ready'
+})
 const expandedDiffPreview = computed(() => {
   const message = messages.value.find((item) => item.id === expandedDiffMessageId.value)
   return message?.preview || null
@@ -502,6 +533,72 @@ function focusInput() {
 
 function clearTimers() {
   timers.splice(0).forEach(clearTimeout)
+}
+
+function nextVersionNumber() {
+  return Math.max(0, ...versions.value.map((version) => version.versionNumber || 0)) + 1
+}
+
+function toAIChatVersion(version: DiagramlyVersion): AIChatVersion {
+  const instruction = version.instruction?.trim()
+  return {
+    id: version.id,
+    versionNumber: version.versionNumber,
+    summary: version.versionNumber === 1 ? 'Initial version' : instruction || `Version ${version.versionNumber}`,
+    detail: instruction
+      ? `Created from: ${instruction}`
+      : `Saved Diagramly version ${version.versionNumber}.`,
+    syntaxResolved: true,
+    time: formatVersionTime(version.createdAt),
+    code: version.content?.code || '',
+  }
+}
+
+async function loadPersistedVersions() {
+  const diagramId = activeDiagramlyDiagramId.value
+  if (!diagramId || isLoadingVersions.value) return
+
+  isLoadingVersions.value = true
+  try {
+    const result = await getDiagramlyVersions(diagramId)
+    if (result?.versions?.length) {
+      versions.value = [...result.versions]
+        .sort((a, b) => a.versionNumber - b.versionNumber)
+        .map(toAIChatVersion)
+    }
+  } catch (error) {
+    console.warn('Failed to load Diagramly versions', error)
+  } finally {
+    isLoadingVersions.value = false
+  }
+}
+
+async function ensureActiveDiagramlyDiagram(initialCode: string) {
+  if (activeDiagramlyDiagramId.value) {
+    return activeDiagramlyDiagramId.value
+  }
+
+  const result = await ensureDiagramlyDiagram({
+    diagramCode: initialCode,
+    diagramType: props.diagramType,
+    title: props.diagramTitle,
+  })
+  activeDiagramlyDiagramId.value = result.diagramId
+  emit('diagramly-diagram-bound', result.diagramId)
+
+  if (result.versionId) {
+    versions.value = [
+      {
+        ...versions.value[0],
+        id: result.versionId,
+        versionNumber: result.versionNumber || 1,
+        time: result.createdAt ? formatVersionTime(result.createdAt) : versions.value[0].time,
+        code: initialCode,
+      },
+    ]
+  }
+
+  return result.diagramId
 }
 
 function submitPrompt(kind: AIChatChangeKind = 'request', textOverride?: string) {
@@ -576,7 +673,7 @@ function completePrototypeRequest(kind: AIChatChangeKind) {
   emit('apply', message)
 }
 
-function runDiagramlyRequest(text: string, kind: AIChatChangeKind) {
+async function runDiagramlyRequest(text: string, kind: AIChatChangeKind) {
   const requestId = activeRequestId.value + 1
   activeRequestId.value = requestId
   const previousCode = currentCode.value
@@ -584,18 +681,23 @@ function runDiagramlyRequest(text: string, kind: AIChatChangeKind) {
   isThinking.value = true
   stageIndex.value = 0
 
-  startDiagramChatModification({
-    diagramCode: previousCode,
-    prompt: text,
-    diagramType: props.diagramType,
-    errorMessage: kind === 'syntax_repair' ? props.syntaxError : undefined,
-  })
-    .then(({ jobId }) => {
-      if (activeRequestId.value !== requestId) return
-      stageIndex.value = 1
-      pollDiagramlyJob(jobId, requestId, kind, previousCode)
+  try {
+    const diagramId = await ensureActiveDiagramlyDiagram(previousCode)
+    if (activeRequestId.value !== requestId) return
+
+    const { jobId } = await startDiagramChatModification({
+      diagramId,
+      diagramCode: previousCode,
+      prompt: text,
+      diagramType: props.diagramType,
+      errorMessage: kind === 'syntax_repair' ? props.syntaxError : undefined,
     })
-    .catch((error) => handleDiagramlyError(error, requestId))
+    if (activeRequestId.value !== requestId) return
+    stageIndex.value = 1
+    pollDiagramlyJob(jobId, requestId, kind, previousCode)
+  } catch (error) {
+    handleDiagramlyError(error, requestId)
+  }
 }
 
 function pollDiagramlyJob(
@@ -617,7 +719,7 @@ function pollDiagramlyJob(
         if (!updatedCode) {
           throw new Error('Job completed but no diagram code was returned')
         }
-        completeDiagramlyRequest(kind, previousCode, updatedCode)
+        completeDiagramlyRequest(kind, previousCode, updatedCode, status.output)
         return
       }
 
@@ -644,7 +746,12 @@ function updateStageFromJob(status: DiagramlyJobStatus) {
   }
 }
 
-function completeDiagramlyRequest(kind: AIChatChangeKind, previousCode: string, updatedCode: string) {
+function completeDiagramlyRequest(
+  kind: AIChatChangeKind,
+  previousCode: string,
+  updatedCode: string,
+  versionInfo?: DiagramlyJobStatus['output'],
+) {
   const previousVersionId = currentVersionId.value
   const preview = createCodePreview(diagramTypeLabel.value, kind, previousCode, updatedCode)
   const nextVersion = addVersion(
@@ -654,6 +761,11 @@ function completeDiagramlyRequest(kind: AIChatChangeKind, previousCode: string, 
       : 'Applied the requested change and synchronized the preview.',
     true,
     updatedCode,
+    {
+      id: versionInfo?.versionId,
+      versionNumber: versionInfo?.versionNumber,
+      time: versionInfo?.createdAt ? formatVersionTime(versionInfo.createdAt) : undefined,
+    },
   )
   preview.versionId = nextVersion.id
   preview.previousVersionId = previousVersionId
@@ -696,13 +808,15 @@ function addVersion(
   detail: string,
   resolved = syntaxResolved.value,
   code?: string,
+  versionInfo: { id?: string; versionNumber?: number; time?: string } = {},
 ): AIChatVersion {
   const version: AIChatVersion = {
-    id: (versions.value[versions.value.length - 1]?.id || 0) + 1,
+    id: versionInfo.id || `local-${Date.now()}`,
+    versionNumber: versionInfo.versionNumber || nextVersionNumber(),
     summary,
     detail,
     syntaxResolved: resolved,
-    time: formatVersionTime(),
+    time: versionInfo.time || formatVersionTime(),
     code,
   }
   versions.value.push(version)
@@ -757,41 +871,16 @@ function closeExpandedDiff() {
   })
 }
 
-function undoPreview(preview: AIChatChangePreview) {
+async function undoPreview(preview: AIChatChangePreview) {
   const targetId = preview.previousVersionId
   if (!targetId) return
   const target = versions.value.find((version) => version.id === targetId)
   if (!target) return
 
-  syntaxResolved.value = target.syntaxResolved
-  preview.previousVersionId = undefined
-  const restored = addVersion(
-    `Undo to v${target.id}`,
-    `Restored the diagram state from ${target.summary}.`,
-    target.syntaxResolved,
-    target.code,
-  )
-  messages.value.push({
-    id: `assistant-undo-${Date.now()}`,
-    role: 'assistant',
-    text: '',
-    preview: {
-      title: 'Changes undone',
-      kind: 'undo',
-      versionId: restored.id,
-      items: [`Restored v${target.id} and saved the result as v${restored.id}.`],
-      diffLocation: 'Complete diagram version',
-      diffLines: [{ type: 'context', code: `Restored v${target.id}: ${target.summary}` }],
-    },
-  })
-  if (target.code !== undefined) {
-    emit('apply-code', target.code)
+  const restored = await restoreTargetVersion(target, 'undo')
+  if (restored) {
+    preview.previousVersionId = undefined
   }
-  trackAnalyticsEvent('ai_chat_change_undone', {
-    ...analyticsBase(),
-    change_kind: 'undo',
-    version_id: target.id,
-  })
 }
 
 function refineChange() {
@@ -802,6 +891,7 @@ function refineChange() {
 function openHistory() {
   syntaxDetailsOpen.value = false
   historyOpen.value = true
+  loadPersistedVersions()
   trackAnalyticsEvent('ai_chat_history_opened', {
     ...analyticsBase(),
     version_id: currentVersionId.value,
@@ -814,35 +904,69 @@ function closeHistory() {
 
 function restoreVersion(version: AIChatVersion) {
   if (version.id === currentVersionId.value) return
+  restoreTargetVersion(version, 'rollback')
+}
+
+async function restoreTargetVersion(version: AIChatVersion, kind: 'undo' | 'rollback'): Promise<boolean> {
+  if (isRestoringVersion.value || isThinking.value) return false
+  isRestoringVersion.value = true
+  restoringVersionId.value = version.id
+  restoringAction.value = kind
+  stageIndex.value = 0
+
+  let restored: AIChatVersion
+  try {
+    if (activeDiagramlyDiagramId.value && !version.id.startsWith('local-')) {
+      const result = await restoreDiagramlyVersion(activeDiagramlyDiagramId.value, version.id)
+      restored = toAIChatVersion(result.version)
+      versions.value.push(restored)
+      stageIndex.value = 1
+      if (result.diagramCode !== undefined) {
+        emit('apply-code', result.diagramCode)
+      }
+    } else {
+      restored = addVersion(
+        kind === 'undo' ? `Undo to v${version.versionNumber}` : `Restored v${version.versionNumber}`,
+        `Restored the diagram state from ${version.summary}.`,
+        version.syntaxResolved,
+        version.code,
+      )
+      if (version.code !== undefined) {
+        emit('apply-code', version.code)
+      }
+    }
+    stageIndex.value = 2
+  } catch (error) {
+    handleDiagramlyError(error, activeRequestId.value)
+    return false
+  } finally {
+    isRestoringVersion.value = false
+    restoringVersionId.value = ''
+    restoringAction.value = null
+    stageIndex.value = 0
+  }
+
   syntaxResolved.value = version.syntaxResolved
-  const restored = addVersion(
-    `Restored v${version.id}`,
-    `Restored the complete diagram state from ${version.summary}.`,
-    version.syntaxResolved,
-    version.code,
-  )
   messages.value.push({
-    id: `assistant-restore-${Date.now()}`,
+    id: `assistant-${kind}-${Date.now()}`,
     role: 'assistant',
     text: '',
     preview: {
-      title: 'Version restored',
-      kind: 'rollback',
+      title: kind === 'undo' ? 'Changes undone' : 'Version restored',
+      kind,
       versionId: restored.id,
-      items: [`Restored v${version.id} and saved the result as v${restored.id}.`],
+      items: [`Restored v${version.versionNumber} and saved the result as v${restored.versionNumber}.`],
       diffLocation: 'Complete diagram version',
-      diffLines: [{ type: 'context', code: `Restored v${version.id}: ${version.summary}` }],
+      diffLines: [{ type: 'context', code: `Restored v${version.versionNumber}: ${version.summary}` }],
     },
   })
   historyOpen.value = false
-  if (version.code !== undefined) {
-    emit('apply-code', version.code)
-  }
-  trackAnalyticsEvent('ai_chat_version_restored', {
+  trackAnalyticsEvent(kind === 'undo' ? 'ai_chat_change_undone' : 'ai_chat_version_restored', {
     ...analyticsBase(),
-    change_kind: 'rollback',
+    change_kind: kind,
     version_id: version.id,
   })
+  return true
 }
 
 function toggleSyntaxDetails() {
@@ -855,7 +979,7 @@ function toggleSyntaxDetails() {
 }
 
 function repairSyntax() {
-  if (isThinking.value) return
+  if (isThinking.value || isRestoringVersion.value) return
   const repairText = 'Fix the current syntax issue without changing the rest of the diagram.'
   syntaxDetailsOpen.value = false
   trackAnalyticsEvent('ai_chat_syntax_repair_requested', {
@@ -927,9 +1051,21 @@ watch(
   },
 )
 watch(
+  () => props.diagramlyDiagramId,
+  (diagramId) => {
+    if (diagramId && diagramId !== activeDiagramlyDiagramId.value) {
+      activeDiagramlyDiagramId.value = diagramId
+      if (props.open) loadPersistedVersions()
+    }
+  },
+)
+watch(
   () => props.open,
   (isOpen) => {
-    if (isOpen) focusInput()
+    if (isOpen) {
+      focusInput()
+      loadPersistedVersions()
+    }
   },
   { immediate: true },
 )

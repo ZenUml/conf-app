@@ -62,6 +62,15 @@ export type CacheState = "cold" | "warm" | "unknown";
 // `attachment` / `localstorage` reserved for a future static fast-path viewer.
 export type CacheSource = "none" | "cc_body" | "content_property" | "attachment" | "localstorage";
 
+// Where the diagram CONTENT (the macro's doc) came from on this render — distinct
+// from cache_source, which is about the rendered SVG.
+//   fetch     — loaded over the network this view (first view / cache miss)
+//   swr_cache — served from the id-keyed content cache BEFORE the fetch (a revisit
+//               fast path), with a background revalidate that re-renders on change
+// Absent when no content fetch was involved (legacy/new macros, or macro types not
+// yet wired for the content cache). See utils/renderCache/contentCacheStore.ts.
+export type ContentSource = "fetch" | "swr_cache";
+
 export type FeedbackValue = "good" | "partial" | "bad";
 
 export type AnalyticsEventName =

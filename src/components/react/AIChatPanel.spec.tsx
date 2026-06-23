@@ -120,6 +120,15 @@ describe("React AIChatPanel", () => {
 
     expect(container.querySelector('[data-testid="react-ai-chat-thinking"]')).not.toBeNull();
     expect(container.textContent).toContain("Understanding request");
+    expect(
+      (container.querySelector('[data-testid="react-ai-chat-input"]') as HTMLTextAreaElement).disabled,
+    ).toBe(false);
+
+    const input = setInput("Queue the follow-up");
+    expect(input.value).toBe("Queue the follow-up");
+    expect(
+      (container.querySelector('[data-testid="react-ai-chat-send"]') as HTMLButtonElement).disabled,
+    ).toBe(true);
 
     act(() => {
       vi.advanceTimersByTime(1100);

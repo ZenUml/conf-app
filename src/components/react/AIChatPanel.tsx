@@ -1150,7 +1150,7 @@ export default function AIChatPanel({
             placeholder="Describe the diagram change..."
             aria-label="AI change request"
             data-testid="react-ai-chat-input"
-            disabled={isThinking || isRestoringVersion}
+            disabled={isRestoringVersion}
             onChange={(event) => setPrompt(event.currentTarget.value)}
             onKeyDown={handleKeyDown}
           />

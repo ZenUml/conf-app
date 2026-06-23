@@ -66,6 +66,13 @@ describe('AIChatPanel', () => {
     expect(wrapper.emitted('send')).toEqual([['Add a retry path']])
     expect(wrapper.get('[data-testid="ai-chat-thinking"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('Understanding request')
+    expect((wrapper.get('[data-testid="ai-chat-input"]').element as HTMLTextAreaElement).disabled).toBe(false)
+
+    await wrapper.get('[data-testid="ai-chat-input"]').setValue('Queue the follow-up')
+    expect((wrapper.get('[data-testid="ai-chat-input"]').element as HTMLTextAreaElement).value).toBe(
+      'Queue the follow-up',
+    )
+    expect((wrapper.get('[data-testid="ai-chat-send"]').element as HTMLButtonElement).disabled).toBe(true)
 
     await vi.advanceTimersByTimeAsync(1100)
 

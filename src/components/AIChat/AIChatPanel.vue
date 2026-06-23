@@ -339,7 +339,7 @@
           placeholder="Describe the diagram change..."
           aria-label="AI change request"
           data-testid="ai-chat-input"
-          :disabled="isThinking || isRestoringVersion"
+          :disabled="isRestoringVersion"
           @keydown.enter.exact.prevent="submitPrompt()"
         />
         <div class="ai-chat-compose-meta">

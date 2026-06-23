@@ -593,6 +593,28 @@ Apply proposed improvements directly to the skill file without asking for confir
 
 ---
 
+## Emit the Ops Console paywall vital
+
+After the A/B comparison (Step A2/A3), persist the friction headline so the Handbook **Ops Console** cockpit ("Today" → Live Vitals → *Paywall A/B friction*) shows it instead of a placeholder. Write `private/src/data/paywall-ab.json` (Write tool) with this exact shape:
+
+```json
+{
+  "asOf": "<today YYYY-MM-DD>",
+  "groupASuccessPct": <Group A aggregate success_rate, %>,
+  "groupBSuccessPct": <Group B aggregate success_rate, %>,
+  "abGapPp": <groupBSuccessPct − groupASuccessPct, percentage points>,
+  "continuedRatePct": <project-wide paywall_continued_editing / paywall_triggered, %>
+}
+```
+
+The cockpit shows `abGapPp` (the A/B friction gap — the primary signal per Step A3) with the A vs B rates beneath, and stamps `asOf`. Rebuild — `cd private && pnpm build` — or rely on a running dev server's hot-reload. Commit it with the run:
+
+```bash
+cd ~/workspaces/zenuml/conf-app/private && git add src/data/paywall-ab.json && git commit -m "chore(cockpit): paywall vital $(date +%Y-%m-%d)"
+```
+
+---
+
 ## Reference: Source files
 
 | What | File |

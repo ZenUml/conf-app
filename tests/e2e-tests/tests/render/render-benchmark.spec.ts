@@ -49,6 +49,8 @@ interface Sample {
   bootstrap_ms?: number;
   measured_sum_ms?: number;
   cache_state?: string;
+  render_mode?: string;
+  wrapped_type?: string;
   tab_hidden?: boolean;
   app_commit?: string;
 }
@@ -153,6 +155,8 @@ test.describe('render benchmark', () => {
           bootstrap_ms: p.bootstrap_ms as number | undefined,
           measured_sum_ms: p.measured_sum_ms as number | undefined,
           cache_state: p.cache_state as string | undefined,
+          render_mode: p.render_mode as string | undefined,
+          wrapped_type: p.wrapped_type as string | undefined,
           tab_hidden: p.tab_hidden as boolean | undefined,
           app_commit: p.app_commit as string | undefined,
         });
@@ -175,6 +179,11 @@ test.describe('render benchmark', () => {
         ...(macro === 'embed' ? { wrapped_type: ok.find((r) => r.wrapped_type)?.wrapped_type ?? 'none' } : {}),
         cache_states: ok.reduce<Record<string, number>>((acc, r) => {
           const k = r.cache_state ?? 'unknown';
+          acc[k] = (acc[k] ?? 0) + 1;
+          return acc;
+        }, {}),
+        render_modes: ok.reduce<Record<string, number>>((acc, r) => {
+          const k = r.render_mode ?? '?';
           acc[k] = (acc[k] ?? 0) + 1;
           return acc;
         }, {}),

@@ -45,7 +45,7 @@ export default defineConfig({
     {
       name: 'render',
       testMatch: 'render/**/*.spec.ts',
-      testIgnore: ['render/render-benchmark.spec.ts', 'render/lever-d-mermaid.spec.ts'],
+      testIgnore: ['render/render-benchmark.spec.ts', 'render/lever-d-*.spec.ts'],
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['pages'],
       fullyParallel: false,
@@ -56,7 +56,7 @@ export default defineConfig({
       // instead of recreating pages and orphaning the old set on the test space.
       // Run: APP=zenuml-lite@stg PERF_RUNS=6 playwright test --project=benchmark
       name: 'benchmark',
-      testMatch: ['render/render-benchmark.spec.ts', 'render/lever-d-mermaid.spec.ts'],
+      testMatch: ['render/render-benchmark.spec.ts', 'render/lever-d-*.spec.ts'],
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['auth'],
       fullyParallel: false,

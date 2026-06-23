@@ -112,4 +112,64 @@ test.describe('DrawIO export protocol (Lever D Option B producer)', () => {
     // eslint-disable-next-line no-console
     console.log(`[drawio-export] OK — ${svg.length} byte SVG, base64 data URI, label preserved`);
   });
+
+  // Decides whether the SVG cache has a NON-REDUNDANT niche: the warm-vs-warm A/B showed
+  // ~0 benefit for a SIMPLE graph (render is trivial). The cache can only earn its keep if
+  // the renderer's COMPUTE grows steeply with graph size. This measures load→render→export
+  // wall-clock vs shape count. Flat ⇒ fully redundant with prefetch; steep ⇒ real niche
+  // for complex graphs. Also reports SVG size vs the 200KB localStorage cap.
+  test('render cost vs graph size (does the renderer dominate for complex graphs?)', async ({ page }) => {
+    const HOST_URL = 'http://127.0.0.1:8080/__drawio_scaling_host__';
+    const hostHtml =
+      '<!DOCTYPE html><html><head><script>' +
+      'window.__msgs=[];' +
+      'window.addEventListener("message",function(e){try{var d=typeof e.data==="string"?JSON.parse(e.data):e.data;window.__msgs.push(d);}catch(_){}}); ' +
+      '</' + 'script></head><body style="margin:0">' +
+      '<iframe id="dio" style="width:1200px;height:800px;border:0" src="' + EDITOR_URL + '"></iframe>' +
+      '</body></html>';
+    await page.route(HOST_URL, (route) => route.fulfill({ contentType: 'text/html', body: hostHtml }));
+    await page.goto(HOST_URL);
+
+    const sendToFrame = (msg: Record<string, unknown>) =>
+      page.evaluate((m) => {
+        (document.getElementById('dio') as HTMLIFrameElement).contentWindow!.postMessage(JSON.stringify(m), '*');
+      }, msg);
+    const sawExport = () =>
+      page.evaluate(() =>
+        (window as unknown as { __msgs: Array<{ event?: string; data?: unknown }> }).__msgs.some(
+          (m) => m && m.event === 'export' && typeof m.data === 'string',
+        ),
+      );
+
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { __msgs: Array<{ event?: string }> }).__msgs.some((m) => m && m.event === 'init')), { timeout: 30_000 })
+      .toBeTruthy();
+
+    const makeGraph = (n: number) => {
+      let cells = '';
+      for (let i = 0; i < n; i++) {
+        const x = (i % 25) * 110;
+        const y = Math.floor(i / 25) * 55;
+        cells += `<mxCell id="n${i}" value="Node ${i}" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="${x}" y="${y}" width="90" height="40" as="geometry"/></mxCell>`;
+        if (i > 0) cells += `<mxCell id="e${i}" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="n${i - 1}" target="n${i}"><mxGeometry relative="1" as="geometry"/></mxCell>`;
+      }
+      return `<mxfile><diagram name="P"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>${cells}</root></mxGraphModel></diagram></mxfile>`;
+    };
+
+    for (const n of [10, 100, 400]) {
+      await page.evaluate(() => { (window as unknown as { __msgs: unknown[] }).__msgs.length = 0; });
+      const xml = makeGraph(n);
+      const t0 = Date.now();
+      await sendToFrame({ action: 'load', xml });
+      await sendToFrame({ action: 'export', format: 'svg' });
+      await expect.poll(sawExport, { timeout: 45_000 }).toBeTruthy();
+      const ms = Date.now() - t0;
+      const svgLen = await page.evaluate(() => {
+        const m = [...(window as unknown as { __msgs: Array<{ event?: string; data?: string }> }).__msgs].reverse().find((x) => x && x.event === 'export' && typeof x.data === 'string');
+        return m ? m.data!.length : 0;
+      });
+      // eslint-disable-next-line no-console
+      console.log(`[render-scaling] n=${n} shapes: load+render+export ${ms}ms, svg ${Math.round(svgLen / 1024)}KB (cap 200KB)`);
+    }
+  });
 });

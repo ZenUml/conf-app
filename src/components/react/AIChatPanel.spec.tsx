@@ -213,6 +213,61 @@ describe("React AIChatPanel", () => {
     );
   });
 
+  it("shows saved versions as loading instead of the local initial count while they load", async () => {
+    let resolveVersions!: (value: Awaited<ReturnType<typeof getDiagramlyVersions>>) => void;
+    vi.mocked(getDiagramlyVersions).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveVersions = resolve;
+      }),
+    );
+
+    renderPanel({ diagramlyDiagramId: "diagram-1" });
+
+    expect(
+      container.querySelector('[data-testid="react-ai-chat-history-trigger"]')?.textContent,
+    ).toContain("...");
+    expect(container.textContent).toContain("Syncing");
+
+    act(() => {
+      Simulate.click(container.querySelector('[data-testid="react-ai-chat-history-trigger"]')!);
+    });
+
+    expect(
+      container.querySelector('[data-testid="react-ai-chat-history-loading"]')?.textContent,
+    ).toContain("Loading saved versions");
+    expect(container.querySelector(".ai-chat-history-item")).toBeNull();
+
+    await act(async () => {
+      resolveVersions({
+        versions: [
+          {
+            id: "version-1",
+            diagramId: "diagram-1",
+            versionNumber: 1,
+            createdAt: "2026-06-23T08:00:00.000Z",
+            content: { code: "openapi: 3.0.0\ninfo:\n  title: First" },
+          },
+          {
+            id: "version-2",
+            diagramId: "diagram-1",
+            versionNumber: 2,
+            createdAt: "2026-06-23T08:01:00.000Z",
+            instruction: "Updated title",
+            content: { code: "openapi: 3.0.0\ninfo:\n  title: Second" },
+          },
+        ],
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="react-ai-chat-history-trigger"]')?.textContent,
+    ).toContain("2");
+    expect(
+      container.querySelector('[data-testid="react-ai-chat-history-panel"]')?.textContent,
+    ).toContain("Updated title");
+  });
+
   it("shows progress while restoring a persisted Diagramly version", async () => {
     vi.mocked(getDiagramlyVersions).mockResolvedValue({
       versions: [

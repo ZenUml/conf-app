@@ -272,7 +272,26 @@
           <XMarkIcon aria-hidden="true" />
         </button>
       </header>
-      <ol class="ai-chat-history-list">
+      <div
+        v-if="isVersionListLoading"
+        class="ai-chat-history-state"
+        role="status"
+        data-testid="ai-chat-history-loading"
+      >
+        Loading saved versions...
+      </div>
+      <div
+        v-else-if="hasVersionLoadFailed"
+        class="ai-chat-history-state"
+        role="status"
+        data-testid="ai-chat-history-error"
+      >
+        <p>Saved versions could not be loaded.</p>
+        <button type="button" class="ai-chat-history-retry" @click="retryLoadPersistedVersions">
+          Retry
+        </button>
+      </div>
+      <ol v-else class="ai-chat-history-list">
         <li
           v-for="version in reversedVersions"
           :key="version.id"
@@ -334,7 +353,9 @@
           >
             <ClockIcon aria-hidden="true" />
             <span>Diagram versions</span>
-            <span class="ai-chat-history-count">{{ versions.length }}</span>
+            <span class="ai-chat-history-count" :class="{ 'is-loading': isVersionListLoading }">
+              {{ versionCountLabel }}
+            </span>
           </button>
           <span class="ai-chat-compose-actions">
             <span class="ai-chat-compose-status">{{ composeStatus }}</span>
@@ -414,6 +435,7 @@ type Props = {
   diagramlyDiagramId?: string
   initialMessages?: AIChatMessage[]
 }
+type PersistedVersionsStatus = 'idle' | 'loading' | 'loaded' | 'failed'
 
 const props = withDefaults(defineProps<Props>(), {
   codeVisible: false,
@@ -453,6 +475,7 @@ const syntaxResolved = ref(false)
 const lastHandledSyntaxRepairRequestId = ref(0)
 const historyOpen = ref(false)
 const isLoadingVersions = ref(false)
+const persistedVersionsStatus = ref<PersistedVersionsStatus>(props.diagramlyDiagramId ? 'idle' : 'loaded')
 const isRestoringVersion = ref(false)
 const restoringVersionId = ref('')
 const restoringAction = ref<'undo' | 'rollback' | null>(null)
@@ -496,11 +519,22 @@ const visibleSyntaxError = computed(() => Boolean(props.syntaxError) && !syntaxR
 const currentVersionId = computed(() => versions.value[versions.value.length - 1]?.id || '')
 const reversedVersions = computed(() => [...versions.value].reverse())
 const currentCode = computed(() => props.currentCode || '')
+const isVersionListLoading = computed(() => (
+  Boolean(activeDiagramlyDiagramId.value)
+  && (persistedVersionsStatus.value === 'idle' || persistedVersionsStatus.value === 'loading')
+))
+const hasVersionLoadFailed = computed(() => persistedVersionsStatus.value === 'failed')
+const versionCountLabel = computed(() => {
+  if (isVersionListLoading.value) return '...'
+  if (hasVersionLoadFailed.value) return '!'
+  return String(versions.value.length)
+})
 const activeStages = computed(() => (isRestoringVersion.value ? restoreStages : stages))
 const activeCompletedStages = computed(() => (isRestoringVersion.value ? completedRestoreStages : completedStages))
 const composeStatus = computed(() => {
   if (isRestoringVersion.value) return 'Restoring'
   if (isThinking.value) return 'Updating'
+  if (isVersionListLoading.value) return 'Syncing'
   return 'Ready'
 })
 const expandedDiffPreview = computed(() => {
@@ -556,9 +590,14 @@ function toAIChatVersion(version: DiagramlyVersion): AIChatVersion {
 
 async function loadPersistedVersions() {
   const diagramId = activeDiagramlyDiagramId.value
-  if (!diagramId || isLoadingVersions.value) return
+  if (!diagramId) {
+    persistedVersionsStatus.value = 'loaded'
+    return
+  }
+  if (isLoadingVersions.value) return
 
   isLoadingVersions.value = true
+  persistedVersionsStatus.value = 'loading'
   try {
     const result = await getDiagramlyVersions(diagramId)
     if (result?.versions?.length) {
@@ -566,11 +605,17 @@ async function loadPersistedVersions() {
         .sort((a, b) => a.versionNumber - b.versionNumber)
         .map(toAIChatVersion)
     }
+    persistedVersionsStatus.value = 'loaded'
   } catch (error) {
     console.warn('Failed to load Diagramly versions', error)
+    persistedVersionsStatus.value = 'failed'
   } finally {
     isLoadingVersions.value = false
   }
+}
+
+function retryLoadPersistedVersions() {
+  loadPersistedVersions()
 }
 
 async function ensureActiveDiagramlyDiagram(initialCode: string) {
@@ -584,6 +629,7 @@ async function ensureActiveDiagramlyDiagram(initialCode: string) {
     title: props.diagramTitle,
   })
   activeDiagramlyDiagramId.value = result.diagramId
+  persistedVersionsStatus.value = 'loaded'
   emit('diagramly-diagram-bound', result.diagramId)
 
   if (result.versionId) {
@@ -891,7 +937,6 @@ function refineChange() {
 function openHistory() {
   syntaxDetailsOpen.value = false
   historyOpen.value = true
-  loadPersistedVersions()
   trackAnalyticsEvent('ai_chat_history_opened', {
     ...analyticsBase(),
     version_id: currentVersionId.value,
@@ -1055,6 +1100,7 @@ watch(
   (diagramId) => {
     if (diagramId && diagramId !== activeDiagramlyDiagramId.value) {
       activeDiagramlyDiagramId.value = diagramId
+      persistedVersionsStatus.value = 'idle'
       if (props.open) loadPersistedVersions()
     }
   },

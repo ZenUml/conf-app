@@ -142,6 +142,94 @@ describe('AIChatPanel', () => {
     )
   })
 
+  it('shows saved versions as loading instead of the local initial count while they load', async () => {
+    let resolveVersions!: (value: Awaited<ReturnType<typeof getDiagramlyVersions>>) => void
+    vi.mocked(getDiagramlyVersions).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveVersions = resolve
+      }),
+    )
+
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        diagramType: 'sequence',
+        diagramlyDiagramId: 'diagram-1',
+      },
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get('[data-testid="ai-chat-history-trigger"]').text()).toContain('...')
+    expect(wrapper.text()).toContain('Syncing')
+
+    await wrapper.get('[data-testid="ai-chat-history-trigger"]').trigger('click')
+    expect(wrapper.get('[data-testid="ai-chat-history-loading"]').text()).toContain('Loading saved versions')
+    expect(wrapper.find('.ai-chat-history-item').exists()).toBe(false)
+
+    resolveVersions({
+      versions: [
+        {
+          id: 'version-1',
+          diagramId: 'diagram-1',
+          versionNumber: 1,
+          createdAt: '2026-06-23T08:00:00.000Z',
+          content: { code: 'A->B: first' },
+        },
+        {
+          id: 'version-2',
+          diagramId: 'diagram-1',
+          versionNumber: 2,
+          createdAt: '2026-06-23T08:01:00.000Z',
+          instruction: 'Updated flow',
+          content: { code: 'A->B: second' },
+        },
+      ],
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="ai-chat-history-trigger"]').text()).toContain('2')
+    expect(wrapper.get('[data-testid="ai-chat-history-panel"]').text()).toContain('Updated flow')
+  })
+
+  it('does not reload saved versions when reopening the versions panel', async () => {
+    vi.mocked(getDiagramlyVersions).mockResolvedValue({
+      versions: [
+        {
+          id: 'version-1',
+          diagramId: 'diagram-1',
+          versionNumber: 1,
+          createdAt: '2026-06-23T08:00:00.000Z',
+          content: { code: 'A->B: first' },
+        },
+        {
+          id: 'version-2',
+          diagramId: 'diagram-1',
+          versionNumber: 2,
+          createdAt: '2026-06-23T08:01:00.000Z',
+          instruction: 'Updated flow',
+          content: { code: 'A->B: second' },
+        },
+      ],
+    })
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        diagramType: 'sequence',
+        diagramlyDiagramId: 'diagram-1',
+      },
+    })
+    await flushPromises()
+
+    expect(getDiagramlyVersions).toHaveBeenCalledTimes(1)
+
+    await wrapper.get('[data-testid="ai-chat-history-trigger"]').trigger('click')
+    await wrapper.get('[aria-label="Close diagram versions"]').trigger('click')
+    await wrapper.get('[data-testid="ai-chat-history-trigger"]').trigger('click')
+
+    expect(getDiagramlyVersions).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('[data-testid="ai-chat-history-panel"]').text()).toContain('Updated flow')
+  })
+
   it('shows progress while restoring a persisted Diagramly version', async () => {
     vi.mocked(getDiagramlyVersions).mockResolvedValue({
       versions: [

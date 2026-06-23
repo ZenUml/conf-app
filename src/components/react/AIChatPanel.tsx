@@ -61,6 +61,7 @@ interface Props {
   onApplyCode?: (code: string) => void;
   onDiagramlyDiagramBound?: (diagramId: string) => void;
 }
+type PersistedVersionsStatus = "idle" | "loading" | "loaded" | "failed";
 
 const stages = ["Understanding request", "Updating diagram", "Syncing changes"];
 const completedStages = ["Understood", "Updated", "Synced"];
@@ -98,7 +99,8 @@ export default function AIChatPanel({
   const [syntaxDetailsOpen, setSyntaxDetailsOpen] = useState(false);
   const [syntaxResolved, setSyntaxResolved] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [isLoadingVersions, setIsLoadingVersions] = useState(false);
+  const [persistedVersionsStatus, setPersistedVersionsStatus] =
+    useState<PersistedVersionsStatus>(diagramlyDiagramId ? "idle" : "loaded");
   const [isRestoringVersion, setIsRestoringVersion] = useState(false);
   const [restoringVersionId, setRestoringVersionId] = useState("");
   const [restoringAction, setRestoringAction] = useState<"undo" | "rollback" | null>(null);
@@ -121,6 +123,7 @@ export default function AIChatPanel({
   const timersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const lastHandledSyntaxRepairRequestId = useRef(0);
   const activeRequestId = useRef(0);
+  const loadingVersionsRef = useRef(false);
 
   const diagramTypeLabel = useMemo(() => {
     const labels: Record<string, string> = {
@@ -135,9 +138,23 @@ export default function AIChatPanel({
 
   const currentVersionId = versions[versions.length - 1]?.id || "";
   const visibleSyntaxError = Boolean(syntaxError) && !syntaxResolved;
+  const isVersionListLoading = Boolean(activeDiagramlyDiagramId)
+    && (persistedVersionsStatus === "idle" || persistedVersionsStatus === "loading");
+  const hasVersionLoadFailed = persistedVersionsStatus === "failed";
+  const versionCountLabel = isVersionListLoading
+    ? "..."
+    : hasVersionLoadFailed
+      ? "!"
+      : String(versions.length);
   const activeStages = isRestoringVersion ? restoreStages : stages;
   const activeCompletedStages = isRestoringVersion ? completedRestoreStages : completedStages;
-  const composeStatus = isRestoringVersion ? "Restoring" : isThinking ? "Updating" : "Ready";
+  const composeStatus = isRestoringVersion
+    ? "Restoring"
+    : isThinking
+      ? "Updating"
+      : isVersionListLoading
+        ? "Syncing"
+        : "Ready";
   const expandedDiffPreview = useMemo(
     () => messages.find((message) => message.id === expandedDiffMessageId)?.preview || null,
     [expandedDiffMessageId, messages],
@@ -170,6 +187,7 @@ export default function AIChatPanel({
   useEffect(() => {
     if (diagramlyDiagramId && diagramlyDiagramId !== activeDiagramlyDiagramId) {
       setActiveDiagramlyDiagramId(diagramlyDiagramId);
+      setPersistedVersionsStatus("idle");
     }
   }, [activeDiagramlyDiagramId, diagramlyDiagramId]);
 
@@ -215,9 +233,14 @@ export default function AIChatPanel({
   };
 
   const loadPersistedVersions = async (diagramId = activeDiagramlyDiagramId) => {
-    if (!diagramId || isLoadingVersions) return;
+    if (!diagramId) {
+      setPersistedVersionsStatus("loaded");
+      return;
+    }
+    if (loadingVersionsRef.current) return;
 
-    setIsLoadingVersions(true);
+    loadingVersionsRef.current = true;
+    setPersistedVersionsStatus("loading");
     try {
       const result = await getDiagramlyVersions(diagramId);
       if (result?.versions?.length) {
@@ -227,11 +250,17 @@ export default function AIChatPanel({
             .map(toAIChatVersion),
         );
       }
+      setPersistedVersionsStatus("loaded");
     } catch (error) {
       console.warn("Failed to load Diagramly versions", error);
+      setPersistedVersionsStatus("failed");
     } finally {
-      setIsLoadingVersions(false);
+      loadingVersionsRef.current = false;
     }
+  };
+
+  const retryLoadPersistedVersions = () => {
+    loadPersistedVersions();
   };
 
   const ensureActiveDiagramlyDiagram = async (initialCode: string) => {
@@ -243,6 +272,7 @@ export default function AIChatPanel({
       title: diagramTitle,
     });
     setActiveDiagramlyDiagramId(result.diagramId);
+    setPersistedVersionsStatus("loaded");
     onDiagramlyDiagramBound?.(result.diagramId);
 
     if (result.versionId) {
@@ -1046,39 +1076,64 @@ export default function AIChatPanel({
               {icon(<CrossIcon label="" size="small" primaryColor="currentColor" />)}
             </button>
           </header>
-          <ol className="ai-chat-history-list">
-            {[...versions].reverse().map((version) => (
-              <li
-                key={version.id}
-                className={`ai-chat-history-item ${
-                  version.id === currentVersionId ? "is-current" : ""
-                }`}
+          {isVersionListLoading ? (
+            <div
+              className="ai-chat-history-state"
+              role="status"
+              data-testid="react-ai-chat-history-loading"
+            >
+              Loading saved versions...
+            </div>
+          ) : hasVersionLoadFailed ? (
+            <div
+              className="ai-chat-history-state"
+              role="status"
+              data-testid="react-ai-chat-history-error"
+            >
+              <p>Saved versions could not be loaded.</p>
+              <button
+                type="button"
+                className="ai-chat-history-retry"
+                onClick={retryLoadPersistedVersions}
               >
-                <div>
-                  <p className="ai-chat-history-title">
-                    <strong>v{version.versionNumber}</strong>
-                    <span>{version.summary}</span>
-                  </p>
-                  <p className="ai-chat-history-detail">{version.detail}</p>
-                </div>
-                <button
-                  type="button"
-                  className="ai-chat-rollback"
-                  disabled={version.id === currentVersionId || isRestoringVersion}
-                  onClick={() => restoreVersion(version)}
+                Retry
+              </button>
+            </div>
+          ) : (
+            <ol className="ai-chat-history-list">
+              {[...versions].reverse().map((version) => (
+                <li
+                  key={version.id}
+                  className={`ai-chat-history-item ${
+                    version.id === currentVersionId ? "is-current" : ""
+                  }`}
                 >
-                  {version.id === currentVersionId
-                    ? "Current"
-                    : restoringVersionId === version.id
-                      ? "Restoring..."
-                      : "Restore version"}
-                </button>
-                <div className="ai-chat-history-meta">
-                  {version.time} · {version.syntaxResolved ? "Syntax valid" : "1 syntax issue"}
-                </div>
-              </li>
-            ))}
-          </ol>
+                  <div>
+                    <p className="ai-chat-history-title">
+                      <strong>v{version.versionNumber}</strong>
+                      <span>{version.summary}</span>
+                    </p>
+                    <p className="ai-chat-history-detail">{version.detail}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="ai-chat-rollback"
+                    disabled={version.id === currentVersionId || isRestoringVersion}
+                    onClick={() => restoreVersion(version)}
+                  >
+                    {version.id === currentVersionId
+                      ? "Current"
+                      : restoringVersionId === version.id
+                        ? "Restoring..."
+                        : "Restore version"}
+                  </button>
+                  <div className="ai-chat-history-meta">
+                    {version.time} · {version.syntaxResolved ? "Syntax valid" : "1 syntax issue"}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
         </section>
       )}
 
@@ -1117,7 +1172,9 @@ export default function AIChatPanel({
             >
               {icon(<ClockIcon label="" size="small" primaryColor="currentColor" />)}
               <span>Diagram versions</span>
-              <span className="ai-chat-history-count">{versions.length}</span>
+              <span className={`ai-chat-history-count ${isVersionListLoading ? "is-loading" : ""}`}>
+                {versionCountLabel}
+              </span>
             </button>
             <span className="ai-chat-compose-actions">
               <span className="ai-chat-compose-status">{composeStatus}</span>

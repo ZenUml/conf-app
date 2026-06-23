@@ -1,6 +1,6 @@
 import globals from "@/model/globals";
 import forgeGlobal, { getView, getContext as initForgeContext, isInserting, isConfiguring } from './model/globals/forgeGlobal';
-import { saveToPlatform, LegacyLoadBlockedSaveError } from "@/model/ContentProvider/Persistence";
+import { saveToPlatform, LegacyLoadBlockedSaveError, GRAPH_SVG_CACHE_CAP_BYTES } from "@/model/ContentProvider/Persistence";
 import { decompress } from "@/utils/compress";
 import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
 import ApWrapper2 from "@/model/ApWrapper2";
@@ -55,13 +55,34 @@ const EMPTY_GRAPH = `<mxfile>
   </diagram>
 </mxfile>`;
 
-async function saveGraphAndExit(graphXml: string) {
+async function saveGraphAndExit(graphXml: string, graphSvg?: string) {
+  // Lever D (Option B): graphSvg is the SVG the editor exported from its OWN DrawIO.
+  // Set it explicitly (fresh-or-undefined) so it OVERRIDES any stale graphSvg loaded
+  // in window.diagram — a present value below is always fresh for this graphXml, and
+  // undefined drops the stale one from the serialized body (JSON omits undefined).
   const diagram = {
     ...window.diagram,
     graphXml,
+    graphSvg,
     diagramType: DiagramType.Graph,
     source: DataSource.CustomContent
   };
+
+  // Lever D coverage signal: did Option B yield a usable, within-cap SVG? Measures the
+  // editor-export success rate directly (independent of the Option A offscreen fallback
+  // that saveToPlatform may still attempt). View-side outcome is render_mode on macro_viewed.
+  const svgCacheOutcome = !graphSvg
+    ? 'empty'
+    : graphSvg.length > GRAPH_SVG_CACHE_CAP_BYTES
+      ? 'oversized'
+      : 'cached';
+  trackAnalyticsEvent('graph_svg_cached_at_save', {
+    feature_area: 'macro',
+    surface: 'editor',
+    macro_type: 'graph',
+    svg_cache_outcome: svgCacheOutcome,
+    ...(svgCacheOutcome === 'cached' ? { svg_bytes: graphSvg!.length } : {}),
+  });
 
   // Captured before save. If the returned id differs from sourceId, the save
   // forked a new custom content (cross-page-copy / same-page-duplicate path)

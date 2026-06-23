@@ -105,12 +105,28 @@ describe('Persistence', function () {
   describe('maybeAttachGraphSvg (Lever D render cache, graph)', () => {
     beforeEach(() => vi.mocked(renderGraphToSvg).mockReset());
 
-    it('renders and attaches graphSvg for a Graph diagram with xml', async () => {
+    it('Option B: keeps a valid editor-supplied graphSvg WITHOUT the offscreen reload', async () => {
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '<mxGraphModel/>', graphSvg: '<svg id="from-editor">ok</svg>' };
+      await maybeAttachGraphSvg(d);
+      expect(renderGraphToSvg).not.toHaveBeenCalled(); // the whole point of Option B
+      expect(d.graphSvg).toBe('<svg id="from-editor">ok</svg>');
+    });
+
+    it('Option A fallback: no editor SVG → offscreen render attaches graphSvg', async () => {
       vi.mocked(renderGraphToSvg).mockResolvedValue('<svg>graph</svg>');
       const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '<mxGraphModel/>' };
       await maybeAttachGraphSvg(d);
       expect(renderGraphToSvg).toHaveBeenCalledWith('<mxGraphModel/>');
       expect(d.graphSvg).toBe('<svg>graph</svg>');
+    });
+
+    it('Option A fallback: an oversized editor SVG is not trusted → re-renders', async () => {
+      vi.mocked(renderGraphToSvg).mockResolvedValue('<svg>fallback</svg>');
+      const huge = '<svg>' + 'x'.repeat(600 * 1024) + '</svg>';
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '<mxGraphModel/>', graphSvg: huge };
+      await maybeAttachGraphSvg(d);
+      expect(renderGraphToSvg).toHaveBeenCalled();
+      expect(d.graphSvg).toBe('<svg>fallback</svg>');
     });
 
     it('skips non-Graph diagrams (no render, no field set)', async () => {
@@ -120,9 +136,9 @@ describe('Persistence', function () {
       expect(d.graphSvg).toBeUndefined();
     });
 
-    it('clears a stale graphSvg when render fails — no SVG outlives its xml (atomicity)', async () => {
+    it('clears graphSvg when no editor SVG and the offscreen render fails (atomicity)', async () => {
       vi.mocked(renderGraphToSvg).mockResolvedValue(undefined);
-      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '<edited/>', graphSvg: '<svg>STALE</svg>' };
+      const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '<edited/>', graphSvg: undefined };
       await maybeAttachGraphSvg(d);
       expect(d.graphSvg).toBeUndefined();
     });

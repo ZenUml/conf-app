@@ -88,6 +88,10 @@ export type AnalyticsProperties = {
   resource_load_ms?: number;
   measured_sum_ms?: number; // bootstrap+context+fetch+render; duration_ms − this = unattributed remainder
   tab_hidden?: boolean;    // tab was backgrounded during load → exclude from percentiles (artifact)
+  // graph_svg_cached_at_save (Lever D, Option B): outcome of exporting the SVG from the
+  // editor's own DrawIO at publish, so the viewer can inject it and skip the ~6s DrawIO load.
+  svg_cache_outcome?: 'cached' | 'empty' | 'oversized'; // cached=stored; empty=no/invalid export; oversized=over cap
+  svg_bytes?: number;
   // Renderer-bundle prefetch (renderer_prefetch_started / _completed). Fired
   // only on an actual attempt (throttled to ≤1 per deploy per browser), never
   // on the skip path — volume stays far below page-view scale. See

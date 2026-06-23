@@ -60,11 +60,22 @@ export async function maybeAttachMermaidSvg(diagram: Diagram): Promise<void> {
  * Lever D cap for the cached graph SVG. Graph SVGs (stencils) run larger than
  * mermaid's, so a higher cap; refine after measuring real customer graphs.
  */
-const GRAPH_SVG_CACHE_CAP_BYTES = 512 * 1024;
+export const GRAPH_SVG_CACHE_CAP_BYTES = 512 * 1024;
 
 /**
- * Render the DrawIO graph to a standalone SVG at save and attach it so the viewer
- * can inject it and skip ensureDrawioViewerLoaded() + new GraphViewer() (Lever D).
+ * Attach the Lever D graph SVG so the viewer can inject it and skip
+ * ensureDrawioViewerLoaded() + new GraphViewer() (the ~6s DrawIO load).
+ *
+ * Option B (preferred): the graph editor exports the SVG from its OWN already-loaded
+ * DrawIO and sets diagram.graphSvg (forge-graph-editor.saveGraphAndExit overrides any
+ * stale loaded value, so a present value here is always fresh for the current
+ * graphXml). We trust a plausible, within-cap value and skip the costly offscreen
+ * reload — sanitize-on-read guards XSS.
+ *
+ * Option A (fallback): no editor SVG (export failed/timed out, or a non-editor save
+ * path) ⇒ best-effort offscreen render (renderGraphToSvg). Time-boxed by
+ * withSaveTimeout in saveToPlatform so it can never hold the save open.
+ *
  * ALWAYS refreshes/clears diagram.graphSvg so a stale SVG never co-persists with
  * edited XML. Best-effort — never throws. Exported for unit testing.
  */
@@ -72,6 +83,16 @@ export async function maybeAttachGraphSvg(diagram: Diagram): Promise<void> {
   if (diagram.diagramType !== DiagramType.Graph || !diagram.graphXml) {
     return;
   }
+  // Option B: keep the editor-supplied SVG when it is well-formed and within cap.
+  const supplied = diagram.graphSvg;
+  if (
+    typeof supplied === 'string' &&
+    /<svg[\s>]/i.test(supplied) &&
+    supplied.length <= GRAPH_SVG_CACHE_CAP_BYTES
+  ) {
+    return;
+  }
+  // Option A fallback.
   try {
     const svg = await renderGraphToSvg(diagram.graphXml);
     if (svg && svg.length <= GRAPH_SVG_CACHE_CAP_BYTES) {

@@ -26,6 +26,12 @@ import { setupCloseGuard } from "@/utils/closeGuard";
 import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
 import EventBus from "@/EventBus";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { decodeDrawioSvgExport } from "@/utils/drawio/decodeDrawioSvgExport";
+
+// Lever D (Option B): how long to wait for the editor's SVG export at publish before
+// saving without it. Client-side SVG export is sub-second; this only bounds the rare
+// stall so Publish is NEVER held up.
+const SVG_EXPORT_TIMEOUT_MS = 4000;
 
 const EMPTY_GRAPH = `<mxfile>
   <diagram name="Page-1">
@@ -60,6 +66,24 @@ export default {
       if (this.graphXml) {
         this.sendToFrame({ action: 'load', xml: this.graphXml });
       }
+    },
+    // Lever D (Option B): ask the editor's OWN DrawIO for a standalone SVG so the
+    // viewer can inject it and skip the ~6s DrawIO load. Client-side + offline (no
+    // export server). Best-effort and time-boxed — resolves undefined on timeout or a
+    // malformed reply so Publish is NEVER blocked. No spin/spinKey passed ⇒ no spinner.
+    requestSvgExport() {
+      return new Promise((resolve) => {
+        let settled = false;
+        const finish = (svg) => {
+          if (settled) return;
+          settled = true;
+          this._pendingExport = null;
+          resolve(svg);
+        };
+        this._pendingExport = (payload) => finish(decodeDrawioSvgExport(payload));
+        this.sendToFrame({ action: 'export', format: 'svg' });
+        setTimeout(() => finish(undefined), SVG_EXPORT_TIMEOUT_MS);
+      });
     }
   },
   data() {
@@ -121,6 +145,10 @@ export default {
           }
         }
       }
+      else if (payload.event === 'export') {
+        // Reply to a requestSvgExport() (Lever D). Ignored if none is pending.
+        this._pendingExport?.(payload);
+      }
       else if (payload.event === 'save') {
         this.drawioModified = false;
         // Persist the full <mxfile> wrapper so multi-page diagrams keep
@@ -131,7 +159,18 @@ export default {
         // <mxfile> or raw <mxGraphModel>.
         window.graphXml = payload.xml;
         await window.ensureTitle();
-        await this.saveGraphAndExit(window.graphXml);
+        // Lever D (Option B): capture the rendered SVG from the editor's own DrawIO
+        // BEFORE we leave, so it rides into the saved body. Best-effort — a failed or
+        // slow export just saves without it (viewer live-renders). The editor is still
+        // mounted here (the host closes it after saveGraphAndExit), so this round-trip
+        // is safe. The size cap + analytics live in saveGraphAndExit/Persistence.
+        let graphSvg;
+        try {
+          graphSvg = await this.requestSvgExport();
+        } catch {
+          graphSvg = undefined;
+        }
+        await this.saveGraphAndExit(window.graphXml, graphSvg);
       }
       // Note: noExitBtn=1 in the iframe URL suppresses DrawIO's standalone
       // Exit button, so we no longer receive payload.event === 'exit'.

@@ -113,6 +113,28 @@ export async function maybeAttachSequenceSvg(diagram: Diagram): Promise<void> {
   }
 }
 
+/**
+ * The Lever D pre-renders run in saveToPlatform's critical path — the SVG must be in
+ * the body before it is serialized — so a slow or stalled renderer would hold the
+ * user's save (and the editor modal) open. Graph is the real risk: maybeAttachGraphSvg
+ * loads the ~3.8MB DrawIO viewer in the editor frame, and a script that never fires
+ * onload would otherwise hang the save indefinitely. Cap each attach: on overrun the
+ * save proceeds UNCACHED (the viewer live-renders; the next save re-attempts the cache).
+ * mermaid/sequence renders are sub-second, so this never trips for them.
+ */
+export const SVG_CACHE_RENDER_TIMEOUT_MS = 6000;
+
+export function withSaveTimeout(p: Promise<void>, ms: number = SVG_CACHE_RENDER_TIMEOUT_MS): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    const done = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    p.then(done, done);
+  });
+}
+
 export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = globals.apWrapper): Promise<string> {
   // ZEN-1170 Defect 1: refuse to save when the editor was mounted with a
   // failed legacy-content-property load. Saving would create fresh custom
@@ -126,9 +148,11 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
 
   // Lever D render cache: pre-render the SVG at save so the viewer can inject it
   // and skip the renderer load+render. Best-effort, per diagram type.
-  await maybeAttachMermaidSvg(diagram);
-  await maybeAttachGraphSvg(diagram);
-  await maybeAttachSequenceSvg(diagram);
+  // Only the matching diagram type does work; the other two return immediately.
+  // Each is time-boxed so a slow/stalled renderer can never hold the save open.
+  await withSaveTimeout(maybeAttachMermaidSvg(diagram));
+  await withSaveTimeout(maybeAttachGraphSvg(diagram));
+  await withSaveTimeout(maybeAttachSequenceSvg(diagram));
 
   console.log('Saving diagram to platform content provider', diagram);
   const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);

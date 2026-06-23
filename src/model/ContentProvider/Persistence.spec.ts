@@ -1,4 +1,4 @@
-import {saveToPlatform, LegacyLoadBlockedSaveError, maybeAttachMermaidSvg, maybeAttachGraphSvg, maybeAttachSequenceSvg} from "@/model/ContentProvider/Persistence";
+import {saveToPlatform, LegacyLoadBlockedSaveError, maybeAttachMermaidSvg, maybeAttachGraphSvg, maybeAttachSequenceSvg, withSaveTimeout} from "@/model/ContentProvider/Persistence";
 import {NULL_DIAGRAM, DiagramType} from "@/model/Diagram/Diagram";
 import { renderMermaidToSvg } from "@/utils/mermaid/renderMermaidToSvg";
 import { renderGraphToSvg } from "@/utils/drawio/renderGraphToSvg";
@@ -158,6 +158,21 @@ describe('Persistence', function () {
       const d: any = { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: 'A.b()' };
       await maybeAttachSequenceSvg(d);
       expect(d.sequenceSvg).toBeUndefined();
+    });
+  });
+
+  describe('withSaveTimeout (Lever D save guard — a renderer must never hold the save open)', () => {
+    it('resolves when the render finishes before the cap', async () => {
+      await expect(withSaveTimeout(Promise.resolve(), 1000)).resolves.toBeUndefined();
+    });
+
+    it('resolves (does not hang) when the render never settles — save proceeds uncached', async () => {
+      const never = new Promise<void>(() => {}); // models a stalled DrawIO viewer load
+      await expect(withSaveTimeout(never, 20)).resolves.toBeUndefined();
+    });
+
+    it('resolves (swallows the error) when the render rejects', async () => {
+      await expect(withSaveTimeout(Promise.reject(new Error('boom')), 1000)).resolves.toBeUndefined();
     });
   });
 

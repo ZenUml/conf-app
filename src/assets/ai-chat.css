@@ -34,7 +34,7 @@
 
 .ai-chat-panel button,
 .ai-chat-panel textarea {
-  font: inherit;
+  font-family: inherit;
 }
 
 .ai-chat-panel button:focus-visible,
@@ -780,6 +780,7 @@
   background: transparent;
   font-size: 10px;
   font-weight: 500;
+  line-height: 14px;
   cursor: pointer;
   transition: background-color 200ms ease, color 200ms ease;
 }
@@ -790,11 +791,20 @@
   background: var(--ai-chat-subtle);
 }
 
-.ai-chat-history-trigger svg,
 .ai-chat-history-trigger > span:first-child,
-.ai-chat-history-trigger > span:first-child > svg {
+.ai-chat-history-trigger > span:first-child > span {
+  width: 14px;
+  height: 14px;
+  display: inline-grid;
+  flex: 0 0 14px;
+  place-items: center;
+  line-height: 0;
+}
+
+.ai-chat-history-trigger > span:first-child svg {
   width: 13px;
   height: 13px;
+  display: block;
 }
 
 .ai-chat-history-count {

@@ -40,6 +40,10 @@ body {
   overflow-y: scroll;
 }
 
+#swagger-editor {
+  position: relative;
+}
+
 .swagger-editor-workspace {
   position: relative;
   display: flex;

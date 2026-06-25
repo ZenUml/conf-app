@@ -92,6 +92,32 @@ describe("React AIChatPanel", () => {
     });
   }
 
+  it("uses shared icon slots throughout the panel", () => {
+    renderPanel({ syntaxError: "Unexpected token" });
+
+    expect(container.querySelector(".ai-chat-identity-icon")?.childElementCount).toBe(0);
+    expect(container.querySelector(".ai-chat-syntax-icon")?.childElementCount).toBe(0);
+    expect(
+      container.querySelector('[data-testid="react-ai-chat-code-toggle"] .ai-chat-code-icon')
+        ?.childElementCount,
+    ).toBe(0);
+    expect(
+      container.querySelector('[data-testid="react-ai-chat-close"] .ai-chat-close-icon')
+        ?.childElementCount,
+    ).toBe(0);
+    expect(container.querySelector(".ai-chat-quick-arrow")?.childElementCount).toBe(0);
+    expect(
+      container.querySelector(
+        '[data-testid="react-ai-chat-history-trigger"] .ai-chat-history-icon',
+      )?.childElementCount,
+    ).toBe(0);
+    expect(
+      container.querySelector('[data-testid="react-ai-chat-send"] .ai-chat-send-icon')
+        ?.childElementCount,
+    ).toBe(0);
+    expect(container.querySelectorAll("svg")).toHaveLength(0);
+  });
+
   it("fills the input from a suggestion and tracks the selection", () => {
     renderPanel();
     const suggestion = Array.from(container.querySelectorAll("button")).find((button) =>
@@ -131,13 +157,20 @@ describe("React AIChatPanel", () => {
     ).toBe(true);
 
     act(() => {
-      vi.advanceTimersByTime(1100);
+      vi.advanceTimersByTime(400);
+    });
+    expect(container.querySelector(".ai-chat-stage-check-icon")?.childElementCount).toBe(0);
+
+    act(() => {
+      vi.advanceTimersByTime(700);
     });
 
     expect(container.querySelector('[data-testid="react-ai-change-preview"]')).not.toBeNull();
     expect(container.textContent).toContain("Changes applied");
     expect(container.textContent).toContain("documented failure response");
     expect(props.onApply).toHaveBeenCalledOnce();
+    expect(container.querySelector(".ai-chat-change-icon")?.childElementCount).toBe(0);
+    expect(container.querySelector(".ai-chat-disclosure-icon")?.childElementCount).toBe(0);
 
     const diffToggle = container.querySelector(".ai-chat-diff-toggle")!;
     act(() => {
@@ -146,6 +179,7 @@ describe("React AIChatPanel", () => {
     expect(container.querySelector('[data-testid="react-ai-chat-diff"]')?.textContent).toContain(
       "responses:",
     );
+    expect(container.querySelector(".ai-chat-expand-icon")?.childElementCount).toBe(0);
     act(() => {
       Simulate.click(container.querySelector('[data-testid="react-ai-chat-diff-expand"]')!);
     });

@@ -207,20 +207,6 @@
   flex: 1 1 auto;
 }
 
-.ai-chat-panel-container {
-  width: 368px;
-  min-width: 340px;
-  flex-shrink: 0;
-  overflow: hidden;
-  border-right: 1px solid #dfe1e6;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-  z-index: 20;
-}
-
-.ai-chat-workspace-backdrop {
-  display: none;
-}
-
 #workspace-right {
   background-color: #f8f7f4;
   background-image: radial-gradient(circle, #d0cec7 1px, transparent 1px);
@@ -264,21 +250,4 @@
   background-color: #6b7280;
 }
 
-@media (max-width: 980px) {
-  .ai-chat-panel-container {
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: min(368px, 94vw);
-    min-width: 0;
-  }
-
-  .ai-chat-workspace-backdrop {
-    position: absolute;
-    inset: 0;
-    z-index: 19;
-    display: block;
-    border: 0;
-    background: rgba(0, 0, 0, 0.5);
-  }
-}
 </style>

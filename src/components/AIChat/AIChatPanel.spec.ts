@@ -36,6 +36,26 @@ describe('AIChatPanel', () => {
     vi.useRealTimers()
   })
 
+  it('uses shared icon slots throughout the panel', () => {
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        diagramType: 'sequence',
+        prototypeMode: true,
+        syntaxError: 'Unexpected token',
+      },
+    })
+
+    expect(wrapper.get('.ai-chat-identity-icon').element.childElementCount).toBe(0)
+    expect(wrapper.get('.ai-chat-syntax-icon').element.childElementCount).toBe(0)
+    expect(wrapper.get('[data-testid="ai-chat-code-toggle"] .ai-chat-code-icon').element.childElementCount).toBe(0)
+    expect(wrapper.get('[data-testid="ai-chat-close"] .ai-chat-close-icon').element.childElementCount).toBe(0)
+    expect(wrapper.get('.ai-chat-quick-arrow').element.childElementCount).toBe(0)
+    expect(wrapper.get('[data-testid="ai-chat-history-trigger"] .ai-chat-history-icon').element.childElementCount).toBe(0)
+    expect(wrapper.get('[data-testid="ai-chat-send"] .ai-chat-send-icon').element.childElementCount).toBe(0)
+    expect(wrapper.findAll('svg')).toHaveLength(0)
+  })
+
   it('fills the prompt from a suggestion and tracks the selection', async () => {
     const wrapper = mount(AIChatPanel, {
       props: { open: true, diagramType: 'sequence', prototypeMode: true },
@@ -74,16 +94,22 @@ describe('AIChatPanel', () => {
     )
     expect((wrapper.get('[data-testid="ai-chat-send"]').element as HTMLButtonElement).disabled).toBe(true)
 
-    await vi.advanceTimersByTimeAsync(1100)
+    await vi.advanceTimersByTimeAsync(400)
+    expect(wrapper.get('.ai-chat-stage-check-icon').element.childElementCount).toBe(0)
+
+    await vi.advanceTimersByTimeAsync(700)
 
     expect(wrapper.get('[data-testid="ai-change-preview"]').text()).toContain('Changes applied')
     expect(wrapper.text()).toContain('Added failure and timeout paths')
     expect(wrapper.get('[data-testid="ai-chat-history-trigger"]').text()).toContain('2')
     expect(wrapper.emitted('apply')).toHaveLength(1)
+    expect(wrapper.get('.ai-chat-change-icon').element.childElementCount).toBe(0)
+    expect(wrapper.get('.ai-chat-disclosure-icon').element.childElementCount).toBe(0)
 
     const diffToggle = wrapper.get('.ai-chat-diff-toggle')
     await diffToggle.trigger('click')
     expect(wrapper.get('[data-testid="ai-chat-diff"]').text()).toContain('Payment.charge()')
+    expect(wrapper.get('.ai-chat-expand-icon').element.childElementCount).toBe(0)
     await wrapper.get('[data-testid="ai-chat-diff-expand"]').trigger('click')
     expect(wrapper.get('[data-testid="ai-chat-diff-fullscreen"]').text()).toContain('Payment.charge()')
     await wrapper.get('[data-testid="ai-chat-diff-fullscreen-close"]').trigger('click')

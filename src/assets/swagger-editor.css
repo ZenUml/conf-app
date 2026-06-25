@@ -63,38 +63,6 @@ body {
   flex: 1 1 0% !important;
 }
 
-.react-ai-chat-panel-container {
-  width: 368px;
-  min-width: 340px;
-  flex-shrink: 0;
-  overflow: hidden;
-  border-right: 1px solid #dfe1e6;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-  z-index: 20;
-}
-
-.react-ai-chat-workspace-backdrop {
-  display: none;
-}
-
-@media (max-width: 980px) {
-  .react-ai-chat-panel-container {
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: min(368px, 94vw);
-    min-width: 0;
-  }
-
-  .react-ai-chat-workspace-backdrop {
-    position: absolute;
-    inset: 0;
-    z-index: 19;
-    display: block;
-    border: 0;
-    background: rgba(0, 0, 0, 0.5);
-  }
-}
-
 .save-and-exit {
   position: fixed;
   z-index: 1000;

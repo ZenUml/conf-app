@@ -108,7 +108,7 @@ const Component = ({ saveAndExit, exit }: Props) => {
         className={`swagger-editor-workspace ${showCodeEditor ? "" : "code-editor-hidden"}`}
       >
         {showAIChat && (
-          <div className="react-ai-chat-panel-container">
+          <div className="ai-chat-panel-container">
             <AIChatPanel
               open={showAIChat}
               codeVisible={showCodeEditor}
@@ -128,7 +128,7 @@ const Component = ({ saveAndExit, exit }: Props) => {
         {showAIChat && (
           <button
             type="button"
-            className="react-ai-chat-workspace-backdrop"
+            className="ai-chat-workspace-backdrop"
             aria-label="Close AI chat"
             data-testid="react-ai-chat-backdrop"
             onClick={closeAIChat}

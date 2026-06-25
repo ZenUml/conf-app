@@ -9,9 +9,7 @@
     <header class="ai-chat-header">
       <div class="ai-chat-head-row" data-testid="ai-chat-header-row">
         <div class="ai-chat-identity">
-          <span class="ai-chat-identity-icon" aria-hidden="true">
-            <SparklesIcon />
-          </span>
+          <span class="ai-chat-identity-icon" aria-hidden="true" />
           <span class="ai-chat-identity-label">AI</span>
           <button
             v-if="visibleSyntaxError"
@@ -22,7 +20,7 @@
             data-testid="ai-chat-syntax-indicator"
             @click.stop="toggleSyntaxDetails"
           >
-            <ExclamationTriangleIcon aria-hidden="true" />
+            <span class="ai-chat-syntax-icon" aria-hidden="true" />
             <span>Syntax</span>
             <span class="ai-chat-syntax-count">1</span>
           </button>
@@ -37,7 +35,7 @@
             data-testid="ai-chat-code-toggle"
             @click="toggleCode"
           >
-            <CodeBracketSquareIcon aria-hidden="true" />
+            <span class="ai-chat-code-icon" aria-hidden="true" />
             <span>{{ codeVisible ? 'Hide code' : 'Show code' }}</span>
           </button>
           <button
@@ -47,7 +45,7 @@
             data-testid="ai-chat-close"
             @click="closePanel"
           >
-            <XMarkIcon aria-hidden="true" />
+            <span class="ai-chat-close-icon" aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -98,7 +96,7 @@
                 <strong>{{ suggestion.label }}</strong>
                 <span class="ai-chat-quick-description">{{ suggestion.description }}</span>
               </span>
-              <ArrowRightIcon class="ai-chat-quick-arrow" aria-hidden="true" />
+              <span class="ai-chat-quick-arrow" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -128,7 +126,7 @@
               </div>
               <ul class="ai-chat-changes">
                 <li v-for="item in message.preview.items" :key="item">
-                  <CheckCircleIcon class="ai-chat-change-icon" aria-hidden="true" />
+                  <span class="ai-chat-change-icon" aria-hidden="true" />
                   <span>{{ item }}</span>
                 </li>
               </ul>
@@ -139,7 +137,7 @@
                 @click="toggleDiff(message.id)"
               >
                 <span>{{ isDiffOpen(message.id) ? 'Hide code diff' : 'View code diff' }}</span>
-                <ChevronDownIcon
+                <span
                   class="ai-chat-disclosure-icon"
                   :class="{ 'is-open': isDiffOpen(message.id) }"
                   aria-hidden="true"
@@ -160,7 +158,7 @@
                       data-testid="ai-chat-diff-expand"
                       @click="openExpandedDiff(message.id)"
                     >
-                      <ArrowsPointingOutIcon aria-hidden="true" />
+                      <span class="ai-chat-expand-icon" aria-hidden="true" />
                     </button>
                   </span>
                 </div>
@@ -202,7 +200,11 @@
               :class="stageClass(index)"
             >
               <span class="ai-chat-stage-marker">
-                <CheckIcon v-if="stageIndex > index" aria-hidden="true" />
+                <span
+                  v-if="stageIndex > index"
+                  class="ai-chat-stage-check-icon"
+                  aria-hidden="true"
+                />
                 <template v-else>{{ index + 1 }}</template>
               </span>
               <strong>{{ stageIndex > index ? activeCompletedStages[index] : stage }}</strong>
@@ -235,7 +237,7 @@
             data-testid="ai-chat-diff-fullscreen-close"
             @click="closeExpandedDiff"
           >
-            <XMarkIcon aria-hidden="true" />
+            <span class="ai-chat-close-icon" aria-hidden="true" />
           </button>
         </header>
         <div class="ai-chat-diff-code ai-chat-diff-code-expanded">
@@ -269,7 +271,7 @@
           aria-label="Close diagram versions"
           @click="closeHistory"
         >
-          <XMarkIcon aria-hidden="true" />
+          <span class="ai-chat-close-icon" aria-hidden="true" />
         </button>
       </header>
       <div
@@ -351,7 +353,7 @@
             data-testid="ai-chat-history-trigger"
             @click="openHistory"
           >
-            <ClockIcon aria-hidden="true" />
+            <span class="ai-chat-history-icon" aria-hidden="true" />
             <span>Diagram versions</span>
             <span class="ai-chat-history-count" :class="{ 'is-loading': isVersionListLoading }">
               {{ versionCountLabel }}
@@ -366,7 +368,7 @@
               data-testid="ai-chat-send"
               :disabled="!canSubmit"
             >
-              <PaperAirplaneIcon aria-hidden="true" />
+              <span class="ai-chat-send-icon" aria-hidden="true" />
             </button>
           </span>
         </div>
@@ -377,17 +379,6 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import ArrowRightIconRender from '@heroicons/vue/24/outline/ArrowRightIcon'
-import ArrowsPointingOutIconRender from '@heroicons/vue/24/outline/ArrowsPointingOutIcon'
-import CheckCircleIconRender from '@heroicons/vue/24/outline/CheckCircleIcon'
-import CheckIconRender from '@heroicons/vue/24/outline/CheckIcon'
-import ChevronDownIconRender from '@heroicons/vue/24/outline/ChevronDownIcon'
-import ClockIconRender from '@heroicons/vue/24/outline/ClockIcon'
-import CodeBracketSquareIconRender from '@heroicons/vue/24/outline/CodeBracketSquareIcon'
-import ExclamationTriangleIconRender from '@heroicons/vue/24/outline/ExclamationTriangleIcon'
-import PaperAirplaneIconRender from '@heroicons/vue/24/outline/PaperAirplaneIcon'
-import SparklesIconRender from '@heroicons/vue/24/outline/SparklesIcon'
-import XMarkIconRender from '@heroicons/vue/24/outline/XMarkIcon'
 import {
   AI_CHAT_SUGGESTIONS,
   createPrototypePreview,
@@ -411,17 +402,6 @@ import {
   type DiagramlyVersion,
 } from '@/services/GenerateService'
 
-const ArrowRightIcon = { render: ArrowRightIconRender }
-const ArrowsPointingOutIcon = { render: ArrowsPointingOutIconRender }
-const CheckCircleIcon = { render: CheckCircleIconRender }
-const CheckIcon = { render: CheckIconRender }
-const ChevronDownIcon = { render: ChevronDownIconRender }
-const ClockIcon = { render: ClockIconRender }
-const CodeBracketSquareIcon = { render: CodeBracketSquareIconRender }
-const ExclamationTriangleIcon = { render: ExclamationTriangleIconRender }
-const PaperAirplaneIcon = { render: PaperAirplaneIconRender }
-const SparklesIcon = { render: SparklesIconRender }
-const XMarkIcon = { render: XMarkIconRender }
 
 type Props = {
   open: boolean

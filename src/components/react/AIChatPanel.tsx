@@ -7,17 +7,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-import ArrowRightIcon from "@atlaskit/icon/glyph/arrow-right";
-import CheckCircleIcon from "@atlaskit/icon/glyph/check-circle";
-import CheckIcon from "@atlaskit/icon/glyph/check";
-import ChevronDownIcon from "@atlaskit/icon/glyph/chevron-down";
-import ClockIcon from "@atlaskit/icon/glyph/recent";
-import CodeIcon from "@atlaskit/icon/glyph/code";
-import CrossIcon from "@atlaskit/icon/glyph/cross";
-import ErrorIcon from "@atlaskit/icon/glyph/error";
-import SendIcon from "@atlaskit/icon/glyph/send";
-import StarIcon from "@atlaskit/icon/glyph/star";
-import FullScreenOnIcon from "@atlaskit/icon/glyph/vid-full-screen-on";
 import {
   AI_CHAT_SUGGESTIONS,
   createCodePreview,
@@ -67,10 +56,6 @@ const stages = ["Understanding request", "Updating diagram", "Syncing changes"];
 const completedStages = ["Understood", "Updated", "Synced"];
 const restoreStages = ["Restoring version", "Applying code", "Saving history"];
 const completedRestoreStages = ["Restored", "Applied", "Saved"];
-
-function icon(icon: React.ReactNode) {
-  return <span aria-hidden="true">{icon}</span>;
-}
 
 export default function AIChatPanel({
   open,
@@ -720,9 +705,7 @@ export default function AIChatPanel({
       <header className="ai-chat-header">
         <div className="ai-chat-head-row" data-testid="react-ai-chat-header-row">
           <div className="ai-chat-identity">
-            <span className="ai-chat-identity-icon">
-              {icon(<StarIcon label="" size="small" primaryColor="currentColor" />)}
-            </span>
+            <span className="ai-chat-identity-icon" aria-hidden="true" />
             <span className="ai-chat-identity-label">AI</span>
             {visibleSyntaxError && (
               <button
@@ -741,7 +724,7 @@ export default function AIChatPanel({
                   });
                 }}
               >
-                {icon(<ErrorIcon label="" size="small" primaryColor="currentColor" />)}
+                <span className="ai-chat-syntax-icon" aria-hidden="true" />
                 <span>Syntax</span>
                 <span className="ai-chat-syntax-count">1</span>
               </button>
@@ -764,7 +747,7 @@ export default function AIChatPanel({
                   onToggleCode();
                 }}
               >
-                {icon(<CodeIcon label="" size="small" primaryColor="currentColor" />)}
+                <span className="ai-chat-code-icon" aria-hidden="true" />
                 <span>{codeVisible ? "Hide code" : "Show code"}</span>
               </button>
             )}
@@ -775,7 +758,7 @@ export default function AIChatPanel({
               data-testid="react-ai-chat-close"
               onClick={closePanel}
             >
-              {icon(<CrossIcon label="" size="small" primaryColor="currentColor" />)}
+              <span className="ai-chat-close-icon" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -830,9 +813,7 @@ export default function AIChatPanel({
                         {suggestion.description}
                       </span>
                     </span>
-                    <span className="ai-chat-quick-arrow">
-                      {icon(<ArrowRightIcon label="" size="small" primaryColor="currentColor" />)}
-                    </span>
+                    <span className="ai-chat-quick-arrow" aria-hidden="true" />
                   </button>
                 ))}
               </div>
@@ -871,15 +852,7 @@ export default function AIChatPanel({
                         <ul className="ai-chat-changes">
                           {message.preview.items.map((item) => (
                             <li key={item}>
-                              <span className="ai-chat-change-icon">
-                                {icon(
-                                  <CheckCircleIcon
-                                    label=""
-                                    size="small"
-                                    primaryColor="currentColor"
-                                  />,
-                                )}
-                              </span>
+                              <span className="ai-chat-change-icon" aria-hidden="true" />
                               <span>{item}</span>
                             </li>
                           ))}
@@ -899,15 +872,8 @@ export default function AIChatPanel({
                             className={`ai-chat-disclosure-icon ${
                               openDiffIds.includes(message.id) ? "is-open" : ""
                             }`}
-                          >
-                            {icon(
-                              <ChevronDownIcon
-                                label=""
-                                size="small"
-                                primaryColor="currentColor"
-                              />,
-                            )}
-                          </span>
+                            aria-hidden="true"
+                          />
                         </button>
                         {openDiffIds.includes(message.id) && (
                           <div className="ai-chat-diff" data-testid="react-ai-chat-diff">
@@ -927,13 +893,7 @@ export default function AIChatPanel({
                                   data-testid="react-ai-chat-diff-expand"
                                   onClick={() => openExpandedDiff(message.id)}
                                 >
-                                  {icon(
-                                    <FullScreenOnIcon
-                                      label=""
-                                      size="small"
-                                      primaryColor="currentColor"
-                                    />,
-                                  )}
+                                  <span className="ai-chat-expand-icon" aria-hidden="true" />
                                 </button>
                               </span>
                             </div>
@@ -997,9 +957,11 @@ export default function AIChatPanel({
                       }`}
                     >
                       <span className="ai-chat-stage-marker">
-                        {stageIndex > index
-                          ? icon(<CheckIcon label="" size="small" primaryColor="currentColor" />)
-                          : index + 1}
+                        {stageIndex > index ? (
+                          <span className="ai-chat-stage-check-icon" aria-hidden="true" />
+                        ) : (
+                          index + 1
+                        )}
                       </span>
                       <strong>{stageIndex > index ? activeCompletedStages[index] : stage}</strong>
                     </li>
@@ -1038,7 +1000,7 @@ export default function AIChatPanel({
                 data-testid="react-ai-chat-diff-fullscreen-close"
                 onClick={closeExpandedDiff}
               >
-                {icon(<CrossIcon label="" size="small" primaryColor="currentColor" />)}
+                <span className="ai-chat-close-icon" aria-hidden="true" />
               </button>
             </header>
             <div className="ai-chat-diff-code ai-chat-diff-code-expanded">
@@ -1073,7 +1035,7 @@ export default function AIChatPanel({
               aria-label="Close diagram versions"
               onClick={() => setHistoryOpen(false)}
             >
-              {icon(<CrossIcon label="" size="small" primaryColor="currentColor" />)}
+              <span className="ai-chat-close-icon" aria-hidden="true" />
             </button>
           </header>
           {isVersionListLoading ? (
@@ -1170,7 +1132,7 @@ export default function AIChatPanel({
                 });
               }}
             >
-              {icon(<ClockIcon label="" size="small" primaryColor="currentColor" />)}
+              <span className="ai-chat-history-icon" aria-hidden="true" />
               <span>Diagram versions</span>
               <span className={`ai-chat-history-count ${isVersionListLoading ? "is-loading" : ""}`}>
                 {versionCountLabel}
@@ -1185,7 +1147,7 @@ export default function AIChatPanel({
                 data-testid="react-ai-chat-send"
                 disabled={!prompt.trim() || isThinking || isRestoringVersion}
               >
-                {icon(<SendIcon label="" size="small" primaryColor="currentColor" />)}
+                <span className="ai-chat-send-icon" aria-hidden="true" />
               </button>
             </span>
           </div>

@@ -26,7 +26,12 @@ export type Surface =
   | "page_banner"
   | "dashboard"
   | "route"
-  | "forge_trigger";
+  | "forge_trigger"
+  // --- local-agent diagram integration (proposed) ---
+  // The agent/MCP server runs OUTSIDE the Forge iframe (local stdio process),
+  // so none of the in-iframe surfaces above fit. Events on this surface are
+  // emitted server-side by the MCP/agent shim, not by the Vue app.
+  | "local_agent";
 
 export type EntryPoint =
   | "page_view"
@@ -38,6 +43,8 @@ export type EntryPoint =
   | "dashboard"
   | "route"
   | "forge_trigger"
+  // --- local-agent diagram integration (proposed) ---
+  | "local_agent"
   | "unknown";
 
 export type OperationMode = "create" | "edit" | "unknown";
@@ -125,7 +132,23 @@ export type AnalyticsEventName =
   | "viewer_load_failed"
   | "close_guard_rejected"
   | "renderer_prefetch_started"
-  | "renderer_prefetch_completed";
+  | "renderer_prefetch_completed"
+  // --- local-agent diagram integration (proposed) ---
+  // Phase 1 (Interpretation 2a, paste-in DSL push-bridge): agent-side only —
+  // generation + export; the in-app landing reuses macro_create_succeeded.
+  | "agent_dsl_generation_requested"
+  | "agent_dsl_generated"
+  | "agent_dsl_export_requested"
+  // Phase 2 (Interpretation 1, local stdio MCP CRUD): emitted server-side by
+  // the MCP server (direct v2 custom-content writes bypass the Forge save path,
+  // so these are NOT double-counted against macro_create/save_* events).
+  | "agent_diagram_list_requested"
+  | "agent_diagram_read"
+  | "agent_diagram_write_requested"
+  | "agent_diagram_write_succeeded"
+  | "agent_diagram_write_failed"
+  // Shared by both phases: reused render-only MCP preview (no Forge context).
+  | "agent_render_preview_requested";
 
 // Where an idle renderer-bundle prefetch ran: an alive macro iframe after its
 // own render settled, or the page-banner iframe on its no-banner fast-path.

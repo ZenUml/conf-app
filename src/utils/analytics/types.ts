@@ -99,6 +99,25 @@ export type AnalyticsProperties = {
   // analysis extrapolates true volume as `count / sample_rate`. Absent ⇒ 1.0
   // (every occurrence emitted).
   sample_rate?: number;
+  // --- local-agent diagram integration (proposed) ---
+  // Set on agent_* events, emitted server-side by the local MCP / agent shim
+  // (outside the Forge iframe). client_domain/user_account_id/product_type are
+  // NOT auto-enriched here — the MCP must set client_domain explicitly.
+  agent_client?: string;        // claude_code | cursor | other
+  agent_session_id?: string;    // correlates events within one agent session
+  dsl_length?: number;          // length of the generated / read DSL string
+  export_target?: "file" | "clipboard" | "both"; // Phase-1 paste-in export sink
+  // Opaque short id embedded as a leading DSL comment on Phase-1 export, so a
+  // later in-app macro_create_succeeded can be best-effort attributed to a
+  // paste-in. Most users strip the comment → absence ≠ "not agent-originated".
+  paste_token?: string;
+  render_preview_source?: "zenuml_screenshot_mcp" | "mermaid_to_image_mcp" | "none";
+  preview_rendered?: boolean;   // was a render-only MCP preview shown before write
+  match_count?: number;         // diagram records returned by list_diagrams
+  content_version?: number;     // returned custom-content version.number after a write
+  // Did the emitted body.value JSON pass the pinned store-contract self-check
+  // (ARCHITECTURE.md §Riskiest-assumption spike) before the write was sent.
+  body_shape_matched?: boolean;
   // Error
   error_code?: string;
   error_name?: string;

@@ -1,5 +1,6 @@
-import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
+import {Diagram, DiagramType, getDiagramData} from "@/model/Diagram/Diagram";
 import {CustomContentStorageProvider} from "@/model/ContentProvider/CustomContentStorageProvider";
+import {extractPasteToken} from "@/utils/analytics/pasteToken";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import type { MacroTypeValue } from "@/utils/analytics/catalog";
 import ApWrapper2 from "@/model/ApWrapper2";
@@ -75,12 +76,19 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
     };
 
     if (isNew) {
+      // EAG-98 (paste-in bridge consumer): if the pasted DSL still carries the
+      // producer's leading paste-token comment (EAG-97 `prepare_diagram`),
+      // stamp it for best-effort agent attribution. Absence is the normal case
+      // — most users strip the comment — so we spread conditionally and emit
+      // the event unchanged when there is no token.
+      const pasteToken = extractPasteToken(getDiagramData(diagram));
       trackAnalyticsEvent("macro_create_succeeded", {
         feature_area: "macro",
         surface: "editor",
         macro_type: macroType,
         operation_mode: "create",
         ...savedIdProps,
+        ...(pasteToken && { paste_token: pasteToken }),
       });
     } else {
       trackAnalyticsEvent("macro_save_succeeded", {

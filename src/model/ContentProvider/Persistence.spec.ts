@@ -118,6 +118,32 @@ describe('Persistence', function () {
     );
   })
 
+  // EAG-98: when a freshly pasted diagram still carries the producer's leading
+  // paste-token comment (EAG-97 prepare_diagram), macro_create_succeeded is
+  // stamped with paste_token for best-effort agent attribution.
+  it('macro_create_succeeded carries paste_token when the pasted DSL has a leading token comment', async () => {
+    await saveToPlatform(
+      { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: '// zenuml-paste-token: tok9z\nA.b()' } as any,
+      mockApWrapper
+    );
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "macro_create_succeeded",
+      expect.objectContaining({ paste_token: "tok9z" })
+    );
+  })
+
+  it('macro_create_succeeded omits paste_token when the pasted DSL has no token comment (the normal case)', async () => {
+    await saveToPlatform(
+      { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: 'A.method() {\n  B.call()\n}' } as any,
+      mockApWrapper
+    );
+    const createCall = vi.mocked(trackAnalyticsEvent).mock.calls.find(
+      ([name]) => name === "macro_create_succeeded"
+    );
+    expect(createCall).toBeDefined();
+    expect(createCall![1]).not.toHaveProperty("paste_token");
+  })
+
   it('should fire macro_save_succeeded for an existing diagram', async () => {
     await saveToPlatform({ ...NULL_DIAGRAM, id: 'existing-id', diagramType: DiagramType.Sequence }, mockApWrapper);
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(

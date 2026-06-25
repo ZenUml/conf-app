@@ -99,6 +99,19 @@ export type AnalyticsProperties = {
   // analysis extrapolates true volume as `count / sample_rate`. Absent ⇒ 1.0
   // (every occurrence emitted).
   sample_rate?: number;
+  // --- local-agent diagram integration (EAG-96) ---
+  // Properties for events emitted when an external local agent (CLI/MCP)
+  // drives diagram read/write/render. Scaffolding only — no call sites yet.
+  agent_client?: string;           // identifier for the agent client (e.g. "claude-code", "cursor")
+  agent_session_id?: string;       // correlates a sequence of agent operations
+  dsl_length?: number;             // character length of generated/exported DSL
+  export_target?: "file" | "clipboard" | "both"; // where the DSL was exported to
+  paste_token?: string;            // one-time token handed to the editor to claim agent-authored content
+  render_preview_source?: string;  // what produced the preview (e.g. "agent", "editor")
+  preview_rendered?: boolean;      // whether a preview successfully rendered
+  match_count?: number;            // number of diagrams matched by a list/read query
+  content_version?: number;        // custom-content version targeted by a read/write
+  body_shape_matched?: boolean;    // whether the fetched body matched the expected shape
   // Error
   error_code?: string;
   error_name?: string;

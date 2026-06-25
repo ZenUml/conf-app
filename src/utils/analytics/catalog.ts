@@ -26,7 +26,10 @@ export type Surface =
   | "page_banner"
   | "dashboard"
   | "route"
-  | "forge_trigger";
+  | "forge_trigger"
+  // local-agent diagram integration (EAG-96): events originating from an
+  // external local agent (CLI/MCP) driving diagram read/write/render.
+  | "local_agent";
 
 export type EntryPoint =
   | "page_view"
@@ -38,6 +41,8 @@ export type EntryPoint =
   | "dashboard"
   | "route"
   | "forge_trigger"
+  // local-agent diagram integration (EAG-96)
+  | "local_agent"
   | "unknown";
 
 export type OperationMode = "create" | "edit" | "unknown";
@@ -125,7 +130,17 @@ export type AnalyticsEventName =
   | "viewer_load_failed"
   | "close_guard_rejected"
   | "renderer_prefetch_started"
-  | "renderer_prefetch_completed";
+  | "renderer_prefetch_completed"
+  // --- local-agent diagram integration (EAG-96) ---
+  | "agent_dsl_generation_requested"
+  | "agent_dsl_generated"
+  | "agent_dsl_export_requested"
+  | "agent_diagram_list_requested"
+  | "agent_diagram_read"
+  | "agent_diagram_write_requested"
+  | "agent_diagram_write_succeeded"
+  | "agent_diagram_write_failed"
+  | "agent_render_preview_requested";
 
 // Where an idle renderer-bundle prefetch ran: an alive macro iframe after its
 // own render settled, or the page-banner iframe on its no-banner fast-path.

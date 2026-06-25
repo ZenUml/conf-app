@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { vi, describe, it, expect, beforeEach } from 'vitest'
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import GenericViewer from '@/components/Viewer/GenericViewer.vue'
 import store from '@/model/store2'
 import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
@@ -88,6 +88,62 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('.viewer-frame').exists()).toBe(false)
       expect(wrapper.find('.screen-capture-content').exists()).toBe(true)
       expect(wrapper.find('.diagram-stub').exists()).toBe(true)
+    })
+  })
+
+  // The fullscreen viewer modal mounts DiagramPortal with autoResize=false, so
+  // GenericViewer's `wide` prop is false and the frame is `.viewer-frame--auto`
+  // (width: fit-content). ONLY mermaid breaks there: its SVG is width:100% with no
+  // intrinsic px, so in a shrink-to-fit parent it collapses to the CSS default 300px.
+  // sequence (ZenUML, explicit px) and plantuml (explicit px) wrap correctly and stay
+  // centered — forcing them wide would left-align them. So the fix is mermaid-scoped.
+  describe('fullscreen width (mermaid-scoped)', () => {
+    const setFullscreen = (on: boolean) => {
+      ;(window as any).forgeGlobal = on
+        ? { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+        : undefined
+    }
+    afterEach(() => { delete (window as any).forgeGlobal })
+
+    it('forces the frame full-width in fullscreen for MERMAID (the type that collapses)', () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Mermaid)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      const frame = wrapper.find('.viewer-frame')
+      expect(frame.classes()).toContain('viewer-frame--wide')
+      expect(frame.classes()).not.toContain('viewer-frame--auto')
+    })
+
+    // Regression guard: sequence/plantuml don't collapse, so they must stay
+    // fit-content (centered) in fullscreen — NOT forced wide (which left-aligns them).
+    it('keeps SEQUENCE fit-content (auto) in fullscreen — must not be forced wide', () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      const frame = wrapper.find('.viewer-frame')
+      expect(frame.classes()).toContain('viewer-frame--auto')
+      expect(frame.classes()).not.toContain('viewer-frame--wide')
+    })
+
+    it('keeps the frame fit-content (auto) on the inline page when not fullscreen and wide is false', () => {
+      setFullscreen(false)
+      store.commit('updateDiagramType', DiagramType.Mermaid)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      const frame = wrapper.find('.viewer-frame')
+      expect(frame.classes()).toContain('viewer-frame--auto')
+      expect(frame.classes()).not.toContain('viewer-frame--wide')
     })
   })
 

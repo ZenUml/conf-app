@@ -58,3 +58,17 @@ Notes on the scores (all grounded in recon/PRD):
 3. Feed the same `body.value` into `@zenuml/core` render in a headless node check (open-question #2: confirm whether `@zenuml/core` exposes a usable headless DSL→SVG/render entry; if not, fall back to the existing `diagramly-mcp-serverless` `zenuml-renderer-screenshot` tool to confirm the extracted DSL renders).
 
 Pass condition: the hand-built body string is byte-identical to the app-generated one, and the extracted DSL renders. That proves the store contract can be reproduced outside Forge before any auth/egress/deploy work is committed.
+
+---
+
+## Live verification findings (2026-06-25, built as `conf-agent-mcp` → github.com/ZenUml/conf-agent-mcp)
+
+The recommended path (Interpretation 1 local stdio MCP, custody Option A) was **built and verified live against `lite-dev`** (dev site, user token from `.env.forge.local`). Results revise/confirm the assumptions above:
+
+- ✅ **Riskiest assumption CONFIRMED LIVE:** a user's own Atlassian token *can* create app-namespaced (`ac:com.zenuml…`) custom content (HTTP 201) and the read/update round-trip is byte-exact. This upgrades the spike's "partially-proved."
+- 🐞 **Bug 1 — app-variant type prefix:** the custom-content `type` must match the *installed* app variant (Full / `-lite` / `-diagramly`); the wrong prefix → HTTP 400 `shape_rejected`. Writes need `ZENUML_APP_KEY`. Reads tolerate either.
+- 🐞 **Bug 2 — update requires `status`:** the v2 custom-content **PUT** 400s (`status: must not be null`) unless the payload includes `status:"current"` (+ `version.number`).
+- 🐞 **Bug 3 — CREATE does not render (architectural, important):** creating the custom content alone does **not** make a visible diagram — the page body must also contain a macro (`extension`) node referencing the content via `attrs.parameters.guestParams.customContentId`, with a variant-specific `extensionKey` + `embeddedMacroContext` (cloudId/accountId/contextIds). These are clonable from an existing macro on the page (`create_and_render_diagram`); a page with **no** existing ZenUML macro can't be served without the app install context. **`update` always renders** (macro already present); **`create` needs the ADF macro insertion.**
+- **Scopes/auth:** `read:custom-content` + `write:custom-content` via Basic auth (email + API token) suffice; no Forge context needed. Custody stays on-machine (token never leaves `*.atlassian.net`).
+
+**Net:** the local-stdio + on-machine-token architecture is sound and shippable; the non-obvious cost is that a *rendering* create is page-ADF work (with app context), not just a custom-content POST.

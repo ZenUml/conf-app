@@ -151,6 +151,16 @@ jobs:
         with:
           name: manifest-${{ steps.properties.outputs.license }}-prod
           path: manifest.yml
+      # Workaround (mirrors staging-deploy.yml): forge deploy runs forge lint, which
+      # fetches Atlassian swagger/OpenAPI JSON via node-fetch — intermittently fails with
+      # "Invalid response body ... Premature close" on Node 22+. The Cloudflare publish
+      # above stays on Node 24; pin the Forge PRODUCTION deploys to Node 20 until
+      # Atlassian migrates off node-fetch.
+      # https://community.developer.atlassian.com/t/forge-lint-deploy-issue-with-node-js-22/101420
+      - name: Use Node 20 for Forge CLI (node-fetch "Premature close" workaround)
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20.x'
       - name: Deploy "ZenUML for Confluence" to Forge Production
         if: ${{ steps.properties.outputs.license == 'lite' }}
         run: |

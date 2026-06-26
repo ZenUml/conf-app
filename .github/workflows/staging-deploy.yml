@@ -134,6 +134,17 @@ jobs:
               | del(.modules.scheduledTrigger)
             ' -i manifest.yml
 
+      # Workaround for an Atlassian Forge bug: `forge deploy` runs `forge lint`, which
+      # fetches Atlassian swagger/OpenAPI JSON via node-fetch. On Node 22+ this
+      # intermittently fails with "Invalid response body ... Premature close" (worse for
+      # larger schemas), so deploys flake. The Cloudflare build above stays on Node 24;
+      # pin ONLY the Forge CLI steps to Node 20 until Atlassian migrates off node-fetch.
+      # https://community.developer.atlassian.com/t/forge-lint-deploy-issue-with-node-js-22/101420
+      - name: Use Node 20 for Forge CLI (node-fetch "Premature close" workaround)
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20.x'
+
       # Forge deploy (all variants)
       - name: Deploy to Forge Staging
         env:

@@ -6,13 +6,13 @@
          "Submit a ticket" error panel here. -->
     <!-- Embed/portal hosts request a chrome-less surface — render the diagram only. -->
     <template v-if="!isDisplayMode || hideHeader">
-      <div class="screen-capture-content" :class="{'w-full': wide}">
+      <div class="screen-capture-content" :class="{'w-full': isWide}">
         <slot></slot>
       </div>
     </template>
 
     <template v-else>
-      <div class="viewer-frame" :class="{'viewer-frame--wide': wide, 'viewer-frame--auto': !wide}">
+      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide}">
         <div class="viewer-surface" :class="{'viewer-surface--hover': isHovering}"
              @mouseenter="isHovering = true" @mouseleave="isHovering = false">
           <!-- Top edge: title (left) + Edit / Fullscreen (right) -->
@@ -80,7 +80,7 @@
 
           <!-- Canvas + bottom-edge pill -->
           <div class="viewer-canvas">
-            <div class="screen-capture-content" :class="{'w-full': wide}">
+            <div class="screen-capture-content" :class="{'w-full': isWide}">
               <slot></slot>
             </div>
 
@@ -144,7 +144,7 @@ import {mapState, mapGetters} from "vuex";
 import EventBus from '../../EventBus'
 import Debug from '@/components/Debug/Debug.vue'
 import globals from '@/model/globals';
-import {DataSource} from "@/model/Diagram/Diagram";
+import {DataSource, DiagramType} from "@/model/Diagram/Diagram";
 import { getCodeFromDiagram } from "@/model/Diagram/DiagramTypeConfig";
 import ExportModal from '@/components/ExportModal/ExportModal.vue'
 import OverflowMenu from '@/components/Viewer/OverflowMenu.vue'
@@ -177,6 +177,16 @@ export default {
     ...mapGetters({isDisplayMode: 'isDisplayMode'}),
     isFullscreenMode() {
       return window.forgeGlobal?.forgeContext?.extension?.modal?.macroMode === 'fullscreen';
+    },
+    // Mermaid-only fullscreen fix. In the fullscreen modal `wide` is false (it's
+    // wired to autoResize), so the frame is .viewer-frame--auto (width: fit-content).
+    // ONLY mermaid breaks there: its SVG is width:100% with no intrinsic px, so in a
+    // shrink-to-fit parent it collapses to the CSS default 300px. sequence (ZenUML,
+    // explicit px) and plantuml (plantuml.com svg, explicit px) wrap correctly and stay
+    // centered via fit-content — forcing THEM wide would left-align them. So only widen
+    // the frame for mermaid; everything else keeps its centered fit-content behavior.
+    isWide() {
+      return this.wide || (this.isFullscreenMode && this.diagramType === DiagramType.Mermaid);
     },
     isEmbedded() {
       const moduleKey = window.forgeGlobal?.forgeContext?.moduleKey || ''

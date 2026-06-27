@@ -810,25 +810,73 @@ describe('Attachment', () => {
       expect(htmlToImage.toBlob).toHaveBeenCalledWith(mockElement, { backgroundColor: 'white', skipFonts: true });
     });
 
-    it('should handle errors in toPng gracefully', async () => {
-      // Remove the iframe so toPng uses html-to-image path
+    it('treats a toPng (html-to-image) async rejection as a clean capture skip, not an upload failure', async () => {
+      // Remove the iframe so toPng uses the html-to-image path
       document.body.innerHTML = '';
       const mockElement = document.createElement('div');
       mockElement.className = 'screen-capture-content';
       document.body.appendChild(mockElement);
 
-      const error = new Error('Conversion failed');
-      vi.mocked(htmlToImage.toBlob).mockRejectedValue(error);
-
+      // html-to-image rejects (its offscreen image throws a DOM `error` Event —
+      // the root of the `[object Event]` / non_error_thrown failures).
+      vi.mocked(htmlToImage.toBlob).mockRejectedValue(new Error('Conversion failed'));
       mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
 
-      // toPng is non-async, so the rejection propagates to the caller
-      await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow('Conversion failed');
+      // toPng now AWAITs + catches the async rejection -> undefined -> ToPngError,
+      // which createAttachment treats as a SKIP. It resolves, does not throw.
+      await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
 
-      // The finally block in toPng still runs synchronously
+      // Recorded as a convert_to_png capture error — NOT a mislabeled
+      // attachment_upload_failed / non_error_thrown.
+      expect(mockTrackEvent).toHaveBeenCalledWith('toPng_failed', 'convert_to_png', 'error');
       expect(mockTrackEvent).toHaveBeenCalledWith('toPng', 'convert_to_png', 'export');
-      // The flag should still be reset in createAttachmentIfContentChanged's finally block
+      const failedCalls = mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed');
+      expect(failedCalls).toHaveLength(0);
       expect((window as any).createAttachmentInProgress).toBe(false);
+    });
+
+    // ── PlantUML server-PNG fetch (fixes the ~81% [object Event] capture fail) ──
+    it('PlantUML: captures the backup via the server PNG fetch, not html-to-image', async () => {
+      const pngBlob = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4])], { type: 'image/png' });
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(pngBlob) });
+      vi.stubGlobal('fetch', fetchMock);
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: true, status: 200,
+        text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'att-pu-1' }] })),
+      });
+      mockForgeRequest.mockResolvedValue({});
+
+      await createAttachmentIfContentChanged('@startuml\nA->B\n@enduml', 'plantuml');
+
+      // Backup came from the PlantUML PNG server — html-to-image NOT used.
+      expect(fetchMock).toHaveBeenCalled();
+      expect(String(fetchMock.mock.calls[0][0])).toContain('plantuml.com/plantuml/png/');
+      expect(htmlToImage.toBlob).not.toHaveBeenCalled();
+      expect(mockTrackEvent).toHaveBeenCalledWith('plantuml_server_png', 'convert_to_png', 'export');
+      expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
+      vi.unstubAllGlobals();
+    });
+
+    it('PlantUML: falls back to html-to-image when the server returns a non-PNG body', async () => {
+      const notPng = new Blob([new Uint8Array([0x3c, 0x73, 0x76, 0x67])], { type: 'image/svg+xml' }); // "<svg"
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(notPng) }));
+      document.body.innerHTML = '';
+      const el = document.createElement('div'); el.className = 'screen-capture-content'; document.body.appendChild(el);
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }));
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: true, status: 200,
+        text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'att-pu-2' }] })),
+      });
+      mockForgeRequest.mockResolvedValue({});
+
+      await createAttachmentIfContentChanged('@startuml\nA->B\n@enduml', 'plantuml');
+
+      // Server fetch rejected (non-PNG) -> fell back to the DOM capture, still uploaded.
+      expect(htmlToImage.toBlob).toHaveBeenCalled();
+      expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
+      vi.unstubAllGlobals();
     });
   });
 

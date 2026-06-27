@@ -149,7 +149,7 @@ function iframeToPng(iframe: HTMLIFrameElement): Promise<Blob> {
  * Convert diagram to PNG.
  * Uses iframe postMessage if mainFrame exists, otherwise uses html-to-image.
  */
-function toPng(): Promise<Blob | null | undefined> {
+async function toPng(): Promise<Blob | null | undefined> {
   try {
     /*
     There are 3 options:
@@ -159,18 +159,74 @@ function toPng(): Promise<Blob | null | undefined> {
     */
     const mainFrame = document.getElementById('mainFrame') as HTMLIFrameElement | null;
     if (mainFrame) {
-      return iframeToPng(mainFrame);
+      return await iframeToPng(mainFrame);
     }
 
     const node = document.getElementsByClassName('screen-capture-content')[0] as HTMLElement;
-    return htmlToImage.toBlob(node, { backgroundColor: 'white', skipFonts: true });
+    // AWAIT so an *async* rejection from html-to-image is caught here. Previously
+    // toPng returned the toBlob() promise directly; when html-to-image's internal
+    // offscreen image fails to load (it throws a DOM `error` Event — common when
+    // rasterizing a remote-server SVG like PlantUML's), that rejection escaped
+    // this sync try/catch and surfaced downstream as the opaque `[object Event]`
+    // / `non_error_thrown` in attachment_upload_failed (~48% of all failures).
+    // Catching it here turns a capture miss into a clean ToPngError skip with
+    // its own `convert_to_png` telemetry, not a mislabeled upload failure.
+    return await htmlToImage.toBlob(node, { backgroundColor: 'white', skipFonts: true });
   } catch (e) {
-    console.error('Failed to convert to png', e);
-    trackEvent(JSON.stringify(e), 'convert_to_png', 'error');
-    return Promise.resolve(undefined);
+    console.warn('Failed to convert to png', e);
+    trackEvent('toPng_failed', 'convert_to_png', 'error');
+    return undefined;
   } finally {
     trackEvent('toPng', 'convert_to_png', 'export');
   }
+}
+
+const PLANTUML_PNG_SERVER = 'https://www.plantuml.com/plantuml/png/';
+
+/**
+ * PlantUML renders by fetching an SVG from the remote PlantUML server and
+ * inlining it; html-to-image then has to rasterize that inlined remote SVG to
+ * make the backup PNG — and fails ~81% of the time (the offscreen image can't
+ * decode the server SVG, so html-to-image rejects with a DOM Event). The server
+ * already serves a ready raster at /plantuml/png/<encoded>, so fetch THAT
+ * directly for the backup and skip html-to-image entirely. Deterministic, and
+ * it sidesteps the single biggest class of attachment-capture failures. Returns
+ * undefined on any failure so the caller falls back to the DOM capture.
+ */
+async function fetchPlantUmlPng(code: string): Promise<Blob | undefined> {
+  try {
+    const { plantumlEncode } = await import('@/utils/plantuml/encode');
+    const resp = await fetch(`${PLANTUML_PNG_SERVER}${plantumlEncode(code)}`);
+    if (!resp.ok) return undefined;
+    const blob = await resp.blob();
+    // The server can answer 200 with a non-PNG body (e.g. an HTML/SVG error
+    // page from a proxy/CDN) — only accept a real raster PNG, else fall back.
+    // Content-Type is reliable for the PlantUML server (image/png for PNGs).
+    const type = (blob.type || '').toLowerCase().split(';')[0].trim();
+    if (type === 'image/png') {
+      trackEvent('plantuml_server_png', 'convert_to_png', 'export');
+      return blob;
+    }
+    return undefined;
+  } catch (e) {
+    console.warn('PlantUML server PNG fetch failed; falling back to DOM capture', e);
+    trackEvent('plantuml_server_png_failed', 'convert_to_png', 'warning');
+    return undefined;
+  }
+}
+
+/**
+ * Produce the backup PNG for a diagram. PlantUML routes to the deterministic
+ * server-side PNG fetch above (html-to-image can't reliably rasterize its
+ * remote SVG); every other type captures the rendered DOM via toPng().
+ */
+async function capturePng(diagramType?: string, content?: string): Promise<Blob | null | undefined> {
+  if (diagramType === 'plantuml' && content?.trim()) {
+    const fetched = await fetchPlantUmlPng(content);
+    if (fetched) return fetched;
+    // fall through to the DOM capture if the server fetch failed
+  }
+  return toPng();
 }
 
 /**
@@ -242,7 +298,7 @@ async function renderAttachmentPng(
   content?: string,
   diagramType?: string,
 ): Promise<{ blob: Blob; effectiveHash: string }> {
-  let blob = await toPng();
+  let blob = await capturePng(diagramType, content);
   if (blob && content !== undefined && diagramType) {
     try {
       const { injectDiagramSource } = await import('@/utils/pngMetadata');

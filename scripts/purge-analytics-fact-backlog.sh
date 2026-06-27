@@ -10,10 +10,9 @@
 #   time out and bill a huge rows-written spike, so we delete in bounded batches
 #   until the table stops shrinking.
 #
-# This does NOT shrink the reported D1 size on its own: deletes free SQLite pages
-# to the freelist (reused by future writes, so growth halts), but the billed size
-# may stay put until D1 compacts. Open a Cloudflare support ticket if you need the
-# on-disk/billed figure to actually drop.
+# Observed against prod (2026-06-27): deleting the 8.5M-row backlog dropped the
+# reported D1 size from 9.89 GB -> 3.49 GB right away — D1 reclaims space after
+# deletes, no VACUUM/support ticket needed.
 #
 # Usage:
 #   scripts/purge-analytics-fact-backlog.sh [--env prod|stg] [--event NAME] \

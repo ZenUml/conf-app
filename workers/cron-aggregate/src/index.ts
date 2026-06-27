@@ -4,9 +4,10 @@ interface Env {
   ANALYTICS_FACT_RETENTION_DAYS?: string;
 }
 
-// AnalyticsEventFact is the dominant table in conf-zenuml-prod (~99.9% of the
-// 10 GB D1 cap). Nothing pruned it before, so it grew unbounded. Delete in
-// bounded batches so a single statement never times out or balloons rows-written.
+// AnalyticsEventFact was the dominant table in conf-zenuml-prod (~99.9% of the
+// 10 GB D1 cap before the 2026-06 backlog drain). Nothing pruned it before, so it
+// grew unbounded. Delete in bounded batches so a single statement never times out
+// or balloons rows-written. D1 reclaims space after deletes (verified: 9.89->3.49 GB).
 const ANALYTICS_FACT_DEFAULT_RETENTION_DAYS = 45;
 const ANALYTICS_FACT_PURGE_BATCH_SIZE = 50000;
 // Cap rows removed per nightly run (batch x maxBatches). Large enough to drain a

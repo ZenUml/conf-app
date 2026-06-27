@@ -15,6 +15,10 @@ account_id = "8d5fc7ce04adc5096f52485cce7d7b3d"
 [env.stg]
 name = "cron-aggregate-stg"
 
+[env.stg.vars]
+# Days of AnalyticsEventFact history to retain. Code default is 45.
+ANALYTICS_FACT_RETENTION_DAYS = "45"
+
 [env.stg.triggers]
 crons = ["0 2 * * *"]
 
@@ -26,6 +30,10 @@ database_id = "5894387c-08be-43d7-b8dc-0b7b8eb7c264"
 # Production
 [env.production]
 name = "cron-aggregate-prod"
+
+[env.production.vars]
+# Days of AnalyticsEventFact history to retain. Code default is 45.
+ANALYTICS_FACT_RETENTION_DAYS = "45"
 
 [env.production.triggers]
 crons = ["0 2 * * *"]

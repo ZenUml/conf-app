@@ -36,20 +36,31 @@ export const validateContextToken = async (invocationToken: string, allowedAppId
 
 import { upsertAtlassianInstance } from './dbUtils';
 
-async function authenticateForgeRequest(jwt, env) {
+export interface ForgeRequestContext {
+  cloudId?: string;
+  accountId?: string;
+  apiBaseUrl?: string;
+  forgeAppId?: string;
+}
+
+export type ForgeRequestData = Record<string, unknown> & {
+  forgeContext?: ForgeRequestContext;
+};
+
+async function authenticateForgeRequest(jwt, env): Promise<ForgeRequestContext> {
   const allowedForgeAppIds = env.ALLOWED_FORGE_APP_IDS;
-  if (!allowedForgeAppIds) {
-    console.error('ALLOWED_FORGE_APP_IDS environment variable is not set');
-    return response(500, 'Server configuration error: ALLOWED_FORGE_APP_IDS not configured');
-  }
   console.log('ALLOWED_FORGE_APP_IDS:', allowedForgeAppIds);
 
   const payload = await validateContextToken(jwt, allowedForgeAppIds);
   console.log('validateContextToken - payload', payload);
-  env.FORGE_CONTEXT = payload;
 
   // Populate AtlassianInstance from siteUrl when available in macro-render tokens
-  const cloudId = payload.payload?.context?.cloudId;
+  const rawCloudId = payload.payload?.context?.cloudId;
+  const cloudId =
+    typeof rawCloudId === 'string' && rawCloudId.trim()
+      ? rawCloudId
+      : undefined;
+
   const siteUrl = payload.payload?.context?.siteUrl;
   if (cloudId && siteUrl && env.DB) {
     try {
@@ -63,17 +74,38 @@ async function authenticateForgeRequest(jwt, env) {
       console.log('Could not parse siteUrl for AtlassianInstance upsert:', e);
     }
   }
+
+  const principal = payload.payload?.principal;
+  return {
+    cloudId,
+    accountId: typeof principal === 'string' ? principal : undefined,
+    apiBaseUrl: payload.apiBaseUrl,
+    forgeAppId: payload.forgeAppId,
+  };
 }
 
-export default async function authenticate({ request, env }) {
+export default async function authenticate({
+  request,
+  env,
+  data,
+}: {
+  request: Request;
+  env: any;
+  data: ForgeRequestData;
+}) {
   try {
     const jwt = getAuthorizationHeader(request);
     if (!jwt) {
       return response(401, 'Unauthorized: Missing or invalid Authorization header');
     }
 
+    if (!env.ALLOWED_FORGE_APP_IDS) {
+      console.error('ALLOWED_FORGE_APP_IDS environment variable is not set');
+      return response(500, 'Server configuration error: ALLOWED_FORGE_APP_IDS not configured');
+    }
+
     try {
-      await authenticateForgeRequest(jwt, env);
+      data.forgeContext = await authenticateForgeRequest(jwt, env);
       return OkResponse();
     } catch (e) {
       captureError(e);

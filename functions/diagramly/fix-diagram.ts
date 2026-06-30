@@ -1,7 +1,16 @@
 import { response, OkResponse } from "../OkResponse";
 import { modifyDiagram } from "../service/diagramlyService";
+import type { ForgeRequestData } from "../utils/authenticate";
 
-export const onRequest = async ({ request, env }: { request: Request; env: any }) => {
+export const onRequest = async ({
+  request,
+  env,
+  data,
+}: {
+  request: Request;
+  env: any;
+  data: ForgeRequestData;
+}) => {
   try {
     const body: {
       diagramCode: string;
@@ -9,6 +18,7 @@ export const onRequest = async ({ request, env }: { request: Request; env: any }
       accountId: string;
       diagramType: string;
       teamId: string | undefined;
+      cloudId?: string;
     } = await request.json();
 
     if (!body.accountId) {
@@ -22,7 +32,12 @@ export const onRequest = async ({ request, env }: { request: Request; env: any }
     }
 
     const result = await modifyDiagram(
-      { accountId: body.accountId, teamId: body.teamId, env },
+      {
+        accountId: body.accountId,
+        teamId: body.teamId,
+        cloudId: data.forgeContext?.cloudId || body.cloudId,
+        env,
+      },
       body.diagramCode,
       body.errorMessage,
       body.diagramType

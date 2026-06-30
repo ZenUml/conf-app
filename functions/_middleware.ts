@@ -1,6 +1,11 @@
 import {ServerErrorResponse} from "./ServerErrorResponse";
 import authenticate from "./utils/authenticate";
+import type { ForgeRequestData } from "./utils/authenticate";
 import * as Sentry from "@sentry/cloudflare";
+
+interface Env {
+  SENTRY_DSN?: string;
+}
 
 const AUTHENTICATED_PATHS = [
   '/diagramly',
@@ -10,12 +15,17 @@ const AUTHENTICATED_PATHS = [
 ];
 
 // Create a middleware function that handles authentication
-const authMiddleware = async ({next, request, env}) => {
+const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = async ({
+  next,
+  request,
+  env,
+  data,
+}) => {
   try {
     console.log('Function request url:', request.url);
 
     if (AUTHENTICATED_PATHS.some(path => new URL(request.url).pathname.startsWith(path))) {
-      const response = await authenticate({request, env});
+      const response = await authenticate({request, env, data});
       if(response.status !== 200) {
         return response;
       }
@@ -32,13 +42,15 @@ const authMiddleware = async ({next, request, env}) => {
 };
 
 // Make sure Sentry is the first middleware so it can capture errors from subsequent middleware
+const sentryMiddleware = Sentry.sentryPagesPlugin<Env, string, ForgeRequestData>((context) => ({
+  dsn: context.env.SENTRY_DSN,
+  // Set tracesSampleRate to 1.0 to capture 100% of spans for tracing.
+  // Learn more at
+  // https://docs.sentry.io/platforms/javascript/configuration/options/#traces-sample-rate
+  tracesSampleRate: 1.0,
+}));
+
 export const onRequest = [
-  Sentry.sentryPagesPlugin((context) => ({
-    dsn: (context.env as any).SENTRY_DSN,
-    // Set tracesSampleRate to 1.0 to capture 100% of spans for tracing.
-    // Learn more at
-    // https://docs.sentry.io/platforms/javascript/configuration/options/#traces-sample-rate
-    tracesSampleRate: 1.0,
-  })),
+  sentryMiddleware,
   authMiddleware
 ];

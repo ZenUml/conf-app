@@ -6,7 +6,12 @@ import { onRequest } from './forge-upload-attachment';
 // handler's PNG check; the body isn't rendered anywhere).
 const PNG_BASE64 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString('base64');
 
-const FORGE_CONTEXT = { apiBaseUrl: 'https://api.atlassian.com/ex/confluence/cloud-1', forgeAppId: 'app-1' };
+const FORGE_CONTEXT = {
+  cloudId: 'cloud-1',
+  apiBaseUrl: 'https://api.atlassian.com/ex/confluence/cloud-1',
+  forgeAppId: 'app-1',
+};
+const FORGE_DATA = { forgeContext: FORGE_CONTEXT };
 
 function makeRequest(payload: any, headers: Record<string, string> = {}) {
   return new Request('https://example.com/forge-upload-attachment', {
@@ -77,7 +82,7 @@ describe('forge-upload-attachment', () => {
       put: fetchResponse(200, '{}'),
     });
 
-    const res = await onRequest({ request: makeRequest(basePayload), env: { FORGE_CONTEXT } } as any);
+    const res = await onRequest({ request: makeRequest(basePayload), data: FORGE_DATA } as any);
     const json = await readJson(res);
 
     expect(json).toEqual({ ok: true, attachmentId: 'att-new-1', versionNumber: 1 });
@@ -100,7 +105,7 @@ describe('forge-upload-attachment', () => {
 
     const res = await onRequest({
       request: makeRequest({ ...basePayload, attachmentId: 'att-existing-9', versionNumber: 4 }),
-      env: { FORGE_CONTEXT },
+      data: FORGE_DATA,
     } as any);
     const json = await readJson(res);
 
@@ -114,7 +119,7 @@ describe('forge-upload-attachment', () => {
   it('rejects when the calling user cannot read the target page (confused-deputy guard)', async () => {
     routeFetch({ read: fetchResponse(403, 'no access') });
 
-    const res = await onRequest({ request: makeRequest(basePayload), env: { FORGE_CONTEXT } } as any);
+    const res = await onRequest({ request: makeRequest(basePayload), data: FORGE_DATA } as any);
     const json = await readJson(res);
 
     expect(json.ok).toBe(false);
@@ -126,7 +131,7 @@ describe('forge-upload-attachment', () => {
   it('surfaces a Confluence upload rejection as { ok:false, status }', async () => {
     routeFetch({ upload: fetchResponse(403, 'app forbidden') });
 
-    const res = await onRequest({ request: makeRequest(basePayload), env: { FORGE_CONTEXT } } as any);
+    const res = await onRequest({ request: makeRequest(basePayload), data: FORGE_DATA } as any);
     const json = await readJson(res);
 
     expect(json).toMatchObject({ ok: false, status: 403 });
@@ -137,7 +142,7 @@ describe('forge-upload-attachment', () => {
   it('rejects an attachmentName outside the zenuml-<id>.png namespace', async () => {
     const res = await onRequest({
       request: makeRequest({ ...basePayload, attachmentName: '../../evil.png' }),
-      env: { FORGE_CONTEXT },
+      data: FORGE_DATA,
     } as any);
     const json = await readJson(res);
 
@@ -148,7 +153,7 @@ describe('forge-upload-attachment', () => {
   it('rejects a non-numeric pageId', async () => {
     const res = await onRequest({
       request: makeRequest({ ...basePayload, pageId: 'page-or-not' }),
-      env: { FORGE_CONTEXT },
+      data: FORGE_DATA,
     } as any);
     expect((await readJson(res)).status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -158,7 +163,7 @@ describe('forge-upload-attachment', () => {
     const notPng = Buffer.from('hello world').toString('base64');
     const res = await onRequest({
       request: makeRequest({ ...basePayload, pngBase64: notPng }),
-      env: { FORGE_CONTEXT },
+      data: FORGE_DATA,
     } as any);
     expect((await readJson(res)).status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -166,13 +171,13 @@ describe('forge-upload-attachment', () => {
 
   it('rejects when the app system token header is absent', async () => {
     const req = makeRequest(basePayload, { 'x-forge-oauth-system': '' });
-    const res = await onRequest({ request: req, env: { FORGE_CONTEXT } } as any);
+    const res = await onRequest({ request: req, data: FORGE_DATA } as any);
     expect((await readJson(res)).status).toBe(401);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('rejects when there is no verified forge context (apiBaseUrl)', async () => {
-    const res = await onRequest({ request: makeRequest(basePayload), env: {} } as any);
+    const res = await onRequest({ request: makeRequest(basePayload), data: {} } as any);
     expect((await readJson(res)).status).toBe(401);
     expect(fetchMock).not.toHaveBeenCalled();
   });

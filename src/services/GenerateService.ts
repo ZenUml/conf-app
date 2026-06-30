@@ -1,12 +1,26 @@
 import globals from '@/model/globals';
+import { getContext } from '@/model/globals/forgeGlobal';
 import {DiagramType} from "@/model/Diagram/Diagram";
 import { callRemote } from '@/utils/requestUtil';
 
+async function getDiagramlyIdentity() {
+  const [user, context] = await Promise.all([
+    globals.apWrapper._getCurrentUser(),
+    getContext(),
+  ]);
+
+  return {
+    accountId: user.atlassianAccountId,
+    cloudId: context?.cloudId,
+  };
+}
+
 export async function diagramlyChat(messages: Array<any>) {
+  const identity = await getDiagramlyIdentity();
   return await callRemote(`/diagramly/chat`, 'POST', {
-      accountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
-      messages
-    });
+    ...identity,
+    messages,
+  });
 }
 
 export async function startFixDiagram(
@@ -14,10 +28,10 @@ export async function startFixDiagram(
   errorMessage: string,
   diagramType: DiagramType,
 ): Promise<{ jobId: string }> {
-  const accountId = (await globals.apWrapper._getCurrentUser()).atlassianAccountId;
+  const identity = await getDiagramlyIdentity();
 
   const startResponse = await callRemote(`/diagramly/fix-diagram`, 'POST', {
-    accountId,
+    ...identity,
     diagramCode,
     errorMessage,
     diagramType: diagramType
@@ -43,14 +57,14 @@ export async function getFixDiagramStatus(
   output?: { diagramCode: string };
   error?: string;
 }> {
-  const accountId = (await globals.apWrapper._getCurrentUser()).atlassianAccountId;
+  const identity = await getDiagramlyIdentity();
 
   const jobStatus = await callRemote(
     `/diagramly/job-status`,
     'POST',
     {
       jobId,
-      accountId
+      ...identity,
     }
   ) as {
     id: string;

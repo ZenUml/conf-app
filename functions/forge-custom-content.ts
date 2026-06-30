@@ -2,6 +2,7 @@ import { response, OkResponse } from "./OkResponse";
 import { getCustomContentFromConfluenceForForge } from "./utils/confluenceUtils";
 import { upsertAtlassianInstance } from "./utils/dbUtils";
 import { captureError } from "./utils/sentry";
+import type { ForgeRequestData } from "./utils/authenticate";
 
 export interface Env {
   DB: D1Database;
@@ -11,7 +12,15 @@ function errMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-export const onRequest = async ({ request, env }) => {
+export const onRequest = async ({
+  request,
+  env,
+  data,
+}: {
+  request: Request;
+  env: any;
+  data: ForgeRequestData;
+}) => {
   // Input validation — return parseable 4xx JSON, never throw into a generic 500.
   const forgeOAuthUser = request.headers.get('x-forge-oauth-user');
   if (!forgeOAuthUser) {
@@ -25,8 +34,8 @@ export const onRequest = async ({ request, env }) => {
     return response(400, 'Invalid JSON body');
   }
 
-  const apiBaseUrl = env.FORGE_CONTEXT?.apiBaseUrl;
-  const forgeAppId = env.FORGE_CONTEXT?.forgeAppId;
+  const apiBaseUrl = data.forgeContext?.apiBaseUrl;
+  const forgeAppId = data.forgeContext?.forgeAppId;
   console.log('Using apiBaseUrl from forge token:', apiBaseUrl);
 
   // Best-effort re-fetch of the just-saved custom content. Confluence is the

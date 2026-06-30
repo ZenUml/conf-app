@@ -1,12 +1,22 @@
 import { response, OkResponse } from "../OkResponse";
 import { callDiagramly } from "../service/diagramlyService";
+import type { ForgeRequestData } from "../utils/authenticate";
 
-export const onRequest = async ({ request, env }: { request: Request; env: any }) => {
+export const onRequest = async ({
+  request,
+  env,
+  data,
+}: {
+  request: Request;
+  env: any;
+  data: ForgeRequestData;
+}) => {
   try {
     const body: {
       jobId: string;
       accountId: string;
       teamId?: string;
+      cloudId?: string;
     } = await request.json();
 
     if (!body.jobId) {
@@ -18,7 +28,12 @@ export const onRequest = async ({ request, env }: { request: Request; env: any }
     }
 
     const result = await callDiagramly(
-      { accountId: body.accountId, teamId: body.teamId, env },
+      {
+        accountId: body.accountId,
+        teamId: body.teamId,
+        cloudId: data.forgeContext?.cloudId || body.cloudId,
+        env,
+      },
       `/api/chat/job-status`,
       { jobId: body.jobId }
     );

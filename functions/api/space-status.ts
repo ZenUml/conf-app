@@ -6,7 +6,6 @@ import type { SpaceLicenseRecord } from './space-license';
 interface Env {
   SPACE_LICENSE_KV: KVNamespace;
   ALLOWED_FORGE_APP_IDS?: string;
-  FORGE_CONTEXT?: any;
 }
 
 interface SpaceStatusResponse {

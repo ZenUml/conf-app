@@ -53,12 +53,12 @@ Full catalog + properties → conf-app `docs/analytics/events-catalog.md` + `src
 
 ## Excluding internal / staging sites
 
-- **MCP / Run-Query:** computed boolean `is_internal_client_domain = false` — one filter, verified exactly equivalent to the manual list.
+- **MCP / Run-Query:** computed boolean `is_internal_client_domain = false` — one filter, verified equivalent to the manual list as of 2026-06 (`danshuitaihejie` added to the manual list 2026-07-03; re-verify the computed prop covers it before relying on exact equivalence).
 - **JQL** (computed props unavailable there): exclude by `contains`/prefix with the canonical minimal set:
   ```
-  ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev", "dia-stg", "diagramly"]
+  ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev", "dia-stg", "diagramly", "danshuitaihejie"]
   ```
-  `"zenuml"` as a contains-match already catches `zenuml-connect` and `zenuml-stg`. This **supersedes the old `["zenuml","zenuml-stg","dia-stg"]`**, which under-excluded.
+  `"zenuml"` as a contains-match already catches `zenuml-connect` and `zenuml-stg`. `danshuitaihejie` is ruixiang's internal dev site — not a customer. This **supersedes the old `["zenuml","zenuml-stg","dia-stg"]`**, which under-excluded.
 
 ## Forge vs Connect runtime
 

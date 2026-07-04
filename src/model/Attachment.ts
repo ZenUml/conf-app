@@ -221,10 +221,21 @@ async function fetchPlantUmlPng(code: string): Promise<Blob | undefined> {
  * remote SVG); every other type captures the rendered DOM via toPng().
  */
 async function capturePng(diagramType?: string, content?: string): Promise<Blob | null | undefined> {
-  if (diagramType === 'plantuml' && content?.trim()) {
-    const fetched = await fetchPlantUmlPng(content);
-    if (fetched) return fetched;
-    // fall through to the DOM capture if the server fetch failed
+  const trimmed = content?.trim() ?? '';
+  if (diagramType === 'plantuml' && trimmed) {
+    // Callers can pass a mismatched content/diagramType pair — e.g. the
+    // leftover ZenUML `code` field of a doc whose type was later switched to
+    // plantuml (stale diagramLoaded emit, or the embed viewer's old fallback
+    // chain). Every valid PlantUML body starts with @start... (validate.ts
+    // enforces @startuml before render); anything else earns a guaranteed 400
+    // from the PlantUML server, so skip straight to the DOM capture.
+    if (!trimmed.startsWith('@start')) {
+      trackEvent('plantuml_server_png_skipped_content_mismatch', 'convert_to_png', 'warning');
+    } else {
+      const fetched = await fetchPlantUmlPng(content!);
+      if (fetched) return fetched;
+      // fall through to the DOM capture if the server fetch failed
+    }
   }
   return toPng();
 }

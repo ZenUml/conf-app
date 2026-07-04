@@ -43,7 +43,12 @@ export default {
     // (renderPerf records once); the watch-driven re-render below is not.
     this.svg = await renderPerf.time('render', () => this.render(this.mermaidCode));
     trackRenderTime('mermaid', this.isDisplayMode);
-    EventBus.$emit('diagramLoaded', this.mermaidCode, this.$store.state.diagram.diagramType);
+    // Type may have switched during the async render — the gated computed
+    // would then be `false` and the store diagramType stale. Skip; the new
+    // type's component emits its own diagramLoaded.
+    if (this.mermaidCode) {
+      EventBus.$emit('diagramLoaded', this.mermaidCode, DiagramType.Mermaid);
+    }
     await globals.apWrapper.initializeContext();
   },
   updated() {

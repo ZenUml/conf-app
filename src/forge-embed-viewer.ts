@@ -4,7 +4,7 @@ import globals from '@/model/globals';
 import ForgeEmbedViewer from "@/components/Viewer/ForgeEmbedViewer.vue";
 import EventBus from './EventBus'
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
-import { Diagram } from "@/model/Diagram/Diagram";
+import { Diagram, getDiagramData } from "@/model/Diagram/Diagram";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
 
@@ -55,7 +55,16 @@ function afterLoad(doc: Diagram | undefined) {
   setTimeout(async function () {
     try {
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
-        await createAttachmentIfContentChanged(doc?.code || doc?.graphXml || doc?.mermaidCode || '', doc?.diagramType ?? 'embed');
+        // Select the body by the doc's OWN diagramType. The old
+        // `code || graphXml || mermaidCode` chain never looked at
+        // plantUmlCode, so a plantuml doc converted from the default
+        // sequence template shipped its leftover ZenUML `code` labeled
+        // 'plantuml' — feeding capturePng a doomed PlantUML-server fetch
+        // (400) and hashing/iTXt-embedding the wrong source.
+        const content = doc?.diagramType
+          ? getDiagramData(doc)
+          : (doc?.code || doc?.graphXml || doc?.mermaidCode || '');
+        await createAttachmentIfContentChanged(content, doc?.diagramType ?? 'embed');
       } else {
         console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");
       }

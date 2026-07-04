@@ -878,6 +878,38 @@ describe('Attachment', () => {
       expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
       vi.unstubAllGlobals();
     });
+
+    it('PlantUML: never hits the server when the content is not PlantUML (mismatched content/type pair)', async () => {
+      // Regression: a doc converted from the default sequence template keeps
+      // its ZenUML `code` field; callers passing that leftover body with
+      // diagramType 'plantuml' used to fire a guaranteed-400 request at
+      // plantuml.com/plantuml/png/. capturePng must skip the server fetch for
+      // any body that doesn't start with @start... and go straight to the DOM
+      // capture.
+      const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 400, blob: () => Promise.resolve(new Blob()) });
+      vi.stubGlobal('fetch', fetchMock);
+      document.body.innerHTML = '';
+      const el = document.createElement('div'); el.className = 'screen-capture-content'; document.body.appendChild(el);
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }));
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: true, status: 200,
+        text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'att-pu-3' }] })),
+      });
+      mockForgeRequest.mockResolvedValue({});
+
+      const zenumlLeftover = 'title Order Service\nOrderController.post(payload) {\n  OrderService.create(payload)\n}';
+      await createAttachmentIfContentChanged(zenumlLeftover, 'plantuml');
+
+      // No request to the PlantUML server at all — mismatch detected up front.
+      const plantumlCalls = fetchMock.mock.calls.filter((c: unknown[]) => String(c[0]).includes('plantuml.com'));
+      expect(plantumlCalls).toHaveLength(0);
+      expect(mockTrackEvent).toHaveBeenCalledWith('plantuml_server_png_skipped_content_mismatch', 'convert_to_png', 'warning');
+      // Fell back to the DOM capture and the upload still succeeded.
+      expect(htmlToImage.toBlob).toHaveBeenCalled();
+      expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
+      vi.unstubAllGlobals();
+    });
   });
 
 });

@@ -5,6 +5,14 @@ import { setupCloseGuard } from "@/utils/closeGuard";
 import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
 import EventBus from "@/EventBus";
 import yaml from "js-yaml";
+import { openUrl } from "@/model/globals/forgeGlobal";
+
+// Docs link for the OpenAPI editor's Help button — mirrors the URL the Vue
+// header uses (components/Header/Header.vue). Opened via openUrl() because a
+// plain <a target="_blank"> is sandboxed/blocked inside the Forge Custom UI
+// iframe; openUrl routes through @forge/bridge's router.open under Forge.
+const HELP_URL =
+  "https://zenuml.com/docs?utm_source=confluence-plugin&utm_medium=help-button&utm_campaign=confluence-plugin";
 
 interface Props {
   saveAndExit: VoidFunction;
@@ -112,6 +120,7 @@ const Component = ({ saveAndExit, exit }: Props) => {
 
   const helpClick = () => {
     trackEvent("help", "click", "open-api");
+    void openUrl(HELP_URL);
   };
 
   const setTitleWithSideEffect = (value: any) => {
@@ -184,9 +193,9 @@ const Component = ({ saveAndExit, exit }: Props) => {
 
   return (
     <header className="toolbar header border-b border-gray-800 p-2 flex items-center justify-between w-full">
-      <div className="flex flex-col">
+      <div className="flex flex-col flex-1 min-w-0 max-w-2xl mr-2">
         <input
-          className="px-1 border-2 border-solid border-[#091e4224] rounded-[3px] focus:border-[#388bff] hover:border-[#388bff] outline-none transition-[border-color] leading-7"
+          className="w-full px-1 border-2 border-solid border-[#091e4224] rounded-[3px] focus:border-[#388bff] hover:border-[#388bff] outline-none transition-[border-color] leading-7"
           type="text"
           placeholder="Title"
           value={title}
@@ -199,34 +208,29 @@ const Component = ({ saveAndExit, exit }: Props) => {
         )}
       </div>
       <div className="flex items-center">
-        <a
-          className="inline-block help mx-1 ml-2"
-          target="_blank"
-          href="helpUrl"
+        <button
+          type="button"
+          className="help mx-1 ml-2 flex items-center bg-gray-100 px-2 py-1 text-gray-600 text-sm font-semibold rounded hover:bg-gray-200 cursor-pointer"
+          onClick={helpClick}
         >
-          <button
-            className="flex items-center bg-gray-100 px-2 py-1 text-gray-600 text-sm font-semibold rounded"
-            onClick={helpClick}
-          >
-            <span>
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                ></path>
-              </svg>
-            </span>
-            <span>Help</span>
-          </button>
-        </a>
+          <span>
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              ></path>
+            </svg>
+          </span>
+          <span>Help</span>
+        </button>
         <div className="inline-block ml-2">
           <PublishButton saveAndExit={saveAndExit} disabled={!title} />
         </div>

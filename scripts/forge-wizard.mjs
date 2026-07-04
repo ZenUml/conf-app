@@ -188,13 +188,16 @@ export const APPS = {
       // AsyncAPI-Conf-V2 manifest. lite is the only variant that strips
       // licensing.
       {
-        description: 'Remove non-asyncapi macros (sequence, openapi, graph, embed)',
-        // `test("zenuml-asyncapi")` keeps both `zenuml-asyncapi-macro`
-        // (page-rendered spec) and `zenuml-asyncapi-embed-macro` (embed
-        // reference to a doc) — same dual-macro setup as the standalone
-        // app.
+        description: 'Remove non-asyncapi macros (sequence, graph, embed); keep asyncapi macros + the OpenAPI macro',
+        // Keep `zenuml-asyncapi-macro` (page-rendered spec) and
+        // `zenuml-asyncapi-embed-macro` (embed reference) — the standalone
+        // app's dual-macro setup — PLUS `zenuml-openapi-macro`: AsyncAPI and
+        // OpenAPI are sibling API-spec formats, so the asyncapi app ships
+        // both. The OpenAPI macro stores its spec under the variant's
+        // `async-api-doc` content type (getContentKey() is asyncapi-aware in
+        // ApWrapper2), so no extra customContent module is needed.
         yqEvalExpr:
-          'del(.modules.macro[] | select(.key | test("zenuml-asyncapi") | not))',
+          'del(.modules.macro[] | select(.key | test("zenuml-asyncapi|zenuml-openapi-macro") | not))',
       },
       {
         // AsyncAPI ships only confluence:spacePage (the per-space "My API

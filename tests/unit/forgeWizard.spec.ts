@@ -70,7 +70,9 @@ describe('forge-wizard manifest preview helpers', () => {
     // manifest — no `del(.app.licensing)` edit on this variant.
     const desc = getManifestEditDescriptions('asyncapi')
     expect(desc).not.toContain('Remove licensing (asyncapi MVP is free)')
-    expect(desc).toContain('Remove non-asyncapi macros (sequence, openapi, graph, embed)')
+    expect(desc).toContain(
+      'Remove non-asyncapi macros (sequence, graph, embed); keep asyncapi macros + the OpenAPI macro',
+    )
     expect(desc).toContain(
       'Remove globalSettings + globalPage + contentBylineItem (asyncapi uses spacePage only)',
     )
@@ -79,10 +81,11 @@ describe('forge-wizard manifest preview helpers', () => {
     )
 
     const yq = getManifestEditYqArgs('asyncapi').map((x) => x.expr)
-    // Broader regex than zenuml-asyncapi-macro on its own — keeps both
-    // the regular asyncapi macro and the embed asyncapi macro.
+    // Broader regex than zenuml-asyncapi-macro on its own — keeps the
+    // regular asyncapi macro, the embed asyncapi macro, AND the OpenAPI
+    // macro (AsyncAPI + OpenAPI are sibling API-spec formats).
     expect(yq).toContain(
-      'del(.modules.macro[] | select(.key | test("zenuml-asyncapi") | not))',
+      'del(.modules.macro[] | select(.key | test("zenuml-asyncapi|zenuml-openapi-macro") | not))',
     )
     // asyncapi keeps confluence:spacePage intact (its "My API Documents"
     // entry) but strips confluence:globalPage entirely.

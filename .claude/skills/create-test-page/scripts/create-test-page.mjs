@@ -14,8 +14,8 @@ import { parseArgs } from "node:util";
 // site → host + Forge extension key components
 const SITES = {
   "lite-dev":   { host: "lite-dev.atlassian.net",   appId: "8ad26115-211f-4216-971b-0540f606303d", envId: "26ad8f7e-aa24-4afe-83a3-e8216f9e5220", envName: "DEVELOPMENT", suffix: "-lite", ns: "lite" },
-  "lite-stg":   { host: "lite-stg.atlassian.net",   appId: "8ad26115-211f-4216-971b-0540f606303d", envName: "STAGING",     suffix: "-lite", ns: "lite" },
-  "zenuml-stg": { host: "zenuml-stg.atlassian.net", appId: "8ad26115-211f-4216-971b-0540f606303d", envName: "STAGING",     suffix: "-lite", ns: "lite" },
+  "lite-stg":   { host: "lite-stg.atlassian.net",   appId: "8ad26115-211f-4216-971b-0540f606303d", envId: "5ea0d957-4b7d-47e5-b8cc-7d5fb4fc2338", envName: "STAGING",     suffix: "-lite", ns: "lite" },
+  "zenuml-stg": { host: "zenuml-stg.atlassian.net", appId: "8ad26115-211f-4216-971b-0540f606303d", envId: "5ea0d957-4b7d-47e5-b8cc-7d5fb4fc2338", envName: "STAGING",     suffix: "-lite", ns: "lite" },
   "zenuml":     { host: "zenuml.atlassian.net",     appId: "8ad26115-211f-4216-971b-0540f606303d", envId: "b28ee919-d73b-4f43-b7fd-45a3a881ec46", envName: "PRODUCTION", suffix: "-lite", ns: "lite" },
 };
 

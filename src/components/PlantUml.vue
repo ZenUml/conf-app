@@ -51,7 +51,12 @@ export default {
     this.debouncedRender = debounce(this.fetchSvg, 500);
     if (!this.plantUmlCode) return;
     await this.validateAndRender(this.plantUmlCode);
-    EventBus.$emit('diagramLoaded', this.plantUmlCode, this.$store.state.diagram.diagramType);
+    // Type may have switched during the async render — the gated computed
+    // would then be `false` and the store diagramType stale. Skip; the new
+    // type's component emits its own diagramLoaded.
+    if (this.plantUmlCode) {
+      EventBus.$emit('diagramLoaded', this.plantUmlCode, DiagramType.PlantUml);
+    }
     await globals.apWrapper.initializeContext();
   },
   beforeUnmount() {

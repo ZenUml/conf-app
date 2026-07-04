@@ -59,11 +59,18 @@ export default {
       // Phase 0b: render_ms for the initial mount render (recorded once).
       await renderPerf.time('render', () => this.render());
       trackRenderTime('sequence', this.isDisplayMode);
-      EventBus.$emit(
-        "diagramLoaded",
-        this.$store.state.diagram.code,
-        this.$store.state.diagram.diagramType
-      );
+      // The awaits above can span seconds (cold ZenUML chunk + render). If the
+      // user switched diagram type meanwhile, emitting the sequence `code`
+      // with the NEW store diagramType would upload a mislabeled attachment
+      // (and for plantuml, fire a doomed PlantUML-server PNG fetch). The
+      // component mounted for the new type emits its own diagramLoaded.
+      if (this.$store.state.diagram.diagramType === DiagramType.Sequence) {
+        EventBus.$emit(
+          "diagramLoaded",
+          this.$store.state.diagram.code,
+          DiagramType.Sequence
+        );
+      }
     } catch (error) {
       console.error("Error loading ZenUML Core:", error);
     }

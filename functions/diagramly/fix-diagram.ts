@@ -1,6 +1,7 @@
 import { response, OkResponse } from "../OkResponse";
 import { modifyDiagram } from "../service/diagramlyService";
 import type { ForgeRequestData } from "../utils/authenticate";
+import { resolveDiagramlyIdentity } from "./context";
 
 export const onRequest = async ({
   request,
@@ -12,18 +13,17 @@ export const onRequest = async ({
   data: ForgeRequestData;
 }) => {
   try {
+    const identity = resolveDiagramlyIdentity(data);
+    if (identity instanceof Response) {
+      return identity;
+    }
+
     const body: {
       diagramCode: string;
       errorMessage: string;
-      accountId: string;
       diagramType: string;
-      teamId: string | undefined;
-      cloudId?: string;
     } = await request.json();
 
-    if (!body.accountId) {
-      return response(400, "Missing accountId");
-    }
     if (!body.diagramCode) {
       return response(400, "Missing diagramCode");
     }
@@ -32,12 +32,7 @@ export const onRequest = async ({
     }
 
     const result = await modifyDiagram(
-      {
-        accountId: body.accountId,
-        teamId: body.teamId,
-        cloudId: data.forgeContext?.cloudId || body.cloudId,
-        env,
-      },
+      { ...identity, env },
       body.diagramCode,
       body.errorMessage,
       body.diagramType

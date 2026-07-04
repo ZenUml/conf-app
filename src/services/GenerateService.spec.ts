@@ -1,21 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/model/globals', () => ({
-  default: {
-    apWrapper: {
-      _getCurrentUser: vi.fn(),
-    },
-  },
-}));
-vi.mock('@/model/globals/forgeGlobal', () => ({
-  getContext: vi.fn(),
-}));
 vi.mock('@/utils/requestUtil', () => ({
   callRemote: vi.fn(),
 }));
 
-import globals from '@/model/globals';
-import { getContext } from '@/model/globals/forgeGlobal';
 import { callRemote } from '@/utils/requestUtil';
 import {
   diagramlyChat,
@@ -23,30 +11,22 @@ import {
   startFixDiagram,
 } from './GenerateService';
 
-describe('GenerateService Diagramly identity', () => {
+describe('GenerateService Diagramly requests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(globals.apWrapper._getCurrentUser).mockResolvedValue({
-      atlassianAccountId: 'account-123',
-    } as any);
-    vi.mocked(getContext).mockResolvedValue({
-      cloudId: 'client-cloud-456',
-    } as any);
   });
 
-  it('sends the client cloudId when starting chat', async () => {
+  it('sends no client identity when starting chat (identity is derived server-side)', async () => {
     vi.mocked(callRemote).mockResolvedValue({ messages: [] });
 
     await diagramlyChat([{ role: 'user', content: 'hello' }]);
 
     expect(callRemote).toHaveBeenCalledWith('/diagramly/chat', 'POST', {
-      accountId: 'account-123',
-      cloudId: 'client-cloud-456',
       messages: [{ role: 'user', content: 'hello' }],
     });
   });
 
-  it('sends the same client identity for repair start and polling', async () => {
+  it('sends only the payload for repair start and polling — no accountId/cloudId', async () => {
     vi.mocked(callRemote)
       .mockResolvedValueOnce({ jobId: 'job-123' })
       .mockResolvedValueOnce({
@@ -64,8 +44,6 @@ describe('GenerateService Diagramly identity', () => {
       '/diagramly/fix-diagram',
       'POST',
       {
-        accountId: 'account-123',
-        cloudId: 'client-cloud-456',
         diagramCode: 'A -> B',
         errorMessage: 'syntax error',
         diagramType: 'Sequence',
@@ -77,8 +55,6 @@ describe('GenerateService Diagramly identity', () => {
       'POST',
       {
         jobId: 'job-123',
-        accountId: 'account-123',
-        cloudId: 'client-cloud-456',
       },
     );
   });

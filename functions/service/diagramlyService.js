@@ -70,8 +70,8 @@ export async function callDiagramly(context, uri, payload) {
 
   try {
     const userId = context.accountId;
-    const teamId = context.cloudId;
-    if (typeof teamId !== 'string' || !teamId.trim()) {
+    const cloudId = context.cloudId;
+    if (typeof cloudId !== 'string' || !cloudId.trim()) {
       throw new Error('Missing cloudId in Diagramly request context');
     }
 
@@ -86,7 +86,7 @@ export async function callDiagramly(context, uri, payload) {
         'Content-Type': payload ? 'application/json' : undefined,
         'x-api-key': diagramlyApiKey,
         'x-external-id': userId,
-        'x-team-id': teamId
+        'x-team-id': cloudId
       },
       body: payload ? JSON.stringify(payload) : undefined
     });

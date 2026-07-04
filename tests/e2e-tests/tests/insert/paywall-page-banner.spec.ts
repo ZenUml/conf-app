@@ -24,12 +24,13 @@ import {
   expectBannerAbsent,
   expectCsatAbsent,
   armCsatPending,
+  initPageBannerScope,
+  MACRO_IFRAME,
 } from '../../helpers/pageBanner.js';
 
-// The Forge macro iframe. Its presence guarantees an app-origin
-// (cdn.prod.atlassian-dev.net) frame exists to inject the localStorage mocks into.
-const MACRO_IFRAME =
-  '[data-testid="ForgeExtensionContainer"] [data-testid="hosted-resources-iframe"]';
+// MACRO_IFRAME (imported): the Forge macro iframe. Its presence guarantees an
+// app-origin (cdn.prod.atlassian-dev.net) frame exists to inject the localStorage
+// mocks into, and its src carries the app id that initPageBannerScope() reads.
 
 test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
 
@@ -80,6 +81,10 @@ test.describe.serial('Paywall page banner', () => {
     // this initial load before the scenario is set up.
     await page.goto(testConfig.pageUrl(pageId));
     await expectVisibleOrFailOnLogin(page, page.locator(MACRO_IFRAME).first(), TIMEOUTS.FRAME_LOAD);
+    // Scope banner/app-frame lookups to this app's Forge id (read from the macro
+    // iframe) so they don't match the other installed apps' page-banner hosts on
+    // multi-install prod (zenuml.atlassian.net runs lite + full + diagramly).
+    await initPageBannerScope(page);
     await clearAllBannerState(page);
   });
 

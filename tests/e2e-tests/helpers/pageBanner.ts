@@ -22,18 +22,63 @@ import { Page, FrameLocator, expect } from '@playwright/test';
 export const PAGE_BANNER_IFRAME =
   '[data-testid="forge-page-banner-wrapper"] iframe, [data-testid*="page-banner"] iframe';
 
-export function pageBannerFrame(page: Page): FrameLocator {
-  return page.frameLocator(PAGE_BANNER_IFRAME);
+/**
+ * The app-under-test's macro iframe. Only that app inserts a macro on the test
+ * page, so its iframe `src` carries the Forge app id we scope banner lookups to.
+ */
+export const MACRO_IFRAME =
+  '[data-testid="ForgeExtensionContainer"] [data-testid="hosted-resources-iframe"]';
+
+/** First UUID path segment of a Forge iframe URL = the app id (env id follows). */
+const APP_ID_RE =
+  /\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\//i;
+
+/**
+ * Forge app id of the app under test, derived from its macro iframe by
+ * `initPageBannerScope`. On multi-install sites (prod zenuml.atlassian.net runs
+ * lite + full + diagramly) EVERY installed app mounts a `zenuml-page-banner`
+ * host iframe, so an unscoped `PAGE_BANNER_IFRAME` matches 3 elements and trips
+ * Playwright strict mode. Scoping to this id resolves to exactly the app under
+ * test. Empty string ⇒ fall back to the unscoped selector (single-install envs).
+ */
+let scopedAppId = '';
+
+/**
+ * Read the app-under-test's Forge app id from its rendered macro iframe and scope
+ * subsequent `pageBannerFrame` / `appFrame` lookups to it. Call once per page load
+ * (from `beforeEach`), after the macro iframe is visible. Idempotent; a miss (no
+ * macro iframe / unparsable src) clears the scope so callers fall back gracefully.
+ */
+export async function initPageBannerScope(page: Page): Promise<void> {
+  const src = await page
+    .locator(MACRO_IFRAME)
+    .first()
+    .getAttribute('src')
+    .catch(() => null);
+  const match = src ? APP_ID_RE.exec(src) : null;
+  scopedAppId = match ? match[1] : '';
 }
 
-/** Locate any of the app's Forge iframes (deployed CDN origin or tunnel localhost). */
+/** Banner-iframe selector, narrowed to the app under test when a scope is set. */
+function bannerIframeSelector(): string {
+  return scopedAppId
+    ? `[data-testid="forge-page-banner-wrapper"] iframe[src*="${scopedAppId}"]`
+    : PAGE_BANNER_IFRAME;
+}
+
+export function pageBannerFrame(page: Page): FrameLocator {
+  return page.frameLocator(bannerIframeSelector());
+}
+
+/** Locate the app-under-test's Forge iframe (scoped to its app id when known). */
 function appFrame(page: Page) {
   return page
     .frames()
-    .find(
-      (f) =>
-        f.url().includes('cdn.prod.atlassian-dev.net') ||
-        f.url().includes('localhost:8000'),
+    .find((f) =>
+      scopedAppId
+        ? f.url().includes(scopedAppId)
+        : f.url().includes('cdn.prod.atlassian-dev.net') ||
+          f.url().includes('localhost:8000'),
     );
 }
 
@@ -86,7 +131,7 @@ export async function readAppMarker(page: Page, prefix: string): Promise<string 
 
 /** True when no page-banner iframe is visible (host called view.close()). */
 export async function expectBannerAbsent(page: Page): Promise<void> {
-  await expect(page.locator(PAGE_BANNER_IFRAME)).toBeHidden({ timeout: 10_000 });
+  await expect(page.locator(bannerIframeSelector())).toBeHidden({ timeout: 10_000 });
 }
 
 /** True when the host iframe is NOT showing the CSAT survey (its rating bar). */

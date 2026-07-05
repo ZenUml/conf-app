@@ -893,12 +893,13 @@ EventBus.$on('save', async () => {
           customContentId: String(id),
           fromSave: true,
         }),
-        // Cap chosen to actually AWAIT the upload (render + POST + properties PUT
-        // ~2–5s on staging) so it completes before view.submit tears down the
-        // iframe. A 2.5s cap abandoned the await early and risked aborting the
-        // in-flight write (verified on lite-stg: the create finished ~just after
-        // a 2.5s race fired).
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('save-attachment timeout')), 8000)),
+        // With fromSave the slow Confluence write now runs server-side (the
+        // backend acks after validation and finishes in waitUntil — see
+        // Attachment.uploadAttachmentViaApp async mode + functions/forge-upload-
+        // attachment.ts). So this await only bounds the client-side PNG capture
+        // + a fast backend ack (~1.5–3.5s), not the full upload. The cap is a
+        // hang-guard for a wedged capture; 6s is generous headroom.
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('save-attachment timeout')), 6000)),
       ]);
     } catch (e) {
       console.warn('save-time attachment creation skipped (non-fatal):', (e as Error)?.message ?? e);
@@ -926,9 +927,12 @@ EventBus.$on('save', async () => {
         || (store.state.diagram?.source === DataSource.CustomContent
             && !!(store.state.diagram as any)?.recoveredFromOrphan));
 
-  // Give some time for track event to be sent out. We are not using a more reliable way to track event because
-  // we don't want to block dialog close for too long.
-  setTimeout(async () => {
+  // Run the writeback + close immediately — no artificial delay. The 500ms
+  // buffer here used to exist "to give trackEvents time to send", but the
+  // save-time attachment step above already awaits ~1.5–3.5s (capture + ack),
+  // which is more than enough for the earlier trackEvents to flush; adding
+  // another 500ms of dead time to every publish isn't worth it.
+  void (async () => {
     // Writeback the new customContentId when (a) inserting a fresh macro,
     // (b) the save returned a different id (cross-page-copy / same-page-
     // duplicate POST branch), (c) we recovered from an orphan and must
@@ -991,7 +995,7 @@ EventBus.$on('save', async () => {
         macro_type: store.state.diagram.diagramType as MacroTypeValue,
       });
     }
-  }, 500);
+  })();
 });
 
 EventBus.$on('exit', async (showWarning: boolean) => {

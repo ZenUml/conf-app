@@ -743,27 +743,38 @@ describe('Attachment', () => {
         );
       });
 
-      it('adds from_save:true to the success event when opts.fromSave is set', async () => {
+      it('routes save-time uploads through the async backend and emits attachment_upload_queued', async () => {
+        // perf/publish-async-backup: fromSave no longer blocks on the user-side
+        // POST + PUT. It hands the PNG to /forge-upload-attachment in async mode;
+        // the backend acks { ok:true, queued:true } and finishes in waitUntil.
         const mockBlob = new Blob(['test'], { type: 'image/png' });
         vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
         mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
-        mockRequestConfluence.mockResolvedValue({
-          ok: true,
-          status: 200,
-          text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'att-saved-2' }] })),
-        });
-        mockForgeRequest.mockResolvedValue({});
+        mockCallRemote.mockResolvedValue({ ok: true, queued: true });
 
         await createAttachmentIfContentChanged('test content', 'sequence', {
           customContentId: 'saved-id-1000',
           fromSave: true,
         });
 
+        // Went through the app-async backend with async:true — NOT the user POST.
+        expect(mockCallRemote).toHaveBeenCalledWith(
+          '/forge-upload-attachment',
+          'POST',
+          expect.objectContaining({ async: true, attachmentName: 'zenuml-saved-id-1000.png' }),
+        );
+        expect(mockRequestConfluence).not.toHaveBeenCalled();
+
+        // Emits a queued (not succeeded) signal carrying from_save:true.
+        const queued = mockTrackEvent.mock.calls.find(
+          (c: unknown[]) => c[1] === 'attachment_upload_queued',
+        );
+        expect(queued).toBeDefined();
+        expect(queued![3]).toMatchObject({ from_save: true, custom_content_id: 'saved-id-1000' });
         const succeeded = mockTrackEvent.mock.calls.find(
           (c: unknown[]) => c[1] === 'attachment_upload_succeeded',
         );
-        expect(succeeded).toBeDefined();
-        expect(succeeded![3]).toMatchObject({ from_save: true, custom_content_id: 'saved-id-1000' });
+        expect(succeeded).toBeUndefined();
       });
 
       it('does NOT set from_save when opts.fromSave is absent', async () => {

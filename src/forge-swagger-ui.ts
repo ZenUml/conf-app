@@ -15,7 +15,13 @@ async function loadDiagram(): Promise<Diagram | undefined> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
-  const customContentId = context.extension?.config?.customContentId;
+  // Read from config (page-macro viewer) AND modal — the dual-format dashboard's
+  // View action opens this viewer as a modal carrying the id via
+  // modal.customContentId (mirrors forge-asyncapi-viewer). Without the modal
+  // fallback, a dashboard View of an OpenAPI doc renders empty.
+  const customContentId =
+    context.extension?.config?.customContentId
+    || context.extension?.modal?.customContentId;
   const pageId = context.extension?.content?.id;
   if(!customContentId) {
   } else {

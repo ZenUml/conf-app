@@ -42,6 +42,10 @@ export type EntryPoint =
 
 export type OperationMode = "create" | "edit" | "unknown";
 
+// Format slice selected on the dual-format ("My API Documents") dashboard's
+// tab / Format filter. "all" shows both AsyncAPI and OpenAPI docs.
+export type DashboardFormatFilter = "all" | "asyncapi" | "openapi";
+
 export type RenderMode = "live_render" | "cached_svg";
 
 // Browser cache state at macro render time, derived from Resource Timing
@@ -76,6 +80,14 @@ export type AnalyticsEventName =
   // AsyncAPI dashboard: user clicked a document card's "Page:" reference to
   // open the Confluence page hosting the doc. Tracks dashboard → page nav.
   | "asyncapi_dashboard_page_opened"
+  // Dual-format dashboard: user switched the format tab / Format filter
+  // (All / AsyncAPI / OpenAPI). Tracks how the mixed AsyncAPI+OpenAPI document
+  // list is being sliced; the chosen value rides on `format_filter`.
+  | "dashboard_format_filtered"
+  // Dual-format dashboard: user picked a format from the "Create New API"
+  // split-button menu (AsyncAPI vs OpenAPI) — the funnel entry BEFORE the
+  // editor's own macro_create_started fires. `macro_type` carries the choice.
+  | "dashboard_create_selected"
   | "macro_export_requested"
   | "macro_export_succeeded"
   | "macro_export_failed"

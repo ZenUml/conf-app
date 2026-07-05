@@ -44,6 +44,17 @@ let originalConfigUuid: string | undefined;
 // the macro XML via view.submit({config:...}).
 let originalCustomContentId: string | undefined;
 let recoveryPageId: string | undefined;
+// True when this editor was opened from the "My API Documents" dashboard's Edit
+// action — a standalone modal carrying the id via modal.customContentId, with no
+// macro on the dashboard space page. On that path the shared loader
+// false-positives isCopy=true, so the save must pin the id + clear isCopy to
+// update in place. Mirrors the AsyncAPI editor's isDashboardEdit/pinToId guard.
+let isDashboardEdit = false;
+// Only pin the save when the target doc genuinely loaded with content. If the
+// load failed (transient API error), leave this false so the save takes the
+// normal copy-aware path and forks a new doc, rather than pinning + overwriting
+// the real document with a blank OpenApiExample template.
+let dashboardEditDocLoaded = false;
 
 const debouncedValidateOpenApi = debounce(async (spec: string) => {
   if (!spec) {
@@ -92,7 +103,16 @@ async function saveOpenApiAndExit() {
     ...window.diagram,
     code: code,
     diagramType: DiagramType.OpenApi,
-    source: DataSource.CustomContent
+    source: DataSource.CustomContent,
+    // Dashboard Edit: force an in-place update. CustomContentStorageProvider.save
+    // only updates when (id && !isCopy); the dashboard space page false-positives
+    // isCopy=true, which would otherwise fork a new doc ("editing made a new
+    // diagram"). Pin the known id and clear isCopy — the same guard
+    // buildAsyncApiSaveDiagram applies via pinToId for AsyncAPI dashboard edits.
+    // Gated on dashboardEditDocLoaded so a failed load can't pin + overwrite.
+    ...(isDashboardEdit && dashboardEditDocLoaded && originalCustomContentId
+      ? { id: originalCustomContentId, isCopy: false }
+      : {}),
   };
   console.log('saveOpenApiAndExit - diagram', JSON.stringify(diagram, null, 2));
   // @ts-ignore
@@ -246,25 +266,30 @@ async function initializeMacro() {
   
   // Ensure session is initialized
   getOrCreateSession();
-  // Read customContentId from extension.config only.
+  // Read customContentId from extension.config (macro / page-editor context) AND
+  // extension.modal (the dashboard's Edit / View flow).
   //
-  // Until ZEN-1170 (2026-05-23), this read fell through to
-  // `extension.modal.customContentId` when config was empty — a
-  // defensive workaround copied from forgeIndex.ts. Forge-tunnel
-  // verification on lite-dev (one OpenAPI macro, modal-editor context,
-  // `isConfiguring: false`) showed `extension.config.customContentId`
-  // resolves correctly; the fallback never fired. The safety-net
-  // tracking below catches any regression — if it ever fires in prod,
-  // restore the `|| extension.modal.customContentId` and investigate.
-  const customContentId = context.extension?.config?.customContentId;
+  // ZEN-1170 (2026-05-23) removed the modal fallback because, at that time,
+  // OpenAPI had no dashboard — the only modal was the page-macro viewer, where
+  // config.customContentId always resolved. The dual-format dashboard
+  // reintroduces a dashboard Edit that opens THIS editor as a standalone modal
+  // carrying the id via modal.customContentId, so the fallback is required
+  // again. saveOpenApiAndExit pins the save for that path (see isDashboardEdit).
+  const configContentId = context.extension?.config?.customContentId;
+  const modalContentId = context.extension?.modal?.customContentId;
+  const customContentId = configContentId || modalContentId;
+  isDashboardEdit = !configContentId && !!modalContentId;
   originalCustomContentId = customContentId;
   recoveryPageId = context.extension?.content?.id;
-  if (!customContentId && context.extension?.modal?.customContentId) {
+  if (isDashboardEdit) {
+    // Volume signal for the dashboard-edit path. Was a regression detector when
+    // the modal fallback was treated as a bug; now it measures the intended
+    // dashboard route.
     trackAnalyticsEvent('swagger_editor_config_empty_with_modal', {
       feature_area: 'macro',
       surface: 'editor',
       macro_type: 'openapi',
-      content_id: String(context.extension.modal.customContentId),
+      content_id: String(modalContentId),
     });
   }
 
@@ -314,6 +339,12 @@ async function initializeMacro() {
           });
         }
       }
+    }
+
+    // Record that a dashboard-edit target actually loaded with content, so
+    // saveOpenApiAndExit only pins (forces an in-place update) for a real doc.
+    if (isDashboardEdit && typeof doc?.code === 'string' && doc.code.trim().length > 0) {
+      dashboardEditDocLoaded = true;
     }
 
     store.state.diagram = doc ?? NULL_DIAGRAM;

@@ -21,7 +21,7 @@
   <div class="asyncapi-dashboard">
     <header class="dash-header">
       <div>
-        <h2 class="dash-title">AsyncAPI Documents</h2>
+        <h2 class="dash-title">My API Documents</h2>
         <p class="dash-meta">
           <span>{{ filteredDocs.length }} document{{ filteredDocs.length === 1 ? '' : 's' }} found</span>
           <span v-if="spaceKey"> in space {{ spaceKey }}</span>
@@ -32,9 +32,37 @@
         <button class="btn btn-secondary" :disabled="refreshing" @click="refresh">
           {{ refreshing ? 'Refreshing…' : '↻ Refresh' }}
         </button>
-        <button class="btn btn-primary" @click="createNew">+ Create New API</button>
+        <div class="create-split">
+          <button class="btn btn-primary create-split-main" @click="toggleCreateMenu">
+            + Create New API
+            <span class="create-caret" aria-hidden="true">▾</span>
+          </button>
+          <div v-if="createMenuOpen" class="create-menu" role="menu">
+            <button class="create-menu-item" role="menuitem" @click="createNew('asyncapi')">
+              <span class="fmt-dot fmt-dot--asyncapi" aria-hidden="true"></span> AsyncAPI spec
+            </button>
+            <button class="create-menu-item" role="menuitem" @click="createNew('openapi')">
+              <span class="fmt-dot fmt-dot--openapi" aria-hidden="true"></span> OpenAPI (Swagger) spec
+            </button>
+          </div>
+        </div>
       </div>
     </header>
+
+    <!-- Format tabs: slice the mixed list by spec family (All / AsyncAPI / OpenAPI). -->
+    <div class="dash-tabs" role="tablist">
+      <button
+        v-for="tab in FORMAT_TABS"
+        :key="tab.value"
+        class="dash-tab"
+        :class="{ 'dash-tab--active': formatFilter === tab.value }"
+        role="tab"
+        :aria-selected="formatFilter === tab.value"
+        @click="setFormatFilter(tab.value)"
+      >
+        {{ tab.label }}
+      </button>
+    </div>
 
     <div v-if="indexingNotice" class="indexing-notice">
       ℹ️ Your document has been saved. It may take a few moments to appear in the list while Confluence indexes it.
@@ -60,7 +88,7 @@
     </div>
 
     <div v-if="loading" class="dash-state">
-      Loading AsyncAPI documents…
+      Loading API documents…
     </div>
 
     <div v-else-if="error" class="dash-state dash-state--error">
@@ -70,11 +98,11 @@
     </div>
 
     <div v-else-if="filteredDocs.length === 0" class="dash-state">
-      <h3>No AsyncAPI documents yet</h3>
-      <p v-if="searchTerm">Try adjusting your search.</p>
-      <p v-else>Create your first AsyncAPI document to get started.</p>
-      <button v-if="!searchTerm" class="btn btn-primary" @click="createNew">
-        + Create First Document
+      <h3>No API documents yet</h3>
+      <p v-if="searchTerm || formatFilter !== 'all'">Try adjusting your search or format filter.</p>
+      <p v-else>Create your first AsyncAPI or OpenAPI document to get started.</p>
+      <button v-if="!searchTerm && formatFilter === 'all'" class="btn btn-primary" @click="toggleCreateMenu">
+        + Create New API
       </button>
     </div>
 
@@ -84,13 +112,19 @@
           <a class="card-title" href="#" @click.prevent="openView(doc)">
             {{ doc.displayTitle }}
           </a>
-          <button class="card-kebab" :title="'More actions'" aria-label="More actions" @click="toggleMenu(doc.id)">⋯</button>
+          <div class="card-header-right">
+            <span
+              class="fmt-badge"
+              :class="doc.format === 'openapi' ? 'fmt-badge--openapi' : 'fmt-badge--asyncapi'"
+            >{{ doc.format === 'openapi' ? 'OpenAPI' : 'AsyncAPI' }}</span>
+            <button class="card-kebab" :title="'More actions'" aria-label="More actions" @click="toggleMenu(doc.id)">⋯</button>
+          </div>
         </header>
 
         <div class="card-spec-line">
           <span><strong>API Version:</strong> {{ doc.apiVersion || '—' }}</span>
           <span class="card-spec-divider">•</span>
-          <span><strong>Schema:</strong> AsyncAPI {{ doc.schemaVersion || '—' }}</span>
+          <span><strong>Schema:</strong> {{ doc.format === 'openapi' ? 'OpenAPI' : 'AsyncAPI' }} {{ doc.schemaVersion || '—' }}</span>
         </div>
 
         <div class="card-badges">
@@ -102,14 +136,26 @@
         <p v-if="doc.description" class="card-description">{{ doc.description }}</p>
 
         <div class="card-counts">
-          <span v-if="doc.channelsCount != null" class="count-pill" :title="`${doc.channelsCount} channels`">
-            <span class="count-icon" aria-hidden="true">📡</span>
-            {{ doc.channelsCount }} channel{{ doc.channelsCount === 1 ? '' : 's' }}
-          </span>
-          <span v-if="doc.serversCount != null" class="count-pill" :title="`${doc.serversCount} servers`">
-            <span class="count-icon" aria-hidden="true">🖥️</span>
-            {{ doc.serversCount }} server{{ doc.serversCount === 1 ? '' : 's' }}
-          </span>
+          <template v-if="doc.format === 'openapi'">
+            <span v-if="doc.pathsCount != null" class="count-pill" :title="`${doc.pathsCount} paths`">
+              <span class="count-icon" aria-hidden="true">🛣️</span>
+              {{ doc.pathsCount }} path{{ doc.pathsCount === 1 ? '' : 's' }}
+            </span>
+            <span v-if="doc.operationsCount != null" class="count-pill" :title="`${doc.operationsCount} operations`">
+              <span class="count-icon" aria-hidden="true">⚙️</span>
+              {{ doc.operationsCount }} operation{{ doc.operationsCount === 1 ? '' : 's' }}
+            </span>
+          </template>
+          <template v-else>
+            <span v-if="doc.channelsCount != null" class="count-pill" :title="`${doc.channelsCount} channels`">
+              <span class="count-icon" aria-hidden="true">📡</span>
+              {{ doc.channelsCount }} channel{{ doc.channelsCount === 1 ? '' : 's' }}
+            </span>
+            <span v-if="doc.serversCount != null" class="count-pill" :title="`${doc.serversCount} servers`">
+              <span class="count-icon" aria-hidden="true">🖥️</span>
+              {{ doc.serversCount }} server{{ doc.serversCount === 1 ? '' : 's' }}
+            </span>
+          </template>
         </div>
 
         <div v-if="doc.pageLabel" class="card-page-ref">
@@ -153,6 +199,11 @@ import type { ICustomContent } from '@/model/ICustomContent'
 interface AsyncApiDoc {
   id: string
   contentId?: string
+  // Which spec family this doc is, derived from the stored value.diagramType.
+  // Drives the format badge, the schema label ("AsyncAPI x" vs "OpenAPI x"), the
+  // count pills (channels/servers vs paths/operations), and which editor/viewer
+  // the View/Edit actions open (diagramType passed to openModal).
+  format?: 'asyncapi' | 'openapi'
   title?: string
   displayTitle: string
   description?: string
@@ -161,6 +212,8 @@ interface AsyncApiDoc {
   schemaVersion?: string
   channelsCount?: number
   serversCount?: number
+  pathsCount?: number
+  operationsCount?: number
   rev?: number
   status?: string
   createdAt?: string
@@ -183,6 +236,11 @@ const sortBy = ref<'updated' | 'created' | 'name'>('updated')
 // the way the legacy AsyncAPI-Conf-V2 dashboard treated soft-deleted
 // records.
 const statusFilter = ref<'all' | 'current' | 'archived'>('current')
+// Dual-format dashboard: which spec family to show. Pairs with
+// searchTerm/statusFilter in filteredDocs and drives the format tabs.
+const formatFilter = ref<'all' | 'asyncapi' | 'openapi'>('all')
+// "Create New API" split-button dropdown open state.
+const createMenuOpen = ref(false)
 const lastRefreshAt = ref<Date | null>(null)
 const spaceKey = ref<string | null>(null)
 const indexingNotice = ref(false)
@@ -193,28 +251,87 @@ function toggleMenu(id: string) {
   openMenuId.value = openMenuId.value === id ? null : id
 }
 
+const FORMAT_TABS: { value: 'all' | 'asyncapi' | 'openapi'; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'asyncapi', label: 'AsyncAPI' },
+  { value: 'openapi', label: 'OpenAPI' },
+]
+
+function setFormatFilter(next: 'all' | 'asyncapi' | 'openapi') {
+  if (formatFilter.value === next) return
+  formatFilter.value = next
+  trackAnalyticsEvent('dashboard_format_filtered', {
+    feature_area: 'confluence',
+    surface: 'dashboard',
+    format_filter: next,
+  })
+}
+
+function toggleCreateMenu() {
+  createMenuOpen.value = !createMenuOpen.value
+}
+
+// HTTP verbs that count as OpenAPI operations under a path item.
+const OPENAPI_METHODS = new Set(['get', 'put', 'post', 'delete', 'patch', 'options', 'head', 'trace'])
+
+// Parse either an AsyncAPI or an OpenAPI/Swagger spec into the fields the card
+// needs. Format is auto-detected from the schema key: OpenAPI 3.x uses `openapi`,
+// Swagger 2.0 uses `swagger`, AsyncAPI uses `asyncapi`. `info.title/version/
+// description` are common to both. The count fields diverge: AsyncAPI surfaces
+// channels/servers, OpenAPI surfaces path count + total operation count.
 function parseSpec(raw?: string): {
+  format?: 'asyncapi' | 'openapi'
   apiVersion?: string
   schemaVersion?: string
   description?: string
   title?: string
   channelsCount?: number
   serversCount?: number
+  pathsCount?: number
+  operationsCount?: number
 } {
   if (!raw) return {}
   try {
     const doc = yaml.load(raw) as Record<string, any> | null
     if (!doc || typeof doc !== 'object') return {}
     const info = (doc.info as Record<string, any>) || {}
+    const common = {
+      apiVersion: typeof info.version === 'string' ? info.version : undefined,
+      description: typeof info.description === 'string' ? truncate(info.description, 180) : undefined,
+      title: typeof info.title === 'string' ? info.title : undefined,
+    }
+
+    const openapiVersion =
+      typeof doc.openapi === 'string' ? doc.openapi
+      : typeof doc.swagger === 'string' ? doc.swagger
+      : undefined
+    if (openapiVersion) {
+      const paths = (doc.paths as Record<string, any>) || undefined
+      const pathKeys = paths && typeof paths === 'object' ? Object.keys(paths) : []
+      let operations = 0
+      for (const key of pathKeys) {
+        const item = paths?.[key]
+        if (item && typeof item === 'object') {
+          for (const method of Object.keys(item)) {
+            if (OPENAPI_METHODS.has(method.toLowerCase())) operations++
+          }
+        }
+      }
+      return {
+        ...common,
+        format: 'openapi',
+        schemaVersion: openapiVersion,
+        pathsCount: pathKeys.length,
+        operationsCount: operations,
+      }
+    }
+
     const channels = (doc.channels as Record<string, any>) || undefined
     const servers = (doc.servers as Record<string, any>) || undefined
     return {
-      apiVersion: typeof info.version === 'string' ? info.version : undefined,
+      ...common,
+      format: 'asyncapi',
       schemaVersion: typeof doc.asyncapi === 'string' ? doc.asyncapi : undefined,
-      description: typeof info.description === 'string'
-        ? truncate(info.description, 180)
-        : undefined,
-      title: typeof info.title === 'string' ? info.title : undefined,
       channelsCount: channels && typeof channels === 'object' ? Object.keys(channels).length : undefined,
       serversCount: servers && typeof servers === 'object' ? Object.keys(servers).length : undefined,
     }
@@ -285,11 +402,16 @@ async function loadDocuments(isRefresh = false): Promise<void> {
       .map((entry: any) => {
         const v = entry.value as (AsyncApiDoc & { diagramType?: string }) | undefined
         if (!v) return null
-        // Case-insensitive match: stored data spans 'AsyncAPI' (current
-        // enum), 'AsyncApi' (older intermediate builds), and 'asyncapi'
-        // (potential future). Match any 'async*' diagramType.
+        // Dual-format dashboard: keep AsyncAPI ('async*' — the enum is
+        // 'AsyncAPI'; older builds used 'AsyncApi'; a future one might use
+        // 'asyncapi') AND OpenAPI/Swagger ('openapi'/'swagger'). Both are stored
+        // under the same async-api-doc custom-content type, so
+        // searchCustomContent returns them together — anything else
+        // (sequence/graph/embed) is dropped.
         const dt = typeof v.diagramType === 'string' ? v.diagramType.toLowerCase() : ''
-        if (!dt.startsWith('async')) return null
+        const isOpenApi = dt === 'openapi' || dt === 'swagger'
+        if (!dt.startsWith('async') && !isOpenApi) return null
+        const format: 'asyncapi' | 'openapi' = isOpenApi ? 'openapi' : 'asyncapi'
 
         const parsed = parseSpec(v.code)
         const id = String(entry.id ?? v.id ?? Math.random())
@@ -302,7 +424,8 @@ async function loadDocuments(isRefresh = false): Promise<void> {
         // but the top-level title doesn't). Reading from parsed.title
         // first means the dashboard card surfaces the user-chosen name
         // immediately, regardless of whether the title write race-loses.
-        const title = parsed.title || entry.title || v.title || 'Untitled AsyncAPI'
+        const title = parsed.title || entry.title || v.title
+          || (format === 'openapi' ? 'Untitled OpenAPI' : 'Untitled AsyncAPI')
         // Status precedence: the body's `status` field is the source of
         // truth for archived/trashed (Archive sets it via PUT — see
         // confirmDelete). Fall back to the v2 record's top-level
@@ -318,6 +441,7 @@ async function loadDocuments(isRefresh = false): Promise<void> {
         return {
           id,
           contentId: String(entry.id ?? ''),
+          format,
           title,
           displayTitle: title,
           description: parsed.description || (v as any).description,
@@ -326,6 +450,8 @@ async function loadDocuments(isRefresh = false): Promise<void> {
           schemaVersion: parsed.schemaVersion,
           channelsCount: parsed.channelsCount,
           serversCount: parsed.serversCount,
+          pathsCount: parsed.pathsCount,
+          operationsCount: parsed.operationsCount,
           rev: (entry.version && (entry.version.number as number)) || undefined,
           status,
           createdAt,
@@ -391,6 +517,9 @@ const filteredDocs = computed(() => {
       return status === 'current' ? s === 'current' : s === 'archived' || s === 'trashed'
     })
   }
+  if (formatFilter.value !== 'all') {
+    list = list.filter((d) => (d.format || 'asyncapi') === formatFilter.value)
+  }
   if (term) {
     // Title + description only (NOT the raw spec body) — see docMatchesSearch.
     list = list.filter((d) => docMatchesSearch(d, term))
@@ -425,7 +554,16 @@ async function refresh() {
   await loadDocuments(true)
 }
 
-async function createNew() {
+async function createNew(format: 'asyncapi' | 'openapi' = 'asyncapi') {
+  createMenuOpen.value = false
+  // Funnel entry: which format the user chose from the split-button menu. The
+  // editor then emits its own macro_create_started/succeeded with this macro_type.
+  trackAnalyticsEvent('dashboard_create_selected', {
+    feature_area: 'confluence',
+    surface: 'dashboard',
+    macro_type: format,
+    operation_mode: 'create',
+  })
   try {
     await openModal({
       resource: 'main',
@@ -437,7 +575,7 @@ async function createNew() {
       size: 'fullscreen',
       context: {
         macroMode: 'editor',
-        diagramType: 'asyncapi',
+        diagramType: format,
       },
       onClose: async () => {
         showIndexingNotice()
@@ -462,7 +600,7 @@ async function openView(doc: AsyncApiDoc) {
       size: 'fullscreen',
       context: {
         macroMode: 'viewer',
-        diagramType: 'asyncapi',
+        diagramType: doc.format || 'asyncapi',
         customContentId: doc.contentId,
       },
       onClose: (payload: { action?: string } | undefined) => {
@@ -491,7 +629,7 @@ async function openEdit(doc: AsyncApiDoc) {
       size: 'fullscreen',
       context: {
         macroMode: 'editor',
-        diagramType: 'asyncapi',
+        diagramType: doc.format || 'asyncapi',
         customContentId: doc.contentId,
       },
       onClose: async () => {
@@ -902,4 +1040,104 @@ onUnmounted(() => {
   align-items: center;
 }
 .card-actions-spacer { flex: 1; }
+
+/* --- Dual-format dashboard: format tabs, Create split-menu, format badges --- */
+.create-split {
+  position: relative;
+  display: inline-flex;
+}
+.create-split-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.create-caret {
+  font-size: 10px;
+  opacity: 0.9;
+}
+.create-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 220px;
+  background: #fff;
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(9, 30, 66, 0.15);
+  padding: 4px;
+  z-index: 20;
+}
+.create-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  font-size: 14px;
+  color: #172b4d;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+.create-menu-item:hover { background: #f4f5f7; }
+.fmt-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.fmt-dot--asyncapi { background: #36b37e; }
+.fmt-dot--openapi { background: #ff8b00; }
+
+.dash-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: #f4f5f7;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+.dash-tab {
+  border: none;
+  background: transparent;
+  padding: 6px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  color: #42526e;
+  cursor: pointer;
+  font-family: inherit;
+}
+.dash-tab:hover { color: #172b4d; }
+.dash-tab--active {
+  background: #fff;
+  color: #0052cc;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.1);
+}
+
+.card-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.fmt-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.fmt-badge--asyncapi {
+  background: #e3fcef;
+  color: #006644;
+}
+.fmt-badge--openapi {
+  background: #fff7e5;
+  color: #974f00;
+}
 </style>

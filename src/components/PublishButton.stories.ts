@@ -25,6 +25,10 @@ const meta: Meta<typeof PublishButton> = {
       control: 'boolean',
       description: 'When true the button is greyed out and non-interactive',
     },
+    loading: {
+      control: 'boolean',
+      description: 'When true the button shows a spinner + "Publishing…" and is disabled while the save is in flight',
+    },
   },
 }
 
@@ -44,22 +48,17 @@ export const Idle: Story = {
   }),
 }
 
-/** Saving — button is disabled while the save request is in flight. */
-export const Saving: Story = {
+/** Publishing — spinner + "Publishing…" label, disabled while the save is in flight. */
+export const Publishing: Story = {
   args: {
-    disabled: true,
+    loading: true,
   },
   render: (args: Args) => ({
     components: { PublishButton },
     setup() {
       return { args }
     },
-    template: `
-      <div style="display: flex; align-items: center; gap: 12px;">
-        <PublishButton v-bind="args" />
-        <span style="font-size: 12px; color: #6b7280;">Saving…</span>
-      </div>
-    `,
+    template: '<PublishButton v-bind="args" />',
   }),
 }
 

@@ -180,7 +180,7 @@ jobs:
   staging-asyncapi:
     # Default-branch-only after asyncapi lands on main (matches staging-full /
     # staging-diagramly). While the asyncapi feature work is still on its own
-    # PR branch (claude/asyncapi-pr3-viewer-save), also fire there so the team
+    # PR branch (feat/dashboard-dual-format), also fire there so the team
     # can validate end-to-end against asyncapi-stg.atlassian.net before merge.
     # Drop the second clause once this PR merges to main.
     #
@@ -195,8 +195,8 @@ jobs:
     # project when one is stood up.
     if: |
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
-      github.head_ref == 'claude/asyncapi-pr3-viewer-save' ||
-      github.ref_name == 'claude/asyncapi-pr3-viewer-save'
+      github.head_ref == 'feat/dashboard-dual-format' ||
+      github.ref_name == 'feat/dashboard-dual-format'
     name: "Deploy: AsyncAPI"
     uses: ./.github/workflows/staging-deploy.yml
     with:
@@ -213,8 +213,8 @@ jobs:
     # (matches staging-lite-e2e behaviour).
     if: |
       (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
-       github.head_ref == 'claude/asyncapi-pr3-viewer-save' ||
-       github.ref_name == 'claude/asyncapi-pr3-viewer-save')
+       github.head_ref == 'feat/dashboard-dual-format' ||
+       github.ref_name == 'feat/dashboard-dual-format')
       && !(github.event_name == 'pull_request' && github.event.pull_request.draft == true)
     needs: [staging-asyncapi, build]
     name: "E2E: AsyncAPI"

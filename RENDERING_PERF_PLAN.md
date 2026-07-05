@@ -16,13 +16,14 @@ Companion design: `RENDERING_PERF_DESIGN.md` (timer placement + pre-analyzed can
 | openapi | 1,869ms | 6,035 | 19,262 | 868 | 6% |
 
 1. **Mermaid is the right target — by volume, not by per-view slowness.** Mermaid is 80% of all views
-   (`vin3s` alone = 32% of mermaid), so it owns most of the *aggregate* user-wait. But per view it's the
+   (`example-tenant-a` alone = 32% of mermaid; real name: see private/ client profiles), so it owns most of the *aggregate* user-wait. But per view it's the
    2nd-*fastest* type: sequence (4.8s) and plantuml (3.5s) are slower. We optimize mermaid because it's
    where the traffic is.
 2. **The p99 "40s" headline is mostly artifact — do not chase it.** plantuml p99 = 424,637ms (7 min);
-   the slowest tenant medians are all 1–6-view tenants (`arcadisintel` 49s/4 views). That's tab-backgrounded
+   the slowest tenant medians are all 1–6-view tenants (`example-tenant-f` 49s/4 views). That's tab-backgrounded
    timer throttling + tiny-sample noise. The real, broad signal is **p50 ≈ 2.5s**, shared by nearly every
-   high-volume tenant (`vin3s` 2.9s, `colesgroup` 2.5s, `airwallex` 1.8s) → it's the **common code path**,
+   high-volume tenant (`example-tenant-a` 2.9s, `example-tenant-d` 2.5s, `example-tenant-e` 1.8s; real names: see
+   private/ client profiles) → it's the **common code path**,
    not tenant-specific big diagrams.
 3. **We cannot see where the 2.5s goes.** `trackRenderTime` emits only `duration_ms`. The sole phase
    breakdown we have is the POC, on **one synthetic diagram**: content_fetch ~50%, context_init ~30%,

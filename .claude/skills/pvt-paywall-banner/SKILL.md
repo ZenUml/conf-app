@@ -44,8 +44,7 @@ tunnel → `lite-dev.atlassian.net` work too for pre-release checks.
   localStorage mocks".
 - **Playwright only** — Forge Custom UI renders in cross-origin iframes; use `frameLocator()` /
   `contentFrame()`. `claude-in-chrome` / `chrome-devtools-mcp` / `browser-use` cannot cross the
-  boundary (CLAUDE.md § Browser automation). Acquire the session lock first:
-  `bash scripts/pw-lock.sh acquire`.
+  boundary (CLAUDE.md § Browser automation).
 
 ## How the banner is driven (the cross-load signal)
 
@@ -113,7 +112,7 @@ Run each; screenshot after the key assertion. Clear markers/mocks between scenar
 
 ## Mixpanel (project_id 3373228)
 
-All banner events carry **`surface: page_banner`**. Verify via `mcp__mixpanel__Run-Query`:
+All banner events carry **`surface: page_banner`**. Verify via `mcp__claude_ai_Mixpanel__Run-Query`:
 
 | Event | Fires on |
 |---|---|
@@ -127,7 +126,7 @@ All banner events carry **`surface: page_banner`**. Verify via `mcp__mixpanel__R
 
 Remove injected mocks/markers (`mockMacroCount`, `mockSpacePaid`, `mockCSSEnabled`,
 `paywallWarning:*`, `paywallBanner:*`, `csatPending*`) from the Forge-iframe localStorage and
-reload. Release the lock: `bash scripts/pw-lock.sh release`.
+reload.
 
 ## Related
 

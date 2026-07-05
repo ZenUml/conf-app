@@ -21,7 +21,7 @@ Run a quick health check by querying Mixpanel for key event volumes across multi
 > Canonical Mixpanel reference (project, event names + the 2026-04 rename, internal filter, isForge/product_type, MCP-vs-JQL): the **mixpanel** skill. The facts repeated below are just the ones this health check needs inline.
 
 - **Project ID**: `3373228` (ZenUML)
-- **Internal sites to exclude**: all `zenuml*` domains, all `whimet*` domains, `diagramly`, `dia-stg`, `lite-stg`, `full-stg`, `lite-dev` (always filter these out). The three `*-stg`/`*-dev` staging sites matter: CI/E2E runs (and `/release-app` pipelines) render macros on `lite-stg`/`full-stg`, which inflate activity totals by a few hundred/day on busy build days if not excluded.
+- **Internal sites to exclude**: the canonical exclude list lives in `.claude/skills/mixpanel/SKILL.md` — read it, never inline a copy. The staging sites in that list matter: CI/E2E runs (and `/release-app` pipelines) render macros on `lite-stg`/`full-stg`, which inflate activity totals by a few hundred/day on busy build days if not excluded.
 
 ## Key Events
 
@@ -44,21 +44,11 @@ Run a quick health check by querying Mixpanel for key event volumes across multi
 
 ## Execution Steps
 
-Run these queries using `mcp__mixpanel__Run-Query` with `project_id: 3373228`. All queries should filter out internal sites using a global filter on `client_domain`.
+Run these queries using `mcp__claude_ai_Mixpanel__Run-Query` with `project_id: 3373228`. All queries should filter out internal sites using a global filter on `client_domain`.
 
 ### Global filter (apply to every query)
 
-```json
-{"type": "string", "propertyName": "client_domain", "operator": "does not contain", "value": "zenuml"},
-{"type": "string", "propertyName": "client_domain", "operator": "does not contain", "value": "whimet"},
-{"type": "string", "propertyName": "client_domain", "operator": "does not equal", "value": "diagramly"},
-{"type": "string", "propertyName": "client_domain", "operator": "does not equal", "value": "dia-stg"},
-{"type": "string", "propertyName": "client_domain", "operator": "does not equal", "value": "lite-stg"},
-{"type": "string", "propertyName": "client_domain", "operator": "does not equal", "value": "full-stg"},
-{"type": "string", "propertyName": "client_domain", "operator": "does not equal", "value": "lite-dev"}
-```
-
-> **Note:** `does not contain` covers all `zenuml*` variants (zenuml, zenuml-stg, zenuml-connect, etc.) and all `whimet*` variants in one filter. No customer domain contains "zenuml" or "whimet" as a substring.
+The canonical internal-domain exclude list lives in `.claude/skills/mixpanel/SKILL.md` § "Excluding internal / staging sites" — **read it, never inline a copy** (past inline copies here drifted and under-excluded). Build one `client_domain` filter clause per entry: `does not contain` for the prefix-style entries, `does not equal` for the exact names. On MCP Run-Query the single computed filter `is_internal_client_domain = false` is the equivalent one-liner.
 
 ### Query 1: Today hourly — activity events
 
@@ -225,7 +215,7 @@ For 1d and 1w comparisons, follow the same current+previous pattern as queries 2
 ## Health Check Plan
 
 Checking ZenUML Confluence app health via Mixpanel (project 3373228).
-Excluding internal sites: zenuml* (all variants), whimet* (all variants), diagramly, dia-stg, lite-stg, full-stg, lite-dev.
+Excluding internal sites per the canonical exclude list in the mixpanel skill (`.claude/skills/mixpanel/SKILL.md`).
 Note: querying both legacy and canonical event names (migration deployed 2026-04-27; legacy confirmed zero as of 2026-05-05).
 
 **Queries to run** (10 in parallel):

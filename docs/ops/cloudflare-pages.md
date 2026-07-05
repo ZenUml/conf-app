@@ -27,6 +27,10 @@ Pipe the secret so the value never appears in shell history or `ps`:
 printf 'your-secret-value' | npx wrangler pages secret put STRIPE_WEBHOOK_SECRET --project-name=conf-stg-lite
 ```
 
+## `wrangler pages publish` vs `wrangler pages deploy` (bindings)
+
+The npm scripts `wrangler:publish:stg` / `wrangler:publish:stg:lite` use the **deprecated** `wrangler pages publish dist --project-name X` form, which **ignores `wrangler.toml`** for KV/D1/R2 binding configuration — bindings come from the Cloudflare Pages project dashboard. The newer `wrangler pages deploy dist --project-name X` form **does** read bindings from `wrangler.toml`. When adding a new KV/D1/R2 binding, either add it in the Pages dashboard or deploy with `wrangler pages deploy` and a generated `wrangler.toml` — `pnpm wrangler:publish:stg:lite` alone will not pick it up.
+
 ## Route allowlist
 
 New function paths must be added to `public/_routes.json` `include` array — otherwise Cloudflare Pages serves the path as static SPA HTML (200 `text/html`) instead of invoking the function.

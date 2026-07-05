@@ -5,7 +5,7 @@ description: Drive the ZenUML Graph (DrawIO) macro through any entry point — s
 
 # Graph (DrawIO) macro — MCP-driven spot-check playbook
 
-A single, MCP-readable playbook that takes you from "Confluence page open in Chrome" to "Graph macro inserted or edited, Publish attempted, outcome classified." Avoids re-deriving the Forge → DrawIO iframe chain, the slash-menu keystroke trap, the paywall placement, and the silent persistence-layer block — each is captured inline below with a code citation so you can trust the why, not just the what.
+A single, MCP-readable playbook that takes you from "Confluence page open in Chrome" to "Graph macro inserted or edited, Publish attempted, outcome classified." Avoids re-deriving the Forge → DrawIO iframe chain, the slash-menu keystroke trap, the paywall placement, and the metered continue-attempts semantics — each is captured inline below with a code citation so you can trust the why, not just the what.
 
 ## When to use this skill vs an adjacent one
 
@@ -145,7 +145,7 @@ The paywall fires at editor **entry**, not at Publish. Handle it before drilling
    - Wait for `[data-testid="continue-editing-btn"]` to disappear.
 3. **If absent:** record `paywall_observed = no` and proceed.
 
-> **Why paywall belongs here, not at Publish:** `src/utils/paywall/mountPaywallGate.ts:121-165` (`tryPageEditorPaywall`) runs synchronously during the editor's mount path. `src/components/UpgradePrompt/PaywallGate.vue:7-17` documents that the editor mounts *underneath* the overlay: *"Save is gated by `shouldBlockActions` in the persistence layer, so the modal serves as the visible reminder — an editor mounted here cannot actually persist changes."* After dismissing "Continue editing", the DrawIO canvas is interactive — but a subsequent Publish click is silently dropped by the persistence layer. The modal does not close; no second paywall appears.
+> **Why paywall belongs here, not at Publish:** `src/utils/paywall/mountPaywallGate.ts` (`tryPageEditorPaywall`) runs synchronously during the editor's mount path — the gate is the **modal at editor entry**, never a save-time check. The Lite paywall is a **metered soft-paywall**: each "Continue editing without upgrading (N)" click decrements a localStorage counter (`DEFAULT_CONTINUE_ATTEMPTS = 15`, key `paywallContinueAttempts:<domain>:<space>:<user>`), and during that grace window **saves succeed by design** — `saveToPlatform` deliberately has no `shouldBlockActions` check. At N=0 the Continue button is replaced by the non-clickable "Request extension to continue editing" span (`[data-testid="continue-attempts-exhausted"]`), so the user never reaches the editor at all: blocking happens at the modal, not at Publish. If C0 finds that exhausted state instead of `continue-editing-btn`, record it and stop the run there — that is the intended lockout. (Some code comments still describe a persistence-layer save gate; that wording is misleading — ignore it. Canonical model: CLAUDE.md § "How the Lite paywall actually enforces".)
 
 > **Dismiss only via the button, not the backdrop.** Backdrop click fires `MODAL_DISMISSED` instead of `PAYWALL_CONTINUED_EDITING`, which would skew the continued-editing rate the team tracks.
 
@@ -193,9 +193,9 @@ Wait up to **15 s** for two things together:
 | Both happen within 15 s | `outcome = success` |
 | Timeout | `outcome = did-not-persist` |
 
-There is **no second paywall watcher** at this step — the paywall has already been observed (or not) in C0. If `outcome = did-not-persist` and `paywall_observed = yes`, the save was silently dropped by `shouldBlockActions` — that is the expected pattern on a paywalled Lite space, not a bug.
+There is **no second paywall watcher** at this step — the paywall has already been observed (or not) in C0, and it never gates the save itself. Once "Continue editing" was clicked in C0, the metered grace window applies and **the save is expected to persist — even on a paywalled Lite space**.
 
-If `outcome = did-not-persist` and `paywall_observed = no`, capture `mcp__playwright__browser_console_messages` for the report — this is a real failure.
+`outcome = did-not-persist` is therefore **always a real failure to investigate**, regardless of `paywall_observed`. Capture `mcp__playwright__browser_console_messages` for the report.
 
 ### C5 — Structured report
 
@@ -208,7 +208,7 @@ Timestamp injected:     edit-test YYYY-MM-DD HH:mm UTC
 Time to outcome:        <Ns>
 Paywall observed:       <yes | no>
   action_type:          <page_editor | page_editor_create>   (only if yes; fullscreen_viewer here = anomaly)
-Console errors (only if did-not-persist AND paywall_observed=no):
+Console errors (whenever outcome = did-not-persist — a non-persisting save is always a real failure):
   [<error 1>, <error 2>, …]
 ```
 
@@ -218,9 +218,10 @@ Console errors (only if did-not-persist AND paywall_observed=no):
 
 | Variant under test | Expected pattern |
 |---|---|
-| Lite (paywalled space) | `paywall_observed = yes` + `outcome = did-not-persist` |
+| Lite (paywalled space, Continue clicked in C0) | `paywall_observed = yes` + `outcome = success` — saves persist during the metered grace window **by design**; this is NOT a broken gate |
+| Lite (paywalled space, continue attempts exhausted, N=0) | Run stops at C0: the modal shows the non-clickable "Request extension to continue editing" (`continue-attempts-exhausted`) and the editor is unreachable. Blocking happens at the modal, never at save time. |
 | Lite (non-paywalled space) | `paywall_observed = no` + `outcome = success` |
 | Full / Diagramly | `paywall_observed = no` + `outcome = success` |
-| **Suspect — investigate** | `paywall_observed = yes` + `outcome = success` (save went through despite paywall — broken gate?), or `paywall_observed = no` + `outcome = did-not-persist` (real save failure with no paywall — read the console errors) |
+| **Suspect — investigate** | `outcome = did-not-persist` in ANY combination — a save that doesn't persist is never the expected paywall behaviour; read the console errors. Also investigate `paywall_observed = yes` on Full/Diagramly (paywall is Lite-only). |
 
 If `action_type = fullscreen_viewer` shows up in the report, that's also an anomaly — this skill only ever drives the editor surface, so the fullscreen-viewer paywall path should never be hit here.

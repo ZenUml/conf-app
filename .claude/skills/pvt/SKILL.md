@@ -21,7 +21,7 @@ Mermaid is used because it exercises the core render pipeline and is the most-us
 
 Usage: `/pvt [lite] [full] [diagramly]`
 
-- If no variant specified, run all three.
+- If no variant specified, infer the variant(s) from the release context/thread (the variant just published via `/release-app`); if genuinely ambiguous, ask which. Do not default to running all three.
 - Macro: always Mermaid.
 - Site: always production — never staging.
 

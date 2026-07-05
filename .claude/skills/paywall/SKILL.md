@@ -86,7 +86,7 @@ Output is a JSON object — `{"zenuml-stg":true,"tenant-a":true,...}` — keys a
 
 | Resource | Value |
 |----------|-------|
-| KV namespace | `fe9042cb20994651b0a2ef9e68f9037c` |
+| CSS flag KV namespace (`KV_FEATURE_FLAGS` — CSS flag only, NOT space licenses) | `fe9042cb20994651b0a2ef9e68f9037c` |
 | D1 production DB | `conf-zenuml-prod` |
 | metrics-inspect URL | `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>&addonKey=com.zenuml.confluence-addon-lite` |
 | Mixpanel project ID | `3373228` (full reference: the **mixpanel** skill) |
@@ -100,9 +100,9 @@ Output is a JSON object — `{"zenuml-stg":true,"tenant-a":true,...}` — keys a
 
 Prefer `scripts/paywall_queries.py` over hand-built Mixpanel payloads. It centralises the segmentation query for every event in this skill so a filter-shape mistake can't silently substitute a global aggregate. It pulls the API secret from `.env.mixpanel` and prints `{event: {breakdown: count}}` as JSON.
 
-> **CORRUPTION GUARD — empty `__unique` maps mean the WHOLE run is bad.** Observed 2026-06-03, 2026-06-04, 2026-06-10: `daily` returned `{}` for every `__unique` key while totals were silently undercounted 10–30× (e.g. vin3s triggered 3 vs actual 91). Root cause (found 2026-06-10): `date_range()` used local-time `dt.date.today()` — in an AEST morning that date hasn't started in the Mixpanel project timezone, so the script queried a near-future day. Fixed in the script (project-tz-safe window), but keep the tripwire: **if any `__unique` map comes back empty, discard ALL script output from that run (`daily` AND `per-space-all`) and re-pull via MCP Insights.** `ab-metrics --window-days 7` only loses a leading sliver and has stayed reliable.
+> **CORRUPTION GUARD — empty `__unique` maps mean the WHOLE run is bad.** Observed 2026-06-03, 2026-06-04, 2026-06-10: `daily` returned `{}` for every `__unique` key while totals were silently undercounted 10–30× (e.g. `example-tenant-a` triggered 3 vs actual 91 — real name: see private/ client profiles). Root cause (found 2026-06-10): `date_range()` used local-time `dt.date.today()` — in an AEST morning that date hasn't started in the Mixpanel project timezone, so the script queried a near-future day. Fixed in the script (project-tz-safe window), but keep the tripwire: **if any `__unique` map comes back empty, discard ALL script output from that run (`daily` AND `per-space-all`) and re-pull via MCP Insights.** `ab-metrics --window-days 7` only loses a leading sliver and has stayed reliable.
 >
-> **CORRUPTION GUARD #2 — `__unique` > total is impossible; the `__unique` map is the bad one (NOT the totals).** Observed 2026-06-22: `daily` totals were correct (paywall_triggered vin3s=3, zeptonow=2, MCP-confirmed) but the `__unique` maps were **inflated** — reported `paywall_triggered__unique` vin3s=17, linemanwongnai=6, zeptonow=5, etc. (32 "unique users" against 5 total events). The JQL `__unique` sub-query appears to span a wider-than-today window in this failure mode (opposite of guard #1, where totals undercount and uniques empty). **Tripwire: for any event, if a domain's `__unique` value exceeds its total, the whole `__unique` set is untrustworthy this run — keep the totals, but re-pull the unique counts via MCP Insights** (math:`unique`, breakdown `client_domain`, last 1 day). Totals + per-space (which carry no unique) stay usable.
+> **CORRUPTION GUARD #2 — `__unique` > total is impossible; the `__unique` map is the bad one (NOT the totals).** Observed 2026-06-22: `daily` totals were correct (paywall_triggered `example-tenant-a`=3, `example-tenant-b`=2, MCP-confirmed) but the `__unique` maps were **inflated** — reported `paywall_triggered__unique` `example-tenant-a`=17, `example-tenant-c`=6, `example-tenant-b`=5, etc. (32 "unique users" against 5 total events; real names: see private/ client profiles). The JQL `__unique` sub-query appears to span a wider-than-today window in this failure mode (opposite of guard #1, where totals undercount and uniques empty). **Tripwire: for any event, if a domain's `__unique` value exceeds its total, the whole `__unique` set is untrustworthy this run — keep the totals, but re-pull the unique counts via MCP Insights** (math:`unique`, breakdown `client_domain`, last 1 day). Totals + per-space (which carry no unique) stay usable.
 
 ```bash
 # Q1 + Q3–Q4 in one call (paywall_triggered, advocacy_message_copied,
@@ -135,7 +135,7 @@ python3 .claude/skills/paywall/scripts/paywall_queries.py daily --window-days 7
 
 The legacy MCP-based approach below is preserved for the cases where the script can't run (`.env.mixpanel` missing, no network, or you need a chart format the script doesn't produce). In those cases use `mcp__claude_ai_Mixpanel__Run-Query` with project_id=3373228, last 1 day, chartType=table, breakdown by `client_domain`. The query reference below documents each event's purpose — read those notes regardless of execution path, since they tell you what each metric *means*.
 
-> **Server name matters (MCP fallback).** The `mcp__mixpanel__Run-Query` variant rejects the `report` parameter as a string in some sessions (`Input should be a valid dictionary`). Use the `mcp__claude_ai_Mixpanel__` namespace consistently — it accepts the same payload reliably.
+> **Server name matters (MCP fallback).** Use the `mcp__claude_ai_Mixpanel__` tool namespace consistently — the older, deprecated Mixpanel MCP server rejected the `report` parameter as a string in some sessions (`Input should be a valid dictionary`); the claude.ai namespace accepts the same payload reliably.
 
 **Correct breakdown schema (MCP fallback)** (the schema evolves — if validation fails, call `Get-Query-Schema(report_type: 'insights')` first):
 ```json
@@ -279,7 +279,7 @@ AND createdAt >= date('now', '-30 days')
 GROUP BY clientDomain, action"
 
 # 4. Recent macro activity — Mixpanel only (run per domain, parallelise)
-# mcp__mixpanel__Run-Query: event=macro_viewed, filter client_domain equals <domain>,
+# mcp__claude_ai_Mixpanel__Run-Query: event=macro_viewed, filter client_domain equals <domain>,
 # measurement unique users, last 30 days, chartType=table
 # DO NOT use D1 UserBehaviorEvent/DailyBehaviorCounter — those track all Confluence page views, not macro views
 ```
@@ -456,7 +456,9 @@ Paywall conversion has **two rails**, each with its own source of truth. Check b
 | Rail | Buyer path | Source of truth |
 |------|-----------|-----------------|
 | 1. Marketplace plan | admin switches tenant Lite → paid Full SKU (per-user billing via Atlassian) | Marketplace license report: `https://marketplace.atlassian.com/manage/vendors/1215266/reporting/licenses` |
-| 2. Enterprise Bundle | direct Stripe payment ($299/space/yr, no admin needed), manual KV activation | KV `license:*` keys in namespace `fe9042cb20994651b0a2ef9e68f9037c` (`npx wrangler kv key list --namespace-id fe9042cb20994651b0a2ef9e68f9037c --remote`) |
+| 2. Enterprise Bundle | direct Stripe payment ($299/space/yr, no admin needed), manual KV activation | KV `license:*` keys in **SPACE_LICENSE_KV**, prod namespace `8969e8528105403bb2d9adca9fc16567` (`npx wrangler kv key list --namespace-id 8969e8528105403bb2d9adca9fc16567 --remote`) — **not** the CSS/feature-flags namespace `fe9042cb…`, which never holds `license:*` keys |
+
+> **Rail 2 caveats.** (a) The canonical home of the SPACE_LICENSE_KV namespace id is `.claude/skills/extend-space-license/SKILL.md` — read it there rather than trusting a copy. (b) A raw `license:*` key count **over-counts conversions**: test grants and temporary editing extensions (granted via the extend-space-license skill) live in the same namespace. `kv key get` each record and filter by its `status` / `activatedBy` fields before counting a key as a paid conversion.
 
 **Rail 1 — Marketplace report.** The page needs a vendor-account login, so use the user's browser session (claude-in-chrome works — it's a normal page, no Forge iframe). Don't scrape the UI table; hit the same-origin REST API from the page context and **aggregate in-page** (the extension's DLP filter blocks raw response bodies as credential-like data):
 
@@ -471,7 +473,7 @@ fetch('/rest/2/vendors/1215266/reporting/licenses?limit=200&dateType=start&start
 - Match `cloudSiteHostname` against the CSS tenant list to attribute a conversion to the paywall. Return hostnames with `.` escaped (e.g. `foo[.]atlassian[.]net`) or the DLP filter may redact them.
 - Useful params: `dateType=start|end|update`, `offset` for pagination (50/page unfiltered), `order` is NOT a valid param (400).
 
-**Baseline (2026-06-10, 6 weeks of paywall):** zero conversions from paywalled tenants on either rail — 0 COMMERCIAL/EVALUATION from the CSS cohort on rail 1 (only 2 unrelated 1-user organic licenses project-wide), 0 `license:*` keys on rail 2, 0 service-desk extension tickets despite 44 in-product extension clicks. The funnel dies before reaching anyone with budget; track this check weekly alongside the A/B run.
+**Baseline (2026-06-10, 6 weeks of paywall):** zero conversions from paywalled tenants on either rail — 0 COMMERCIAL/EVALUATION from the CSS cohort on rail 1 (only 2 unrelated 1-user organic licenses project-wide), 0 `license:*` keys on rail 2 (note: that count was read from the wrong namespace — the KV_FEATURE_FLAGS id — before the 2026-07-05 fix above; re-derive from SPACE_LICENSE_KV with the status/activatedBy filter before reusing it), 0 service-desk extension tickets despite 44 in-product extension clicks. The funnel dies before reaching anyone with budget; track this check weekly alongside the A/B run.
 
 ---
 

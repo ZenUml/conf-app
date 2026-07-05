@@ -89,7 +89,7 @@ pos  module                       customContentId  title                        
 
 | Flag | Notes |
 |---|---|
-| `--site` (required) | `lite-dev`, `lite-stg`, `zenuml-stg`, `zenuml`, or a hostname (`gip-onshore` → `gip-onshore.atlassian.net`). On unknown hosts the call usually 404s — fall back to A1. |
+| `--site` (required) | `lite-dev`, `lite-stg`, `zenuml-stg`, `zenuml`, or a hostname (`example-tenant-h` → `example-tenant-h.atlassian.net`). On unknown hosts the call usually 404s — fall back to A1. |
 | `--page` (required) | Page ID (digits in `/pages/<id>/...`). |
 | `--json` | JSON output instead of the table. |
 | `--include-orphans` | Also list custom content owned by the page but unreferenced in its ADF body. |

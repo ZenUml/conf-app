@@ -30,7 +30,7 @@ Usage: `/metrics <domain> [space]`
 
 Append `/admin/metrics-inspect?domain=<domain>&space=<space>` to the base URL.
 
-For lite products, add `&addonKey=zenuml-lite` to the query string.
+For the lite product, always add `&addonKey=com.zenuml.confluence-addon-lite` to the query string — this selects the Lite KV bucket (the endpoint keys off the addonKey containing `-lite`). Omitting it reads the Full bucket, whose counts diverge badly from Lite. For the full product, omit `addonKey`.
 
 Note: use curl (not WebFetch's follow-through summarization) to get the raw JSON, e.g.
 `curl -s "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>"`
@@ -41,7 +41,7 @@ Note: use curl (not WebFetch's follow-through summarization) to get the raw JSON
 2. Call the inspect endpoint using `WebFetch`:
    - If space is provided: `GET <base>/admin/metrics-inspect?domain=<domain>&space=<space>`
    - If space is omitted: `GET <base>/admin/metrics-inspect?domain=<domain>`
-3. If the user did not specify an environment, try production (full) first.
+3. If the user did not specify an environment/variant, determine the variant first — ask, or check which app the tenant has installed (e.g. `forge-installs` skill, or Mixpanel `product_type`) — then use the matching base URL and addonKey. Do not default to Full: Full and Lite read different KV buckets and their counts diverge.
 
 ## Output Format
 

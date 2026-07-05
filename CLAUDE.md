@@ -15,13 +15,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Project overview
 
-This is a ZenUML Confluence Cloud Add-on (Forge app) that provides diagramming capabilities for Confluence users. The `DiagramType` enum (`src/model/Diagram/Diagram.ts`) defines six user-facing diagram types (`Unknown` is only a sentinel fallback):
+This is a ZenUML Confluence Cloud Add-on (Forge app) that provides diagramming capabilities for Confluence users. The `DiagramType` enum (`src/model/Diagram/Diagram.ts`) defines seven user-facing diagram types (`Unknown` is only a sentinel fallback):
 
 - **Sequence** — ZenUML sequence diagrams (the namesake renderer)
 - **Mermaid** — multi-purpose Mermaid renderer
 - **PlantUml** — multi-purpose PlantUML renderer
 - **Graph** — DrawIO-powered graph diagrams
 - **OpenApi** — OpenAPI/Swagger specifications via swagger-ui
+- **AsyncApi** — AsyncAPI specifications via the bundled AsyncAPI Studio build (`vendor/asyncapi-studio` submodule). Ships **only** in the asyncapi variant — the `zenuml-asyncapi-*` macros and `async-api-doc` custom content are stripped from lite/full/diagramly manifests (see `manifest.yml` comments and `.github/workflows/release.yml`)
 - **Embed** — embeds an existing diagram, graph, or API spec
 
 The project is built as a full-stack application with:
@@ -33,11 +34,12 @@ The project is built as a full-stack application with:
 
 ### Product variants
 
-The add-on comes in three variants:
+The add-on comes in four variants:
 
 - **Full Version** (`PRODUCT_TYPE=full`) — All features enabled
 - **Lite Version** (`PRODUCT_TYPE=lite`) — Reduced feature set (free)
 - **Diagramly** (`PRODUCT_TYPE=diagramly`) — Diagramly-branded variant
+- **AsyncAPI** (`PRODUCT_TYPE=asyncapi`) — single-purpose "AsyncAPI for Confluence" variant with its own Forge app identity (`APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6`, macro key `zenuml-asyncapi-macro`, custom content `async-api-doc` — see the `forge:*:asyncapi:*` scripts in `package.json`). Build: `pnpm build:asyncapi` (runs `build:studio` first). Staging site `asyncapi-stg.atlassian.net`; backend shares the Lite Cloudflare Pages project (`conf-stg-lite` staging / `conf-lite` prod per `release.yml`), with prod `BACKEND_API_BASE_URL=https://zenapi.zenuml.com`
 
 ### The Handbook (internal team site)
 
@@ -61,7 +63,7 @@ Before writing code for any new feature, define the analytics events first. For 
 
 ### Pure Forge — no Connect code
 
-All three variants (lite, full, diagramly) are **Forge-only** in production. The Connect runtime is fully removed.
+All four variants (lite, full, diagramly, asyncapi) are **Forge-only** in production. The Connect runtime is fully removed.
 
 **Only exception:** `manifest.yml` must keep the `app.connect` / Connect key / modules entries — Atlassian's Forge-from-Connect migration requires these to stay so that upgrade paths from legacy Connect installs still work. Don't remove those.
 

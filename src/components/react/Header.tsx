@@ -21,8 +21,23 @@ interface Props {
 const Component = ({ saveAndExit, exit }: Props) => {
   const [title, setTitle] = useState("");
   const [parseError, setParseError] = useState<Error | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const originalSpec = useRef<string | null>(null);
   const onRestoreRef = useRef<((p: any) => void) | null>(null);
+  const savingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Show the spinner immediately on Publish — the async save chain
+  // (saveToPlatform → view.submit) takes seconds with no other feedback, and
+  // the button would otherwise stay clickable (double-fire). Cleared on the
+  // `saved`/`save-error` events below.
+  const handleSaveAndExit = () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    if (savingTimeoutRef.current) clearTimeout(savingTimeoutRef.current);
+    // Safety net so an unexpected hang can't strand the spinner.
+    savingTimeoutRef.current = setTimeout(() => setIsSaving(false), 20000);
+    saveAndExit();
+  };
 
   // Persist drafts (per keystroke + on close) so accidental Atlassian-X close
   // can be recovered on next open. See src/utils/closeGuard.ts for why we
@@ -47,6 +62,15 @@ const Component = ({ saveAndExit, exit }: Props) => {
 
     let closeGuardOff: (() => void) | null = null;
     let onSaved: ((id: string) => void) | null = null;
+    let onSaveError: (() => void) | null = null;
+
+    const resetSaving = () => {
+      setIsSaving(false);
+      if (savingTimeoutRef.current) {
+        clearTimeout(savingTimeoutRef.current);
+        savingTimeoutRef.current = null;
+      }
+    };
 
     (async () => {
       await primeCloudId();
@@ -84,9 +108,14 @@ const Component = ({ saveAndExit, exit }: Props) => {
         }
       });
 
-      // Clear draft after a successful publish.
-      onSaved = () => clearDraft(scope);
+      // Clear draft + release the Publish button after a successful publish.
+      onSaved = () => { resetSaving(); clearDraft(scope); };
       EventBus.$on('saved', onSaved);
+
+      // Release the Publish button when a save fails — the editor stays open
+      // for retry (see forge-swagger-editor.ts), so the spinner must clear.
+      onSaveError = () => resetSaving();
+      EventBus.$on('save-error', onSaveError);
 
       // Restore handler: push the draft spec into Swagger UI.
       const onRestore = (payload: any) => {
@@ -113,7 +142,9 @@ const Component = ({ saveAndExit, exit }: Props) => {
       }
       saver.flush();
       closeGuardOff?.();
+      if (savingTimeoutRef.current) clearTimeout(savingTimeoutRef.current);
       if (onSaved) EventBus.$off('saved', onSaved);
+      if (onSaveError) EventBus.$off('save-error', onSaveError);
       if (onRestoreRef.current) EventBus.$off('draft-restore', onRestoreRef.current);
     };
   }, []);
@@ -232,7 +263,7 @@ const Component = ({ saveAndExit, exit }: Props) => {
           <span>Help</span>
         </button>
         <div className="inline-block ml-2">
-          <PublishButton saveAndExit={saveAndExit} disabled={!title} />
+          <PublishButton saveAndExit={handleSaveAndExit} disabled={!title} loading={isSaving} />
         </div>
       </div>
     </header>

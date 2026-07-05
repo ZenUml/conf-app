@@ -82,6 +82,8 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
       EventBus.$emit('saved', selectedCustomContentId);
     } catch (error) {
       console.error('view.submit failed after embed save', error);
+      // Dialog didn't close — release the Publish button (DocumentList.vue).
+      EventBus.$emit('save-error', error);
       trackEvent('save_failed', 'view_submit_failed', 'error', {
         error_message: String((error as any)?.message || error).substring(0, 500),
         selected_custom_content_id: selectedCustomContentId,

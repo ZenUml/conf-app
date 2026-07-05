@@ -22,7 +22,8 @@
       <div class="relative group/save">
         <publish-button
           :saveAndExit="saveAndExit"
-          :disabled="isPublishDisabled" />
+          :disabled="isPublishDisabled"
+          :loading="isSaving" />
         <div class="absolute top-full right-0 pt-2 pointer-events-none opacity-0 transition-opacity duration-150"
           :class="isPublishDisabled ? 'group-hover/save:opacity-100' : ''">
           <div class="shadow-lg px-3 py-2 bg-gray-900 text-white text-xs rounded-md whitespace-nowrap">
@@ -63,7 +64,12 @@ export default {
     return {
       helpUrl: "https://zenuml.com/docs?utm_source=confluence-plugin&utm_medium=help-button&utm_campaign=confluence-plugin",
       originalCode: "",
-      diagramOptions: getEditorDiagramOptions()
+      diagramOptions: getEditorDiagramOptions(),
+      // Drives the Publish button's spinner + disabled state while the async
+      // save/publish chain (saveToPlatform → attachment upload → view.submit)
+      // is in flight. Without this the button sits inert for 2–8s with no
+      // feedback and stays clickable, so an impatient user can double-fire.
+      isSaving: false,
     };
   },
   computed: {
@@ -93,6 +99,8 @@ export default {
           EventBus.$emit("flash-title-error");
           return;
         }
+        if (this.isSaving) return; // guard against double-fire
+        this.startSaving();
         EventBus.$emit("save");
       };
     },
@@ -124,6 +132,20 @@ export default {
   },
   methods: {
     ...mapMutations(["updateDiagramType"]),
+    startSaving() {
+      this.isSaving = true;
+      // Safety net: if neither `saved` nor `save-error` comes back (e.g. an
+      // unexpected hang), release the button so the user isn't stranded on a
+      // spinner. Set comfortably above the worst-case happy path: saveToPlatform
+      // network time + the 8s save-time attachment cap + the 500ms writeback
+      // delay in forgeIndex.ts.
+      clearTimeout(this._savingTimeout);
+      this._savingTimeout = setTimeout(() => { this.isSaving = false; }, 20000);
+    },
+    stopSaving() {
+      this.isSaving = false;
+      clearTimeout(this._savingTimeout);
+    },
     async templateClick() {
       trackEvent("template", "click", this.diagramType);
       if (this.templateUrl) {
@@ -197,9 +219,19 @@ export default {
       }
     });
 
-    // Clear draft on successful publish.
-    this._onPublished = () => clearDraft(this._draftScope);
+    // Clear draft + release the Publish button on successful publish. (On the
+    // common path view.submit tears the iframe down first, but the viewer-
+    // launched modal can stay open, so resetting here matters.)
+    this._onPublished = () => {
+      this.stopSaving();
+      clearDraft(this._draftScope);
+    };
     EventBus.$on('saved', this._onPublished);
+
+    // Release the Publish button when a save fails — forgeIndex.ts keeps the
+    // dialog open for retry, so without this the spinner would never clear.
+    this._onSaveError = () => this.stopSaving();
+    EventBus.$on('save-error', this._onSaveError);
 
     // Restore handler: load the draft into the store + clear it. Uses the
     // diagram-type-specific update action (sequence → updateCode2,
@@ -219,7 +251,9 @@ export default {
     this._closeGuardOff?.();
     this._draftSaver?.flush();
     this._unwatchDraft?.();
+    clearTimeout(this._savingTimeout);
     if (this._onPublished) EventBus.$off('saved', this._onPublished);
+    if (this._onSaveError) EventBus.$off('save-error', this._onSaveError);
     if (this._onRestore) EventBus.$off('draft-restore', this._onRestore);
   },
 };

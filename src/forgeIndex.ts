@@ -756,6 +756,9 @@ EventBus.$on('save', async () => {
     // content-property load failed. Surface a clear message that does NOT
     // suggest "retry" (retrying won't help; the user needs to refresh or
     // contact support).
+    // Release the Publish button's loading state — the dialog stays open for
+    // retry, so the spinner must be cleared (Header.vue listens for this).
+    EventBus.$emit('save-error', error);
     if (error instanceof LegacyLoadBlockedSaveError) {
       toast({
         message: 'Legacy diagram content failed to load — saving is disabled to prevent data loss. Please refresh the page or contact support.',
@@ -889,6 +892,8 @@ EventBus.$on('save', async () => {
       // The 'saved' event is intentionally NOT emitted here so the local
       // draft survives as a retry anchor.
       console.error('view.submit/close failed after save', error);
+      // The dialog didn't close — release the Publish button (Header.vue).
+      EventBus.$emit('save-error', error);
       trackEvent('save_failed', 'view_submit_failed', 'error', {
         error_message: String((error as any)?.message || error).substring(0, 500),
         new_custom_content_id: id,

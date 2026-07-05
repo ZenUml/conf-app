@@ -28,7 +28,7 @@
         </div>
         <div class="w-80 flex-shrink-0 px-4 py-3 bg-white">
           <div class="flex items-center justify-end space-x-2">
-            <publish-button :save-and-exit="saveAndExit" />
+            <publish-button :save-and-exit="saveAndExit" :loading="isSaving" />
           </div>
         </div>
 
@@ -131,6 +131,10 @@ export default {
       previewComponentCache: {}, // Cache for loaded components
       sessionOriginalPickedId: null,
       closeGuardOff: null,
+      // Drives the Publish button spinner while the embed save (repoint macro
+      // → view.submit) is in flight, cleared on the `saved`/`save-error`
+      // lifecycle. See Header.vue for the equivalent on the main editor.
+      isSaving: false,
     };
   },
   computed: {
@@ -175,7 +179,9 @@ export default {
     saveAndExit: function () {
       const that = this;
       return function () {
+        if (that.isSaving) return; // guard against double-fire
         window.picked = that.picked;
+        that.startSaving();
         EventBus.$emit('save-embed', that.picked);
       }
     },
@@ -211,6 +217,12 @@ export default {
     }
   },
   async mounted() {
+    // Release the Publish button when the embed save completes or fails.
+    this._onSaved = () => this.stopSaving();
+    this._onSaveError = () => this.stopSaving();
+    EventBus.$on('saved', this._onSaved);
+    EventBus.$on('save-error', this._onSaveError);
+
     await primeCloudId();
     this._draftScope = 'new:embed';
     this.closeGuardOff = setupCloseGuard(() => {
@@ -229,6 +241,9 @@ export default {
   },
   beforeUnmount() {
     this.closeGuardOff?.();
+    clearTimeout(this._savingTimeout);
+    if (this._onSaved) EventBus.$off('saved', this._onSaved);
+    if (this._onSaveError) EventBus.$off('save-error', this._onSaveError);
   },
   async created() {
     await this.initializeForForge();
@@ -248,6 +263,17 @@ export default {
     }
   },
   methods: {
+    startSaving() {
+      this.isSaving = true;
+      // Safety net so an unexpected hang can't strand the spinner (embed save
+      // is only a repoint + 500ms writeback, but keep parity with Header.vue).
+      clearTimeout(this._savingTimeout);
+      this._savingTimeout = setTimeout(() => { this.isSaving = false; }, 20000);
+    },
+    stopSaving() {
+      this.isSaving = false;
+      clearTimeout(this._savingTimeout);
+    },
     async initializeForForge() {
       // Forge mode: Get custom content ID from context and load content
       const context = await initForgeContext();

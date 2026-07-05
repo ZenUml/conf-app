@@ -99,8 +99,11 @@ test.describe('AsyncAPI create + edit', () => {
     test.slow(); // dashboard load + studio load + publish exceed the project's 120s default
     const dashboard = await openDashboard(page, request);
     await dashboard.getByRole('button', { name: /create new api/i }).click();
-    // No customContentId → editor opens on DEFAULT_ASYNCAPI_SPEC; Publish
-    // creates a new async-api-doc. Modal closing == save succeeded.
+    // "Create New API" is now a split-button that opens a format menu (dual-format
+    // dashboard). Pick "AsyncAPI spec" → the AsyncAPI editor opens on
+    // DEFAULT_ASYNCAPI_SPEC; no customContentId → Publish creates a new
+    // async-api-doc. Modal closing == save succeeded.
+    await dashboard.getByRole('menuitem', { name: /asyncapi spec/i }).click();
     await publishAndExpectClose(page);
   });
 
@@ -114,6 +117,18 @@ test.describe('AsyncAPI create + edit', () => {
     await editButton.click();
     // modal.customContentId passed → editor loads the stored spec; Publish
     // pins the save to that id (in-place update, no fork).
+    await publishAndExpectClose(page);
+  });
+
+  test('create: "OpenAPI (Swagger) spec" → Publish persists a new OpenAPI document', async ({ page, request }) => {
+    test.slow();
+    const dashboard = await openDashboard(page, request);
+    await dashboard.getByRole('button', { name: /create new api/i }).click();
+    // Dual-format: the OpenAPI menu item opens the swagger editor on the default
+    // OpenApiExample; no customContentId → Publish creates a new async-api-doc
+    // stored with diagramType 'OpenAPI'. Same fullscreen-modal + Publish contract
+    // as the AsyncAPI editor, so publishAndExpectClose covers it unchanged.
+    await dashboard.getByRole('menuitem', { name: /openapi .*spec/i }).click();
     await publishAndExpectClose(page);
   });
 });

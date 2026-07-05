@@ -11,7 +11,7 @@
  * iframes on the page share that origin, so the macro iframe (writer) and the
  * page-banner iframe (reader) see the same store.
  */
-import { Page, FrameLocator, expect } from '@playwright/test';
+import { Page, FrameLocator, Frame, expect } from '@playwright/test';
 
 /**
  * The Forge pageBanner host iframe has NO data-module-key; it's the
@@ -22,26 +22,81 @@ import { Page, FrameLocator, expect } from '@playwright/test';
 export const PAGE_BANNER_IFRAME =
   '[data-testid="forge-page-banner-wrapper"] iframe, [data-testid*="page-banner"] iframe';
 
-export function pageBannerFrame(page: Page): FrameLocator {
-  return page.frameLocator(PAGE_BANNER_IFRAME);
+/**
+ * The rendered macro iframe for the variant under test. Its `src` origin
+ * identifies which Forge app this test targets — used to scope both mock
+ * injection and banner selection on multi-app sites (see `appHost`).
+ */
+const MACRO_IFRAME =
+  '[data-testid="ForgeExtensionContainer"] [data-testid="hosted-resources-iframe"]';
+
+/**
+ * Origin host of the variant-under-test's Forge iframes, read from the rendered
+ * macro iframe's `src`.
+ *
+ * On a multi-app site — production `zenuml.atlassian.net` has lite, full AND
+ * diagramly installed — every installed variant mounts its own
+ * `confluence:pageBanner` host, so the bare wrapper selector resolves to one
+ * iframe per variant (3 on prod) and trips Playwright's strict-mode check.
+ *
+ * Each Forge app serves its Custom UI from its own
+ * `<hash>.cdn.prod.atlassian-dev.net` origin (the hash rotates per deployed app,
+ * so lite/full/diagramly differ; all modules of one app share it — see
+ * `src/utils/draftStore.ts`). The macro on this page is the variant under test's
+ * own macro, so its origin isolates this app's page-banner (reader) and shares
+ * its localStorage with this app's macro iframe (writer). Returns '' when no
+ * macro iframe is present, in which case callers fall back to the unscoped
+ * (single-app) behaviour.
+ */
+async function appHost(page: Page): Promise<string> {
+  const src = await page.locator(MACRO_IFRAME).first().getAttribute('src').catch(() => null);
+  if (!src) return '';
+  try {
+    return new URL(src).host;
+  } catch {
+    return '';
+  }
 }
 
-/** Locate any of the app's Forge iframes (deployed CDN origin or tunnel localhost). */
-function appFrame(page: Page) {
-  return page
-    .frames()
-    .find(
-      (f) =>
-        f.url().includes('cdn.prod.atlassian-dev.net') ||
-        f.url().includes('localhost:8000'),
-    );
+/** Page-banner iframe selector scoped to this variant's origin (no-op on single-app sites). */
+async function scopedBannerSelector(page: Page): Promise<string> {
+  const host = await appHost(page);
+  // A DNS host is only [a-z0-9.-]; sanitize defensively so it's always a safe
+  // attribute-substring literal (CSS.escape is a browser API, unavailable here).
+  const h = host.replace(/[^a-zA-Z0-9.-]/g, '');
+  if (!h) return PAGE_BANNER_IFRAME;
+  return `[data-testid="forge-page-banner-wrapper"] iframe[src*="${h}"], [data-testid*="page-banner"] iframe[src*="${h}"]`;
+}
+
+export async function pageBannerFrame(page: Page): Promise<FrameLocator> {
+  return page.frameLocator(await scopedBannerSelector(page));
+}
+
+/**
+ * Locate this variant's Forge iframe (deployed CDN origin or tunnel localhost).
+ * Scoped to the macro iframe's host so mocks/markers land in the app under test's
+ * localStorage — critical on multi-app prod where an unscoped match could write to
+ * a co-installed variant's origin, leaving this variant's banner un-triggered.
+ */
+async function appFrame(page: Page): Promise<Frame | undefined> {
+  const host = await appHost(page);
+  const frames = page.frames();
+  if (host) {
+    const scoped = frames.find((f) => f.url().includes(host));
+    if (scoped) return scoped;
+  }
+  return frames.find(
+    (f) =>
+      f.url().includes('cdn.prod.atlassian-dev.net') ||
+      f.url().includes('localhost:8000'),
+  );
 }
 
 export async function setAppMocks(
   page: Page,
   entries: Record<string, string>,
 ): Promise<void> {
-  const f = appFrame(page);
+  const f = await appFrame(page);
   if (!f) throw new Error('[page-banner] app Forge iframe not found — is a macro rendered?');
   await f.evaluate((kv) => {
     for (const k of Object.keys(kv)) localStorage.setItem(k, kv[k]);
@@ -50,7 +105,7 @@ export async function setAppMocks(
 
 /** Remove only the paywall markers (targeting + activity + dismissal), leaving mocks in place. */
 export async function clearPaywallMarkers(page: Page): Promise<void> {
-  const f = appFrame(page);
+  const f = await appFrame(page);
   await f?.evaluate(() => {
     Object.keys(localStorage)
       .filter((k) => /^paywall(Warning|Activity|Banner):/.test(k))
@@ -60,7 +115,7 @@ export async function clearPaywallMarkers(page: Page): Promise<void> {
 
 /** Reset all banner-related state (markers, mocks, CSAT trigger/suppression). */
 export async function clearAllBannerState(page: Page): Promise<void> {
-  const f = appFrame(page);
+  const f = await appFrame(page);
   await f?.evaluate(() => {
     Object.keys(localStorage)
       .filter(
@@ -76,7 +131,7 @@ export async function clearAllBannerState(page: Page): Promise<void> {
 
 /** Read the first localStorage value whose key starts with `prefix`, from the app frame. */
 export async function readAppMarker(page: Page, prefix: string): Promise<string | null> {
-  const f = appFrame(page);
+  const f = await appFrame(page);
   if (!f) return null;
   return f.evaluate((p) => {
     const key = Object.keys(localStorage).find((k) => k.startsWith(p));
@@ -84,14 +139,14 @@ export async function readAppMarker(page: Page, prefix: string): Promise<string 
   }, prefix);
 }
 
-/** True when no page-banner iframe is visible (host called view.close()). */
+/** True when this variant's page-banner iframe is not visible (host called view.close()). */
 export async function expectBannerAbsent(page: Page): Promise<void> {
-  await expect(page.locator(PAGE_BANNER_IFRAME)).toBeHidden({ timeout: 10_000 });
+  await expect(page.locator(await scopedBannerSelector(page))).toBeHidden({ timeout: 10_000 });
 }
 
 /** True when the host iframe is NOT showing the CSAT survey (its rating bar). */
 export async function expectCsatAbsent(page: Page): Promise<void> {
-  await expect(pageBannerFrame(page).locator('.pb-bar')).toHaveCount(0, { timeout: 10_000 });
+  await expect((await pageBannerFrame(page)).locator('.pb-bar')).toHaveCount(0, { timeout: 10_000 });
 }
 
 /**
@@ -103,7 +158,7 @@ export async function expectCsatAbsent(page: Page): Promise<void> {
 export async function armCsatPending(page: Page): Promise<void> {
   const domain = new URL(page.url()).hostname.split('.')[0];
   await setAppMocks(page, { [`csatPending-${domain}`]: String(Date.now()) });
-  const f = appFrame(page);
+  const f = await appFrame(page);
   await f?.evaluate((d) => {
     localStorage.removeItem(`csat_state-${d}`);
   }, domain);
@@ -141,6 +196,6 @@ export async function showWarningBanner(page: Page): Promise<void> {
   await page.reload();
   await page.waitForTimeout(6_000); // page-banner reads the marker and mounts
   await expect(
-    pageBannerFrame(page).getByTestId('paywall-warning-banner'),
+    (await pageBannerFrame(page)).getByTestId('paywall-warning-banner'),
   ).toBeVisible({ timeout: 20_000 });
 }

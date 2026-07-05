@@ -90,7 +90,7 @@ test.describe.serial('Paywall page banner', () => {
 
   test('hard limit: banner renders with the count and both CTAs work', async ({ page, context }) => {
     await showWarningBanner(page);
-    const frame = pageBannerFrame(page);
+    const frame = await pageBannerFrame(page);
     await expect(frame.getByTestId('paywall-warning-banner')).toContainText('101 of 100');
     await expect(frame.getByTestId('paywall-banner-request-extension')).toBeVisible();
 
@@ -107,7 +107,7 @@ test.describe.serial('Paywall page banner', () => {
 
   test('dismiss snoozes — banner gone after reload despite the warning marker', async ({ page }) => {
     await showWarningBanner(page);
-    await pageBannerFrame(page).getByTestId('paywall-banner-dismiss').click();
+    await (await pageBannerFrame(page)).getByTestId('paywall-banner-dismiss').click();
 
     // Dismissal marker is stamped (starts the 7-day snooze).
     const dismissal = await readAppMarker(page, 'paywallBanner:');
@@ -126,7 +126,7 @@ test.describe.serial('Paywall page banner', () => {
     await armCsatPending(page);
     await page.reload();
     await page.waitForTimeout(6_000);
-    await expect(pageBannerFrame(page).getByTestId('paywall-warning-banner')).toBeVisible({
+    await expect((await pageBannerFrame(page)).getByTestId('paywall-warning-banner')).toBeVisible({
       timeout: 20_000,
     });
     await expectCsatAbsent(page);

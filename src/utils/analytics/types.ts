@@ -12,6 +12,7 @@ import type {
   CacheSource,
   PrefetchHost,
   PrefetchOutcome,
+  DashboardFormatFilter,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -30,6 +31,9 @@ export type AnalyticsProperties = {
   macro_uuid?: string;
   // Lifecycle
   operation_mode?: OperationMode;
+  // Format slice chosen on the dual-format "My API Documents" dashboard
+  // (dashboard_format_filtered). "all" = both AsyncAPI and OpenAPI shown.
+  format_filter?: DashboardFormatFilter;
   result?: string;
   failure_reason?: string;
   // Upgrade

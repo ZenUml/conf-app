@@ -99,6 +99,10 @@ export type AnalyticsEventName =
   | "upgrade_feature_enabled"
   | "paywall_continue_used"
   | "paywall_attempts_exhausted"
+  // Locked-out user tried to dismiss the modal (backdrop/Esc) after exhausting
+  // continue attempts on an editor surface — dismissal was refused. Measures
+  // how often the non-dismissible gate actually catches a lockout escape.
+  | "paywall_dismiss_blocked"
   | "paywall_banner_shown"
   | "paywall_banner_dismissed"
   | "space_admin_active"

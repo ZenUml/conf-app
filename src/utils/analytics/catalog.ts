@@ -62,6 +62,15 @@ export type CacheState = "cold" | "warm" | "unknown";
 // `attachment` / `localstorage` reserved for a future static fast-path viewer.
 export type CacheSource = "none" | "cc_body" | "attachment" | "localstorage";
 
+// Where the macro count used by the Lite paywall gate came from, and — when the
+// count is unusable — WHY. Rides on `paywall_gate_evaluated.macro_count_source`.
+// This is the dispositive dimension for the #302 fail-open leak: the gate is
+// `macrosCreated >= 100`, but `macrosCreated` defaults to 0, so a `undefined`
+// (read failed) or `zero` (under-return) source means the gate silently does not
+// fire on a genuinely over-limit space. `kv` = served from the KV cache (may be
+// stale-low); `collect` = fresh space enumeration; `mock` = localStorage override.
+export type MacroCountSource = "kv" | "collect" | "undefined" | "zero" | "mock";
+
 export type FeedbackValue = "good" | "partial" | "bad";
 
 export type AnalyticsEventName =
@@ -111,6 +120,13 @@ export type AnalyticsEventName =
   | "upgrade_feature_enabled"
   | "paywall_continue_used"
   | "paywall_attempts_exhausted"
+  // Fires once per Lite paywall gate evaluation (editor + fullscreen-viewer
+  // mount), whether or not the gate fired. Direct instrumentation for the #302
+  // fail-open leak: `gate_fired` + `macro_count` + `macro_count_source` let us
+  // measure how often an over-limit space slips through because the count read
+  // failed / under-returned, and split the cause (KV stale-low vs collect fail).
+  // See utils/paywall/mountPaywallGate.ts.
+  | "paywall_gate_evaluated"
   | "paywall_banner_shown"
   | "paywall_banner_dismissed"
   | "space_admin_active"

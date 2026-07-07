@@ -10,6 +10,7 @@ import type {
   RenderMode,
   CacheState,
   CacheSource,
+  MacroCountSource,
   PrefetchHost,
   PrefetchOutcome,
   DashboardFormatFilter,
@@ -39,6 +40,17 @@ export type AnalyticsProperties = {
   // Upgrade
   product_option?: string;
   ui_component?: string;
+  // Paywall gate evaluation (paywall_gate_evaluated). `gate_fired` = did the
+  // Lite paywall block this mount; `macro_count` = the count the decision used;
+  // `macro_count_source` = where that count came from / why it was unusable
+  // (the #302 fail-open signal). `css_enabled` / `space_paid` / `is_lite` are
+  // the other gate inputs, captured so a not-fired decision is fully explained.
+  gate_fired?: boolean;
+  macro_count?: number;
+  macro_count_source?: MacroCountSource;
+  css_enabled?: boolean;
+  space_paid?: boolean;
+  is_lite?: boolean;
   cta_position?: "primary" | "secondary";
   feature_name?: string;
   source?: string;

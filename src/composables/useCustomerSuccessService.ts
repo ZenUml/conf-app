@@ -1,4 +1,5 @@
 import { ref, computed } from 'vue'
+import type { MacroCountSource } from '@/utils/analytics/catalog'
 import getFeatureFlagsForCurrentDomain from "@/apis/featureFlags"
 import macroMetrics from "@/services/MacroMetrics"
 import { getClientDomain } from "@/utils/ContextParameters/ContextParameters"
@@ -12,6 +13,10 @@ const BASE_UPGRADE_URL = 'https://marketplace.atlassian.com/apps/1218380/zenuml-
 const BASE_LEARN_MORE_URL = 'https://zenuml.com/upgrade'
 
 const macrosCreated = ref<number>(0)
+// Where `macrosCreated` came from / why it is unusable — the #302 fail-open
+// signal, surfaced on `paywall_gate_evaluated`. 'undefined' pre-read and when
+// the read returns undefined; 'zero' when the read returns total:0.
+const macroCountSource = ref<MacroCountSource>('undefined')
 const customerSuccessServiceEnabled = ref<boolean>(false)
 const spacePaidStatus = ref<boolean>(false)
 const currentSpaceKey = ref<string>('')
@@ -77,6 +82,7 @@ export function useCustomerSuccessService() {
         const mockCount = parseInt(localStorage.mockMacroCount)
         if (!isNaN(mockCount) && mockCount >= 0) {
           macrosCreated.value = mockCount
+          macroCountSource.value = 'mock'
           console.log('🧪 Using mock macro count:', macrosCreated.value)
           macroMetricsLoaded = true;
           return;
@@ -86,10 +92,20 @@ export function useCustomerSuccessService() {
       const metrics = await macroMetrics.getMacroMetrics()
       if (metrics?.total) {
         macrosCreated.value = metrics.total
+        macroCountSource.value = metrics.source === 'kv' ? 'kv' : 'collect'
+      } else if (metrics) {
+        // Read returned an object but total is 0/falsy (empty / under-return) —
+        // #302 fail-open: gate sees 0 and does not fire on an over-limit space.
+        macroCountSource.value = 'zero'
+      } else {
+        // Read returned undefined (KV miss + collect failed, or an outer throw
+        // swallowed inside getMacroMetrics) — the other #302 fail-open path.
+        macroCountSource.value = 'undefined'
       }
       macroMetricsLoaded = true;
     } catch (error) {
       console.error('Error loading macro metrics:', error)
+      macroCountSource.value = 'undefined'
     }
   }
 
@@ -216,6 +232,7 @@ export function useCustomerSuccessService() {
 
   return {
     macrosCreated,
+    macroCountSource,
     spaceKey: currentSpaceKey,
     actionRequired,
     shouldBlockActions,
@@ -224,12 +241,14 @@ export function useCustomerSuccessService() {
     enterpriseBundleUrl,
     learnMoreUrl,
     spacePaid: spacePaidStatus,
+    cssEnabled: customerSuccessServiceEnabled,
     initialize,
   }
 }
 
 ;(useCustomerSuccessService as any).__resetForTests = () => {
   macrosCreated.value = 0
+  macroCountSource.value = 'undefined'
   customerSuccessServiceEnabled.value = false
   spacePaidStatus.value = false
   currentSpaceKey.value = ''

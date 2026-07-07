@@ -4,11 +4,10 @@
     The content mounts immediately so the Forge iframe is never blank, then
     UpgradePrompt teleports its overlay to <body>.
 
-    Editor use case (page editor / create):
-      Saves are NOT gated in the persistence layer — the modal itself is the
-      enforcement point. While continue attempts remain the user may dismiss it
-      and save (metered grace), but once attempts are exhausted the modal
-      becomes non-dismissible on these editor surfaces, so it is the gate.
+    Editor use case (page editor / fullscreen editor):
+      Save is gated by `shouldBlockActions` in the persistence layer, so the
+      modal serves as the visible reminder — an editor mounted here cannot
+      actually persist changes.
 
     Viewer use case (fullscreen viewer):
       The user is read-only by definition; the modal is the only friction.

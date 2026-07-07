@@ -1,9 +1,9 @@
 <template>
   <Teleport to="body">
-    <div ref="modalContainer" v-if="visible" data-testid="paywall-modal-root" class="fixed inset-0 z-50 flex items-center justify-center p-4" tabindex="-1" @keydown.esc="onDismissAttempt">
+    <div ref="modalContainer" v-if="visible" class="fixed inset-0 z-50 flex items-center justify-center p-4" tabindex="-1" @keydown.esc="tracking.handleClose">
       <!-- Backdrop. 75% opacity (was 50%) so the editor underneath is dimmed
            enough to recede as context, not distract from the modal. -->
-      <div data-testid="paywall-backdrop" class="fixed inset-0 bg-black bg-opacity-75" @click="onDismissAttempt"></div>
+      <div class="fixed inset-0 bg-black bg-opacity-75" @click="tracking.handleClose"></div>
 
       <!-- Modal content - Optimized for 700×600px iframe -->
       <div class="relative bg-white rounded-lg shadow-xl w-[680px] max-h-[660px] overflow-y-auto">
@@ -105,7 +105,7 @@ import PaywallHero from './PaywallHero.vue'
 import DraftCard from './DraftCard.vue'
 import AdvocacyButton from './AdvocacyButton.vue'
 import { useUpgradeTracking } from './useUpgradeTracking'
-import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking'
+import { trackUpgradeEvent, UpgradeEventName } from '@/utils/upgradeTracking'
 import type { PaywallActionType } from '@/utils/paywall/mountPaywallGate'
 import { CONTINUE_ATTEMPTS_STORAGE_SOURCE } from '@/utils/paywall/continueAttempts'
 import { getUpgradeContext, useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
@@ -216,26 +216,6 @@ const continueAttemptsTooltip = computed(() => {
   return `You have ${attempts} temporary continue ${attempts === 1 ? 'attempt' : 'attempts'} left before editing is blocked for you in this space.`
 })
 const continueButtonAriaLabel = computed(() => continueAttemptsTooltip.value || continueButtonCopy.value)
-
-// The modal is the paywall's only enforcement point — saves are NOT gated in
-// the persistence layer. Once continue attempts are exhausted on an editor
-// surface, a dismissible modal lets the locked-out user close it (backdrop/Esc)
-// and keep editing/saving, which is the leak this refuses to allow. The
-// fullscreen VIEWER stays dismissible: existing diagrams must remain viewable.
-// actionType is undefined only in unit mounts; production always sets it, and
-// treating undefined as an editor surface keeps the gate closed by default.
-function onDismissAttempt() {
-  const locked = !canContinueEditing.value && props.actionType !== 'fullscreen_viewer'
-  if (locked) {
-    trackUpgradeEvent(UpgradeEventName.PAYWALL_DISMISS_BLOCKED, {
-      action_type: props.actionType,
-      ui_component: UIComponent.MODAL,
-      ...getUpgradeContext(),
-    })
-    return
-  }
-  tracking.handleClose()
-}
 
 function onDraftPreviewToggle() {
   const willExpand = !draftExpanded.value

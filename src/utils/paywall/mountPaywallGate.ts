@@ -29,6 +29,34 @@ import {
 
 type CustomerSuccess = ReturnType<typeof useCustomerSuccessService>;
 
+/**
+ * Emit `paywall_gate_evaluated` for one gate decision — fired on every Lite
+ * editor/fullscreen mount, blocked or not, right after `initialize()`. This
+ * makes the #302 fail-open leak (an over-limit space slipping through because
+ * the macro-count read failed / under-returned, so `gate_fired=false` with a
+ * `macro_count_source` of 'undefined'/'zero'/stale 'kv') directly measurable
+ * instead of inferred from the absence of a paywall event. Lite-only: Full and
+ * Diagramly never gate, so emitting there would be pure noise.
+ */
+function trackGateEvaluated(
+  customerSuccess: CustomerSuccess,
+  actionType: PaywallActionType,
+  gateFired: boolean,
+): void {
+  if (!globals.apWrapper.isLite()) return;
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_GATE_EVALUATED, {
+    ...getUpgradeContext(),
+    surface: actionType === 'fullscreen_viewer' ? 'viewer' : 'editor',
+    action_type: actionType,
+    gate_fired: gateFired,
+    macro_count: customerSuccess.macrosCreated.value,
+    macro_count_source: customerSuccess.macroCountSource.value,
+    css_enabled: customerSuccess.cssEnabled.value,
+    space_paid: customerSuccess.spacePaid.value,
+    is_lite: true,
+  });
+}
+
 async function resolveSpaceKey(logTag: string): Promise<string> {
   try {
     return (await globals.apWrapper.getCurrentSpace())?.key || '';
@@ -96,7 +124,13 @@ export async function tryFullscreenViewerPaywall(opts: {
 
   const customerSuccess = useCustomerSuccessService();
   await customerSuccess.initialize();
-  if (!isFullscreenViewerBlocked(isFullscreen, isEditor, customerSuccess.shouldBlockActions.value)) {
+  const viewerBlocked = isFullscreenViewerBlocked(
+    isFullscreen,
+    isEditor,
+    customerSuccess.shouldBlockActions.value,
+  );
+  trackGateEvaluated(customerSuccess, 'fullscreen_viewer', viewerBlocked);
+  if (!viewerBlocked) {
     return false;
   }
 
@@ -141,9 +175,15 @@ export async function tryPageEditorPaywall(opts: {
   const createBlocked = !opts.customContentId && isPageEditorCreateBlocked(
     customerSuccess.shouldBlockActions.value,
   );
+
+  // customContentId present ⟺ an edit attempt (editBlocked when gated); absent ⟺
+  // create. Matches the blocked-branch actionType below, but computed here so the
+  // gate-evaluated event tags the not-fired (fail-open) case too.
+  const actionType: PaywallActionType = opts.customContentId ? 'page_editor' : 'page_editor_create';
+  trackGateEvaluated(customerSuccess, actionType, editBlocked || createBlocked);
+
   if (!editBlocked && !createBlocked) return false;
 
-  const actionType = editBlocked ? 'page_editor' : 'page_editor_create';
   const blockedEvent = editBlocked
     ? UpgradeEventName.PAYWALL_BLOCKED_EDIT
     : UpgradeEventName.PAYWALL_BLOCKED_CREATE;

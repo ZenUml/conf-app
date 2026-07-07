@@ -17,6 +17,10 @@ export interface IMacroMetrics {
   unknown: number;
   isLite: boolean;
   lastUpdated?: string;
+  // Where this count was read from: 'kv' = KV cache hit (may be stale-low),
+  // 'collect' = fresh space enumeration. Consumed by the paywall gate's
+  // `macro_count_source` telemetry (#302). Absent on the mock/localStorage path.
+  source?: 'kv' | 'collect';
 }
 
 interface ContentResult {
@@ -73,7 +77,7 @@ export class MacroMetrics {
       const cachedMetrics = await this.readFromKV(domain, space);
       if (cachedMetrics) {
         console.debug('[metrics:kv:read] hit', { domain, space });
-        return cachedMetrics;
+        return { ...cachedMetrics, source: 'kv' };
       }
 
       // KV miss, collect fresh metrics. This feeds the awaited paywall gate, so
@@ -83,6 +87,7 @@ export class MacroMetrics {
       if (metrics) {
         // Write to cache for future reads
         await this.writeToKV(domain, space, metrics);
+        return { ...metrics, source: 'collect' };
       }
       return metrics;
     } catch (e) {

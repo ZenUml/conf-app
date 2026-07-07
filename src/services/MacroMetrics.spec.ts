@@ -71,7 +71,9 @@ describe('MacroMetrics', () => {
 
         const result = await macroMetrics.getMacroMetrics();
 
-        expect(result).toEqual(cachedMetrics);
+        // getMacroMetrics tags KV hits with source:'kv' for the paywall gate's
+        // macro_count_source telemetry (#302).
+        expect(result).toEqual({ ...cachedMetrics, source: 'kv' });
         expect(callRemote).toHaveBeenCalledWith(
           `/metrics-cache/query?domain=${mockDomain}&space=${mockSpace}&addonKey=com.zenuml.confluence-addon-lite`,
           'GET'
@@ -136,7 +138,8 @@ describe('MacroMetrics', () => {
           mermaid: 1,
           plantuml: 0,
           unknown: 1,
-          isLite: false
+          isLite: false,
+          source: 'collect'
         });
       });
 
@@ -160,7 +163,8 @@ describe('MacroMetrics', () => {
           mermaid: 0,
           plantuml: 0,
           unknown: 0,
-          isLite: false
+          isLite: false,
+          source: 'collect'
         });
       });
     });

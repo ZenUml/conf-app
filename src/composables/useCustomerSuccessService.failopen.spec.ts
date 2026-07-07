@@ -1,0 +1,121 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+
+// Reproduction + instrumentation test for issue #302: the Lite paywall gate is
+// FAIL-OPEN on the macro-count read. `shouldBlockActions` reads module-ref
+// `macrosCreated`, which defaults to 0 and is only raised when `getMacroMetrics()`
+// returns a truthy `.total`. When that read rejects, returns undefined, or
+// returns total:0 (KV stale-low / collect under-return / network error), the
+// count stays 0, so `0 >= 100` is false and the gate does NOT fire on an
+// over-limit space — the editor mounts ungated and the save persists at N=0
+// with no paywall event, no continue_used, no reset.
+//
+// These tests PIN the current (leaky) behavior AND assert the new
+// `macroCountSource` telemetry classifies each read outcome, which is what the
+// `paywall_gate_evaluated.macro_count_source` dimension reports. If the paywall
+// is later made fail-closed, flip the `shouldBlockActions` expectations.
+
+vi.mock('@/apis/featureFlags', () => ({
+  default: vi.fn().mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true }),
+}))
+
+// Unpaid space so spacePaid can't independently disable the gate.
+vi.mock('@/utils/requestUtil', () => ({
+  callRemote: vi.fn().mockResolvedValue({ isPaid: false, source: 'lic_param' }),
+}))
+
+vi.mock('@/utils/window', () => ({
+  getUrlParam: vi.fn(),
+  trackEvent: vi.fn(),
+}))
+
+vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
+  getClientDomain: vi.fn().mockReturnValue('example-tenant'),
+  getSpaceKey: vi.fn().mockReturnValue('OVERLIMIT'),
+}))
+
+vi.mock('@/model/globals', () => ({
+  default: {
+    apWrapper: {
+      isLite: vi.fn().mockReturnValue(true),
+      getCurrentSpace: vi.fn().mockResolvedValue({ key: 'OVERLIMIT' }),
+    },
+  },
+}))
+
+// The metrics service is the fail-open surface under test.
+vi.mock('@/services/MacroMetrics', () => ({
+  default: { getMacroMetrics: vi.fn() },
+}))
+
+async function freshService() {
+  vi.resetModules()
+  const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
+  return useCustomerSuccessService()
+}
+
+const overLimit = (extra: Record<string, unknown>) => ({
+  space: 'OVERLIMIT', total: 150, sequence: 150, graph: 0, openapi: 0,
+  mermaid: 0, plantuml: 0, unknown: 0, isLite: true, ...extra,
+})
+
+describe('#302 fail-open: over-limit Lite space, macro-count read fails', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  it('REJECT → gate does NOT fire, source = undefined', async () => {
+    const { default: macroMetrics } = await import('@/services/MacroMetrics')
+    vi.mocked(macroMetrics.getMacroMetrics).mockRejectedValue(new Error('D1 down'))
+    const svc = await freshService()
+    await svc.initialize()
+    expect(svc.macrosCreated.value).toBe(0)
+    expect(svc.shouldBlockActions.value).toBe(false)
+    expect(svc.macroCountSource.value).toBe('undefined')
+  })
+
+  it('resolves undefined → gate does NOT fire, source = undefined', async () => {
+    const { default: macroMetrics } = await import('@/services/MacroMetrics')
+    vi.mocked(macroMetrics.getMacroMetrics).mockResolvedValue(undefined)
+    const svc = await freshService()
+    await svc.initialize()
+    expect(svc.shouldBlockActions.value).toBe(false)
+    expect(svc.macroCountSource.value).toBe('undefined')
+  })
+
+  it('total:0 under-return → gate does NOT fire, source = zero', async () => {
+    const { default: macroMetrics } = await import('@/services/MacroMetrics')
+    vi.mocked(macroMetrics.getMacroMetrics).mockResolvedValue(overLimit({ total: 0, source: 'collect' }))
+    const svc = await freshService()
+    await svc.initialize()
+    expect(svc.shouldBlockActions.value).toBe(false)
+    expect(svc.macroCountSource.value).toBe('zero')
+  })
+
+  it('control — real over-limit count from KV → gate fires, source = kv', async () => {
+    const { default: macroMetrics } = await import('@/services/MacroMetrics')
+    vi.mocked(macroMetrics.getMacroMetrics).mockResolvedValue(overLimit({ source: 'kv' }))
+    const svc = await freshService()
+    await svc.initialize()
+    expect(svc.macrosCreated.value).toBe(150)
+    expect(svc.shouldBlockActions.value).toBe(true)
+    expect(svc.macroCountSource.value).toBe('kv')
+  })
+
+  it('control — real over-limit count from fresh collect → gate fires, source = collect', async () => {
+    const { default: macroMetrics } = await import('@/services/MacroMetrics')
+    vi.mocked(macroMetrics.getMacroMetrics).mockResolvedValue(overLimit({ source: 'collect' }))
+    const svc = await freshService()
+    await svc.initialize()
+    expect(svc.shouldBlockActions.value).toBe(true)
+    expect(svc.macroCountSource.value).toBe('collect')
+  })
+
+  it('localStorage mock count → source = mock', async () => {
+    localStorage.mockMacroCount = '150'
+    const svc = await freshService()
+    await svc.initialize()
+    expect(svc.shouldBlockActions.value).toBe(true)
+    expect(svc.macroCountSource.value).toBe('mock')
+  })
+})

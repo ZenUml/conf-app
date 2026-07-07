@@ -12,6 +12,7 @@
  * page-banner iframe (reader) see the same store.
  */
 import { Page, FrameLocator, Frame, expect } from '@playwright/test';
+import { testConfig } from '../config/test-config.js';
 
 /**
  * The Forge pageBanner host iframe has NO data-module-key; it's the
@@ -187,8 +188,13 @@ export async function showWarningBanner(page: Page): Promise<void> {
   // Must match the production MacroActivityMarker shape (warningBanner.ts):
   // parseMacroActivityMarker requires a string `lastActivityAt` — anything else
   // parses to null and the visibility gate fails closed (banner never mounts).
+  // Space key MUST match the page the fixture macro lives in. Hardcoding 'SD'
+  // matched only staging (space SD); on prod the smoke runs in space ZEN, so the
+  // activity marker key (paywallActivity:<domain>:<space>) missed and the banner
+  // never mounted — the recurring prod-smoke shard-3 timeout. Use the env-driven
+  // space key (ZENUML_SPACE) like the rest of the suite.
   await setAppMocks(page, {
-    [`paywallActivity:${domain}:SD`]: JSON.stringify({
+    [`paywallActivity:${domain}:${testConfig.spaceKey}`]: JSON.stringify({
       lastActivityAt: new Date(now).toISOString(),
       activityType: 'edit',
     }),

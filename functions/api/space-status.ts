@@ -11,7 +11,7 @@ interface Env {
 
 interface SpaceStatusResponse {
   isPaid: boolean;
-  source?: 'space_license';
+  source?: 'user_license' | 'space_license';
 }
 
 /** Forge invokeRemote requires valid JSON + application/json for every status (incl. errors). */
@@ -66,6 +66,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const url = new URL(request.url);
     const payload = await validateContextToken(jwt, allowedForgeAppIds);
     const cloudId = payload?.payload?.context?.cloudId;
+    // Derived from the Forge-validated token, never a client query param — a
+    // query param would let any user claim another user's accountId.
+    const accountId = payload?.payload?.principal;
     const spaceKey = url.searchParams.get('spaceKey') || undefined;
 
     if (!cloudId || !spaceKey) {
@@ -76,6 +79,20 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (!env.SPACE_LICENSE_KV) {
       console.error('SPACE_LICENSE_KV binding not configured');
       return jsonResponse(200, { isPaid: false }, 'short');
+    }
+
+    // User-scoped extension (checked first): only when the token carries a
+    // real accountId — never build/match a key on a missing one.
+    if (accountId) {
+      const userLicenseRaw = await env.SPACE_LICENSE_KV.get(`license:${cloudId}:${spaceKey}:${accountId}`);
+      if (userLicenseRaw) {
+        const userRecord = JSON.parse(userLicenseRaw) as SpaceLicenseRecord;
+        const userIsActive = userRecord.status === 'active';
+        const userIsExpired = new Date(userRecord.expiresAt) < new Date();
+        if (userIsActive && !userIsExpired) {
+          return jsonResponse(200, { isPaid: true, source: 'user_license' }, 'short');
+        }
+      }
     }
 
     const licenseRaw = await env.SPACE_LICENSE_KV.get(`license:${cloudId}:${spaceKey}`);

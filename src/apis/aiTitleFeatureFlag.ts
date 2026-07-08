@@ -3,6 +3,7 @@ import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
 
 const AI_TITLE_FLAG_ID = 'ai-title-enabled'
 const AI_REPAIR_FLAG_ID = 'ai-repair-enabled'
+const AGENT_LINK_FLAG_ID = 'agent-link-enabled'
 
 let featureFlags: FeatureFlags | undefined
 let initializePromise: Promise<FeatureFlags> | undefined
@@ -20,6 +21,19 @@ function standaloneAiRepairEnabled(): boolean {
     return localStorage.getItem('mockAiRepairEnabled') !== 'false'
   } catch {
     return true
+  }
+}
+
+// Unlike ai-title/ai-repair (which default ON in standalone dev for
+// convenience), Live Agent Link defaults OFF everywhere — the Forge Console
+// flag defaults false via checkFlag's second arg, and standalone dev only
+// opts IN via an explicit localStorage override. This mirrors the "defaults
+// OFF, cannot affect existing users" requirement for the flag's prod rollout.
+function standaloneAgentLinkEnabled(): boolean {
+  try {
+    return localStorage.getItem('mockAgentLinkEnabled') === 'true'
+  } catch {
+    return false
   }
 }
 
@@ -72,6 +86,17 @@ export async function isAiRepairEnabled(): Promise<boolean> {
 
   const client = await getFeatureFlagsClient()
   return client.checkFlag(AI_REPAIR_FLAG_ID, false)
+}
+
+// Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)
+// master switch for mounting the Connect UI into the macro host — the flag
+// gates everything, so when it resolves false the macro renders exactly as
+// it does today.
+export async function isAgentLinkEnabled(): Promise<boolean> {
+  if (!forgeGlobal.isForge) return standaloneAgentLinkEnabled()
+
+  const client = await getFeatureFlagsClient()
+  return client.checkFlag(AGENT_LINK_FLAG_ID, false)
 }
 
 export function resetAiTitleFlagForTests(): void {

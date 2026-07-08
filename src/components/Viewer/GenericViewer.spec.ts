@@ -1,12 +1,21 @@
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import GenericViewer from '@/components/Viewer/GenericViewer.vue'
 import store from '@/model/store2'
 import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
+
+// Live Agent Link master flag defaults to resolved-false here so every
+// EXISTING test in this file below exercises the flag-off ("renders exactly
+// as today") path without opting in. Individual agent-link tests override
+// this per-test with mockResolvedValueOnce(true).
+vi.mock('@/apis/aiTitleFeatureFlag', () => ({
+  isAgentLinkEnabled: vi.fn(() => Promise.resolve(false)),
+}))
 
 vi.mock('@/model/globals', () => ({
   default: {
@@ -251,6 +260,74 @@ describe('GenericViewer (chrome-less)', () => {
       expect(vm.showExportModal).toBe(false)
       await wrapper.find('button[aria-label="Export PNG"]').trigger('click')
       expect(vm.showExportModal).toBe(true)
+    })
+  })
+
+  // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)
+  // — the whole feature is gated behind agent-link-enabled, defaulting off.
+  // Flag resolution is async (mounted()), so every assertion here awaits
+  // flushPromises() after mount to let that promise settle before asserting.
+  describe('Live Agent Link (flag-gated)', () => {
+    const setFullscreen = (on: boolean) => {
+      ;(window as any).forgeGlobal = on
+        ? { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+        : undefined
+    }
+    afterEach(() => { delete (window as any).forgeGlobal })
+
+    it('does NOT render Connect to Agent when the flag resolves false (default)', async () => {
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
+    })
+
+    it('renders Connect to Agent in the action area when the flag resolves true', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(true)
+    })
+
+    it('does not render Connect to Agent for a non-MVP diagram type (graph) even when the flag is on', async () => {
+      store.commit('updateDiagramType', DiagramType.Graph)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(false)
+    })
+
+    it('clicking Connect to Agent starts the session and opens Fullscreen', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const spy = vi.spyOn(EventBus, '$emit')
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="agent-link-connect-btn"]').trigger('click')
+
+      expect(spy).toHaveBeenCalledWith('fullscreen')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_connect_clicked',
+        expect.objectContaining({ feature_area: 'agent_link', macro_type: DiagramType.Sequence })
+      )
+    })
+
+    it('mounts the Fullscreen Connect rail (not the small-macro button/badge) when in fullscreen with the flag on', async () => {
+      setFullscreen(true)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
+    })
+
+    it('does not mount the Fullscreen rail when the flag resolves false', async () => {
+      setFullscreen(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(false)
     })
   })
 

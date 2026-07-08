@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createBridgeOps, type AgentLinkBridge } from './bridgeOps'
+import { createBridgeOps, createUnwiredBridgeOps, type AgentLinkBridge } from './bridgeOps'
 
 const BOUND_ID = 'cc-bound-123'
 const OTHER_ID = 'cc-other-999'
@@ -60,5 +60,14 @@ describe('bridgeOps', () => {
     const ops = createBridgeOps(bridge, BOUND_ID)
     await ops.writeDiagram('A->B: hi', 'added a step')
     expect(bridge.writeDiagram).toHaveBeenCalledWith(BOUND_ID, 'A->B: hi')
+  })
+})
+
+describe('createUnwiredBridgeOps', () => {
+  it('every op rejects — nothing performs Confluence I/O before the real bridge exists', async () => {
+    const ops = createUnwiredBridgeOps()
+    await expect(ops.readPage()).rejects.toThrow(/not wired yet/)
+    await expect(ops.readDiagram()).rejects.toThrow(/not wired yet/)
+    await expect(ops.writeDiagram('A->B: hi')).rejects.toThrow(/not wired yet/)
   })
 })

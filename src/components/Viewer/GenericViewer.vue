@@ -13,12 +13,17 @@
 
     <template v-else>
       <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide}">
+        <!-- viewer-body is a plain wrapper (no layout of its own) unless the
+             Fullscreen Connect rail is showing, in which case it becomes a
+             two-column flex row — see .viewer-body--with-agent-rail below. -->
+        <div class="viewer-body" :class="{'viewer-body--with-agent-rail': showAgentLinkPanel}">
         <div class="viewer-surface" :class="{'viewer-surface--hover': isHovering}"
              @mouseenter="isHovering = true" @mouseleave="isHovering = false">
           <!-- Top edge: title (left) + Edit / Fullscreen (right) -->
           <div class="viewer-edge-top">
             <div class="viewer-title-area">
               <span v-if="isEmbedded" class="viewer-embed-chip" title="Content is embedded from another page">EMBED</span>
+              <LiveBadge v-if="showAgentLinkBadge" :state="agentLinkState" />
               <!--
                 ZEN-1170 Defect 2b: visible chip + tooltip when the diagram was
                 loaded via orphan-sibling recovery. The disabled Edit button's
@@ -47,6 +52,7 @@
                 </svg>
                 <span>Edit</span>
               </button>
+              <ConnectButton v-if="showAgentLinkConnect" @connect="connectToAgent" />
               <button v-if="!isFullscreenMode" @click="fullscreen" aria-label="Fullscreen" class="viewer-btn-primary">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
@@ -129,6 +135,21 @@
 
           </div>
         </div>
+        <!-- Fullscreen Connect rail (design §5.1, §9) — only mounted when the
+             flag is on, the diagram type is MVP-supported, and we're actually
+             in the Fullscreen modal. See connectToAgent()'s comment: this
+             panel is driven by ITS OWN useAgentLinkSession() instance
+             (a fresh Vue app boot inside the Fullscreen modal's iframe). -->
+        <aside v-if="showAgentLinkPanel" class="agent-link-rail" data-testid="agent-link-fullscreen-rail">
+          <ConnectPanel
+            :state="agentLinkState"
+            :token="agentLinkToken"
+            :activity-feed="agentLinkActivityFeed"
+            @disconnect="onAgentLinkDisconnect"
+            @open-fullscreen="() => {}"
+          />
+        </aside>
+        </div>
       </div>
     </template>
 
@@ -151,6 +172,12 @@ import OverflowMenu from '@/components/Viewer/OverflowMenu.vue'
 import { toast } from '@/utils/toast'
 import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
+import ConnectButton from '@/components/AgentLink/ConnectButton.vue'
+import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
+import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
+import { useAgentLinkSession } from '@/composables/agentLink/useAgentLinkSession'
+import { createUnwiredBridgeOps } from '@/composables/agentLink/bridgeOps'
+import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 
@@ -166,11 +193,19 @@ export default {
     isHovering: false,
     showExportModal: false,
     isDownloadingDebug: false,
+    // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)
+    // master flag, resolved async in mounted(). Defaults false so the flag
+    // controls the ENTIRE feature — until it resolves true, this macro
+    // renders exactly as it does today.
+    agentLinkFeatureEnabled: false,
   }),
   components: {
     Debug,
     ExportModal,
     OverflowMenu,
+    ConnectButton,
+    ConnectPanel,
+    LiveBadge,
   },
   computed: {
     ...mapState({diagramType: state => state.diagram.diagramType, diagram: state => state.diagram }),
@@ -232,6 +267,33 @@ export default {
         ? 'This diagram lives on another page. Edit it there to keep both in sync.'
         : 'There are multiple copies of this diagram on this page. Edits affect all of them.';
     },
+    // Live Agent Link MVP scope (design §11/§12): agent-native DSL types only.
+    // Graph/OpenAPI/AsyncAPI/Embed are not offered the Connect affordance.
+    agentLinkMvpSupported() {
+      return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml].includes(this.diagramType);
+    },
+    // Small-macro action-area affordance — hidden once already in Fullscreen
+    // (that surface shows the Connect *rail* instead, see showAgentLinkPanel).
+    showAgentLinkConnect() {
+      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
+    },
+    // Collapsed (non-fullscreen) "● live" indicator (design §3 decision #8).
+    showAgentLinkBadge() {
+      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
+    },
+    // The Fullscreen Connect rail (design §5.1 ConnectPanel / §9).
+    showAgentLinkPanel() {
+      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && this.isFullscreenMode;
+    },
+    agentLinkState() {
+      return this._agentLink?.state.value ?? 'idle';
+    },
+    agentLinkToken() {
+      return this._agentLink?.token.value ?? null;
+    },
+    agentLinkActivityFeed() {
+      return this._agentLink?.activityFeed.value ?? [];
+    },
   },
   watch: {
     // Fire viewer_load_failed when the error store slot becomes truthy while
@@ -251,17 +313,50 @@ export default {
       immediate: true,
     },
   },
+  created() {
+    // One useAgentLinkSession() instance per GenericViewer mount, shared by
+    // the Connect button / live badge / Fullscreen rail below (whichever
+    // template branch is active in THIS mount — see the cross-iframe note
+    // on connectToAgent()). bridgeOps is a placeholder: no UI wired here
+    // calls applyEdit(), so nothing needs the real Forge bridge yet.
+    this._agentLink = useAgentLinkSession(createUnwiredBridgeOps(), {
+      macroType: this.diagramType || 'none',
+      clickSurface: 'viewer',
+    });
+  },
   async mounted() {
     try {
       this.canUserEdit = await globals.apWrapper.canUserEdit();
     } catch (e) {
       console.error('canUserEdit failed', e);
     }
+    try {
+      this.agentLinkFeatureEnabled = await isAgentLinkEnabled();
+    } catch (e) {
+      console.error('Failed to load agent-link feature flag:', e);
+      this.agentLinkFeatureEnabled = false;
+    }
   },
   methods: {
     edit() {
       trackEvent('edit', 'click', 'editing');
       EventBus.$emit('edit');
+    },
+    // Connect-to-Agent affordance (design §5.1, §9): kicks off this mount's
+    // local session state, then reuses the EXISTING, unmodified Fullscreen
+    // open path (EventBus 'fullscreen' -> forgeIndex.ts's openModal). Forge
+    // opens Fullscreen as a SEPARATE modal iframe (confirmed by onClose's
+    // location.reload() on the underlying macro) — that iframe re-boots this
+    // same component fresh, with its OWN useAgentLinkSession() instance. Real
+    // state continuity across that boundary (so the rail shows the token
+    // this click minted) needs the relay transport, which is out of scope
+    // here; see docs/superpowers/specs/2026-07-08-live-agent-link-design.md §4.3.
+    connectToAgent() {
+      this._agentLink?.startConnect();
+      this.fullscreen();
+    },
+    onAgentLinkDisconnect() {
+      this._agentLink?.disconnect('user');
     },
     fullscreen() {
       trackEvent('fullscreen', 'click', 'viewing');
@@ -384,6 +479,25 @@ export default {
 .viewer-frame--wide { width: 100%; }
 
 .viewer-surface { position: relative; }
+
+/* ----- Live Agent Link mounting seam (flag-gated, see showAgentLinkPanel) --
+   .viewer-body is a no-op wrapper (default block) when the rail is hidden —
+   it changes nothing about layout/sizing for the flag-off / non-fullscreen
+   path. It only becomes a two-column row when the Fullscreen Connect rail
+   is actually showing. */
+.viewer-body--with-agent-rail {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+}
+.viewer-body--with-agent-rail .viewer-surface { flex: 1 1 auto; min-width: 0; }
+
+.agent-link-rail {
+  flex: 0 0 320px;
+  width: 320px;
+  border-left: 1px solid #E5E7EB;
+  overflow-y: auto;
+}
 
 .viewer-edge-top {
   display: flex;

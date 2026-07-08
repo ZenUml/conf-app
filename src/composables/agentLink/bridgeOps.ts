@@ -65,3 +65,26 @@ export function createBridgeOps(
     },
   };
 }
+
+// Macro-host mounting seam (docs/superpowers/specs/2026-07-08-live-agent-link-design.md
+// §5.1). The host component (GenericViewer.vue) needs an AgentLinkBridgeOps
+// to construct useAgentLinkSession() before the real Forge-bridge-backed
+// AgentLinkBridge exists — this satisfies the interface without performing
+// any Confluence I/O. Nothing in the current UI plumbing invokes these ops
+// (ConnectPanel only emits `disconnect` / `open-fullscreen`, never an edit),
+// so rejecting is a safe placeholder, not a silent no-op.
+//
+// TODO(agent-link): swap this for createBridgeOps(bridge, boundContentId)
+// once an ApWrapper2 / requestConfluence-backed AgentLinkBridge exists and
+// the relay transport can call applyEdit() for real.
+export function createUnwiredBridgeOps(): AgentLinkBridgeOps {
+  const notWired = () =>
+    Promise.reject(
+      new Error("agent-link bridge not wired yet (relay transport is out of scope)")
+    );
+  return {
+    readPage: notWired,
+    readDiagram: notWired,
+    writeDiagram: notWired,
+  };
+}

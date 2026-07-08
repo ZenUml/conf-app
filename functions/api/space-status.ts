@@ -24,7 +24,10 @@ function jsonResponse(
     'Content-Type': 'application/json',
   };
   if (cache === 'short') {
-    headers['Cache-Control'] = 'max-age=300';
+    // 'private': the response varies by the caller's accountId (user-scoped
+    // license), not just cloudId+spaceKey — a shared/CDN cache must not reuse
+    // one user's response for another user on the same space.
+    headers['Cache-Control'] = 'private, max-age=300';
   } else {
     headers['Cache-Control'] = 'no-store';
   }

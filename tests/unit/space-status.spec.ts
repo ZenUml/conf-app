@@ -385,7 +385,12 @@ describe('space-status API (KV-only)', () => {
   });
 
   describe('cache headers', () => {
-    it('returns Cache-Control: max-age=300 for successful responses', async () => {
+    // 'private' is required, not optional: the response now varies by the
+    // caller's accountId (user-scoped license check), not just cloudId+spaceKey,
+    // which are identical for every user on the same space. Without 'private' a
+    // shared/CDN cache could serve one user's isPaid:true to a different,
+    // unlicensed user on the same space — a cross-user paywall bypass.
+    it('returns Cache-Control: private, max-age=300 for successful responses', async () => {
       (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
       (validateContextToken as any).mockResolvedValue({
         payload: { context: { cloudId: 'cloud-abc' } },
@@ -398,7 +403,7 @@ describe('space-status API (KV-only)', () => {
       });
 
       const response = await onRequest(ctx);
-      expect(response.headers.get('Cache-Control')).toBe('max-age=300');
+      expect(response.headers.get('Cache-Control')).toBe('private, max-age=300');
     });
   });
 

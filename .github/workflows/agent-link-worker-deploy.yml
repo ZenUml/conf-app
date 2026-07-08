@@ -10,6 +10,9 @@ on:
   push:
     paths:
       - 'workers/agent-link/**'
+      # The DO class lives in functions/agent-link/ (re-exported by the Worker's
+      # src/index.ts), so DO source changes must also redeploy the Worker.
+      - 'functions/agent-link/**'
       - '.github/workflows/agent-link-worker-deploy.yml'
   workflow_dispatch: {}
 

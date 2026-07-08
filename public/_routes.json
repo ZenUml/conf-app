@@ -25,7 +25,8 @@
     "/metrics-cache/update",
     "/admin/metrics-inspect",
     "/feature-flags",
-    "/ai-generate-title"
+    "/ai-generate-title",
+    "/agent-link/*"
   ],
   "exclude": []
 }

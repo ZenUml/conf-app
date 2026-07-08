@@ -390,18 +390,37 @@ def _fuzzy_hosts(domain, auth):
     return []
 
 
+def _kv_run(*a):
+    return subprocess.run(["npx", "--yes", "wrangler", "kv", *a, "--namespace-id", SPACE_LICENSE_KV_NS,
+                           "--remote"], capture_output=True, text=True, timeout=40).stdout
+
+
 def _kv_space_licenses(cloud_id):
-    """Layer-B (Stripe/KV) paid space-licenses for a cloudId — returns [space keys] or None if
-    unchecked. `--remote` is REQUIRED: wrangler v4 `kv key list` defaults to LOCAL state and would
-    silently return [] (a false 'not paying' — the woolworths/coles footgun, now baked in)."""
+    """Layer-B space-licenses for a cloudId -> [ {space, kind, activatedBy, expiresAt, status} ] or
+    None if unchecked. `--remote` is REQUIRED (wrangler v4 defaults to LOCAL state -> a false empty).
+    Reads each VALUE and classifies **PAID** vs **COMPED** by the presence of `paymentReference`
+    (the Stripe webhook stores `session.id` there; comped/manual grants via extend-space-license
+    write none). Key existence alone over-reports paying: space-status.ts marks ANY active+future
+    license `isPaid`, so a comped 14-day extension (vin3s) otherwise looked 'PAYING'. NB: as of this
+    writing every prod space-license is comped/manual — there are zero Stripe-paid ones."""
     try:
-        p = subprocess.run(
-            ["npx", "--yes", "wrangler", "kv", "key", "list", "--namespace-id", SPACE_LICENSE_KV_NS,
-             "--remote", "--prefix", f"license:{cloud_id}"],
-            capture_output=True, text=True, timeout=40)
-        return [k["name"].split(":")[-1] for k in json.loads(p.stdout or "[]")]
+        keys = json.loads(_kv_run("key", "list", "--prefix", f"license:{cloud_id}") or "[]")
     except Exception:
         return None
+    out = []
+    for k in keys:
+        name = k.get("name", "")
+        try:
+            rec = json.loads(_kv_run("key", "get", name) or "{}")
+        except Exception:
+            rec = {}
+        paid = bool(rec.get("paymentReference"))          # Stripe webhook stores session.id here; a
+        out.append({"space": name.split(":")[-1],          # comped/manual grant has none -> not revenue
+                    "kind": "PAID" if paid else "COMPED",
+                    "activatedBy": str(rec.get("activatedBy") or "") or None,
+                    "paymentReference": rec.get("paymentReference"),
+                    "expiresAt": rec.get("expiresAt"), "status": rec.get("status")})
+    return out
 
 
 def cmd_whois(args, auth):
@@ -449,7 +468,9 @@ def cmd_whois(args, auth):
     if kv_checked:
         for cid in sorted({r.get("cloudId") for r in lics if r.get("addonKey") == LITE and r.get("cloudId")}):
             layer_b[cid] = _kv_space_licenses(cid)
-    b_paying = any(v for v in layer_b.values() if v)     # non-empty list = has paid space-license(s)
+    b_records = [sl for recs in layer_b.values() if recs for sl in recs]
+    b_paying = any(sl["kind"] == "PAID" for sl in b_records)     # genuine Stripe = revenue
+    b_comped = any(sl["kind"] == "COMPED" for sl in b_records)   # support grant = access, $0 revenue
 
     cids = sorted(c for c in cloud_ids if c)
     suggest = []
@@ -489,11 +510,21 @@ def cmd_whois(args, auth):
         line = f"  {x['app']:12} {u:12} status={x['status'] or '?':8} {x['state_desc']}"
         if x["app"] == "Lite" and kv_checked:
             lb = layer_b.get(x["cloudId"])
-            line += (f"   [Layer B: {len(lb)} space-license(s): {','.join(lb)}]" if lb else
-                     "   [Layer B: none]" if lb is not None else "   [Layer B: unchecked]")
+            if lb is None:
+                line += "   [Layer B: unchecked]"
+            elif not lb:
+                line += "   [Layer B: none]"
+            else:
+                parts = [f"{s['kind']} {s['space']}"
+                         + (f" exp {s['expiresAt'][:10]}" if s.get("expiresAt") else "")
+                         + (f" via {s['activatedBy']}" if s.get("activatedBy") else "") for s in lb]
+                line += "   [Layer B: " + "; ".join(parts) + "]"
         print(line)
-    print(f"  VERDICT : {'PAYING' if out['paying_any_layer'] else 'not paying'}  "
-          f"(marketplace ${out['total_lifetime_vendor']:,.2f}" + (", +Layer B" if b_paying else "") + ")")
+    verdict = ("PAYING" if out["paying_any_layer"]
+               else "not paying (comped access only)" if b_comped else "not paying")
+    extra = (", +Layer B PAID" if b_paying else
+             ", comped Layer-B grant (=$0 revenue)" if b_comped else "")
+    print(f"  VERDICT : {verdict}  (marketplace ${out['total_lifetime_vendor']:,.2f}{extra})")
     if has_lite and not kv_checked:
         print("  NOTE    : Lite present but Layer-B (KV) not checked "
               + ("(local snapshot)" if LOCAL["db"] else "(--no-kv)") + " — real Lite paid status unknown.")

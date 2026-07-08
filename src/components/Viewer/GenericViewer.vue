@@ -176,7 +176,8 @@ import ConnectButton from '@/components/AgentLink/ConnectButton.vue'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
 import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
 import { useAgentLinkSession } from '@/composables/agentLink/useAgentLinkSession'
-import { createUnwiredBridgeOps } from '@/composables/agentLink/bridgeOps'
+import { createBridgeOps, createUnwiredBridgeOps } from '@/composables/agentLink/bridgeOps'
+import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
 import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
 
 const DEFAULT_TITLE = 'Untitled diagram'
@@ -317,8 +318,12 @@ export default {
     // One useAgentLinkSession() instance per GenericViewer mount, shared by
     // the Connect button / live badge / Fullscreen rail below (whichever
     // template branch is active in THIS mount — see the cross-iframe note
-    // on connectToAgent()). bridgeOps is a placeholder: no UI wired here
-    // calls applyEdit(), so nothing needs the real Forge bridge yet.
+    // on connectToAgent()). This placeholder instance is provisional: the
+    // agent-link flag resolves async in mounted() below, and nothing in this
+    // window can invoke startConnect()/applyEdit() — the Connect affordance
+    // is flag-gated and not yet rendered. mounted() swaps in the real
+    // Forge-bridge-backed ops once the flag settles (or keeps this one for
+    // standalone/dev/no-context).
     this._agentLink = useAgentLinkSession(createUnwiredBridgeOps(), {
       macroType: this.diagramType || 'none',
       clickSurface: 'viewer',
@@ -335,6 +340,20 @@ export default {
     } catch (e) {
       console.error('Failed to load agent-link feature flag:', e);
       this.agentLinkFeatureEnabled = false;
+    }
+    // Live Agent Link real bridge (design §4.2/§4.4): once the flag resolves
+    // ON and a real Forge-bridge context (globals.apWrapper) is available,
+    // swap the placeholder for the ApWrapper2-backed bridge so writeDiagram
+    // actually persists via saveCustomContentV2 — wrapped in createBridgeOps
+    // so the write-scope guard (only the bound contentId) still applies.
+    // Standalone/dev/no-context keeps the unwired placeholder, which fails
+    // loudly instead of silently doing nothing (see bridgeOps.ts).
+    if (this.agentLinkFeatureEnabled && globals.apWrapper) {
+      const bridge = createForgeAgentLinkBridge({ apWrapper: globals.apWrapper });
+      this._agentLink = useAgentLinkSession(createBridgeOps(bridge, this.diagram.id), {
+        macroType: this.diagramType || 'none',
+        clickSurface: 'viewer',
+      });
     }
   },
   methods: {

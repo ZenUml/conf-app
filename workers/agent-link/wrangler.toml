@@ -39,6 +39,11 @@ new_sqlite_classes = ["AgentLinkSession"]
 # Staging
 [env.stg]
 name = "conf-agent-link-stg"
+# cron-aggregate is cron-only and has no public route; this Worker serves
+# HTTP/WS traffic (GET /channel), so it needs a reachable URL for
+# WS-connect verification. workers.dev is fine for stg (no custom route
+# needed yet).
+workers_dev = true
 
 [[env.stg.durable_objects.bindings]]
 name = "AGENT_LINK"

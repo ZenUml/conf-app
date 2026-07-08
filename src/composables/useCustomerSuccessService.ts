@@ -19,6 +19,10 @@ const macrosCreated = ref<number>(0)
 const macroCountSource = ref<MacroCountSource>('undefined')
 const customerSuccessServiceEnabled = ref<boolean>(false)
 const spacePaidStatus = ref<boolean>(false)
+// Which grant satisfied spacePaidStatus — 'user_license' (per-requester
+// extension) vs 'space_license' (whole-space extension or a paid plan).
+// Undefined when the space isn't paid. Rides on paywall_gate_evaluated.
+const spacePaidSource = ref<'user_license' | 'space_license' | undefined>(undefined)
 const currentSpaceKey = ref<string>('')
 
 let macroMetricsLoaded = false;
@@ -184,6 +188,7 @@ export function useCustomerSuccessService() {
 
       if (response && typeof response.isPaid === 'boolean') {
         spacePaidStatus.value = response.isPaid
+        spacePaidSource.value = response.isPaid ? response.source : undefined
         console.log('💳 Space paid status:', {
           isPaid: response.isPaid,
           source: response.source,
@@ -241,6 +246,7 @@ export function useCustomerSuccessService() {
     enterpriseBundleUrl,
     learnMoreUrl,
     spacePaid: spacePaidStatus,
+    spacePaidSource,
     cssEnabled: customerSuccessServiceEnabled,
     initialize,
   }
@@ -251,6 +257,7 @@ export function useCustomerSuccessService() {
   macroCountSource.value = 'undefined'
   customerSuccessServiceEnabled.value = false
   spacePaidStatus.value = false
+  spacePaidSource.value = undefined
   currentSpaceKey.value = ''
   macroMetricsLoaded = false
   cssFlagLoaded = false

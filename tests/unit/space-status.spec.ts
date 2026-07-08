@@ -20,8 +20,10 @@ import { validateContextToken } from '../../functions/utils/authenticate';
 // Mock KV namespace
 class MockKV {
   private store = new Map<string, string>();
+  getCalls: string[] = [];
 
   async get(key: string): Promise<string | null> {
+    this.getCalls.push(key);
     return this.store.get(key) ?? null;
   }
 
@@ -247,8 +249,148 @@ describe('space-status API (KV-only)', () => {
     });
   });
 
+  describe('user-scoped license (hybrid extension)', () => {
+    function forgeHeaders() {
+      return { 'x-forge-oauth-user': 'user-123', Authorization: 'Bearer forge-jwt' };
+    }
+
+    function mockTokenWithPrincipal(principal?: string) {
+      (validateContextToken as any).mockResolvedValue({
+        payload: {
+          context: { cloudId: 'cloud-abc' },
+          ...(principal !== undefined ? { principal } : {}),
+        },
+      });
+    }
+
+    function activeRecord(overrides: Partial<Record<string, any>> = {}) {
+      return {
+        cloudId: 'cloud-abc',
+        spaceKey: 'ENG',
+        status: 'active',
+        activatedBy: 'ops-jane',
+        expiresAt: '2099-01-01T00:00:00Z',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        ...overrides,
+      };
+    }
+
+    it('returns isPaid:true, source:user_license for a user-key match with no space-key record', async () => {
+      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
+      mockTokenWithPrincipal('user-abc');
+
+      kv._set('license:cloud-abc:ENG:user-abc', activeRecord({ userAccountId: 'user-abc' }));
+
+      const ctx = createMockContext({
+        url: 'https://example.com/api/space-status?spaceKey=ENG',
+        headers: forgeHeaders(),
+        env: makeEnv(),
+      });
+
+      const response = await onRequest(ctx);
+      const body = await response.json();
+      expect(body.isPaid).toBe(true);
+      expect(body.source).toBe('user_license');
+    });
+
+    it('falls back to the space-level record when the requesting user has no user-key record (backward compat)', async () => {
+      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
+      mockTokenWithPrincipal('user-abc');
+
+      // Only a pre-existing space-level grant exists — this is the shape of
+      // the ~10 live prod grants that predate user-scoped extensions.
+      kv._set('license:cloud-abc:ENG', activeRecord());
+
+      const ctx = createMockContext({
+        url: 'https://example.com/api/space-status?spaceKey=ENG',
+        headers: forgeHeaders(),
+        env: makeEnv(),
+      });
+
+      const response = await onRequest(ctx);
+      const body = await response.json();
+      expect(body.isPaid).toBe(true);
+      expect(body.source).toBe('space_license');
+    });
+
+    it('falls back to space-level when the user-key record is expired but the space-key record is active', async () => {
+      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
+      mockTokenWithPrincipal('user-abc');
+
+      kv._set('license:cloud-abc:ENG:user-abc', activeRecord({
+        userAccountId: 'user-abc',
+        expiresAt: '2020-01-01T00:00:00Z', // expired
+      }));
+      kv._set('license:cloud-abc:ENG', activeRecord());
+
+      const ctx = createMockContext({
+        url: 'https://example.com/api/space-status?spaceKey=ENG',
+        headers: forgeHeaders(),
+        env: makeEnv(),
+      });
+
+      const response = await onRequest(ctx);
+      const body = await response.json();
+      expect(body.isPaid).toBe(true);
+      expect(body.source).toBe('space_license');
+    });
+
+    it('never constructs or queries a user-key when the token has no principal (security invariant)', async () => {
+      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
+      mockTokenWithPrincipal(undefined);
+
+      kv._set('license:cloud-abc:ENG', activeRecord());
+
+      const ctx = createMockContext({
+        url: 'https://example.com/api/space-status?spaceKey=ENG',
+        headers: forgeHeaders(),
+        env: makeEnv(),
+      });
+
+      const response = await onRequest(ctx);
+      const body = await response.json();
+      expect(body.isPaid).toBe(true);
+      expect(body.source).toBe('space_license');
+      expect(kv.getCalls.some((k) => k.includes(':undefined') || k.includes(':null'))).toBe(false);
+      expect(kv.getCalls).not.toContain('license:cloud-abc:ENG:');
+    });
+
+    it('grants only the requesting user — a different user on the same space stays unpaid', async () => {
+      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
+
+      kv._set('license:cloud-abc:ENG:user-granted', activeRecord({ userAccountId: 'user-granted' }));
+
+      mockTokenWithPrincipal('user-granted');
+      const grantedCtx = createMockContext({
+        url: 'https://example.com/api/space-status?spaceKey=ENG',
+        headers: forgeHeaders(),
+        env: makeEnv(),
+      });
+      const grantedResponse = await onRequest(grantedCtx);
+      const grantedBody = await grantedResponse.json();
+      expect(grantedBody.isPaid).toBe(true);
+      expect(grantedBody.source).toBe('user_license');
+
+      mockTokenWithPrincipal('user-other');
+      const otherCtx = createMockContext({
+        url: 'https://example.com/api/space-status?spaceKey=ENG',
+        headers: forgeHeaders(),
+        env: makeEnv(),
+      });
+      const otherResponse = await onRequest(otherCtx);
+      const otherBody = await otherResponse.json();
+      expect(otherBody.isPaid).toBe(false);
+    });
+  });
+
   describe('cache headers', () => {
-    it('returns Cache-Control: max-age=300 for successful responses', async () => {
+    // 'private' is required, not optional: the response now varies by the
+    // caller's accountId (user-scoped license check), not just cloudId+spaceKey,
+    // which are identical for every user on the same space. Without 'private' a
+    // shared/CDN cache could serve one user's isPaid:true to a different,
+    // unlicensed user on the same space — a cross-user paywall bypass.
+    it('returns Cache-Control: private, max-age=300 for successful responses', async () => {
       (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
       (validateContextToken as any).mockResolvedValue({
         payload: { context: { cloudId: 'cloud-abc' } },
@@ -261,7 +403,7 @@ describe('space-status API (KV-only)', () => {
       });
 
       const response = await onRequest(ctx);
-      expect(response.headers.get('Cache-Control')).toBe('max-age=300');
+      expect(response.headers.get('Cache-Control')).toBe('private, max-age=300');
     });
   });
 

@@ -45,11 +45,15 @@ export type AnalyticsProperties = {
   // `macro_count_source` = where that count came from / why it was unusable
   // (the #302 fail-open signal). `css_enabled` / `space_paid` / `is_lite` are
   // the other gate inputs, captured so a not-fired decision is fully explained.
+  // `space_paid_scope` = which grant satisfied `space_paid` — 'user_license'
+  // (per-requester extension) vs 'space_license' (whole-space extension or a
+  // paid plan). Lets user-level vs space-level unlocks be measured separately.
   gate_fired?: boolean;
   macro_count?: number;
   macro_count_source?: MacroCountSource;
   css_enabled?: boolean;
   space_paid?: boolean;
+  space_paid_scope?: 'user_license' | 'space_license';
   is_lite?: boolean;
   cta_position?: "primary" | "secondary";
   feature_name?: string;

@@ -53,6 +53,7 @@ function trackGateEvaluated(
     macro_count_source: customerSuccess.macroCountSource.value,
     css_enabled: customerSuccess.cssEnabled.value,
     space_paid: customerSuccess.spacePaid.value,
+    space_paid_scope: customerSuccess.spacePaidSource.value,
     is_lite: true,
   });
 }

@@ -125,7 +125,8 @@ export type AnalyticsEventName =
   // fail-open leak: `gate_fired` + `macro_count` + `macro_count_source` let us
   // measure how often an over-limit space slips through because the count read
   // failed / under-returned, and split the cause (KV stale-low vs collect fail).
-  // See utils/paywall/mountPaywallGate.ts.
+  // `space_paid_scope` additionally splits a paid gate by user-level vs
+  // space-level extension grant. See utils/paywall/mountPaywallGate.ts.
   | "paywall_gate_evaluated"
   | "paywall_banner_shown"
   | "paywall_banner_dismissed"

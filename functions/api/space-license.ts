@@ -12,11 +12,13 @@ export interface SpaceLicenseRecord {
   expiresAt: string;
   createdAt: string;
   updatedAt: string;
+  userAccountId?: string;
 }
 
 interface LicenseIndexEntry {
   cloudId: string;
   spaceKey: string;
+  userAccountId?: string;
 }
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -34,8 +36,10 @@ function validateAdminAuth(request: Request, env: Env): boolean {
   return parts[1] === env.ADMIN_API_SECRET;
 }
 
-function kvKey(cloudId: string, spaceKey: string): string {
-  return `license:${cloudId}:${spaceKey}`;
+function kvKey(cloudId: string, spaceKey: string, userAccountId?: string): string {
+  return userAccountId
+    ? `license:${cloudId}:${spaceKey}:${userAccountId}`
+    : `license:${cloudId}:${spaceKey}`;
 }
 
 async function getIndex(kv: KVNamespace): Promise<LicenseIndexEntry[]> {
@@ -51,14 +55,15 @@ async function getIndex(kv: KVNamespace): Promise<LicenseIndexEntry[]> {
 async function updateIndex(
   kv: KVNamespace,
   cloudId: string,
-  spaceKey: string
+  spaceKey: string,
+  userAccountId?: string
 ): Promise<void> {
   const index = await getIndex(kv);
   const exists = index.some(
-    (e) => e.cloudId === cloudId && e.spaceKey === spaceKey
+    (e) => e.cloudId === cloudId && e.spaceKey === spaceKey && e.userAccountId === userAccountId
   );
   if (!exists) {
-    index.push({ cloudId, spaceKey });
+    index.push({ cloudId, spaceKey, ...(userAccountId && { userAccountId }) });
     await kv.put('license-index', JSON.stringify(index));
   }
 }
@@ -74,7 +79,7 @@ async function handlePost(
     return jsonResponse(400, { error: 'invalid_json', message: 'Invalid JSON body' });
   }
 
-  const { cloudId, spaceKey, expiresAt, activatedBy, paymentReference } = body;
+  const { cloudId, spaceKey, expiresAt, activatedBy, paymentReference, userAccountId } = body;
 
   if (!cloudId || !spaceKey || !expiresAt || !activatedBy) {
     return jsonResponse(400, {
@@ -91,7 +96,16 @@ async function handlePost(
     });
   }
 
-  const key = kvKey(cloudId, spaceKey);
+  // A user-scoped grant with a blank accountId would unlock anyone whose
+  // token is missing a principal — refuse rather than write a placeholder key.
+  if (userAccountId !== undefined && (typeof userAccountId !== 'string' || !userAccountId.trim())) {
+    return jsonResponse(400, {
+      error: 'invalid_user_account_id',
+      message: 'userAccountId must be a non-empty string when provided',
+    });
+  }
+
+  const key = kvKey(cloudId, spaceKey, userAccountId);
   const now = new Date().toISOString();
 
   // Check for existing record (upsert)
@@ -118,11 +132,12 @@ async function handlePost(
       createdAt: now,
       updatedAt: now,
       ...(paymentReference !== undefined && { paymentReference }),
+      ...(userAccountId !== undefined && { userAccountId }),
     };
   }
 
   await kv.put(key, JSON.stringify(record));
-  await updateIndex(kv, cloudId, spaceKey);
+  await updateIndex(kv, cloudId, spaceKey, userAccountId);
 
   const statusCode = existing ? 200 : 201;
   return jsonResponse(statusCode, record);
@@ -143,7 +158,7 @@ async function handleGet(
   for (const entry of index) {
     if (filterCloudId && entry.cloudId !== filterCloudId) continue;
 
-    const raw = await kv.get(kvKey(entry.cloudId, entry.spaceKey));
+    const raw = await kv.get(kvKey(entry.cloudId, entry.spaceKey, entry.userAccountId));
     if (!raw) continue;
 
     const record = JSON.parse(raw) as SpaceLicenseRecord;
@@ -162,6 +177,7 @@ async function handleDelete(
   const url = new URL(request.url);
   const cloudId = url.searchParams.get('cloudId');
   const spaceKey = url.searchParams.get('spaceKey');
+  const userAccountId = url.searchParams.get('userAccountId') || undefined;
 
   if (!cloudId || !spaceKey) {
     return jsonResponse(400, {
@@ -170,7 +186,7 @@ async function handleDelete(
     });
   }
 
-  const key = kvKey(cloudId, spaceKey);
+  const key = kvKey(cloudId, spaceKey, userAccountId);
   const raw = await kv.get(key);
 
   if (!raw) {

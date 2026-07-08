@@ -167,6 +167,50 @@ describe('useCustomerSuccessService - Paid Space Detection', () => {
   })
 })
 
+describe('useCustomerSuccessService - space paid source (hybrid extension)', () => {
+  beforeEach(async () => {
+    localStorage.clear()
+    vi.resetModules()
+    vi.clearAllMocks()
+  })
+
+  it('exposes spacePaidSource as user_license from the space-status response', async () => {
+    const { callRemote } = await import('@/utils/requestUtil')
+    vi.mocked(callRemote).mockResolvedValue({ isPaid: true, source: 'user_license' })
+
+    const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
+    const { spacePaidSource, initialize } = useCustomerSuccessService()
+
+    await initialize()
+
+    expect(spacePaidSource.value).toBe('user_license')
+  })
+
+  it('exposes spacePaidSource as space_license from the space-status response', async () => {
+    const { callRemote } = await import('@/utils/requestUtil')
+    vi.mocked(callRemote).mockResolvedValue({ isPaid: true, source: 'space_license' })
+
+    const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
+    const { spacePaidSource, initialize } = useCustomerSuccessService()
+
+    await initialize()
+
+    expect(spacePaidSource.value).toBe('space_license')
+  })
+
+  it('leaves spacePaidSource undefined when the space is not paid', async () => {
+    const { callRemote } = await import('@/utils/requestUtil')
+    vi.mocked(callRemote).mockResolvedValue({ isPaid: false })
+
+    const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
+    const { spacePaidSource, initialize } = useCustomerSuccessService()
+
+    await initialize()
+
+    expect(spacePaidSource.value).toBeUndefined()
+  })
+})
+
 describe('useCustomerSuccessService - Full App (no restrictions)', () => {
   beforeEach(async () => {
     localStorage.clear()

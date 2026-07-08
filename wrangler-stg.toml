@@ -45,14 +45,14 @@ id = "8969e8528105403bb2d9adca9fc16567"
 # `conf-agent-link-stg` Worker (workers/agent-link/) that actually defines
 # AgentLinkSession. See functions/agent-link/AgentLinkSession.ts's file
 # header and functions/agent-link/channel.ts's TODO(agent-link).
-# DISABLED until the companion Worker is actually deployed: `wrangler pages deploy`
-# fails validating a script_name binding to a Worker that does not exist yet.
-# Re-enable once workers/agent-link/ is deployed via CI (a Worker-deploy step
-# ordered BEFORE this Pages publish). channel.ts 501s gracefully meanwhile.
-# [[env.production.durable_objects.bindings]]
-# name = "AGENT_LINK"
-# class_name = "AgentLinkSession"
-# script_name = "conf-agent-link-stg"
+# Re-enabled 2026-07-09: the companion Worker conf-agent-link-stg is now deployed
+# (workers/agent-link/ via .github/workflows/agent-link-worker-deploy.yml), so this
+# cross-Worker script_name binding resolves at Pages deploy. Live DO pairing +
+# bidirectional forwarding verified against conf-agent-link-stg.zenuml.workers.dev.
+[[env.production.durable_objects.bindings]]
+name = "AGENT_LINK"
+class_name = "AgentLinkSession"
+script_name = "conf-agent-link-stg"
 
 # Portal feature flags KV (staging)
 [[kv_namespaces]]

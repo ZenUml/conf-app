@@ -12,6 +12,7 @@ const fakeCS = {
   macroCountSource: { value: 'undefined' as string },
   cssEnabled: { value: true },
   spacePaid: { value: false },
+  spacePaidSource: { value: undefined as 'user_license' | 'space_license' | undefined },
   spaceKey: { value: 'OVERLIMIT' },
   upgradeUrl: { value: 'https://upgrade' },
   enterpriseBundleUrl: { value: 'https://bundle' },
@@ -73,6 +74,8 @@ describe('paywall_gate_evaluated (#302 instrumentation)', () => {
     fakeCS.shouldBlockActions.value = false
     fakeCS.macrosCreated.value = 0
     fakeCS.macroCountSource.value = 'undefined'
+    fakeCS.spacePaid.value = false
+    fakeCS.spacePaidSource.value = undefined
   })
 
   it('fires with gate_fired=false + fail-open source on an ungated create mount', async () => {
@@ -113,6 +116,28 @@ describe('paywall_gate_evaluated (#302 instrumentation)', () => {
     await gate.tryFullscreenViewerPaywall({ doc: undefined, content: StubContent, macroKind: 'sequence' })
     const call = gateEvalCall(trackUpgradeEvent, UpgradeEventName.PAYWALL_GATE_EVALUATED)
     expect(call![1]).toMatchObject({ action_type: 'fullscreen_viewer', surface: 'viewer', gate_fired: false })
+  })
+
+  it('carries space_paid_scope from the customer-success service (user_license)', async () => {
+    fakeCS.spacePaid.value = true
+    fakeCS.spacePaidSource.value = 'user_license'
+    const { gate, trackUpgradeEvent, UpgradeEventName } = await imports()
+    await gate.tryPageEditorPaywall({
+      doc: NULL_DIAGRAM, content: StubContent, macroKind: 'sequence', customContentId: undefined,
+    })
+    const call = gateEvalCall(trackUpgradeEvent, UpgradeEventName.PAYWALL_GATE_EVALUATED)
+    expect(call![1]).toMatchObject({ space_paid_scope: 'user_license' })
+  })
+
+  it('carries space_paid_scope from the customer-success service (space_license)', async () => {
+    fakeCS.spacePaid.value = true
+    fakeCS.spacePaidSource.value = 'space_license'
+    const { gate, trackUpgradeEvent, UpgradeEventName } = await imports()
+    await gate.tryPageEditorPaywall({
+      doc: NULL_DIAGRAM, content: StubContent, macroKind: 'sequence', customContentId: undefined,
+    })
+    const call = gateEvalCall(trackUpgradeEvent, UpgradeEventName.PAYWALL_GATE_EVALUATED)
+    expect(call![1]).toMatchObject({ space_paid_scope: 'space_license' })
   })
 
   it('does NOT fire on a non-Lite variant', async () => {

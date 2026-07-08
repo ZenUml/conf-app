@@ -2,3 +2,4 @@ packages:
   - "."
   - "forge-console"
   - "workers/cron-aggregate"
+  - "workers/agent-link"

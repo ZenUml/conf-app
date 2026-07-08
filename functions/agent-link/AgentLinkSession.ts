@@ -9,7 +9,7 @@
 // paths (forwarding.spec.ts). The live WebSocket runtime itself — actually
 // accepting a socket, hibernation callbacks firing, `alarm()` firing on
 // schedule — is NOT unit-testable without a real Workers runtime; it is
-// verified at deploy time (see TODO(agent-link) below on the DO binding).
+// verified at deploy time (see the DO-binding note below).
 //
 // Wire protocol (matches forwarding.ts's Envelope):
 //   GET /agent-link/channel?token=<token>&peer=macro|agent  (Upgrade: websocket)
@@ -20,25 +20,23 @@
 //   runtime's own WebSocket keepalive covers the transport level; this is an
 //   application-level liveness envelope some clients may still send).
 //
-// TODO(agent-link): confirm Pages<->DO binding at deploy. Verified via
-// wrangler's own Pages config validator (wrangler-dist/cli.js,
+// DO-binding note: Pages cannot host a Durable Object class internally.
+// Verified via wrangler's own Pages config validator (wrangler-dist/cli.js,
 // `validateDurableObjectBinding2`): "Pages requires Durable Object bindings
 // to specify the name of the Worker where the Durable Object is defined"
-// (i.e. a `script_name` pointing at a SEPARATELY DEPLOYED Worker — Pages
-// Functions cannot host a Durable Object class internally; the Pages
+// (i.e. a `script_name` pointing at a SEPARATELY DEPLOYED Worker — the Pages
 // Functions bundler hardcodes `doBindings: []` for exactly this reason).
-// This repo has no such companion Worker yet, so `[[durable_objects.bindings]]`
-// is deliberately NOT added to wrangler-dev.toml/wrangler-stg.toml/
-// wrangler-prod.toml in this task — adding a binding without a real
-// `script_name` would satisfy the validator (it only checks the field is a
-// string) but silently do nothing in production and previously would have
-// risked confusing/breaking local `wrangler pages dev`. Next step to make
-// this class live: deploy a minimal standalone Worker that exports
-// `AgentLinkSession`, then add the binding + a `[[migrations]]` entry
-// (`new_sqlite_classes = ["AgentLinkSession"]`) referencing that Worker's
-// `script_name` in the Pages project's wrangler config, and swap
-// `functions/agent-link/channel.ts`'s guard for the real `env.AGENT_LINK`
-// call it already contains.
+// Resolved by `workers/agent-link/` — a standalone Worker (`conf-agent-link`,
+// deployed as `conf-agent-link-stg` / `conf-agent-link-prod`) whose
+// `src/index.ts` re-exports this class so it's actually defined and
+// deployed there, with a `[[migrations]]` entry
+// (`new_sqlite_classes = ["AgentLinkSession"]`) in that Worker's
+// `wrangler.toml`. The Pages project's wrangler-stg.toml / wrangler-prod.toml
+// each carry a `[[env.production.durable_objects.bindings]]` with
+// `script_name` pointing at that Worker, and
+// `functions/agent-link/channel.ts` now calls the real `env.AGENT_LINK`
+// binding (its `!env.AGENT_LINK` guard remains only as a defensive check for
+// wrangler-dev.toml, which has no companion Worker for local dev).
 
 import { applyEvent, parseEnvelope, routeMessage } from './forwarding';
 import type { Peer } from './forwarding';

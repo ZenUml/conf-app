@@ -12,14 +12,15 @@
 // be visible from the DO's isolate). AgentLinkSession.fetch does all real
 // validation; this file's only job is the env.AGENT_LINK lookup + forward.
 //
-// TODO(agent-link): env.AGENT_LINK is not wired in wrangler-dev.toml /
-// wrangler-stg.toml / wrangler-prod.toml yet. Confirmed via wrangler's own
-// Pages config validator that a Durable Object binding on a Pages project
-// MUST specify `script_name` pointing at a separately deployed Worker —
-// Pages Functions cannot host a Durable Object class internally (see the
-// longer note in AgentLinkSession.ts's file header). Until that companion
-// Worker exists and is bound here, this handler returns 501 rather than
-// pretending to relay.
+// env.AGENT_LINK is wired in wrangler-stg.toml / wrangler-prod.toml via a
+// cross-Worker `[[durable_objects.bindings]]` with `script_name` pointing at
+// the standalone `conf-agent-link-{stg,prod}` Worker (workers/agent-link/)
+// that actually defines AgentLinkSession — Pages Functions cannot host a
+// Durable Object class internally (see the longer note in
+// AgentLinkSession.ts's file header). wrangler-dev.toml intentionally has no
+// such binding yet (no companion Worker is deployed for local dev), so the
+// `!env.AGENT_LINK` branch below is a defensive check for that case, not a
+// TODO.
 
 interface Env {
   AGENT_LINK?: DurableObjectNamespace;
@@ -46,10 +47,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   if (!env.AGENT_LINK) {
+    // Defensive: only expected on wrangler-dev.toml (no companion Worker
+    // deployed for local dev) or if a future config change drops the
+    // binding. wrangler-stg.toml / wrangler-prod.toml always have it.
     return new Response(
       JSON.stringify({
         error:
-          'AgentLinkSession channel not wired: the AGENT_LINK Durable Object binding is pending a companion Worker deploy (see TODO(agent-link) in channel.ts / AgentLinkSession.ts)',
+          'AgentLinkSession channel not available: no AGENT_LINK Durable Object binding in this environment',
       }),
       { status: 501, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
     );

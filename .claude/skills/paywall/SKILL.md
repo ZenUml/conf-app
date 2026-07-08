@@ -604,3 +604,4 @@ Apply proposed improvements directly to the skill file without asking for confir
 | Upgrade tracking event names | `src/utils/upgradeTracking.ts` |
 | Space license endpoint | `functions/api/space-status.ts`, `functions/api/space-license.ts` |
 | Pricing tiers + cost formula | `docs/pricing-model.yml` |
+| Is a specific tenant already paying / on a trial? | `tenant` skill — `whois <domain>` (single-tenant lookup, incl. Lite Layer-B) |

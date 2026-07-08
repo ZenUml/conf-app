@@ -114,6 +114,7 @@ npx wrangler kv key get "license:$CLOUD:<SPACE>" --namespace-id=$NS --remote   #
 
 ## Related
 
+- `tenant` skill — before granting, `whois <domain>` tells you the tenant's paid status / plan / any existing space-licenses / trial expiry, so you're not comping someone who already pays.
 - `macro-count` skill — per-space macro counts (used here to verify the space key).
 - `metrics` skill — single-space KV freshness diagnosis.
 - Handbook: `paywall/extension-request-replies.md` (reply template + sent log),

@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """Grant a temporary space-license editing extension (Lite paywall lockout requests).
 
-Lifts the Lite per-space 100-macro paywall for ONE space by writing a
-`license:<cloudId>:<spaceKey>` record to the prod SPACE_LICENSE_KV namespace —
-the exact key `functions/api/space-status.ts` enforces (`isPaid` iff
-status=='active' AND expiresAt in the future). Cached 300s → applies within ~5 min.
+Default scope is now PER-USER: writes a `license:<cloudId>:<spaceKey>:<userAccountId>`
+record when `--user` is given, which unlocks only the requesting user. Whole-space
+grants (`license:<cloudId>:<spaceKey>`, no `--user`) remain available as a manual
+escalation — re-run without `--user` when multiple independent requesters hit the
+same space. Either key shape is enforced by `functions/api/space-status.ts` (`isPaid`
+iff status=='active' AND expiresAt in the future; user-key checked first, falling
+back to the space-key). Cached 300s → applies within ~5 min.
 
 Usage (run from the conf-app project root, so wrangler config + curl resolve):
-    python3 grant_extension.py --domain example-tenant --space ENG
+    python3 grant_extension.py --domain example-tenant --space ENG --user 712020:abc-123
+    python3 grant_extension.py --domain example-tenant --space ENG            # space-level escalation
     python3 grant_extension.py --domain example-tenant --space ENG --users 500
-    python3 grant_extension.py --domain example-tenant --space ENG --dry-run
+    python3 grant_extension.py --domain example-tenant --space ENG --user 712020:abc-123 --dry-run
 
 This MUTATES production KV. It is a deploy-discipline action — only run it with an
 explicit go-ahead. Use --dry-run to preview the exact record + commands first.
@@ -107,7 +111,7 @@ def full_plan_arr(n):
             + max(0, n - 1000) * 0.05) * 10
 
 
-def grant(domain, space, days, activated_by, dry_run):
+def grant(domain, space, days, activated_by, dry_run, user_account_id=None):
     bare, full = normalize_domain(domain)
     print(f"[1/5] resolving cloudId for {full} ...")
     cloud = resolve_cloud_id(full)
@@ -126,7 +130,8 @@ def grant(domain, space, days, activated_by, dry_run):
     today = dt.date.today()
     expires_at = f"{(today + dt.timedelta(days=days)).isoformat()}T23:59:59Z"
     now_iso = _utcnow_iso()
-    key = f"license:{cloud}:{space}"
+    key = f"license:{cloud}:{space}:{user_account_id}" if user_account_id else f"license:{cloud}:{space}"
+    scope = f"user ({user_account_id})" if user_account_id else "space (all users)"
 
     # Upsert: preserve createdAt if a record already exists.
     existing_raw = wrangler_kv_get(key)
@@ -139,8 +144,11 @@ def grant(domain, space, days, activated_by, dry_run):
         record = {"cloudId": cloud, "spaceKey": space, "status": "active",
                   "activatedBy": activated_by, "expiresAt": expires_at,
                   "createdAt": now_iso, "updatedAt": now_iso}
+        if user_account_id:
+            record["userAccountId"] = user_account_id
         print("[3/5] new record")
 
+    print(f"      scope = {scope}")
     print(f"      key   = {key}")
     print(f"      value = {json.dumps(record)}")
 
@@ -155,7 +163,7 @@ def grant(domain, space, days, activated_by, dry_run):
         rec_path = f.name
     print("[4/5] writing license key + updating license-index ...")
     wrangler_kv_put(key, rec_path)
-    _update_index(cloud, space)
+    _update_index(cloud, space, user_account_id)
 
     print("[5/5] verifying read-back ...")
     back = wrangler_kv_get(key)
@@ -169,11 +177,15 @@ def _utcnow_iso():
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _update_index(cloud, space):
+def _update_index(cloud, space, user_account_id=None):
     raw = wrangler_kv_get("license-index")
     index = json.loads(raw) if raw else []
-    if not any(e.get("cloudId") == cloud and e.get("spaceKey") == space for e in index):
-        index.append({"cloudId": cloud, "spaceKey": space})
+    if not any(e.get("cloudId") == cloud and e.get("spaceKey") == space
+               and e.get("userAccountId") == user_account_id for e in index):
+        entry = {"cloudId": cloud, "spaceKey": space}
+        if user_account_id:
+            entry["userAccountId"] = user_account_id
+        index.append(entry)
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             json.dump(index, f)
             idx_path = f.name
@@ -230,13 +242,18 @@ def main():
     ap.add_argument("--space", required=True, help="Confluence space KEY (exact, case-sensitive)")
     ap.add_argument("--days", type=int, default=14, help="Extension length (default 14)")
     ap.add_argument("--users", type=int, help="Site user tier (Marketplace license) → fills Full-plan price in the reply")
+    ap.add_argument("--user", dest="user_account_id", default=None,
+                    help="Requester's Atlassian accountId (e.g. 712020:...) — scopes the grant to this "
+                         "user only. Omit to grant the whole space (manual escalation when multiple "
+                         "independent users in the same space have requested).")
     ap.add_argument("--activated-by", default="support:temp-14d-extension")
     ap.add_argument("--dry-run", action="store_true", help="Preview only — no KV writes")
     ap.add_argument("--no-reply", action="store_true", help="Skip the drafted reply")
     args = ap.parse_args()
 
     try:
-        result = grant(args.domain, args.space, args.days, args.activated_by, args.dry_run)
+        result = grant(args.domain, args.space, args.days, args.activated_by, args.dry_run,
+                        user_account_id=args.user_account_id)
     except Exception as e:  # noqa: BLE001
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
@@ -244,8 +261,9 @@ def main():
     if not args.no_reply:
         print_reply(result["space"], result["expiresAt"], args.users)
 
+    scope = f"user {args.user_account_id}" if args.user_account_id else "the whole space"
     if result.get("wrote"):
-        print(f"\n✅ Granted. {result['space']} active through {result['expiresAt']} "
+        print(f"\n✅ Granted to {scope}. {result['space']} active through {result['expiresAt']} "
               f"(applies within ~5 min). Remember to log it in paywall/extension-request-replies.md.")
     elif args.dry_run:
         print("\n(dry-run — nothing written)")

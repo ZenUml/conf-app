@@ -6,7 +6,7 @@
 // Response shape matches §4.3 step 2: token + the channel URL the macro
 // should connect to next.
 
-import { SessionRegistry } from './sessionRegistry';
+import { sessionRegistry as registry } from './registrySingleton';
 import { TOKEN_TTL_MS } from './sessionToken';
 import type { BoundContext } from './sessionToken';
 
@@ -18,13 +18,13 @@ const CORS_HEADERS = {
 
 const JSON_HEADERS = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
 
-// Module-level registry — TODO(agent-link): replace with the AgentLinkSession
-// Durable Object (functions/agent-link/AgentLinkSession.ts) once the live
-// WS/DO runtime is wired up. A Worker-global Map does not survive across
-// isolates or persist between requests in production; it is enough for local
-// dev and for unit-testing the pure request/response contract of this
-// endpoint, which is what this task builds.
-const registry = new SessionRegistry();
+// Shared with mcp.ts via registrySingleton.ts — TODO(agent-link): replace
+// with the AgentLinkSession Durable Object (AgentLinkSession.ts) once the
+// live WS/DO runtime is wired up. A Worker-global singleton does not survive
+// across isolates or persist between requests in production; it is enough
+// for local dev and for unit-testing the pure request/response contract of
+// this endpoint (and mcp.ts's session lookup), which is what this task
+// builds.
 
 function jsonError(status: number, message: string): Response {
   return new Response(JSON.stringify({ error: message }), { status, headers: JSON_HEADERS });

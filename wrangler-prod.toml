@@ -43,10 +43,14 @@ id = "8969e8528105403bb2d9adca9fc16567"
 # `conf-agent-link-prod` Worker (workers/agent-link/) that actually defines
 # AgentLinkSession. See functions/agent-link/AgentLinkSession.ts's file
 # header and functions/agent-link/channel.ts's TODO(agent-link).
-[[env.production.durable_objects.bindings]]
-name = "AGENT_LINK"
-class_name = "AgentLinkSession"
-script_name = "conf-agent-link-prod"
+# DISABLED until the companion Worker is actually deployed: `wrangler pages deploy`
+# fails validating a script_name binding to a Worker that does not exist yet.
+# Re-enable once workers/agent-link/ is deployed via CI (a Worker-deploy step
+# ordered BEFORE this Pages publish). channel.ts 501s gracefully meanwhile.
+# [[env.production.durable_objects.bindings]]
+# name = "AGENT_LINK"
+# class_name = "AgentLinkSession"
+# script_name = "conf-agent-link-prod"
 
 # Portal feature flags KV (production)
 [[env.production.kv_namespaces]]

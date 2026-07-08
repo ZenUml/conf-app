@@ -200,7 +200,7 @@ def through_date(expires_at):
     return d.strftime("%-d %B %Y")  # e.g. "7 July 2026"
 
 
-def print_reply(space, expires_at, users):
+def print_reply(space, expires_at, users, user_scoped=False):
     if users:
         price = full_plan_arr(users)
         users_line = f"~{users:,} users"
@@ -209,6 +209,29 @@ def print_reply(space, expires_at, users):
         users_line = "~{USERS} users (fetch tier from the Marketplace license report)"
         full_price = "~${FULL_PRICE}/year"
 
+    if user_scoped:
+        intro = (
+            f"To get you unblocked straight away, we've enabled a temporary extension "
+            f"for your account on {space} for the next 14 days (through {through_date(expires_at)}). "
+            f"You can create and edit diagrams there as normal during this window — nothing to set up "
+            f"on your end; just refresh the page if you have an editor open (it can take a few minutes to apply)."
+        )
+        scope_note = (
+            f"This extension covers your account only — teammates in {space} may still see the limit. "
+            f"If the whole team needs access, or other spaces are hitting the limit too, just reply here and we'll take a look."
+        )
+    else:
+        intro = (
+            f"To get you unblocked straight away, we've enabled a temporary extension on {space} for the "
+            f"next 14 days (through {through_date(expires_at)}). You can create and edit diagrams there as "
+            f"normal during this window — nothing to set up on your end; just refresh the page if you have "
+            f"an editor open (it can take a few minutes to apply)."
+        )
+        scope_note = (
+            f"The extension covers {space} specifically. If other spaces are hitting the limit too, "
+            f"just reply here and we'll take a look."
+        )
+
     print("\n" + "=" * 70)
     print("DRAFT REPLY  (canonical template: paywall/extension-request-replies.md)")
     print("=" * 70)
@@ -216,11 +239,11 @@ def print_reply(space, expires_at, users):
 
 Thanks for reaching out — glad to see your teams getting so much use out of ZenUML.
 
-To get you unblocked straight away, we've enabled a temporary extension on {space} for the next 14 days (through {through_date(expires_at)}). You can create and edit diagrams there as normal during this window — nothing to set up on your end; just refresh the page if you have an editor open (it can take a few minutes to apply).
+{intro}
 
 A couple of things worth knowing:
 
-The extension covers {space} specifically. If other spaces are hitting the limit too, just reply here and we'll take a look.
+{scope_note}
 
 It's a temporary bridge. For a lasting fix there are two routes — happy to help with either:
 
@@ -259,7 +282,7 @@ def main():
         sys.exit(1)
 
     if not args.no_reply:
-        print_reply(result["space"], result["expiresAt"], args.users)
+        print_reply(result["space"], result["expiresAt"], args.users, user_scoped=bool(args.user_account_id))
 
     scope = f"user {args.user_account_id}" if args.user_account_id else "the whole space"
     if result.get("wrote"):

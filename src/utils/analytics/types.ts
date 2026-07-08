@@ -14,6 +14,7 @@ import type {
   PrefetchHost,
   PrefetchOutcome,
   DashboardFormatFilter,
+  AgentLinkDisconnectReason,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -119,6 +120,20 @@ export type AnalyticsProperties = {
   // analysis extrapolates true volume as `count / sample_rate`. Absent ⇒ 1.0
   // (every occurrence emitted).
   sample_rate?: number;
+  // Live Agent Link (see catalog.ts agent_link_* events). `time_to_connect_ms`
+  // = waiting→connected latency (agent_link_agent_connected); `render_ok` /
+  // `dsl_len_delta` characterize an applied edit (agent_link_edit_applied);
+  // `session_duration_ms` / `edits_count` summarize the session at teardown
+  // (agent_link_disconnected). `reason` is overloaded across edit_failed
+  // (render/persist failure) and disconnected (typed as
+  // AgentLinkDisconnectReason there); kept as a free-form string so
+  // edit_failed can carry its own failure text.
+  time_to_connect_ms?: number;
+  render_ok?: boolean;
+  dsl_len_delta?: number;
+  reason?: string | AgentLinkDisconnectReason;
+  session_duration_ms?: number;
+  edits_count?: number;
   // Error
   error_code?: string;
   error_name?: string;

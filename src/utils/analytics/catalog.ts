@@ -7,7 +7,8 @@ export type FeatureArea =
   | "content"
   | "confluence"
   | "feedback"
-  | "system";
+  | "system"
+  | "agent_link";
 
 export type MacroTypeValue =
   | "sequence"
@@ -26,7 +27,10 @@ export type Surface =
   | "page_banner"
   | "dashboard"
   | "route"
-  | "forge_trigger";
+  | "forge_trigger"
+  // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
+  // the small-macro `viewer` surface that hosts the initial Connect button.
+  | "fullscreen";
 
 export type EntryPoint =
   | "page_view"
@@ -154,7 +158,19 @@ export type AnalyticsEventName =
   | "viewer_load_failed"
   | "close_guard_rejected"
   | "renderer_prefetch_started"
-  | "renderer_prefetch_completed";
+  | "renderer_prefetch_completed"
+  // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md
+  // §10). Funnel: connect_clicked → session_created → agent_connected →
+  // edit_applied → disconnected; setup_shown measures first-time connector
+  // friction; edit_failed is the real failure signal.
+  | "agent_link_connect_clicked"
+  | "agent_link_session_created"
+  | "agent_link_setup_shown"
+  | "agent_link_agent_connected"
+  | "agent_link_page_read"
+  | "agent_link_edit_applied"
+  | "agent_link_edit_failed"
+  | "agent_link_disconnected";
 
 // Where an idle renderer-bundle prefetch ran: an alive macro iframe after its
 // own render settled, or the page-banner iframe on its no-banner fast-path.
@@ -165,3 +181,8 @@ export type PrefetchHost = "macro" | "banner";
 // failed/timed out, nothing was warmed at all, or the deadline fired before
 // any per-asset result arrived (timed_out).
 export type PrefetchOutcome = "completed" | "partial" | "failed" | "timed_out";
+
+// Why an agent_link session ended (agent_link_disconnected). 'user' = explicit
+// Disconnect click; 'timeout' = token/session TTL; 'idle' = no activity for the
+// idle window; 'tab_close' = macro connection dropped (tab close/navigation).
+export type AgentLinkDisconnectReason = "user" | "timeout" | "idle" | "tab_close";

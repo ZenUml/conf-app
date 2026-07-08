@@ -1,15 +1,18 @@
 // src/composables/agentLink/useAgentLinkSession.ts
 //
 // Vue composable tying together the Live Agent Link client state machine
-// (agentLinkState.ts), the privileged bridge ops (bridgeOps.ts), and the
-// activity feed shown in the Fullscreen Connect rail
+// (agentLinkState.ts), the privileged bridge ops (bridgeOps.ts), the relay
+// transport (relayClient.ts / relayUrl.ts), and the activity feed shown in
+// the Fullscreen Connect rail
 // (docs/superpowers/specs/2026-07-08-live-agent-link-design.md §5.1, §7,
 // §10).
 //
-// The relay channel itself (§4.3 handshake, §5.2) is NOT wired here —
-// startConnect() mints a local placeholder token and onAgentConnected() is
-// the seam the relay transport will call into once built (see the
-// TODO in bridgeOps.ts for the matching Forge-bridge seam).
+// Relay wiring (§4.3 handshake, §5.2) is OPTIONAL via `options.relay` — pass
+// it once a real Forge-bridge + flag-on context exists (GenericViewer.vue's
+// `mounted()` seam); omit it for the unwired placeholder instance
+// (`created()` seam) and for standalone/dev/tests. When omitted,
+// startConnect() keeps the local-only `pending-<ts>` placeholder token and
+// onAgentConnected() stays the manually-driven seam it always was.
 
 import { ref, type Ref } from 'vue'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
@@ -24,6 +27,8 @@ import {
   type AgentLinkClientState,
 } from './agentLinkState'
 import type { AgentLinkBridgeOps } from './bridgeOps'
+import { createRelayClient, type RelayClient, type RelayStateEvent } from './relayClient'
+import { agentLinkWsUrl, mintAgentLinkSession, type AgentLinkBoundContext } from './relayUrl'
 
 export interface AgentLinkActivityEntry {
   summary: string
@@ -43,6 +48,21 @@ export interface UseAgentLinkSessionOptions {
   // every later event in this composable fires from the Fullscreen rail.
   clickSurface?: Surface
   clock?: AgentLinkClock
+  // Relay transport wiring (design §4.3 steps 2-5). Omitted entirely by the
+  // unwired placeholder instance and by every existing test in this file —
+  // startConnect() then falls back to the pre-relay placeholder-token
+  // behavior untouched. `requestSession`/`connect` are injectable so this
+  // path is unit-testable without a live relay; real callers omit them and
+  // get mintAgentLinkSession (relayUrl.ts) / createRelayClient (relayClient.ts).
+  relay?: {
+    boundContext: AgentLinkBoundContext
+    requestSession?: (ctx: AgentLinkBoundContext) => Promise<{ token: string }>
+    connect?: (
+      wsUrl: string,
+      bridge: AgentLinkBridgeOps,
+      onStateEvent: (event: RelayStateEvent) => void
+    ) => RelayClient
+  }
 }
 
 export interface AgentLinkSessionApi {
@@ -75,6 +95,20 @@ export function useAgentLinkSession(
   let connectStartedAt: number | null = null
   let lastAppliedDsl = ''
   let editsCount = 0
+  let relayClient: RelayClient | null = null
+
+  // The wire protocol (relayClient.ts) has no dedicated "agent paired"
+  // envelope — the only observable proxy that the agent has joined is it
+  // sending its first 'op'. onAgentConnected() already no-ops once already
+  // 'connected' (see below), so firing this on every subsequent op is safe.
+  function handleRelayStateEvent(event: RelayStateEvent): void {
+    if (event.type === 'op') onAgentConnected()
+  }
+
+  function teardownRelay(): void {
+    relayClient?.close()
+    relayClient = null
+  }
 
   function startConnect(): void {
     // A click is a click regardless of current state — track it, then only
@@ -94,9 +128,11 @@ export function useAgentLinkSession(
     editsCount = 0
     lastAppliedDsl = ''
     activityFeed.value = []
-    // Session/token minting is the relay's job (design §4.3 step 2) — not
-    // built here. This placeholder marks "a session is pending" for the UI
-    // until the relay transport is wired.
+    teardownRelay()
+    // Local placeholder marks "a session is pending" for the UI immediately
+    // — mint/connect below is async and must not block this synchronous
+    // idle -> waiting transition (existing callers/tests read state/token
+    // right after this call returns).
     token.value = `pending-${connectStartedAt}`
     trackAnalyticsEvent('agent_link_session_created', {
       feature_area: 'agent_link',
@@ -105,6 +141,37 @@ export function useAgentLinkSession(
     })
     // Self-loop per §7 — session_created doesn't leave `waiting`.
     state.value = nextClientState(state.value, 'session_created')
+
+    // Relay handshake (design §4.3 steps 2-5): mint the real token, then
+    // open this session's `peer=macro` channel. Omitted entirely when no
+    // `relay` option is passed (unwired placeholder / standalone / dev /
+    // every existing test here) — the local placeholder above is all those
+    // callers get, unchanged from before this wiring existed.
+    const relayOptions = options.relay
+    if (relayOptions) {
+      const requestSession = relayOptions.requestSession ?? mintAgentLinkSession
+      const connect =
+        relayOptions.connect ??
+        ((wsUrl: string, bridge: AgentLinkBridgeOps, onStateEvent: (e: RelayStateEvent) => void) =>
+          createRelayClient({ wsUrl, bridge, onStateEvent }))
+      const startedForThisClick = connectStartedAt
+      requestSession(relayOptions.boundContext)
+        .then(({ token: realToken }) => {
+          // A disconnect, or a NEWER startConnect() click, may have already
+          // moved on while this mint was in flight — don't resurrect a
+          // channel over a session that's no longer the current one.
+          if (connectStartedAt !== startedForThisClick || state.value === 'closed') return
+          token.value = realToken
+          relayClient = connect(
+            agentLinkWsUrl(realToken, relayOptions.boundContext),
+            bridgeOps,
+            handleRelayStateEvent
+          )
+        })
+        .catch((e) => {
+          console.error('agent-link: failed to mint relay session', e)
+        })
+    }
 
     scheduleTimeout(() => {
       // Stale timer guard: if the state moved on (connected/closed) before
@@ -167,6 +234,7 @@ export function useAgentLinkSession(
     const prev = state.value
     state.value = nextClientState(state.value, 'disconnect')
     if (prev === state.value) return // nothing was connected — no-op
+    teardownRelay()
 
     trackAnalyticsEvent('agent_link_disconnected', {
       feature_area: 'agent_link',

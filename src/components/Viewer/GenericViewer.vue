@@ -179,6 +179,7 @@ import { useAgentLinkSession } from '@/composables/agentLink/useAgentLinkSession
 import { createBridgeOps, createUnwiredBridgeOps } from '@/composables/agentLink/bridgeOps'
 import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
 import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
+import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 
@@ -350,9 +351,30 @@ export default {
     // loudly instead of silently doing nothing (see bridgeOps.ts).
     if (this.agentLinkFeatureEnabled && globals.apWrapper) {
       const bridge = createForgeAgentLinkBridge({ apWrapper: globals.apWrapper });
+      // Relay wiring (design §4.3): only in a real Forge runtime — cloudId
+      // has no standalone-context equivalent (getStandaloneContext() never
+      // sets one), so standalone/dev keeps the flag-on Connect UI usable
+      // (state machine, activity feed) without a live relay channel behind it.
+      let relay;
+      if (forgeGlobal.isForge) {
+        try {
+          const ctx = await getContext();
+          const pageId = await globals.apWrapper._getCurrentPageId();
+          relay = {
+            boundContext: {
+              cloudId: ctx.cloudId,
+              pageId: String(pageId),
+              contentId: this.diagram.id,
+            },
+          };
+        } catch (e) {
+          console.error('Failed to resolve agent-link relay context:', e);
+        }
+      }
       this._agentLink = useAgentLinkSession(createBridgeOps(bridge, this.diagram.id), {
         macroType: this.diagramType || 'none',
         clickSurface: 'viewer',
+        relay,
       });
     }
   },

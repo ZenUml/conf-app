@@ -288,13 +288,18 @@ const ICONS = {
   pause: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.25 9v6m-4.5 0V9M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>',
   resume: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"/></svg>',
   spin: '<svg class="agent-link-panel__feed-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>',
+  // Track U discovery rows (design bundle preview/agent-link-fullscreen.html
+  // feed-ic--muted): search = magnifying glass, read = eye, list = bullet list.
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></svg>',
+  read: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>',
+  list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/></svg>',
 } as const
 
 interface FeedRow {
   summary: string
   at: number
   kind: 'normal' | 'inflight'
-  tone: 'ok' | 'err' | 'warn' | 'work'
+  tone: 'ok' | 'err' | 'warn' | 'work' | 'muted'
   icon: string
 }
 
@@ -307,6 +312,11 @@ function classifyRow(entry: AgentLinkActivityEntry): FeedRow {
   if (s.includes('updating') || s.endsWith('…')) {
     return { ...entry, kind: 'inflight', tone: 'work', icon: ICONS.spin }
   }
+  // Track U discovery rows (read/search/list — composable's readDiagramFeedSummary/
+  // searchFeedSummary/listFeedSummary). Muted tone: informational, not an outcome.
+  if (s.startsWith('Searched ')) return { ...entry, kind: 'normal', tone: 'muted', icon: ICONS.search }
+  if (s.startsWith('Read ')) return { ...entry, kind: 'normal', tone: 'muted', icon: ICONS.read }
+  if (s.startsWith('Listed diagrams ')) return { ...entry, kind: 'normal', tone: 'muted', icon: ICONS.list }
   return { ...entry, kind: 'normal', tone: 'ok', icon: ICONS.check }
 }
 
@@ -703,6 +713,7 @@ const resumeText = computed(() => {
 .agent-link-panel__feed-ic--err { color: #ca3521; }
 .agent-link-panel__feed-ic--warn { color: #8a6d00; }
 .agent-link-panel__feed-ic--work { color: var(--agent-link-blue); }
+.agent-link-panel__feed-ic--muted { color: var(--agent-link-muted); }
 /* feed icons are injected via v-html, so the spin class needs :deep to cross
    the scoped-CSS boundary. */
 .agent-link-panel__feed-ic :deep(.agent-link-panel__feed-spin) {

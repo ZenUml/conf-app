@@ -55,6 +55,27 @@ describe('ConnectPanel', () => {
     expect(wrapper.find('[data-testid="agent-link-session-line"]').text()).toContain('tok-123')
   })
 
+  it('connected: classifies Track U discovery feed rows (read/search/list) as muted, distinct icons', () => {
+    const activityFeed: AgentLinkActivityEntry[] = [
+      { summary: 'Read “Checkout flow”', at: 1000 },
+      { summary: 'Searched “payment retry” → 3 hits', at: 2000 },
+      { summary: 'Listed diagrams in this space → 5', at: 3000 },
+    ]
+    const wrapper = mountPanel({ state: 'connected', token: 'tok-123', activityFeed })
+
+    const entries = wrapper.findAll('[data-testid="agent-link-activity-entry"]')
+    expect(entries).toHaveLength(3)
+    entries.forEach((entry) => {
+      expect(entry.find('.agent-link-panel__feed-ic--muted').exists()).toBe(true)
+    })
+    expect(entries[0].text()).toContain('Read')
+    expect(entries[1].text()).toContain('Searched')
+    expect(entries[2].text()).toContain('Listed diagrams')
+    // Each discovery kind renders its own icon glyph, not the generic checkmark.
+    const icons = entries.map((entry) => entry.find('.agent-link-panel__feed-ic').html())
+    expect(new Set(icons).size).toBe(3)
+  })
+
   it('connected: renders the connected panel class and green connected treatment', () => {
     const wrapper = mountPanel({ state: 'connected', token: 'tok-123' })
 

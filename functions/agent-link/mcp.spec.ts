@@ -155,6 +155,21 @@ describe('POST /agent-link/mcp', () => {
     expect(res.status).not.toBe(200);
   });
 
+  it('acknowledges `notifications/initialized` with 202 + empty body (real MCP client handshake)', async () => {
+    const record = sessionRegistry.create(CTX);
+
+    // A spec-compliant MCP client (Claude Code / the MCP SDK) POSTs this
+    // notification right after `initialize`. It must NOT get a JSON-RPC error
+    // (that aborts the handshake) — call onRequestPost directly since `post`
+    // would choke on the empty 202 body.
+    const res = await onRequestPost({
+      request: makeRequest({ jsonrpc: '2.0', method: 'notifications/initialized' }, { token: record.token }),
+    } as any);
+
+    expect(res.status).toBe(202);
+    expect(await res.text()).toBe('');
+  });
+
   it('returns an error for malformed JSON-RPC (invalid JSON body)', async () => {
     const record = sessionRegistry.create(CTX);
 

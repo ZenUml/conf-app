@@ -295,6 +295,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   const id = body.id ?? null;
 
+  // JSON-RPC notifications (`notifications/*`) expect NO response. A
+  // spec-compliant MCP client (Claude Code, the MCP SDK) POSTs
+  // `notifications/initialized` immediately after `initialize` — falling
+  // through to the switch's `default` returns 400 "Unknown method" and aborts
+  // the client's connect handshake. This is why `claude mcp add …/agent-link/mcp`
+  // fails even though raw `tools/call` works (curl skips the notification; a
+  // real MCP SDK client surfaced it). Acknowledge with 202 Accepted + empty
+  // body, per the Streamable HTTP transport.
+  if (body.method.startsWith('notifications/')) {
+    return new Response(null, { status: 202, headers: CORS_HEADERS });
+  }
+
   switch (body.method) {
     case 'initialize':
       return jsonRpcResult(id, {

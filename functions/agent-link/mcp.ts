@@ -30,7 +30,7 @@ import type { AuthResult } from './mcpAuth';
 import { dispatchTool, getToolSchemas, ToolError } from './mcpTools';
 import type { DispatchContext, ForwardResult, ToolName } from './mcpTools';
 import type { DiagramSnapshot } from './updateDiagramGuard';
-import { ZENUML_DSL_GUIDE, ZENUML_DSL_GUIDE_URI } from './zenumlDslGuide';
+import { getGuideByUri, listGuideResources, selectInstructions } from './dslGuides';
 import { sessionRegistry } from './registrySingleton';
 import { TOKEN_TTL_MS } from './sessionToken';
 import type { SessionRecord, SessionState } from './sessionToken';
@@ -334,42 +334,47 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     return new Response(null, { status: 202, headers: CORS_HEADERS });
   }
 
+  // The bound diagram's dialect, known only after the agent's first
+  // read_diagram (the DO caches it into lastDiagram → diagramSnapshot). Drives
+  // per-dialect serving below: a known DSL type gets that dialect's guide/hint,
+  // a not-yet-known type gets the combined cross-dialect guide, and a known
+  // non-DSL type (Graph/OpenApi/AsyncApi/Embed) gets no guide (generic). See
+  // dslGuides.ts.
+  const boundDiagramType = diagramSnapshot?.diagramType;
+
   switch (body.method) {
-    case 'initialize':
-      return jsonRpcResult(id, {
+    case 'initialize': {
+      // Surfaced by MCP clients into the model's context so any agent writes
+      // valid DSL for the bound dialect on the first try, instead of blending
+      // Mermaid/PlantUML/ZenUML syntax and hitting a guardrail-reject retry
+      // loop. Omitted entirely for a known non-DSL type.
+      const instructions = selectInstructions(boundDiagramType);
+      const result: Record<string, unknown> = {
         protocolVersion: '2024-11-05',
         capabilities: { tools: {}, resources: {} },
         serverInfo: { name: 'conf-agent-link', version: '0.1.0' },
-        // Surfaced by MCP clients into the model's context so any agent writes
-        // valid ZenUML DSL on the first try, instead of guessing Mermaid/
-        // PlantUML-style control flow and hitting a rendered:false retry loop
-        // (see zenumlDslGuide.ts).
-        instructions: ZENUML_DSL_GUIDE,
-      });
+      };
+      if (instructions !== undefined) result.instructions = instructions;
+      return jsonRpcResult(id, result);
+    }
 
     case 'tools/list':
-      return jsonRpcResult(id, { tools: getToolSchemas() });
+      // Sharpen the update_diagram hint to the bound dialect when known.
+      return jsonRpcResult(id, { tools: getToolSchemas(boundDiagramType) });
 
     case 'resources/list':
-      return jsonRpcResult(id, {
-        resources: [
-          {
-            uri: ZENUML_DSL_GUIDE_URI,
-            name: 'ZenUML DSL syntax guide',
-            mimeType: 'text/markdown',
-            description:
-              'How to write ZenUML sequence DSL for update_diagram — messages and control flow (if/while/opt/par/try-catch).',
-          },
-        ],
-      });
+      // Advertise all three dialect guides so the agent can pull whichever
+      // matches its bound diagram type.
+      return jsonRpcResult(id, { resources: listGuideResources() });
 
     case 'resources/read': {
       const rparams = (body.params ?? {}) as { uri?: unknown };
-      if (rparams.uri !== ZENUML_DSL_GUIDE_URI) {
+      const guide = typeof rparams.uri === 'string' ? getGuideByUri(rparams.uri) : undefined;
+      if (!guide) {
         return jsonRpcError(400, id, RPC_INVALID_PARAMS, `Unknown resource: ${String(rparams.uri)}`);
       }
       return jsonRpcResult(id, {
-        contents: [{ uri: ZENUML_DSL_GUIDE_URI, mimeType: 'text/markdown', text: ZENUML_DSL_GUIDE }],
+        contents: [{ uri: guide.uri, mimeType: 'text/markdown', text: guide.text }],
       });
     }
 

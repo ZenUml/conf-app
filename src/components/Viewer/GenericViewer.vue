@@ -410,28 +410,30 @@ export default {
       // every `agentLinkSession:*` key for the freshest live one — when no
       // pageId is resolvable at all; there is normally exactly one active
       // session, so "freshest session, any pageId" is an acceptable stand-in.
+      // Hydrate the current record immediately (so the token/prompt shows on
+      // first paint), then ALWAYS keep watching. The handoff record starts
+      // 'waiting' and later flips to 'connected' when an agent pairs (the
+      // relay owner persists that via onAgentConnected). A one-shot hydrate on
+      // a found record would miss that later update and the Fullscreen panel
+      // would never reach 'connected' (no green border) even though
+      // localStorage says connected. watchForHandoff() re-reads + hydrates
+      // idempotently, so the extra immediate hydrate above is harmless.
       const pageId = window.forgeGlobal?.forgeContext?.extension?.content?.id;
       if (pageId != null) {
         const handoff = readSession(String(pageId));
-        if (handoff) {
-          this._agentLink.hydrateFrom(handoff);
-        } else {
-          this._agentLinkHandoffUnsubscribe = this._agentLink.watchForHandoff(String(pageId));
-        }
+        if (handoff) this._agentLink.hydrateFrom(handoff);
+        this._agentLinkHandoffUnsubscribe = this._agentLink.watchForHandoff(String(pageId));
       } else {
         const handoff = readAnySession();
-        if (handoff) {
-          this._agentLink.hydrateFrom(handoff);
-        } else {
-          this._agentLinkHandoffUnsubscribe = this._agentLink.watchForAnyHandoff();
-        }
+        if (handoff) this._agentLink.hydrateFrom(handoff);
+        this._agentLinkHandoffUnsubscribe = this._agentLink.watchForAnyHandoff();
       }
     }
   },
   beforeUnmount() {
     // Cleans up the storage-event listener + poll interval started by
-    // watchForHandoff() above (no-op if it was never set up, e.g. flag-off,
-    // non-fullscreen, or the initial readSession() already hydrated).
+    // watchForHandoff() above (no-op if it was never set up, e.g. flag-off
+    // or non-fullscreen).
     this._agentLinkHandoffUnsubscribe?.();
     this._agentLinkHandoffUnsubscribe = null;
   },

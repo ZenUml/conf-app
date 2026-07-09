@@ -480,6 +480,48 @@ describe('GenericViewer (chrome-less)', () => {
       expect(panel.classes()).toContain('agent-link-panel--waiting')
       expect(wrapper.find('[data-testid="agent-link-prompt"]').text()).toContain('CL-TEST')
     })
+
+    // Regression (live spot-check 2026-07-09): the normal order is Connect
+    // persists 'waiting' FIRST, then Fullscreen opens and finds it. The old
+    // code did a one-shot hydrateFrom on the found record and NEVER subscribed,
+    // so when the relay owner later persisted 'connected' (agent paired), the
+    // panel stayed 'waiting' forever — no green "connected" border, even though
+    // localStorage said connected. The fix always keeps watching after the
+    // initial hydrate.
+    it('flips waiting -> connected when the relay owner persists connected AFTER Fullscreen mount', async () => {
+      setFullscreenWithPageId('page-conn')
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      persistSession({
+        token: 'CL-CONN',
+        cloudId: 'cloud-1',
+        pageId: 'page-conn',
+        contentId: 'content-conn',
+        state: 'waiting',
+      })
+
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain(
+        'agent-link-panel--waiting',
+      )
+
+      // Agent pairs -> relay owner persists 'connected' AFTER mount, and raises
+      // the same-origin storage notification a cross-frame write would.
+      persistSession({
+        token: 'CL-CONN',
+        cloudId: 'cloud-1',
+        pageId: 'page-conn',
+        contentId: 'content-conn',
+        state: 'connected',
+      })
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-conn' }))
+      await flushPromises()
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain(
+        'agent-link-panel--connected',
+      )
+    })
   })
 
 })

@@ -198,6 +198,33 @@ describe('useAgentLinkSession', () => {
       expect(onDiagramUpdated).toHaveBeenCalledWith('graph TD; A-->B', 'mermaid')
     })
 
+    it('republishes the dsl onto the handoff record when a relay-driven update_diagram fires (Fullscreen live-render)', async () => {
+      const bridgeOps = makeBridgeOps()
+      const boundContext = { cloudId: 'c1', pageId: 'page-relay-dsl', contentId: 'cc1' }
+      let capturedOnDiagramUpdated: ((dsl: string) => void) | undefined
+      const connect = vi.fn((_wsUrl, _bridge, _onStateEvent, onDiagUpdated) => {
+        capturedOnDiagramUpdated = onDiagUpdated
+        return makeFakeRelayClient()
+      })
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token-dsl' })
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'mermaid',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      capturedOnDiagramUpdated!('graph TD; A-->B')
+
+      expect(readSession(boundContext.pageId)).toEqual({
+        ...boundContext,
+        token: 'real-token-dsl',
+        state: 'connected',
+        dsl: 'graph TD; A-->B',
+      })
+    })
+
     it('does not throw when the relay fires the callback and no options.onDiagramUpdated was supplied', async () => {
       const bridgeOps = makeBridgeOps()
       let capturedOnDiagramUpdated: ((dsl: string) => void) | undefined
@@ -588,6 +615,61 @@ describe('useAgentLinkSession', () => {
 
       expect(session.token.value).toBe(tokenBeforeHydrate)
       expect(session.state.value).toBe('waiting')
+    })
+
+    // dsl application (Fullscreen live-render): hydrateFrom's dsl handling is
+    // independent of — and not early-returned past by — the state-adoption
+    // branch above, since a Fullscreen opened AFTER edits already happened
+    // still needs the latest dsl applied on the very hydrate that adopts the
+    // token/state.
+    it('applies dsl via onDiagramUpdated when hydrating from idle (Fullscreen opened after edits already happened)', () => {
+      const bridgeOps = makeBridgeOps()
+      const onDiagramUpdated = vi.fn()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence', onDiagramUpdated })
+
+      session.hydrateFrom(makeHandoff({ state: 'connected', dsl: 'A->B: hi' }))
+
+      expect(session.state.value).toBe('connected')
+      expect(session.token.value).toBe('handed-off-token')
+      expect(onDiagramUpdated).toHaveBeenCalledTimes(1)
+      expect(onDiagramUpdated).toHaveBeenCalledWith('A->B: hi', 'sequence')
+    })
+
+    it('applies a later dsl-only update while already connected, without re-adopting state or re-firing analytics', () => {
+      const bridgeOps = makeBridgeOps()
+      const onDiagramUpdated = vi.fn()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence', onDiagramUpdated })
+
+      session.hydrateFrom(makeHandoff({ state: 'connected' }))
+      expect(session.state.value).toBe('connected')
+      onDiagramUpdated.mockClear()
+
+      session.hydrateFrom(makeHandoff({ state: 'connected', dsl: 'A->B: hi' }))
+
+      expect(session.state.value).toBe('connected')
+      expect(onDiagramUpdated).toHaveBeenCalledTimes(1)
+      expect(onDiagramUpdated).toHaveBeenCalledWith('A->B: hi', 'sequence')
+    })
+
+    it('calling hydrateFrom twice with the same dsl only calls onDiagramUpdated once (lastHydratedDsl dedup)', () => {
+      const bridgeOps = makeBridgeOps()
+      const onDiagramUpdated = vi.fn()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence', onDiagramUpdated })
+
+      session.hydrateFrom(makeHandoff({ state: 'connected', dsl: 'A->B: hi' }))
+      session.hydrateFrom(makeHandoff({ state: 'connected', dsl: 'A->B: hi' }))
+
+      expect(onDiagramUpdated).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not call onDiagramUpdated when the handoff record has no dsl field', () => {
+      const bridgeOps = makeBridgeOps()
+      const onDiagramUpdated = vi.fn()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence', onDiagramUpdated })
+
+      session.hydrateFrom(makeHandoff({ state: 'waiting' }))
+
+      expect(onDiagramUpdated).not.toHaveBeenCalled()
     })
   })
 

@@ -26,7 +26,7 @@
       </div>
     </template>
 
-    <!-- connected: activity feed + open fullscreen + disconnect -->
+    <!-- connected: activity feed + disconnect -->
     <template v-else-if="state === 'connected'">
       <div data-testid="agent-link-connected">
         <h3 class="agent-link-panel__heading agent-link-panel__heading--connected">Agent connected</h3>
@@ -46,13 +46,6 @@
             No edits yet — ask your agent to make a change.
           </li>
         </ul>
-
-        <button
-          type="button"
-          class="agent-link-panel__btn agent-link-panel__btn--secondary"
-          data-testid="agent-link-open-fullscreen-btn"
-          @click="emit('open-fullscreen')"
-        >Open fullscreen</button>
 
         <button
           type="button"
@@ -105,7 +98,6 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'open-fullscreen'): void
   (e: 'disconnect'): void
 }>()
 

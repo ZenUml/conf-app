@@ -52,6 +52,13 @@ export type AgentLinkHandoffState = 'waiting' | 'connected'
 export interface AgentLinkHandoffSession extends AgentLinkBoundContext {
   token: string
   state: AgentLinkHandoffState
+  // Latest agent-applied diagram DSL. Carried on the handoff record so the
+  // Fullscreen modal — a SEPARATE iframe/Vue-store that never owns the relay
+  // socket (design §3 decision #8) — can re-render an agent edit LIVE, and so
+  // a Fullscreen opened AFTER edits already happened shows current state
+  // rather than the original. Absent on the initial waiting/connected records
+  // (no edit yet); present once the relay owner republishes an edit here.
+  dsl?: string
 }
 
 interface PersistedHandoff extends AgentLinkHandoffSession {
@@ -108,6 +115,8 @@ function toHandoffSession(parsed: PersistedHandoff): AgentLinkHandoffSession {
     pageId: parsed.pageId,
     contentId: parsed.contentId,
     state: parsed.state,
+    // Optional; only present once the relay owner has republished an edit.
+    dsl: typeof parsed.dsl === 'string' ? parsed.dsl : undefined,
   }
 }
 
@@ -237,19 +246,31 @@ function subscribeToHandoffCore(
     if (settled) return
     const session = read()
     if (!session) return
+    // `dsl` is part of the fingerprint so a dsl-ONLY update (an agent edit,
+    // where state stays 'connected' and only the diagram body changes) is
+    // seen as new and delivered — without it, the second and later edits
+    // would collapse to the same fingerprint and never reach the Fullscreen
+    // modal (that was the ISSUE-1 live-render gap).
     const fingerprint = [
       session.cloudId,
       session.pageId,
       session.contentId,
       session.token,
       session.state,
+      session.dsl ?? '',
     ].join('\n')
     if (fingerprint !== lastDeliveredFingerprint) {
       lastDeliveredFingerprint = fingerprint
       onSession(session)
     }
+    // Reaching 'connected' wins the mint-vs-mount race, so the bounded POLL
+    // fallback can stop — but the storage LISTENER must stay live: agent
+    // edits arrive later as dsl-only updates to this same 'connected' record,
+    // and the Fullscreen modal re-renders them off those storage events.
+    // Do NOT set `settled` here — that flag short-circuits every subsequent
+    // tryDeliver (it's reserved for unsubscribe), which would drop all later
+    // edits. Stopping only the poll is the correct, narrower action.
     if (session.state === 'connected') {
-      settled = true
       stopPolling()
     }
   }

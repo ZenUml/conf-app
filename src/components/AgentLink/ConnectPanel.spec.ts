@@ -52,7 +52,6 @@ describe('ConnectPanel', () => {
     expect(entries[0].text()).toContain('added a step')
     expect(entries[1].text()).toContain('renamed participant')
     expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-open-fullscreen-btn"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-session-line"]').text()).toContain('tok-123')
   })
 
@@ -96,13 +95,5 @@ describe('ConnectPanel', () => {
     await wrapper.find('[data-testid="agent-link-disconnect-btn"]').trigger('click')
 
     expect(wrapper.emitted('disconnect')).toHaveLength(1)
-  })
-
-  it('Open fullscreen emits the open-fullscreen event', async () => {
-    const wrapper = mountPanel({ state: 'connected', token: 'tok-123' })
-
-    await wrapper.find('[data-testid="agent-link-open-fullscreen-btn"]').trigger('click')
-
-    expect(wrapper.emitted('open-fullscreen')).toHaveLength(1)
   })
 })

@@ -52,6 +52,21 @@ describe('sessionHandoff', () => {
     expect(readSession('page-1')).toMatchObject({ state: 'connected' })
   })
 
+  // dsl is optional on the handoff record — present once the relay owner has
+  // republished an agent edit, absent on the initial waiting/connected write.
+  it('persistSession then readSession round-trips an included dsl string', () => {
+    const session = makeSession({ state: 'connected', dsl: 'A->B: hi' })
+    persistSession(session)
+
+    expect(readSession('page-1')).toEqual(session)
+  })
+
+  it('readSession reports dsl as undefined when the record was persisted without one', () => {
+    persistSession(makeSession())
+
+    expect(readSession('page-1')?.dsl).toBeUndefined()
+  })
+
   it('readSession returns null once the record is older than HANDOFF_TTL_MS', () => {
     const session = makeSession()
     const persistedAt = Date.now()
@@ -209,6 +224,57 @@ describe('sessionHandoff', () => {
       expect(onSession).not.toHaveBeenCalled()
     })
 
+    // Regression (2026-07-09): reaching 'connected' used to set an internal
+    // `settled` flag that short-circuited every later tryDeliver() — so a
+    // dsl-only update (an agent edit; state stays 'connected', same token)
+    // persisted AFTER the first connected delivery was silently dropped.
+    // `settled` is now reserved for unsubscribe only — the poll stops, but
+    // the storage listener must keep delivering fresh dsl updates.
+    it('keeps delivering dsl-only updates after the session is already connected (settled must not block later edits)', () => {
+      const onSession = vi.fn()
+      const unsubscribe = subscribeToHandoff('page-1', onSession)
+
+      persistSession(makeSession({ state: 'connected' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+      expect(onSession).toHaveBeenCalledTimes(1)
+
+      // A later agent edit republishes the same connected record with a new
+      // dsl — the fingerprint includes dsl, so this must be seen as fresh.
+      persistSession(makeSession({ state: 'connected', dsl: 'A->B: hi' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+      expect(onSession).toHaveBeenCalledTimes(2)
+      expect(onSession).toHaveBeenLastCalledWith(
+        makeSession({ state: 'connected', dsl: 'A->B: hi' })
+      )
+
+      // A second, different dsl must fire again...
+      persistSession(makeSession({ state: 'connected', dsl: 'A->B: hi\nB->C: bye' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+      expect(onSession).toHaveBeenCalledTimes(3)
+
+      // ...but re-delivering the IDENTICAL record must not double-fire.
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+      expect(onSession).toHaveBeenCalledTimes(3)
+
+      unsubscribe()
+    })
+
+    it('after unsubscribe, no further onSession fires even for a later dsl-only update', () => {
+      const onSession = vi.fn()
+      const unsubscribe = subscribeToHandoff('page-1', onSession)
+
+      persistSession(makeSession({ state: 'connected' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+      expect(onSession).toHaveBeenCalledTimes(1)
+
+      unsubscribe()
+
+      persistSession(makeSession({ state: 'connected', dsl: 'A->B: hi' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+
+      expect(onSession).toHaveBeenCalledTimes(1)
+    })
+
     it('unsubscribe removes the storage listener and stops the poll interval', () => {
       vi.useFakeTimers()
       const onSession = vi.fn()
@@ -244,6 +310,12 @@ describe('sessionHandoff', () => {
       persistSession(makeSession({ pageId: 'page-77' }))
 
       expect(readAnySession()).toEqual(makeSession({ pageId: 'page-77' }))
+    })
+
+    it('round-trips an included dsl string', () => {
+      persistSession(makeSession({ pageId: 'page-77', dsl: 'A->B: hi' }))
+
+      expect(readAnySession()).toEqual(makeSession({ pageId: 'page-77', dsl: 'A->B: hi' }))
     })
 
     it('returns the freshest record when multiple pageIds have live sessions', () => {

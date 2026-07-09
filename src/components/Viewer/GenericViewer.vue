@@ -146,7 +146,6 @@
             :token="agentLinkToken"
             :activity-feed="agentLinkActivityFeed"
             @disconnect="onAgentLinkDisconnect"
-            @open-fullscreen="() => {}"
           />
         </aside>
         </div>
@@ -331,6 +330,15 @@ export default {
     this._agentLink = markRaw(useAgentLinkSession(createUnwiredBridgeOps(), {
       macroType: this.diagramType || 'none',
       clickSurface: 'viewer',
+      // Wire the live-render seam even on this provisional instance. The
+      // Fullscreen modal hydrates + applies an agent edit through whatever
+      // _agentLink instance it has, and mounted()'s relay-backed swap does
+      // NOT reliably run the same way in the modal iframe (see the hydration
+      // block's comment) — so the Fullscreen may still be on THIS placeholder
+      // when a dsl update arrives over the handoff. applyAgentDiagramUpdate
+      // only needs $store (no bridge/relay), so it is safe here and is what
+      // makes ISSUE-1 (Fullscreen re-render) robust to instance selection.
+      onDiagramUpdated: (dsl, macroType) => this.applyAgentDiagramUpdate(dsl, macroType),
     }));
   },
   async mounted() {

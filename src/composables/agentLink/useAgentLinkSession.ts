@@ -146,6 +146,13 @@ export function useAgentLinkSession(
   let lastAppliedDsl = ''
   let editsCount = 0
   let relayClient: RelayClient | null = null
+  // Fullscreen-side guard: the newest agent dsl this instance has already
+  // mirrored into its own store via hydrateFrom(). The reactive handoff
+  // watcher (watchForHandoff) re-delivers records idempotently, so without
+  // this guard the same edit would re-dispatch on every storage tick. Only
+  // used by the hydrated (Fullscreen) instance; the relay owner never
+  // hydrates itself.
+  let lastHydratedDsl: string | null = null
 
   // The wire protocol (relayClient.ts) has no dedicated "agent paired"
   // envelope — the only observable proxy that the agent has joined is it
@@ -264,7 +271,19 @@ export function useAgentLinkSession(
             agentLinkWsUrl(realToken, relayOptions.boundContext),
             bridgeOps,
             handleRelayStateEvent,
-            (dsl: string) => options.onDiagramUpdated?.(dsl, macroType),
+            (dsl: string) => {
+              // This instance (the inline relay owner) applies the edit to
+              // its OWN store via the host callback below. It ALSO republishes
+              // the new dsl onto the handoff record so the Fullscreen modal —
+              // a separate iframe/store that never owns this socket — can
+              // re-render the same edit live (sessionHandoff.ts). state stays
+              // 'connected'; only dsl changes, which the handoff fingerprint
+              // now treats as a fresh delivery.
+              if (boundContext && token.value) {
+                persistSession({ ...boundContext, token: token.value, state: 'connected', dsl })
+              }
+              options.onDiagramUpdated?.(dsl, macroType)
+            },
             recordEditOutcome
           )
         })
@@ -347,25 +366,39 @@ export function useAgentLinkSession(
   // new token or opening a rival relay socket — the instance that persisted
   // it keeps owning the one live WS (design §3 decision #8).
   function hydrateFrom(session: AgentLinkHandoffSession): void {
-    // Only a fresh (idle) instance may be hydrated — guards against
+    // --- session STATE (token + waiting/connected) -----------------------
+    // Only a fresh (idle) instance may adopt the token/state — guards against
     // clobbering a session this very instance is itself driving (re-entrant
     // call, or a standalone/dev context where Fullscreen doesn't actually
     // boot a separate iframe/instance).
     if (state.value === 'idle') {
       token.value = session.token
       state.value = session.state
-      return
-    }
-    // Fullscreen may hydrate the relay owner's first handoff while it is
-    // still waiting, then receive a later storage update after the owner sees
-    // the agent's first op and persists `connected`. This UI-only transition
-    // must not fire the agent_connected analytics a second time.
-    if (
+    } else if (
       state.value === 'waiting' &&
       session.state === 'connected' &&
       token.value === session.token
     ) {
+      // Fullscreen may hydrate the relay owner's first handoff while it is
+      // still waiting, then receive a later storage update after the owner
+      // sees the agent's first op and persists `connected`. This UI-only
+      // transition must not fire the agent_connected analytics a second time.
       state.value = nextClientState(state.value, 'agent_connected')
+    }
+
+    // --- diagram DSL (agent edit) ----------------------------------------
+    // Independent of the state branch above, and NOT early-returned past:
+    //  - a Fullscreen opened AFTER edits hydrates straight from 'idle' and
+    //    still needs the latest dsl applied so it shows current state;
+    //  - a live edit arrives as a dsl-only update while already 'connected'.
+    // Display-only: this instance never owns the relay socket — it mirrors
+    // the edit into its OWN Vue store via the host's onDiagramUpdated
+    // (GenericViewer.applyAgentDiagramUpdate -> store.dispatch), exactly the
+    // same seam the relay owner uses. lastHydratedDsl dedups the idempotent
+    // re-deliveries from the reactive handoff watcher.
+    if (typeof session.dsl === 'string' && session.dsl !== lastHydratedDsl) {
+      lastHydratedDsl = session.dsl
+      options.onDiagramUpdated?.(session.dsl, macroType)
     }
     // Deliberately does NOT call requestSession()/connect(): this instance
     // never mints a token or opens a relay socket for a hydrated session.

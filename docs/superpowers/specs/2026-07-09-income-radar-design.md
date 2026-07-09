@@ -109,6 +109,14 @@ pointing at `python3 mp_report.py radar --days 7`, the caveats, and the
 `--local`/`sync` fast path. Triggers: "income projection", "what am I expecting",
 "who missed a payment", "renewals due", "expected income this week".
 
+### 4. Evaluations dimension (added 2026-07-09)
+
+Beyond income, `radar` also lists **evaluations** (`licenseType = EVALUATION`) expiring in
+the next N days (a conversion window) or expired in the past N days. Trials are $0, so this
+is a conversion signal kept in its own section, **out of the income totals**. Each row shows
+`converted` (the tenant+app already has a paid transaction). Lite evals are excluded (free
+listing, no paid conversion). Internal instances excluded, one row per (tenant, app).
+
 ## Testing
 
 Smoke-test offline via `--local --db <existing snapshot>` to confirm the code

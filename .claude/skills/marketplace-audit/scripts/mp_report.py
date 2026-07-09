@@ -294,7 +294,8 @@ def cmd_radar(args, auth):
     subscriptions that lapsed in the past N days without a new payment (missed). Payers only
     (vendor $ > 0); ONE row per (tenant, app) subscription across all revenue apps (Full +
     Diagramly; a leftover Lite listing has $0 here and drops out). Internal ZenUML instances
-    are excluded."""
+    are excluded. Also lists EVALUATIONS (trials) expiring in the next N days or lapsed in the
+    past N days — a conversion signal, shown separately and kept out of the income totals."""
     today = pdate(args.asof) or datetime.date.today()
     n = args.days
     fwd_end = today + datetime.timedelta(days=n)
@@ -333,11 +334,34 @@ def cmd_radar(args, auth):
     inc_total = round(sum(x["amount"] for x in incoming), 2)
     inc_at_risk = round(sum(x["amount"] for x in incoming if x["flags"] != "-"), 2)
     miss_total = round(sum(x["amount"] for x in missed), 2)
+    # Evaluations (trials) are a conversion signal, NOT income ($0) — kept out of the totals
+    # above and shown separately: trials about to expire (convert now) or that just lapsed.
+    # `converted` = this (tenant, app) already has a paid transaction. Lite excluded (free).
+    evals_soon, evals_expired, seen_ev = [], [], set()
+    for r in lic:
+        if (r.get("licenseType") or "").upper() != "EVALUATION": continue
+        cid = r.get("cloudId"); app_key = r.get("addonKey"); host = r.get("cloudSiteHostname") or ""
+        if host.split(".")[0] in INTERNAL_HOSTS or app_key == "com.zenuml.confluence-addon-lite": continue
+        if (cid, app_key) in seen_ev: continue
+        seen_ev.add((cid, app_key))
+        me = pdate(r.get("maintenanceEndDate"))
+        if not me: continue
+        converted = "yes" if agg.get((cid, app_key), {}).get("vendor", 0) > 0 else "-"
+        row = {"expires": str(me), "app": APP_LABEL.get(app_key, app_key), "tier": r.get("tier"),
+               "status": r.get("status"), "converted": converted, "company": company_of(r), "host": host}
+        if today <= me <= fwd_end:
+            evals_soon.append(row)
+        elif back_start <= me < today:
+            evals_expired.append({**row, "days_ago": (today - me).days})
+    evals_soon.sort(key=lambda x: x["expires"])
+    evals_expired.sort(key=lambda x: x["expires"], reverse=True)
     if args.json:
         print(json.dumps({"asof": str(today), "days": n,
                           "incoming": {"total": inc_total, "at_risk": inc_at_risk,
                                        "count": len(incoming), "rows": incoming},
-                          "missed": {"total": miss_total, "count": len(missed), "rows": missed}},
+                          "missed": {"total": miss_total, "count": len(missed), "rows": missed},
+                          "evaluations": {"expiring": {"count": len(evals_soon), "rows": evals_soon},
+                                          "expired": {"count": len(evals_expired), "rows": evals_expired}}},
                          indent=2, default=str))
         return
     print(f"=== income radar  asof={today}  window=+/-{n}d  (all revenue apps, payers only) ===\n")
@@ -349,6 +373,10 @@ def cmd_radar(args, auth):
     print("\nnote: dates are customer-renewal timing (a proxy for income); Atlassian disburses on its")
     print("own monthly cycle. A lapse in the last 1-2 days may be settlement lag, not a true miss —")
     print("read the grace / no-payment-method flags.")
+    print(f"\nEVALUATIONS expiring (next {n}d): {len(evals_soon)} trials — conversion window (not income)")
+    _print_table(evals_soon, ["expires", "app", "tier", "status", "converted", "company", "host"])
+    print(f"\nEVALUATIONS expired (past {n}d): {len(evals_expired)} trials")
+    _print_table(evals_expired, ["expires", "days_ago", "app", "tier", "converted", "company", "host"])
 
 
 def cmd_client(args, auth):

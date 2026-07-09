@@ -41,6 +41,11 @@ Two sections:
   indicator it will fail and land in MISSED next cycle).
 - **MISSED** — payer renewals that lapsed in the past N days without a new payment landing,
   summed as income at risk.
+- **EVALUATIONS** — trials (`licenseType = EVALUATION`) expiring in the next N days (a
+  conversion window — act before they lapse) or that expired in the past N days. A conversion
+  signal, **not income** — shown in its own section, kept out of the $ totals. Each row shows
+  `converted` (does this tenant+app already have a paid transaction). Lite is excluded (free,
+  no paid conversion).
 
 Scope: **all revenue apps** (Full + Diagramly + AsyncAPI; Lite is a free Marketplace listing,
 so it's ~$0 here — its paid layer is Stripe/KV, see `extend-space-license` / `paywall`).

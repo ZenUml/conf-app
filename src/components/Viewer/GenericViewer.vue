@@ -161,6 +161,7 @@
 import {trackEvent} from "@/utils/window";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 
+import { markRaw } from 'vue'
 import {mapState, mapGetters} from "vuex";
 import EventBus from '../../EventBus'
 import Debug from '@/components/Debug/Debug.vue'
@@ -201,6 +202,7 @@ export default {
     // controls the ENTIRE feature — until it resolves true, this macro
     // renders exactly as it does today.
     agentLinkFeatureEnabled: false,
+    _agentLink: null,
   }),
   components: {
     Debug,
@@ -326,10 +328,10 @@ export default {
     // is flag-gated and not yet rendered. mounted() swaps in the real
     // Forge-bridge-backed ops once the flag settles (or keeps this one for
     // standalone/dev/no-context).
-    this._agentLink = useAgentLinkSession(createUnwiredBridgeOps(), {
+    this._agentLink = markRaw(useAgentLinkSession(createUnwiredBridgeOps(), {
       macroType: this.diagramType || 'none',
       clickSurface: 'viewer',
-    });
+    }));
   },
   async mounted() {
     try {
@@ -372,12 +374,12 @@ export default {
           console.error('Failed to resolve agent-link relay context:', e);
         }
       }
-      this._agentLink = useAgentLinkSession(createBridgeOps(bridge, this.diagram.id), {
+      this._agentLink = markRaw(useAgentLinkSession(createBridgeOps(bridge, this.diagram.id), {
         macroType: this.diagramType || 'none',
         clickSurface: 'viewer',
         relay,
         onDiagramUpdated: (dsl, macroType) => this.applyAgentDiagramUpdate(dsl, macroType),
-      });
+      }));
     }
     // Fullscreen hydration (finding #3, manual test 2026-07-08; finding #4,
     // live spot-check 2026-07-09): this mount may BE the separate Fullscreen

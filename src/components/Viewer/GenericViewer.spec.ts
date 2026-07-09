@@ -7,6 +7,7 @@ import EventBus from '@/EventBus'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
 import globals from '@/model/globals'
+import forgeRuntime from '@/model/globals/forgeGlobal'
 import { persistSession } from '@/composables/agentLink/sessionHandoff'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
@@ -32,6 +33,16 @@ vi.mock('@/model/globals', () => ({
 }))
 
 vi.mock('@forge/bridge', () => ({
+  view: {
+    getContext: vi.fn(() => Promise.resolve({
+      cloudId: 'cloud-1',
+      environmentType: 'DEVELOPMENT',
+      extension: {
+        content: { id: 'page-123' },
+        modal: { macroMode: 'fullscreen' },
+      },
+    })),
+  },
   requestConfluence: vi.fn(() => Promise.resolve({
     ok: true,
     json: () => Promise.resolve({ _links: { base: 'https://example.atlassian.net/wiki', webui: '/spaces/TEST/pages/123' } })
@@ -352,13 +363,28 @@ describe('GenericViewer (chrome-less)', () => {
       }
     }
     let originalApWrapper: any
+    let originalGetCurrentPageId: any
+    let originalIsForge: any
+    let originalForgeContext: any
 
     beforeEach(() => {
       originalApWrapper = (globals as any).apWrapper
+      originalGetCurrentPageId = originalApWrapper?._getCurrentPageId
+      originalIsForge = (forgeRuntime as any).isForge
+      originalForgeContext = (forgeRuntime as any).forgeContext
     })
     afterEach(() => {
       delete (window as any).forgeGlobal
       ;(globals as any).apWrapper = originalApWrapper
+      if (originalApWrapper) {
+        if (originalGetCurrentPageId === undefined) {
+          delete originalApWrapper._getCurrentPageId
+        } else {
+          originalApWrapper._getCurrentPageId = originalGetCurrentPageId
+        }
+      }
+      ;(forgeRuntime as any).isForge = originalIsForge
+      ;(forgeRuntime as any).forgeContext = originalForgeContext
       localStorage.clear()
     })
 
@@ -419,6 +445,40 @@ describe('GenericViewer (chrome-less)', () => {
       const panel = wrapper.find('[data-testid="agent-link-panel"]')
       expect(panel.classes()).toContain('agent-link-panel--waiting')
       expect(wrapper.find('[data-testid="agent-link-prompt"]').text()).toContain('tok-present')
+    })
+
+    it('keeps the rendered Fullscreen rail reactive when the real bridge session replaces the placeholder after first render', async () => {
+      setFullscreenWithPageId('page-reactive')
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      persistSession({
+        token: 'CL-TEST',
+        cloudId: 'cloud-1',
+        pageId: 'page-reactive',
+        contentId: 'content-123',
+        state: 'waiting',
+      })
+
+      let resolvePageId!: (pageId: string) => void
+      const pageIdPromise = new Promise<string>((resolve) => {
+        resolvePageId = resolve
+      })
+      ;(forgeRuntime as any).isForge = true
+      ;(forgeRuntime as any).forgeContext = undefined
+      ;(globals as any).apWrapper._getCurrentPageId = vi.fn(() => pageIdPromise)
+
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain('agent-link-panel--idle')
+
+      resolvePageId('page-reactive')
+      await flushPromises()
+      await wrapper.vm.$nextTick()
+
+      const panel = wrapper.find('[data-testid="agent-link-panel"]')
+      expect(panel.classes()).toContain('agent-link-panel--waiting')
+      expect(wrapper.find('[data-testid="agent-link-prompt"]').text()).toContain('CL-TEST')
     })
   })
 

@@ -3,11 +3,15 @@
 // anything is forwarded to the macro, so a bad edit never round-trips and
 // nothing is persisted.
 //
-// Three responsibilities:
-//   1. C0 parse-before-submit — reject DSL that doesn't parse in the real
-//      dialect parser, with structured line/col errors.
-//   2. Data-loss hard reject — reject a catastrophically shorter replacement
-//      (truncation) relative to the CURRENT diagram content.
+// Three responsibilities (run in this order — see the C2-before-C0 comment
+// inline below for why):
+//   1. Data-loss hard reject (C2) — reject a catastrophically shorter
+//      replacement (truncation) relative to the CURRENT diagram content. Pure
+//      length comparison; runs for EVERY diagramType, dialect-known or not.
+//   2. Parse-before-submit (C0) — reject DSL that doesn't parse in the real
+//      dialect parser, with structured line/col errors. Dialect-scoped
+//      (zenuml/mermaid/plantuml only — everything else passes through
+//      unvalidated).
 //   3. Semantic diff (info, NOT a blocker) — attach before/after
 //      participant+message counts on success so the agent can spot unintended
 //      drift (rendered:true != correct).
@@ -31,8 +35,19 @@
 import { computeStats, normalizeDialect, parseDsl } from './parseDsl';
 import type { DslError } from './parseDsl';
 
-/** Reject any replacement whose non-whitespace length drops below this fraction of the current's. */
-export const DATA_LOSS_MIN_RATIO = 0.4;
+/**
+ * Reject any replacement whose non-whitespace length drops below this
+ * fraction of the current's. Corpus-validated 2026-07-10 (Track E1 sweep,
+ * evidence/E1-dataloss-sweep.md): swept 0.40-0.95 against the labeled corpus
+ * (10 data-loss rows, 91 legitimately-scored rows) — 0.80 gives 100% recall
+ * (5/5) on the confirmed true truncations reachable by a length check, 0%
+ * false positives (0/77) on legitimately-scored in-scope rows, and sits in
+ * the middle of a 0%-FP plateau (0.75-0.85 all identical), leaving margin on
+ * both sides. Corpus-labeled data-loss rows topped out around ratio ~0.75, so
+ * 0.80 also clears the observed true-truncation ceiling. Was 0.4 (untuned
+ * placeholder) before this sweep.
+ */
+export const DATA_LOSS_MIN_RATIO = 0.8;
 /**
  * ...but only when the current diagram is non-trivial (>= this many
  * non-whitespace chars). Below it, a big proportional shrink is a small
@@ -40,7 +55,11 @@ export const DATA_LOSS_MIN_RATIO = 0.4;
  * toward catching only catastrophic truncation, per the charter ("err toward
  * only-catch-catastrophic to avoid false positives on legitimate
  * simplifications"). ~120 non-ws chars is roughly a 4-6 message sequence
- * diagram; a drop below 40% of that means shedding the bulk of the content.
+ * diagram. Corpus-validated 2026-07-10: this floor is a no-op across
+ * 80/120/200 on the available corpus — every data-loss and score>=4 row has
+ * current-content well above 200 non-ws chars, so no swept value changes any
+ * outcome. Left at 120 on priors; untested by this corpus for diagrams under
+ * ~200 non-ws chars (no small-diagram case exists in it either direction).
  */
 export const DATA_LOSS_MIN_CURRENT_NONWS = 120;
 
@@ -91,9 +110,40 @@ export async function guardUpdateDiagram(
   snapshot: DiagramSnapshot | undefined,
 ): Promise<GuardResult> {
   const diagramType = snapshot?.diagramType;
+  const currentDsl = snapshot?.dsl;
+
+  // ---- C2: data-loss hard reject ----
+  // Runs FIRST, for every diagramType, whenever a baseline snapshot exists.
+  // This is a pure length comparison — it needs no parser, so it must not be
+  // gated behind the dialect check below. (Track E1 sweep, 2026-07-10: the
+  // guard previously ran this after the dialect pass-through, which made 2
+  // real non-DSL (OpenApi) truncations in the corpus architecturally
+  // unreachable — see evidence/E1-dataloss-sweep.md Finding 1. The parse gate
+  // (C0) stays dialect-scoped since only zenuml/mermaid/plantuml have a
+  // parser; this check does not.)
+  if (typeof currentDsl === 'string') {
+    const currentNonWs = nonWhitespaceLength(currentDsl);
+    const newNonWs = nonWhitespaceLength(newDsl);
+    if (currentNonWs >= DATA_LOSS_MIN_CURRENT_NONWS && newNonWs < DATA_LOSS_MIN_RATIO * currentNonWs) {
+      const pct = Math.round((1 - newNonWs / currentNonWs) * 100);
+      return {
+        ok: false,
+        reason: 'data_loss',
+        message:
+          `Rejected: the replacement is ${pct}% shorter than the current diagram ` +
+          `(${currentDsl.length} -> ${newDsl.length} chars; ${currentNonWs} -> ${newNonWs} non-whitespace). ` +
+          `This looks like accidental truncation, not an edit. Nothing was saved. ` +
+          `If you truly mean to replace the whole diagram, send the complete new DSL.`,
+        input_len: currentDsl.length,
+        output_len: newDsl.length,
+      };
+    }
+  }
 
   // Without a known dialect we cannot parse — pass through unvalidated rather
-  // than block. (Charter: never block a dialect we can't parse.)
+  // than block. (Charter: never block a dialect we can't parse.) The
+  // data-loss check above already ran against this DSL, so this only gates
+  // C0/C3, which genuinely need a parser.
   if (!diagramType || normalizeDialect(diagramType) === 'unknown') {
     return { ok: true, unvalidated: true };
   }
@@ -113,27 +163,6 @@ export async function guardUpdateDiagram(
   }
   if (parsed.unvalidated) {
     return { ok: true, unvalidated: true };
-  }
-
-  // ---- C2: data-loss hard reject ----
-  const currentDsl = snapshot?.dsl;
-  if (typeof currentDsl === 'string') {
-    const currentNonWs = nonWhitespaceLength(currentDsl);
-    const newNonWs = nonWhitespaceLength(newDsl);
-    if (currentNonWs >= DATA_LOSS_MIN_CURRENT_NONWS && newNonWs < DATA_LOSS_MIN_RATIO * currentNonWs) {
-      const pct = Math.round((1 - newNonWs / currentNonWs) * 100);
-      return {
-        ok: false,
-        reason: 'data_loss',
-        message:
-          `Rejected: the replacement is ${pct}% shorter than the current diagram ` +
-          `(${currentDsl.length} -> ${newDsl.length} chars; ${currentNonWs} -> ${newNonWs} non-whitespace). ` +
-          `This looks like accidental truncation, not an edit. Nothing was saved. ` +
-          `If you truly mean to replace the whole diagram, send the complete new DSL.`,
-        input_len: currentDsl.length,
-        output_len: newDsl.length,
-      };
-    }
   }
 
   // ---- C3: semantic diff (info only) ----

@@ -16,6 +16,37 @@ const BIG_CURRENT_DSL = [
   'Bob->Alice: profile payload has been returned',
 ].join('\n');
 
+function nonWs(s: string): number {
+  return s.replace(/\s+/g, '').length;
+}
+
+/**
+ * Build a valid, parseable ZenUML diagram whose non-whitespace length is
+ * EXACTLY `targetNonWs` — whole `Alice->Bob: ...` statement lines, topped up
+ * with a harmless trailing `// xxxx` comment for the remainder. Lets the
+ * ratio-boundary tests below assert exact percentages of the 0.80 threshold
+ * instead of approximate ones.
+ */
+function buildZenumlOfLength(targetNonWs: number): string {
+  const lines: string[] = [];
+  let total = 0;
+  let i = 0;
+  for (;;) {
+    i++;
+    const line = `Alice->Bob: request number ${i} for authentication details`;
+    const lineNonWs = nonWs(line);
+    if (total + lineNonWs > targetNonWs) break;
+    lines.push(line);
+    total += lineNonWs;
+  }
+  const remaining = targetNonWs - total;
+  if (remaining > 0) {
+    // "//" contributes 2 non-ws chars; pad the rest with 'x'.
+    lines.push(`// ${'x'.repeat(Math.max(0, remaining - 2))}`);
+  }
+  return lines.join('\n');
+}
+
 describe('guardUpdateDiagram — parse gate (C0)', () => {
   it('rejects DSL that does not parse, with structured line/col errors and no forward', async () => {
     const r = await guardUpdateDiagram('A.method(', { diagramType: 'Sequence', dsl: 'A->B: hi' });
@@ -60,8 +91,63 @@ describe('guardUpdateDiagram — data-loss hard reject (C2)', () => {
   });
 
   it('threshold constants are the documented values', () => {
-    expect(DATA_LOSS_MIN_RATIO).toBe(0.4);
+    expect(DATA_LOSS_MIN_RATIO).toBe(0.8);
     expect(DATA_LOSS_MIN_CURRENT_NONWS).toBe(120);
+  });
+
+  describe('0.80 ratio boundary (Track E1 corpus sweep, 2026-07-10)', () => {
+    const CURRENT_1000 = buildZenumlOfLength(1000);
+
+    it('rejects a shrink to exactly ratio 0.79 (just under the 0.80 floor)', async () => {
+      const shrunk79 = buildZenumlOfLength(790); // 790/1000 = 0.79
+      const r = await guardUpdateDiagram(shrunk79, { diagramType: 'Sequence', dsl: CURRENT_1000 });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toBe('data_loss');
+    });
+
+    it('passes a shrink to exactly ratio 0.81 (just over the 0.80 floor)', async () => {
+      const shrunk81 = buildZenumlOfLength(810); // 810/1000 = 0.81
+      const r = await guardUpdateDiagram(shrunk81, { diagramType: 'Sequence', dsl: CURRENT_1000 });
+      expect(r.ok).toBe(true);
+    });
+  });
+});
+
+describe('guardUpdateDiagram — data-loss now covers non-DSL diagram types', () => {
+  // Track E1 sweep, evidence/E1-dataloss-sweep.md Finding 1: 2 real OpenApi
+  // truncations in the corpus were architecturally unreachable because the
+  // guard used to pass non-DSL diagramTypes through BEFORE the length check.
+  // The check runs first now, so it fires here regardless of dialect.
+  const BIG_OPENAPI_DSL = [
+    'openapi: 3.0.0',
+    'info:',
+    '  title: Example API',
+    '  version: 1.0.0',
+    'paths:',
+    '  /widgets:',
+    '    get:',
+    '      summary: list all widgets in the catalog',
+    '      responses:',
+    '        "200":',
+    '          description: a paginated list of widgets',
+  ].join('\n');
+
+  it('rejects a catastrophic truncation on a non-DSL type (OpenApi)', async () => {
+    const truncated = '{"openapi": "3.0.0"'; // cut off mid-token, like the corpus rows
+    const r = await guardUpdateDiagram(truncated, { diagramType: 'OpenApi', dsl: BIG_OPENAPI_DSL });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toBe('data_loss');
+      expect(r.input_len).toBe(BIG_OPENAPI_DSL.length);
+      expect(r.output_len).toBe(truncated.length);
+    }
+  });
+
+  it('still passes through unvalidated for a non-DSL type with no truncation', async () => {
+    const revised = BIG_OPENAPI_DSL.replace('Example API', 'Example API v2');
+    const r = await guardUpdateDiagram(revised, { diagramType: 'OpenApi', dsl: BIG_OPENAPI_DSL });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.unvalidated).toBe(true);
   });
 });
 

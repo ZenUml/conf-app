@@ -107,6 +107,15 @@ export class AgentLinkSession {
   private macroSocket: WebSocket | null = null;
   private agentSocket: WebSocket | null = null;
 
+  // Last-known diagram snapshot ({diagramType, dsl}) for the bound diagram,
+  // cached from the agent's read_diagram results and refreshed after each
+  // applied update_diagram (see handleAgentOp). Surfaced on GET /session so the
+  // relay's update_diagram guardrail (mcp.ts -> updateDiagramGuard.ts) has a
+  // synchronous baseline to parse + length-check against, without a separate
+  // round-trip. Persisted alongside the session so it survives a hibernation
+  // wake (ISSUE-3 companion — reloaded in ensureSession).
+  private lastDiagram: { diagramType?: string; dsl?: string } | null = null;
+
   // Id-correlation for the HTTP agent-op bridge (`POST /agent-op` below) —
   // see the file header and pendingOps.ts.
   private readonly pendingOps = new PendingOps();
@@ -135,8 +144,36 @@ export class AgentLinkSession {
     const stored = await this.state.storage.get<SessionRecord>('session');
     if (!stored) return;
     this.session = stored;
+    this.lastDiagram =
+      (await this.state.storage.get<{ diagramType?: string; dsl?: string }>('lastDiagram')) ?? null;
     this.macroSocket = this.state.getWebSockets('macro')[0] ?? null;
     this.agentSocket = this.state.getWebSockets('agent')[0] ?? null;
+  }
+
+  /**
+   * Snoop a completed agent-op reply to keep `lastDiagram` fresh: a
+   * read_diagram result carries the current {diagramType, dsl}; a successful
+   * update_diagram means the DSL we forwarded is now the current one. This is
+   * the session-cached baseline the update_diagram guardrail (relay-side)
+   * parses + length-checks the NEXT edit against.
+   */
+  private async cacheDiagramFromOp(op: string, args: unknown, payload: unknown): Promise<void> {
+    if (op === 'read_diagram') {
+      const p = payload as { diagramType?: unknown; dsl?: unknown } | null;
+      if (p && (typeof p.dsl === 'string' || typeof p.diagramType === 'string')) {
+        this.lastDiagram = {
+          diagramType: typeof p.diagramType === 'string' ? p.diagramType : this.lastDiagram?.diagramType,
+          dsl: typeof p.dsl === 'string' ? p.dsl : this.lastDiagram?.dsl,
+        };
+        await this.state.storage.put('lastDiagram', this.lastDiagram);
+      }
+    } else if (op === 'update_diagram') {
+      const a = args as { dsl?: unknown } | null;
+      if (a && typeof a.dsl === 'string') {
+        this.lastDiagram = { diagramType: this.lastDiagram?.diagramType, dsl: a.dsl };
+        await this.state.storage.put('lastDiagram', this.lastDiagram);
+      }
+    }
   }
 
   private socketFor(peer: Peer): WebSocket | null {
@@ -290,7 +327,14 @@ export class AgentLinkSession {
 
     const session = this.session as SessionRecord; // validateSession() guarantees non-null here
     return jsonResponse(
-      { state: session.state, boundContext: session.boundContext, issuedAtMs: session.issuedAtMs },
+      {
+        state: session.state,
+        boundContext: session.boundContext,
+        issuedAtMs: session.issuedAtMs,
+        // Baseline for the relay-side update_diagram guardrail; omitted until
+        // the agent has read the diagram at least once.
+        lastDiagram: this.lastDiagram ?? undefined,
+      },
       200,
     );
   }
@@ -339,6 +383,11 @@ export class AgentLinkSession {
     const result = await outcome;
     if ('timedOut' in result) {
       return jsonResponse({ error: 'macro_timeout' }, 504);
+    }
+    // Keep the diagram snapshot fresh for the relay-side update_diagram
+    // guardrail (only on a successful reply — a failed op didn't change state).
+    if (result.ok) {
+      await this.cacheDiagramFromOp(op, args, result.payload);
     }
     return jsonResponse({ ok: result.ok, payload: result.payload }, 200);
   }
@@ -418,10 +467,12 @@ export class AgentLinkSession {
 
     this.macroSocket = null;
     this.agentSocket = null;
+    this.lastDiagram = null;
     await this.state.storage.deleteAlarm();
     // Drop the persisted record too, so a later hibernation wake can't
     // restore a torn-down session (companion to ensureSession — ISSUE 3 fix).
     await this.state.storage.delete('session');
+    await this.state.storage.delete('lastDiagram');
   }
 
   /**
@@ -447,9 +498,11 @@ export class AgentLinkSession {
       }
       this.macroSocket = null;
       this.agentSocket = null;
+      this.lastDiagram = null;
       // Drop the persisted record on TTL expiry so a wake can't resurrect it
       // (validateSession's clock check would still reject it, but don't leak).
       await this.state.storage.delete('session');
+      await this.state.storage.delete('lastDiagram');
     }
   }
 }

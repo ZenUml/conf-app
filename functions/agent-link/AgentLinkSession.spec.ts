@@ -324,4 +324,68 @@ describe('AgentLinkSession — agent-side HTTP transport (GET /session, POST /ag
       expect((await res.json()).error).toBe('macro_not_connected');
     });
   });
+
+  describe('diagram snapshot cache (relay-side update_diagram guardrail baseline)', () => {
+    function connectedSession(store = new Map<string, unknown>()) {
+      const state = makeState(store);
+      const macroWs = makeFakeMacroWs();
+      (state.getTags as ReturnType<typeof vi.fn>).mockImplementation((ws: unknown) =>
+        ws === macroWs ? ['macro'] : [],
+      );
+      const session = new AgentLinkSession(state, {});
+      (session as any).session = makeSession();
+      (session as any).macroSocket = macroWs;
+      return { session, macroWs, store };
+    }
+
+    it('caches {diagramType, dsl} from a read_diagram result and surfaces it on GET /session', async () => {
+      const { session, macroWs, store } = connectedSession();
+
+      const opPromise = session.fetch(agentOpRequest({ id: 'r-1', op: 'read_diagram', args: {} }));
+      await flushMicrotasks();
+      await session.webSocketMessage(
+        macroWs as unknown as WebSocket,
+        JSON.stringify({ kind: 'result', id: 'r-1', payload: { diagramType: 'Sequence', dsl: 'A->B: hi' } }),
+      );
+      await opPromise;
+
+      // Persisted for hibernation survival...
+      expect(store.get('lastDiagram')).toEqual({ diagramType: 'Sequence', dsl: 'A->B: hi' });
+      // ...and surfaced to the relay on the auth round-trip.
+      const info = await (await session.fetch(sessionInfoRequest())).json();
+      expect(info.lastDiagram).toEqual({ diagramType: 'Sequence', dsl: 'A->B: hi' });
+    });
+
+    it('refreshes the cached dsl after a successful update_diagram (keeps diagramType)', async () => {
+      const { session, macroWs, store } = connectedSession();
+      // Seed a prior read so the diagramType is known.
+      (session as any).lastDiagram = { diagramType: 'Sequence', dsl: 'A->B: old' };
+
+      const opPromise = session.fetch(
+        agentOpRequest({ id: 'u-1', op: 'update_diagram', args: { dsl: 'A->B: new\nB->C: more' } }),
+      );
+      await flushMicrotasks();
+      await session.webSocketMessage(
+        macroWs as unknown as WebSocket,
+        JSON.stringify({ kind: 'result', id: 'u-1', payload: { ok: true, version: 2 } }),
+      );
+      await opPromise;
+
+      expect(store.get('lastDiagram')).toEqual({ diagramType: 'Sequence', dsl: 'A->B: new\nB->C: more' });
+    });
+
+    it('does not cache when the op reply is an error (no state change)', async () => {
+      const { session, macroWs, store } = connectedSession();
+
+      const opPromise = session.fetch(agentOpRequest({ id: 'e-1', op: 'read_diagram', args: {} }));
+      await flushMicrotasks();
+      await session.webSocketMessage(
+        macroWs as unknown as WebSocket,
+        JSON.stringify({ kind: 'error', id: 'e-1', payload: { message: 'boom' } }),
+      );
+      await opPromise;
+
+      expect(store.get('lastDiagram')).toBeUndefined();
+    });
+  });
 });

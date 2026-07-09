@@ -118,3 +118,99 @@ export function clearSession(pageId: string): void {
     console.warn('[agent-link] failed to clear session handoff', e)
   }
 }
+
+// --- Reactive handoff (mint-vs-mount race, 2026-07-09 live spot-check) -----
+//
+// readSession() above is a ONE-SHOT read. GenericViewer.vue's mounted() calls
+// it exactly once when the Fullscreen instance boots — but the inline
+// instance's token mint (startConnect()'s requestSession().then(...)) is
+// async, and Fullscreen can (and, per the live probe, reliably does) finish
+// booting and call readSession() BEFORE that mint resolves and persists
+// anything. The one-shot read then permanently sees null: nothing re-reads
+// localStorage afterwards, so the rail stays idle/empty even though the
+// inline instance persists the real session a moment later.
+//
+// subscribeToHandoff() below closes that gap by making the read reactive:
+//   1. A same-origin `storage` event listener. The DOM fires `storage` in
+//      OTHER documents that share the same origin when one of them writes
+//      localStorage (it does NOT fire in the writing document itself) —
+//      exactly the inline-writes/Fullscreen-listens shape of this handoff.
+//   2. A short bounded poll (default 400ms, up to 8s) as a fallback in case
+//      the `storage` event is ever missed or unsupported in the Forge Custom
+//      UI sandbox — belt-and-suspenders, since the whole point of this fix
+//      is reliability, not just "it works when the event fires".
+// Both stop themselves the instant a valid session is found (or the poll
+// window elapses); the caller is still responsible for calling the returned
+// unsubscribe function on unmount/disconnect so nothing leaks.
+export interface HandoffSubscriptionOptions {
+  pollIntervalMs?: number
+  pollTimeoutMs?: number
+}
+
+export const DEFAULT_HANDOFF_POLL_INTERVAL_MS = 400
+export const DEFAULT_HANDOFF_POLL_TIMEOUT_MS = 8000
+
+export function subscribeToHandoff(
+  pageId: string,
+  onSession: (session: AgentLinkHandoffSession) => void,
+  options: HandoffSubscriptionOptions = {}
+): () => void {
+  const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_HANDOFF_POLL_INTERVAL_MS
+  const pollTimeoutMs = options.pollTimeoutMs ?? DEFAULT_HANDOFF_POLL_TIMEOUT_MS
+  const key = storageKey(pageId)
+
+  let settled = false
+  let pollHandle: ReturnType<typeof setInterval> | null = null
+  let pollDeadline: ReturnType<typeof setTimeout> | null = null
+
+  function stopPolling(): void {
+    if (pollHandle !== null) {
+      clearInterval(pollHandle)
+      pollHandle = null
+    }
+    if (pollDeadline !== null) {
+      clearTimeout(pollDeadline)
+      pollDeadline = null
+    }
+  }
+
+  // Shared by both triggers (storage event + poll tick): re-reads via
+  // readSession() rather than trusting the raw event payload, so a stale or
+  // partially-written record is rejected the same way the initial one-shot
+  // read already rejects it.
+  function tryDeliver(): void {
+    if (settled) return
+    const session = readSession(pageId)
+    if (!session) return
+    settled = true
+    stopPolling()
+    onSession(session)
+  }
+
+  function handleStorage(e: StorageEvent): void {
+    // e.key is null for localStorage.clear() — re-check regardless since
+    // that can't produce a valid session anyway; tryDeliver's readSession()
+    // call is the actual authority.
+    if (e.key !== null && e.key !== key) return
+    tryDeliver()
+  }
+
+  try {
+    window.addEventListener('storage', handleStorage)
+  } catch (e) {
+    console.warn('[agent-link] failed to subscribe to storage event', e)
+  }
+
+  pollHandle = setInterval(tryDeliver, pollIntervalMs)
+  pollDeadline = setTimeout(stopPolling, pollTimeoutMs)
+
+  return function unsubscribe(): void {
+    settled = true
+    stopPolling()
+    try {
+      window.removeEventListener('storage', handleStorage)
+    } catch (e) {
+      console.warn('[agent-link] failed to unsubscribe from storage event', e)
+    }
+  }
+}

@@ -34,7 +34,12 @@ import {
   type RelayStateEvent,
 } from './relayClient'
 import { agentLinkWsUrl, mintAgentLinkSession, type AgentLinkBoundContext } from './relayUrl'
-import { persistSession, clearSession, type AgentLinkHandoffSession } from './sessionHandoff'
+import {
+  persistSession,
+  clearSession,
+  subscribeToHandoff,
+  type AgentLinkHandoffSession,
+} from './sessionHandoff'
 
 export interface AgentLinkActivityEntry {
   summary: string
@@ -94,6 +99,16 @@ export interface AgentLinkSessionApi {
   // solves. Displays a session persisted by ANOTHER instance without
   // minting a new token or opening a second relay socket.
   hydrateFrom(session: AgentLinkHandoffSession): void
+  // Reactive counterpart to a one-shot readSession()+hydrateFrom() call —
+  // covers the mint-vs-mount RACE (2026-07-09 live spot-check): Fullscreen
+  // can boot and read localStorage before the inline instance's async token
+  // mint has persisted anything. Subscribes to the same-origin `storage`
+  // event plus a bounded poll fallback (sessionHandoff.ts's
+  // subscribeToHandoff) and calls hydrateFrom() the instant a session for
+  // `pageId` shows up — a no-op if this instance is no longer idle by then.
+  // Returns an unsubscribe function; callers MUST call it on unmount so the
+  // listener/interval don't leak past the component's lifetime.
+  watchForHandoff(pageId: string): () => void
 }
 
 export function useAgentLinkSession(
@@ -334,6 +349,10 @@ export function useAgentLinkSession(
     // never mints a token or opens a relay socket for a hydrated session.
   }
 
+  function watchForHandoff(pageId: string): () => void {
+    return subscribeToHandoff(pageId, (session) => hydrateFrom(session))
+  }
+
   return {
     state,
     token,
@@ -343,5 +362,6 @@ export function useAgentLinkSession(
     applyEdit,
     disconnect,
     hydrateFrom,
+    watchForHandoff,
   }
 }

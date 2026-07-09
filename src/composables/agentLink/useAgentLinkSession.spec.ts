@@ -15,7 +15,7 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { useAgentLinkSession } from './useAgentLinkSession'
 import { SETUP_TIMEOUT_MS } from './agentLinkState'
 import type { AgentLinkBridgeOps } from './bridgeOps'
-import { readSession } from './sessionHandoff'
+import { readSession, persistSession } from './sessionHandoff'
 import type { AgentLinkHandoffSession } from './sessionHandoff'
 
 function makeBridgeOps(
@@ -548,6 +548,86 @@ describe('useAgentLinkSession', () => {
 
       expect(session.token.value).toBe(tokenBeforeHydrate)
       expect(session.state.value).toBe('waiting')
+    })
+  })
+
+  // Reactive Fullscreen hydration (mint-vs-mount RACE, 2026-07-09 live
+  // spot-check): GenericViewer.vue's mounted() calls readSession() once and,
+  // if it finds nothing yet, falls back to watchForHandoff() — this proves
+  // the fallback actually hydrates once the inline instance's persistSession()
+  // call lands, via the same-origin `storage` event AND the poll fallback,
+  // and that it's a no-op once no longer idle / after unsubscribe.
+  describe('watchForHandoff — reactive counterpart to the one-shot readSession()+hydrateFrom()', () => {
+    function makeHandoff(overrides: Partial<AgentLinkHandoffSession> = {}): AgentLinkHandoffSession {
+      return {
+        token: 'handed-off-token',
+        cloudId: 'c1',
+        pageId: 'page-1',
+        contentId: 'cc1',
+        state: 'waiting',
+        ...overrides,
+      }
+    }
+
+    it('hydrates into waiting when another document fires a storage event for this pageId', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+
+      const unsubscribe = session.watchForHandoff('page-1')
+      expect(session.state.value).toBe('idle')
+
+      // The inline instance's startConnect().then(...) resolving, landing a
+      // real token in localStorage a moment after this instance mounted.
+      persistSession(makeHandoff())
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+
+      expect(session.state.value).toBe('waiting')
+      expect(session.token.value).toBe('handed-off-token')
+      unsubscribe()
+    })
+
+    it('falls back to the bounded poll when the storage event is missed', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+
+      const unsubscribe = session.watchForHandoff('page-1')
+      persistSession(makeHandoff())
+      // No storage event dispatched — the default 400ms poll tick must still find it.
+      vi.advanceTimersByTime(400)
+
+      expect(session.state.value).toBe('waiting')
+      expect(session.token.value).toBe('handed-off-token')
+      unsubscribe()
+    })
+
+    it('does not hydrate once this instance is no longer idle (guarded by hydrateFrom)', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+      const unsubscribe = session.watchForHandoff('page-1')
+
+      // This instance starts its OWN connection before the watched session appears.
+      session.startConnect()
+      const tokenAfterOwnConnect = session.token.value
+
+      persistSession(makeHandoff({ token: 'other-token' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+
+      expect(session.token.value).toBe(tokenAfterOwnConnect)
+      unsubscribe()
+    })
+
+    it('the returned unsubscribe function stops both the storage listener and the poll', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+      const unsubscribe = session.watchForHandoff('page-1')
+
+      unsubscribe()
+      persistSession(makeHandoff())
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+      vi.advanceTimersByTime(8000)
+
+      expect(session.state.value).toBe('idle')
+      expect(session.token.value).toBeNull()
     })
   })
 })

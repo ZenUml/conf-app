@@ -1,5 +1,13 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { persistSession, readSession, clearSession, HANDOFF_TTL_MS } from './sessionHandoff'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import {
+  persistSession,
+  readSession,
+  clearSession,
+  subscribeToHandoff,
+  HANDOFF_TTL_MS,
+  DEFAULT_HANDOFF_POLL_INTERVAL_MS,
+  DEFAULT_HANDOFF_POLL_TIMEOUT_MS,
+} from './sessionHandoff'
 import type { AgentLinkHandoffSession } from './sessionHandoff'
 
 function makeSession(overrides: Partial<AgentLinkHandoffSession> = {}): AgentLinkHandoffSession {
@@ -105,5 +113,110 @@ describe('sessionHandoff', () => {
     } finally {
       Storage.prototype.setItem = original
     }
+  })
+
+  // Reactive hydration (mint-vs-mount race, 2026-07-09 live spot-check): a
+  // one-shot readSession() can lose to another same-origin document's
+  // persistSession() call that lands a moment later. subscribeToHandoff()
+  // covers that with a `storage` event listener plus a bounded poll
+  // fallback — see sessionHandoff.ts's header comment.
+  describe('subscribeToHandoff', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('delivers the session the instant another document fires a matching storage event', () => {
+      const onSession = vi.fn()
+      const unsubscribe = subscribeToHandoff('page-1', onSession)
+
+      persistSession(makeSession())
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+
+      expect(onSession).toHaveBeenCalledTimes(1)
+      expect(onSession).toHaveBeenCalledWith(makeSession())
+
+      unsubscribe()
+    })
+
+    it('ignores a storage event for a different key', () => {
+      const onSession = vi.fn()
+      const unsubscribe = subscribeToHandoff('page-1', onSession)
+
+      persistSession(makeSession({ pageId: 'page-2' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-2' }))
+
+      expect(onSession).not.toHaveBeenCalled()
+      unsubscribe()
+    })
+
+    it('falls back to the poll when the storage event never fires', () => {
+      vi.useFakeTimers()
+      const onSession = vi.fn()
+      const unsubscribe = subscribeToHandoff('page-1', onSession, {
+        pollIntervalMs: 100,
+        pollTimeoutMs: 1000,
+      })
+
+      persistSession(makeSession())
+      // No storage event dispatched — only the poll tick should find it.
+      vi.advanceTimersByTime(100)
+
+      expect(onSession).toHaveBeenCalledTimes(1)
+      unsubscribe()
+    })
+
+    it('delivers only once even if the storage event and a poll tick race', () => {
+      vi.useFakeTimers()
+      const onSession = vi.fn()
+      const unsubscribe = subscribeToHandoff('page-1', onSession, {
+        pollIntervalMs: 50,
+        pollTimeoutMs: 1000,
+      })
+
+      persistSession(makeSession())
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+      vi.advanceTimersByTime(50)
+
+      expect(onSession).toHaveBeenCalledTimes(1)
+      unsubscribe()
+    })
+
+    it('stops polling once the bounded window elapses without a session ever appearing', () => {
+      vi.useFakeTimers()
+      const onSession = vi.fn()
+      const clearIntervalSpy = vi.spyOn(global, 'clearInterval')
+      subscribeToHandoff('page-1', onSession, { pollIntervalMs: 100, pollTimeoutMs: 500 })
+
+      vi.advanceTimersByTime(500)
+      expect(onSession).not.toHaveBeenCalled()
+      expect(clearIntervalSpy).toHaveBeenCalled()
+
+      // A session persisted AFTER the window elapsed must not retroactively
+      // fire — the poll already stopped itself.
+      persistSession(makeSession())
+      vi.advanceTimersByTime(1000)
+      expect(onSession).not.toHaveBeenCalled()
+    })
+
+    it('unsubscribe removes the storage listener and stops the poll interval', () => {
+      vi.useFakeTimers()
+      const onSession = vi.fn()
+      const unsubscribe = subscribeToHandoff('page-1', onSession, {
+        pollIntervalMs: 50,
+        pollTimeoutMs: 1000,
+      })
+
+      unsubscribe()
+      persistSession(makeSession())
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+      vi.advanceTimersByTime(1000)
+
+      expect(onSession).not.toHaveBeenCalled()
+    })
+
+    it('exposes default poll bounds matching the design (~400ms interval, ~8s ceiling)', () => {
+      expect(DEFAULT_HANDOFF_POLL_INTERVAL_MS).toBe(400)
+      expect(DEFAULT_HANDOFF_POLL_TIMEOUT_MS).toBe(8000)
+    })
   })
 })

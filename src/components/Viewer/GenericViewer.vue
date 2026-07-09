@@ -386,11 +386,36 @@ export default {
       // rendering ConnectPanel with nothing. Never mints a second token or
       // opens a second relay socket — hydrateFrom() is a display-only no-op
       // on the relay/token-minting front.
+      //
+      // RACE (live spot-check, 2026-07-09): the one-shot readSession() above
+      // can lose to the inline instance's async token mint — Fullscreen boots
+      // and reads localStorage before that mint has persisted anything, so
+      // handoff is null here even though a real session lands a moment
+      // later. Nothing was re-reading it, so the rail stayed idle/empty.
+      // Fix: fall back to watchForHandoff(), which hydrates reactively (same-
+      // origin `storage` event + bounded poll, see sessionHandoff.ts) the
+      // instant the inline instance's persistSession() call lands. Only
+      // needed when the initial read found nothing — once handoff already
+      // hydrated this instance out of 'idle', watchForHandoff would just be
+      // a no-op subscription, so skip setting it up.
       if (relay?.boundContext && this.isFullscreenMode) {
         const handoff = readSession(relay.boundContext.pageId);
-        if (handoff) this._agentLink.hydrateFrom(handoff);
+        if (handoff) {
+          this._agentLink.hydrateFrom(handoff);
+        } else {
+          this._agentLinkHandoffUnsubscribe = this._agentLink.watchForHandoff(
+            relay.boundContext.pageId
+          );
+        }
       }
     }
+  },
+  beforeUnmount() {
+    // Cleans up the storage-event listener + poll interval started by
+    // watchForHandoff() above (no-op if it was never set up, e.g. flag-off,
+    // non-fullscreen, or the initial readSession() already hydrated).
+    this._agentLinkHandoffUnsubscribe?.();
+    this._agentLinkHandoffUnsubscribe = null;
   },
   methods: {
     edit() {

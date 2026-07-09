@@ -110,7 +110,7 @@ export interface UseAgentLinkSessionOptions {
   // get mintAgentLinkSession (relayUrl.ts) / createRelayClient (relayClient.ts).
   relay?: {
     boundContext: AgentLinkBoundContext
-    requestSession?: (ctx: AgentLinkBoundContext) => Promise<{ token: string }>
+    requestSession?: (ctx: AgentLinkBoundContext) => Promise<{ token: string; expiresInSec?: number }>
     connect?: (
       wsUrl: string,
       bridge: AgentLinkBridgeOps,
@@ -137,6 +137,12 @@ export interface UseAgentLinkSessionOptions {
 export interface AgentLinkSessionApi {
   state: Ref<AgentLinkClientState>
   token: Ref<string | null>
+  // Track H: absolute ms epoch when the relay-minted token expires, or null
+  // when unknown (no relay context, or a reattached/hydrated session that
+  // never carried an expiry). Drives the Fullscreen rail's TTL meter and the
+  // toolbar link-status chip countdown. Never persisted onto the handoff
+  // record (that stays byte-identical for the cross-iframe tests).
+  expiresAt: Ref<number | null>
   activityFeed: Ref<AgentLinkActivityEntry[]>
   // Perceived-latency "AI is thinking" surface state (charter §6 Track F),
   // orthogonal to `state` (a paired session is `connected` the whole time an
@@ -206,6 +212,7 @@ export function useAgentLinkSession(
 
   const state = ref<AgentLinkClientState>('idle') as Ref<AgentLinkClientState>
   const token = ref<string | null>(null)
+  const expiresAt = ref<number | null>(null)
   const thinkingState = ref<AgentLinkThinkingState>('idle') as Ref<AgentLinkThinkingState>
   const activityFeed = ref<AgentLinkActivityEntry[]>([]) as Ref<
     AgentLinkActivityEntry[]
@@ -646,6 +653,7 @@ export function useAgentLinkSession(
     editsCount = 0
     lastAppliedDsl = ''
     activityFeed.value = []
+    expiresAt.value = null
     resetThinking()
     teardownRelay()
     // Local placeholder marks "a session is pending" for the UI immediately
@@ -671,12 +679,19 @@ export function useAgentLinkSession(
       const requestSession = relayOptions.requestSession ?? mintAgentLinkSession
       const startedForThisClick = connectStartedAt
       requestSession(relayOptions.boundContext)
-        .then(({ token: realToken }) => {
+        .then((mintResult) => {
+          const { token: realToken } = mintResult
           // A disconnect, or a NEWER startConnect() click, may have already
           // moved on while this mint was in flight — don't resurrect a
           // channel over a session that's no longer the current one.
           if (connectStartedAt !== startedForThisClick || state.value === 'closed') return
           token.value = realToken
+          // Track H: capture the token TTL (design contract's rail TTL meter /
+          // toolbar chip countdown). Absent on the pre-relay/dev mint mocks, so
+          // it stays null there and the meter/chip-countdown simply don't show.
+          if (typeof mintResult.expiresInSec === 'number') {
+            expiresAt.value = now() + mintResult.expiresInSec * 1000
+          }
           // Hand the real token off to the (as-yet-idle) Fullscreen instance
           // — see sessionHandoff.ts. Only the real, relay-minted token is
           // persisted, never the local `pending-<ts>` placeholder: a
@@ -796,6 +811,7 @@ export function useAgentLinkSession(
     if (prev === state.value) return // nothing was connected — no-op
     resetThinking()
     suspendedAt = null
+    expiresAt.value = null
     // Explicit, user-driven disconnect: tell the relay's DO via a
     // {kind:'disconnect'} envelope (Track G) so it closes the session
     // outright instead of suspending it — suspension is reserved for an
@@ -945,6 +961,7 @@ export function useAgentLinkSession(
   return {
     state,
     token,
+    expiresAt,
     thinkingState,
     activityFeed,
     startConnect,

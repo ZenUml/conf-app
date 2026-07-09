@@ -42,4 +42,24 @@ describe('LiveBadge', () => {
     expect(badge.exists()).toBe(true)
     expect(badge.text()).toContain('Disconnected')
   })
+
+  // Track H: additive "Working" variant for an op in flight on a live session
+  // (the rail status header passes `thinking`). The collapsed-macro usage never
+  // passes it, so the green "live" rendering above is untouched.
+  it('renders the blue "Working" variant when connected AND thinking', () => {
+    const wrapper = mount(LiveBadge, { props: { state: 'connected', thinking: true } })
+
+    const working = wrapper.find('[data-testid="agent-link-live-badge-working"]')
+    expect(working.exists()).toBe(true)
+    expect(working.text()).toContain('Working')
+    // The green "live" badge must yield to "Working" while an op is in flight.
+    expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
+  })
+
+  it('keeps the green "live" badge when connected without thinking (default)', () => {
+    const wrapper = mount(LiveBadge, { props: { state: 'connected', thinking: false } })
+
+    expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-live-badge-working"]').exists()).toBe(false)
+  })
 })

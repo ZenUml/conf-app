@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ConnectPanel from './ConnectPanel.vue'
 import connectPanelSource from './ConnectPanel.vue?raw'
@@ -131,5 +131,119 @@ describe('ConnectPanel', () => {
 
     expect(wrapper.emitted('disconnect')).toHaveLength(1)
     expect(wrapper.emitted('revoke')).toHaveLength(1)
+  })
+})
+
+// Track H — the 316px rail composition (design contract:
+// h-design-bundle/ui_kits/agent-link/README.md). Verifies the four
+// load-bearing states render the README's region→component + copy mapping.
+describe('ConnectPanel — Track H rail composition', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-10T00:00:00Z'))
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+    })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function mountRail(props: Record<string, unknown>) {
+    return mount(ConnectPanel, {
+      props: { token: 'tok-1', activityFeed: [], ...props } as any,
+    })
+  }
+
+  it('active: composes the status header, bound-diagram line, TTL meter and rail actions', () => {
+    const wrapper = mountRail({
+      state: 'connected',
+      diagramTitle: 'Checkout flow',
+      expiresAt: Date.now() + (8 * 60 + 42) * 1000,
+    })
+
+    // status header (wraps LiveBadge) with the generic client fallback
+    const header = wrapper.find('[data-testid="agent-link-status-header"]')
+    expect(header.exists()).toBe(true)
+    expect(header.find('[data-testid="agent-link-status-header-name"]').text()).toBe('Connected agent')
+    expect(header.find('[data-testid="agent-link-live-badge"]').exists()).toBe(true)
+    // bound-diagram line names the diagram, verbatim "Linked to"
+    expect(wrapper.text()).toContain('Linked to')
+    expect(wrapper.text()).toContain('Checkout flow')
+    // TTL meter
+    expect(wrapper.find('[data-testid="agent-link-ttl"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-ttl-value"]').text()).toBe('8:42')
+    // rail actions (footer) — Disconnect + Revoke & re-link
+    expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-revoke-btn"]').exists()).toBe(true)
+    // no thinking banner while idle
+    expect(wrapper.find('[data-testid="agent-link-thinking-banner"]').exists()).toBe(false)
+  })
+
+  it('active: honours an explicit client name in the status header', () => {
+    const wrapper = mountRail({ state: 'connected', clientName: 'Claude Code' })
+    expect(wrapper.find('[data-testid="agent-link-status-header-name"]').text()).toBe('Claude Code')
+  })
+
+  it('thinking (op in flight): shows the blue "Agent is editing…" banner and the Working badge', () => {
+    const wrapper = mountRail({ state: 'connected', thinking: 'thinking', diagramTitle: 'Checkout flow' })
+
+    const banner = wrapper.find('[data-testid="agent-link-thinking-banner"]')
+    expect(banner.exists()).toBe(true)
+    expect(banner.classes()).toContain('agent-link-banner--work')
+    expect(banner.text()).toContain('Agent is editing…')
+    expect(banner.text()).toContain('Applying changes to the diagram')
+    // LiveBadge flips to the blue "Working" variant
+    expect(wrapper.find('[data-testid="agent-link-live-badge-working"]').exists()).toBe(true)
+  })
+
+  it('thinking: appends the elapsed-seconds hint after a few seconds', async () => {
+    const wrapper = mountRail({ state: 'connected', thinking: 'thinking' })
+    // No elapsed marker ("· Ns") on first paint.
+    expect(wrapper.find('[data-testid="agent-link-thinking-banner"]').text()).not.toContain('·')
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(wrapper.find('[data-testid="agent-link-thinking-banner"]').text()).toContain('· 6s')
+  })
+
+  it('suspended: amber reconnecting banner with the resume countdown', () => {
+    const wrapper = mountRail({
+      state: 'suspended',
+      diagramTitle: 'Checkout flow',
+      expiresAt: Date.now() + (6 * 60 + 12) * 1000,
+    })
+
+    expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain('agent-link-panel--suspended')
+    expect(wrapper.text()).toContain('Connection paused — reconnecting…')
+    expect(wrapper.find('[data-testid="agent-link-suspended-status"]').text()).toContain(
+      'Waiting for the macro to reconnect. The agent will retry its next request'
+    )
+    expect(wrapper.text()).toContain('Resumes if reconnected within 6:12')
+    // suspended keeps Disconnect + Revoke & re-link
+    expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-revoke-btn"]').exists()).toBe(true)
+  })
+
+  it('closed (terminal): shows the disconnected notice and Reconnect, and emits reconnect', async () => {
+    const wrapper = mountRail({ state: 'closed', diagramTitle: 'Checkout flow' })
+
+    const notice = wrapper.find('[data-testid="agent-link-notice"]')
+    expect(notice.exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe('Agent disconnected')
+    expect(notice.text()).toContain(
+      'Your session ended. Your diagram is saved — nothing was lost. Reconnect to link a new agent session'
+    )
+    // no footer actions in the terminal state — Reconnect is the only CTA
+    expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="agent-link-reconnect-btn"]').trigger('click')
+    expect(wrapper.emitted('reconnect')).toHaveLength(1)
+  })
+
+  it('idle: renders an empty panel (no header, notice, feed or actions) — nothing before connect', () => {
+    const wrapper = mountRail({ state: 'idle' })
+    expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain('agent-link-panel--idle')
+    expect(wrapper.find('[data-testid="agent-link-status-header"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="agent-link-notice"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(false)
   })
 })

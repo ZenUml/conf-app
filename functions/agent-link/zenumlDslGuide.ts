@@ -54,6 +54,13 @@ try { A.risky() } catch (e) { A.handle() } finally { A.cleanup() }
 - Comments: \`// like this\`
 - Participants are inferred from names; optionally declare with annotators
   (\`@Actor User\`, \`@Database DB\`) or alias (\`Long Name as X\`).
+- Keep control-flow conditions SHORT — a few words inside the parens, e.g.
+  \`if (all checks pass) { }\`. A long predicate overflows the parser and spills
+  the rest of the line out as stray messages; put the full predicate in a
+  \`//\` comment on the line above instead.
+- \`rendered:true\` from update_diagram only means the DSL PARSED, not that it
+  says what you meant. For a structurally complex diagram, read it back and
+  confirm the fragments nested the way you intended.
 - If the diagram type is "mermaid" or "plantuml", ignore all of the above and
   use standard Mermaid / PlantUML sequence syntax instead.`;
 

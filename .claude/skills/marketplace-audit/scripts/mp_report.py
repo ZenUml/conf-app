@@ -323,6 +323,7 @@ def cmd_radar(args, auth):
         if r.get("status") != "active": flags.append("inactive")
         flags = ",".join(flags) or "-"
         base = {"company": company_of(r), "host": host,
+                "entitlement": r.get("appEntitlementNumber"),
                 "app": APP_LABEL.get(app_key, app_key),
                 "billing": billing_of(a), "amount": amount, "tier": r.get("tier"), "flags": flags}
         if today <= paid_thru <= fwd_end:
@@ -348,7 +349,8 @@ def cmd_radar(args, auth):
         if not me: continue
         converted = "yes" if agg.get((cid, app_key), {}).get("vendor", 0) > 0 else "-"
         row = {"expires": str(me), "app": APP_LABEL.get(app_key, app_key), "tier": r.get("tier"),
-               "status": r.get("status"), "converted": converted, "company": company_of(r), "host": host}
+               "status": r.get("status"), "converted": converted, "company": company_of(r), "host": host,
+               "entitlement": r.get("appEntitlementNumber")}
         if today <= me <= fwd_end:
             evals_soon.append(row)
         elif back_start <= me < today:
@@ -367,16 +369,16 @@ def cmd_radar(args, auth):
     print(f"=== income radar  asof={today}  window=+/-{n}d  (all revenue apps, payers only) ===\n")
     print(f"INCOMING (next {n}d): {len(incoming)} renewals, ~ ${inc_total:,.2f} expected"
           + (f"  (at-risk on flagged cards: ${inc_at_risk:,.2f})" if inc_at_risk > 0 else ""))
-    _print_table(incoming, ["due", "app", "billing", "amount", "flags", "tier", "company", "host"])
+    _print_table(incoming, ["due", "app", "billing", "amount", "flags", "tier", "company", "host", "entitlement"])
     print(f"\nMISSED (past {n}d): {len(missed)} renewals overdue, ~ ${miss_total:,.2f} at risk")
-    _print_table(missed, ["paid_thru", "days_late", "app", "billing", "amount", "flags", "company", "host"])
+    _print_table(missed, ["paid_thru", "days_late", "app", "billing", "amount", "flags", "company", "host", "entitlement"])
     print("\nnote: dates are customer-renewal timing (a proxy for income); Atlassian disburses on its")
     print("own monthly cycle. A lapse in the last 1-2 days may be settlement lag, not a true miss —")
     print("read the grace / no-payment-method flags.")
     print(f"\nEVALUATIONS expiring (next {n}d): {len(evals_soon)} trials — conversion window (not income)")
-    _print_table(evals_soon, ["expires", "app", "tier", "status", "converted", "company", "host"])
+    _print_table(evals_soon, ["expires", "app", "tier", "status", "converted", "company", "host", "entitlement"])
     print(f"\nEVALUATIONS expired (past {n}d): {len(evals_expired)} trials")
-    _print_table(evals_expired, ["expires", "days_ago", "app", "tier", "converted", "company", "host"])
+    _print_table(evals_expired, ["expires", "days_ago", "app", "tier", "converted", "company", "host", "entitlement"])
 
 
 def cmd_client(args, auth):

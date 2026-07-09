@@ -388,6 +388,44 @@ describe('AgentLinkSession — agent-side HTTP transport (GET /session, POST /ag
 
       expect(store.get('lastDiagram')).toBeUndefined();
     });
+
+    it('does NOT cache a by-contentId (discovery) read_diagram — it would poison the bound guardrail baseline (Track U/S5)', async () => {
+      const { session, macroWs, store } = connectedSession();
+      // Seed the bound baseline from a prior bound read.
+      (session as any).lastDiagram = { diagramType: 'Sequence', dsl: 'A->B: bound' };
+
+      // The agent reads a DIFFERENT diagram it discovered (contentId != bound
+      // 'content-1'). The macro replies with that other diagram's DSL.
+      const opPromise = session.fetch(
+        agentOpRequest({ id: 'd-1', op: 'read_diagram', args: { contentId: 'other-99' } }),
+      );
+      await flushMicrotasks();
+      await session.webSocketMessage(
+        macroWs as unknown as WebSocket,
+        JSON.stringify({ kind: 'result', id: 'd-1', payload: { diagramType: 'mermaid', dsl: 'graph TD; X-->Y' } }),
+      );
+      await opPromise;
+
+      // Baseline unchanged — the discovered diagram's DSL never overwrote it.
+      expect((session as any).lastDiagram).toEqual({ diagramType: 'Sequence', dsl: 'A->B: bound' });
+      expect(store.get('lastDiagram')).toBeUndefined();
+    });
+
+    it('still caches a bound-diagram read_diagram that explicitly passes the bound contentId', async () => {
+      const { session, macroWs, store } = connectedSession();
+
+      const opPromise = session.fetch(
+        agentOpRequest({ id: 'b-1', op: 'read_diagram', args: { contentId: 'content-1' } }),
+      );
+      await flushMicrotasks();
+      await session.webSocketMessage(
+        macroWs as unknown as WebSocket,
+        JSON.stringify({ kind: 'result', id: 'b-1', payload: { diagramType: 'Sequence', dsl: 'A->B: hi' } }),
+      );
+      await opPromise;
+
+      expect(store.get('lastDiagram')).toEqual({ diagramType: 'Sequence', dsl: 'A->B: hi' });
+    });
   });
 
   // --- session lifecycle: suspend / reattach / explicit-close (Track G) ----
@@ -550,6 +588,25 @@ describe('AgentLinkSession — agent-side HTTP transport (GET /session, POST /ag
         const res = await session.fetch(agentOpRequest({ id: `id-${op}`, op, args: {} }));
         expect(res.status).toBe(409);
         expect((await res.json()).error).toBe('macro_disconnected');
+      }
+    });
+
+    it('the Track U discovery ops (search_diagrams / list_diagrams) also get macro_disconnected while suspended', async () => {
+      const issuedAtMs = Date.now();
+      const session = new AgentLinkSession(makeState(), {});
+      (session as any).session = makeSession({ state: 'suspended', issuedAtMs });
+      // No macro socket must be needed to reject — the suspended guard fires
+      // before any forwarding, exactly as for read/update ops.
+      (session as any).macroSocket = null;
+
+      for (const op of ['search_diagrams', 'list_diagrams']) {
+        const res = await session.fetch(
+          agentOpRequest({ id: `s-${op}`, op, args: { query: 'payment' } }),
+        );
+        expect(res.status).toBe(409);
+        const body = await res.json();
+        expect(body.error).toBe('macro_disconnected');
+        expect(body.resume_deadline).toBe(issuedAtMs + TOKEN_TTL_MS);
       }
     });
   });

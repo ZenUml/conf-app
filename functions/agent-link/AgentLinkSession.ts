@@ -278,6 +278,24 @@ export class AgentLinkSession {
    */
   private async cacheDiagramFromOp(op: string, args: unknown, payload: unknown): Promise<void> {
     if (op === 'read_diagram') {
+      // Track U (S5): read_diagram can now target ANY diagram via a `contentId`
+      // arg, not just the bound one. Only the BOUND diagram's DSL is a valid
+      // baseline for the update_diagram guardrail (which only ever writes the
+      // bound contentId) — caching a discovered hit's DSL here would make the
+      // next bound edit diff against the wrong diagram (false data-loss reject,
+      // or a missed one). So skip the cache when the read targeted a different
+      // contentId; the bound default read (no arg) still refreshes it.
+      const readArgs = args as { contentId?: unknown } | null;
+      const boundId = this.session?.boundContext?.contentId;
+      if (
+        readArgs &&
+        typeof readArgs.contentId === 'string' &&
+        readArgs.contentId &&
+        boundId &&
+        String(readArgs.contentId) !== String(boundId)
+      ) {
+        return;
+      }
       const p = payload as { diagramType?: unknown; dsl?: unknown } | null;
       if (p && (typeof p.dsl === 'string' || typeof p.diagramType === 'string')) {
         this.lastDiagram = {

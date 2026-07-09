@@ -24,12 +24,50 @@
 // function renders anything on its own.
 
 import type ApWrapper2 from '@/model/ApWrapper2'
+import type { DiagramSearchHit } from '@/model/ApWrapper2'
 import { DiagramType, type Diagram } from '@/model/Diagram/Diagram'
-import { getCodeFromDiagram, getDiagramConfig } from '@/model/Diagram/DiagramTypeConfig'
-import type { AgentLinkBridge } from './bridgeOps'
+import { getDiagramConfig } from '@/model/Diagram/DiagramTypeConfig'
+import type {
+  AgentLinkBridge,
+  AgentLinkDiagramRow,
+  SearchDiagramsParams,
+  ListDiagramsParams,
+} from './bridgeOps'
 
 export interface AgentLinkBridgeContext {
   apWrapper: ApWrapper2
+}
+
+// Discovery defaults (design §S3/S4). The agent's tool sees a small, re-rankable
+// candidate set; MAX caps the body-enrich fan-out cost per search/list call.
+const DEFAULT_DISCOVERY_LIMIT = 10
+const MAX_DISCOVERY_LIMIT = 25
+
+function clampLimit(limit?: number): number {
+  if (typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0) return DEFAULT_DISCOVERY_LIMIT
+  return Math.min(Math.floor(limit), MAX_DISCOVERY_LIMIT)
+}
+
+function hitToRow(hit: DiagramSearchHit): AgentLinkDiagramRow {
+  return {
+    contentId: hit.contentId,
+    title: hit.title,
+    diagramType: hit.diagramType,
+    spaceKey: hit.spaceKey,
+    pageId: hit.pageId,
+    excerpt: hit.excerpt,
+    lastModified: hit.lastModified,
+  }
+}
+
+// Exact diagram-type post-filter (design §4): sequence/mermaid/plantuml/openapi
+// share ONE custom-content type, so the CQL clause can't discriminate them —
+// filter on the body's real diagramType here. Case-insensitive; absent/empty
+// `types` keeps everything.
+function filterByTypes(hits: DiagramSearchHit[], types?: string[]): DiagramSearchHit[] {
+  if (!types || types.length === 0) return hits
+  const wanted = new Set(types.map((t) => String(t).toLowerCase()))
+  return hits.filter((h) => wanted.has(String(h.diagramType).toLowerCase()))
 }
 
 // Minimal HTML -> plain text for read_page (design §4.4): strip tags/scripts/
@@ -67,17 +105,14 @@ export function createForgeAgentLinkBridge(ctx: AgentLinkBridgeContext): AgentLi
     },
 
     async readDiagram(contentId: string) {
-      const customContent = await apWrapper.getCustomContentForCurrentPage(contentId)
-      // @ts-ignore — parsed diagram is attached as `.value` (see ApWrapper2's
-      // parseCustomContentByIdV2Response), same shape CustomContentStorageProvider
-      // reads via getDiagram().
-      const diagram = customContent?.value as Diagram | undefined
-      const diagramType = diagram?.diagramType ?? DiagramType.Unknown
-      return {
-        contentId,
-        diagramType,
-        dsl: diagram ? getCodeFromDiagram(diagram, diagramType) : '',
+      // S2/S5: works for the bound diagram AND a discovered hit. readDiagramForAgent
+      // uses the raw fetch (no cross-page-copy detection) and returns the exact
+      // diagramType + title/pageId/version — enough to pull-to-local (design §3).
+      const result = await apWrapper.readDiagramForAgent(contentId)
+      if (!result) {
+        return { contentId, diagramType: DiagramType.Unknown, title: '', dsl: '' }
       }
+      return result
     },
 
     async writeDiagram(contentId: string, dsl: string) {
@@ -101,6 +136,42 @@ export function createForgeAgentLinkBridge(ctx: AgentLinkBridgeContext): AgentLi
         console.error('AgentLinkBridge writeDiagram failed', e)
         return { ok: false }
       }
+    },
+
+    // S3: topic search across the estate. ApWrapper2 owns the CQL primitive +
+    // body-enrich (returns exact diagramType); this executor applies the exact
+    // type post-filter and the final limit, then maps hits → rows. Over-fetch
+    // candidates when a type filter is active so filtering doesn't under-fill.
+    async searchDiagrams(params: SearchDiagramsParams): Promise<AgentLinkDiagramRow[]> {
+      const limit = clampLimit(params.limit)
+      const hasTypeFilter = Array.isArray(params.types) && params.types.length > 0
+      const maxCandidates = hasTypeFilter ? Math.min(limit * 3, 50) : limit
+      const hits = await apWrapper.searchDiagramsForge({
+        query: params.query,
+        spaceKey: params.spaceKey,
+        types: params.types,
+        maxCandidates,
+      })
+      return filterByTypes(hits, params.types).slice(0, limit).map(hitToRow)
+    },
+
+    // S4: recency-ordered browse over the SAME plumbing (no query). Scope by
+    // space via CQL; scope by page is a post-filter (custom-content page
+    // containment isn't a CQL-filterable field — evidence §4 only verified
+    // type/text/space/cross-space).
+    async listDiagrams(params: ListDiagramsParams): Promise<AgentLinkDiagramRow[]> {
+      const limit = clampLimit(params.limit)
+      const hasTypeFilter = Array.isArray(params.types) && params.types.length > 0
+      const hasPageFilter = typeof params.pageId === 'string' && params.pageId !== ''
+      const maxCandidates = hasTypeFilter || hasPageFilter ? Math.min(limit * 3, 50) : limit
+      const hits = await apWrapper.searchDiagramsForge({
+        spaceKey: params.spaceKey,
+        types: params.types,
+        maxCandidates,
+      })
+      let rows = filterByTypes(hits, params.types)
+      if (hasPageFilter) rows = rows.filter((h) => String(h.pageId) === String(params.pageId))
+      return rows.slice(0, limit).map(hitToRow)
     },
   }
 }

@@ -13,18 +13,47 @@ import { COMBINED_DSL_TOOL_HINT, selectToolHint } from './dslGuides';
 import { guardUpdateDiagram } from './updateDiagramGuard';
 import type { DiagramSnapshot } from './updateDiagramGuard';
 
-/** The 4 tools exposed to the paired agent (design §6). No create/list/other-content writes. */
-export type ToolName = 'read_page' | 'read_diagram' | 'update_diagram' | 'get_status';
+/**
+ * The tools exposed to the paired agent. Two axes:
+ *   - WRITE (bound-only): update_diagram — the one op that changes anything,
+ *     scoped to the bound contentId (see the write invariant below).
+ *   - READ (user-permissioned, may reach beyond the bound diagram): read_page,
+ *     read_diagram, get_status, plus the Track U discovery surface
+ *     search_diagrams / list_diagrams. Discovery widens what the agent can SEE,
+ *     never what it can write (design §3 trust boundary, §S3/S4/S5).
+ */
+export type ToolName =
+  | 'read_page'
+  | 'read_diagram'
+  | 'update_diagram'
+  | 'get_status'
+  | 'search_diagrams'
+  | 'list_diagrams';
+
+export interface ToolProperty {
+  type: string;
+  description?: string;
+  /** For `type: 'array'` properties — the element schema (e.g. search_diagrams.types). */
+  items?: { type: string };
+}
 
 export interface ToolDescriptor {
   name: ToolName;
   description: string;
   inputSchema: {
     type: 'object';
-    properties: Record<string, { type: string; description?: string }>;
+    properties: Record<string, ToolProperty>;
     required?: string[];
   };
 }
+
+// Diagram-type filter values accepted by search_diagrams/list_diagrams `types`.
+// Lowercased logical names — the macro-side executor maps these to the coarse
+// custom-content types for the CQL clause AND post-filters on the body's exact
+// diagramType (sequence/mermaid/plantuml/openapi share ONE content type — see
+// forgeBridge). Kept in the description so the agent knows the vocabulary.
+const DIAGRAM_TYPE_FILTER_HINT =
+  "one or more of 'sequence', 'mermaid', 'plantuml', 'graph', 'openapi', 'asyncapi'";
 
 /**
  * Error codes surfaced by `dispatchTool`; `mcp.ts` maps these to JSON-RPC
@@ -48,8 +77,12 @@ export class ToolError extends Error {
   }
 }
 
-/** The result forwarded back from the (currently stubbed) macro side. */
-export type ForwardResult = Record<string, unknown>;
+/**
+ * The result forwarded back from the macro side. Usually an object (read/update/
+ * status), but search_diagrams / list_diagrams resolve to a ROW ARRAY (design §3),
+ * so the union admits arrays too.
+ */
+export type ForwardResult = Record<string, unknown> | unknown[];
 
 /**
  * Injected by the caller (mcp.ts) so it can be a stub today and a real
@@ -102,8 +135,18 @@ export const TOOLS: ToolDescriptor[] = [
   },
   {
     name: 'read_diagram',
-    description: "Read the bound diagram's current DSL and diagram type.",
-    inputSchema: { type: 'object', properties: {} },
+    description:
+      "Read a diagram's DSL and metadata. With no arguments, reads the diagram this link is bound to (unchanged default). Pass a `contentId` — e.g. one returned by search_diagrams or list_diagrams — to read ANY diagram you have Confluence permission to see. Returns { dsl, diagramType, title, pageId, contentId, version }.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        contentId: {
+          type: 'string',
+          description:
+            'Optional. The contentId of a diagram to read (from search_diagrams / list_diagrams). Omit to read the bound diagram.',
+        },
+      },
+    },
   },
   // Default (dialect not yet known): the combined cross-dialect hint. mcp.ts
   // passes the bound diagramType to getToolSchemas() to sharpen this per request.
@@ -112,6 +155,61 @@ export const TOOLS: ToolDescriptor[] = [
     name: 'get_status',
     description: 'Get the current link status: connection, bound diagram type/page, and token TTL remaining.',
     inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'search_diagrams',
+    description:
+      "Search every diagram and API spec in this Confluence site by topic — full-text over diagram bodies AND titles, across all spaces you can access. Use it to ground your work in an existing diagram (\"do we already have a payment-callback sequence diagram?\"). Returns candidate rows { contentId, title, diagramType, spaceKey, pageId, excerpt, lastModified } ordered by recency; re-rank them yourself for relevance, then open the best hit with read_diagram { contentId }. Read-only — it never edits anything.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Topic or keywords to search for, matched against diagram titles and bodies.',
+        },
+        types: {
+          type: 'array',
+          description: `Optional. Restrict to these diagram types: ${DIAGRAM_TYPE_FILTER_HINT}.`,
+          items: { type: 'string' },
+        },
+        spaceKey: {
+          type: 'string',
+          description: 'Optional. Restrict to a single Confluence space key.',
+        },
+        limit: {
+          type: 'number',
+          description: 'Optional. Max rows to return (default 10, capped at 25).',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'list_diagrams',
+    description:
+      'List diagrams and API specs, most-recently-modified first — scoped to one space (spaceKey), one page (pageId), or the whole site if neither is given. Use it to browse when you know where to look. Same row shape as search_diagrams; open one with read_diagram { contentId }. Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        spaceKey: {
+          type: 'string',
+          description: 'Optional. Restrict to one Confluence space key.',
+        },
+        pageId: {
+          type: 'string',
+          description: 'Optional. Restrict to the diagrams on one page id.',
+        },
+        types: {
+          type: 'array',
+          description: `Optional. Restrict to these diagram types: ${DIAGRAM_TYPE_FILTER_HINT}.`,
+          items: { type: 'string' },
+        },
+        limit: {
+          type: 'number',
+          description: 'Optional. Max rows to return (default 10, capped at 25).',
+        },
+      },
+    },
   },
 ];
 
@@ -131,6 +229,35 @@ export function getToolSchemas(diagramType?: string): ToolDescriptor[] {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Validates an optional `string[]` arg (used by search/list `types`). Returns it, or undefined when absent. */
+function validateOptionalStringArray(
+  value: unknown,
+  tool: string,
+  field: string,
+): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || !value.every((v) => typeof v === 'string')) {
+    throw new ToolError('bad_args', `${tool} "${field}" must be an array of strings when provided`);
+  }
+  return value as string[];
+}
+
+function validateOptionalString(value: unknown, tool: string, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') {
+    throw new ToolError('bad_args', `${tool} "${field}" must be a string when provided`);
+  }
+  return value;
+}
+
+function validateOptionalNumber(value: unknown, tool: string, field: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new ToolError('bad_args', `${tool} "${field}" must be a number when provided`);
+  }
+  return value;
 }
 
 /**
@@ -155,9 +282,46 @@ export async function dispatchTool(
 
   switch (toolName) {
     case 'read_page':
-    case 'read_diagram':
     case 'get_status':
       return ctx.forwardToMacro(toolName, {});
+
+    case 'read_diagram': {
+      // S5: default (no contentId) reads the bound diagram — unchanged, so the
+      // wire payload stays `{}` for that case. A `contentId` reads any diagram
+      // the user can see (still user-permissioned macro-side).
+      const contentId = validateOptionalString(providedArgs.contentId, 'read_diagram', 'contentId');
+      return ctx.forwardToMacro('read_diagram', contentId !== undefined ? { contentId } : {});
+    }
+
+    case 'search_diagrams': {
+      // S3: one CQL primitive (macro-side), agent re-ranks. `query` required.
+      const { query } = providedArgs;
+      if (typeof query !== 'string' || query.trim() === '') {
+        throw new ToolError('bad_args', 'search_diagrams requires a non-empty "query" string');
+      }
+      const types = validateOptionalStringArray(providedArgs.types, 'search_diagrams', 'types');
+      const spaceKey = validateOptionalString(providedArgs.spaceKey, 'search_diagrams', 'spaceKey');
+      const limit = validateOptionalNumber(providedArgs.limit, 'search_diagrams', 'limit');
+      const payload: Record<string, unknown> = { query };
+      if (types !== undefined) payload.types = types;
+      if (spaceKey !== undefined) payload.spaceKey = spaceKey;
+      if (limit !== undefined) payload.limit = limit;
+      return ctx.forwardToMacro('search_diagrams', payload);
+    }
+
+    case 'list_diagrams': {
+      // S4: recency-ordered browse over the same plumbing; all args optional.
+      const spaceKey = validateOptionalString(providedArgs.spaceKey, 'list_diagrams', 'spaceKey');
+      const pageId = validateOptionalString(providedArgs.pageId, 'list_diagrams', 'pageId');
+      const types = validateOptionalStringArray(providedArgs.types, 'list_diagrams', 'types');
+      const limit = validateOptionalNumber(providedArgs.limit, 'list_diagrams', 'limit');
+      const payload: Record<string, unknown> = {};
+      if (spaceKey !== undefined) payload.spaceKey = spaceKey;
+      if (pageId !== undefined) payload.pageId = pageId;
+      if (types !== undefined) payload.types = types;
+      if (limit !== undefined) payload.limit = limit;
+      return ctx.forwardToMacro('list_diagrams', payload);
+    }
 
     case 'update_diagram': {
       const { dsl, summary } = providedArgs;

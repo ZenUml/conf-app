@@ -270,11 +270,23 @@ function stubForwardToMacro(session: SessionRecord) {
 
       case 'read_diagram':
         return {
-          contentId: session.boundContext.contentId,
+          // Echo the requested contentId when the agent asked for a specific
+          // one (S5), else the bound diagram — so the stub reflects the arg.
+          contentId:
+            typeof payload.contentId === 'string' ? payload.contentId : session.boundContext.contentId,
           diagramType: 'Sequence',
+          title: 'Stub diagram',
+          pageId: session.boundContext.pageId,
           dsl: 'A->B: stub',
+          version: 1,
           stubbed: true,
         };
+
+      case 'search_diagrams':
+      case 'list_diagrams':
+        // No live macro/Confluence in local-dev/stub — return an empty ROW
+        // ARRAY (the real result shape, design §3) so the contract is exercisable.
+        return [];
 
       case 'update_diagram':
         return {
@@ -430,9 +442,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         // curl doesn't validate, which hid this until a real client connected.
         // Wrap the tool payload as a text block, and echo it as
         // structuredContent for clients that consume typed output.
+        // structuredContent must be a JSON object per MCP — a search/list ROW
+        // ARRAY result (design §3) is carried by the `content` text block only.
+        const isRecordResult =
+          result !== null && typeof result === 'object' && !Array.isArray(result);
         return jsonRpcResult(id, {
           content: [{ type: 'text', text: JSON.stringify(result) }],
-          structuredContent: result as Record<string, unknown>,
+          ...(isRecordResult ? { structuredContent: result as Record<string, unknown> } : {}),
         });
       } catch (err) {
         if (err instanceof ToolError) {

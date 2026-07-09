@@ -142,14 +142,25 @@ describe('createForgeAgentLinkBridge', () => {
   })
 
   describe('readDiagram', () => {
-    it('reads the bound custom content and parses body.value into {diagramType, dsl}', async () => {
+    it('reads the custom content (raw fetch, no copy-detection) and returns dsl + title/pageId/version', async () => {
       const calls = mockRoutes()
       const bridge = createForgeAgentLinkBridge({ apWrapper })
 
       const result = await bridge.readDiagram(CONTENT_ID)
 
       expect(calls.some(c => c.url === `/wiki/api/v2/custom-content/${CONTENT_ID}?body-format=raw` && c.method === 'GET')).toBe(true)
-      expect(result).toEqual({ contentId: CONTENT_ID, diagramType: 'sequence', dsl: 'A->B: hi' })
+      // Raw read path (readDiagramForAgent) does NOT hit the current-page
+      // historical check — that avoids a false cross-page duplication_detect
+      // on a discovery read of content on another page.
+      expect(calls.some(c => c.url === `/wiki/api/v2/pages/${PAGE_ID}`)).toBe(false)
+      expect(result).toEqual({
+        contentId: CONTENT_ID,
+        diagramType: 'sequence',
+        title: 'My Diagram',
+        dsl: 'A->B: hi',
+        pageId: PAGE_ID,
+        version: 3,
+      })
     })
 
     it('extracts the DSL from the field matching the diagram type (mermaid)', async () => {
@@ -167,7 +178,80 @@ describe('createForgeAgentLinkBridge', () => {
 
       const result = await bridge.readDiagram(CONTENT_ID)
 
-      expect(result).toEqual({ contentId: CONTENT_ID, diagramType: 'mermaid', dsl: 'graph TD; A-->B' })
+      expect(result).toMatchObject({ contentId: CONTENT_ID, diagramType: 'mermaid', dsl: 'graph TD; A-->B', title: 'Mermaid diagram' })
+    })
+
+    it('returns an Unknown-typed empty result when the content is not readable', async () => {
+      mockRoutes({ customContent: { errors: [{ status: 404, code: 'NOT_FOUND' }] } })
+      const bridge = createForgeAgentLinkBridge({ apWrapper })
+
+      const result = await bridge.readDiagram(CONTENT_ID)
+
+      expect(result).toEqual({ contentId: CONTENT_ID, diagramType: 'unknown', title: '', dsl: '' })
+    })
+  })
+
+  // The executor: search→rows mapping, exact-type post-filter, and limit are
+  // tested against a MOCKED ApWrapper2.searchDiagramsForge (the CQL primitive),
+  // so this isolates the executor logic from live CQL/Confluence.
+  describe('searchDiagrams / listDiagrams (discovery executor)', () => {
+    const hit = (over: Partial<import('@/model/ApWrapper2').DiagramSearchHit>) => ({
+      contentId: 'c', title: 'T', diagramType: 'sequence', spaceKey: 'ENG', pageId: 'p1', excerpt: 'e', lastModified: 'now',
+      ...over,
+    })
+
+    it('maps hits to rows and forwards query/spaceKey to searchDiagramsForge', async () => {
+      const spy = vi.spyOn(apWrapper, 'searchDiagramsForge').mockResolvedValue([
+        hit({ contentId: 'a', title: 'Checkout flow', diagramType: 'sequence' }),
+      ])
+      const bridge = createForgeAgentLinkBridge({ apWrapper })
+
+      const rows = await bridge.searchDiagrams({ query: 'payment', spaceKey: 'ENG' })
+
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'payment', spaceKey: 'ENG' }),
+      )
+      expect(rows).toEqual([
+        { contentId: 'a', title: 'Checkout flow', diagramType: 'sequence', spaceKey: 'ENG', pageId: 'p1', excerpt: 'e', lastModified: 'now' },
+      ])
+    })
+
+    it('applies the exact diagramType post-filter (sequence-family share one content type)', async () => {
+      vi.spyOn(apWrapper, 'searchDiagramsForge').mockResolvedValue([
+        hit({ contentId: 'a', diagramType: 'sequence' }),
+        hit({ contentId: 'b', diagramType: 'OpenAPI' }),
+        hit({ contentId: 'c', diagramType: 'plantuml' }),
+      ])
+      const bridge = createForgeAgentLinkBridge({ apWrapper })
+
+      const rows = await bridge.searchDiagrams({ query: 'x', types: ['openapi'] })
+
+      expect(rows.map(r => r.contentId)).toEqual(['b'])
+    })
+
+    it('truncates to the requested limit', async () => {
+      vi.spyOn(apWrapper, 'searchDiagramsForge').mockResolvedValue(
+        Array.from({ length: 8 }, (_, i) => hit({ contentId: `c${i}` })),
+      )
+      const bridge = createForgeAgentLinkBridge({ apWrapper })
+
+      const rows = await bridge.searchDiagrams({ query: 'x', limit: 3 })
+
+      expect(rows).toHaveLength(3)
+    })
+
+    it('listDiagrams runs without a query and applies the pageId post-filter', async () => {
+      const spy = vi.spyOn(apWrapper, 'searchDiagramsForge').mockResolvedValue([
+        hit({ contentId: 'a', pageId: 'p1' }),
+        hit({ contentId: 'b', pageId: 'p2' }),
+      ])
+      const bridge = createForgeAgentLinkBridge({ apWrapper })
+
+      const rows = await bridge.listDiagrams({ spaceKey: 'ENG', pageId: 'p2' })
+
+      // No query forwarded (list is recency-only).
+      expect(spy.mock.calls[0][0].query).toBeUndefined()
+      expect(rows.map(r => r.contentId)).toEqual(['b'])
     })
   })
 

@@ -27,6 +27,8 @@ function makeBridgeOps(
       .fn()
       .mockResolvedValue({ contentId: 'c1', diagramType: 'sequence', dsl: 'A->B' }),
     writeDiagram: vi.fn().mockResolvedValue({ ok: true, version: 1, rendered: true }),
+    searchDiagrams: vi.fn().mockResolvedValue([]),
+    listDiagrams: vi.fn().mockResolvedValue([]),
     ...overrides,
   }
 }
@@ -673,6 +675,85 @@ describe('useAgentLinkSession', () => {
         'agent_link_page_read',
         expect.objectContaining({ feature_area: 'agent_link', macro_type: 'sequence' })
       )
+    })
+
+    // Track U discovery: the transport callbacks (positions 7/8/9 of connect)
+    // append an activity-feed row AND fire the matching Mixpanel event.
+    async function wireAndCapture() {
+      const bridgeOps = makeBridgeOps()
+      const captured: {
+        onDiagramRead?: (info: { title?: string; byContentId: boolean }) => void
+        onSearchPerformed?: (info: { query: string; hits: number }) => void
+        onListPerformed?: (info: { scope: 'page' | 'space' | 'site'; hits: number }) => void
+      } = {}
+      const connect = vi.fn(
+        (
+          _wsUrl,
+          _bridge,
+          _onStateEvent,
+          _onDiagUpdated,
+          _onEditApplied,
+          _onPageRead,
+          onDiagramRead,
+          onSearchPerformed,
+          onListPerformed
+        ) => {
+          captured.onDiagramRead = onDiagramRead
+          captured.onSearchPerformed = onSearchPerformed
+          captured.onListPerformed = onListPerformed
+          return makeFakeRelayClient()
+        }
+      )
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token' })
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext: { cloudId: 'c1', pageId: 'p1', contentId: 'cc1' }, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+      vi.mocked(trackAnalyticsEvent).mockClear()
+      return { session, captured }
+    }
+
+    it('a relay-driven read_diagram op fires agent_link_diagram_read + a feed row', async () => {
+      const { session, captured } = await wireAndCapture()
+      const feedBefore = session.activityFeed.value.length
+
+      captured.onDiagramRead!({ title: 'Checkout flow', byContentId: true })
+
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_diagram_read',
+        expect.objectContaining({ feature_area: 'agent_link', macro_type: 'sequence', by_content_id: true })
+      )
+      expect(session.activityFeed.value.length).toBe(feedBefore + 1)
+      expect(session.activityFeed.value.at(-1)!.summary).toContain('Checkout flow')
+    })
+
+    it('a relay-driven search_diagrams op fires agent_link_search_performed with query_len+hits (never the raw query)', async () => {
+      const { session, captured } = await wireAndCapture()
+
+      captured.onSearchPerformed!({ query: 'payment-callback', hits: 3 })
+
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_search_performed',
+        expect.objectContaining({ macro_type: 'sequence', query_len: 'payment-callback'.length, hits: 3 })
+      )
+      // The raw query must NOT be sent to analytics (privacy) — only its length.
+      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find((c) => c[0] === 'agent_link_search_performed')!
+      expect(JSON.stringify(call[1])).not.toContain('payment-callback')
+      expect(session.activityFeed.value.at(-1)!.summary).toContain('payment-callback')
+    })
+
+    it('a relay-driven list_diagrams op fires agent_link_list_performed with the scope', async () => {
+      const { session, captured } = await wireAndCapture()
+
+      captured.onListPerformed!({ scope: 'space', hits: 7 })
+
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_list_performed',
+        expect.objectContaining({ macro_type: 'sequence', list_scope: 'space', hits: 7 })
+      )
+      expect(session.activityFeed.value.at(-1)!.summary).toContain('7')
     })
   })
 

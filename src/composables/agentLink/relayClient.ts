@@ -112,6 +112,15 @@ export interface CreateRelayClientOptions {
   // context to fire trackAnalyticsEvent, so this module stays analytics-free
   // and only signals "it happened".
   onPageRead?: () => void
+  // --- Track U discovery ops (design §S3/S4/S5) ------------------------------
+  // Same "transport signals it happened, composable does feed+analytics"
+  // pattern as onPageRead/onEditApplied. Fired once per matching op, AFTER the
+  // bridge resolves. `title`/`byContentId` (read), `hits`/`query` (search),
+  // `scope`/`hits` (list) carry only what the feed row + Mixpanel event need —
+  // no raw query is passed to analytics downstream (privacy: query_len only).
+  onDiagramRead?: (info: { title?: string; byContentId: boolean }) => void
+  onSearchPerformed?: (info: { query: string; hits: number }) => void
+  onListPerformed?: (info: { scope: 'page' | 'space' | 'site'; hits: number }) => void
   // Injectable so tests pass a mock instead of a real browser WebSocket.
   WebSocketImpl?: new (url: string) => WebSocket
   maxReconnectAttempts?: number
@@ -179,9 +188,49 @@ export function createRelayClient(opts: CreateRelayClientOptions): RelayClient {
           result = await opts.bridge.readPage()
           opts.onPageRead?.()
           break
-        case 'read_diagram':
-          result = await opts.bridge.readDiagram()
+        case 'read_diagram': {
+          // S5: an optional `contentId` reads a discovered hit; omitted reads
+          // the bound diagram (bridgeOps defaults it). byContentId drives the
+          // agent_link_diagram_read `by_content_id` property + feed copy.
+          const contentId = typeof payload?.contentId === 'string' ? payload.contentId : undefined
+          const readResult = await opts.bridge.readDiagram(contentId)
+          result = readResult
+          opts.onDiagramRead?.({
+            title: (readResult as { title?: string } | undefined)?.title,
+            byContentId: contentId !== undefined,
+          })
           break
+        }
+        case 'search_diagrams': {
+          // S3: candidate rows; the agent re-ranks. `query` is required by the
+          // relay-side arg validation (mcpTools), so treat a missing one as ''.
+          const query = typeof payload?.query === 'string' ? payload.query : ''
+          const rows = await opts.bridge.searchDiagrams({
+            query,
+            types: Array.isArray(payload?.types) ? payload.types : undefined,
+            spaceKey: typeof payload?.spaceKey === 'string' ? payload.spaceKey : undefined,
+            limit: typeof payload?.limit === 'number' ? payload.limit : undefined,
+          })
+          result = rows
+          opts.onSearchPerformed?.({ query, hits: Array.isArray(rows) ? rows.length : 0 })
+          break
+        }
+        case 'list_diagrams': {
+          // S4: recency-ordered browse. scope classifies the feed/analytics row:
+          // a pageId is the narrowest, then spaceKey, else the whole site.
+          const spaceKey = typeof payload?.spaceKey === 'string' ? payload.spaceKey : undefined
+          const pageId = typeof payload?.pageId === 'string' ? payload.pageId : undefined
+          const rows = await opts.bridge.listDiagrams({
+            spaceKey,
+            pageId,
+            types: Array.isArray(payload?.types) ? payload.types : undefined,
+            limit: typeof payload?.limit === 'number' ? payload.limit : undefined,
+          })
+          result = rows
+          const scope = pageId ? 'page' : spaceKey ? 'space' : 'site'
+          opts.onListPerformed?.({ scope, hits: Array.isArray(rows) ? rows.length : 0 })
+          break
+        }
         case 'update_diagram': {
           const dsl = typeof payload?.dsl === 'string' ? payload.dsl : undefined
           const summary = payload?.summary

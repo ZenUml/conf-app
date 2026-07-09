@@ -1187,4 +1187,108 @@ describe('ApWrapper2', () => {
       expect(reqMock).toHaveBeenCalledWith(expect.stringMatching(/\/wiki\/api\/v2\/pages\/page%2Fwith%20space\/properties\?key=zenuml-graph-macro-with%2Fslash-body/));
     });
   });
+
+  // --- Agent Link discovery (design §S3/S4) --------------------------------
+  // Under the spec's forgeGlobal mock (isDiagramly=false, isLite=false), the
+  // variant content types resolve to ac:com.zenuml.confluence-addon:*.
+  describe('buildDiagramSearchTypesClause', () => {
+    it('defaults to all variant content types when no types are given', () => {
+      const clause = wrapper.buildDiagramSearchTypesClause();
+      expect(clause).toBe(
+        'type="ac:com.zenuml.confluence-addon:zenuml-content-sequence" or type="ac:com.zenuml.confluence-addon:zenuml-content-graph"',
+      );
+    });
+
+    it('narrows to graph only when types=[graph]', () => {
+      const clause = wrapper.buildDiagramSearchTypesClause(['graph']);
+      expect(clause).toBe('type="ac:com.zenuml.confluence-addon:zenuml-content-graph"');
+    });
+
+    it('maps sequence-family types to the shared sequence content type', () => {
+      // openapi lives under zenuml-content-sequence (not its own type).
+      const clause = wrapper.buildDiagramSearchTypesClause(['openapi']);
+      expect(clause).toBe('type="ac:com.zenuml.confluence-addon:zenuml-content-sequence"');
+    });
+
+    it('falls back to all variant types when the requested types map to nothing (never emits an empty clause)', () => {
+      const clause = wrapper.buildDiagramSearchTypesClause(['flowchart']);
+      expect(clause).toContain('zenuml-content-sequence');
+      expect(clause).toContain('zenuml-content-graph');
+    });
+  });
+
+  describe('buildDiagramSearchCql', () => {
+    it('composes type clause + body text~ + space, recency-ordered', () => {
+      const cql = wrapper.buildDiagramSearchCql({ query: 'payment', spaceKey: 'ENG' });
+      expect(cql).toContain('text ~ "payment"');
+      expect(cql).toContain('space="ENG"');
+      expect(cql).toMatch(/order by lastmodified desc$/);
+    });
+
+    it('omits the text~ clause when there is no query (list mode)', () => {
+      const cql = wrapper.buildDiagramSearchCql({});
+      expect(cql).not.toContain('text ~');
+      expect(cql).toMatch(/order by lastmodified desc$/);
+    });
+
+    it('neutralizes the closing quote so a query cannot break out of the text ~ "..." value', () => {
+      const cql = wrapper.buildDiagramSearchCql({ query: 'a" or type="x' });
+      // The query survives only as a single quoted literal — the injected `"`
+      // is defused, so it never closes the value early to open a new clause.
+      const textMatch = cql.match(/text ~ "([^"]*)"/);
+      expect(textMatch).not.toBeNull();
+      expect(cql.includes('a"')).toBe(false);
+      // ` and ` only joins the type clause to the text clause (the injected
+      // `type="x` did NOT become its own top-level clause).
+      expect((cql.match(/ and /g) ?? []).length).toBe(1);
+    });
+  });
+
+  describe('searchDiagramsForge', () => {
+    it('runs the CQL search then body-enriches each hit with the exact diagramType + pageId', async () => {
+      vi.mocked(forgeRequest).mockImplementation(async (url: string) => {
+        if (url.startsWith('/wiki/rest/api/search')) {
+          return {
+            results: [
+              {
+                content: { id: '501', space: { key: 'ENG' } },
+                excerpt: 'group @@@hl@@@Payment@@@endhl@@@Service',
+                lastModified: '2026-07-01T00:00:00Z',
+              },
+            ],
+          };
+        }
+        if (url === '/wiki/api/v2/custom-content/501?body-format=raw') {
+          return {
+            id: '501',
+            title: 'Checkout flow',
+            pageId: '900',
+            body: { raw: { value: JSON.stringify({ diagramType: 'OpenAPI', code: 'x' }) } },
+            version: { number: 4 },
+          };
+        }
+        throw new Error(`Unexpected forgeRequest url: ${url}`);
+      });
+
+      const hits = await wrapper.searchDiagramsForge({ query: 'payment' });
+
+      expect(hits).toEqual([
+        {
+          contentId: '501',
+          title: 'Checkout flow',
+          diagramType: 'OpenAPI',
+          spaceKey: 'ENG',
+          pageId: '900',
+          excerpt: 'group PaymentService', // @@@hl@@@ markers stripped
+          lastModified: '2026-07-01T00:00:00Z',
+        },
+      ]);
+    });
+
+    it('returns [] and swallows the error when the search call fails', async () => {
+      vi.mocked(forgeRequest).mockRejectedValueOnce(new Error('search boom'));
+      const hits = await wrapper.searchDiagramsForge({ query: 'x' });
+      expect(hits).toEqual([]);
+    });
+  });
 });

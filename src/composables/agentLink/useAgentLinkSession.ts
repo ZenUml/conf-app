@@ -65,6 +65,21 @@ const TIMEOUT_FEED_SUMMARY = '⚠ Agent stopped responding — timed out'
 const SUSPENDED_FEED_SUMMARY = 'Connection paused'
 const RESUMED_FEED_SUMMARY = 'Reconnected · resumed session'
 
+// Track U discovery feed copy (design §3 "the user must be able to see
+// everything the agent did, not only writes").
+function readDiagramFeedSummary(title?: string): string {
+  const t = title?.trim()
+  return t ? `Read “${t}”` : 'Read a diagram'
+}
+function searchFeedSummary(query: string, hits: number): string {
+  const q = query.trim()
+  return `Searched “${q}” → ${hits} ${hits === 1 ? 'hit' : 'hits'}`
+}
+function listFeedSummary(scope: 'page' | 'space' | 'site', hits: number): string {
+  const where = scope === 'page' ? 'on this page' : scope === 'space' ? 'in this space' : 'across the site'
+  return `Listed diagrams ${where} → ${hits}`
+}
+
 // How long the 'error' cue lingers on the render surface before auto-returning
 // to 'idle'. Long enough to read, short enough to not nag. UI-only, so it
 // lives here rather than in the pure state module. Exported for tests.
@@ -102,7 +117,11 @@ export interface UseAgentLinkSessionOptions {
       onStateEvent: (event: RelayStateEvent) => void,
       onDiagramUpdated: (dsl: string) => void,
       onEditApplied: (outcome: RelayEditOutcome) => void,
-      onPageRead: () => void
+      onPageRead: () => void,
+      // Track U discovery activity (design §S3/S4/S5) — same seam as onPageRead.
+      onDiagramRead?: (info: { title?: string; byContentId: boolean }) => void,
+      onSearchPerformed?: (info: { query: string; hits: number }) => void,
+      onListPerformed?: (info: { scope: 'page' | 'space' | 'site'; hits: number }) => void
     ) => RelayClient
   }
   // Fires after a relay-driven `update_diagram` op persists successfully
@@ -326,8 +345,22 @@ export function useAgentLinkSession(
         onStateEvent: (e: RelayStateEvent) => void,
         onDiagramUpdated: (dsl: string) => void,
         onEditApplied: (outcome: RelayEditOutcome) => void,
-        onPageRead: () => void
-      ) => createRelayClient({ wsUrl, bridge, onStateEvent, onDiagramUpdated, onEditApplied, onPageRead }))
+        onPageRead: () => void,
+        onDiagramRead?: (info: { title?: string; byContentId: boolean }) => void,
+        onSearchPerformed?: (info: { query: string; hits: number }) => void,
+        onListPerformed?: (info: { scope: 'page' | 'space' | 'site'; hits: number }) => void
+      ) =>
+        createRelayClient({
+          wsUrl,
+          bridge,
+          onStateEvent,
+          onDiagramUpdated,
+          onEditApplied,
+          onPageRead,
+          onDiagramRead,
+          onSearchPerformed,
+          onListPerformed,
+        }))
 
     relayClient = connect(
       agentLinkWsUrl(sessionToken, relayOptions.boundContext),
@@ -350,7 +383,10 @@ export function useAgentLinkSession(
         options.onDiagramUpdated?.(dsl, macroType)
       },
       recordEditOutcome,
-      recordPageRead
+      recordPageRead,
+      recordDiagramRead,
+      recordSearchPerformed,
+      recordListPerformed
     )
   }
 
@@ -543,6 +579,52 @@ export function useAgentLinkSession(
       feature_area: 'agent_link',
       surface: 'fullscreen',
       macro_type: macroType,
+    })
+  }
+
+  // --- Track U discovery (design §S3/S4/S5) --------------------------------
+  // Each discovery op the agent runs appends an activity-feed row (the user
+  // sees everything) AND fires its Mixpanel event. Same one-callback-one-event
+  // shape as recordPageRead. The raw query never reaches analytics — only its
+  // length (privacy); the feed row (local UI) does show it.
+  function recordDiagramRead(info: { title?: string; byContentId: boolean }): void {
+    activityFeed.value = [
+      ...activityFeed.value,
+      { summary: readDiagramFeedSummary(info.title), at: now() },
+    ]
+    trackAnalyticsEvent('agent_link_diagram_read', {
+      feature_area: 'agent_link',
+      surface: 'fullscreen',
+      macro_type: macroType,
+      by_content_id: info.byContentId,
+    })
+  }
+
+  function recordSearchPerformed(info: { query: string; hits: number }): void {
+    activityFeed.value = [
+      ...activityFeed.value,
+      { summary: searchFeedSummary(info.query, info.hits), at: now() },
+    ]
+    trackAnalyticsEvent('agent_link_search_performed', {
+      feature_area: 'agent_link',
+      surface: 'fullscreen',
+      macro_type: macroType,
+      query_len: info.query.length,
+      hits: info.hits,
+    })
+  }
+
+  function recordListPerformed(info: { scope: 'page' | 'space' | 'site'; hits: number }): void {
+    activityFeed.value = [
+      ...activityFeed.value,
+      { summary: listFeedSummary(info.scope, info.hits), at: now() },
+    ]
+    trackAnalyticsEvent('agent_link_list_performed', {
+      feature_area: 'agent_link',
+      surface: 'fullscreen',
+      macro_type: macroType,
+      list_scope: info.scope,
+      hits: info.hits,
     })
   }
 

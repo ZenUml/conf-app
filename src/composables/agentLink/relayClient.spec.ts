@@ -47,8 +47,12 @@ function makeBridge(overrides: Partial<AgentLinkBridgeOps> = {}): AgentLinkBridg
     readPage: vi.fn().mockResolvedValue({ pageId: 'p1', title: 't', text: 'body' }),
     readDiagram: vi
       .fn()
-      .mockResolvedValue({ contentId: 'c1', diagramType: 'sequence', dsl: 'A->B' }),
+      .mockResolvedValue({ contentId: 'c1', diagramType: 'sequence', title: 'Checkout flow', dsl: 'A->B' }),
     writeDiagram: vi.fn().mockResolvedValue({ ok: true, version: 2, rendered: true }),
+    searchDiagrams: vi.fn().mockResolvedValue([
+      { contentId: 'a', title: 'Checkout flow', diagramType: 'sequence', spaceKey: 'ENG', pageId: 'p1', excerpt: 'x', lastModified: 'now' },
+    ]),
+    listDiagrams: vi.fn().mockResolvedValue([]),
     ...overrides,
   }
 }
@@ -142,8 +146,99 @@ describe('createRelayClient', () => {
     expect(JSON.parse(socket.sent[0])).toEqual({
       kind: 'result',
       id: 'req-2',
-      payload: { contentId: 'c1', diagramType: 'sequence', dsl: 'A->B' },
+      payload: { contentId: 'c1', diagramType: 'sequence', title: 'Checkout flow', dsl: 'A->B' },
     })
+  })
+
+  it('op:read_diagram forwards a contentId to the bridge and fires onDiagramRead(byContentId:true)', async () => {
+    const bridge = makeBridge()
+    const onDiagramRead = vi.fn()
+    createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      onDiagramRead,
+      WebSocketImpl: MockWebSocket as any,
+    })
+    const socket = MockWebSocket.instances[0]
+    socket.triggerOpen()
+
+    socket.triggerMessage(
+      JSON.stringify({ kind: 'op', id: 'req-rd', op: 'read_diagram', payload: { contentId: 'other-9' } })
+    )
+    await flush()
+
+    expect(bridge.readDiagram).toHaveBeenCalledWith('other-9')
+    expect(onDiagramRead).toHaveBeenCalledWith({ title: 'Checkout flow', byContentId: true })
+  })
+
+  it('op:read_diagram with no contentId reads the bound diagram (byContentId:false)', async () => {
+    const bridge = makeBridge()
+    const onDiagramRead = vi.fn()
+    createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      onDiagramRead,
+      WebSocketImpl: MockWebSocket as any,
+    })
+    const socket = MockWebSocket.instances[0]
+    socket.triggerOpen()
+
+    socket.triggerMessage(JSON.stringify({ kind: 'op', id: 'req-rd2', op: 'read_diagram' }))
+    await flush()
+
+    expect(bridge.readDiagram).toHaveBeenCalledWith(undefined)
+    expect(onDiagramRead).toHaveBeenCalledWith({ title: 'Checkout flow', byContentId: false })
+  })
+
+  it('op:search_diagrams calls bridge.searchDiagrams, replies with the rows, and fires onSearchPerformed', async () => {
+    const bridge = makeBridge()
+    const onSearchPerformed = vi.fn()
+    createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      onSearchPerformed,
+      WebSocketImpl: MockWebSocket as any,
+    })
+    const socket = MockWebSocket.instances[0]
+    socket.triggerOpen()
+
+    socket.triggerMessage(
+      JSON.stringify({ kind: 'op', id: 'req-s', op: 'search_diagrams', payload: { query: 'payment', types: ['sequence'], limit: 5 } })
+    )
+    await flush()
+
+    expect(bridge.searchDiagrams).toHaveBeenCalledWith({ query: 'payment', types: ['sequence'], spaceKey: undefined, limit: 5 })
+    const reply = JSON.parse(socket.sent[0])
+    expect(reply.kind).toBe('result')
+    expect(reply.id).toBe('req-s')
+    expect(reply.payload).toHaveLength(1)
+    expect(onSearchPerformed).toHaveBeenCalledWith({ query: 'payment', hits: 1 })
+  })
+
+  it('op:list_diagrams calls bridge.listDiagrams and fires onListPerformed with the scope', async () => {
+    const bridge = makeBridge({
+      listDiagrams: vi.fn().mockResolvedValue([
+        { contentId: 'a', title: 'T', diagramType: 'graph', spaceKey: 'ENG', pageId: 'p9', excerpt: '', lastModified: 'now' },
+      ]),
+    })
+    const onListPerformed = vi.fn()
+    createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      onListPerformed,
+      WebSocketImpl: MockWebSocket as any,
+    })
+    const socket = MockWebSocket.instances[0]
+    socket.triggerOpen()
+
+    socket.triggerMessage(
+      JSON.stringify({ kind: 'op', id: 'req-l', op: 'list_diagrams', payload: { pageId: 'p9' } })
+    )
+    await flush()
+
+    expect(bridge.listDiagrams).toHaveBeenCalledWith({ spaceKey: undefined, pageId: 'p9', types: undefined, limit: undefined })
+    // pageId present => scope 'page'
+    expect(onListPerformed).toHaveBeenCalledWith({ scope: 'page', hits: 1 })
   })
 
   it('op:update_diagram calls bridge.writeDiagram(dsl, summary) and replies with a result envelope', async () => {

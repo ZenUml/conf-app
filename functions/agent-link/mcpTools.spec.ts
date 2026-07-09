@@ -25,11 +25,18 @@ function makeCtxWithSnapshot(
 }
 
 describe('getToolSchemas', () => {
-  it('lists exactly the 4 tools from design §6', () => {
+  it('lists exactly the 6 tools (design §6 + Track U discovery)', () => {
     const schemas = getToolSchemas();
     expect(schemas).toBe(TOOLS);
     expect(schemas.map((t) => t.name).sort()).toEqual(
-      ['get_status', 'read_diagram', 'read_page', 'update_diagram'].sort(),
+      [
+        'get_status',
+        'list_diagrams',
+        'read_diagram',
+        'read_page',
+        'search_diagrams',
+        'update_diagram',
+      ].sort(),
     );
   });
 
@@ -37,6 +44,29 @@ describe('getToolSchemas', () => {
     const updateDiagram = getToolSchemas().find((t) => t.name === 'update_diagram');
     expect(updateDiagram?.inputSchema.required).toEqual(['dsl']);
     expect(updateDiagram?.inputSchema.properties.summary).toBeDefined();
+  });
+
+  it('read_diagram exposes an optional (not required) contentId', () => {
+    const readDiagram = getToolSchemas().find((t) => t.name === 'read_diagram');
+    expect(readDiagram?.inputSchema.properties.contentId).toBeDefined();
+    expect(readDiagram?.inputSchema.required).toBeUndefined();
+  });
+
+  it('search_diagrams requires query and offers types/spaceKey/limit', () => {
+    const search = getToolSchemas().find((t) => t.name === 'search_diagrams');
+    expect(search?.inputSchema.required).toEqual(['query']);
+    expect(search?.inputSchema.properties.types.type).toBe('array');
+    expect(search?.inputSchema.properties.types.items).toEqual({ type: 'string' });
+    expect(search?.inputSchema.properties.spaceKey).toBeDefined();
+    expect(search?.inputSchema.properties.limit).toBeDefined();
+  });
+
+  it('list_diagrams requires nothing and offers spaceKey/pageId/types/limit', () => {
+    const list = getToolSchemas().find((t) => t.name === 'list_diagrams');
+    expect(list?.inputSchema.required).toBeUndefined();
+    expect(list?.inputSchema.properties.spaceKey).toBeDefined();
+    expect(list?.inputSchema.properties.pageId).toBeDefined();
+    expect(list?.inputSchema.properties.types.type).toBe('array');
   });
 });
 
@@ -49,12 +79,27 @@ describe('dispatchTool', () => {
     expect(result).toEqual({ pageId: 'page-1', title: 't', text: 'body' });
   });
 
-  it('read_diagram forwards op "read_diagram"', async () => {
+  it('read_diagram forwards op "read_diagram" with {} when no contentId (bound read, unchanged)', async () => {
     const { ctx, forwardToMacro } = makeCtx({ contentId: 'c', diagramType: 'Sequence', dsl: 'A->B' });
     const result = await dispatchTool('read_diagram', undefined, ctx);
 
     expect(forwardToMacro).toHaveBeenCalledWith('read_diagram', {});
     expect(result).toEqual({ contentId: 'c', diagramType: 'Sequence', dsl: 'A->B' });
+  });
+
+  it('read_diagram forwards the contentId when given (S5 discovery read)', async () => {
+    const { ctx, forwardToMacro } = makeCtx({ contentId: 'other-1', diagramType: 'mermaid', dsl: 'graph TD' });
+    await dispatchTool('read_diagram', { contentId: 'other-1' }, ctx);
+
+    expect(forwardToMacro).toHaveBeenCalledWith('read_diagram', { contentId: 'other-1' });
+  });
+
+  it('read_diagram rejects a non-string contentId', async () => {
+    const { ctx, forwardToMacro } = makeCtx();
+    await expect(dispatchTool('read_diagram', { contentId: 123 }, ctx)).rejects.toMatchObject({
+      code: 'bad_args',
+    });
+    expect(forwardToMacro).not.toHaveBeenCalled();
   });
 
   it('get_status forwards op "get_status"', async () => {
@@ -122,6 +167,88 @@ describe('dispatchTool', () => {
 
     await expect(dispatchTool('update_diagram', {}, ctx)).rejects.toBeInstanceOf(ToolError);
     expect(forwardToMacro).not.toHaveBeenCalled();
+  });
+});
+
+describe('dispatchTool — discovery surface (Track U, S3/S4)', () => {
+  const ROWS = [
+    { contentId: 'a', title: 'Checkout flow', diagramType: 'sequence', spaceKey: 'ENG', pageId: 'p1', excerpt: 'x', lastModified: 'now' },
+  ];
+
+  describe('search_diagrams', () => {
+    it('forwards the query alone when only query is given', async () => {
+      const { ctx, forwardToMacro } = makeCtx(ROWS);
+      const result = await dispatchTool('search_diagrams', { query: 'payment' }, ctx);
+      expect(forwardToMacro).toHaveBeenCalledWith('search_diagrams', { query: 'payment' });
+      expect(result).toEqual(ROWS);
+    });
+
+    it('forwards types/spaceKey/limit when provided', async () => {
+      const { ctx, forwardToMacro } = makeCtx(ROWS);
+      await dispatchTool(
+        'search_diagrams',
+        { query: 'payment', types: ['openapi', 'asyncapi'], spaceKey: 'ENG', limit: 5 },
+        ctx,
+      );
+      expect(forwardToMacro).toHaveBeenCalledWith('search_diagrams', {
+        query: 'payment',
+        types: ['openapi', 'asyncapi'],
+        spaceKey: 'ENG',
+        limit: 5,
+      });
+    });
+
+    it('rejects a missing/blank query', async () => {
+      const { ctx, forwardToMacro } = makeCtx();
+      await expect(dispatchTool('search_diagrams', {}, ctx)).rejects.toMatchObject({ code: 'bad_args' });
+      await expect(dispatchTool('search_diagrams', { query: '   ' }, ctx)).rejects.toMatchObject({ code: 'bad_args' });
+      expect(forwardToMacro).not.toHaveBeenCalled();
+    });
+
+    it('rejects a non-string-array types', async () => {
+      const { ctx, forwardToMacro } = makeCtx();
+      await expect(
+        dispatchTool('search_diagrams', { query: 'p', types: [1, 2] }, ctx),
+      ).rejects.toMatchObject({ code: 'bad_args' });
+      await expect(
+        dispatchTool('search_diagrams', { query: 'p', types: 'openapi' }, ctx),
+      ).rejects.toMatchObject({ code: 'bad_args' });
+      expect(forwardToMacro).not.toHaveBeenCalled();
+    });
+
+    it('rejects a non-number limit', async () => {
+      const { ctx } = makeCtx();
+      await expect(
+        dispatchTool('search_diagrams', { query: 'p', limit: '5' }, ctx),
+      ).rejects.toMatchObject({ code: 'bad_args' });
+    });
+  });
+
+  describe('list_diagrams', () => {
+    it('forwards an empty payload when no args (whole-site list)', async () => {
+      const { ctx, forwardToMacro } = makeCtx(ROWS);
+      await dispatchTool('list_diagrams', {}, ctx);
+      expect(forwardToMacro).toHaveBeenCalledWith('list_diagrams', {});
+    });
+
+    it('forwards spaceKey/pageId/types/limit when provided', async () => {
+      const { ctx, forwardToMacro } = makeCtx(ROWS);
+      await dispatchTool('list_diagrams', { spaceKey: 'ENG', pageId: 'p1', types: ['graph'], limit: 3 }, ctx);
+      expect(forwardToMacro).toHaveBeenCalledWith('list_diagrams', {
+        spaceKey: 'ENG',
+        pageId: 'p1',
+        types: ['graph'],
+        limit: 3,
+      });
+    });
+
+    it('rejects a non-string spaceKey', async () => {
+      const { ctx, forwardToMacro } = makeCtx();
+      await expect(dispatchTool('list_diagrams', { spaceKey: 42 }, ctx)).rejects.toMatchObject({
+        code: 'bad_args',
+      });
+      expect(forwardToMacro).not.toHaveBeenCalled();
+    });
   });
 });
 

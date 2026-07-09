@@ -65,15 +65,15 @@ describe('POST /agent-link/mcp', () => {
     expect(json.error.data?.code).toBe('expired');
   });
 
-  it('tools/list returns the 4 tools for a valid token', async () => {
+  it('tools/list returns the 6 tools for a valid token', async () => {
     const record = sessionRegistry.create(CTX);
 
     const { res, json } = await post(rpc('tools/list'), { token: record.token });
 
     expect(res.status).toBe(200);
-    expect(json.result.tools).toHaveLength(4);
+    expect(json.result.tools).toHaveLength(6);
     expect(json.result.tools.map((t: { name: string }) => t.name).sort()).toEqual(
-      ['get_status', 'read_diagram', 'read_page', 'update_diagram'].sort(),
+      ['get_status', 'list_diagrams', 'read_diagram', 'read_page', 'search_diagrams', 'update_diagram'].sort(),
     );
   });
 
@@ -253,7 +253,7 @@ describe('POST /agent-link/mcp', () => {
     const { res, json } = await post(rpc('tools/list'), { token });
 
     expect(res.status).toBe(200);
-    expect(json.result.tools).toHaveLength(4);
+    expect(json.result.tools).toHaveLength(6);
   });
 
   it('onRequestOptions returns CORS headers for preflight', async () => {

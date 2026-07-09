@@ -6,6 +6,8 @@ import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
+import globals from '@/model/globals'
+import { persistSession } from '@/composables/agentLink/sessionHandoff'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
 
@@ -328,6 +330,95 @@ describe('GenericViewer (chrome-less)', () => {
       const wrapper = mountViewer()
       await flushPromises()
       expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(false)
+    })
+  })
+
+  // Finding #4 (live spot-check, 2026-07-09): the real Fullscreen modal iframe
+  // showed `agent-link-panel--idle` (blank) even though a live session was
+  // sitting in localStorage — because the hydration used to live INSIDE the
+  // `agentLinkFeatureEnabled && globals.apWrapper` block, and apWrapper wasn't
+  // set up the same way in that iframe. Hydration must not depend on
+  // apWrapper/the bridge block at all — these tests remove apWrapper entirely
+  // and confirm the rail still hydrates.
+  describe('Fullscreen hydration is independent of globals.apWrapper (finding #4)', () => {
+    const setFullscreenWithPageId = (pageId?: string) => {
+      ;(window as any).forgeGlobal = {
+        forgeContext: {
+          extension: {
+            modal: { macroMode: 'fullscreen' },
+            content: pageId != null ? { id: pageId } : undefined,
+          },
+        },
+      }
+    }
+    let originalApWrapper: any
+
+    beforeEach(() => {
+      originalApWrapper = (globals as any).apWrapper
+    })
+    afterEach(() => {
+      delete (window as any).forgeGlobal
+      ;(globals as any).apWrapper = originalApWrapper
+      localStorage.clear()
+    })
+
+    it('hydrates the rail to waiting via readSession(pageId) even when globals.apWrapper is absent', async () => {
+      setFullscreenWithPageId('page-123')
+      ;(globals as any).apWrapper = undefined
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      persistSession({
+        token: 'tok-abc',
+        cloudId: 'cloud-1',
+        pageId: 'page-123',
+        contentId: 'content-123',
+        state: 'waiting',
+      })
+
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const panel = wrapper.find('[data-testid="agent-link-panel"]')
+      expect(panel.classes()).toContain('agent-link-panel--waiting')
+      expect(wrapper.find('[data-testid="agent-link-prompt"]').text()).toContain('tok-abc')
+    })
+
+    it('falls back to readAnySession() when the Fullscreen iframe has no resolvable pageId', async () => {
+      setFullscreenWithPageId(undefined)
+      ;(globals as any).apWrapper = undefined
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      persistSession({
+        token: 'tok-xyz',
+        cloudId: 'cloud-1',
+        pageId: 'some-other-page',
+        contentId: 'content-999',
+        state: 'waiting',
+      })
+
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const panel = wrapper.find('[data-testid="agent-link-panel"]')
+      expect(panel.classes()).toContain('agent-link-panel--waiting')
+      expect(wrapper.find('[data-testid="agent-link-prompt"]').text()).toContain('tok-xyz')
+    })
+
+    it('still hydrates normally when globals.apWrapper IS present (no regression on the inline/bridge path)', async () => {
+      setFullscreenWithPageId('page-456')
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      persistSession({
+        token: 'tok-present',
+        cloudId: 'cloud-1',
+        pageId: 'page-456',
+        contentId: 'content-456',
+        state: 'waiting',
+      })
+
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const panel = wrapper.find('[data-testid="agent-link-panel"]')
+      expect(panel.classes()).toContain('agent-link-panel--waiting')
+      expect(wrapper.find('[data-testid="agent-link-prompt"]').text()).toContain('tok-present')
     })
   })
 

@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   persistSession,
   readSession,
+  readAnySession,
   clearSession,
   subscribeToHandoff,
+  subscribeToAnyHandoff,
   HANDOFF_TTL_MS,
   DEFAULT_HANDOFF_POLL_INTERVAL_MS,
   DEFAULT_HANDOFF_POLL_TIMEOUT_MS,
@@ -122,6 +124,15 @@ describe('sessionHandoff', () => {
   // fallback — see sessionHandoff.ts's header comment.
   describe('subscribeToHandoff', () => {
     afterEach(() => {
+      // restoreAllMocks() BEFORE useRealTimers(): the 'stops polling...' test
+      // below does `vi.spyOn(global, 'clearInterval')` while fake timers are
+      // active. Left un-restored, that spy poisons the global `clearInterval`
+      // binding for every later real-timer test in this file (reproduced in
+      // isolation — vi.useRealTimers() alone does not undo a spy created
+      // while it was faked, and the bare `clearInterval` identifier the
+      // subscribeToHandoff*/subscribeToAnyHandoff implementation calls then
+      // resolves to `undefined` instead of the real function).
+      vi.restoreAllMocks()
       vi.useRealTimers()
     })
 
@@ -217,6 +228,119 @@ describe('sessionHandoff', () => {
     it('exposes default poll bounds matching the design (~400ms interval, ~8s ceiling)', () => {
       expect(DEFAULT_HANDOFF_POLL_INTERVAL_MS).toBe(400)
       expect(DEFAULT_HANDOFF_POLL_TIMEOUT_MS).toBe(8000)
+    })
+  })
+
+  // pageId-less Fullscreen fallback (finding #4, 2026-07-09 live spot-check):
+  // the Fullscreen modal iframe doesn't always resolve a boundContext.pageId
+  // (see GenericViewer.vue's mounted() comment) — readAnySession() scans
+  // every agentLinkSession:* key instead of one scoped key.
+  describe('readAnySession', () => {
+    it('returns null when nothing is persisted', () => {
+      expect(readAnySession()).toBeNull()
+    })
+
+    it('finds a session persisted under an arbitrary pageId key', () => {
+      persistSession(makeSession({ pageId: 'page-77' }))
+
+      expect(readAnySession()).toEqual(makeSession({ pageId: 'page-77' }))
+    })
+
+    it('returns the freshest record when multiple pageIds have live sessions', () => {
+      const now = Date.now()
+      persistSession(makeSession({ pageId: 'page-old', token: 'tok-old' }))
+      // Force a later persistedAt for the second record by writing it raw
+      // (persistSession always stamps Date.now(), which could tie in a fast
+      // test run) — explicit persistedAt values make the ordering assertion
+      // deterministic.
+      localStorage.setItem(
+        'agentLinkSession:page-old',
+        JSON.stringify({ ...makeSession({ pageId: 'page-old', token: 'tok-old' }), persistedAt: now - 1000 })
+      )
+      localStorage.setItem(
+        'agentLinkSession:page-new',
+        JSON.stringify({ ...makeSession({ pageId: 'page-new', token: 'tok-new' }), persistedAt: now })
+      )
+
+      expect(readAnySession(now)).toMatchObject({ pageId: 'page-new', token: 'tok-new' })
+    })
+
+    it('ignores non-agentLinkSession keys in localStorage', () => {
+      localStorage.setItem('some-other-key', JSON.stringify({ unrelated: true }))
+
+      expect(readAnySession()).toBeNull()
+    })
+
+    it('ignores expired records and malformed JSON while scanning', () => {
+      const now = Date.now()
+      localStorage.setItem(
+        'agentLinkSession:page-expired',
+        JSON.stringify({ ...makeSession({ pageId: 'page-expired' }), persistedAt: now - HANDOFF_TTL_MS - 1 })
+      )
+      localStorage.setItem('agentLinkSession:page-bad', '{not json')
+
+      expect(readAnySession(now)).toBeNull()
+    })
+  })
+
+  describe('subscribeToAnyHandoff', () => {
+    // Guard against fake-timer residue from the subscribeToHandoff describe
+    // above — vi.useRealTimers() there restores real timers for ITS tests,
+    // but this describe's own real-timer tests (below) need a clean slate
+    // too, so restore explicitly on the way in as well as the way out.
+    beforeEach(() => {
+      vi.useRealTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('delivers a session for ANY pageId the instant a matching storage event fires', () => {
+      const onSession = vi.fn()
+      const unsubscribe = subscribeToAnyHandoff(onSession)
+
+      persistSession(makeSession({ pageId: 'page-42' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-42' }))
+
+      expect(onSession).toHaveBeenCalledTimes(1)
+      expect(onSession).toHaveBeenCalledWith(makeSession({ pageId: 'page-42' }))
+      unsubscribe()
+    })
+
+    it('ignores a storage event for an unrelated key', () => {
+      const onSession = vi.fn()
+      const unsubscribe = subscribeToAnyHandoff(onSession)
+
+      localStorage.setItem('some-other-key', 'x')
+      window.dispatchEvent(new StorageEvent('storage', { key: 'some-other-key' }))
+
+      expect(onSession).not.toHaveBeenCalled()
+      unsubscribe()
+    })
+
+    it('falls back to the poll when the storage event never fires', () => {
+      vi.useFakeTimers()
+      const onSession = vi.fn()
+      const unsubscribe = subscribeToAnyHandoff(onSession, { pollIntervalMs: 100, pollTimeoutMs: 1000 })
+
+      persistSession(makeSession({ pageId: 'page-poll' }))
+      vi.advanceTimersByTime(100)
+
+      expect(onSession).toHaveBeenCalledTimes(1)
+      unsubscribe()
+    })
+
+    it('unsubscribe stops both the storage listener and the poll', () => {
+      vi.useFakeTimers()
+      const onSession = vi.fn()
+      const unsubscribe = subscribeToAnyHandoff(onSession, { pollIntervalMs: 50, pollTimeoutMs: 1000 })
+
+      unsubscribe()
+      persistSession(makeSession({ pageId: 'page-late' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-late' }))
+      vi.advanceTimersByTime(1000)
+
+      expect(onSession).not.toHaveBeenCalled()
     })
   })
 })

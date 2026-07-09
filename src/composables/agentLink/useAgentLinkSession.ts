@@ -38,6 +38,7 @@ import {
   persistSession,
   clearSession,
   subscribeToHandoff,
+  subscribeToAnyHandoff,
   type AgentLinkHandoffSession,
 } from './sessionHandoff'
 
@@ -109,6 +110,14 @@ export interface AgentLinkSessionApi {
   // Returns an unsubscribe function; callers MUST call it on unmount so the
   // listener/interval don't leak past the component's lifetime.
   watchForHandoff(pageId: string): () => void
+  // pageId-less counterpart to watchForHandoff() (finding #4, 2026-07-09):
+  // for a Fullscreen mount that has no resolved boundContext.pageId (e.g. no
+  // apWrapper/Forge-bridge context was available), subscribes to ANY
+  // `agentLinkSession:*` record via sessionHandoff.subscribeToAnyHandoff()
+  // instead of one scoped to a specific pageId. Same hydrateFrom() guard
+  // (idle-only, never mints/connects) and the same unsubscribe-on-unmount
+  // contract as watchForHandoff().
+  watchForAnyHandoff(): () => void
 }
 
 export function useAgentLinkSession(
@@ -353,6 +362,10 @@ export function useAgentLinkSession(
     return subscribeToHandoff(pageId, (session) => hydrateFrom(session))
   }
 
+  function watchForAnyHandoff(): () => void {
+    return subscribeToAnyHandoff((session) => hydrateFrom(session))
+  }
+
   return {
     state,
     token,
@@ -363,5 +376,6 @@ export function useAgentLinkSession(
     disconnect,
     hydrateFrom,
     watchForHandoff,
+    watchForAnyHandoff,
   }
 }

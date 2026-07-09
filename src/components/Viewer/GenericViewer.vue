@@ -178,7 +178,7 @@ import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
 import { useAgentLinkSession } from '@/composables/agentLink/useAgentLinkSession'
 import { createBridgeOps, createUnwiredBridgeOps } from '@/composables/agentLink/bridgeOps'
 import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
-import { readSession } from '@/composables/agentLink/sessionHandoff'
+import { readSession, readAnySession } from '@/composables/agentLink/sessionHandoff'
 import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
 import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
 
@@ -378,34 +378,50 @@ export default {
         relay,
         onDiagramUpdated: (dsl, macroType) => this.applyAgentDiagramUpdate(dsl, macroType),
       });
-      // Fullscreen hydration (finding #3, manual test 2026-07-08): this mount
-      // may BE the separate Fullscreen iframe/Vue-app instance that
-      // connectToAgent() opens (see that method's comment) — freshly idle,
-      // with no token of its own. If the inline instance already persisted a
-      // live session for this page (sessionHandoff.ts), show it instead of
-      // rendering ConnectPanel with nothing. Never mints a second token or
-      // opens a second relay socket — hydrateFrom() is a display-only no-op
-      // on the relay/token-minting front.
-      //
-      // RACE (live spot-check, 2026-07-09): the one-shot readSession() above
-      // can lose to the inline instance's async token mint — Fullscreen boots
-      // and reads localStorage before that mint has persisted anything, so
-      // handoff is null here even though a real session lands a moment
-      // later. Nothing was re-reading it, so the rail stayed idle/empty.
-      // Fix: fall back to watchForHandoff(), which hydrates reactively (same-
-      // origin `storage` event + bounded poll, see sessionHandoff.ts) the
-      // instant the inline instance's persistSession() call lands. Only
-      // needed when the initial read found nothing — once handoff already
-      // hydrated this instance out of 'idle', watchForHandoff would just be
-      // a no-op subscription, so skip setting it up.
-      if (relay?.boundContext && this.isFullscreenMode) {
-        const handoff = readSession(relay.boundContext.pageId);
+    }
+    // Fullscreen hydration (finding #3, manual test 2026-07-08; finding #4,
+    // live spot-check 2026-07-09): this mount may BE the separate Fullscreen
+    // iframe/Vue-app instance that connectToAgent() opens (see that method's
+    // comment) — freshly idle, with no token of its own. If the inline
+    // instance already persisted a live session (sessionHandoff.ts), show it
+    // instead of rendering ConnectPanel with nothing. hydrateFrom() is
+    // display-only — never mints a second token or opens a second relay
+    // socket — so this is safe to run unconditionally whenever the rail is
+    // actually showing.
+    //
+    // DELIBERATELY NOT gated on `agentLinkFeatureEnabled && globals.apWrapper`
+    // above: live spot-check found the Fullscreen modal iframe's `_agentLink`
+    // stuck in 'idle' with a real session already sitting in localStorage —
+    // that block (which builds the Forge-bridge-backed instance AND used to
+    // own this hydration) doesn't reliably run the same way in the
+    // Fullscreen iframe as it does inline. The rail is display-only; it
+    // doesn't need the bridge/relay to show a token, so hydration must not
+    // depend on that block having run.
+    if (this.showAgentLinkPanel) {
+      // pageId without apWrapper (finding #4): the block above resolves
+      // relay.boundContext.pageId via `globals.apWrapper._getCurrentPageId()`,
+      // which this hydration no longer waits on. Try the same synchronous,
+      // apWrapper-free source copyLink() already uses (forgeContext is
+      // populated during the app's boot, before any component mounts — see
+      // forgeIndex.ts's initializeContext()/initForgeContext()). Fall back to
+      // readAnySession()/watchForAnyHandoff() (sessionHandoff.ts) — a scan of
+      // every `agentLinkSession:*` key for the freshest live one — when no
+      // pageId is resolvable at all; there is normally exactly one active
+      // session, so "freshest session, any pageId" is an acceptable stand-in.
+      const pageId = window.forgeGlobal?.forgeContext?.extension?.content?.id;
+      if (pageId != null) {
+        const handoff = readSession(String(pageId));
         if (handoff) {
           this._agentLink.hydrateFrom(handoff);
         } else {
-          this._agentLinkHandoffUnsubscribe = this._agentLink.watchForHandoff(
-            relay.boundContext.pageId
-          );
+          this._agentLinkHandoffUnsubscribe = this._agentLink.watchForHandoff(String(pageId));
+        }
+      } else {
+        const handoff = readAnySession();
+        if (handoff) {
+          this._agentLink.hydrateFrom(handoff);
+        } else {
+          this._agentLinkHandoffUnsubscribe = this._agentLink.watchForAnyHandoff();
         }
       }
     }

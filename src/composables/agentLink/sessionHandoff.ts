@@ -66,8 +66,10 @@ interface PersistedHandoff extends AgentLinkHandoffSession {
 // mechanism of its own; the relay's token TTL is the actual authority.
 export const HANDOFF_TTL_MS = 10 * 60 * 1000
 
+const STORAGE_KEY_PREFIX = 'agentLinkSession:'
+
 function storageKey(pageId: string): string {
-  return `agentLinkSession:${pageId}`
+  return `${STORAGE_KEY_PREFIX}${pageId}`
 }
 
 export function persistSession(session: AgentLinkHandoffSession): void {
@@ -79,6 +81,36 @@ export function persistSession(session: AgentLinkHandoffSession): void {
   }
 }
 
+// Shared validity check used by both the single-key read (readSession) and
+// the scan-every-key read (readAnySession) below — a record is only usable
+// once it has all required fields, a recognized state, and isn't older than
+// HANDOFF_TTL_MS.
+function isValidPersisted(
+  parsed: Partial<PersistedHandoff> | null | undefined,
+  now: number
+): parsed is PersistedHandoff {
+  return (
+    !!parsed &&
+    typeof parsed.persistedAt === 'number' &&
+    now - parsed.persistedAt <= HANDOFF_TTL_MS &&
+    !!parsed.token &&
+    !!parsed.cloudId &&
+    !!parsed.pageId &&
+    !!parsed.contentId &&
+    (parsed.state === 'waiting' || parsed.state === 'connected')
+  )
+}
+
+function toHandoffSession(parsed: PersistedHandoff): AgentLinkHandoffSession {
+  return {
+    token: parsed.token,
+    cloudId: parsed.cloudId,
+    pageId: parsed.pageId,
+    contentId: parsed.contentId,
+    state: parsed.state,
+  }
+}
+
 export function readSession(
   pageId: string,
   now: number = Date.now()
@@ -87,26 +119,43 @@ export function readSession(
     const raw = localStorage.getItem(storageKey(pageId))
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<PersistedHandoff>
-    if (
-      typeof parsed.persistedAt !== 'number' ||
-      now - parsed.persistedAt > HANDOFF_TTL_MS ||
-      !parsed.token ||
-      !parsed.cloudId ||
-      !parsed.pageId ||
-      !parsed.contentId ||
-      (parsed.state !== 'waiting' && parsed.state !== 'connected')
-    ) {
-      return null
-    }
-    return {
-      token: parsed.token,
-      cloudId: parsed.cloudId,
-      pageId: parsed.pageId,
-      contentId: parsed.contentId,
-      state: parsed.state,
-    }
+    if (!isValidPersisted(parsed, now)) return null
+    return toHandoffSession(parsed)
   } catch (e) {
     console.warn('[agent-link] failed to read session handoff', e)
+    return null
+  }
+}
+
+// Fullscreen-without-a-pageId fallback (2026-07-09 live spot-check, finding
+// #4): the Fullscreen modal iframe's boot doesn't always go through the
+// apWrapper-backed bridge setup that resolves a `boundContext.pageId` (see
+// GenericViewer.vue's mounted() comment). Rather than block hydration on
+// that resolution, scan every `agentLinkSession:*` key in this same-origin
+// localStorage and return the freshest still-live one. There is normally
+// exactly one active session per tenant browser session, so "freshest
+// valid record, any pageId" is an acceptable stand-in for "the record for
+// THIS pageId" when the latter isn't available.
+export function readAnySession(now: number = Date.now()): AgentLinkHandoffSession | null {
+  try {
+    let freshest: PersistedHandoff | null = null
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (!key || !key.startsWith(STORAGE_KEY_PREFIX)) continue
+      let parsed: Partial<PersistedHandoff>
+      try {
+        parsed = JSON.parse(localStorage.getItem(key) ?? '') as Partial<PersistedHandoff>
+      } catch {
+        continue
+      }
+      if (!isValidPersisted(parsed, now)) continue
+      if (!freshest || parsed.persistedAt > freshest.persistedAt) {
+        freshest = parsed
+      }
+    }
+    return freshest ? toHandoffSession(freshest) : null
+  } catch (e) {
+    console.warn('[agent-link] failed to scan for any session handoff', e)
     return null
   }
 }
@@ -150,14 +199,18 @@ export interface HandoffSubscriptionOptions {
 export const DEFAULT_HANDOFF_POLL_INTERVAL_MS = 400
 export const DEFAULT_HANDOFF_POLL_TIMEOUT_MS = 8000
 
-export function subscribeToHandoff(
-  pageId: string,
+// Shared by subscribeToHandoff/subscribeToAnyHandoff below: both wire up the
+// same same-origin `storage` event + bounded poll shape, differing only in
+// (a) how they re-read (a specific pageId vs. scanning every key) and (b)
+// which storage-event keys they consider relevant.
+function subscribeToHandoffCore(
+  read: () => AgentLinkHandoffSession | null,
+  matchesKey: (key: string | null) => boolean,
   onSession: (session: AgentLinkHandoffSession) => void,
-  options: HandoffSubscriptionOptions = {}
+  options: HandoffSubscriptionOptions
 ): () => void {
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_HANDOFF_POLL_INTERVAL_MS
   const pollTimeoutMs = options.pollTimeoutMs ?? DEFAULT_HANDOFF_POLL_TIMEOUT_MS
-  const key = storageKey(pageId)
 
   let settled = false
   let pollHandle: ReturnType<typeof setInterval> | null = null
@@ -174,13 +227,13 @@ export function subscribeToHandoff(
     }
   }
 
-  // Shared by both triggers (storage event + poll tick): re-reads via
-  // readSession() rather than trusting the raw event payload, so a stale or
+  // Shared by both triggers (storage event + poll tick): re-reads via `read`
+  // rather than trusting the raw event payload, so a stale or
   // partially-written record is rejected the same way the initial one-shot
   // read already rejects it.
   function tryDeliver(): void {
     if (settled) return
-    const session = readSession(pageId)
+    const session = read()
     if (!session) return
     settled = true
     stopPolling()
@@ -189,9 +242,9 @@ export function subscribeToHandoff(
 
   function handleStorage(e: StorageEvent): void {
     // e.key is null for localStorage.clear() — re-check regardless since
-    // that can't produce a valid session anyway; tryDeliver's readSession()
-    // call is the actual authority.
-    if (e.key !== null && e.key !== key) return
+    // that can't produce a valid session anyway; tryDeliver's read() call is
+    // the actual authority.
+    if (!matchesKey(e.key)) return
     tryDeliver()
   }
 
@@ -213,4 +266,32 @@ export function subscribeToHandoff(
       console.warn('[agent-link] failed to unsubscribe from storage event', e)
     }
   }
+}
+
+export function subscribeToHandoff(
+  pageId: string,
+  onSession: (session: AgentLinkHandoffSession) => void,
+  options: HandoffSubscriptionOptions = {}
+): () => void {
+  const key = storageKey(pageId)
+  return subscribeToHandoffCore(
+    () => readSession(pageId),
+    (k) => k === null || k === key,
+    onSession,
+    options
+  )
+}
+
+// Reactive counterpart to readAnySession() — same mint-vs-mount race fix as
+// subscribeToHandoff(), for the pageId-less Fullscreen path (finding #4).
+export function subscribeToAnyHandoff(
+  onSession: (session: AgentLinkHandoffSession) => void,
+  options: HandoffSubscriptionOptions = {}
+): () => void {
+  return subscribeToHandoffCore(
+    () => readAnySession(),
+    (k) => k === null || k.startsWith(STORAGE_KEY_PREFIX),
+    onSession,
+    options
+  )
 }

@@ -630,4 +630,80 @@ describe('useAgentLinkSession', () => {
       expect(session.token.value).toBeNull()
     })
   })
+
+  // pageId-less Fullscreen fallback (finding #4, 2026-07-09 live spot-check):
+  // a Fullscreen mount that never resolved a boundContext.pageId (no
+  // apWrapper/Forge-bridge context) can't call watchForHandoff(pageId) — it
+  // has no pageId to scope to. watchForAnyHandoff() covers that by matching
+  // ANY agentLinkSession:* record via subscribeToAnyHandoff(), same
+  // hydrateFrom() guard, same unsubscribe contract.
+  describe('watchForAnyHandoff — pageId-less counterpart to watchForHandoff', () => {
+    function makeHandoff(overrides: Partial<AgentLinkHandoffSession> = {}): AgentLinkHandoffSession {
+      return {
+        token: 'handed-off-token',
+        cloudId: 'c1',
+        pageId: 'page-unknown',
+        contentId: 'cc1',
+        state: 'waiting',
+        ...overrides,
+      }
+    }
+
+    it('hydrates into waiting when ANY session appears via a storage event', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+
+      const unsubscribe = session.watchForAnyHandoff()
+      expect(session.state.value).toBe('idle')
+
+      persistSession(makeHandoff())
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-unknown' }))
+
+      expect(session.state.value).toBe('waiting')
+      expect(session.token.value).toBe('handed-off-token')
+      unsubscribe()
+    })
+
+    it('falls back to the bounded poll when the storage event is missed', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+
+      const unsubscribe = session.watchForAnyHandoff()
+      persistSession(makeHandoff())
+      vi.advanceTimersByTime(400)
+
+      expect(session.state.value).toBe('waiting')
+      expect(session.token.value).toBe('handed-off-token')
+      unsubscribe()
+    })
+
+    it('does not hydrate once this instance is no longer idle', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+      const unsubscribe = session.watchForAnyHandoff()
+
+      session.startConnect()
+      const tokenAfterOwnConnect = session.token.value
+
+      persistSession(makeHandoff({ token: 'other-token' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-unknown' }))
+
+      expect(session.token.value).toBe(tokenAfterOwnConnect)
+      unsubscribe()
+    })
+
+    it('the returned unsubscribe function stops both the storage listener and the poll', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+      const unsubscribe = session.watchForAnyHandoff()
+
+      unsubscribe()
+      persistSession(makeHandoff())
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-unknown' }))
+      vi.advanceTimersByTime(8000)
+
+      expect(session.state.value).toBe('idle')
+      expect(session.token.value).toBeNull()
+    })
+  })
 })

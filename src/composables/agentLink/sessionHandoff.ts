@@ -23,6 +23,14 @@
 // live connection; closing Fullscreen must not kill it, so Fullscreen must
 // not open a rival one either).
 //
+// Bug 2 (spot-check #3, 2026-07-09, real cross-iframe topology): the record
+// above carried no `expiresAt` and no activity feed, so the Fullscreen rail
+// showed no TTL countdown and no discovery rows even though the inline
+// instance's own state had both — display-only plumbing that never reached
+// the second iframe. `expiresAt` (absolute epoch ms) and a bounded `feed`
+// snapshot (HANDOFF_FEED_MAX_ENTRIES, refreshed on every persistSession()
+// call) now travel on the same record for exactly that reason.
+//
 // SAME-ORIGIN ASSUMPTION (load-bearing, NOT live-verified in this change):
 // this only works if the inline macro iframe and the Fullscreen modal iframe
 // share an origin, so a plain localStorage write in one is readable in the
@@ -70,6 +78,25 @@ export type AgentLinkHandoffState =
 //                then auto-clears (never a stuck shimmer on the modal either).
 export type AgentLinkHandoffThinking = 'thinking' | 'error'
 
+// Activity-feed row shape carried on the handoff record (bug 2, spot-check
+// #3, 2026-07-09: the Fullscreen rail showed no TTL meter and no discovery
+// feed rows in the real cross-iframe topology). Structurally identical to
+// useAgentLinkSession.ts's own `AgentLinkActivityEntry` — defined here
+// rather than imported from there because useAgentLinkSession.ts already
+// imports FROM this module (importing back would cycle).
+export interface AgentLinkHandoffFeedEntry {
+  summary: string
+  at: number
+}
+
+// Ceiling on how many recent feed rows travel on the handoff record. The
+// owner's own (unbounded, in-memory) activityFeed ref can grow for the whole
+// session lifetime; only this cross-iframe snapshot is capped, so every
+// persistSession() write stays small regardless of session length. 20 rows
+// is generous for a rail that only shows a handful at a time (ConnectPanel's
+// feed list) while keeping the localStorage payload bounded.
+export const HANDOFF_FEED_MAX_ENTRIES = 20
+
 export interface AgentLinkHandoffSession extends AgentLinkBoundContext {
   token: string
   state: AgentLinkHandoffState
@@ -83,6 +110,23 @@ export interface AgentLinkHandoffSession extends AgentLinkBoundContext {
   // "AI is thinking" surface state mirrored to the Fullscreen iframe (Track
   // F). Absent ⇒ idle. See AgentLinkHandoffThinking above.
   thinking?: AgentLinkHandoffThinking
+  // Absolute epoch ms when the relay-minted token expires — mirrors
+  // useAgentLinkSession.ts's own `expiresAt` ref so the Fullscreen instance's
+  // TTL meter / countdown chip (SessionTtl.vue, ConnectPanel.vue) has
+  // something to render even though it never minted the token itself. Bug 2
+  // fix (spot-check #3): previously this never left the minting instance, so
+  // the Fullscreen rail's TTL meter was always blank. Absent when the mint
+  // result carried no expiresInSec, or before the mint resolves.
+  expiresAt?: number
+  // Recent activity-feed rows (connect/edit/suspend/resume/search/list/read),
+  // bounded to the last HANDOFF_FEED_MAX_ENTRIES — mirrors
+  // useAgentLinkSession.ts's own (unbounded, owner-only) `activityFeed` ref.
+  // Bug 2 fix (spot-check #3): discovery ops (search_diagrams/list_diagrams/
+  // read_diagram) never published to the handoff record at all, so the
+  // Fullscreen rail's feed was empty no matter what the agent did.
+  // Refreshed on every persistSession() call (persistSession itself performs
+  // the bounding — see below), so it always reflects the owner's latest rows.
+  feed?: AgentLinkHandoffFeedEntry[]
 }
 
 interface PersistedHandoff extends AgentLinkHandoffSession {
@@ -105,7 +149,14 @@ function storageKey(pageId: string): string {
 
 export function persistSession(session: AgentLinkHandoffSession): void {
   try {
-    const payload: PersistedHandoff = { ...session, persistedAt: Date.now() }
+    const payload: PersistedHandoff = {
+      ...session,
+      // Single point that enforces the bound — callers just pass their
+      // current (unbounded) in-memory feed and this trims it to the last
+      // HANDOFF_FEED_MAX_ENTRIES on every write ("refreshed on each persist").
+      feed: session.feed ? session.feed.slice(-HANDOFF_FEED_MAX_ENTRIES) : session.feed,
+      persistedAt: Date.now(),
+    }
     localStorage.setItem(storageKey(session.pageId), JSON.stringify(payload))
   } catch (e) {
     console.warn('[agent-link] failed to persist session handoff', e)
@@ -152,6 +203,11 @@ function toHandoffSession(parsed: PersistedHandoff): AgentLinkHandoffSession {
       parsed.thinking === 'thinking' || parsed.thinking === 'error'
         ? parsed.thinking
         : undefined,
+    // Optional; absent on a pre-bug-2 record or a mint with no expiresInSec.
+    expiresAt: typeof parsed.expiresAt === 'number' ? parsed.expiresAt : undefined,
+    // Optional; absent on a pre-bug-2 record. Re-bounded defensively in case
+    // a record was ever written by a future/older build with a looser cap.
+    feed: Array.isArray(parsed.feed) ? parsed.feed.slice(-HANDOFF_FEED_MAX_ENTRIES) : undefined,
   }
 }
 
@@ -298,6 +354,15 @@ function subscribeToHandoffCore(
       // yet) is seen as fresh and delivered to the Fullscreen modal — without
       // it, the shimmer would never light up on that surface (Track F).
       session.thinking ?? '',
+      // `expiresAt` + `feed` follow the exact same reasoning (bug 2, spot-check
+      // #3): a search/list/read op republishes ONLY the feed (state/dsl/
+      // thinking unchanged), and a mint result's expiry can arrive on a record
+      // that otherwise looks identical to the one just delivered. Without
+      // these in the fingerprint, discovery rows and the TTL value would
+      // silently never reach the Fullscreen modal even though the owner
+      // persisted them.
+      session.expiresAt != null ? String(session.expiresAt) : '',
+      session.feed ? JSON.stringify(session.feed) : '',
     ].join('\n')
     if (fingerprint !== lastDeliveredFingerprint) {
       lastDeliveredFingerprint = fingerprint

@@ -222,11 +222,18 @@ describe('useAgentLinkSession', () => {
 
       capturedOnDiagramUpdated!('graph TD; A-->B')
 
+      // bug 2 fix (spot-check #3, 2026-07-09): every handoff write now also
+      // carries `feed` (bounded activity-feed snapshot, `[]` here since
+      // nothing was pushed to activityFeed before this dsl republish) — the
+      // record is no longer byte-identical to the pre-fix shape, which is the
+      // whole point of the fix (Fullscreen's rail previously had nothing to
+      // hydrate its TTL meter / discovery rows from).
       expect(readSession(boundContext.pageId)).toEqual({
         ...boundContext,
         token: 'real-token-dsl',
         state: 'connected',
         dsl: 'graph TD; A-->B',
+        feed: [],
       })
     })
 
@@ -275,10 +282,13 @@ describe('useAgentLinkSession', () => {
       capturedOnStateEvent!({ type: 'op', op: 'read_page' })
 
       expect(session.state.value).toBe('connected')
+      // bug 2 fix: `feed` now travels on every handoff write (see the dsl
+      // republish test above for why this is deliberate, not a regression).
       expect(readSession(boundContext.pageId)).toEqual({
         ...boundContext,
         token: 'real-token',
         state: 'connected',
+        feed: [],
       })
       expect(trackAnalyticsEvent).toHaveBeenCalledWith(
         'agent_link_agent_connected',
@@ -822,6 +832,30 @@ describe('useAgentLinkSession', () => {
       )
       expect(session.activityFeed.value.at(-1)!.summary).toContain('7')
     })
+
+    // Bug 2 fix (spot-check #3, 2026-07-09): before this fix, none of the
+    // three discovery recorders touched the handoff record at all — only
+    // the LOCAL activityFeed ref — so a search/list/read row was visible on
+    // the owner's own rail but never reached a separate Fullscreen instance.
+    it('a discovery op (search/list/read) republishes the handoff record with the new feed row, not just the local activityFeed', async () => {
+      const { session, captured } = await wireAndCapture()
+
+      captured.onSearchPerformed!({ query: 'payment', hits: 2 })
+
+      const persisted = readSession('p1')
+      expect(persisted?.feed?.at(-1)?.summary).toBe(session.activityFeed.value.at(-1)!.summary)
+      expect(persisted?.state).toBe('connected')
+
+      captured.onListPerformed!({ scope: 'page', hits: 4 })
+      captured.onDiagramRead!({ title: 'Order flow', byContentId: false })
+
+      const persistedAfterAll = readSession('p1')
+      // All three discovery rows accumulated onto the SAME handoff record's
+      // feed, in order — this is the actual data a Fullscreen instance would
+      // hydrate from, not a synthetic reconstruction.
+      expect(persistedAfterAll?.feed).toEqual(session.activityFeed.value)
+      expect(persistedAfterAll?.feed?.length).toBeGreaterThanOrEqual(3)
+    })
   })
 
   it('the 20s setup timeout moves waiting -> timeout and fires agent_link_setup_shown', async () => {
@@ -933,10 +967,13 @@ describe('useAgentLinkSession', () => {
 
       await vi.advanceTimersByTimeAsync(0)
 
+      // bug 2 fix: `feed` now travels on every handoff write, including the
+      // mint-success 'waiting' record (see the dsl republish test's comment).
       expect(readSession(boundContext.pageId)).toEqual({
         ...boundContext,
         token: 'real-token-1',
         state: 'waiting',
+        feed: [],
       })
     })
 
@@ -962,10 +999,13 @@ describe('useAgentLinkSession', () => {
 
       session.onAgentConnected()
 
+      // bug 2 fix: `feed` now travels on every handoff write (see the dsl
+      // republish test's comment above for the rationale).
       expect(readSession(boundContext.pageId)).toEqual({
         ...boundContext,
         token: 'real-token-2',
         state: 'connected',
+        feed: [],
       })
     })
 
@@ -1130,6 +1170,69 @@ describe('useAgentLinkSession', () => {
       session.hydrateFrom(makeHandoff({ state: 'connected' }))
 
       expect(session.state.value).toBe('connected')
+    })
+
+    // Bug 2 fix (spot-check #3, 2026-07-09): in the real cross-iframe
+    // topology the Fullscreen rail showed no TTL countdown and no discovery
+    // feed rows — the handoff record itself never carried expiresAt/feed, so
+    // there was nothing for hydrateFrom() to read. These tests assert the
+    // values land on the exposed `expiresAt`/`activityFeed` refs FROM THE
+    // HANDOFF RECORD on a fresh instance that never had them locally —
+    // exactly the gap that let bug 2 slip past H's component-level tests
+    // (those injected props directly instead of driving them through
+    // hydrateFrom()).
+    it('hydrates expiresAt from the handoff record onto a fresh instance (TTL meter source)', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+      expect(session.expiresAt.value).toBeNull()
+
+      session.hydrateFrom(makeHandoff({ state: 'waiting', expiresAt: 1_800_000_000_000 }))
+
+      expect(session.expiresAt.value).toBe(1_800_000_000_000)
+    })
+
+    it('does not clobber expiresAt when a later handoff record omits it', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+      session.hydrateFrom(makeHandoff({ state: 'waiting', expiresAt: 1_800_000_000_000 }))
+      expect(session.expiresAt.value).toBe(1_800_000_000_000)
+
+      session.hydrateFrom(makeHandoff({ state: 'connected' }))
+
+      expect(session.expiresAt.value).toBe(1_800_000_000_000)
+    })
+
+    it('hydrates discovery feed rows (search/list/read) from the handoff record\'s feed, not from injected props', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+      expect(session.activityFeed.value).toEqual([])
+
+      const feed = [
+        { summary: 'Searched "payment" → 3 hits', at: 1000 },
+        { summary: 'Listed diagrams in this space → 5', at: 2000 },
+        { summary: 'Read "Checkout flow"', at: 3000 },
+      ]
+      session.hydrateFrom(makeHandoff({ state: 'connected', feed }))
+
+      // Not merely "some entries were pushed" — the exact rows the owner
+      // published, in order, land on the Fullscreen instance's own ref.
+      expect(session.activityFeed.value).toEqual(feed)
+    })
+
+    it('replaces the local feed with a later handoff record\'s feed, including a reset back to empty', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+      session.hydrateFrom(
+        makeHandoff({ state: 'connected', feed: [{ summary: 'Read "A"', at: 1 }] })
+      )
+      expect(session.activityFeed.value).toHaveLength(1)
+
+      // The owner reset its own feed (e.g. a fresh startConnect()) and
+      // republished an empty one — an empty array is still a truthy,
+      // deliberate handoff value, not "nothing to hydrate".
+      session.hydrateFrom(makeHandoff({ state: 'connected', feed: [] }))
+
+      expect(session.activityFeed.value).toEqual([])
     })
   })
 

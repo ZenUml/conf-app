@@ -7,6 +7,7 @@ import {
   subscribeToHandoff,
   subscribeToAnyHandoff,
   HANDOFF_TTL_MS,
+  HANDOFF_FEED_MAX_ENTRIES,
   DEFAULT_HANDOFF_POLL_INTERVAL_MS,
   DEFAULT_HANDOFF_POLL_TIMEOUT_MS,
 } from './sessionHandoff'
@@ -149,6 +150,47 @@ describe('sessionHandoff', () => {
     } finally {
       Storage.prototype.setItem = original
     }
+  })
+
+  // Bug 2 fix (spot-check #3, 2026-07-09): the Fullscreen rail showed no TTL
+  // countdown and no discovery feed rows in the real cross-iframe topology
+  // because the handoff record carried neither `expiresAt` nor a feed
+  // snapshot at all. These two fields now round-trip like dsl/thinking do.
+  it('persistSession then readSession round-trips expiresAt and a bounded feed', () => {
+    const feed = [
+      { summary: 'Searched "payment" → 3 hits', at: 1000 },
+      { summary: 'Read "Checkout flow"', at: 2000 },
+    ]
+    const session = makeSession({ state: 'connected', expiresAt: 123456789, feed })
+    persistSession(session)
+
+    expect(readSession('page-1')).toEqual(session)
+  })
+
+  it('readSession reports expiresAt and feed as undefined when persisted without them', () => {
+    persistSession(makeSession())
+
+    const read = readSession('page-1')
+    expect(read?.expiresAt).toBeUndefined()
+    expect(read?.feed).toBeUndefined()
+  })
+
+  // "refreshed on each persist": persistSession is the single point that
+  // enforces the HANDOFF_FEED_MAX_ENTRIES bound, so every write — regardless
+  // of how large the caller's own in-memory feed has grown — stays capped.
+  it('bounds the persisted feed to the last HANDOFF_FEED_MAX_ENTRIES entries, dropping the oldest', () => {
+    expect(HANDOFF_FEED_MAX_ENTRIES).toBe(20)
+    const oversized = Array.from({ length: HANDOFF_FEED_MAX_ENTRIES + 1 }, (_, i) => ({
+      summary: `row-${i}`,
+      at: i,
+    }))
+    persistSession(makeSession({ state: 'connected', feed: oversized }))
+
+    const read = readSession('page-1')
+    expect(read?.feed).toHaveLength(HANDOFF_FEED_MAX_ENTRIES)
+    // The 21st entry (row-0, the oldest) was dropped; row-1..row-20 survive.
+    expect(read?.feed?.[0]).toEqual({ summary: 'row-1', at: 1 })
+    expect(read?.feed?.at(-1)).toEqual({ summary: `row-${HANDOFF_FEED_MAX_ENTRIES}`, at: HANDOFF_FEED_MAX_ENTRIES })
   })
 
   // Reactive hydration (mint-vs-mount race, 2026-07-09 live spot-check): a

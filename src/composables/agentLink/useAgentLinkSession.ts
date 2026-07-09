@@ -145,8 +145,11 @@ export interface AgentLinkSessionApi {
   // Track H: absolute ms epoch when the relay-minted token expires, or null
   // when unknown (no relay context, or a reattached/hydrated session that
   // never carried an expiry). Drives the Fullscreen rail's TTL meter and the
-  // toolbar link-status chip countdown. Never persisted onto the handoff
-  // record (that stays byte-identical for the cross-iframe tests).
+  // toolbar link-status chip countdown. IS persisted onto the handoff record
+  // (sessionHandoff.ts's `expiresAt` field) as of the bug 2 fix (spot-check
+  // #3, 2026-07-09) — the original "never persisted" design left the
+  // Fullscreen instance's own `expiresAt` permanently null, so its TTL meter
+  // never lit up in the real cross-iframe topology.
   expiresAt: Ref<number | null>
   activityFeed: Ref<AgentLinkActivityEntry[]>
   // Perceived-latency "AI is thinking" surface state (charter §6 Track F),
@@ -232,6 +235,23 @@ export function useAgentLinkSession(
   // scoped to {cloudId, pageId, contentId}.
   const boundContext = options.relay?.boundContext ?? null
 
+  // Shared by every persistSession() call site below (bug 2 fix, spot-check
+  // #3): attaches the current bounded activity feed + known token TTL onto
+  // EVERY handoff write, not just the dsl/thinking ones — this is what makes
+  // discovery rows (search/list/read, which otherwise never touch the handoff
+  // record at all) and the TTL meter reach the Fullscreen instance.
+  // `feed` is always attached (even `[]` right after a reset) so the
+  // Fullscreen rail's history always matches the owner's; `expiresAt` is
+  // omitted while unknown, matching the existing dsl/thinking
+  // present-only-when-known convention.
+  function handoffFeedFields(): Pick<AgentLinkHandoffSession, 'feed'> &
+    Partial<Pick<AgentLinkHandoffSession, 'expiresAt'>> {
+    return {
+      feed: activityFeed.value,
+      ...(expiresAt.value != null ? { expiresAt: expiresAt.value } : {}),
+    }
+  }
+
   let connectStartedAt: number | null = null
   let lastAppliedDsl = ''
   let editsCount = 0
@@ -296,7 +316,7 @@ export function useAgentLinkSession(
       state.value = nextClientState(state.value, 'ws_drop')
       activityFeed.value = [...activityFeed.value, { summary: SUSPENDED_FEED_SUMMARY, at: now() }]
       if (boundContext && token.value) {
-        persistSession({ ...boundContext, token: token.value, state: 'suspended' })
+        persistSession({ ...boundContext, token: token.value, state: 'suspended', ...handoffFeedFields() })
       }
       trackAnalyticsEvent('agent_link_session_suspended', {
         feature_area: 'agent_link',
@@ -324,6 +344,7 @@ export function useAgentLinkSession(
           token: token.value,
           state: 'connected',
           ...(lastAppliedDsl ? { dsl: lastAppliedDsl } : {}),
+          ...handoffFeedFields(),
         })
       }
       trackAnalyticsEvent('agent_link_session_resumed', {
@@ -390,7 +411,7 @@ export function useAgentLinkSession(
         // relay owner) applies the edit to its OWN store via the host
         // callback below.
         if (boundContext && token.value) {
-          persistSession({ ...boundContext, token: token.value, state: 'connected', dsl })
+          persistSession({ ...boundContext, token: token.value, state: 'connected', dsl, ...handoffFeedFields() })
         }
         options.onDiagramUpdated?.(dsl, macroType)
       },
@@ -408,6 +429,11 @@ export function useAgentLinkSession(
   // without a relay context (standalone/dev/tests) or before the real token
   // exists. Includes the last applied dsl so a late Fullscreen mount still
   // gets current diagram state; passing `thinking` undefined clears the cue.
+  // Also doubles as the generic "republish feed + TTL" seam (bug 2 fix): the
+  // Track U discovery recorders below call this via currentThinkingFlag()
+  // (never a bare `undefined`) so a search/list/read row reaches the handoff
+  // record too, without erasing a thinking/error cue that's genuinely still
+  // in flight from a concurrently-interleaved update_diagram op.
   function publishThinking(thinking?: AgentLinkHandoffThinking): void {
     if (!boundContext || !token.value) return
     persistSession({
@@ -416,7 +442,24 @@ export function useAgentLinkSession(
       state: 'connected',
       ...(lastAppliedDsl ? { dsl: lastAppliedDsl } : {}),
       ...(thinking ? { thinking } : {}),
+      ...handoffFeedFields(),
     })
+  }
+
+  // The three existing publishThinking() call sites (beginThinking,
+  // settleThinking's failure path, scheduleErrorFlashClear's timer) already
+  // know the exact thinking value they want to set from their own local
+  // control flow. The Track U discovery recorders (recordDiagramRead/
+  // recordSearchPerformed/recordListPerformed) don't — they just want to
+  // republish the feed without changing whatever thinking cue is currently
+  // shown, so they read it back off `thinkingState` instead. relayClient.ts's
+  // handleOp is fire-and-forget (`void handleOp(envelope)`), so a discovery op
+  // COULD in principle interleave with an in-flight update_diagram — this
+  // guards against that rare case clobbering the cue.
+  function currentThinkingFlag(): AgentLinkHandoffThinking | undefined {
+    return thinkingState.value === 'thinking' || thinkingState.value === 'error'
+      ? thinkingState.value
+      : undefined
   }
 
   function clearRenderSafetyTimer(): void {
@@ -564,6 +607,16 @@ export function useAgentLinkSession(
       // Success does NOT clear the thinking overlay here — that happens in
       // notifyRenderSettled() (host $nextTick), so render_ms measures the real
       // paint and the shimmer clears exactly when the new diagram is visible.
+      // Republish so the "diagram updated" row just pushed above (added AFTER
+      // the dsl-carrying persistSession() call in openRelayChannel's
+      // onDiagramUpdated wiring) reaches the handoff record promptly rather
+      // than waiting for some later, unrelated persist (bug 2 fix). Passes
+      // `undefined` explicitly (not currentThinkingFlag()) — this fires
+      // immediately after that dsl republish already cleared `thinking` for
+      // this same edit, and thinkingState itself isn't cleared until
+      // notifyRenderSettled() confirms paint, so reading it here would
+      // incorrectly re-show a cue that was just intentionally dropped.
+      publishThinking(undefined)
     } else {
       // Visible error cue in the feed (charter §6 failure path: "feed entry at
       // minimum"), then clear the shimmer via settleThinking('failed').
@@ -599,11 +652,20 @@ export function useAgentLinkSession(
   // sees everything) AND fires its Mixpanel event. Same one-callback-one-event
   // shape as recordPageRead. The raw query never reaches analytics — only its
   // length (privacy); the feed row (local UI) does show it.
+  //
+  // Bug 2 fix (spot-check #3): these three previously only touched the LOCAL
+  // activityFeed ref, never the handoff record — so a discovered/searched/
+  // listed row was visible on the inline instance's own rail but never
+  // reached a separate Fullscreen instance no matter how many the agent ran.
+  // publishThinking() republishes the (now feed-carrying) handoff record;
+  // currentThinkingFlag() preserves whatever thinking cue is genuinely active
+  // instead of clobbering it (see currentThinkingFlag's own comment).
   function recordDiagramRead(info: { title?: string; byContentId: boolean }): void {
     activityFeed.value = [
       ...activityFeed.value,
       { summary: readDiagramFeedSummary(info.title), at: now() },
     ]
+    publishThinking(currentThinkingFlag())
     trackAnalyticsEvent('agent_link_diagram_read', {
       feature_area: 'agent_link',
       surface: 'fullscreen',
@@ -617,6 +679,7 @@ export function useAgentLinkSession(
       ...activityFeed.value,
       { summary: searchFeedSummary(info.query, info.hits), at: now() },
     ]
+    publishThinking(currentThinkingFlag())
     trackAnalyticsEvent('agent_link_search_performed', {
       feature_area: 'agent_link',
       surface: 'fullscreen',
@@ -631,6 +694,7 @@ export function useAgentLinkSession(
       ...activityFeed.value,
       { summary: listFeedSummary(info.scope, info.hits), at: now() },
     ]
+    publishThinking(currentThinkingFlag())
     trackAnalyticsEvent('agent_link_list_performed', {
       feature_area: 'agent_link',
       surface: 'fullscreen',
@@ -664,6 +728,7 @@ export function useAgentLinkSession(
         ...boundContext,
         token: handoffToken,
         state: alreadyLinked ? 'already_linked' : 'failed',
+        ...handoffFeedFields(),
       })
     }
 
@@ -742,7 +807,7 @@ export function useAgentLinkSession(
           // resolved) falls back to today's blank-panel behavior, which is
           // strictly better than hydrating a token that will never resolve.
           if (boundContext) {
-            persistSession({ ...boundContext, token: realToken, state: 'waiting' })
+            persistSession({ ...boundContext, token: realToken, state: 'waiting', ...handoffFeedFields() })
           }
           openRelayChannel(realToken, relayOptions)
         })
@@ -821,7 +886,7 @@ export function useAgentLinkSession(
     // pairing (e.g. closed then reopened) hydrates straight into
     // 'connected' instead of re-showing the (already-stale) waiting prompt.
     if (boundContext && token.value) {
-      persistSession({ ...boundContext, token: token.value, state: 'connected' })
+      persistSession({ ...boundContext, token: token.value, state: 'connected', ...handoffFeedFields() })
     }
 
     trackAnalyticsEvent('agent_link_agent_connected', {
@@ -934,6 +999,18 @@ export function useAgentLinkSession(
       state.value = nextClientState(state.value, 'resumed')
     }
 
+    // --- token TTL (Track H cross-iframe mirror, bug 2 fix) ---------------
+    // Mirrors the owner's expiresAt onto this display-only instance so its
+    // own TTL meter / chip countdown (ConnectPanel.vue / SessionTtl.vue) has
+    // something to render — previously always null here, so those surfaces
+    // never lit up in the real cross-iframe topology (spot-check #3).
+    // Unconditional (not gated to the idle branch above): a stable per-token
+    // value, and the reactive handoff watcher may deliver this record more
+    // than once for the same session.
+    if (typeof session.expiresAt === 'number') {
+      expiresAt.value = session.expiresAt
+    }
+
     // --- diagram DSL (agent edit) ----------------------------------------
     // Independent of the state branch above, and NOT early-returned past:
     //  - a Fullscreen opened AFTER edits hydrates straight from 'idle' and
@@ -988,6 +1065,22 @@ export function useAgentLinkSession(
         // the shimmer. Leave an 'error' cue alone; its own timer clears it.
         thinkingState.value = 'idle'
       }
+    }
+
+    // --- activity feed (Track U discovery + Track F/G, bug 2 fix) --------
+    // The handoff record's `feed` is the owner's own authoritative bounded
+    // snapshot (search/list/read/edit/suspend/resume rows) — adopt it
+    // directly rather than relying only on the ad hoc per-branch appends
+    // above, so this display-only instance's rail shows the SAME history the
+    // owner sees. This is what makes discovery rows (search_diagrams/
+    // list_diagrams/read_diagram) visible here at all: those ops never touch
+    // `state`/`dsl`/`thinking`, so without this the Fullscreen rail's feed
+    // stayed empty no matter how many the agent ran (spot-check #3). Always
+    // an array once present (even `[]` right after the owner's own reset),
+    // so a plain truthy check is enough; falls back to the local
+    // reconstruction above for a pre-bug-2 record that never carried `feed`.
+    if (session.feed) {
+      activityFeed.value = session.feed
     }
     // Deliberately does NOT call requestSession()/connect(): this instance
     // never mints a token or opens a relay socket for a hydrated session.

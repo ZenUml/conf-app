@@ -15,6 +15,8 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { useAgentLinkSession } from './useAgentLinkSession'
 import { SETUP_TIMEOUT_MS } from './agentLinkState'
 import type { AgentLinkBridgeOps } from './bridgeOps'
+import { readSession } from './sessionHandoff'
+import type { AgentLinkHandoffSession } from './sessionHandoff'
 
 function makeBridgeOps(
   overrides: Partial<AgentLinkBridgeOps> = {}
@@ -33,6 +35,7 @@ describe('useAgentLinkSession', () => {
   beforeEach(() => {
     vi.mocked(trackAnalyticsEvent).mockClear()
     vi.useFakeTimers()
+    localStorage.clear()
   })
   afterEach(() => {
     vi.useRealTimers()
@@ -406,5 +409,145 @@ describe('useAgentLinkSession', () => {
       'agent_link_disconnected',
       expect.anything()
     )
+  })
+
+  // Cross-iframe handoff (finding #3, manual test 2026-07-08): Fullscreen
+  // boots as a SEPARATE useAgentLinkSession() instance from the inline
+  // macro's (see GenericViewer.vue's connectToAgent() comment), so it never
+  // saw the token this instance minted. These tests cover the INLINE side of
+  // the fix — persisting the token/state so sessionHandoff.readSession() can
+  // find it. See sessionHandoff.spec.ts for the storage layer itself, and
+  // 'hydrateFrom' below for the Fullscreen side.
+  describe('session handoff — the inline instance persists its token for Fullscreen to pick up', () => {
+    function makeFakeRelayClient() {
+      return { send: vi.fn(), close: vi.fn(), getState: vi.fn(() => 'open') }
+    }
+    const boundContext = { cloudId: 'c1', pageId: 'page-99', contentId: 'cc1' }
+
+    it('persists the real token (state: waiting) once the relay mint resolves', async () => {
+      const bridgeOps = makeBridgeOps()
+      const connect = vi.fn(() => makeFakeRelayClient())
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token-1' })
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+
+      session.startConnect()
+      // Before the mint resolves, nothing has been persisted yet — only the
+      // real, relay-minted token is ever written (see the comment at the
+      // persistSession call site in useAgentLinkSession.ts).
+      expect(readSession(boundContext.pageId)).toBeNull()
+
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(readSession(boundContext.pageId)).toEqual({
+        ...boundContext,
+        token: 'real-token-1',
+        state: 'waiting',
+      })
+    })
+
+    it('never persists anything for the unwired placeholder instance (no relay option)', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+
+      session.startConnect()
+
+      expect(localStorage.length).toBe(0)
+    })
+
+    it('onAgentConnected re-persists the record with state: connected', async () => {
+      const bridgeOps = makeBridgeOps()
+      const connect = vi.fn(() => makeFakeRelayClient())
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token-2' })
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      session.onAgentConnected()
+
+      expect(readSession(boundContext.pageId)).toEqual({
+        ...boundContext,
+        token: 'real-token-2',
+        state: 'connected',
+      })
+    })
+
+    it('disconnect clears the persisted handoff record', async () => {
+      const bridgeOps = makeBridgeOps()
+      const connect = vi.fn(() => makeFakeRelayClient())
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token-3' })
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(readSession(boundContext.pageId)).not.toBeNull()
+
+      session.disconnect('user')
+
+      expect(readSession(boundContext.pageId)).toBeNull()
+    })
+  })
+
+  describe('hydrateFrom — Fullscreen-side hydration of a session persisted elsewhere', () => {
+    function makeHandoff(overrides: Partial<AgentLinkHandoffSession> = {}): AgentLinkHandoffSession {
+      return {
+        token: 'handed-off-token',
+        cloudId: 'c1',
+        pageId: 'page-1',
+        contentId: 'cc1',
+        state: 'waiting',
+        ...overrides,
+      }
+    }
+
+    it('hydrates an idle instance into waiting with the handed-off token, without minting or connecting', () => {
+      const bridgeOps = makeBridgeOps()
+      const requestSession = vi.fn()
+      const connect = vi.fn()
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: {
+          boundContext: { cloudId: 'c1', pageId: 'page-1', contentId: 'cc1' },
+          requestSession,
+          connect,
+        },
+      })
+
+      session.hydrateFrom(makeHandoff({ state: 'waiting' }))
+
+      expect(session.state.value).toBe('waiting')
+      expect(session.token.value).toBe('handed-off-token')
+      expect(requestSession).not.toHaveBeenCalled()
+      expect(connect).not.toHaveBeenCalled()
+    })
+
+    it('hydrates directly into connected when the persisted session is already connected', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+
+      session.hydrateFrom(makeHandoff({ state: 'connected' }))
+
+      expect(session.state.value).toBe('connected')
+      expect(session.token.value).toBe('handed-off-token')
+    })
+
+    it('is a no-op on a non-idle instance — never clobbers a session this instance is itself driving', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+      session.startConnect()
+      const tokenBeforeHydrate = session.token.value
+
+      session.hydrateFrom(makeHandoff({ token: 'other-token' }))
+
+      expect(session.token.value).toBe(tokenBeforeHydrate)
+      expect(session.state.value).toBe('waiting')
+    })
   })
 })

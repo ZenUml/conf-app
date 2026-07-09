@@ -34,6 +34,7 @@ import {
   type RelayStateEvent,
 } from './relayClient'
 import { agentLinkWsUrl, mintAgentLinkSession, type AgentLinkBoundContext } from './relayUrl'
+import { persistSession, clearSession, type AgentLinkHandoffSession } from './sessionHandoff'
 
 export interface AgentLinkActivityEntry {
   summary: string
@@ -88,6 +89,11 @@ export interface AgentLinkSessionApi {
   onAgentConnected(): void
   applyEdit(dsl: string, summary?: string): Promise<{ ok: boolean }>
   disconnect(reason?: AgentLinkDisconnectReason): void
+  // Fullscreen-side counterpart to the inline instance's startConnect() —
+  // see sessionHandoff.ts's header comment for the cross-iframe problem this
+  // solves. Displays a session persisted by ANOTHER instance without
+  // minting a new token or opening a second relay socket.
+  hydrateFrom(session: AgentLinkHandoffSession): void
 }
 
 export function useAgentLinkSession(
@@ -106,6 +112,11 @@ export function useAgentLinkSession(
   const activityFeed = ref<AgentLinkActivityEntry[]>([]) as Ref<
     AgentLinkActivityEntry[]
   >
+  // Only set when a real relay context exists (see UseAgentLinkSessionOptions'
+  // `relay` doc comment) — the same condition that gates the persistSession/
+  // clearSession calls below, since a handoff record is keyed by pageId and
+  // scoped to {cloudId, pageId, contentId}.
+  const boundContext = options.relay?.boundContext ?? null
 
   let connectStartedAt: number | null = null
   let lastAppliedDsl = ''
@@ -216,6 +227,15 @@ export function useAgentLinkSession(
           // channel over a session that's no longer the current one.
           if (connectStartedAt !== startedForThisClick || state.value === 'closed') return
           token.value = realToken
+          // Hand the real token off to the (as-yet-idle) Fullscreen instance
+          // — see sessionHandoff.ts. Only the real, relay-minted token is
+          // persisted, never the local `pending-<ts>` placeholder: a
+          // Fullscreen mount that reads nothing yet (this mint hasn't
+          // resolved) falls back to today's blank-panel behavior, which is
+          // strictly better than hydrating a token that will never resolve.
+          if (boundContext) {
+            persistSession({ ...boundContext, token: realToken, state: 'waiting' })
+          }
           relayClient = connect(
             agentLinkWsUrl(realToken, relayOptions.boundContext),
             bridgeOps,
@@ -247,6 +267,13 @@ export function useAgentLinkSession(
     state.value = nextClientState(state.value, 'agent_connected')
     if (prev === state.value) return // invalid from this state — no-op
 
+    // Update the handoff record so a Fullscreen instance opened AFTER
+    // pairing (e.g. closed then reopened) hydrates straight into
+    // 'connected' instead of re-showing the (already-stale) waiting prompt.
+    if (boundContext && token.value) {
+      persistSession({ ...boundContext, token: token.value, state: 'connected' })
+    }
+
     trackAnalyticsEvent('agent_link_agent_connected', {
       feature_area: 'agent_link',
       surface: 'fullscreen',
@@ -276,6 +303,9 @@ export function useAgentLinkSession(
     state.value = nextClientState(state.value, 'disconnect')
     if (prev === state.value) return // nothing was connected — no-op
     teardownRelay()
+    // Clear the handoff record so a future Fullscreen mount doesn't hydrate
+    // a session that's already been disconnected here.
+    if (boundContext) clearSession(boundContext.pageId)
 
     trackAnalyticsEvent('agent_link_disconnected', {
       feature_area: 'agent_link',
@@ -288,6 +318,22 @@ export function useAgentLinkSession(
     })
   }
 
+  // Fullscreen-side hydration (sessionHandoff.ts): shows a session persisted
+  // by ANOTHER (inline) useAgentLinkSession() instance, without minting a
+  // new token or opening a rival relay socket — the instance that persisted
+  // it keeps owning the one live WS (design §3 decision #8).
+  function hydrateFrom(session: AgentLinkHandoffSession): void {
+    // Only a fresh (idle) instance may be hydrated — guards against
+    // clobbering a session this very instance is itself driving (re-entrant
+    // call, or a standalone/dev context where Fullscreen doesn't actually
+    // boot a separate iframe/instance).
+    if (state.value !== 'idle') return
+    token.value = session.token
+    state.value = session.state
+    // Deliberately does NOT call requestSession()/connect(): this instance
+    // never mints a token or opens a relay socket for a hydrated session.
+  }
+
   return {
     state,
     token,
@@ -296,5 +342,6 @@ export function useAgentLinkSession(
     onAgentConnected,
     applyEdit,
     disconnect,
+    hydrateFrom,
   }
 }

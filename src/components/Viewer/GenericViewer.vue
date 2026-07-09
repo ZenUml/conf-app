@@ -178,6 +178,7 @@ import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
 import { useAgentLinkSession } from '@/composables/agentLink/useAgentLinkSession'
 import { createBridgeOps, createUnwiredBridgeOps } from '@/composables/agentLink/bridgeOps'
 import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
+import { readSession } from '@/composables/agentLink/sessionHandoff'
 import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
 import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
 
@@ -377,6 +378,18 @@ export default {
         relay,
         onDiagramUpdated: (dsl, macroType) => this.applyAgentDiagramUpdate(dsl, macroType),
       });
+      // Fullscreen hydration (finding #3, manual test 2026-07-08): this mount
+      // may BE the separate Fullscreen iframe/Vue-app instance that
+      // connectToAgent() opens (see that method's comment) — freshly idle,
+      // with no token of its own. If the inline instance already persisted a
+      // live session for this page (sessionHandoff.ts), show it instead of
+      // rendering ConnectPanel with nothing. Never mints a second token or
+      // opens a second relay socket — hydrateFrom() is a display-only no-op
+      // on the relay/token-minting front.
+      if (relay?.boundContext && this.isFullscreenMode) {
+        const handoff = readSession(relay.boundContext.pageId);
+        if (handoff) this._agentLink.hydrateFrom(handoff);
+      }
     }
   },
   methods: {
@@ -390,9 +403,11 @@ export default {
     // opens Fullscreen as a SEPARATE modal iframe (confirmed by onClose's
     // location.reload() on the underlying macro) — that iframe re-boots this
     // same component fresh, with its OWN useAgentLinkSession() instance. Real
-    // state continuity across that boundary (so the rail shows the token
-    // this click minted) needs the relay transport, which is out of scope
-    // here; see docs/superpowers/specs/2026-07-08-live-agent-link-design.md §4.3.
+    // state continuity across that boundary (so the rail shows the token this
+    // click minted) is handled by sessionHandoff.ts's localStorage handoff +
+    // this mount's own hydrateFrom() call above — see that file's header
+    // comment for the fix and its same-origin assumption; see
+    // docs/superpowers/specs/2026-07-08-live-agent-link-design.md §4.3.
     connectToAgent() {
       this._agentLink?.startConnect();
       this.fullscreen();

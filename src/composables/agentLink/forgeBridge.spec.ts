@@ -43,6 +43,7 @@ const CONTENT_ID = '999'
 
 function mockRoutes(overrides: {
   pageStatus?: any
+  draftPageBody?: any
   pageBody?: any
   customContent?: any
   putResponse?: any
@@ -52,8 +53,12 @@ function mockRoutes(overrides: {
   vi.mocked(forgeRequest).mockImplementation(async (url: string, method = 'GET', data: any = undefined) => {
     calls.push({ url, method, data })
 
-    // readPage(): GET /wiki/api/v2/pages/{pageId}?body-format=export_view&get-draft=true
-    if (url.startsWith(`/wiki/api/v2/pages/${PAGE_ID}?body-format=export_view`)) {
+    // Previous readPage path: GET /wiki/api/v2/pages/{pageId}?body-format=export_view&get-draft=true.
+    if (url === `/wiki/api/v2/pages/${PAGE_ID}?body-format=export_view&get-draft=true`) {
+      return overrides.draftPageBody ?? { title: '', body: { export_view: { value: '' } } }
+    }
+    // Current readPage path: Forge iframe-safe published v2 page body read.
+    if (url === `/wiki/api/v2/pages/${PAGE_ID}?body-format=export_view`) {
       return overrides.pageBody ?? { title: 'My Page', body: { export_view: { value: '<p>Hello <b>world</b></p>' } } }
     }
     // getCustomContentForCurrentPage()'s historical-version check: GET /wiki/api/v2/pages/{pageId}
@@ -91,14 +96,34 @@ describe('createForgeAgentLinkBridge', () => {
   })
 
   describe('readPage', () => {
-    it('issues the v2 pages GET and maps title/pageId/plain-text body', async () => {
+    it('issues the Forge iframe-safe v2 pages GET and maps title/pageId/plain-text body', async () => {
       const calls = mockRoutes()
       const bridge = createForgeAgentLinkBridge({ apWrapper })
 
       const result = await bridge.readPage()
 
-      expect(calls.some(c => c.url === `/wiki/api/v2/pages/${PAGE_ID}?body-format=export_view&get-draft=true` && c.method === 'GET')).toBe(true)
+      expect(calls.some(c => c.url === `/wiki/api/v2/pages/${PAGE_ID}?body-format=export_view` && c.method === 'GET')).toBe(true)
+      expect(calls.some(c => c.url.includes('get-draft=true'))).toBe(false)
       expect(result).toEqual({ pageId: PAGE_ID, title: 'My Page', text: 'Hello world' })
+    })
+
+    it('does not return the empty draft-body response when the published page has title and text', async () => {
+      mockRoutes({
+        draftPageBody: { title: '', body: { export_view: { value: '' } } },
+        pageBody: {
+          title: 'Live Page',
+          body: { export_view: { value: '<h1>Intro</h1><p>Real page content</p>' } },
+        },
+      })
+      const bridge = createForgeAgentLinkBridge({ apWrapper })
+
+      const result = await bridge.readPage()
+
+      expect(result).toEqual({
+        pageId: PAGE_ID,
+        title: 'Live Page',
+        text: 'Intro Real page content',
+      })
     })
 
     it('strips scripts/styles and decodes entities', async () => {

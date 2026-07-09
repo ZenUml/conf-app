@@ -220,6 +220,46 @@ describe('useAgentLinkSession', () => {
 
       expect(() => capturedOnDiagramUpdated!('A->B: hi')).not.toThrow()
     })
+
+    it('marks the session connected on the first relay op and does not re-fire analytics on later ops', async () => {
+      const bridgeOps = makeBridgeOps()
+      let capturedOnStateEvent: ((event: any) => void) | undefined
+      const connect = vi.fn((_wsUrl, _bridge, onStateEvent) => {
+        capturedOnStateEvent = onStateEvent
+        return makeFakeRelayClient()
+      })
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token' })
+      const boundContext = { cloudId: 'c1', pageId: 'p1', contentId: 'cc1' }
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(session.state.value).toBe('waiting')
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      capturedOnStateEvent!({ type: 'op', op: 'read_page' })
+
+      expect(session.state.value).toBe('connected')
+      expect(readSession(boundContext.pageId)).toEqual({
+        ...boundContext,
+        token: 'real-token',
+        state: 'connected',
+      })
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_agent_connected',
+        expect.objectContaining({ macro_type: 'sequence' })
+      )
+
+      capturedOnStateEvent!({ type: 'op', op: 'read_diagram' })
+
+      const connectedCalls = vi
+        .mocked(trackAnalyticsEvent)
+        .mock.calls.filter(([name]) => name === 'agent_link_agent_connected')
+      expect(connectedCalls).toHaveLength(1)
+    })
   })
 
   describe('relay wiring — relay-driven edits populate the activity feed + fire analytics (the gap this fix closes)', () => {
@@ -583,6 +623,28 @@ describe('useAgentLinkSession', () => {
 
       expect(session.state.value).toBe('waiting')
       expect(session.token.value).toBe('handed-off-token')
+      unsubscribe()
+    })
+
+    it('updates an already-hydrated waiting Fullscreen session when the relay owner persists connected', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+
+      const unsubscribe = session.watchForHandoff('page-1')
+      persistSession(makeHandoff({ state: 'waiting' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+      expect(session.state.value).toBe('waiting')
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      persistSession(makeHandoff({ state: 'connected' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+
+      expect(session.state.value).toBe('connected')
+      expect(session.token.value).toBe('handed-off-token')
+      expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+        'agent_link_agent_connected',
+        expect.anything()
+      )
       unsubscribe()
     })
 

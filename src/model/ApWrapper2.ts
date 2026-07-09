@@ -1358,7 +1358,7 @@ export default class ApWrapper2 implements IApWrapper {
 
   async getCurrentPage(): Promise<{title: string, body: {export_view: {value: string}}} | undefined> {
     const pageId = await this._getCurrentPageId();
-    return await this.request(`/api/v2/pages/${pageId}?body-format=export_view&get-draft=true`);
+    return await this.request(`/api/v2/pages/${pageId}?body-format=export_view`);
   }
 
   /**

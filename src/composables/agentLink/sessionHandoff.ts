@@ -188,9 +188,10 @@ export function clearSession(pageId: string): void {
 //      the `storage` event is ever missed or unsupported in the Forge Custom
 //      UI sandbox — belt-and-suspenders, since the whole point of this fix
 //      is reliability, not just "it works when the event fires".
-// Both stop themselves the instant a valid session is found (or the poll
-// window elapses); the caller is still responsible for calling the returned
-// unsubscribe function on unmount/disconnect so nothing leaks.
+// The poll stops once a connected session is found (or the poll window
+// elapses), but the storage listener remains until the caller unsubscribes:
+// Fullscreen may first hydrate a waiting record, then receive the connected
+// update after the relay owner sees the agent's first op.
 export interface HandoffSubscriptionOptions {
   pollIntervalMs?: number
   pollTimeoutMs?: number
@@ -213,6 +214,7 @@ function subscribeToHandoffCore(
   const pollTimeoutMs = options.pollTimeoutMs ?? DEFAULT_HANDOFF_POLL_TIMEOUT_MS
 
   let settled = false
+  let lastDeliveredFingerprint: string | null = null
   let pollHandle: ReturnType<typeof setInterval> | null = null
   let pollDeadline: ReturnType<typeof setTimeout> | null = null
 
@@ -235,9 +237,21 @@ function subscribeToHandoffCore(
     if (settled) return
     const session = read()
     if (!session) return
-    settled = true
-    stopPolling()
-    onSession(session)
+    const fingerprint = [
+      session.cloudId,
+      session.pageId,
+      session.contentId,
+      session.token,
+      session.state,
+    ].join('\n')
+    if (fingerprint !== lastDeliveredFingerprint) {
+      lastDeliveredFingerprint = fingerprint
+      onSession(session)
+    }
+    if (session.state === 'connected') {
+      settled = true
+      stopPolling()
+    }
   }
 
   function handleStorage(e: StorageEvent): void {

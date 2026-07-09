@@ -351,9 +351,22 @@ export function useAgentLinkSession(
     // clobbering a session this very instance is itself driving (re-entrant
     // call, or a standalone/dev context where Fullscreen doesn't actually
     // boot a separate iframe/instance).
-    if (state.value !== 'idle') return
-    token.value = session.token
-    state.value = session.state
+    if (state.value === 'idle') {
+      token.value = session.token
+      state.value = session.state
+      return
+    }
+    // Fullscreen may hydrate the relay owner's first handoff while it is
+    // still waiting, then receive a later storage update after the owner sees
+    // the agent's first op and persists `connected`. This UI-only transition
+    // must not fire the agent_connected analytics a second time.
+    if (
+      state.value === 'waiting' &&
+      session.state === 'connected' &&
+      token.value === session.token
+    ) {
+      state.value = nextClientState(state.value, 'agent_connected')
+    }
     // Deliberately does NOT call requestSession()/connect(): this instance
     // never mints a token or opens a relay socket for a hydrated session.
   }

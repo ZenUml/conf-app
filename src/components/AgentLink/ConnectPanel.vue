@@ -199,7 +199,12 @@ function formatTime(at: number): string {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   color: var(--agent-link-ink);
   background: var(--agent-link-surface);
+  border: 1px solid transparent;
   box-sizing: border-box;
+}
+
+.agent-link-panel--connected {
+  border-color: var(--agent-link-green);
 }
 
 @media (prefers-color-scheme: dark) {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ConnectPanel from './ConnectPanel.vue'
+import connectPanelSource from './ConnectPanel.vue?raw'
 import type { AgentLinkActivityEntry } from '@/composables/agentLink/useAgentLinkSession'
 
 function mountPanel(props: {
@@ -53,6 +54,18 @@ describe('ConnectPanel', () => {
     expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-open-fullscreen-btn"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-session-line"]').text()).toContain('tok-123')
+  })
+
+  it('connected: renders the connected panel class and green connected treatment', () => {
+    const wrapper = mountPanel({ state: 'connected', token: 'tok-123' })
+
+    expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain(
+      'agent-link-panel--connected'
+    )
+    expect(wrapper.find('[data-testid="agent-link-connected"]').exists()).toBe(true)
+    expect(wrapper.find('.agent-link-panel__live-dot').exists()).toBe(true)
+    expect(connectPanelSource).toContain('.agent-link-panel--connected')
+    expect(connectPanelSource).toContain('border-color: var(--agent-link-green)')
   })
 
   it('timeout: shows the setup command', () => {

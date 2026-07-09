@@ -333,7 +333,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       try {
         const result = await dispatchTool(params.name, params.arguments, ctx);
-        return jsonRpcResult(id, result);
+        // MCP `CallToolResult` REQUIRES a `content` array — a real MCP client
+        // (Claude Code / the SDK) rejects a tool result without it with a
+        // schema-validation error ("expected array, received undefined"). Raw
+        // curl doesn't validate, which hid this until a real client connected.
+        // Wrap the tool payload as a text block, and echo it as
+        // structuredContent for clients that consume typed output.
+        return jsonRpcResult(id, {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+          structuredContent: result as Record<string, unknown>,
+        });
       } catch (err) {
         if (err instanceof ToolError) {
           const code = err.code === 'bad_args' ? RPC_INVALID_PARAMS : RPC_UNKNOWN_TOOL;

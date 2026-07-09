@@ -94,8 +94,12 @@ describe('POST /agent-link/mcp', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(json.result.stubbed).toBe(true);
-    expect(json.result.pageId).toBe(CTX.pageId);
+    // MCP-compliant CallToolResult: a `content` text array wrapping the
+    // payload, echoed as structuredContent for typed clients.
+    expect(Array.isArray(json.result.content)).toBe(true);
+    expect(json.result.content[0].type).toBe('text');
+    expect(json.result.structuredContent.stubbed).toBe(true);
+    expect(json.result.structuredContent.pageId).toBe(CTX.pageId);
   });
 
   it('tools/call update_diagram returns the stubbed ok/version/rendered shape', async () => {
@@ -107,8 +111,9 @@ describe('POST /agent-link/mcp', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(json.result).toMatchObject({ ok: true, rendered: true, stubbed: true });
-    expect(typeof json.result.version).toBe('number');
+    expect(json.result.content[0].type).toBe('text');
+    expect(json.result.structuredContent).toMatchObject({ ok: true, rendered: true, stubbed: true });
+    expect(typeof json.result.structuredContent.version).toBe('number');
   });
 
   it('tools/call with an unknown tool name returns a JSON-RPC error, not a thrown exception', async () => {
@@ -286,7 +291,8 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
     const { res, json } = await postWithEnv(rpc('tools/call', { name: 'read_page', arguments: {} }), env);
 
     expect(res.status).toBe(200);
-    expect(json.result).toEqual({ pageId: 'page-1', title: 'Real title', text: 'Real text' });
+    expect(json.result.structuredContent).toEqual({ pageId: 'page-1', title: 'Real title', text: 'Real text' });
+    expect(json.result.content[0].text).toBe(JSON.stringify({ pageId: 'page-1', title: 'Real title', text: 'Real text' }));
   });
 
   it('maps a 409 (macro not connected) from the DO to a JSON-RPC error with HTTP 409', async () => {

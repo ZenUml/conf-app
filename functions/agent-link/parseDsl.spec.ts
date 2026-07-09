@@ -12,9 +12,12 @@ describe('normalizeDialect', () => {
     expect(normalizeDialect('mermaid')).toBe('mermaid');
     expect(normalizeDialect('plantuml')).toBe('plantuml');
   });
-  it('maps anything we cannot parse to "unknown"', () => {
+  it('maps OpenApi (budget-permitting tier) to its own structural-lint dialect', () => {
+    expect(normalizeDialect('OpenApi')).toBe('openapi');
+    expect(normalizeDialect('openapi')).toBe('openapi');
+  });
+  it('maps anything we still don\'t parse to "unknown"', () => {
     expect(normalizeDialect('Graph')).toBe('unknown');
-    expect(normalizeDialect('OpenApi')).toBe('unknown');
     expect(normalizeDialect('AsyncApi')).toBe('unknown');
     expect(normalizeDialect('Embed')).toBe('unknown');
     expect(normalizeDialect(undefined)).toBe('unknown');
@@ -97,9 +100,93 @@ describe('parseDsl — PlantUML (structural lint, no stats)', () => {
   });
 });
 
+describe('parseDsl — OpenAPI (structural YAML/JSON lint, no stats, no schema validation)', () => {
+  it('accepts a valid OpenAPI 3.x YAML document', async () => {
+    const r = await parseDsl(
+      'OpenApi',
+      ['openapi: 3.0.0', 'info:', '  title: Widget API', '  version: "1.0"', 'paths: {}'].join('\n'),
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.stats).toBeUndefined(); // charter: openapi stats skipped — it's a document, not a message sequence
+      expect(r.unvalidated).toBeUndefined(); // it IS validated now, not passed through
+    }
+  });
+
+  it('accepts a valid Swagger 2.0 document', async () => {
+    const r = await parseDsl(
+      'OpenApi',
+      ['swagger: "2.0"', 'info:', '  title: Widget API', '  version: "1.0"', 'paths: {}'].join('\n'),
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it('accepts a valid OpenAPI document authored as JSON', async () => {
+    const json = JSON.stringify({ openapi: '3.0.0', info: { title: 'Widget API', version: '1.0' }, paths: {} });
+    const r = await parseDsl('OpenApi', json);
+    expect(r.ok).toBe(true);
+  });
+
+  it('rejects bad mapping indentation with a line/col error (corpus signature #1, 52.9%)', async () => {
+    const badIndent = [
+      'openapi: 3.0.0',
+      'info:',
+      '  title: Widget API',
+      '  version: "1.0"',
+      'paths:',
+      '  /widgets:',
+      '   get:',
+      '     summary: list widgets',
+      '    operationId: listWidgets', // misaligned — one space short of its sibling
+    ].join('\n');
+    const r = await parseDsl('OpenApi', badIndent);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.errors[0].line).toBeGreaterThan(0);
+      expect(typeof r.errors[0].col).toBe('number');
+      expect(r.errors[0].message).toMatch(/indent/i);
+    }
+  });
+
+  it('rejects a duplicate mapping key with a line/col error (corpus signature #2, 47.1%)', async () => {
+    const dupKey = [
+      'openapi: 3.0.0',
+      'info:',
+      '  title: Widget API',
+      '  version: "1.0"',
+      'paths:',
+      '  /widgets:',
+      '    get:',
+      '      responses:',
+      "        '500':",
+      '          description: server error',
+      "        '500':",
+      '          description: duplicate entry',
+    ].join('\n');
+    const r = await parseDsl('OpenApi', dupKey);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.errors[0].line).toBeGreaterThan(0);
+      expect(r.errors[0].message).toMatch(/duplicat/i);
+    }
+  });
+
+  it('rejects a document missing both openapi and swagger keys', async () => {
+    const r = await parseDsl('OpenApi', ['info:', '  title: x', 'paths: {}'].join('\n'));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors[0].message).toMatch(/openapi.*swagger|swagger.*openapi/i);
+  });
+
+  it('rejects a non-mapping top level (e.g. a bare array)', async () => {
+    const r = await parseDsl('OpenApi', '- just\n- a\n- list');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors[0].message).toMatch(/mapping/i);
+  });
+});
+
 describe('parseDsl — unknown/unparseable dialects pass through', () => {
   it('never blocks a dialect we cannot parse (returns ok + unvalidated)', async () => {
-    for (const t of ['Graph', 'OpenApi', 'AsyncApi', 'Embed', 'somethingNew']) {
+    for (const t of ['Graph', 'AsyncApi', 'Embed', 'somethingNew']) {
       const r = await parseDsl(t, 'literally anything <xml/>');
       expect(r.ok).toBe(true);
       if (r.ok) {
@@ -133,6 +220,7 @@ A.method() {
 
   it('computeStats returns undefined for skipped/unknown dialects', () => {
     expect(computeStats('PlantUml', '@startuml\nA->B\n@enduml')).toBeUndefined();
+    expect(computeStats('OpenApi', 'openapi: 3.0.0\ninfo:\n  title: x\npaths: {}')).toBeUndefined();
     expect(computeStats('Graph', 'x')).toBeUndefined();
   });
 });

@@ -12,6 +12,7 @@ import {
 import { ZENUML_DSL_GUIDE, ZENUML_DSL_GUIDE_URI } from './zenumlDslGuide';
 import { MERMAID_DSL_GUIDE, MERMAID_DSL_GUIDE_URI } from './mermaidDslGuide';
 import { PLANTUML_DSL_GUIDE, PLANTUML_DSL_GUIDE_URI } from './plantumlDslGuide';
+import { OPENAPI_DSL_GUIDE, OPENAPI_DSL_GUIDE_URI } from './openApiDslGuide';
 
 describe('guide content — each dialect leads with its disambiguation table', () => {
   it('ZenUML: "This is ZenUML — NOT Mermaid or PlantUML"', () => {
@@ -32,6 +33,10 @@ describe('guide content — each dialect leads with its disambiguation table', (
     expect(PLANTUML_DSL_GUIDE).toContain('This is PlantUML — NOT Mermaid or ZenUML');
     expect(PLANTUML_DSL_GUIDE).toMatch(/sequenceDiagram/);
     expect(PLANTUML_DSL_GUIDE).toMatch(/@Actor/);
+  });
+
+  it('OpenAPI: leads with "this is a SPEC, not a diagram DSL"', () => {
+    expect(OPENAPI_DSL_GUIDE).toContain('This is a SPEC, not a diagram DSL');
   });
 });
 
@@ -60,6 +65,13 @@ describe('guide content — each guide encodes its top-3 mined signatures', () =
     expect(PLANTUML_DSL_GUIDE).toContain('Exactly one `@startuml`');
   });
 
+  it('OpenAPI top-2 (100% of the mined corpus): indentation, duplicate keys', () => {
+    expect(OPENAPI_DSL_GUIDE).toContain('Keep indentation consistent at every mapping level');
+    expect(OPENAPI_DSL_GUIDE).toContain('Never repeat a key at the same mapping level');
+    expect(OPENAPI_DSL_GUIDE).toContain('52.9%');
+    expect(OPENAPI_DSL_GUIDE).toContain('47.1%');
+  });
+
   it('Combined guide leads with the cross-dialect blending warning + all three resource URIs', () => {
     expect(COMBINED_DSL_GUIDE).toContain('DO NOT blend');
     expect(COMBINED_DSL_GUIDE).toContain(ZENUML_DSL_GUIDE_URI);
@@ -85,8 +97,13 @@ describe('resolveGuideSelection maps a macro diagramType to what to serve', () =
     expect(resolveGuideSelection('PlantUml')).toBe('plantuml');
   });
 
-  it('known non-DSL types → none (no guide, generic behavior)', () => {
-    for (const t of ['Graph', 'OpenApi', 'AsyncApi', 'Embed', 'Unknown']) {
+  it('OpenAPI → its own minimal guide (a spec, not a diagram DSL, but still guided)', () => {
+    expect(resolveGuideSelection('OpenApi')).toBe('openapi');
+    expect(resolveGuideSelection('openapi')).toBe('openapi');
+  });
+
+  it('known non-guided types → none (no guide, generic behavior)', () => {
+    for (const t of ['Graph', 'AsyncApi', 'Embed', 'Unknown']) {
       expect(resolveGuideSelection(t)).toBe('none');
     }
   });
@@ -101,32 +118,39 @@ describe('selectInstructions (initialize) picks the right guide', () => {
     expect(selectInstructions('Mermaid')).toBe(MERMAID_DSL_GUIDE);
     expect(selectInstructions('PlantUml')).toBe(PLANTUML_DSL_GUIDE);
   });
-  it('non-DSL type → undefined (serve no instructions)', () => {
+  it('openapi → the OpenAPI guide', () => {
+    expect(selectInstructions('OpenApi')).toBe(OPENAPI_DSL_GUIDE);
+  });
+  it('non-guided type → undefined (serve no instructions)', () => {
     expect(selectInstructions('Graph')).toBeUndefined();
-    expect(selectInstructions('OpenApi')).toBeUndefined();
+    expect(selectInstructions('AsyncApi')).toBeUndefined();
   });
 });
 
 describe('selectToolHint (update_diagram description) picks the right hint', () => {
-  it('unknown → combined hint; DSL → dialect hint; non-DSL → undefined', () => {
+  it('unknown → combined hint; DSL → dialect hint; openapi → its hint; non-guided → undefined', () => {
     expect(selectToolHint(undefined)).toBe(COMBINED_DSL_TOOL_HINT);
     expect(selectToolHint('Sequence')).toMatch(/ZenUML DSL/);
     expect(selectToolHint('Mermaid')).toMatch(/Mermaid DSL/);
     expect(selectToolHint('PlantUml')).toMatch(/PlantUML DSL/);
+    expect(selectToolHint('OpenApi')).toMatch(/OpenAPI\/Swagger/);
     expect(selectToolHint('Graph')).toBeUndefined();
   });
 });
 
 describe('resources', () => {
-  it('listGuideResources advertises all three dialect guides', () => {
+  it('listGuideResources advertises all four guides (three diagram DSLs + OpenAPI)', () => {
     const uris = listGuideResources().map((r) => r.uri).sort();
-    expect(uris).toEqual([MERMAID_DSL_GUIDE_URI, PLANTUML_DSL_GUIDE_URI, ZENUML_DSL_GUIDE_URI].sort());
+    expect(uris).toEqual(
+      [MERMAID_DSL_GUIDE_URI, PLANTUML_DSL_GUIDE_URI, ZENUML_DSL_GUIDE_URI, OPENAPI_DSL_GUIDE_URI].sort(),
+    );
   });
 
   it('getGuideByUri resolves each dialect URI to its guide text', () => {
     expect(getGuideByUri(ZENUML_DSL_GUIDE_URI)?.text).toBe(ZENUML_DSL_GUIDE);
     expect(getGuideByUri(MERMAID_DSL_GUIDE_URI)?.text).toBe(MERMAID_DSL_GUIDE);
     expect(getGuideByUri(PLANTUML_DSL_GUIDE_URI)?.text).toBe(PLANTUML_DSL_GUIDE);
+    expect(getGuideByUri(OPENAPI_DSL_GUIDE_URI)?.text).toBe(OPENAPI_DSL_GUIDE);
   });
 
   it('getGuideByUri returns undefined for an unknown URI', () => {
@@ -140,6 +164,7 @@ describe('getGuideText (Track E1 single-source accessor)', () => {
     expect(getGuideText('zenuml')).toBe(ZENUML_DSL_GUIDE);
     expect(getGuideText('mermaid')).toBe(MERMAID_DSL_GUIDE);
     expect(getGuideText('plantuml')).toBe(PLANTUML_DSL_GUIDE);
+    expect(getGuideText('openapi')).toBe(OPENAPI_DSL_GUIDE);
     expect(getGuideText('combined')).toBe(COMBINED_DSL_GUIDE);
   });
 });
@@ -157,7 +182,9 @@ describe('sanitization — no corpus-identifying strings leak into any guide', (
     'domain.models', 'moonactive', 'colesgroup', 'Hiển thị', '契約',
     'OpCo', 'isValidPlate',
   ];
-  const ALL = [ZENUML_DSL_GUIDE, MERMAID_DSL_GUIDE, PLANTUML_DSL_GUIDE, COMBINED_DSL_GUIDE].join('\n');
+  const ALL = [ZENUML_DSL_GUIDE, MERMAID_DSL_GUIDE, PLANTUML_DSL_GUIDE, OPENAPI_DSL_GUIDE, COMBINED_DSL_GUIDE].join(
+    '\n',
+  );
   for (const s of FORBIDDEN) {
     it(`does not contain "${s}"`, () => {
       expect(ALL).not.toContain(s);

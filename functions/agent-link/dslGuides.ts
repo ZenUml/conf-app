@@ -17,8 +17,11 @@
 //     blending is THE #1 failure across all three dialects).
 //   • On per-request surfaces (tools/list, resources) AFTER a read_diagram, the
 //     type is known → we sharpen to that single dialect's guide/hint.
-//   • A known non-DSL type (Graph/OpenApi/AsyncApi/Embed) → NO guide is served
+//   • A known type with no guide (Graph/AsyncApi/Embed) → NO guide is served
 //     (generic behavior); we never push sequence-DSL guidance onto them.
+//   • OpenAPI has its own minimal guide (it's a spec, not a diagram DSL — see
+//     openApiDslGuide.ts) — a budget-permitting tier added once the mined
+//     corpus showed its failures are 100% YAML-structural (§4).
 //
 // Guides are DATA-DRIVEN from real, sanitized failure signatures — see the
 // per-dialect files and evidence/B-signature-mining.md.
@@ -39,9 +42,14 @@ import {
   PLANTUML_DSL_TOOL_HINT,
   PLANTUML_DSL_GUIDE_URI,
 } from './plantumlDslGuide';
+import {
+  OPENAPI_DSL_GUIDE,
+  OPENAPI_DSL_TOOL_HINT,
+  OPENAPI_DSL_GUIDE_URI,
+} from './openApiDslGuide';
 
-/** The three DSL dialects we have an authored guide for. */
-export type GuideDialect = 'zenuml' | 'mermaid' | 'plantuml';
+/** The dialects we have an authored guide for (three diagram DSLs + the OpenAPI spec format). */
+export type GuideDialect = 'zenuml' | 'mermaid' | 'plantuml' | 'openapi';
 
 /** Resolution of a macro diagramType to what should be served. */
 export type GuideSelection = GuideDialect | 'combined' | 'none';
@@ -82,6 +90,15 @@ const GUIDES: Record<GuideDialect, GuideEntry> = {
     resourceName: 'PlantUML DSL syntax guide',
     resourceDescription:
       'How to write PlantUML DSL for update_diagram — one @startuml/@enduml pair, no sub-type mixing, !define usage, no Mermaid/ZenUML syntax leakage.',
+  },
+  openapi: {
+    dialect: 'openapi',
+    guide: OPENAPI_DSL_GUIDE,
+    hint: OPENAPI_DSL_TOOL_HINT,
+    uri: OPENAPI_DSL_GUIDE_URI,
+    resourceName: 'OpenAPI/Swagger spec guide',
+    resourceDescription:
+      'How to write the OpenAPI/Swagger YAML or JSON document for update_diagram — it is a spec, not a diagram DSL: consistent mapping indentation, no duplicate keys.',
   },
 };
 
@@ -147,13 +164,13 @@ export const COMBINED_DSL_TOOL_HINT =
 /**
  * Resolve a macro `diagramType` to what should be served:
  *   • undefined/blank (type not yet known, e.g. at `initialize`) → 'combined'
- *   • a DSL dialect we have a guide for → that dialect
- *   • a known non-DSL type (Graph/OpenApi/AsyncApi/Embed/…) → 'none'
+ *   • a dialect we have a guide for (zenuml/mermaid/plantuml/openapi) → that dialect
+ *   • a known type with no guide (Graph/AsyncApi/Embed/…) → 'none'
  */
 export function resolveGuideSelection(diagramType: string | undefined | null): GuideSelection {
   if (diagramType == null || String(diagramType).trim() === '') return 'combined';
   const d = normalizeDialect(diagramType);
-  if (d === 'zenuml' || d === 'mermaid' || d === 'plantuml') return d;
+  if (d === 'zenuml' || d === 'mermaid' || d === 'plantuml' || d === 'openapi') return d;
   return 'none';
 }
 
@@ -214,5 +231,6 @@ export const GUIDE_KEYS: ReadonlyArray<GuideDialect | 'combined'> = [
   'zenuml',
   'mermaid',
   'plantuml',
+  'openapi',
   'combined',
 ];

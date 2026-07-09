@@ -143,11 +143,37 @@ describe('guardUpdateDiagram — data-loss now covers non-DSL diagram types', ()
     }
   });
 
-  it('still passes through unvalidated for a non-DSL type with no truncation', async () => {
+  // OpenAPI gained its own lightweight structural parse gate (budget-permitting
+  // tier, see evidence/B-signature-mining.md §4) — a well-formed revision is no
+  // longer merely passed-through unvalidated, it's genuinely checked.
+  it('a well-formed OpenAPI revision passes the (now real) structural parse gate', async () => {
     const revised = BIG_OPENAPI_DSL.replace('Example API', 'Example API v2');
     const r = await guardUpdateDiagram(revised, { diagramType: 'OpenApi', dsl: BIG_OPENAPI_DSL });
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.unvalidated).toBe(true);
+    if (r.ok) expect(r.unvalidated).toBeUndefined();
+  });
+
+  it('rejects a malformed OpenAPI revision (duplicate key) with a structured parse error', async () => {
+    const dup = [
+      'openapi: 3.0.0',
+      'info:',
+      '  title: Example API',
+      '  version: 1.0.0',
+      'paths:',
+      '  /widgets:',
+      '    get:',
+      '      responses:',
+      "        '500':",
+      '          description: server error',
+      "        '500':",
+      '          description: duplicate error entry',
+    ].join('\n');
+    const r = await guardUpdateDiagram(dup, { diagramType: 'OpenApi', dsl: BIG_OPENAPI_DSL });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toBe('parse_error');
+      expect(r.errors?.[0].message).toMatch(/duplicat/i);
+    }
   });
 });
 

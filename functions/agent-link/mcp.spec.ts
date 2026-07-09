@@ -155,15 +155,15 @@ describe('POST /agent-link/mcp', () => {
     expect(json.result.instructions).toMatch(/update_diagram/);
   });
 
-  it('resources/list advertises all three dialect DSL guides', async () => {
+  it('resources/list advertises all four guides (three dialect DSLs + OpenAPI)', async () => {
     const record = sessionRegistry.create(CTX);
 
     const { res, json } = await post(rpc('resources/list'), { token: record.token });
 
     expect(res.status).toBe(200);
-    expect(json.result.resources).toHaveLength(3);
+    expect(json.result.resources).toHaveLength(4);
     expect(json.result.resources.map((r: { uri: string }) => r.uri).sort()).toEqual(
-      ['mermaid://dsl-guide', 'plantuml://dsl-guide', 'zenuml://dsl-guide'].sort(),
+      ['mermaid://dsl-guide', 'openapi://dsl-guide', 'plantuml://dsl-guide', 'zenuml://dsl-guide'].sort(),
     );
   });
 
@@ -479,8 +479,19 @@ describe('POST /agent-link/mcp — per-dialect guide serving', () => {
     expect(update.description).not.toMatch(/ZenUML DSL|Mermaid DSL|PlantUML DSL/);
   });
 
-  it('an OpenApi session likewise gets no guide (generic behavior)', async () => {
+  it('a bound OpenApi session gets its own minimal spec guide (budget-permitting tier)', async () => {
     const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'OpenApi' }) });
+
+    const init = await postWithEnv(rpc('initialize'), env);
+    expect(init.json.result.instructions).toMatch(/This is a SPEC, not a diagram DSL/);
+
+    const list = await postWithEnv(rpc('tools/list'), env);
+    const update = list.json.result.tools.find((t: { name: string }) => t.name === 'update_diagram');
+    expect(update.description).toMatch(/OpenAPI\/Swagger/);
+  });
+
+  it('an AsyncApi session still gets no guide (generic behavior — no guide authored for it)', async () => {
+    const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'AsyncApi' }) });
 
     const init = await postWithEnv(rpc('initialize'), env);
     expect(init.json.result.instructions).toBeUndefined();

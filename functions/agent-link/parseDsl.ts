@@ -20,16 +20,28 @@
 //   - PlantUML-> structural lint only (envelope + brace balance). No
 //               workerd-safe real PlantUML parser exists; this catches
 //               truncation/paste/envelope breaks, NOT grammar mistakes.
+//   - OpenAPI -> structural YAML/JSON lint via `js-yaml` (already a dependency
+//               — see src/utils/openapi/validate.ts) + a minimal top-level
+//               `openapi:`/`swagger:` key check. NOT a schema validator: the
+//               budget-permitting-tier evidence (evidence/B-signature-mining.md
+//               §4) found 100% of the 17 scored OpenAPI failures decompose
+//               into exactly two YAML-structural signatures (bad indentation,
+//               duplicate keys), both of which js-yaml throws on by default
+//               with real line/col — proportionate coverage for that corpus.
+//               Deliberately does NOT validate OpenAPI semantics (required
+//               fields beyond the version key, $ref resolution, parameter
+//               types, response-schema shape).
 //
 // Uniform return shape:
 //   { ok: true, stats?: { participants, messages }, unvalidated?: true }
 //   { ok: false, errors: [{ line, col, message }] }
 // `unvalidated: true` is returned ONLY for a dialect we deliberately do not
-// parse (Graph/OpenApi/AsyncApi/Embed/unknown) — the guard must NEVER block a
-// dialect it cannot understand (charter: "never block a dialect we can't
-// parse"). `stats` is best-effort structural counts for drift detection
-// (charter §4-C point 3, NOT a blocker); present for ZenUML + Mermaid, absent
-// for PlantUML (skipped) and unvalidated dialects.
+// parse (Graph/AsyncApi/Embed/unknown) — the guard must NEVER block a dialect
+// it cannot understand (charter: "never block a dialect we can't parse").
+// `stats` is best-effort structural counts for drift detection (charter §4-C
+// point 3, NOT a blocker); present for ZenUML + Mermaid, absent for PlantUML
+// (skipped), OpenAPI (skipped — it's a document, not a message sequence), and
+// unvalidated dialects.
 
 export interface DslError {
   /** 1-based line of the offending token (best-effort; 1 when unknown). */
@@ -48,7 +60,7 @@ export type ParseDslResult =
   | { ok: true; stats?: DslStats; unvalidated?: true }
   | { ok: false; errors: DslError[] };
 
-export type Dialect = 'zenuml' | 'mermaid' | 'plantuml' | 'unknown';
+export type Dialect = 'zenuml' | 'mermaid' | 'plantuml' | 'openapi' | 'unknown';
 
 /**
  * Map the macro's `diagramType` (the DiagramType enum values it reports on
@@ -61,6 +73,7 @@ export function normalizeDialect(diagramType: string | undefined | null): Dialec
   if (t === 'sequence' || t === 'zenuml') return 'zenuml';
   if (t === 'mermaid') return 'mermaid';
   if (t === 'plantuml' || t === 'plant-uml' || t === 'plant_uml') return 'plantuml';
+  if (t === 'openapi' || t === 'open-api' || t === 'open_api') return 'openapi';
   return 'unknown';
 }
 
@@ -197,6 +210,51 @@ function parsePlantuml(dsl: string): ParseDslResult {
   // NOTE: no stats for PlantUML (charter §4-C: "plantuml skip").
 }
 
+// ---- OpenAPI (structural YAML/JSON lint — honest partial coverage) --------
+// OpenAPI/Swagger specs are authored as YAML or JSON (js-yaml's loader reads
+// both — verified empirically, including flow-style JSON mappings). This is
+// deliberately NOT a schema validator: it catches exactly the two signatures
+// the corpus mining found (see the module header + evidence/B-signature-
+// mining.md §4), nothing more.
+async function parseOpenapi(dsl: string): Promise<ParseDslResult> {
+  const yaml = (await import('js-yaml')) as { load(s: string): unknown };
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(dsl);
+  } catch (e) {
+    // js-yaml's YAMLException carries a `mark` with a 0-based {line, column}
+    // pointing at the offending token — confirmed empirically for both
+    // "bad indentation of a mapping entry" and "duplicated mapping key".
+    const err = e as { message?: string; mark?: { line: number; column: number } };
+    const firstLine = String(err?.message ?? 'YAML parse error').split('\n')[0];
+    const mark = err?.mark;
+    return {
+      ok: false,
+      errors: [{ line: mark ? mark.line + 1 : 1, col: mark ? mark.column : 0, message: firstLine }],
+    };
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {
+      ok: false,
+      errors: [
+        { line: 1, col: 0, message: 'Not a valid OpenAPI/Swagger document: the top level must be a YAML/JSON mapping' },
+      ],
+    };
+  }
+  const doc = parsed as Record<string, unknown>;
+  if (doc.openapi === undefined && doc.swagger === undefined) {
+    return {
+      ok: false,
+      errors: [
+        { line: 1, col: 0, message: "Missing required top-level 'openapi' (3.x) or 'swagger' (2.0) key" },
+      ],
+    };
+  }
+  return { ok: true };
+  // NOTE: no stats for OpenAPI (charter: skip roundtrip stats — it's a
+  // document, not a message sequence with participants/messages to count).
+}
+
 // ---- Best-effort structural stats (drift detection, NOT a gate) -----------
 // These are text-derived, deliberately approximate counts. Their VALUE is that
 // the identical function runs on the before-DSL and the after-DSL, so a
@@ -299,9 +357,11 @@ export async function parseDsl(diagramType: string, dsl: string): Promise<ParseD
       return parseMermaid(dsl);
     case 'plantuml':
       return parsePlantuml(dsl);
+    case 'openapi':
+      return parseOpenapi(dsl);
     default:
-      // A dialect we deliberately don't parse (Graph/OpenApi/AsyncApi/Embed/…)
-      // — pass through so the guard never blocks something it can't understand.
+      // A dialect we deliberately don't parse (Graph/AsyncApi/Embed/…) — pass
+      // through so the guard never blocks something it can't understand.
       return { ok: true, unvalidated: true };
   }
 }

@@ -29,6 +29,7 @@ import { authenticateSession } from './mcpAuth';
 import type { AuthResult } from './mcpAuth';
 import { dispatchTool, getToolSchemas, ToolError } from './mcpTools';
 import type { DispatchContext, ForwardResult, ToolName } from './mcpTools';
+import type { DiagramSnapshot } from './updateDiagramGuard';
 import { ZENUML_DSL_GUIDE, ZENUML_DSL_GUIDE_URI } from './zenumlDslGuide';
 import { sessionRegistry } from './registrySingleton';
 import { TOKEN_TTL_MS } from './sessionToken';
@@ -64,6 +65,9 @@ const RPC_INVALID_PARAMS = -32602;
 const RPC_AUTH_ERROR = -32001;
 const RPC_UNKNOWN_TOOL = -32002;
 const RPC_MACRO_ERROR = -32003;
+// The update_diagram guardrail rejected the DSL (parse error / data-loss)
+// before any macro round-trip — see mcpTools.ts + updateDiagramGuard.ts.
+const RPC_GUARDRAIL_REJECTED = -32004;
 
 function jsonRpcResult(id: JsonRpcId, result: unknown): Response {
   return new Response(JSON.stringify({ jsonrpc: '2.0', id, result }), {
@@ -123,6 +127,13 @@ interface DoSessionInfo {
   state: SessionState;
   boundContext: SessionRecord['boundContext'];
   issuedAtMs: number;
+  /**
+   * Last-known {diagramType, dsl} the DO cached from the agent's read_diagram
+   * / prior update_diagram — the synchronous baseline the update_diagram
+   * guardrail (updateDiagramGuard.ts) parses and length-checks against. Absent
+   * until the agent has read the diagram at least once.
+   */
+  lastDiagram?: DiagramSnapshot;
 }
 
 export type MacroForwardErrorCode = 'macro_not_connected' | 'macro_timeout' | 'bad_response';
@@ -147,13 +158,16 @@ export class MacroForwardError extends Error {
  * and cannot see a session minted on a different isolate; the DO can, since
  * Durable Objects are single-instance-per-id across the whole account.
  */
-async function authenticateViaDo(agentLink: DurableObjectNamespace, token: string): Promise<AuthResult> {
+async function authenticateViaDo(
+  agentLink: DurableObjectNamespace,
+  token: string,
+): Promise<{ auth: AuthResult; diagram?: DiagramSnapshot }> {
   const stub = agentLink.get(agentLink.idFromName(token));
   const res = await stub.fetch('https://agent-link-do/session', { method: 'GET' });
 
-  if (res.status === 401) return { ok: false, code: 'invalid' };
-  if (res.status === 403) return { ok: false, code: 'expired' };
-  if (!res.ok) return { ok: false, code: 'invalid' }; // defensive: unexpected status treated as unauthenticated
+  if (res.status === 401) return { auth: { ok: false, code: 'invalid' } };
+  if (res.status === 403) return { auth: { ok: false, code: 'expired' } };
+  if (!res.ok) return { auth: { ok: false, code: 'invalid' } }; // defensive: unexpected status treated as unauthenticated
 
   const info = (await res.json()) as DoSessionInfo;
   const session: SessionRecord = {
@@ -163,7 +177,10 @@ async function authenticateViaDo(agentLink: DurableObjectNamespace, token: strin
     issuedAtMs: info.issuedAtMs,
     state: info.state,
   };
-  return { ok: true, session };
+  // The diagram snapshot rides back on the auth round-trip that already happens
+  // on every request, so the update_diagram guardrail stays synchronous with no
+  // extra network hop (see updateDiagramGuard.ts's design note).
+  return { auth: { ok: true, session }, diagram: info.lastDiagram };
 }
 
 /**
@@ -275,9 +292,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     return jsonRpcError(401, null, RPC_AUTH_ERROR, authErrorMessage('missing'), { code: 'missing' });
   }
 
-  const auth = env?.AGENT_LINK
-    ? await authenticateViaDo(env.AGENT_LINK, token)
-    : authenticateSession(token, sessionRegistry, Date.now());
+  let auth: AuthResult;
+  let diagramSnapshot: DiagramSnapshot | undefined;
+  if (env?.AGENT_LINK) {
+    const doResult = await authenticateViaDo(env.AGENT_LINK, token);
+    auth = doResult.auth;
+    diagramSnapshot = doResult.diagram;
+  } else {
+    // Local dev / unit tests with no DO bound: no cached diagram snapshot, so
+    // the update_diagram guardrail degrades to pass-through (documented in
+    // updateDiagramGuard.ts).
+    auth = authenticateSession(token, sessionRegistry, Date.now());
+  }
   if (!auth.ok) {
     const status = auth.code === 'expired' ? 403 : 401;
     return jsonRpcError(status, null, RPC_AUTH_ERROR, authErrorMessage(auth.code), { code: auth.code });
@@ -358,6 +384,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         forwardToMacro: env?.AGENT_LINK
           ? doForwardToMacro(env.AGENT_LINK, token)
           : stubForwardToMacro(auth.session),
+        diagramSnapshot,
       };
 
       try {
@@ -374,8 +401,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         });
       } catch (err) {
         if (err instanceof ToolError) {
-          const code = err.code === 'bad_args' ? RPC_INVALID_PARAMS : RPC_UNKNOWN_TOOL;
-          return jsonRpcError(200, id, code, err.message, { code: err.code });
+          let code = RPC_UNKNOWN_TOOL;
+          if (err.code === 'bad_args') code = RPC_INVALID_PARAMS;
+          else if (err.code === 'guardrail') code = RPC_GUARDRAIL_REJECTED;
+          // Guardrail rejections carry rich structured `data` (reason, parse
+          // errors with line/col, current/new lengths) so the agent can fix and
+          // retry; other ToolErrors just echo their code.
+          const data = err.data ?? { code: err.code };
+          return jsonRpcError(200, id, code, err.message, data);
         }
         if (err instanceof MacroForwardError) {
           const status = err.code === 'macro_not_connected' ? 409 : err.code === 'macro_timeout' ? 504 : 502;

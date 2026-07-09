@@ -4,6 +4,13 @@ vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
 }))
 
+// Only exercised by the "relay wiring" describe block below (real callers
+// pass relayOptions.connect, so agentLinkWsUrl runs for real there too) —
+// stubbed here purely so that path doesn't need a live forgeGlobal context.
+vi.mock('@/model/globals/forgeGlobal', () => ({
+  default: { zenumlRemoteBaseUrl: 'https://backend.example' },
+}))
+
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { useAgentLinkSession } from './useAgentLinkSession'
 import { SETUP_TIMEOUT_MS } from './agentLinkState'
@@ -151,6 +158,65 @@ describe('useAgentLinkSession', () => {
       'agent_link_edit_failed',
       expect.objectContaining({ macro_type: 'sequence', reason: 'version_conflict' })
     )
+  })
+
+  describe('relay wiring — live-render callback (agent-link render fix)', () => {
+    function makeFakeRelayClient() {
+      return { send: vi.fn(), close: vi.fn(), getState: vi.fn(() => 'open') }
+    }
+
+    it('threads onDiagramUpdated through relay.connect and forwards it to options.onDiagramUpdated with macroType', async () => {
+      const bridgeOps = makeBridgeOps()
+      const onDiagramUpdated = vi.fn()
+      let capturedOnDiagramUpdated: ((dsl: string) => void) | undefined
+      const connect = vi.fn((_wsUrl, _bridge, _onStateEvent, onDiagUpdated) => {
+        capturedOnDiagramUpdated = onDiagUpdated
+        return makeFakeRelayClient()
+      })
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token' })
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'mermaid',
+        onDiagramUpdated,
+        relay: {
+          boundContext: { cloudId: 'c1', pageId: 'p1', contentId: 'cc1' },
+          requestSession,
+          connect,
+        },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(connect).toHaveBeenCalledTimes(1)
+      expect(typeof capturedOnDiagramUpdated).toBe('function')
+
+      capturedOnDiagramUpdated!('graph TD; A-->B')
+
+      expect(onDiagramUpdated).toHaveBeenCalledWith('graph TD; A-->B', 'mermaid')
+    })
+
+    it('does not throw when the relay fires the callback and no options.onDiagramUpdated was supplied', async () => {
+      const bridgeOps = makeBridgeOps()
+      let capturedOnDiagramUpdated: ((dsl: string) => void) | undefined
+      const connect = vi.fn((_wsUrl, _bridge, _onStateEvent, onDiagUpdated) => {
+        capturedOnDiagramUpdated = onDiagUpdated
+        return makeFakeRelayClient()
+      })
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token' })
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: {
+          boundContext: { cloudId: 'c1', pageId: 'p1', contentId: 'cc1' },
+          requestSession,
+          connect,
+        },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(() => capturedOnDiagramUpdated!('A->B: hi')).not.toThrow()
+    })
   })
 
   it('the 20s setup timeout moves waiting -> timeout and fires agent_link_setup_shown', async () => {

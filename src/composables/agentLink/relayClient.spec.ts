@@ -139,6 +139,83 @@ describe('createRelayClient', () => {
     })
   })
 
+  it('op:update_diagram fires onDiagramUpdated with the new DSL once the bridge write persists (the live-render fix)', async () => {
+    const bridge = makeBridge()
+    const onDiagramUpdated = vi.fn()
+    createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      onDiagramUpdated,
+      WebSocketImpl: MockWebSocket as any,
+    })
+    const socket = MockWebSocket.instances[0]
+    socket.triggerOpen()
+
+    socket.triggerMessage(
+      JSON.stringify({
+        kind: 'op',
+        id: 'req-live',
+        op: 'update_diagram',
+        payload: { dsl: 'A->B: hi', summary: 'added a step' },
+      })
+    )
+    await flush()
+
+    expect(bridge.writeDiagram).toHaveBeenCalledWith('A->B: hi', 'added a step')
+    expect(onDiagramUpdated).toHaveBeenCalledTimes(1)
+    expect(onDiagramUpdated).toHaveBeenCalledWith('A->B: hi')
+  })
+
+  it('op:update_diagram does NOT fire onDiagramUpdated when the bridge write fails to persist', async () => {
+    const bridge = makeBridge({
+      writeDiagram: vi.fn().mockResolvedValue({ ok: false, reason: 'version_conflict' }),
+    })
+    const onDiagramUpdated = vi.fn()
+    createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      onDiagramUpdated,
+      WebSocketImpl: MockWebSocket as any,
+    })
+    const socket = MockWebSocket.instances[0]
+    socket.triggerOpen()
+
+    socket.triggerMessage(
+      JSON.stringify({
+        kind: 'op',
+        id: 'req-fail',
+        op: 'update_diagram',
+        payload: { dsl: 'A->B: hi' },
+      })
+    )
+    await flush()
+
+    expect(onDiagramUpdated).not.toHaveBeenCalled()
+    expect(JSON.parse(socket.sent[0])).toEqual({
+      kind: 'result',
+      id: 'req-fail',
+      payload: { ok: false, reason: 'version_conflict' },
+    })
+  })
+
+  it('op:update_diagram works with no onDiagramUpdated callback wired (backward compatible)', async () => {
+    const bridge = makeBridge()
+    createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      WebSocketImpl: MockWebSocket as any,
+    })
+    const socket = MockWebSocket.instances[0]
+    socket.triggerOpen()
+
+    socket.triggerMessage(
+      JSON.stringify({ kind: 'op', id: 'req-nocb', op: 'update_diagram', payload: { dsl: 'A->B: hi' } })
+    )
+
+    await expect(flush()).resolves.toBeUndefined()
+    expect(JSON.parse(socket.sent[0])).toMatchObject({ kind: 'result', id: 'req-nocb' })
+  })
+
   it('a bridge failure (rejected promise) sends an error envelope with the same id', async () => {
     const bridge = makeBridge({ readPage: vi.fn().mockRejectedValue(new Error('boom')) })
     createRelayClient({

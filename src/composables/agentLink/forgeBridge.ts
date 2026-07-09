@@ -13,9 +13,15 @@
 //     CustomContentStorageProvider.save() uses — status:"current" +
 //     version.number increment happen inside it, not duplicated here)
 //
-// Because the bound macro already exists on the page, an update always
-// renders (design §4.2) — writeDiagram's success result hardcodes
-// rendered:true, matching the design's stated invariant.
+// writeDiagram only persists (saveCustomContentV2) — it does NOT, by itself,
+// make the currently-mounted macro redraw. Confluence custom-content has no
+// push/refetch back into a running iframe, so bumping the version here is
+// invisible to this session until relayClient.ts's onDiagramUpdated callback
+// (fired only once this write resolves {ok:true}) drives a store.dispatch of
+// the same action the in-app code editor uses (see GenericViewer.vue's
+// applyAgentDiagramUpdate). rendered:true here means "this write, once
+// wired through that callback, always causes a render" — not that this
+// function renders anything on its own.
 
 import type ApWrapper2 from '@/model/ApWrapper2'
 import { DiagramType, type Diagram } from '@/model/Diagram/Diagram'

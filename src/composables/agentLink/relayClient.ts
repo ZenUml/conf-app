@@ -60,6 +60,18 @@ export interface CreateRelayClientOptions {
   wsUrl: string
   bridge: AgentLinkBridgeOps
   onStateEvent?: (event: RelayStateEvent) => void
+  // Fires after a `update_diagram` op's bridge.writeDiagram() PERSISTS
+  // successfully (design §4.4 adapted — persist-then-render, not
+  // render-then-persist: an edit that failed to save must not visibly
+  // diverge from what's actually stored). This is the ONLY place the new
+  // DSL becomes observable outside the persistence call — bridge.writeDiagram
+  // only writes to Confluence custom-content; nothing about that write makes
+  // the currently-mounted Vue app's diagram re-render (that was the bug).
+  // The caller (useAgentLinkSession -> GenericViewer.vue) uses this to
+  // mirror the in-app code editor's own live-update mechanism
+  // (store.dispatch(getStoreUpdateAction(diagramType), dsl) — see
+  // Editor.vue's onEditorCodeChange) so the diagram redraws WITHOUT reload.
+  onDiagramUpdated?: (dsl: string) => void
   // Injectable so tests pass a mock instead of a real browser WebSocket.
   WebSocketImpl?: new (url: string) => WebSocket
   maxReconnectAttempts?: number
@@ -116,9 +128,16 @@ export function createRelayClient(opts: CreateRelayClientOptions): RelayClient {
         case 'read_diagram':
           result = await opts.bridge.readDiagram()
           break
-        case 'update_diagram':
-          result = await opts.bridge.writeDiagram(payload?.dsl, payload?.summary)
+        case 'update_diagram': {
+          const writeResult = await opts.bridge.writeDiagram(payload?.dsl, payload?.summary)
+          // Only fire the live-render callback once the write actually
+          // persisted — see onDiagramUpdated's doc comment above.
+          if ((writeResult as any)?.ok && typeof payload?.dsl === 'string') {
+            opts.onDiagramUpdated?.(payload.dsl)
+          }
+          result = writeResult
           break
+        }
         default:
           throw new Error(`unsupported op: ${op}`)
       }

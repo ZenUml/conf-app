@@ -60,9 +60,18 @@ export interface UseAgentLinkSessionOptions {
     connect?: (
       wsUrl: string,
       bridge: AgentLinkBridgeOps,
-      onStateEvent: (event: RelayStateEvent) => void
+      onStateEvent: (event: RelayStateEvent) => void,
+      onDiagramUpdated: (dsl: string) => void
     ) => RelayClient
   }
+  // Fires after a relay-driven `update_diagram` op persists successfully
+  // (see relayClient.ts's onDiagramUpdated doc comment). The host
+  // (GenericViewer.vue) wires this to update its local diagram state the
+  // SAME WAY the in-app code editor does — store.dispatch(getStoreUpdateAction(
+  // diagramType), dsl) — so the macro re-renders live, without a reload.
+  // `macroType` is this session's own bound diagram type, forwarded here so
+  // the host doesn't need a separate lookup.
+  onDiagramUpdated?: (dsl: string, macroType: MacroTypeValue) => void
 }
 
 export interface AgentLinkSessionApi {
@@ -152,8 +161,12 @@ export function useAgentLinkSession(
       const requestSession = relayOptions.requestSession ?? mintAgentLinkSession
       const connect =
         relayOptions.connect ??
-        ((wsUrl: string, bridge: AgentLinkBridgeOps, onStateEvent: (e: RelayStateEvent) => void) =>
-          createRelayClient({ wsUrl, bridge, onStateEvent }))
+        ((
+          wsUrl: string,
+          bridge: AgentLinkBridgeOps,
+          onStateEvent: (e: RelayStateEvent) => void,
+          onDiagramUpdated: (dsl: string) => void
+        ) => createRelayClient({ wsUrl, bridge, onStateEvent, onDiagramUpdated }))
       const startedForThisClick = connectStartedAt
       requestSession(relayOptions.boundContext)
         .then(({ token: realToken }) => {
@@ -165,7 +178,8 @@ export function useAgentLinkSession(
           relayClient = connect(
             agentLinkWsUrl(realToken, relayOptions.boundContext),
             bridgeOps,
-            handleRelayStateEvent
+            handleRelayStateEvent,
+            (dsl: string) => options.onDiagramUpdated?.(dsl, macroType)
           )
         })
         .catch((e) => {

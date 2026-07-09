@@ -166,7 +166,7 @@ import EventBus from '../../EventBus'
 import Debug from '@/components/Debug/Debug.vue'
 import globals from '@/model/globals';
 import {DataSource, DiagramType} from "@/model/Diagram/Diagram";
-import { getCodeFromDiagram } from "@/model/Diagram/DiagramTypeConfig";
+import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import ExportModal from '@/components/ExportModal/ExportModal.vue'
 import OverflowMenu from '@/components/Viewer/OverflowMenu.vue'
 import { toast } from '@/utils/toast'
@@ -375,6 +375,7 @@ export default {
         macroType: this.diagramType || 'none',
         clickSurface: 'viewer',
         relay,
+        onDiagramUpdated: (dsl, macroType) => this.applyAgentDiagramUpdate(dsl, macroType),
       });
     }
   },
@@ -398,6 +399,19 @@ export default {
     },
     onAgentLinkDisconnect() {
       this._agentLink?.disconnect('user');
+    },
+    // Live Agent Link render fix: an agent's update_diagram op PERSISTS via
+    // the Forge bridge (writeDiagram -> saveCustomContentV2), but that write
+    // does nothing to the currently-mounted Vue app's state — nobody re-reads
+    // Confluence after the initial load. The macro only redraws when
+    // store.state.diagram.{code,mermaidCode,plantUmlCode} changes (see
+    // Sequence.vue/Mermaid.vue/PlantUml.vue's `watch` on that field), which is
+    // exactly the mechanism the in-app code editor uses (Editor.vue's
+    // onEditorCodeChange: store.dispatch(getStoreUpdateAction(diagramType), newCode)).
+    // Mirror that here so a relay-driven edit renders live, without a reload.
+    applyAgentDiagramUpdate(dsl, macroType) {
+      const type = macroType || this.diagramType;
+      this.$store.dispatch(getStoreUpdateAction(type), dsl);
     },
     fullscreen() {
       trackEvent('fullscreen', 'click', 'viewing');

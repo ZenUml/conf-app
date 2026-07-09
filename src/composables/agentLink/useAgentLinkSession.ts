@@ -35,7 +35,12 @@ import {
   type RelayEditOutcome,
   type RelayStateEvent,
 } from './relayClient'
-import { agentLinkWsUrl, mintAgentLinkSession, type AgentLinkBoundContext } from './relayUrl'
+import {
+  agentLinkWsUrl,
+  mintAgentLinkSession,
+  type AgentLinkBoundContext,
+  type MintSessionError,
+} from './relayUrl'
 import {
   persistSession,
   clearSession,
@@ -635,6 +640,44 @@ export function useAgentLinkSession(
     })
   }
 
+  function isAlreadyLinkedMintFailure(error: unknown): boolean {
+    const e = error as Partial<MintSessionError> & { message?: string }
+    return (
+      e.status === 409 ||
+      e.error === 'diagram_already_linked' ||
+      e.message?.includes('HTTP 409') === true ||
+      e.message?.includes('diagram_already_linked') === true
+    )
+  }
+
+  function handleMintFailure(error: unknown, startedForThisClick: number | null): void {
+    console.error('agent-link: failed to mint relay session', error)
+    if (connectStartedAt !== startedForThisClick || state.value === 'closed') return
+
+    const alreadyLinked = isAlreadyLinkedMintFailure(error)
+    const handoffToken = token.value ?? `pending-${startedForThisClick ?? now()}`
+    token.value = null
+    expiresAt.value = null
+    state.value = nextClientState(state.value, alreadyLinked ? 'mint_rejected' : 'mint_failed')
+    if (boundContext) {
+      persistSession({
+        ...boundContext,
+        token: handoffToken,
+        state: alreadyLinked ? 'already_linked' : 'failed',
+      })
+    }
+
+    const e = error as Partial<MintSessionError> & { message?: string }
+    const reason = alreadyLinked ? 'diagram_already_linked' : 'session_mint_failed'
+    trackAnalyticsEvent('agent_link_edit_failed', {
+      feature_area: 'agent_link',
+      surface: 'fullscreen',
+      macro_type: macroType,
+      reason,
+      error_code: e.error ?? reason,
+    })
+  }
+
   function startConnect(): void {
     // A click is a click regardless of current state — track it, then only
     // bootstrap a new session if it actually moved idle → waiting (a repeat
@@ -704,7 +747,7 @@ export function useAgentLinkSession(
           openRelayChannel(realToken, relayOptions)
         })
         .catch((e) => {
-          console.error('agent-link: failed to mint relay session', e)
+          handleMintFailure(e, startedForThisClick)
         })
     }
 

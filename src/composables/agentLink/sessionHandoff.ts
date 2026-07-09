@@ -48,9 +48,15 @@
 import type { AgentLinkBoundContext } from './relayUrl'
 
 // 'suspended' (Track G): the relay socket dropped unexpectedly — see
-// useAgentLinkSession.ts's handleRelayStateEvent 'close' branch. Mirrored
-// onto the Fullscreen (display-only) instance's own state via hydrateFrom().
-export type AgentLinkHandoffState = 'waiting' | 'connected' | 'suspended'
+// useAgentLinkSession.ts's handleRelayStateEvent 'close' branch. Mint failure
+// states are mirrored too so the separate Fullscreen iframe can show a notice
+// even when no usable token was minted.
+export type AgentLinkHandoffState =
+  | 'waiting'
+  | 'connected'
+  | 'suspended'
+  | 'already_linked'
+  | 'failed'
 
 // Perceived-latency cue carried across the iframe boundary (charter §6 Track
 // F). The relay owner (inline macro) is the only instance that receives an
@@ -109,7 +115,8 @@ export function persistSession(session: AgentLinkHandoffSession): void {
 // Shared validity check used by both the single-key read (readSession) and
 // the scan-every-key read (readAnySession) below — a record is only usable
 // once it has all required fields, a recognized state, and isn't older than
-// HANDOFF_TTL_MS.
+// HANDOFF_TTL_MS. Mint-failure records carry the pending local token purely as
+// a handoff marker; ConnectPanel does not display it for those states.
 function isValidPersisted(
   parsed: Partial<PersistedHandoff> | null | undefined,
   now: number
@@ -122,7 +129,11 @@ function isValidPersisted(
     !!parsed.cloudId &&
     !!parsed.pageId &&
     !!parsed.contentId &&
-    (parsed.state === 'waiting' || parsed.state === 'connected' || parsed.state === 'suspended')
+    (parsed.state === 'waiting' ||
+      parsed.state === 'connected' ||
+      parsed.state === 'suspended' ||
+      parsed.state === 'already_linked' ||
+      parsed.state === 'failed')
   )
 }
 

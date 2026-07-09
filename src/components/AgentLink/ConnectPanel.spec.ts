@@ -5,7 +5,7 @@ import connectPanelSource from './ConnectPanel.vue?raw'
 import type { AgentLinkActivityEntry } from '@/composables/agentLink/useAgentLinkSession'
 
 function mountPanel(props: {
-  state: 'idle' | 'waiting' | 'connected' | 'timeout' | 'suspended' | 'closed'
+  state: 'idle' | 'waiting' | 'connected' | 'timeout' | 'suspended' | 'closed' | 'already_linked' | 'failed'
   token?: string | null
   activityFeed?: AgentLinkActivityEntry[]
 }) {
@@ -153,6 +153,36 @@ describe('ConnectPanel', () => {
     expect(wrapper.emitted('disconnect')).toHaveLength(1)
     expect(wrapper.emitted('revoke')).toHaveLength(1)
   })
+
+  it('already_linked: renders the rejected notice with design-contract copy and actions', async () => {
+    const wrapper = mountPanel({ state: 'already_linked' })
+
+    const notice = wrapper.find('[data-testid="agent-link-notice"]')
+    expect(notice.exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe(
+      'This diagram is already linked to an agent'
+    )
+    expect(notice.text()).toContain(
+      'A session started 4 min ago is still active. Only one agent can hold the link at a time'
+    )
+    expect(wrapper.find('[data-testid="agent-link-notice-revoke-btn"]').text()).toContain('Revoke & re-link')
+    expect(wrapper.find('[data-testid="agent-link-notice-cancel-btn"]').text()).toContain('Cancel')
+
+    await wrapper.find('[data-testid="agent-link-notice-revoke-btn"]').trigger('click')
+    await wrapper.find('[data-testid="agent-link-notice-cancel-btn"]').trigger('click')
+    expect(wrapper.emitted('revoke')).toHaveLength(1)
+    expect(wrapper.emitted('cancel')).toHaveLength(1)
+  })
+
+  it('failed: renders a visible retryable mint-failure notice', () => {
+    const wrapper = mountPanel({ state: 'failed' })
+
+    const notice = wrapper.find('[data-testid="agent-link-notice"]')
+    expect(notice.exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe('Could not link your agent')
+    expect(notice.text()).toContain('We could not create a link session. Try reconnecting in a moment')
+    expect(wrapper.find('[data-testid="agent-link-reconnect-btn"]').exists()).toBe(true)
+  })
 })
 
 // Track H — the 316px rail composition (design contract:
@@ -258,6 +288,18 @@ describe('ConnectPanel — Track H rail composition', () => {
 
     await wrapper.find('[data-testid="agent-link-reconnect-btn"]').trigger('click')
     expect(wrapper.emitted('reconnect')).toHaveLength(1)
+  })
+
+  it('already-linked rejection: shows the rejected notice and Revoke & re-link, not an empty rail', () => {
+    const wrapper = mountRail({ state: 'already_linked', diagramTitle: 'Checkout flow' })
+
+    expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain('agent-link-panel--already_linked')
+    expect(wrapper.find('[data-testid="agent-link-notice"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe(
+      'This diagram is already linked to an agent'
+    )
+    expect(wrapper.find('[data-testid="agent-link-notice-revoke-btn"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-notice-cancel-btn"]').exists()).toBe(true)
   })
 
   it('idle: renders an empty panel (no header, notice, feed or actions) — nothing before connect', () => {

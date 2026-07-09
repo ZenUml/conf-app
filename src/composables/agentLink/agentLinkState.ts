@@ -16,7 +16,9 @@ export type AgentLinkClientState =
   | "connected"
   | "timeout"
   | "suspended"
-  | "closed";
+  | "closed"
+  | "already_linked"
+  | "failed";
 
 export type AgentLinkClientEvent =
   | "connect_clicked"
@@ -24,6 +26,8 @@ export type AgentLinkClientEvent =
   | "agent_connected"
   | "timeout"
   | "disconnect"
+  | "mint_rejected"
+  | "mint_failed"
   // Mirrors the relay's server-side FSM (functions/agent-link/sessionToken.ts,
   // Track G / G-design.md): the relay socket closed unexpectedly (not an
   // explicit Disconnect) — 'ws_drop' fires only from 'connected' (the macro
@@ -89,10 +93,14 @@ const TRANSITIONS: Partial<
     agent_connected: "connected",
     timeout: "timeout",
     disconnect: "closed",
+    mint_rejected: "already_linked",
+    mint_failed: "failed",
   },
   timeout: {
     agent_connected: "connected",
     disconnect: "closed",
+    mint_rejected: "already_linked",
+    mint_failed: "failed",
   },
   connected: {
     disconnect: "closed",

@@ -292,6 +292,73 @@ describe('useAgentLinkSession', () => {
         .mock.calls.filter(([name]) => name === 'agent_link_agent_connected')
       expect(connectedCalls).toHaveLength(1)
     })
+
+    it('mint 409 diagram_already_linked moves to already_linked, publishes the rejected handoff, and fires analytics', async () => {
+      const bridgeOps = makeBridgeOps()
+      const connect = vi.fn(() => makeFakeRelayClient())
+      const boundContext = { cloudId: 'c1', pageId: 'already-linked-page', contentId: 'cc1' }
+      const requestSession = vi.fn().mockRejectedValue(
+        Object.assign(new Error('agent-link session mint failed: HTTP 409 diagram_already_linked'), {
+          status: 409,
+          error: 'diagram_already_linked',
+        })
+      )
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(session.state.value).toBe('already_linked')
+      expect(session.token.value).toBeNull()
+      expect(connect).not.toHaveBeenCalled()
+      expect(readSession(boundContext.pageId)).toMatchObject({
+        ...boundContext,
+        state: 'already_linked',
+      })
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_edit_failed',
+        expect.objectContaining({
+          macro_type: 'sequence',
+          reason: 'diagram_already_linked',
+          error_code: 'diagram_already_linked',
+        })
+      )
+    })
+
+    it('generic mint failure moves to failed, publishes a visible failure handoff, and fires analytics', async () => {
+      const bridgeOps = makeBridgeOps()
+      const connect = vi.fn(() => makeFakeRelayClient())
+      const boundContext = { cloudId: 'c1', pageId: 'mint-failed-page', contentId: 'cc1' }
+      const requestSession = vi
+        .fn()
+        .mockRejectedValue(Object.assign(new Error('agent-link session mint failed: HTTP 500'), { status: 500 }))
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'mermaid',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(session.state.value).toBe('failed')
+      expect(session.token.value).toBeNull()
+      expect(connect).not.toHaveBeenCalled()
+      expect(readSession(boundContext.pageId)).toMatchObject({
+        ...boundContext,
+        state: 'failed',
+      })
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_edit_failed',
+        expect.objectContaining({
+          macro_type: 'mermaid',
+          reason: 'session_mint_failed',
+          error_code: 'session_mint_failed',
+        })
+      )
+    })
   })
 
   describe('Track G — session lifecycle: suspend on an accidental ws drop, resume on reconnect', () => {

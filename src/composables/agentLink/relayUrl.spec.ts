@@ -71,4 +71,22 @@ describe('mintAgentLinkSession', () => {
       mintAgentLinkSession({ cloudId: 'c', pageId: 'p', contentId: 'd' }, 'https://conf-stg-lite.zenuml.com')
     ).rejects.toThrow('HTTP 500')
   })
+
+  it('includes the relay error code on a 409 already-linked response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: () => Promise.resolve({ error: 'diagram_already_linked' }),
+      })
+    )
+
+    await expect(
+      mintAgentLinkSession({ cloudId: 'c', pageId: 'p', contentId: 'd' }, 'https://conf-stg-lite.zenuml.com')
+    ).rejects.toMatchObject({
+      status: 409,
+      error: 'diagram_already_linked',
+    })
+  })
 })

@@ -36,7 +36,7 @@
       >Cancel</button>
     </div>
 
-    <!-- closed / expired: primary Reconnect -->
+    <!-- closed / expired / failed: primary Reconnect -->
     <div v-else class="agent-notice__actions">
       <button
         type="button"
@@ -59,8 +59,9 @@ import { computed } from 'vue'
 const props = withDefaults(
   defineProps<{
     // 'closed' = explicit Disconnect; 'expired' = TTL lapse; 'rejected' =
-    // a second link attempt on an already-bound diagram (mint 409).
-    variant?: 'closed' | 'expired' | 'rejected'
+    // a second link attempt on an already-bound diagram (mint 409);
+    // 'failed' = the session mint failed for any other reason.
+    variant?: 'closed' | 'expired' | 'rejected' | 'failed'
     diagramTitle?: string
   }>(),
   { variant: 'closed', diagramTitle: '' }
@@ -78,6 +79,8 @@ const title = computed(() => {
       return 'Session expired'
     case 'rejected':
       return 'This diagram is already linked to an agent'
+    case 'failed':
+      return 'Could not link your agent'
     default:
       return 'Agent disconnected'
   }
@@ -86,6 +89,9 @@ const title = computed(() => {
 const subline = computed(() => {
   if (props.variant === 'rejected') {
     return 'A session started 4 min ago is still active. Only one agent can hold the link at a time'
+  }
+  if (props.variant === 'failed') {
+    return 'We could not create a link session. Try reconnecting in a moment'
   }
   return 'Your session ended. Your diagram is saved — nothing was lost. Reconnect to link a new agent session'
 })

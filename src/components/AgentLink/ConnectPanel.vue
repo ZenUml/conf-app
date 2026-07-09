@@ -134,6 +134,23 @@
         <SessionNotice variant="closed" :diagram-title="diagramTitle" @reconnect="emit('reconnect')" />
       </template>
 
+      <!-- already_linked: mint rejected because another active session holds
+           this diagram. Render the rejected notice instead of falling through
+           to an empty rail. -->
+      <template v-else-if="state === 'already_linked'">
+        <SessionNotice
+          variant="rejected"
+          :diagram-title="diagramTitle"
+          @revoke="emit('revoke')"
+          @cancel="emit('cancel')"
+        />
+      </template>
+
+      <!-- failed: generic mint failure. Keep it visible and retryable. -->
+      <template v-else-if="state === 'failed'">
+        <SessionNotice variant="failed" :diagram-title="diagramTitle" @reconnect="emit('reconnect')" />
+      </template>
+
       <!-- timeout: warning + expanded setup -->
       <template v-else-if="state === 'timeout'">
         <div data-testid="agent-link-timeout">
@@ -205,6 +222,9 @@ const emit = defineEmits<{
   // Track H: "Reconnect" from the terminal (closed) notice — mints a fresh
   // session after an explicit disconnect / expiry.
   (e: 'reconnect'): void
+  // Track H rejected notice secondary action. The host decides whether this
+  // closes the Fullscreen surface or simply leaves the notice visible.
+  (e: 'cancel'): void
 }>()
 
 // Shared "setup the connector" block used by both the waiting-state collapsed

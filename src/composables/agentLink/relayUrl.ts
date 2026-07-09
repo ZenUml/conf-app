@@ -27,6 +27,11 @@ export interface MintSessionResponse {
   expiresInSec: number
 }
 
+export interface MintSessionError extends Error {
+  status?: number
+  error?: string
+}
+
 // http(s):// -> ws(s):// — same host/path, just the upgrade-eligible scheme
 // (design §4.7 tier 1: WSS direct to the relay on an allowlisted host).
 export function toWebSocketBaseUrl(httpBaseUrl: string): string {
@@ -70,7 +75,19 @@ export async function mintAgentLinkSession(
     body: JSON.stringify(ctx),
   })
   if (!response.ok) {
-    throw new Error(`agent-link session mint failed: HTTP ${response.status}`)
+    let errorCode: string | undefined
+    try {
+      const body = await response.json()
+      if (body && typeof body.error === 'string') errorCode = body.error
+    } catch {
+      // Non-JSON error bodies still carry status below.
+    }
+    const error = new Error(
+      `agent-link session mint failed: HTTP ${response.status}${errorCode ? ` ${errorCode}` : ''}`
+    ) as MintSessionError
+    error.status = response.status
+    error.error = errorCode
+    throw error
   }
   return response.json()
 }

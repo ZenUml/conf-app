@@ -40,8 +40,24 @@ describe('agentLinkState', () => {
       expect(nextClientState('waiting', 'disconnect')).toBe('closed')
     })
 
+    it('waiting --mint_rejected--> already_linked', () => {
+      expect(nextClientState('waiting', 'mint_rejected')).toBe('already_linked')
+    })
+
+    it('waiting --mint_failed--> failed', () => {
+      expect(nextClientState('waiting', 'mint_failed')).toBe('failed')
+    })
+
     it('timeout --disconnect--> closed', () => {
       expect(nextClientState('timeout', 'disconnect')).toBe('closed')
+    })
+
+    it('timeout --mint_rejected--> already_linked (late 409 after setup timer)', () => {
+      expect(nextClientState('timeout', 'mint_rejected')).toBe('already_linked')
+    })
+
+    it('timeout --mint_failed--> failed (late mint failure after setup timer)', () => {
+      expect(nextClientState('timeout', 'mint_failed')).toBe('failed')
     })
 
     it('connected --ws_drop--> suspended (accidental disconnect, not the explicit Disconnect button)', () => {
@@ -63,6 +79,8 @@ describe('agentLinkState', () => {
       ['idle', 'agent_connected'],
       ['idle', 'timeout'],
       ['idle', 'disconnect'],
+      ['idle', 'mint_rejected'],
+      ['idle', 'mint_failed'],
       ['idle', 'ws_drop'],
       ['idle', 'resumed'],
       ['waiting', 'connect_clicked'],
@@ -77,12 +95,34 @@ describe('agentLinkState', () => {
       ['connected', 'session_created'],
       ['connected', 'agent_connected'],
       ['connected', 'timeout'],
+      ['connected', 'mint_rejected'],
+      ['connected', 'mint_failed'],
       ['connected', 'resumed'],
       ['suspended', 'connect_clicked'],
       ['suspended', 'session_created'],
       ['suspended', 'agent_connected'],
       ['suspended', 'timeout'],
+      ['suspended', 'mint_rejected'],
+      ['suspended', 'mint_failed'],
       ['suspended', 'ws_drop'],
+      ['already_linked', 'connect_clicked'],
+      ['already_linked', 'session_created'],
+      ['already_linked', 'agent_connected'],
+      ['already_linked', 'timeout'],
+      ['already_linked', 'disconnect'],
+      ['already_linked', 'mint_rejected'],
+      ['already_linked', 'mint_failed'],
+      ['already_linked', 'ws_drop'],
+      ['already_linked', 'resumed'],
+      ['failed', 'connect_clicked'],
+      ['failed', 'session_created'],
+      ['failed', 'agent_connected'],
+      ['failed', 'timeout'],
+      ['failed', 'disconnect'],
+      ['failed', 'mint_rejected'],
+      ['failed', 'mint_failed'],
+      ['failed', 'ws_drop'],
+      ['failed', 'resumed'],
     ]
 
     it.each(cases)('%s + %s is a no-op', (current, event) => {
@@ -97,6 +137,8 @@ describe('agentLinkState', () => {
       'agent_connected',
       'timeout',
       'disconnect',
+      'mint_rejected',
+      'mint_failed',
       'ws_drop',
       'resumed',
     ]

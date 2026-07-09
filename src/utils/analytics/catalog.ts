@@ -199,7 +199,19 @@ export type AnalyticsEventName =
   // agent_link_disconnected(reason: 'timeout') — these two are the states in
   // between, not a replacement for the terminal event.
   | "agent_link_session_suspended"
-  | "agent_link_session_resumed";
+  | "agent_link_session_resumed"
+  // U — discovery tool surface (search_diagrams / list_diagrams, plus
+  // read_diagram gaining a by-contentId mode). The trust boundary requires the
+  // user to SEE everything the agent did, so every discovery op is both an
+  // activity-feed row AND tracked here (design §3 "activity feed", scenarios
+  // S3/S4/S5). `diagram_read` fires for the bound read AND a discovered-hit
+  // read — `by_content_id` discriminates. `search_performed` / `list_performed`
+  // carry the recall size (`hits`) so the read-side eval (charter §6 Track E:
+  // "did the right diagram surface") has a volume signal; the raw query is
+  // never sent — only `query_len` (privacy).
+  | "agent_link_diagram_read"
+  | "agent_link_search_performed"
+  | "agent_link_list_performed";
 
 // Where an idle renderer-bundle prefetch ran: an alive macro iframe after its
 // own render settled, or the page-banner iframe on its no-banner fast-path.
@@ -244,3 +256,9 @@ export type AgentLinkGuardrailRejectReason = "parse_error" | "data_loss" | "othe
 // reconnect. A session suspended and never resumed within TTL still ends in
 // agent_link_disconnected(reason: 'timeout') — that terminal event is separate.
 export type AgentLinkSessionSuspendReason = "fullscreen_closed" | "ws_drop" | "explicit";
+
+// How a discovery `list_diagrams` was scoped (agent_link_list_performed).
+// 'page' = a single page's diagrams, 'space' = one space, 'site' = the whole
+// estate (no space/page filter). Search (agent_link_search_performed) is always
+// site-wide by design, so it has no scope field.
+export type AgentLinkListScope = "page" | "space" | "site";

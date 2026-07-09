@@ -18,6 +18,7 @@ import type {
   AgentLinkRenderOutcome,
   AgentLinkGuardrailRejectReason,
   AgentLinkSessionSuspendReason,
+  AgentLinkListScope,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -163,6 +164,15 @@ export type AnalyticsProperties = {
   // agent_link_session_suspended and this resume. Absent when the session
   // never actually suspended (e.g. a duplicate/no-op resume signal).
   resume_latency_ms?: number;
+  // U — discovery tool surface (agent_link_diagram_read / _search_performed /
+  // _list_performed). `by_content_id` = read_diagram targeted a discovered
+  // contentId rather than the bound diagram. `query_len` = search query length
+  // ONLY (never the raw query — privacy). `hits` = candidate rows returned
+  // (recall size for search/list). `list_scope` = page / space / site.
+  by_content_id?: boolean;
+  query_len?: number;
+  hits?: number;
+  list_scope?: AgentLinkListScope;
   // Error
   error_code?: string;
   error_name?: string;

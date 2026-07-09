@@ -41,6 +41,11 @@ Two sections:
   indicator it will fail and land in MISSED next cycle).
 - **MISSED** — payer renewals that lapsed in the past N days without a new payment landing,
   summed as income at risk.
+- **EVALUATIONS** — trials (`licenseType = EVALUATION`) expiring in the next N days (a
+  conversion window — act before they lapse) or that expired in the past N days. A conversion
+  signal, **not income** — shown in its own section, kept out of the $ totals. Each row shows
+  `converted` (does this tenant+app already have a paid transaction). Lite is excluded (free,
+  no paid conversion).
 
 Scope: **all revenue apps** (Full + Diagramly + AsyncAPI; Lite is a free Marketplace listing,
 so it's ~$0 here — its paid layer is Stripe/KV, see `extend-space-license` / `paywall`).
@@ -64,6 +69,41 @@ are excluded.
   coverage past today. Reinforced with `inGracePeriod = Yes` and
   `invoiceDunningReason` ("no-payment-method") flags, plus `inactive` if the license itself
   went inactive.
+
+## Output
+
+**Default (text):** a header, then four sections, each a headline + a padded table. Empty
+sections print `(none)`. In `--local` mode a `[local snapshot @ … (Nh old)]` line goes to
+**stderr**, keeping stdout clean.
+
+```
+=== income radar  asof=YYYY-MM-DD  window=+/-Nd  (all revenue apps, payers only) ===
+
+INCOMING (next Nd): C renewals, ~ $T expected  (at-risk on flagged cards: $R)
+  due  app  billing  amount  flags  tier  company  host  entitlement
+MISSED (past Nd): C renewals overdue, ~ $T at risk
+  paid_thru  days_late  app  billing  amount  flags  company  host  entitlement
+note: … (3 lines on renewal-timing-as-proxy)
+EVALUATIONS expiring (next Nd): C trials — conversion window (not income)
+  expires  app  tier  status  converted  company  host  entitlement
+EVALUATIONS expired (past Nd): C trials
+  expires  days_ago  app  tier  converted  company  host  entitlement
+```
+
+**`--json`:** one object. Dollar totals live only in the income sections; evaluations carry
+no total by design (trials are $0). Each `rows[]` entry has the fields of its section's columns.
+
+```json
+{
+  "asof": "YYYY-MM-DD", "days": N,
+  "incoming": { "total": <$>, "at_risk": <$>, "count": <n>, "rows": [ { "company","host","entitlement","app","billing","amount","tier","flags","due" } ] },
+  "missed":   { "total": <$>, "count": <n>, "rows": [ { …, "paid_thru", "days_late" } ] },
+  "evaluations": {
+    "expiring": { "count": <n>, "rows": [ { "expires","app","tier","status","converted","company","host","entitlement" } ] },
+    "expired":  { "count": <n>, "rows": [ { …, "days_ago" } ] }
+  }
+}
+```
 
 ## Caveats
 

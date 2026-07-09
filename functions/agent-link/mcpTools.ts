@@ -9,7 +9,7 @@
 // is a later task; `mcp.ts` injects a stub today.
 
 import type { SessionRecord } from './sessionToken';
-import { ZENUML_DSL_TOOL_HINT } from './zenumlDslGuide';
+import { COMBINED_DSL_TOOL_HINT, selectToolHint } from './dslGuides';
 import { guardUpdateDiagram } from './updateDiagramGuard';
 import type { DiagramSnapshot } from './updateDiagramGuard';
 
@@ -68,22 +68,18 @@ export interface DispatchContext {
   diagramSnapshot?: DiagramSnapshot;
 }
 
-export const TOOLS: ToolDescriptor[] = [
-  {
-    name: 'read_page',
-    description: "Read the bound Confluence page's title and text, for context.",
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'read_diagram',
-    description: "Read the bound diagram's current DSL and diagram type.",
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
+const UPDATE_DIAGRAM_BASE_DESCRIPTION =
+  "Replace the bound diagram's DSL. The macro renders it live and persists it via its own Forge bridge. ";
+
+/**
+ * Build the update_diagram descriptor with a DSL hint chosen for `hint`. A
+ * known non-DSL diagram type resolves to `undefined` (base description only,
+ * no dialect hint); an unknown type gets the combined cross-dialect hint.
+ */
+function updateDiagramDescriptor(hint: string | undefined): ToolDescriptor {
+  return {
     name: 'update_diagram',
-    description:
-      "Replace the bound diagram's DSL. The macro renders it live and persists it via its own Forge bridge. " +
-      ZENUML_DSL_TOOL_HINT,
+    description: UPDATE_DIAGRAM_BASE_DESCRIPTION + (hint ?? ''),
     inputSchema: {
       type: 'object',
       properties: {
@@ -95,7 +91,23 @@ export const TOOLS: ToolDescriptor[] = [
       },
       required: ['dsl'],
     },
+  };
+}
+
+export const TOOLS: ToolDescriptor[] = [
+  {
+    name: 'read_page',
+    description: "Read the bound Confluence page's title and text, for context.",
+    inputSchema: { type: 'object', properties: {} },
   },
+  {
+    name: 'read_diagram',
+    description: "Read the bound diagram's current DSL and diagram type.",
+    inputSchema: { type: 'object', properties: {} },
+  },
+  // Default (dialect not yet known): the combined cross-dialect hint. mcp.ts
+  // passes the bound diagramType to getToolSchemas() to sharpen this per request.
+  updateDiagramDescriptor(COMBINED_DSL_TOOL_HINT),
   {
     name: 'get_status',
     description: 'Get the current link status: connection, bound diagram type/page, and token TTL remaining.',
@@ -105,9 +117,16 @@ export const TOOLS: ToolDescriptor[] = [
 
 const TOOL_NAMES: ReadonlySet<string> = new Set(TOOLS.map((t) => t.name));
 
-/** Returns the tool descriptors for an MCP `tools/list` response. */
-export function getToolSchemas(): ToolDescriptor[] {
-  return TOOLS;
+/**
+ * Returns the tool descriptors for an MCP `tools/list` response. When the
+ * bound `diagramType` is known (the agent has read the diagram), the
+ * update_diagram description carries that dialect's hint; otherwise the static
+ * `TOOLS` (combined hint) is returned unchanged.
+ */
+export function getToolSchemas(diagramType?: string): ToolDescriptor[] {
+  if (diagramType === undefined) return TOOLS;
+  const hint = selectToolHint(diagramType);
+  return TOOLS.map((t) => (t.name === 'update_diagram' ? updateDiagramDescriptor(hint) : t));
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

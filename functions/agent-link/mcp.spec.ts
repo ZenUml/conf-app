@@ -155,14 +155,16 @@ describe('POST /agent-link/mcp', () => {
     expect(json.result.instructions).toMatch(/update_diagram/);
   });
 
-  it('resources/list advertises the ZenUML DSL guide', async () => {
+  it('resources/list advertises all three dialect DSL guides', async () => {
     const record = sessionRegistry.create(CTX);
 
     const { res, json } = await post(rpc('resources/list'), { token: record.token });
 
     expect(res.status).toBe(200);
-    expect(json.result.resources).toHaveLength(1);
-    expect(json.result.resources[0].uri).toBe('zenuml://dsl-guide');
+    expect(json.result.resources).toHaveLength(3);
+    expect(json.result.resources.map((r: { uri: string }) => r.uri).sort()).toEqual(
+      ['mermaid://dsl-guide', 'plantuml://dsl-guide', 'zenuml://dsl-guide'].sort(),
+    );
   });
 
   it('resources/read returns the ZenUML DSL guide text', async () => {
@@ -172,7 +174,20 @@ describe('POST /agent-link/mcp', () => {
 
     expect(res.status).toBe(200);
     expect(json.result.contents[0].uri).toBe('zenuml://dsl-guide');
-    expect(json.result.contents[0].text).toMatch(/if \(condition\)/);
+    expect(json.result.contents[0].text).toMatch(/This is ZenUML/);
+    expect(json.result.contents[0].text).toMatch(/if \(cond\)/);
+  });
+
+  it('resources/read serves the Mermaid and PlantUML guides too', async () => {
+    const record = sessionRegistry.create(CTX);
+
+    const mermaid = await post(rpc('resources/read', { uri: 'mermaid://dsl-guide' }), { token: record.token });
+    expect(mermaid.res.status).toBe(200);
+    expect(mermaid.json.result.contents[0].text).toMatch(/This is Mermaid/);
+
+    const plantuml = await post(rpc('resources/read', { uri: 'plantuml://dsl-guide' }), { token: record.token });
+    expect(plantuml.res.status).toBe(200);
+    expect(plantuml.json.result.contents[0].text).toMatch(/This is PlantUML/);
   });
 
   it('resources/read rejects an unknown uri', async () => {
@@ -287,15 +302,18 @@ function makeDoEnv(responses: FakeDoResponses) {
   };
 }
 
-function sessionInfoResponse(overrides: Partial<{ state: string; issuedAtMs: number }> = {}): Response {
-  return new Response(
-    JSON.stringify({
-      state: overrides.state ?? 'created',
-      boundContext: CTX,
-      issuedAtMs: overrides.issuedAtMs ?? Date.now(),
-    }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } },
-  );
+function sessionInfoResponse(
+  overrides: Partial<{ state: string; issuedAtMs: number; diagramType: string }> = {},
+): Response {
+  const body: Record<string, unknown> = {
+    state: overrides.state ?? 'created',
+    boundContext: CTX,
+    issuedAtMs: overrides.issuedAtMs ?? Date.now(),
+  };
+  // Mirrors the DO's GET /session: lastDiagram is present only once the agent
+  // has read the diagram at least once, and carries the bound diagramType.
+  if (overrides.diagramType) body.lastDiagram = { diagramType: overrides.diagramType, dsl: 'A->B: x' };
+  return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
 
 async function postWithEnv(
@@ -408,5 +426,74 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
 
     expect(res.status).toBe(401);
     expect(doFetch).not.toHaveBeenCalled();
+  });
+});
+
+// --- Per-dialect guide serving (the bound diagramType, cached by the DO into
+// lastDiagram, selects which guide/hint the relay serves) --------------------
+describe('POST /agent-link/mcp — per-dialect guide serving', () => {
+  it('a bound mermaid session gets the Mermaid guide as initialize instructions + the Mermaid tool hint', async () => {
+    const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'Mermaid' }) });
+
+    const init = await postWithEnv(rpc('initialize'), env);
+    expect(init.res.status).toBe(200);
+    expect(init.json.result.instructions).toMatch(/This is Mermaid/);
+    expect(init.json.result.instructions).not.toMatch(/This is ZenUML/);
+
+    const list = await postWithEnv(rpc('tools/list'), env);
+    const update = list.json.result.tools.find((t: { name: string }) => t.name === 'update_diagram');
+    expect(update.description).toMatch(/Mermaid DSL/);
+    expect(update.description).not.toMatch(/ZenUML DSL/);
+  });
+
+  it('a bound sequence (ZenUML) session gets the ZenUML guide + hint', async () => {
+    const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'Sequence' }) });
+
+    const init = await postWithEnv(rpc('initialize'), env);
+    expect(init.json.result.instructions).toMatch(/This is ZenUML/);
+
+    const list = await postWithEnv(rpc('tools/list'), env);
+    const update = list.json.result.tools.find((t: { name: string }) => t.name === 'update_diagram');
+    expect(update.description).toMatch(/ZenUML DSL/);
+  });
+
+  it('a bound plantuml session gets the PlantUML guide', async () => {
+    const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'PlantUml' }) });
+
+    const init = await postWithEnv(rpc('initialize'), env);
+    expect(init.json.result.instructions).toMatch(/This is PlantUML/);
+  });
+
+  it('a bound Graph session gets NO instructions and a generic update_diagram description (never broken)', async () => {
+    const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'Graph' }) });
+
+    const init = await postWithEnv(rpc('initialize'), env);
+    expect(init.res.status).toBe(200);
+    expect(init.json.result.instructions).toBeUndefined();
+
+    const list = await postWithEnv(rpc('tools/list'), env);
+    expect(list.res.status).toBe(200);
+    const update = list.json.result.tools.find((t: { name: string }) => t.name === 'update_diagram');
+    // base description present, but no dialect-specific DSL hint
+    expect(update.description).toMatch(/Replace the bound diagram's DSL/);
+    expect(update.description).not.toMatch(/ZenUML DSL|Mermaid DSL|PlantUML DSL/);
+  });
+
+  it('an OpenApi session likewise gets no guide (generic behavior)', async () => {
+    const env = makeDoEnv({ session: () => sessionInfoResponse({ diagramType: 'OpenApi' }) });
+
+    const init = await postWithEnv(rpc('initialize'), env);
+    expect(init.json.result.instructions).toBeUndefined();
+  });
+
+  it('before any read_diagram (no lastDiagram) the combined cross-dialect guide is served', async () => {
+    const env = makeDoEnv({ session: () => sessionInfoResponse() });
+
+    const init = await postWithEnv(rpc('initialize'), env);
+    expect(init.json.result.instructions).toMatch(/DO NOT blend/);
+
+    const list = await postWithEnv(rpc('tools/list'), env);
+    const update = list.json.result.tools.find((t: { name: string }) => t.name === 'update_diagram');
+    expect(update.description).toMatch(/must match the bound diagram type/);
   });
 });

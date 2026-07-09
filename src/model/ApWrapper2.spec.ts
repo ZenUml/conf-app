@@ -1290,5 +1290,53 @@ describe('ApWrapper2', () => {
       const hits = await wrapper.searchDiagramsForge({ query: 'x' });
       expect(hits).toEqual([]);
     });
+
+    // Regression for spot-check #3, bug 1: the v1 search endpoint omits
+    // content.space from the response unless the caller passes
+    // expand=content.space — without it every row's spaceKey comes back "".
+    // A mocked response that hand-supplies content.space (as the tests above
+    // do) can't catch that; this asserts the actual request shape instead.
+    it('requests expand=content.space so the live endpoint populates content.space', async () => {
+      let requestedUrl = '';
+      vi.mocked(forgeRequest).mockImplementation(async (url: string) => {
+        requestedUrl = url;
+        return { results: [] };
+      });
+
+      await wrapper.searchDiagramsForge({ query: 'payment' });
+
+      expect(requestedUrl).toContain('expand=content.space');
+    });
+
+    it('maps content.space.key into spaceKey when the search response includes it', async () => {
+      vi.mocked(forgeRequest).mockImplementation(async (url: string) => {
+        if (url.startsWith('/wiki/rest/api/search')) {
+          return {
+            results: [
+              {
+                content: { id: '777', space: { key: 'MKT' } },
+                excerpt: 'plain excerpt',
+                lastModified: '2026-07-09T00:00:00Z',
+              },
+            ],
+          };
+        }
+        if (url === '/wiki/api/v2/custom-content/777?body-format=raw') {
+          return {
+            id: '777',
+            title: 'Marketing flow',
+            pageId: '901',
+            body: { raw: { value: JSON.stringify({ diagramType: 'sequence', code: 'x' }) } },
+            version: { number: 1 },
+          };
+        }
+        throw new Error(`Unexpected forgeRequest url: ${url}`);
+      });
+
+      const hits = await wrapper.searchDiagramsForge({ query: 'x' });
+
+      expect(hits).toHaveLength(1);
+      expect(hits[0].spaceKey).toBe('MKT');
+    });
   });
 });

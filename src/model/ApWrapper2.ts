@@ -987,7 +987,10 @@ export default class ApWrapper2 implements IApWrapper {
     try {
       const cql = this.buildDiagramSearchCql(opts);
       const limit = Math.max(1, Math.min(opts.maxCandidates ?? 25, 50));
-      const searchUrl = `/wiki/rest/api/search?cql=${encodeURIComponent(cql)}&limit=${limit}`;
+      // expand=content.space is required — without it the v1 search response
+      // omits content.space entirely, so every hit's spaceKey silently comes
+      // back "" (confirmed live via curl during spot-check #3, 2026-07-09).
+      const searchUrl = `/wiki/rest/api/search?cql=${encodeURIComponent(cql)}&limit=${limit}&expand=content.space`;
       const search: any = await forgeRequest(searchUrl);
       const results: any[] = Array.isArray(search?.results) ? search.results : [];
 

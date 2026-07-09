@@ -1,6 +1,28 @@
 <template>
+  <!-- Track H: additive "Working" variant — an op is in flight on an otherwise
+       live session (thinking axis, orthogonal to the FSM). Takes precedence
+       over the green "live" badge but ONLY when `thinking` is passed, so every
+       existing usage (collapsed macro, no `thinking` prop) renders exactly as
+       before. -->
   <span
-    v-if="state === 'connected'"
+    v-if="state === 'connected' && thinking"
+    class="agent-link-live-badge agent-link-live-badge--working"
+    data-testid="agent-link-live-badge-working"
+  >
+    <svg
+      class="agent-link-live-badge__spinner"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.5"
+      aria-hidden="true"
+    >
+      <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+    </svg>
+    Working
+  </span>
+  <span
+    v-else-if="state === 'connected'"
     class="agent-link-live-badge"
     data-testid="agent-link-live-badge"
   >
@@ -38,9 +60,15 @@
 // exactly as before; 'idle'/'waiting'/'timeout' still render nothing.
 import type { AgentLinkClientState } from '@/composables/agentLink/agentLinkState'
 
-defineProps<{
-  state: AgentLinkClientState
-}>()
+withDefaults(
+  defineProps<{
+    state: AgentLinkClientState
+    // Track H: op-in-flight overlay for the rail's status header. Optional and
+    // false by default so the collapsed-macro badge is unchanged.
+    thinking?: boolean
+  }>(),
+  { thinking: false }
+)
 </script>
 
 <style scoped>
@@ -71,6 +99,29 @@ defineProps<{
 @keyframes agent-link-live-pulse {
   0%, 100% { opacity: 0.5; }
   50% { opacity: 1; }
+}
+
+/* Track H: 'Working' — blue, an op in flight on a live session. Uses the
+   sanctioned async pattern (ArrowPathIcon + spin), no pulse dot. */
+.agent-link-live-badge--working {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+}
+
+.agent-link-live-badge__spinner {
+  width: 12px;
+  height: 12px;
+  animation: agent-link-live-spin 1s linear infinite;
+}
+
+@keyframes agent-link-live-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-link-live-badge__spinner {
+    animation: none;
+  }
 }
 
 /* Track G: 'suspended' — amber "Paused", still pulsing (resumable). */

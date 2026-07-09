@@ -35,6 +35,8 @@ const emit = defineEmits<{
 </script>
 
 <style scoped>
+/* Track H: retired the ad-hoc violet (#6c4cf0 — not a DESIGN.md token) for the
+   system agent accent, blue-600 → blue-700 on hover. */
 .agent-link-connect-btn {
   display: inline-flex;
   align-items: center;
@@ -42,20 +44,21 @@ const emit = defineEmits<{
   padding: 6px 12px;
   border-radius: 6px;
   border: 1px solid transparent;
-  background: #6c4cf0;
+  background: #2563eb;
   color: #fff;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
+  transition: background-color 200ms ease;
 }
 
 .agent-link-connect-btn:hover {
-  background: #5936d9;
+  background: #1d4ed8;
 }
 
 .agent-link-connect-btn:focus-visible {
-  outline: 2px solid #6c4cf0;
+  outline: 2px solid #2563eb;
   outline-offset: 2px;
 }
 

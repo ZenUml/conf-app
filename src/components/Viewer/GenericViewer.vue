@@ -44,6 +44,16 @@
                 READ-ONLY
               </span>
               <span class="viewer-title" :title="title">{{ title }}</span>
+              <!-- Live Agent Link — Fullscreen toolbar link-status chip (Track H
+                   design contract): names the bound diagram + token TTL. Shown
+                   only in Fullscreen once a session exists; the inline collapsed
+                   macro keeps its LiveBadge (above) untouched. -->
+              <LinkStatusChip
+                v-if="showAgentLinkChip"
+                :state="agentLinkState"
+                :diagram-title="title"
+                :expires-at="agentLinkExpiresAt"
+              />
             </div>
             <div class="viewer-top-actions">
               <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason" :title="editDisabledReason || undefined" @click="edit" aria-label="Edit" class="viewer-btn-ghost">
@@ -152,8 +162,12 @@
             :state="agentLinkState"
             :token="agentLinkToken"
             :activity-feed="agentLinkActivityFeed"
+            :thinking="agentLinkThinking"
+            :diagram-title="title"
+            :expires-at="agentLinkExpiresAt"
             @disconnect="onAgentLinkDisconnect"
             @revoke="onAgentLinkRevoke"
+            @reconnect="onAgentLinkReconnect"
           />
         </aside>
         </div>
@@ -182,6 +196,7 @@ import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
 import ConnectButton from '@/components/AgentLink/ConnectButton.vue'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
+import LinkStatusChip from '@/components/AgentLink/LinkStatusChip.vue'
 import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
 import ThinkingOverlay from '@/components/AgentLink/ThinkingOverlay.vue'
 import { useAgentLinkSession } from '@/composables/agentLink/useAgentLinkSession'
@@ -218,6 +233,7 @@ export default {
     OverflowMenu,
     ConnectButton,
     ConnectPanel,
+    LinkStatusChip,
     LiveBadge,
     ThinkingOverlay,
   },
@@ -298,6 +314,15 @@ export default {
     // The Fullscreen Connect rail (design §5.1 ConnectPanel / §9).
     showAgentLinkPanel() {
       return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && this.isFullscreenMode;
+    },
+    // Fullscreen toolbar link-status chip (Track H). Same gating as the rail,
+    // but only once a session actually exists (connected/suspended/closed) —
+    // it names the bound diagram + TTL, so it has nothing to say pre-pairing.
+    showAgentLinkChip() {
+      return this.showAgentLinkPanel && ['connected', 'suspended', 'closed'].includes(this.agentLinkState);
+    },
+    agentLinkExpiresAt() {
+      return this._agentLink?.expiresAt.value ?? null;
     },
     // Perceived-latency overlay gate (charter §6 Track F). Same flag/type
     // gating as the other affordances, but NOT restricted to Fullscreen: the
@@ -507,6 +532,13 @@ export default {
     onAgentLinkRevoke() {
       this._agentLink?.revokeAndRelink();
     },
+    // Track H: "Reconnect" from the terminal (closed) notice — mints a fresh
+    // session after an explicit Disconnect or TTL expiry. revokeAndRelink()
+    // force-resets to 'idle' then startConnect()s, so it works even from the
+    // absorbing 'closed' terminal state (a plain startConnect() would no-op).
+    onAgentLinkReconnect() {
+      this._agentLink?.revokeAndRelink();
+    },
     // Live Agent Link render fix: an agent's update_diagram op PERSISTS via
     // the Forge bridge (writeDiagram -> saveCustomContentV2), but that write
     // does nothing to the currently-mounted Vue app's state — nobody re-reads
@@ -659,11 +691,15 @@ export default {
 }
 .viewer-body--with-agent-rail .viewer-surface { flex: 1 1 auto; min-width: 0; }
 
+/* Track H: 316px rail per the design contract. The rail stretches to the row
+   height (align-items:stretch above) and ConnectPanel owns its own internal
+   scroll + pinned footer, so the aside itself doesn't scroll. */
 .agent-link-rail {
-  flex: 0 0 320px;
-  width: 320px;
+  flex: 0 0 316px;
+  width: 316px;
   border-left: 1px solid #E5E7EB;
-  overflow-y: auto;
+  display: flex;
+  min-height: 0;
 }
 
 .viewer-edge-top {

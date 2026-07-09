@@ -49,6 +49,18 @@ import type { AgentLinkBoundContext } from './relayUrl'
 
 export type AgentLinkHandoffState = 'waiting' | 'connected'
 
+// Perceived-latency cue carried across the iframe boundary (charter §6 Track
+// F). The relay owner (inline macro) is the only instance that receives an
+// agent op, so the Fullscreen modal — a SEPARATE iframe that hydrates
+// display-only — can only learn "an op is in flight / it just failed" if the
+// owner republishes it here. Omitted (undefined) means idle: a record without
+// this field keeps its exact pre-Track-F shape, so the success path
+// (dsl republish) and the connected handshake persist unchanged.
+//   'thinking' — an update_diagram op is in flight → Fullscreen shows shimmer.
+//   'error'    — the last op failed/timed out → Fullscreen shows the error cue
+//                then auto-clears (never a stuck shimmer on the modal either).
+export type AgentLinkHandoffThinking = 'thinking' | 'error'
+
 export interface AgentLinkHandoffSession extends AgentLinkBoundContext {
   token: string
   state: AgentLinkHandoffState
@@ -59,6 +71,9 @@ export interface AgentLinkHandoffSession extends AgentLinkBoundContext {
   // rather than the original. Absent on the initial waiting/connected records
   // (no edit yet); present once the relay owner republishes an edit here.
   dsl?: string
+  // "AI is thinking" surface state mirrored to the Fullscreen iframe (Track
+  // F). Absent ⇒ idle. See AgentLinkHandoffThinking above.
+  thinking?: AgentLinkHandoffThinking
 }
 
 interface PersistedHandoff extends AgentLinkHandoffSession {
@@ -117,6 +132,12 @@ function toHandoffSession(parsed: PersistedHandoff): AgentLinkHandoffSession {
     state: parsed.state,
     // Optional; only present once the relay owner has republished an edit.
     dsl: typeof parsed.dsl === 'string' ? parsed.dsl : undefined,
+    // Optional; only present while an op is in flight or just failed (Track F).
+    // Anything other than the two known values normalizes to idle (undefined).
+    thinking:
+      parsed.thinking === 'thinking' || parsed.thinking === 'error'
+        ? parsed.thinking
+        : undefined,
   }
 }
 
@@ -258,6 +279,11 @@ function subscribeToHandoffCore(
       session.token,
       session.state,
       session.dsl ?? '',
+      // `thinking` is part of the fingerprint so a thinking-ONLY change (the op
+      // begins/fails while state stays 'connected' and the dsl hasn't changed
+      // yet) is seen as fresh and delivered to the Fullscreen modal — without
+      // it, the shimmer would never light up on that surface (Track F).
+      session.thinking ?? '',
     ].join('\n')
     if (fingerprint !== lastDeliveredFingerprint) {
       lastDeliveredFingerprint = fingerprint

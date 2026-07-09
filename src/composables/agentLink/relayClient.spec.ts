@@ -448,7 +448,11 @@ describe('createRelayClient', () => {
     await flush()
 
     expect(events).toContainEqual({ type: 'open' })
-    expect(events).toContainEqual({ type: 'op', op: 'read_page' })
+    // The op event now also carries a transport-stamped `receivedAt` (Track F
+    // perceived-latency zero point), so match on the meaningful fields.
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'op', op: 'read_page', receivedAt: expect.any(Number) })
+    )
   })
 
   it('an unexpected close triggers a reconnect, retrying up to maxReconnectAttempts', () => {

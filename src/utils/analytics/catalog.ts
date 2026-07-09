@@ -217,12 +217,14 @@ export type PrefetchOutcome = "completed" | "partial" | "failed" | "timed_out";
 export type AgentLinkDisconnectReason = "user" | "timeout" | "idle" | "tab_close";
 
 // Terminal outcome of an agent_link render (agent_link_render_completed) —
-// the signal the F-track "thinking state" UI clears on, whether the op ended
-// in a redraw or not. Deliberately just success/failure: WHY it failed is
-// already carried by whichever of agent_link_edit_failed /
-// agent_link_guardrail_rejected fired for the same op — this field only says
-// whether the render surface ended up showing new content.
-export type AgentLinkRenderOutcome = "rendered" | "failed";
+// the signal the F-track "thinking state" UI clears on. 'rendered' = the new
+// complete diagram painted (success); 'failed' = the op errored/persist
+// failed; 'timeout' = the render-safety backstop fired (no terminal signal
+// within RENDER_SAFETY_TIMEOUT_MS, e.g. a dropped WS) and the shimmer was
+// force-cleared. WHY a 'failed' op failed is carried by whichever of
+// agent_link_edit_failed / agent_link_guardrail_rejected fired for the same
+// op; this field only says how the render surface ended up.
+export type AgentLinkRenderOutcome = "rendered" | "failed" | "timeout";
 
 // Why Track C's update_diagram guardrail rejected an op BEFORE persisting
 // (agent_link_guardrail_rejected). 'parse_error' = the DSL didn't parse in the

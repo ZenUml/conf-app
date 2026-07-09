@@ -29,6 +29,43 @@ export type AgentLinkClientEvent =
 // share one source of truth instead of hardcoding the duration twice.
 export const SETUP_TIMEOUT_MS = 20000;
 
+// Perceived-latency "AI is thinking" surface state (charter §6, Track F). This
+// is DELIBERATELY orthogonal to AgentLinkClientState above — a paired session
+// is `connected` the whole time an agent op is in flight; whether the render
+// surface should be showing a shimmer is a SEPARATE axis. Keeping it out of
+// the connection state machine means the flag-off / no-session path is
+// unchanged (thinkingState never leaves 'idle') and a render op can begin/end
+// without perturbing idle/waiting/connected/timeout/closed.
+//   'idle'     — no op in flight; render surface shows the diagram as-is.
+//   'thinking' — an `update_diagram` op is in flight; show the shimmer overlay.
+//   'error'    — the last op failed / timed out; show a brief error cue, then
+//                auto-return to 'idle' (never a stuck shimmer).
+export type AgentLinkThinkingState = "idle" | "thinking" | "error";
+
+// Backstop that guarantees the thinking shimmer can NEVER get stuck on
+// (charter §6 hard constraint: "a dropped WS must not leave an eternal
+// shimmer"). If no terminal render/failure signal arrives within this window
+// after an op begins, the thinking state auto-clears to 'error' and
+// agent_link_render_completed fires with render_outcome:'timeout'.
+//
+// EVIDENCE-BASED, not a round number (2026-07-09, read-only query of the
+// diagramly.ai Neon `Job` table — the closest real corpus of user↔AI-agent
+// diagram-modification interactions, n=285, all COMPLETED). Observed
+// agent-side processing duration (startedAt→completedAt) for
+// type='diagram_modification':
+//     p50 5.2s · p90 12.7s · p95 16.2s · p99 40.5s · max 463s (single outlier)
+//   retryCount = 0 across all 285 rows (first-try success; no retry storms).
+// 60s ≈ 1.5× the p99 (40.5s): comfortably above a legitimately slow op, while
+// deliberately cutting the pathological 463s tail — a 7.7-minute shimmer is
+// worse UX than surfacing a timeout error at 60s and letting the user re-ask.
+// CAVEAT: those numbers time the agent's whole LLM+tool generation. conf-app's
+// shimmer only runs from op-RECEIVED-at-the-macro → persist(saveCustomContentV2)
+// → render — the DSL arrives already generated, so the real macro-side window
+// is the short tail of that distribution (typically <2s). 60s is therefore a
+// generous backstop for the anomaly cases (dropped WS, hung persist), not a
+// value the happy path ever approaches.
+export const RENDER_SAFETY_TIMEOUT_MS = 60000;
+
 // Explicit transition table. States/events not listed here are no-ops — the
 // current state is returned unchanged (covers invalid events and the
 // `closed` terminal state absorbing everything).

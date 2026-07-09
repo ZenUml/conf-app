@@ -67,6 +67,25 @@ describe('sessionHandoff', () => {
     expect(readSession('page-1')?.dsl).toBeUndefined()
   })
 
+  // Track F: the perceived-latency cue crosses the iframe boundary on the
+  // handoff record so the Fullscreen modal mirrors the shimmer/error.
+  it('persistSession then readSession round-trips the thinking cue', () => {
+    const session = makeSession({ state: 'connected', thinking: 'thinking' })
+    persistSession(session)
+
+    expect(readSession('page-1')).toEqual(session)
+  })
+
+  it('normalizes an unrecognized thinking value to undefined (idle)', () => {
+    persistSession(makeSession({ state: 'connected' }))
+    // hand-write a bogus thinking value
+    const raw = JSON.parse(localStorage.getItem('agentLinkSession:page-1')!)
+    raw.thinking = 'bogus'
+    localStorage.setItem('agentLinkSession:page-1', JSON.stringify(raw))
+
+    expect(readSession('page-1')?.thinking).toBeUndefined()
+  })
+
   it('readSession returns null once the record is older than HANDOFF_TTL_MS', () => {
     const session = makeSession()
     const persistedAt = Date.now()
@@ -253,6 +272,33 @@ describe('sessionHandoff', () => {
       expect(onSession).toHaveBeenCalledTimes(3)
 
       // ...but re-delivering the IDENTICAL record must not double-fire.
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+      expect(onSession).toHaveBeenCalledTimes(3)
+
+      unsubscribe()
+    })
+
+    // Track F: an op begins/fails as a THINKING-only change — state stays
+    // 'connected', token + dsl unchanged, only `thinking` flips. The
+    // fingerprint includes `thinking`, so this must be delivered (else the
+    // Fullscreen shimmer would never light).
+    it('delivers a thinking-only change (same state/token/dsl, only thinking flips)', () => {
+      const onSession = vi.fn()
+      const unsubscribe = subscribeToHandoff('page-1', onSession)
+
+      persistSession(makeSession({ state: 'connected' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+      expect(onSession).toHaveBeenCalledTimes(1)
+
+      persistSession(makeSession({ state: 'connected', thinking: 'thinking' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+      expect(onSession).toHaveBeenCalledTimes(2)
+      expect(onSession).toHaveBeenLastCalledWith(
+        makeSession({ state: 'connected', thinking: 'thinking' })
+      )
+
+      // flip to error → still a fresh fingerprint
+      persistSession(makeSession({ state: 'connected', thinking: 'error' }))
       window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
       expect(onSession).toHaveBeenCalledTimes(3)
 

@@ -9,6 +9,7 @@ import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
 import globals from '@/model/globals'
 import forgeRuntime from '@/model/globals/forgeGlobal'
 import { persistSession } from '@/composables/agentLink/sessionHandoff'
+import ThinkingOverlay from '@/components/AgentLink/ThinkingOverlay.vue'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
 
@@ -341,6 +342,48 @@ describe('GenericViewer (chrome-less)', () => {
       const wrapper = mountViewer()
       await flushPromises()
       expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(false)
+    })
+
+    // Track F — perceived-latency thinking overlay on the diagram render surface.
+    it('does NOT mount the thinking overlay seam at all when the flag resolves false (flag-off DOM unchanged)', async () => {
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.findComponent(ThinkingOverlay).exists()).toBe(false)
+      expect(wrapper.find('[data-testid="agent-thinking-overlay"]').exists()).toBe(false)
+    })
+
+    it('mounts the thinking overlay seam (idle, rendering nothing) on the render surface when the flag is on', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      // Seam is mounted for both surfaces (inline + fullscreen)...
+      expect(wrapper.findComponent(ThinkingOverlay).exists()).toBe(true)
+      // ...but renders nothing while idle (no op in flight).
+      expect(wrapper.find('[data-testid="agent-thinking-overlay"]').exists()).toBe(false)
+    })
+
+    it('does not mount the thinking overlay for a non-MVP diagram type (graph) even with the flag on', async () => {
+      store.commit('updateDiagramType', DiagramType.Graph)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.findComponent(ThinkingOverlay).exists()).toBe(false)
+    })
+
+    it('shows the shimmer overlay on the render surface when the session is thinking', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      // Drive the composable's thinking state (a real op would set this via the
+      // relay) and confirm it surfaces on the diagram render surface.
+      ;(wrapper.vm as any)._agentLink.thinkingState.value = 'thinking'
+      await wrapper.vm.$nextTick()
+
+      const overlay = wrapper.find('[data-testid="agent-thinking-overlay"]')
+      expect(overlay.exists()).toBe(true)
+      expect(overlay.classes()).toContain('agent-thinking-overlay--thinking')
+      expect(wrapper.find('[data-testid="agent-thinking-spinner"]').exists()).toBe(true)
     })
   })
 

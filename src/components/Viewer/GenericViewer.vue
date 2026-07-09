@@ -90,6 +90,13 @@
               <slot></slot>
             </div>
 
+            <!-- Live Agent Link perceived-latency overlay (charter §6 Track F).
+                 Flag-gated exactly like the Connect affordance so the flag-off
+                 DOM is unchanged; renders nothing internally while idle. Shows
+                 on BOTH surfaces (inline + Fullscreen) because both render this
+                 .viewer-canvas — Fullscreen mirrors the state via the handoff. -->
+            <ThinkingOverlay v-if="showAgentLinkThinking" :state="agentLinkThinking" />
+
             <div class="viewer-edge-bottom-pill" role="toolbar" aria-label="Diagram actions">
               <!-- Graph viewer slots in multi-page nav (prev / X of Y / next) here. -->
               <slot name="pill-prefix"></slot>
@@ -175,6 +182,7 @@ import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
 import ConnectButton from '@/components/AgentLink/ConnectButton.vue'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
 import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
+import ThinkingOverlay from '@/components/AgentLink/ThinkingOverlay.vue'
 import { useAgentLinkSession } from '@/composables/agentLink/useAgentLinkSession'
 import { createBridgeOps, createUnwiredBridgeOps } from '@/composables/agentLink/bridgeOps'
 import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
@@ -210,6 +218,7 @@ export default {
     ConnectButton,
     ConnectPanel,
     LiveBadge,
+    ThinkingOverlay,
   },
   computed: {
     ...mapState({diagramType: state => state.diagram.diagramType, diagram: state => state.diagram }),
@@ -288,6 +297,17 @@ export default {
     // The Fullscreen Connect rail (design §5.1 ConnectPanel / §9).
     showAgentLinkPanel() {
       return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && this.isFullscreenMode;
+    },
+    // Perceived-latency overlay gate (charter §6 Track F). Same flag/type
+    // gating as the other affordances, but NOT restricted to Fullscreen: the
+    // "AI is thinking" state must show on the inline macro surface too (both
+    // surfaces render .viewer-canvas). Off ⇒ overlay never mounts ⇒ flag-off
+    // DOM is unchanged.
+    showAgentLinkThinking() {
+      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported;
+    },
+    agentLinkThinking() {
+      return this._agentLink?.thinkingState.value ?? 'idle';
     },
     agentLinkState() {
       return this._agentLink?.state.value ?? 'idle';
@@ -480,6 +500,11 @@ export default {
     applyAgentDiagramUpdate(dsl, macroType) {
       const type = macroType || this.diagramType;
       this.$store.dispatch(getStoreUpdateAction(type), dsl);
+      // Track F: signal the composable once the COMPLETE new diagram has
+      // actually painted (next tick after the store change the viewer watches),
+      // so it clears the "thinking" overlay exactly when the new diagram is on
+      // screen — never before — and measures a real view-layer render_ms.
+      this.$nextTick(() => this._agentLink?.notifyRenderSettled());
     },
     fullscreen() {
       trackEvent('fullscreen', 'click', 'viewing');

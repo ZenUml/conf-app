@@ -12,8 +12,8 @@ vi.mock('@/model/globals/forgeGlobal', () => ({
 }))
 
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
-import { useAgentLinkSession } from './useAgentLinkSession'
-import { SETUP_TIMEOUT_MS } from './agentLinkState'
+import { useAgentLinkSession, ERROR_FLASH_MS } from './useAgentLinkSession'
+import { SETUP_TIMEOUT_MS, RENDER_SAFETY_TIMEOUT_MS } from './agentLinkState'
 import type { AgentLinkBridgeOps } from './bridgeOps'
 import { readSession, persistSession } from './sessionHandoff'
 import type { AgentLinkHandoffSession } from './sessionHandoff'
@@ -144,7 +144,7 @@ describe('useAgentLinkSession', () => {
     expect(session.activityFeed.value[0]).toMatchObject({ summary: 'diagram updated' })
   })
 
-  it('applyEdit failure fires agent_link_edit_failed and does not touch the feed', async () => {
+  it('applyEdit failure fires agent_link_edit_failed and adds a visible error cue to the feed (Track F)', async () => {
     const bridgeOps = makeBridgeOps({
       writeDiagram: vi.fn().mockResolvedValue({ ok: false, reason: 'version_conflict' }),
     })
@@ -156,7 +156,10 @@ describe('useAgentLinkSession', () => {
     const result = await session.applyEdit('A->B: hi')
 
     expect(result.ok).toBe(false)
-    expect(session.activityFeed.value).toHaveLength(0)
+    // Charter §6 failure path: a failed edit must leave a visible error cue in
+    // the feed (was: silently no feed entry). Exactly one error line.
+    expect(session.activityFeed.value).toHaveLength(1)
+    expect(session.activityFeed.value[0].summary).toMatch(/did not apply/i)
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'agent_link_edit_failed',
       expect.objectContaining({ macro_type: 'sequence', reason: 'version_conflict' })
@@ -335,7 +338,7 @@ describe('useAgentLinkSession', () => {
       )
     })
 
-    it('a failing relay-driven update_diagram op fires agent_link_edit_failed and does not touch the feed', async () => {
+    it('a failing relay-driven update_diagram op fires agent_link_edit_failed and adds an error cue to the feed (Track F)', async () => {
       const bridgeOps = makeBridgeOps()
       let capturedOnEditApplied: ((outcome: any) => void) | undefined
       const connect = vi.fn((_wsUrl, _bridge, _onStateEvent, _onDiagUpdated, onEditApplied) => {
@@ -358,7 +361,11 @@ describe('useAgentLinkSession', () => {
 
       capturedOnEditApplied!({ ok: false, dsl: 'A->B: hi', reason: 'version_conflict' })
 
-      expect(session.activityFeed.value).toHaveLength(0)
+      // Charter §6: a failed relay edit leaves a visible error line in the feed
+      // (was: no feed entry). settleThinking('failed') is a no-op here since no
+      // update_diagram op was in flight, so only the one error line is added.
+      expect(session.activityFeed.value).toHaveLength(1)
+      expect(session.activityFeed.value[0].summary).toMatch(/did not apply/i)
       expect(trackAnalyticsEvent).toHaveBeenCalledWith(
         'agent_link_edit_failed',
         expect.objectContaining({ macro_type: 'sequence', reason: 'version_conflict' })
@@ -880,6 +887,326 @@ describe('useAgentLinkSession', () => {
 
       expect(session.state.value).toBe('idle')
       expect(session.token.value).toBeNull()
+    })
+  })
+
+  // Track F — perceived-latency "AI is thinking" state (charter §6): an
+  // update_diagram op must instantly show acknowledgment on the render surface
+  // BEFORE the round-trip completes, clear on success/failure/timeout (never a
+  // stuck shimmer), and fire the two perceived-latency events with timings.
+  describe('Track F — perceived-latency thinking state', () => {
+    interface CapturedRelay {
+      onStateEvent?: (e: any) => void
+      onDiagramUpdated?: (dsl: string) => void
+      onEditApplied?: (o: any) => void
+    }
+
+    // A relay session with captured callbacks + a fully-injected clock so
+    // `now()` and the safety/error timers are deterministic (no wall clock).
+    function setupThinking(
+      opts: { macroType?: any; onDiagramUpdated?: (dsl: string, mt: any) => void } = {}
+    ) {
+      const captured: CapturedRelay = {}
+      const connect = vi.fn(
+        (_wsUrl, _bridge, onStateEvent, onDiagUpdated, onEditApplied) => {
+          captured.onStateEvent = onStateEvent
+          captured.onDiagramUpdated = onDiagUpdated
+          captured.onEditApplied = onEditApplied
+          return { send: vi.fn(), close: vi.fn(), getState: vi.fn(() => 'open') }
+        }
+      )
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token' })
+      const timers: Array<{ fn: () => void; ms: number }> = []
+      const clockState = { t: 1000 }
+      const clock = {
+        now: () => clockState.t,
+        setTimeout: (fn: () => void, ms: number) => {
+          const h = { fn, ms }
+          timers.push(h)
+          return h
+        },
+        clearTimeout: (h: any) => {
+          const i = timers.indexOf(h)
+          if (i >= 0) timers.splice(i, 1)
+        },
+      }
+      const boundContext = { cloudId: 'c1', pageId: 'p-track-f', contentId: 'cc1' }
+      const session = useAgentLinkSession(makeBridgeOps(), {
+        macroType: opts.macroType ?? 'sequence',
+        onDiagramUpdated: opts.onDiagramUpdated,
+        clock,
+        relay: { boundContext, requestSession, connect },
+      })
+      return { session, captured, timers, clockState, boundContext }
+    }
+
+    function fireTimer(timers: Array<{ fn: () => void; ms: number }>, ms: number) {
+      const t = timers.find((x) => x.ms === ms)
+      expect(t).toBeTruthy()
+      t!.fn()
+    }
+
+    it('an update_diagram op instantly shows the thinking state and fires agent_link_first_feedback with ms_since_op_received', async () => {
+      const { session, captured, clockState } = setupThinking()
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      clockState.t = 1500 // "now" when the composable processes the op
+      captured.onStateEvent!({ type: 'op', op: 'update_diagram', receivedAt: 1200 })
+
+      expect(session.thinkingState.value).toBe('thinking')
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_first_feedback',
+        expect.objectContaining({
+          feature_area: 'agent_link',
+          macro_type: 'sequence',
+          ms_since_op_received: 300, // 1500 - 1200
+        })
+      )
+      expect(session.activityFeed.value.at(-1)!.summary).toMatch(/updating the diagram/i)
+    })
+
+    it('read_page / read_diagram ops never trigger the thinking state or first_feedback', async () => {
+      const { session, captured } = setupThinking()
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      captured.onStateEvent!({ type: 'op', op: 'read_page', receivedAt: 1 })
+      captured.onStateEvent!({ type: 'op', op: 'read_diagram', receivedAt: 2 })
+
+      expect(session.thinkingState.value).toBe('idle')
+      expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+        'agent_link_first_feedback',
+        expect.anything()
+      )
+    })
+
+    it('clears the thinking state on success only after the host confirms paint (notifyRenderSettled), with render+total timing', async () => {
+      const { session, captured, clockState } = setupThinking()
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      clockState.t = 2000
+      captured.onStateEvent!({ type: 'op', op: 'update_diagram', receivedAt: 2000 })
+      expect(session.thinkingState.value).toBe('thinking')
+
+      // persist succeeds → relay hands the new dsl to the store...
+      clockState.t = 2300
+      captured.onDiagramUpdated!('A->B: hi')
+      captured.onEditApplied!({ ok: true, dsl: 'A->B: hi', summary: 'x', rendered: true })
+      // ...but the shimmer stays until the host confirms the COMPLETE diagram
+      // painted (hard constraint: never clear before the real render).
+      expect(session.thinkingState.value).toBe('thinking')
+
+      vi.mocked(trackAnalyticsEvent).mockClear()
+      clockState.t = 2350
+      session.notifyRenderSettled()
+
+      expect(session.thinkingState.value).toBe('idle')
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_render_completed',
+        expect.objectContaining({
+          render_outcome: 'rendered',
+          render_ms: 50, // 2350 - 2300 (dispatch → paint)
+          total_ms: 350, // 2350 - 2000 (op received → paint)
+        })
+      )
+    })
+
+    it('a full success op fires BOTH first_feedback and render_completed, each with its timing prop', async () => {
+      const { session, captured, clockState } = setupThinking()
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      clockState.t = 5100
+      captured.onStateEvent!({ type: 'op', op: 'update_diagram', receivedAt: 5000 })
+      clockState.t = 5200
+      captured.onDiagramUpdated!('A->B: hi')
+      captured.onEditApplied!({ ok: true, dsl: 'A->B: hi', rendered: true })
+      clockState.t = 5250
+      session.notifyRenderSettled()
+
+      const names = vi.mocked(trackAnalyticsEvent).mock.calls.map((c) => c[0])
+      expect(names).toContain('agent_link_first_feedback')
+      expect(names).toContain('agent_link_render_completed')
+
+      const ff = vi
+        .mocked(trackAnalyticsEvent)
+        .mock.calls.find((c) => c[0] === 'agent_link_first_feedback')!
+      expect(ff[1]).toMatchObject({ ms_since_op_received: 100 }) // 5100 - 5000
+      const rc = vi
+        .mocked(trackAnalyticsEvent)
+        .mock.calls.find((c) => c[0] === 'agent_link_render_completed')!
+      expect(rc[1]).toMatchObject({ total_ms: 250, render_ms: 50 })
+    })
+
+    it('clears to an error cue on a failed op, fires render_completed:failed, then auto-returns to idle', async () => {
+      const { session, captured, clockState, timers } = setupThinking()
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      clockState.t = 3000
+      captured.onStateEvent!({ type: 'op', op: 'update_diagram', receivedAt: 3000 })
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      clockState.t = 3400
+      captured.onEditApplied!({ ok: false, dsl: 'A->B: hi', reason: 'version_conflict' })
+
+      expect(session.thinkingState.value).toBe('error')
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_render_completed',
+        expect.objectContaining({ render_outcome: 'failed', total_ms: 400 })
+      )
+      expect(
+        session.activityFeed.value.some((e) => /did not apply/i.test(e.summary))
+      ).toBe(true)
+
+      // never a stuck error: the flash timer returns the surface to idle.
+      clockState.t = 3400 + ERROR_FLASH_MS
+      fireTimer(timers, ERROR_FLASH_MS)
+      expect(session.thinkingState.value).toBe('idle')
+    })
+
+    it('the render-safety backstop auto-clears a stuck thinking state and fires render_completed:timeout', async () => {
+      const { session, captured, clockState, timers } = setupThinking()
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      clockState.t = 4000
+      captured.onStateEvent!({ type: 'op', op: 'update_diagram', receivedAt: 4000 })
+      expect(session.thinkingState.value).toBe('thinking')
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      // Simulate a dropped WS: no render/failure ever arrives → the 60s
+      // backstop fires (evidence-based: ~1.5× the diagramly p99 of 40.5s).
+      clockState.t = 4000 + RENDER_SAFETY_TIMEOUT_MS
+      fireTimer(timers, RENDER_SAFETY_TIMEOUT_MS)
+
+      expect(session.thinkingState.value).toBe('error')
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_render_completed',
+        expect.objectContaining({
+          render_outcome: 'timeout',
+          total_ms: RENDER_SAFETY_TIMEOUT_MS,
+        })
+      )
+      expect(
+        session.activityFeed.value.some((e) => /timed out/i.test(e.summary))
+      ).toBe(true)
+    })
+
+    it('a new op while thinking restarts the cycle without leaving the first op stuck', async () => {
+      const { session, captured, clockState, timers } = setupThinking()
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      clockState.t = 6000
+      captured.onStateEvent!({ type: 'op', op: 'update_diagram', receivedAt: 6000 })
+      // a second op arrives before the first settled
+      clockState.t = 6100
+      captured.onStateEvent!({ type: 'op', op: 'update_diagram', receivedAt: 6100 })
+      expect(session.thinkingState.value).toBe('thinking')
+
+      // the first op's safety timer was cleared/replaced — only ONE 60s timer
+      // is pending, keyed to the second op.
+      const safetyTimers = timers.filter((t) => t.ms === RENDER_SAFETY_TIMEOUT_MS)
+      expect(safetyTimers).toHaveLength(1)
+    })
+
+    // Cross-iframe (charter §6: "both surfaces must show the state"). The
+    // Fullscreen modal never receives the op; it mirrors the relay owner's
+    // `thinking` handoff flag via hydrateFrom().
+    it('hydrateFrom mirrors a handoff thinking flag onto the Fullscreen surface + feed', () => {
+      const session = useAgentLinkSession(makeBridgeOps(), { macroType: 'sequence' })
+
+      session.hydrateFrom({
+        token: 't',
+        cloudId: 'c1',
+        pageId: 'p1',
+        contentId: 'cc1',
+        state: 'connected',
+        thinking: 'thinking',
+      })
+
+      expect(session.thinkingState.value).toBe('thinking')
+      expect(
+        session.activityFeed.value.some((e) => /updating the diagram/i.test(e.summary))
+      ).toBe(true)
+
+      session.hydrateFrom({
+        token: 't',
+        cloudId: 'c1',
+        pageId: 'p1',
+        contentId: 'cc1',
+        state: 'connected',
+        thinking: 'error',
+      })
+      expect(session.thinkingState.value).toBe('error')
+    })
+
+    it('hydrateFrom clears a mirrored shimmer when the resolved (no-thinking) record with the new dsl arrives', () => {
+      const onDiagramUpdated = vi.fn()
+      const session = useAgentLinkSession(makeBridgeOps(), {
+        macroType: 'sequence',
+        onDiagramUpdated,
+      })
+
+      session.hydrateFrom({
+        token: 't',
+        cloudId: 'c1',
+        pageId: 'p1',
+        contentId: 'cc1',
+        state: 'connected',
+        thinking: 'thinking',
+      })
+      expect(session.thinkingState.value).toBe('thinking')
+
+      session.hydrateFrom({
+        token: 't',
+        cloudId: 'c1',
+        pageId: 'p1',
+        contentId: 'cc1',
+        state: 'connected',
+        dsl: 'A->B: hi',
+      })
+
+      expect(session.thinkingState.value).toBe('idle')
+      expect(onDiagramUpdated).toHaveBeenCalledWith('A->B: hi', 'sequence')
+    })
+
+    it('re-hydrating the same thinking flag does not duplicate the feed line', () => {
+      const session = useAgentLinkSession(makeBridgeOps(), { macroType: 'sequence' })
+      const rec = {
+        token: 't',
+        cloudId: 'c1',
+        pageId: 'p1',
+        contentId: 'cc1',
+        state: 'connected' as const,
+        thinking: 'thinking' as const,
+      }
+      session.hydrateFrom(rec)
+      session.hydrateFrom(rec)
+
+      const thinkingLines = session.activityFeed.value.filter((e) =>
+        /updating the diagram/i.test(e.summary)
+      )
+      expect(thinkingLines).toHaveLength(1)
+    })
+
+    it('disconnect clears any in-flight thinking state (no stuck shimmer after teardown)', async () => {
+      const { session, captured, clockState } = setupThinking()
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      clockState.t = 7000
+      captured.onStateEvent!({ type: 'op', op: 'update_diagram', receivedAt: 7000 })
+      expect(session.thinkingState.value).toBe('thinking')
+
+      session.disconnect('user')
+      expect(session.thinkingState.value).toBe('idle')
     })
   })
 })

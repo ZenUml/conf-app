@@ -59,13 +59,21 @@ export type RelayStateEvent =
   | { type: 'error'; message?: string }
   | { type: 'reconnecting'; attempt: number }
   | { type: 'reconnect_failed' }
-  | { type: 'op'; op?: string }
+  // `receivedAt` is stamped the instant handleOp() begins (i.e. as close to
+  // the wire as this module gets), so the composable can measure perceived
+  // latency — op received → "AI thinking" shown — against a transport-owned
+  // timestamp rather than one taken after Vue reactivity has already run
+  // (charter §6 Track F, agent_link_first_feedback.ms_since_op_received).
+  | { type: 'op'; op?: string; receivedAt?: number }
 
 // Mirrors useAgentLinkSession.ts's AgentLinkClock injection pattern so the
 // reconnect backoff is testable without real timers.
 export interface RelayClock {
   setTimeout?: (handler: () => void, ms: number) => unknown
   clearTimeout?: (handle: unknown) => void
+  // Injectable wall clock for the op-received timestamp (Track F perceived
+  // latency). Defaults to Date.now; tests pass a deterministic one.
+  now?: () => number
 }
 
 export interface CreateRelayClientOptions {
@@ -132,6 +140,7 @@ export function createRelayClient(opts: CreateRelayClientOptions): RelayClient {
     opts.clock?.setTimeout ?? ((handler: () => void, ms: number) => setTimeout(handler, ms))
   const cancelTimeout =
     opts.clock?.clearTimeout ?? ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>))
+  const nowFn = opts.clock?.now ?? (() => Date.now())
 
   let ws: WebSocket | null = null
   let state: RelayConnectionState = 'connecting'
@@ -150,7 +159,7 @@ export function createRelayClient(opts: CreateRelayClientOptions): RelayClient {
 
   async function handleOp(envelope: RelayEnvelope): Promise<void> {
     const { id, op, payload } = envelope
-    emit({ type: 'op', op })
+    emit({ type: 'op', op, receivedAt: nowFn() })
     try {
       let result: unknown
       switch (op) {

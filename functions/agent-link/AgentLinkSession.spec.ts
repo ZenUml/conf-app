@@ -32,13 +32,26 @@ function makeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
   };
 }
 
-function makeState() {
+function makeState(store: Map<string, unknown> = new Map()) {
   return {
     storage: {
       setAlarm: vi.fn(async () => {}),
       deleteAlarm: vi.fn(async () => {}),
+      // Backed by a real Map so the ISSUE-3 persist/restore path
+      // (put on bootstrap, get on a hibernation wake, delete on teardown)
+      // round-trips in tests.
+      get: vi.fn(async (key: string) => store.get(key)),
+      put: vi.fn(async (key: string, value: unknown) => {
+        store.set(key, value);
+      }),
+      delete: vi.fn(async (key: string) => {
+        store.delete(key);
+      }),
     },
     getTags: vi.fn((_ws: unknown) => [] as string[]),
+    // Returns the hibernatable sockets for a peer tag; default none. Tests
+    // that exercise a wake override this to hand back the surviving socket.
+    getWebSockets: vi.fn((_tag?: string) => [] as unknown[]),
     acceptWebSocket: vi.fn(),
   } as unknown as DurableObjectState;
 }
@@ -117,6 +130,33 @@ describe('AgentLinkSession — agent-side HTTP transport (GET /session, POST /ag
       const res = await session.fetch(sessionInfoRequest());
 
       expect(res.status).toBe(403);
+    });
+
+    it('re-hydrates a persisted session (+ its macro socket) after a hibernation wake — ISSUE 3', async () => {
+      // A macro's first channel connect bootstraps + persists the session
+      // (what fetch()'s WS-upgrade path does; simulated here via storage.put
+      // since WebSocketPair isn't available in vitest — see file header).
+      const store = new Map<string, unknown>();
+      const session = makeSession();
+      await makeState(store).storage.put('session', session);
+
+      // Hibernation wake: a brand-new DO instance has lost the in-memory
+      // session, but the hibernatable macro socket and the persisted record
+      // both survive. BEFORE the fix, GET /session 401'd 'invalid' here
+      // (this.session === null) — that was ISSUE 3's ~30s idle "death".
+      const macroWs = makeFakeMacroWs();
+      const state = makeState(store);
+      (state.getWebSockets as any).mockImplementation((tag?: string) =>
+        tag === 'macro' ? [macroWs] : [],
+      );
+      const woken = new AgentLinkSession(state, {});
+
+      const res = await woken.fetch(sessionInfoRequest());
+
+      expect(res.status).toBe(200);
+      expect((await res.json()).boundContext).toEqual(CTX);
+      // The macro socket is re-hydrated too, so agent ops can still forward.
+      expect((woken as any).macroSocket).toBe(macroWs);
     });
   });
 

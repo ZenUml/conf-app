@@ -116,6 +116,29 @@ export class AgentLinkSession {
     this.env = env;
   }
 
+  /**
+   * Re-hydrate the session (and its hibernatable sockets) after the DO has
+   * been evicted from memory. Hibernatable WebSockets survive the DO going
+   * idle, but `this.session` / `macroSocket` / `agentSocket` are plain
+   * in-memory fields a freshly-woken instance loses — so `validateSession()`
+   * would 401 'invalid' on the very next request even though the socket is
+   * still open and the pairing intact. That was ISSUE 3: the session appeared
+   * to "die" after ~30s idle (the DO hibernated; traffic kept it warm). The
+   * record is persisted to storage at bootstrap (see `fetch`) and reloaded
+   * here on the first handler call after a wake, so a session survives idle
+   * for its full token TTL — exactly what the hibernation comment in `fetch`
+   * always intended. No-op once `this.session` is set (warm instance, or a
+   * test that populated it directly).
+   */
+  private async ensureSession(): Promise<void> {
+    if (this.session) return;
+    const stored = await this.state.storage.get<SessionRecord>('session');
+    if (!stored) return;
+    this.session = stored;
+    this.macroSocket = this.state.getWebSockets('macro')[0] ?? null;
+    this.agentSocket = this.state.getWebSockets('agent')[0] ?? null;
+  }
+
   private socketFor(peer: Peer): WebSocket | null {
     return peer === 'macro' ? this.macroSocket : this.agentSocket;
   }
@@ -167,6 +190,10 @@ export class AgentLinkSession {
     }
     const peer: Peer = peerParam;
 
+    // A macro reconnecting after a hibernation wake must re-attach to the
+    // existing (persisted) session rather than bootstrap a second one.
+    await this.ensureSession();
+
     if (!this.session) {
       const cloudId = url.searchParams.get('cloudId');
       const pageId = url.searchParams.get('pageId');
@@ -185,6 +212,9 @@ export class AgentLinkSession {
         issuedAtMs: Date.now(),
         state: 'created',
       };
+      // Persist so the session survives a DO hibernation wake — reloaded by
+      // ensureSession() on the next request (ISSUE 3 fix).
+      await this.state.storage.put('session', this.session);
       // TTL fallback in case the macro connects but the agent never does —
       // §7: "created -> expired (token TTL, agent never joined)".
       await this.state.storage.setAlarm(this.session.issuedAtMs + 10 * 60 * 1000);
@@ -253,7 +283,8 @@ export class AgentLinkSession {
    * instance the macro bootstrapped) to authenticate a token regardless of
    * which Worker isolate the HTTP request landed on.
    */
-  private handleSessionInfo(): Response {
+  private async handleSessionInfo(): Promise<Response> {
+    await this.ensureSession();
     const auth = this.validateSession();
     if (!auth.ok) return jsonResponse({ error: auth.code }, auth.status);
 
@@ -273,6 +304,7 @@ export class AgentLinkSession {
    * `webSocketMessage` below) up to `AGENT_OP_TIMEOUT_MS` (504 past that).
    */
   private async handleAgentOp(request: Request): Promise<Response> {
+    await this.ensureSession();
     const auth = this.validateSession();
     if (!auth.ok) return jsonResponse({ error: auth.code }, auth.status);
 
@@ -317,6 +349,7 @@ export class AgentLinkSession {
    * pure helpers in forwarding.ts / sessionToken.ts.
    */
   async webSocketMessage(ws: WebSocket, message: ArrayBuffer | string): Promise<void> {
+    await this.ensureSession();
     const from = this.peerForSocket(ws);
     if (!from || !this.session) return;
 
@@ -386,6 +419,9 @@ export class AgentLinkSession {
     this.macroSocket = null;
     this.agentSocket = null;
     await this.state.storage.deleteAlarm();
+    // Drop the persisted record too, so a later hibernation wake can't
+    // restore a torn-down session (companion to ensureSession — ISSUE 3 fix).
+    await this.state.storage.delete('session');
   }
 
   /**
@@ -411,6 +447,9 @@ export class AgentLinkSession {
       }
       this.macroSocket = null;
       this.agentSocket = null;
+      // Drop the persisted record on TTL expiry so a wake can't resurrect it
+      // (validateSession's clock check would still reject it, but don't leak).
+      await this.state.storage.delete('session');
     }
   }
 }

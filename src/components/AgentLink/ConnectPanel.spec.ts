@@ -5,7 +5,7 @@ import connectPanelSource from './ConnectPanel.vue?raw'
 import type { AgentLinkActivityEntry } from '@/composables/agentLink/useAgentLinkSession'
 
 function mountPanel(props: {
-  state: 'idle' | 'waiting' | 'connected' | 'timeout' | 'closed'
+  state: 'idle' | 'waiting' | 'connected' | 'timeout' | 'suspended' | 'closed'
   token?: string | null
   activityFeed?: AgentLinkActivityEntry[]
 }) {
@@ -95,5 +95,41 @@ describe('ConnectPanel', () => {
     await wrapper.find('[data-testid="agent-link-disconnect-btn"]').trigger('click')
 
     expect(wrapper.emitted('disconnect')).toHaveLength(1)
+  })
+
+  it('connected: Revoke & re-link emits the revoke event', async () => {
+    const wrapper = mountPanel({ state: 'connected', token: 'tok-123' })
+
+    await wrapper.find('[data-testid="agent-link-revoke-btn"]').trigger('click')
+
+    expect(wrapper.emitted('revoke')).toHaveLength(1)
+  })
+
+  // Track G — suspended: the relay socket dropped unexpectedly but is still
+  // resumable within the token TTL. Copy verbatim from Track H's design
+  // contract (h-design-bundle/ui_kits/agent-link/README.md).
+  it('suspended: shows the reconnecting banner with Disconnect and Revoke & re-link', () => {
+    const wrapper = mountPanel({ state: 'suspended', token: 'tok-123' })
+
+    expect(wrapper.find('[data-testid="agent-link-suspended"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain(
+      'agent-link-panel--suspended'
+    )
+    expect(wrapper.text()).toContain('Connection paused — reconnecting…')
+    expect(wrapper.find('[data-testid="agent-link-suspended-status"]').text()).toContain(
+      'Waiting for the macro to reconnect. The agent will retry its next request'
+    )
+    expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-revoke-btn"]').exists()).toBe(true)
+  })
+
+  it('suspended: Disconnect and Revoke & re-link emit their respective events', async () => {
+    const wrapper = mountPanel({ state: 'suspended', token: 'tok-123' })
+
+    await wrapper.find('[data-testid="agent-link-disconnect-btn"]').trigger('click')
+    await wrapper.find('[data-testid="agent-link-revoke-btn"]').trigger('click')
+
+    expect(wrapper.emitted('disconnect')).toHaveLength(1)
+    expect(wrapper.emitted('revoke')).toHaveLength(1)
   })
 })

@@ -47,7 +47,10 @@
 
 import type { AgentLinkBoundContext } from './relayUrl'
 
-export type AgentLinkHandoffState = 'waiting' | 'connected'
+// 'suspended' (Track G): the relay socket dropped unexpectedly — see
+// useAgentLinkSession.ts's handleRelayStateEvent 'close' branch. Mirrored
+// onto the Fullscreen (display-only) instance's own state via hydrateFrom().
+export type AgentLinkHandoffState = 'waiting' | 'connected' | 'suspended'
 
 // Perceived-latency cue carried across the iframe boundary (charter §6 Track
 // F). The relay owner (inline macro) is the only instance that receives an
@@ -119,7 +122,7 @@ function isValidPersisted(
     !!parsed.cloudId &&
     !!parsed.pageId &&
     !!parsed.contentId &&
-    (parsed.state === 'waiting' || parsed.state === 'connected')
+    (parsed.state === 'waiting' || parsed.state === 'connected' || parsed.state === 'suspended')
   )
 }
 

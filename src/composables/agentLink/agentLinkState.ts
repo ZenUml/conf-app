@@ -15,6 +15,7 @@ export type AgentLinkClientState =
   | "waiting"
   | "connected"
   | "timeout"
+  | "suspended"
   | "closed";
 
 export type AgentLinkClientEvent =
@@ -22,7 +23,15 @@ export type AgentLinkClientEvent =
   | "session_created"
   | "agent_connected"
   | "timeout"
-  | "disconnect";
+  | "disconnect"
+  // Mirrors the relay's server-side FSM (functions/agent-link/sessionToken.ts,
+  // Track G / G-design.md): the relay socket closed unexpectedly (not an
+  // explicit Disconnect) — 'ws_drop' fires only from 'connected' (the macro
+  // had a live pairing to lose); 'resumed' fires once a same-token reconnect
+  // succeeds (relayClient.ts already reconnects-by-token; this is the
+  // client-side UI counterpart to the server's 'reattach').
+  | "ws_drop"
+  | "resumed";
 
 // The ~20s "no agent yet → show setup" delay (design §3 decision #6:
 // "presence + timeout"). Exported so callers (useAgentLinkSession) and tests
@@ -86,6 +95,11 @@ const TRANSITIONS: Partial<
     disconnect: "closed",
   },
   connected: {
+    disconnect: "closed",
+    ws_drop: "suspended",
+  },
+  suspended: {
+    resumed: "connected",
     disconnect: "closed",
   },
   closed: {},

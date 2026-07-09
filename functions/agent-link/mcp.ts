@@ -136,16 +136,28 @@ interface DoSessionInfo {
   lastDiagram?: DiagramSnapshot;
 }
 
-export type MacroForwardErrorCode = 'macro_not_connected' | 'macro_timeout' | 'bad_response';
+// 'macro_disconnected' (Track G, design §7 decision #4): the session is
+// 'suspended' — the macro dropped without an explicit disconnect and hasn't
+// reattached yet. RETRIABLE, unlike the other codes here: the agent should
+// retry after `resume_deadline` rather than treat this as a dead session.
+export type MacroForwardErrorCode = 'macro_not_connected' | 'macro_timeout' | 'bad_response' | 'macro_disconnected';
 
 /** Thrown by `doForwardToMacro` when the DO round-trip itself fails (as opposed to `ToolError`, which is a bad request). */
 export class MacroForwardError extends Error {
   readonly code: MacroForwardErrorCode;
+  /**
+   * Structured JSON-RPC error `data` override for this specific error. Only
+   * set for 'macro_disconnected' — design's exact contract is
+   * `{reason:'macro_disconnected', resume_deadline}` (note: `reason`, not the
+   * `{code}` shape every other MacroForwardError falls back to below).
+   */
+  readonly data?: Record<string, unknown>;
 
-  constructor(code: MacroForwardErrorCode, message: string) {
+  constructor(code: MacroForwardErrorCode, message: string, data?: Record<string, unknown>) {
     super(message);
     this.name = 'MacroForwardError';
     this.code = code;
+    this.data = data;
   }
 }
 
@@ -202,6 +214,24 @@ function doForwardToMacro(agentLink: DurableObjectNamespace, token: string) {
     });
 
     if (res.status === 409) {
+      // Two distinct 409s from the DO (handleAgentOp): 'macro_not_connected'
+      // (no macro has ever paired, or it's genuinely gone) vs
+      // 'macro_disconnected' (the session is 'suspended' — the macro dropped
+      // but may still reattach within the resume window). Inspect the body
+      // to tell them apart rather than collapsing both to the same code.
+      let body: { error?: string; resume_deadline?: number } = {};
+      try {
+        body = await res.json();
+      } catch {
+        // Fall through to the generic code below.
+      }
+      if (body.error === 'macro_disconnected') {
+        throw new MacroForwardError(
+          'macro_disconnected',
+          'The macro disconnected; waiting for it to reconnect.',
+          { reason: 'macro_disconnected', resume_deadline: body.resume_deadline },
+        );
+      }
       throw new MacroForwardError('macro_not_connected', 'The paired macro is not currently connected.');
     }
     if (res.status === 504) {
@@ -411,8 +441,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           return jsonRpcError(200, id, code, err.message, data);
         }
         if (err instanceof MacroForwardError) {
-          const status = err.code === 'macro_not_connected' ? 409 : err.code === 'macro_timeout' ? 504 : 502;
-          return jsonRpcError(status, id, RPC_MACRO_ERROR, err.message, { code: err.code });
+          const status =
+            err.code === 'macro_not_connected' || err.code === 'macro_disconnected'
+              ? 409
+              : err.code === 'macro_timeout'
+                ? 504
+                : 502;
+          // 'macro_disconnected' carries its own {reason, resume_deadline}
+          // data shape (design §7 decision #4); every other code falls back
+          // to the existing {code} shape.
+          return jsonRpcError(status, id, RPC_MACRO_ERROR, err.message, err.data ?? { code: err.code });
         }
         throw err;
       }

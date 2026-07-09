@@ -12,11 +12,28 @@ export interface BoundContext {
   contentId: string;
 }
 
-/** Relay session state machine states (design §7). */
-export type SessionState = 'created' | 'paired' | 'active' | 'closed' | 'expired';
+/** Relay session state machine states (design §7, extended by the G-design.md
+ * session-lifecycle spec with `suspended`). */
+export type SessionState = 'created' | 'paired' | 'active' | 'suspended' | 'closed' | 'expired';
 
-/** Events that can drive a state transition (design §7). */
-export type SessionEvent = 'macro_connected' | 'agent_paired' | 'edit' | 'disconnect' | 'expire';
+/**
+ * Events that can drive a state transition (design §7, extended by
+ * G-design.md):
+ *   - 'ws_drop'   — a peer's socket closed/errored WITHOUT a preceding
+ *                    explicit disconnect envelope (accidental: Fullscreen
+ *                    close, tab crash, net blip). Suspends rather than closes.
+ *   - 'reattach'   — the macro reopens/reloads and reconnects with the SAME
+ *                    token while the session is 'suspended', within the
+ *                    resume window (remaining token TTL).
+ */
+export type SessionEvent =
+  | 'macro_connected'
+  | 'agent_paired'
+  | 'edit'
+  | 'disconnect'
+  | 'expire'
+  | 'ws_drop'
+  | 'reattach';
 
 export interface SessionRecord {
   token: string;
@@ -55,35 +72,64 @@ export function isExpired(issuedAtMs: number, nowMs: number): boolean {
 }
 
 /**
- * Pure state transition (design §7):
+ * Pure state transition (design §7, extended by G-design.md's session
+ * lifecycle spec):
  *   created --macro_connected--> created   (still waiting for the agent)
  *   created --agent_paired-----> paired
  *   paired  --edit-------------> active
  *   active  --edit-------------> active
  *   created/paired --expire----> expired
- *   (any non-terminal state) --disconnect--> closed
+ *   (any live state, incl. suspended) --disconnect--> closed
+ *   (any live pre-suspended state) --ws_drop--> suspended
+ *   suspended --reattach-------> active
+ *   suspended --expire----------> expired   (ttl_expiry: resume window =
+ *                                            remaining token TTL, no extension)
  *   closed / expired are absorbing: every event leaves them unchanged.
  *   Any other (state, event) pair is invalid and returns `cur` unchanged.
+ *
+ * NOTE on `ws_drop`'s scope: the design doc's FSM diagram labels this
+ * transition "active --ws_drop--> suspended", but it is implemented here to
+ * fire from EVERY live pre-suspended state (created/paired/active), not only
+ * 'active'. Reason: an HTTP-only agent (mcp.ts's transport) never drives
+ * 'agent_paired'/'edit' over this session's WebSocket, so a real session
+ * normally sits at 'created' indefinitely (see AgentLinkSession.ts's file
+ * header) — restricting ws_drop to 'active' would mean the Fullscreen
+ * close/reopen suspend-and-resume flow this task exists for never actually
+ * fires in production. Generalizing is a deliberate, documented deviation.
  */
 export function nextState(cur: SessionState, event: SessionEvent): SessionState {
   // Terminal states absorb every event, including 'disconnect'.
   if (cur === 'closed' || cur === 'expired') return cur;
 
+  // Explicit disconnect (macro-side Disconnect button, or an explicit
+  // agent-side close) is the ONLY path to 'closed' — from any live state,
+  // including 'suspended'.
   if (event === 'disconnect') return 'closed';
+
+  // Accidental disconnect (Fullscreen close, inline reload, tab crash, net
+  // blip) suspends rather than closes outright — see the NOTE above for why
+  // this isn't restricted to 'active'.
+  if (event === 'ws_drop') return cur === 'suspended' ? cur : 'suspended';
+
+  if (cur === 'suspended') {
+    if (event === 'reattach') return 'active';
+    if (event === 'expire') return 'expired';
+    return cur; // macro_connected/agent_paired/edit while suspended are no-ops (ops are rejected, not queued)
+  }
 
   switch (cur) {
     case 'created':
       if (event === 'macro_connected') return 'created';
       if (event === 'agent_paired') return 'paired';
       if (event === 'expire') return 'expired';
-      return cur; // 'edit' is invalid before pairing
+      return cur; // 'edit'/'reattach' are invalid before pairing/suspension
     case 'paired':
       if (event === 'edit') return 'active';
       if (event === 'expire') return 'expired';
-      return cur; // macro_connected/agent_paired again are invalid no-ops
+      return cur; // macro_connected/agent_paired/reattach again are invalid no-ops
     case 'active':
       if (event === 'edit') return 'active';
-      return cur; // macro_connected/agent_paired/expire are invalid once active
+      return cur; // macro_connected/agent_paired/expire/reattach are invalid once active
     default:
       return cur;
   }

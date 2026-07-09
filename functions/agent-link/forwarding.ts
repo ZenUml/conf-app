@@ -13,7 +13,7 @@
 // sessionToken.ts, per this task's scope.
 
 import { nextState } from './sessionToken';
-import type { SessionState } from './sessionToken';
+import type { SessionEvent, SessionState } from './sessionToken';
 
 /** Which side of a paired session a message came from / is routed to. */
 export type Peer = 'macro' | 'agent';
@@ -27,12 +27,18 @@ export type Peer = 'macro' | 'agent';
  *   - 'error'  — macro -> agent failed reply to an 'op', keyed by `id`.
  *   - 'ping'   — either side; a keepalive handled locally by the DO, never
  *                forwarded to the other peer.
+ *   - 'disconnect' — either side; an EXPLICIT disconnect signal (the macro's
+ *                Disconnect button, or an explicit agent-side close) — design
+ *                §7's ONLY path to the terminal 'closed' state, as opposed to
+ *                an unexpected socket close/error (which suspends instead).
+ *                Handled directly by AgentLinkSession.webSocketMessage
+ *                (closeSession) rather than forwarded verbatim.
  *   - 'invalid' — internal-only: the raw string was not a well-formed
  *                envelope (bad JSON, non-object, or an unrecognized/missing
  *                `kind`). Never sent on the wire; only ever produced by
  *                `parseEnvelope` for the caller to detect and drop.
  */
-export type EnvelopeKind = 'op' | 'result' | 'error' | 'ping' | 'invalid';
+export type EnvelopeKind = 'op' | 'result' | 'error' | 'ping' | 'disconnect' | 'invalid';
 
 export interface Envelope {
   kind: EnvelopeKind;
@@ -68,7 +74,7 @@ export function parseEnvelope(raw: string): Envelope {
 
   const obj = data as Record<string, unknown>;
   const kind = obj.kind;
-  if (kind !== 'op' && kind !== 'result' && kind !== 'error' && kind !== 'ping') {
+  if (kind !== 'op' && kind !== 'result' && kind !== 'error' && kind !== 'ping' && kind !== 'disconnect') {
     return { kind: 'invalid', reason: `unknown or missing "kind": ${JSON.stringify(obj.kind)}` };
   }
 
@@ -89,11 +95,14 @@ export type RouteDecision = { to: Peer } | { drop: string };
  *   - agent sends 'op'             -> forward to the macro
  *   - macro sends 'result'/'error' -> forward to the agent
  *   - 'ping' (either side)         -> handled locally, never forwarded, `{drop:'ping'}`
+ *   - 'disconnect' (either side)  -> handled locally by AgentLinkSession
+ *     (closeSession), never forwarded verbatim, `{drop:'disconnect'}`
  *   - anything else (wrong-direction kind, e.g. macro sending 'op', or an
  *     'invalid' envelope) -> `{drop:'unknown'}`
  */
 export function routeMessage(from: Peer, envelope: Envelope): RouteDecision {
   if (envelope.kind === 'ping') return { drop: 'ping' };
+  if (envelope.kind === 'disconnect') return { drop: 'disconnect' };
   if (from === 'agent' && envelope.kind === 'op') return { to: 'macro' };
   if (from === 'macro' && (envelope.kind === 'result' || envelope.kind === 'error')) return { to: 'agent' };
   return { drop: 'unknown' };
@@ -115,4 +124,21 @@ export function applyEvent(state: SessionState, envelope: Envelope, from: Peer):
     return nextState(state, 'edit');
   }
   return state;
+}
+
+/**
+ * Which FSM event a peer's WS-upgrade connect should drive (G-design.md's
+ * session lifecycle spec). Extracted as a pure helper — separate from
+ * AgentLinkSession.fetch()'s WebSocketPair/acceptWebSocket plumbing, which
+ * needs a real Workers runtime to exercise — so this specific decision is
+ * unit-testable without one (see forwarding.spec.ts):
+ *   - the session was 'suspended' (a prior macro socket dropped, this is a
+ *     same-token reattach within the resume window) -> 'reattach', regardless
+ *     of which peer reconnects;
+ *   - otherwise, a peer's FIRST connect for this token -> the original
+ *     'macro_connected'/'agent_paired' bootstrap event (design §7).
+ */
+export function reattachEvent(peer: Peer, wasSuspended: boolean): SessionEvent {
+  if (wasSuspended) return 'reattach';
+  return peer === 'macro' ? 'macro_connected' : 'agent_paired';
 }

@@ -10,6 +10,19 @@ import { sessionRegistry as registry } from './registrySingleton';
 import { TOKEN_TTL_MS } from './sessionToken';
 import type { BoundContext } from './sessionToken';
 
+interface Env {
+  // Same cross-Worker binding channel.ts/mcp.ts/AgentLinkSession.ts use —
+  // see AgentLinkSession.ts's file header. Used here ONLY to check/claim the
+  // per-contentId mint-exclusivity lock (design §7 decision #2: "one
+  // ACTIVE/SUSPENDED session per contentId") against a SEPARATE DO instance
+  // of that same class, addressed by `content:<contentId>` rather than a
+  // token. Optional/absent in local dev (no companion Worker bound — same
+  // posture as channel.ts/mcp.ts) — the exclusivity check simply degrades to
+  // a no-op (every mint succeeds), matching the pre-existing in-memory
+  // `registry`-only behavior of this endpoint.
+  AGENT_LINK?: DurableObjectNamespace;
+}
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -34,7 +47,7 @@ export async function onRequestOptions(): Promise<Response> {
   return new Response(null, { headers: CORS_HEADERS });
 }
 
-export const onRequestPost: PagesFunction = async ({ request }) => {
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   let body: Partial<BoundContext>;
   try {
     body = await request.json();
@@ -48,6 +61,25 @@ export const onRequestPost: PagesFunction = async ({ request }) => {
   }
 
   const record = registry.create({ cloudId, pageId, contentId });
+
+  // Per-contentId mint-exclusivity (design §7 decision #2): claim this
+  // diagram's lock (a SEPARATE DO instance of AgentLinkSession, addressed by
+  // `content:<contentId>`) BEFORE handing the token back. A still-live claim
+  // held by a different session rejects the mint outright — no silent
+  // second link to the same diagram. Absent AGENT_LINK (local dev/tests):
+  // degrades to a no-op, same posture as channel.ts/mcp.ts.
+  if (env?.AGENT_LINK) {
+    const lockId = env.AGENT_LINK.idFromName(`content:${contentId}`);
+    const lockStub = env.AGENT_LINK.get(lockId);
+    const claimRes = await lockStub.fetch('https://agent-link-do/content-claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: record.token, expiresAt: Date.now() + TOKEN_TTL_MS }),
+    });
+    if (claimRes.status === 409) {
+      return jsonError(409, 'diagram_already_linked');
+    }
+  }
 
   return new Response(
     JSON.stringify({

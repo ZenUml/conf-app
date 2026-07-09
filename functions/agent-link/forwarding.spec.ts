@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyEvent, parseEnvelope, routeMessage } from './forwarding';
+import { applyEvent, parseEnvelope, reattachEvent, routeMessage } from './forwarding';
 import type { Envelope, Peer } from './forwarding';
 import type { SessionState } from './sessionToken';
 
@@ -57,6 +57,11 @@ describe('parseEnvelope', () => {
     expect(parseEnvelope(JSON.stringify({})).kind).toBe('invalid');
     expect(parseEnvelope(JSON.stringify({ kind: 'delete_everything' })).kind).toBe('invalid');
   });
+
+  it('parses a bare "disconnect" envelope (explicit disconnect signal)', () => {
+    const env = parseEnvelope(JSON.stringify({ kind: 'disconnect' }));
+    expect(env).toEqual({ kind: 'disconnect' });
+  });
 });
 
 describe('routeMessage', () => {
@@ -91,6 +96,13 @@ describe('routeMessage', () => {
   it('drops an invalid envelope as unknown', () => {
     expect(routeMessage('agent', { kind: 'invalid', reason: 'bad' })).toEqual({ drop: 'unknown' });
   });
+
+  it.each<Peer>(['macro', 'agent'])(
+    'drops a "disconnect" from %s locally (handled by AgentLinkSession, not forwarded)',
+    (from) => {
+      expect(routeMessage(from, { kind: 'disconnect' })).toEqual({ drop: 'disconnect' });
+    },
+  );
 });
 
 describe('applyEvent', () => {
@@ -121,5 +133,17 @@ describe('applyEvent', () => {
     for (const state of terminal) {
       expect(applyEvent(state, { kind: 'op', op: 'update_diagram' }, 'agent')).toBe(state);
     }
+  });
+});
+
+describe('reattachEvent', () => {
+  it('returns "reattach" when the session was suspended, regardless of which peer reconnects', () => {
+    expect(reattachEvent('macro', true)).toBe('reattach');
+    expect(reattachEvent('agent', true)).toBe('reattach');
+  });
+
+  it('returns the original bootstrap event for a first connect (not suspended)', () => {
+    expect(reattachEvent('macro', false)).toBe('macro_connected');
+    expect(reattachEvent('agent', false)).toBe('agent_paired');
   });
 });

@@ -37,8 +37,16 @@ describe('isExpired', () => {
 });
 
 describe('nextState', () => {
-  const allStates: SessionState[] = ['created', 'paired', 'active', 'closed', 'expired'];
-  const allEvents: SessionEvent[] = ['macro_connected', 'agent_paired', 'edit', 'disconnect', 'expire'];
+  const allStates: SessionState[] = ['created', 'paired', 'active', 'suspended', 'closed', 'expired'];
+  const allEvents: SessionEvent[] = [
+    'macro_connected',
+    'agent_paired',
+    'edit',
+    'disconnect',
+    'expire',
+    'ws_drop',
+    'reattach',
+  ];
 
   it('created --macro_connected--> created (still waiting)', () => {
     expect(nextState('created', 'macro_connected')).toBe('created');
@@ -56,7 +64,7 @@ describe('nextState', () => {
     expect(nextState('active', 'edit')).toBe('active');
   });
 
-  it.each<SessionState>(['created', 'paired', 'active'])(
+  it.each<SessionState>(['created', 'paired', 'active', 'suspended'])(
     '%s --disconnect--> closed',
     (state) => {
       expect(nextState(state, 'disconnect')).toBe('closed');
@@ -80,6 +88,41 @@ describe('nextState', () => {
     expect(nextState('active', 'agent_paired')).toBe('active');
     // 'expire' once already active is invalid — active sessions don't expire.
     expect(nextState('active', 'expire')).toBe('active');
+    // 'reattach' is only valid from 'suspended'.
+    expect(nextState('created', 'reattach')).toBe('created');
+    expect(nextState('paired', 'reattach')).toBe('paired');
+    expect(nextState('active', 'reattach')).toBe('active');
+  });
+
+  // --- suspended (design §7 / G-design.md) --------------------------------
+
+  it.each<SessionState>(['created', 'paired', 'active'])(
+    '%s --ws_drop--> suspended (accidental disconnect, not the explicit Disconnect button)',
+    (state) => {
+      expect(nextState(state, 'ws_drop')).toBe('suspended');
+    },
+  );
+
+  it('suspended --ws_drop--> suspended (already suspended, no-op)', () => {
+    expect(nextState('suspended', 'ws_drop')).toBe('suspended');
+  });
+
+  it('suspended --reattach--> active (macro reconnects with the same token within the resume window)', () => {
+    expect(nextState('suspended', 'reattach')).toBe('active');
+  });
+
+  it('suspended --expire--> expired (ttl_expiry: resume window = remaining token TTL, no extension)', () => {
+    expect(nextState('suspended', 'expire')).toBe('expired');
+  });
+
+  it('suspended --disconnect--> closed (explicit Disconnect while suspended is still the terminal escape hatch)', () => {
+    expect(nextState('suspended', 'disconnect')).toBe('closed');
+  });
+
+  it('stray macro_connected/agent_paired/edit while suspended are no-ops (ops are rejected, not queued)', () => {
+    expect(nextState('suspended', 'macro_connected')).toBe('suspended');
+    expect(nextState('suspended', 'agent_paired')).toBe('suspended');
+    expect(nextState('suspended', 'edit')).toBe('suspended');
   });
 
   it('closed is absorbing: every event leaves it unchanged', () => {
@@ -94,7 +137,7 @@ describe('nextState', () => {
     }
   });
 
-  it('every (state, event) pair returns one of the five known states', () => {
+  it('every (state, event) pair returns one of the six known states', () => {
     for (const state of allStates) {
       for (const event of allEvents) {
         expect(allStates).toContain(nextState(state, event));

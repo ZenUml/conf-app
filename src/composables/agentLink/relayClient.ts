@@ -25,7 +25,7 @@
 
 import type { AgentLinkBridgeOps } from './bridgeOps'
 
-export type RelayEnvelopeKind = 'op' | 'result' | 'error' | 'ping'
+export type RelayEnvelopeKind = 'op' | 'result' | 'error' | 'ping' | 'disconnect'
 
 export interface RelayEnvelope {
   kind: RelayEnvelopeKind
@@ -121,7 +121,19 @@ export interface CreateRelayClientOptions {
 
 export interface RelayClient {
   send(envelope: RelayEnvelope): void
+  // Abandons the connection WITHOUT telling the server anything — used when
+  // discarding a stale/replaced client (e.g. startConnect() tearing down a
+  // prior relayClient before opening a fresh one). Does NOT send a
+  // {kind:'disconnect'} envelope, so if this DID have a live paired session
+  // the relay's DO sees a bare close and SUSPENDS it (design §7's
+  // accidental-disconnect path), not closes it. Use disconnect() below for a
+  // genuine user-driven Disconnect.
   close(): void
+  // Explicit disconnect (design §7 "explicit_disconnect -> closed"): sends a
+  // {kind:'disconnect'} envelope so the relay's DO can tell this apart from
+  // an unexpected drop (which suspends, not closes) BEFORE tearing down the
+  // socket. This is what a user clicking "Disconnect" must call.
+  disconnect(): void
   getState(): RelayConnectionState
 }
 
@@ -268,6 +280,24 @@ export function createRelayClient(opts: CreateRelayClientOptions): RelayClient {
   return {
     send,
     close(): void {
+      closedByCaller = true
+      if (reconnectTimer != null) cancelTimeout(reconnectTimer)
+      state = 'closed'
+      try {
+        ws?.close()
+      } catch {
+        // already closed/closing — nothing more to do.
+      }
+    },
+    disconnect(): void {
+      // Best-effort: if the socket isn't currently 'open' (connecting/
+      // reconnecting), send() is a no-op — there's nothing live to notify,
+      // and closing below still aborts any in-flight connect attempt.
+      try {
+        send({ kind: 'disconnect' })
+      } catch {
+        // Socket already gone — fall through to close() regardless.
+      }
       closedByCaller = true
       if (reconnectTimer != null) cancelTimeout(reconnectTimer)
       state = 'closed'

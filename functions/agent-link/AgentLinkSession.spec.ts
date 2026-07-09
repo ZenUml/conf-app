@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AgentLinkSession, AGENT_OP_TIMEOUT_MS } from './AgentLinkSession';
+import { TOKEN_TTL_MS } from './sessionToken';
 import type { BoundContext, SessionRecord, SessionState } from './sessionToken';
 
 // AgentLinkSession is a Durable Object: its WebSocket-upgrade path
@@ -386,6 +387,336 @@ describe('AgentLinkSession — agent-side HTTP transport (GET /session, POST /ag
       await opPromise;
 
       expect(store.get('lastDiagram')).toBeUndefined();
+    });
+  });
+
+  // --- session lifecycle: suspend / reattach / explicit-close (Track G) ----
+  //
+  // webSocketClose/webSocketError/webSocketMessage are driven directly here
+  // (same `(session as any).session = ...` / `(session as any).macroSocket =
+  // ...` pattern as the rest of this file) rather than through `fetch()`'s
+  // WebSocketPair-upgrade path, which — per this file's own header comment —
+  // needs a real Workers runtime and isn't exercised anywhere in this spec.
+
+  function macroConnectedSession(state: ReturnType<typeof makeState> = makeState(), overrides: Partial<SessionRecord> = {}) {
+    const macroWs = makeFakeMacroWs();
+    (state.getTags as ReturnType<typeof vi.fn>).mockImplementation((ws: unknown) =>
+      ws === macroWs ? ['macro'] : [],
+    );
+    const session = new AgentLinkSession(state, {});
+    (session as any).session = makeSession(overrides);
+    (session as any).macroSocket = macroWs;
+    return { session, macroWs, state };
+  }
+
+  describe('webSocketClose / webSocketError — accidental disconnect suspends, not closes', () => {
+    it('a macro socket closing unexpectedly suspends the session (keeps the record, drops the socket)', async () => {
+      const store = new Map<string, unknown>();
+      const state = makeState(store);
+      const { session, macroWs } = macroConnectedSession(state, { state: 'paired' });
+
+      await session.webSocketClose(macroWs as unknown as WebSocket);
+
+      expect((session as any).session.state).toBe('suspended');
+      expect((session as any).macroSocket).toBeNull();
+      // The record survives — a hibernation wake must still see 'suspended'
+      // (this is the whole point of suspend vs the old full-teardown).
+      expect((store.get('session') as SessionRecord).state).toBe('suspended');
+      expect(store.has('session')).toBe(true);
+    });
+
+    it('a macro socket erroring unexpectedly also suspends (same as close)', async () => {
+      const { session, macroWs } = macroConnectedSession(undefined as any, { state: 'active' });
+
+      await session.webSocketError(macroWs as unknown as WebSocket);
+
+      expect((session as any).session.state).toBe('suspended');
+    });
+
+    it('GET /session reports "suspended" (still authenticated, not rejected) after an accidental drop', async () => {
+      const state = makeState();
+      const { session, macroWs } = macroConnectedSession(state, { state: 'active' });
+      await session.webSocketClose(macroWs as unknown as WebSocket);
+
+      const res = await session.fetch(sessionInfoRequest());
+
+      expect(res.status).toBe(200);
+      expect((await res.json()).state).toBe('suspended');
+    });
+
+    it('a closed/expired session ignores a subsequent socket close (terminal, nothing to suspend)', async () => {
+      const { session, macroWs } = macroConnectedSession(undefined as any, { state: 'closed' });
+
+      await session.webSocketClose(macroWs as unknown as WebSocket);
+
+      expect((session as any).session.state).toBe('closed');
+    });
+
+    it('the vestigial agent-peer socket closing does not suspend or affect the macro pairing', async () => {
+      const state = makeState();
+      const agentWs = { send: vi.fn() };
+      (state.getTags as ReturnType<typeof vi.fn>).mockImplementation((ws: unknown) =>
+        ws === agentWs ? ['agent'] : [],
+      );
+      const session = new AgentLinkSession(state, {});
+      (session as any).session = makeSession({ state: 'active' });
+      (session as any).agentSocket = agentWs;
+
+      await session.webSocketClose(agentWs as unknown as WebSocket);
+
+      expect((session as any).session.state).toBe('active');
+      expect((session as any).agentSocket).toBeNull();
+    });
+  });
+
+  describe('explicit disconnect envelope — the only path to "closed"', () => {
+    it('a {kind:"disconnect"} message from the macro closes the session (terminal) and wipes storage', async () => {
+      const store = new Map<string, unknown>();
+      const state = makeState(store);
+      const { session, macroWs } = macroConnectedSession(state, { state: 'active' });
+
+      await session.webSocketMessage(macroWs as unknown as WebSocket, JSON.stringify({ kind: 'disconnect' }));
+
+      expect((session as any).session.state).toBe('closed');
+      expect((session as any).macroSocket).toBeNull();
+      expect(store.has('session')).toBe(false);
+    });
+
+    it('closes the OTHER peer socket too when one side sends an explicit disconnect', async () => {
+      const state = makeState();
+      const macroWs = makeFakeMacroWs();
+      const agentWs = { send: vi.fn(), close: vi.fn() };
+      (state.getTags as ReturnType<typeof vi.fn>).mockImplementation((ws: unknown) => {
+        if (ws === macroWs) return ['macro'];
+        if (ws === agentWs) return ['agent'];
+        return [];
+      });
+      const session = new AgentLinkSession(state, {});
+      (session as any).session = makeSession({ state: 'active' });
+      (session as any).macroSocket = macroWs;
+      (session as any).agentSocket = agentWs;
+
+      await session.webSocketMessage(macroWs as unknown as WebSocket, JSON.stringify({ kind: 'disconnect' }));
+
+      expect(agentWs.close).toHaveBeenCalled();
+    });
+
+    it('a subsequent accidental close after an explicit disconnect is a no-op (already terminal)', async () => {
+      const { session, macroWs } = macroConnectedSession(undefined as any, { state: 'active' });
+
+      await session.webSocketMessage(macroWs as unknown as WebSocket, JSON.stringify({ kind: 'disconnect' }));
+      await session.webSocketClose(macroWs as unknown as WebSocket);
+
+      expect((session as any).session.state).toBe('closed');
+    });
+  });
+
+  describe('POST /agent-op while suspended — structured retriable error, get_status still succeeds', () => {
+    it('get_status while suspended reports {state:"suspended", resume_deadline} instead of erroring', async () => {
+      const issuedAtMs = Date.now();
+      const session = new AgentLinkSession(makeState(), {});
+      (session as any).session = makeSession({ state: 'suspended', issuedAtMs });
+
+      const res = await session.fetch(agentOpRequest({ id: 'r-1', op: 'get_status', args: {} }));
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+      expect(body.payload.state).toBe('suspended');
+      expect(body.payload.resume_deadline).toBe(issuedAtMs + TOKEN_TTL_MS);
+    });
+
+    it('every other op returns a structured, retriable macro_disconnected error (not queued)', async () => {
+      const issuedAtMs = Date.now();
+      const session = new AgentLinkSession(makeState(), {});
+      (session as any).session = makeSession({ state: 'suspended', issuedAtMs });
+      // A macro socket must NOT be required/consulted while suspended — the
+      // op is rejected before ever touching macroSocket.
+      (session as any).macroSocket = null;
+
+      const res = await session.fetch(agentOpRequest({ id: 'u-1', op: 'update_diagram', args: { dsl: 'A->B: hi' } }));
+
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.error).toBe('macro_disconnected');
+      expect(body.resume_deadline).toBe(issuedAtMs + TOKEN_TTL_MS);
+    });
+
+    it('read_page and read_diagram also get macro_disconnected while suspended', async () => {
+      const session = new AgentLinkSession(makeState(), {});
+      (session as any).session = makeSession({ state: 'suspended' });
+
+      for (const op of ['read_page', 'read_diagram']) {
+        const res = await session.fetch(agentOpRequest({ id: `id-${op}`, op, args: {} }));
+        expect(res.status).toBe(409);
+        expect((await res.json()).error).toBe('macro_disconnected');
+      }
+    });
+  });
+
+  // --- per-contentId mint exclusivity (Track G, design §7 decision #2) -----
+  //
+  // Exercised against a SEPARATE DO instance of this same class — the
+  // content-lock instance never has `this.session` populated; only
+  // `/content-claim` and `/content-release` are relevant to it.
+
+  function contentClaimRequest(body: unknown): Request {
+    return new Request('https://agent-link-do/content-claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  function contentReleaseRequest(body: unknown): Request {
+    return new Request('https://agent-link-do/content-release', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  describe('POST /content-claim / /content-release — per-contentId mint exclusivity', () => {
+    it('claims a lock for a fresh contentId', async () => {
+      const lock = new AgentLinkSession(makeState(), {});
+
+      const res = await lock.fetch(contentClaimRequest({ token: 'CL-AAAA-1111', expiresAt: Date.now() + 60_000 }));
+
+      expect(res.status).toBe(200);
+      expect((await res.json()).ok).toBe(true);
+    });
+
+    it('rejects a second token claiming a still-live lock with diagram_already_linked (409)', async () => {
+      const store = new Map<string, unknown>();
+      const lock = new AgentLinkSession(makeState(store), {});
+      await lock.fetch(contentClaimRequest({ token: 'CL-AAAA-1111', expiresAt: Date.now() + 60_000 }));
+
+      const res = await lock.fetch(contentClaimRequest({ token: 'CL-BBBB-2222', expiresAt: Date.now() + 60_000 }));
+
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toBe('diagram_already_linked');
+      // The original claim is untouched.
+      expect((store.get('contentLock') as { token: string }).token).toBe('CL-AAAA-1111');
+    });
+
+    it('the SAME token re-claiming (e.g. a reattach) is allowed, not rejected as a duplicate', async () => {
+      const lock = new AgentLinkSession(makeState(), {});
+      await lock.fetch(contentClaimRequest({ token: 'CL-AAAA-1111', expiresAt: Date.now() + 60_000 }));
+
+      const res = await lock.fetch(contentClaimRequest({ token: 'CL-AAAA-1111', expiresAt: Date.now() + 120_000 }));
+
+      expect(res.status).toBe(200);
+    });
+
+    it('a claim past its own expiresAt is treated as stale — a new token can claim it (no permanent orphan)', async () => {
+      const lock = new AgentLinkSession(makeState(), {});
+      await lock.fetch(contentClaimRequest({ token: 'CL-AAAA-1111', expiresAt: Date.now() - 1000 }));
+
+      const res = await lock.fetch(contentClaimRequest({ token: 'CL-BBBB-2222', expiresAt: Date.now() + 60_000 }));
+
+      expect(res.status).toBe(200);
+    });
+
+    it('a hibernation wake re-loads the persisted claim from storage before deciding', async () => {
+      const store = new Map<string, unknown>();
+      await makeState(store).storage.put('contentLock', { token: 'CL-AAAA-1111', expiresAt: Date.now() + 60_000 });
+      const woken = new AgentLinkSession(makeState(store), {});
+
+      const res = await woken.fetch(contentClaimRequest({ token: 'CL-BBBB-2222', expiresAt: Date.now() + 60_000 }));
+
+      expect(res.status).toBe(409);
+    });
+
+    it('releasing with the matching token clears the claim, freeing the contentId for a new mint', async () => {
+      const store = new Map<string, unknown>();
+      const lock = new AgentLinkSession(makeState(store), {});
+      await lock.fetch(contentClaimRequest({ token: 'CL-AAAA-1111', expiresAt: Date.now() + 60_000 }));
+
+      const releaseRes = await lock.fetch(contentReleaseRequest({ token: 'CL-AAAA-1111' }));
+      expect(releaseRes.status).toBe(200);
+      expect(store.has('contentLock')).toBe(false);
+
+      const res = await lock.fetch(contentClaimRequest({ token: 'CL-BBBB-2222', expiresAt: Date.now() + 60_000 }));
+      expect(res.status).toBe(200);
+    });
+
+    it('releasing with a MISMATCHED token is a no-op (a stale/superseded release cannot clobber a newer claim)', async () => {
+      const store = new Map<string, unknown>();
+      const lock = new AgentLinkSession(makeState(store), {});
+      await lock.fetch(contentClaimRequest({ token: 'CL-AAAA-1111', expiresAt: Date.now() + 60_000 }));
+
+      await lock.fetch(contentReleaseRequest({ token: 'CL-WRONG-TOKEN' }));
+
+      expect((store.get('contentLock') as { token: string }).token).toBe('CL-AAAA-1111');
+    });
+  });
+
+  describe('releaseContentLock — best-effort release from the session DO on close/expire', () => {
+    function makeAgentLinkEnv() {
+      const releaseCalls: unknown[] = [];
+      const lockStub = {
+        fetch: async (_url: string, init?: RequestInit) => {
+          releaseCalls.push(init?.body ? JSON.parse(init.body as string) : undefined);
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        },
+      };
+      const env = {
+        AGENT_LINK: {
+          idFromName: (name: string) => ({ name }),
+          get: () => lockStub,
+        },
+      };
+      return { env, releaseCalls };
+    }
+
+    it('an explicit disconnect releases the per-contentId claim on the content-keyed DO', async () => {
+      const { env, releaseCalls } = makeAgentLinkEnv();
+      const state = makeState();
+      const macroWs = makeFakeMacroWs();
+      (state.getTags as ReturnType<typeof vi.fn>).mockImplementation((ws: unknown) =>
+        ws === macroWs ? ['macro'] : [],
+      );
+      const session = new AgentLinkSession(state, env as any);
+      (session as any).session = makeSession({ state: 'active' });
+      (session as any).macroSocket = macroWs;
+
+      await session.webSocketMessage(macroWs as unknown as WebSocket, JSON.stringify({ kind: 'disconnect' }));
+
+      expect(releaseCalls).toEqual([{ token: 'CL-TEST-TOKN' }]);
+    });
+
+    it('a suspended session (accidental drop) does NOT release the claim — it is still linked', async () => {
+      const { env, releaseCalls } = makeAgentLinkEnv();
+      const { session, macroWs } = macroConnectedSession(makeState(), { state: 'active' });
+      (session as any).env = env;
+
+      await session.webSocketClose(macroWs as unknown as WebSocket);
+
+      expect(releaseCalls).toEqual([]);
+    });
+
+    it('TTL expiry (alarm) releases the claim', async () => {
+      const { env, releaseCalls } = makeAgentLinkEnv();
+      const session = new AgentLinkSession(makeState(), env as any);
+      (session as any).session = makeSession({ issuedAtMs: Date.now() - 11 * 60 * 1000 });
+
+      await session.alarm();
+
+      expect(releaseCalls).toEqual([{ token: 'CL-TEST-TOKN' }]);
+    });
+
+    it('is a no-op without an AGENT_LINK binding (local dev/tests)', async () => {
+      const session = new AgentLinkSession(makeState(), {});
+      (session as any).session = makeSession({ state: 'active' });
+      (session as any).macroSocket = makeFakeMacroWs();
+
+      // Should not throw even though this.env.AGENT_LINK is undefined.
+      await expect(
+        session.webSocketMessage(
+          (session as any).macroSocket as WebSocket,
+          JSON.stringify({ kind: 'disconnect' }),
+        ),
+      ).resolves.toBeUndefined();
     });
   });
 });

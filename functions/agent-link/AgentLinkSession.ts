@@ -66,16 +66,32 @@
 // binding (its `!env.AGENT_LINK` guard remains only as a defensive check for
 // wrangler-dev.toml, which has no companion Worker for local dev).
 
-import { applyEvent, parseEnvelope, routeMessage } from './forwarding';
+import { applyEvent, parseEnvelope, reattachEvent, routeMessage } from './forwarding';
 import type { Peer } from './forwarding';
 import { PendingOps } from './pendingOps';
 import type { PendingOpResult } from './pendingOps';
-import { isExpired, nextState } from './sessionToken';
+import { isExpired, nextState, TOKEN_TTL_MS } from './sessionToken';
 import type { BoundContext, SessionRecord, SessionState } from './sessionToken';
 
 interface Env {
-  // TODO(agent-link): bind AGENT_LINK: DurableObjectNamespace once a
-  // companion Worker exporting this class is deployed (see file header).
+  // Self-referencing binding: the companion Worker (workers/agent-link/)
+  // that hosts this class also binds AGENT_LINK to ITSELF, so one DO
+  // instance (keyed by token) can reach a DIFFERENT instance of the same
+  // class (keyed by `content:<contentId>`) — used by releaseContentLock()
+  // below to release the per-contentId mint-exclusivity claim on
+  // close/expire (design §7 decision #2). Optional because unit tests
+  // construct this class with `{}` (no binding) — releaseContentLock() is a
+  // no-op without it, matching this file's existing "absent in local
+  // dev/tests" posture for AGENT_LINK elsewhere (channel.ts, mcp.ts).
+  AGENT_LINK?: DurableObjectNamespace;
+}
+
+/** The per-contentId mint-exclusivity claim (design §7 decision #2). Lives in a
+ * SEPARATE DO instance of this same class, addressed by `content:<contentId>`
+ * rather than a token — see handleContentClaim/handleContentRelease below. */
+interface ContentLock {
+  token: string;
+  expiresAt: number;
 }
 
 /** Sent back to a peer when the other side isn't connected yet, or on a malformed message. */
@@ -120,6 +136,12 @@ export class AgentLinkSession {
   // see the file header and pendingOps.ts.
   private readonly pendingOps = new PendingOps();
 
+  // Per-contentId mint-exclusivity claim (design §7 decision #2). Only ever
+  // populated on a DO instance addressed by `content:<contentId>` — see
+  // handleContentClaim/handleContentRelease and ensureContentLock below. A
+  // token-keyed instance (the normal WS-pairing session) never touches this.
+  private contentLock: ContentLock | null = null;
+
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
     this.env = env;
@@ -148,6 +170,103 @@ export class AgentLinkSession {
       (await this.state.storage.get<{ diagramType?: string; dsl?: string }>('lastDiagram')) ?? null;
     this.macroSocket = this.state.getWebSockets('macro')[0] ?? null;
     this.agentSocket = this.state.getWebSockets('agent')[0] ?? null;
+  }
+
+  /** Loads the persisted content-lock claim (if any) — companion to
+   * ensureSession() for the content-lock-flavored DO instance (see
+   * ContentLock's doc comment). No-op once `this.contentLock` is set. */
+  private async ensureContentLock(): Promise<void> {
+    if (this.contentLock !== null) return;
+    const stored = await this.state.storage.get<ContentLock>('contentLock');
+    if (stored) this.contentLock = stored;
+  }
+
+  /**
+   * `POST /content-claim` — per-contentId mint-time exclusivity (design §7
+   * decision #2: "one ACTIVE/SUSPENDED session per contentId"). `session.ts`
+   * calls this against a SEPARATE DO instance of this SAME class
+   * (`content:<contentId>`, never a token), so it never touches this
+   * instance's `this.session` fields. Atomic per contentId: a Durable Object
+   * processes requests to the SAME instance one at a time (never
+   * interleaved), so the check-then-set below can't race with a concurrent
+   * claim attempt for the same contentId.
+   *
+   * A claim already held by a DIFFERENT token that hasn't yet passed its own
+   * `expiresAt` is rejected with `diagram_already_linked` — TTL-bounded so a
+   * claim that's never explicitly released (a crashed mint, a session that
+   * never reaches webSocketClose/alarm) still self-clears; no permanent
+   * orphan lock (design's staleness-window requirement).
+   */
+  private async handleContentClaim(request: Request): Promise<Response> {
+    let body: { token?: unknown; expiresAt?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid_body' }, 400);
+    }
+    const { token, expiresAt } = body ?? {};
+    if (typeof token !== 'string' || !token || typeof expiresAt !== 'number') {
+      return jsonResponse({ error: 'invalid_body' }, 400);
+    }
+
+    await this.ensureContentLock();
+    const now = Date.now();
+    if (this.contentLock && this.contentLock.token !== token && this.contentLock.expiresAt > now) {
+      return jsonResponse({ error: 'diagram_already_linked' }, 409);
+    }
+
+    this.contentLock = { token, expiresAt };
+    await this.state.storage.put('contentLock', this.contentLock);
+    return jsonResponse({ ok: true }, 200);
+  }
+
+  /**
+   * `POST /content-release` — best-effort release of the per-contentId claim
+   * once its owning session closes/expires (design: "released on
+   * closed/expired" — see releaseContentLock below, called from
+   * closeSession/alarm). Only releases if the caller's token still matches
+   * the current claim, so a stale/late release from an already-superseded
+   * session can't clobber a newer one.
+   */
+  private async handleContentRelease(request: Request): Promise<Response> {
+    let body: { token?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid_body' }, 400);
+    }
+    const token = body?.token;
+
+    await this.ensureContentLock();
+    if (this.contentLock && this.contentLock.token === token) {
+      this.contentLock = null;
+      await this.state.storage.delete('contentLock');
+    }
+    return jsonResponse({ ok: true }, 200);
+  }
+
+  /**
+   * Best-effort release of THIS session's per-contentId claim, called from a
+   * TOKEN-keyed instance against the CONTENT-keyed instance for the same
+   * diagram (design: "Wire the release best-effort from the session DO on
+   * close/expire"). Swallows every failure (missing binding in local
+   * dev/tests, a transient fetch error) — a release that never lands just
+   * means the claim self-clears at its own TTL later; it must never block
+   * teardown.
+   */
+  private async releaseContentLock(): Promise<void> {
+    if (!this.env.AGENT_LINK || !this.session) return;
+    try {
+      const lockId = this.env.AGENT_LINK.idFromName(`content:${this.session.boundContext.contentId}`);
+      const stub = this.env.AGENT_LINK.get(lockId);
+      await stub.fetch('https://agent-link-do/content-release', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: this.session.token }),
+      });
+    } catch {
+      // Best-effort — see doc comment above.
+    }
   }
 
   /**
@@ -215,6 +334,16 @@ export class AgentLinkSession {
     if (url.pathname === '/agent-op' && request.method === 'POST') {
       return this.handleAgentOp(request);
     }
+    // Per-contentId mint-exclusivity (design §7 decision #2) — called on a
+    // SEPARATE DO instance of this same class, addressed by
+    // `content:<contentId>` rather than a token (see session.ts). Not a
+    // WebSocket upgrade either.
+    if (url.pathname === '/content-claim' && request.method === 'POST') {
+      return this.handleContentClaim(request);
+    }
+    if (url.pathname === '/content-release' && request.method === 'POST') {
+      return this.handleContentRelease(request);
+    }
 
     if (request.headers.get('Upgrade') !== 'websocket') {
       return new Response('Expected a WebSocket Upgrade request', { status: 426 });
@@ -263,6 +392,25 @@ export class AgentLinkSession {
       return new Response(`Session is ${this.session.state}`, { status: 410 });
     }
 
+    // Second concurrent MACRO connection for this token: reject outright
+    // rather than silently taking over the existing pairing (design decision
+    // #1: "no silent takeover"). Only applies while a macro socket is
+    // genuinely live — a 'suspended' session (the prior macro socket already
+    // gone) legitimately re-pairs below via 'reattach'.
+    if (peer === 'macro' && this.macroSocket && this.session.state !== 'suspended') {
+      const rejectPair = new WebSocketPair();
+      const [rejectClient, rejectServer] = [rejectPair[0], rejectPair[1]];
+      this.state.acceptWebSocket(rejectServer, ['rejected']);
+      try {
+        rejectServer.send(errorEnvelope('already_paired'));
+        rejectServer.close(4001, 'already_paired');
+      } catch {
+        // Best-effort — the connecting client still gets a non-101-follow-on
+        // close even if send/close itself throws.
+      }
+      return new Response(null, { status: 101, webSocket: rejectClient });
+    }
+
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
 
@@ -275,7 +423,16 @@ export class AgentLinkSession {
     this.state.acceptWebSocket(server, [peer]);
     this.setSocketFor(peer, server);
 
-    this.transition(peer === 'macro' ? 'macro_connected' : 'agent_paired');
+    // A 'suspended' session reconnecting drives 'reattach' (-> active), not
+    // the original bootstrap event — see forwarding.ts's reattachEvent and
+    // the file header's ws_drop/suspend/reattach story.
+    this.transition(reattachEvent(peer, this.session.state === 'suspended'));
+    // Persist the post-transition state so a LATER hibernation wake sees it
+    // (ensureSession reloads from storage) — the bootstrap path above already
+    // persists on first-create; this covers the reattach-from-suspended case,
+    // which is the whole point of this task (suspend/resume must survive a
+    // wake either side of the gap).
+    await this.state.storage.put('session', this.session);
 
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -363,6 +520,22 @@ export class AgentLinkSession {
       return jsonResponse({ error: 'invalid_body' }, 400);
     }
 
+    const session = this.session as SessionRecord; // validateSession() guarantees non-null here
+
+    if (session.state === 'suspended') {
+      const resume_deadline = session.issuedAtMs + TOKEN_TTL_MS;
+      // get_status is the one op that must succeed while suspended — it's
+      // the agent's only way to observe "waiting for the macro to
+      // reconnect" (design §7 decision #4) instead of erroring on every poll.
+      if (op === 'get_status') {
+        return jsonResponse({ ok: true, payload: { state: 'suspended', resume_deadline } }, 200);
+      }
+      // Every other op is a structured, RETRIABLE error — never queued (a
+      // queued write could apply a stale edit after the user moved on,
+      // which is worse than a clean retry once the macro reattaches).
+      return jsonResponse({ error: 'macro_disconnected', resume_deadline }, 409);
+    }
+
     if (!this.macroSocket) {
       return jsonResponse({ error: 'macro_not_connected' }, 409);
     }
@@ -410,6 +583,15 @@ export class AgentLinkSession {
       return;
     }
 
+    // Explicit disconnect (macro-side Disconnect button, or an explicit
+    // agent-side close) — the ONLY path to the terminal 'closed' state
+    // (design §7). Distinct from an unexpected close/error (webSocketClose/
+    // webSocketError below), which suspends instead of closing outright.
+    if (envelope.kind === 'disconnect') {
+      await this.closeSession(from);
+      return;
+    }
+
     // An in-flight HTTP `/agent-op` call (mcp.ts's agent, no WebSocket peer
     // in this transport) may be awaiting exactly this reply. Resolve it IN
     // ADDITION to the WS-peer forwarding below — a real `peer=agent` socket,
@@ -444,26 +626,76 @@ export class AgentLinkSession {
     target.send(raw);
   }
 
-  /** Either socket closing tears down the whole pairing (design §4.5, §7). */
+  /**
+   * A socket closing/erroring WITHOUT a preceding explicit 'disconnect'
+   * envelope is treated as ACCIDENTAL (Fullscreen closed via the browser/X
+   * control, a modal-close-triggered inline reload, tab crash, net blip) —
+   * suspends the pairing rather than closing it outright (design §7: "was:
+   * -> closed terminal"). See closeSession() for the explicit-disconnect
+   * counterpart, and the file header for the ws_drop/suspend/reattach story.
+   */
   async webSocketClose(ws: WebSocket): Promise<void> {
-    await this.teardown(ws);
+    await this.handleUnexpectedClose(ws);
   }
 
   async webSocketError(ws: WebSocket): Promise<void> {
-    await this.teardown(ws);
+    await this.handleUnexpectedClose(ws);
   }
 
-  private async teardown(closedSocket: WebSocket): Promise<void> {
-    this.transition('disconnect');
+  private async handleUnexpectedClose(closedSocket: WebSocket): Promise<void> {
+    if (!this.session) return; // nothing was ever bootstrapped for this DO
+    if (this.session.state === 'closed' || this.session.state === 'expired') return; // terminal — nothing to suspend
 
     const closedPeer = this.peerForSocket(closedSocket);
-    const otherPeer = closedPeer ? this.otherPeer(closedPeer) : undefined;
-    const other = otherPeer ? this.socketFor(otherPeer) : undefined;
+
+    if (closedPeer === 'macro') {
+      this.macroSocket = null;
+      this.session.state = nextState(this.session.state, 'ws_drop');
+      // Keep the record (lastDiagram, the token-TTL alarm) — a suspended
+      // session is still resumable by the SAME token until that alarm fires
+      // (design: "resume window = remaining token TTL, no extension"). This
+      // is the whole point of suspend vs the old full-teardown-on-any-close
+      // behavior: an agent connected over HTTP (mcp.ts) stays "linked" (just
+      // gets a retriable error on ops) while the macro is momentarily gone.
+      await this.state.storage.put('session', this.session);
+      return;
+    }
+
+    // The `peer=agent` WS socket is largely vestigial in this transport (see
+    // file header: agents are HTTP-only via mcp.ts) — its closing doesn't
+    // interrupt the macro's own pairing. Just drop the stale reference; no
+    // FSM transition, no teardown.
+    if (closedPeer === 'agent') {
+      this.agentSocket = null;
+    }
+  }
+
+  /**
+   * Explicit, full teardown (design §7 "explicit_disconnect -> closed",
+   * terminal) — driven ONLY by a peer's explicit `{kind:'disconnect'}`
+   * envelope (webSocketMessage above), never by a bare socket close/error
+   * (handleUnexpectedClose above suspends instead). Closes both sockets,
+   * releases this diagram's per-contentId mint-exclusivity claim, and wipes
+   * storage — mirrors the old unconditional `teardown()` this replaces.
+   */
+  private async closeSession(from: Peer): Promise<void> {
+    if (!this.session) return;
+    this.session.state = nextState(this.session.state, 'disconnect');
+
+    const other = this.socketFor(this.otherPeer(from));
     try {
       other?.close(1000, 'peer disconnected');
     } catch {
       // Already closed/closing — nothing more to do.
     }
+    const closer = this.socketFor(from);
+    try {
+      closer?.close(1000, 'disconnected');
+    } catch {
+      // Already closing — nothing more to do.
+    }
+
+    await this.releaseContentLock();
 
     this.macroSocket = null;
     this.agentSocket = null;
@@ -477,10 +709,12 @@ export class AgentLinkSession {
 
   /**
    * TTL enforcement (design §7 "created -> expired (token TTL, agent never
-   * joined)"). Scheduled from `fetch` at session bootstrap; also acts as a
-   * backstop idle-timeout since it re-arms are not scheduled past the
-   * initial TTL window in this task's scope (see TODO above re: idle
-   * timeout duration — design §14 open question 1).
+   * joined)"; extended by G-design.md: also the 'suspended' resume window's
+   * ttl_expiry — "no extension", the same alarm covers both). Scheduled from
+   * `fetch` at session bootstrap; also acts as a backstop idle-timeout since
+   * it re-arms are not scheduled past the initial TTL window in this task's
+   * scope (see TODO above re: idle timeout duration — design §14 open
+   * question 1).
    */
   async alarm(): Promise<void> {
     if (!this.session) return;
@@ -496,6 +730,7 @@ export class AgentLinkSession {
       } catch {
         /* already closed */
       }
+      await this.releaseContentLock();
       this.macroSocket = null;
       this.agentSocket = null;
       this.lastDiagram = null;

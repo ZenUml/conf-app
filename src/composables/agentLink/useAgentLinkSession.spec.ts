@@ -168,7 +168,7 @@ describe('useAgentLinkSession', () => {
 
   describe('relay wiring — live-render callback (agent-link render fix)', () => {
     function makeFakeRelayClient() {
-      return { send: vi.fn(), close: vi.fn(), getState: vi.fn(() => 'open') }
+      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
     }
 
     it('threads onDiagramUpdated through relay.connect and forwards it to options.onDiagramUpdated with macroType', async () => {
@@ -292,9 +292,247 @@ describe('useAgentLinkSession', () => {
     })
   })
 
+  describe('Track G — session lifecycle: suspend on an accidental ws drop, resume on reconnect', () => {
+    function makeFakeRelayClient() {
+      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
+    }
+
+    async function connectedSession() {
+      const bridgeOps = makeBridgeOps()
+      let capturedOnStateEvent: ((event: any) => void) | undefined
+      const fakeClient = makeFakeRelayClient()
+      const connect = vi.fn((_wsUrl, _bridge, onStateEvent) => {
+        capturedOnStateEvent = onStateEvent
+        return fakeClient
+      })
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token' })
+      const boundContext = { cloudId: 'c1', pageId: 'p1', contentId: 'cc1' }
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+      capturedOnStateEvent!({ type: 'op', op: 'read_page' }) // -> connected
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      return { session, boundContext, fakeClient, emit: () => capturedOnStateEvent! }
+    }
+
+    it('an unexpected close while connected suspends, feeds "Connection paused", and fires agent_link_session_suspended', async () => {
+      const { session, boundContext, emit } = await connectedSession()
+
+      emit()({ type: 'close', code: 1006, wasClean: false })
+
+      expect(session.state.value).toBe('suspended')
+      expect(session.activityFeed.value.at(-1)?.summary).toBe('Connection paused')
+      expect(readSession(boundContext.pageId)).toMatchObject({ state: 'suspended' })
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_session_suspended',
+        expect.objectContaining({ macro_type: 'sequence', reason: 'ws_drop' })
+      )
+    })
+
+    it('a reconnect (open) while suspended resumes, feeds "Reconnected", and fires agent_link_session_resumed with latency', async () => {
+      const { session, boundContext, emit } = await connectedSession()
+      emit()({ type: 'close' })
+      expect(session.state.value).toBe('suspended')
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      await vi.advanceTimersByTimeAsync(1500)
+      emit()({ type: 'open' })
+
+      expect(session.state.value).toBe('connected')
+      expect(session.activityFeed.value.at(-1)?.summary).toBe('Reconnected · resumed session')
+      expect(readSession(boundContext.pageId)).toMatchObject({ state: 'connected' })
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_session_resumed',
+        expect.objectContaining({ macro_type: 'sequence', resume_latency_ms: expect.any(Number) })
+      )
+      const [, props] = vi
+        .mocked(trackAnalyticsEvent)
+        .mock.calls.find(([name]) => name === 'agent_link_session_resumed')!
+      expect((props as any).resume_latency_ms).toBeGreaterThanOrEqual(1500)
+    })
+
+    it('a close while only "waiting" (agent never paired) does not suspend — no meaningful interruption yet', async () => {
+      const bridgeOps = makeBridgeOps()
+      let capturedOnStateEvent: ((event: any) => void) | undefined
+      const connect = vi.fn((_wsUrl, _bridge, onStateEvent) => {
+        capturedOnStateEvent = onStateEvent
+        return makeFakeRelayClient()
+      })
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token' })
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext: { cloudId: 'c1', pageId: 'p1', contentId: 'cc1' }, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      capturedOnStateEvent!({ type: 'close' })
+
+      expect(session.state.value).toBe('waiting')
+    })
+
+    it('an explicit disconnect() while suspended sends the wire disconnect and moves to closed', async () => {
+      const { session, fakeClient, emit } = await connectedSession()
+      emit()({ type: 'close' })
+      expect(session.state.value).toBe('suspended')
+
+      session.disconnect('user')
+
+      expect(session.state.value).toBe('closed')
+      expect(fakeClient.disconnect).toHaveBeenCalledTimes(1)
+      expect(fakeClient.close).not.toHaveBeenCalled()
+    })
+
+    it('disconnect() while connected calls relayClient.disconnect() (explicit), not close() (accidental)', async () => {
+      const { session, fakeClient } = await connectedSession()
+
+      session.disconnect('user')
+
+      expect(fakeClient.disconnect).toHaveBeenCalledTimes(1)
+      expect(fakeClient.close).not.toHaveBeenCalled()
+    })
+
+    it('revokeAndRelink() disconnects the current session and immediately mints a fresh one', async () => {
+      const bridgeOps = makeBridgeOps()
+      const fakeClient1 = makeFakeRelayClient()
+      const fakeClient2 = makeFakeRelayClient()
+      let callCount = 0
+      const connect = vi.fn(() => (++callCount === 1 ? fakeClient1 : fakeClient2))
+      const requestSession = vi
+        .fn()
+        .mockResolvedValueOnce({ token: 'token-1' })
+        .mockResolvedValueOnce({ token: 'token-2' })
+      const boundContext = { cloudId: 'c1', pageId: 'p1', contentId: 'cc1' }
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(session.token.value).toBe('token-1')
+
+      session.revokeAndRelink()
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(fakeClient1.disconnect).toHaveBeenCalledTimes(1)
+      expect(session.state.value).toBe('waiting')
+      expect(session.token.value).toBe('token-2')
+      expect(requestSession).toHaveBeenCalledTimes(2)
+    })
+
+    describe('attemptReattach — a fresh (reloaded) inline mount reattaches by the SAME persisted token', () => {
+      const boundContext = { cloudId: 'c1', pageId: 'reload-page', contentId: 'cc1' }
+
+      it('reattaches directly into "connected" using the persisted token — no re-mint, no requestSession call', async () => {
+        persistSession({ ...boundContext, token: 'persisted-token', state: 'connected' })
+        const bridgeOps = makeBridgeOps()
+        const fakeClient = makeFakeRelayClient()
+        const connect = vi.fn(() => fakeClient)
+        const requestSession = vi.fn()
+        const session = useAgentLinkSession(bridgeOps, {
+          macroType: 'sequence',
+          relay: { boundContext, requestSession, connect },
+        })
+
+        session.attemptReattach()
+
+        expect(session.state.value).toBe('connected')
+        expect(session.token.value).toBe('persisted-token')
+        expect(requestSession).not.toHaveBeenCalled()
+        expect(connect).toHaveBeenCalledTimes(1)
+        expect(connect.mock.calls[0][0]).toContain('token=persisted-token')
+      })
+
+      it('reattaches a "suspended" persisted record the same way (also lands on "connected" pending the new socket)', async () => {
+        persistSession({ ...boundContext, token: 'persisted-token', state: 'suspended' })
+        const bridgeOps = makeBridgeOps()
+        const connect = vi.fn(() => makeFakeRelayClient())
+        const session = useAgentLinkSession(bridgeOps, {
+          macroType: 'sequence',
+          relay: { boundContext, requestSession: vi.fn(), connect },
+        })
+
+        session.attemptReattach()
+
+        expect(session.state.value).toBe('connected')
+        expect(session.token.value).toBe('persisted-token')
+      })
+
+      it('is a no-op when nothing was persisted for this pageId', () => {
+        const bridgeOps = makeBridgeOps()
+        const connect = vi.fn()
+        const session = useAgentLinkSession(bridgeOps, {
+          macroType: 'sequence',
+          relay: { boundContext: { ...boundContext, pageId: 'no-such-page' }, requestSession: vi.fn(), connect },
+        })
+
+        session.attemptReattach()
+
+        expect(session.state.value).toBe('idle')
+        expect(connect).not.toHaveBeenCalled()
+      })
+
+      it('is a no-op for a "waiting"-only persisted record (agent never paired — nothing to resume)', () => {
+        persistSession({ ...boundContext, token: 'persisted-token', state: 'waiting' })
+        const bridgeOps = makeBridgeOps()
+        const connect = vi.fn()
+        const session = useAgentLinkSession(bridgeOps, {
+          macroType: 'sequence',
+          relay: { boundContext, requestSession: vi.fn(), connect },
+        })
+
+        session.attemptReattach()
+
+        expect(session.state.value).toBe('idle')
+        expect(connect).not.toHaveBeenCalled()
+      })
+
+      it('is a no-op when the instance is no longer idle (never clobbers a session already being driven)', () => {
+        persistSession({ ...boundContext, token: 'persisted-token', state: 'connected' })
+        const bridgeOps = makeBridgeOps()
+        const connect = vi.fn()
+        const session = useAgentLinkSession(bridgeOps, {
+          macroType: 'sequence',
+          relay: { boundContext, requestSession: vi.fn().mockResolvedValue({ token: 'other-token' }), connect },
+        })
+        session.startConnect() // -> waiting, no longer idle
+
+        session.attemptReattach()
+
+        expect(connect).not.toHaveBeenCalled()
+      })
+
+      it('applies the persisted dsl (if any) so the reattached surface shows the last-known diagram', () => {
+        persistSession({ ...boundContext, token: 'persisted-token', state: 'connected', dsl: 'A->B: hi' })
+        const bridgeOps = makeBridgeOps()
+        const onDiagramUpdated = vi.fn()
+        const session = useAgentLinkSession(bridgeOps, {
+          macroType: 'sequence',
+          onDiagramUpdated,
+          relay: { boundContext, requestSession: vi.fn(), connect: vi.fn(() => makeFakeRelayClient()) },
+        })
+
+        session.attemptReattach()
+
+        // attemptReattach seeds lastAppliedDsl locally (for dsl_len_delta
+        // bookkeeping) but does NOT itself call onDiagramUpdated — the
+        // diagram is already rendered from the pre-reload state; only a
+        // NEW agent edit over the reattached socket should trigger a redraw.
+        expect(onDiagramUpdated).not.toHaveBeenCalled()
+        expect(session.state.value).toBe('connected')
+      })
+    })
+  })
+
   describe('relay wiring — relay-driven edits populate the activity feed + fire analytics (the gap this fix closes)', () => {
     function makeFakeRelayClient() {
-      return { send: vi.fn(), close: vi.fn(), getState: vi.fn(() => 'open') }
+      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
     }
 
     it('a successful relay-driven update_diagram op pushes a feed entry and fires agent_link_edit_applied', async () => {
@@ -526,7 +764,7 @@ describe('useAgentLinkSession', () => {
   // 'hydrateFrom' below for the Fullscreen side.
   describe('session handoff — the inline instance persists its token for Fullscreen to pick up', () => {
     function makeFakeRelayClient() {
-      return { send: vi.fn(), close: vi.fn(), getState: vi.fn(() => 'open') }
+      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
     }
     const boundContext = { cloudId: 'c1', pageId: 'page-99', contentId: 'cc1' }
 
@@ -709,6 +947,41 @@ describe('useAgentLinkSession', () => {
       session.hydrateFrom(makeHandoff({ state: 'waiting' }))
 
       expect(onDiagramUpdated).not.toHaveBeenCalled()
+    })
+
+    // Track G: mirroring the relay owner's own suspend/resume onto this
+    // display-only (Fullscreen) instance's UI — "both surfaces must show the
+    // state" (design contract).
+    it('hydrates an idle instance directly into "suspended" when the persisted session is already suspended', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+
+      session.hydrateFrom(makeHandoff({ state: 'suspended' }))
+
+      expect(session.state.value).toBe('suspended')
+      expect(session.token.value).toBe('handed-off-token')
+    })
+
+    it('mirrors "connected" -> "suspended" once the relay owner republishes the drop', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+      session.hydrateFrom(makeHandoff({ state: 'connected' }))
+      expect(session.state.value).toBe('connected')
+
+      session.hydrateFrom(makeHandoff({ state: 'suspended' }))
+
+      expect(session.state.value).toBe('suspended')
+    })
+
+    it('mirrors "suspended" -> "connected" once the relay owner republishes a successful resume', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+      session.hydrateFrom(makeHandoff({ state: 'suspended' }))
+      expect(session.state.value).toBe('suspended')
+
+      session.hydrateFrom(makeHandoff({ state: 'connected' }))
+
+      expect(session.state.value).toBe('connected')
     })
   })
 
@@ -912,7 +1185,7 @@ describe('useAgentLinkSession', () => {
           captured.onStateEvent = onStateEvent
           captured.onDiagramUpdated = onDiagUpdated
           captured.onEditApplied = onEditApplied
-          return { send: vi.fn(), close: vi.fn(), getState: vi.fn(() => 'open') }
+          return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
         }
       )
       const requestSession = vi.fn().mockResolvedValue({ token: 'real-token' })

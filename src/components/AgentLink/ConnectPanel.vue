@@ -47,16 +47,54 @@
           </li>
         </ul>
 
-        <button
-          type="button"
-          class="agent-link-panel__btn agent-link-panel__btn--danger"
-          data-testid="agent-link-disconnect-btn"
-          @click="emit('disconnect')"
-        >Disconnect</button>
+        <div class="agent-link-panel__actions">
+          <button
+            type="button"
+            class="agent-link-panel__btn agent-link-panel__btn--danger"
+            data-testid="agent-link-disconnect-btn"
+            @click="emit('disconnect')"
+          >Disconnect</button>
+          <button
+            type="button"
+            class="agent-link-panel__btn agent-link-panel__btn--secondary"
+            data-testid="agent-link-revoke-btn"
+            @click="emit('revoke')"
+          >Revoke &amp; re-link</button>
+        </div>
 
         <p class="agent-link-panel__session-line" data-testid="agent-link-session-line">
           session {{ token }} <span class="agent-link-panel__live-dot" aria-hidden="true"></span> live
         </p>
+      </div>
+    </template>
+
+    <!-- suspended (Track G): the relay socket dropped unexpectedly (accidental
+         Fullscreen close, tab crash, net blip) but is still resumable within
+         the token TTL — copy verbatim from Track H's design contract
+         (h-design-bundle/ui_kits/agent-link/README.md). -->
+    <template v-else-if="state === 'suspended'">
+      <div data-testid="agent-link-suspended">
+        <h3 class="agent-link-panel__heading agent-link-panel__heading--warning">Connection paused — reconnecting…</h3>
+
+        <p class="agent-link-panel__status" data-testid="agent-link-suspended-status">
+          <span class="agent-link-panel__pulse-dot" aria-hidden="true"></span>
+          Waiting for the macro to reconnect. The agent will retry its next request
+        </p>
+
+        <div class="agent-link-panel__actions">
+          <button
+            type="button"
+            class="agent-link-panel__btn agent-link-panel__btn--danger"
+            data-testid="agent-link-disconnect-btn"
+            @click="emit('disconnect')"
+          >Disconnect</button>
+          <button
+            type="button"
+            class="agent-link-panel__btn agent-link-panel__btn--secondary"
+            data-testid="agent-link-revoke-btn"
+            @click="emit('revoke')"
+          >Revoke &amp; re-link</button>
+        </div>
       </div>
     </template>
 
@@ -99,6 +137,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'disconnect'): void
+  // Track G: "Revoke & re-link" (design decision #1's escape hatch) — closes
+  // the current session and immediately mints a fresh one, in one click.
+  (e: 'revoke'): void
 }>()
 
 // Shared "setup the connector" block used by both the waiting-state
@@ -197,6 +238,16 @@ function formatTime(at: number): string {
 
 .agent-link-panel--connected {
   border-color: var(--agent-link-green);
+}
+
+.agent-link-panel--suspended {
+  border-color: var(--agent-link-amber);
+}
+
+.agent-link-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 @media (prefers-color-scheme: dark) {

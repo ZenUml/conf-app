@@ -153,6 +153,7 @@
             :token="agentLinkToken"
             :activity-feed="agentLinkActivityFeed"
             @disconnect="onAgentLinkDisconnect"
+            @revoke="onAgentLinkRevoke"
           />
         </aside>
         </div>
@@ -408,6 +409,19 @@ export default {
         relay,
         onDiagramUpdated: (dsl, macroType) => this.applyAgentDiagramUpdate(dsl, macroType),
       }));
+      // Track G: an INLINE (non-Fullscreen) mount may be a fresh iframe reload
+      // that just lost a previous instance's live relay WS — forgeIndex.ts's
+      // Fullscreen onClose calls `location.reload()` on this iframe
+      // UNCONDITIONALLY, not only for an explicit Disconnect (see
+      // attemptReattach()'s doc comment). Reattach to that instance's own
+      // persisted session by the SAME token rather than resetting to idle.
+      // Fullscreen-mode mounts must NEVER call this — they have their own
+      // display-only hydration below (showAgentLinkPanel), and opening a
+      // second relay socket here would violate "one live connection" (design
+      // §3 decision #8).
+      if (!this.isFullscreenMode) {
+        this._agentLink.attemptReattach();
+      }
     }
     // Fullscreen hydration (finding #3, manual test 2026-07-08; finding #4,
     // live spot-check 2026-07-09): this mount may BE the separate Fullscreen
@@ -487,6 +501,11 @@ export default {
     },
     onAgentLinkDisconnect() {
       this._agentLink?.disconnect('user');
+    },
+    // Track G: "Revoke & re-link" — closes the current (possibly suspended
+    // or stuck-with-a-dead-agent) session and immediately mints a fresh one.
+    onAgentLinkRevoke() {
+      this._agentLink?.revokeAndRelink();
     },
     // Live Agent Link render fix: an agent's update_diagram op PERSISTS via
     // the Forge bridge (writeDiagram -> saveCustomContentV2), but that write

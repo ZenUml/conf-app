@@ -341,6 +341,25 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
     expect(json.error.data?.code).toBe('macro_not_connected');
   });
 
+  it('maps a 409 macro_disconnected (suspended session) to a structured, retriable JSON-RPC error', async () => {
+    const resumeDeadline = Date.now() + 120_000;
+    const env = makeDoEnv({
+      session: () => sessionInfoResponse({ state: 'suspended' }),
+      agentOp: () =>
+        new Response(JSON.stringify({ error: 'macro_disconnected', resume_deadline: resumeDeadline }), {
+          status: 409,
+        }),
+    });
+
+    const { res, json } = await postWithEnv(
+      rpc('tools/call', { name: 'update_diagram', arguments: { dsl: 'A->B: hi' } }),
+      env,
+    );
+
+    expect(res.status).toBe(409);
+    expect(json.error.data).toEqual({ reason: 'macro_disconnected', resume_deadline: resumeDeadline });
+  });
+
   it('maps a 504 (macro timeout) from the DO to a JSON-RPC error with HTTP 504', async () => {
     const env = makeDoEnv({
       session: () => sessionInfoResponse(),

@@ -39,6 +39,7 @@ import { agentLinkWsUrl, mintAgentLinkSession, type AgentLinkBoundContext } from
 import {
   persistSession,
   clearSession,
+  readSession,
   subscribeToHandoff,
   subscribeToAnyHandoff,
   type AgentLinkHandoffSession,
@@ -58,6 +59,11 @@ const THINKING_FEED_SUMMARY = 'Agent is updating the diagram…'
 const EDIT_APPLIED_FEED_SUMMARY = 'Diagram updated'
 const EDIT_FAILED_FEED_SUMMARY = '⚠ Agent edit did not apply'
 const TIMEOUT_FEED_SUMMARY = '⚠ Agent stopped responding — timed out'
+// Track G (session lifecycle) feed copy — verbatim from Track H's design
+// contract (h-design-bundle/ui_kits/agent-link/README.md's "Activity feed
+// rows" table).
+const SUSPENDED_FEED_SUMMARY = 'Connection paused'
+const RESUMED_FEED_SUMMARY = 'Reconnected · resumed session'
 
 // How long the 'error' cue lingers on the render surface before auto-returning
 // to 'idle'. Long enough to read, short enough to not nag. UI-only, so it
@@ -119,9 +125,23 @@ export interface AgentLinkSessionApi {
   // (ThinkingOverlay). Stays 'idle' on the flag-off / no-session path.
   thinkingState: Ref<AgentLinkThinkingState>
   startConnect(): void
+  // Track G: call once at mount from the INLINE (non-Fullscreen) macro
+  // instance ONLY. Reattaches to a session this same macro already
+  // persisted (sessionHandoff.ts) instead of resetting to 'idle' — see the
+  // implementation's doc comment for why this matters beyond UX (the
+  // per-contentId mint-exclusivity claim would otherwise 409 a fresh mint
+  // against the very session being resumed). A no-op if idle-with-nothing-
+  // persisted, already non-idle, or no relay context.
+  attemptReattach(): void
   onAgentConnected(): void
   applyEdit(dsl: string, summary?: string): Promise<{ ok: boolean }>
   disconnect(reason?: AgentLinkDisconnectReason): void
+  // "Revoke & re-link" (Track G, design decision #1's escape hatch): closes
+  // the current session (same explicit-disconnect path as disconnect()) and
+  // immediately mints a fresh token — one action instead of two. For a
+  // 'suspended' session, or a dead/unresponsive first agent that never
+  // explicitly disconnects.
+  revokeAndRelink(): void
   // Host (GenericViewer) calls this on $nextTick after it has applied an
   // agent-driven dsl update to its store — the earliest point the COMPLETE
   // new diagram has actually painted. Lets the composable measure a real
@@ -211,6 +231,12 @@ export function useAgentLinkSession(
   // used by the hydrated (Fullscreen) instance; the relay owner never
   // hydrates itself.
   let lastHydratedDsl: string | null = null
+  // Track G (session lifecycle/suspend-resume): the instant the relay socket
+  // was last observed to drop unexpectedly (an ACCIDENTAL close while
+  // 'connected' — see handleRelayStateEvent's 'close' branch), so a
+  // subsequent successful reconnect can measure resume_latency_ms for
+  // agent_link_session_resumed. Null whenever not currently suspended.
+  let suspendedAt: number | null = null
 
   // The wire protocol (relayClient.ts) has no dedicated "agent paired"
   // envelope — the only observable proxy that the agent has joined is it
@@ -224,12 +250,108 @@ export function useAgentLinkSession(
       // a "diagram is changing" shimmer for them would be misleading. Scope
       // the perceived-latency state to the op that actually redraws.
       if (event.op === 'update_diagram') beginThinking(event.receivedAt)
+      return
+    }
+
+    // Track G: the relay socket dropped WITHOUT us calling disconnect()
+    // ourselves — relayClient.ts already retries-by-token underneath
+    // (scheduleReconnect), so this only updates the UI/handoff/analytics
+    // layer; the transport itself doesn't need driving here. Scoped to
+    // 'connected' only — a drop while 'waiting'/'timeout' (the agent never
+    // paired yet) isn't a meaningful interruption to surface as "paused".
+    if (event.type === 'close') {
+      if (state.value !== 'connected') return
+      suspendedAt = now()
+      state.value = nextClientState(state.value, 'ws_drop')
+      activityFeed.value = [...activityFeed.value, { summary: SUSPENDED_FEED_SUMMARY, at: now() }]
+      if (boundContext && token.value) {
+        persistSession({ ...boundContext, token: token.value, state: 'suspended' })
+      }
+      trackAnalyticsEvent('agent_link_session_suspended', {
+        feature_area: 'agent_link',
+        surface: 'fullscreen',
+        macro_type: macroType,
+        reason: 'ws_drop',
+      })
+      return
+    }
+
+    // A same-token reconnect succeeded (relayClient.ts's own scheduleReconnect
+    // opened a fresh socket to the same wsUrl and the relay's DO accepted the
+    // reattach — see AgentLinkSession.ts's fetch()). Only meaningful coming
+    // FROM 'suspended': the very first 'open' (initial connect) fires here
+    // too but is a no-op since state is still 'waiting' at that point.
+    if (event.type === 'open') {
+      if (state.value !== 'suspended') return
+      const resumeLatencyMs = suspendedAt != null ? Math.max(0, now() - suspendedAt) : undefined
+      suspendedAt = null
+      state.value = nextClientState(state.value, 'resumed')
+      activityFeed.value = [...activityFeed.value, { summary: RESUMED_FEED_SUMMARY, at: now() }]
+      if (boundContext && token.value) {
+        persistSession({
+          ...boundContext,
+          token: token.value,
+          state: 'connected',
+          ...(lastAppliedDsl ? { dsl: lastAppliedDsl } : {}),
+        })
+      }
+      trackAnalyticsEvent('agent_link_session_resumed', {
+        feature_area: 'agent_link',
+        surface: 'fullscreen',
+        macro_type: macroType,
+        ...(resumeLatencyMs != null ? { resume_latency_ms: resumeLatencyMs } : {}),
+      })
     }
   }
 
   function teardownRelay(): void {
     relayClient?.close()
     relayClient = null
+  }
+
+  // Opens the relay WS channel for `sessionToken` and wires the shared
+  // callbacks — factored out of startConnect()'s requestSession().then(...)
+  // so attemptReattach() (Track G: reattaching to an EXISTING token on a
+  // fresh mount, no mint) can share the exact same wiring instead of
+  // duplicating it.
+  function openRelayChannel(
+    sessionToken: string,
+    relayOptions: NonNullable<UseAgentLinkSessionOptions['relay']>
+  ): void {
+    const connect =
+      relayOptions.connect ??
+      ((
+        wsUrl: string,
+        bridge: AgentLinkBridgeOps,
+        onStateEvent: (e: RelayStateEvent) => void,
+        onDiagramUpdated: (dsl: string) => void,
+        onEditApplied: (outcome: RelayEditOutcome) => void,
+        onPageRead: () => void
+      ) => createRelayClient({ wsUrl, bridge, onStateEvent, onDiagramUpdated, onEditApplied, onPageRead }))
+
+    relayClient = connect(
+      agentLinkWsUrl(sessionToken, relayOptions.boundContext),
+      bridgeOps,
+      handleRelayStateEvent,
+      (dsl: string) => {
+        // Mark the instant the new COMPLETE dsl is handed to the store — the
+        // zero point for the real view-layer render_ms measured when the
+        // host confirms paint via notifyRenderSettled() (Track F).
+        renderDispatchedAt = now()
+        // Republishing the dsl with `thinking` OMITTED (idle) is what clears
+        // the Fullscreen modal's shimmer on success: the new complete diagram
+        // arrives and the "thinking" cue drops in the same handoff write
+        // (charter §6: render once, complete dsl). This instance (the inline
+        // relay owner) applies the edit to its OWN store via the host
+        // callback below.
+        if (boundContext && token.value) {
+          persistSession({ ...boundContext, token: token.value, state: 'connected', dsl })
+        }
+        options.onDiagramUpdated?.(dsl, macroType)
+      },
+      recordEditOutcome,
+      recordPageRead
+    )
   }
 
   // Republishes the current session onto the handoff record carrying a
@@ -465,16 +587,6 @@ export function useAgentLinkSession(
     const relayOptions = options.relay
     if (relayOptions) {
       const requestSession = relayOptions.requestSession ?? mintAgentLinkSession
-      const connect =
-        relayOptions.connect ??
-        ((
-          wsUrl: string,
-          bridge: AgentLinkBridgeOps,
-          onStateEvent: (e: RelayStateEvent) => void,
-          onDiagramUpdated: (dsl: string) => void,
-          onEditApplied: (outcome: RelayEditOutcome) => void,
-          onPageRead: () => void
-        ) => createRelayClient({ wsUrl, bridge, onStateEvent, onDiagramUpdated, onEditApplied, onPageRead }))
       const startedForThisClick = connectStartedAt
       requestSession(relayOptions.boundContext)
         .then(({ token: realToken }) => {
@@ -492,29 +604,7 @@ export function useAgentLinkSession(
           if (boundContext) {
             persistSession({ ...boundContext, token: realToken, state: 'waiting' })
           }
-          relayClient = connect(
-            agentLinkWsUrl(realToken, relayOptions.boundContext),
-            bridgeOps,
-            handleRelayStateEvent,
-            (dsl: string) => {
-              // Mark the instant the new COMPLETE dsl is handed to the store —
-              // the zero point for the real view-layer render_ms measured when
-              // the host confirms paint via notifyRenderSettled() (Track F).
-              renderDispatchedAt = now()
-              // Republishing the dsl with `thinking` OMITTED (idle) is what
-              // clears the Fullscreen modal's shimmer on success: the new
-              // complete diagram arrives and the "thinking" cue drops in the
-              // same handoff write (charter §6: render once, complete dsl).
-              // This instance (the inline relay owner) applies the edit to its
-              // OWN store via the host callback below.
-              if (boundContext && token.value) {
-                persistSession({ ...boundContext, token: token.value, state: 'connected', dsl })
-              }
-              options.onDiagramUpdated?.(dsl, macroType)
-            },
-            recordEditOutcome,
-            recordPageRead
-          )
+          openRelayChannel(realToken, relayOptions)
         })
         .catch((e) => {
           console.error('agent-link: failed to mint relay session', e)
@@ -532,6 +622,54 @@ export function useAgentLinkSession(
         macro_type: macroType,
       })
     }, SETUP_TIMEOUT_MS)
+  }
+
+  // Track G: called once at mount by the INLINE (non-Fullscreen) macro
+  // instance ONLY — reattaches to a session THIS SAME macro (a prior
+  // instance of it) already persisted, instead of resetting to 'idle'.
+  //
+  // Why this matters, not just UX polish:
+  //   1. forgeIndex.ts's Fullscreen onClose calls `location.reload()` on the
+  //      INLINE macro's own iframe UNCONDITIONALLY (not just for an explicit
+  //      Disconnect) — the reload outlives relayClient.ts's in-process
+  //      reconnect-by-token, so without this, every accidental Fullscreen
+  //      close would strand the session at 'idle' even though the relay's DO
+  //      correctly kept it 'suspended' and resumable.
+  //   2. The per-contentId mint-exclusivity claim (design §7 decision #2)
+  //      stays held by a live 'connected'/'suspended' session until it
+  //      closes/expires — so calling startConnect() fresh here would 409
+  //      diagram_already_linked against the very session this same user is
+  //      trying to resume, actively making the reload case WORSE.
+  // A no-op unless: a relay context exists, this instance is still 'idle'
+  // (never re-entrant over a session already being driven), and a live
+  // (< HANDOFF_TTL_MS old — sessionHandoff.ts) own-page record exists with
+  // state 'connected' or 'suspended' (a 'waiting'-only record means an agent
+  // never actually paired — nothing meaningful to resume, so a fresh
+  // startConnect() mint is simpler and correct).
+  function attemptReattach(): void {
+    if (!boundContext || state.value !== 'idle') return
+    const persisted = readSession(boundContext.pageId)
+    if (!persisted) return
+    if (persisted.state !== 'connected' && persisted.state !== 'suspended') return
+
+    connectStartedAt = now()
+    editsCount = 0
+    lastAppliedDsl = typeof persisted.dsl === 'string' ? persisted.dsl : ''
+    activityFeed.value = []
+    resetThinking()
+    teardownRelay()
+    token.value = persisted.token
+    // Adopt 'connected' directly (not a fresh 'waiting' handshake) — the
+    // persisted record is only ever 'connected'/'suspended' once an agent
+    // has paired at least once. If the reattach itself fails, this fires a
+    // REAL suspend for THIS instance via handleRelayStateEvent's 'close'
+    // branch; no synthetic resumed/suspended pair is fabricated for a drop
+    // this fresh instance never actually witnessed (that happened in the
+    // now-destroyed pre-reload instance).
+    state.value = 'connected'
+
+    const relayOptions = options.relay
+    if (relayOptions) openRelayChannel(persisted.token, relayOptions)
   }
 
   function onAgentConnected(): void {
@@ -575,7 +713,14 @@ export function useAgentLinkSession(
     state.value = nextClientState(state.value, 'disconnect')
     if (prev === state.value) return // nothing was connected — no-op
     resetThinking()
-    teardownRelay()
+    suspendedAt = null
+    // Explicit, user-driven disconnect: tell the relay's DO via a
+    // {kind:'disconnect'} envelope (Track G) so it closes the session
+    // outright instead of suspending it — suspension is reserved for an
+    // ACCIDENTAL drop (see handleRelayStateEvent's 'close' branch and
+    // relayClient.ts's close()/disconnect() split).
+    relayClient?.disconnect()
+    relayClient = null
     // Clear the handoff record so a future Fullscreen mount doesn't hydrate
     // a session that's already been disconnected here.
     if (boundContext) clearSession(boundContext.pageId)
@@ -589,6 +734,20 @@ export function useAgentLinkSession(
         connectStartedAt != null ? now() - connectStartedAt : undefined,
       edits_count: editsCount,
     })
+  }
+
+  // "Revoke & re-link" (design decision #1's escape hatch for a dead first
+  // agent, or for a session stuck 'suspended'): closes the current session
+  // (same explicit-disconnect path as disconnect()) and immediately mints a
+  // fresh token, in one action. Resets to 'idle' directly rather than relying
+  // on a natural FSM transition out of the just-set terminal 'closed' —
+  // startConnect() requires prev === 'idle' to actually mint/connect (see its
+  // own guard), and this action IS a deliberate fresh start, not a
+  // resurrection of the old (closed) session.
+  function revokeAndRelink(): void {
+    disconnect('user')
+    state.value = 'idle'
+    startConnect()
   }
 
   // Fullscreen-side hydration (sessionHandoff.ts): shows a session persisted
@@ -614,6 +773,24 @@ export function useAgentLinkSession(
       // sees the agent's first op and persists `connected`. This UI-only
       // transition must not fire the agent_connected analytics a second time.
       state.value = nextClientState(state.value, 'agent_connected')
+    } else if (
+      state.value === 'connected' &&
+      session.state === 'suspended' &&
+      token.value === session.token
+    ) {
+      // Track G: the relay owner (inline macro instance, which actually owns
+      // the live socket) saw its own ws_drop and republished 'suspended' —
+      // mirror that onto this display-only (Fullscreen) instance's UI too
+      // (the design contract requires "both surfaces show the state").
+      state.value = nextClientState(state.value, 'ws_drop')
+    } else if (
+      state.value === 'suspended' &&
+      session.state === 'connected' &&
+      token.value === session.token
+    ) {
+      // Mirror the relay owner's own resume (see handleRelayStateEvent's
+      // 'open' branch) onto this display-only instance.
+      state.value = nextClientState(state.value, 'resumed')
     }
 
     // --- diagram DSL (agent edit) ----------------------------------------
@@ -689,9 +866,11 @@ export function useAgentLinkSession(
     thinkingState,
     activityFeed,
     startConnect,
+    attemptReattach,
     onAgentConnected,
     applyEdit,
     disconnect,
+    revokeAndRelink,
     notifyRenderSettled,
     hydrateFrom,
     watchForHandoff,

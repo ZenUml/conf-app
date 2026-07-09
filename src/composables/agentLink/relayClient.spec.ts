@@ -526,6 +526,54 @@ describe('createRelayClient', () => {
     expect(MockWebSocket.instances).toHaveLength(5) // +2 more reconnects
   })
 
+  it('disconnect() sends a {kind:"disconnect"} envelope before closing (explicit vs accidental)', () => {
+    const bridge = makeBridge()
+    const client = createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      WebSocketImpl: MockWebSocket as any,
+    })
+    MockWebSocket.instances[0].triggerOpen()
+
+    client.disconnect()
+
+    expect(JSON.parse(MockWebSocket.instances[0].sent[0])).toEqual({ kind: 'disconnect' })
+    expect(MockWebSocket.instances[0].closedByClient).toBe(true)
+    expect(client.getState()).toBe('closed')
+  })
+
+  it('disconnect() does NOT trigger a reconnect (same as close(), but tells the server first)', () => {
+    const bridge = makeBridge()
+    const events: RelayStateEvent[] = []
+    const client = createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      WebSocketImpl: MockWebSocket as any,
+      onStateEvent: (e) => events.push(e),
+      maxReconnectAttempts: 3,
+      clock: instantClock(),
+    })
+    MockWebSocket.instances[0].triggerOpen()
+
+    client.disconnect()
+
+    expect(MockWebSocket.instances).toHaveLength(1) // no reconnect socket created
+    expect(events.some((e) => e.type === 'reconnecting')).toBe(false)
+  })
+
+  it('disconnect() before the socket is open does not throw (send is a no-op, close still happens)', () => {
+    const bridge = makeBridge()
+    const client = createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      WebSocketImpl: MockWebSocket as any,
+    })
+
+    expect(() => client.disconnect()).not.toThrow()
+    expect(MockWebSocket.instances[0].sent).toHaveLength(0) // never sent — socket wasn't open
+    expect(MockWebSocket.instances[0].closedByClient).toBe(true)
+  })
+
   it('send() only writes to the socket once it is open', () => {
     const bridge = makeBridge()
     const client = createRelayClient({

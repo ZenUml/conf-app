@@ -95,6 +95,15 @@ export interface CreateRelayClientOptions {
   // applyEdit() itself uses, so there is one source of truth for
   // feed+analytics regardless of which seam produced the edit.
   onEditApplied?: (outcome: RelayEditOutcome) => void
+  // Fires once per `read_page` op, after opts.bridge.readPage() resolves.
+  // Registered in catalog.ts (agent_link_page_read) since the design doc's
+  // §10 table, but had NO firing site until this callback existed — handleOp()
+  // called bridge.readPage() directly and returned the result over the wire,
+  // so the event was dead (audited 2026-07-09). Same shape as onEditApplied:
+  // the caller (useAgentLinkSession) is the one place with macro_type/surface
+  // context to fire trackAnalyticsEvent, so this module stays analytics-free
+  // and only signals "it happened".
+  onPageRead?: () => void
   // Injectable so tests pass a mock instead of a real browser WebSocket.
   WebSocketImpl?: new (url: string) => WebSocket
   maxReconnectAttempts?: number
@@ -147,6 +156,7 @@ export function createRelayClient(opts: CreateRelayClientOptions): RelayClient {
       switch (op) {
         case 'read_page':
           result = await opts.bridge.readPage()
+          opts.onPageRead?.()
           break
         case 'read_diagram':
           result = await opts.bridge.readDiagram()

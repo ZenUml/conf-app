@@ -397,6 +397,38 @@ describe('useAgentLinkSession', () => {
       // createRelayClient / a fake connect here) performs the write.
       expect(bridgeOps.writeDiagram).not.toHaveBeenCalled()
     })
+
+    it('a relay-driven read_page op fires agent_link_page_read (was registered with no firing site)', async () => {
+      const bridgeOps = makeBridgeOps()
+      let capturedOnPageRead: (() => void) | undefined
+      const connect = vi.fn(
+        (_wsUrl, _bridge, _onStateEvent, _onDiagUpdated, _onEditApplied, onPageRead) => {
+          capturedOnPageRead = onPageRead
+          return makeFakeRelayClient()
+        }
+      )
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token' })
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: {
+          boundContext: { cloudId: 'c1', pageId: 'p1', contentId: 'cc1' },
+          requestSession,
+          connect,
+        },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      expect(typeof capturedOnPageRead).toBe('function')
+      capturedOnPageRead!()
+
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_page_read',
+        expect.objectContaining({ feature_area: 'agent_link', macro_type: 'sequence' })
+      )
+    })
   })
 
   it('the 20s setup timeout moves waiting -> timeout and fires agent_link_setup_shown', async () => {

@@ -90,6 +90,41 @@ describe('createRelayClient', () => {
     })
   })
 
+  it('op:read_page fires onPageRead once the bridge read resolves (agent_link_page_read firing site)', async () => {
+    const bridge = makeBridge()
+    const onPageRead = vi.fn()
+    createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      onPageRead,
+      WebSocketImpl: MockWebSocket as any,
+    })
+    const socket = MockWebSocket.instances[0]
+    socket.triggerOpen()
+
+    socket.triggerMessage(JSON.stringify({ kind: 'op', id: 'req-1', op: 'read_page' }))
+    await flush()
+
+    expect(onPageRead).toHaveBeenCalledTimes(1)
+  })
+
+  it('op:read_page works with no onPageRead callback wired (backward compatible)', async () => {
+    const bridge = makeBridge()
+    createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      WebSocketImpl: MockWebSocket as any,
+    })
+    const socket = MockWebSocket.instances[0]
+    socket.triggerOpen()
+
+    expect(() => {
+      socket.triggerMessage(JSON.stringify({ kind: 'op', id: 'req-1', op: 'read_page' }))
+    }).not.toThrow()
+    await flush()
+    expect(bridge.readPage).toHaveBeenCalledTimes(1)
+  })
+
   it('op:read_diagram calls bridge.readDiagram and replies with a result envelope', async () => {
     const bridge = makeBridge()
     createRelayClient({

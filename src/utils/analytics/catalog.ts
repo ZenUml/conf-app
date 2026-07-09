@@ -170,7 +170,36 @@ export type AnalyticsEventName =
   | "agent_link_page_read"
   | "agent_link_edit_applied"
   | "agent_link_edit_failed"
-  | "agent_link_disconnected";
+  | "agent_link_disconnected"
+  // Planned ahead of implementation (2026-07-09 charter §6/§7/§4-C — project
+  // rule: events before features). Not fired by any code yet; registered so
+  // Tracks F (thinking-state UX), G (session lifecycle), and C (update_diagram
+  // guardrails) can wire trackAnalyticsEvent calls directly against a
+  // reviewed name/property contract instead of inventing one mid-feature.
+  //
+  // F — perceived-latency pair, both keyed to the same in-flight op:
+  // first_feedback = the instant the render surface shows the "AI thinking"
+  // state (an op was received); render_completed = that same op's terminal
+  // outcome (rendered, or not). `ms_since_op_received` on first_feedback is
+  // the perceived-latency number (op receipt -> visible feedback); render_completed's
+  // `total_ms` is op receipt -> terminal outcome (superset of `render_ms`,
+  // which is view-layer render time only — see `render_ms` below).
+  | "agent_link_first_feedback"
+  | "agent_link_render_completed"
+  // C — update_diagram guardrail (parse-before-submit / data-loss check)
+  // rejected an op BEFORE it reached bridge.writeDiagram(), i.e. nothing was
+  // persisted. Distinct from agent_link_edit_failed, which fires for a
+  // guardrail-passed op whose PERSIST then failed (bridge/version conflict).
+  | "agent_link_guardrail_rejected"
+  // G — session lifecycle beyond the terminal agent_link_disconnected:
+  // suspended = the link survives an implicit drop (Fullscreen closed via X,
+  // or an unexpected ws close) instead of tearing down, staying resumable by
+  // token within TTL; resumed = a suspended session was reattached. A
+  // suspended session that never resumes before TTL still ends in
+  // agent_link_disconnected(reason: 'timeout') — these two are the states in
+  // between, not a replacement for the terminal event.
+  | "agent_link_session_suspended"
+  | "agent_link_session_resumed";
 
 // Where an idle renderer-bundle prefetch ran: an alive macro iframe after its
 // own render settled, or the page-banner iframe on its no-banner fast-path.
@@ -186,3 +215,30 @@ export type PrefetchOutcome = "completed" | "partial" | "failed" | "timed_out";
 // Disconnect click; 'timeout' = token/session TTL; 'idle' = no activity for the
 // idle window; 'tab_close' = macro connection dropped (tab close/navigation).
 export type AgentLinkDisconnectReason = "user" | "timeout" | "idle" | "tab_close";
+
+// Terminal outcome of an agent_link render (agent_link_render_completed) —
+// the signal the F-track "thinking state" UI clears on, whether the op ended
+// in a redraw or not. Deliberately just success/failure: WHY it failed is
+// already carried by whichever of agent_link_edit_failed /
+// agent_link_guardrail_rejected fired for the same op — this field only says
+// whether the render surface ended up showing new content.
+export type AgentLinkRenderOutcome = "rendered" | "failed";
+
+// Why Track C's update_diagram guardrail rejected an op BEFORE persisting
+// (agent_link_guardrail_rejected). 'parse_error' = the DSL didn't parse in the
+// real parser (ZenUML/Mermaid/best-effort PlantUML — see charter §4-C);
+// 'data_loss' = it parsed but the semantic round-trip diff showed the output
+// dropping content present in the input (participant/message count collapse);
+// 'other' = any other pre-persist guardrail rejection not covered above.
+export type AgentLinkGuardrailRejectReason = "parse_error" | "data_loss" | "other";
+
+// Why an agent_link session moved to/from 'suspended' (agent_link_session_suspended
+// / agent_link_session_resumed — charter §7.2). 'fullscreen_closed' = the
+// Fullscreen iframe closed via the browser/X control rather than the explicit
+// Disconnect button; 'ws_drop' = the relay socket closed unexpectedly (not
+// closedByCaller — see relayClient.ts) without an explicit disconnect;
+// 'explicit' = the user re-opened Fullscreen deliberately after a suspend (or
+// otherwise explicitly triggered the resume), as opposed to an automatic
+// reconnect. A session suspended and never resumed within TTL still ends in
+// agent_link_disconnected(reason: 'timeout') — that terminal event is separate.
+export type AgentLinkSessionSuspendReason = "fullscreen_closed" | "ws_drop" | "explicit";

@@ -387,6 +387,84 @@ describe("trackAnalyticsEvent", () => {
     );
   });
 
+  // Registered ahead of implementation (catalog.ts's "Planned ahead of
+  // implementation" block, 2026-07-09) for Tracks F/G/C — no production call
+  // site exists yet. These smoke-test that the catalog.ts name + types.ts
+  // property additions actually compile against AnalyticsProperties and are
+  // accepted by the tracker at runtime, so the contract Track F/G/C build
+  // against is verified now rather than discovered broken later.
+  describe("planned agent_link_* events (F/G/C — no call site yet)", () => {
+    it("accepts agent_link_first_feedback with ms_since_op_received", async () => {
+      await _awaitableTrackAnalyticsEvent("agent_link_first_feedback", {
+        feature_area: "agent_link",
+        surface: "fullscreen",
+        macro_type: "sequence",
+        ms_since_op_received: 120,
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "agent_link_first_feedback",
+        expect.objectContaining({ macro_type: "sequence", ms_since_op_received: 120 })
+      );
+    });
+
+    it("accepts agent_link_render_completed with render_ms/total_ms/render_outcome", async () => {
+      await _awaitableTrackAnalyticsEvent("agent_link_render_completed", {
+        feature_area: "agent_link",
+        surface: "fullscreen",
+        macro_type: "mermaid",
+        render_ms: 80,
+        total_ms: 950,
+        render_outcome: "rendered",
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "agent_link_render_completed",
+        expect.objectContaining({ render_ms: 80, total_ms: 950, render_outcome: "rendered" })
+      );
+    });
+
+    it("accepts agent_link_guardrail_rejected with reason/input_len/output_len", async () => {
+      await _awaitableTrackAnalyticsEvent("agent_link_guardrail_rejected", {
+        feature_area: "agent_link",
+        surface: "fullscreen",
+        macro_type: "sequence",
+        reason: "data_loss",
+        input_len: 480,
+        output_len: 40,
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "agent_link_guardrail_rejected",
+        expect.objectContaining({ reason: "data_loss", input_len: 480, output_len: 40 })
+      );
+    });
+
+    it("accepts agent_link_session_suspended with reason", async () => {
+      await _awaitableTrackAnalyticsEvent("agent_link_session_suspended", {
+        feature_area: "agent_link",
+        surface: "fullscreen",
+        macro_type: "sequence",
+        reason: "fullscreen_closed",
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "agent_link_session_suspended",
+        expect.objectContaining({ reason: "fullscreen_closed" })
+      );
+    });
+
+    it("accepts agent_link_session_resumed with reason + resume_latency_ms", async () => {
+      await _awaitableTrackAnalyticsEvent("agent_link_session_resumed", {
+        feature_area: "agent_link",
+        surface: "fullscreen",
+        macro_type: "sequence",
+        reason: "fullscreen_closed",
+        resume_latency_ms: 4200,
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "agent_link_session_resumed",
+        expect.objectContaining({ reason: "fullscreen_closed", resume_latency_ms: 4200 })
+      );
+    });
+  });
+
   it("does not throw when mixpanel.track throws", async () => {
     vi.mocked(mixpanel.track).mockImplementation(() => {
       throw new Error("mixpanel down");

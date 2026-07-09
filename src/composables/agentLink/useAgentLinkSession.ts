@@ -74,7 +74,8 @@ export interface UseAgentLinkSessionOptions {
       bridge: AgentLinkBridgeOps,
       onStateEvent: (event: RelayStateEvent) => void,
       onDiagramUpdated: (dsl: string) => void,
-      onEditApplied: (outcome: RelayEditOutcome) => void
+      onEditApplied: (outcome: RelayEditOutcome) => void,
+      onPageRead: () => void
     ) => RelayClient
   }
   // Fires after a relay-driven `update_diagram` op persists successfully
@@ -201,6 +202,19 @@ export function useAgentLinkSession(
     }
   }
 
+  // Relay-driven `read_page` op completing (relayClient.ts's onPageRead) —
+  // the only firing site for agent_link_page_read (was registered in
+  // catalog.ts with no call site; audited 2026-07-09). No manual counterpart
+  // exists (unlike edits, nothing in this app's own UI reads the page), so
+  // this is simpler than recordEditOutcome: one callback, one event.
+  function recordPageRead(): void {
+    trackAnalyticsEvent('agent_link_page_read', {
+      feature_area: 'agent_link',
+      surface: 'fullscreen',
+      macro_type: macroType,
+    })
+  }
+
   function startConnect(): void {
     // A click is a click regardless of current state — track it, then only
     // bootstrap a new session if it actually moved idle → waiting (a repeat
@@ -248,8 +262,9 @@ export function useAgentLinkSession(
           bridge: AgentLinkBridgeOps,
           onStateEvent: (e: RelayStateEvent) => void,
           onDiagramUpdated: (dsl: string) => void,
-          onEditApplied: (outcome: RelayEditOutcome) => void
-        ) => createRelayClient({ wsUrl, bridge, onStateEvent, onDiagramUpdated, onEditApplied }))
+          onEditApplied: (outcome: RelayEditOutcome) => void,
+          onPageRead: () => void
+        ) => createRelayClient({ wsUrl, bridge, onStateEvent, onDiagramUpdated, onEditApplied, onPageRead }))
       const startedForThisClick = connectStartedAt
       requestSession(relayOptions.boundContext)
         .then(({ token: realToken }) => {
@@ -284,7 +299,8 @@ export function useAgentLinkSession(
               }
               options.onDiagramUpdated?.(dsl, macroType)
             },
-            recordEditOutcome
+            recordEditOutcome,
+            recordPageRead
           )
         })
         .catch((e) => {

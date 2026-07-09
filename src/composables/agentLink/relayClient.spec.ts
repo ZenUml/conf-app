@@ -198,6 +198,132 @@ describe('createRelayClient', () => {
     })
   })
 
+  it('op:update_diagram fires onEditApplied with ok:true after a successful write (feed/analytics wiring)', async () => {
+    const bridge = makeBridge({
+      writeDiagram: vi.fn().mockResolvedValue({ ok: true, version: 2, rendered: true }),
+    })
+    const onEditApplied = vi.fn()
+    createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      onEditApplied,
+      WebSocketImpl: MockWebSocket as any,
+    })
+    const socket = MockWebSocket.instances[0]
+    socket.triggerOpen()
+
+    socket.triggerMessage(
+      JSON.stringify({
+        kind: 'op',
+        id: 'req-applied',
+        op: 'update_diagram',
+        payload: { dsl: 'A->B: hi', summary: 'added a step' },
+      })
+    )
+    await flush()
+
+    expect(onEditApplied).toHaveBeenCalledTimes(1)
+    expect(onEditApplied).toHaveBeenCalledWith({
+      ok: true,
+      dsl: 'A->B: hi',
+      summary: 'added a step',
+      rendered: true,
+      reason: undefined,
+    })
+  })
+
+  it('op:update_diagram fires onEditApplied with ok:false and the reason after a failed write', async () => {
+    const bridge = makeBridge({
+      writeDiagram: vi.fn().mockResolvedValue({ ok: false, reason: 'version_conflict' }),
+    })
+    const onEditApplied = vi.fn()
+    const onDiagramUpdated = vi.fn()
+    createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      onEditApplied,
+      onDiagramUpdated,
+      WebSocketImpl: MockWebSocket as any,
+    })
+    const socket = MockWebSocket.instances[0]
+    socket.triggerOpen()
+
+    socket.triggerMessage(
+      JSON.stringify({
+        kind: 'op',
+        id: 'req-failed',
+        op: 'update_diagram',
+        payload: { dsl: 'A->B: hi' },
+      })
+    )
+    await flush()
+
+    expect(onEditApplied).toHaveBeenCalledTimes(1)
+    expect(onEditApplied).toHaveBeenCalledWith({
+      ok: false,
+      dsl: 'A->B: hi',
+      summary: undefined,
+      rendered: undefined,
+      reason: 'version_conflict',
+    })
+    expect(onDiagramUpdated).not.toHaveBeenCalled()
+  })
+
+  it('op:update_diagram fires onEditApplied with ok:false when the bridge write rejects, and still replies with an error envelope', async () => {
+    const bridge = makeBridge({
+      writeDiagram: vi.fn().mockRejectedValue(new Error('network down')),
+    })
+    const onEditApplied = vi.fn()
+    createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      onEditApplied,
+      WebSocketImpl: MockWebSocket as any,
+    })
+    const socket = MockWebSocket.instances[0]
+    socket.triggerOpen()
+
+    socket.triggerMessage(
+      JSON.stringify({
+        kind: 'op',
+        id: 'req-reject',
+        op: 'update_diagram',
+        payload: { dsl: 'A->B: hi' },
+      })
+    )
+    await flush()
+
+    expect(onEditApplied).toHaveBeenCalledWith({
+      ok: false,
+      dsl: 'A->B: hi',
+      summary: undefined,
+      reason: 'network down',
+    })
+    expect(JSON.parse(socket.sent[0])).toEqual({
+      kind: 'error',
+      id: 'req-reject',
+      payload: { message: 'network down' },
+    })
+  })
+
+  it('op:update_diagram works with no onEditApplied callback wired (backward compatible)', async () => {
+    const bridge = makeBridge()
+    createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      WebSocketImpl: MockWebSocket as any,
+    })
+    const socket = MockWebSocket.instances[0]
+    socket.triggerOpen()
+
+    socket.triggerMessage(
+      JSON.stringify({ kind: 'op', id: 'req-noeditcb', op: 'update_diagram', payload: { dsl: 'A->B: hi' } })
+    )
+
+    await expect(flush()).resolves.toBeUndefined()
+    expect(JSON.parse(socket.sent[0])).toMatchObject({ kind: 'result', id: 'req-noeditcb' })
+  })
+
   it('op:update_diagram works with no onDiagramUpdated callback wired (backward compatible)', async () => {
     const bridge = makeBridge()
     createRelayClient({

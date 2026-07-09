@@ -36,6 +36,18 @@ export interface RelayEnvelope {
 
 export type RelayConnectionState = 'connecting' | 'open' | 'reconnecting' | 'closed'
 
+// Outcome of a single relay-driven `update_diagram` op, passed to
+// onEditApplied. Mirrors the shape applyEdit() (useAgentLinkSession.ts)
+// already derives from WriteDiagramResult, so the same feed+analytics
+// side-effect function can consume either.
+export interface RelayEditOutcome {
+  ok: boolean
+  dsl?: string
+  summary?: string
+  rendered?: boolean
+  reason?: string
+}
+
 // Emitted for the composable layer (useAgentLinkSession) to react to —
 // notably 'op', the only observable proxy this wire protocol offers for
 // "the agent has paired" (the protocol has no dedicated pairing envelope;
@@ -72,6 +84,17 @@ export interface CreateRelayClientOptions {
   // (store.dispatch(getStoreUpdateAction(diagramType), dsl) — see
   // Editor.vue's onEditorCodeChange) so the diagram redraws WITHOUT reload.
   onDiagramUpdated?: (dsl: string) => void
+  // Fires once per `update_diagram` op, after the write settles (resolved OR
+  // rejected) — success or failure. This is the ONLY place a relay-driven
+  // agent edit becomes observable to the Fullscreen activity feed and to
+  // Mixpanel: unlike the manual applyEdit() seam, handleOp() calls
+  // opts.bridge.writeDiagram() directly, so without this callback a real
+  // agent edit silently never reaches activityFeed / agent_link_edit_applied
+  // / agent_link_edit_failed (the gap this callback closes). The caller
+  // (useAgentLinkSession) wires this to the SAME side-effect function
+  // applyEdit() itself uses, so there is one source of truth for
+  // feed+analytics regardless of which seam produced the edit.
+  onEditApplied?: (outcome: RelayEditOutcome) => void
   // Injectable so tests pass a mock instead of a real browser WebSocket.
   WebSocketImpl?: new (url: string) => WebSocket
   maxReconnectAttempts?: number
@@ -129,13 +152,31 @@ export function createRelayClient(opts: CreateRelayClientOptions): RelayClient {
           result = await opts.bridge.readDiagram()
           break
         case 'update_diagram': {
-          const writeResult = await opts.bridge.writeDiagram(payload?.dsl, payload?.summary)
-          // Only fire the live-render callback once the write actually
-          // persisted — see onDiagramUpdated's doc comment above.
-          if ((writeResult as any)?.ok && typeof payload?.dsl === 'string') {
-            opts.onDiagramUpdated?.(payload.dsl)
+          const dsl = typeof payload?.dsl === 'string' ? payload.dsl : undefined
+          const summary = payload?.summary
+          try {
+            const writeResult = await opts.bridge.writeDiagram(dsl, summary)
+            const ok = Boolean((writeResult as any)?.ok)
+            // Only fire the live-render callback once the write actually
+            // persisted — see onDiagramUpdated's doc comment above.
+            if (ok && dsl !== undefined) {
+              opts.onDiagramUpdated?.(dsl)
+            }
+            opts.onEditApplied?.({
+              ok,
+              dsl,
+              summary,
+              rendered: (writeResult as any)?.rendered,
+              reason: (writeResult as any)?.reason,
+            })
+            result = writeResult
+          } catch (e: any) {
+            // A rejected write is still a failed edit from the feed/analytics
+            // point of view — report it, then rethrow so the outer catch's
+            // existing `error` envelope reply behavior is unchanged.
+            opts.onEditApplied?.({ ok: false, dsl, summary, reason: e?.message ?? String(e) })
+            throw e
           }
-          result = writeResult
           break
         }
         default:

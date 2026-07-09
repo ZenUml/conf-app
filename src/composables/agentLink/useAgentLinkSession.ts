@@ -27,7 +27,12 @@ import {
   type AgentLinkClientState,
 } from './agentLinkState'
 import type { AgentLinkBridgeOps } from './bridgeOps'
-import { createRelayClient, type RelayClient, type RelayStateEvent } from './relayClient'
+import {
+  createRelayClient,
+  type RelayClient,
+  type RelayEditOutcome,
+  type RelayStateEvent,
+} from './relayClient'
 import { agentLinkWsUrl, mintAgentLinkSession, type AgentLinkBoundContext } from './relayUrl'
 
 export interface AgentLinkActivityEntry {
@@ -61,7 +66,8 @@ export interface UseAgentLinkSessionOptions {
       wsUrl: string,
       bridge: AgentLinkBridgeOps,
       onStateEvent: (event: RelayStateEvent) => void,
-      onDiagramUpdated: (dsl: string) => void
+      onDiagramUpdated: (dsl: string) => void,
+      onEditApplied: (outcome: RelayEditOutcome) => void
     ) => RelayClient
   }
   // Fires after a relay-driven `update_diagram` op persists successfully
@@ -119,6 +125,40 @@ export function useAgentLinkSession(
     relayClient = null
   }
 
+  // Single source of truth for "an edit happened" feed+analytics, shared by
+  // both edit seams: the manual applyEdit() below, and relayClient.ts's
+  // onEditApplied (a real agent's `update_diagram` op) via startConnect()'s
+  // relay wiring further down. Without this sharing, relay-driven edits
+  // would bypass the activity feed and agent_link_edit_applied/_failed —
+  // exactly the gap this function closes.
+  function recordEditOutcome(outcome: RelayEditOutcome): void {
+    if (outcome.ok) {
+      editsCount += 1
+      activityFeed.value = [
+        ...activityFeed.value,
+        { summary: outcome.summary?.trim() || 'diagram updated', at: now() },
+      ]
+      trackAnalyticsEvent('agent_link_edit_applied', {
+        feature_area: 'agent_link',
+        surface: 'fullscreen',
+        macro_type: macroType,
+        render_ok: outcome.rendered ?? true,
+        dsl_len_delta:
+          typeof outcome.dsl === 'string'
+            ? outcome.dsl.length - lastAppliedDsl.length
+            : undefined,
+      })
+      if (typeof outcome.dsl === 'string') lastAppliedDsl = outcome.dsl
+    } else {
+      trackAnalyticsEvent('agent_link_edit_failed', {
+        feature_area: 'agent_link',
+        surface: 'fullscreen',
+        macro_type: macroType,
+        reason: outcome.reason ?? 'write_failed',
+      })
+    }
+  }
+
   function startConnect(): void {
     // A click is a click regardless of current state — track it, then only
     // bootstrap a new session if it actually moved idle → waiting (a repeat
@@ -165,8 +205,9 @@ export function useAgentLinkSession(
           wsUrl: string,
           bridge: AgentLinkBridgeOps,
           onStateEvent: (e: RelayStateEvent) => void,
-          onDiagramUpdated: (dsl: string) => void
-        ) => createRelayClient({ wsUrl, bridge, onStateEvent, onDiagramUpdated }))
+          onDiagramUpdated: (dsl: string) => void,
+          onEditApplied: (outcome: RelayEditOutcome) => void
+        ) => createRelayClient({ wsUrl, bridge, onStateEvent, onDiagramUpdated, onEditApplied }))
       const startedForThisClick = connectStartedAt
       requestSession(relayOptions.boundContext)
         .then(({ token: realToken }) => {
@@ -179,7 +220,8 @@ export function useAgentLinkSession(
             agentLinkWsUrl(realToken, relayOptions.boundContext),
             bridgeOps,
             handleRelayStateEvent,
-            (dsl: string) => options.onDiagramUpdated?.(dsl, macroType)
+            (dsl: string) => options.onDiagramUpdated?.(dsl, macroType),
+            recordEditOutcome
           )
         })
         .catch((e) => {
@@ -219,28 +261,13 @@ export function useAgentLinkSession(
     summary?: string
   ): Promise<{ ok: boolean }> {
     const result = await bridgeOps.writeDiagram(dsl, summary)
-    if (result.ok) {
-      editsCount += 1
-      activityFeed.value = [
-        ...activityFeed.value,
-        { summary: summary?.trim() || 'diagram updated', at: now() },
-      ]
-      trackAnalyticsEvent('agent_link_edit_applied', {
-        feature_area: 'agent_link',
-        surface: 'fullscreen',
-        macro_type: macroType,
-        render_ok: result.rendered ?? true,
-        dsl_len_delta: dsl.length - lastAppliedDsl.length,
-      })
-      lastAppliedDsl = dsl
-    } else {
-      trackAnalyticsEvent('agent_link_edit_failed', {
-        feature_area: 'agent_link',
-        surface: 'fullscreen',
-        macro_type: macroType,
-        reason: result.reason ?? 'write_failed',
-      })
-    }
+    recordEditOutcome({
+      ok: result.ok,
+      dsl,
+      summary,
+      rendered: result.rendered,
+      reason: result.reason,
+    })
     return { ok: result.ok }
   }
 

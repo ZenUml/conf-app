@@ -219,6 +219,116 @@ describe('useAgentLinkSession', () => {
     })
   })
 
+  describe('relay wiring — relay-driven edits populate the activity feed + fire analytics (the gap this fix closes)', () => {
+    function makeFakeRelayClient() {
+      return { send: vi.fn(), close: vi.fn(), getState: vi.fn(() => 'open') }
+    }
+
+    it('a successful relay-driven update_diagram op pushes a feed entry and fires agent_link_edit_applied', async () => {
+      const bridgeOps = makeBridgeOps()
+      let capturedOnEditApplied: ((outcome: any) => void) | undefined
+      const connect = vi.fn((_wsUrl, _bridge, _onStateEvent, _onDiagUpdated, onEditApplied) => {
+        capturedOnEditApplied = onEditApplied
+        return makeFakeRelayClient()
+      })
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token' })
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: {
+          boundContext: { cloudId: 'c1', pageId: 'p1', contentId: 'cc1' },
+          requestSession,
+          connect,
+        },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      expect(typeof capturedOnEditApplied).toBe('function')
+      capturedOnEditApplied!({
+        ok: true,
+        dsl: 'A->B: hi',
+        summary: 'agent added a step',
+        rendered: true,
+      })
+
+      expect(session.activityFeed.value).toHaveLength(1)
+      expect(session.activityFeed.value[0]).toMatchObject({ summary: 'agent added a step' })
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_edit_applied',
+        expect.objectContaining({
+          macro_type: 'sequence',
+          render_ok: true,
+          dsl_len_delta: 'A->B: hi'.length,
+        })
+      )
+    })
+
+    it('a failing relay-driven update_diagram op fires agent_link_edit_failed and does not touch the feed', async () => {
+      const bridgeOps = makeBridgeOps()
+      let capturedOnEditApplied: ((outcome: any) => void) | undefined
+      const connect = vi.fn((_wsUrl, _bridge, _onStateEvent, _onDiagUpdated, onEditApplied) => {
+        capturedOnEditApplied = onEditApplied
+        return makeFakeRelayClient()
+      })
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token' })
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: {
+          boundContext: { cloudId: 'c1', pageId: 'p1', contentId: 'cc1' },
+          requestSession,
+          connect,
+        },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      capturedOnEditApplied!({ ok: false, dsl: 'A->B: hi', reason: 'version_conflict' })
+
+      expect(session.activityFeed.value).toHaveLength(0)
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_edit_failed',
+        expect.objectContaining({ macro_type: 'sequence', reason: 'version_conflict' })
+      )
+    })
+
+    it('a relay-driven edit does not fire analytics twice — one op, one edit_applied call', async () => {
+      const bridgeOps = makeBridgeOps()
+      let capturedOnEditApplied: ((outcome: any) => void) | undefined
+      const connect = vi.fn((_wsUrl, _bridge, _onStateEvent, _onDiagUpdated, onEditApplied) => {
+        capturedOnEditApplied = onEditApplied
+        return makeFakeRelayClient()
+      })
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token' })
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: {
+          boundContext: { cloudId: 'c1', pageId: 'p1', contentId: 'cc1' },
+          requestSession,
+          connect,
+        },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      capturedOnEditApplied!({ ok: true, dsl: 'A->B: hi', summary: 'x', rendered: true })
+
+      const editAppliedCalls = vi
+        .mocked(trackAnalyticsEvent)
+        .mock.calls.filter(([name]) => name === 'agent_link_edit_applied')
+      expect(editAppliedCalls).toHaveLength(1)
+      // bridgeOps.writeDiagram (the applyEdit() seam) was never called by the
+      // relay path — only the relay's own bridge (passed straight to
+      // createRelayClient / a fake connect here) performs the write.
+      expect(bridgeOps.writeDiagram).not.toHaveBeenCalled()
+    })
+  })
+
   it('the 20s setup timeout moves waiting -> timeout and fires agent_link_setup_shown', async () => {
     const bridgeOps = makeBridgeOps()
     const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })

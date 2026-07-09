@@ -134,6 +134,8 @@ python3 $S --app all client <tenant-slug>
 
 ## Related
 
+- `income-radar` — near-term cash view built on this engine (`radar` subcommand): renewals
+  due in the next few days + payments missed in the past few days, with dollar totals.
 - `extend-space-license` — grant a temporary Lite space license (the Stripe/KV layer).
 - `paywall` — Lite paywall rollout; `metrics` / `macro-count` — per-space KV data.
 - Pricing model: `docs/pricing-model.yml`. Two-billing-layers background lives in team memory.

@@ -104,7 +104,8 @@ def pdate(s):
 def aggregate_tx(txs):
     """Aggregate transactions by cloudId -> revenue, billing period, paid-through date."""
     agg = defaultdict(lambda: {"vendor": 0.0, "n": 0, "annual": 0, "monthly": 0,
-                               "paid_thru": None, "last_sale": "", "company": "", "tier": ""})
+                               "paid_thru": None, "last_sale": "", "company": "", "tier": "",
+                               "last_paid_amount": 0.0, "last_paid_date": ""})
     for t in txs:
         cid = t.get("cloudId"); p = t.get("purchaseDetails", {}); a = agg[cid]
         amt = float(p.get("vendorAmount", 0) or 0)
@@ -118,7 +119,26 @@ def aggregate_tx(txs):
         if amt > 0:                                  # paid-through = latest PAID coverage end
             me = pdate(p.get("maintenanceEndDate"))
             if me and (a["paid_thru"] is None or me > a["paid_thru"]): a["paid_thru"] = me
+            if sd > a["last_paid_date"]:              # most recent PAID sale -> expected renewal $
+                a["last_paid_date"] = sd; a["last_paid_amount"] = amt
     return agg
+
+
+def aggregate_tx_by_app(txs):
+    """Like aggregate_tx but keyed by (cloudId, addonKey) instead of cloudId alone. A tenant
+    can hold two licenses on one cloudId (e.g. a paid Full license AND a leftover free Lite
+    listing that has zero transactions). aggregate_tx would put all of that cloudId's revenue
+    in one bucket, so BOTH license rows read the same paid amount and the income is counted
+    twice. Splitting by app keeps each subscription separate; the empty Lite bucket then has
+    vendor $0 and drops out of any payers-only view."""
+    groups = defaultdict(list)
+    for t in txs:
+        groups[(t.get("cloudId"), t.get("addonKey"))].append(t)
+    out = {}
+    for key, group in groups.items():
+        for _cid, a in aggregate_tx(group).items():  # each group is one cloudId -> one entry
+            out[key] = a
+    return out
 
 
 def billing_of(a):
@@ -137,7 +157,8 @@ def company_of(rec):
 # stale billing as current. Payoff is batch / analytics / cross-source joins (cloudId is
 # the key to Mixpanel + D1), not single-lookup speed. Stores raw JSON so `export()` can
 # hand downstream commands the exact same dicts (raw-passthrough).
-APP_KEYS_ALL = ["com.zenuml.confluence-addon", "com.zenuml.confluence-addon-lite", "gptdock-confluence"]
+APP_KEYS_ALL = ["com.zenuml.confluence-addon", "com.zenuml.confluence-addon-lite",
+                "gptdock-confluence", "my-api"]  # my-api = AsyncAPI for Confluence (a 3rd revenue app)
 LOCAL = {"db": None}
 
 
@@ -259,6 +280,75 @@ def cmd_overdue(args, auth):
     rows.sort(key=lambda x: (-x["lifetime_vendor"], x["mEnd"] or ""))
     _emit(args, rows, f"overdue app={args.app} asof={today}" + (" paid-only" if args.paid_only else ""),
           cols=["lifetime_vendor", "billing", "status", "tier", "paid_thru", "mEnd", "flags", "company"])
+
+
+APP_LABEL = {"com.zenuml.confluence-addon": "Full",
+             "com.zenuml.confluence-addon-lite": "Lite",
+             "gptdock-confluence": "Diagramly",
+             "my-api": "AsyncAPI"}
+INTERNAL_HOSTS = {"zenuml", "zenuml-connect"}    # ZenUML's own instances — not customers
+
+
+def cmd_radar(args, auth):
+    """Near-term cash view: renewals due in the next N days (expected income) and payer
+    subscriptions that lapsed in the past N days without a new payment (missed). Payers only
+    (vendor $ > 0); ONE row per (tenant, app) subscription across all revenue apps (Full +
+    Diagramly; a leftover Lite listing has $0 here and drops out). Internal ZenUML instances
+    are excluded."""
+    today = pdate(args.asof) or datetime.date.today()
+    n = args.days
+    fwd_end = today + datetime.timedelta(days=n)
+    back_start = today - datetime.timedelta(days=n)
+    lic = export("licenses", auth, addon=None)       # all vendor apps; scoped to payers below
+    txs = export("sales/transactions", auth, addon=None)
+    agg = aggregate_tx_by_app(txs)                   # keyed by (cloudId, addonKey) — no cross-app double count
+    incoming, missed, seen = [], [], set()
+    for r in lic:
+        cid = r.get("cloudId"); app_key = r.get("addonKey"); host = r.get("cloudSiteHostname") or ""
+        if host.split(".")[0] in INTERNAL_HOSTS: continue
+        if (cid, app_key) in seen: continue          # one row per subscription (guard dup license rows)
+        seen.add((cid, app_key))
+        a = agg.get((cid, app_key), {})
+        vendor = a.get("vendor", 0) if a else 0
+        if vendor <= 0: continue                     # income / miss only meaningful for real payers
+        paid_thru = a.get("paid_thru") if a else None
+        if not paid_thru: continue
+        amount = round(a.get("last_paid_amount", 0) or 0, 2)
+        # payment-risk flags apply to BOTH sides: on an INCOMING renewal a dead card / grace is
+        # the *leading* indicator it will land in MISSED next cycle, so surface it now, not later.
+        flags = []
+        if r.get("inGracePeriod") == "Yes": flags.append("grace")
+        if r.get("invoiceDunningReason"): flags.append("no-payment-method")
+        if r.get("status") != "active": flags.append("inactive")
+        flags = ",".join(flags) or "-"
+        base = {"company": company_of(r), "host": host,
+                "app": APP_LABEL.get(app_key, app_key),
+                "billing": billing_of(a), "amount": amount, "tier": r.get("tier"), "flags": flags}
+        if today <= paid_thru <= fwd_end:
+            incoming.append({**base, "due": str(paid_thru)})
+        elif back_start <= paid_thru < today:
+            missed.append({**base, "paid_thru": str(paid_thru), "days_late": (today - paid_thru).days})
+    incoming.sort(key=lambda x: (x["due"], -x["amount"]))
+    missed.sort(key=lambda x: -x["amount"])
+    inc_total = round(sum(x["amount"] for x in incoming), 2)
+    inc_at_risk = round(sum(x["amount"] for x in incoming if x["flags"] != "-"), 2)
+    miss_total = round(sum(x["amount"] for x in missed), 2)
+    if args.json:
+        print(json.dumps({"asof": str(today), "days": n,
+                          "incoming": {"total": inc_total, "at_risk": inc_at_risk,
+                                       "count": len(incoming), "rows": incoming},
+                          "missed": {"total": miss_total, "count": len(missed), "rows": missed}},
+                         indent=2, default=str))
+        return
+    print(f"=== income radar  asof={today}  window=+/-{n}d  (all revenue apps, payers only) ===\n")
+    print(f"INCOMING (next {n}d): {len(incoming)} renewals, ~ ${inc_total:,.2f} expected"
+          + (f"  (at-risk on flagged cards: ${inc_at_risk:,.2f})" if inc_at_risk > 0 else ""))
+    _print_table(incoming, ["due", "app", "billing", "amount", "flags", "tier", "company", "host"])
+    print(f"\nMISSED (past {n}d): {len(missed)} renewals overdue, ~ ${miss_total:,.2f} at risk")
+    _print_table(missed, ["paid_thru", "days_late", "app", "billing", "amount", "flags", "company", "host"])
+    print("\nnote: dates are customer-renewal timing (a proxy for income); Atlassian disburses on its")
+    print("own monthly cycle. A lapse in the last 1-2 days may be settlement lag, not a true miss —")
+    print("read the grace / no-payment-method flags.")
 
 
 def cmd_client(args, auth):
@@ -580,6 +670,12 @@ def main():
     p.add_argument("--asof", default=None, help="YYYY-MM-DD (default: today)")
     p.add_argument("--paid-only", action="store_true", help="only real payers (lifetime vendor $ > 0)")
     p.set_defaults(func=cmd_overdue)
+
+    p = sub.add_parser("radar", parents=[common],
+                       help="near-term cash view: renewals due (next Nd) + missed payments (past Nd)")
+    p.add_argument("--days", type=int, default=7, help="window each direction in days (default 7)")
+    p.add_argument("--asof", default=None, help="YYYY-MM-DD (default: today)")
+    p.set_defaults(func=cmd_radar)
 
     p = sub.add_parser("client", parents=[common], help="full license + transaction history for one client")
     p.add_argument("name", help="company / site slug (text search)")

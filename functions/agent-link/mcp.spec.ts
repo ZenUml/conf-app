@@ -141,14 +141,47 @@ describe('POST /agent-link/mcp', () => {
     expect(json.error.data?.code).toBe('bad_args');
   });
 
-  it('initialize returns a protocol/capabilities stub', async () => {
+  it('initialize returns protocol/capabilities + ZenUML DSL instructions', async () => {
     const record = sessionRegistry.create(CTX);
 
     const { res, json } = await post(rpc('initialize'), { token: record.token });
 
     expect(res.status).toBe(200);
     expect(json.result.protocolVersion).toBeTruthy();
-    expect(json.result.capabilities).toBeDefined();
+    expect(json.result.capabilities.tools).toBeDefined();
+    expect(json.result.capabilities.resources).toBeDefined();
+    // The ZenUML DSL guide is surfaced so any MCP client writes valid syntax.
+    expect(json.result.instructions).toMatch(/ZenUML/);
+    expect(json.result.instructions).toMatch(/update_diagram/);
+  });
+
+  it('resources/list advertises the ZenUML DSL guide', async () => {
+    const record = sessionRegistry.create(CTX);
+
+    const { res, json } = await post(rpc('resources/list'), { token: record.token });
+
+    expect(res.status).toBe(200);
+    expect(json.result.resources).toHaveLength(1);
+    expect(json.result.resources[0].uri).toBe('zenuml://dsl-guide');
+  });
+
+  it('resources/read returns the ZenUML DSL guide text', async () => {
+    const record = sessionRegistry.create(CTX);
+
+    const { res, json } = await post(rpc('resources/read', { uri: 'zenuml://dsl-guide' }), { token: record.token });
+
+    expect(res.status).toBe(200);
+    expect(json.result.contents[0].uri).toBe('zenuml://dsl-guide');
+    expect(json.result.contents[0].text).toMatch(/if \(condition\)/);
+  });
+
+  it('resources/read rejects an unknown uri', async () => {
+    const record = sessionRegistry.create(CTX);
+
+    const { res, json } = await post(rpc('resources/read', { uri: 'zenuml://nope' }), { token: record.token });
+
+    expect(res.status).toBe(400);
+    expect(json.error).toBeDefined();
   });
 
   it('returns an error for an unsupported top-level method', async () => {

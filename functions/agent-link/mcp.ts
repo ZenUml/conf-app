@@ -29,6 +29,7 @@ import { authenticateSession } from './mcpAuth';
 import type { AuthResult } from './mcpAuth';
 import { dispatchTool, getToolSchemas, ToolError } from './mcpTools';
 import type { DispatchContext, ForwardResult, ToolName } from './mcpTools';
+import { ZENUML_DSL_GUIDE, ZENUML_DSL_GUIDE_URI } from './zenumlDslGuide';
 import { sessionRegistry } from './registrySingleton';
 import { TOKEN_TTL_MS } from './sessionToken';
 import type { SessionRecord, SessionState } from './sessionToken';
@@ -311,12 +312,40 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     case 'initialize':
       return jsonRpcResult(id, {
         protocolVersion: '2024-11-05',
-        capabilities: { tools: {} },
+        capabilities: { tools: {}, resources: {} },
         serverInfo: { name: 'conf-agent-link', version: '0.1.0' },
+        // Surfaced by MCP clients into the model's context so any agent writes
+        // valid ZenUML DSL on the first try, instead of guessing Mermaid/
+        // PlantUML-style control flow and hitting a rendered:false retry loop
+        // (see zenumlDslGuide.ts).
+        instructions: ZENUML_DSL_GUIDE,
       });
 
     case 'tools/list':
       return jsonRpcResult(id, { tools: getToolSchemas() });
+
+    case 'resources/list':
+      return jsonRpcResult(id, {
+        resources: [
+          {
+            uri: ZENUML_DSL_GUIDE_URI,
+            name: 'ZenUML DSL syntax guide',
+            mimeType: 'text/markdown',
+            description:
+              'How to write ZenUML sequence DSL for update_diagram — messages and control flow (if/while/opt/par/try-catch).',
+          },
+        ],
+      });
+
+    case 'resources/read': {
+      const rparams = (body.params ?? {}) as { uri?: unknown };
+      if (rparams.uri !== ZENUML_DSL_GUIDE_URI) {
+        return jsonRpcError(400, id, RPC_INVALID_PARAMS, `Unknown resource: ${String(rparams.uri)}`);
+      }
+      return jsonRpcResult(id, {
+        contents: [{ uri: ZENUML_DSL_GUIDE_URI, mimeType: 'text/markdown', text: ZENUML_DSL_GUIDE }],
+      });
+    }
 
     case 'tools/call': {
       const params = (body.params ?? {}) as { name?: unknown; arguments?: unknown };

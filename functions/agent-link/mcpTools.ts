@@ -9,6 +9,7 @@
 // is a later task; `mcp.ts` injects a stub today.
 
 import type { SessionRecord } from './sessionToken';
+import { ZENUML_DSL_TOOL_HINT } from './zenumlDslGuide';
 
 /** The 4 tools exposed to the paired agent (design §6). No create/list/other-content writes. */
 export type ToolName = 'read_page' | 'read_diagram' | 'update_diagram' | 'get_status';
@@ -62,7 +63,8 @@ export const TOOLS: ToolDescriptor[] = [
   {
     name: 'update_diagram',
     description:
-      "Replace the bound diagram's DSL. The macro renders it live and persists it via its own Forge bridge.",
+      "Replace the bound diagram's DSL. The macro renders it live and persists it via its own Forge bridge. " +
+      ZENUML_DSL_TOOL_HINT,
     inputSchema: {
       type: 'object',
       properties: {

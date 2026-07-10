@@ -56,6 +56,24 @@ describe('bridgeOps', () => {
     expect(result.reason).toBe('scope_violation')
   })
 
+  // Deliberate asymmetry, contrasted directly against the test above:
+  // writeDiagram with a foreign content id is DENIED (scope-gated to the
+  // bound diagram — decision #4), but readDiagram with a foreign content id
+  // is NOT — it passes straight through to the bridge unmodified. This is by
+  // design (see bridgeOps.ts's readDiagram doc comment: "reads are NOT
+  // scope-gated — the bound contentId is the write anchor, not a read cage"),
+  // bounded instead by the Forge bridge being tenant-scoped and Confluence's
+  // own server-side CQL permission check (see mcpTools.ts's read_diagram
+  // description and src/model/ApWrapper2.ts's CQL permission-scoping
+  // comment). This test locks in that asymmetry so a future change can't
+  // silently tighten (breaking discovery) or loosen (breaking the write
+  // invariant) it without the diff being visible here.
+  it('readDiagram with a different content id passes straight through — no scope check (contrast with "writeDiagram with a different content id is denied" above)', async () => {
+    const ops = createBridgeOps(bridge, BOUND_ID)
+    await ops.readDiagram(OTHER_ID)
+    expect(bridge.readDiagram).toHaveBeenCalledWith(OTHER_ID)
+  })
+
   it('summary is accepted but not forwarded to the bridge', async () => {
     const ops = createBridgeOps(bridge, BOUND_ID)
     await ops.writeDiagram('A->B: hi', 'added a step')

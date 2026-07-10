@@ -102,4 +102,108 @@ describe('POST /agent-link/session with an AGENT_LINK Durable Object binding', (
 
     expect(res.status).toBe(200);
   });
+
+  // --- FIXED: the lock key now includes cloudId ----------------------------
+  //
+  // session.ts used to call
+  // `env.AGENT_LINK.idFromName(\`content:${contentId}\`)` — no cloudId
+  // anywhere in that string. Every OTHER cross-tenant key in this codebase
+  // (e.g. the D1 queries the conf-app skill uses) always disambiguates on
+  // cloudId; two DIFFERENT Confluence Cloud tenants whose custom-content
+  // happened to share a numeric contentId would collide on the SAME DO
+  // instance, and tenant B's mint would be incorrectly rejected with
+  // `diagram_already_linked` for a completely unrelated diagram on an
+  // unrelated site (a false-lockout risk — actual session read/write stayed
+  // isolated by token regardless; see mcp.spec.ts's "cross-session isolation"
+  // block and bridgeOps.spec.ts's scope-violation test).
+  //
+  // Fixed by keying the lock as `content:${cloudId}:${contentId}` (both call
+  // sites — session.ts and AgentLinkSession.ts's releaseContentLock()). These
+  // are now regression tests for that fix.
+  //
+  // The stub below is keyed by the `name` string idFromName is actually
+  // called with (not by an assumed key), mirroring real Durable Object
+  // addressing: identical names route to the identical stateful instance, so
+  // these tests prove the (non-)collision from the actual addressing, not by
+  // construction.
+  function stubbedAgentLinkEnv() {
+    const idFromNameCalls: string[] = [];
+    const locksByName = new Map<string, { token: string; expiresAt: number }>();
+
+    function stubForName(name: string) {
+      return {
+        fetch: async (url: string, init?: RequestInit) => {
+          if (!url.endsWith('/content-claim')) return new Response(null, { status: 404 });
+          const body = init?.body ? JSON.parse(init.body as string) : {};
+          const existing = locksByName.get(name);
+          if (existing && existing.token !== body.token && existing.expiresAt > Date.now()) {
+            return new Response(JSON.stringify({ error: 'diagram_already_linked' }), { status: 409 });
+          }
+          locksByName.set(name, { token: body.token, expiresAt: body.expiresAt });
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        },
+      };
+    }
+
+    const env = {
+      AGENT_LINK: {
+        idFromName: (name: string) => {
+          idFromNameCalls.push(name);
+          return { name };
+        },
+        get: (id: { name: string }) => stubForName(id.name),
+      },
+    };
+
+    return { env, idFromNameCalls };
+  }
+
+  it('lock key includes cloudId — two different tenants minting for a colliding contentId both succeed (no false lockout)', async () => {
+    const { env, idFromNameCalls } = stubbedAgentLinkEnv();
+
+    // Two DIFFERENT tenants, minting for the SAME contentId.
+    const resA = await onRequestPost({
+      request: makeRequest({ cloudId: 'tenant-a', pageId: 'page-a', contentId: 'shared-content-id' }),
+      env,
+    } as any);
+
+    const resB = await onRequestPost({
+      request: makeRequest({ cloudId: 'tenant-b', pageId: 'page-b', contentId: 'shared-content-id' }),
+      env,
+    } as any);
+
+    // The two mints now hash to DIFFERENT lock keys, one per tenant.
+    expect(idFromNameCalls).toEqual([
+      'content:tenant-a:shared-content-id',
+      'content:tenant-b:shared-content-id',
+    ]);
+
+    // So neither tenant's mint is spuriously rejected.
+    expect(resA.status).toBe(200);
+    expect(resB.status).toBe(200);
+  });
+
+  it('same tenant + same contentId still collides — the second mint is rejected (intended exclusivity)', async () => {
+    const { env, idFromNameCalls } = stubbedAgentLinkEnv();
+
+    const resA = await onRequestPost({
+      request: makeRequest({ cloudId: 'tenant-a', pageId: 'page-a', contentId: 'shared-content-id' }),
+      env,
+    } as any);
+    expect(resA.status).toBe(200);
+
+    const resB = await onRequestPost({
+      request: makeRequest({ cloudId: 'tenant-a', pageId: 'page-b', contentId: 'shared-content-id' }),
+      env,
+    } as any);
+
+    // Same cloudId + same contentId -> the identical lock key both times.
+    expect(idFromNameCalls).toEqual([
+      'content:tenant-a:shared-content-id',
+      'content:tenant-a:shared-content-id',
+    ]);
+
+    expect(resB.status).toBe(409);
+    expect((await resB.json()).error).toBe('diagram_already_linked');
+  });
 });

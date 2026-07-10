@@ -60,7 +60,7 @@ test.describe('Live Agent Link — end to end', () => {
       // ---- agent side: read_page (also fires agent_connected) ----
       const rp = await agentLinkMcp(token!, 'read_page');
       expect(rp.status, 'read_page HTTP').toBe(200);
-      expect(String(rp.result?.title ?? ''), 'read_page returns a real page title').not.toHaveLength(0);
+      expect(String(rp.result?.structuredContent?.title ?? ''), 'read_page returns a real page title').not.toHaveLength(0);
 
       // ---- macro reflects the pairing: waiting -> connected (green border) ----
       await expect
@@ -70,14 +70,14 @@ test.describe('Live Agent Link — end to end', () => {
       // ---- agent reads current diagram, edits it, macro re-renders live ----
       const rd = await agentLinkMcp(token!, 'read_diagram');
       expect(rd.status, 'read_diagram HTTP').toBe(200);
-      originalDsl = String(rd.result?.dsl ?? rd.result?.code ?? '');
+      originalDsl = String(rd.result?.structuredContent?.dsl ?? rd.result?.structuredContent?.code ?? '');
       expect(originalDsl, 'read_diagram returns the current DSL').not.toHaveLength(0);
-      const diagramType = String(rd.result?.diagramType ?? 'sequence');
+      const diagramType = String(rd.result?.structuredContent?.diagramType ?? 'sequence');
 
       const marker = `AGENTE2E${String(Date.now()).slice(-5)}`;
       const up = await agentLinkMcp(token!, 'update_diagram', { dsl: markerDsl(diagramType, marker), summary: 'agent-link e2e' });
       expect(up.status, 'update_diagram HTTP').toBe(200);
-      expect(up.result?.ok, 'update_diagram ok').not.toBe(false);
+      expect(up.result?.structuredContent?.ok, 'update_diagram ok').not.toBe(false);
 
       expect(await waitForRenderedMarker(page, marker), 'macro re-renders the edit LIVE (no reload)').toBe(true);
     } finally {

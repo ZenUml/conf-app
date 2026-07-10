@@ -59,12 +59,17 @@ import type { AgentLinkBoundContext } from './relayUrl'
 // useAgentLinkSession.ts's handleRelayStateEvent 'close' branch. Mint failure
 // states are mirrored too so the separate Fullscreen iframe can show a notice
 // even when no usable token was minted.
+// #314: 'expired' — the client-side TTL watchdog (useAgentLinkSession.ts's
+// scheduleExpiry()/handleExpired()) moved the relay owner's FSM to 'expired'.
+// Mirrored here so a Fullscreen instance that hydrates this record also
+// leaves whatever live variant it was showing instead of staying stuck.
 export type AgentLinkHandoffState =
   | 'waiting'
   | 'connected'
   | 'suspended'
   | 'already_linked'
   | 'failed'
+  | 'expired'
 
 // Perceived-latency cue carried across the iframe boundary (charter §6 Track
 // F). The relay owner (inline macro) is the only instance that receives an
@@ -184,7 +189,8 @@ function isValidPersisted(
       parsed.state === 'connected' ||
       parsed.state === 'suspended' ||
       parsed.state === 'already_linked' ||
-      parsed.state === 'failed')
+      parsed.state === 'failed' ||
+      parsed.state === 'expired')
   )
 }
 

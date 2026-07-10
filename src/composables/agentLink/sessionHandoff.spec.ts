@@ -53,6 +53,16 @@ describe('sessionHandoff', () => {
     expect(readSession('page-1')).toMatchObject({ state: 'connected' })
   })
 
+  // #314: 'expired' is a recognized handoff state (isValidPersisted's
+  // whitelist) so a Fullscreen instance can hydrate the relay owner's own
+  // TTL-lapse instead of the record being silently rejected as invalid.
+  it('readSession recognizes an "expired" persisted record (not rejected as invalid)', () => {
+    persistSession(makeSession({ state: 'connected' }))
+    persistSession(makeSession({ state: 'expired' }))
+
+    expect(readSession('page-1')).toMatchObject({ state: 'expired' })
+  })
+
   // dsl is optional on the handoff record — present once the relay owner has
   // republished an agent edit, absent on the initial waiting/connected write.
   it('persistSession then readSession round-trips an included dsl string', () => {

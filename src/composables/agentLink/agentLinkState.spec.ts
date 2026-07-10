@@ -71,6 +71,30 @@ describe('agentLinkState', () => {
     it('suspended --disconnect--> closed (explicit Disconnect while suspended)', () => {
       expect(nextClientState('suspended', 'disconnect')).toBe('closed')
     })
+
+    // #314 — the client-side TTL watchdog fires 'expired' from any state that
+    // still has a live (or pending) session; idle/closed/already_linked/failed
+    // have no session to expire, so 'expired' is a no-op there (see the
+    // no-op cases below).
+    it('waiting --expired--> expired (token TTL lapsed before an agent paired)', () => {
+      expect(nextClientState('waiting', 'expired')).toBe('expired')
+    })
+
+    it('timeout --expired--> expired (token TTL lapsed after the setup timer)', () => {
+      expect(nextClientState('timeout', 'expired')).toBe('expired')
+    })
+
+    it('connected --expired--> expired (token TTL lapsed while paired)', () => {
+      expect(nextClientState('connected', 'expired')).toBe('expired')
+    })
+
+    it('suspended --expired--> expired (token TTL lapsed during a drop)', () => {
+      expect(nextClientState('suspended', 'expired')).toBe('expired')
+    })
+
+    it('expired --disconnect--> closed (explicit close/re-link out of expired)', () => {
+      expect(nextClientState('expired', 'disconnect')).toBe('closed')
+    })
   })
 
   describe('nextClientState — invalid events leave state unchanged', () => {
@@ -83,6 +107,7 @@ describe('agentLinkState', () => {
       ['idle', 'mint_failed'],
       ['idle', 'ws_drop'],
       ['idle', 'resumed'],
+      ['idle', 'expired'],
       ['waiting', 'connect_clicked'],
       ['waiting', 'ws_drop'],
       ['waiting', 'resumed'],
@@ -114,6 +139,7 @@ describe('agentLinkState', () => {
       ['already_linked', 'mint_failed'],
       ['already_linked', 'ws_drop'],
       ['already_linked', 'resumed'],
+      ['already_linked', 'expired'],
       ['failed', 'connect_clicked'],
       ['failed', 'session_created'],
       ['failed', 'agent_connected'],
@@ -123,6 +149,7 @@ describe('agentLinkState', () => {
       ['failed', 'mint_failed'],
       ['failed', 'ws_drop'],
       ['failed', 'resumed'],
+      ['failed', 'expired'],
     ]
 
     it.each(cases)('%s + %s is a no-op', (current, event) => {
@@ -141,6 +168,7 @@ describe('agentLinkState', () => {
       'mint_failed',
       'ws_drop',
       'resumed',
+      'expired',
     ]
 
     it.each(allEvents)('closed + %s stays closed', (event) => {

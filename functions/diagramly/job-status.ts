@@ -1,6 +1,7 @@
 import { response, OkResponse } from "../OkResponse";
 import { callDiagramly } from "../service/diagramlyService";
 import type { ForgeRequestData } from "../utils/authenticate";
+import { resolveDiagramlyIdentity } from "./context";
 
 export const onRequest = async ({
   request,
@@ -12,28 +13,18 @@ export const onRequest = async ({
   data: ForgeRequestData;
 }) => {
   try {
-    const body: {
-      jobId: string;
-      accountId: string;
-      teamId?: string;
-      cloudId?: string;
-    } = await request.json();
+    const identity = resolveDiagramlyIdentity(data);
+    if (identity instanceof Response) {
+      return identity;
+    }
 
+    const body: { jobId: string } = await request.json();
     if (!body.jobId) {
       return response(400, "Missing jobId");
     }
 
-    if (!body.accountId) {
-      return response(400, "Missing accountId");
-    }
-
     const result = await callDiagramly(
-      {
-        accountId: body.accountId,
-        teamId: body.teamId,
-        cloudId: data.forgeContext?.cloudId || body.cloudId,
-        env,
-      },
+      { ...identity, env },
       `/api/chat/job-status`,
       { jobId: body.jobId }
     );

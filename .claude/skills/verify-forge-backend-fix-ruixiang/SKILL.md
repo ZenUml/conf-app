@@ -110,10 +110,12 @@ forge tunnel -e env_ruixiang          # listening on http://localhost:57743
 ### Step 6：启动 5 个 Terminal.app
 
 ```bash
+# 参数从本地环境读取,切勿把真实 authtoken / 私有路径写进仓库(会进 git 历史)。
+# ngrok authtoken: https://dashboard.ngrok.com/get-started/your-authtoken
 ./.claude/skills/joint-debug/launch-debug-services.sh \
-  "2piBMy4QpL09UzthlR6iYtCgqd8_7JKwDUqPKkjyL9FbkiHfB" \
-  "special-lemming-radically.ngrok-free.app" \
-  "/Users/fengruixiang/Documents/projects/diagramly.ai"
+  "$NGROK_AUTHTOKEN" \
+  "$NGROK_DOMAIN" \
+  "$DIAGRAMLY_LOCAL_PATH"
 ```
 
 5 个 Terminal：
@@ -133,7 +135,7 @@ curl -o /dev/null -w "%{http_code}\n" http://localhost:3000   # 200
 curl -o /dev/null -w "%{http_code}\n" http://localhost:8789   # 200
 curl -o /dev/null -w "%{http_code}\n" http://localhost:8000   # 200
 curl -H "ngrok-skip-browser-warning: true" -o /dev/null -w "%{http_code}\n" \
-  https://special-lemming-radically.ngrok-free.app/forge-custom-content  # 401
+  "https://$NGROK_DOMAIN/forge-custom-content"  # 401
 ```
 
 ### Step 7：用户触发真实 UI 流

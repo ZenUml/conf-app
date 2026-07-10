@@ -316,10 +316,13 @@ export default {
       return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && this.isFullscreenMode;
     },
     // Fullscreen toolbar link-status chip (Track H). Same gating as the rail,
-    // but only once a session actually exists (connected/suspended/closed) —
-    // it names the bound diagram + TTL, so it has nothing to say pre-pairing.
+    // but only once a session actually exists (connected/suspended/closed/
+    // expired) — it names the bound diagram + TTL, so it has nothing to say
+    // pre-pairing. #314 adds 'expired' so the chip actually leaves the live
+    // variant once the client-side TTL watchdog fires, instead of staying on
+    // whatever it last showed forever.
     showAgentLinkChip() {
-      return this.showAgentLinkPanel && ['connected', 'suspended', 'closed'].includes(this.agentLinkState);
+      return this.showAgentLinkPanel && ['connected', 'suspended', 'closed', 'expired'].includes(this.agentLinkState);
     },
     agentLinkExpiresAt() {
       return this._agentLink?.expiresAt.value ?? null;

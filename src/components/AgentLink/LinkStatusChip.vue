@@ -37,6 +37,7 @@
       </template>
     </template>
     <template v-else-if="variant === 'suspended'">Reconnecting…</template>
+    <template v-else-if="variant === 'expired'">Expired</template>
     <template v-else>Disconnected</template>
   </span>
 </template>
@@ -59,7 +60,7 @@ const props = withDefaults(
 
 const WARN_THRESHOLD_SECONDS = 120
 
-const variant = computed<'live' | 'suspended' | 'dead' | null>(() => {
+const variant = computed<'live' | 'suspended' | 'dead' | 'expired' | null>(() => {
   switch (props.state) {
     case 'connected':
       return 'live'
@@ -67,6 +68,11 @@ const variant = computed<'live' | 'suspended' | 'dead' | null>(() => {
       return 'suspended'
     case 'closed':
       return 'dead'
+    // #314: the client-side TTL watchdog moves a stale session here — the
+    // chip must leave the green "live" look instead of staying pinned on it
+    // with a dead "0:00" countdown forever.
+    case 'expired':
+      return 'expired'
     default:
       return null
   }
@@ -192,6 +198,16 @@ const ttlText = computed(() => {
   background: #97a0af;
 }
 
+/* #314: same muted gray treatment as --dead — a TTL lapse is a terminal,
+   non-live state too, just with its own "Expired" copy. */
+.agent-chip--expired {
+  background: #f1f2f4;
+  color: #6b778c;
+}
+.agent-chip--expired .agent-chip__dot {
+  background: #97a0af;
+}
+
 @keyframes agent-chip-spin {
   to {
     transform: rotate(360deg);
@@ -213,6 +229,10 @@ const ttlText = computed(() => {
     color: #f4d35e;
   }
   .agent-chip--dead {
+    background: rgba(107, 119, 140, 0.18);
+    color: #9aa3b2;
+  }
+  .agent-chip--expired {
     background: rgba(107, 119, 140, 0.18);
     color: #9aa3b2;
   }

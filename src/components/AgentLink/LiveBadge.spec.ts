@@ -43,6 +43,18 @@ describe('LiveBadge', () => {
     expect(badge.text()).toContain('Disconnected')
   })
 
+  // #314: the client-side TTL watchdog moves a stale session to 'expired' —
+  // the collapsed-macro badge must not keep showing "● live" once that
+  // happens.
+  it('renders the muted "Expired" variant when expired, and never the "● live" indicator', () => {
+    const wrapper = mount(LiveBadge, { props: { state: 'expired' } })
+
+    expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
+    const badge = wrapper.find('[data-testid="agent-link-live-badge-expired"]')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toContain('Expired')
+  })
+
   // Track H: additive "Working" variant for an op in flight on a live session
   // (the rail status header passes `thinking`). The collapsed-macro usage never
   // passes it, so the green "live" rendering above is untouched.

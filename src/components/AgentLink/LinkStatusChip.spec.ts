@@ -63,4 +63,16 @@ describe('LinkStatusChip', () => {
     expect(chip.classes()).toContain('agent-chip--dead')
     expect(chip.text()).toContain('Disconnected')
   })
+
+  // #314: the client-side TTL watchdog moves a stale session to 'expired' —
+  // the toolbar chip must leave the green "live" variant and say so, not stay
+  // pinned on a live look with a dead "0:00" countdown.
+  it('expired: shows a muted "Expired" chip, not the live variant', () => {
+    const wrapper = mount(LinkStatusChip, { props: { state: 'expired' } })
+    const chip = wrapper.find('[data-testid="agent-link-status-chip"]')
+    expect(chip.exists()).toBe(true)
+    expect(chip.classes()).toContain('agent-chip--expired')
+    expect(chip.classes()).not.toContain('agent-chip--live')
+    expect(chip.text()).toContain('Expired')
+  })
 })

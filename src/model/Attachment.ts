@@ -71,6 +71,17 @@ interface UploadContext {
   attachment_name: string | undefined;
   content_hash: string | undefined;
   diagram_type: string | undefined;
+  /**
+   * The Forge `extension.content.status` / `.type` at upload time. Recorded so
+   * we can tell WHICH surface an upload fired from: the systemic `http_404`
+   * class turned out to be uploads firing against an unpublished/draft parent
+   * (in-editor inline preview + the pre-`view.submit` save path), where the v1
+   * attachment endpoint 404s. Without these fields the failure/skip events
+   * cannot distinguish a draft parent (benign) from a genuinely broken
+   * published page (a real regression, `content_status === 'current'`).
+   */
+  content_status: string | undefined;
+  content_type: string | undefined;
 }
 
 // ============================================================================
@@ -88,6 +99,20 @@ async function getIdentifier(): Promise<string | undefined> {
  */
 function getCloudId(): string | undefined {
   return forgeGlobal.forgeContext?.cloudId;
+}
+
+/**
+ * Read the parent content's publish status / type from the Forge context, if
+ * loaded. `status` is `'current'` for a published page and `'draft'` for an
+ * unpublished one; a draft (or a not-yet-`view.submit`-committed page in the
+ * editor) is the parent state that makes the v1 attachment POST answer 404.
+ */
+function getContentStatus(): string | undefined {
+  return forgeGlobal.forgeContext?.extension?.content?.status;
+}
+
+function getContentType(): string | undefined {
+  return forgeGlobal.forgeContext?.extension?.content?.type;
 }
 
 /**
@@ -268,6 +293,8 @@ async function buildUploadContext(
     attachment_name: customContentId ? `zenuml-${customContentId}.png` : undefined,
     content_hash: contentHash,
     diagram_type: diagramType,
+    content_status: getContentStatus(),
+    content_type: getContentType(),
   };
 }
 
@@ -760,9 +787,33 @@ async function createAttachmentIfContentChanged(
       });
     }
   } catch (e: any) {
-    // Option B: DraftPageError means the v1 API confirmed the page is a draft —
-    // non-fatal, no re-throw.
-    if (e instanceof DraftPageError) {
+    const httpStatus = extractHttpStatus(e);
+    // A 404 on the attachment POST means the parent page is not (yet) an
+    // addressable published v1 content: it's an unpublished/draft/uncommitted
+    // page. This reaches us in three shapes, all of which are the SAME benign
+    // situation:
+    //   - DraftPageError            — 200-wrapped {"statusCode":404,… "status : draft"}
+    //   - AttachmentUploadHttpError(404) via parseUploadResult — the generic
+    //     200-wrapped {"statusCode":404,… "NotFoundException"} (the shape that
+    //     dominates production; the narrow "status : draft" match missed it)
+    //   - AttachmentUploadHttpError(404) via makeRequest — a real HTTP 404
+    // The app cannot attach to a non-published parent, and the next *published*
+    // view backfills the PNG, so this is NOT a hard upload failure. Counting it
+    // as `http_404` mislabeled ~5k events/month (62% of mermaid's "failures"),
+    // buried the real upload-failure signal, and the re-throw spammed the
+    // console on every draft re-render. Record it as a low-severity skip (10%
+    // sampled, see eventSampling.ts) carrying content_status/content_type so we
+    // keep a denominator AND can catch a real regression — a 404 with
+    // content_status 'current' would mean a genuinely broken published page.
+    if (e instanceof DraftPageError || httpStatus === 404) {
+      // Both branches are the 404-class skip; DraftPageError carries no numeric
+      // status of its own, so normalise to 404 for a consistent denominator.
+      trackEvent(
+        e instanceof DraftPageError ? 'draft_page' : 'unpublished_parent',
+        'attachment_upload_skipped',
+        'export',
+        { ...ctx, http_status: httpStatus ?? 404 },
+      );
       return;
     }
     // ToPngError: diagram is empty or not yet rendered. The Viewer already shows
@@ -780,7 +831,6 @@ async function createAttachmentIfContentChanged(
     // to `UnknownError` (any non-Error throwable) and another 24% to bare
     // `Error` (anonymous `new Error(...)`), losing the HTTP status hidden in
     // the message. Use `http_<status>` when we can recover it.
-    const httpStatus = extractHttpStatus(e);
     const errorName = (e instanceof Error && e.name) ? e.name : (e == null ? 'null' : typeof e);
     const errorMessage = String((e as { message?: unknown })?.message ?? e ?? '').slice(0, 200);
     const label = buildFailureLabel(e, httpStatus);

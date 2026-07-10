@@ -46,10 +46,21 @@ export default {
     },
     effectiveDiagramType() {
       return this.diagramType || this.effectiveDoc?.diagramType;
+    },
+    loadComplete() {
+      // A prop-supplied doc is already loaded; otherwise defer to the store flag
+      // set by publishLoadedDiagram once the async loadDiagram() resolves.
+      return !!this.doc || this.$store.state.diagramLoadComplete === true;
     }
   },
   watch: {
     effectiveDiagramType() {
+      this.initializeViewer();
+    },
+    // Re-evaluate when the load finishes even if the type didn't change: a
+    // failed load leaves the store on NULL_DIAGRAM ('unknown'), so only this
+    // flag tells us to stop spinning and surface the error.
+    loadComplete() {
       this.initializeViewer();
     }
   },
@@ -59,27 +70,35 @@ export default {
 
       // The viewer mounts on NULL_DIAGRAM (diagramType 'unknown') BEFORE the
       // async loadDiagram() publishes the referenced doc into the store — the
-      // effectiveDiagramType watcher re-runs this once the real type arrives.
-      // Treat the transient 'unknown'/empty as "still loading", never a hard
-      // error: the old code set `error` from this initial pass and left it set,
-      // so even after a valid doc loaded (e.g. plantuml) the stale
-      // "Unknown diagram type: unknown" masked the resolved viewer.
-      if (!type || type === DiagramType.Unknown) {
-        this.loading = true;
+      // watchers re-run this once the real type arrives (success) or the load
+      // completes with nothing renderable (failure).
+      const component = type && type !== DiagramType.Unknown
+        ? await loadForgeViewerComponent(type)
+        : null;
+
+      if (component) {
+        // Renderable type resolved — clear any transient state and show it.
+        this.viewerComponent = component;
         this.error = null;
+        this.loading = false;
         return;
       }
 
-      const component = await loadForgeViewerComponent(type);
-      this.loading = false;
-      if (component) {
-        this.viewerComponent = component;
-        this.error = null; // clear any error left over from the initial pass
-      } else {
-        // A genuinely-resolved but unrenderable type (e.g. an embed pointing at
-        // another embed) — this is a real error, not the transient state.
-        this.error = `Unknown diagram type: ${type}`;
+      if (this.loadComplete) {
+        // Load finished but there's nothing to render: either the referenced
+        // content is missing/deleted (NULL_DIAGRAM 'unknown' — the 404 case) or
+        // it resolved to an unsupported type (e.g. an embed pointing at another
+        // embed). Surface a terminal error rather than spinning forever.
+        this.error = type && type !== DiagramType.Unknown
+          ? `Unknown diagram type: ${type}`
+          : 'Unable to load the embedded diagram. The referenced content may have been deleted.';
+        this.loading = false;
+        return;
       }
+
+      // Still loading the referenced doc.
+      this.loading = true;
+      this.error = null;
     }
   }
 }

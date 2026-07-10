@@ -40,6 +40,10 @@ function normalizeCompressedGraphDoc(doc: Diagram | undefined): Diagram | undefi
 export function publishLoadedDiagram(doc: Diagram | undefined): Diagram {
   const diagram = normalizeCompressedGraphDoc(doc) ?? NULL_DIAGRAM;
   store.state.diagram = diagram;
+  // Signal load completion (success OR failure — `doc` is undefined when the
+  // referenced content 404s/failed to load). The embed viewer uses this to show
+  // a terminal error rather than an endless "Loading embedded diagram…".
+  store.state.diagramLoadComplete = true;
   window.diagram = diagram;
   console.log('loadDiagram - window.diagram', window.diagram);
   return diagram;

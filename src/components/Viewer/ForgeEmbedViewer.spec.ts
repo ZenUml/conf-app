@@ -14,14 +14,17 @@ vi.mock('@/model/Diagram/DiagramTypeConfig', () => ({
   ),
 }));
 
+const mountViewer = () => mount(ForgeEmbedViewer, { global: { plugins: [store] } });
+
 describe('ForgeEmbedViewer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     store.state.diagram = { ...NULL_DIAGRAM };
+    store.state.diagramLoadComplete = false;
   });
 
-  it('shows the loading state (no error) while the referenced doc is still NULL_DIAGRAM', async () => {
-    const wrapper = mount(ForgeEmbedViewer, { global: { plugins: [store] } });
+  it('shows the loading state (no error) while the referenced doc is still loading', async () => {
+    const wrapper = mountViewer();
     await flushPromises();
 
     expect((wrapper.vm as any).error).toBeNull();
@@ -30,11 +33,12 @@ describe('ForgeEmbedViewer', () => {
   });
 
   it('renders the resolved viewer once the real diagramType arrives via the store', async () => {
-    const wrapper = mount(ForgeEmbedViewer, { global: { plugins: [store] } });
+    const wrapper = mountViewer();
     await flushPromises();
 
     // The async loadDiagram() publishes the referenced (cross-space) doc.
     store.state.diagram = { ...NULL_DIAGRAM, id: '491523', diagramType: DiagramType.PlantUml, code: 'title X' } as any;
+    store.state.diagramLoadComplete = true;
     await flushPromises();
 
     expect((wrapper.vm as any).error).toBeNull();
@@ -43,18 +47,35 @@ describe('ForgeEmbedViewer', () => {
   });
 
   it('regression: a valid doc arriving AFTER the initial unknown pass is not masked by a stale error', async () => {
-    const wrapper = mount(ForgeEmbedViewer, { global: { plugins: [store] } });
+    const wrapper = mountViewer();
     await flushPromises();
 
     store.state.diagram = { ...NULL_DIAGRAM, id: '491523', diagramType: DiagramType.PlantUml } as any;
+    store.state.diagramLoadComplete = true;
     await flushPromises();
 
     expect(wrapper.text()).not.toContain('Unknown diagram type');
   });
 
-  it('still surfaces a real error for a genuinely unrenderable type (embed → embed)', async () => {
+  it('shows a terminal error (not an endless spinner) when the load finishes with missing content', async () => {
+    // 404 case: loadDiagram() returns undefined, so the store stays on
+    // NULL_DIAGRAM ('unknown') but the load IS complete.
+    const wrapper = mountViewer();
+    await flushPromises();
+    expect(wrapper.find('.loading').exists()).toBe(true); // still loading first
+
+    store.state.diagramLoadComplete = true; // load finished, still NULL_DIAGRAM
+    await flushPromises();
+
+    expect(wrapper.find('.loading').exists()).toBe(false);
+    expect(wrapper.find('.error').exists()).toBe(true);
+    expect(wrapper.text()).toContain('Unable to load the embedded diagram');
+  });
+
+  it('still surfaces a real error for a genuinely unrenderable resolved type (embed → embed)', async () => {
     store.state.diagram = { ...NULL_DIAGRAM, id: '9', diagramType: DiagramType.Embed } as any;
-    const wrapper = mount(ForgeEmbedViewer, { global: { plugins: [store] } });
+    store.state.diagramLoadComplete = true;
+    const wrapper = mountViewer();
     await flushPromises();
 
     expect(wrapper.find('.error').exists()).toBe(true);

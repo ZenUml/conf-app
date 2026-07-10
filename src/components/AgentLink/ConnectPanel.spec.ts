@@ -102,7 +102,7 @@ describe('ConnectPanel', () => {
 
     expect(wrapper.find('[data-testid="agent-link-timeout"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-setup-command"]').text()).toContain(
-      'claude mcp add --transport http zenuml https://zenapi.zenuml.com/agent-link/mcp'
+      'claude mcp add --transport http conf-agent https://zenapi.zenuml.com/agent-link/mcp'
     )
     expect(wrapper.find('[data-testid="agent-link-add-cursor-btn"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-no-install-link"]').exists()).toBe(true)

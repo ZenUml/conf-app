@@ -22,6 +22,7 @@
 
 <script>
 import { loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
+import { DiagramType } from "@/model/Diagram/Diagram";
 
 export default {
   name: "ForgeEmbedViewer",
@@ -54,17 +55,30 @@ export default {
   },
   methods: {
     async initializeViewer() {
-      if (this.effectiveDiagramType) {
-        this.viewerComponent = await loadForgeViewerComponent(this.effectiveDiagramType);
-        if (this.viewerComponent) {
-          this.loading = false;
-        } else {
-          this.error = `Unknown diagram type: ${this.effectiveDiagramType}`;
-          this.loading = false;
-        }
-      } else {
+      const type = this.effectiveDiagramType;
+
+      // The viewer mounts on NULL_DIAGRAM (diagramType 'unknown') BEFORE the
+      // async loadDiagram() publishes the referenced doc into the store — the
+      // effectiveDiagramType watcher re-runs this once the real type arrives.
+      // Treat the transient 'unknown'/empty as "still loading", never a hard
+      // error: the old code set `error` from this initial pass and left it set,
+      // so even after a valid doc loaded (e.g. plantuml) the stale
+      // "Unknown diagram type: unknown" masked the resolved viewer.
+      if (!type || type === DiagramType.Unknown) {
         this.loading = true;
         this.error = null;
+        return;
+      }
+
+      const component = await loadForgeViewerComponent(type);
+      this.loading = false;
+      if (component) {
+        this.viewerComponent = component;
+        this.error = null; // clear any error left over from the initial pass
+      } else {
+        // A genuinely-resolved but unrenderable type (e.g. an embed pointing at
+        // another embed) — this is a real error, not the transient state.
+        this.error = `Unknown diagram type: ${type}`;
       }
     }
   }

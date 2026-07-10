@@ -611,6 +611,47 @@ describe('AgentLinkSession — agent-side HTTP transport (GET /session, POST /ag
     });
   });
 
+  describe('POST /agent-op get_status while LIVE — answered by the DO, never forwarded (2026-07-10 spot-check regression)', () => {
+    it('returns link status from the session record without touching the macro socket', async () => {
+      const issuedAtMs = Date.now();
+      const session = new AgentLinkSession(makeState(), {});
+      (session as any).session = makeSession({ state: 'active', issuedAtMs });
+      const macroWs = makeFakeMacroWs();
+      (session as any).macroSocket = macroWs;
+      (session as any).lastDiagram = { diagramType: 'sequence', dsl: 'A->B: hi' };
+
+      const res = await session.fetch(agentOpRequest({ id: 'g-live-1', op: 'get_status', args: {} }));
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+      expect(body.payload.state).toBe('active');
+      expect(body.payload.connected).toBe(true);
+      expect(body.payload.pageId).toBe('page-1');
+      expect(body.payload.contentId).toBe('content-1');
+      expect(body.payload.diagramType).toBe('sequence');
+      expect(body.payload.expiresInSec).toBeGreaterThan(0);
+      expect(body.payload.expiresInSec).toBeLessThanOrEqual(600);
+      // The bug this pins: get_status used to be forwarded to the macro, whose
+      // op dispatcher (relayClient) has no get_status case — every live call
+      // failed with "unsupported op: get_status". Nothing may cross the socket.
+      expect(macroWs.send).not.toHaveBeenCalled();
+    });
+
+    it('still answers connected:false when live but the macro socket is gone', async () => {
+      const session = new AgentLinkSession(makeState(), {});
+      (session as any).session = makeSession({ state: 'active' });
+      (session as any).macroSocket = null;
+
+      const res = await session.fetch(agentOpRequest({ id: 'g-live-2', op: 'get_status', args: {} }));
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+      expect(body.payload.connected).toBe(false);
+    });
+  });
+
   // --- per-contentId mint exclusivity (Track G, design §7 decision #2) -----
   //
   // Exercised against a SEPARATE DO instance of this same class — the

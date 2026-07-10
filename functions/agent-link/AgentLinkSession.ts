@@ -554,6 +554,31 @@ export class AgentLinkSession {
       return jsonResponse({ error: 'macro_disconnected', resume_deadline }, 409);
     }
 
+    // get_status is answered by the DO in every state — link status is
+    // session metadata this object owns, and the macro-side op dispatcher
+    // (relayClient) has no get_status case, so forwarding it while live
+    // failed with "unsupported op: get_status" (found in the 2026-07-10
+    // staging spot check; only the suspended branch above ever worked).
+    if (op === 'get_status') {
+      return jsonResponse(
+        {
+          ok: true,
+          payload: {
+            state: session.state,
+            connected: Boolean(this.macroSocket),
+            pageId: session.boundContext.pageId,
+            contentId: session.boundContext.contentId,
+            diagramType: this.lastDiagram?.diagramType,
+            expiresInSec: Math.max(
+              0,
+              Math.round((session.issuedAtMs + TOKEN_TTL_MS - Date.now()) / 1000),
+            ),
+          },
+        },
+        200,
+      );
+    }
+
     if (!this.macroSocket) {
       return jsonResponse({ error: 'macro_not_connected' }, 409);
     }

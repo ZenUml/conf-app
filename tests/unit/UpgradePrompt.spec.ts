@@ -13,10 +13,17 @@ vi.mock('@/utils/upgradeTracking', () => ({
     ADVOCACY_MESSAGE_COPIED: 'advocacy_message_copied',
     ADVOCACY_DRAFT_PREVIEW_CLICKED: 'advocacy_draft_preview_clicked',
     EXTENSION_REQUEST_CLICKED: 'extension_request_clicked',
+    EXTENSION_FORM_VIEWED: 'extension_form_viewed',
+    EXTENSION_FORM_SUBMITTED: 'extension_form_submitted',
+    EXTENSION_FORM_FAILED: 'extension_form_failed',
   },
   UIComponent: {
     MODAL: 'modal',
   },
+}))
+
+vi.mock('@/utils/requestUtil', () => ({
+  callRemote: vi.fn(),
 }))
 
 vi.mock('@/composables/useCustomerSuccessService', () => ({
@@ -47,6 +54,7 @@ vi.mock('@/model/globals/forgeGlobal', () => ({
 import UpgradePrompt from '@/components/UpgradePrompt/UpgradePrompt.vue'
 import { trackUpgradeEvent } from '@/utils/upgradeTracking'
 import { openUrl } from '@/model/globals/forgeGlobal'
+import { callRemote } from '@/utils/requestUtil'
 
 const baseProps = {
   visible: true,
@@ -362,53 +370,156 @@ describe('UpgradePrompt', () => {
     wrapper.unmount()
   })
 
-  it('opens support request link, copies extension details, and tracks the request click', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText },
+  describe('in-app extension request form', () => {
+    function expandForm() {
+      const button = document.querySelector('[data-testid="request-extension-btn"]') as HTMLButtonElement
+      button.click()
+    }
+
+    async function fillAndSubmit(email: string) {
+      const input = document.querySelector('[data-testid="extension-email-input"]') as HTMLInputElement
+      input.value = email
+      input.dispatchEvent(new Event('input'))
+      await new Promise((r) => setTimeout(r, 0))
+      const form = document.querySelector('[data-testid="extension-request-form"]') as HTMLFormElement
+      form.dispatchEvent(new Event('submit'))
+      await new Promise((r) => setTimeout(r, 0))
+    }
+
+    beforeEach(() => {
+      localStorage.removeItem('extensionRequestEmail')
     })
 
-    const wrapper = mount(UpgradePrompt, {
-      props: baseProps,
-      attachTo: document.body,
-    })
-
-    const button = document.querySelector('[data-testid="request-extension-btn"]') as HTMLButtonElement
-    button.click()
-    await new Promise((r) => setTimeout(r, 0))
-
-    expect(writeText).toHaveBeenCalledTimes(1)
-    const copiedMessage = writeText.mock.calls[0][0]
-    expect(copiedMessage).toContain('Request: Temporary Lite editing extension')
-    expect(copiedMessage).toContain('Space key: engineering-architecture')
-    expect(copiedMessage).toContain('Macro count: 105')
-    expect(copiedMessage).toContain('Limit: 100')
-    expect(copiedMessage).toContain('User account ID: account-123')
-    expect(copiedMessage).toContain('Page ID: page-456')
-
-    expect(trackUpgradeEvent).toHaveBeenCalledWith(
-      'extension_request_clicked',
-      expect.objectContaining({
-        ui_component: 'modal',
-        copied_request_details: true,
-        request_url: expect.stringContaining(
-          'https://zenuml.atlassian.net/servicedesk/customer/portal/1/group/1/create/9?'
-        ),
-        macro_count: 100,
-        space_key: 'engineering-architecture',
+    it('expands the form and tracks extension_form_viewed', async () => {
+      const wrapper = mount(UpgradePrompt, {
+        props: { ...baseProps, actionType: 'page_editor' },
+        attachTo: document.body,
       })
-    )
-    const openedUrl = new URL(vi.mocked(openUrl).mock.calls[0][0] as string)
-    expect(`${openedUrl.origin}${openedUrl.pathname}`).toBe(
-      'https://zenuml.atlassian.net/servicedesk/customer/portal/1/group/1/create/9'
-    )
-    expect(openedUrl.searchParams.get('description')).toBe(copiedMessage)
-    expect(openedUrl.searchParams.get('customfield_10070')).toBe('10037')
 
-    const status = document.querySelector('[data-testid="request-extension-status"]') as HTMLElement
-    expect(status.textContent).toContain('pre-filled')
+      expandForm()
+      await new Promise((r) => setTimeout(r, 0))
 
-    wrapper.unmount()
+      expect(document.querySelector('[data-testid="extension-request-form"]')).toBeTruthy()
+      expect(trackUpgradeEvent).toHaveBeenCalledWith(
+        'extension_form_viewed',
+        expect.objectContaining({
+          action_type: 'page_editor',
+          ui_component: 'modal',
+          space_key: 'engineering-architecture',
+        })
+      )
+
+      wrapper.unmount()
+    })
+
+    it('submits the request to the backend, shows success, and caches the email', async () => {
+      vi.mocked(callRemote).mockResolvedValue({ issueKey: 'ZEN-123' })
+
+      const wrapper = mount(UpgradePrompt, {
+        props: baseProps,
+        attachTo: document.body,
+      })
+
+      expandForm()
+      await new Promise((r) => setTimeout(r, 0))
+      await fillAndSubmit('user@example.com')
+
+      expect(callRemote).toHaveBeenCalledWith(
+        '/api/extension-request',
+        'POST',
+        expect.objectContaining({
+          email: 'user@example.com',
+          spaceKey: 'engineering-architecture',
+          macroCount: 105,
+          macrosLimit: 100,
+          accountId: 'account-123',
+          pageId: 'page-456',
+        })
+      )
+      expect(document.querySelector('[data-testid="extension-form-success"]')).toBeTruthy()
+      expect(trackUpgradeEvent).toHaveBeenCalledWith(
+        'extension_form_submitted',
+        expect.objectContaining({ issue_key: 'ZEN-123' })
+      )
+      expect(localStorage.getItem('extensionRequestEmail')).toBe('user@example.com')
+
+      wrapper.unmount()
+    })
+
+    it('shows an error with portal fallback when the backend fails, and the fallback opens the legacy deep-link', async () => {
+      vi.mocked(callRemote).mockRejectedValue(new Error('HTTP 502: boom'))
+
+      const wrapper = mount(UpgradePrompt, {
+        props: baseProps,
+        attachTo: document.body,
+      })
+
+      expandForm()
+      await new Promise((r) => setTimeout(r, 0))
+      await fillAndSubmit('user@example.com')
+
+      expect(trackUpgradeEvent).toHaveBeenCalledWith(
+        'extension_form_failed',
+        expect.objectContaining({ error: 'request_failed' })
+      )
+      expect(document.querySelector('[data-testid="extension-form-success"]')).toBeNull()
+      const fallback = document.querySelector('[data-testid="extension-form-fallback-link"]') as HTMLAnchorElement
+      expect(fallback).toBeTruthy()
+
+      fallback.click()
+      await new Promise((r) => setTimeout(r, 0))
+
+      expect(trackUpgradeEvent).toHaveBeenCalledWith(
+        'extension_request_clicked',
+        expect.objectContaining({ fallback_from_form: true })
+      )
+      const openedUrl = new URL(vi.mocked(openUrl).mock.calls[0][0] as string)
+      expect(`${openedUrl.origin}${openedUrl.pathname}`).toBe(
+        'https://zenuml.atlassian.net/servicedesk/customer/portal/1/group/1/create/9'
+      )
+      expect(openedUrl.searchParams.get('customfield_10070')).toBe('10037')
+
+      wrapper.unmount()
+    })
+
+    it('shows a rate-limit message without portal fallback on 429', async () => {
+      vi.mocked(callRemote).mockRejectedValue(new Error('HTTP 429: rate_limited'))
+
+      const wrapper = mount(UpgradePrompt, {
+        props: baseProps,
+        attachTo: document.body,
+      })
+
+      expandForm()
+      await new Promise((r) => setTimeout(r, 0))
+      await fillAndSubmit('user@example.com')
+
+      expect(trackUpgradeEvent).toHaveBeenCalledWith(
+        'extension_form_failed',
+        expect.objectContaining({ error: 'rate_limited' })
+      )
+      expect(document.querySelector('[data-testid="extension-form-fallback-link"]')).toBeNull()
+      const error = document.querySelector('[data-testid="extension-form-error"]') as HTMLElement
+      expect(error.textContent).toContain('already have a request')
+
+      wrapper.unmount()
+    })
+
+    it('prefills the email from localStorage on a repeat visit', async () => {
+      localStorage.setItem('extensionRequestEmail', 'repeat@example.com')
+
+      const wrapper = mount(UpgradePrompt, {
+        props: baseProps,
+        attachTo: document.body,
+      })
+
+      expandForm()
+      await new Promise((r) => setTimeout(r, 0))
+
+      const input = document.querySelector('[data-testid="extension-email-input"]') as HTMLInputElement
+      expect(input.value).toBe('repeat@example.com')
+
+      wrapper.unmount()
+    })
   })
 })

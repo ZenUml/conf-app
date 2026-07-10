@@ -13,6 +13,7 @@
     "/forge-custom-content",
     "/api/features",
     "/api/space-status",
+    "/api/extension-request",
     "/api/space-license",
     "/api/stripe-webhook",
     "/api/metrics/evaluation",

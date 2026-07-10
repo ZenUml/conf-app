@@ -15,6 +15,9 @@ export enum UpgradeEventName {
   ADVOCACY_MESSAGE_COPIED = 'advocacy_message_copied',
   ADVOCACY_DRAFT_PREVIEW_CLICKED = 'advocacy_draft_preview_clicked',
   EXTENSION_REQUEST_CLICKED = 'extension_request_clicked',
+  EXTENSION_FORM_VIEWED = 'extension_form_viewed',
+  EXTENSION_FORM_SUBMITTED = 'extension_form_submitted',
+  EXTENSION_FORM_FAILED = 'extension_form_failed',
   PAYWALL_BANNER_SHOWN = 'paywall_banner_shown',
   PAYWALL_BANNER_DISMISSED = 'paywall_banner_dismissed',
 }

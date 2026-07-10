@@ -35,6 +35,10 @@ inputs:
     description: 'Shared secret for forge-page-capture endpoint (PAGE_CAPTURE_SECRET). If empty, the secret is not updated on Cloudflare Pages.'
     required: false
     default: ''
+  jsm-api-token:
+    description: 'Atlassian API token for the JSM service account (JSM_API_TOKEN, used by /api/extension-request). If empty, the secret is not updated on Cloudflare Pages.'
+    required: false
+    default: ''
   page-capture-allowed-domains:
     description: 'Comma-separated Atlassian subdomain prefixes to capture (PAGE_CAPTURE_ALLOWED_DOMAINS). If empty, the value is not updated on Cloudflare Pages.'
     required: false
@@ -69,6 +73,9 @@ runs:
         if [ -n "$PAGE_CAPTURE_SECRET" ]; then
           printf '%s' "$PAGE_CAPTURE_SECRET" | npx wrangler pages secret put PAGE_CAPTURE_SECRET --project-name=${{ inputs.project }}
         fi
+        if [ -n "$JSM_API_TOKEN" ]; then
+          printf '%s' "$JSM_API_TOKEN" | npx wrangler pages secret put JSM_API_TOKEN --project-name=${{ inputs.project }}
+        fi
         # PAGE_CAPTURE_ALLOWED_DOMAINS is a plain (non-secret) Pages var — injected into
         # wrangler.toml [vars] in the "Prepare wrangler config" step below.
         # Delete any pre-existing secret with the same name so the plain var isn't shadowed.
@@ -80,6 +87,7 @@ runs:
         VITE_MIXPANEL_TOKEN: ${{ inputs.vite-mixpanel-token }}
         SENTRY_DSN: ${{ inputs.sentry-dsn }}
         PAGE_CAPTURE_SECRET: ${{ inputs.page-capture-secret }}
+        JSM_API_TOKEN: ${{ inputs.jsm-api-token }}
         PAGE_CAPTURE_ALLOWED_DOMAINS: ${{ inputs.page-capture-allowed-domains }}
     - name: Prepare wrangler config
       run: |

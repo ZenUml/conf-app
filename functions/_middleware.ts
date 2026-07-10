@@ -6,7 +6,8 @@ const AUTHENTICATED_PATHS = [
   '/diagramly',
   '/metrics-cache',
   '/forge-custom-content',
-  '/forge-upload-attachment'
+  '/forge-upload-attachment',
+  '/api/extension-request'
 ];
 
 // Create a middleware function that handles authentication

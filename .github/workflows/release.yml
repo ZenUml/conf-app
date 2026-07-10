@@ -76,6 +76,7 @@ jobs:
           vite-app-version: ${{ github.event.release.tag_name }}
           sentry-dsn: ${{ vars.SENTRY_DSN }}
           page-capture-secret: ${{ vars.PAGE_CAPTURE_SECRET }}
+          jsm-api-token: ${{ secrets.JSM_API_TOKEN }}
           page-capture-allowed-domains: ${{ vars.PAGE_CAPTURE_ALLOWED_DOMAINS_PROD }}
       # All non-asyncapi variants: strip the asyncapi-only modules so they never
       # leak into the lite/full/diagramly production apps. They live in

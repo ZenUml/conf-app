@@ -68,10 +68,10 @@ const meta: Meta<typeof UpgradePrompt> = {
     actionType: 'page_editor',
   },
   decorators: [
-    (_story, context) => {
+    (_story) => {
       installForgeMocks()
       installPaywallState()
-      installClipboardMock(context.parameters.extensionRequestCopy !== false)
+      installClipboardMock(true)
       installNavigationMock()
       return {
         template: '<div class="min-h-screen bg-slate-100"><story /></div>',
@@ -150,32 +150,20 @@ export const AttemptsExhausted: Story = {
   },
 }
 
-export const RequestExtensionCopied: Story = {
+export const RequestExtensionForm: Story = {
   args: {
     remainingContinueAttempts: 15,
   },
   play: async () => {
     const body = within(document.body)
     await userEvent.click(await body.findByTestId('request-extension-btn'))
-    await expect(await body.findByTestId('request-extension-status')).toHaveTextContent(
-      /Request details copied/
-    )
-  },
-}
-
-export const RequestExtensionCopyFailed: Story = {
-  args: {
-    remainingContinueAttempts: 15,
-  },
-  parameters: {
-    extensionRequestCopy: false,
-  },
-  play: async () => {
-    const body = within(document.body)
-    await userEvent.click(await body.findByTestId('request-extension-btn'))
-    await expect(await body.findByTestId('request-extension-status')).toHaveTextContent(
-      /Support form opened/
-    )
+    await expect(await body.findByTestId('extension-request-form')).toBeVisible()
+    await expect(await body.findByTestId('extension-email-input')).toBeVisible()
+    const submit = await body.findByTestId('extension-form-submit-btn')
+    // Empty email — submit stays disabled until a valid address is entered.
+    await expect(submit).toBeDisabled()
+    await userEvent.type(await body.findByTestId('extension-email-input'), 'user@example.com')
+    await expect(submit).toBeEnabled()
   },
 }
 

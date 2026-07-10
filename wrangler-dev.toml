@@ -7,6 +7,11 @@ pages_build_output_dir = "dist"
 [vars]
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
 ENVIRONMENT = "development"  # Set to "development" for local development
+# JSM service-account auth for /api/extension-request (creates ZEN-desk tickets).
+# JSM_API_EMAIL must be a ZEN service-desk agent (raiseOnBehalfOf requires agent
+# permission). JSM_API_TOKEN is a secret: `wrangler pages secret put JSM_API_TOKEN`
+# per Pages project — never put the token in this file.
+JSM_API_EMAIL = "support@zenuml.com"
 # PAGE_CAPTURE_ALLOWED_DOMAINS is intentionally not set in shared dev config.
 # For local wrangler pages dev: set via personal wrangler-{name}.toml or --var flag.
 # Unset = no allowlist = capture all sites (acceptable for local dev).

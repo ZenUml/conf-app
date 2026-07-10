@@ -7,6 +7,7 @@ import {ICustomContent, ICustomContentV2, SearchResults, User} from "@/model/ICu
 import {IUser} from "@/model/IUser";
 import {ILicense} from "@/model/ILicense";
 import {DataSource, Diagram, DiagramType} from "@/model/Diagram/Diagram";
+import {getCodeFromDiagram} from "@/model/Diagram/DiagramTypeConfig";
 import {
   AccountUser,
   ICustomContentResponseBody,
@@ -32,6 +33,48 @@ function customContentTypesForVariant(): string[] {
   return forgeGlobal.isAsyncApi ? ASYNCAPI_CUSTOM_CONTENT_TYPES : CUSTOM_CONTENT_TYPES;
 }
 const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
+
+// One raw candidate hit for the Agent Link discovery tools (search_diagrams /
+// list_diagrams — see searchDiagramsForge). Assembled from a v1 CQL search
+// (excerpt / spaceKey / lastModified) enriched with the v2 body (the exact
+// diagramType + pageId the search response can't carry, because
+// sequence/mermaid/plantuml/openapi all share ONE custom-content type).
+export interface DiagramSearchHit {
+  contentId: string;
+  title: string;
+  diagramType: string;
+  spaceKey: string;
+  pageId: string;
+  excerpt: string;
+  lastModified: string;
+}
+
+// Map an Agent Link logical diagram-type filter value (lowercased) to the
+// coarse custom-content type KEY it is stored under. sequence/mermaid/plantuml/
+// openapi share `zenuml-content-sequence` (discriminated by the body's
+// `diagramType`), so the CQL type clause only narrows graph-vs-rest — the exact
+// type is an executor-side post-filter on the body JSON (evidence:
+// U-cql-feasibility.md §4).
+const DIAGRAM_TYPE_TO_CONTENT_KEY: Record<string, string> = {
+  sequence: 'zenuml-content-sequence',
+  mermaid: 'zenuml-content-sequence',
+  plantuml: 'zenuml-content-sequence',
+  openapi: 'zenuml-content-sequence',
+  graph: 'zenuml-content-graph',
+  asyncapi: 'async-api-doc',
+};
+
+// CQL excerpts come back pre-highlighted with `@@@hl@@@word@@@endhl@@@` markers
+// (evidence: U-cql-feasibility.md §2). Strip the markers to plain snippet text
+// and collapse whitespace — the agent re-ranks on meaning, not on markup.
+function cleanCqlExcerpt(excerpt: unknown): string {
+  if (typeof excerpt !== 'string') return '';
+  return excerpt
+    .replace(/@@@hl@@@/g, '')
+    .replace(/@@@endhl@@@/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 // ZEN-1170 Defect 1: discriminated result for legacy content-property reads.
 // Viewers can collapse anything non-'ok' to "no content"; editors must
@@ -882,6 +925,154 @@ export default class ApWrapper2 implements IApWrapper {
     }
   }
 
+  // --- Agent Link discovery (design §S3/S4) --------------------------------
+  //
+  // Builds the CQL type clause for a set of requested logical diagram types,
+  // intersected with the types this variant actually registers
+  // (customContentTypesForVariant). Absent/empty/unmappable types -> all variant
+  // types, so the clause is never empty (an empty `type=...` clause 400s).
+  buildDiagramSearchTypesClause(types?: string[]): string {
+    const variantKeys = customContentTypesForVariant();
+    let keys = variantKeys;
+    if (types && types.length > 0) {
+      const wanted = new Set(
+        types
+          .map((t) => DIAGRAM_TYPE_TO_CONTENT_KEY[String(t).toLowerCase()])
+          .filter((k): k is string => !!k),
+      );
+      const narrowed = variantKeys.filter((k) => wanted.has(k));
+      if (narrowed.length > 0) keys = narrowed;
+    }
+    return keys.map((k) => `type="${this.customContentType(k)}"`).join(' or ');
+  }
+
+  // The single v1 CQL primitive the discovery tools compose (evidence:
+  // U-cql-feasibility.md §4): type clause + optional body/title `text ~` +
+  // optional `space`, recency-ordered. Pure string builder (no I/O) so the
+  // injection-sanitization is unit-testable without a live Forge runtime. NB:
+  // must go through v1 `/wiki/rest/api/search?cql=` — the v2 `title=` param is
+  // silently ignored by the platform (confirmed 2026-05-27).
+  buildDiagramSearchCql(opts: { query?: string; spaceKey?: string; types?: string[] }): string {
+    const typesClause = this.buildDiagramSearchTypesClause(opts.types);
+    const clauses: string[] = [`(${typesClause})`];
+    const query = opts.query?.trim();
+    if (query) {
+      // Neutralize the CQL string-literal delimiters and operator chars so a
+      // query term can't break out of the quoted `text ~ "..."` value.
+      const safe = query.replace(/["\\]/g, ' ').replace(/[-:]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (safe) clauses.push(`text ~ "${safe}"`);
+    }
+    if (opts.spaceKey) {
+      const safeSpace = opts.spaceKey.replace(/["\\]/g, '').trim();
+      if (safeSpace) clauses.push(`space="${safeSpace}"`);
+    }
+    return `${clauses.join(' and ')} order by lastmodified desc`;
+  }
+
+  // Executes buildDiagramSearchCql against the v1 search endpoint, then enriches
+  // each hit with the v2 body (the exact diagramType + pageId the search result
+  // omits) — the same search-then-body-fetch shape findLegacyCustomContentByUuid
+  // uses. Uses getCustomContentRawV2 (NOT getCustomContentByIdV2) on purpose:
+  // the latter runs cross-page-copy detection against the CURRENT page, which
+  // would fire a false `duplication_detect` event for every discovered hit that
+  // lives on another page. Returns raw candidate hits; the caller (forgeBridge
+  // executor) applies the exact-type / pageId post-filter + final limit.
+  // `maxCandidates` caps the fetch + body-enrich fan-out.
+  async searchDiagramsForge(opts: {
+    query?: string;
+    spaceKey?: string;
+    types?: string[];
+    maxCandidates?: number;
+  }): Promise<DiagramSearchHit[]> {
+    try {
+      const cql = this.buildDiagramSearchCql(opts);
+      const limit = Math.max(1, Math.min(opts.maxCandidates ?? 25, 50));
+      // expand=content.space is required — without it the v1 search response
+      // omits content.space entirely, so every hit's spaceKey silently comes
+      // back "" (confirmed live via curl during spot-check #3, 2026-07-09).
+      const searchUrl = `/wiki/rest/api/search?cql=${encodeURIComponent(cql)}&limit=${limit}&expand=content.space`;
+      const search: any = await forgeRequest(searchUrl);
+      const results: any[] = Array.isArray(search?.results) ? search.results : [];
+
+      const hits = await Promise.all(
+        results.map(async (r: any): Promise<DiagramSearchHit | null> => {
+          const contentId = r?.content?.id;
+          if (typeof contentId !== 'string' || !contentId) return null;
+          const excerpt = cleanCqlExcerpt(r?.excerpt);
+          const spaceKey = r?.content?.space?.key ?? r?.space?.key ?? '';
+          const lastModified = r?.lastModified ?? r?.friendlyLastModified ?? '';
+          // Body fetch for the exact diagramType + pageId; tolerate per-id
+          // failures so one 403 doesn't poison the whole result set.
+          const cc = await this.getCustomContentRawV2(contentId).catch(() => undefined);
+          let diagramType = DiagramType.Unknown as string;
+          const rawValue = cc?.body?.raw?.value;
+          if (rawValue) {
+            try {
+              const parsed = JSON.parse(rawValue);
+              if (parsed?.diagramType) diagramType = String(parsed.diagramType);
+            } catch {
+              // Non-JSON body — leave as Unknown, still return the row.
+            }
+          }
+          return {
+            contentId,
+            title: cc?.title ?? r?.content?.title ?? r?.title ?? '',
+            diagramType,
+            spaceKey: String(spaceKey),
+            pageId: cc?.pageId != null ? String(cc.pageId) : '',
+            excerpt,
+            lastModified: String(lastModified),
+          };
+        }),
+      );
+
+      const found = hits.filter((h): h is DiagramSearchHit => h !== null);
+      trackEvent(`found ${found.length} diagrams`, 'searchDiagramsForge', 'info');
+      return found;
+    } catch (e) {
+      console.error('searchDiagramsForge', e);
+      trackEvent(JSON.stringify(e), 'searchDiagramsForge', 'error');
+      return [];
+    }
+  }
+
+  // Agent Link read (design §S2/S5). Reads a diagram's DSL + metadata by
+  // contentId — for BOTH the bound diagram and a discovered hit. Uses the raw
+  // v2 fetch (getCustomContentRawV2), NOT getCustomContentByIdV2 /
+  // getCustomContentForCurrentPage, on purpose: those run cross-page-copy
+  // detection against the CURRENT page, which for a discovery read of content
+  // on ANOTHER page fires a false `duplication_detect` event (ZEN-1170 metric
+  // pollution). Reading the CURRENT version (not a historical-page snapshot)
+  // also aligns the read target with the write target — the agent edits current.
+  // Returns undefined when the content isn't readable/parseable.
+  async readDiagramForAgent(contentId: string): Promise<{
+    contentId: string;
+    diagramType: string;
+    title: string;
+    dsl: string;
+    pageId?: string;
+    version?: number;
+  } | undefined> {
+    const cc = await this.getCustomContentRawV2(contentId);
+    const rawValue = cc?.body?.raw?.value;
+    if (!cc || !rawValue) return undefined;
+    let diagram: any;
+    try {
+      diagram = JSON.parse(rawValue);
+    } catch {
+      return undefined;
+    }
+    const diagramType = (diagram?.diagramType ?? DiagramType.Unknown) as DiagramType;
+    return {
+      contentId,
+      diagramType: String(diagramType),
+      title: cc.title ?? '',
+      dsl: getCodeFromDiagram(diagram, diagramType),
+      pageId: cc.pageId != null ? String(cc.pageId) : undefined,
+      version: cc.version?.number,
+    };
+  }
+
   async searchPagedCustomContent(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
     return await this.searchPagedCustomContentForge(pageSize, keyword, onlyMine, docType, ids);
   }
@@ -1358,7 +1549,7 @@ export default class ApWrapper2 implements IApWrapper {
 
   async getCurrentPage(): Promise<{title: string, body: {export_view: {value: string}}} | undefined> {
     const pageId = await this._getCurrentPageId();
-    return await this.request(`/api/v2/pages/${pageId}?body-format=export_view&get-draft=true`);
+    return await this.request(`/api/v2/pages/${pageId}?body-format=export_view`);
   }
 
   /**

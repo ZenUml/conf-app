@@ -140,12 +140,16 @@ permissions:
       backend:
         - https://zenuml.com
         - https://*.zenuml.com
+        # wss for the Live Agent Link relay channel (empirical: https entry does NOT cover wss scheme)
+        - wss://*.zenuml.com
         - https://*.mixpanel.com
         - remote: connect
         - remote: diagramly
       client:
         - https://zenuml.com
         - https://*.zenuml.com
+        # wss for the Live Agent Link relay channel (macro iframe → relay WebSocket)
+        - wss://*.zenuml.com
         - https://www.plantuml.com
         - https://*.mixpanel.com
         - remote: diagramly

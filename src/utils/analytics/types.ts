@@ -14,6 +14,11 @@ import type {
   PrefetchHost,
   PrefetchOutcome,
   DashboardFormatFilter,
+  AgentLinkDisconnectReason,
+  AgentLinkRenderOutcome,
+  AgentLinkGuardrailRejectReason,
+  AgentLinkSessionSuspendReason,
+  AgentLinkListScope,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -119,6 +124,55 @@ export type AnalyticsProperties = {
   // analysis extrapolates true volume as `count / sample_rate`. Absent ⇒ 1.0
   // (every occurrence emitted).
   sample_rate?: number;
+  // Live Agent Link (see catalog.ts agent_link_* events). `time_to_connect_ms`
+  // = waiting→connected latency (agent_link_agent_connected); `render_ok` /
+  // `dsl_len_delta` characterize an applied edit (agent_link_edit_applied);
+  // `session_duration_ms` / `edits_count` summarize the session at teardown
+  // (agent_link_disconnected). `reason` is overloaded across edit_failed
+  // (render/persist failure), disconnected (AgentLinkDisconnectReason),
+  // guardrail_rejected (AgentLinkGuardrailRejectReason), and
+  // session_suspended/session_resumed (AgentLinkSessionSuspendReason); kept as
+  // a free-form string so edit_failed can carry its own failure text.
+  time_to_connect_ms?: number;
+  render_ok?: boolean;
+  dsl_len_delta?: number;
+  reason?:
+    | string
+    | AgentLinkDisconnectReason
+    | AgentLinkGuardrailRejectReason
+    | AgentLinkSessionSuspendReason;
+  session_duration_ms?: number;
+  edits_count?: number;
+  // Planned ahead of implementation (2026-07-09, catalog.ts's "Planned ahead
+  // of implementation" block) — F/G/C fire these once built.
+  //
+  // F (agent_link_first_feedback / agent_link_render_completed): both key off
+  // the same in-flight op. `ms_since_op_received` = op-received -> "AI
+  // thinking" state shown (perceived-latency number); `total_ms` = op-received
+  // -> render terminal outcome (superset of `render_ms`, which is view-layer
+  // render time only, already declared above for macro load perf).
+  // `render_outcome` carries agent_link_render_completed's success/failure.
+  ms_since_op_received?: number;
+  total_ms?: number;
+  render_outcome?: AgentLinkRenderOutcome;
+  // C (agent_link_guardrail_rejected): DSL string lengths in/out of the
+  // pre-persist guardrail (parse + data-loss round-trip check), so a rejected
+  // op's size can be correlated with the reject reason.
+  input_len?: number;
+  output_len?: number;
+  // G (agent_link_session_resumed only): elapsed ms between the paired
+  // agent_link_session_suspended and this resume. Absent when the session
+  // never actually suspended (e.g. a duplicate/no-op resume signal).
+  resume_latency_ms?: number;
+  // U — discovery tool surface (agent_link_diagram_read / _search_performed /
+  // _list_performed). `by_content_id` = read_diagram targeted a discovered
+  // contentId rather than the bound diagram. `query_len` = search query length
+  // ONLY (never the raw query — privacy). `hits` = candidate rows returned
+  // (recall size for search/list). `list_scope` = page / space / site.
+  by_content_id?: boolean;
+  query_len?: number;
+  hits?: number;
+  list_scope?: AgentLinkListScope;
   // Error
   error_code?: string;
   error_name?: string;

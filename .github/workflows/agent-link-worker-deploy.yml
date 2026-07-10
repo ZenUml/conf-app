@@ -1,0 +1,54 @@
+name: Deploy Agent Link Worker (Staging)
+
+# Isolated from staging-deploy.yml / build-test-deploy.yml on purpose: this
+# workflow deploys ONLY the standalone `conf-agent-link` companion Worker
+# (workers/agent-link/) that hosts the AgentLinkSession Durable Object. It
+# must not share a trigger, job, or concurrency group with the Forge/Pages
+# pipeline so a Worker-only change can't affect (or be blocked by) the main
+# app deploy, and vice versa.
+on:
+  push:
+    paths:
+      - 'workers/agent-link/**'
+      # The DO class lives in functions/agent-link/ (re-exported by the Worker's
+      # src/index.ts), so DO source changes must also redeploy the Worker.
+      - 'functions/agent-link/**'
+      - '.github/workflows/agent-link-worker-deploy.yml'
+  workflow_dispatch: {}
+
+# Staging only. Production deploy for this Worker stays a separate,
+# human-gated step (pnpm --filter agent-link deploy:prod) — not automated here.
+concurrency:
+  group: agent-link-worker-deploy-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-worker:
+    name: Deploy conf-agent-link-stg
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 10.x
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          cache: pnpm
+
+      - name: Install dependencies (skip post-install scripts)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: '--max-old-space-size=8192'
+
+      - name: Deploy conf-agent-link to staging
+        run: npx wrangler deploy --env stg
+        working-directory: workers/agent-link
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

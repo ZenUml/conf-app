@@ -1,12 +1,25 @@
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import GenericViewer from '@/components/Viewer/GenericViewer.vue'
 import store from '@/model/store2'
 import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
+import globals from '@/model/globals'
+import forgeRuntime from '@/model/globals/forgeGlobal'
+import { persistSession } from '@/composables/agentLink/sessionHandoff'
+import ThinkingOverlay from '@/components/AgentLink/ThinkingOverlay.vue'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
+
+// Live Agent Link master flag defaults to resolved-false here so every
+// EXISTING test in this file below exercises the flag-off ("renders exactly
+// as today") path without opting in. Individual agent-link tests override
+// this per-test with mockResolvedValueOnce(true).
+vi.mock('@/apis/aiTitleFeatureFlag', () => ({
+  isAgentLinkEnabled: vi.fn(() => Promise.resolve(false)),
+}))
 
 vi.mock('@/model/globals', () => ({
   default: {
@@ -21,6 +34,16 @@ vi.mock('@/model/globals', () => ({
 }))
 
 vi.mock('@forge/bridge', () => ({
+  view: {
+    getContext: vi.fn(() => Promise.resolve({
+      cloudId: 'cloud-1',
+      environmentType: 'DEVELOPMENT',
+      extension: {
+        content: { id: 'page-123' },
+        modal: { macroMode: 'fullscreen' },
+      },
+    })),
+  },
   requestConfluence: vi.fn(() => Promise.resolve({
     ok: true,
     json: () => Promise.resolve({ _links: { base: 'https://example.atlassian.net/wiki', webui: '/spaces/TEST/pages/123' } })
@@ -251,6 +274,296 @@ describe('GenericViewer (chrome-less)', () => {
       expect(vm.showExportModal).toBe(false)
       await wrapper.find('button[aria-label="Export PNG"]').trigger('click')
       expect(vm.showExportModal).toBe(true)
+    })
+  })
+
+  // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)
+  // — the whole feature is gated behind agent-link-enabled, defaulting off.
+  // Flag resolution is async (mounted()), so every assertion here awaits
+  // flushPromises() after mount to let that promise settle before asserting.
+  describe('Live Agent Link (flag-gated)', () => {
+    const setFullscreen = (on: boolean) => {
+      ;(window as any).forgeGlobal = on
+        ? { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+        : undefined
+    }
+    afterEach(() => { delete (window as any).forgeGlobal })
+
+    it('does NOT render Connect to Agent when the flag resolves false (default)', async () => {
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
+    })
+
+    it('renders Connect to Agent in the action area when the flag resolves true', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(true)
+    })
+
+    it('does not render Connect to Agent for a non-MVP diagram type (graph) even when the flag is on', async () => {
+      store.commit('updateDiagramType', DiagramType.Graph)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(false)
+    })
+
+    it('clicking Connect to Agent starts the session and opens Fullscreen', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const spy = vi.spyOn(EventBus, '$emit')
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="agent-link-connect-btn"]').trigger('click')
+
+      expect(spy).toHaveBeenCalledWith('fullscreen')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_connect_clicked',
+        expect.objectContaining({ feature_area: 'agent_link', macro_type: DiagramType.Sequence })
+      )
+    })
+
+    it('mounts the Fullscreen Connect rail (not the small-macro button/badge) when in fullscreen with the flag on', async () => {
+      setFullscreen(true)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
+    })
+
+    it('does not mount the Fullscreen rail when the flag resolves false', async () => {
+      setFullscreen(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(false)
+    })
+
+    // Track F — perceived-latency thinking overlay on the diagram render surface.
+    it('does NOT mount the thinking overlay seam at all when the flag resolves false (flag-off DOM unchanged)', async () => {
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.findComponent(ThinkingOverlay).exists()).toBe(false)
+      expect(wrapper.find('[data-testid="agent-thinking-overlay"]').exists()).toBe(false)
+    })
+
+    it('mounts the thinking overlay seam (idle, rendering nothing) on the render surface when the flag is on', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      // Seam is mounted for both surfaces (inline + fullscreen)...
+      expect(wrapper.findComponent(ThinkingOverlay).exists()).toBe(true)
+      // ...but renders nothing while idle (no op in flight).
+      expect(wrapper.find('[data-testid="agent-thinking-overlay"]').exists()).toBe(false)
+    })
+
+    it('does not mount the thinking overlay for a non-MVP diagram type (graph) even with the flag on', async () => {
+      store.commit('updateDiagramType', DiagramType.Graph)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.findComponent(ThinkingOverlay).exists()).toBe(false)
+    })
+
+    it('shows the shimmer overlay on the render surface when the session is thinking', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      // Drive the composable's thinking state (a real op would set this via the
+      // relay) and confirm it surfaces on the diagram render surface.
+      ;(wrapper.vm as any)._agentLink.thinkingState.value = 'thinking'
+      await wrapper.vm.$nextTick()
+
+      const overlay = wrapper.find('[data-testid="agent-thinking-overlay"]')
+      expect(overlay.exists()).toBe(true)
+      expect(overlay.classes()).toContain('agent-thinking-overlay--thinking')
+      expect(wrapper.find('[data-testid="agent-thinking-spinner"]').exists()).toBe(true)
+    })
+  })
+
+  // Finding #4 (live spot-check, 2026-07-09): the real Fullscreen modal iframe
+  // showed `agent-link-panel--idle` (blank) even though a live session was
+  // sitting in localStorage — because the hydration used to live INSIDE the
+  // `agentLinkFeatureEnabled && globals.apWrapper` block, and apWrapper wasn't
+  // set up the same way in that iframe. Hydration must not depend on
+  // apWrapper/the bridge block at all — these tests remove apWrapper entirely
+  // and confirm the rail still hydrates.
+  describe('Fullscreen hydration is independent of globals.apWrapper (finding #4)', () => {
+    const setFullscreenWithPageId = (pageId?: string) => {
+      ;(window as any).forgeGlobal = {
+        forgeContext: {
+          extension: {
+            modal: { macroMode: 'fullscreen' },
+            content: pageId != null ? { id: pageId } : undefined,
+          },
+        },
+      }
+    }
+    let originalApWrapper: any
+    let originalGetCurrentPageId: any
+    let originalIsForge: any
+    let originalForgeContext: any
+
+    beforeEach(() => {
+      originalApWrapper = (globals as any).apWrapper
+      originalGetCurrentPageId = originalApWrapper?._getCurrentPageId
+      originalIsForge = (forgeRuntime as any).isForge
+      originalForgeContext = (forgeRuntime as any).forgeContext
+    })
+    afterEach(() => {
+      delete (window as any).forgeGlobal
+      ;(globals as any).apWrapper = originalApWrapper
+      if (originalApWrapper) {
+        if (originalGetCurrentPageId === undefined) {
+          delete originalApWrapper._getCurrentPageId
+        } else {
+          originalApWrapper._getCurrentPageId = originalGetCurrentPageId
+        }
+      }
+      ;(forgeRuntime as any).isForge = originalIsForge
+      ;(forgeRuntime as any).forgeContext = originalForgeContext
+      localStorage.clear()
+    })
+
+    it('hydrates the rail to waiting via readSession(pageId) even when globals.apWrapper is absent', async () => {
+      setFullscreenWithPageId('page-123')
+      ;(globals as any).apWrapper = undefined
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      persistSession({
+        token: 'tok-abc',
+        cloudId: 'cloud-1',
+        pageId: 'page-123',
+        contentId: 'content-123',
+        state: 'waiting',
+      })
+
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const panel = wrapper.find('[data-testid="agent-link-panel"]')
+      expect(panel.classes()).toContain('agent-link-panel--waiting')
+      expect(wrapper.find('[data-testid="agent-link-prompt"]').text()).toContain('tok-abc')
+    })
+
+    it('falls back to readAnySession() when the Fullscreen iframe has no resolvable pageId', async () => {
+      setFullscreenWithPageId(undefined)
+      ;(globals as any).apWrapper = undefined
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      persistSession({
+        token: 'tok-xyz',
+        cloudId: 'cloud-1',
+        pageId: 'some-other-page',
+        contentId: 'content-999',
+        state: 'waiting',
+      })
+
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const panel = wrapper.find('[data-testid="agent-link-panel"]')
+      expect(panel.classes()).toContain('agent-link-panel--waiting')
+      expect(wrapper.find('[data-testid="agent-link-prompt"]').text()).toContain('tok-xyz')
+    })
+
+    it('still hydrates normally when globals.apWrapper IS present (no regression on the inline/bridge path)', async () => {
+      setFullscreenWithPageId('page-456')
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      persistSession({
+        token: 'tok-present',
+        cloudId: 'cloud-1',
+        pageId: 'page-456',
+        contentId: 'content-456',
+        state: 'waiting',
+      })
+
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const panel = wrapper.find('[data-testid="agent-link-panel"]')
+      expect(panel.classes()).toContain('agent-link-panel--waiting')
+      expect(wrapper.find('[data-testid="agent-link-prompt"]').text()).toContain('tok-present')
+    })
+
+    it('keeps the rendered Fullscreen rail reactive when the real bridge session replaces the placeholder after first render', async () => {
+      setFullscreenWithPageId('page-reactive')
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      persistSession({
+        token: 'CL-TEST',
+        cloudId: 'cloud-1',
+        pageId: 'page-reactive',
+        contentId: 'content-123',
+        state: 'waiting',
+      })
+
+      let resolvePageId!: (pageId: string) => void
+      const pageIdPromise = new Promise<string>((resolve) => {
+        resolvePageId = resolve
+      })
+      ;(forgeRuntime as any).isForge = true
+      ;(forgeRuntime as any).forgeContext = undefined
+      ;(globals as any).apWrapper._getCurrentPageId = vi.fn(() => pageIdPromise)
+
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain('agent-link-panel--idle')
+
+      resolvePageId('page-reactive')
+      await flushPromises()
+      await wrapper.vm.$nextTick()
+
+      const panel = wrapper.find('[data-testid="agent-link-panel"]')
+      expect(panel.classes()).toContain('agent-link-panel--waiting')
+      expect(wrapper.find('[data-testid="agent-link-prompt"]').text()).toContain('CL-TEST')
+    })
+
+    // Regression (live spot-check 2026-07-09): the normal order is Connect
+    // persists 'waiting' FIRST, then Fullscreen opens and finds it. The old
+    // code did a one-shot hydrateFrom on the found record and NEVER subscribed,
+    // so when the relay owner later persisted 'connected' (agent paired), the
+    // panel stayed 'waiting' forever — no green "connected" border, even though
+    // localStorage said connected. The fix always keeps watching after the
+    // initial hydrate.
+    it('flips waiting -> connected when the relay owner persists connected AFTER Fullscreen mount', async () => {
+      setFullscreenWithPageId('page-conn')
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      persistSession({
+        token: 'CL-CONN',
+        cloudId: 'cloud-1',
+        pageId: 'page-conn',
+        contentId: 'content-conn',
+        state: 'waiting',
+      })
+
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain(
+        'agent-link-panel--waiting',
+      )
+
+      // Agent pairs -> relay owner persists 'connected' AFTER mount, and raises
+      // the same-origin storage notification a cross-frame write would.
+      persistSession({
+        token: 'CL-CONN',
+        cloudId: 'cloud-1',
+        pageId: 'page-conn',
+        contentId: 'content-conn',
+        state: 'connected',
+      })
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-conn' }))
+      await flushPromises()
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain(
+        'agent-link-panel--connected',
+      )
     })
   })
 

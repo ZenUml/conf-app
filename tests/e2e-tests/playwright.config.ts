@@ -79,6 +79,16 @@ export default defineConfig({
       timeout: 300000,
     },
     {
+      // Live Agent Link full loop (macro <-> local agent over the hosted MCP).
+      // Gated on the unreleased agent-link build: the spec skips at runtime
+      // when /agent-link/mcp isn't routed on conf-stg-lite, so it's safe in CI.
+      name: 'agent-link',
+      testMatch: 'agent-link/**/*.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['auth'],
+      timeout: 300000,
+    },
+    {
       name: 'ai-repair',
       testMatch: 'ai-repair/**/*.spec.ts',
       use: { ...devices['Desktop Chrome'] },

@@ -13,12 +13,17 @@
 
     <template v-else>
       <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide}">
+        <!-- viewer-body is a plain wrapper (no layout of its own) unless the
+             Fullscreen Connect rail is showing, in which case it becomes a
+             two-column flex row — see .viewer-body--with-agent-rail below. -->
+        <div class="viewer-body" :class="{'viewer-body--with-agent-rail': showAgentLinkPanel}">
         <div class="viewer-surface" :class="{'viewer-surface--hover': isHovering}"
              @mouseenter="isHovering = true" @mouseleave="isHovering = false">
           <!-- Top edge: title (left) + Edit / Fullscreen (right) -->
           <div class="viewer-edge-top">
             <div class="viewer-title-area">
               <span v-if="isEmbedded" class="viewer-embed-chip" title="Content is embedded from another page">EMBED</span>
+              <LiveBadge v-if="showAgentLinkBadge" :state="agentLinkState" />
               <!--
                 ZEN-1170 Defect 2b: visible chip + tooltip when the diagram was
                 loaded via orphan-sibling recovery. The disabled Edit button's
@@ -39,6 +44,16 @@
                 READ-ONLY
               </span>
               <span class="viewer-title" :title="title">{{ title }}</span>
+              <!-- Live Agent Link — Fullscreen toolbar link-status chip (Track H
+                   design contract): names the bound diagram + token TTL. Shown
+                   only in Fullscreen once a session exists; the inline collapsed
+                   macro keeps its LiveBadge (above) untouched. -->
+              <LinkStatusChip
+                v-if="showAgentLinkChip"
+                :state="agentLinkState"
+                :diagram-title="title"
+                :expires-at="agentLinkExpiresAt"
+              />
             </div>
             <div class="viewer-top-actions">
               <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason" :title="editDisabledReason || undefined" @click="edit" aria-label="Edit" class="viewer-btn-ghost">
@@ -47,6 +62,7 @@
                 </svg>
                 <span>Edit</span>
               </button>
+              <ConnectButton v-if="showAgentLinkConnect" @connect="connectToAgent" />
               <button v-if="!isFullscreenMode" @click="fullscreen" aria-label="Fullscreen" class="viewer-btn-primary">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
@@ -83,6 +99,13 @@
             <div class="screen-capture-content" :class="{'w-full': isWide}">
               <slot></slot>
             </div>
+
+            <!-- Live Agent Link perceived-latency overlay (charter §6 Track F).
+                 Flag-gated exactly like the Connect affordance so the flag-off
+                 DOM is unchanged; renders nothing internally while idle. Shows
+                 on BOTH surfaces (inline + Fullscreen) because both render this
+                 .viewer-canvas — Fullscreen mirrors the state via the handoff. -->
+            <ThinkingOverlay v-if="showAgentLinkThinking" :state="agentLinkThinking" />
 
             <div class="viewer-edge-bottom-pill" role="toolbar" aria-label="Diagram actions">
               <!-- Graph viewer slots in multi-page nav (prev / X of Y / next) here. -->
@@ -129,6 +152,25 @@
 
           </div>
         </div>
+        <!-- Fullscreen Connect rail (design §5.1, §9) — only mounted when the
+             flag is on, the diagram type is MVP-supported, and we're actually
+             in the Fullscreen modal. See connectToAgent()'s comment: this
+             panel is driven by ITS OWN useAgentLinkSession() instance
+             (a fresh Vue app boot inside the Fullscreen modal's iframe). -->
+        <aside v-if="showAgentLinkPanel" class="agent-link-rail" data-testid="agent-link-fullscreen-rail">
+          <ConnectPanel
+            :state="agentLinkState"
+            :token="agentLinkToken"
+            :activity-feed="agentLinkActivityFeed"
+            :thinking="agentLinkThinking"
+            :diagram-title="title"
+            :expires-at="agentLinkExpiresAt"
+            @disconnect="onAgentLinkDisconnect"
+            @revoke="onAgentLinkRevoke"
+            @reconnect="onAgentLinkReconnect"
+          />
+        </aside>
+        </div>
       </div>
     </template>
 
@@ -140,17 +182,29 @@
 import {trackEvent} from "@/utils/window";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 
+import { markRaw } from 'vue'
 import {mapState, mapGetters} from "vuex";
 import EventBus from '../../EventBus'
 import Debug from '@/components/Debug/Debug.vue'
 import globals from '@/model/globals';
 import {DataSource, DiagramType} from "@/model/Diagram/Diagram";
-import { getCodeFromDiagram } from "@/model/Diagram/DiagramTypeConfig";
+import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import ExportModal from '@/components/ExportModal/ExportModal.vue'
 import OverflowMenu from '@/components/Viewer/OverflowMenu.vue'
 import { toast } from '@/utils/toast'
 import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
+import ConnectButton from '@/components/AgentLink/ConnectButton.vue'
+import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
+import LinkStatusChip from '@/components/AgentLink/LinkStatusChip.vue'
+import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
+import ThinkingOverlay from '@/components/AgentLink/ThinkingOverlay.vue'
+import { useAgentLinkSession } from '@/composables/agentLink/useAgentLinkSession'
+import { createBridgeOps, createUnwiredBridgeOps } from '@/composables/agentLink/bridgeOps'
+import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
+import { readSession, readAnySession } from '@/composables/agentLink/sessionHandoff'
+import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
+import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 
@@ -166,11 +220,22 @@ export default {
     isHovering: false,
     showExportModal: false,
     isDownloadingDebug: false,
+    // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)
+    // master flag, resolved async in mounted(). Defaults false so the flag
+    // controls the ENTIRE feature — until it resolves true, this macro
+    // renders exactly as it does today.
+    agentLinkFeatureEnabled: false,
+    _agentLink: null,
   }),
   components: {
     Debug,
     ExportModal,
     OverflowMenu,
+    ConnectButton,
+    ConnectPanel,
+    LinkStatusChip,
+    LiveBadge,
+    ThinkingOverlay,
   },
   computed: {
     ...mapState({diagramType: state => state.diagram.diagramType, diagram: state => state.diagram }),
@@ -232,6 +297,53 @@ export default {
         ? 'This diagram lives on another page. Edit it there to keep both in sync.'
         : 'There are multiple copies of this diagram on this page. Edits affect all of them.';
     },
+    // Live Agent Link MVP scope (design §11/§12): agent-native DSL types only.
+    // Graph/OpenAPI/AsyncAPI/Embed are not offered the Connect affordance.
+    agentLinkMvpSupported() {
+      return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml].includes(this.diagramType);
+    },
+    // Small-macro action-area affordance — hidden once already in Fullscreen
+    // (that surface shows the Connect *rail* instead, see showAgentLinkPanel).
+    showAgentLinkConnect() {
+      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
+    },
+    // Collapsed (non-fullscreen) "● live" indicator (design §3 decision #8).
+    showAgentLinkBadge() {
+      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
+    },
+    // The Fullscreen Connect rail (design §5.1 ConnectPanel / §9).
+    showAgentLinkPanel() {
+      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && this.isFullscreenMode;
+    },
+    // Fullscreen toolbar link-status chip (Track H). Same gating as the rail,
+    // but only once a session actually exists (connected/suspended/closed) —
+    // it names the bound diagram + TTL, so it has nothing to say pre-pairing.
+    showAgentLinkChip() {
+      return this.showAgentLinkPanel && ['connected', 'suspended', 'closed'].includes(this.agentLinkState);
+    },
+    agentLinkExpiresAt() {
+      return this._agentLink?.expiresAt.value ?? null;
+    },
+    // Perceived-latency overlay gate (charter §6 Track F). Same flag/type
+    // gating as the other affordances, but NOT restricted to Fullscreen: the
+    // "AI is thinking" state must show on the inline macro surface too (both
+    // surfaces render .viewer-canvas). Off ⇒ overlay never mounts ⇒ flag-off
+    // DOM is unchanged.
+    showAgentLinkThinking() {
+      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported;
+    },
+    agentLinkThinking() {
+      return this._agentLink?.thinkingState.value ?? 'idle';
+    },
+    agentLinkState() {
+      return this._agentLink?.state.value ?? 'idle';
+    },
+    agentLinkToken() {
+      return this._agentLink?.token.value ?? null;
+    },
+    agentLinkActivityFeed() {
+      return this._agentLink?.activityFeed.value ?? [];
+    },
   },
   watch: {
     // Fire viewer_load_failed when the error store slot becomes truthy while
@@ -251,17 +363,199 @@ export default {
       immediate: true,
     },
   },
+  created() {
+    // One useAgentLinkSession() instance per GenericViewer mount, shared by
+    // the Connect button / live badge / Fullscreen rail below (whichever
+    // template branch is active in THIS mount — see the cross-iframe note
+    // on connectToAgent()). This placeholder instance is provisional: the
+    // agent-link flag resolves async in mounted() below, and nothing in this
+    // window can invoke startConnect()/applyEdit() — the Connect affordance
+    // is flag-gated and not yet rendered. mounted() swaps in the real
+    // Forge-bridge-backed ops once the flag settles (or keeps this one for
+    // standalone/dev/no-context).
+    this._agentLink = markRaw(useAgentLinkSession(createUnwiredBridgeOps(), {
+      macroType: this.diagramType || 'none',
+      clickSurface: 'viewer',
+      // Wire the live-render seam even on this provisional instance. The
+      // Fullscreen modal hydrates + applies an agent edit through whatever
+      // _agentLink instance it has, and mounted()'s relay-backed swap does
+      // NOT reliably run the same way in the modal iframe (see the hydration
+      // block's comment) — so the Fullscreen may still be on THIS placeholder
+      // when a dsl update arrives over the handoff. applyAgentDiagramUpdate
+      // only needs $store (no bridge/relay), so it is safe here and is what
+      // makes ISSUE-1 (Fullscreen re-render) robust to instance selection.
+      onDiagramUpdated: (dsl, macroType) => this.applyAgentDiagramUpdate(dsl, macroType),
+    }));
+  },
   async mounted() {
     try {
       this.canUserEdit = await globals.apWrapper.canUserEdit();
     } catch (e) {
       console.error('canUserEdit failed', e);
     }
+    try {
+      this.agentLinkFeatureEnabled = await isAgentLinkEnabled();
+    } catch (e) {
+      console.error('Failed to load agent-link feature flag:', e);
+      this.agentLinkFeatureEnabled = false;
+    }
+    // Live Agent Link real bridge (design §4.2/§4.4): once the flag resolves
+    // ON and a real Forge-bridge context (globals.apWrapper) is available,
+    // swap the placeholder for the ApWrapper2-backed bridge so writeDiagram
+    // actually persists via saveCustomContentV2 — wrapped in createBridgeOps
+    // so the write-scope guard (only the bound contentId) still applies.
+    // Standalone/dev/no-context keeps the unwired placeholder, which fails
+    // loudly instead of silently doing nothing (see bridgeOps.ts).
+    if (this.agentLinkFeatureEnabled && globals.apWrapper) {
+      const bridge = createForgeAgentLinkBridge({ apWrapper: globals.apWrapper });
+      // Relay wiring (design §4.3): only in a real Forge runtime — cloudId
+      // has no standalone-context equivalent (getStandaloneContext() never
+      // sets one), so standalone/dev keeps the flag-on Connect UI usable
+      // (state machine, activity feed) without a live relay channel behind it.
+      let relay;
+      if (forgeGlobal.isForge) {
+        try {
+          const ctx = await getContext();
+          const pageId = await globals.apWrapper._getCurrentPageId();
+          relay = {
+            boundContext: {
+              cloudId: ctx.cloudId,
+              pageId: String(pageId),
+              contentId: this.diagram.id,
+            },
+          };
+        } catch (e) {
+          console.error('Failed to resolve agent-link relay context:', e);
+        }
+      }
+      this._agentLink = markRaw(useAgentLinkSession(createBridgeOps(bridge, this.diagram.id), {
+        macroType: this.diagramType || 'none',
+        clickSurface: 'viewer',
+        relay,
+        onDiagramUpdated: (dsl, macroType) => this.applyAgentDiagramUpdate(dsl, macroType),
+      }));
+      // Track G: an INLINE (non-Fullscreen) mount may be a fresh iframe reload
+      // that just lost a previous instance's live relay WS — forgeIndex.ts's
+      // Fullscreen onClose calls `location.reload()` on this iframe
+      // UNCONDITIONALLY, not only for an explicit Disconnect (see
+      // attemptReattach()'s doc comment). Reattach to that instance's own
+      // persisted session by the SAME token rather than resetting to idle.
+      // Fullscreen-mode mounts must NEVER call this — they have their own
+      // display-only hydration below (showAgentLinkPanel), and opening a
+      // second relay socket here would violate "one live connection" (design
+      // §3 decision #8).
+      if (!this.isFullscreenMode) {
+        this._agentLink.attemptReattach();
+      }
+    }
+    // Fullscreen hydration (finding #3, manual test 2026-07-08; finding #4,
+    // live spot-check 2026-07-09): this mount may BE the separate Fullscreen
+    // iframe/Vue-app instance that connectToAgent() opens (see that method's
+    // comment) — freshly idle, with no token of its own. If the inline
+    // instance already persisted a live session (sessionHandoff.ts), show it
+    // instead of rendering ConnectPanel with nothing. hydrateFrom() is
+    // display-only — never mints a second token or opens a second relay
+    // socket — so this is safe to run unconditionally whenever the rail is
+    // actually showing.
+    //
+    // DELIBERATELY NOT gated on `agentLinkFeatureEnabled && globals.apWrapper`
+    // above: live spot-check found the Fullscreen modal iframe's `_agentLink`
+    // stuck in 'idle' with a real session already sitting in localStorage —
+    // that block (which builds the Forge-bridge-backed instance AND used to
+    // own this hydration) doesn't reliably run the same way in the
+    // Fullscreen iframe as it does inline. The rail is display-only; it
+    // doesn't need the bridge/relay to show a token, so hydration must not
+    // depend on that block having run.
+    if (this.showAgentLinkPanel) {
+      // pageId without apWrapper (finding #4): the block above resolves
+      // relay.boundContext.pageId via `globals.apWrapper._getCurrentPageId()`,
+      // which this hydration no longer waits on. Try the same synchronous,
+      // apWrapper-free source copyLink() already uses (forgeContext is
+      // populated during the app's boot, before any component mounts — see
+      // forgeIndex.ts's initializeContext()/initForgeContext()). Fall back to
+      // readAnySession()/watchForAnyHandoff() (sessionHandoff.ts) — a scan of
+      // every `agentLinkSession:*` key for the freshest live one — when no
+      // pageId is resolvable at all; there is normally exactly one active
+      // session, so "freshest session, any pageId" is an acceptable stand-in.
+      // Hydrate the current record immediately (so the token/prompt shows on
+      // first paint), then ALWAYS keep watching. The handoff record starts
+      // 'waiting' and later flips to 'connected' when an agent pairs (the
+      // relay owner persists that via onAgentConnected). A one-shot hydrate on
+      // a found record would miss that later update and the Fullscreen panel
+      // would never reach 'connected' (no green border) even though
+      // localStorage says connected. watchForHandoff() re-reads + hydrates
+      // idempotently, so the extra immediate hydrate above is harmless.
+      const pageId = window.forgeGlobal?.forgeContext?.extension?.content?.id;
+      if (pageId != null) {
+        const handoff = readSession(String(pageId));
+        if (handoff) this._agentLink.hydrateFrom(handoff);
+        this._agentLinkHandoffUnsubscribe = this._agentLink.watchForHandoff(String(pageId));
+      } else {
+        const handoff = readAnySession();
+        if (handoff) this._agentLink.hydrateFrom(handoff);
+        this._agentLinkHandoffUnsubscribe = this._agentLink.watchForAnyHandoff();
+      }
+    }
+  },
+  beforeUnmount() {
+    // Cleans up the storage-event listener + poll interval started by
+    // watchForHandoff() above (no-op if it was never set up, e.g. flag-off
+    // or non-fullscreen).
+    this._agentLinkHandoffUnsubscribe?.();
+    this._agentLinkHandoffUnsubscribe = null;
   },
   methods: {
     edit() {
       trackEvent('edit', 'click', 'editing');
       EventBus.$emit('edit');
+    },
+    // Connect-to-Agent affordance (design §5.1, §9): kicks off this mount's
+    // local session state, then reuses the EXISTING, unmodified Fullscreen
+    // open path (EventBus 'fullscreen' -> forgeIndex.ts's openModal). Forge
+    // opens Fullscreen as a SEPARATE modal iframe (confirmed by onClose's
+    // location.reload() on the underlying macro) — that iframe re-boots this
+    // same component fresh, with its OWN useAgentLinkSession() instance. Real
+    // state continuity across that boundary (so the rail shows the token this
+    // click minted) is handled by sessionHandoff.ts's localStorage handoff +
+    // this mount's own hydrateFrom() call above — see that file's header
+    // comment for the fix and its same-origin assumption; see
+    // docs/superpowers/specs/2026-07-08-live-agent-link-design.md §4.3.
+    connectToAgent() {
+      this._agentLink?.startConnect();
+      this.fullscreen();
+    },
+    onAgentLinkDisconnect() {
+      this._agentLink?.disconnect('user');
+    },
+    // Track G: "Revoke & re-link" — closes the current (possibly suspended
+    // or stuck-with-a-dead-agent) session and immediately mints a fresh one.
+    onAgentLinkRevoke() {
+      this._agentLink?.revokeAndRelink();
+    },
+    // Track H: "Reconnect" from the terminal (closed) notice — mints a fresh
+    // session after an explicit Disconnect or TTL expiry. revokeAndRelink()
+    // force-resets to 'idle' then startConnect()s, so it works even from the
+    // absorbing 'closed' terminal state (a plain startConnect() would no-op).
+    onAgentLinkReconnect() {
+      this._agentLink?.revokeAndRelink();
+    },
+    // Live Agent Link render fix: an agent's update_diagram op PERSISTS via
+    // the Forge bridge (writeDiagram -> saveCustomContentV2), but that write
+    // does nothing to the currently-mounted Vue app's state — nobody re-reads
+    // Confluence after the initial load. The macro only redraws when
+    // store.state.diagram.{code,mermaidCode,plantUmlCode} changes (see
+    // Sequence.vue/Mermaid.vue/PlantUml.vue's `watch` on that field), which is
+    // exactly the mechanism the in-app code editor uses (Editor.vue's
+    // onEditorCodeChange: store.dispatch(getStoreUpdateAction(diagramType), newCode)).
+    // Mirror that here so a relay-driven edit renders live, without a reload.
+    applyAgentDiagramUpdate(dsl, macroType) {
+      const type = macroType || this.diagramType;
+      this.$store.dispatch(getStoreUpdateAction(type), dsl);
+      // Track F: signal the composable once the COMPLETE new diagram has
+      // actually painted (next tick after the store change the viewer watches),
+      // so it clears the "thinking" overlay exactly when the new diagram is on
+      // screen — never before — and measures a real view-layer render_ms.
+      this.$nextTick(() => this._agentLink?.notifyRenderSettled());
     },
     fullscreen() {
       trackEvent('fullscreen', 'click', 'viewing');
@@ -384,6 +678,29 @@ export default {
 .viewer-frame--wide { width: 100%; }
 
 .viewer-surface { position: relative; }
+
+/* ----- Live Agent Link mounting seam (flag-gated, see showAgentLinkPanel) --
+   .viewer-body is a no-op wrapper (default block) when the rail is hidden —
+   it changes nothing about layout/sizing for the flag-off / non-fullscreen
+   path. It only becomes a two-column row when the Fullscreen Connect rail
+   is actually showing. */
+.viewer-body--with-agent-rail {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+}
+.viewer-body--with-agent-rail .viewer-surface { flex: 1 1 auto; min-width: 0; }
+
+/* Track H: 316px rail per the design contract. The rail stretches to the row
+   height (align-items:stretch above) and ConnectPanel owns its own internal
+   scroll + pinned footer, so the aside itself doesn't scroll. */
+.agent-link-rail {
+  flex: 0 0 316px;
+  width: 316px;
+  border-left: 1px solid #E5E7EB;
+  display: flex;
+  min-height: 0;
+}
 
 .viewer-edge-top {
   display: flex;

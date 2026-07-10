@@ -21,6 +21,7 @@ import forgeGlobal from '@/model/globals/forgeGlobal';
 import {forgeRequest} from '@/utils/requestUtil';
 import { SpaceAdmin } from './SpaceAdmin';
 import SpaceAdminResolver from './permissions/SpaceAdminResolver';
+import { isValidCustomContentId } from '@/utils/customContentId';
 
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
 // AsyncAPI variant only registers `async-api-doc` in its manifest — the
@@ -317,7 +318,28 @@ export default class ApWrapper2 implements IApWrapper {
     }
 
     const response = await this.makeRequest('/api/v2/custom-content', 'POST', data);
-    return response as ICustomContentResponseBodyV2;
+    return this.assertSavedCustomContent(response, 'create');
+  }
+
+  // conf-app#320: forgeRequest returns the parsed JSON body regardless of HTTP
+  // status, so a failed create/update (400/403/429/5xx) surfaces as
+  // `{ errors: [...] }` with no `id`. Returning that as success made
+  // saveToPlatform stringify `undefined` -> the literal "undefined", which then
+  // got written back into the macro config (permanent orphan) AND fired an
+  // optimistic macro_create_succeeded. Refuse to treat an id-less response as a
+  // successful save: throw so editor save handlers keep the editor open for retry.
+  private assertSavedCustomContent(
+    response: any,
+    op: 'create' | 'update',
+  ): ICustomContentResponseBodyV2 {
+    if (!response?.errors && isValidCustomContentId(response?.id)) {
+      return response as ICustomContentResponseBodyV2;
+    }
+    const detail = response?.errors
+      ? JSON.stringify(response.errors).substring(0, 500)
+      : `no id in response (id=${JSON.stringify(response?.id)})`;
+    trackEvent(`${op}_custom_content_no_id`, `${op}_custom_content_no_id`, 'error', { detail });
+    throw new Error(`${op}CustomContentV2: save returned no usable customContentId: ${detail}`);
   }
 
   async updateCustomContent(contentObj: ICustomContent, newBody: Diagram) {
@@ -405,8 +427,9 @@ export default class ApWrapper2 implements IApWrapper {
 
     try {
       const response = await this.makeRequest(`/api/v2/custom-content/${content.id}`, 'PUT', buildData(newVersionNumber));
+      const saved = this.assertSavedCustomContent(response, 'update');
       trackEvent(JSON.stringify(content.id), 'update_custom_content', 'info');
-      return response as ICustomContentResponseBodyV2;
+      return saved;
     } catch (error) {
       if (this.isVersionConflict(error)) {
         trackEvent('save_conflict_retry', 'save_conflict_retry', 'info', { content_id: String(content.id) });
@@ -414,8 +437,9 @@ export default class ApWrapper2 implements IApWrapper {
         const freshVersion = (fresh?.version?.number || 0) + 1;
         try {
           const retryResponse = await this.makeRequest(`/api/v2/custom-content/${content.id}`, 'PUT', buildData(freshVersion));
+          const savedRetry = this.assertSavedCustomContent(retryResponse, 'update');
           trackEvent(JSON.stringify(content.id), 'update_custom_content', 'info');
-          return retryResponse as ICustomContentResponseBodyV2;
+          return savedRetry;
         } catch (retryError) {
           trackEvent('update_custom_content_error', 'update_custom_content_error', 'error', this.buildStructuredErrorProps(retryError));
           throw retryError;
@@ -656,6 +680,14 @@ export default class ApWrapper2 implements IApWrapper {
     probeResult?: Awaited<ReturnType<ApWrapper2['probeOrphanRecovery']>>;
     directFetchStatus?: 'ok' | 'not_found' | 'other_error';
   }> {
+    // conf-app#320: a macro whose stored customContentId is the string
+    // "undefined"/"null"/empty (a broken save writeback) can never resolve.
+    // Skip the doomed GET /custom-content/undefined — it never returns a clean
+    // 404, so the probe would be skipped anyway — and report not_found so the
+    // caller falls through to the uuid legacy fallback exactly as for a missing id.
+    if (!isValidCustomContentId(customContentId)) {
+      return { customContent: undefined, directFetchStatus: 'not_found' };
+    }
     const direct = await this.fetchCustomContentByIdV2WithStatus(customContentId);
     if (direct.status === 'ok' && direct.customContent) {
       return { customContent: direct.customContent, directFetchStatus: 'ok' };

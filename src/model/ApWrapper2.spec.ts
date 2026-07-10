@@ -437,6 +437,22 @@ describe('ApWrapper2', () => {
       expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
     });
 
+    // conf-app#320: a macro whose stored customContentId is the string
+    // "undefined" (broken save writeback) must NOT trigger a doomed
+    // GET /custom-content/undefined — short-circuit to not_found so the caller
+    // falls through to the uuid legacy fallback.
+    it.each(['undefined', 'null', ''])(
+      'short-circuits an invalid stored id %j without any network call',
+      async (badId) => {
+        const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, badId);
+
+        expect(result.customContent).toBeUndefined();
+        expect(result.directFetchStatus).toBe('not_found');
+        expect(result.probeResult).toBeUndefined();
+        expect(vi.mocked(forgeRequest)).not.toHaveBeenCalled();
+      },
+    );
+
     it('recovers a single page-child whose body.id matches the orphan id', async () => {
       vi.mocked(forgeRequest)
         .mockResolvedValueOnce({ errors: [{ status: 404, code: 'NOT_FOUND' }] })
@@ -1005,6 +1021,46 @@ describe('ApWrapper2', () => {
       expect(writeCall[0]).toBe('/wiki/api/v2/custom-content'); // collection endpoint → create
       expect(writeCall[1]).toBe('POST');
       expect(result?.id).toBe('new-forked-id');                 // forked to a new id
+    });
+  });
+
+  // conf-app#320: forgeRequest returns the parsed body regardless of HTTP
+  // status, so a failed save surfaces as an id-less / error body. That must
+  // never be treated as a successful save (which previously produced a
+  // customContentId of the literal string "undefined").
+  describe('saveCustomContentV2 — save response must carry a usable id (conf-app#320)', () => {
+    const ccId = '5690394053';
+    function mockExistence() {
+      return {
+        id: ccId,
+        pageId: '456',
+        type: 'ac:com.zenuml.confluence-addon:zenuml-content-sequence',
+        status: 'current',
+        version: { number: 2 },
+        body: { raw: { value: JSON.stringify({ code: 'old', diagramType: 'sequence' }) } },
+      };
+    }
+    const diagramToSave = () =>
+      ({ id: ccId, code: 'edited', diagramType: 'sequence', source: 'custom-content' } as any);
+
+    it('throws when the update PUT returns an error body with no id', async () => {
+      (wrapper as any)._page.countMacros = vi.fn().mockResolvedValue(1);
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(mockExistence())                                  // existence GET (ok)
+        .mockResolvedValueOnce({ errors: [{ status: 400, code: 'BAD_REQUEST' }] }); // update PUT fails
+
+      await expect(wrapper.saveCustomContentV2(ccId, diagramToSave()))
+        .rejects.toThrow(/no usable customContentId/);
+    });
+
+    it('throws when the create POST returns a body with no id (fork path)', async () => {
+      (wrapper as any)._page.countMacros = vi.fn().mockResolvedValue(2); // count>1 forces create/fork
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(mockExistence()) // existence GET
+        .mockResolvedValueOnce({});             // create POST returns id-less body
+
+      await expect(wrapper.saveCustomContentV2(ccId, diagramToSave()))
+        .rejects.toThrow(/no usable customContentId/);
     });
   });
 

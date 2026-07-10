@@ -9,6 +9,7 @@ import globals from '@/model/globals';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import { reportSaveRefusedLegacyLoadBlocked } from '@/utils/legacyContentPropertyTelemetry';
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
+import { isValidCustomContentId } from '@/utils/customContentId';
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -17,6 +18,16 @@ export class LegacyLoadBlockedSaveError extends Error {
   constructor(message = 'Save refused: legacy content failed to load.') {
     super(message);
     this.name = 'LegacyLoadBlockedSaveError';
+  }
+}
+
+// conf-app#320: thrown by saveToPlatform when the persistence layer returned no
+// usable customContentId. Editor save handlers catch it via their generic
+// catch (toast + keep the editor open for retry); the autosave path swallows it.
+export class InvalidSavedContentIdError extends Error {
+  constructor(message = 'Save failed: persistence returned no usable customContentId.') {
+    super(message);
+    this.name = 'InvalidSavedContentIdError';
   }
 }
 
@@ -34,6 +45,17 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   console.log('Saving diagram to platform content provider', diagram);
   const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
   const customContent = await customContentStorageProvider.save(diagram);
+
+  // conf-app#320 boundary invariant: never treat a save as successful without a
+  // usable id. createCustomContentV2/updateCustomContentV2 now throw on an
+  // id-less response, so this normally can't trip — but the success analytics
+  // and the caller's macro-config writeback below both depend on a real id, so
+  // fail closed here rather than emit an optimistic macro_create_succeeded and
+  // return String(undefined) === "undefined" for the config.
+  if (!isValidCustomContentId(customContent?.id)) {
+    throw new InvalidSavedContentIdError();
+  }
+
   const macroData = await apWrapper.getMacroData();
 
   // Identity for the D1 CustomContent mirror's macroUuid column. localId is

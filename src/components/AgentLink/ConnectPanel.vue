@@ -203,7 +203,7 @@ import SessionNotice from './SessionNotice.vue'
 
 // The MCP command from the design doc (§9 / relay host decision §14.3 —
 // zenapi.zenuml.com to avoid a new egress host / re-consent).
-const MCP_ADD_COMMAND = 'claude mcp add --transport http zenuml https://zenapi.zenuml.com/agent-link/mcp'
+const MCP_ADD_COMMAND = 'claude mcp add --transport http conf-agent https://zenapi.zenuml.com/agent-link/mcp'
 
 const props = withDefaults(
   defineProps<{

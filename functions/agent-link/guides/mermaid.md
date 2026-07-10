@@ -5,6 +5,38 @@ be **Mermaid** DSL. Call read_diagram first, then send the FULL replacement DSL.
 The first non-blank line must be the diagram type (`flowchart TD`,
 `sequenceDiagram`, `classDiagram`, `erDiagram`, …).
 
+## Minimal-edit contract (read FIRST — overrides any urge to "improve")
+You are REPAIRING, not redesigning. Change ONLY what makes it parse, then STOP.
+- Preserve every node, edge, message, participant, note, label, comment, order,
+  color/style directive and line break (`<br/>`) exactly as written.
+- Fix a broken label by QUOTING/ESCAPING the offending characters — never by
+  deleting the parenthetical, flattening multi-line text, replacing
+  bullets/emoji, dropping punctuation, or removing diacritics. The visible
+  text must survive.
+- Add nothing the error did not require: no new nodes/edges/subgraphs, no
+  title, no autonumber, no styling/classDef, no extra notes, no reworded
+  messages, no participant declarations that were not already there.
+- The quote-the-parens rule (rule #1 below) is for FLOWCHART node/edge labels
+  only. Inside `sequenceDiagram`, message text after the colon is free text —
+  do NOT quote its parens (see rule #9).
+- **A no-op is a failure, not a safe default.** "Minimal edit" describes the
+  SIZE of the diff, not whether you make one. If the reported error is real,
+  fix it completely — even when the correct fix touches several lines or
+  several locations. Leaving the parse error in place because the full fix
+  felt too big is disqualifying; it is graded the same as not trying.
+- If, after checking, the DSL you were given already parses and you cannot
+  locate the reported problem in it, do not return it byte-for-byte
+  unchanged — an output identical to the input is graded as a failed no-op
+  regardless of whether a real bug existed. Make one small, deliberate,
+  meaning-preserving normalization instead (straighten a curly quote to
+  ASCII, tidy one inconsistent indent) so the response is a considered pass,
+  not an accidental no-op.
+- If the input is truncated mid-diagram, fix only the syntax up to the cut —
+  do NOT invent continuation content.
+- Before returning, check your own diff against the original: if you changed
+  more than the error required, delete the extra changes. The smallest diff
+  that parses and preserves meaning wins — not the most polished version.
+
 ## This is Mermaid — NOT ZenUML or PlantUML
 
 Blending another DSL's syntax into Mermaid is a top failure mode. If you catch
@@ -51,6 +83,18 @@ sequenceDiagram
 sequenceDiagram
     participant API as Order Service
 ```
+Converting a bracket label to an `as` alias drops the label's own `<br/>` line
+breaks more often than any other mistake in this rule — the model treats the
+conversion as "flatten to plain text" instead of "reuse the same text
+verbatim." The minimal-edit contract's `<br/>` preservation rule applies to
+this conversion too:
+```
+// WRONG — the bracket label had a <br/>, the `as` alias silently lost it
+participant API["Auth Gateway<br/>Controller"]
+-> participant API as Auth Gateway Controller
+// RIGHT — the <br/> survives the conversion unchanged
+participant API as Auth Gateway<br/>Controller
+```
 
 ### 4. Every `subgraph` needs a matching `end`; connect every subgraph node
 Grounded in scored + 5/32 substantive generation failures. An unclosed
@@ -69,6 +113,26 @@ literal `→` / `⇒` character as a substitute (`A -.-> B`, not `A -.→ B`).
 ### 7. Prefix an alias declaration with `participant`
 Grounded in a scored failure. `A as Alpha` alone is invalid — write
 `participant A as Alpha`.
+
+### 8. Balanced activation shorthand: every `+` needs a matching `-`
+If you use `->>+` / `->>-` activation shorthand, every `+` must be matched by
+a later `-` on the same participant. If you are not sure the pairing is
+balanced after your edit, drop the `+`/`-` entirely and use plain `->>`
+instead of guessing — an unbalanced activation marker is a parse error the
+rest of this guide cannot fix.
+
+### 9. Never quote sequence message text after the colon
+In `sequenceDiagram`, rule #1's "wrap the label in quotes" does NOT apply to
+message text after `:` — that text is already free-form. Never wrap it in `"`
+and never insert an escaping `"` into it "to be safe"; doing so is itself a
+common cause of NEW parse errors (over-quoting backfires) and is also a
+scope-creep violation of the minimal-edit contract.
+
+### 10. A cylinder `X[("...")]` or circle `X((...))` that fails to parse: fix the quotes, keep the shape
+A failing cylinder/circle/rounded node is almost always an inner-quote
+problem, not a shape problem. Do NOT downgrade it to a plain `X["..."]`
+rectangle to make it parse — that silently deletes information the diagram
+was using the shape to convey, which the minimal-edit contract forbids.
 
 ## Notes
 - Comments start with `%%`.

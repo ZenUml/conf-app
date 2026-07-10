@@ -4,6 +4,15 @@ This link is bound to ONE diagram of ONE type. Call read_diagram first to see
 its `diagramType`, then send the FULL replacement `dsl` in that type's DSL.
 `rendered:true` means it PARSED, not that it says what you meant.
 
+## Minimal-edit contract (read FIRST — the single biggest quality lever)
+You are REPAIRING the bound diagram, not redesigning it. Change ONLY what
+makes the reported error go away; preserve everything else byte-for-byte
+(labels, order, style, comments); add nothing the error did not require. A
+no-op is a failure, not a safe default — if the DSL already parses and you
+can't find the problem, don't return it unchanged; make one small, safe
+cosmetic touch instead. The dialect-specific guide (below) has the full
+contract and worked examples.
+
 ## Pick the right dialect and DO NOT blend them (the #1 real failure)
 
 The most common way agents break these diagrams is mixing one DSL's syntax into

@@ -105,6 +105,23 @@ const UPDATE_DIAGRAM_BASE_DESCRIPTION =
   "Replace the bound diagram's DSL. The macro renders it live and persists it via its own Forge bridge. ";
 
 /**
+ * Call-time reinforcement of the minimal-edit contract (ported from the
+ * offline eval, diagramly.ai-agent-link-eval Track E1 — the single biggest
+ * validated win, +60pp class improvement on mermaid/plantuml; see that repo's
+ * reports/E1-nonclean-attribution.md + reports/E1-ROUND23-SYNTHESIS.md). The
+ * dialect guides carry the full contract; this is the terse restatement that
+ * sits directly on the tool the model is about to call, not just in a guide
+ * it may have read once at connect time. Only appended when a dialect hint is
+ * present (i.e. never for non-DSL types like Graph/AsyncApi — see `hint`
+ * below), matching the existing "no guidance pushed onto non-DSL diagrams"
+ * design.
+ */
+const MINIMAL_EDIT_HINT =
+  "Make the SMALLEST edit that fixes the reported problem, not a redesign — " +
+  "and if you can't find the problem, don't return the DSL byte-for-byte " +
+  'unchanged (make one small, safe cosmetic touch instead of a no-op). ';
+
+/**
  * Build the update_diagram descriptor with a DSL hint chosen for `hint`. A
  * known non-DSL diagram type resolves to `undefined` (base description only,
  * no dialect hint); an unknown type gets the combined cross-dialect hint.
@@ -112,7 +129,7 @@ const UPDATE_DIAGRAM_BASE_DESCRIPTION =
 function updateDiagramDescriptor(hint: string | undefined): ToolDescriptor {
   return {
     name: 'update_diagram',
-    description: UPDATE_DIAGRAM_BASE_DESCRIPTION + (hint ?? ''),
+    description: UPDATE_DIAGRAM_BASE_DESCRIPTION + (hint ? MINIMAL_EDIT_HINT + hint : ''),
     inputSchema: {
       type: 'object',
       properties: {

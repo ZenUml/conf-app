@@ -58,11 +58,23 @@ describe('guide content — each guide encodes its top-3 mined signatures', () =
     expect(MERMAID_DSL_GUIDE).toContain('23.7%'); // the #1 signature's real share
   });
 
-  it('PlantUML top-3: sub-type mixing, !define, quoting/envelope', () => {
+  it('PlantUML top-3: sub-type mixing, C4 style macros, quoting/envelope', () => {
     expect(PLANTUML_DSL_GUIDE).toContain("Don't mix construct families");
-    expect(PLANTUML_DSL_GUIDE).toContain('!define NAME value');
+    // rule #2 was rewritten (Track E1 deep-fix): the old `!define` fix was
+    // verified inert for C4-PlantUML; UpdateElementStyle/AddElementTag is the
+    // real mechanism (reports/E1-PLANTUML-DEEPFIX.md).
+    expect(PLANTUML_DSL_GUIDE).toContain('UpdateElementStyle');
+    expect(PLANTUML_DSL_GUIDE).toContain('AddElementTag');
     expect(PLANTUML_DSL_GUIDE).toContain('curly/smart quotes');
     expect(PLANTUML_DSL_GUIDE).toContain('Exactly one `@startuml`');
+  });
+
+  it('PlantUML: the arrow-comparison-table correction — ->>/-->> are real PlantUML, not a Mermaid-ism', () => {
+    // Track E1 deep-fix: the table used to wrongly claim these were Mermaid-only
+    // and should be rewritten as ->/-->; that false premise is corrected here.
+    expect(PLANTUML_DSL_GUIDE).toContain('ARE real PlantUML, not a Mermaid-ism');
+    expect(PLANTUML_DSL_GUIDE).toContain('Do NOT "correct"');
+    expect(PLANTUML_DSL_GUIDE).toContain('those tokens are not a Mermaid-ism to fix');
   });
 
   it('OpenAPI top-2 (100% of the mined corpus): indentation, duplicate keys', () => {
@@ -80,6 +92,28 @@ describe('guide content — each guide encodes its top-3 mined signatures', () =
     // explicitly excuses non-DSL types so a Graph/OpenApi session isn't misled
     expect(COMBINED_DSL_GUIDE).toMatch(/Graph, OpenApi, AsyncApi, or Embed/);
   });
+});
+
+// Track E1 (diagramly.ai-agent-link-eval) validated the minimal-edit contract
+// as the single biggest lever on mermaid/plantuml (+60pp class improvement —
+// reports/E1-nonclean-attribution.md + reports/E1-ROUND23-SYNTHESIS.md).
+// Ported into every dialect guide, including zenuml/openapi/combined which
+// were not individually A/B-tested (cross-dialect application, not a
+// separately measured win for those three).
+describe('guide content — the minimal-edit contract is present on every dialect guide', () => {
+  const ALL_GUIDES: Record<string, string> = {
+    zenuml: ZENUML_DSL_GUIDE,
+    mermaid: MERMAID_DSL_GUIDE,
+    plantuml: PLANTUML_DSL_GUIDE,
+    openapi: OPENAPI_DSL_GUIDE,
+    combined: COMBINED_DSL_GUIDE,
+  };
+  for (const [name, guide] of Object.entries(ALL_GUIDES)) {
+    it(`${name}: carries the "Minimal-edit contract" section + the no-op-is-a-failure rule`, () => {
+      expect(guide).toContain('Minimal-edit contract');
+      expect(guide).toMatch(/no-op is a failure, not a safe default/i);
+    });
+  }
 });
 
 describe('resolveGuideSelection maps a macro diagramType to what to serve', () => {

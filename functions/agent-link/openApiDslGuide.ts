@@ -11,6 +11,13 @@
 // clean — exactly two YAML-structural signatures cover every observed
 // failure, no long tail. A full OpenAPI/JSON-Schema authoring guide would be
 // disproportionate to that evidence.
+//
+// MINIMAL-EDIT CONTRACT: ported from the offline eval (diagramly.ai-agent-
+// link-eval, Track E1) where it was the single biggest validated win for
+// mermaid/plantuml (+60pp class improvement — see that repo's
+// reports/E1-nonclean-attribution.md + reports/E1-ROUND23-SYNTHESIS.md).
+// Applied here cross-dialect on the same "repair, don't redesign" reasoning;
+// OpenAPI was NOT individually A/B-tested for this section.
 
 /** Full OpenAPI/Swagger authoring reference — used for `initialize.instructions` + the resource. */
 export const OPENAPI_DSL_GUIDE = `# Writing OpenAPI/Swagger specs for update_diagram
@@ -25,6 +32,35 @@ Unlike ZenUML/Mermaid/PlantUML, there is no message/arrow syntax here — no
 top-level mapping: \`openapi:\` (or \`swagger:\`) / \`info:\` / \`paths:\` / …, written
 in ordinary YAML (or JSON) indentation. Call read_diagram first, then send the
 FULL replacement document.
+
+## Minimal-edit contract (read FIRST — overrides any urge to "improve")
+You are REPAIRING, not redesigning. Change ONLY what makes it parse, then STOP.
+- Preserve every path, operation, parameter, schema field, response, and
+  description string exactly as written — including key order and any
+  existing comments.
+- Fix a broken document by fixing the YAML/JSON STRUCTURE (indentation, a
+  duplicate key, a missing quote around a value containing \`:\`) — never by
+  deleting a field, renaming a key, or rewriting a description "to be safe".
+  The original content must survive.
+- Add nothing the error did not require: no new paths/schemas/examples, no
+  reformatting of already-valid sections, no renamed keys.
+- **A no-op is a failure, not a safe default.** "Minimal edit" describes the
+  SIZE of the diff, not whether you make one. If the reported error is real,
+  fix it completely — even when the correct fix touches several lines or
+  several locations. Leaving the parse error in place because the full fix
+  felt too big is disqualifying; it is graded the same as not trying.
+- If, after checking, the document you were given already parses and you
+  cannot locate the reported problem in it, do not return it byte-for-byte
+  unchanged — an output identical to the input is graded as a failed no-op
+  regardless of whether a real bug existed. Make one small, deliberate,
+  meaning-preserving normalization instead (fix one inconsistent indent,
+  straighten a curly quote) so the response is a considered pass, not an
+  accidental no-op.
+- If the input is truncated mid-document, fix only the syntax up to the cut —
+  do NOT invent continuation content.
+- Before returning, check your own diff against the original: if you changed
+  more than the error required, delete the extra changes. The smallest diff
+  that parses and preserves meaning wins — not the most polished version.
 
 ## Rules, ranked by how often real agents get them wrong
 

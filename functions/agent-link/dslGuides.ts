@@ -25,6 +25,14 @@
 //
 // Guides are DATA-DRIVEN from real, sanitized failure signatures — see the
 // per-dialect files and evidence/B-signature-mining.md.
+//
+// MINIMAL-EDIT CONTRACT (in COMBINED_DSL_GUIDE below): ported from the offline
+// eval (diagramly.ai-agent-link-eval, Track E1) where it was the single
+// biggest validated win for mermaid/plantuml (+60pp class improvement — see
+// that repo's reports/E1-nonclean-attribution.md +
+// reports/E1-ROUND23-SYNTHESIS.md). Applied here cross-dialect on the same
+// "repair, don't redesign" reasoning; this combined guide's own copy was NOT
+// individually A/B-tested.
 
 import { normalizeDialect } from './parseDsl';
 import {
@@ -115,6 +123,15 @@ export const COMBINED_DSL_GUIDE = `# Writing diagram DSL for update_diagram
 This link is bound to ONE diagram of ONE type. Call read_diagram first to see
 its \`diagramType\`, then send the FULL replacement \`dsl\` in that type's DSL.
 \`rendered:true\` means it PARSED, not that it says what you meant.
+
+## Minimal-edit contract (read FIRST — the single biggest quality lever)
+You are REPAIRING the bound diagram, not redesigning it. Change ONLY what
+makes the reported error go away; preserve everything else byte-for-byte
+(labels, order, style, comments); add nothing the error did not require. A
+no-op is a failure, not a safe default — if the DSL already parses and you
+can't find the problem, don't return it unchanged; make one small, safe
+cosmetic touch instead. The dialect-specific guide (below) has the full
+contract and worked examples.
 
 ## Pick the right dialect and DO NOT blend them (the #1 real failure)
 

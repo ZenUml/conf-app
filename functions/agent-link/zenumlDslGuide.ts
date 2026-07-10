@@ -29,6 +29,13 @@
 //     an operator expression over single-token atoms — never mixed)
 //   ret: RETURN expr? SCOL? | ANNOTATION_RET asyncMessage EVENT_END?
 //     (ANNOTATION_RET = @Return|@return|@Reply|@reply)
+//
+// MINIMAL-EDIT CONTRACT: ported from the offline eval (diagramly.ai-agent-
+// link-eval, Track E1) where it was the single biggest validated win for
+// mermaid/plantuml (+60pp class improvement — see that repo's
+// reports/E1-nonclean-attribution.md + reports/E1-ROUND23-SYNTHESIS.md).
+// Applied here cross-dialect on the same "repair, don't redesign" reasoning;
+// ZenUML was NOT individually A/B-tested for this section.
 
 /** Full ZenUML DSL reference — used for `initialize.instructions` + the resource. */
 export const ZENUML_DSL_GUIDE = `# Writing ZenUML sequence DSL for update_diagram
@@ -37,6 +44,35 @@ The bound diagram type is "sequence" → the \`dsl\` you pass to update_diagram
 must be **ZenUML** sequence DSL. Call read_diagram first, then send the FULL
 replacement DSL. \`rendered:true\` means the DSL PARSED, not that it says what
 you meant — for a complex diagram, read it back and confirm the nesting.
+
+## Minimal-edit contract (read FIRST — overrides any urge to "improve")
+You are REPAIRING, not redesigning. Change ONLY what makes it parse, then STOP.
+- Preserve every participant, annotation (\`@Actor\`, \`@Database\`, …), message,
+  return, condition, comment, nesting order and control-flow block exactly as
+  written.
+- Fix a broken label by QUOTING the offending punctuation — never by deleting
+  the parenthetical, shortening the message text, or rewording it "to be
+  safe". The visible text must survive.
+- Add nothing the error did not require: no new participants/messages, no
+  extra control-flow blocks (\`if\`/\`while\`/\`opt\`/\`par\`/\`try\`), no renamed
+  identifiers, no reordering of existing statements.
+- **A no-op is a failure, not a safe default.** "Minimal edit" describes the
+  SIZE of the diff, not whether you make one. If the reported error is real,
+  fix it completely — even when the correct fix touches several lines or
+  several locations. Leaving the parse error in place because the full fix
+  felt too big is disqualifying; it is graded the same as not trying.
+- If, after checking, the DSL you were given already parses and you cannot
+  locate the reported problem in it, do not return it byte-for-byte
+  unchanged — an output identical to the input is graded as a failed no-op
+  regardless of whether a real bug existed. Make one small, deliberate,
+  meaning-preserving normalization instead (straighten a curly quote to
+  ASCII, tidy one inconsistent indent) so the response is a considered pass,
+  not an accidental no-op.
+- If the input is truncated mid-diagram, fix only the syntax up to the cut —
+  do NOT invent continuation content.
+- Before returning, check your own diff against the original: if you changed
+  more than the error required, delete the extra changes. The smallest diff
+  that parses and preserves meaning wins — not the most polished version.
 
 ## This is ZenUML — NOT Mermaid or PlantUML
 

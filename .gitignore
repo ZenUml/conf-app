@@ -61,6 +61,10 @@ test-results/
 # Generated release-notes drafts from /release-app runs (published to GitHub releases)
 /release-notes-*.md
 
+# Generated cross-platform links mirroring .claude/skills (run `pnpm link:skills`)
+/.agents/skills/*
+!/.agents/skills/.gitkeep
+
 # Local Mixpanel exports — raw production telemetry, never commit
 mixpanel-export*
 

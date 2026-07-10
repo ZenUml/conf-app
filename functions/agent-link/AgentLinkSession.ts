@@ -77,7 +77,7 @@ interface Env {
   // Self-referencing binding: the companion Worker (workers/agent-link/)
   // that hosts this class also binds AGENT_LINK to ITSELF, so one DO
   // instance (keyed by token) can reach a DIFFERENT instance of the same
-  // class (keyed by `content:<contentId>`) — used by releaseContentLock()
+  // class (keyed by `content:<cloudId>:<contentId>`) — used by releaseContentLock()
   // below to release the per-contentId mint-exclusivity claim on
   // close/expire (design §7 decision #2). Optional because unit tests
   // construct this class with `{}` (no binding) — releaseContentLock() is a
@@ -87,8 +87,9 @@ interface Env {
 }
 
 /** The per-contentId mint-exclusivity claim (design §7 decision #2). Lives in a
- * SEPARATE DO instance of this same class, addressed by `content:<contentId>`
- * rather than a token — see handleContentClaim/handleContentRelease below. */
+ * SEPARATE DO instance of this same class, addressed by
+ * `content:<cloudId>:<contentId>` rather than a token — see
+ * handleContentClaim/handleContentRelease below. */
 interface ContentLock {
   token: string;
   expiresAt: number;
@@ -137,7 +138,7 @@ export class AgentLinkSession {
   private readonly pendingOps = new PendingOps();
 
   // Per-contentId mint-exclusivity claim (design §7 decision #2). Only ever
-  // populated on a DO instance addressed by `content:<contentId>` — see
+  // populated on a DO instance addressed by `content:<cloudId>:<contentId>` — see
   // handleContentClaim/handleContentRelease and ensureContentLock below. A
   // token-keyed instance (the normal WS-pairing session) never touches this.
   private contentLock: ContentLock | null = null;
@@ -185,7 +186,7 @@ export class AgentLinkSession {
    * `POST /content-claim` — per-contentId mint-time exclusivity (design §7
    * decision #2: "one ACTIVE/SUSPENDED session per contentId"). `session.ts`
    * calls this against a SEPARATE DO instance of this SAME class
-   * (`content:<contentId>`, never a token), so it never touches this
+   * (`content:<cloudId>:<contentId>`, never a token), so it never touches this
    * instance's `this.session` fields. Atomic per contentId: a Durable Object
    * processes requests to the SAME instance one at a time (never
    * interleaved), so the check-then-set below can't race with a concurrent
@@ -257,7 +258,9 @@ export class AgentLinkSession {
   private async releaseContentLock(): Promise<void> {
     if (!this.env.AGENT_LINK || !this.session) return;
     try {
-      const lockId = this.env.AGENT_LINK.idFromName(`content:${this.session.boundContext.contentId}`);
+      const lockId = this.env.AGENT_LINK.idFromName(
+        `content:${this.session.boundContext.cloudId}:${this.session.boundContext.contentId}`,
+      );
       const stub = this.env.AGENT_LINK.get(lockId);
       await stub.fetch('https://agent-link-do/content-release', {
         method: 'POST',
@@ -354,7 +357,7 @@ export class AgentLinkSession {
     }
     // Per-contentId mint-exclusivity (design §7 decision #2) — called on a
     // SEPARATE DO instance of this same class, addressed by
-    // `content:<contentId>` rather than a token (see session.ts). Not a
+    // `content:<cloudId>:<contentId>` rather than a token (see session.ts). Not a
     // WebSocket upgrade either.
     if (url.pathname === '/content-claim' && request.method === 'POST') {
       return this.handleContentClaim(request);

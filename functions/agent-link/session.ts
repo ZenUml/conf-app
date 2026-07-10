@@ -15,8 +15,8 @@ interface Env {
   // see AgentLinkSession.ts's file header. Used here ONLY to check/claim the
   // per-contentId mint-exclusivity lock (design §7 decision #2: "one
   // ACTIVE/SUSPENDED session per contentId") against a SEPARATE DO instance
-  // of that same class, addressed by `content:<contentId>` rather than a
-  // token. Optional/absent in local dev (no companion Worker bound — same
+  // of that same class, addressed by `content:<cloudId>:<contentId>` rather
+  // than a token. Optional/absent in local dev (no companion Worker bound — same
   // posture as channel.ts/mcp.ts) — the exclusivity check simply degrades to
   // a no-op (every mint succeeds), matching the pre-existing in-memory
   // `registry`-only behavior of this endpoint.
@@ -64,12 +64,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   // Per-contentId mint-exclusivity (design §7 decision #2): claim this
   // diagram's lock (a SEPARATE DO instance of AgentLinkSession, addressed by
-  // `content:<contentId>`) BEFORE handing the token back. A still-live claim
-  // held by a different session rejects the mint outright — no silent
-  // second link to the same diagram. Absent AGENT_LINK (local dev/tests):
-  // degrades to a no-op, same posture as channel.ts/mcp.ts.
+  // `content:<cloudId>:<contentId>`) BEFORE handing the token back. A
+  // still-live claim held by a different session rejects the mint outright —
+  // no silent second link to the same diagram. Absent AGENT_LINK (local
+  // dev/tests): degrades to a no-op, same posture as channel.ts/mcp.ts.
   if (env?.AGENT_LINK) {
-    const lockId = env.AGENT_LINK.idFromName(`content:${contentId}`);
+    const lockId = env.AGENT_LINK.idFromName(`content:${cloudId}:${contentId}`);
     const lockStub = env.AGENT_LINK.get(lockId);
     const claimRes = await lockStub.fetch('https://agent-link-do/content-claim', {
       method: 'POST',

@@ -4,6 +4,7 @@ import { onRequestPost as sessionPost } from './session';
 import { sessionRegistry } from './registrySingleton';
 import { TOKEN_TTL_MS } from './sessionToken';
 import type { BoundContext } from './sessionToken';
+import { getToolSchemas } from './mcpTools';
 
 const CTX: BoundContext = { cloudId: 'cloud-1', pageId: 'page-1', contentId: 'content-1' };
 
@@ -426,6 +427,101 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
 
     expect(res.status).toBe(401);
     expect(doFetch).not.toHaveBeenCalled();
+  });
+
+  // --- cross-session isolation (multi-user / multi-page "串台" check) -------
+  //
+  // Session isolation is DO-per-token by construction: mcp.ts addresses the
+  // relay's Durable Object via `env.AGENT_LINK.idFromName(token)` for both
+  // auth (authenticateViaDo) and forwarding (doForwardToMacro) — there is no
+  // shared mutable state between two different tokens' requests. This block
+  // is a REGRESSION TEST that locks that invariant in, not a discovery of a
+  // bug: it proves two concurrent tokens, routed to two independently-mocked
+  // DO stubs (one per token, exactly like two real AgentLinkSession
+  // instances), never see each other's payload — and that update_diagram's
+  // schema has no client-suppliable target override that could ever let one
+  // session redirect a write at another session's diagram/page/tenant.
+  describe('cross-session isolation (multi-user / multi-page)', () => {
+    const TOKEN_A = 'CL-AAAA-1111';
+    const TOKEN_B = 'CL-BBBB-2222';
+    const CTX_A: BoundContext = { cloudId: 'cloud-a', pageId: 'page-a', contentId: 'content-a' };
+    const CTX_B: BoundContext = { cloudId: 'cloud-b', pageId: 'page-b', contentId: 'content-b' };
+
+    /** One independently-stateful stub PER token — `idFromName(token)` (mcp.ts's
+     * real addressing scheme) routes each token to its own stub, mirroring two
+     * separate AgentLinkSession DO instances rather than one shared mock. */
+    function makePerTokenDoEnv(
+      byToken: Record<string, { session: () => Response; agentOp: (body: { id: string; op: string; args: unknown }) => Response }>,
+    ) {
+      const stubs = new Map(
+        Object.entries(byToken).map(([token, cfg]) => [
+          token,
+          {
+            fetch: async (url: string, init?: RequestInit) => {
+              if (url.endsWith('/session')) return cfg.session();
+              if (url.endsWith('/agent-op')) {
+                const body = init?.body ? JSON.parse(init.body as string) : {};
+                return cfg.agentOp(body);
+              }
+              return new Response(null, { status: 404 });
+            },
+          },
+        ]),
+      );
+      return {
+        AGENT_LINK: {
+          idFromName: (name: string) => ({ name }),
+          get: (id: { name: string }) => stubs.get(id.name) ?? { fetch: async () => new Response(null, { status: 404 }) },
+        },
+      };
+    }
+
+    it('two concurrent tokens each get back their OWN diagram — no cross-session swap', async () => {
+      const env = makePerTokenDoEnv({
+        [TOKEN_A]: {
+          session: () => sessionInfoResponse(),
+          agentOp: (body) => {
+            expect(body.op).toBe('read_diagram');
+            return new Response(JSON.stringify({ ok: true, payload: { contentId: 'A-diagram' } }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          },
+        },
+        [TOKEN_B]: {
+          session: () => sessionInfoResponse(),
+          agentOp: (body) => {
+            expect(body.op).toBe('read_diagram');
+            return new Response(JSON.stringify({ ok: true, payload: { contentId: 'B-diagram' } }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          },
+        },
+      });
+
+      const [respA, respB] = await Promise.all([
+        postWithEnv(rpc('tools/call', { name: 'read_diagram', arguments: {} }), env, { token: TOKEN_A }),
+        postWithEnv(rpc('tools/call', { name: 'read_diagram', arguments: {} }), env, { token: TOKEN_B }),
+      ]);
+
+      expect(respA.res.status).toBe(200);
+      expect(respB.res.status).toBe(200);
+      expect(respA.json.result.structuredContent).toEqual({ contentId: 'A-diagram' });
+      expect(respB.json.result.structuredContent).toEqual({ contentId: 'B-diagram' });
+    });
+
+    it('update_diagram\'s inputSchema has no contentId/pageId/cloudId — no client-controllable write target override', () => {
+      const tools = getToolSchemas();
+      const updateDiagram = tools.find((t) => t.name === 'update_diagram');
+      expect(updateDiagram).toBeDefined();
+
+      const props = Object.keys(updateDiagram!.inputSchema.properties);
+      expect(props).not.toContain('contentId');
+      expect(props).not.toContain('pageId');
+      expect(props).not.toContain('cloudId');
+      expect(props.sort()).toEqual(['dsl', 'summary'].sort());
+    });
   });
 });
 

@@ -552,7 +552,7 @@ describe('Attachment', () => {
       delete (forgeGlobal as any).forgeContext;
     });
 
-    it('should skip upload when API returns wrapped draft-page 404 (Option B — body parse)', async () => {
+    it('should skip (not fail) on the wrapped draft-page 404 (Option B — "status : draft" body)', async () => {
       // Option A guard won't fire because status is not 'draft' in context
       (forgeGlobal as any).forgeContext = {
         extension: {
@@ -579,17 +579,91 @@ describe('Attachment', () => {
       // Should NOT throw — DraftPageError is caught and treated as non-fatal
       await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
 
-      expect(mockTrackEvent).not.toHaveBeenCalledWith(
-        expect.any(String),
+      // Reclassified as a benign skip (draft_page), NOT a hard http_404 failure.
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'draft_page',
         'attachment_upload_skipped',
-        expect.any(String),
-        expect.anything(),
+        'export',
+        expect.objectContaining({ custom_content_id: 'test-uuid', http_status: 404 }),
       );
+      const failedCalls = mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed');
+      expect(failedCalls).toHaveLength(0);
       // The concurrency flag must be released even on the non-fatal path
       expect((window as any).createAttachmentInProgress).toBe(false);
 
       // Cleanup
       delete (forgeGlobal as any).forgeContext;
+    });
+
+    it('should skip (not fail) on the generic wrapped 404 NotFoundException (the production shape)', async () => {
+      // This is the body that dominated the http_404 class in production — a
+      // 200-wrapped 404 whose message is a bare NotFoundException, NOT the
+      // "status : draft" string the old guard matched. It fired against an
+      // unpublished parent (in-editor inline preview / pre-view.submit save).
+      (forgeGlobal as any).forgeContext = {
+        extension: {
+          content: { status: 'current', type: 'page' },
+          config: { customContentId: 'test-uuid' },
+        },
+      };
+
+      const mockBlob = new Blob(['test'], { type: 'image/png' });
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: vi.fn().mockResolvedValue(
+          JSON.stringify({
+            statusCode: 404,
+            data: { authorized: true, valid: true, errors: [], successful: true },
+            message: 'com.atlassian.confluence.api.service.exceptions.api.NotFoundException: No content found with id',
+          }),
+        ),
+      });
+
+      // Non-fatal: resolves, does NOT throw, does NOT count as a failure.
+      await expect(createAttachmentIfContentChanged('test content', 'mermaid')).resolves.toBeUndefined();
+
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'unpublished_parent',
+        'attachment_upload_skipped',
+        'export',
+        expect.objectContaining({ custom_content_id: 'test-uuid', http_status: 404, content_status: 'current' }),
+      );
+      const failedCalls = mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed');
+      expect(failedCalls).toHaveLength(0);
+      expect((window as any).createAttachmentInProgress).toBe(false);
+
+      delete (forgeGlobal as any).forgeContext;
+    });
+
+    it('should skip (not fail) on a real HTTP 404 from the attachment POST', async () => {
+      // The non-wrapped path: Confluence answers a genuine HTTP 404 (response.ok
+      // false). makeRequest throws AttachmentUploadHttpError(404); the outer
+      // catch must treat it as the same benign unpublished-parent skip.
+      const mockBlob = new Blob(['test'], { type: 'image/png' });
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(mockBlob);
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: false,
+        status: 404,
+        text: vi.fn().mockResolvedValue('Not Found'),
+      });
+
+      await expect(createAttachmentIfContentChanged('test content', 'mermaid')).resolves.toBeUndefined();
+
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'unpublished_parent',
+        'attachment_upload_skipped',
+        'export',
+        expect.objectContaining({ http_status: 404 }),
+      );
+      const failedCalls = mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed');
+      expect(failedCalls).toHaveLength(0);
+      // A 404 must never spend the app-fallback remote (only 401/403 do).
+      expect(mockCallRemote).not.toHaveBeenCalled();
+      expect((window as any).createAttachmentInProgress).toBe(false);
     });
 
     // the hash comparison happens before any Forge/Connect branching, so behavior should be identical

@@ -45,6 +45,13 @@
   >
     Disconnected
   </span>
+  <span
+    v-else-if="state === 'expired'"
+    class="agent-link-live-badge agent-link-live-badge--closed"
+    data-testid="agent-link-live-badge-expired"
+  >
+    Expired
+  </span>
 </template>
 
 <script setup lang="ts">
@@ -54,10 +61,13 @@
 //
 // Track G extends this with 'suspended' (amber "Paused" — the relay socket
 // dropped unexpectedly but is still resumable within the token TTL) and
-// 'closed' (gray "Disconnected" — the terminal state, explicit disconnect
-// or TTL expiry). Both are ADDITIVE — the original 'connected' branch above
-// is untouched, so every existing collapsed-macro usage keeps rendering
-// exactly as before; 'idle'/'waiting'/'timeout' still render nothing.
+// 'closed' (gray "Disconnected" — the terminal state, explicit disconnect).
+// #314 adds 'expired' (gray "Expired" — the client-side TTL watchdog noticed
+// the minted token's own lapse, reusing the same muted --closed styling
+// since both are non-live terminal states, just with different copy). All
+// ADDITIVE — the original 'connected' branch above is untouched, so every
+// existing collapsed-macro usage keeps rendering exactly as before;
+// 'idle'/'waiting'/'timeout' still render nothing.
 import type { AgentLinkClientState } from '@/composables/agentLink/agentLinkState'
 
 withDefaults(

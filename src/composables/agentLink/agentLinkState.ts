@@ -18,7 +18,13 @@ export type AgentLinkClientState =
   | "suspended"
   | "closed"
   | "already_linked"
-  | "failed";
+  | "failed"
+  // #314: the relay-minted token's TTL (TOKEN_TTL_MS = 10 min) lapsed on the
+  // client's own clock — see useAgentLinkSession.ts's scheduleExpiry()/
+  // handleExpired(). Reachable from any state that has a live-or-pending
+  // token (waiting/timeout/connected/suspended); idle/closed/already_linked/
+  // failed never carry a token, so there's nothing for them to expire.
+  | "expired";
 
 export type AgentLinkClientEvent =
   | "connect_clicked"
@@ -35,7 +41,13 @@ export type AgentLinkClientEvent =
   // succeeds (relayClient.ts already reconnects-by-token; this is the
   // client-side UI counterpart to the server's 'reattach').
   | "ws_drop"
-  | "resumed";
+  | "resumed"
+  // #314: fired by useAgentLinkSession.ts's client-side TTL watchdog the
+  // instant `expiresAt` lapses — the relay independently 403s the agent
+  // server-side ("Session token expired"), but nothing previously told this
+  // FSM to leave whatever live/pending state it was in, so the rail stayed
+  // stuck showing a "connected" variant forever.
+  | "expired";
 
 // The ~20s "no agent yet → show setup" delay (design §3 decision #6:
 // "presence + timeout"). Exported so callers (useAgentLinkSession) and tests
@@ -95,22 +107,33 @@ const TRANSITIONS: Partial<
     disconnect: "closed",
     mint_rejected: "already_linked",
     mint_failed: "failed",
+    expired: "expired",
   },
   timeout: {
     agent_connected: "connected",
     disconnect: "closed",
     mint_rejected: "already_linked",
     mint_failed: "failed",
+    expired: "expired",
   },
   connected: {
     disconnect: "closed",
     ws_drop: "suspended",
+    expired: "expired",
   },
   suspended: {
     resumed: "connected",
     disconnect: "closed",
+    expired: "expired",
   },
   closed: {},
+  // #314: the only event 'expired' itself responds to is an explicit
+  // disconnect (e.g. the rail's Reconnect/"Revoke & re-link" CTA closing this
+  // dead session before minting a fresh one) — everything else is a no-op via
+  // the default fallback.
+  expired: {
+    disconnect: "closed",
+  },
 };
 
 export function nextClientState(

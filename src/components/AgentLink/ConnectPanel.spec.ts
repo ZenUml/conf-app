@@ -5,7 +5,16 @@ import connectPanelSource from './ConnectPanel.vue?raw'
 import type { AgentLinkActivityEntry } from '@/composables/agentLink/useAgentLinkSession'
 
 function mountPanel(props: {
-  state: 'idle' | 'waiting' | 'connected' | 'timeout' | 'suspended' | 'closed' | 'already_linked' | 'failed'
+  state:
+    | 'idle'
+    | 'waiting'
+    | 'connected'
+    | 'timeout'
+    | 'suspended'
+    | 'closed'
+    | 'already_linked'
+    | 'failed'
+    | 'expired'
   token?: string | null
   activityFeed?: AgentLinkActivityEntry[]
 }) {
@@ -182,6 +191,25 @@ describe('ConnectPanel', () => {
     expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe('Could not link your agent')
     expect(notice.text()).toContain('We could not create a link session. Try reconnecting in a moment')
     expect(wrapper.find('[data-testid="agent-link-reconnect-btn"]').exists()).toBe(true)
+  })
+
+  // #314: the client-side TTL watchdog moves a stale session to 'expired' —
+  // the rail must show the (already-built) SessionNotice "expired" variant
+  // and a working Reconnect CTA, not stay stuck on the connected/suspended
+  // rendering with a dead "0:00" countdown.
+  it('expired: renders the "Session expired" notice and Reconnect emits reconnect', async () => {
+    const wrapper = mountPanel({ state: 'expired' })
+
+    const notice = wrapper.find('[data-testid="agent-link-notice"]')
+    expect(notice.exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe('Session expired')
+    expect(notice.text()).toContain(
+      'Your session ended. Your diagram is saved — nothing was lost. Reconnect to link a new agent session'
+    )
+    expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="agent-link-reconnect-btn"]').trigger('click')
+    expect(wrapper.emitted('reconnect')).toHaveLength(1)
   })
 })
 

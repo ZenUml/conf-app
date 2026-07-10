@@ -271,6 +271,16 @@ export function useAgentLinkSession(
   let thinkingActive = false
   let renderSafetyTimer: unknown = null
   let errorFlashTimer: unknown = null
+  // #314: the client-side TTL watchdog. The relay independently 403s the
+  // agent server-side once the minted token's TTL (TOKEN_TTL_MS, 10 min)
+  // lapses, but nothing previously told THIS FSM to leave whatever
+  // live/pending state it was in — the rail stayed stuck showing a connected
+  // variant with the countdown pinned at "0:00" forever. Scheduled against
+  // `expiresAt` (scheduleExpiry()) any time that value is set — the mint
+  // success path in startConnect() and the cross-iframe hydrate path in
+  // hydrateFrom() — and cleared whenever a fresh/explicit teardown makes the
+  // pending deadline moot (startConnect()'s reset, disconnect()).
+  let expiryTimer: unknown = null
   // Fullscreen-hydrate dedup: the newest handoff `thinking` value this
   // (hydrated) instance has already reflected, so the reactive watcher's
   // idempotent re-deliveries don't re-push feed lines / re-flash on every tick.
@@ -473,6 +483,77 @@ export function useAgentLinkSession(
     if (errorFlashTimer != null) {
       clearTimer(errorFlashTimer)
       errorFlashTimer = null
+    }
+  }
+
+  function clearExpiryTimer(): void {
+    if (expiryTimer != null) {
+      clearTimer(expiryTimer)
+      expiryTimer = null
+    }
+  }
+
+  // #314: (re)arms the TTL watchdog against the current `expiresAt`. A no-op
+  // when the expiry is unknown (no relay context, or a reattached/hydrated
+  // session that never carried one — the meter/chip just don't show a
+  // countdown in that case either, same as today). If the deadline has
+  // already passed by the time this runs (e.g. a Fullscreen mount hydrating a
+  // record whose TTL lapsed while it was closed), fire immediately rather
+  // than scheduling a negative/zero-delay timer.
+  function scheduleExpiry(): void {
+    clearExpiryTimer()
+    if (expiresAt.value == null) return
+    const ms = expiresAt.value - now()
+    if (ms <= 0) {
+      handleExpired()
+      return
+    }
+    expiryTimer = scheduleTimeout(handleExpired, ms)
+  }
+
+  // Terminal end of a session's token lifetime, fired by scheduleExpiry()'s
+  // timer. The relay already 403s the agent server-side the instant the token
+  // lapses ("Session token expired") — this is the CLIENT noticing the same
+  // deadline on its own clock and finally giving the FSM an event to leave
+  // whatever live/pending state it was stuck in (#314's actual bug: nothing
+  // previously watched `expiresAt`, so the rail stayed on a live variant with
+  // the countdown pinned at "0:00" indefinitely).
+  function handleExpired(): void {
+    expiryTimer = null
+    const prev = state.value
+    const next = nextClientState(prev, 'expired')
+    if (next === prev) return // idle/closed/already_linked/failed — no live session to expire
+    state.value = next
+    resetThinking()
+    // expiresAt is intentionally LEFT AS-IS: the rail's "Expired" notice still
+    // wants to know when the dead token would have lapsed, and nulling it here
+    // buys nothing (SessionNotice's expired variant doesn't render a
+    // countdown off it).
+    teardownRelay()
+    if (boundContext && token.value) {
+      persistSession({
+        ...boundContext,
+        token: token.value,
+        state: 'expired',
+        ...handoffFeedFields(),
+      })
+    }
+    // Analytics fire from the RELAY OWNER only (the instance that minted or
+    // reattached — `connectStartedAt` is set there and never on a purely
+    // display-only Fullscreen hydrate). Without this gate, when Fullscreen is
+    // open at the deadline BOTH instances' independently-armed watchdogs fire
+    // handleExpired() and the event double-counts — the same single-fire
+    // discipline the suspended/resumed hydrate mirrors keep. The UI transition
+    // above is deliberately NOT gated: both surfaces must show 'expired'.
+    if (connectStartedAt != null) {
+      trackAnalyticsEvent('agent_link_session_expired', {
+        feature_area: 'agent_link',
+        surface: clickSurface,
+        macro_type: macroType,
+        had_agent_connected: prev === 'connected' || prev === 'suspended',
+        session_duration_ms: now() - connectStartedAt,
+        edits_count: editsCount,
+      })
     }
   }
 
@@ -764,6 +845,7 @@ export function useAgentLinkSession(
     expiresAt.value = null
     resetThinking()
     teardownRelay()
+    clearExpiryTimer()
     // Local placeholder marks "a session is pending" for the UI immediately
     // — mint/connect below is async and must not block this synchronous
     // idle -> waiting transition (existing callers/tests read state/token
@@ -799,6 +881,9 @@ export function useAgentLinkSession(
           // it stays null there and the meter/chip-countdown simply don't show.
           if (typeof mintResult.expiresInSec === 'number') {
             expiresAt.value = now() + mintResult.expiresInSec * 1000
+            // #314: arm the TTL watchdog against the real deadline now that
+            // it's known — see scheduleExpiry()'s own doc comment.
+            scheduleExpiry()
           }
           // Hand the real token off to the (as-yet-idle) Fullscreen instance
           // — see sessionHandoff.ts. Only the real, relay-minted token is
@@ -855,6 +940,22 @@ export function useAgentLinkSession(
     if (!boundContext || state.value !== 'idle') return
     const persisted = readSession(boundContext.pageId)
     if (!persisted) return
+    // #314: a reload must never resurrect a dead token. The persisted record
+    // may already say 'expired' (the owner's own watchdog fired before this
+    // reload), or it may still say 'connected'/'suspended' with an expiresAt
+    // that has silently lapsed while this instance was gone (e.g. the tab was
+    // closed past the TTL) — either way, land directly on 'expired' instead
+    // of reattaching a relay channel for a token the server has already
+    // 403'd.
+    if (
+      persisted.state === 'expired' ||
+      (typeof persisted.expiresAt === 'number' && persisted.expiresAt <= now())
+    ) {
+      token.value = persisted.token
+      expiresAt.value = typeof persisted.expiresAt === 'number' ? persisted.expiresAt : null
+      state.value = 'expired'
+      return
+    }
     if (persisted.state !== 'connected' && persisted.state !== 'suspended') return
 
     connectStartedAt = now()
@@ -920,6 +1021,12 @@ export function useAgentLinkSession(
     resetThinking()
     suspendedAt = null
     expiresAt.value = null
+    // #314: an explicit disconnect (including out of 'expired' — see
+    // agentLinkState.ts's `expired: { disconnect: 'closed' }`) makes any
+    // still-pending TTL watchdog moot; clearing it here prevents a stale
+    // timer from firing handleExpired() against a session that's already
+    // being torn down for a different reason.
+    clearExpiryTimer()
     // Explicit, user-driven disconnect: tell the relay's DO via a
     // {kind:'disconnect'} envelope (Track G) so it closes the session
     // outright instead of suspending it — suspension is reserved for an
@@ -997,6 +1104,21 @@ export function useAgentLinkSession(
       // Mirror the relay owner's own resume (see handleRelayStateEvent's
       // 'open' branch) onto this display-only instance.
       state.value = nextClientState(state.value, 'resumed')
+    } else if (
+      (state.value === 'connected' ||
+        state.value === 'suspended' ||
+        state.value === 'waiting' ||
+        state.value === 'timeout') &&
+      session.state === 'expired' &&
+      token.value === session.token
+    ) {
+      // #314: the relay owner's own TTL watchdog (handleExpired()) fired and
+      // republished 'expired' — mirror that onto this display-only
+      // (Fullscreen) instance too, so it stops showing a live variant with
+      // the countdown pinned at "0:00" just because it never received the
+      // event itself. (The idle branch above already covers a Fullscreen
+      // that hydrates an already-expired record fresh from 'idle'.)
+      state.value = nextClientState(state.value, 'expired')
     }
 
     // --- token TTL (Track H cross-iframe mirror, bug 2 fix) ---------------
@@ -1009,6 +1131,13 @@ export function useAgentLinkSession(
     // than once for the same session.
     if (typeof session.expiresAt === 'number') {
       expiresAt.value = session.expiresAt
+      // #314: this (display-only) instance also arms its OWN TTL watchdog
+      // off the mirrored deadline — defense in depth so a Fullscreen surface
+      // still notices the lapse on its own clock even if it never receives
+      // the owner's 'expired' mirror (e.g. the owner's iframe/timers were
+      // torn down before its own watchdog fired). Idempotent: re-hydrating
+      // the same expiresAt just re-arms an equivalent timer.
+      scheduleExpiry()
     }
 
     // --- diagram DSL (agent edit) ----------------------------------------

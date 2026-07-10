@@ -128,10 +128,20 @@
         </div>
       </template>
 
-      <!-- closed (Track G, terminal): explicit Disconnect or TTL expiry. The
-           diagram is saved; Reconnect mints a fresh session. -->
+      <!-- closed (Track G, terminal): explicit Disconnect. The diagram is
+           saved; Reconnect mints a fresh session. -->
       <template v-else-if="state === 'closed'">
         <SessionNotice variant="closed" :diagram-title="diagramTitle" @reconnect="emit('reconnect')" />
+      </template>
+
+      <!-- expired (#314, terminal): the client-side TTL watchdog noticed the
+           minted token's own lapse (the relay already 403s the agent
+           server-side). SessionNotice already ships an "expired" variant
+           (verbatim design-contract copy) — reuse it and the SAME reconnect
+           emit the closed/failed notices use, rather than inventing a new
+           bridge. -->
+      <template v-else-if="state === 'expired'">
+        <SessionNotice variant="expired" :diagram-title="diagramTitle" @reconnect="emit('reconnect')" />
       </template>
 
       <!-- already_linked: mint rejected because another active session holds

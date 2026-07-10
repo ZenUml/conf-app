@@ -143,6 +143,12 @@ export type AnalyticsProperties = {
     | AgentLinkSessionSuspendReason;
   session_duration_ms?: number;
   edits_count?: number;
+  // #314 (agent_link_session_expired only): true when the session had
+  // actually reached 'connected'/'suspended' (an agent was paired) before the
+  // token lapsed, false when the TTL expired while still 'waiting'/'timeout'
+  // (nobody ever paired). Lets the funnel distinguish "lost a live agent" from
+  // "the connect window itself timed out".
+  had_agent_connected?: boolean;
   // Planned ahead of implementation (2026-07-09, catalog.ts's "Planned ahead
   // of implementation" block) — F/G/C fire these once built.
   //

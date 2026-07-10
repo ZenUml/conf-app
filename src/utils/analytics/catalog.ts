@@ -200,6 +200,14 @@ export type AnalyticsEventName =
   // between, not a replacement for the terminal event.
   | "agent_link_session_suspended"
   | "agent_link_session_resumed"
+  // #314 — the client-side TTL watchdog fires this the instant `expiresAt`
+  // (TOKEN_TTL_MS = 10 min) lapses, from ANY still-live state (waiting/
+  // timeout/connected/suspended). Distinct from agent_link_disconnected: no
+  // explicit user action or wire disconnect envelope caused this — the token
+  // simply died server-side and the client noticed on its own clock.
+  // `had_agent_connected` distinguishes "an agent was actually paired and
+  // lost its session" from "nobody ever paired before the token lapsed".
+  | "agent_link_session_expired"
   // U — discovery tool surface (search_diagrams / list_diagrams, plus
   // read_diagram gaining a by-contentId mode). The trust boundary requires the
   // user to SEE everything the agent did, so every discovery op is both an

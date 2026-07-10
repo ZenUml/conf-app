@@ -463,6 +463,28 @@ describe("trackAnalyticsEvent", () => {
         expect.objectContaining({ reason: "fullscreen_closed", resume_latency_ms: 4200 })
       );
     });
+
+    // #314 events-first commit: registered ahead of the FSM/composable fix so
+    // the fix's trackAnalyticsEvent call site (useAgentLinkSession.ts's
+    // handleExpired()) is built against a reviewed name/property contract.
+    it("accepts agent_link_session_expired with had_agent_connected/session_duration_ms/edits_count", async () => {
+      await _awaitableTrackAnalyticsEvent("agent_link_session_expired", {
+        feature_area: "agent_link",
+        surface: "fullscreen",
+        macro_type: "sequence",
+        had_agent_connected: true,
+        session_duration_ms: 600000,
+        edits_count: 3,
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "agent_link_session_expired",
+        expect.objectContaining({
+          had_agent_connected: true,
+          session_duration_ms: 600000,
+          edits_count: 3,
+        })
+      );
+    });
   });
 
   it("does not throw when mixpanel.track throws", async () => {

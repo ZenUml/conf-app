@@ -609,6 +609,214 @@ describe('useAgentLinkSession', () => {
     })
   })
 
+  // #314 — the relay correctly 403s the agent once the minted token's TTL
+  // (TOKEN_TTL_MS = 10 min) lapses, but nothing previously watched
+  // `expiresAt` against the clock, so the rail stayed stuck showing a
+  // connected variant with the countdown pinned at "0:00" forever. These
+  // tests drive the fix's client-side TTL watchdog (scheduleExpiry() /
+  // handleExpired()) using the SAME fake-timer harness as the rest of this
+  // file (global vi.useFakeTimers() from the outer beforeEach — advancing it
+  // also advances Date.now(), which is what the composable's default `now()`
+  // reads).
+  describe('#314 — client-side TTL watchdog expires a stale session', () => {
+    function makeFakeRelayClient() {
+      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
+    }
+    const TOKEN_TTL_MS = 10 * 60 * 1000
+    const boundContext = { cloudId: 'c1', pageId: 'ttl-page', contentId: 'cc1' }
+
+    it('a connected session moves to expired when the token TTL lapses, tears down the relay (not disconnect()), persists the expired handoff, and fires agent_link_session_expired', async () => {
+      const bridgeOps = makeBridgeOps()
+      const fakeClient = makeFakeRelayClient()
+      let capturedOnStateEvent: ((event: any) => void) | undefined
+      const connect = vi.fn((_wsUrl, _bridge, onStateEvent) => {
+        capturedOnStateEvent = onStateEvent
+        return fakeClient
+      })
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token', expiresInSec: TOKEN_TTL_MS / 1000 })
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0) // resolve the mint -> waiting, expiresAt set, watchdog armed
+      capturedOnStateEvent!({ type: 'op', op: 'read_page' }) // -> connected
+      await session.applyEdit('A->B: hi') // edits_count should reach 1 in the terminal event
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      await vi.advanceTimersByTimeAsync(TOKEN_TTL_MS)
+
+      expect(session.state.value).toBe('expired')
+      // Teardown uses close() (no wire disconnect envelope needed — the token
+      // is already dead server-side), never the explicit disconnect() path.
+      expect(fakeClient.close).toHaveBeenCalledTimes(1)
+      expect(fakeClient.disconnect).not.toHaveBeenCalled()
+      expect(readSession(boundContext.pageId)).toMatchObject({ state: 'expired' })
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_session_expired',
+        expect.objectContaining({
+          feature_area: 'agent_link',
+          macro_type: 'sequence',
+          had_agent_connected: true,
+          session_duration_ms: expect.any(Number),
+          edits_count: 1,
+        })
+      )
+    })
+
+    it('a session still "waiting" (agent never paired) also expires on TTL lapse, with had_agent_connected: false', async () => {
+      const bridgeOps = makeBridgeOps()
+      const connect = vi.fn(() => makeFakeRelayClient())
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token', expiresInSec: TOKEN_TTL_MS / 1000 })
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext: { ...boundContext, pageId: 'ttl-page-waiting' }, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(session.state.value).toBe('waiting')
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      await vi.advanceTimersByTimeAsync(TOKEN_TTL_MS)
+
+      expect(session.state.value).toBe('expired')
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_session_expired',
+        expect.objectContaining({ had_agent_connected: false })
+      )
+    })
+
+    it('disconnect() before the TTL lapses clears the scheduled watchdog — no expired event fires later', async () => {
+      const bridgeOps = makeBridgeOps()
+      const connect = vi.fn(() => makeFakeRelayClient())
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token', expiresInSec: TOKEN_TTL_MS / 1000 })
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext: { ...boundContext, pageId: 'ttl-page-disconnect' }, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      session.disconnect('user')
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      await vi.advanceTimersByTimeAsync(TOKEN_TTL_MS)
+
+      expect(session.state.value).toBe('closed')
+      expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+        'agent_link_session_expired',
+        expect.anything()
+      )
+    })
+
+    describe('attemptReattach — a reload must never resurrect a dead token', () => {
+      it('lands directly on "expired" when the persisted record itself already says expired', () => {
+        const pageId = 'ttl-reattach-expired-state'
+        persistSession({ cloudId: 'c1', pageId, contentId: 'cc1', token: 'dead-token', state: 'expired' })
+        const bridgeOps = makeBridgeOps()
+        const connect = vi.fn()
+        const session = useAgentLinkSession(bridgeOps, {
+          macroType: 'sequence',
+          relay: { boundContext: { cloudId: 'c1', pageId, contentId: 'cc1' }, requestSession: vi.fn(), connect },
+        })
+
+        session.attemptReattach()
+
+        expect(session.state.value).toBe('expired')
+        expect(session.token.value).toBe('dead-token')
+        expect(connect).not.toHaveBeenCalled()
+      })
+
+      it('lands directly on "expired" when a persisted "connected" record\'s expiresAt has already lapsed', () => {
+        const pageId = 'ttl-reattach-lapsed-expiry'
+        persistSession({
+          cloudId: 'c1',
+          pageId,
+          contentId: 'cc1',
+          token: 'dead-token',
+          state: 'connected',
+          expiresAt: Date.now() - 1000,
+        })
+        const bridgeOps = makeBridgeOps()
+        const connect = vi.fn()
+        const session = useAgentLinkSession(bridgeOps, {
+          macroType: 'sequence',
+          relay: { boundContext: { cloudId: 'c1', pageId, contentId: 'cc1' }, requestSession: vi.fn(), connect },
+        })
+
+        session.attemptReattach()
+
+        expect(session.state.value).toBe('expired')
+        expect(connect).not.toHaveBeenCalled()
+      })
+
+      it('still reattaches normally into "connected" when the persisted expiresAt has NOT lapsed', () => {
+        const pageId = 'ttl-reattach-still-live'
+        persistSession({
+          cloudId: 'c1',
+          pageId,
+          contentId: 'cc1',
+          token: 'live-token',
+          state: 'connected',
+          expiresAt: Date.now() + 60000,
+        })
+        const bridgeOps = makeBridgeOps()
+        const connect = vi.fn(() => makeFakeRelayClient())
+        const session = useAgentLinkSession(bridgeOps, {
+          macroType: 'sequence',
+          relay: { boundContext: { cloudId: 'c1', pageId, contentId: 'cc1' }, requestSession: vi.fn(), connect },
+        })
+
+        session.attemptReattach()
+
+        expect(session.state.value).toBe('connected')
+        expect(connect).toHaveBeenCalledTimes(1)
+      })
+    })
+
+    describe('hydrateFrom — mirrors the owner\'s TTL lapse onto the Fullscreen instance', () => {
+      it('adopts "expired" directly when hydrating from idle', () => {
+        const bridgeOps = makeBridgeOps()
+        const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+
+        session.hydrateFrom({
+          token: 'handed-off-token',
+          cloudId: 'c1',
+          pageId: 'page-1',
+          contentId: 'cc1',
+          state: 'expired',
+        })
+
+        expect(session.state.value).toBe('expired')
+      })
+
+      it('mirrors "connected" -> "expired" once the relay owner republishes the TTL lapse', () => {
+        const bridgeOps = makeBridgeOps()
+        const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+        session.hydrateFrom({
+          token: 't',
+          cloudId: 'c1',
+          pageId: 'page-1',
+          contentId: 'cc1',
+          state: 'connected',
+        })
+        expect(session.state.value).toBe('connected')
+
+        session.hydrateFrom({
+          token: 't',
+          cloudId: 'c1',
+          pageId: 'page-1',
+          contentId: 'cc1',
+          state: 'expired',
+        })
+
+        expect(session.state.value).toBe('expired')
+      })
+    })
+  })
+
   describe('relay wiring — relay-driven edits populate the activity feed + fire analytics (the gap this fix closes)', () => {
     function makeFakeRelayClient() {
       return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }

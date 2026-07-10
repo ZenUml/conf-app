@@ -132,6 +132,8 @@ async function saveOpenApiAndExit() {
     id = await saveToPlatform(window.diagram);
   } catch (error) {
     console.error('saveOpenApiAndExit failed', error);
+    // Release the Publish button — editor stays open for retry (react/Header.tsx).
+    EventBus.$emit('save-error', error);
     trackEvent('save_failed', 'save_failed', 'error', {
       error_message: String((error as any)?.message || error).substring(0, 500),
       http_status: (error as any)?.status || (error as any)?.statusCode || 'unknown',
@@ -179,6 +181,8 @@ async function saveOpenApiAndExit() {
       EventBus.$emit('saved', id);
     } catch (error) {
       console.error('view.submit/close failed after openapi save', error);
+      // Dialog didn't close — release the Publish button (react/Header.tsx).
+      EventBus.$emit('save-error', error);
       trackEvent('save_failed', 'view_submit_failed', 'error', {
         error_message: String((error as any)?.message || error).substring(0, 500),
         new_custom_content_id: id,

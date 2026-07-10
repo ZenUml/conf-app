@@ -538,14 +538,23 @@ export function useAgentLinkSession(
         ...handoffFeedFields(),
       })
     }
-    trackAnalyticsEvent('agent_link_session_expired', {
-      feature_area: 'agent_link',
-      surface: clickSurface,
-      macro_type: macroType,
-      had_agent_connected: prev === 'connected' || prev === 'suspended',
-      session_duration_ms: connectStartedAt != null ? now() - connectStartedAt : undefined,
-      edits_count: editsCount,
-    })
+    // Analytics fire from the RELAY OWNER only (the instance that minted or
+    // reattached — `connectStartedAt` is set there and never on a purely
+    // display-only Fullscreen hydrate). Without this gate, when Fullscreen is
+    // open at the deadline BOTH instances' independently-armed watchdogs fire
+    // handleExpired() and the event double-counts — the same single-fire
+    // discipline the suspended/resumed hydrate mirrors keep. The UI transition
+    // above is deliberately NOT gated: both surfaces must show 'expired'.
+    if (connectStartedAt != null) {
+      trackAnalyticsEvent('agent_link_session_expired', {
+        feature_area: 'agent_link',
+        surface: clickSurface,
+        macro_type: macroType,
+        had_agent_connected: prev === 'connected' || prev === 'suspended',
+        session_duration_ms: now() - connectStartedAt,
+        edits_count: editsCount,
+      })
+    }
   }
 
   function scheduleErrorFlashClear(): void {

@@ -28,13 +28,14 @@ import { handleCreateDemoPageRoute } from './routes/createDemoPage';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
+import { isValidCustomContentId } from '@/utils/customContentId';
 import {
   reportLegacyContentPropertyRestored,
   reportLegacyContentPropertyLoadFailed,
   reportLegacyContentPropertyValueUnexpected,
   reportLegacyContentPropertyMacroRepaired,
 } from '@/utils/legacyContentPropertyTelemetry';
-import { LegacyLoadBlockedSaveError } from '@/model/ContentProvider/Persistence';
+import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 
 // Track editor session start time
@@ -865,7 +866,16 @@ EventBus.$on('save', async () => {
       hasId: !!id,
     });
     try {
-      if (needsWriteback) {
+      if (needsWriteback && !isValidCustomContentId(id)) {
+        // conf-app#320 defense-in-depth: never write a garbage customContentId
+        // into the macro config. saveToPlatform should have thrown already;
+        // close without persisting the bad id rather than orphaning the macro.
+        trackEvent('save_failed', 'writeback_skipped_invalid_id', 'error', {
+          new_custom_content_id: String(id),
+          macro_type: store.state.diagram.diagramType as MacroTypeValue,
+        });
+        await (await getView()).close();
+      } else if (needsWriteback) {
         await (await getView()).submit({config: {
           customContentId: id,
           updatedAt: new Date().toISOString(),
@@ -988,6 +998,14 @@ EventBus.$on('updateContent', async (diagram: Diagram) => {
     saveToPlatform(diagram).catch((error) => {
       if (error instanceof LegacyLoadBlockedSaveError) {
         console.debug('updateContent save refused: legacy load blocked');
+        return;
+      }
+      // conf-app#320: the persistence layer now throws when a save returns no
+      // usable id. Autosave must stay silent — the explicit 'save' handler
+      // surfaces the retry toast — so swallow it rather than raising an
+      // unhandled rejection. The macro config is never written from autosave.
+      if (error instanceof InvalidSavedContentIdError) {
+        console.debug('updateContent save produced no usable customContentId; skipping');
         return;
       }
       throw error;

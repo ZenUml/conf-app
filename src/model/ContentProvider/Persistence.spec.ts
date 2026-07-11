@@ -1,4 +1,4 @@
-import {saveToPlatform, LegacyLoadBlockedSaveError} from "@/model/ContentProvider/Persistence";
+import {saveToPlatform, LegacyLoadBlockedSaveError, InvalidSavedContentIdError} from "@/model/ContentProvider/Persistence";
 import {NULL_DIAGRAM, DiagramType} from "@/model/Diagram/Diagram";
 import {vi} from "vitest";
 import ApWrapper2 from "../ApWrapper2";
@@ -210,6 +210,26 @@ describe('Persistence', function () {
       await expect(saveToPlatform(mixedStatePlaceholder as any, mockApWrapper))
         .rejects.toBeInstanceOf(LegacyLoadBlockedSaveError);
       expect(mockSave).not.toHaveBeenCalled();
+      expect(syncCustomContent).not.toHaveBeenCalled();
+    });
+  });
+
+  // conf-app#320: a save whose persistence returned no usable id must NOT be
+  // treated as success. Previously String(undefined) === "undefined" leaked into
+  // macro_create_succeeded AND back into the macro config (permanent orphan).
+  describe('invalid saved id (conf-app#320)', () => {
+    for (const badId of [undefined, null, 'undefined', ''] as const) {
+      it(`throws InvalidSavedContentIdError when the saved customContent id is ${JSON.stringify(badId)}`, async () => {
+        mockSave.mockReturnValueOnce({ id: badId } as any);
+        await expect(saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper))
+          .rejects.toBeInstanceOf(InvalidSavedContentIdError);
+      });
+    }
+
+    it('does NOT fire macro_create_succeeded or syncCustomContent when the saved id is invalid', async () => {
+      mockSave.mockReturnValueOnce({ id: undefined } as any);
+      try { await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper); } catch {}
+      expect(trackAnalyticsEvent).not.toHaveBeenCalled();
       expect(syncCustomContent).not.toHaveBeenCalled();
     });
   });

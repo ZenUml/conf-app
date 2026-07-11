@@ -16,6 +16,7 @@ import uuidv4 from "@/utils/uuid";
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
+import { isValidCustomContentId } from '@/utils/customContentId';
 
 // Captured at editor open from extension.config.uuid; forwarded back through
 // view.submit's replace-semantics so Connect-era guestParams.uuid survives.
@@ -70,6 +71,16 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
 
   setTimeout(async () => {
     try {
+      if (!isValidCustomContentId(selectedCustomContentId)) {
+        // conf-app#320 defense-in-depth: an embed macro must reference a real
+        // existing customContentId. Never persist "undefined"/junk into config.
+        trackEvent('save_failed', 'writeback_skipped_invalid_id', 'error', {
+          selected_custom_content_id: String(selectedCustomContentId),
+          macro_type: 'embed',
+        });
+        await (await getView()).close();
+        return;
+      }
       await (await getView()).submit({config: {
         customContentId: selectedCustomContentId,
         updatedAt: new Date().toISOString(),

@@ -31,6 +31,7 @@ import { debounce } from 'lodash';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
+import { isValidCustomContentId } from '@/utils/customContentId';
 
 installRestoreDraftBanner();
 import SwaggerForgeEditorShell from '@/components/OpenApi/SwaggerForgeEditorShell.vue';
@@ -163,7 +164,18 @@ async function saveOpenApiAndExit() {
     const idChanged = !!sourceId && !!id && id !== sourceId;
     const needsWriteback = inserting || idChanged || attemptRepair;
     try {
-      if (needsWriteback) {
+      if (needsWriteback && !isValidCustomContentId(id)) {
+        // conf-app#320 defense-in-depth: never write a garbage customContentId
+        // ("undefined"/"null"/non-numeric) into the macro config — that is the
+        // exact state that permanently orphans a macro. saveToPlatform should
+        // have thrown already; if we somehow got here, close without persisting
+        // the bad id rather than stamping it.
+        trackEvent('save_failed', 'writeback_skipped_invalid_id', 'error', {
+          new_custom_content_id: String(id),
+          macro_type: 'openapi',
+        });
+        await (await getView()).close();
+      } else if (needsWriteback) {
         await (await getView()).submit({config: {
           customContentId: id,
           updatedAt: new Date().toISOString(),

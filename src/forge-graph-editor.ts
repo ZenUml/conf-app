@@ -21,6 +21,7 @@ import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId,
 import uuidv4 from '@/utils/uuid';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
+import { isValidCustomContentId } from '@/utils/customContentId';
 import {
   reportLegacyContentPropertyRestored,
   reportLegacyContentPropertyLoadFailed,
@@ -133,7 +134,16 @@ async function saveGraphAndExit(graphXml: string) {
     const idChanged = !!sourceId && !!id && id !== sourceId;
     const needsWriteback = inserting || idChanged || attemptRepair || attemptLegacyMigration;
     try {
-      if (needsWriteback) {
+      if (needsWriteback && !isValidCustomContentId(id)) {
+        // conf-app#320 defense-in-depth: never write a garbage customContentId
+        // into the macro config. saveToPlatform should have thrown already;
+        // close without persisting the bad id rather than orphaning the macro.
+        trackEvent('save_failed', 'writeback_skipped_invalid_id', 'error', {
+          new_custom_content_id: String(id),
+          macro_type: 'graph',
+        });
+        await (await getView()).close();
+      } else if (needsWriteback) {
         await (await getView()).submit({config: {
           customContentId: id,
           updatedAt: new Date().toISOString(),

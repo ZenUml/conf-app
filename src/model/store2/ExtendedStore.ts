@@ -56,6 +56,12 @@ const ExtendedStore: StoreOptions<RootState> = {
   },
   state: {
     diagram: NULL_DIAGRAM,
+    // Flipped true once the viewer's async loadDiagram() has resolved (success
+    // OR failure). Lets the embed viewer distinguish "still loading" from
+    // "loaded but nothing renderable" (deleted/missing referenced content) so
+    // it shows a terminal error instead of spinning forever. Only ForgeEmbedViewer
+    // reads it; other viewers ignore it.
+    diagramLoadComplete: false,
     error: null,
     onElementClick: (codeRange: any) => {
       EventBus.$emit('highlight', codeRange)

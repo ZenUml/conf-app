@@ -16,7 +16,6 @@ export async function modifyDiagram(context, diagramCode, errorMessage, diagramT
     diagramType: typeInfo.diagramType,
     command,
     errorMessage,
-    teamId: context.teamId,
     subTypeKey: typeInfo.subTypeKey,
   };
 

@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { callDiagramly, modifyDiagram } from './diagramlyService';
+import { callDiagramly } from './diagramlyService';
 
 function makeContext(cloudId?: string) {
   return {
     accountId: 'client-account-123',
-    teamId: 'client-team-456',
     cloudId,
     env: {
       DIAGRAMLY_BACKEND_API_BASE_URL: 'https://diagramly.example',
@@ -37,29 +36,7 @@ describe('callDiagramly', () => {
     });
   });
 
-  it('preserves the client teamId in the modify payload', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      text: vi.fn().mockResolvedValue('{"jobId":"job-123"}'),
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    await modifyDiagram(
-      makeContext('verified-cloud-789'),
-      'A -> B',
-      'syntax error',
-      'sequence',
-    );
-
-    const [, init] = fetchMock.mock.calls[0];
-    expect(JSON.parse(init.body)).toMatchObject({
-      teamId: 'client-team-456',
-      diagramCode: 'A -> B',
-    });
-    expect(init.headers['x-team-id']).toBe('verified-cloud-789');
-  });
-
-  it('rejects a request when both cloudId sources are missing', async () => {
+  it('rejects a request when cloudId is missing', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 

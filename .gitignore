@@ -39,7 +39,7 @@ coverage
 
 wrangler.toml
 !workers/*/wrangler.toml
-.playwright-mcp/
+.playwright-*
 playwright-report/
 test-results/
 *.png
@@ -80,3 +80,4 @@ scripts/confluence_domain_migration/
 # by scripts/build-studio.sh (called from pnpm build:asyncapi). Mirrors
 # AsyncAPI-Conf-V2's setup: build fresh, do not commit.
 static/asyncapi-studio/
+

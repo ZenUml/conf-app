@@ -1,12 +1,13 @@
-import globals from '@/model/globals';
 import {DiagramType} from "@/model/Diagram/Diagram";
 import { callRemote } from '@/utils/requestUtil';
 
+// Identity (accountId / cloudId) is intentionally NOT sent from the client.
+// The Diagramly backend derives it from the verified Forge invocation token
+// (see functions/diagramly/context.ts), so a client-supplied value could only
+// be spoofed or drift out of sync with the authenticated caller.
+
 export async function diagramlyChat(messages: Array<any>) {
-  return await callRemote(`/diagramly/chat`, 'POST', {
-      accountId: (await globals.apWrapper._getCurrentUser()).atlassianAccountId,
-      messages
-    });
+  return await callRemote(`/diagramly/chat`, 'POST', { messages });
 }
 
 export async function startFixDiagram(
@@ -14,10 +15,7 @@ export async function startFixDiagram(
   errorMessage: string,
   diagramType: DiagramType,
 ): Promise<{ jobId: string }> {
-  const accountId = (await globals.apWrapper._getCurrentUser()).atlassianAccountId;
-
   const startResponse = await callRemote(`/diagramly/fix-diagram`, 'POST', {
-    accountId,
     diagramCode,
     errorMessage,
     diagramType: diagramType
@@ -43,15 +41,10 @@ export async function getFixDiagramStatus(
   output?: { diagramCode: string };
   error?: string;
 }> {
-  const accountId = (await globals.apWrapper._getCurrentUser()).atlassianAccountId;
-
   const jobStatus = await callRemote(
     `/diagramly/job-status`,
     'POST',
-    {
-      jobId,
-      accountId
-    }
+    { jobId }
   ) as {
     id: string;
     status: 'QUEUED' | 'PROCESSING' | 'GENERATING' | 'COMPLETED' | 'FAILED';

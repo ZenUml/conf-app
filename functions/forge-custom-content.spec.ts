@@ -79,9 +79,11 @@ function makeRequest(payload: any, withAuth = true) {
 }
 
 const FORGE_CONTEXT = {
+  cloudId: 'cloud-1',
   apiBaseUrl: 'https://api.atlassian.com/ex/confluence/cloud-1',
   forgeAppId: 'app-1',
 };
+const FORGE_DATA = { forgeContext: FORGE_CONTEXT };
 
 describe('forge-custom-content createOrUpdateContent', () => {
   beforeEach(() => {
@@ -90,14 +92,14 @@ describe('forge-custom-content createOrUpdateContent', () => {
 
   it('backfills macroUuid + diagramType on UPDATE via COALESCE(NULLIF(...,\'\'), existing)', async () => {
     const db = makeDB({ rowExists: true });
-    const env = { DB: { prepare: db.prepare }, FORGE_CONTEXT };
+    const env = { DB: { prepare: db.prepare } };
     const req = makeRequest({
       contentId: 'cc-1',
       macroUuid: 'local-id-abc',
       diagramType: 'sequence',
     });
 
-    const res = await onRequest({ request: req, env } as any);
+    const res = await onRequest({ request: req, env, data: FORGE_DATA } as any);
     expect(res.status).toBe(200);
 
     // Find the UPDATE call and confirm SQL shape + macroUuid is forwarded.
@@ -113,10 +115,10 @@ describe('forge-custom-content createOrUpdateContent', () => {
 
   it('passes empty strings on UPDATE when no identity supplied — DB COALESCE preserves existing values', async () => {
     const db = makeDB({ rowExists: true });
-    const env = { DB: { prepare: db.prepare }, FORGE_CONTEXT };
+    const env = { DB: { prepare: db.prepare } };
     const req = makeRequest({ contentId: 'cc-1' });
 
-    await onRequest({ request: req, env } as any);
+    await onRequest({ request: req, env, data: FORGE_DATA } as any);
 
     const updateCall = db.calls.find((c) => c.sql.startsWith('UPDATE CustomContent'));
     expect(updateCall).toBeDefined();
@@ -127,14 +129,14 @@ describe('forge-custom-content createOrUpdateContent', () => {
 
   it('still UPDATEs CustomContent when the version row already exists (idempotent retry)', async () => {
     const db = makeDB({ rowExists: true, versionExists: true });
-    const env = { DB: { prepare: db.prepare }, FORGE_CONTEXT };
+    const env = { DB: { prepare: db.prepare } };
     const req = makeRequest({
       contentId: 'cc-1',
       macroUuid: 'local-id-retry',
       diagramType: 'sequence',
     });
 
-    const res = await onRequest({ request: req, env } as any);
+    const res = await onRequest({ request: req, env, data: FORGE_DATA } as any);
     expect(res.status).toBe(200);
 
     // Pre-fix: version-gate skipped createOrUpdateContent entirely on retries,
@@ -152,14 +154,14 @@ describe('forge-custom-content createOrUpdateContent', () => {
 
   it('uses INSERT OR IGNORE for CustomContentVersion so concurrent duplicates do not 500 the request', async () => {
     const db = makeDB({ rowExists: true, versionExists: false });
-    const env = { DB: { prepare: db.prepare }, FORGE_CONTEXT };
+    const env = { DB: { prepare: db.prepare } };
     const req = makeRequest({
       contentId: 'cc-1',
       macroUuid: 'local-id-concurrent',
       diagramType: 'sequence',
     });
 
-    const res = await onRequest({ request: req, env } as any);
+    const res = await onRequest({ request: req, env, data: FORGE_DATA } as any);
     expect(res.status).toBe(200);
 
     // The SQL clause itself is the race-safety contract: without OR IGNORE,
@@ -177,14 +179,14 @@ describe('forge-custom-content createOrUpdateContent', () => {
 
   it('writes macroUuid + diagramType on INSERT for a fresh row', async () => {
     const db = makeDB({ rowExists: false });
-    const env = { DB: { prepare: db.prepare }, FORGE_CONTEXT };
+    const env = { DB: { prepare: db.prepare } };
     const req = makeRequest({
       contentId: 'cc-1',
       macroUuid: 'local-id-abc',
       diagramType: 'mermaid',
     });
 
-    await onRequest({ request: req, env } as any);
+    await onRequest({ request: req, env, data: FORGE_DATA } as any);
 
     const insertCall = db.calls.find((c) => c.sql.startsWith('insert into CustomContent'));
     expect(insertCall).toBeDefined();
@@ -202,10 +204,10 @@ describe('forge-custom-content error handling (conf-app#267)', () => {
 
   it('returns a JSON 400 (not a text/plain 500) when the OAuth user header is missing', async () => {
     const db = makeDB({ rowExists: true });
-    const env = { DB: { prepare: db.prepare }, FORGE_CONTEXT };
+    const env = { DB: { prepare: db.prepare } };
     const req = makeRequest({ contentId: 'cc-1' }, /* withAuth */ false);
 
-    const res = await onRequest({ request: req, env } as any);
+    const res = await onRequest({ request: req, env, data: FORGE_DATA } as any);
 
     expect(res.status).toBe(400);
     expect(res.headers.get('content-type')).toContain('application/json');
@@ -223,9 +225,13 @@ describe('forge-custom-content error handling (conf-app#267)', () => {
       new Error('HTTP error! Status: 404, Text: Not Found'),
     );
     const db = makeDB({ rowExists: true });
-    const env = { DB: { prepare: db.prepare }, FORGE_CONTEXT };
+    const env = { DB: { prepare: db.prepare } };
 
-    const res = await onRequest({ request: makeRequest({ contentId: 'cc-1' }), env } as any);
+    const res = await onRequest({
+      request: makeRequest({ contentId: 'cc-1' }),
+      env,
+      data: FORGE_DATA,
+    } as any);
 
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('application/json');
@@ -237,9 +243,13 @@ describe('forge-custom-content error handling (conf-app#267)', () => {
   });
 
   it('returns a JSON 500 carrying the real message when a D1 write fails (unmasked)', async () => {
-    const env = { DB: makeFailingDB(), FORGE_CONTEXT };
+    const env = { DB: makeFailingDB() };
 
-    const res = await onRequest({ request: makeRequest({ contentId: 'cc-1' }), env } as any);
+    const res = await onRequest({
+      request: makeRequest({ contentId: 'cc-1' }),
+      env,
+      data: FORGE_DATA,
+    } as any);
 
     expect(res.status).toBe(500);
     expect(res.headers.get('content-type')).toContain('application/json');
@@ -251,14 +261,14 @@ describe('forge-custom-content error handling (conf-app#267)', () => {
 
   it('returns a JSON 400 when the request body is not valid JSON', async () => {
     const db = makeDB({ rowExists: true });
-    const env = { DB: { prepare: db.prepare }, FORGE_CONTEXT };
+    const env = { DB: { prepare: db.prepare } };
     const req = new Request('https://example.com/forge-custom-content', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-forge-oauth-user': 'token-abc' },
       body: 'not-json',
     });
 
-    const res = await onRequest({ request: req, env } as any);
+    const res = await onRequest({ request: req, env, data: FORGE_DATA } as any);
 
     expect(res.status).toBe(400);
     expect(res.headers.get('content-type')).toContain('application/json');

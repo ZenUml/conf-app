@@ -1,4 +1,5 @@
 import { OkResponse } from "./OkResponse";
+import type { ForgeRequestData } from "./utils/authenticate";
 
 // ---------------------------------------------------------------------------
 // Attachment-upload fallback (issue #166)
@@ -32,7 +33,7 @@ import { OkResponse } from "./OkResponse";
 // ------------------
 // 1. `/forge-upload-attachment` is in AUTHENTICATED_PATHS (functions/_middleware.ts),
 //    so the request is rejected unless it carries a valid Forge invocation token
-//    from this app. `env.FORGE_CONTEXT.apiBaseUrl` is derived from that *verified*
+//    from this app. `data.forgeContext.apiBaseUrl` is derived from that *verified*
 //    token — never from the (user-controlled) request body.
 // 2. The payload's pageId/attachmentName are attacker-controllable, so before
 //    writing as the app we confirm the *calling user* can read the target page
@@ -64,12 +65,18 @@ function fail(status: number, body: string) {
   return OkResponse({ ok: false, status, body });
 }
 
-export const onRequest = async ({ request, env }) => {
+export const onRequest = async ({
+  request,
+  data,
+}: {
+  request: Request;
+  data: ForgeRequestData;
+}) => {
   try {
     // apiBaseUrl comes from the verified invocation token (set by the auth
     // middleware), NOT the request body — this binds the write to the caller's
     // own tenant.
-    const apiBaseUrl: string | undefined = env.FORGE_CONTEXT?.apiBaseUrl;
+    const apiBaseUrl = data.forgeContext?.apiBaseUrl;
     if (!apiBaseUrl) {
       return fail(401, 'missing forge context (apiBaseUrl)');
     }

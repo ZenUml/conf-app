@@ -16,7 +16,6 @@ export async function modifyDiagram(context, diagramCode, errorMessage, diagramT
     diagramType: typeInfo.diagramType,
     command,
     errorMessage,
-    teamId: context.teamId,
     subTypeKey: typeInfo.subTypeKey,
   };
 
@@ -70,7 +69,10 @@ export async function callDiagramly(context, uri, payload) {
 
   try {
     const userId = context.accountId;
-    const teamId = context.cloudId;
+    const cloudId = context.cloudId;
+    if (typeof cloudId !== 'string' || !cloudId.trim()) {
+      throw new Error('Missing cloudId in Diagramly request context');
+    }
 
     const diagramlyApiKey = context.env.DIAGRAMLY_API_KEY;
     if(!diagramlyApiKey) {
@@ -83,7 +85,7 @@ export async function callDiagramly(context, uri, payload) {
         'Content-Type': payload ? 'application/json' : undefined,
         'x-api-key': diagramlyApiKey,
         'x-external-id': userId,
-        'x-team-id': teamId
+        'x-team-id': cloudId
       },
       body: payload ? JSON.stringify(payload) : undefined
     });

@@ -489,6 +489,21 @@ export default class ApWrapper2 implements IApWrapper {
     return this.parseCustomContentByIdV2Response(id, customContent);
   }
 
+  /**
+   * False only when the custom content is a definitive 404 (not_found) — i.e.
+   * the viewer's GET-by-id will fail to render it. The embed picker lists docs
+   * from the SEARCH index, which can surface ORPHANED content whose parent page
+   * was deleted: still present in the eventually-consistent index (pickable +
+   * previewable), but 404 on GET-by-id because the parent no longer exists. This
+   * lets the embed save block persisting such an unrenderable reference.
+   * Fail-OPEN on transient/other errors (5xx, network, 403) so a hiccup never
+   * blocks a genuinely valid save.
+   */
+  async isCustomContentFetchableV2(id: string): Promise<boolean> {
+    const { status } = await this.fetchCustomContentByIdV2WithStatus(id);
+    return status !== 'not_found';
+  }
+
   // ZEN-1170 Defect 2b. Distinguish "the CC genuinely doesn't exist" (404 /
   // NOT_FOUND) from "the request failed for some other reason" (403, 5xx,
   // malformed response, thrown). Recovery is only safe in the first case —

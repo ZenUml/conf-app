@@ -17,6 +17,7 @@ import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId,
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { toast } from '@/utils/toast';
 
 // Captured at editor open from extension.config.uuid; forwarded back through
 // view.submit's replace-semantics so Connect-era guestParams.uuid survives.
@@ -79,6 +80,28 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
           macro_type: 'embed',
         });
         await (await getView()).close();
+        return;
+      }
+      // The picker lists docs from the SEARCH index, but the viewer loads via
+      // GET-by-id. Custom content is parented to a page; when that page is
+      // deleted the content is ORPHANED — it lingers in the eventually-consistent
+      // search index (so it's still pickable and even previews) but GET-by-id
+      // 404s because the parent no longer exists. Persisting such a pick makes a
+      // silently-broken embed ("couldn't be loaded"). Block on a definitive 404
+      // so the user picks a renderable doc instead. Fail-OPEN on transient errors
+      // (isCustomContentFetchableV2 only returns false for a real not_found).
+      if (!(await globals.apWrapper.isCustomContentFetchableV2(selectedCustomContentId))) {
+        trackEvent('save_failed', 'embed_target_not_fetchable', 'error', {
+          selected_custom_content_id: String(selectedCustomContentId),
+          macro_type: 'embed',
+        });
+        toast({
+          message: "This diagram can't be embedded — it appears to have been deleted, or its page was removed. Pick a different diagram.",
+          duration: 7000,
+        });
+        // Keep the editor open so the user can pick another; re-enable Publish
+        // (DocumentList.vue listens for save-error to clear its loading state).
+        EventBus.$emit('save-error', new Error('embed target not fetchable'));
         return;
       }
       await (await getView()).submit({config: {

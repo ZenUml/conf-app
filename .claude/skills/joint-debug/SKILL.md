@@ -109,9 +109,12 @@ When the user explicitly wants separate macOS Terminal windows, run:
 ./.claude/skills/joint-debug/launch-debug-services.sh \
   '<NGROK_AUTHTOKEN>' \
   '<NGROK_DOMAIN>' \
-  '<DIAGRAMLY_PATH>' \
-  '<LOCAL_DATABASE_URL>'
+  '<DIAGRAMLY_PATH>'
 ```
+
+The fourth argument is optional. When omitted, the helper lets Diagramly's `pnpm dev` load
+`DATABASE_URL` from its default `.env`; the helper still verifies that it targets localhost. Pass
+`'<LOCAL_DATABASE_URL>'` as the fourth argument only when an explicit local override is needed.
 
 The helper requires macOS permission to send Apple Events to Terminal. If it reports error `-1743`, stop and tell the user to grant Automation permission or switch to Codex-managed PTYs. Never accept its success banner without checking that the expected ports are listening.
 

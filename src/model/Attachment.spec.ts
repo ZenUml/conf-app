@@ -803,6 +803,43 @@ describe('Attachment', () => {
         );
         expect(succeeded).toHaveLength(0);
       });
+
+      // ── graph save path: opts.renderedPng supplies pre-captured bytes ───────
+      // The DrawIO editor exports its own PNG; those bytes are passed in so the
+      // viewer-oriented toPng()/html-to-image capture must NOT run, while the
+      // rest of the upload + telemetry path behaves exactly as the override case.
+      it('uses opts.renderedPng (graph save path) instead of capturing via toPng', async () => {
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockRequestConfluence.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'att-graph-1' }] })),
+        });
+        mockForgeRequest.mockResolvedValue({});
+        const preRendered = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' });
+
+        await createAttachmentIfContentChanged('<mxfile/>', 'graph', {
+          customContentId: 'graph-id-1',
+          fromSave: true,
+          renderedPng: preRendered,
+        });
+
+        // The viewer-capture path must NOT run when bytes are supplied.
+        expect(htmlToImage.toBlob).not.toHaveBeenCalled();
+        // Upload proceeds under the override id with the graph filename.
+        expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalledWith('page-123', {
+          filename: 'zenuml-graph-id-1.png',
+        });
+        const succeeded = mockTrackEvent.mock.calls.find(
+          (c: unknown[]) => c[1] === 'attachment_upload_succeeded',
+        );
+        expect(succeeded).toBeDefined();
+        expect(succeeded![3]).toMatchObject({
+          from_save: true,
+          custom_content_id: 'graph-id-1',
+          attachment_name: 'zenuml-graph-id-1.png',
+        });
+      });
     });
   });
 

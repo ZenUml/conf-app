@@ -84,6 +84,10 @@ export type AnalyticsProperties = {
   // emitted as `true` today; kept optional for a future "always, with flag"
   // rate variant. See utils/paywall/spaceAdminProbe.ts.
   is_space_admin?: boolean;
+  // Whether the current user can edit the page/macro. Set on
+  // `viewer_source_opened` / `viewer_source_copied` so read-only vs editor
+  // audience for the View Source panel (#333) can be split.
+  has_edit_permission?: boolean;
   // Diagramly demo-page engagement: set automatically for macro_* events when
   // the macro lives on a page tagged with the `diagramly-demo-page` page
   // property. See utils/analytics/demoPageStatus.ts.

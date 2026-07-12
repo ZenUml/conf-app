@@ -48,6 +48,15 @@ export const APPS = {
         description: 'Remove asyncapi spacePage (zenuml-asyncapi-dashboard-page)',
         yqEvalExpr: 'del(.modules["confluence:spacePage"])',
       },
+      {
+        // Strip the Connect lifecycle module (connectModules). It lives in
+        // manifest.yml only so the asyncapi variant — which still serves
+        // legacy Connect (my-api / AsyncAPI-Conf-V2) installs — keeps it.
+        // lite/full/diagramly are Forge-only in production; the Forge
+        // remote-installed-trigger covers install/upgrade lifecycle.
+        description: 'Remove Connect lifecycle module (connectModules)',
+        yqEvalExpr: 'del(.connectModules)',
+      },
     ],
     sites: {
       staging: ['lite-stg.atlassian.net'],
@@ -86,6 +95,13 @@ export const APPS = {
       {
         description: 'Remove asyncapi spacePage (zenuml-asyncapi-dashboard-page)',
         yqEvalExpr: 'del(.modules["confluence:spacePage"])',
+      },
+      {
+        // Strip the Connect lifecycle module (connectModules) — kept in
+        // manifest.yml only for the asyncapi variant (legacy Connect
+        // installs). See the lite block above.
+        description: 'Remove Connect lifecycle module (connectModules)',
+        yqEvalExpr: 'del(.connectModules)',
       },
     ],
     sites: {
@@ -133,6 +149,13 @@ export const APPS = {
         description: 'Remove asyncapi custom content (async-api-doc)',
         yqEvalExpr:
           'del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc")))',
+      },
+      {
+        // Strip the Connect lifecycle module (connectModules) — kept in
+        // manifest.yml only for the asyncapi variant (legacy Connect
+        // installs). See the lite block above.
+        description: 'Remove Connect lifecycle module (connectModules)',
+        yqEvalExpr: 'del(.connectModules)',
       },
     ],
     sites: {

@@ -16,6 +16,7 @@ describe('forge-wizard manifest preview helpers', () => {
     )
     expect(desc).toContain('Remove asyncapi custom content (async-api-doc)')
     expect(desc).toContain('Remove asyncapi spacePage (zenuml-asyncapi-dashboard-page)')
+    expect(desc).toContain('Remove Connect lifecycle module (connectModules)')
 
     const yq = getManifestEditYqArgs('lite').map((x) => x.expr)
     expect(yq).toContain('del(.app.licensing)')
@@ -27,19 +28,25 @@ describe('forge-wizard manifest preview helpers', () => {
       'del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc")))',
     )
     expect(yq).toContain('del(.modules["confluence:spacePage"])')
+    expect(yq).toContain('del(.connectModules)')
   })
 
-  it('full strips only asyncapi bits', () => {
+  it('full strips asyncapi bits and the Connect lifecycle module', () => {
     // Full is the "base" variant — it shares all the ZenUML/Mermaid/Graph/
     // OpenAPI/Embed macros with the base manifest, and only needs to strip
     // the AsyncAPI bits (macros + custom content + spacePage) which live in
-    // the base manifest so the asyncapi variant can keep them.
+    // the base manifest so the asyncapi variant can keep them, plus the
+    // Connect lifecycle module (connectModules) — also asyncapi-only.
     const desc = getManifestEditDescriptions('full')
     expect(desc).toEqual([
       'Remove asyncapi macros (zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro)',
       'Remove asyncapi custom content (async-api-doc)',
       'Remove asyncapi spacePage (zenuml-asyncapi-dashboard-page)',
+      'Remove Connect lifecycle module (connectModules)',
     ])
+    expect(getManifestEditYqArgs('full').map((x) => x.expr)).toContain(
+      'del(.connectModules)',
+    )
   })
 
   it('diagramly strips global UI modules, embed, and asyncapi bits', () => {
@@ -50,6 +57,7 @@ describe('forge-wizard manifest preview helpers', () => {
       'Remove asyncapi macros (zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro)',
     )
     expect(desc).toContain('Remove asyncapi custom content (async-api-doc)')
+    expect(desc).toContain('Remove Connect lifecycle module (connectModules)')
     // Diagramly's globalSettings+globalPage+spacePage strip removes both
     // the ZenUML dashboard and the asyncapi spacePage in a single edit.
 
@@ -63,6 +71,7 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(yq).toContain(
       'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))',
     )
+    expect(yq).toContain('del(.connectModules)')
   })
 
   it('asyncapi strips non-asyncapi modules, keeps spacePage + licensing, grants unsafe-eval', () => {
@@ -79,8 +88,12 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(desc).toContain(
       "Allow 'unsafe-eval' in CSP (required by AsyncAPI Studio runtime schema compilation)",
     )
+    // asyncapi keeps the Connect lifecycle module — it still serves legacy
+    // Connect (my-api / AsyncAPI-Conf-V2) installs.
+    expect(desc).not.toContain('Remove Connect lifecycle module (connectModules)')
 
     const yq = getManifestEditYqArgs('asyncapi').map((x) => x.expr)
+    expect(yq).not.toContain('del(.connectModules)')
     // Broader regex than zenuml-asyncapi-macro on its own — keeps the
     // regular asyncapi macro, the embed asyncapi macro, AND the OpenAPI
     // macro (AsyncAPI + OpenAPI are sibling API-spec formats).

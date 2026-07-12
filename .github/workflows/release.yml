@@ -92,6 +92,17 @@ jobs:
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules["confluence:contentBylineItem"])' -i manifest.yml
+      # All non-asyncapi variants: strip the Connect lifecycle module
+      # (connectModules). It lives in manifest.yml only so the asyncapi
+      # variant — which still serves legacy Connect (my-api / AsyncAPI-Conf-V2)
+      # installs — keeps it. lite/full/diagramly are Forge-only in production;
+      # the Forge remote-installed-trigger covers install/upgrade lifecycle.
+      # Mirrors scripts/forge-wizard.mjs.
+      - name: Remove Connect lifecycle module (connectModules) in manifest.yml
+        if: ${{ steps.properties.outputs.license != 'asyncapi' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.connectModules)' -i manifest.yml
       - name: Remove ZenUML-only globalSettings/globalPage entries from Diagramly
         if: ${{ steps.properties.outputs.license == 'diagramly' }}
         uses: mikefarah/yq@master

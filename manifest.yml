@@ -171,6 +171,12 @@ permissions:
     styles:
       - unsafe-inline
 
+# Connect lifecycle module: ships only with the asyncapi variant, which still
+# serves legacy Connect (my-api / AsyncAPI-Conf-V2) installs. lite/full/diagramly
+# are Forge-only in production and strip this whole block via manifestEdits in
+# scripts/forge-wizard.mjs (mirrored in release.yml / staging-deploy.yml) — the
+# Forge remote-installed-trigger covers their install/upgrade lifecycle. The
+# app.connect bridge above stays for all variants (Forge-from-Connect migration).
 connectModules:
   confluence:lifecycle:
     - key: lifecycle-events

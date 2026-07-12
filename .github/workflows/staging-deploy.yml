@@ -61,6 +61,18 @@ jobs:
         with:
           cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi"))) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"])' -i manifest.yml
 
+      # All non-asyncapi variants: strip the Connect lifecycle module
+      # (connectModules). It lives in manifest.yml only so the asyncapi variant
+      # — which still serves legacy Connect (my-api / AsyncAPI-Conf-V2) installs
+      # — keeps it. lite/full/diagramly are Forge-only; the Forge
+      # remote-installed-trigger covers install/upgrade lifecycle. Mirrors
+      # scripts/forge-wizard.mjs.
+      - name: Remove Connect lifecycle module (connectModules) from manifest
+        if: inputs.variant != 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.connectModules)' -i manifest.yml
+
       # Lite: remove contentBylineItem and licensing
       - name: Remove contentBylineItem from manifest
         if: inputs.variant == 'lite'

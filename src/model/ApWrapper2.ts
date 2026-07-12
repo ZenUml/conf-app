@@ -17,6 +17,7 @@ import {AtlasPage} from "@/model/page/AtlasPage";
 import {ISpace, LocationTarget} from './ILocationContext';
 import {Attachment} from './ConfluenceTypes';
 import { loadAllPaginatedData, loadPaginatedDataUntil } from '@/utils/requestUtil';
+import { keepLiveParentPageContent } from '@/utils/orphanFilter';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import {forgeRequest} from '@/utils/requestUtil';
 import { SpaceAdmin } from './SpaceAdmin';
@@ -489,6 +490,21 @@ export default class ApWrapper2 implements IApWrapper {
     return this.parseCustomContentByIdV2Response(id, customContent);
   }
 
+  /**
+   * False only when the custom content is a definitive 404 (not_found) — i.e.
+   * the viewer's GET-by-id will fail to render it. The embed picker lists docs
+   * from the SEARCH index, which can surface ORPHANED content whose parent page
+   * was deleted: still present in the eventually-consistent index (pickable +
+   * previewable), but 404 on GET-by-id because the parent no longer exists. This
+   * lets the embed save block persisting such an unrenderable reference.
+   * Fail-OPEN on transient/other errors (5xx, network, 403) so a hiccup never
+   * blocks a genuinely valid save.
+   */
+  async isCustomContentFetchableV2(id: string): Promise<boolean> {
+    const { status } = await this.fetchCustomContentByIdV2WithStatus(id);
+    return status !== 'not_found';
+  }
+
   // ZEN-1170 Defect 2b. Distinguish "the CC genuinely doesn't exist" (404 /
   // NOT_FOUND) from "the request failed for some other reason" (403, 5xx,
   // malformed response, thrown). Recovery is only safe in the first case —
@@ -948,13 +964,48 @@ export default class ApWrapper2 implements IApWrapper {
         return assign as ICustomContent;
       }).filter((item: ICustomContent) => item && item.value && item.value.diagramType);
 
-      trackEvent(`found ${results.length} content in Forge mode`, 'searchCustomContentForge', 'info');
-      return results;
+      // Drop orphaned records whose parent page was deleted. The custom-content
+      // SEARCH index is eventually-consistent and keeps listing content whose
+      // parent page is gone; the viewer loads via GET-by-id, which 404s for
+      // those — so offering one in the embed picker yields a silently-broken
+      // macro. Bulk-check parent-page liveness and keep only the live ones.
+      const live = await this.filterOrphanedByParentPage(results);
+
+      trackEvent(`found ${live.length} content in Forge mode`, 'searchCustomContentForge', 'info');
+      return live;
     } catch (e) {
       console.error('searchCustomContentForge', e);
       trackEvent(JSON.stringify(e), 'searchCustomContentForge', 'error');
       return [] as Array<ICustomContent>;
     }
+  }
+
+  /**
+   * Remove custom content whose parent page no longer exists (deleted-parent
+   * orphans — see keepLiveParentPageContent). One bulk /pages?id=… call per 250
+   * unique parent ids (the v2 endpoint silently omits ids it can't return).
+   * Fail-OPEN: on any error, return the list unfiltered — the embed save guard
+   * (isCustomContentFetchableV2) is the safety net, and we must never blank the
+   * whole picker on a transient hiccup.
+   */
+  private async filterOrphanedByParentPage(items: Array<ICustomContent>): Promise<Array<ICustomContent>> {
+    const pageIds = [...new Set(
+      items.map(i => (i as any).pageId).filter(Boolean).map(String),
+    )];
+    if (pageIds.length === 0) return items;
+
+    const livePageIds = new Set<string>();
+    try {
+      for (let i = 0; i < pageIds.length; i += 250) {
+        const qs = pageIds.slice(i, i + 250).map(id => `id=${encodeURIComponent(id)}`).join('&');
+        const resp: any = await this.makeRequest(`/api/v2/pages?${qs}&limit=250`);
+        (resp?.results || []).forEach((p: any) => { if (p?.id) livePageIds.add(String(p.id)); });
+      }
+    } catch (e) {
+      console.warn('searchCustomContentForge: parent-page liveness check failed; returning unfiltered', e);
+      return items;
+    }
+    return keepLiveParentPageContent(items as Array<ICustomContent & { pageId?: string }>, livePageIds);
   }
 
   // --- Agent Link discovery (design §S3/S4) --------------------------------

@@ -69,7 +69,7 @@ describe('ForgeEmbedViewer', () => {
 
     expect(wrapper.find('.loading').exists()).toBe(false);
     expect(wrapper.find('.error').exists()).toBe(true);
-    expect(wrapper.text()).toContain('Unable to load the embedded diagram');
+    expect(wrapper.text()).toContain("couldn't be loaded");
   });
 
   it('still surfaces a real error for a genuinely unrenderable resolved type (embed → embed)', async () => {

@@ -91,7 +91,7 @@ export default {
         // embed). Surface a terminal error rather than spinning forever.
         this.error = type && type !== DiagramType.Unknown
           ? `Unknown diagram type: ${type}`
-          : 'Unable to load the embedded diagram. The referenced content may have been deleted.';
+          : "This embedded diagram couldn't be loaded. It may have been deleted or moved, or it's a draft or in a space you can't access. Edit the macro to pick a different diagram.";
         this.loading = false;
         return;
       }

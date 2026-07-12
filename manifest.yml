@@ -140,6 +140,9 @@ permissions:
       backend:
         - https://zenuml.com
         - https://*.zenuml.com
+        - https://diagramly.ai
+        - https://*.diagramly.ai
+        - wss://*.diagramly.ai
         # wss for the Live Agent Link relay channel (empirical: https entry does NOT cover wss scheme)
         - wss://*.zenuml.com
         - https://*.mixpanel.com
@@ -155,6 +158,9 @@ permissions:
         - remote: diagramly
         - https://cdn.mxpnl.com
         - https://*.cdn.mxpnl.com
+        - https://diagramly.ai
+        - https://*.diagramly.ai
+        - wss://*.diagramly.ai
     images:
       - https://*.googletagmanager.com
     scripts:

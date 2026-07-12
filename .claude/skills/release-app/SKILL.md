@@ -36,9 +36,9 @@ Single source of truth for which sites each variant targets and the order/timing
 | diagramly | `zenuml-stg.atlassian.net` | `zenuml.atlassian.net` | `v{version}-diagramly` |
 | lite | `zenuml-stg.atlassian.net` | `zenuml.atlassian.net` | `v{version}-lite` |
 | full | `zenuml-stg.atlassian.net` | `zenuml.atlassian.net` | `v{version}-full` |
-| asyncapi | `asyncapi-stg.atlassian.net` | Forge prod — **no prod tenant yet** (PVT N/A) | `v{version}-asyncapi` |
+| asyncapi | `asyncapi-stg.atlassian.net` | `async-prd.atlassian.net` (see PVT note in 2.5) | `v{version}-asyncapi` |
 
-lite, full, and diagramly are Forge apps deployed to the same Confluence site (`zenuml.atlassian.net`), distinguished by their addon keys and macro names. asyncapi is a separate Forge app ("AsyncAPI for Confluence"); it shares the `conf-lite` Cloudflare Pages project for now and has **no production Confluence tenant we control**, so its post-release prod smoke / PVT is skipped (Step 2.5).
+lite, full, and diagramly are Forge apps deployed to the same Confluence site (`zenuml.atlassian.net`), distinguished by their addon keys and macro names. asyncapi is a separate Forge app ("AsyncAPI for Confluence"); it shares the `conf-lite` Cloudflare Pages project for now. Its production tenant is **`async-prd.atlassian.net`** (verified 2026-07-12: cloudId `1ec8c87a-4984-41a7-975b-82160f5497a5`, active `my-api` COMMERCIAL license, Forge install Up-to-date — the old "no prod tenant" claim was stale). `release.yml`'s built-in prod smoke still skips asyncapi (workflow condition unchanged); manual PVT is defined in Step 2.5 and is currently gated on account access.
 
 ### Canary order — diagramly → lite → full; asyncapi is independent
 
@@ -228,7 +228,7 @@ This triggers the Release workflow (`release.yml`): it builds and publishes to C
 - **Lite**: `/pvt lite`
 - **Full**: `/pvt full`
 - **Diagramly**: `/pvt diagramly`
-- **AsyncAPI**: **N/A** — no production Confluence tenant we control; the release workflow skips its prod smoke (`release.yml`: `needs.release.outputs.license != 'asyncapi'`). Record `PVT: N/A — no prod tenant` and rely on the staging E2E that ran pre-release.
+- **AsyncAPI**: run against the prod tenant **`async-prd.atlassian.net`**. Minimal checks: (a) the "My API Documents" dashboard or an asyncapi macro renders; (b) when the delta touches AI features, the `/diagramly/*` request origin is `https://zenapi.zenuml.com`. **Prerequisite:** the e2e automation account needs Confluence membership on `async-prd` — as of 2026-07-12 it has none (hard access-denied), so until an admin invites it, record `PVT: BLOCKED — e2e account lacks Confluence access on async-prd` (not "N/A") and rely on the pre-release staging E2E. The release workflow's own prod smoke also skips asyncapi (`release.yml`: `needs.release.outputs.license != 'asyncapi'`).
 
 Report PVT results to the user.
 
@@ -329,6 +329,6 @@ Summarize each released variant:
 - **Always check for a fresh draft first (1.1).** A merge to main that completed in the last hour or so already produced the drafts you need — reuse them. Pushing a `chore: trigger release pipeline` commit when fresh drafts exist wastes ~15 min of CI, pollutes main history, and gains nothing.
 - The build workflow has no `workflow_dispatch` — a push to main (1.2) is the only fallback if no fresh draft exists.
 - Draft releases are only created on `main` (not on PRs or other branches).
-- lite/full/diagramly are Forge apps on the same production site (`zenuml.atlassian.net`); asyncapi is a separate app with no prod tenant yet (its PVT / prod-smoke is skipped).
+- lite/full/diagramly are Forge apps on the same production site (`zenuml.atlassian.net`); asyncapi is a separate app whose prod tenant is `async-prd.atlassian.net` (workflow prod-smoke still skipped; manual PVT per 2.5, gated on e2e account access).
 - Always confirm with the user before pushing to main or publishing releases.
 - All order/timing rules live in **"Variants & gates"** — the canary order (diagramly → lite → full), the lite-needs-diagramly prerequisite, and the full ≥ 1-week soak. Don't restate them; reference that section.

@@ -377,7 +377,7 @@ describe('GenericViewer (chrome-less)', () => {
 
       // Drive the composable's thinking state (a real op would set this via the
       // relay) and confirm it surfaces on the diagram render surface.
-      ;(wrapper.vm as any)._agentLink.thinkingState.value = 'thinking'
+      ;(wrapper.vm as any).agentLinkSession.thinkingState.value = 'thinking'
       await wrapper.vm.$nextTick()
 
       const overlay = wrapper.find('[data-testid="agent-thinking-overlay"]')

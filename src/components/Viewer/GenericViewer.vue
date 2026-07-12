@@ -225,7 +225,7 @@ export default {
     // controls the ENTIRE feature — until it resolves true, this macro
     // renders exactly as it does today.
     agentLinkFeatureEnabled: false,
-    _agentLink: null,
+    agentLinkSession: null,
   }),
   components: {
     Debug,
@@ -325,7 +325,7 @@ export default {
       return this.showAgentLinkPanel && ['connected', 'suspended', 'closed', 'expired'].includes(this.agentLinkState);
     },
     agentLinkExpiresAt() {
-      return this._agentLink?.expiresAt.value ?? null;
+      return this.agentLinkSession?.expiresAt.value ?? null;
     },
     // Perceived-latency overlay gate (charter §6 Track F). Same flag/type
     // gating as the other affordances, but NOT restricted to Fullscreen: the
@@ -336,16 +336,16 @@ export default {
       return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported;
     },
     agentLinkThinking() {
-      return this._agentLink?.thinkingState.value ?? 'idle';
+      return this.agentLinkSession?.thinkingState.value ?? 'idle';
     },
     agentLinkState() {
-      return this._agentLink?.state.value ?? 'idle';
+      return this.agentLinkSession?.state.value ?? 'idle';
     },
     agentLinkToken() {
-      return this._agentLink?.token.value ?? null;
+      return this.agentLinkSession?.token.value ?? null;
     },
     agentLinkActivityFeed() {
-      return this._agentLink?.activityFeed.value ?? [];
+      return this.agentLinkSession?.activityFeed.value ?? [];
     },
   },
   watch: {
@@ -376,12 +376,12 @@ export default {
     // is flag-gated and not yet rendered. mounted() swaps in the real
     // Forge-bridge-backed ops once the flag settles (or keeps this one for
     // standalone/dev/no-context).
-    this._agentLink = markRaw(useAgentLinkSession(createUnwiredBridgeOps(), {
+    this.agentLinkSession = markRaw(useAgentLinkSession(createUnwiredBridgeOps(), {
       macroType: this.diagramType || 'none',
       clickSurface: 'viewer',
       // Wire the live-render seam even on this provisional instance. The
       // Fullscreen modal hydrates + applies an agent edit through whatever
-      // _agentLink instance it has, and mounted()'s relay-backed swap does
+      // agentLinkSession instance it has, and mounted()'s relay-backed swap does
       // NOT reliably run the same way in the modal iframe (see the hydration
       // block's comment) — so the Fullscreen may still be on THIS placeholder
       // when a dsl update arrives over the handoff. applyAgentDiagramUpdate
@@ -431,7 +431,7 @@ export default {
           console.error('Failed to resolve agent-link relay context:', e);
         }
       }
-      this._agentLink = markRaw(useAgentLinkSession(createBridgeOps(bridge, this.diagram.id), {
+      this.agentLinkSession = markRaw(useAgentLinkSession(createBridgeOps(bridge, this.diagram.id), {
         macroType: this.diagramType || 'none',
         clickSurface: 'viewer',
         relay,
@@ -448,7 +448,7 @@ export default {
       // second relay socket here would violate "one live connection" (design
       // §3 decision #8).
       if (!this.isFullscreenMode) {
-        this._agentLink.attemptReattach();
+        this.agentLinkSession.attemptReattach();
       }
     }
     // Fullscreen hydration (finding #3, manual test 2026-07-08; finding #4,
@@ -462,7 +462,7 @@ export default {
     // actually showing.
     //
     // DELIBERATELY NOT gated on `agentLinkFeatureEnabled && globals.apWrapper`
-    // above: live spot-check found the Fullscreen modal iframe's `_agentLink`
+    // above: live spot-check found the Fullscreen modal iframe's `agentLinkSession`
     // stuck in 'idle' with a real session already sitting in localStorage —
     // that block (which builds the Forge-bridge-backed instance AND used to
     // own this hydration) doesn't reliably run the same way in the
@@ -491,12 +491,12 @@ export default {
       const pageId = window.forgeGlobal?.forgeContext?.extension?.content?.id;
       if (pageId != null) {
         const handoff = readSession(String(pageId));
-        if (handoff) this._agentLink.hydrateFrom(handoff);
-        this._agentLinkHandoffUnsubscribe = this._agentLink.watchForHandoff(String(pageId));
+        if (handoff) this.agentLinkSession.hydrateFrom(handoff);
+        this._agentLinkHandoffUnsubscribe = this.agentLinkSession.watchForHandoff(String(pageId));
       } else {
         const handoff = readAnySession();
-        if (handoff) this._agentLink.hydrateFrom(handoff);
-        this._agentLinkHandoffUnsubscribe = this._agentLink.watchForAnyHandoff();
+        if (handoff) this.agentLinkSession.hydrateFrom(handoff);
+        this._agentLinkHandoffUnsubscribe = this.agentLinkSession.watchForAnyHandoff();
       }
     }
   },
@@ -524,23 +524,23 @@ export default {
     // comment for the fix and its same-origin assumption; see
     // docs/superpowers/specs/2026-07-08-live-agent-link-design.md §4.3.
     connectToAgent() {
-      this._agentLink?.startConnect();
+      this.agentLinkSession?.startConnect();
       this.fullscreen();
     },
     onAgentLinkDisconnect() {
-      this._agentLink?.disconnect('user');
+      this.agentLinkSession?.disconnect('user');
     },
     // Track G: "Revoke & re-link" — closes the current (possibly suspended
     // or stuck-with-a-dead-agent) session and immediately mints a fresh one.
     onAgentLinkRevoke() {
-      this._agentLink?.revokeAndRelink();
+      this.agentLinkSession?.revokeAndRelink();
     },
     // Track H: "Reconnect" from the terminal (closed) notice — mints a fresh
     // session after an explicit Disconnect or TTL expiry. revokeAndRelink()
     // force-resets to 'idle' then startConnect()s, so it works even from the
     // absorbing 'closed' terminal state (a plain startConnect() would no-op).
     onAgentLinkReconnect() {
-      this._agentLink?.revokeAndRelink();
+      this.agentLinkSession?.revokeAndRelink();
     },
     // Live Agent Link render fix: an agent's update_diagram op PERSISTS via
     // the Forge bridge (writeDiagram -> saveCustomContentV2), but that write
@@ -558,7 +558,7 @@ export default {
       // actually painted (next tick after the store change the viewer watches),
       // so it clears the "thinking" overlay exactly when the new diagram is on
       // screen — never before — and measures a real view-layer render_ms.
-      this.$nextTick(() => this._agentLink?.notifyRenderSettled());
+      this.$nextTick(() => this.agentLinkSession?.notifyRenderSettled());
     },
     fullscreen() {
       trackEvent('fullscreen', 'click', 'viewing');

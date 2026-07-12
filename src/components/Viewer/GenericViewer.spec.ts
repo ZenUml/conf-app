@@ -199,6 +199,144 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
+  // #333 — View Source: read-only DSL panel for text-DSL types, available to
+  // ALL viewers (including users without edit permission).
+  describe('View Source (#333)', () => {
+    const SOURCE_DSL = 'Alice->Bob: hello\nBob->Alice: hi'
+
+    beforeEach(() => {
+      store.state.diagram.code = SOURCE_DSL
+      store.state.diagram.mermaidCode = 'sequenceDiagram\n  A->>B: hi'
+      store.state.diagram.plantUmlCode = '@startuml\nA -> B\n@enduml'
+    })
+
+    it.each([
+      [DiagramType.Sequence, 'ZenUML', SOURCE_DSL],
+      [DiagramType.Mermaid, 'Mermaid', 'sequenceDiagram\n  A->>B: hi'],
+      [DiagramType.PlantUml, 'PlantUML', '@startuml\nA -> B\n@enduml'],
+    ] as const)(
+      'shows Source for %s and opens a read-only panel with in-memory DSL',
+      async (type, dslLabel, expectedSource) => {
+        store.commit('updateDiagramType', type)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        const btn = wrapper.find('[data-testid="view-source-btn"]')
+        expect(btn.exists()).toBe(true)
+        expect(btn.text()).toContain('Source')
+
+        await btn.trigger('click')
+        await wrapper.vm.$nextTick()
+
+        const panel = wrapper.find('[data-testid="view-source-panel"]')
+        expect(panel.exists()).toBe(true)
+        expect(panel.find('#view-source-panel-title').text()).toBe(`Diagram source · ${dslLabel}`)
+        expect(panel.find('[data-testid="view-source-code"]').text()).toBe(expectedSource)
+        expect(panel.find('[data-testid="view-source-meta"]').text()).toMatch(/read-only/)
+      },
+    )
+
+    it.each([
+      DiagramType.Graph,
+      DiagramType.OpenApi,
+      DiagramType.AsyncApi,
+      DiagramType.Embed,
+    ])('hides Source for non-text-DSL type %s', async (type) => {
+      store.commit('updateDiagramType', type)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="view-source-btn"]').exists()).toBe(false)
+    })
+
+    it('shows Source when the user cannot edit (not gated on canUserEdit)', async () => {
+      vi.mocked(globals.apWrapper.canUserEdit).mockResolvedValueOnce(false)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      // Source must remain available even when canUserEdit resolves false.
+      // (Edit visibility is separate and may still show under import.meta.env.DEV.)
+      expect(wrapper.find('[data-testid="view-source-btn"]').exists()).toBe(true)
+      expect((wrapper.vm as any).canUserEdit).toBe(false)
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      expect(wrapper.find('[data-testid="view-source-panel"]').exists()).toBe(true)
+    })
+
+    it('fires viewer_source_opened with macro_type, surface viewer, and has_edit_permission', async () => {
+      store.commit('updateDiagramType', DiagramType.Mermaid)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('viewer_source_opened', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: DiagramType.Mermaid,
+        has_edit_permission: true,
+      })
+    })
+
+    it('fires viewer_source_opened with has_edit_permission false for read-only viewers', async () => {
+      vi.mocked(globals.apWrapper.canUserEdit).mockResolvedValueOnce(false)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'viewer_source_opened',
+        expect.objectContaining({
+          has_edit_permission: false,
+          surface: 'viewer',
+          macro_type: DiagramType.Sequence,
+        }),
+      )
+    })
+
+    it('fires viewer_source_copied when Copy is clicked in the panel', async () => {
+      const writeText = vi.fn(() => Promise.resolve())
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText },
+      })
+      Object.defineProperty(window, 'isSecureContext', {
+        configurable: true,
+        value: true,
+      })
+
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      await wrapper.find('[data-testid="view-source-copy"]').trigger('click')
+      await flushPromises()
+
+      expect(writeText).toHaveBeenCalledWith(SOURCE_DSL)
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('viewer_source_copied', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: DiagramType.Sequence,
+        has_edit_permission: true,
+      })
+    })
+
+    it('closes the panel when the close button is clicked', async () => {
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      expect(wrapper.find('[data-testid="view-source-panel"]').exists()).toBe(true)
+
+      await wrapper.find('[data-testid="view-source-close"]').trigger('click')
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('[data-testid="view-source-panel"]').exists()).toBe(false)
+    })
+  })
+
   // ZEN-1170 Defect 2b: when the diagram was loaded via orphan-sibling
   // recovery, the in-viewer Edit button must steer the user to Confluence's
   // page editor (where the macro-config surface can actually persist a

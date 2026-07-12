@@ -62,6 +62,22 @@
                 </svg>
                 <span>Edit</span>
               </button>
+              <!-- View Source (#333): visible to ALL viewers, including users without
+                   edit permission. Text-DSL types only (sequence / mermaid / plantuml). -->
+              <button
+                v-if="showViewSource"
+                type="button"
+                class="viewer-btn-ghost"
+                aria-label="Source"
+                title="View source"
+                data-testid="view-source-btn"
+                @click="openViewSource"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" />
+                </svg>
+                <span>Source</span>
+              </button>
               <ConnectButton v-if="showAgentLinkConnect" @connect="connectToAgent" />
               <button v-if="!isFullscreenMode" @click="fullscreen" aria-label="Fullscreen" class="viewer-btn-primary">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
@@ -171,6 +187,13 @@
           />
         </aside>
         </div>
+        <ViewSourcePanel
+          :visible="showSourcePanel"
+          :source="viewSourceCode"
+          :dsl-label="viewSourceDslLabel"
+          @close="showSourcePanel = false"
+          @copy="onViewSourceCopied"
+        />
       </div>
     </template>
 
@@ -191,6 +214,7 @@ import {DataSource, DiagramType} from "@/model/Diagram/Diagram";
 import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import ExportModal from '@/components/ExportModal/ExportModal.vue'
 import OverflowMenu from '@/components/Viewer/OverflowMenu.vue'
+import ViewSourcePanel from '@/components/Viewer/ViewSourcePanel.vue'
 import { toast } from '@/utils/toast'
 import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
@@ -219,6 +243,7 @@ export default {
     canUserEdit: true,
     isHovering: false,
     showExportModal: false,
+    showSourcePanel: false,
     isDownloadingDebug: false,
     // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)
     // master flag, resolved async in mounted(). Defaults false so the flag
@@ -231,6 +256,7 @@ export default {
     Debug,
     ExportModal,
     OverflowMenu,
+    ViewSourcePanel,
     ConnectButton,
     ConnectPanel,
     LinkStatusChip,
@@ -301,6 +327,22 @@ export default {
     // Graph/OpenAPI/AsyncAPI/Embed are not offered the Connect affordance.
     agentLinkMvpSupported() {
       return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml].includes(this.diagramType);
+    },
+    // View Source (#333): text-DSL types only. NOT gated on canUserEdit — the
+    // audience includes readers without edit permission.
+    showViewSource() {
+      return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml].includes(this.diagramType);
+    },
+    viewSourceCode() {
+      return getCodeFromDiagram(this.diagram, this.diagramType) || '';
+    },
+    viewSourceDslLabel() {
+      switch (this.diagramType) {
+        case DiagramType.Mermaid: return 'Mermaid';
+        case DiagramType.PlantUml: return 'PlantUML';
+        case DiagramType.Sequence:
+        default: return 'ZenUML';
+      }
     },
     // Small-macro action-area affordance — hidden once already in Fullscreen
     // (that surface shows the Connect *rail* instead, see showAgentLinkPanel).
@@ -511,6 +553,25 @@ export default {
     edit() {
       trackEvent('edit', 'click', 'editing');
       EventBus.$emit('edit');
+    },
+    // View Source panel (#333). Uses in-memory diagram DSL — no refetch.
+    // Available to all viewers; do not gate on canUserEdit.
+    openViewSource() {
+      this.showSourcePanel = true;
+      trackAnalyticsEvent('viewer_source_opened', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: this.diagramType ?? 'none',
+        has_edit_permission: !!this.canUserEdit,
+      });
+    },
+    onViewSourceCopied() {
+      trackAnalyticsEvent('viewer_source_copied', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: this.diagramType ?? 'none',
+        has_edit_permission: !!this.canUserEdit,
+      });
     },
     // Connect-to-Agent affordance (design §5.1, §9): kicks off this mount's
     // local session state, then reuses the EXISTING, unmodified Fullscreen

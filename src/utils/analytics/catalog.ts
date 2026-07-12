@@ -155,6 +155,11 @@ export type AnalyticsEventName =
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
+  // Viewer "View source" panel (#333): read-only DSL affordance for all viewers
+  // (including users without edit permission). Opened from the hover toolbar on
+  // text-DSL types only (sequence / mermaid / plantuml).
+  | "viewer_source_opened"
+  | "viewer_source_copied"
   | "viewer_load_failed"
   | "close_guard_rejected"
   | "renderer_prefetch_started"

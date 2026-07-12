@@ -143,9 +143,14 @@ const FormDefaultExample = () => {
   );
 
   const handleExit = React.useCallback(async () => {
+    // The AI Aide is a plain chat panel — it has no macro config to write
+    // back, so view.close() is the correct dismissal. view.submit() throws
+    // "this resource's view is not submittable" on this (non-submittable)
+    // surface, which the old code swallowed and left the dialog stuck open.
+    // Same class of bug guarded in the macro editors (see writebackGate.ts).
     try {
       const { view } = await import('@forge/bridge');
-      await view.submit();
+      await view.close();
     } catch (e) {
       console.error('Failed to close AI aide', e);
     }

@@ -83,6 +83,21 @@ Because ZenUML access is soft-enforced everywhere, the honest definition of an *
 client** is: `lifetime_vendor > 0` **and** (`grace` or `paid_thru < today` or a real renewal about
 to fail on `no-payment-method`). The script's `overdue --paid-only` encodes exactly that.
 
+### cloudId ≠ customer — the site-migration false-churn trap
+
+All revenue joins key on `cloudId`, but a customer that **migrates Confluence sites gets a new
+cloudId**: the old license converts to `LEGACY_FREE` and reads as a churned payer, while the new
+site reads as an unrelated new customer. Real case (2026-07): `wendys.atlassian.net` showed as a
+$5.5k lapsed win-back target, but Wendy's had moved to `wentrack.atlassian.net` — COMMERCIAL,
+renewed annually, paid through 2027 (caught by the user, not the tooling).
+
+**Before declaring any payer churned, run the migration-twin check:** take the lapsed license's
+`contactDetails.technicalContact.email` domain and scan **all** vendor licenses for another host
+with the same contact domain holding an active `COMMERCIAL` license / recent paid transactions.
+Match on the technical contact, not the billing contact — billing contacts are often resellers
+(e.g. Isos Technology) shared across many unrelated customers. Residual blind spot: a migration
+whose new site lists a different contact domain (e.g. only the reseller's) still slips through.
+
 ## Why the script exists (don't bypass it)
 
 Three traps that a naive `curl` gets wrong, all fixed inside `mp_report.py`:

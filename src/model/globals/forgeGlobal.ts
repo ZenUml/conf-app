@@ -11,6 +11,14 @@ const global = {
   isAsyncApi: undefined,
 } as any;
 
+// zenumlRemoteBaseUrl is the origin that `callRemote` (→ invokeRemote) targets
+// for our own backend endpoints (/diagramly/*, etc). It MUST match the `connect`
+// remote's baseUrl (manifest `${BACKEND_API_BASE_URL}`) for the running variant,
+// or invokeRemote can't resolve a declared remote and the backend rejects the
+// Forge invocation token. asyncapi shares the Lite Cloudflare Pages project but
+// on its own hostnames (staging: conf-stg-lite; prod: zenapi.zenuml.com — a
+// custom domain aliased to conf-lite), so it needs its own entries rather than
+// reusing LITE (whose prod host is conf-lite.zenuml.com).
 const REMOTE_BASE_URL_MAP = {
   DEVELOPMENT_LITE: 'https://confluence-plugin.pages.dev',
   STAGING_LITE: 'https://conf-stg-lite.zenuml.com',
@@ -18,7 +26,36 @@ const REMOTE_BASE_URL_MAP = {
   DEVELOPMENT_FULL: 'https://confluence-plugin.pages.dev',
   STAGING_FULL: 'https://conf-stg-full.zenuml.com',
   PRODUCTION_FULL: 'https://conf-full.zenuml.com',
+  DEVELOPMENT_ASYNCAPI: 'https://confluence-plugin.pages.dev',
+  STAGING_ASYNCAPI: 'https://conf-stg-lite.zenuml.com',
+  PRODUCTION_ASYNCAPI: 'https://zenapi.zenuml.com',
 };
+
+// Map the resolved product variant to its REMOTE_BASE_URL_MAP key suffix.
+// asyncapi must NOT fall through to 'FULL' — its backend is the Lite project,
+// not conf-*-full (see BACKEND_API_BASE_URL in the forge:*:asyncapi:* scripts).
+type RemoteUrlVariant = 'ASYNCAPI' | 'LITE' | 'FULL';
+
+function remoteUrlVariant(flags: {
+  isAsyncApi?: boolean
+  isLite?: boolean
+  isDiagramly?: boolean
+}): RemoteUrlVariant {
+  if (flags.isAsyncApi) return 'ASYNCAPI';
+  if (flags.isLite || flags.isDiagramly) return 'LITE';
+  return 'FULL';
+}
+
+// Pure, exported for unit testing: resolve the backend origin for a given Forge
+// environmentType ('DEVELOPMENT' | 'STAGING' | 'PRODUCTION') and product-variant
+// flags. Returns undefined for an unknown environment key.
+export function resolveZenumlRemoteBaseUrl(
+  environmentType: string,
+  flags: { isAsyncApi?: boolean; isLite?: boolean; isDiagramly?: boolean },
+): string | undefined {
+  const key = `${environmentType}_${remoteUrlVariant(flags)}` as keyof typeof REMOTE_BASE_URL_MAP;
+  return REMOTE_BASE_URL_MAP[key];
+}
 
 function isStandaloneEnvironment(): boolean {
   try {
@@ -103,8 +140,7 @@ function applyStandaloneContext() {
   global.isDiagramly = import.meta.env.PRODUCT_TYPE === 'diagramly';
   global.isLite = import.meta.env.PRODUCT_TYPE === 'lite';
   global.isAsyncApi = import.meta.env.PRODUCT_TYPE === 'asyncapi';
-  const urlVariant = (global.isLite || global.isDiagramly) ? 'LITE' : 'FULL';
-  global.zenumlRemoteBaseUrl = REMOTE_BASE_URL_MAP[`DEVELOPMENT_${urlVariant}`];
+  global.zenumlRemoteBaseUrl = resolveZenumlRemoteBaseUrl('DEVELOPMENT', global);
   console.log('forgeGlobal - standalone (local dev), no Forge bridge');
   console.debug('forgeGlobal - zenumlRemoteBaseUrl', global.zenumlRemoteBaseUrl);
 }
@@ -129,8 +165,7 @@ export async function getView() {
     global.isDiagramly = import.meta.env.PRODUCT_TYPE === 'diagramly';
     global.isLite = import.meta.env.PRODUCT_TYPE === 'lite';
     global.isAsyncApi = import.meta.env.PRODUCT_TYPE === 'asyncapi';
-    const urlVariant = (global.isLite || global.isDiagramly) ? 'LITE' : 'FULL';
-    global.zenumlRemoteBaseUrl = REMOTE_BASE_URL_MAP[`${ctx.environmentType}_${urlVariant}`];
+    global.zenumlRemoteBaseUrl = resolveZenumlRemoteBaseUrl(ctx.environmentType, global);
     console.log('forgeGlobal - context', global.forgeContext);
     console.debug('forgeGlobal - zenumlRemoteBaseUrl', global.zenumlRemoteBaseUrl);
   } catch (e) {

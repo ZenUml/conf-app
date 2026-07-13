@@ -1,8 +1,17 @@
 # Live Agent Link — Sliding Session TTL + Live Activity Feedback (Design)
 
-> Status: **draft for review**. Precursor to two implementation plans (writing-plans).
-> Builds on `2026-07-08-live-agent-link-design.md` (the base feature) and the
-> merged Agent Link PRs (#312–#322).
+> Status: **draft for review, v2**. Precursor to two implementation plans
+> (writing-plans). Builds on `2026-07-08-live-agent-link-design.md` (the base
+> feature) and the merged Agent Link PRs (#312–#322).
+>
+> **v2 (2026-07-13, Fable design review):** replaced three parallel mechanisms
+> (op-envelope expiry stamping / client-inferred activity pulse / separate hook
+> path) with **one relay-originated `status` envelope on the existing macro
+> WebSocket**. Key insight: the macro WS is already a persistent server-push
+> channel; v1 contorted around it. Also: the activity-bump condition widened
+> from "delivered to macro" to "authenticated work request" (fixes
+> guardrail-retry-loop death), and guardrail rejections — previously invisible
+> to the user, the worst dead-air case — now surface through the same bus.
 
 ## 1. Problem (User-First Trace)
 
@@ -43,20 +52,47 @@ effectiveExpiry(issuedAtMs, lastActivityMs)
   = min(lastActivityMs + IDLE_TTL_MS(10m),  issuedAtMs + MAX_SESSION_MS(60m))
 ```
 
-- Each op **delivered to the macro** resets the 10-minute idle window.
+- Each **authenticated work request** resets the 10-minute idle window.
 - The session can never live longer than 60 minutes total, no matter how active.
 - Rationale: reconciles the request with design §8 / line 171 ("a leaked token
   only grants edit-this-one-diagram for a short window"). A stolen or abandoned
   token dies after ≤10 min idle or ≤60 min absolute.
-- **"Delivered to the macro"** is the activity condition (not "successful op"),
-  so the server and the macro slide on the *same* event; the absolute cap — not
-  op success — is what bounds a leaked token. `get_status` polling does **not**
-  extend (an idle agent that only polls must not keep a dead session alive).
+- **"Authenticated work request"** (v2, was "delivered to the macro" in v1) =
+  `tools/call` for any tool **except `get_status`**, plus `resources/read` (only
+  ever the DSL guides — unambiguously diagram work). It deliberately **includes
+  guardrail-rejected `update_diagram` calls**: a rejected edit is real agent
+  engagement, and v1's delivered-only rule would have killed a session mid
+  guardrail-retry-loop (>10 min of rejected attempts with no reads = dead
+  session while the agent is actively working).
+- **Not** bump-worthy: `get_status` (a passive monitor must not keep a dead
+  session alive), `initialize` / `tools/list` / `notifications/*` (an MCP host
+  fires these when the user starts *any* conversation, even unrelated to
+  diagrams — they signal "host connected", not "user engaged").
 
-## 4. Workstream A — Sliding TTL (server-authoritative)
+## 4. Workstream A — Sliding TTL on a status bus (server-authoritative)
 
 The Durable Object is the sole authority on expiry (it is what 403s the agent);
 the client mirrors it, never computes its own.
+
+**v2 architecture — one bus, three producers:**
+
+```
+DO observes                          DO pushes                Macro displays
+───────────────────────────         ─────────────────        ──────────────────
+auth traffic  (?bump=1)        →                             TTL meter re-arms
+guardrail rejects (/activity)  →    {kind:'status',      →   activity pulse
+hook turns    (/activity, WS-C)→     expiresAt, activity}     feed rows
+```
+
+- The macro's WebSocket is a persistent, bidirectional channel the DO can write
+  to at any time (it already sends `error` envelopes). v2 adds **one
+  relay-originated envelope kind, `status`**, carrying
+  `{expiresAt, activity?: {type, detail?}}` — the single way the macro passively
+  learns anything the DO knows.
+- **Forwarded op envelopes stay verbatim** — no relay metadata is stamped into
+  peer messages (v1's op-stamping mixed concerns; see §8).
+- Backward compatible: `relayClient.handleMessage` already ignores unknown
+  envelope kinds silently, so an old macro iframe receiving `status` is safe.
 
 ### 4.1 `functions/agent-link/sessionToken.ts` (pure helpers)
 
@@ -71,20 +107,38 @@ the client mirrors it, never computes its own.
 - New pure `bumpActivity(record, nowMs)` → sets `lastActivityMs = nowMs`
   (the `min()` clamps the effect at the cap; no separate clamp needed).
 
-### 4.2 `functions/agent-link/AgentLinkSession.ts` (the DO)
+### 4.2 `functions/agent-link/AgentLinkSession.ts` (the DO) + `mcp.ts`
 
 - Bootstrap: set `lastActivityMs = issuedAtMs`; set the alarm at
   `effectiveExpiryMs(…)`.
-- `handleAgentOp`, for every real op **forwarded to the macro** (not
-  `get_status`): bump `lastActivityMs = Date.now()`, persist, **re-arm the alarm**
-  to the new `effectiveExpiryMs`, and **stamp the fresh authoritative `expiresAt`
-  onto the forwarded op envelope**: `{kind:'op', id, op, payload, expiresAt}`.
-  (This is how the macro learns the new deadline — see §4.4.)
+- **The bump rides the auth call that already happens** (zero extra
+  round-trips): every MCP request round-trips `GET /session` on the DO for
+  auth (`authenticateViaDo`). `mcp.ts` — which knows the JSON-RPC method —
+  appends `?bump=1` when the request is bump-worthy per §3. The DO's
+  `handleSessionInfo` then: bumps `lastActivityMs`, persists, **re-arms the
+  alarm** to the new `effectiveExpiryMs`, and **pushes a `status` envelope to
+  the macro socket** with the fresh `expiresAt`. `handleAgentOp` no longer
+  needs its own bump.
+- **Guardrail-reject visibility (new, closes a real blind spot):** guardrail
+  rejection happens in `mcp.ts`/`mcpTools` *before* `forwardToMacro` — the
+  macro never sees the op, so today the user watches the agent claim "updating
+  the diagram" while **nothing appears in the UI** across an entire retry loop.
+  v2: on a guardrail rejection, `mcp.ts` fires a best-effort
+  `POST /activity {type:'guardrail_rejected', reason}` to the DO, which pushes
+  a `status` envelope; the macro renders an honest feed row ("Agent submitted
+  an invalid edit — retrying"). The same `/activity` ingress is what
+  Workstream C's hooks use later — one door, not two.
 - `validateSession`, `get_status` (`expiresInSec`), and the `suspended`
   `resume_deadline`: all derive from `effectiveExpiryMs(…)`.
 - `alarm()`: guard with `isExpired(…)`; if a bump moved the deadline forward
   (the alarm is one-shot and replaced on each re-arm, so a stale fire is
   unlikely), re-arm to `effectiveExpiryMs` instead of expiring.
+- `forwarding.ts`: add `status` to the Envelope union as a relay-originated,
+  never-routed kind (macro-bound only).
+- **Deploy order:** the companion Worker (`workers/agent-link/`, hosts the DO)
+  deploys independently of Pages — ship the DO **first**, then Pages/mcp.ts
+  (`?bump=1` on an old DO is an ignored query param; a new DO with old Pages
+  simply never gets bumps — both degrade to v1 fixed-TTL behavior, no breakage).
 
 ### 4.3 `functions/agent-link/session.ts` (content-lock — the load-bearing fix)
 
@@ -100,37 +154,45 @@ have a self-healing lock.
 
 ### 4.4 Client (`relayClient.ts` + `useAgentLinkSession.ts`)
 
-- `RelayEnvelope` / `RelayStateEvent`: carry an optional `expiresAt`.
-  `handleOp` reads `envelope.expiresAt` and includes it on the emitted
-  `{type:'op', …}` event.
-- `handleRelayStateEvent` op branch: if `event.expiresAt` is present, set
-  `expiresAt.value = event.expiresAt`, call `scheduleExpiry()` (re-arm the
-  watchdog), and re-persist the handoff. Fullscreen inherits the new deadline
-  through the **existing** `hydrateFrom` `expiresAt` mirror (owner already
-  persists `handoffFeedFields()`, which carries `expiresAt`) — no new plumbing.
+- `relayClient.handleMessage`: handle `kind === 'status'` → emit a new
+  `{type: 'status', expiresAt, activity?}` `RelayStateEvent`. (Op envelopes are
+  unchanged/verbatim.)
+- `handleRelayStateEvent` status branch: set `expiresAt.value`, call
+  `scheduleExpiry()` (re-arm the watchdog), record the activity (pulse + feed
+  row when `activity` is present), and re-persist the handoff. Fullscreen
+  inherits the new deadline through the **existing** `hydrateFrom` `expiresAt`
+  mirror (owner already persists `handoffFeedFields()`, which carries
+  `expiresAt`) — no new plumbing.
 - `SessionTtl.vue`: keep `totalSeconds = 600` (the idle window). The bar then
-  **visibly refills** on each op — a nice, truthful "session just got extended"
+  **visibly refills** on each bump — a truthful "session just got extended"
   signal. Near the 60-min cap the remaining naturally falls below 10 min and the
   bar can't refill past the cap (correct).
 
 ## 5. Workstream B — Live activity feedback (Problem 1)
 
-- **New lightweight `agentActivity` pulse, separate from the render-measurement
-  state machine.** Do **not** reuse `beginThinking()` for non-`update_diagram`
-  ops: it arms `renderSafetyTimer` expecting a paint (`notifyRenderSettled`),
-  which a read/search never produces → the safety timer fires →
-  `settleThinking('timeout')` → a **false "Agent stopped responding" error cue**.
-  The pulse lights on **any** op-received and clears on op-settle, with a short
-  lingering debounce so back-to-back ops stay lit.
+- **The pulse is a pure display of server-known facts** (v2 simplification):
+  `agentActive = now - lastActivityAt < LINGER` where `lastActivityAt` updates
+  on every incoming `op` **or** `status` envelope. No client-side state machine
+  inferring liveness from op traffic, no settle-correlation, no debounce
+  guesswork — the DO already knows; the client just renders it.
+- **Do not touch `beginThinking()`** for non-`update_diagram` activity: it arms
+  `renderSafetyTimer` expecting a paint (`notifyRenderSettled`), which a
+  read/search never produces → the safety timer fires →
+  `settleThinking('timeout')` → a **false "Agent stopped responding" error
+  cue**. The render-measurement machine stays scoped to `update_diagram`; the
+  activity pulse is orthogonal.
 - **Resting state** on `AgentStatusHeader` / `LiveBadge`: `Connected · agent
   active` with a ticking "last active Xs ago" (reuse `SessionTtl.vue`'s 1-second
   ticker pattern), so between ops the panel reads alive, not frozen.
-- **Honest ceiling.** Pure reasoning gaps (no op in flight) *cannot* be signaled
-  over MCP's request/response transport without the agent host cooperating. This
-  workstream does **not** fabricate a heartbeat or instruct the agent to spam a
-  keepalive tool. The resting state covers the perception; that is the real fix
-  within this transport. (The only way to truly signal reasoning time is
-  Workstream C.)
+- **Guardrail rejects get a feed row** (via the §4.2 `status` push) — the
+  previously-invisible retry loop becomes the panel's most informative moment
+  instead of its most confusing silence.
+- **Honest ceiling.** Pure reasoning gaps (no MCP request in flight) *cannot* be
+  signaled over MCP's request/response transport without the agent host
+  cooperating. This workstream does **not** fabricate a heartbeat or instruct
+  the agent to spam a keepalive tool. The resting state covers the perception;
+  that is the real fix within this transport. (The only way to truly signal
+  reasoning time is Workstream C.)
 
 ## 6. Workstream C — Host-side hook enhancement (OPTIONAL, Claude-Code-only, later)
 
@@ -144,8 +206,13 @@ hooks bracket a whole turn, including pure reasoning with zero tool calls.
   `turn_start` → set the DO `in_turn` flag + bump activity; `turn_end` → clear
   `in_turn`. While `in_turn`, the idle timer is paused (still bounded by the
   60-min cap). The macro shows "thinking" for the whole bracket.
-- **New endpoint** must be added to `public/_routes.json` `include` (else Pages
-  serves it as SPA HTML), and authed by the session token.
+- **Same bus, third producer (v2):** the Pages endpoint forwards to the DO's
+  existing `/activity` ingress (§4.2 — already built for guardrail rejects in
+  PR1), and the macro learns of the turn via the same `status` envelope it
+  already handles. Workstream C adds **no new mechanism** — only a new
+  activity producer and a hook snippet.
+- **New Pages endpoint** must be added to `public/_routes.json` `include` (else
+  Pages serves it as SPA HTML), and authed by the session token.
 - **Caveats (why this is an optional enhancement layer, not the baseline):**
   1. **Host-specific.** Claude Code has these hooks (high confidence); Claude
      Desktop / Cursor generally do **not** expose an arbitrary-command
@@ -199,39 +266,61 @@ Per project rule (`CLAUDE.md`: "Plan Mixpanel events before implementing"):
   every turn, and it pollutes the tool surface — a fake heartbeat.
 - **Pure sliding TTL, no cap.** Rejected on the §8 / line 171 security model and
   because the content-lock could not then self-heal.
+- **v1's op-envelope `expiresAt` stamping** (superseded in v2). Stamping relay
+  metadata into forwarded peer messages mixed concerns (op envelopes should
+  stay verbatim agent messages), only informed the macro on *delivered* ops
+  (guardrail rejects and other non-forwarded activity stayed invisible), and
+  required the client to infer liveness from op traffic. The `status` envelope
+  subsumes it with one mechanism and fewer client moving parts.
+- **Bump on every authenticated request including `initialize`/`tools/list`.**
+  Rejected: an MCP host fires those when the user starts *any* conversation —
+  they prove the host is connected, not that the user is engaged with the
+  diagram. Bumping on them would let a merely-registered MCP server keep a
+  session alive with zero real use.
 
 ## 9. Files & sequencing
 
-**Server:** `sessionToken.ts`, `AgentLinkSession.ts`, `session.ts`.
+**Server:** `sessionToken.ts`, `AgentLinkSession.ts` (bump-on-auth, `status`
+push, `/activity` ingress), `session.ts`, `mcp.ts` (`?bump=1`, guardrail-reject
+report), `forwarding.ts` (`status` envelope kind).
 **Client:** `relayClient.ts`, `useAgentLinkSession.ts`,
 `AgentStatusHeader.vue` / `LiveBadge.vue`, `SessionTtl.vue`,
 `analytics/{catalog,types}.ts`.
-**Workstream C (later):** new `functions/agent-link/activity.ts`,
-`public/_routes.json`, DO `in_turn` state, a Claude Code hook snippet + docs.
+**Workstream C (later):** new Pages endpoint `functions/agent-link/activity.ts`
+(forwards to the DO ingress), `public/_routes.json`, DO `in_turn` state, a
+Claude Code hook snippet + docs.
 
 Unit specs alongside each changed module (`sessionToken.spec.ts` for
-effective-expiry/isExpired/bump; `AgentLinkSession.spec.ts` for slide + cap +
-content-lock-at-cap; `relayClient.spec.ts` for `expiresAt` propagation;
-`useAgentLinkSession.spec.ts` for slide + activity pulse). E2E spot-check on
-lite-stg after — mind the 10-min per-`contentId` lock (fresh page + `--workers=1`,
-per `reference_agent_link_spotcheck_lock`).
+effective-expiry/isExpired/bump; `AgentLinkSession.spec.ts` for bump-on-auth +
+cap + content-lock-at-cap + status push; `mcp.spec.ts` for `?bump=1` selection
++ guardrail report; `relayClient.spec.ts` for `status` envelope handling;
+`useAgentLinkSession.spec.ts` for expiry re-arm + activity pulse). E2E
+spot-check on lite-stg after — mind the 10-min per-`contentId` lock (fresh page
++ `--workers=1`, per `reference_agent_link_spotcheck_lock`).
 
-**Sequencing — three deliverables, independent:**
+**Sequencing — three deliverables:**
 
-1. **PR1 — Sliding TTL + content-lock-at-cap** (load-bearing). Server + client
-   TTL, analytics.
-2. **PR2 — Live activity feedback.** Activity pulse + resting state + badge.
-3. **PR3 (optional, later) — Claude Code hook enhancement layer.** Only if the
-   reasoning-gap perception is a real observed pain after PR2.
+1. **PR1 — Sliding TTL + content-lock-at-cap + the status bus** (load-bearing).
+   Server TTL, `?bump=1`, `status` envelope + client handler, guardrail-reject
+   visibility, analytics. Deploy the companion Worker (DO) before Pages (§4.2).
+2. **PR2 — Live activity display.** Pulse + resting state + badge + feed copy —
+   thin now, pure display over the PR1 bus.
+3. **PR3 (optional, later) — Claude Code hook enhancement layer.** A third
+   producer on the same bus. Only if the reasoning-gap perception is a real
+   observed pain after PR2.
 
-A does not depend on B; both are independent of C. PR1 and PR2 can also land
-together if preferred.
+PR2 depends on PR1 (the bus); PR3 depends on PR1 only.
 
 ## 10. Open questions
 
 - Throttle rule for `agent_link_session_extended` (every N slides? once per
   minute?) — decided at PR1 planning.
-- Debounce duration for the `agentActivity` pulse linger (~a few seconds) —
-  decided at PR2 planning.
+- `LINGER` duration for the activity pulse (`now - lastActivityAt < LINGER`,
+  ~a few seconds) — decided at PR2 planning.
+- Whether a `status` push should also fire on bump-worthy auths for ops that
+  ARE forwarded (the macro sees the op envelope itself moments later — the
+  status push may be redundant there; pushing only on non-forwarded activity
+  + a `status`-on-op-delivery expiry field is an alternative) — decided at PR1
+  planning; either way the client handles both signals identically.
 - Whether to keep `TOKEN_TTL_MS` as a deprecated alias during the rename or cut
   it cleanly — decided at PR1 planning (grep the callers).

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { onRequestPost } from './session';
+import { IDLE_TTL_MS, MAX_SESSION_MS } from './sessionToken';
 
 function makeRequest(body: unknown): Request {
   return new Request('https://example.com/agent-link/session', {
@@ -84,6 +85,21 @@ describe('POST /agent-link/session with an AGENT_LINK Durable Object binding', (
     expect(body.token).toMatch(/^CL-/);
     expect(claimCalls).toHaveLength(1);
     expect((claimCalls[0] as { token: string }).token).toBe(body.token);
+  });
+
+  it('claims the content lock for the ABSOLUTE cap, not the idle window (spec §4.3)', async () => {
+    // Under sliding TTL a session can outlive a 10-min lock — a lock claimed at
+    // the 60-min cap covers the whole possible lifetime with no refresh path.
+    const { env, claimCalls } = makeAgentLinkEnv(200);
+
+    const before = Date.now();
+    const res = await onRequestPost({ request: makeRequest(VALID_BODY), env } as any);
+
+    expect(res.status).toBe(200);
+    expect((claimCalls[0] as { expiresAt: number }).expiresAt).toBeGreaterThanOrEqual(
+      before + MAX_SESSION_MS,
+    );
+    expect((await res.json()).expiresInSec).toBe(IDLE_TTL_MS / 1000);
   });
 
   it('returns 409 {error: diagram_already_linked} when the contentId is already claimed', async () => {

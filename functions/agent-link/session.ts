@@ -7,7 +7,7 @@
 // should connect to next.
 
 import { sessionRegistry as registry } from './registrySingleton';
-import { TOKEN_TTL_MS } from './sessionToken';
+import { IDLE_TTL_MS, MAX_SESSION_MS } from './sessionToken';
 import type { BoundContext } from './sessionToken';
 
 interface Env {
@@ -68,13 +68,20 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   // still-live claim held by a different session rejects the mint outright —
   // no silent second link to the same diagram. Absent AGENT_LINK (local
   // dev/tests): degrades to a no-op, same posture as channel.ts/mcp.ts.
+  //
+  // The claim's expiry is the ABSOLUTE cap (issue + MAX_SESSION_MS), NOT the
+  // idle window: under sliding TTL (spec 2026-07-13 §3) a session can be kept
+  // alive by agent activity well past the 10-min idle window, up to 60 min.
+  // The lock has no refresh path, so it must cover the whole POSSIBLE session
+  // lifetime up front — otherwise it would lapse at +10 min and let a second
+  // concurrent mint succeed mid-session (spec §4.3).
   if (env?.AGENT_LINK) {
     const lockId = env.AGENT_LINK.idFromName(`content:${cloudId}:${contentId}`);
     const lockStub = env.AGENT_LINK.get(lockId);
     const claimRes = await lockStub.fetch('https://agent-link-do/content-claim', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: record.token, expiresAt: Date.now() + TOKEN_TTL_MS }),
+      body: JSON.stringify({ token: record.token, expiresAt: Date.now() + MAX_SESSION_MS }),
     });
     if (claimRes.status === 409) {
       return jsonError(409, 'diagram_already_linked');
@@ -85,7 +92,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     JSON.stringify({
       token: record.token,
       channelUrl: `/agent-link/channel?token=${record.token}`,
-      expiresInSec: TOKEN_TTL_MS / 1000,
+      expiresInSec: IDLE_TTL_MS / 1000,
     }),
     { status: 200, headers: JSON_HEADERS },
   );

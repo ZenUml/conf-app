@@ -285,10 +285,13 @@ type FakeDoResponses = {
 function makeDoEnv(responses: FakeDoResponses) {
   const stub = {
     fetch: async (url: string, init?: RequestInit) => {
-      if (url.endsWith('/session')) {
+      // `?bump=1` may ride the /session auth URL (sliding-TTL) — match on the
+      // path only so a bumped auth still routes to the session handler.
+      const path = url.split('?')[0];
+      if (path.endsWith('/session')) {
         return responses.session ? responses.session() : new Response(null, { status: 404 });
       }
-      if (url.endsWith('/agent-op')) {
+      if (path.endsWith('/agent-op')) {
         const body = init?.body ? JSON.parse(init.body as string) : {};
         return responses.agentOp ? responses.agentOp(body) : new Response(null, { status: 404 });
       }
@@ -316,6 +319,48 @@ function sessionInfoResponse(
   // has read the diagram at least once, and carries the bound diagramType.
   if (overrides.diagramType) body.lastDiagram = { diagramType: overrides.diagramType, dsl: 'A->B: x' };
   return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+}
+
+/**
+ * Like `makeDoEnv`, but RECORDS every URL the stub is fetched with
+ * (`fetchedUrls`) and the parsed bodies of any `POST /activity` reports
+ * (`activityBodies`) — the observable signals for sliding-TTL bump-worthiness
+ * (`/session?bump=1`) and guardrail-reject reporting (spec 2026-07-13 §3/§4.2).
+ */
+function makeRecordingDoEnv(responses: FakeDoResponses) {
+  const fetchedUrls: string[] = [];
+  const activityBodies: any[] = [];
+  const stub = {
+    fetch: async (url: string, init?: RequestInit) => {
+      fetchedUrls.push(url);
+      const path = url.split('?')[0];
+      if (path.endsWith('/session')) {
+        return responses.session ? responses.session() : new Response(null, { status: 404 });
+      }
+      if (path.endsWith('/agent-op')) {
+        const body = init?.body ? JSON.parse(init.body as string) : {};
+        return responses.agentOp ? responses.agentOp(body) : new Response(null, { status: 404 });
+      }
+      if (path.endsWith('/activity')) {
+        if (init?.body) activityBodies.push(JSON.parse(init.body as string));
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(null, { status: 404 });
+    },
+  };
+  return {
+    env: {
+      AGENT_LINK: {
+        idFromName: (name: string) => ({ name }),
+        get: () => stub,
+      },
+    },
+    fetchedUrls,
+    activityBodies,
+  };
 }
 
 async function postWithEnv(
@@ -430,6 +475,72 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
     expect(doFetch).not.toHaveBeenCalled();
   });
 
+  // --- sliding-TTL: bump-worthiness rides the auth round-trip, and a
+  // guardrail reject is surfaced to the status bus (spec 2026-07-13 §3/§4.2) --
+  describe('sliding-TTL bump + guardrail reporting', () => {
+    it('tools/call (non-get_status) auths with ?bump=1', async () => {
+      const { env, fetchedUrls } = makeRecordingDoEnv({
+        session: () => sessionInfoResponse(),
+        agentOp: () =>
+          new Response(JSON.stringify({ ok: true, payload: {} }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      });
+
+      await postWithEnv(rpc('tools/call', { name: 'read_diagram', arguments: {} }), env);
+
+      expect(fetchedUrls.some((u) => u.endsWith('/session?bump=1'))).toBe(true);
+    });
+
+    it('resources/read auths WITH bump', async () => {
+      const { env, fetchedUrls } = makeRecordingDoEnv({ session: () => sessionInfoResponse() });
+
+      await postWithEnv(rpc('resources/read', { uri: 'zenuml://dsl-guide' }), env);
+
+      expect(fetchedUrls.some((u) => u.endsWith('/session?bump=1'))).toBe(true);
+    });
+
+    it('get_status and tools/list auth WITHOUT bump', async () => {
+      const { env, fetchedUrls } = makeRecordingDoEnv({
+        session: () => sessionInfoResponse(),
+        agentOp: () =>
+          new Response(JSON.stringify({ ok: true, payload: {} }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      });
+
+      await postWithEnv(rpc('tools/call', { name: 'get_status', arguments: {} }), env);
+      await postWithEnv(rpc('tools/list'), env);
+
+      expect(fetchedUrls.every((u) => !u.includes('bump=1'))).toBe(true);
+      // sanity: auth still happened (path matched despite no bump)
+      expect(fetchedUrls.some((u) => u.endsWith('/session'))).toBe(true);
+    });
+
+    it('a guardrail rejection reports POST /activity {type:guardrail_rejected} without masking the RPC error', async () => {
+      const { env, activityBodies } = makeRecordingDoEnv({
+        // A cached Sequence snapshot makes updateDiagramGuard parse the new DSL
+        // against it; `A.method(` is unparseable ZenUML → reason 'parse_error'.
+        session: () => sessionInfoResponse({ diagramType: 'Sequence' }),
+      });
+
+      const { res, json } = await postWithEnv(
+        rpc('tools/call', { name: 'update_diagram', arguments: { dsl: 'A.method(' } }),
+        env,
+      );
+
+      // The RPC reply is still the guardrail error, unchanged.
+      expect(res.status).toBe(200); // JSON-RPC-level error, transport succeeded
+      expect(json.error.code).toBe(-32004); // RPC_GUARDRAIL_REJECTED
+      // …and the reject was reported to the DO's status bus.
+      expect(activityBodies).toHaveLength(1);
+      expect(activityBodies[0].type).toBe('guardrail_rejected');
+      expect(activityBodies[0].detail).toBe('parse_error');
+    });
+  });
+
   // --- cross-session isolation (multi-user / multi-page "串台" check) -------
   //
   // Session isolation is DO-per-token by construction: mcp.ts addresses the
@@ -459,8 +570,10 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
           token,
           {
             fetch: async (url: string, init?: RequestInit) => {
-              if (url.endsWith('/session')) return cfg.session();
-              if (url.endsWith('/agent-op')) {
+              // Path-only match so a bumped auth (`/session?bump=1`) still routes here.
+              const path = url.split('?')[0];
+              if (path.endsWith('/session')) return cfg.session();
+              if (path.endsWith('/agent-op')) {
                 const body = init?.body ? JSON.parse(init.body as string) : {};
                 return cfg.agentOp(body);
               }

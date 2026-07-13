@@ -15,6 +15,7 @@ import type {
   PrefetchOutcome,
   DashboardFormatFilter,
   AgentLinkDisconnectReason,
+  AgentLinkExpiryCause,
   AgentLinkRenderOutcome,
   AgentLinkGuardrailRejectReason,
   AgentLinkSessionSuspendReason,
@@ -153,6 +154,14 @@ export type AnalyticsProperties = {
   // (nobody ever paired). Lets the funnel distinguish "lost a live agent" from
   // "the connect window itself timed out".
   had_agent_connected?: boolean;
+  // PR1 sliding TTL (spec 2026-07-13 §7).
+  // agent_link_session_extended: seconds until the NEW deadline at fire time.
+  expires_in_sec?: number;
+  // True once the effective deadline is bounded by the 60-min absolute cap
+  // rather than the 10-min idle window (both _extended and _expired carry it).
+  hit_cap?: boolean;
+  // agent_link_session_expired only.
+  expiry_cause?: AgentLinkExpiryCause;
   // Planned ahead of implementation (2026-07-09, catalog.ts's "Planned ahead
   // of implementation" block) — F/G/C fire these once built.
   //

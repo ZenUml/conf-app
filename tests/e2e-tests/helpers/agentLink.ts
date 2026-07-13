@@ -128,7 +128,15 @@ export async function readSessionToken(page: Page): Promise<string | null> {
         return k ? JSON.parse(localStorage.getItem(k) as string) : null;
       })
       .catch(() => null);
-    if (s?.token) return s.token as string;
+    if (s?.state === 'already_linked' || s?.state === 'failed') {
+      throw new Error(`Agent Link session mint failed: state=${s.state}`);
+    }
+    if (typeof s?.token === 'string') {
+      if (s.token.startsWith('pending-')) {
+        throw new Error(`Agent Link session mint did not return a usable token: state=${s.state ?? 'unknown'}`);
+      }
+      return s.token;
+    }
   }
   return null;
 }

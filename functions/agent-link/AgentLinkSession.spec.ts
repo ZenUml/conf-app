@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AgentLinkSession, AGENT_OP_TIMEOUT_MS } from './AgentLinkSession';
-import { TOKEN_TTL_MS } from './sessionToken';
+import { TOKEN_TTL_MS, effectiveExpiryMs } from './sessionToken';
 import type { BoundContext, SessionRecord, SessionState } from './sessionToken';
 
 // AgentLinkSession is a Durable Object: its WebSocket-upgrade path
@@ -820,5 +820,133 @@ describe('AgentLinkSession — agent-side HTTP transport (GET /session, POST /ag
         ),
       ).resolves.toBeUndefined();
     });
+  });
+});
+
+describe('sliding TTL + status bus (spec 2026-07-13 §4.2)', () => {
+  const T0 = Date.now();
+
+  function liveSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
+    return {
+      token: 'CL-TEST-0001',
+      boundContext: { cloudId: 'c1', pageId: 'p1', contentId: 'ct1' },
+      scope: 'read-page+write-diagram',
+      issuedAtMs: T0,
+      lastActivityMs: T0,
+      state: 'created',
+      ...overrides,
+    };
+  }
+
+  it('GET /session?bump=1 bumps lastActivity, re-arms the alarm, pushes status', async () => {
+    const store = new Map<string, unknown>();
+    const state = makeState(store);
+    const doInstance = new AgentLinkSession(state, {});
+    (doInstance as any).session = liveSession();
+    const macroSend = vi.fn();
+    (doInstance as any).macroSocket = { send: macroSend };
+
+    const res = await doInstance.fetch(new Request('https://do/session?bump=1'));
+    expect(res.status).toBe(200);
+
+    const session = (doInstance as any).session as SessionRecord;
+    // The bumped deadline is surfaced on the response body (Task 6 rebuilds a
+    // complete SessionRecord from it — hence lastActivityMs too, controller
+    // decision on top of the brief's expiresAtMs addition).
+    const body = await res.json();
+    expect(body.expiresAtMs).toBe(effectiveExpiryMs(session.issuedAtMs, session.lastActivityMs));
+    expect(body.lastActivityMs).toBe(session.lastActivityMs);
+
+    expect(session.lastActivityMs).toBeGreaterThanOrEqual(T0);
+    expect(state.storage.setAlarm).toHaveBeenCalledWith(
+      effectiveExpiryMs(session.issuedAtMs, session.lastActivityMs),
+    );
+    expect(store.get('session')).toEqual(session); // persisted for hibernation wakes
+    const pushed = JSON.parse(macroSend.mock.calls[0][0]);
+    expect(pushed.kind).toBe('status');
+    expect(pushed.expiresAt).toBe(effectiveExpiryMs(session.issuedAtMs, session.lastActivityMs));
+    expect(pushed.hitCap).toBe(false);
+  });
+
+  it('GET /session without bump does NOT bump or push', async () => {
+    const doInstance = new AgentLinkSession(makeState(), {});
+    (doInstance as any).session = liveSession();
+    const macroSend = vi.fn();
+    (doInstance as any).macroSocket = { send: macroSend };
+    await doInstance.fetch(new Request('https://do/session'));
+    expect(((doInstance as any).session as SessionRecord).lastActivityMs).toBe(T0);
+    expect(macroSend).not.toHaveBeenCalled();
+  });
+
+  it('POST /activity pushes a status envelope carrying the activity', async () => {
+    const doInstance = new AgentLinkSession(makeState(), {});
+    (doInstance as any).session = liveSession();
+    const macroSend = vi.fn();
+    (doInstance as any).macroSocket = { send: macroSend };
+    const res = await doInstance.fetch(new Request('https://do/activity', {
+      method: 'POST',
+      body: JSON.stringify({ type: 'guardrail_rejected', detail: 'parse_error' }),
+    }));
+    expect(res.status).toBe(200);
+    const pushed = JSON.parse(macroSend.mock.calls[0][0]);
+    expect(pushed.activity).toEqual({ type: 'guardrail_rejected', detail: 'parse_error' });
+  });
+
+  it('bump with no macro socket still succeeds (push is best-effort)', async () => {
+    const doInstance = new AgentLinkSession(makeState(), {});
+    (doInstance as any).session = liveSession();
+    const res = await doInstance.fetch(new Request('https://do/session?bump=1'));
+    expect(res.status).toBe(200);
+  });
+
+  it('validateSession honors a slid deadline (alive past issuedAt+10min)', async () => {
+    const doInstance = new AgentLinkSession(makeState(), {});
+    (doInstance as any).session = liveSession({
+      issuedAtMs: Date.now() - 15 * 60_000,          // 15 min old — dead under v1
+      lastActivityMs: Date.now() - 2 * 60_000,        // active 2 min ago — alive now
+    });
+    const res = await doInstance.fetch(new Request('https://do/session'));
+    expect(res.status).toBe(200);
+  });
+
+  it('ensureSession migrates a pre-PR1 stored record (no lastActivityMs)', async () => {
+    const store = new Map<string, unknown>();
+    const legacy = liveSession();
+    delete (legacy as any).lastActivityMs;
+    store.set('session', legacy);
+    const doInstance = new AgentLinkSession(makeState(store), {});
+    const res = await doInstance.fetch(new Request('https://do/session'));
+    expect(res.status).toBe(200); // NaN deadline would 403 here
+  });
+
+  it('alarm() on a non-expired session re-arms instead of expiring (a bump slid the deadline)', async () => {
+    const { env, releaseCalls } = (() => {
+      const releaseCalls: unknown[] = [];
+      const lockStub = {
+        fetch: async (_url: string, init?: RequestInit) => {
+          releaseCalls.push(init?.body ? JSON.parse(init.body as string) : undefined);
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        },
+      };
+      const env = { AGENT_LINK: { idFromName: (name: string) => ({ name }), get: () => lockStub } };
+      return { env, releaseCalls };
+    })();
+    const state = makeState();
+    const doInstance = new AgentLinkSession(state, env as any);
+    // Active 1 min ago, issued 15 min ago — the original bootstrap alarm has
+    // already fired, but the slid idle window keeps it alive ~9 more min.
+    (doInstance as any).session = liveSession({
+      issuedAtMs: Date.now() - 15 * 60_000,
+      lastActivityMs: Date.now() - 1 * 60_000,
+    });
+
+    await doInstance.alarm();
+
+    const session = (doInstance as any).session as SessionRecord;
+    expect(session.state).toBe('created'); // not flipped to 'expired'
+    expect(state.storage.setAlarm).toHaveBeenCalledWith(
+      effectiveExpiryMs(session.issuedAtMs, session.lastActivityMs),
+    );
+    expect(releaseCalls).toEqual([]); // teardown did not run
   });
 });

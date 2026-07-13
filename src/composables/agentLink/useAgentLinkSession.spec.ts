@@ -284,15 +284,25 @@ describe('useAgentLinkSession', () => {
 
       it('a read_page completion republishes the handoff so the mirror gets lastActivityAt (final review 2026-07-13)', async () => {
         const { session, boundContext, setNow, emit, pageRead } = await linkedSession('last-activity-pageread')
+        // First op: drives waiting→connected, whose transition ALREADY persists
+        // lastActivityAt — so it cannot discriminate the recordPageRead fix.
         setNow(623_456)
-        emit({ type: 'op', op: 'read_page', receivedAt: 111 }) // owner fact updates
-        pageRead() // completion callback must republish — was the one recorder that didn't
+        emit({ type: 'op', op: 'read_page', receivedAt: 111 })
+        expect(readSession(boundContext.pageId)).toMatchObject({ lastActivityAt: 623_456 })
 
-        expect(session.lastActivityAt.value).toBe(623_456)
+        // Second op while ALREADY connected: onAgentConnected() no-ops before its
+        // persist, so the ONLY path that can put the newer timestamp on the
+        // handoff record is recordPageRead's republish — the fix under test.
+        setNow(723_456)
+        emit({ type: 'op', op: 'read_page', receivedAt: 222 })
+        expect(session.lastActivityAt.value).toBe(723_456) // owner fact updated…
+        expect(readSession(boundContext.pageId)).toMatchObject({ lastActivityAt: 623_456 }) // …but not yet mirrored
+        pageRead()
+
         expect(readSession(boundContext.pageId)).toMatchObject({
           ...boundContext,
           token: 'real-token',
-          lastActivityAt: 623_456,
+          lastActivityAt: 723_456,
         })
       })
 

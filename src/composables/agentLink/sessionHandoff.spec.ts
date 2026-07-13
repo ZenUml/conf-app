@@ -177,12 +177,20 @@ describe('sessionHandoff', () => {
     expect(readSession('page-1')).toEqual(session)
   })
 
+  it('persistSession then readSession round-trips lastActivityAt', () => {
+    const session = makeSession({ state: 'connected', lastActivityAt: 987_654_321 })
+    persistSession(session)
+
+    expect(readSession('page-1')).toEqual(session)
+  })
+
   it('readSession reports expiresAt and feed as undefined when persisted without them', () => {
     persistSession(makeSession())
 
     const read = readSession('page-1')
     expect(read?.expiresAt).toBeUndefined()
     expect(read?.feed).toBeUndefined()
+    expect(read?.lastActivityAt).toBeUndefined()
   })
 
   // "refreshed on each persist": persistSession is the single point that

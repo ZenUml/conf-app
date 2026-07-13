@@ -56,7 +56,7 @@ export default {
   data() {
     return {
       copied: false,
-      _copiedTimer: null,
+      copiedTimer: null,
     };
   },
   computed: {
@@ -72,17 +72,17 @@ export default {
     visible(open) {
       if (!open) {
         this.copied = false;
-        if (this._copiedTimer) {
-          clearTimeout(this._copiedTimer);
-          this._copiedTimer = null;
+        if (this.copiedTimer) {
+          clearTimeout(this.copiedTimer);
+          this.copiedTimer = null;
         }
       }
     },
   },
   beforeUnmount() {
-    if (this._copiedTimer) {
-      clearTimeout(this._copiedTimer);
-      this._copiedTimer = null;
+    if (this.copiedTimer) {
+      clearTimeout(this.copiedTimer);
+      this.copiedTimer = null;
     }
   },
   methods: {
@@ -111,10 +111,10 @@ export default {
       }
       if (ok) {
         this.copied = true;
-        if (this._copiedTimer) clearTimeout(this._copiedTimer);
-        this._copiedTimer = setTimeout(() => {
+        if (this.copiedTimer) clearTimeout(this.copiedTimer);
+        this.copiedTimer = setTimeout(() => {
           this.copied = false;
-          this._copiedTimer = null;
+          this.copiedTimer = null;
         }, 1500);
         this.$emit('copy');
       }

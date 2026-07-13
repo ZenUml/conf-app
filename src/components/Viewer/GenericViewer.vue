@@ -23,7 +23,11 @@
           <div class="viewer-edge-top">
             <div class="viewer-title-area">
               <span v-if="isEmbedded" class="viewer-embed-chip" title="Content is embedded from another page">EMBED</span>
-              <LiveBadge v-if="showAgentLinkBadge" :state="agentLinkState" />
+              <LiveBadge
+                v-if="showAgentLinkBadge"
+                :state="agentLinkState"
+                :last-activity-at="agentLinkLastActivityAt"
+              />
               <!--
                 ZEN-1170 Defect 2b: visible chip + tooltip when the diagram was
                 loaded via orphan-sibling recovery. The disabled Edit button's
@@ -181,6 +185,7 @@
             :thinking="agentLinkThinking"
             :diagram-title="title"
             :expires-at="agentLinkExpiresAt"
+            :last-activity-at="agentLinkLastActivityAt"
             @disconnect="onAgentLinkDisconnect"
             @revoke="onAgentLinkRevoke"
             @reconnect="onAgentLinkReconnect"
@@ -368,6 +373,9 @@ export default {
     },
     agentLinkExpiresAt() {
       return this.agentLinkSession?.expiresAt.value ?? null;
+    },
+    agentLinkLastActivityAt() {
+      return this.agentLinkSession?.lastActivityAt.value ?? null;
     },
     // Perceived-latency overlay gate (charter §6 Track F). Same flag/type
     // gating as the other affordances, but NOT restricted to Fullscreen: the

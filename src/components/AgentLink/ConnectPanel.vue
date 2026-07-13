@@ -37,6 +37,7 @@
             :thinking="thinking === 'thinking'"
             :client-name="clientName"
             :diagram-title="diagramTitle"
+            :last-activity-at="lastActivityAt"
           />
 
           <div class="agent-link-panel__bound">
@@ -93,6 +94,7 @@
             :state="state"
             :client-name="clientName"
             :diagram-title="diagramTitle"
+            :last-activity-at="lastActivityAt"
           />
 
           <div class="agent-link-banner agent-link-banner--warn">
@@ -216,12 +218,14 @@ const props = withDefaults(
     //  - diagramTitle: names the bound diagram in the header/bound line
     //  - clientName: connected agent identity (falls back to "Connected agent")
     //  - expiresAt: absolute ms token expiry → TTL meter + resume countdown
+    //  - lastActivityAt: newest agent signal → header/badge activity pulse
     thinking?: AgentLinkThinkingState
     diagramTitle?: string
     clientName?: string
     expiresAt?: number | null
+    lastActivityAt?: number | null
   }>(),
-  { thinking: 'idle', diagramTitle: '', clientName: '', expiresAt: null }
+  { thinking: 'idle', diagramTitle: '', clientName: '', expiresAt: null, lastActivityAt: null }
 )
 
 const emit = defineEmits<{

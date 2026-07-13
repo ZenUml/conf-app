@@ -123,6 +123,10 @@ export interface AgentLinkHandoffSession extends AgentLinkBoundContext {
   // the Fullscreen rail's TTL meter was always blank. Absent when the mint
   // result carried no expiresInSec, or before the mint resolves.
   expiresAt?: number
+  // Absolute epoch ms for the newest relay op/status/edit signal observed by
+  // the owning composable. Mirrored so a display-only Fullscreen instance can
+  // derive the activity pulse/resting copy without owning the relay socket.
+  lastActivityAt?: number
   // Recent activity-feed rows (connect/edit/suspend/resume/search/list/read),
   // bounded to the last HANDOFF_FEED_MAX_ENTRIES — mirrors
   // useAgentLinkSession.ts's own (unbounded, owner-only) `activityFeed` ref.
@@ -211,6 +215,8 @@ function toHandoffSession(parsed: PersistedHandoff): AgentLinkHandoffSession {
         : undefined,
     // Optional; absent on a pre-bug-2 record or a mint with no expiresInSec.
     expiresAt: typeof parsed.expiresAt === 'number' ? parsed.expiresAt : undefined,
+    // Optional; absent before PR2's activity display layer existed.
+    lastActivityAt: typeof parsed.lastActivityAt === 'number' ? parsed.lastActivityAt : undefined,
     // Optional; absent on a pre-bug-2 record. Re-bounded defensively in case
     // a record was ever written by a future/older build with a looser cap.
     feed: Array.isArray(parsed.feed) ? parsed.feed.slice(-HANDOFF_FEED_MAX_ENTRIES) : undefined,
@@ -368,6 +374,7 @@ function subscribeToHandoffCore(
       // silently never reach the Fullscreen modal even though the owner
       // persisted them.
       session.expiresAt != null ? String(session.expiresAt) : '',
+      session.lastActivityAt != null ? String(session.lastActivityAt) : '',
       session.feed ? JSON.stringify(session.feed) : '',
     ].join('\n')
     if (fingerprint !== lastDeliveredFingerprint) {

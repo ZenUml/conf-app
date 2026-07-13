@@ -59,6 +59,7 @@ describe('POST /agent-link/mcp', () => {
   it('returns 403 for an expired token', async () => {
     const record = sessionRegistry.create(CTX);
     record.issuedAtMs = Date.now() - TOKEN_TTL_MS - 1;
+    record.lastActivityMs = record.issuedAtMs; // no bumping yet — idle window is what expires
 
     const { res, json } = await post(rpc('tools/list'), { token: record.token });
 

@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { TOKEN_TTL_MS, isExpired, mintToken, nextState } from './sessionToken';
+import {
+  effectiveExpiryMs,
+  isAtCap,
+  isExpired,
+  IDLE_TTL_MS,
+  MAX_SESSION_MS,
+  mintToken,
+  nextState,
+} from './sessionToken';
 import type { SessionEvent, SessionState } from './sessionToken';
 
 describe('mintToken', () => {
@@ -16,23 +24,36 @@ describe('mintToken', () => {
   });
 });
 
-describe('isExpired', () => {
-  const issuedAtMs = 1_000_000;
+describe('sliding TTL core (spec 2026-07-13 §3)', () => {
+  const T0 = 1_000_000;
 
-  it('is false just before the TTL elapses', () => {
-    expect(isExpired(issuedAtMs, issuedAtMs + TOKEN_TTL_MS - 1)).toBe(false);
+  it('fresh session expires at issuedAt + idle window', () => {
+    expect(effectiveExpiryMs(T0, T0)).toBe(T0 + IDLE_TTL_MS);
   });
 
-  it('is true exactly at the TTL boundary', () => {
-    expect(isExpired(issuedAtMs, issuedAtMs + TOKEN_TTL_MS)).toBe(true);
+  it('a bump slides the deadline', () => {
+    const bumped = T0 + 5 * 60_000;
+    expect(effectiveExpiryMs(T0, bumped)).toBe(bumped + IDLE_TTL_MS);
   });
 
-  it('is true just after the TTL elapses', () => {
-    expect(isExpired(issuedAtMs, issuedAtMs + TOKEN_TTL_MS + 1)).toBe(true);
+  it('the absolute cap bounds a fully-active session', () => {
+    const lateBump = T0 + 55 * 60_000; // idle window would reach 65 min
+    expect(effectiveExpiryMs(T0, lateBump)).toBe(T0 + MAX_SESSION_MS);
+    expect(isAtCap(T0, lateBump)).toBe(true);
+    expect(isAtCap(T0, T0)).toBe(false);
   });
 
-  it('is false immediately after issuance', () => {
-    expect(isExpired(issuedAtMs, issuedAtMs)).toBe(false);
+  it('isExpired honors the slid deadline', () => {
+    const bumped = T0 + 5 * 60_000;
+    expect(isExpired(T0, bumped, bumped + IDLE_TTL_MS - 1)).toBe(false);
+    expect(isExpired(T0, bumped, bumped + IDLE_TTL_MS)).toBe(true);
+    // v1 behavior would have expired here (10 min past issue); sliding must not:
+    expect(isExpired(T0, bumped, T0 + IDLE_TTL_MS + 1)).toBe(false);
+  });
+
+  it('isExpired is clamped by the cap even with continuous bumps', () => {
+    const nowAtCap = T0 + MAX_SESSION_MS;
+    expect(isExpired(T0, nowAtCap - 1, nowAtCap)).toBe(true);
   });
 });
 

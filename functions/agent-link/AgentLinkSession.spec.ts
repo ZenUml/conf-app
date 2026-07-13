@@ -23,11 +23,15 @@ import type { BoundContext, SessionRecord, SessionState } from './sessionToken';
 const CTX: BoundContext = { cloudId: 'cloud-1', pageId: 'page-1', contentId: 'content-1' };
 
 function makeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
+  const issuedAtMs = overrides.issuedAtMs ?? Date.now();
   return {
     token: 'CL-TEST-TOKN',
     boundContext: CTX,
     scope: 'read-page+write-diagram',
-    issuedAtMs: Date.now(),
+    issuedAtMs,
+    // lastActivity starts = issuedAt (no bumping until Task 4); a sliding test
+    // can still override it explicitly via the spread below.
+    lastActivityMs: issuedAtMs,
     state: 'created' as SessionState,
     ...overrides,
   };

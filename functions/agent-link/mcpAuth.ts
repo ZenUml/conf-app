@@ -34,7 +34,7 @@ export function authenticateSession(
     return { ok: false, code: 'invalid' };
   }
 
-  if (isExpired(session.issuedAtMs, nowMs)) {
+  if (isExpired(session.issuedAtMs, session.lastActivityMs, nowMs)) {
     return { ok: false, code: 'expired' };
   }
 

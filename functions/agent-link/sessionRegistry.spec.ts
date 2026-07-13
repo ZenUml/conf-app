@@ -54,9 +54,13 @@ describe('SessionRegistry', () => {
     const fresh = registry.create(CTX);
 
     // Backdate the two stale sessions past the TTL; leave `fresh` issued "now".
+    // lastActivity tracks issuedAt (no bumping yet) so the idle window is what expires.
     stale1.issuedAtMs = now - TOKEN_TTL_MS - 1;
+    stale1.lastActivityMs = stale1.issuedAtMs;
     stale2.issuedAtMs = now - TOKEN_TTL_MS - 1000;
+    stale2.lastActivityMs = stale2.issuedAtMs;
     fresh.issuedAtMs = now;
+    fresh.lastActivityMs = now;
 
     const removed = registry.expireStale(now);
 
@@ -71,6 +75,7 @@ describe('SessionRegistry', () => {
     const now = 1_000_000;
     const record = registry.create(CTX);
     record.issuedAtMs = now;
+    record.lastActivityMs = now;
 
     expect(registry.expireStale(now)).toBe(0);
     expect(registry.get(record.token)).toBeDefined();

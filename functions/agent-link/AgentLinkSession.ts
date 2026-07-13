@@ -392,11 +392,13 @@ export class AgentLinkSession {
         );
       }
       const boundContext: BoundContext = { cloudId, pageId, contentId };
+      const nowMs = Date.now();
       this.session = {
         token,
         boundContext,
         scope: 'read-page+write-diagram',
-        issuedAtMs: Date.now(),
+        issuedAtMs: nowMs,
+        lastActivityMs: nowMs,
         state: 'created',
       };
       // Persist so the session survives a DO hibernation wake — reloaded by
@@ -484,7 +486,7 @@ export class AgentLinkSession {
     if (this.session.state === 'closed' || this.session.state === 'expired') {
       return { ok: false, status: 403, code: 'expired' };
     }
-    if (isExpired(this.session.issuedAtMs, Date.now())) {
+    if (isExpired(this.session.issuedAtMs, this.session.lastActivityMs, Date.now())) {
       return { ok: false, status: 403, code: 'expired' };
     }
     return { ok: true };
@@ -764,7 +766,7 @@ export class AgentLinkSession {
    */
   async alarm(): Promise<void> {
     if (!this.session) return;
-    if (isExpired(this.session.issuedAtMs, Date.now())) {
+    if (isExpired(this.session.issuedAtMs, this.session.lastActivityMs, Date.now())) {
       this.session.state = nextState(this.session.state, 'expire');
       try {
         this.macroSocket?.close(1000, 'session expired');

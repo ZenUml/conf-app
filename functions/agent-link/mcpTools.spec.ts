@@ -8,6 +8,7 @@ const SESSION: SessionRecord = {
   boundContext: { cloudId: 'cloud-1', pageId: 'page-1', contentId: 'content-1' },
   scope: 'read-page+write-diagram',
   issuedAtMs: 1_000_000,
+  lastActivityMs: 1_000_000,
   state: 'active',
 };
 

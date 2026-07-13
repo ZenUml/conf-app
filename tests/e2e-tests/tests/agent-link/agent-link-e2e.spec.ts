@@ -129,7 +129,7 @@ test.describe('Live Agent Link — end to end', () => {
     const e1 = Number(mcpPayload(s1).expiresInSec);
     expect(e1, 'get_status before activity returns expiresInSec').toBeGreaterThan(0);
 
-    await page.waitForTimeout(20_000);
+    await page.waitForTimeout(30_000);
 
     const rd = await agentLinkMcp(token!, 'read_diagram');
     expect(rd.status, 'read_diagram HTTP').toBe(200);
@@ -143,6 +143,9 @@ test.describe('Live Agent Link — end to end', () => {
 
     // get_status itself is passive; the read_diagram above is the bump that
     // should slide the idle window back toward its full TTL.
-    expect(e2).toBeGreaterThan(e1 - 10);
+    // If sliding is broken, e2 is roughly e1 - 30s - round-trip latency; if
+    // sliding works, e2 is roughly e1 - round-trip latency. This leaves 15s of
+    // staging latency slack while keeping the broken case comfortably below.
+    expect(e2).toBeGreaterThan(e1 - 15);
   });
 });

@@ -760,13 +760,14 @@ describe('useAgentLinkSession', () => {
 
       it('still reattaches normally into "connected" when the persisted expiresAt has NOT lapsed', () => {
         const pageId = 'ttl-reattach-still-live'
+        const persistedExpiresAt = Date.now() + 300_000
         persistSession({
           cloudId: 'c1',
           pageId,
           contentId: 'cc1',
           token: 'live-token',
           state: 'connected',
-          expiresAt: Date.now() + 60000,
+          expiresAt: persistedExpiresAt,
         })
         const bridgeOps = makeBridgeOps()
         const connect = vi.fn(() => makeFakeRelayClient())
@@ -778,7 +779,21 @@ describe('useAgentLinkSession', () => {
         session.attemptReattach()
 
         expect(session.state.value).toBe('connected')
+        expect(session.expiresAt.value).toBe(persistedExpiresAt)
         expect(connect).toHaveBeenCalledTimes(1)
+        vi.mocked(trackAnalyticsEvent).mockClear()
+
+        vi.advanceTimersByTime(300_000)
+
+        expect(session.state.value).toBe('expired')
+        expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+          'agent_link_session_expired',
+          expect.objectContaining({
+            feature_area: 'agent_link',
+            macro_type: 'sequence',
+            expiry_cause: 'idle',
+          })
+        )
       })
     })
 

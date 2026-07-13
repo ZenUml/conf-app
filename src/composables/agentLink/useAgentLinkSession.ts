@@ -1049,6 +1049,14 @@ export function useAgentLinkSession(
     // this fresh instance never actually witnessed (that happened in the
     // now-destroyed pre-reload instance).
     state.value = 'connected'
+    // final review 2026-07-13: live reattach must adopt the persisted
+    // deadline before opening the relay. Otherwise the TTL meter/watchdog stay
+    // dead until a later status envelope, even though the handoff record
+    // already carried the authoritative deadline we guarded on above.
+    if (typeof persisted.expiresAt === 'number') {
+      expiresAt.value = persisted.expiresAt
+      scheduleExpiry()
+    }
 
     const relayOptions = options.relay
     if (relayOptions) openRelayChannel(persisted.token, relayOptions)

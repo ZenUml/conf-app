@@ -799,6 +799,11 @@ export function useAgentLinkSession(
   // exists (unlike edits, nothing in this app's own UI reads the page), so
   // this is simpler than recordEditOutcome: one callback, one event.
   function recordPageRead(): void {
+    // PR2 (final review 2026-07-13): republish so the Fullscreen mirror's
+    // lastActivityAt updates on page reads too — the other three recorders
+    // already do this; without it, page_read was the one op whose activity
+    // only reached the mirror via the server's status envelope.
+    publishThinking(currentThinkingFlag())
     trackAnalyticsEvent('agent_link_page_read', {
       feature_area: 'agent_link',
       surface: 'fullscreen',

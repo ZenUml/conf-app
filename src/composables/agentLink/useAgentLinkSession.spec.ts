@@ -200,10 +200,12 @@ describe('useAgentLinkSession', () => {
         const { clock, setNow } = testClock(initialNow)
         let capturedOnStateEvent: ((event: RelayStateEvent) => void) | undefined
         let capturedOnEditApplied: ((outcome: any) => void) | undefined
+        let capturedOnPageRead: (() => void) | undefined
         const boundContext = { cloudId: 'c1', pageId, contentId: 'cc1' }
-        const connect = vi.fn((_wsUrl, _bridge, onStateEvent, _onDiagUpdated, onEditApplied) => {
+        const connect = vi.fn((_wsUrl, _bridge, onStateEvent, _onDiagUpdated, onEditApplied, onPageRead) => {
           capturedOnStateEvent = onStateEvent
           capturedOnEditApplied = onEditApplied
+          capturedOnPageRead = onPageRead
           return makeFakeRelayClient()
         })
         const requestSession = vi.fn().mockResolvedValue({ token: 'real-token' })
@@ -222,6 +224,7 @@ describe('useAgentLinkSession', () => {
           setNow,
           emit: (event: RelayStateEvent) => capturedOnStateEvent!(event),
           edit: (outcome: any) => capturedOnEditApplied!(outcome),
+          pageRead: () => capturedOnPageRead!(),
         }
       }
 
@@ -277,6 +280,20 @@ describe('useAgentLinkSession', () => {
         session.startConnect()
 
         expect(session.lastActivityAt.value).toBeNull()
+      })
+
+      it('a read_page completion republishes the handoff so the mirror gets lastActivityAt (final review 2026-07-13)', async () => {
+        const { session, boundContext, setNow, emit, pageRead } = await linkedSession('last-activity-pageread')
+        setNow(623_456)
+        emit({ type: 'op', op: 'read_page', receivedAt: 111 }) // owner fact updates
+        pageRead() // completion callback must republish — was the one recorder that didn't
+
+        expect(session.lastActivityAt.value).toBe(623_456)
+        expect(readSession(boundContext.pageId)).toMatchObject({
+          ...boundContext,
+          token: 'real-token',
+          lastActivityAt: 623_456,
+        })
       })
 
       it('after a status event, the republished handoff carries expiresAt and lastActivityAt', async () => {

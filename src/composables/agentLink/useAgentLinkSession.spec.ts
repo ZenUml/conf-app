@@ -12,9 +12,16 @@ vi.mock('@/model/globals/forgeGlobal', () => ({
 }))
 
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
-import { useAgentLinkSession, ERROR_FLASH_MS } from './useAgentLinkSession'
+import {
+  useAgentLinkSession,
+  ERROR_FLASH_MS,
+  ACTIVITY_LINGER_MS,
+  EXTENDED_EVENT_THROTTLE_MS,
+  GUARDRAIL_REJECTED_FEED_SUMMARY,
+} from './useAgentLinkSession'
 import { SETUP_TIMEOUT_MS, RENDER_SAFETY_TIMEOUT_MS } from './agentLinkState'
 import type { AgentLinkBridgeOps } from './bridgeOps'
+import type { RelayClient, RelayConnectionState, RelayStateEvent } from './relayClient'
 import { readSession, persistSession } from './sessionHandoff'
 import type { AgentLinkHandoffSession } from './sessionHandoff'
 
@@ -41,6 +48,10 @@ describe('useAgentLinkSession', () => {
   })
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('exports the activity linger window used by display components', () => {
+    expect(ACTIVITY_LINGER_MS).toBe(5000)
   })
 
   it('startConnect moves idle -> waiting and fires agent_link_connect_clicked', () => {
@@ -173,6 +184,145 @@ describe('useAgentLinkSession', () => {
       return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
     }
 
+    describe('Task 1 — lastActivityAt display fact + handoff mirror', () => {
+      function testClock(initialNow = 100_000) {
+        let current = initialNow
+        return {
+          clock: { now: () => current },
+          setNow: (next: number) => {
+            current = next
+          },
+        }
+      }
+
+      async function linkedSession(pageId = 'last-activity-page', initialNow = 100_000) {
+        const bridgeOps = makeBridgeOps()
+        const { clock, setNow } = testClock(initialNow)
+        let capturedOnStateEvent: ((event: RelayStateEvent) => void) | undefined
+        let capturedOnEditApplied: ((outcome: any) => void) | undefined
+        let capturedOnPageRead: (() => void) | undefined
+        const boundContext = { cloudId: 'c1', pageId, contentId: 'cc1' }
+        const connect = vi.fn((_wsUrl, _bridge, onStateEvent, _onDiagUpdated, onEditApplied, onPageRead) => {
+          capturedOnStateEvent = onStateEvent
+          capturedOnEditApplied = onEditApplied
+          capturedOnPageRead = onPageRead
+          return makeFakeRelayClient()
+        })
+        const requestSession = vi.fn().mockResolvedValue({ token: 'real-token' })
+        const session = useAgentLinkSession(bridgeOps, {
+          macroType: 'sequence',
+          clock,
+          relay: { boundContext, requestSession, connect: connect as any },
+        })
+
+        session.startConnect()
+        await vi.advanceTimersByTimeAsync(0)
+
+        return {
+          session,
+          boundContext,
+          setNow,
+          emit: (event: RelayStateEvent) => capturedOnStateEvent!(event),
+          edit: (outcome: any) => capturedOnEditApplied!(outcome),
+          pageRead: () => capturedOnPageRead!(),
+        }
+      }
+
+      it('an op state event sets lastActivityAt to the injected clock now', async () => {
+        const { session, setNow, emit } = await linkedSession('last-activity-op')
+        setNow(123_456)
+
+        emit({ type: 'op', op: 'read_page', receivedAt: 111 })
+
+        expect(session.lastActivityAt.value).toBe(123_456)
+      })
+
+      it('a status state event sets lastActivityAt to the injected clock now', async () => {
+        const { session, setNow, emit } = await linkedSession('last-activity-status')
+        setNow(223_456)
+
+        emit({ type: 'status', expiresAt: 999_000, hitCap: false })
+
+        expect(session.lastActivityAt.value).toBe(223_456)
+      })
+
+      it('a successful edit outcome sets lastActivityAt to the injected clock now', async () => {
+        const { session, setNow, edit } = await linkedSession('last-activity-edit')
+        setNow(323_456)
+
+        edit({ ok: true, dsl: 'A->B: hi', summary: 'agent added a step', rendered: true })
+
+        expect(session.lastActivityAt.value).toBe(323_456)
+      })
+
+      it('hydrateFrom adopts lastActivityAt onto a display-only instance', () => {
+        const bridgeOps = makeBridgeOps()
+        const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+
+        session.hydrateFrom({
+          token: 'handed-off-token',
+          cloudId: 'c1',
+          pageId: 'page-1',
+          contentId: 'cc1',
+          state: 'connected',
+          lastActivityAt: 423_456,
+        })
+
+        expect(session.lastActivityAt.value).toBe(423_456)
+      })
+
+      it('startConnect resets lastActivityAt to null for the new session', async () => {
+        const { session, emit } = await linkedSession('last-activity-reset')
+        emit({ type: 'op', op: 'read_page' })
+        expect(session.lastActivityAt.value).not.toBeNull()
+
+        session.disconnect('user')
+        session.startConnect()
+
+        expect(session.lastActivityAt.value).toBeNull()
+      })
+
+      it('a read_page completion republishes the handoff so the mirror gets lastActivityAt (final review 2026-07-13)', async () => {
+        const { session, boundContext, setNow, emit, pageRead } = await linkedSession('last-activity-pageread')
+        // First op: drives waiting→connected, whose transition ALREADY persists
+        // lastActivityAt — so it cannot discriminate the recordPageRead fix.
+        setNow(623_456)
+        emit({ type: 'op', op: 'read_page', receivedAt: 111 })
+        expect(readSession(boundContext.pageId)).toMatchObject({ lastActivityAt: 623_456 })
+
+        // Second op while ALREADY connected: onAgentConnected() no-ops before its
+        // persist, so the ONLY path that can put the newer timestamp on the
+        // handoff record is recordPageRead's republish — the fix under test.
+        setNow(723_456)
+        emit({ type: 'op', op: 'read_page', receivedAt: 222 })
+        expect(session.lastActivityAt.value).toBe(723_456) // owner fact updated…
+        expect(readSession(boundContext.pageId)).toMatchObject({ lastActivityAt: 623_456 }) // …but not yet mirrored
+        pageRead()
+
+        expect(readSession(boundContext.pageId)).toMatchObject({
+          ...boundContext,
+          token: 'real-token',
+          lastActivityAt: 723_456,
+        })
+      })
+
+      it('after a status event, the republished handoff carries expiresAt and lastActivityAt', async () => {
+        const { session, boundContext, setNow, emit } = await linkedSession('last-activity-handoff')
+        setNow(523_456)
+
+        emit({ type: 'status', expiresAt: 999_000, hitCap: true })
+
+        expect(session.lastActivityAt.value).toBe(523_456)
+        expect(readSession(boundContext.pageId)).toMatchObject({
+          ...boundContext,
+          token: 'real-token',
+          state: 'connected',
+          expiresAt: 999_000,
+          lastActivityAt: 523_456,
+        })
+      })
+    })
+
     it('threads onDiagramUpdated through relay.connect and forwards it to options.onDiagramUpdated with macroType', async () => {
       const bridgeOps = makeBridgeOps()
       const onDiagramUpdated = vi.fn()
@@ -284,11 +434,12 @@ describe('useAgentLinkSession', () => {
       expect(session.state.value).toBe('connected')
       // bug 2 fix: `feed` now travels on every handoff write (see the dsl
       // republish test above for why this is deliberate, not a regression).
-      expect(readSession(boundContext.pageId)).toEqual({
+      expect(readSession(boundContext.pageId)).toMatchObject({
         ...boundContext,
         token: 'real-token',
         state: 'connected',
         feed: [],
+        lastActivityAt: expect.any(Number),
       })
       expect(trackAnalyticsEvent).toHaveBeenCalledWith(
         'agent_link_agent_connected',
@@ -609,8 +760,8 @@ describe('useAgentLinkSession', () => {
     })
   })
 
-  // #314 — the relay correctly 403s the agent once the minted token's TTL
-  // (TOKEN_TTL_MS = 10 min) lapses, but nothing previously watched
+  // #314 — the relay correctly 403s the agent once the minted token's idle
+  // window (10 min) lapses, but nothing previously watched
   // `expiresAt` against the clock, so the rail stayed stuck showing a
   // connected variant with the countdown pinned at "0:00" forever. These
   // tests drive the fix's client-side TTL watchdog (scheduleExpiry() /
@@ -622,7 +773,7 @@ describe('useAgentLinkSession', () => {
     function makeFakeRelayClient() {
       return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
     }
-    const TOKEN_TTL_MS = 10 * 60 * 1000
+    const IDLE_TTL_MS = 10 * 60 * 1000
     const boundContext = { cloudId: 'c1', pageId: 'ttl-page', contentId: 'cc1' }
 
     it('a connected session moves to expired when the token TTL lapses, tears down the relay (not disconnect()), persists the expired handoff, and fires agent_link_session_expired', async () => {
@@ -633,7 +784,7 @@ describe('useAgentLinkSession', () => {
         capturedOnStateEvent = onStateEvent
         return fakeClient
       })
-      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token', expiresInSec: TOKEN_TTL_MS / 1000 })
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token', expiresInSec: IDLE_TTL_MS / 1000 })
 
       const session = useAgentLinkSession(bridgeOps, {
         macroType: 'sequence',
@@ -645,7 +796,7 @@ describe('useAgentLinkSession', () => {
       await session.applyEdit('A->B: hi') // edits_count should reach 1 in the terminal event
       vi.mocked(trackAnalyticsEvent).mockClear()
 
-      await vi.advanceTimersByTimeAsync(TOKEN_TTL_MS)
+      await vi.advanceTimersByTimeAsync(IDLE_TTL_MS)
 
       expect(session.state.value).toBe('expired')
       // Teardown uses close() (no wire disconnect envelope needed — the token
@@ -668,7 +819,7 @@ describe('useAgentLinkSession', () => {
     it('a session still "waiting" (agent never paired) also expires on TTL lapse, with had_agent_connected: false', async () => {
       const bridgeOps = makeBridgeOps()
       const connect = vi.fn(() => makeFakeRelayClient())
-      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token', expiresInSec: TOKEN_TTL_MS / 1000 })
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token', expiresInSec: IDLE_TTL_MS / 1000 })
 
       const session = useAgentLinkSession(bridgeOps, {
         macroType: 'sequence',
@@ -679,7 +830,7 @@ describe('useAgentLinkSession', () => {
       expect(session.state.value).toBe('waiting')
       vi.mocked(trackAnalyticsEvent).mockClear()
 
-      await vi.advanceTimersByTimeAsync(TOKEN_TTL_MS)
+      await vi.advanceTimersByTimeAsync(IDLE_TTL_MS)
 
       expect(session.state.value).toBe('expired')
       expect(trackAnalyticsEvent).toHaveBeenCalledWith(
@@ -691,7 +842,7 @@ describe('useAgentLinkSession', () => {
     it('disconnect() before the TTL lapses clears the scheduled watchdog — no expired event fires later', async () => {
       const bridgeOps = makeBridgeOps()
       const connect = vi.fn(() => makeFakeRelayClient())
-      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token', expiresInSec: TOKEN_TTL_MS / 1000 })
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token', expiresInSec: IDLE_TTL_MS / 1000 })
       const session = useAgentLinkSession(bridgeOps, {
         macroType: 'sequence',
         relay: { boundContext: { ...boundContext, pageId: 'ttl-page-disconnect' }, requestSession, connect },
@@ -702,7 +853,7 @@ describe('useAgentLinkSession', () => {
       session.disconnect('user')
       vi.mocked(trackAnalyticsEvent).mockClear()
 
-      await vi.advanceTimersByTimeAsync(TOKEN_TTL_MS)
+      await vi.advanceTimersByTimeAsync(IDLE_TTL_MS)
 
       expect(session.state.value).toBe('closed')
       expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
@@ -754,13 +905,14 @@ describe('useAgentLinkSession', () => {
 
       it('still reattaches normally into "connected" when the persisted expiresAt has NOT lapsed', () => {
         const pageId = 'ttl-reattach-still-live'
+        const persistedExpiresAt = Date.now() + 300_000
         persistSession({
           cloudId: 'c1',
           pageId,
           contentId: 'cc1',
           token: 'live-token',
           state: 'connected',
-          expiresAt: Date.now() + 60000,
+          expiresAt: persistedExpiresAt,
         })
         const bridgeOps = makeBridgeOps()
         const connect = vi.fn(() => makeFakeRelayClient())
@@ -772,7 +924,21 @@ describe('useAgentLinkSession', () => {
         session.attemptReattach()
 
         expect(session.state.value).toBe('connected')
+        expect(session.expiresAt.value).toBe(persistedExpiresAt)
         expect(connect).toHaveBeenCalledTimes(1)
+        vi.mocked(trackAnalyticsEvent).mockClear()
+
+        vi.advanceTimersByTime(300_000)
+
+        expect(session.state.value).toBe('expired')
+        expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+          'agent_link_session_expired',
+          expect.objectContaining({
+            feature_area: 'agent_link',
+            macro_type: 'sequence',
+            expiry_cause: 'idle',
+          })
+        )
       })
     })
 
@@ -1939,6 +2105,181 @@ describe('useAgentLinkSession', () => {
 
       session.disconnect('user')
       expect(session.thinkingState.value).toBe('idle')
+    })
+  })
+
+  // PR1 sliding-TTL status bus (spec 2026-07-13 §4.4): the relay's DO pushes a
+  // {kind:'status'} envelope down the macro socket carrying the fresh
+  // authoritative deadline (never computed client-side — spec §4), a lifetime-
+  // cap flag, and any non-forwarded activity (e.g. a guardrail reject). Task 7
+  // surfaces it verbatim as a {type:'status'} RelayStateEvent; this block drives
+  // the composable's handling: mirror the deadline + re-arm the watchdog, fire a
+  // THROTTLED agent_link_session_extended, append a guardrail feed row, and
+  // colour agent_link_session_expired with expiry_cause/hit_cap.
+  describe('status bus handling (spec 2026-07-13 §4.4)', () => {
+    // Typed as a real RelayClient so this fake connect doesn't trip the file's
+    // pre-existing Mock-vs-RelayClient TS2322 (getState must return a
+    // RelayConnectionState, not a widened string).
+    function makeFakeRelayClient(): RelayClient {
+      return {
+        send: vi.fn(),
+        close: vi.fn(),
+        disconnect: vi.fn(),
+        getState: vi.fn((): RelayConnectionState => 'open'),
+      }
+    }
+
+    // Mints a relay session (expiresInSec default 600 → the DO's initial
+    // deadline), resolves the async mint so expiresAt is set and the client-side
+    // watchdog is armed, then pairs an agent (first op) so the session is
+    // 'connected' when status envelopes start arriving — the real ordering, and
+    // it silences the 20s setup-timeout during the long clock advances below.
+    // Captures the relay's onStateEvent so a test can push status envelopes
+    // verbatim; `advance` drives the SAME global fake-timer clock the
+    // composable's default now() reads (outer beforeEach's vi.useFakeTimers()).
+    async function mountWithRelay(opts: { expiresInSec?: number; pageId?: string } = {}) {
+      const bridgeOps = makeBridgeOps()
+      let onStateEvent: ((e: RelayStateEvent) => void) | undefined
+      const connect = (
+        _wsUrl: string,
+        _bridge: AgentLinkBridgeOps,
+        ose: (e: RelayStateEvent) => void
+      ): RelayClient => {
+        onStateEvent = ose
+        return makeFakeRelayClient()
+      }
+      const requestSession = vi
+        .fn()
+        .mockResolvedValue({ token: 'real-token', expiresInSec: opts.expiresInSec ?? 600 })
+      const boundContext = { cloudId: 'c1', pageId: opts.pageId ?? 'status-page', contentId: 'cc1' }
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0) // resolve mint → expiresAt set, watchdog armed
+      onStateEvent!({ type: 'op', op: 'read_page' }) // agent pairs → connected
+      return {
+        api: session,
+        emitStateEvent: (e: RelayStateEvent) => onStateEvent!(e),
+        now: () => Date.now(),
+        advance: (ms: number) => vi.advanceTimersByTimeAsync(ms),
+      }
+    }
+
+    const extendedCount = () =>
+      vi
+        .mocked(trackAnalyticsEvent)
+        .mock.calls.filter(([name]) => name === 'agent_link_session_extended').length
+    const expiredProps = () =>
+      vi
+        .mocked(trackAnalyticsEvent)
+        .mock.calls.find(([name]) => name === 'agent_link_session_expired')?.[1] as
+        | Record<string, unknown>
+        | undefined
+
+    it('a status event mirrors the DO deadline onto expiresAt and re-arms the watchdog past the original deadline', async () => {
+      const h = await mountWithRelay({ expiresInSec: 600, pageId: 'status-rearm' })
+      const t0 = h.now() // the mint deadline is t0 + 600_000
+      // The DO's sliding TTL pushed the deadline forward on activity — mirror it
+      // verbatim (never recompute our own — spec §4).
+      h.emitStateEvent({ type: 'status', expiresAt: t0 + 900_000, hitCap: false })
+      expect(h.api.expiresAt.value).toBe(t0 + 900_000)
+
+      // Advance PAST the ORIGINAL 600s deadline: because the re-arm cancelled the
+      // old watchdog (scheduleExpiry clears the prior handle), the session is
+      // still live against the NEW 900s deadline. (The brief's placeholder
+      // advanced 601_000-1 against a same-valued re-arm, which always expires —
+      // this proves the re-arm actually MOVED the deadline forward.)
+      await h.advance(700_000)
+      expect(h.api.state.value).not.toBe('expired')
+    })
+
+    it('does not fire agent_link_session_extended when status repeats the current deadline', async () => {
+      const h = await mountWithRelay({ expiresInSec: 600, pageId: 'status-same-deadline' })
+      const currentDeadline = h.api.expiresAt.value
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      h.emitStateEvent({ type: 'status', expiresAt: currentDeadline ?? 0, hitCap: false })
+
+      expect(h.api.expiresAt.value).toBe(currentDeadline)
+      expect(extendedCount()).toBe(0)
+    })
+
+    it('fires agent_link_session_extended at most once per throttle window', async () => {
+      const h = await mountWithRelay({ expiresInSec: 600, pageId: 'status-throttle' })
+      const t0 = h.now()
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      // Two forward extensions inside the same throttle window: only the first
+      // fires (the second is strictly-greater-than-prev but throttled).
+      h.emitStateEvent({ type: 'status', expiresAt: t0 + 700_000 })
+      h.emitStateEvent({ type: 'status', expiresAt: t0 + 800_000 })
+      expect(extendedCount()).toBe(1)
+
+      // A later extension, once the throttle window has fully elapsed, fires again.
+      await h.advance(EXTENDED_EVENT_THROTTLE_MS)
+      h.emitStateEvent({ type: 'status', expiresAt: h.now() + 900_000 })
+      expect(extendedCount()).toBe(2)
+    })
+
+    it('the extended event carries expires_in_sec and hit_cap', async () => {
+      const h = await mountWithRelay({ expiresInSec: 600, pageId: 'status-extended-props' })
+      const t0 = h.now()
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      h.emitStateEvent({ type: 'status', expiresAt: t0 + 900_000, hitCap: true })
+
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_session_extended',
+        expect.objectContaining({
+          feature_area: 'agent_link',
+          macro_type: 'sequence',
+          expires_in_sec: 900, // (t0 + 900_000 - t0) / 1000, no clock advance since mount
+          hit_cap: true,
+        })
+      )
+    })
+
+    it('a guardrail_rejected activity appends the guardrail feed row', async () => {
+      const h = await mountWithRelay({ pageId: 'status-guardrail' })
+      const before = h.api.activityFeed.value.length
+
+      h.emitStateEvent({
+        type: 'status',
+        expiresAt: h.now() + 600_000,
+        activity: { type: 'guardrail_rejected', detail: 'parse_error' },
+      })
+
+      expect(h.api.activityFeed.value.length).toBe(before + 1)
+      expect(h.api.activityFeed.value.at(-1)?.summary).toBe(GUARDRAIL_REJECTED_FEED_SUMMARY)
+    })
+
+    it('expiry after a capped status reports expiry_cause: absolute_cap and hit_cap: true', async () => {
+      const h = await mountWithRelay({ pageId: 'status-cap' })
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      // A capped status shortens the deadline to the absolute-cap edge.
+      h.emitStateEvent({ type: 'status', expiresAt: h.now() + 60_000, hitCap: true })
+      await h.advance(60_000)
+
+      expect(h.api.state.value).toBe('expired')
+      const props = expiredProps()
+      expect(props?.expiry_cause).toBe('absolute_cap')
+      expect(props?.hit_cap).toBe(true)
+    })
+
+    it('expiry with no status ever received reports expiry_cause: idle', async () => {
+      const h = await mountWithRelay({ expiresInSec: 600, pageId: 'status-idle' })
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      // No status envelope arrives — the mint deadline lapses on its own.
+      await h.advance(600_000)
+
+      expect(h.api.state.value).toBe('expired')
+      const props = expiredProps()
+      expect(props?.expiry_cause).toBe('idle')
+      expect(props?.hit_cap).toBe(false)
     })
   })
 })

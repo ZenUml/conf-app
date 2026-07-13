@@ -32,7 +32,7 @@ import type { DispatchContext, ForwardResult, ToolName } from './mcpTools';
 import type { DiagramSnapshot } from './updateDiagramGuard';
 import { getGuideByUri, listGuideResources, selectInstructions } from './dslGuides';
 import { sessionRegistry } from './registrySingleton';
-import { TOKEN_TTL_MS } from './sessionToken';
+import { effectiveExpiryMs } from './sessionToken';
 import type { SessionRecord, SessionState } from './sessionToken';
 
 interface Env {
@@ -127,6 +127,9 @@ interface DoSessionInfo {
   state: SessionState;
   boundContext: SessionRecord['boundContext'];
   issuedAtMs: number;
+  /** Last bump-worthy activity (sliding-TTL, spec 2026-07-13 §3). Absent on
+   * records persisted by pre-sliding-TTL code — falls back to issuedAtMs. */
+  lastActivityMs?: number;
   /**
    * Last-known {diagramType, dsl} the DO cached from the agent's read_diagram
    * / prior update_diagram — the synchronous baseline the update_diagram
@@ -173,9 +176,15 @@ export class MacroForwardError extends Error {
 async function authenticateViaDo(
   agentLink: DurableObjectNamespace,
   token: string,
+  bump: boolean,
 ): Promise<{ auth: AuthResult; diagram?: DiagramSnapshot }> {
   const stub = agentLink.get(agentLink.idFromName(token));
-  const res = await stub.fetch('https://agent-link-do/session', { method: 'GET' });
+  // `?bump=1` iff this request is bump-worthy (real agent work): the DO slides
+  // the idle window and pushes a fresh status on the same auth round-trip that
+  // already happens on every request, so no extra network hop (spec §3/§4.2).
+  const res = await stub.fetch('https://agent-link-do/session' + (bump ? '?bump=1' : ''), {
+    method: 'GET',
+  });
 
   if (res.status === 401) return { auth: { ok: false, code: 'invalid' } };
   if (res.status === 403) return { auth: { ok: false, code: 'expired' } };
@@ -187,6 +196,7 @@ async function authenticateViaDo(
     boundContext: info.boundContext,
     scope: 'read-page+write-diagram',
     issuedAtMs: info.issuedAtMs,
+    lastActivityMs: typeof info.lastActivityMs === 'number' ? info.lastActivityMs : info.issuedAtMs,
     state: info.state,
   };
   // The diagram snapshot rides back on the auth round-trip that already happens
@@ -299,7 +309,7 @@ function stubForwardToMacro(session: SessionRecord) {
       case 'get_status': {
         const expiresInSec = Math.max(
           0,
-          Math.round((session.issuedAtMs + TOKEN_TTL_MS - Date.now()) / 1000),
+          Math.round((effectiveExpiryMs(session.issuedAtMs, session.lastActivityMs) - Date.now()) / 1000),
         );
         return {
           connected: true,
@@ -334,23 +344,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     return jsonRpcError(401, null, RPC_AUTH_ERROR, authErrorMessage('missing'), { code: 'missing' });
   }
 
-  let auth: AuthResult;
-  let diagramSnapshot: DiagramSnapshot | undefined;
-  if (env?.AGENT_LINK) {
-    const doResult = await authenticateViaDo(env.AGENT_LINK, token);
-    auth = doResult.auth;
-    diagramSnapshot = doResult.diagram;
-  } else {
-    // Local dev / unit tests with no DO bound: no cached diagram snapshot, so
-    // the update_diagram guardrail degrades to pass-through (documented in
-    // updateDiagramGuard.ts).
-    auth = authenticateSession(token, sessionRegistry, Date.now());
-  }
-  if (!auth.ok) {
-    const status = auth.code === 'expired' ? 403 : 401;
-    return jsonRpcError(status, null, RPC_AUTH_ERROR, authErrorMessage(auth.code), { code: auth.code });
-  }
-
+  // Body is parsed BEFORE auth (ordering change, spec 2026-07-13): computing
+  // bump-worthiness needs the method (and, for tools/call, params.name), and
+  // the DO auth round-trip is where the bump piggybacks (authenticateViaDo).
+  // The blank-token 401 above still short-circuits first; the only observable
+  // net change is that an invalid token paired with a malformed/incomplete
+  // body now surfaces the 400 body error rather than a 401.
   let body: JsonRpcRequestBody;
   try {
     body = await request.json();
@@ -360,6 +359,32 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   if (!body || typeof body !== 'object' || typeof body.method !== 'string') {
     return jsonRpcError(400, body?.id ?? null, RPC_INVALID_REQUEST, 'Invalid Request: missing "method"');
+  }
+
+  // Bump-worthiness (spec 2026-07-13 §3): real work slides the idle window;
+  // passive/handshake traffic (get_status polls, tools/list, initialize,
+  // resources/list) must not keep a dead session alive.
+  const bumpParams = (body.params ?? {}) as { name?: unknown };
+  const bumpWorthy =
+    (body.method === 'tools/call' && bumpParams.name !== 'get_status') ||
+    body.method === 'resources/read';
+
+  let auth: AuthResult;
+  let diagramSnapshot: DiagramSnapshot | undefined;
+  if (env?.AGENT_LINK) {
+    const doResult = await authenticateViaDo(env.AGENT_LINK, token, bumpWorthy);
+    auth = doResult.auth;
+    diagramSnapshot = doResult.diagram;
+  } else {
+    // Local dev / unit tests with no DO bound: no cached diagram snapshot, so
+    // the update_diagram guardrail degrades to pass-through (documented in
+    // updateDiagramGuard.ts). The fallback never bumps — sliding-TTL lives in
+    // the DO, absent here.
+    auth = authenticateSession(token, sessionRegistry, Date.now());
+  }
+  if (!auth.ok) {
+    const status = auth.code === 'expired' ? 403 : 401;
+    return jsonRpcError(status, null, RPC_AUTH_ERROR, authErrorMessage(auth.code), { code: auth.code });
   }
 
   const id = body.id ?? null;
@@ -452,6 +477,25 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         });
       } catch (err) {
         if (err instanceof ToolError) {
+          if (err.code === 'guardrail' && env?.AGENT_LINK) {
+            // Surface the reject to the user via the DO's status bus — the
+            // macro never saw this op (the guard runs before forwarding), which
+            // was the worst dead-air case (spec 2026-07-13 §1/§4.2).
+            // Best-effort: a failed report must not mask the RPC error reply.
+            try {
+              const stub = env.AGENT_LINK.get(env.AGENT_LINK.idFromName(token));
+              await stub.fetch('https://agent-link-do/activity', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  type: 'guardrail_rejected',
+                  detail: (err.data as { reason?: string } | undefined)?.reason ?? 'guardrail',
+                }),
+              });
+            } catch {
+              // swallow — see above
+            }
+          }
           let code = RPC_UNKNOWN_TOOL;
           if (err.code === 'bad_args') code = RPC_INVALID_PARAMS;
           else if (err.code === 'guardrail') code = RPC_GUARDRAIL_REJECTED;

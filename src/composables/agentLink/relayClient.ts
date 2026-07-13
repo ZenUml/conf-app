@@ -6,7 +6,10 @@
 // see relayUrl.ts) as the macro's live channel to the relay's
 // AgentLinkSession Durable Object. That DO forwards JSON envelopes verbatim
 // from the paired agent (see the relay worktree's
-// functions/agent-link/forwarding.ts): `{kind:'op'|'result'|'error'|'ping', id?, op?, payload?}`.
+// functions/agent-link/forwarding.ts): peer kinds
+// `{kind:'op'|'result'|'error'|'ping'|'disconnect', id?, op?, payload?}`;
+// the relay can also originate macro-bound `{kind:'status'}` envelopes (never
+// peer-sent).
 // This client dispatches incoming `op` envelopes to the injected
 // AgentLinkBridgeOps and replies with `result` / `error`, keyed by the same
 // `id`. `result`/`error` are never expected INBOUND here (those are the
@@ -25,13 +28,19 @@
 
 import type { AgentLinkBridgeOps } from './bridgeOps'
 
-export type RelayEnvelopeKind = 'op' | 'result' | 'error' | 'ping' | 'disconnect'
+export type RelayEnvelopeKind = 'op' | 'result' | 'error' | 'ping' | 'disconnect' | 'status'
 
 export interface RelayEnvelope {
   kind: RelayEnvelopeKind
   id?: string
   op?: string
   payload?: any
+  // Relay-originated status fields (spec 2026-07-13 §4.4). Only present on
+  // {kind:'status'} envelopes, which the DO pushes down the macro socket
+  // itself — the macro never sends these.
+  expiresAt?: number
+  hitCap?: boolean
+  activity?: { type: string; detail?: string }
 }
 
 export type RelayConnectionState = 'connecting' | 'open' | 'reconnecting' | 'closed'
@@ -65,6 +74,17 @@ export type RelayStateEvent =
   // timestamp rather than one taken after Vue reactivity has already run
   // (charter §6 Track F, agent_link_first_feedback.ms_since_op_received).
   | { type: 'op'; op?: string; receivedAt?: number }
+  // Relay-originated status bus (spec 2026-07-13 §4.4). Surfaced verbatim from
+  // a {kind:'status'} envelope the relay's DO pushes down this socket (never a
+  // peer's op): the fresh authoritative sliding-TTL deadline (`expiresAt`),
+  // whether the session has hit its lifetime cap (`hitCap`), and any
+  // non-forwarded activity the composable (useAgentLinkSession) renders.
+  | {
+      type: 'status'
+      expiresAt?: number
+      hitCap?: boolean
+      activity?: { type: string; detail?: string }
+    }
 
 // Mirrors useAgentLinkSession.ts's AgentLinkClock injection pattern so the
 // reconnect backoff is testable without real timers.
@@ -277,6 +297,18 @@ export function createRelayClient(opts: CreateRelayClientOptions): RelayClient {
     }
     if (!envelope || typeof envelope !== 'object') return
     if (envelope.kind === 'ping') return // liveness only — never acted on
+    if (envelope.kind === 'status') {
+      // Relay-originated status bus (spec 2026-07-13 §4.4): the DO's own
+      // message, not a peer's — carries the fresh authoritative deadline and
+      // any non-forwarded activity. Surface as a state event; never an op.
+      emit({
+        type: 'status',
+        expiresAt: envelope.expiresAt,
+        hitCap: envelope.hitCap,
+        activity: envelope.activity,
+      })
+      return
+    }
     if (envelope.kind === 'op') {
       void handleOp(envelope)
       return

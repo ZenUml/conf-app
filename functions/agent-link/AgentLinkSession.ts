@@ -66,11 +66,11 @@
 // binding (its `!env.AGENT_LINK` guard remains only as a defensive check for
 // wrangler-dev.toml, which has no companion Worker for local dev).
 
-import { applyEvent, parseEnvelope, reattachEvent, routeMessage } from './forwarding';
-import type { Peer } from './forwarding';
+import { applyEvent, parseEnvelope, reattachEvent, routeMessage, statusEnvelope } from './forwarding';
+import type { Peer, StatusActivity } from './forwarding';
 import { PendingOps } from './pendingOps';
 import type { PendingOpResult } from './pendingOps';
-import { isExpired, nextState, TOKEN_TTL_MS } from './sessionToken';
+import { effectiveExpiryMs, isAtCap, isExpired, nextState } from './sessionToken';
 import type { BoundContext, SessionRecord, SessionState } from './sessionToken';
 
 interface Env {
@@ -167,6 +167,12 @@ export class AgentLinkSession {
     const stored = await this.state.storage.get<SessionRecord>('session');
     if (!stored) return;
     this.session = stored;
+    // Migration: a record persisted by pre-PR1 code has no lastActivityMs —
+    // backfill with issuedAtMs (v1-equivalent deadline) so effectiveExpiryMs
+    // never sees undefined (NaN would 403 every live session at deploy time).
+    if (typeof (this.session as Partial<SessionRecord>).lastActivityMs !== 'number') {
+      this.session.lastActivityMs = this.session.issuedAtMs;
+    }
     this.lastDiagram =
       (await this.state.storage.get<{ diagramType?: string; dsl?: string }>('lastDiagram')) ?? null;
     this.macroSocket = this.state.getWebSockets('macro')[0] ?? null;
@@ -336,6 +342,36 @@ export class AgentLinkSession {
     return this.session.state;
   }
 
+  /** Records bump-worthy agent activity (spec 2026-07-13 §3/§4.2): slides the
+   * idle window, re-arms the expiry alarm at the new effective deadline, and
+   * pushes a status envelope so the macro passively learns the fresh deadline
+   * (and any non-forwarded activity). Push is best-effort — a missing/closing
+   * macro socket must never fail the agent's request. */
+  private async bumpActivity(activity?: StatusActivity): Promise<void> {
+    if (!this.session) return;
+    this.session.lastActivityMs = Date.now();
+    await this.state.storage.put('session', this.session);
+    const deadline = effectiveExpiryMs(this.session.issuedAtMs, this.session.lastActivityMs);
+    await this.state.storage.setAlarm(deadline);
+    this.pushStatus(activity);
+  }
+
+  /** Sends {kind:'status'} to the macro socket, if one is live. */
+  private pushStatus(activity?: StatusActivity): void {
+    if (!this.session || !this.macroSocket) return;
+    try {
+      this.macroSocket.send(
+        statusEnvelope(
+          effectiveExpiryMs(this.session.issuedAtMs, this.session.lastActivityMs),
+          isAtCap(this.session.issuedAtMs, this.session.lastActivityMs),
+          activity,
+        ),
+      );
+    } catch {
+      // Best-effort — the socket may be closing; the agent's request must not fail.
+    }
+  }
+
   /**
    * `GET /agent-link/channel?token=...&peer=macro|agent` with
    * `Upgrade: websocket`. The first caller for a given token (normally the
@@ -350,7 +386,10 @@ export class AgentLinkSession {
     // Agent-side HTTP transport (mcp.ts) — neither of these is a WebSocket
     // upgrade, so they're handled before the Upgrade check below.
     if (url.pathname === '/session' && request.method === 'GET') {
-      return this.handleSessionInfo();
+      return this.handleSessionInfo(url.searchParams.get('bump') === '1');
+    }
+    if (url.pathname === '/activity' && request.method === 'POST') {
+      return this.handleActivity(request);
     }
     if (url.pathname === '/agent-op' && request.method === 'POST') {
       return this.handleAgentOp(request);
@@ -392,19 +431,24 @@ export class AgentLinkSession {
         );
       }
       const boundContext: BoundContext = { cloudId, pageId, contentId };
+      const nowMs = Date.now();
       this.session = {
         token,
         boundContext,
         scope: 'read-page+write-diagram',
-        issuedAtMs: Date.now(),
+        issuedAtMs: nowMs,
+        lastActivityMs: nowMs,
         state: 'created',
       };
       // Persist so the session survives a DO hibernation wake — reloaded by
       // ensureSession() on the next request (ISSUE 3 fix).
       await this.state.storage.put('session', this.session);
       // TTL fallback in case the macro connects but the agent never does —
-      // §7: "created -> expired (token TTL, agent never joined)".
-      await this.state.storage.setAlarm(this.session.issuedAtMs + 10 * 60 * 1000);
+      // §7: "created -> expired (token TTL, agent never joined)". Armed at the
+      // effective deadline (idle window from bootstrap; capped) — bumps re-arm it.
+      await this.state.storage.setAlarm(
+        effectiveExpiryMs(this.session.issuedAtMs, this.session.lastActivityMs),
+      );
     } else if (this.session.token !== token) {
       return new Response('Token does not match this session', { status: 403 });
     }
@@ -484,7 +528,7 @@ export class AgentLinkSession {
     if (this.session.state === 'closed' || this.session.state === 'expired') {
       return { ok: false, status: 403, code: 'expired' };
     }
-    if (isExpired(this.session.issuedAtMs, Date.now())) {
+    if (isExpired(this.session.issuedAtMs, this.session.lastActivityMs, Date.now())) {
       return { ok: false, status: 403, code: 'expired' };
     }
     return { ok: true };
@@ -498,10 +542,15 @@ export class AgentLinkSession {
    * instance the macro bootstrapped) to authenticate a token regardless of
    * which Worker isolate the HTTP request landed on.
    */
-  private async handleSessionInfo(): Promise<Response> {
+  private async handleSessionInfo(bump: boolean): Promise<Response> {
     await this.ensureSession();
     const auth = this.validateSession();
     if (!auth.ok) return jsonResponse({ error: auth.code }, auth.status);
+
+    // `?bump=1` marks this poll as bump-worthy agent activity (mcp.ts's
+    // read-only ops route here): slide the idle window + push status before
+    // reporting the fresh deadline.
+    if (bump) await this.bumpActivity();
 
     const session = this.session as SessionRecord; // validateSession() guarantees non-null here
     return jsonResponse(
@@ -509,12 +558,39 @@ export class AgentLinkSession {
         state: session.state,
         boundContext: session.boundContext,
         issuedAtMs: session.issuedAtMs,
+        // Sliding-TTL fields — the server-authoritative deadline and the raw
+        // lastActivity it derives from, so mcp.ts (Task 6) can rebuild a
+        // complete SessionRecord cross-isolate.
+        lastActivityMs: session.lastActivityMs,
+        expiresAtMs: effectiveExpiryMs(session.issuedAtMs, session.lastActivityMs),
         // Baseline for the relay-side update_diagram guardrail; omitted until
         // the agent has read the diagram at least once.
         lastDiagram: this.lastDiagram ?? undefined,
       },
       200,
     );
+  }
+
+  /** `POST /activity` — the non-forwarded-activity ingress (spec §4.2): today
+   * mcp.ts reports guardrail rejects here; PR3's host hooks will reuse it.
+   * Any report is real agent engagement → bump + status push. */
+  private async handleActivity(request: Request): Promise<Response> {
+    await this.ensureSession();
+    const auth = this.validateSession();
+    if (!auth.ok) return jsonResponse({ error: auth.code }, auth.status);
+    let body: { type?: unknown; detail?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid_body' }, 400);
+    }
+    const type = body?.type;
+    if (type !== 'guardrail_rejected' && type !== 'agent_request' && type !== 'turn') {
+      return jsonResponse({ error: 'invalid_body' }, 400);
+    }
+    const detail = typeof body?.detail === 'string' ? body.detail : undefined;
+    await this.bumpActivity({ type, ...(detail ? { detail } : {}) });
+    return jsonResponse({ ok: true }, 200);
   }
 
   /**
@@ -544,7 +620,7 @@ export class AgentLinkSession {
     const session = this.session as SessionRecord; // validateSession() guarantees non-null here
 
     if (session.state === 'suspended') {
-      const resume_deadline = session.issuedAtMs + TOKEN_TTL_MS;
+      const resume_deadline = effectiveExpiryMs(session.issuedAtMs, session.lastActivityMs);
       // get_status is the one op that must succeed while suspended — it's
       // the agent's only way to observe "waiting for the macro to
       // reconnect" (design §7 decision #4) instead of erroring on every poll.
@@ -574,7 +650,9 @@ export class AgentLinkSession {
             diagramType: this.lastDiagram?.diagramType,
             expiresInSec: Math.max(
               0,
-              Math.round((session.issuedAtMs + TOKEN_TTL_MS - Date.now()) / 1000),
+              Math.round(
+                (effectiveExpiryMs(session.issuedAtMs, session.lastActivityMs) - Date.now()) / 1000,
+              ),
             ),
           },
         },
@@ -757,33 +835,49 @@ export class AgentLinkSession {
    * TTL enforcement (design §7 "created -> expired (token TTL, agent never
    * joined)"; extended by G-design.md: also the 'suspended' resume window's
    * ttl_expiry — "no extension", the same alarm covers both). Scheduled from
-   * `fetch` at session bootstrap; also acts as a backstop idle-timeout since
-   * it re-arms are not scheduled past the initial TTL window in this task's
-   * scope (see TODO above re: idle timeout duration — design §14 open
-   * question 1).
+   * `fetch` at session bootstrap and re-armed on every bump (bumpActivity) at
+   * the current effective (slid, capped) deadline (spec 2026-07-13 §3/§4.2).
+   * Because a bump replaces the alarm, a stale alarm can still fire against a
+   * deadline that's since slid forward — so re-check the clock and re-arm
+   * instead of expiring.
    */
   async alarm(): Promise<void> {
+    // Hydrate first — the alarm normally fires on a hibernated (cold)
+    // instance where this.session is null; without this the whole expiry
+    // teardown below (socket close, content-lock release, storage wipe)
+    // silently no-ops, leaving the per-contentId claim held until its own
+    // self-clear TTL (up to an hour once Task 5 stretches it to the cap).
+    await this.ensureSession();
     if (!this.session) return;
-    if (isExpired(this.session.issuedAtMs, Date.now())) {
-      this.session.state = nextState(this.session.state, 'expire');
-      try {
-        this.macroSocket?.close(1000, 'session expired');
-      } catch {
-        /* already closed */
-      }
-      try {
-        this.agentSocket?.close(1000, 'session expired');
-      } catch {
-        /* already closed */
-      }
-      await this.releaseContentLock();
-      this.macroSocket = null;
-      this.agentSocket = null;
-      this.lastDiagram = null;
-      // Drop the persisted record on TTL expiry so a wake can't resurrect it
-      // (validateSession's clock check would still reject it, but don't leak).
-      await this.state.storage.delete('session');
-      await this.state.storage.delete('lastDiagram');
+    if (!isExpired(this.session.issuedAtMs, this.session.lastActivityMs, Date.now())) {
+      // Terminal states never come back — a stale in-flight alarm on a warm
+      // instance (closeSession keeps this.session set) must not re-arm.
+      if (this.session.state === 'closed' || this.session.state === 'expired') return;
+      // A bump slid the deadline past this (already-replaced) alarm — re-arm
+      // defensively at the current effective deadline instead of expiring.
+      await this.state.storage.setAlarm(
+        effectiveExpiryMs(this.session.issuedAtMs, this.session.lastActivityMs),
+      );
+      return;
     }
+    this.session.state = nextState(this.session.state, 'expire');
+    try {
+      this.macroSocket?.close(1000, 'session expired');
+    } catch {
+      /* already closed */
+    }
+    try {
+      this.agentSocket?.close(1000, 'session expired');
+    } catch {
+      /* already closed */
+    }
+    await this.releaseContentLock();
+    this.macroSocket = null;
+    this.agentSocket = null;
+    this.lastDiagram = null;
+    // Drop the persisted record on TTL expiry so a wake can't resurrect it
+    // (validateSession's clock check would still reject it, but don't leak).
+    await this.state.storage.delete('session');
+    await this.state.storage.delete('lastDiagram');
   }
 }

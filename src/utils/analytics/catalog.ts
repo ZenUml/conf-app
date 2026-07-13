@@ -206,13 +206,17 @@ export type AnalyticsEventName =
   | "agent_link_session_suspended"
   | "agent_link_session_resumed"
   // #314 — the client-side TTL watchdog fires this the instant `expiresAt`
-  // (TOKEN_TTL_MS = 10 min) lapses, from ANY still-live state (waiting/
+  // (the 10-min idle window, sliding — spec 2026-07-13 §3) lapses, from ANY still-live state (waiting/
   // timeout/connected/suspended). Distinct from agent_link_disconnected: no
   // explicit user action or wire disconnect envelope caused this — the token
   // simply died server-side and the client noticed on its own clock.
   // `had_agent_connected` distinguishes "an agent was actually paired and
   // lost its session" from "nobody ever paired before the token lapsed".
   | "agent_link_session_expired"
+  // PR1 sliding TTL (spec 2026-07-13 §7): fired by the relay owner when a
+  // status envelope moves the deadline forward — throttled client-side to at
+  // most one per minute, NOT one per op.
+  | "agent_link_session_extended"
   // U — discovery tool surface (search_diagrams / list_diagrams, plus
   // read_diagram gaining a by-contentId mode). The trust boundary requires the
   // user to SEE everything the agent did, so every discovery op is both an
@@ -240,6 +244,11 @@ export type PrefetchOutcome = "completed" | "partial" | "failed" | "timed_out";
 // Disconnect click; 'timeout' = token/session TTL; 'idle' = no activity for the
 // idle window; 'tab_close' = macro connection dropped (tab close/navigation).
 export type AgentLinkDisconnectReason = "user" | "timeout" | "idle" | "tab_close";
+
+// Why a session finally expired under the sliding-TTL policy (spec
+// 2026-07-13 §3): 'idle' = 10-min idle window lapsed; 'absolute_cap' = the
+// 60-min hard cap bounded an otherwise-active session.
+export type AgentLinkExpiryCause = "idle" | "absolute_cap";
 
 // Terminal outcome of an agent_link render (agent_link_render_completed) —
 // the signal the F-track "thinking state" UI clears on. 'rendered' = the new

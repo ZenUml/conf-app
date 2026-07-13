@@ -41,11 +41,15 @@ export interface SessionRecord {
   /** MVP scope is fixed — decision #4, no page-body authoring, no other-macro writes. */
   scope: 'read-page+write-diagram';
   issuedAtMs: number;
+  /** Last bump-worthy agent activity (spec 2026-07-13 §3); starts = issuedAtMs. */
+  lastActivityMs: number;
   state: SessionState;
 }
 
-/** Token lifetime — design §8: "Short-lived (≤10 min), single-use". */
-export const TOKEN_TTL_MS = 10 * 60 * 1000;
+/** Sliding-TTL policy (spec 2026-07-13 §3, user-decided): each bump-worthy
+ * agent request resets a 10-min idle window; no session outlives 60 min. */
+export const IDLE_TTL_MS = 10 * 60 * 1000;
+export const MAX_SESSION_MS = 60 * 60 * 1000;
 
 // Crockford base32 alphabet: excludes I, L, O, U to avoid visual ambiguity
 // when a user reads the token off screen and types/pastes it.
@@ -66,9 +70,20 @@ export function mintToken(): string {
   return `CL-${randomSegment(4)}-${randomSegment(4)}`;
 }
 
-/** True once `nowMs` is at or past `issuedAtMs + TOKEN_TTL_MS`. */
-export function isExpired(issuedAtMs: number, nowMs: number): boolean {
-  return nowMs - issuedAtMs >= TOKEN_TTL_MS;
+/** The server-authoritative deadline: min(idle window, absolute cap). */
+export function effectiveExpiryMs(issuedAtMs: number, lastActivityMs: number): number {
+  return Math.min(lastActivityMs + IDLE_TTL_MS, issuedAtMs + MAX_SESSION_MS);
+}
+
+/** True once the deadline is bounded by the cap, not the idle window —
+ * carried on status envelopes so the client can report expiry_cause. */
+export function isAtCap(issuedAtMs: number, lastActivityMs: number): boolean {
+  return lastActivityMs + IDLE_TTL_MS >= issuedAtMs + MAX_SESSION_MS;
+}
+
+/** True once `nowMs` is at or past the effective (slid, capped) deadline. */
+export function isExpired(issuedAtMs: number, lastActivityMs: number, nowMs: number): boolean {
+  return nowMs >= effectiveExpiryMs(issuedAtMs, lastActivityMs);
 }
 
 /**

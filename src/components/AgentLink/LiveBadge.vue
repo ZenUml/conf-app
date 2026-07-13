@@ -24,6 +24,7 @@
   <span
     v-else-if="state === 'connected'"
     class="agent-link-live-badge"
+    :class="{ 'agent-link-live-badge--active': agentActive }"
     data-testid="agent-link-live-badge"
   >
     <span class="agent-link-live-badge__dot" aria-hidden="true"></span>
@@ -69,16 +70,52 @@
 // existing collapsed-macro usage keeps rendering exactly as before;
 // 'idle'/'waiting'/'timeout' still render nothing.
 import type { AgentLinkClientState } from '@/composables/agentLink/agentLinkState'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { ACTIVITY_LINGER_MS } from '@/composables/agentLink/useAgentLinkSession'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     state: AgentLinkClientState
     // Track H: op-in-flight overlay for the rail's status header. Optional and
     // false by default so the collapsed-macro badge is unchanged.
     thinking?: boolean
+    lastActivityAt?: number | null
   }>(),
-  { thinking: false }
+  { thinking: false, lastActivityAt: null }
 )
+
+const nowMs = ref(Date.now())
+let timer: ReturnType<typeof setInterval> | null = null
+
+function startTicking() {
+  stopTicking()
+  nowMs.value = Date.now()
+  timer = setInterval(() => {
+    nowMs.value = Date.now()
+  }, 1000)
+}
+function stopTicking() {
+  if (timer !== null) {
+    clearInterval(timer)
+    timer = null
+  }
+}
+
+watch(
+  () => props.lastActivityAt,
+  (v) => {
+    if (v === null || v === undefined) stopTicking()
+    else startTicking()
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(stopTicking)
+
+const agentActive = computed(() => {
+  if (props.lastActivityAt === null || props.lastActivityAt === undefined) return false
+  return nowMs.value - props.lastActivityAt < ACTIVITY_LINGER_MS
+})
 </script>
 
 <style scoped>
@@ -103,6 +140,9 @@ withDefaults(
   height: 6px;
   border-radius: 50%;
   background: #16a66b;
+}
+
+.agent-link-live-badge--active .agent-link-live-badge__dot {
   animation: agent-link-live-pulse 1.6s ease-in-out infinite;
 }
 
@@ -128,12 +168,6 @@ withDefaults(
   to { transform: rotate(360deg); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .agent-link-live-badge__spinner {
-    animation: none;
-  }
-}
-
 /* Track G: 'suspended' — amber "Paused", still pulsing (resumable). */
 .agent-link-live-badge--suspended {
   background: rgba(226, 178, 3, 0.14);
@@ -142,11 +176,26 @@ withDefaults(
 
 .agent-link-live-badge--suspended .agent-link-live-badge__dot {
   background: #c4761f;
+  animation: agent-link-live-pulse 1.6s ease-in-out infinite;
 }
 
 /* Track G: 'closed' — gray "Disconnected", terminal (no pulse). */
 .agent-link-live-badge--closed {
   background: rgba(107, 119, 140, 0.14);
   color: #6b778c;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-link-live-badge--active .agent-link-live-badge__dot {
+    animation: none;
+  }
+
+  .agent-link-live-badge--suspended .agent-link-live-badge__dot {
+    animation: none;
+  }
+
+  .agent-link-live-badge__spinner {
+    animation: none;
+  }
 }
 </style>

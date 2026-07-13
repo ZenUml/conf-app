@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ConnectPanel from './ConnectPanel.vue'
+import AgentStatusHeader from './AgentStatusHeader.vue'
 import connectPanelSource from './ConnectPanel.vue?raw'
 import type { AgentLinkActivityEntry } from '@/composables/agentLink/useAgentLinkSession'
 
@@ -17,6 +18,7 @@ function mountPanel(props: {
     | 'expired'
   token?: string | null
   activityFeed?: AgentLinkActivityEntry[]
+  lastActivityAt?: number | null
 }) {
   return mount(ConnectPanel, {
     props: {
@@ -262,6 +264,16 @@ describe('ConnectPanel — Track H rail composition', () => {
   it('active: honours an explicit client name in the status header', () => {
     const wrapper = mountRail({ state: 'connected', clientName: 'Claude Code' })
     expect(wrapper.find('[data-testid="agent-link-status-header-name"]').text()).toBe('Claude Code')
+  })
+
+  it('passes lastActivityAt through to the connected and suspended status headers', () => {
+    const lastActivityAt = Date.now() - 1000
+
+    const connected = mountRail({ state: 'connected', lastActivityAt })
+    const suspended = mountRail({ state: 'suspended', lastActivityAt })
+
+    expect(connected.findComponent(AgentStatusHeader).props('lastActivityAt')).toBe(lastActivityAt)
+    expect(suspended.findComponent(AgentStatusHeader).props('lastActivityAt')).toBe(lastActivityAt)
   })
 
   it('thinking (op in flight): shows the blue "Agent is editing…" banner and the Working badge', () => {

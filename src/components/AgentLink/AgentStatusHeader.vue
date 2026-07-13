@@ -13,14 +13,15 @@
       <div class="agent-status-header__name" data-testid="agent-link-status-header-name">{{ displayName }}</div>
       <div class="agent-status-header__sub">{{ subline }}</div>
     </div>
-    <LiveBadge :state="state" :thinking="thinking" />
+    <LiveBadge :state="state" :thinking="thinking" :last-activity-at="lastActivityAt" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import LiveBadge from './LiveBadge.vue'
 import type { AgentLinkClientState } from '@/composables/agentLink/agentLinkState'
+import { ACTIVITY_LINGER_MS } from '@/composables/agentLink/useAgentLinkSession'
 
 const props = withDefaults(
   defineProps<{
@@ -30,18 +31,63 @@ const props = withDefaults(
     // Connected agent client name; falls back to the generic label.
     clientName?: string
     diagramTitle?: string
+    lastActivityAt?: number | null
   }>(),
-  { thinking: false, clientName: '', diagramTitle: '' }
+  { thinking: false, clientName: '', diagramTitle: '', lastActivityAt: null }
 )
 
 const displayName = computed(() => props.clientName?.trim() || 'Connected agent')
 
+const nowMs = ref(Date.now())
+let timer: ReturnType<typeof setInterval> | null = null
+
+function startTicking() {
+  stopTicking()
+  nowMs.value = Date.now()
+  timer = setInterval(() => {
+    nowMs.value = Date.now()
+  }, 1000)
+}
+function stopTicking() {
+  if (timer !== null) {
+    clearInterval(timer)
+    timer = null
+  }
+}
+
+watch(
+  () => props.lastActivityAt,
+  (v) => {
+    if (v === null || v === undefined) stopTicking()
+    else startTicking()
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(stopTicking)
+
+const agentActive = computed(() => {
+  if (props.lastActivityAt === null || props.lastActivityAt === undefined) return false
+  return nowMs.value - props.lastActivityAt < ACTIVITY_LINGER_MS
+})
+
 const subline = computed(() => {
   // Active idle → capability subline; every other state → what it's bound to.
-  if (props.state === 'connected') return 'Connected · reads & edits'
+  if (props.state === 'connected') {
+    if (props.thinking) return 'Connected · reads & edits'
+    if (props.lastActivityAt === null || props.lastActivityAt === undefined) return 'Connected · reads & edits'
+    if (agentActive.value) return 'Connected · agent active'
+    return `Connected · agent active · ${formatActivityAge(nowMs.value - props.lastActivityAt)} ago`
+  }
   const title = props.diagramTitle?.trim()
   return title ? `Linked to ${title}` : 'Linked to this diagram'
 })
+
+function formatActivityAge(ageMs: number): string {
+  const seconds = Math.max(0, Math.floor(ageMs / 1000))
+  if (seconds >= 60) return `${Math.floor(seconds / 60)}m`
+  return `${seconds}s`
+}
 
 const avatarClass = computed(() => {
   switch (props.state) {

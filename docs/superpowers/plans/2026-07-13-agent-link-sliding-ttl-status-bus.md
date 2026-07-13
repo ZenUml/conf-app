@@ -111,7 +111,8 @@ git commit -m "feat(analytics): register agent_link_session_extended + expiry_ca
   - `isAtCap(issuedAtMs: number, lastActivityMs: number): boolean`
   - `isExpired(issuedAtMs: number, lastActivityMs: number, nowMs: number): boolean` (**3-arg — signature change**)
   - `SessionRecord` gains required `lastActivityMs: number`
-  - `TOKEN_TTL_MS` is **deleted** — grep confirms remaining importers are `session.ts`, `AgentLinkSession.ts`, `mcp.ts` (+ their specs), all updated in Tasks 4–6. This task may leave them temporarily red; run ONLY the three spec files below in this task.
+  - `TOKEN_TTL_MS` becomes a **deprecated alias** (`export const TOKEN_TTL_MS = IDLE_TTL_MS; // @deprecated — Task 9 deletes this once Tasks 4–6 migrate callers`) so `session.ts`/`AgentLinkSession.ts`/`mcp.ts` keep compiling (hard rule: every commit compiles); Task 9 deletes it.
+  - Compile-safety in THIS commit: `AgentLinkSession.ts` gets mechanical updates ONLY — the bootstrap record literal gains `lastActivityMs` (same `Date.now()` value as `issuedAtMs`, hoist a const), and the two `isExpired(...)` call sites (`validateSession` line 487, `alarm` line 767) pass `this.session.lastActivityMs` as the new second arg. No behavioral change (lastActivity === issuedAt everywhere until Task 4 adds bumping). Run the AgentLinkSession spec file too in Step 4 and fix its `SessionRecord` literals.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -168,6 +169,11 @@ In `sessionToken.ts`, replace lines 47–48 and 69–72:
  * agent request resets a 10-min idle window; no session outlives 60 min. */
 export const IDLE_TTL_MS = 10 * 60 * 1000;
 export const MAX_SESSION_MS = 60 * 60 * 1000;
+
+/** @deprecated v1's fixed lifetime — kept ONLY so not-yet-migrated importers
+ * (session.ts / AgentLinkSession.ts / mcp.ts, Tasks 4–6) keep compiling.
+ * Task 9 deletes this. */
+export const TOKEN_TTL_MS = IDLE_TTL_MS;
 
 /** The server-authoritative deadline: min(idle window, absolute cap). */
 export function effectiveExpiryMs(issuedAtMs: number, lastActivityMs: number): number {
@@ -853,7 +859,7 @@ git commit -m "feat(agent-link): client mirrors status-bus deadline; guardrail f
 
 - [ ] **Step 1: Full unit run** — `pnpm test:unit` → everything green (agent-link suites AND the rest — the SessionRecord shape change may ripple into e2e helper types or ApWrapper specs; fix forward).
 - [ ] **Step 2: Type delta vs main** — `npx vue-tsc --noEmit 2>&1 | tee /tmp/pr1-tsc.txt | wc -l`, then the same on `main` (stash/worktree). Only NEW errors block (~150 pre-existing).
-- [ ] **Step 3: Grep discipline** — `git grep -n TOKEN_TTL_MS` → zero hits; `git grep -rn "atlassian.net" -- ':!docs' ':!private'` over the diff → no tenant names.
+- [ ] **Step 3: Grep discipline** — delete the deprecated `TOKEN_TTL_MS` alias from `sessionToken.ts` (Tasks 4–6 migrated all callers), then `git grep -n TOKEN_TTL_MS` → zero hits; `git grep -rn "atlassian.net" -- ':!docs' ':!private'` over the diff → no tenant names.
 - [ ] **Step 4: Commit any fixups** — one-line subjects.
 
 ---

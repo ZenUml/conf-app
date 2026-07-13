@@ -15,6 +15,7 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import {
   useAgentLinkSession,
   ERROR_FLASH_MS,
+  ACTIVITY_LINGER_MS,
   EXTENDED_EVENT_THROTTLE_MS,
   GUARDRAIL_REJECTED_FEED_SUMMARY,
 } from './useAgentLinkSession'
@@ -47,6 +48,10 @@ describe('useAgentLinkSession', () => {
   })
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('exports the activity linger window used by display components', () => {
+    expect(ACTIVITY_LINGER_MS).toBe(5000)
   })
 
   it('startConnect moves idle -> waiting and fires agent_link_connect_clicked', () => {
@@ -179,6 +184,118 @@ describe('useAgentLinkSession', () => {
       return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
     }
 
+    describe('Task 1 — lastActivityAt display fact + handoff mirror', () => {
+      function testClock(initialNow = 100_000) {
+        let current = initialNow
+        return {
+          clock: { now: () => current },
+          setNow: (next: number) => {
+            current = next
+          },
+        }
+      }
+
+      async function linkedSession(pageId = 'last-activity-page', initialNow = 100_000) {
+        const bridgeOps = makeBridgeOps()
+        const { clock, setNow } = testClock(initialNow)
+        let capturedOnStateEvent: ((event: RelayStateEvent) => void) | undefined
+        let capturedOnEditApplied: ((outcome: any) => void) | undefined
+        const boundContext = { cloudId: 'c1', pageId, contentId: 'cc1' }
+        const connect = vi.fn((_wsUrl, _bridge, onStateEvent, _onDiagUpdated, onEditApplied) => {
+          capturedOnStateEvent = onStateEvent
+          capturedOnEditApplied = onEditApplied
+          return makeFakeRelayClient()
+        })
+        const requestSession = vi.fn().mockResolvedValue({ token: 'real-token' })
+        const session = useAgentLinkSession(bridgeOps, {
+          macroType: 'sequence',
+          clock,
+          relay: { boundContext, requestSession, connect: connect as any },
+        })
+
+        session.startConnect()
+        await vi.advanceTimersByTimeAsync(0)
+
+        return {
+          session,
+          boundContext,
+          setNow,
+          emit: (event: RelayStateEvent) => capturedOnStateEvent!(event),
+          edit: (outcome: any) => capturedOnEditApplied!(outcome),
+        }
+      }
+
+      it('an op state event sets lastActivityAt to the injected clock now', async () => {
+        const { session, setNow, emit } = await linkedSession('last-activity-op')
+        setNow(123_456)
+
+        emit({ type: 'op', op: 'read_page', receivedAt: 111 })
+
+        expect(session.lastActivityAt.value).toBe(123_456)
+      })
+
+      it('a status state event sets lastActivityAt to the injected clock now', async () => {
+        const { session, setNow, emit } = await linkedSession('last-activity-status')
+        setNow(223_456)
+
+        emit({ type: 'status', expiresAt: 999_000, hitCap: false })
+
+        expect(session.lastActivityAt.value).toBe(223_456)
+      })
+
+      it('a successful edit outcome sets lastActivityAt to the injected clock now', async () => {
+        const { session, setNow, edit } = await linkedSession('last-activity-edit')
+        setNow(323_456)
+
+        edit({ ok: true, dsl: 'A->B: hi', summary: 'agent added a step', rendered: true })
+
+        expect(session.lastActivityAt.value).toBe(323_456)
+      })
+
+      it('hydrateFrom adopts lastActivityAt onto a display-only instance', () => {
+        const bridgeOps = makeBridgeOps()
+        const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+
+        session.hydrateFrom({
+          token: 'handed-off-token',
+          cloudId: 'c1',
+          pageId: 'page-1',
+          contentId: 'cc1',
+          state: 'connected',
+          lastActivityAt: 423_456,
+        })
+
+        expect(session.lastActivityAt.value).toBe(423_456)
+      })
+
+      it('startConnect resets lastActivityAt to null for the new session', async () => {
+        const { session, emit } = await linkedSession('last-activity-reset')
+        emit({ type: 'op', op: 'read_page' })
+        expect(session.lastActivityAt.value).not.toBeNull()
+
+        session.disconnect('user')
+        session.startConnect()
+
+        expect(session.lastActivityAt.value).toBeNull()
+      })
+
+      it('after a status event, the republished handoff carries expiresAt and lastActivityAt', async () => {
+        const { session, boundContext, setNow, emit } = await linkedSession('last-activity-handoff')
+        setNow(523_456)
+
+        emit({ type: 'status', expiresAt: 999_000, hitCap: true })
+
+        expect(session.lastActivityAt.value).toBe(523_456)
+        expect(readSession(boundContext.pageId)).toMatchObject({
+          ...boundContext,
+          token: 'real-token',
+          state: 'connected',
+          expiresAt: 999_000,
+          lastActivityAt: 523_456,
+        })
+      })
+    })
+
     it('threads onDiagramUpdated through relay.connect and forwards it to options.onDiagramUpdated with macroType', async () => {
       const bridgeOps = makeBridgeOps()
       const onDiagramUpdated = vi.fn()
@@ -290,11 +407,12 @@ describe('useAgentLinkSession', () => {
       expect(session.state.value).toBe('connected')
       // bug 2 fix: `feed` now travels on every handoff write (see the dsl
       // republish test above for why this is deliberate, not a regression).
-      expect(readSession(boundContext.pageId)).toEqual({
+      expect(readSession(boundContext.pageId)).toMatchObject({
         ...boundContext,
         token: 'real-token',
         state: 'connected',
         feed: [],
+        lastActivityAt: expect.any(Number),
       })
       expect(trackAnalyticsEvent).toHaveBeenCalledWith(
         'agent_link_agent_connected',

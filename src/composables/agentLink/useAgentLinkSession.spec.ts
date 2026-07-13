@@ -12,9 +12,15 @@ vi.mock('@/model/globals/forgeGlobal', () => ({
 }))
 
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
-import { useAgentLinkSession, ERROR_FLASH_MS } from './useAgentLinkSession'
+import {
+  useAgentLinkSession,
+  ERROR_FLASH_MS,
+  EXTENDED_EVENT_THROTTLE_MS,
+  GUARDRAIL_REJECTED_FEED_SUMMARY,
+} from './useAgentLinkSession'
 import { SETUP_TIMEOUT_MS, RENDER_SAFETY_TIMEOUT_MS } from './agentLinkState'
 import type { AgentLinkBridgeOps } from './bridgeOps'
+import type { RelayClient, RelayConnectionState, RelayStateEvent } from './relayClient'
 import { readSession, persistSession } from './sessionHandoff'
 import type { AgentLinkHandoffSession } from './sessionHandoff'
 
@@ -1939,6 +1945,170 @@ describe('useAgentLinkSession', () => {
 
       session.disconnect('user')
       expect(session.thinkingState.value).toBe('idle')
+    })
+  })
+
+  // PR1 sliding-TTL status bus (spec 2026-07-13 §4.4): the relay's DO pushes a
+  // {kind:'status'} envelope down the macro socket carrying the fresh
+  // authoritative deadline (never computed client-side — spec §4), a lifetime-
+  // cap flag, and any non-forwarded activity (e.g. a guardrail reject). Task 7
+  // surfaces it verbatim as a {type:'status'} RelayStateEvent; this block drives
+  // the composable's handling: mirror the deadline + re-arm the watchdog, fire a
+  // THROTTLED agent_link_session_extended, append a guardrail feed row, and
+  // colour agent_link_session_expired with expiry_cause/hit_cap.
+  describe('status bus handling (spec 2026-07-13 §4.4)', () => {
+    // Typed as a real RelayClient so this fake connect doesn't trip the file's
+    // pre-existing Mock-vs-RelayClient TS2322 (getState must return a
+    // RelayConnectionState, not a widened string).
+    function makeFakeRelayClient(): RelayClient {
+      return {
+        send: vi.fn(),
+        close: vi.fn(),
+        disconnect: vi.fn(),
+        getState: vi.fn((): RelayConnectionState => 'open'),
+      }
+    }
+
+    // Mints a relay session (expiresInSec default 600 → the DO's initial
+    // deadline), resolves the async mint so expiresAt is set and the client-side
+    // watchdog is armed, then pairs an agent (first op) so the session is
+    // 'connected' when status envelopes start arriving — the real ordering, and
+    // it silences the 20s setup-timeout during the long clock advances below.
+    // Captures the relay's onStateEvent so a test can push status envelopes
+    // verbatim; `advance` drives the SAME global fake-timer clock the
+    // composable's default now() reads (outer beforeEach's vi.useFakeTimers()).
+    async function mountWithRelay(opts: { expiresInSec?: number; pageId?: string } = {}) {
+      const bridgeOps = makeBridgeOps()
+      let onStateEvent: ((e: RelayStateEvent) => void) | undefined
+      const connect = (
+        _wsUrl: string,
+        _bridge: AgentLinkBridgeOps,
+        ose: (e: RelayStateEvent) => void
+      ): RelayClient => {
+        onStateEvent = ose
+        return makeFakeRelayClient()
+      }
+      const requestSession = vi
+        .fn()
+        .mockResolvedValue({ token: 'real-token', expiresInSec: opts.expiresInSec ?? 600 })
+      const boundContext = { cloudId: 'c1', pageId: opts.pageId ?? 'status-page', contentId: 'cc1' }
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0) // resolve mint → expiresAt set, watchdog armed
+      onStateEvent!({ type: 'op', op: 'read_page' }) // agent pairs → connected
+      return {
+        api: session,
+        emitStateEvent: (e: RelayStateEvent) => onStateEvent!(e),
+        now: () => Date.now(),
+        advance: (ms: number) => vi.advanceTimersByTimeAsync(ms),
+      }
+    }
+
+    const extendedCount = () =>
+      vi
+        .mocked(trackAnalyticsEvent)
+        .mock.calls.filter(([name]) => name === 'agent_link_session_extended').length
+    const expiredProps = () =>
+      vi
+        .mocked(trackAnalyticsEvent)
+        .mock.calls.find(([name]) => name === 'agent_link_session_expired')?.[1] as
+        | Record<string, unknown>
+        | undefined
+
+    it('a status event mirrors the DO deadline onto expiresAt and re-arms the watchdog past the original deadline', async () => {
+      const h = await mountWithRelay({ expiresInSec: 600, pageId: 'status-rearm' })
+      const t0 = h.now() // the mint deadline is t0 + 600_000
+      // The DO's sliding TTL pushed the deadline forward on activity — mirror it
+      // verbatim (never recompute our own — spec §4).
+      h.emitStateEvent({ type: 'status', expiresAt: t0 + 900_000, hitCap: false })
+      expect(h.api.expiresAt.value).toBe(t0 + 900_000)
+
+      // Advance PAST the ORIGINAL 600s deadline: because the re-arm cancelled the
+      // old watchdog (scheduleExpiry clears the prior handle), the session is
+      // still live against the NEW 900s deadline. (The brief's placeholder
+      // advanced 601_000-1 against a same-valued re-arm, which always expires —
+      // this proves the re-arm actually MOVED the deadline forward.)
+      await h.advance(700_000)
+      expect(h.api.state.value).not.toBe('expired')
+    })
+
+    it('fires agent_link_session_extended at most once per throttle window', async () => {
+      const h = await mountWithRelay({ expiresInSec: 600, pageId: 'status-throttle' })
+      const t0 = h.now()
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      // Two forward extensions inside the same throttle window: only the first
+      // fires (the second is strictly-greater-than-prev but throttled).
+      h.emitStateEvent({ type: 'status', expiresAt: t0 + 700_000 })
+      h.emitStateEvent({ type: 'status', expiresAt: t0 + 800_000 })
+      expect(extendedCount()).toBe(1)
+
+      // A later extension, once the throttle window has fully elapsed, fires again.
+      await h.advance(EXTENDED_EVENT_THROTTLE_MS)
+      h.emitStateEvent({ type: 'status', expiresAt: h.now() + 900_000 })
+      expect(extendedCount()).toBe(2)
+    })
+
+    it('the extended event carries expires_in_sec and hit_cap', async () => {
+      const h = await mountWithRelay({ expiresInSec: 600, pageId: 'status-extended-props' })
+      const t0 = h.now()
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      h.emitStateEvent({ type: 'status', expiresAt: t0 + 900_000, hitCap: true })
+
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_session_extended',
+        expect.objectContaining({
+          feature_area: 'agent_link',
+          macro_type: 'sequence',
+          expires_in_sec: 900, // (t0 + 900_000 - t0) / 1000, no clock advance since mount
+          hit_cap: true,
+        })
+      )
+    })
+
+    it('a guardrail_rejected activity appends the guardrail feed row', async () => {
+      const h = await mountWithRelay({ pageId: 'status-guardrail' })
+      const before = h.api.activityFeed.value.length
+
+      h.emitStateEvent({
+        type: 'status',
+        expiresAt: h.now() + 600_000,
+        activity: { type: 'guardrail_rejected', detail: 'parse_error' },
+      })
+
+      expect(h.api.activityFeed.value.length).toBe(before + 1)
+      expect(h.api.activityFeed.value.at(-1)?.summary).toBe(GUARDRAIL_REJECTED_FEED_SUMMARY)
+    })
+
+    it('expiry after a capped status reports expiry_cause: absolute_cap and hit_cap: true', async () => {
+      const h = await mountWithRelay({ pageId: 'status-cap' })
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      // A capped status shortens the deadline to the absolute-cap edge.
+      h.emitStateEvent({ type: 'status', expiresAt: h.now() + 60_000, hitCap: true })
+      await h.advance(60_000)
+
+      expect(h.api.state.value).toBe('expired')
+      const props = expiredProps()
+      expect(props?.expiry_cause).toBe('absolute_cap')
+      expect(props?.hit_cap).toBe(true)
+    })
+
+    it('expiry with no status ever received reports expiry_cause: idle', async () => {
+      const h = await mountWithRelay({ expiresInSec: 600, pageId: 'status-idle' })
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      // No status envelope arrives — the mint deadline lapses on its own.
+      await h.advance(600_000)
+
+      expect(h.api.state.value).toBe('expired')
+      const props = expiredProps()
+      expect(props?.expiry_cause).toBe('idle')
+      expect(props?.hit_cap).toBe(false)
     })
   })
 })

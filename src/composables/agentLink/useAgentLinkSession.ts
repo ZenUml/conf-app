@@ -70,6 +70,12 @@ const TIMEOUT_FEED_SUMMARY = '⚠ Agent stopped responding — timed out'
 const SUSPENDED_FEED_SUMMARY = 'Connection paused'
 const RESUMED_FEED_SUMMARY = 'Reconnected · resumed session'
 
+// PR1 status bus (spec 2026-07-13 §4.4/§5): guardrail rejects — previously
+// invisible (the guard runs relay-side, the macro never sees the op) — get an
+// honest feed row; deadline extensions fire a THROTTLED analytics event.
+export const GUARDRAIL_REJECTED_FEED_SUMMARY = '⚠ Agent submitted an invalid edit — retrying'
+export const EXTENDED_EVENT_THROTTLE_MS = 60_000
+
 // Track U discovery feed copy (design §3 "the user must be able to see
 // everything the agent did, not only writes").
 function readDiagramFeedSummary(title?: string): string {
@@ -298,12 +304,69 @@ export function useAgentLinkSession(
   // subsequent successful reconnect can measure resume_latency_ms for
   // agent_link_session_resumed. Null whenever not currently suspended.
   let suspendedAt: number | null = null
+  // PR1 sliding-TTL status bus (spec 2026-07-13 §4.4). lastHitCap: the newest
+  // `hitCap` seen on a status envelope — true once the effective deadline is
+  // bounded by the 60-min absolute cap rather than the 10-min idle window;
+  // read back when firing agent_link_session_extended and to colour
+  // handleExpired's expiry_cause (absolute_cap vs idle). lastExtendedFiredAt:
+  // the clock instant the last agent_link_session_extended fired, throttling
+  // the event to at most once per EXTENDED_EVENT_THROTTLE_MS (0 means the
+  // FIRST real extension always fires — 0 is >60s before any real clock).
+  let lastHitCap = false
+  let lastExtendedFiredAt = 0
 
   // The wire protocol (relayClient.ts) has no dedicated "agent paired"
   // envelope — the only observable proxy that the agent has joined is it
   // sending its first 'op'. onAgentConnected() already no-ops once already
   // 'connected' (see below), so firing this on every subsequent op is safe.
   function handleRelayStateEvent(event: RelayStateEvent): void {
+    if (event.type === 'status') {
+      // Relay-originated status bus (Task 7 → spec §4.4): mirror the DO's
+      // authoritative sliding-TTL deadline — never compute our own (spec §4).
+      // hitCap feeds expiry_cause later (absolute_cap vs idle).
+      if (typeof event.hitCap === 'boolean') lastHitCap = event.hitCap
+      if (typeof event.expiresAt === 'number') {
+        const prev = expiresAt.value
+        expiresAt.value = event.expiresAt
+        // Re-arm the #314 watchdog against the fresh deadline — scheduleExpiry
+        // clears the prior handle first, so a pushed-forward deadline actually
+        // extends the session's life (and a pulled-in one shortens it).
+        scheduleExpiry()
+        // A genuine forward extension, throttled to one analytics event per
+        // window — a lively session slides its TTL on every op, and we don't
+        // want an _extended firehose (spec §5). A shortened/equal deadline
+        // (e.g. the absolute cap pulling in) is not an "extension".
+        if (
+          prev != null &&
+          event.expiresAt > prev &&
+          now() - lastExtendedFiredAt >= EXTENDED_EVENT_THROTTLE_MS
+        ) {
+          lastExtendedFiredAt = now()
+          trackAnalyticsEvent('agent_link_session_extended', {
+            feature_area: 'agent_link',
+            surface: 'fullscreen',
+            macro_type: macroType,
+            expires_in_sec: Math.max(0, Math.round((event.expiresAt - now()) / 1000)),
+            hit_cap: lastHitCap,
+          })
+        }
+      }
+      if (event.activity?.type === 'guardrail_rejected') {
+        // A guardrail reject is otherwise invisible to the macro — the guard
+        // runs relay-side and the offending op is never forwarded — so give it
+        // an honest feed row (spec §4.4/§5).
+        activityFeed.value = [
+          ...activityFeed.value,
+          { summary: GUARDRAIL_REJECTED_FEED_SUMMARY, at: now() },
+        ]
+      }
+      // Republish so a separate Fullscreen mirror gets the new deadline + feed
+      // row through the existing handoff path (no new plumbing — spec §4.4);
+      // currentThinkingFlag() preserves any genuinely in-flight thinking cue.
+      publishThinking(currentThinkingFlag())
+      return
+    }
+
     if (event.type === 'op') {
       onAgentConnected()
       // Only an `update_diagram` op produces a render round-trip — reads
@@ -553,6 +616,11 @@ export function useAgentLinkSession(
         had_agent_connected: prev === 'connected' || prev === 'suspended',
         session_duration_ms: now() - connectStartedAt,
         edits_count: editsCount,
+        // PR1 sliding TTL (spec §5/§7): the DO's last-seen cap flag tells the
+        // funnel apart a session that hit its 60-min lifetime cap (absolute_cap)
+        // from one that simply idled out its 10-min window (idle).
+        expiry_cause: lastHitCap ? 'absolute_cap' : 'idle',
+        hit_cap: lastHitCap,
       })
     }
   }
@@ -843,6 +911,10 @@ export function useAgentLinkSession(
     lastAppliedDsl = ''
     activityFeed.value = []
     expiresAt.value = null
+    // PR1 sliding-TTL status-bus state is per-session — a fresh connect must not
+    // inherit a prior session's cap flag or extended-event throttle timestamp.
+    lastHitCap = false
+    lastExtendedFiredAt = 0
     resetThinking()
     teardownRelay()
     clearExpiryTimer()
@@ -962,6 +1034,10 @@ export function useAgentLinkSession(
     editsCount = 0
     lastAppliedDsl = typeof persisted.dsl === 'string' ? persisted.dsl : ''
     activityFeed.value = []
+    // Same per-session reset as startConnect: a reattach on a fresh mount starts
+    // the status-bus cap flag / extended-event throttle clean (spec §4.4).
+    lastHitCap = false
+    lastExtendedFiredAt = 0
     resetThinking()
     teardownRelay()
     token.value = persisted.token

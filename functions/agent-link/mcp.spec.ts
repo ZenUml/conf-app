@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { onRequestPost, onRequestOptions } from './mcp';
 import { onRequestPost as sessionPost } from './session';
 import { sessionRegistry } from './registrySingleton';
-import { TOKEN_TTL_MS } from './sessionToken';
+import { IDLE_TTL_MS } from './sessionToken';
 import type { BoundContext } from './sessionToken';
 import { getToolSchemas } from './mcpTools';
 
@@ -58,7 +58,7 @@ describe('POST /agent-link/mcp', () => {
 
   it('returns 403 for an expired token', async () => {
     const record = sessionRegistry.create(CTX);
-    record.issuedAtMs = Date.now() - TOKEN_TTL_MS - 1;
+    record.issuedAtMs = Date.now() - IDLE_TTL_MS - 1;
     record.lastActivityMs = record.issuedAtMs; // no bumping yet — idle window is what expires
 
     const { res, json } = await post(rpc('tools/list'), { token: record.token });
@@ -556,8 +556,6 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
   describe('cross-session isolation (multi-user / multi-page)', () => {
     const TOKEN_A = 'CL-AAAA-1111';
     const TOKEN_B = 'CL-BBBB-2222';
-    const CTX_A: BoundContext = { cloudId: 'cloud-a', pageId: 'page-a', contentId: 'content-a' };
-    const CTX_B: BoundContext = { cloudId: 'cloud-b', pageId: 'page-b', contentId: 'content-b' };
 
     /** One independently-stateful stub PER token — `idFromName(token)` (mcp.ts's
      * real addressing scheme) routes each token to its own stub, mirroring two

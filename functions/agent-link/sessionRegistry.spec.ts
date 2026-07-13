@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SessionRegistry } from './sessionRegistry';
-import { TOKEN_TTL_MS } from './sessionToken';
+import { IDLE_TTL_MS } from './sessionToken';
 import type { BoundContext } from './sessionToken';
 
 const CTX: BoundContext = { cloudId: 'cloud-1', pageId: 'page-1', contentId: 'content-1' };
@@ -55,9 +55,9 @@ describe('SessionRegistry', () => {
 
     // Backdate the two stale sessions past the TTL; leave `fresh` issued "now".
     // lastActivity tracks issuedAt (no bumping yet) so the idle window is what expires.
-    stale1.issuedAtMs = now - TOKEN_TTL_MS - 1;
+    stale1.issuedAtMs = now - IDLE_TTL_MS - 1;
     stale1.lastActivityMs = stale1.issuedAtMs;
-    stale2.issuedAtMs = now - TOKEN_TTL_MS - 1000;
+    stale2.issuedAtMs = now - IDLE_TTL_MS - 1000;
     stale2.lastActivityMs = stale2.issuedAtMs;
     fresh.issuedAtMs = now;
     fresh.lastActivityMs = now;

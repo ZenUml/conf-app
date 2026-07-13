@@ -51,11 +51,6 @@ export interface SessionRecord {
 export const IDLE_TTL_MS = 10 * 60 * 1000;
 export const MAX_SESSION_MS = 60 * 60 * 1000;
 
-/** @deprecated v1's fixed lifetime — kept ONLY so not-yet-migrated importers
- * (session.ts / AgentLinkSession.ts / mcp.ts, Tasks 4–6) keep compiling.
- * Task 9 deletes this. */
-export const TOKEN_TTL_MS = IDLE_TTL_MS;
-
 // Crockford base32 alphabet: excludes I, L, O, U to avoid visual ambiguity
 // when a user reads the token off screen and types/pastes it.
 const TOKEN_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';

@@ -27,6 +27,11 @@ describe('mintToken', () => {
 describe('sliding TTL core (spec 2026-07-13 §3)', () => {
   const T0 = 1_000_000;
 
+  it('pins the user-decided TTL policy values', () => {
+    expect(IDLE_TTL_MS).toBe(10 * 60 * 1000);
+    expect(MAX_SESSION_MS).toBe(60 * 60 * 1000);
+  });
+
   it('fresh session expires at issuedAt + idle window', () => {
     expect(effectiveExpiryMs(T0, T0)).toBe(T0 + IDLE_TTL_MS);
   });

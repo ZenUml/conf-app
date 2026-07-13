@@ -6,7 +6,10 @@
 // see relayUrl.ts) as the macro's live channel to the relay's
 // AgentLinkSession Durable Object. That DO forwards JSON envelopes verbatim
 // from the paired agent (see the relay worktree's
-// functions/agent-link/forwarding.ts): `{kind:'op'|'result'|'error'|'ping', id?, op?, payload?}`.
+// functions/agent-link/forwarding.ts): peer kinds
+// `{kind:'op'|'result'|'error'|'ping'|'disconnect', id?, op?, payload?}`;
+// the relay can also originate macro-bound `{kind:'status'}` envelopes (never
+// peer-sent).
 // This client dispatches incoming `op` envelopes to the injected
 // AgentLinkBridgeOps and replies with `result` / `error`, keyed by the same
 // `id`. `result`/`error` are never expected INBOUND here (those are the

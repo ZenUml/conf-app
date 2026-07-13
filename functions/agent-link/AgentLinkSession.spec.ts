@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AgentLinkSession, AGENT_OP_TIMEOUT_MS } from './AgentLinkSession';
-import { TOKEN_TTL_MS, effectiveExpiryMs } from './sessionToken';
+import { IDLE_TTL_MS, effectiveExpiryMs } from './sessionToken';
 import type { BoundContext, SessionRecord, SessionState } from './sessionToken';
 
 // AgentLinkSession is a Durable Object: its WebSocket-upgrade path
@@ -129,7 +129,7 @@ describe('AgentLinkSession — agent-side HTTP transport (GET /session, POST /ag
       const session = new AgentLinkSession(makeState(), {});
       (session as any).session = makeSession({
         state: 'paired',
-        issuedAtMs: Date.now() - 11 * 60 * 1000, // TOKEN_TTL_MS is 10 minutes
+        issuedAtMs: Date.now() - 11 * 60 * 1000, // idle window is 10 minutes
       });
 
       const res = await session.fetch(sessionInfoRequest());
@@ -565,7 +565,7 @@ describe('AgentLinkSession — agent-side HTTP transport (GET /session, POST /ag
       const body = await res.json();
       expect(body.ok).toBe(true);
       expect(body.payload.state).toBe('suspended');
-      expect(body.payload.resume_deadline).toBe(issuedAtMs + TOKEN_TTL_MS);
+      expect(body.payload.resume_deadline).toBe(issuedAtMs + IDLE_TTL_MS);
     });
 
     it('every other op returns a structured, retriable macro_disconnected error (not queued)', async () => {
@@ -581,7 +581,7 @@ describe('AgentLinkSession — agent-side HTTP transport (GET /session, POST /ag
       expect(res.status).toBe(409);
       const body = await res.json();
       expect(body.error).toBe('macro_disconnected');
-      expect(body.resume_deadline).toBe(issuedAtMs + TOKEN_TTL_MS);
+      expect(body.resume_deadline).toBe(issuedAtMs + IDLE_TTL_MS);
     });
 
     it('read_page and read_diagram also get macro_disconnected while suspended', async () => {
@@ -610,7 +610,7 @@ describe('AgentLinkSession — agent-side HTTP transport (GET /session, POST /ag
         expect(res.status).toBe(409);
         const body = await res.json();
         expect(body.error).toBe('macro_disconnected');
-        expect(body.resume_deadline).toBe(issuedAtMs + TOKEN_TTL_MS);
+        expect(body.resume_deadline).toBe(issuedAtMs + IDLE_TTL_MS);
       }
     });
   });

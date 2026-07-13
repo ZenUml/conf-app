@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { authenticateSession } from './mcpAuth';
 import { SessionRegistry } from './sessionRegistry';
-import { TOKEN_TTL_MS } from './sessionToken';
+import { IDLE_TTL_MS } from './sessionToken';
 import type { BoundContext } from './sessionToken';
 
 const CTX: BoundContext = { cloudId: 'cloud-1', pageId: 'page-1', contentId: 'content-1' };
@@ -33,7 +33,7 @@ describe('authenticateSession', () => {
   it('returns "expired" for a known token past its TTL', () => {
     const registry = new SessionRegistry();
     const record = registry.create(CTX);
-    const now = record.issuedAtMs + TOKEN_TTL_MS + 1;
+    const now = record.issuedAtMs + IDLE_TTL_MS + 1;
 
     expect(authenticateSession(record.token, registry, now)).toEqual({ ok: false, code: 'expired' });
   });
@@ -52,7 +52,7 @@ describe('authenticateSession', () => {
   it('treats the TTL boundary as expired (inclusive), matching isExpired', () => {
     const registry = new SessionRegistry();
     const record = registry.create(CTX);
-    const now = record.issuedAtMs + TOKEN_TTL_MS;
+    const now = record.issuedAtMs + IDLE_TTL_MS;
 
     expect(authenticateSession(record.token, registry, now)).toEqual({ ok: false, code: 'expired' });
   });

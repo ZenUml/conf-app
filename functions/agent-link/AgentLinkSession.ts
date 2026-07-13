@@ -842,8 +842,17 @@ export class AgentLinkSession {
    * instead of expiring.
    */
   async alarm(): Promise<void> {
+    // Hydrate first — the alarm normally fires on a hibernated (cold)
+    // instance where this.session is null; without this the whole expiry
+    // teardown below (socket close, content-lock release, storage wipe)
+    // silently no-ops, leaving the per-contentId claim held until its own
+    // self-clear TTL (up to an hour once Task 5 stretches it to the cap).
+    await this.ensureSession();
     if (!this.session) return;
     if (!isExpired(this.session.issuedAtMs, this.session.lastActivityMs, Date.now())) {
+      // Terminal states never come back — a stale in-flight alarm on a warm
+      // instance (closeSession keeps this.session set) must not re-arm.
+      if (this.session.state === 'closed' || this.session.state === 'expired') return;
       // A bump slid the deadline past this (already-replaced) alarm — re-arm
       // defensively at the current effective deadline instead of expiring.
       await this.state.storage.setAlarm(

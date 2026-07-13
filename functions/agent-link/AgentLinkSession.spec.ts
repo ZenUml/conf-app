@@ -917,20 +917,30 @@ describe('sliding TTL + status bus (spec 2026-07-13 §4.2)', () => {
     const doInstance = new AgentLinkSession(makeState(store), {});
     const res = await doInstance.fetch(new Request('https://do/session'));
     expect(res.status).toBe(200); // NaN deadline would 403 here
+    // Pin the backfilled values (lastActivityMs := issuedAtMs, v1-equivalent
+    // deadline). Without the migration, lastActivityMs is undefined (dropped
+    // from the JSON) and expiresAtMs serializes as null (NaN) — so deleting
+    // the backfill fails HERE, not just via a lucky 200.
+    const body = await res.json();
+    expect(body.lastActivityMs).toBe(T0);
+    expect(body.expiresAtMs).toBe(effectiveExpiryMs(T0, T0));
   });
 
+  /** Content-lock release stub (same shape as the teardown tests' makeAgentLinkEnv). */
+  function makeLockEnv() {
+    const releaseCalls: unknown[] = [];
+    const lockStub = {
+      fetch: async (_url: string, init?: RequestInit) => {
+        releaseCalls.push(init?.body ? JSON.parse(init.body as string) : undefined);
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      },
+    };
+    const env = { AGENT_LINK: { idFromName: (name: string) => ({ name }), get: () => lockStub } };
+    return { env, releaseCalls };
+  }
+
   it('alarm() on a non-expired session re-arms instead of expiring (a bump slid the deadline)', async () => {
-    const { env, releaseCalls } = (() => {
-      const releaseCalls: unknown[] = [];
-      const lockStub = {
-        fetch: async (_url: string, init?: RequestInit) => {
-          releaseCalls.push(init?.body ? JSON.parse(init.body as string) : undefined);
-          return new Response(JSON.stringify({ ok: true }), { status: 200 });
-        },
-      };
-      const env = { AGENT_LINK: { idFromName: (name: string) => ({ name }), get: () => lockStub } };
-      return { env, releaseCalls };
-    })();
+    const { env, releaseCalls } = makeLockEnv();
     const state = makeState();
     const doInstance = new AgentLinkSession(state, env as any);
     // Active 1 min ago, issued 15 min ago — the original bootstrap alarm has
@@ -948,5 +958,39 @@ describe('sliding TTL + status bus (spec 2026-07-13 §4.2)', () => {
       effectiveExpiryMs(session.issuedAtMs, session.lastActivityMs),
     );
     expect(releaseCalls).toEqual([]); // teardown did not run
+  });
+
+  it('alarm() on a cold (hibernated) instance hydrates from storage before tearing down', async () => {
+    // The alarm typically fires on a hibernated DO: this.session is null until
+    // ensureSession() reloads it. Without hydration the whole expiry teardown
+    // (content-lock release, storage wipe) silently no-ops — and once Task 5
+    // stretches the lock's self-clear to mint+60min, a skipped release leaves
+    // the diagram un-linkable for up to an hour.
+    const { env, releaseCalls } = makeLockEnv();
+    const store = new Map<string, unknown>();
+    store.set('session', liveSession({
+      issuedAtMs: Date.now() - 11 * 60_000,
+      lastActivityMs: Date.now() - 11 * 60_000, // idle window long gone — expired
+    }));
+    const doInstance = new AgentLinkSession(makeState(store), env as any);
+    // Cold wake: deliberately do NOT touch (doInstance as any).session.
+
+    await doInstance.alarm();
+
+    expect(releaseCalls).toEqual([{ token: 'CL-TEST-0001' }]); // release actually fired
+    expect(store.has('session')).toBe(false); // record wiped, not orphaned
+  });
+
+  it('alarm() does not re-arm a terminal (closed) session — stale in-flight alarm on a warm instance', async () => {
+    const state = makeState();
+    const doInstance = new AgentLinkSession(state, {});
+    // Closed via explicit disconnect, but lastActivityMs is recent, so the
+    // clock check alone says "not expired" — the terminal guard must win.
+    (doInstance as any).session = liveSession({ state: 'closed' });
+
+    await doInstance.alarm();
+
+    expect(state.storage.setAlarm).not.toHaveBeenCalled();
+    expect(((doInstance as any).session as SessionRecord).state).toBe('closed');
   });
 });

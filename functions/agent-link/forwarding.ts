@@ -142,3 +142,21 @@ export function reattachEvent(peer: Peer, wasSuspended: boolean): SessionEvent {
   if (wasSuspended) return 'reattach';
   return peer === 'macro' ? 'macro_connected' : 'agent_paired';
 }
+
+/** Activity descriptor carried on a relay-originated status envelope
+ * (spec 2026-07-13 §4): 'agent_request' = a bump-worthy MCP request;
+ * 'guardrail_rejected' = mcp.ts's update_diagram guard refused a write the
+ * macro never saw; 'turn' = a host-side hook bracket (PR3, reserved). */
+export interface StatusActivity {
+  type: 'agent_request' | 'guardrail_rejected' | 'turn';
+  detail?: string;
+}
+
+/** Builds the ONE relay-originated envelope kind (macro-bound, never routed
+ * between peers — parseEnvelope deliberately keeps rejecting a peer-sent
+ * 'status'). Everything the macro passively learns rides this: the fresh
+ * authoritative deadline, whether the 60-min cap now bounds it, and any
+ * non-forwarded activity worth showing. */
+export function statusEnvelope(expiresAt: number, hitCap: boolean, activity?: StatusActivity): string {
+  return JSON.stringify({ kind: 'status', expiresAt, hitCap, ...(activity ? { activity } : {}) });
+}

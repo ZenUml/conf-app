@@ -42,7 +42,7 @@ lite, full, and diagramly are Forge apps deployed to the same Confluence site (`
 
 ### Canary order — diagramly → lite → full; asyncapi is independent
 
-Releases go low-risk first, by user count. The three co-installed variants share the **same commit and `{version}`** for a given build:
+Releases go low-risk first, by user count. Draft tags have variant-specific timestamps, so their version strings do **not** match. A canary validates another variant only when both release tags resolve to the **same commit SHA**:
 
 1. **Diagramly** — first; **fewest users**, so it's the canary. Its publish + PVT + spot check prove the build is safe on real production before more users are exposed.
 2. **Lite** — second. Free users; a larger base than Diagramly.
@@ -54,11 +54,11 @@ Releases go low-risk first, by user count. The three co-installed variants share
 
 Before publishing a tier, confirm its prerequisite:
 
-| Publishing | Prerequisite (same `{version}` / commit) |
+| Publishing | Prerequisite (same commit SHA) |
 |---|---|
 | diagramly | none — it's the canary |
-| lite | `v{version}-diagramly` **published** |
-| full | `v{version}-lite` **published ≥ 7 days ago** (hard soak: ≥ 1 week = 604800s) |
+| lite | A Diagramly release for the draft's commit SHA is **published** |
+| full | A Lite release for the draft's commit SHA was **published ≥ 7 days ago** (hard soak: ≥ 1 week = 604800s) |
 | asyncapi | none — release any time, no soak |
 
 (`full`'s check on `lite` is transitive — `lite` can't have published without `diagramly`.) The 1-week full gate is a **hard soak**: full for a commit therefore **cannot** be released in the same run as lite — it is always a separate, later invocation.
@@ -68,29 +68,12 @@ There is **no "release all variants" run.** Diagramly and lite for one commit ma
 ### The gate check (run in Step 2.1)
 
 ```bash
-# VARIANT = the one you're about to publish.
-#   diagramly, asyncapi → no gate
-#   lite  → diagramly must be published
-#   full  → lite must be published AND ≥ 7 days old (hard soak)
-VARIANT="full"          # the variant you're about to publish
-set -o pipefail         # so a failed `gh` in the full branch's pipe isn't masked by jq exiting 0 on empty input
-case "$VARIANT" in
-  diagramly|asyncapi) echo "OK: $VARIANT has no prerequisite" ;;
-  lite)
-    gh release view "v{version}-diagramly" --repo ZenUml/conf-app --json isDraft,tagName,publishedAt \
-      -q 'if .isDraft then "BLOCK: " + .tagName + " is still a draft" else "OK: " + .tagName + " published " + .publishedAt end' \
-      2>/dev/null || echo "BLOCK: v{version}-diagramly not found — prerequisite not released" ;;
-  full)
-    gh release view "v{version}-lite" --repo ZenUml/conf-app --json isDraft,tagName,publishedAt 2>/dev/null \
-      | jq -r 'if .isDraft then "BLOCK: " + .tagName + " is still a draft"
-               elif ((now - (.publishedAt | fromdateiso8601)) < 604800)
-                 then "BLOCK: " + .tagName + " published " + .publishedAt + " — soak < 7 days, full must wait"
-               else "OK: " + .tagName + " published " + .publishedAt + " — soak ≥ 7 days" end' \
-      || echo "BLOCK: v{version}-lite not found — prerequisite not released" ;;
-esac
+.claude/skills/release-app/scripts/check-prerequisite.sh "<variant>" "<draft-tag>"
 ```
 
-**Proceed only on an explicit `OK:` line.** Treat anything else — a `BLOCK:` line, a command error, or empty output — as a stop: report the missing/young prerequisite and, for the full soak, how many days remain until the 1-week mark. (Empty output is a fail-closed stop, not a pass: `set -o pipefail` makes a missing `lite` release surface as `BLOCK`, but require the affirmative `OK:` regardless.) Override only if the user explicitly says so (e.g. a Full-only hotfix).
+The script first requires the draft's `targetCommitish` to be a full, resolvable commit SHA. This blocks legacy drafts that still target a moving branch such as `main`, including canary and independent releases. For Lite and Full it then searches published prerequisite releases by variant, resolves each published tag to the commit it actually shipped, and requires an exact SHA match. Full additionally enforces the 604800-second soak from that matching Lite release's `publishedAt`.
+
+**Proceed only when the script exits zero with an explicit `OK:` line.** Treat anything else — a nonzero exit, `BLOCK:` line, command error, or empty output — as a stop: report the unsafe draft or missing/young prerequisite and, for the full soak, how many days remain until the 1-week mark. Override only if the user explicitly says so (e.g. a Full-only hotfix).
 
 ## Pipeline
 
@@ -152,7 +135,7 @@ Run 2.1–2.6 **per variant**, in canary order, completing one variant's full cy
 
 #### 2.1 Gate check
 
-Run the gate check from "Variants & gates" for this variant. If it returns `BLOCK`, stop and report; proceed only on explicit user override.
+Run the gate check from "Variants & gates" with the exact draft tag selected in Step 1. If it returns `BLOCK`, stop and report; proceed only on explicit user override.
 
 #### 2.2 Establish the release delta
 

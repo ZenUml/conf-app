@@ -261,6 +261,11 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: v${{ env.version }}-lite
           name: v${{ env.version }}-lite
+          # Pin the draft to the commit this build tested. Without `commit`,
+          # target_commitish defaults to the `main` BRANCH and is resolved when
+          # the draft is published — so a draft published after a later merge
+          # ships that newer commit instead, under this build's version number.
+          commit: ${{ github.sha }}
           body: 'This is a draft release for the Lite version of the plugin.'
           draft: true
 
@@ -291,6 +296,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: v${{ env.version }}-full
           name: v${{ env.version }}-full
+          # See the Lite draft step: pins the draft to the tested commit.
+          commit: ${{ github.sha }}
           body: 'This is a draft release for the Full version of the plugin.'
           draft: true
 
@@ -325,6 +332,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: v${{ env.version }}-diagramly
           name: v${{ env.version }}-diagramly
+          # See the Lite draft step: pins the draft to the tested commit.
+          commit: ${{ github.sha }}
           body: 'This is a draft release for the Diagramly version of the plugin.'
           draft: true
 
@@ -360,6 +369,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: v${{ env.version }}-asyncapi
           name: v${{ env.version }}-asyncapi
+          # See the Lite draft step: pins the draft to the tested commit.
+          commit: ${{ github.sha }}
           body: 'This is a draft release for the AsyncAPI variant of the plugin.'
           draft: true
 

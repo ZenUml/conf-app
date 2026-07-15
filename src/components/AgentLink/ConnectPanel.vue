@@ -335,13 +335,15 @@ interface FeedRow {
   icon: string
 }
 
-function classifyRow(entry: AgentLinkActivityEntry): FeedRow {
+function classifyRow(entry: AgentLinkActivityEntry, isCurrentWork: boolean): FeedRow {
   const s = entry.summary
   if (s.startsWith('⚠')) return { ...entry, kind: 'normal', tone: 'err', icon: ICONS.error }
   if (s === 'Connection paused') return { ...entry, kind: 'normal', tone: 'warn', icon: ICONS.pause }
   if (s.startsWith('Reconnected')) return { ...entry, kind: 'normal', tone: 'ok', icon: ICONS.resume }
-  // In-flight "updating" cue (ends with an ellipsis) → spinning work icon.
-  if (s.includes('updating') || s.endsWith('…')) {
+  // A working icon represents the current task only. The feed deliberately
+  // retains prior "updating" rows as history, so inferring animation from the
+  // row text alone leaves a spinner running after the task has settled.
+  if (isCurrentWork && (s.includes('updating') || s.endsWith('…'))) {
     return { ...entry, kind: 'inflight', tone: 'work', icon: ICONS.spin }
   }
   // Track U discovery rows (read/search/list — composable's readDiagramFeedSummary/
@@ -352,7 +354,11 @@ function classifyRow(entry: AgentLinkActivityEntry): FeedRow {
   return { ...entry, kind: 'normal', tone: 'ok', icon: ICONS.check }
 }
 
-const feedRows = computed<FeedRow[]>(() => props.activityFeed.map(classifyRow))
+const feedRows = computed<FeedRow[]>(() =>
+  props.activityFeed.map((entry, index) =>
+    classifyRow(entry, props.thinking === 'thinking' && index === props.activityFeed.length - 1)
+  )
+)
 
 // --- Thinking elapsed hint ("· 6s" after a few seconds) ----------------------
 const ELAPSED_HINT_AFTER_SECONDS = 3

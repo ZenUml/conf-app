@@ -20,6 +20,7 @@ function mountPanel(props: {
   token?: string | null
   activityFeed?: AgentLinkActivityEntry[]
   lastActivityAt?: number | null
+  thinking?: 'idle' | 'thinking' | 'error'
 }) {
   return mount(ConnectPanel, {
     props: {
@@ -65,6 +66,39 @@ describe('ConnectPanel', () => {
     expect(entries[1].text()).toContain('renamed participant')
     expect(wrapper.find('[data-testid="agent-link-disconnect-btn"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-session-line"]').text()).toContain('tok-123')
+  })
+
+  it('connected: spins only the newest updating row while the agent is working', () => {
+    const wrapper = mountPanel({
+      state: 'connected',
+      thinking: 'thinking',
+      activityFeed: [
+        { summary: 'Agent is updating the diagram…', at: 1000 },
+        { summary: 'Agent is updating the diagram…', at: 2000 },
+      ],
+    })
+
+    const entries = wrapper.findAll('[data-testid="agent-link-activity-entry"]')
+    expect(entries[0].classes()).not.toContain('agent-link-panel__feed-row--inflight')
+    expect(entries[0].find('.agent-link-panel__feed-spin').exists()).toBe(false)
+    expect(entries[1].classes()).toContain('agent-link-panel__feed-row--inflight')
+    expect(entries[1].find('.agent-link-panel__feed-spin').exists()).toBe(true)
+  })
+
+  it('connected: keeps settled updating rows static in the activity history', () => {
+    const wrapper = mountPanel({
+      state: 'connected',
+      thinking: 'idle',
+      activityFeed: [
+        { summary: 'Agent is updating the diagram…', at: 1000 },
+        { summary: 'diagram updated', at: 2000 },
+      ],
+    })
+
+    const entries = wrapper.findAll('[data-testid="agent-link-activity-entry"]')
+    expect(entries[0].classes()).not.toContain('agent-link-panel__feed-row--inflight')
+    expect(entries[0].find('.agent-link-panel__feed-spin').exists()).toBe(false)
+    expect(entries[0].find('.agent-link-panel__feed-ic--ok').exists()).toBe(true)
   })
 
   it('connected: classifies Track U discovery feed rows (read/search/list) as muted, distinct icons', () => {

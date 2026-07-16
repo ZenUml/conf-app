@@ -18,6 +18,16 @@ on:
 
 # Staging only. Production deploy for this Worker stays a separate,
 # human-gated step (pnpm --filter agent-link deploy:prod) — not automated here.
+#
+# DEPLOY-ORDER CONTRACT: this Worker hosts the AgentLinkSession DO, whose
+# claimContentLockAtCap re-claims the per-contentId content lock to the 60-min
+# cap. The Pages Function functions/agent-link/session.ts now mints that lock at
+# only 10 min and RELIES on this DO to extend it (spec §4.3, amended 2026-07-16).
+# Pages auto-promotes to prod with the normal app release; this Worker does not.
+# So a prod app release carrying mint-at-idle while THIS Worker still runs a
+# pre-amendment DO lets the lock lapse mid-session and a second mint win the gap
+# (two live sessions on one diagram — design §7 decision #2). Run this Worker's
+# prod deploy BEFORE or WITH any such app release. See spec §4.2 "Deploy order".
 concurrency:
   group: agent-link-worker-deploy-${{ github.ref_name }}
   cancel-in-progress: true

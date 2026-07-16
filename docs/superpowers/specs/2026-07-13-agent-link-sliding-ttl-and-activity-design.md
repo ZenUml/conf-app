@@ -143,9 +143,18 @@ hook turns    (/activity, WS-C)→     expiresAt, activity}     feed rows
 - `forwarding.ts`: add `status` to the Envelope union as a relay-originated,
   never-routed kind (macro-bound only).
 - **Deploy order:** the companion Worker (`workers/agent-link/`, hosts the DO)
-  deploys independently of Pages — ship the DO **first**, then Pages/mcp.ts
-  (`?bump=1` on an old DO is an ignored query param; a new DO with old Pages
-  simply never gets bumps — both degrade to v1 fixed-TTL behavior, no breakage).
+  deploys independently of Pages — ship the DO **first**, then Pages/mcp.ts.
+  For the sliding-TTL/status-bus surface this is soft (`?bump=1` on an old DO is
+  an ignored query param; a new DO with old Pages simply never gets bumps — both
+  degrade to v1 fixed-TTL behavior, no breakage). **But the mint-at-idle change
+  (§4.3, amended 2026-07-16) makes the ordering HARD:** new Pages minting the
+  10-min lock while the prod DO still lacks `claimContentLockAtCap` does NOT
+  degrade safely — the lock lapses at +10 min while a sliding session lives to
+  +60 min, and a second concurrent mint for that `contentId` succeeds in the gap
+  (two live sessions on one diagram, violating design §7 decision #2). The prod
+  Worker deploy (`pnpm --filter agent-link deploy:prod`, human-gated per
+  `.github/workflows/agent-link-worker-deploy.yml`) is therefore a **required
+  precondition** of any prod app release carrying mint-at-idle.
 
 ### 4.3 `functions/agent-link/session.ts` (content-lock — the load-bearing fix)
 
@@ -173,6 +182,20 @@ never blocking the agent's request; a **409 from a different owner** (the
 10-min lock lapsed and another mint grabbed it in the gap) rolls the bootstrap
 back and rejects the upgrade. Never-connected orphans (mint but no bootstrap)
 now self-clear in ≤10 min instead of tying up a diagram for a full hour.
+
+> **Deploy-order dependency (do not miss on release).** This split moves the
+> lock's full-lifetime coverage out of the auto-deployed Pages Function
+> (`session.ts`, ships with the normal app release) and into the DO
+> (`claimContentLockAtCap`), which lives in the separately, human-gated
+> `conf-agent-link` **Worker**. A prod app release that carries the 10-min mint
+> while the prod Worker still runs a pre-amendment DO reopens exactly the
+> two-sessions-on-one-`contentId` hole this section closes — the 10-min lock
+> lapses mid-session and a second mint wins the gap. **Mitigation:** deploy the
+> agent-link Worker to prod (`pnpm --filter agent-link deploy:prod`) BEFORE or
+> WITH promoting Pages. This is codified in §4.2's Deploy-order note and in the
+> mint claim's inline comment (`session.ts`); it is NOT enforced by CI (the
+> Worker prod deploy is intentionally human-gated), so it is a release-runbook
+> step, not an automated guarantee.
 
 **Amended 2026-07-16 (review-amendments PR):** the DO's `diagram_already_linked`
 409 body now carries `lock_expires_at` (the real epoch-ms the existing lock

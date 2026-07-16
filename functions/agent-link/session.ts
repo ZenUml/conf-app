@@ -75,6 +75,19 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   // the lock at the 60-min cap itself once the macro's live channel actually
   // connects (see AgentLinkSession's claimContentLockAtCap), which is the
   // trusted, authenticated moment to extend it. Spec §4.3 amendment.
+  //
+  // DEPLOY-ORDER CONTRACT (load-bearing — do not break): the 60-min re-claim
+  // lives in the DO, which ships in the SEPARATE `conf-agent-link` Worker
+  // (workers/agent-link/), deployed on a human-gated step INDEPENDENT of this
+  // Pages Function. This file auto-promotes to prod with the normal app
+  // release, so shipping THIS 10-min mint to prod while the prod Worker still
+  // runs a DO without `claimContentLockAtCap` leaves the lock lapsing at
+  // +10 min while a sliding session lives up to +60 min → a second concurrent
+  // mint for the same contentId succeeds in that gap → two live sessions on
+  // one diagram (violates design §7 decision #2 — the very invariant this lock
+  // exists to enforce). Therefore: deploy the agent-link Worker to prod
+  // (`pnpm --filter agent-link deploy:prod`) BEFORE or WITH any app release
+  // that carries this mint-at-idle behavior. See spec §4.2/§4.3.
   if (env?.AGENT_LINK) {
     const lockId = env.AGENT_LINK.idFromName(`content:${cloudId}:${contentId}`);
     const lockStub = env.AGENT_LINK.get(lockId);

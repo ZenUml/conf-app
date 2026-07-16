@@ -12,9 +12,11 @@ describe('SessionNotice', () => {
   })
 
   describe('rejected variant', () => {
-    it('never shows the fabricated "started 4 min ago" copy', () => {
+    it('never shows the fabricated "A session started N min ago is still active" copy', () => {
       const wrapper = mount(SessionNotice, { props: { variant: 'rejected' } })
-      expect(wrapper.text()).not.toContain('started 4 min ago')
+      // The old fabricated line invented a start time the client never knew.
+      expect(wrapper.text()).not.toContain('A session started')
+      expect(wrapper.text()).not.toContain('is still active')
     })
 
     it('without lockExpiresAt: shows the generic no-fake-time copy', () => {

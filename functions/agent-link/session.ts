@@ -7,7 +7,7 @@
 // should connect to next.
 
 import { sessionRegistry as registry } from './registrySingleton';
-import { IDLE_TTL_MS, MAX_SESSION_MS } from './sessionToken';
+import { IDLE_TTL_MS } from './sessionToken';
 import type { BoundContext } from './sessionToken';
 
 interface Env {
@@ -69,22 +69,36 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   // no silent second link to the same diagram. Absent AGENT_LINK (local
   // dev/tests): degrades to a no-op, same posture as channel.ts/mcp.ts.
   //
-  // The claim's expiry is the ABSOLUTE cap (issue + MAX_SESSION_MS), NOT the
-  // idle window: under sliding TTL (spec 2026-07-13 §3) a session can be kept
-  // alive by agent activity well past the 10-min idle window, up to 60 min.
-  // The lock has no refresh path, so it must cover the whole POSSIBLE session
-  // lifetime up front — otherwise it would lapse at +10 min and let a second
-  // concurrent mint succeed mid-session (spec §4.3).
+  // Claimed for IDLE_TTL_MS (10 min), NOT MAX_SESSION_MS (60 min) — this
+  // endpoint is UNAUTHENTICATED, so a mint that never actually connects a
+  // macro must not tie up a diagram's lock for a full hour. The DO re-claims
+  // the lock at the 60-min cap itself once the macro's live channel actually
+  // connects (see AgentLinkSession's claimContentLockAtCap), which is the
+  // trusted, authenticated moment to extend it. Spec §4.3 amendment.
   if (env?.AGENT_LINK) {
     const lockId = env.AGENT_LINK.idFromName(`content:${cloudId}:${contentId}`);
     const lockStub = env.AGENT_LINK.get(lockId);
     const claimRes = await lockStub.fetch('https://agent-link-do/content-claim', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: record.token, expiresAt: Date.now() + MAX_SESSION_MS }),
+      body: JSON.stringify({ token: record.token, expiresAt: Date.now() + IDLE_TTL_MS }),
     });
     if (claimRes.status === 409) {
-      return jsonError(409, 'diagram_already_linked');
+      let lockExpiresAt: number | undefined;
+      try {
+        const claimBody = (await claimRes.json()) as { lock_expires_at?: number };
+        lockExpiresAt = claimBody?.lock_expires_at;
+      } catch {
+        // DO 409 body wasn't JSON (or had no lock_expires_at) — surface the
+        // 409 without it rather than fail the mint response entirely.
+      }
+      return new Response(
+        JSON.stringify({
+          error: 'diagram_already_linked',
+          ...(lockExpiresAt !== undefined ? { lock_expires_at: lockExpiresAt } : {}),
+        }),
+        { status: 409, headers: JSON_HEADERS },
+      );
     }
   }
 

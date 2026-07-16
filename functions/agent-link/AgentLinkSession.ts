@@ -70,7 +70,7 @@ import { applyEvent, parseEnvelope, reattachEvent, routeMessage, statusEnvelope 
 import type { Peer, StatusActivity } from './forwarding';
 import { PendingOps } from './pendingOps';
 import type { PendingOpResult } from './pendingOps';
-import { effectiveExpiryMs, isAtCap, isExpired, nextState } from './sessionToken';
+import { effectiveExpiryMs, isAtCap, isExpired, MAX_SESSION_MS, nextState } from './sessionToken';
 import type { BoundContext, SessionRecord, SessionState } from './sessionToken';
 
 interface Env {
@@ -219,7 +219,12 @@ export class AgentLinkSession {
     await this.ensureContentLock();
     const now = Date.now();
     if (this.contentLock && this.contentLock.token !== token && this.contentLock.expiresAt > now) {
-      return jsonResponse({ error: 'diagram_already_linked' }, 409);
+      // A4 (spec review): surface the held claim's expiry so the mint endpoint
+      // can return an honest retry-after instead of a bare 409.
+      return jsonResponse(
+        { error: 'diagram_already_linked', lock_expires_at: this.contentLock.expiresAt },
+        409,
+      );
     }
 
     this.contentLock = { token, expiresAt };
@@ -275,6 +280,50 @@ export class AgentLinkSession {
       });
     } catch {
       // Best-effort — see doc comment above.
+    }
+  }
+
+  /**
+   * A3 (spec review): on the first real macro connection (session bootstrap),
+   * best-effort UPGRADE the per-contentId content lock to the absolute cap.
+   * The mint (session.ts) now claims only a 10-min lock so unauthenticated
+   * mint-griefing and never-connected orphans can't hold a 60-min lock; a
+   * genuine macro connection extends the claim to cover the whole POSSIBLE
+   * session lifetime (a sliding session can outlive any 10-min lock, with no
+   * refresh path). Mirrors releaseContentLock()'s addressing.
+   *
+   * Returns whether this session may proceed as the live holder of the lock:
+   *   - true  — the claim landed (200) OR there's no binding (local dev/tests)
+   *             OR the round-trip failed transiently (best-effort: a failed
+   *             re-claim just leaves the mint's 10-min lock to self-clear;
+   *             refusing a legitimate connection over a network blip would be
+   *             worse than the harmless duplicate the lock guards against).
+   *   - false — a DIFFERENT session already owns this diagram's lock (409). The
+   *             mint's 10-min claim lapsed and another mint grabbed it in the
+   *             gap before this macro connected; proceeding would bootstrap a
+   *             SECOND live session for the same contentId, breaking the
+   *             one-session-per-contentId exclusivity invariant (design §7
+   *             decision #2). Caller refuses the bootstrap. NOT swallowed —
+   *             the same-token re-claim (the normal connect, whose token still
+   *             owns the mint lock) returns 200, so a 409 is unambiguously
+   *             another owner.
+   */
+  private async claimContentLockAtCap(): Promise<boolean> {
+    if (!this.env.AGENT_LINK || !this.session) return true;
+    try {
+      const lockId = this.env.AGENT_LINK.idFromName(
+        `content:${this.session.boundContext.cloudId}:${this.session.boundContext.contentId}`,
+      );
+      const stub = this.env.AGENT_LINK.get(lockId);
+      const res = await stub.fetch('https://agent-link-do/content-claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: this.session.token, expiresAt: Date.now() + MAX_SESSION_MS }),
+      });
+      return res.status !== 409;
+    } catch {
+      // Best-effort on a transient failure — see the `true` case above.
+      return true;
     }
   }
 
@@ -342,13 +391,20 @@ export class AgentLinkSession {
     return this.session.state;
   }
 
-  /** Records bump-worthy agent activity (spec 2026-07-13 §3/§4.2): slides the
+  /**
+   * Records bump-worthy agent activity (spec 2026-07-13 §3/§4.2): slides the
    * idle window, re-arms the expiry alarm at the new effective deadline, and
    * pushes a status envelope so the macro passively learns the fresh deadline
    * (and any non-forwarded activity). Push is best-effort — a missing/closing
-   * macro socket must never fail the agent's request. */
+   * macro socket must never fail the agent's request.
+   *
+   * A2 (spec review): a 'suspended' session must NOT slide. Agent retry
+   * traffic against a gone macro must not extend a macro-less session — the
+   * resume window stays the remaining effective expiry at drop time.
+   */
   private async bumpActivity(activity?: StatusActivity): Promise<void> {
     if (!this.session) return;
+    if (this.session.state === 'suspended') return;
     this.session.lastActivityMs = Date.now();
     await this.state.storage.put('session', this.session);
     const deadline = effectiveExpiryMs(this.session.issuedAtMs, this.session.lastActivityMs);
@@ -449,6 +505,22 @@ export class AgentLinkSession {
       await this.state.storage.setAlarm(
         effectiveExpiryMs(this.session.issuedAtMs, this.session.lastActivityMs),
       );
+      // A3 (spec review): a real macro connection upgrades the per-contentId
+      // content lock from the mint's 10-min claim to the 60-min absolute cap.
+      // If a DIFFERENT session already holds this diagram's lock (the mint's
+      // 10-min claim lapsed and another mint grabbed it in the >10-min gap
+      // before this macro connected), refuse rather than bootstrap a SECOND
+      // live session for the same contentId — the one-session-per-contentId
+      // exclusivity invariant (design §7 decision #2) is re-asserted here at
+      // the authenticated connect moment, not only at the unauthenticated
+      // mint. Roll back the record we just created and reject the socket.
+      const lockHeld = await this.claimContentLockAtCap();
+      if (!lockHeld) {
+        this.session = null;
+        await this.state.storage.delete('session');
+        await this.state.storage.deleteAlarm();
+        return this.rejectUpgrade('diagram_already_linked');
+      }
     } else if (this.session.token !== token) {
       return new Response('Token does not match this session', { status: 403 });
     }
@@ -463,17 +535,7 @@ export class AgentLinkSession {
     // genuinely live — a 'suspended' session (the prior macro socket already
     // gone) legitimately re-pairs below via 'reattach'.
     if (peer === 'macro' && this.macroSocket && this.session.state !== 'suspended') {
-      const rejectPair = new WebSocketPair();
-      const [rejectClient, rejectServer] = [rejectPair[0], rejectPair[1]];
-      this.state.acceptWebSocket(rejectServer, ['rejected']);
-      try {
-        rejectServer.send(errorEnvelope('already_paired'));
-        rejectServer.close(4001, 'already_paired');
-      } catch {
-        // Best-effort — the connecting client still gets a non-101-follow-on
-        // close even if send/close itself throws.
-      }
-      return new Response(null, { status: 101, webSocket: rejectClient });
+      return this.rejectUpgrade('already_paired');
     }
 
     const pair = new WebSocketPair();
@@ -500,6 +562,28 @@ export class AgentLinkSession {
     await this.state.storage.put('session', this.session);
 
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /**
+   * Cleanly refuses a channel upgrade without taking over / joining the
+   * session: accepts a throwaway socket, sends an error envelope, and closes
+   * it with an application code. Shared by the "no silent takeover" reject
+   * (a second concurrent macro, design decision #1) and the
+   * exclusivity-conflict reject (a different session already owns this
+   * contentId — see fetch()'s bootstrap path).
+   */
+  private rejectUpgrade(reason: string, code = 4001): Response {
+    const rejectPair = new WebSocketPair();
+    const [rejectClient, rejectServer] = [rejectPair[0], rejectPair[1]];
+    this.state.acceptWebSocket(rejectServer, ['rejected']);
+    try {
+      rejectServer.send(errorEnvelope(reason));
+      rejectServer.close(code, reason);
+    } catch {
+      // Best-effort — the connecting client still gets a non-101-follow-on
+      // close even if send/close itself throws.
+    }
+    return new Response(null, { status: 101, webSocket: rejectClient });
   }
 
   /** Identifies which peer a hibernated socket belongs to via its accept-time tag. */

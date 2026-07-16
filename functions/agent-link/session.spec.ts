@@ -87,21 +87,6 @@ describe('POST /agent-link/session with an AGENT_LINK Durable Object binding', (
     expect((claimCalls[0] as { token: string }).token).toBe(body.token);
   });
 
-  it('claims the content lock for the ABSOLUTE cap, not the idle window (spec §4.3)', async () => {
-    // Under sliding TTL a session can outlive a 10-min lock — a lock claimed at
-    // the 60-min cap covers the whole possible lifetime with no refresh path.
-    const { env, claimCalls } = makeAgentLinkEnv(200);
-
-    const before = Date.now();
-    const res = await onRequestPost({ request: makeRequest(VALID_BODY), env } as any);
-
-    expect(res.status).toBe(200);
-    expect((claimCalls[0] as { expiresAt: number }).expiresAt).toBeGreaterThanOrEqual(
-      before + MAX_SESSION_MS,
-    );
-    expect((await res.json()).expiresInSec).toBe(IDLE_TTL_MS / 1000);
-  });
-
   it('returns 409 {error: diagram_already_linked} when the contentId is already claimed', async () => {
     const { env } = makeAgentLinkEnv(409);
 
@@ -110,6 +95,63 @@ describe('POST /agent-link/session with an AGENT_LINK Durable Object binding', (
 
     expect(res.status).toBe(409);
     expect((await res.json()).error).toBe('diagram_already_linked');
+  });
+
+  it('forwards lock_expires_at from the DO 409 body so the client can show a real retry time', async () => {
+    const lockExpiresAt = Date.now() + 42_000;
+    const stub = {
+      fetch: async (url: string) => {
+        if (url.endsWith('/content-claim')) {
+          return new Response(JSON.stringify({ error: 'diagram_already_linked', lock_expires_at: lockExpiresAt }), {
+            status: 409,
+          });
+        }
+        return new Response(null, { status: 404 });
+      },
+    };
+    const env = { AGENT_LINK: { idFromName: (name: string) => ({ name }), get: () => stub } };
+
+    const req = makeRequest(VALID_BODY);
+    const res = await onRequestPost({ request: req, env } as any);
+
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; lock_expires_at?: number };
+    expect(body.error).toBe('diagram_already_linked');
+    expect(body.lock_expires_at).toBe(lockExpiresAt);
+  });
+
+  // spec §4.3 amendment: the mint endpoint is UNAUTHENTICATED, so it must not
+  // claim the content lock for the full 60-min MAX_SESSION_MS cap — an
+  // attacker (or an abandoned mint that never connects a macro) could hold a
+  // diagram's lock for an hour with zero auth. Claim only the 10-min
+  // IDLE_TTL_MS idle window instead; the DO re-claims at the cap itself once
+  // the macro actually connects and proves it's live (claimContentLockAtCap),
+  // which is the trusted moment to extend the lock.
+  it('claims the content lock for the IDLE window, not the absolute cap — the mint is unauthenticated (spec §4.3 amendment)', async () => {
+    const claims: Array<{ expiresAt: number }> = [];
+    const stub = {
+      fetch: async (url: string, init?: RequestInit) => {
+        if (url.endsWith('/content-claim')) {
+          claims.push(JSON.parse(String(init?.body)));
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }
+        return new Response(null, { status: 404 });
+      },
+    };
+    const env = { AGENT_LINK: { idFromName: (name: string) => ({ name }), get: () => stub } };
+
+    const before = Date.now();
+    const res = await onRequestPost({ request: makeRequest(VALID_BODY), env } as any);
+    const after = Date.now();
+
+    expect(res.status).toBe(200);
+    expect(claims).toHaveLength(1);
+    expect(claims[0].expiresAt).toBeGreaterThanOrEqual(before + IDLE_TTL_MS);
+    expect(claims[0].expiresAt).toBeLessThanOrEqual(after + IDLE_TTL_MS);
+    expect(claims[0].expiresAt).toBeLessThan(before + MAX_SESSION_MS);
+
+    const body = (await res.json()) as { expiresInSec: number };
+    expect(body.expiresInSec).toBe(IDLE_TTL_MS / 1000);
   });
 
   it('mints normally (no exclusivity check) when AGENT_LINK is absent (local dev)', async () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AgentLinkSession, AGENT_OP_TIMEOUT_MS } from './AgentLinkSession';
-import { IDLE_TTL_MS, effectiveExpiryMs } from './sessionToken';
+import { IDLE_TTL_MS, MAX_SESSION_MS, effectiveExpiryMs } from './sessionToken';
 import type { BoundContext, SessionRecord, SessionState } from './sessionToken';
 
 // AgentLinkSession is a Durable Object: its WebSocket-upgrade path
@@ -992,5 +992,153 @@ describe('sliding TTL + status bus (spec 2026-07-13 §4.2)', () => {
 
     expect(state.storage.setAlarm).not.toHaveBeenCalled();
     expect(((doInstance as any).session as SessionRecord).state).toBe('closed');
+  });
+});
+
+// --- review amendments A2–A4 (accepted design review 2026-07-16) -----------
+describe('review amendments (accepted design review)', () => {
+  function contentClaimRequest(body: unknown): Request {
+    return new Request('https://agent-link-do/content-claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('A2: bumpActivity on a suspended session does NOT slide, re-arm, or push', async () => {
+    const state = makeState();
+    const doInstance = new AgentLinkSession(state, {} as any);
+    const orig = Date.now() - 5 * 60_000;
+    (doInstance as any).session = makeSession({ state: 'suspended', issuedAtMs: orig, lastActivityMs: orig });
+    const macroSend = vi.fn();
+    (doInstance as any).macroSocket = { send: macroSend };
+
+    await (doInstance as any).bumpActivity();
+
+    expect((doInstance as any).session.lastActivityMs).toBe(orig); // unchanged
+    expect((state.storage.setAlarm as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect(macroSend).not.toHaveBeenCalled();
+  });
+
+  it('A2: POST /activity against a suspended session is a no-op bump (no push, no slide)', async () => {
+    const state = makeState();
+    const doInstance = new AgentLinkSession(state, {} as any);
+    const orig = Date.now() - 5 * 60_000;
+    (doInstance as any).session = makeSession({ state: 'suspended', issuedAtMs: orig, lastActivityMs: orig });
+    const macroSend = vi.fn();
+    (doInstance as any).macroSocket = { send: macroSend };
+
+    const res = await doInstance.fetch(
+      new Request('https://do/activity', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'guardrail_rejected', detail: 'parse_error' }),
+      }),
+    );
+
+    expect(res.status).toBe(200); // ingress still accepts the report
+    expect((doInstance as any).session.lastActivityMs).toBe(orig);
+    expect(macroSend).not.toHaveBeenCalled();
+  });
+
+  it('A3: claimContentLockAtCap POSTs /content-claim at the absolute cap', async () => {
+    const claims: Array<{ token: string; expiresAt: number }> = [];
+    let claimedName = '';
+    const env = {
+      AGENT_LINK: {
+        idFromName: (name: string) => {
+          claimedName = name;
+          return { name };
+        },
+        get: () => ({
+          fetch: async (url: string, init?: RequestInit) => {
+            expect(url).toContain('/content-claim');
+            claims.push(JSON.parse(String(init?.body)));
+            return new Response(JSON.stringify({ ok: true }), { status: 200 });
+          },
+        }),
+      },
+    };
+    const doInstance = new AgentLinkSession(makeState(), env as any);
+    (doInstance as any).session = makeSession();
+    const before = Date.now();
+
+    await (doInstance as any).claimContentLockAtCap();
+
+    // Addressed by the content-keyed instance, mirroring releaseContentLock().
+    expect(claimedName).toBe('content:cloud-1:content-1');
+    expect(claims[0].token).toBe('CL-TEST-TOKN');
+    expect(claims[0].expiresAt).toBeGreaterThanOrEqual(before + MAX_SESSION_MS);
+  });
+
+  it('A3: claimContentLockAtCap is a no-op (returns true) without an AGENT_LINK binding', async () => {
+    const doInstance = new AgentLinkSession(makeState(), {} as any);
+    (doInstance as any).session = makeSession();
+    await expect((doInstance as any).claimContentLockAtCap()).resolves.toBe(true);
+  });
+
+  it('A3: claimContentLockAtCap returns true when the content DO accepts the claim (200)', async () => {
+    const env = {
+      AGENT_LINK: {
+        idFromName: (name: string) => ({ name }),
+        get: () => ({
+          fetch: async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+        }),
+      },
+    };
+    const doInstance = new AgentLinkSession(makeState(), env as any);
+    (doInstance as any).session = makeSession();
+    await expect((doInstance as any).claimContentLockAtCap()).resolves.toBe(true);
+  });
+
+  it('A3: claimContentLockAtCap returns FALSE when a different session already owns the lock (409)', async () => {
+    // The exclusivity guard: the mint's 10-min lock lapsed and another mint
+    // grabbed this contentId in the gap. A 409 from the content DO must make
+    // the connecting session refuse to bootstrap, not silently proceed as a
+    // second live session for the same diagram.
+    const env = {
+      AGENT_LINK: {
+        idFromName: (name: string) => ({ name }),
+        get: () => ({
+          fetch: async () =>
+            new Response(JSON.stringify({ error: 'diagram_already_linked' }), { status: 409 }),
+        }),
+      },
+    };
+    const doInstance = new AgentLinkSession(makeState(), env as any);
+    (doInstance as any).session = makeSession();
+    await expect((doInstance as any).claimContentLockAtCap()).resolves.toBe(false);
+  });
+
+  it('A3: claimContentLockAtCap returns true on a transient round-trip failure (best-effort, not a refusal)', async () => {
+    // A network blip must not conflate with a genuine ownership conflict —
+    // refusing a legitimate connection is worse than the harmless duplicate
+    // the 10-min lock self-clears anyway.
+    const env = {
+      AGENT_LINK: {
+        idFromName: (name: string) => ({ name }),
+        get: () => ({
+          fetch: async () => {
+            throw new Error('network down');
+          },
+        }),
+      },
+    };
+    const doInstance = new AgentLinkSession(makeState(), env as any);
+    (doInstance as any).session = makeSession();
+    await expect((doInstance as any).claimContentLockAtCap()).resolves.toBe(true);
+  });
+
+  it('A4: a 409 diagram_already_linked body carries lock_expires_at', async () => {
+    const store = new Map<string, unknown>();
+    const lock = new AgentLinkSession(makeState(store), {} as any);
+    const existingExpiry = Date.now() + 60_000;
+    await lock.fetch(contentClaimRequest({ token: 'CL-AAAA-1111', expiresAt: existingExpiry }));
+
+    const res = await lock.fetch(contentClaimRequest({ token: 'CL-BBBB-2222', expiresAt: Date.now() + 60_000 }));
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe('diagram_already_linked');
+    expect(body.lock_expires_at).toBe(existingExpiry);
   });
 });

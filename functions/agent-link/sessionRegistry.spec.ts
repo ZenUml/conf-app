@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SessionRegistry } from './sessionRegistry';
-import { TOKEN_TTL_MS } from './sessionToken';
+import { IDLE_TTL_MS } from './sessionToken';
 import type { BoundContext } from './sessionToken';
 
 const CTX: BoundContext = { cloudId: 'cloud-1', pageId: 'page-1', contentId: 'content-1' };
@@ -53,10 +53,13 @@ describe('SessionRegistry', () => {
     const stale2 = registry.create(CTX);
     const fresh = registry.create(CTX);
 
-    // Backdate the two stale sessions past the TTL; leave `fresh` issued "now".
-    stale1.issuedAtMs = now - TOKEN_TTL_MS - 1;
-    stale2.issuedAtMs = now - TOKEN_TTL_MS - 1000;
+    // Backdate the two stale sessions past the idle window; leave `fresh` issued "now".
+    stale1.issuedAtMs = now - IDLE_TTL_MS - 1;
+    stale1.lastActivityMs = stale1.issuedAtMs;
+    stale2.issuedAtMs = now - IDLE_TTL_MS - 1000;
+    stale2.lastActivityMs = stale2.issuedAtMs;
     fresh.issuedAtMs = now;
+    fresh.lastActivityMs = now;
 
     const removed = registry.expireStale(now);
 
@@ -71,6 +74,7 @@ describe('SessionRegistry', () => {
     const now = 1_000_000;
     const record = registry.create(CTX);
     record.issuedAtMs = now;
+    record.lastActivityMs = now;
 
     expect(registry.expireStale(now)).toBe(0);
     expect(registry.get(record.token)).toBeDefined();

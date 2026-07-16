@@ -17,11 +17,13 @@ export class SessionRegistry {
 
   /** Mints a token and creates a new 'created' session bound to `ctx`. */
   create(ctx: BoundContext): SessionRecord {
+    const nowMs = Date.now();
     const record: SessionRecord = {
       token: mintToken(),
       boundContext: ctx,
       scope: 'read-page+write-diagram',
-      issuedAtMs: Date.now(),
+      issuedAtMs: nowMs,
+      lastActivityMs: nowMs,
       state: 'created',
     };
     this.sessions.set(record.token, record);
@@ -50,7 +52,7 @@ export class SessionRegistry {
   expireStale(nowMs: number): number {
     let removed = 0;
     for (const [token, record] of this.sessions) {
-      if (isExpired(record.issuedAtMs, nowMs)) {
+      if (isExpired(record.issuedAtMs, record.lastActivityMs, nowMs)) {
         this.sessions.delete(token);
         removed++;
       }

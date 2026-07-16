@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { onRequestPost, onRequestOptions } from './mcp';
 import { onRequestPost as sessionPost } from './session';
 import { sessionRegistry } from './registrySingleton';
-import { TOKEN_TTL_MS } from './sessionToken';
+import { IDLE_TTL_MS } from './sessionToken';
 import type { BoundContext } from './sessionToken';
 import { getToolSchemas } from './mcpTools';
 
@@ -58,7 +58,8 @@ describe('POST /agent-link/mcp', () => {
 
   it('returns 403 for an expired token', async () => {
     const record = sessionRegistry.create(CTX);
-    record.issuedAtMs = Date.now() - TOKEN_TTL_MS - 1;
+    record.issuedAtMs = Date.now() - IDLE_TTL_MS - 1;
+    record.lastActivityMs = record.issuedAtMs;
 
     const { res, json } = await post(rpc('tools/list'), { token: record.token });
 
@@ -233,6 +234,13 @@ describe('POST /agent-link/mcp', () => {
     expect(json.error).toBeDefined();
   });
 
+  it('a malformed JSON body with an invalid token is a 400 (parse error), not a 401 — body is parsed before auth (Task 6)', async () => {
+    const { res, json } = await post(undefined, { token: 'CL-BOGUS-0000', rawBody: '{not json' });
+
+    expect(res.status).toBe(400);
+    expect(json.error.code).toBe(-32700); // RPC_PARSE_ERROR
+  });
+
   it('returns an error when the body has no "method"', async () => {
     const record = sessionRegistry.create(CTX);
 
@@ -284,10 +292,14 @@ type FakeDoResponses = {
 function makeDoEnv(responses: FakeDoResponses) {
   const stub = {
     fetch: async (url: string, init?: RequestInit) => {
-      if (url.endsWith('/session')) {
+      // Match by pathname, not a raw suffix check — a bump-worthy MCP request
+      // (Task 6) appends `?bump=1` to the /session URL, which would break a
+      // plain `.endsWith('/session')` match.
+      const { pathname } = new URL(url);
+      if (pathname === '/session') {
         return responses.session ? responses.session() : new Response(null, { status: 404 });
       }
-      if (url.endsWith('/agent-op')) {
+      if (pathname === '/agent-op') {
         const body = init?.body ? JSON.parse(init.body as string) : {};
         return responses.agentOp ? responses.agentOp(body) : new Response(null, { status: 404 });
       }
@@ -301,6 +313,46 @@ function makeDoEnv(responses: FakeDoResponses) {
       get: () => stub,
     },
   };
+}
+
+/**
+ * Thin wrapper over `makeDoEnv` that additionally RECORDS every URL fetched
+ * against the DO stub (`fetchedUrls`) and every `/activity` POST body
+ * (`activityBodies`) — used by Task 6's bump-worthiness and guardrail-report
+ * tests, which assert on what mcp.ts sent the DO, not just what it got back.
+ */
+function makeRecordingDoEnv(
+  responses: FakeDoResponses & { activity?: () => Response },
+): { env: ReturnType<typeof makeDoEnv>; fetchedUrls: string[]; activityBodies: any[] } {
+  const fetchedUrls: string[] = [];
+  const activityBodies: any[] = [];
+  const stub = {
+    fetch: async (url: string, init?: RequestInit) => {
+      fetchedUrls.push(url);
+      const { pathname } = new URL(url);
+      if (pathname === '/session') {
+        return responses.session ? responses.session() : new Response(null, { status: 404 });
+      }
+      if (pathname === '/agent-op') {
+        const body = init?.body ? JSON.parse(init.body as string) : {};
+        return responses.agentOp ? responses.agentOp(body) : new Response(null, { status: 404 });
+      }
+      if (pathname === '/activity') {
+        const body = init?.body ? JSON.parse(init.body as string) : {};
+        activityBodies.push(body);
+        return responses.activity ? responses.activity() : new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      return new Response(null, { status: 404 });
+    },
+  };
+
+  const env = {
+    AGENT_LINK: {
+      idFromName: (name: string) => ({ name }),
+      get: () => stub,
+    },
+  };
+  return { env, fetchedUrls, activityBodies };
 }
 
 function sessionInfoResponse(
@@ -458,8 +510,9 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
           token,
           {
             fetch: async (url: string, init?: RequestInit) => {
-              if (url.endsWith('/session')) return cfg.session();
-              if (url.endsWith('/agent-op')) {
+              const { pathname } = new URL(url);
+              if (pathname === '/session') return cfg.session();
+              if (pathname === '/agent-op') {
                 const body = init?.body ? JSON.parse(init.body as string) : {};
                 return cfg.agentOp(body);
               }
@@ -522,6 +575,80 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
       expect(props).not.toContain('cloudId');
       expect(props.sort()).toEqual(['dsl', 'summary'].sort());
     });
+  });
+});
+
+// --- Bump-worthiness rides auth; guardrail rejects reported (Task 6) -------
+//
+// spec 2026-07-13 §3: real agent work slides the session's idle window;
+// passive/handshake traffic (get_status, tools/list) must not. mcp.ts encodes
+// this as `?bump=1` on the DO's `GET /session` auth round-trip. Separately,
+// a guardrail-rejected update_diagram never reaches the macro (the guard runs
+// before forwarding) — mcp.ts best-effort reports it to the DO's `/activity`
+// status bus so the user isn't left in the dark (spec §1/§4.2).
+describe('POST /agent-link/mcp — bump-worthiness and guardrail activity reporting', () => {
+  it('tools/call (non-get_status) auths with ?bump=1', async () => {
+    const { env, fetchedUrls } = makeRecordingDoEnv({
+      session: () => sessionInfoResponse(),
+      agentOp: () =>
+        new Response(JSON.stringify({ ok: true, payload: { pageId: 'page-1', title: 't', text: 'x' } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    });
+
+    await postWithEnv(rpc('tools/call', { name: 'read_page', arguments: {} }), env);
+
+    expect(fetchedUrls.some((u) => u.endsWith('/session?bump=1'))).toBe(true);
+  });
+
+  it('get_status and tools/list auth WITHOUT bump', async () => {
+    const { env, fetchedUrls } = makeRecordingDoEnv({
+      session: () => sessionInfoResponse(),
+      agentOp: () =>
+        new Response(JSON.stringify({ ok: true, payload: { connected: true } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    });
+
+    await postWithEnv(rpc('tools/call', { name: 'get_status', arguments: {} }), env);
+    await postWithEnv(rpc('tools/list'), env);
+
+    expect(fetchedUrls.length).toBeGreaterThan(0);
+    expect(fetchedUrls.every((u) => !u.includes('bump=1'))).toBe(true);
+  });
+
+  it('resources/read auths WITH bump', async () => {
+    const { env, fetchedUrls } = makeRecordingDoEnv({ session: () => sessionInfoResponse() });
+
+    await postWithEnv(rpc('resources/read', { uri: 'guide://zenuml' }), env);
+
+    expect(fetchedUrls.some((u) => u.endsWith('/session?bump=1'))).toBe(true);
+  });
+
+  it('a guardrail rejection reports POST /activity {type:guardrail_rejected}', async () => {
+    const { env, activityBodies } = makeRecordingDoEnv({
+      session: () => sessionInfoResponse({ diagramType: 'Sequence' }),
+    });
+
+    const { res, json } = await postWithEnv(
+      rpc('tools/call', { name: 'update_diagram', arguments: { dsl: 'A.method(' } }),
+      env,
+    );
+
+    expect(res.status).toBe(200);
+    expect(json.error.code).toBe(-32004); // RPC_GUARDRAIL_REJECTED — unchanged
+    expect(activityBodies).toHaveLength(1);
+    expect(activityBodies[0].type).toBe('guardrail_rejected');
+  });
+
+  it('a non-guardrail ToolError does NOT report to /activity', async () => {
+    const { env, activityBodies } = makeRecordingDoEnv({ session: () => sessionInfoResponse() });
+
+    await postWithEnv(rpc('tools/call', { name: 'not_a_real_tool', arguments: {} }), env);
+
+    expect(activityBodies).toHaveLength(0);
   });
 });
 

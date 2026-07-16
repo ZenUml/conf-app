@@ -2281,5 +2281,127 @@ describe('useAgentLinkSession', () => {
       expect(props?.expiry_cause).toBe('idle')
       expect(props?.hit_cap).toBe(false)
     })
+
+    // Amendment F: the reactive `atCap` ref mirrors the status envelope's
+    // hitCap so SessionTtl can suppress the "extends while your agent works"
+    // hint (and it is mirrored across the iframe via the handoff record).
+    it('mirrors a capped status envelope onto the reactive atCap ref and the handoff record', async () => {
+      const h = await mountWithRelay({ expiresInSec: 600, pageId: 'status-atcap' })
+      expect(h.api.atCap.value).toBe(false)
+
+      h.emitStateEvent({ type: 'status', expiresAt: h.now() + 900_000, hitCap: true })
+
+      expect(h.api.atCap.value).toBe(true)
+      expect(readSession('status-atcap')?.hitCap).toBe(true)
+    })
+  })
+
+  // Amendment D (honest already-linked countdown): a mint 409 whose body
+  // carries lock_expires_at surfaces the existing lock's release time on a new
+  // `alreadyLinkedUntil` ref, so the rail can show a real countdown instead of
+  // a blind "already linked". Absent lock_expires_at → the ref stays null.
+  describe('alreadyLinkedUntil — honest lock countdown from a mint 409', () => {
+    function makeFakeRelayClient() {
+      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
+    }
+
+    it('sets alreadyLinkedUntil from a 409 error carrying lockExpiresAt and persists it', async () => {
+      const bridgeOps = makeBridgeOps()
+      const connect = vi.fn(() => makeFakeRelayClient())
+      const boundContext = { cloudId: 'c1', pageId: 'already-linked-lock', contentId: 'cc1' }
+      const lockUntil = Date.now() + 300_000
+      const requestSession = vi.fn().mockRejectedValue(
+        Object.assign(new Error('agent-link session mint failed: HTTP 409 diagram_already_linked'), {
+          status: 409,
+          error: 'diagram_already_linked',
+          lockExpiresAt: lockUntil,
+        })
+      )
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(session.state.value).toBe('already_linked')
+      expect(session.alreadyLinkedUntil.value).toBe(lockUntil)
+      expect(readSession(boundContext.pageId)).toMatchObject({
+        state: 'already_linked',
+        lockExpiresAt: lockUntil,
+      })
+    })
+
+    it('leaves alreadyLinkedUntil null when the 409 carries no lockExpiresAt', async () => {
+      const bridgeOps = makeBridgeOps()
+      const connect = vi.fn(() => makeFakeRelayClient())
+      const boundContext = { cloudId: 'c1', pageId: 'already-linked-nolock', contentId: 'cc1' }
+      const requestSession = vi.fn().mockRejectedValue(
+        Object.assign(new Error('agent-link session mint failed: HTTP 409 diagram_already_linked'), {
+          status: 409,
+          error: 'diagram_already_linked',
+        })
+      )
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(session.state.value).toBe('already_linked')
+      expect(session.alreadyLinkedUntil.value).toBeNull()
+      expect(readSession(boundContext.pageId)?.lockExpiresAt).toBeUndefined()
+    })
+
+    it('a fresh startConnect resets alreadyLinkedUntil back to null', async () => {
+      const bridgeOps = makeBridgeOps()
+      const connect = vi.fn(() => makeFakeRelayClient())
+      const boundContext = { cloudId: 'c1', pageId: 'already-linked-reset', contentId: 'cc1' }
+      const lockUntil = Date.now() + 300_000
+      const requestSession = vi
+        .fn()
+        .mockRejectedValueOnce(
+          Object.assign(new Error('HTTP 409 diagram_already_linked'), {
+            status: 409,
+            error: 'diagram_already_linked',
+            lockExpiresAt: lockUntil,
+          })
+        )
+        .mockResolvedValueOnce({ token: 'real-token', expiresInSec: 600 })
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(session.alreadyLinkedUntil.value).toBe(lockUntil)
+
+      // A retry (revoke & re-link / manual reconnect) must clear the stale lock.
+      session.state.value = 'idle'
+      session.startConnect()
+      expect(session.alreadyLinkedUntil.value).toBeNull()
+    })
+
+    it('hydrateFrom adopts lockExpiresAt from an already_linked handoff record', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+      const lockUntil = Date.now() + 120_000
+
+      session.hydrateFrom({
+        token: 'pending-x',
+        cloudId: 'c1',
+        pageId: 'page-1',
+        contentId: 'cc1',
+        state: 'already_linked',
+        lockExpiresAt: lockUntil,
+      })
+
+      expect(session.state.value).toBe('already_linked')
+      expect(session.alreadyLinkedUntil.value).toBe(lockUntil)
+    })
   })
 })

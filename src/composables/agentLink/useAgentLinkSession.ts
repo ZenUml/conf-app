@@ -73,7 +73,7 @@ const RESUMED_FEED_SUMMARY = 'Reconnected · resumed session'
 // PR1 status bus (spec 2026-07-13 §4.4/§5): guardrail rejects — previously
 // invisible (the guard runs relay-side, the macro never sees the op) — get an
 // honest feed row; deadline extensions fire a THROTTLED analytics event.
-export const GUARDRAIL_REJECTED_FEED_SUMMARY = '⚠ Agent submitted an invalid edit — retrying'
+export const GUARDRAIL_REJECTED_FEED_SUMMARY = '⚠ Agent submitted an invalid edit — rejected'
 export const EXTENDED_EVENT_THROTTLE_MS = 60_000
 export const ACTIVITY_LINGER_MS = 5_000
 
@@ -158,6 +158,17 @@ export interface AgentLinkSessionApi {
   // Fullscreen instance's own `expiresAt` permanently null, so its TTL meter
   // never lit up in the real cross-iframe topology.
   expiresAt: Ref<number | null>
+  // Amendment D (honest already-linked countdown): when a mint was rejected
+  // because another agent already holds this diagram's lock, the epoch ms at
+  // which that lock releases — from the 409's lockExpiresAt — or null when the
+  // rejection carried no lock time (or the state is not 'already_linked').
+  // Drives SessionNotice's "expires in ~N min" copy.
+  alreadyLinkedUntil: Ref<number | null>
+  // Amendment F (sliding-TTL cap honesty): true once the DO's status envelope
+  // reports the effective deadline is bounded by the 60-min absolute cap — at
+  // which point further agent activity no longer extends it, so the "extends
+  // while your agent works" hint must be suppressed (SessionTtl.vue).
+  atCap: Ref<boolean>
   // Display-only timestamp of the newest relay op/status/edit signal. The
   // components derive the activity pulse/resting copy from this and
   // ACTIVITY_LINGER_MS; it does not drive the session FSM.
@@ -232,6 +243,14 @@ export function useAgentLinkSession(
   const state = ref<AgentLinkClientState>('idle') as Ref<AgentLinkClientState>
   const token = ref<string | null>(null)
   const expiresAt = ref<number | null>(null)
+  // Amendment D: epoch ms an existing lock releases, set from a mint 409's
+  // lockExpiresAt (handleMintFailure), mirrored across the iframe via the
+  // handoff record. Reset in startConnect's reset block and on teardown.
+  const alreadyLinkedUntil = ref<number | null>(null)
+  // Amendment F: whether the deadline is bounded by the absolute cap — set
+  // from the DO status envelope's hitCap (mirrors lastHitCap), and hydrated
+  // across the iframe via the handoff record.
+  const atCap = ref(false)
   const lastActivityAt = ref<number | null>(null)
   const thinkingState = ref<AgentLinkThinkingState>('idle') as Ref<AgentLinkThinkingState>
   const activityFeed = ref<AgentLinkActivityEntry[]>([]) as Ref<
@@ -257,11 +276,14 @@ export function useAgentLinkSession(
   // omitted while unknown, matching the existing dsl/thinking
   // present-only-when-known convention.
   function handoffFeedFields(): Pick<AgentLinkHandoffSession, 'feed'> &
-    Partial<Pick<AgentLinkHandoffSession, 'expiresAt' | 'lastActivityAt'>> {
+    Partial<Pick<AgentLinkHandoffSession, 'expiresAt' | 'lastActivityAt' | 'hitCap'>> {
     return {
       feed: activityFeed.value,
       ...(expiresAt.value != null ? { expiresAt: expiresAt.value } : {}),
       ...(lastActivityAt.value != null ? { lastActivityAt: lastActivityAt.value } : {}),
+      // Amendment F: only carried once actually capped — a fresh session
+      // hydrates atCap=false and only flips it on a real capped status envelope.
+      ...(atCap.value ? { hitCap: true } : {}),
     }
   }
 
@@ -331,8 +353,13 @@ export function useAgentLinkSession(
       lastActivityAt.value = now()
       // Relay-originated status bus (Task 7 → spec §4.4): mirror the DO's
       // authoritative sliding-TTL deadline — never compute our own (spec §4).
-      // hitCap feeds expiry_cause later (absolute_cap vs idle).
-      if (typeof event.hitCap === 'boolean') lastHitCap = event.hitCap
+      // hitCap feeds expiry_cause later (absolute_cap vs idle). Amendment F:
+      // also mirror it onto the reactive `atCap` ref so SessionTtl can suppress
+      // the "extends while your agent works" hint once bumps stop extending.
+      if (typeof event.hitCap === 'boolean') {
+        lastHitCap = event.hitCap
+        atCap.value = event.hitCap
+      }
       if (typeof event.expiresAt === 'number') {
         const prev = expiresAt.value
         expiresAt.value = event.expiresAt
@@ -886,6 +913,12 @@ export function useAgentLinkSession(
     const handoffToken = token.value ?? `pending-${startedForThisClick ?? now()}`
     token.value = null
     expiresAt.value = null
+    const e = error as Partial<MintSessionError> & { message?: string }
+    // Amendment D: adopt the 409's lock release time (if any) so SessionNotice
+    // can show an honest countdown; null for a non-already-linked failure or an
+    // already-linked failure that carried no lockExpiresAt.
+    alreadyLinkedUntil.value =
+      alreadyLinked && typeof e.lockExpiresAt === 'number' ? e.lockExpiresAt : null
     state.value = nextClientState(state.value, alreadyLinked ? 'mint_rejected' : 'mint_failed')
     if (boundContext) {
       persistSession({
@@ -893,10 +926,12 @@ export function useAgentLinkSession(
         token: handoffToken,
         state: alreadyLinked ? 'already_linked' : 'failed',
         ...handoffFeedFields(),
+        // Amendment D: mirror the lock time so a display-only Fullscreen
+        // instance can show the same honest countdown via hydrateFrom.
+        ...(alreadyLinkedUntil.value != null ? { lockExpiresAt: alreadyLinkedUntil.value } : {}),
       })
     }
 
-    const e = error as Partial<MintSessionError> & { message?: string }
     const reason = alreadyLinked ? 'diagram_already_linked' : 'session_mint_failed'
     trackAnalyticsEvent('agent_link_edit_failed', {
       feature_area: 'agent_link',
@@ -927,6 +962,10 @@ export function useAgentLinkSession(
     activityFeed.value = []
     expiresAt.value = null
     lastActivityAt.value = null
+    // Amendment D/F: a fresh connect clears any prior already-linked countdown
+    // and cap flag.
+    alreadyLinkedUntil.value = null
+    atCap.value = false
     // PR1 sliding-TTL status-bus state is per-session — a fresh connect must not
     // inherit a prior session's cap flag or extended-event throttle timestamp.
     lastHitCap = false
@@ -1122,6 +1161,9 @@ export function useAgentLinkSession(
     suspendedAt = null
     expiresAt.value = null
     lastActivityAt.value = null
+    // Amendment D/F: a teardown clears any already-linked countdown and cap flag.
+    alreadyLinkedUntil.value = null
+    atCap.value = false
     // #314: an explicit disconnect (including out of 'expired' — see
     // agentLinkState.ts's `expired: { disconnect: 'closed' }`) makes any
     // still-pending TTL watchdog moot; clearing it here prevents a stale
@@ -1244,6 +1286,23 @@ export function useAgentLinkSession(
       lastActivityAt.value = session.lastActivityAt
     }
 
+    // --- Amendment D: honest already-linked countdown mirror -------------
+    // The relay owner (inline) learns the lock release time from the mint
+    // 409 and persists it on the already_linked record; mirror it here so the
+    // Fullscreen SessionNotice shows the same honest countdown.
+    if (session.state === 'already_linked' && typeof session.lockExpiresAt === 'number') {
+      alreadyLinkedUntil.value = session.lockExpiresAt
+    }
+
+    // --- Amendment F: sliding-TTL cap flag mirror ------------------------
+    // The relay owner (inline) learns hitCap from the DO status envelope and
+    // persists it on the handoff record; mirror it so SessionTtl on this
+    // display-only surface suppresses the "extends while your agent works"
+    // hint once the deadline is cap-bound.
+    if (typeof session.hitCap === 'boolean') {
+      atCap.value = session.hitCap
+    }
+
     // --- diagram DSL (agent edit) ----------------------------------------
     // Independent of the state branch above, and NOT early-returned past:
     //  - a Fullscreen opened AFTER edits hydrates straight from 'idle' and
@@ -1331,6 +1390,8 @@ export function useAgentLinkSession(
     state,
     token,
     expiresAt,
+    alreadyLinkedUntil,
+    atCap,
     lastActivityAt,
     thinkingState,
     activityFeed,

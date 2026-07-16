@@ -136,6 +136,19 @@ export interface AgentLinkHandoffSession extends AgentLinkBoundContext {
   // Refreshed on every persistSession() call (persistSession itself performs
   // the bounding — see below), so it always reflects the owner's latest rows.
   feed?: AgentLinkHandoffFeedEntry[]
+  // Amendment D (honest already-linked countdown): epoch ms when the existing
+  // per-diagram lock releases, carried on an 'already_linked' record so the
+  // Fullscreen instance can mirror an honest countdown (useAgentLinkSession.ts's
+  // `alreadyLinkedUntil` ref) via hydrateFrom. Absent on every other record.
+  lockExpiresAt?: number
+  // Amendment F (sliding-TTL cap honesty): the DO's status envelope reported
+  // the 60-min absolute cap now bounds the deadline (vs. the 10-min idle
+  // window). Mirrored across the iframe so the Fullscreen rail's TTL meter — a
+  // display-only hydrated instance that never receives the DO status envelope
+  // directly — can stop claiming the session still "extends while your agent
+  // works" once further bumps no longer move the deadline (SessionTtl.vue).
+  // Absent ⇒ not (yet) capped.
+  hitCap?: boolean
 }
 
 interface PersistedHandoff extends AgentLinkHandoffSession {
@@ -220,6 +233,11 @@ function toHandoffSession(parsed: PersistedHandoff): AgentLinkHandoffSession {
     // Optional; absent on a pre-bug-2 record. Re-bounded defensively in case
     // a record was ever written by a future/older build with a looser cap.
     feed: Array.isArray(parsed.feed) ? parsed.feed.slice(-HANDOFF_FEED_MAX_ENTRIES) : undefined,
+    // Amendment D: only present on an already_linked record that carried a lock
+    // release time.
+    lockExpiresAt: typeof parsed.lockExpiresAt === 'number' ? parsed.lockExpiresAt : undefined,
+    // Amendment F: only present once the DO reported the deadline is cap-bound.
+    hitCap: typeof parsed.hitCap === 'boolean' ? parsed.hitCap : undefined,
   }
 }
 
@@ -376,6 +394,12 @@ function subscribeToHandoffCore(
       session.expiresAt != null ? String(session.expiresAt) : '',
       session.lastActivityAt != null ? String(session.lastActivityAt) : '',
       session.feed ? JSON.stringify(session.feed) : '',
+      // Amendment D/F: an already_linked lock time and the cap flag can each
+      // change on a record that otherwise looks identical (the notice countdown
+      // and the "extends while your agent works" hint depend on them), so both
+      // must be in the fingerprint to reach the Fullscreen modal.
+      session.lockExpiresAt != null ? String(session.lockExpiresAt) : '',
+      session.hitCap != null ? String(session.hitCap) : '',
     ].join('\n')
     if (fingerprint !== lastDeliveredFingerprint) {
       lastDeliveredFingerprint = fingerprint

@@ -89,4 +89,45 @@ describe('mintAgentLinkSession', () => {
       error: 'diagram_already_linked',
     })
   })
+
+  // Amendment D (honest already-linked countdown): a 409 body may carry
+  // lock_expires_at (epoch ms the existing lock releases). Surface it on the
+  // error so the client can show a real countdown instead of a blind notice.
+  it('surfaces lockExpiresAt from a 409 body that carries lock_expires_at', async () => {
+    const lockUntil = 1_800_000_500_000
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: () => Promise.resolve({ error: 'diagram_already_linked', lock_expires_at: lockUntil }),
+      })
+    )
+
+    await expect(
+      mintAgentLinkSession({ cloudId: 'c', pageId: 'p', contentId: 'd' }, 'https://conf-stg-lite.zenuml.com')
+    ).rejects.toMatchObject({
+      status: 409,
+      error: 'diagram_already_linked',
+      lockExpiresAt: lockUntil,
+    })
+  })
+
+  it('leaves lockExpiresAt undefined when the 409 body omits lock_expires_at', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: () => Promise.resolve({ error: 'diagram_already_linked' }),
+      })
+    )
+
+    try {
+      await mintAgentLinkSession({ cloudId: 'c', pageId: 'p', contentId: 'd' }, 'https://conf-stg-lite.zenuml.com')
+      throw new Error('expected mint to reject')
+    } catch (err) {
+      expect((err as { lockExpiresAt?: number }).lockExpiresAt).toBeUndefined()
+    }
+  })
 })

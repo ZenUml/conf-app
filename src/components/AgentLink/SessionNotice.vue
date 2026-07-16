@@ -63,8 +63,14 @@ const props = withDefaults(
     // 'failed' = the session mint failed for any other reason.
     variant?: 'closed' | 'expired' | 'rejected' | 'failed'
     diagramTitle?: string
+    // Amendment D: absolute ms epoch when the existing lock on an
+    // already-linked diagram releases (mint 409's lockExpiresAt), or
+    // null/undefined when unknown. Only rendered as a countdown for the
+    // 'rejected' variant, and only when it's actually still in the future —
+    // never a fabricated/stale time.
+    lockExpiresAt?: number | null
   }>(),
-  { variant: 'closed', diagramTitle: '' }
+  { variant: 'closed', diagramTitle: '', lockExpiresAt: null }
 )
 
 const emit = defineEmits<{
@@ -88,7 +94,14 @@ const title = computed(() => {
 
 const subline = computed(() => {
   if (props.variant === 'rejected') {
-    return 'A session started 4 min ago is still active. Only one agent can hold the link at a time'
+    // Amendment D: only show a countdown when we actually know the lock's
+    // release time AND it's still in the future — never a fabricated or
+    // stale ("0 min" / negative) time.
+    if (typeof props.lockExpiresAt === 'number' && props.lockExpiresAt > Date.now()) {
+      const minutesRemaining = Math.ceil((props.lockExpiresAt - Date.now()) / 60000)
+      return `Another agent session holds this diagram — it expires in ~${minutesRemaining} min. Only one agent can hold the link at a time.`
+    }
+    return 'Another agent session holds this diagram. Only one agent can hold the link at a time.'
   }
   if (props.variant === 'failed') {
     return 'We could not create a link session. Try reconnecting in a moment'

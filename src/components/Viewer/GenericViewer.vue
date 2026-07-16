@@ -181,6 +181,7 @@
             :thinking="agentLinkThinking"
             :diagram-title="title"
             :expires-at="agentLinkExpiresAt"
+            :lock-expires-at="agentLinkLockExpiresAt"
             @disconnect="onAgentLinkDisconnect"
             @revoke="onAgentLinkRevoke"
             @reconnect="onAgentLinkReconnect"
@@ -368,6 +369,12 @@ export default {
     },
     agentLinkExpiresAt() {
       return this.agentLinkSession?.expiresAt.value ?? null;
+    },
+    // Amendment D: the composable's honest already-linked lock countdown
+    // (set from a mint 409's lockExpiresAt) — forwarded to the Fullscreen
+    // ConnectPanel's already_linked SessionNotice.
+    agentLinkLockExpiresAt() {
+      return this.agentLinkSession?.alreadyLinkedUntil.value ?? null;
     },
     // Perceived-latency overlay gate (charter §6 Track F). Same flag/type
     // gating as the other affordances, but NOT restricted to Fullscreen: the

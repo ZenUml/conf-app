@@ -482,6 +482,26 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(false)
     })
 
+    // Amendment D: the composable's alreadyLinkedUntil (set from a mint 409's
+    // lockExpiresAt) must reach ConnectPanel's already_linked SessionNotice for
+    // an honest countdown instead of a blind "already linked" notice.
+    it('wires the composable alreadyLinkedUntil into the Fullscreen ConnectPanel as lock-expires-at', async () => {
+      setFullscreen(true)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const vm = wrapper.vm as any
+      const lockExpiresAt = Date.now() + 5 * 60 * 1000
+      vm.agentLinkSession.state.value = 'already_linked'
+      vm.agentLinkSession.alreadyLinkedUntil.value = lockExpiresAt
+      await wrapper.vm.$nextTick()
+
+      const notice = wrapper.find('[data-testid="agent-link-notice"]')
+      expect(notice.exists()).toBe(true)
+      expect(notice.text()).toContain('expires in ~5 min')
+    })
+
     // Track F — perceived-latency thinking overlay on the diagram render surface.
     it('does NOT mount the thinking overlay seam at all when the flag resolves false (flag-off DOM unchanged)', async () => {
       const wrapper = mountViewer()

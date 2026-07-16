@@ -42,7 +42,7 @@ describe('ConnectPanel', () => {
     const prompt = wrapper.find('[data-testid="agent-link-prompt"]').text()
     expect(prompt).toContain('Connect to my ZenUML diagram via the conf-agent MCP.')
     expect(prompt).toContain('session: tok-123')
-    expect(prompt).toContain('reads this page')
+    expect(prompt).toContain('reads this page · edits this diagram · 10 min idle / 60 min max')
     expect(wrapper.find('[data-testid="agent-link-waiting-status"]').text()).toContain(
       'Waiting for your agent to connect'
     )
@@ -104,8 +104,26 @@ describe('ConnectPanel', () => {
     expect(wrapper.find('[data-testid="agent-link-setup-command"]').text()).toContain(
       'claude mcp add --transport http conf-agent https://zenapi.zenuml.com/agent-link/mcp'
     )
-    expect(wrapper.find('[data-testid="agent-link-add-cursor-btn"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-no-install-link"]').exists()).toBe(true)
+    // The dead "Add to Cursor" button (no click handler) and the dead
+    // "Use the no-install bridge instead" link (href="#") were removed —
+    // the working `claude mcp add` command is the single setup path.
+    expect(wrapper.find('[data-testid="agent-link-add-cursor-btn"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="agent-link-no-install-link"]').exists()).toBe(false)
+  })
+
+  it('Copy prompt failure: shows "Copy failed — select the text above" on the button', async () => {
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
+    })
+    const wrapper = mountPanel({ state: 'waiting', token: 'tok-123' })
+
+    await wrapper.find('[data-testid="agent-link-copy-prompt-btn"]').trigger('click')
+    await wrapper.vm.$nextTick()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('[data-testid="agent-link-copy-prompt-btn"]').text()).toBe(
+      'Copy failed — select the text above'
+    )
   })
 
   it('Copy prompt writes the prompt text to the clipboard', async () => {
@@ -163,7 +181,7 @@ describe('ConnectPanel', () => {
     expect(wrapper.emitted('revoke')).toHaveLength(1)
   })
 
-  it('already_linked: renders the rejected notice with design-contract copy and actions', async () => {
+  it('already_linked: renders the rejected notice with honest (no-fake-time) copy and actions', async () => {
     const wrapper = mountPanel({ state: 'already_linked' })
 
     const notice = wrapper.find('[data-testid="agent-link-notice"]')
@@ -172,7 +190,7 @@ describe('ConnectPanel', () => {
       'This diagram is already linked to an agent'
     )
     expect(notice.text()).toContain(
-      'A session started 4 min ago is still active. Only one agent can hold the link at a time'
+      'Another agent session holds this diagram. Only one agent can hold the link at a time.'
     )
     expect(wrapper.find('[data-testid="agent-link-notice-revoke-btn"]').text()).toContain('Revoke & re-link')
     expect(wrapper.find('[data-testid="agent-link-notice-cancel-btn"]').text()).toContain('Cancel')
@@ -181,6 +199,14 @@ describe('ConnectPanel', () => {
     await wrapper.find('[data-testid="agent-link-notice-cancel-btn"]').trigger('click')
     expect(wrapper.emitted('revoke')).toHaveLength(1)
     expect(wrapper.emitted('cancel')).toHaveLength(1)
+  })
+
+  it('already_linked: forwards lockExpiresAt to SessionNotice for an honest countdown', () => {
+    const lockExpiresAt = Date.now() + 5 * 60 * 1000
+    const wrapper = mountPanel({ state: 'already_linked', lockExpiresAt } as any)
+
+    const notice = wrapper.find('[data-testid="agent-link-notice"]')
+    expect(notice.text()).toContain('expires in ~5 min')
   })
 
   it('failed: renders a visible retryable mint-failure notice', () => {

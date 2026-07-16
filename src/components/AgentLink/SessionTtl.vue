@@ -13,11 +13,14 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="agent-ttl__icon">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
       </svg>
-      Token expires in <b data-testid="agent-link-ttl-value">{{ formatted }}</b>
+      Session expires in <b data-testid="agent-link-ttl-value">{{ formatted }}</b>
     </div>
     <div class="agent-ttl__bar">
       <div class="agent-ttl__fill" :style="{ width: fillPct + '%' }"></div>
     </div>
+    <!-- The bar visibly refilling on each sliding-TTL bump (PR1 status bus)
+         reads as a bug without this cue — spell out that it's intended. -->
+    <div class="agent-ttl__hint">extends while your agent works</div>
   </div>
 </template>
 
@@ -135,6 +138,11 @@ function formatMmSs(totalSeconds: number): string {
 .agent-ttl--warn .agent-ttl__fill {
   background: #e2b203;
 }
+.agent-ttl__hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #97a0af;
+}
 @media (prefers-reduced-motion: reduce) {
   .agent-ttl__fill {
     transition: none;
@@ -149,6 +157,9 @@ function formatMmSs(totalSeconds: number): string {
   }
   .agent-ttl__bar {
     background: #3a3f4b;
+  }
+  .agent-ttl__hint {
+    color: #6b7280;
   }
 }
 </style>

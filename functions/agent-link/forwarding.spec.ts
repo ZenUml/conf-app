@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyEvent, parseEnvelope, reattachEvent, routeMessage } from './forwarding';
+import { applyEvent, parseEnvelope, reattachEvent, routeMessage, statusEnvelope } from './forwarding';
 import type { Envelope, Peer } from './forwarding';
 import type { SessionState } from './sessionToken';
 
@@ -145,5 +145,23 @@ describe('reattachEvent', () => {
   it('returns the original bootstrap event for a first connect (not suspended)', () => {
     expect(reattachEvent('macro', false)).toBe('macro_connected');
     expect(reattachEvent('agent', false)).toBe('agent_paired');
+  });
+});
+
+describe('statusEnvelope (relay-originated status bus, spec 2026-07-13 §4)', () => {
+  it('serializes expiresAt + hitCap, omitting activity when absent', () => {
+    expect(JSON.parse(statusEnvelope(1234, false))).toEqual({ kind: 'status', expiresAt: 1234, hitCap: false });
+  });
+
+  it('carries an activity payload when given', () => {
+    expect(JSON.parse(statusEnvelope(1234, true, { type: 'guardrail_rejected', detail: 'parse_error' }))).toEqual({
+      kind: 'status', expiresAt: 1234, hitCap: true,
+      activity: { type: 'guardrail_rejected', detail: 'parse_error' },
+    });
+  });
+
+  it('a PEER-sent status stays invalid — relay-originated only', () => {
+    const parsed = parseEnvelope(statusEnvelope(1234, false));
+    expect(parsed.kind).toBe('invalid');
   });
 });

@@ -48,9 +48,12 @@ import { test, expect, type Browser, type Page } from '@playwright/test';
 import {
   AGENT_LINK_STG_BASE,
   agentLinkMcp,
+  appendMarkerEdit,
   clickConnectToAgent,
   enableAgentLinkOverrides,
+  forceReleaseLock,
   isAgentLinkEndpointLive,
+  mcpPayload,
   openMacroPage,
   readPanelClass,
   readSessionToken,
@@ -67,90 +70,6 @@ const PAGE_A_URL = `https://lite-stg.atlassian.net/wiki/pages/viewpage.action?pa
 const PAGE_B_ID = '146636830';
 const CONTENT_B_ID = '147292161';
 const PAGE_B_URL = `https://lite-stg.atlassian.net/wiki/pages/viewpage.action?pageId=${PAGE_B_ID}`;
-
-/**
- * Reattach as the macro peer with `token` (accepted while the session is
- * 'suspended' — see AgentLinkSession.ts's peer-connect guard) and send
- * `{kind:'disconnect'}`, the same envelope the real UI's Disconnect button
- * sends, so the per-contentId mint-exclusivity claim releases immediately
- * instead of sitting on the full 10-min token TTL. Same mechanism as
- * spot-check-2*.spec.ts's forceReleaseLock — MUST be called AFTER the
- * owning browser context is closed: while it's still open the relay
- * considers the session ACTIVE and rejects a second macro-peer connect
- * outright (verified empirically, both here and in those specs).
- */
-async function forceReleaseLock(token: string, pageId: string, contentId: string): Promise<void> {
-  const wsUrl =
-    `wss://conf-stg-lite.zenuml.com/agent-link/channel?token=${encodeURIComponent(token)}` +
-    `&peer=macro&cloudId=${encodeURIComponent(CLOUD_ID)}&pageId=${encodeURIComponent(pageId)}` +
-    `&contentId=${encodeURIComponent(contentId)}`;
-  try {
-    const ws = new WebSocket(wsUrl);
-    await new Promise<void>((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('ws open timeout')), 10000);
-      ws.addEventListener('open', () => {
-        clearTimeout(t);
-        resolve();
-      });
-      ws.addEventListener('error', (e) => {
-        clearTimeout(t);
-        reject(e);
-      });
-    });
-    ws.send(JSON.stringify({ kind: 'disconnect' }));
-    await new Promise((r) => setTimeout(r, 1200));
-    ws.close();
-  } catch {
-    // Best-effort cleanup only — a failure here just means the claim
-    // self-clears at its own TTL instead of releasing early.
-  }
-}
-
-/**
- * A `tools/call` JSON-RPC result is `{content: [{type:'text', text: <JSON
- * string>}], structuredContent?: <the actual tool payload>}` (mcp.ts) — the
- * diagram/page fields are NOT top-level on `.result` itself. Prefer
- * structuredContent; fall back to parsing content[0].text (covers a
- * hypothetical result shape where structuredContent were ever omitted).
- */
-function mcpPayload(res: { result: any }): any {
-  if (res.result?.structuredContent) return res.result.structuredContent;
-  const text = res.result?.content?.[0]?.text;
-  if (typeof text === 'string') {
-    try {
-      return JSON.parse(text);
-    } catch {
-      /* fall through */
-    }
-  }
-  return {};
-}
-
-/**
- * Build an APPEND-only edit: the marker line is added after the diagram's
- * existing content, never replacing it — a monotonic length increase that
- * can never trip the update_diagram guardrail's catastrophic-data-loss check
- * (see spot-check-2.spec.ts's "APPEND (monotonic length increase) — never
- * trips the data-loss guard" comment). Deliberately NOT a full-replace via
- * the shared helper's `markerDsl()`: this fixture's CURRENT bound diagram
- * turned out to be a large, unrelated "paywall warning banner" demo diagram
- * (left by a prior, unrelated spot-check run on this shared page — found
- * empirically when a full-replace with a tiny one-liner got silently
- * guardrail-rejected). Appending is robust regardless of how large the
- * fixture's current content happens to be.
- */
-function appendMarkerEdit(originalDsl: string, diagramType: string, marker: string): string {
-  const trimmed = originalDsl.trimEnd();
-  const t = diagramType.toLowerCase();
-  if (t === 'mermaid') return `${trimmed}\n  AgentX-->Server[${marker}]`;
-  if (t === 'plantuml') {
-    // @enduml must stay the last line — insert just before it if present.
-    const idx = trimmed.lastIndexOf('@enduml');
-    if (idx === -1) return `${trimmed}\nAgent -> Server: ${marker}`;
-    return `${trimmed.slice(0, idx)}Agent -> Server: ${marker}\n${trimmed.slice(idx)}`;
-  }
-  return `${trimmed}\nAgentX->Server: ${marker}()`; // sequence (ZenUML) default
-}
 
 /**
  * Snapshot every Forge frame's rendered diagram text (same DOM query
@@ -339,8 +258,8 @@ test.describe('Live Agent Link — multi-page cross-talk isolation', () => {
       // claim this run is done with.
       await contextA.close().catch(() => {});
       await contextB.close().catch(() => {});
-      if (tokenA) await forceReleaseLock(tokenA, PAGE_A_ID, CONTENT_A_ID);
-      if (tokenB) await forceReleaseLock(tokenB, PAGE_B_ID, CONTENT_B_ID);
+      if (tokenA) await forceReleaseLock(tokenA, { cloudId: CLOUD_ID, pageId: PAGE_A_ID, contentId: CONTENT_A_ID });
+      if (tokenB) await forceReleaseLock(tokenB, { cloudId: CLOUD_ID, pageId: PAGE_B_ID, contentId: CONTENT_B_ID });
     }
   });
 });

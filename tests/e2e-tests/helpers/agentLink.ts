@@ -199,9 +199,95 @@ export async function getStatus(token: string, base = AGENT_LINK_STG_BASE): Prom
   return Number(s.result?.structuredContent?.expiresInSec ?? NaN);
 }
 
-/** Build a minimal one-line diagram carrying `marker`, per diagram type. */
-export function markerDsl(diagramType: string, marker: string): string {
-  if (diagramType === 'mermaid') return `graph TD;\n  A[Start]-->B[${marker}]`;
-  if (diagramType === 'plantuml') return `@startuml\nAgent -> Server: ${marker}\n@enduml`;
-  return `AgentE2E->Server: ${marker}`; // sequence (ZenUML) default
+/**
+ * A `tools/call` JSON-RPC result is `{content: [{type:'text', text: <JSON
+ * string>}], structuredContent?: <the actual tool payload>}` (mcp.ts) — the
+ * diagram/page fields are NOT top-level on `.result` itself. Prefer
+ * structuredContent; fall back to parsing content[0].text.
+ */
+export function mcpPayload(res: { result: any }): any {
+  if (res.result?.structuredContent) return res.result.structuredContent;
+  const text = res.result?.content?.[0]?.text;
+  if (typeof text === 'string') {
+    try {
+      return JSON.parse(text);
+    } catch {
+      /* fall through */
+    }
+  }
+  return {};
+}
+
+/**
+ * Build an APPEND-only edit: the marker line is added after the diagram's
+ * existing content, never replacing it — a monotonic length increase that can
+ * never trip the update_diagram guardrail's catastrophic-data-loss check
+ * (DATA_LOSS_MIN_RATIO = 0.8 in functions/agent-link/updateDiagramGuard.ts).
+ * NEVER test edits as a full-replace one-liner: the shared fixture pages
+ * carry arbitrarily large diagrams (left by unrelated spot-check runs), and a
+ * tiny replacement gets guardrail-rejected — the JSON-RPC reply is still HTTP
+ * 200 with `json.error` set and NO `.result`, which a weak `.ok !==
+ * false` assertion silently passes. Assert `expect(res.error).toBeFalsy()`
+ * alongside using this helper.
+ */
+export function appendMarkerEdit(originalDsl: string, diagramType: string, marker: string): string {
+  const trimmed = originalDsl.trimEnd();
+  const t = diagramType.toLowerCase();
+  if (t === 'mermaid') return `${trimmed}\n  AgentX-->Server[${marker}]`;
+  if (t === 'plantuml') {
+    // @enduml must stay the last line — insert just before it if present.
+    const idx = trimmed.lastIndexOf('@enduml');
+    if (idx === -1) return `${trimmed}\nAgent -> Server: ${marker}`;
+    return `${trimmed.slice(0, idx)}Agent -> Server: ${marker}\n${trimmed.slice(idx)}`;
+  }
+  return `${trimmed}\nAgentX->Server: ${marker}()`; // sequence (ZenUML) default
+}
+
+/** Bound context needed to (re)connect a macro-peer WS for a token. */
+export interface AgentLinkWsContext {
+  cloudId: string;
+  pageId: string;
+  contentId: string;
+}
+
+/**
+ * Reattach as the macro peer with `token` (accepted while the session is
+ * 'suspended' — see AgentLinkSession.ts's peer-connect guard) and send
+ * `{kind:'disconnect'}`, the same envelope the real UI's Disconnect button
+ * sends, so the per-contentId mint-exclusivity claim releases immediately.
+ * Since PR1 a connected session's claim is held at the 60-MIN cap, so
+ * skipping this leaves the shared fixture page 409ing every later mint until
+ * the ~10-min idle alarm fires. MUST be called AFTER the owning page/context
+ * is closed: while it's open the relay considers the session ACTIVE and
+ * rejects a second macro-peer connect outright (verified empirically).
+ */
+export async function forceReleaseLock(
+  token: string,
+  ctx: AgentLinkWsContext,
+  base = AGENT_LINK_STG_BASE,
+): Promise<void> {
+  const wsUrl =
+    `${base.replace(/^https:/, 'wss:')}/agent-link/channel?token=${encodeURIComponent(token)}` +
+    `&peer=macro&cloudId=${encodeURIComponent(ctx.cloudId)}&pageId=${encodeURIComponent(ctx.pageId)}` +
+    `&contentId=${encodeURIComponent(ctx.contentId)}`;
+  try {
+    const ws = new WebSocket(wsUrl);
+    await new Promise<void>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('ws open timeout')), 10000);
+      ws.addEventListener('open', () => {
+        clearTimeout(t);
+        resolve();
+      });
+      ws.addEventListener('error', (e) => {
+        clearTimeout(t);
+        reject(e);
+      });
+    });
+    ws.send(JSON.stringify({ kind: 'disconnect' }));
+    await new Promise((r) => setTimeout(r, 1200));
+    ws.close();
+  } catch {
+    // Best-effort cleanup only — a failure here just means the claim
+    // self-clears at its own TTL instead of releasing early.
+  }
 }

@@ -128,6 +128,13 @@ interface DoSessionInfo {
   boundContext: SessionRecord['boundContext'];
   issuedAtMs: number;
   /**
+   * Last bump-worthy activity — the sliding-TTL companion to issuedAtMs
+   * (sessionToken.ts). Required so the SessionRecord reconstructed below
+   * carries a real deadline base; without it effectiveExpiryMs(issuedAtMs,
+   * undefined) is NaN for any consumer that reads ctx.session on the DO path.
+   */
+  lastActivityMs: number;
+  /**
    * Last-known {diagramType, dsl} the DO cached from the agent's read_diagram
    * / prior update_diagram — the synchronous baseline the update_diagram
    * guardrail (updateDiagramGuard.ts) parses and length-checks against. Absent
@@ -188,6 +195,7 @@ async function authenticateViaDo(
     boundContext: info.boundContext,
     scope: 'read-page+write-diagram',
     issuedAtMs: info.issuedAtMs,
+    lastActivityMs: info.lastActivityMs,
     state: info.state,
   };
   // The diagram snapshot rides back on the auth round-trip that already happens

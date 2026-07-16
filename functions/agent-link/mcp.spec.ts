@@ -356,12 +356,16 @@ function makeRecordingDoEnv(
 }
 
 function sessionInfoResponse(
-  overrides: Partial<{ state: string; issuedAtMs: number; diagramType: string }> = {},
+  overrides: Partial<{ state: string; issuedAtMs: number; lastActivityMs: number; diagramType: string }> = {},
 ): Response {
+  const issuedAtMs = overrides.issuedAtMs ?? Date.now();
   const body: Record<string, unknown> = {
     state: overrides.state ?? 'created',
     boundContext: CTX,
-    issuedAtMs: overrides.issuedAtMs ?? Date.now(),
+    issuedAtMs,
+    // Mirrors the DO's GET /session: the sliding-TTL activity base, required
+    // so authenticateViaDo reconstructs a complete SessionRecord.
+    lastActivityMs: overrides.lastActivityMs ?? issuedAtMs,
   };
   // Mirrors the DO's GET /session: lastDiagram is present only once the agent
   // has read the diagram at least once, and carries the bound diagramType.

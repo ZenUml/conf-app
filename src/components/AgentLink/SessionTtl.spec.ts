@@ -16,12 +16,28 @@ describe('SessionTtl', () => {
     expect(wrapper.find('[data-testid="agent-link-ttl"]').exists()).toBe(false)
   })
 
-  it('formats the remaining time as M:SS and labels it "Token expires in"', () => {
+  it('formats the remaining time as M:SS and labels it "Session expires in"', () => {
     // 8 min 42 s from now → 8:42 (matches the design preview).
     const wrapper = mount(SessionTtl, { props: { expiresAt: Date.now() + (8 * 60 + 42) * 1000 } })
     expect(wrapper.find('[data-testid="agent-link-ttl"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Token expires in')
+    expect(wrapper.text()).toContain('Session expires in')
     expect(wrapper.find('[data-testid="agent-link-ttl-value"]').text()).toBe('8:42')
+  })
+
+  it('shows the "extends while your agent works" suffix so the bar refilling reads as intended', () => {
+    const wrapper = mount(SessionTtl, { props: { expiresAt: Date.now() + (8 * 60 + 42) * 1000 } })
+    expect(wrapper.text()).toContain('extends while your agent works')
+  })
+
+  it('hides the "extends" hint once the deadline is bound by the absolute cap (atCap)', () => {
+    // At the 60-min cap, bumps no longer move the meter — the hint would lie.
+    const wrapper = mount(SessionTtl, {
+      props: { expiresAt: Date.now() + (8 * 60 + 42) * 1000, atCap: true },
+    })
+    // The meter itself still renders...
+    expect(wrapper.find('[data-testid="agent-link-ttl"]').exists()).toBe(true)
+    // ...but without the now-false "extends" reassurance.
+    expect(wrapper.text()).not.toContain('extends while your agent works')
   })
 
   it('does not apply the amber warning above the 120s threshold', () => {

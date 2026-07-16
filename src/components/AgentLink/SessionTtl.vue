@@ -13,11 +13,16 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="agent-ttl__icon">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
       </svg>
-      Token expires in <b data-testid="agent-link-ttl-value">{{ formatted }}</b>
+      Session expires in <b data-testid="agent-link-ttl-value">{{ formatted }}</b>
     </div>
     <div class="agent-ttl__bar">
       <div class="agent-ttl__fill" :style="{ width: fillPct + '%' }"></div>
     </div>
+    <!-- The bar visibly refilling on each sliding-TTL bump (PR1 status bus)
+         reads as a bug without this cue — spell out that it's intended. Hidden
+         once the deadline is bound by the 60-min absolute cap (atCap): bumps no
+         longer extend it, so the bar stops refilling and the hint would lie. -->
+    <div v-if="!atCap" class="agent-ttl__hint">extends while your agent works</div>
   </div>
 </template>
 
@@ -34,8 +39,12 @@ const props = withDefaults(
     // Full token lifetime in seconds — drives the bar's proportional fill.
     // Default 600 s = the 10-minute session TTL the connect prompt advertises.
     totalSeconds?: number
+    // PR1 sliding TTL: once the deadline is bound by the 60-min absolute cap,
+    // bumps stop extending it — suppress the "extends while your agent works"
+    // hint so it doesn't contradict the (now static) bar. Default false.
+    atCap?: boolean
   }>(),
-  { totalSeconds: 600 }
+  { totalSeconds: 600, atCap: false }
 )
 
 const WARN_THRESHOLD_SECONDS = 120
@@ -135,6 +144,11 @@ function formatMmSs(totalSeconds: number): string {
 .agent-ttl--warn .agent-ttl__fill {
   background: #e2b203;
 }
+.agent-ttl__hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #97a0af;
+}
 @media (prefers-reduced-motion: reduce) {
   .agent-ttl__fill {
     transition: none;
@@ -149,6 +163,9 @@ function formatMmSs(totalSeconds: number): string {
   }
   .agent-ttl__bar {
     background: #3a3f4b;
+  }
+  .agent-ttl__hint {
+    color: #6b7280;
   }
 }
 </style>

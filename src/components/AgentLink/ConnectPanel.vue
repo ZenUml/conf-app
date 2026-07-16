@@ -13,7 +13,7 @@
             class="agent-link-panel__btn agent-link-panel__btn--primary"
             data-testid="agent-link-copy-prompt-btn"
             @click="onCopyPrompt"
-          >{{ copyState === 'copied' ? '✓ Copied' : 'Copy prompt' }}</button>
+          >{{ copyButtonLabel }}</button>
 
           <p class="agent-link-panel__status agent-link-panel__status--pulse" data-testid="agent-link-waiting-status">
             <span class="agent-link-panel__pulse-dot" aria-hidden="true"></span>
@@ -47,7 +47,7 @@
             <span><span class="agent-link-panel__bound-lbl">Linked to</span> <b>{{ diagramTitle || 'this diagram' }}</b></span>
           </div>
 
-          <SessionTtl :expires-at="expiresAt" />
+          <SessionTtl :expires-at="expiresAt" :at-cap="atCap" />
 
           <!-- Thinking banner (Track F): shown while an update_diagram op is in
                flight; the elapsed hint appears after a few seconds so a long
@@ -153,6 +153,7 @@
         <SessionNotice
           variant="rejected"
           :diagram-title="diagramTitle"
+          :lock-expires-at="lockExpiresAt"
           @revoke="emit('revoke')"
           @cancel="emit('cancel')"
         />
@@ -175,7 +176,7 @@
             class="agent-link-panel__btn agent-link-panel__btn--primary"
             data-testid="agent-link-copy-prompt-btn"
             @click="onCopyPrompt"
-          >{{ copyState === 'copied' ? '✓ Copied' : 'Copy prompt' }}</button>
+          >{{ copyButtonLabel }}</button>
 
           <SetupInstructions />
 
@@ -224,8 +225,16 @@ const props = withDefaults(
     clientName?: string
     expiresAt?: number | null
     lastActivityAt?: number | null
+    // Amendment D: absolute ms epoch when the existing lock on an
+    // already-linked diagram releases — forwarded to the already_linked
+    // SessionNotice for an honest countdown instead of a blind notice.
+    lockExpiresAt?: number | null
+    // Amendment F: the deadline is bound by the 60-min absolute cap —
+    // forwarded to SessionTtl so it drops the "extends while your agent works"
+    // hint once bumps no longer move the meter.
+    atCap?: boolean
   }>(),
-  { thinking: 'idle', diagramTitle: '', clientName: '', expiresAt: null, lastActivityAt: null }
+  { thinking: 'idle', diagramTitle: '', clientName: '', expiresAt: null, lastActivityAt: null, lockExpiresAt: null, atCap: false }
 )
 
 const emit = defineEmits<{
@@ -243,35 +252,18 @@ const emit = defineEmits<{
 
 // Shared "setup the connector" block used by both the waiting-state collapsed
 // <details> and the always-expanded timeout state, so the copy and markup only
-// exist once.
+// exist once. The `claude mcp add` command is the single working setup path
+// (the "Add to Cursor" button had no click handler and the "no-install
+// bridge" link was href="#" — both dead, removed per design review).
 const SetupInstructions = defineComponent({
   name: 'AgentLinkSetupInstructions',
   setup() {
     return () =>
       h('div', { class: 'agent-link-panel__setup', 'data-testid': 'agent-link-setup' }, [
         h(
-          'button',
-          {
-            type: 'button',
-            class: 'agent-link-panel__btn agent-link-panel__btn--secondary',
-            'data-testid': 'agent-link-add-cursor-btn',
-          },
-          'Add to Cursor'
-        ),
-        h(
           'pre',
           { class: 'agent-link-panel__command', 'data-testid': 'agent-link-setup-command' },
           MCP_ADD_COMMAND
-        ),
-        h('div', { class: 'agent-link-panel__divider', 'data-testid': 'agent-link-setup-divider' }, 'or'),
-        h(
-          'a',
-          {
-            href: '#',
-            class: 'agent-link-panel__link',
-            'data-testid': 'agent-link-no-install-link',
-          },
-          'Use the no-install bridge instead'
         ),
       ])
   },
@@ -282,13 +274,19 @@ const promptText = computed(() => {
   return [
     'Connect to my ZenUML diagram via the conf-agent MCP.',
     `session: ${sessionToken}`,
-    '# reads this page · edits this diagram · 10 min',
+    '# reads this page · edits this diagram · 10 min idle / 60 min max',
   ].join('\n')
 })
 
 type CopyState = 'default' | 'copied' | 'failed'
 const copyState = ref<CopyState>('default')
 let copyRevertTimer: ReturnType<typeof setTimeout> | null = null
+
+const copyButtonLabel = computed(() => {
+  if (copyState.value === 'copied') return '✓ Copied'
+  if (copyState.value === 'failed') return 'Copy failed — select the text above'
+  return 'Copy prompt'
+})
 
 async function onCopyPrompt() {
   try {

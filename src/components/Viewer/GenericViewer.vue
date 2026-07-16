@@ -186,6 +186,8 @@
             :diagram-title="title"
             :expires-at="agentLinkExpiresAt"
             :last-activity-at="agentLinkLastActivityAt"
+            :lock-expires-at="agentLinkLockExpiresAt"
+            :at-cap="agentLinkAtCap"
             @disconnect="onAgentLinkDisconnect"
             @revoke="onAgentLinkRevoke"
             @reconnect="onAgentLinkReconnect"
@@ -376,6 +378,18 @@ export default {
     },
     agentLinkLastActivityAt() {
       return this.agentLinkSession?.lastActivityAt.value ?? null;
+    },
+    // Amendment D: the composable's honest already-linked lock countdown
+    // (set from a mint 409's lockExpiresAt) — forwarded to the Fullscreen
+    // ConnectPanel's already_linked SessionNotice.
+    agentLinkLockExpiresAt() {
+      return this.agentLinkSession?.alreadyLinkedUntil.value ?? null;
+    },
+    // Amendment F: the DO reported the 60-min absolute cap now bounds the
+    // deadline — forwarded to ConnectPanel/SessionTtl to drop the "extends"
+    // hint once bumps no longer move the meter.
+    agentLinkAtCap() {
+      return this.agentLinkSession?.atCap.value ?? false;
     },
     // Perceived-latency overlay gate (charter §6 Track F). Same flag/type
     // gating as the other affordances, but NOT restricted to Fullscreen: the

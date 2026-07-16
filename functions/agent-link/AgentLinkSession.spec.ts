@@ -1053,10 +1053,62 @@ describe('AgentLinkSession — agent-side HTTP transport (GET /session, POST /ag
       expect(claims[0].expiresAt).toBeGreaterThanOrEqual(before + MAX_SESSION_MS);
     });
 
-    it('A3: claimContentLockAtCap is a no-op without an AGENT_LINK binding', async () => {
+    it('A3: claimContentLockAtCap is a no-op (returns true) without an AGENT_LINK binding', async () => {
       const doInstance = new AgentLinkSession(makeState(), {});
       (doInstance as any).session = makeSession();
-      await expect((doInstance as any).claimContentLockAtCap()).resolves.toBeUndefined();
+      await expect((doInstance as any).claimContentLockAtCap()).resolves.toBe(true);
+    });
+
+    it('A3: claimContentLockAtCap returns true when the content DO accepts the claim (200)', async () => {
+      const env = {
+        AGENT_LINK: {
+          idFromName: (name: string) => ({ name }),
+          get: () => ({
+            fetch: async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+          }),
+        },
+      };
+      const doInstance = new AgentLinkSession(makeState(), env as any);
+      (doInstance as any).session = makeSession();
+      await expect((doInstance as any).claimContentLockAtCap()).resolves.toBe(true);
+    });
+
+    it('A3: claimContentLockAtCap returns FALSE when a different session already owns the lock (409)', async () => {
+      // The exclusivity guard: the mint's 10-min lock lapsed and another mint
+      // grabbed this contentId in the gap. A 409 from the content DO must make
+      // the connecting session refuse to bootstrap, not silently proceed as a
+      // second live session for the same diagram.
+      const env = {
+        AGENT_LINK: {
+          idFromName: (name: string) => ({ name }),
+          get: () => ({
+            fetch: async () =>
+              new Response(JSON.stringify({ error: 'diagram_already_linked' }), { status: 409 }),
+          }),
+        },
+      };
+      const doInstance = new AgentLinkSession(makeState(), env as any);
+      (doInstance as any).session = makeSession();
+      await expect((doInstance as any).claimContentLockAtCap()).resolves.toBe(false);
+    });
+
+    it('A3: claimContentLockAtCap returns true on a transient round-trip failure (best-effort, not a refusal)', async () => {
+      // A network blip must not conflate with a genuine ownership conflict —
+      // refusing a legitimate connection is worse than the harmless duplicate
+      // the 10-min lock self-clears anyway.
+      const env = {
+        AGENT_LINK: {
+          idFromName: (name: string) => ({ name }),
+          get: () => ({
+            fetch: async () => {
+              throw new Error('network down');
+            },
+          }),
+        },
+      };
+      const doInstance = new AgentLinkSession(makeState(), env as any);
+      (doInstance as any).session = makeSession();
+      await expect((doInstance as any).claimContentLockAtCap()).resolves.toBe(true);
     });
 
     it('A4: a 409 diagram_already_linked body carries lock_expires_at', async () => {

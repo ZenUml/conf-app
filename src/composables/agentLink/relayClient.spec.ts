@@ -527,6 +527,55 @@ describe('createRelayClient', () => {
     expect(socket.sent).toHaveLength(0)
   })
 
+  it('emits a status state event for a relay-originated status envelope', async () => {
+    const bridge = makeBridge()
+    const events: RelayStateEvent[] = []
+    createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      WebSocketImpl: MockWebSocket as any,
+      onStateEvent: (e) => events.push(e),
+    })
+    const socket = MockWebSocket.instances[0]
+    socket.triggerOpen()
+
+    socket.triggerMessage(
+      JSON.stringify({
+        kind: 'status',
+        expiresAt: 1234,
+        hitCap: true,
+        activity: { type: 'guardrail_rejected', detail: 'parse_error' },
+      })
+    )
+    await flush()
+
+    expect(events).toContainEqual({
+      type: 'status',
+      expiresAt: 1234,
+      hitCap: true,
+      activity: { type: 'guardrail_rejected', detail: 'parse_error' },
+    })
+  })
+
+  it('a status envelope never reaches the op dispatcher', async () => {
+    const bridge = makeBridge()
+    createRelayClient({
+      wsUrl: 'wss://backend.example/agent-link/channel?token=t&peer=macro',
+      bridge,
+      WebSocketImpl: MockWebSocket as any,
+    })
+    const socket = MockWebSocket.instances[0]
+    socket.triggerOpen()
+
+    socket.triggerMessage(JSON.stringify({ kind: 'status', expiresAt: 1 }))
+    await flush()
+
+    expect(bridge.readPage).not.toHaveBeenCalled()
+    expect(bridge.readDiagram).not.toHaveBeenCalled()
+    expect(bridge.writeDiagram).not.toHaveBeenCalled()
+    expect(socket.sent).toHaveLength(0)
+  })
+
   it('emits an "op" state event on every incoming op (the only signal that the agent has paired)', async () => {
     const bridge = makeBridge()
     const events: RelayStateEvent[] = []

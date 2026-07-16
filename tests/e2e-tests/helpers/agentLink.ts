@@ -168,6 +168,12 @@ export async function waitForRenderedMarker(page: Page, marker: string, timeoutM
   return false;
 }
 
+/** Call `get_status` (non-bump-worthy passive monitor) and return `expiresInSec`. */
+export async function getStatus(token: string, base = AGENT_LINK_STG_BASE): Promise<number> {
+  const s = await agentLinkMcp(token, 'get_status', {}, base);
+  return Number(s.result?.structuredContent?.expiresInSec ?? NaN);
+}
+
 /** Build a minimal one-line diagram carrying `marker`, per diagram type. */
 export function markerDsl(diagramType: string, marker: string): string {
   if (diagramType === 'mermaid') return `graph TD;\n  A[Start]-->B[${marker}]`;

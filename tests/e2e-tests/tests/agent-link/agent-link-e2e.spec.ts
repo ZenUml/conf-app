@@ -22,6 +22,7 @@ import {
   agentLinkMcp,
   clickConnectToAgent,
   enableAgentLinkOverrides,
+  getStatus,
   isAgentLinkEndpointLive,
   markerDsl,
   openMacroPage,
@@ -86,5 +87,37 @@ test.describe('Live Agent Link — end to end', () => {
         await agentLinkMcp(token, 'update_diagram', { dsl: originalDsl, summary: 'agent-link e2e restore' }).catch(() => {});
       }
     }
+  });
+
+  test('TTL slides on agent activity (PR1 sliding window)', async ({ page }: { page: Page }) => {
+    test.skip(
+      !(await isAgentLinkEndpointLive()),
+      `agent-link not routed on ${AGENT_LINK_STG_BASE} (unreleased build or shared-alias clobber)`,
+    );
+
+    // ---- macro side: Connect -> mint -> waiting ----
+    await enableAgentLinkOverrides(page);
+    await openMacroPage(page, TEST_PAGE_URL);
+
+    expect(await clickConnectToAgent(page), 'macro renders a "Connect to Agent" affordance').toBe(true);
+    await page.waitForTimeout(9000);
+
+    const token = await readSessionToken(page);
+    expect(token, 'Connect mints a session token').toBeTruthy();
+
+    // get_status is NOT bump-worthy, so this probe itself can't mask a broken slide.
+    const e1 = await getStatus(token!);
+    expect(e1, 'get_status returns a numeric expiresInSec').not.toBeNaN();
+
+    await page.waitForTimeout(20_000); // burn 20s of the idle window
+
+    const rd = await agentLinkMcp(token!, 'read_diagram'); // bump-worthy
+    expect(rd.status, 'read_diagram HTTP').toBe(200);
+
+    const e2 = await getStatus(token!);
+
+    // Without sliding, e2 ≈ e1 - 20. With sliding, the read_diagram bump reset
+    // the window: e2 ≈ 600 again. Allow generous network slop.
+    expect(e2, 'idle window slid forward on agent activity').toBeGreaterThan(e1 - 10);
   });
 });

@@ -53,6 +53,12 @@ function makeState(store: Map<string, unknown> = new Map()) {
         store.delete(key);
       }),
     },
+    // Serializes a critical section against concurrent event delivery. The
+    // real runtime blocks ALL other events until the callback settles; here we
+    // only need it to run the callback and expose whether we are currently
+    // inside a gate (bootstrapSession's tests assert the cross-DO lock claim
+    // happens WHILE gated — the whole point of the A3 blocker fix).
+    blockConcurrencyWhile: vi.fn(async (cb: () => Promise<unknown>) => cb()),
     getTags: vi.fn((_ws: unknown) => [] as string[]),
     // Returns the hibernatable sockets for a peer tag; default none. Tests
     // that exercise a wake override this to hand back the surviving socket.
@@ -1140,5 +1146,88 @@ describe('review amendments (accepted design review)', () => {
     const body = await res.json();
     expect(body.error).toBe('diagram_already_linked');
     expect(body.lock_expires_at).toBe(existingExpiry);
+  });
+});
+
+describe('bootstrapSession — A3 blocker: bootstrap runs under a concurrency gate', () => {
+  // Wires makeState().blockConcurrencyWhile to track gate depth, and a content
+  // DO whose /content-claim records whether the gate was held when its (NON-
+  // storage) fetch() fired — the exact await that, ungated, opened the input
+  // gate and let a duplicate connect orphan a socket.
+  function gateProbeEnv(state: DurableObjectState, claimStatus: number) {
+    const probe = { claimFetches: 0, gatedAtClaim: null as boolean | null };
+    let gateDepth = 0;
+    (state.blockConcurrencyWhile as ReturnType<typeof vi.fn>).mockImplementation(
+      async (cb: () => Promise<unknown>) => {
+        gateDepth++;
+        try {
+          return await cb();
+        } finally {
+          gateDepth--;
+        }
+      },
+    );
+    const env = {
+      AGENT_LINK: {
+        idFromName: (name: string) => ({ name }),
+        get: () => ({
+          fetch: async () => {
+            probe.claimFetches++;
+            probe.gatedAtClaim = gateDepth > 0;
+            return new Response(
+              JSON.stringify(claimStatus === 409 ? { error: 'diagram_already_linked' } : { ok: true }),
+              { status: claimStatus },
+            );
+          },
+        }),
+      },
+    };
+    return { env, probe };
+  }
+
+  it('runs the cross-DO content-lock claim (non-storage I/O) INSIDE blockConcurrencyWhile', async () => {
+    const state = makeState();
+    const { env, probe } = gateProbeEnv(state, 200);
+    const doInstance = new AgentLinkSession(state, env as any);
+
+    const proceed = await (doInstance as any).bootstrapSession('CL-TEST-TOKN', CTX);
+
+    expect(proceed).toBe(true);
+    expect(state.blockConcurrencyWhile).toHaveBeenCalledTimes(1);
+    // The crux of the fix: the claim's fetch() fires while the gate is held, so
+    // no duplicate same-token connect can interleave across that non-storage
+    // await and pair a socket the rollback below would orphan.
+    expect(probe.claimFetches).toBe(1);
+    expect(probe.gatedAtClaim).toBe(true);
+    expect((doInstance as any).session.token).toBe('CL-TEST-TOKN');
+  });
+
+  it('a 409 conflict rolls the whole record back (session null, storage + alarm cleared), then signals reject', async () => {
+    const store = new Map<string, unknown>();
+    const state = makeState(store);
+    const { env } = gateProbeEnv(state, 409);
+    const doInstance = new AgentLinkSession(state, env as any);
+
+    const proceed = await (doInstance as any).bootstrapSession('CL-TEST-TOKN', CTX);
+
+    expect(proceed).toBe(false);
+    expect((doInstance as any).session).toBeNull();
+    // put(...) then delete(...) inside the gate — no orphan record left behind.
+    expect(store.has('session')).toBe(false);
+    expect(state.storage.deleteAlarm).toHaveBeenCalled();
+  });
+
+  it('a sibling connect that already bootstrapped this token proceeds without re-claiming the lock', async () => {
+    const state = makeState();
+    const { env, probe } = gateProbeEnv(state, 200);
+    const doInstance = new AgentLinkSession(state, env as any);
+    // The other request won the gate first and bootstrapped; a DO instance is
+    // token-keyed so an existing record is necessarily the same session.
+    (doInstance as any).session = makeSession();
+
+    const proceed = await (doInstance as any).bootstrapSession('CL-TEST-TOKN', CTX);
+
+    expect(proceed).toBe(true);
+    expect(probe.claimFetches).toBe(0); // no second claim — record already exists
   });
 });

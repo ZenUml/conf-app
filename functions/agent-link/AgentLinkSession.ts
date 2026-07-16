@@ -487,38 +487,11 @@ export class AgentLinkSession {
         );
       }
       const boundContext: BoundContext = { cloudId, pageId, contentId };
-      const nowMs = Date.now();
-      this.session = {
-        token,
-        boundContext,
-        scope: 'read-page+write-diagram',
-        issuedAtMs: nowMs,
-        lastActivityMs: nowMs,
-        state: 'created',
-      };
-      // Persist so the session survives a DO hibernation wake — reloaded by
-      // ensureSession() on the next request (ISSUE 3 fix).
-      await this.state.storage.put('session', this.session);
-      // TTL fallback in case the macro connects but the agent never does —
-      // §7: "created -> expired (token TTL, agent never joined)". Armed at the
-      // effective deadline (idle window from bootstrap; capped) — bumps re-arm it.
-      await this.state.storage.setAlarm(
-        effectiveExpiryMs(this.session.issuedAtMs, this.session.lastActivityMs),
-      );
-      // A3 (spec review): a real macro connection upgrades the per-contentId
-      // content lock from the mint's 10-min claim to the 60-min absolute cap.
-      // If a DIFFERENT session already holds this diagram's lock (the mint's
-      // 10-min claim lapsed and another mint grabbed it in the >10-min gap
-      // before this macro connected), refuse rather than bootstrap a SECOND
-      // live session for the same contentId — the one-session-per-contentId
-      // exclusivity invariant (design §7 decision #2) is re-asserted here at
-      // the authenticated connect moment, not only at the unauthenticated
-      // mint. Roll back the record we just created and reject the socket.
-      const lockHeld = await this.claimContentLockAtCap();
-      if (!lockHeld) {
-        this.session = null;
-        await this.state.storage.delete('session');
-        await this.state.storage.deleteAlarm();
+      // Bootstrap the session under a concurrency gate (see bootstrapSession).
+      // A false return means a DIFFERENT session already owns this contentId —
+      // refuse the upgrade rather than pair a second live socket.
+      const proceed = await this.bootstrapSession(token, boundContext);
+      if (!proceed) {
         return this.rejectUpgrade('diagram_already_linked');
       }
     } else if (this.session.token !== token) {
@@ -562,6 +535,81 @@ export class AgentLinkSession {
     await this.state.storage.put('session', this.session);
 
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /**
+   * Establish a brand-new session record for this (token-keyed) DO instance,
+   * run entirely inside `blockConcurrencyWhile` so the whole
+   * create -> persist -> arm-alarm -> claim-content-lock sequence is one
+   * indivisible critical section.
+   *
+   * Why the gate (A3 review, blocker): the last step —
+   * `claimContentLockAtCap()` — is a cross-DO `fetch()`, i.e. NON-storage I/O.
+   * Cloudflare's input gate only stays closed across STORAGE ops; awaiting a
+   * `fetch()` OPENS it, letting a concurrent duplicate connect for the same
+   * token (a client retry — plausible once this hop lengthens bootstrap
+   * latency) interleave. Without the gate that duplicate would find
+   * `this.session` already set but `macroSocket` still null, pair a real socket,
+   * and return 101 — while THIS request, on a 409, rolls the record back to
+   * `null`. Result: a live, unreachable, never-reaped macro socket
+   * (`webSocketMessage`/`alarm` both early-return on `!this.session`, and the
+   * alarm was just deleted) with the content lock owned by a different token —
+   * exactly the orphan the A3 amendment exists to prevent. `blockConcurrencyWhile`
+   * defers all other event delivery until this completes, and everything from
+   * here to `macroSocket` being set in `fetch()` is synchronous, so no
+   * duplicate can slip into that window either.
+   *
+   * The macro connection also UPGRADES the per-contentId content lock from the
+   * mint's short claim to the absolute cap (design §7 decision #2 / spec §4.3):
+   * a real, authenticated connect is the trusted moment to extend it. See
+   * claimContentLockAtCap for the true/false semantics.
+   *
+   * Returns whether the caller may proceed to pair a socket:
+   *   - true  — the record is live and this session holds the lock.
+   *   - false — a DIFFERENT session already owns this contentId (409); the
+   *             record we created has been rolled back and the caller must
+   *             reject the upgrade.
+   */
+  private async bootstrapSession(token: string, boundContext: BoundContext): Promise<boolean> {
+    return this.state.blockConcurrencyWhile(async () => {
+      // A concurrent connect for this token may have won the gate first and
+      // already bootstrapped. A DO instance is keyed by token (idFromName), so
+      // an existing record here is necessarily the same session — proceed and
+      // let fetch()'s macroSocket check reject the duplicate as already_paired.
+      if (this.session) return true;
+
+      const nowMs = Date.now();
+      this.session = {
+        token,
+        boundContext,
+        scope: 'read-page+write-diagram',
+        issuedAtMs: nowMs,
+        lastActivityMs: nowMs,
+        state: 'created',
+      };
+      // Persist so the session survives a DO hibernation wake — reloaded by
+      // ensureSession() on the next request (ISSUE 3 fix).
+      await this.state.storage.put('session', this.session);
+      // TTL fallback in case the macro connects but the agent never does —
+      // §7: "created -> expired (token TTL, agent never joined)". Armed at the
+      // effective deadline (idle window from bootstrap; capped) — bumps re-arm it.
+      await this.state.storage.setAlarm(
+        effectiveExpiryMs(this.session.issuedAtMs, this.session.lastActivityMs),
+      );
+      // Upgrade the per-contentId content lock from the mint's short claim to
+      // the 60-min absolute cap. If a DIFFERENT session already holds this
+      // diagram's lock (the mint's claim lapsed and another mint grabbed it in
+      // the gap before this macro connected), roll back the record we just
+      // created and signal the caller to reject the socket.
+      const lockHeld = await this.claimContentLockAtCap();
+      if (!lockHeld) {
+        this.session = null;
+        await this.state.storage.delete('session');
+        await this.state.storage.deleteAlarm();
+        return false;
+      }
+      return true;
+    });
   }
 
   /**

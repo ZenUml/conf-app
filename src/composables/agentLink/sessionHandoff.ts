@@ -132,6 +132,11 @@ export interface AgentLinkHandoffSession extends AgentLinkBoundContext {
   // Refreshed on every persistSession() call (persistSession itself performs
   // the bounding — see below), so it always reflects the owner's latest rows.
   feed?: AgentLinkHandoffFeedEntry[]
+  // Amendment D (honest already-linked countdown): epoch ms when the existing
+  // per-diagram lock releases, carried on an 'already_linked' record so the
+  // Fullscreen instance can mirror an honest countdown (useAgentLinkSession.ts's
+  // `alreadyLinkedUntil` ref) via hydrateFrom. Absent on every other record.
+  lockExpiresAt?: number
 }
 
 interface PersistedHandoff extends AgentLinkHandoffSession {
@@ -214,6 +219,9 @@ function toHandoffSession(parsed: PersistedHandoff): AgentLinkHandoffSession {
     // Optional; absent on a pre-bug-2 record. Re-bounded defensively in case
     // a record was ever written by a future/older build with a looser cap.
     feed: Array.isArray(parsed.feed) ? parsed.feed.slice(-HANDOFF_FEED_MAX_ENTRIES) : undefined,
+    // Amendment D: only present on an already_linked record that carried a lock
+    // release time.
+    lockExpiresAt: typeof parsed.lockExpiresAt === 'number' ? parsed.lockExpiresAt : undefined,
   }
 }
 

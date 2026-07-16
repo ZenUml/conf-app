@@ -36,6 +36,23 @@ describe('sessionHandoff', () => {
     expect(readSession('page-1')).toEqual(session)
   })
 
+  // Amendment D (honest already-linked countdown): an 'already_linked' record
+  // carries the existing lock's release time so the Fullscreen instance can
+  // mirror an honest countdown via hydrateFrom.
+  it('round-trips lockExpiresAt on an already_linked handoff record', () => {
+    const session = makeSession({ state: 'already_linked', lockExpiresAt: 1_800_000_500_000 })
+    persistSession(session)
+
+    expect(readSession('page-1')).toEqual(session)
+    expect(readSession('page-1')?.lockExpiresAt).toBe(1_800_000_500_000)
+  })
+
+  it('omits lockExpiresAt when the persisted record never carried it', () => {
+    persistSession(makeSession({ state: 'connected' }))
+
+    expect(readSession('page-1')?.lockExpiresAt).toBeUndefined()
+  })
+
   it('readSession returns null when nothing was persisted for that pageId', () => {
     expect(readSession('page-never-persisted')).toBeNull()
   })

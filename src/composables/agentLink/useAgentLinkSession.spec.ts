@@ -12,7 +12,12 @@ vi.mock('@/model/globals/forgeGlobal', () => ({
 }))
 
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
-import { useAgentLinkSession, ERROR_FLASH_MS } from './useAgentLinkSession'
+import {
+  useAgentLinkSession,
+  ERROR_FLASH_MS,
+  EXTENDED_EVENT_THROTTLE_MS,
+  GUARDRAIL_REJECTED_FEED_SUMMARY,
+} from './useAgentLinkSession'
 import { SETUP_TIMEOUT_MS, RENDER_SAFETY_TIMEOUT_MS } from './agentLinkState'
 import type { AgentLinkBridgeOps } from './bridgeOps'
 import { readSession, persistSession } from './sessionHandoff'
@@ -1939,6 +1944,227 @@ describe('useAgentLinkSession', () => {
 
       session.disconnect('user')
       expect(session.thinkingState.value).toBe('idle')
+    })
+  })
+
+  // PR1 status bus (spec 2026-07-13 §4.4): the relay owner learns the fresh
+  // authoritative deadline (and any non-forwarded activity, e.g. a guardrail
+  // reject) passively via a {type:'status'} RelayStateEvent. The client MIRRORS
+  // the deadline (never computes it), throttles the extended analytics event,
+  // appends a guardrail feed row, and reports expiry_cause on final expiry.
+  describe('status bus handling (spec 2026-07-13 §4.4)', () => {
+    function makeFakeRelayClient() {
+      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
+    }
+
+    // startConnect + resolve mint(expiresInSec:600) so expiresAt is set and the
+    // TTL watchdog is armed, then reach 'connected' via a first op. Uses the
+    // default clock (Date.now under the outer vi.useFakeTimers()), like the
+    // #314 watchdog tests above.
+    async function mountWithRelay() {
+      const bridgeOps = makeBridgeOps()
+      let capturedOnStateEvent: ((e: any) => void) | undefined
+      const connect = vi.fn((_wsUrl, _bridge, onStateEvent) => {
+        capturedOnStateEvent = onStateEvent
+        return makeFakeRelayClient()
+      })
+      const requestSession = vi
+        .fn()
+        .mockResolvedValue({ token: 'real-token', expiresInSec: 600 })
+      const boundContext = { cloudId: 'c1', pageId: 'status-page', contentId: 'cc1' }
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0) // resolve mint -> expiresAt set, watchdog armed
+      capturedOnStateEvent!({ type: 'op', op: 'read_page' }) // -> connected
+      const t0 = Date.now()
+      vi.mocked(trackAnalyticsEvent).mockClear()
+      return {
+        session,
+        emit: (e: any) => capturedOnStateEvent!(e),
+        t0,
+        extendedCount: () =>
+          vi.mocked(trackAnalyticsEvent).mock.calls.filter(
+            ([name]) => name === 'agent_link_session_extended'
+          ).length,
+        expiredProps: () => {
+          const call = vi
+            .mocked(trackAnalyticsEvent)
+            .mock.calls.find(([name]) => name === 'agent_link_session_expired')
+          return call?.[1] as Record<string, unknown> | undefined
+        },
+      }
+    }
+
+    it('a status event re-arms expiresAt and slides the expiry watchdog forward', async () => {
+      const h = await mountWithRelay()
+
+      h.emit({ type: 'status', expiresAt: h.t0 + 700_000, hitCap: false })
+      expect(h.session.expiresAt.value).toBe(h.t0 + 700_000)
+
+      // Advance PAST the original 600s deadline: the slid deadline (700s) keeps
+      // the session live — proving the client mirrored+re-armed, not computed.
+      await vi.advanceTimersByTimeAsync(650_000)
+      expect(h.session.state.value).not.toBe('expired')
+    })
+
+    it('fires agent_link_session_extended at most once per throttle window', async () => {
+      const h = await mountWithRelay()
+
+      h.emit({ type: 'status', expiresAt: h.t0 + 700_000 })
+      h.emit({ type: 'status', expiresAt: h.t0 + 701_000 })
+      expect(h.extendedCount()).toBe(1)
+
+      await vi.advanceTimersByTimeAsync(EXTENDED_EVENT_THROTTLE_MS)
+      h.emit({ type: 'status', expiresAt: Date.now() + 700_000 })
+      expect(h.extendedCount()).toBe(2)
+    })
+
+    it('a guardrail_rejected activity appends the honest feed row', async () => {
+      const h = await mountWithRelay()
+
+      h.emit({
+        type: 'status',
+        expiresAt: h.t0 + 700_000,
+        activity: { type: 'guardrail_rejected', detail: 'parse_error' },
+      })
+
+      expect(h.session.activityFeed.value.at(-1)?.summary).toBe(
+        GUARDRAIL_REJECTED_FEED_SUMMARY
+      )
+    })
+
+    it('expiry after a capped status reports expiry_cause absolute_cap', async () => {
+      const h = await mountWithRelay()
+
+      h.emit({ type: 'status', expiresAt: h.t0 + 60_000, hitCap: true })
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      expect(h.session.state.value).toBe('expired')
+      expect(h.expiredProps()?.expiry_cause).toBe('absolute_cap')
+      expect(h.expiredProps()?.hit_cap).toBe(true)
+    })
+
+    it('expiry with no status ever received reports expiry_cause idle', async () => {
+      const h = await mountWithRelay()
+
+      // No status envelope — the original idle-window deadline lapses.
+      await vi.advanceTimersByTimeAsync(600_000)
+
+      expect(h.session.state.value).toBe('expired')
+      expect(h.expiredProps()?.expiry_cause).toBe('idle')
+      expect(h.expiredProps()?.hit_cap).toBe(false)
+    })
+  })
+
+  // Amendment D (honest already-linked countdown): a mint 409 whose body
+  // carries lock_expires_at surfaces the existing lock's release time on a new
+  // `alreadyLinkedUntil` ref, so the rail can show a real countdown instead of
+  // a blind "already linked". Absent lock_expires_at → the ref stays null.
+  describe('alreadyLinkedUntil — honest lock countdown from a mint 409', () => {
+    function makeFakeRelayClient() {
+      return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
+    }
+
+    it('sets alreadyLinkedUntil from a 409 error carrying lockExpiresAt and persists it', async () => {
+      const bridgeOps = makeBridgeOps()
+      const connect = vi.fn(() => makeFakeRelayClient())
+      const boundContext = { cloudId: 'c1', pageId: 'already-linked-lock', contentId: 'cc1' }
+      const lockUntil = Date.now() + 300_000
+      const requestSession = vi.fn().mockRejectedValue(
+        Object.assign(new Error('agent-link session mint failed: HTTP 409 diagram_already_linked'), {
+          status: 409,
+          error: 'diagram_already_linked',
+          lockExpiresAt: lockUntil,
+        })
+      )
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(session.state.value).toBe('already_linked')
+      expect(session.alreadyLinkedUntil.value).toBe(lockUntil)
+      expect(readSession(boundContext.pageId)).toMatchObject({
+        state: 'already_linked',
+        lockExpiresAt: lockUntil,
+      })
+    })
+
+    it('leaves alreadyLinkedUntil null when the 409 carries no lockExpiresAt', async () => {
+      const bridgeOps = makeBridgeOps()
+      const connect = vi.fn(() => makeFakeRelayClient())
+      const boundContext = { cloudId: 'c1', pageId: 'already-linked-nolock', contentId: 'cc1' }
+      const requestSession = vi.fn().mockRejectedValue(
+        Object.assign(new Error('agent-link session mint failed: HTTP 409 diagram_already_linked'), {
+          status: 409,
+          error: 'diagram_already_linked',
+        })
+      )
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(session.state.value).toBe('already_linked')
+      expect(session.alreadyLinkedUntil.value).toBeNull()
+      expect(readSession(boundContext.pageId)?.lockExpiresAt).toBeUndefined()
+    })
+
+    it('a fresh startConnect resets alreadyLinkedUntil back to null', async () => {
+      const bridgeOps = makeBridgeOps()
+      const connect = vi.fn(() => makeFakeRelayClient())
+      const boundContext = { cloudId: 'c1', pageId: 'already-linked-reset', contentId: 'cc1' }
+      const lockUntil = Date.now() + 300_000
+      const requestSession = vi
+        .fn()
+        .mockRejectedValueOnce(
+          Object.assign(new Error('HTTP 409 diagram_already_linked'), {
+            status: 409,
+            error: 'diagram_already_linked',
+            lockExpiresAt: lockUntil,
+          })
+        )
+        .mockResolvedValueOnce({ token: 'real-token', expiresInSec: 600 })
+
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(session.alreadyLinkedUntil.value).toBe(lockUntil)
+
+      // A retry (revoke & re-link / manual reconnect) must clear the stale lock.
+      session.state.value = 'idle'
+      session.startConnect()
+      expect(session.alreadyLinkedUntil.value).toBeNull()
+    })
+
+    it('hydrateFrom adopts lockExpiresAt from an already_linked handoff record', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+      const lockUntil = Date.now() + 120_000
+
+      session.hydrateFrom({
+        token: 'pending-x',
+        cloudId: 'c1',
+        pageId: 'page-1',
+        contentId: 'cc1',
+        state: 'already_linked',
+        lockExpiresAt: lockUntil,
+      })
+
+      expect(session.state.value).toBe('already_linked')
+      expect(session.alreadyLinkedUntil.value).toBe(lockUntil)
     })
   })
 })

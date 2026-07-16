@@ -30,6 +30,12 @@ export interface MintSessionResponse {
 export interface MintSessionError extends Error {
   status?: number
   error?: string
+  // Amendment D (honest already-linked countdown): populated from a 409
+  // conflict body's `lock_expires_at` (epoch ms the existing per-diagram lock
+  // releases) when present, so the client can show a real countdown instead of
+  // a blind "already linked" notice. Absent on non-409s and on 409s whose body
+  // carries no lock time.
+  lockExpiresAt?: number
 }
 
 // http(s):// -> ws(s):// — same host/path, just the upgrade-eligible scheme
@@ -76,9 +82,12 @@ export async function mintAgentLinkSession(
   })
   if (!response.ok) {
     let errorCode: string | undefined
+    let lockExpiresAt: number | undefined
     try {
       const body = await response.json()
       if (body && typeof body.error === 'string') errorCode = body.error
+      // Amendment D: a 409 conflict may report when its existing lock releases.
+      if (body && typeof body.lock_expires_at === 'number') lockExpiresAt = body.lock_expires_at
     } catch {
       // Non-JSON error bodies still carry status below.
     }
@@ -87,6 +96,7 @@ export async function mintAgentLinkSession(
     ) as MintSessionError
     error.status = response.status
     error.error = errorCode
+    if (lockExpiresAt !== undefined) error.lockExpiresAt = lockExpiresAt
     throw error
   }
   return response.json()

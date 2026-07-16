@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import ConnectPanel from './ConnectPanel.vue'
 import connectPanelSource from './ConnectPanel.vue?raw'
 import type { AgentLinkActivityEntry } from '@/composables/agentLink/useAgentLinkSession'
+import { GUARDRAIL_REJECTED_FEED_SUMMARY } from '@/composables/agentLink/useAgentLinkSession'
 
 function mountPanel(props: {
   state:
@@ -83,6 +84,25 @@ describe('ConnectPanel', () => {
     // Each discovery kind renders its own icon glyph, not the generic checkmark.
     const icons = entries.map((entry) => entry.find('.agent-link-panel__feed-ic').html())
     expect(new Set(icons).size).toBe(3)
+  })
+
+  it('connected: classifies the guardrail-rejected feed row as an error (err tone + error icon)', () => {
+    // The relay-side guardrail reject (useAgentLinkSession's
+    // GUARDRAIL_REJECTED_FEED_SUMMARY) must read as a failure in the feed, not
+    // fall through to the generic ok/checkmark tone. Fed verbatim from the
+    // exported constant so a future copy edit that drops the leading '⚠' (the
+    // classifier's sole error signal) fails this test instead of silently
+    // downgrading the row.
+    const activityFeed: AgentLinkActivityEntry[] = [
+      { summary: GUARDRAIL_REJECTED_FEED_SUMMARY, at: 1000 },
+    ]
+    const wrapper = mountPanel({ state: 'connected', token: 'tok-123', activityFeed })
+
+    const entry = wrapper.find('[data-testid="agent-link-activity-entry"]')
+    expect(entry.exists()).toBe(true)
+    expect(entry.find('.agent-link-panel__feed-ic--err').exists()).toBe(true)
+    // Not the generic success tone.
+    expect(entry.find('.agent-link-panel__feed-ic--ok').exists()).toBe(false)
   })
 
   it('connected: renders the connected panel class and green connected treatment', () => {

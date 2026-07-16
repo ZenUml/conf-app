@@ -66,11 +66,11 @@
 // binding (its `!env.AGENT_LINK` guard remains only as a defensive check for
 // wrangler-dev.toml, which has no companion Worker for local dev).
 
-import { applyEvent, parseEnvelope, reattachEvent, routeMessage } from './forwarding';
-import type { Peer } from './forwarding';
+import { applyEvent, parseEnvelope, reattachEvent, routeMessage, statusEnvelope } from './forwarding';
+import type { Peer, StatusActivity } from './forwarding';
 import { PendingOps } from './pendingOps';
 import type { PendingOpResult } from './pendingOps';
-import { isExpired, nextState, TOKEN_TTL_MS } from './sessionToken';
+import { effectiveExpiryMs, isAtCap, isExpired, MAX_SESSION_MS, nextState } from './sessionToken';
 import type { BoundContext, SessionRecord, SessionState } from './sessionToken';
 
 interface Env {
@@ -167,6 +167,12 @@ export class AgentLinkSession {
     const stored = await this.state.storage.get<SessionRecord>('session');
     if (!stored) return;
     this.session = stored;
+    // Migration: a record persisted by pre-PR1 code has no lastActivityMs —
+    // backfill with issuedAtMs (v1-equivalent deadline) so effectiveExpiryMs
+    // never sees undefined (NaN would 403 every live session at deploy time).
+    if (typeof (this.session as Partial<SessionRecord>).lastActivityMs !== 'number') {
+      this.session.lastActivityMs = this.session.issuedAtMs;
+    }
     this.lastDiagram =
       (await this.state.storage.get<{ diagramType?: string; dsl?: string }>('lastDiagram')) ?? null;
     this.macroSocket = this.state.getWebSockets('macro')[0] ?? null;
@@ -213,7 +219,12 @@ export class AgentLinkSession {
     await this.ensureContentLock();
     const now = Date.now();
     if (this.contentLock && this.contentLock.token !== token && this.contentLock.expiresAt > now) {
-      return jsonResponse({ error: 'diagram_already_linked' }, 409);
+      // A4 (spec review): surface the held claim's expiry so the mint endpoint
+      // can return an honest retry-after instead of a bare 409.
+      return jsonResponse(
+        { error: 'diagram_already_linked', lock_expires_at: this.contentLock.expiresAt },
+        409,
+      );
     }
 
     this.contentLock = { token, expiresAt };
@@ -266,6 +277,33 @@ export class AgentLinkSession {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: this.session.token }),
+      });
+    } catch {
+      // Best-effort — see doc comment above.
+    }
+  }
+
+  /**
+   * A3 (spec review): on the first real macro connection (session bootstrap),
+   * best-effort UPGRADE the per-contentId content lock to the absolute cap.
+   * The mint (session.ts) now claims only a 10-min lock so unauthenticated
+   * mint-griefing and never-connected orphans can't hold a 60-min lock; a
+   * genuine macro connection extends the claim to cover the whole POSSIBLE
+   * session lifetime (a sliding session can outlive any 10-min lock, with no
+   * refresh path). Mirrors releaseContentLock()'s addressing + swallow-all
+   * posture — a failed re-claim just leaves the 10-min lock to self-clear.
+   */
+  private async claimContentLockAtCap(): Promise<void> {
+    if (!this.env.AGENT_LINK || !this.session) return;
+    try {
+      const lockId = this.env.AGENT_LINK.idFromName(
+        `content:${this.session.boundContext.cloudId}:${this.session.boundContext.contentId}`,
+      );
+      const stub = this.env.AGENT_LINK.get(lockId);
+      await stub.fetch('https://agent-link-do/content-claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: this.session.token, expiresAt: Date.now() + MAX_SESSION_MS }),
       });
     } catch {
       // Best-effort — see doc comment above.
@@ -337,6 +375,43 @@ export class AgentLinkSession {
   }
 
   /**
+   * Records bump-worthy agent activity (spec 2026-07-13 §3/§4.2): slides the
+   * idle window, re-arms the expiry alarm at the new effective deadline, and
+   * pushes a status envelope so the macro passively learns the fresh deadline
+   * (and any non-forwarded activity). Push is best-effort — a missing/closing
+   * macro socket must never fail the agent's request.
+   *
+   * A2 (spec review): a 'suspended' session must NOT slide. Agent retry
+   * traffic against a gone macro must not extend a macro-less session — the
+   * resume window stays the remaining effective expiry at drop time.
+   */
+  private async bumpActivity(activity?: StatusActivity): Promise<void> {
+    if (!this.session) return;
+    if (this.session.state === 'suspended') return;
+    this.session.lastActivityMs = Date.now();
+    await this.state.storage.put('session', this.session);
+    const deadline = effectiveExpiryMs(this.session.issuedAtMs, this.session.lastActivityMs);
+    await this.state.storage.setAlarm(deadline);
+    this.pushStatus(activity);
+  }
+
+  /** Sends {kind:'status'} to the macro socket, if one is live. */
+  private pushStatus(activity?: StatusActivity): void {
+    if (!this.session || !this.macroSocket) return;
+    try {
+      this.macroSocket.send(
+        statusEnvelope(
+          effectiveExpiryMs(this.session.issuedAtMs, this.session.lastActivityMs),
+          isAtCap(this.session.issuedAtMs, this.session.lastActivityMs),
+          activity,
+        ),
+      );
+    } catch {
+      // Best-effort — the socket may be closing; the agent's request must not fail.
+    }
+  }
+
+  /**
    * `GET /agent-link/channel?token=...&peer=macro|agent` with
    * `Upgrade: websocket`. The first caller for a given token (normally the
    * macro, per design §4.3 step 2) bootstraps `this.session` from the query
@@ -350,10 +425,15 @@ export class AgentLinkSession {
     // Agent-side HTTP transport (mcp.ts) — neither of these is a WebSocket
     // upgrade, so they're handled before the Upgrade check below.
     if (url.pathname === '/session' && request.method === 'GET') {
-      return this.handleSessionInfo();
+      return this.handleSessionInfo(url.searchParams.get('bump') === '1');
     }
     if (url.pathname === '/agent-op' && request.method === 'POST') {
       return this.handleAgentOp(request);
+    }
+    // Non-forwarded-activity ingress (spec §4.2): guardrail rejects (mcp.ts)
+    // today; PR3 host hooks reuse it. Auth'd like /session, not a WS upgrade.
+    if (url.pathname === '/activity' && request.method === 'POST') {
+      return this.handleActivity(request);
     }
     // Per-contentId mint-exclusivity (design §7 decision #2) — called on a
     // SEPARATE DO instance of this same class, addressed by
@@ -392,19 +472,27 @@ export class AgentLinkSession {
         );
       }
       const boundContext: BoundContext = { cloudId, pageId, contentId };
+      const nowMs = Date.now();
       this.session = {
         token,
         boundContext,
         scope: 'read-page+write-diagram',
-        issuedAtMs: Date.now(),
+        issuedAtMs: nowMs,
+        lastActivityMs: nowMs,
         state: 'created',
       };
       // Persist so the session survives a DO hibernation wake — reloaded by
       // ensureSession() on the next request (ISSUE 3 fix).
       await this.state.storage.put('session', this.session);
-      // TTL fallback in case the macro connects but the agent never does —
-      // §7: "created -> expired (token TTL, agent never joined)".
-      await this.state.storage.setAlarm(this.session.issuedAtMs + 10 * 60 * 1000);
+      // Expiry alarm at the effective (sliding, capped) deadline — a fresh
+      // session's is issuedAt + idle window (spec §4.2). Re-armed on every
+      // bump; the alarm() re-arm branch covers a bump that raced past it.
+      await this.state.storage.setAlarm(
+        effectiveExpiryMs(this.session.issuedAtMs, this.session.lastActivityMs),
+      );
+      // A3 (spec review): a real macro connection upgrades the per-contentId
+      // content lock from the mint's 10-min claim to the 60-min absolute cap.
+      await this.claimContentLockAtCap();
     } else if (this.session.token !== token) {
       return new Response('Token does not match this session', { status: 403 });
     }
@@ -484,7 +572,7 @@ export class AgentLinkSession {
     if (this.session.state === 'closed' || this.session.state === 'expired') {
       return { ok: false, status: 403, code: 'expired' };
     }
-    if (isExpired(this.session.issuedAtMs, Date.now())) {
+    if (isExpired(this.session.issuedAtMs, this.session.lastActivityMs, Date.now())) {
       return { ok: false, status: 403, code: 'expired' };
     }
     return { ok: true };
@@ -498,10 +586,15 @@ export class AgentLinkSession {
    * instance the macro bootstrapped) to authenticate a token regardless of
    * which Worker isolate the HTTP request landed on.
    */
-  private async handleSessionInfo(): Promise<Response> {
+  private async handleSessionInfo(bump: boolean): Promise<Response> {
     await this.ensureSession();
     const auth = this.validateSession();
     if (!auth.ok) return jsonResponse({ error: auth.code }, auth.status);
+
+    // A bump-worthy MCP request rides this same auth round-trip (mcp.ts's
+    // ?bump=1): slide the idle window + push the fresh deadline BEFORE building
+    // the response so the returned expiresAtMs reflects the bump.
+    if (bump) await this.bumpActivity();
 
     const session = this.session as SessionRecord; // validateSession() guarantees non-null here
     return jsonResponse(
@@ -509,12 +602,39 @@ export class AgentLinkSession {
         state: session.state,
         boundContext: session.boundContext,
         issuedAtMs: session.issuedAtMs,
+        // Server-authoritative deadline the client mirrors — never computes.
+        expiresAtMs: effectiveExpiryMs(session.issuedAtMs, session.lastActivityMs),
         // Baseline for the relay-side update_diagram guardrail; omitted until
         // the agent has read the diagram at least once.
         lastDiagram: this.lastDiagram ?? undefined,
       },
       200,
     );
+  }
+
+  /**
+   * `POST /activity` — the non-forwarded-activity ingress (spec §4.2): today
+   * mcp.ts reports guardrail rejects here; PR3's host hooks will reuse it.
+   * Any report is real agent engagement → bump + status push (a no-op slide
+   * while suspended, per bumpActivity's A2 guard).
+   */
+  private async handleActivity(request: Request): Promise<Response> {
+    await this.ensureSession();
+    const auth = this.validateSession();
+    if (!auth.ok) return jsonResponse({ error: auth.code }, auth.status);
+    let body: { type?: unknown; detail?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid_body' }, 400);
+    }
+    const type = body?.type;
+    if (type !== 'guardrail_rejected' && type !== 'agent_request' && type !== 'turn') {
+      return jsonResponse({ error: 'invalid_body' }, 400);
+    }
+    const detail = typeof body?.detail === 'string' ? body.detail : undefined;
+    await this.bumpActivity({ type, ...(detail ? { detail } : {}) });
+    return jsonResponse({ ok: true }, 200);
   }
 
   /**
@@ -544,7 +664,7 @@ export class AgentLinkSession {
     const session = this.session as SessionRecord; // validateSession() guarantees non-null here
 
     if (session.state === 'suspended') {
-      const resume_deadline = session.issuedAtMs + TOKEN_TTL_MS;
+      const resume_deadline = effectiveExpiryMs(session.issuedAtMs, session.lastActivityMs);
       // get_status is the one op that must succeed while suspended — it's
       // the agent's only way to observe "waiting for the macro to
       // reconnect" (design §7 decision #4) instead of erroring on every poll.
@@ -574,7 +694,7 @@ export class AgentLinkSession {
             diagramType: this.lastDiagram?.diagramType,
             expiresInSec: Math.max(
               0,
-              Math.round((session.issuedAtMs + TOKEN_TTL_MS - Date.now()) / 1000),
+              Math.round((effectiveExpiryMs(session.issuedAtMs, session.lastActivityMs) - Date.now()) / 1000),
             ),
           },
         },
@@ -763,27 +883,38 @@ export class AgentLinkSession {
    * question 1).
    */
   async alarm(): Promise<void> {
+    // A1 (spec review): a hibernation-woken DO loses `this.session` — without
+    // this rehydrate, `if (!this.session) return` below silently no-ops the
+    // expiry teardown and the session never dies (leaks the content lock too).
+    await this.ensureSession();
     if (!this.session) return;
-    if (isExpired(this.session.issuedAtMs, Date.now())) {
-      this.session.state = nextState(this.session.state, 'expire');
-      try {
-        this.macroSocket?.close(1000, 'session expired');
-      } catch {
-        /* already closed */
-      }
-      try {
-        this.agentSocket?.close(1000, 'session expired');
-      } catch {
-        /* already closed */
-      }
-      await this.releaseContentLock();
-      this.macroSocket = null;
-      this.agentSocket = null;
-      this.lastDiagram = null;
-      // Drop the persisted record on TTL expiry so a wake can't resurrect it
-      // (validateSession's clock check would still reject it, but don't leak).
-      await this.state.storage.delete('session');
-      await this.state.storage.delete('lastDiagram');
+    if (!isExpired(this.session.issuedAtMs, this.session.lastActivityMs, Date.now())) {
+      // A bump slid the deadline past this (already-replaced) alarm — re-arm
+      // defensively at the current effective deadline instead of expiring.
+      await this.state.storage.setAlarm(
+        effectiveExpiryMs(this.session.issuedAtMs, this.session.lastActivityMs),
+      );
+      return;
     }
+    // Deadline reached — expire and tear down.
+    this.session.state = nextState(this.session.state, 'expire');
+    try {
+      this.macroSocket?.close(1000, 'session expired');
+    } catch {
+      /* already closed */
+    }
+    try {
+      this.agentSocket?.close(1000, 'session expired');
+    } catch {
+      /* already closed */
+    }
+    await this.releaseContentLock();
+    this.macroSocket = null;
+    this.agentSocket = null;
+    this.lastDiagram = null;
+    // Drop the persisted record on TTL expiry so a wake can't resurrect it
+    // (validateSession's clock check would still reject it, but don't leak).
+    await this.state.storage.delete('session');
+    await this.state.storage.delete('lastDiagram');
   }
 }

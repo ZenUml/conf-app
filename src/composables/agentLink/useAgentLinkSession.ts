@@ -168,6 +168,11 @@ export interface AgentLinkSessionApi {
   // the rail instead of a blind "already linked" notice. Set from a mint 409's
   // lockExpiresAt, mirrored across the iframe boundary via the handoff record.
   alreadyLinkedUntil: Ref<number | null>
+  // PR1 sliding TTL: true once the DO reports the 60-min absolute cap bounds
+  // the deadline — bumps no longer extend it, so the rail's "extends while
+  // your agent works" hint (SessionTtl.vue) is suppressed. Mirrored across the
+  // iframe via the handoff record so the Fullscreen instance gates it too.
+  atCap: Ref<boolean>
   activityFeed: Ref<AgentLinkActivityEntry[]>
   // Perceived-latency "AI is thinking" surface state (charter §6 Track F),
   // orthogonal to `state` (a paired session is `connected` the whole time an
@@ -249,6 +254,16 @@ export function useAgentLinkSession(
   // and reset on a fresh startConnect. Drives an honest "linked for another
   // N min" countdown instead of a blind "already linked" notice.
   const alreadyLinkedUntil = ref<number | null>(null)
+  // PR1 sliding TTL (spec §3/§4.4): whether the DO's last status envelope
+  // reported the 60-min absolute cap now bounds the deadline (vs. the sliding
+  // 10-min idle window). Reactive counterpart to the module-scope `lastHitCap`
+  // used only for analytics — this one drives UI: once capped, bumps no longer
+  // move the deadline, so the rail's "extends while your agent works" hint
+  // (SessionTtl.vue) must stop showing. Mirrored across the iframe on the
+  // handoff record so the display-only Fullscreen instance (which never
+  // receives the DO status envelope) gates the hint too. Reset on a fresh
+  // startConnect/attemptReattach.
+  const atCap = ref(false)
 
   const clearTimer =
     options.clock?.clearTimeout ??
@@ -269,10 +284,13 @@ export function useAgentLinkSession(
   // omitted while unknown, matching the existing dsl/thinking
   // present-only-when-known convention.
   function handoffFeedFields(): Pick<AgentLinkHandoffSession, 'feed'> &
-    Partial<Pick<AgentLinkHandoffSession, 'expiresAt'>> {
+    Partial<Pick<AgentLinkHandoffSession, 'expiresAt' | 'hitCap'>> {
     return {
       feed: activityFeed.value,
       ...(expiresAt.value != null ? { expiresAt: expiresAt.value } : {}),
+      // Only carried once actually capped — a fresh session hydrates atCap
+      // false by default, and the cap is monotonic within a session's life.
+      ...(atCap.value ? { hitCap: true } : {}),
     }
   }
 
@@ -343,7 +361,10 @@ export function useAgentLinkSession(
       // Relay-originated status bus (spec 2026-07-13 §4.4): the DO is the single
       // expiry authority — mirror its deadline, NEVER compute our own. hitCap
       // feeds expiry_cause on the terminal event later.
-      if (typeof event.hitCap === 'boolean') lastHitCap = event.hitCap
+      if (typeof event.hitCap === 'boolean') {
+        lastHitCap = event.hitCap
+        atCap.value = event.hitCap
+      }
       if (typeof event.expiresAt === 'number') {
         const prev = expiresAt.value
         expiresAt.value = event.expiresAt
@@ -938,6 +959,7 @@ export function useAgentLinkSession(
     // countdown and no carried-over cap/extended-throttle state.
     alreadyLinkedUntil.value = null
     lastHitCap = false
+    atCap.value = false
     lastExtendedFiredAt = 0
     resetThinking()
     teardownRelay()
@@ -1062,6 +1084,7 @@ export function useAgentLinkSession(
     // yet — start from a clean cap/extended-throttle state (a stale cap flag
     // would mislabel expiry_cause).
     lastHitCap = false
+    atCap.value = false
     lastExtendedFiredAt = 0
     resetThinking()
     teardownRelay()
@@ -1230,6 +1253,16 @@ export function useAgentLinkSession(
       alreadyLinkedUntil.value = session.lockExpiresAt
     }
 
+    // --- cap state (PR1 sliding-TTL cross-iframe mirror) ------------------
+    // The relay owner (inline) learns hitCap from the DO status envelope and
+    // republishes it here; this display-only instance never sees that
+    // envelope, so mirror it so its TTL meter hides the "extends" hint once
+    // the deadline is cap-bound. Monotonic within a session, so once true it
+    // stays true (an absent field on a later record doesn't un-cap).
+    if (typeof session.hitCap === 'boolean') {
+      atCap.value = session.hitCap
+    }
+
     // --- token TTL (Track H cross-iframe mirror, bug 2 fix) ---------------
     // Mirrors the owner's expiresAt onto this display-only instance so its
     // own TTL meter / chip countdown (ConnectPanel.vue / SessionTtl.vue) has
@@ -1337,6 +1370,7 @@ export function useAgentLinkSession(
     token,
     expiresAt,
     alreadyLinkedUntil,
+    atCap,
     thinkingState,
     activityFeed,
     startConnect,

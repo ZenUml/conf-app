@@ -29,6 +29,17 @@ describe('SessionTtl', () => {
     expect(wrapper.text()).toContain('extends while your agent works')
   })
 
+  it('hides the "extends" hint once the deadline is bound by the absolute cap (atCap)', () => {
+    // At the 60-min cap, bumps no longer move the meter — the hint would lie.
+    const wrapper = mount(SessionTtl, {
+      props: { expiresAt: Date.now() + (8 * 60 + 42) * 1000, atCap: true },
+    })
+    // The meter itself still renders...
+    expect(wrapper.find('[data-testid="agent-link-ttl"]').exists()).toBe(true)
+    // ...but without the now-false "extends" reassurance.
+    expect(wrapper.text()).not.toContain('extends while your agent works')
+  })
+
   it('does not apply the amber warning above the 120s threshold', () => {
     const wrapper = mount(SessionTtl, { props: { expiresAt: Date.now() + 130 * 1000 } })
     expect(wrapper.find('.agent-ttl--warn').exists()).toBe(false)

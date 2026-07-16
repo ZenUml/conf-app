@@ -182,6 +182,7 @@
             :diagram-title="title"
             :expires-at="agentLinkExpiresAt"
             :lock-expires-at="agentLinkLockExpiresAt"
+            :at-cap="agentLinkAtCap"
             @disconnect="onAgentLinkDisconnect"
             @revoke="onAgentLinkRevoke"
             @reconnect="onAgentLinkReconnect"
@@ -375,6 +376,12 @@ export default {
     // ConnectPanel's already_linked SessionNotice.
     agentLinkLockExpiresAt() {
       return this.agentLinkSession?.alreadyLinkedUntil.value ?? null;
+    },
+    // PR1 sliding TTL: the DO reported the 60-min absolute cap now bounds the
+    // deadline — forwarded to ConnectPanel/SessionTtl to drop the "extends"
+    // hint once bumps no longer move the meter.
+    agentLinkAtCap() {
+      return this.agentLinkSession?.atCap.value ?? false;
     },
     // Perceived-latency overlay gate (charter §6 Track F). Same flag/type
     // gating as the other affordances, but NOT restricted to Fullscreen: the

@@ -46,7 +46,7 @@
             <span><span class="agent-link-panel__bound-lbl">Linked to</span> <b>{{ diagramTitle || 'this diagram' }}</b></span>
           </div>
 
-          <SessionTtl :expires-at="expiresAt" />
+          <SessionTtl :expires-at="expiresAt" :at-cap="atCap" />
 
           <!-- Thinking banner (Track F): shown while an update_diagram op is in
                flight; the elapsed hint appears after a few seconds so a long
@@ -225,8 +225,12 @@ const props = withDefaults(
     // already-linked diagram releases — forwarded to the already_linked
     // SessionNotice for an honest countdown instead of a blind notice.
     lockExpiresAt?: number | null
+    // PR1 sliding TTL: the deadline is bound by the 60-min absolute cap —
+    // forwarded to SessionTtl so it drops the "extends while your agent works"
+    // hint once bumps no longer move the meter.
+    atCap?: boolean
   }>(),
-  { thinking: 'idle', diagramTitle: '', clientName: '', expiresAt: null, lockExpiresAt: null }
+  { thinking: 'idle', diagramTitle: '', clientName: '', expiresAt: null, lockExpiresAt: null, atCap: false }
 )
 
 const emit = defineEmits<{

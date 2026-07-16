@@ -19,8 +19,10 @@
       <div class="agent-ttl__fill" :style="{ width: fillPct + '%' }"></div>
     </div>
     <!-- The bar visibly refilling on each sliding-TTL bump (PR1 status bus)
-         reads as a bug without this cue — spell out that it's intended. -->
-    <div class="agent-ttl__hint">extends while your agent works</div>
+         reads as a bug without this cue — spell out that it's intended. Hidden
+         once the deadline is bound by the 60-min absolute cap (atCap): bumps no
+         longer extend it, so the bar stops refilling and the hint would lie. -->
+    <div v-if="!atCap" class="agent-ttl__hint">extends while your agent works</div>
   </div>
 </template>
 
@@ -37,8 +39,12 @@ const props = withDefaults(
     // Full token lifetime in seconds — drives the bar's proportional fill.
     // Default 600 s = the 10-minute session TTL the connect prompt advertises.
     totalSeconds?: number
+    // PR1 sliding TTL: once the deadline is bound by the 60-min absolute cap,
+    // bumps stop extending it — suppress the "extends while your agent works"
+    // hint so it doesn't contradict the (now static) bar. Default false.
+    atCap?: boolean
   }>(),
-  { totalSeconds: 600 }
+  { totalSeconds: 600, atCap: false }
 )
 
 const WARN_THRESHOLD_SECONDS = 120

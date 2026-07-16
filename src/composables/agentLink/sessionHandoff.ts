@@ -137,6 +137,14 @@ export interface AgentLinkHandoffSession extends AgentLinkBoundContext {
   // Fullscreen instance can mirror an honest countdown (useAgentLinkSession.ts's
   // `alreadyLinkedUntil` ref) via hydrateFrom. Absent on every other record.
   lockExpiresAt?: number
+  // PR1 sliding TTL (spec 2026-07-13 §3/§4.4): the DO's last status envelope
+  // reported the 60-min absolute cap now bounds the deadline (vs. the 10-min
+  // idle window). Mirrored across the iframe so the Fullscreen rail's TTL
+  // meter — a display-only hydrated instance that never receives the DO status
+  // envelope directly — can stop claiming the session still "extends while
+  // your agent works" once further bumps no longer move the deadline
+  // (SessionTtl.vue). Absent ⇒ not (yet) capped.
+  hitCap?: boolean
 }
 
 interface PersistedHandoff extends AgentLinkHandoffSession {

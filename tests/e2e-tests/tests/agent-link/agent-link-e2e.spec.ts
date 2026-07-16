@@ -21,6 +21,7 @@ import {
   AGENT_LINK_STG_BASE,
   agentLinkMcp,
   clickConnectToAgent,
+  disconnectAgentLink,
   enableAgentLinkOverrides,
   getStatus,
   isAgentLinkEndpointLive,
@@ -86,6 +87,10 @@ test.describe('Live Agent Link — end to end', () => {
       if (token && originalDsl) {
         await agentLinkMcp(token, 'update_diagram', { dsl: originalDsl, summary: 'agent-link e2e restore' }).catch(() => {});
       }
+      // Release the per-contentId lock for the next test/run — since PR1 a
+      // connected session's lock is held at the 60-min cap until explicit
+      // disconnect or the ~10-min idle alarm (see disconnectAgentLink).
+      await disconnectAgentLink(page).catch(() => {});
     }
   });
 

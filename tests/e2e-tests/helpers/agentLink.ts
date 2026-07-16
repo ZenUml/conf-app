@@ -168,6 +168,31 @@ export async function waitForRenderedMarker(page: Page, marker: string, timeoutM
   return false;
 }
 
+/**
+ * Explicitly disconnect the live session via the Fullscreen rail's Disconnect
+ * button (RailActions). Best-effort — returns whether a button was found.
+ *
+ * Why this matters for suite hygiene: an explicit disconnect makes the relay
+ * DO release the per-contentId content lock immediately. Since PR1 the lock is
+ * re-claimed at the 60-MIN cap once a macro connects, so a test that just
+ * closes the tab (ws_drop -> suspended) leaves the lock held until the idle
+ * alarm (~10 min) — and every later mint against the shared fixed test page
+ * 409s with diagram_already_linked. Call this in each test's finally block.
+ */
+export async function disconnectAgentLink(page: Page): Promise<boolean> {
+  for (const f of forgeFrames(page)) {
+    const btn = f.locator('[data-testid="agent-link-disconnect-btn"]').first();
+    if (await btn.count().catch(() => 0)) {
+      await btn.click({ timeout: 5000 }).catch(() => {});
+      // Give the {kind:'disconnect'} envelope time to reach the DO before the
+      // tab (and with it the WS) is torn down.
+      await page.waitForTimeout(1500);
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Call `get_status` (non-bump-worthy passive monitor) and return `expiresInSec`. */
 export async function getStatus(token: string, base = AGENT_LINK_STG_BASE): Promise<number> {
   const s = await agentLinkMcp(token, 'get_status', {}, base);

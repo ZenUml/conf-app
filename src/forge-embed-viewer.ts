@@ -7,14 +7,35 @@ import { getContext as initForgeContext, openModal } from './model/globals/forge
 import { Diagram, getDiagramData } from "@/model/Diagram/Diagram";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
+import { parseEmbedDeeplink } from '@/utils/embedDeeplink';
 
 async function loadDiagram(): Promise<Diagram | undefined> {
   const context = await initForgeContext();
 
+  // [spike] Q1: observe exactly where the autoconverted URL lands.
+  console.log('[spike] extension context', JSON.stringify(context.extension));
+
   let doc: Diagram | undefined;
-  const customContentId = context.extension?.config?.customContentId;
+  let customContentId = context.extension?.config?.customContentId;
   const pageId = context.extension?.content?.id;
-  if(!customContentId) {
+
+  // Autoconvert fallback: a pasted deeplink arrives with no saved config —
+  // derive the target from the matched URL instead.
+  if (!customContentId) {
+    const link = context.extension?.config?.autoConvertLink
+      ?? (context.extension as any)?.autoConvertLink; // Q1: docs are ambiguous on the path
+    const deeplink = link ? parseEmbedDeeplink(link) : undefined;
+    if (deeplink) {
+      if (context.cloudId && deeplink.cloudId !== String(context.cloudId).toLowerCase()) {
+        // Q4: foreign-site paste — fail soft, never fetch cross-tenant.
+        console.warn('[spike] deeplink cloudId mismatch', deeplink.cloudId, context.cloudId);
+      } else {
+        customContentId = deeplink.contentId;
+      }
+    }
+  }
+
+  if (!customContentId) {
   } else {
     const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
     console.log('loadDiagram - customContent', customContent);

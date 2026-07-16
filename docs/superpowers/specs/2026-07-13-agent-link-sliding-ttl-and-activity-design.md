@@ -57,6 +57,13 @@ effectiveExpiry(issuedAtMs, lastActivityMs)
 - Rationale: reconciles the request with design §8 / line 171 ("a leaked token
   only grants edit-this-one-diagram for a short window"). A stolen or abandoned
   token dies after ≤10 min idle or ≤60 min absolute.
+- **Amended 2026-07-16 (review-amendments PR):** a **suspended** session's own
+  retries do **not** bump. `bumpActivity` returns early while
+  `state === 'suspended'` before any slide/re-arm/status push — the macro is
+  gone (content deleted/moved), so an agent retrying against a macro-less
+  session must not extend a session that has nothing left to attach to. The
+  resume window shown to the user is the **remaining effective expiry at the
+  moment of the drop**, not a freshly-bumped one.
 - **"Authenticated work request"** (v2, was "delivered to the macro" in v1) =
   `tools/call` for any tool **except `get_status`**, plus `resources/read` (only
   ever the DSL guides — unambiguously diagram work). It deliberately **includes
@@ -136,9 +143,18 @@ hook turns    (/activity, WS-C)→     expiresAt, activity}     feed rows
 - `forwarding.ts`: add `status` to the Envelope union as a relay-originated,
   never-routed kind (macro-bound only).
 - **Deploy order:** the companion Worker (`workers/agent-link/`, hosts the DO)
-  deploys independently of Pages — ship the DO **first**, then Pages/mcp.ts
-  (`?bump=1` on an old DO is an ignored query param; a new DO with old Pages
-  simply never gets bumps — both degrade to v1 fixed-TTL behavior, no breakage).
+  deploys independently of Pages — ship the DO **first**, then Pages/mcp.ts.
+  For the sliding-TTL/status-bus surface this is soft (`?bump=1` on an old DO is
+  an ignored query param; a new DO with old Pages simply never gets bumps — both
+  degrade to v1 fixed-TTL behavior, no breakage). **But the mint-at-idle change
+  (§4.3, amended 2026-07-16) makes the ordering HARD:** new Pages minting the
+  10-min lock while the prod DO still lacks `claimContentLockAtCap` does NOT
+  degrade safely — the lock lapses at +10 min while a sliding session lives to
+  +60 min, and a second concurrent mint for that `contentId` succeeds in the gap
+  (two live sessions on one diagram, violating design §7 decision #2). The prod
+  Worker deploy (`pnpm --filter agent-link deploy:prod`, human-gated per
+  `.github/workflows/agent-link-worker-deploy.yml`) is therefore a **required
+  precondition** of any prod app release carrying mint-at-idle.
 
 ### 4.3 `functions/agent-link/session.ts` (content-lock — the load-bearing fix)
 
@@ -151,6 +167,45 @@ design §7 decision #2). Fix: **mint the lock at the absolute cap
 and never needs refreshing; `releaseContentLock()` still frees it early on
 close/expire. This is *why* the cap had to be finite — a no-cap policy could not
 have a self-healing lock.
+
+**Amended 2026-07-16 (review-amendments PR):** mint-at-cap was rejected during
+review. `session.ts`'s mint endpoint is **unauthenticated** (it runs before a
+session exists) — claiming a 60-min lock there would let anyone grief a diagram
+with a full-hour exclusivity lock just by hitting mint repeatedly, with no
+session ever formed to justify it. Landed instead: **mint claims only the
+10-min `IDLE_TTL_MS` lock**, and the DO **re-claims the lock up to the 60-min
+cap on the first authenticated bootstrap** (`AgentLinkSession.ts`'s
+`claimContentLockAtCap` — the DO owns the upgrade because by then a real
+session exists to justify the longer hold). The re-claim is **best-effort**: a
+failed re-claim just leaves the shorter 10-min lock in place to self-clear,
+never blocking the agent's request; a **409 from a different owner** (the
+10-min lock lapsed and another mint grabbed it in the gap) rolls the bootstrap
+back and rejects the upgrade. Never-connected orphans (mint but no bootstrap)
+now self-clear in ≤10 min instead of tying up a diagram for a full hour.
+
+> **Deploy-order dependency (do not miss on release).** This split moves the
+> lock's full-lifetime coverage out of the auto-deployed Pages Function
+> (`session.ts`, ships with the normal app release) and into the DO
+> (`claimContentLockAtCap`), which lives in the separately, human-gated
+> `conf-agent-link` **Worker**. A prod app release that carries the 10-min mint
+> while the prod Worker still runs a pre-amendment DO reopens exactly the
+> two-sessions-on-one-`contentId` hole this section closes — the 10-min lock
+> lapses mid-session and a second mint wins the gap. **Mitigation:** deploy the
+> agent-link Worker to prod (`pnpm --filter agent-link deploy:prod`) BEFORE or
+> WITH promoting Pages. This is codified in §4.2's Deploy-order note and in the
+> mint claim's inline comment (`session.ts`); it is NOT enforced by CI (the
+> Worker prod deploy is intentionally human-gated), so it is a release-runbook
+> step, not an automated guarantee.
+
+**Amended 2026-07-16 (review-amendments PR):** the DO's `diagram_already_linked`
+409 body now carries `lock_expires_at` (the real epoch-ms the existing lock
+releases), forwarded verbatim by `session.ts`'s mint endpoint and surfaced by
+the client as `lockExpiresAt` (→ `alreadyLinkedUntil`). This feeds an
+**honest** "another agent session holds this diagram — it expires in ~N min"
+notice instead of a fabricated "started 4 min ago" line — a direct consequence
+of the mint-at-cap → mint-at-idle/re-claim-at-cap change above: since the
+lock's true expiry now depends on whether the DO ever re-claimed it, the client
+can no longer guess a fixed retry window and must be told.
 
 ### 4.4 Client (`relayClient.ts` + `useAgentLinkSession.ts`)
 
@@ -187,6 +242,19 @@ have a self-healing lock.
 - **Guardrail rejects get a feed row** (via the §4.2 `status` push) — the
   previously-invisible retry loop becomes the panel's most informative moment
   instead of its most confusing silence.
+  **Amended 2026-07-16 (review-amendments PR):** the feed copy reads
+  `'⚠ Agent submitted an invalid edit — rejected'`, **not** "— retrying". The
+  status push reports one rejection at a time and the relay cannot promise the
+  agent will actually retry, so the row states only what demonstrably
+  happened. The `ConnectPanel` feed classifier keys on the leading `⚠` to pin
+  the row to the error tone/icon; a copy edit dropping it now fails a test.
+  Companion copy changes landed in the same PR: `SessionTtl` says "Session
+  expires in" (was "Token expires in") with a muted "extends while your agent
+  works" hint suppressed once `atCap`; `ConnectPanel`'s setup block dropped the
+  dead "Add to Cursor" button and "no-install bridge" link, its prompt's third
+  line reads `# reads this page · edits this diagram · 10 min idle / 60 min
+  max`, and the copy button surfaces a "Copy failed — select the text above"
+  state.
 - **Honest ceiling.** Pure reasoning gaps (no MCP request in flight) *cannot* be
   signaled over MCP's request/response transport without the agent host
   cooperating. This workstream does **not** fabricate a heartbeat or instruct

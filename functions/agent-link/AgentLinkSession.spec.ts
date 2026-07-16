@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AgentLinkSession, AGENT_OP_TIMEOUT_MS } from './AgentLinkSession';
-import { IDLE_TTL_MS, effectiveExpiryMs } from './sessionToken';
+import { IDLE_TTL_MS, MAX_SESSION_MS, effectiveExpiryMs } from './sessionToken';
 import type { BoundContext, SessionRecord, SessionState } from './sessionToken';
 
 // AgentLinkSession is a Durable Object: its WebSocket-upgrade path
@@ -53,6 +53,12 @@ function makeState(store: Map<string, unknown> = new Map()) {
         store.delete(key);
       }),
     },
+    // Serializes a critical section against concurrent event delivery. The
+    // real runtime blocks ALL other events until the callback settles; here we
+    // only need it to run the callback and expose whether we are currently
+    // inside a gate (bootstrapSession's tests assert the cross-DO lock claim
+    // happens WHILE gated — the whole point of the A3 blocker fix).
+    blockConcurrencyWhile: vi.fn(async (cb: () => Promise<unknown>) => cb()),
     getTags: vi.fn((_ws: unknown) => [] as string[]),
     // Returns the hibernatable sockets for a peer tag; default none. Tests
     // that exercise a wake override this to hand back the surviving socket.
@@ -992,5 +998,236 @@ describe('sliding TTL + status bus (spec 2026-07-13 §4.2)', () => {
 
     expect(state.storage.setAlarm).not.toHaveBeenCalled();
     expect(((doInstance as any).session as SessionRecord).state).toBe('closed');
+  });
+});
+
+// --- review amendments A2–A4 (accepted design review 2026-07-16) -----------
+describe('review amendments (accepted design review)', () => {
+  function contentClaimRequest(body: unknown): Request {
+    return new Request('https://agent-link-do/content-claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('A2: bumpActivity on a suspended session does NOT slide, re-arm, or push', async () => {
+    const state = makeState();
+    const doInstance = new AgentLinkSession(state, {} as any);
+    const orig = Date.now() - 5 * 60_000;
+    (doInstance as any).session = makeSession({ state: 'suspended', issuedAtMs: orig, lastActivityMs: orig });
+    const macroSend = vi.fn();
+    (doInstance as any).macroSocket = { send: macroSend };
+
+    await (doInstance as any).bumpActivity();
+
+    expect((doInstance as any).session.lastActivityMs).toBe(orig); // unchanged
+    expect((state.storage.setAlarm as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect(macroSend).not.toHaveBeenCalled();
+  });
+
+  it('A2: POST /activity against a suspended session is a no-op bump (no push, no slide)', async () => {
+    const state = makeState();
+    const doInstance = new AgentLinkSession(state, {} as any);
+    const orig = Date.now() - 5 * 60_000;
+    (doInstance as any).session = makeSession({ state: 'suspended', issuedAtMs: orig, lastActivityMs: orig });
+    const macroSend = vi.fn();
+    (doInstance as any).macroSocket = { send: macroSend };
+
+    const res = await doInstance.fetch(
+      new Request('https://do/activity', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'guardrail_rejected', detail: 'parse_error' }),
+      }),
+    );
+
+    expect(res.status).toBe(200); // ingress still accepts the report
+    expect((doInstance as any).session.lastActivityMs).toBe(orig);
+    expect(macroSend).not.toHaveBeenCalled();
+  });
+
+  it('A3: claimContentLockAtCap POSTs /content-claim at the absolute cap', async () => {
+    const claims: Array<{ token: string; expiresAt: number }> = [];
+    let claimedName = '';
+    const env = {
+      AGENT_LINK: {
+        idFromName: (name: string) => {
+          claimedName = name;
+          return { name };
+        },
+        get: () => ({
+          fetch: async (url: string, init?: RequestInit) => {
+            expect(url).toContain('/content-claim');
+            claims.push(JSON.parse(String(init?.body)));
+            return new Response(JSON.stringify({ ok: true }), { status: 200 });
+          },
+        }),
+      },
+    };
+    const doInstance = new AgentLinkSession(makeState(), env as any);
+    (doInstance as any).session = makeSession();
+    const before = Date.now();
+
+    await (doInstance as any).claimContentLockAtCap();
+
+    // Addressed by the content-keyed instance, mirroring releaseContentLock().
+    expect(claimedName).toBe('content:cloud-1:content-1');
+    expect(claims[0].token).toBe('CL-TEST-TOKN');
+    expect(claims[0].expiresAt).toBeGreaterThanOrEqual(before + MAX_SESSION_MS);
+  });
+
+  it('A3: claimContentLockAtCap is a no-op (returns true) without an AGENT_LINK binding', async () => {
+    const doInstance = new AgentLinkSession(makeState(), {} as any);
+    (doInstance as any).session = makeSession();
+    await expect((doInstance as any).claimContentLockAtCap()).resolves.toBe(true);
+  });
+
+  it('A3: claimContentLockAtCap returns true when the content DO accepts the claim (200)', async () => {
+    const env = {
+      AGENT_LINK: {
+        idFromName: (name: string) => ({ name }),
+        get: () => ({
+          fetch: async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+        }),
+      },
+    };
+    const doInstance = new AgentLinkSession(makeState(), env as any);
+    (doInstance as any).session = makeSession();
+    await expect((doInstance as any).claimContentLockAtCap()).resolves.toBe(true);
+  });
+
+  it('A3: claimContentLockAtCap returns FALSE when a different session already owns the lock (409)', async () => {
+    // The exclusivity guard: the mint's 10-min lock lapsed and another mint
+    // grabbed this contentId in the gap. A 409 from the content DO must make
+    // the connecting session refuse to bootstrap, not silently proceed as a
+    // second live session for the same diagram.
+    const env = {
+      AGENT_LINK: {
+        idFromName: (name: string) => ({ name }),
+        get: () => ({
+          fetch: async () =>
+            new Response(JSON.stringify({ error: 'diagram_already_linked' }), { status: 409 }),
+        }),
+      },
+    };
+    const doInstance = new AgentLinkSession(makeState(), env as any);
+    (doInstance as any).session = makeSession();
+    await expect((doInstance as any).claimContentLockAtCap()).resolves.toBe(false);
+  });
+
+  it('A3: claimContentLockAtCap returns true on a transient round-trip failure (best-effort, not a refusal)', async () => {
+    // A network blip must not conflate with a genuine ownership conflict —
+    // refusing a legitimate connection is worse than the harmless duplicate
+    // the 10-min lock self-clears anyway.
+    const env = {
+      AGENT_LINK: {
+        idFromName: (name: string) => ({ name }),
+        get: () => ({
+          fetch: async () => {
+            throw new Error('network down');
+          },
+        }),
+      },
+    };
+    const doInstance = new AgentLinkSession(makeState(), env as any);
+    (doInstance as any).session = makeSession();
+    await expect((doInstance as any).claimContentLockAtCap()).resolves.toBe(true);
+  });
+
+  it('A4: a 409 diagram_already_linked body carries lock_expires_at', async () => {
+    const store = new Map<string, unknown>();
+    const lock = new AgentLinkSession(makeState(store), {} as any);
+    const existingExpiry = Date.now() + 60_000;
+    await lock.fetch(contentClaimRequest({ token: 'CL-AAAA-1111', expiresAt: existingExpiry }));
+
+    const res = await lock.fetch(contentClaimRequest({ token: 'CL-BBBB-2222', expiresAt: Date.now() + 60_000 }));
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe('diagram_already_linked');
+    expect(body.lock_expires_at).toBe(existingExpiry);
+  });
+});
+
+describe('bootstrapSession — A3 blocker: bootstrap runs under a concurrency gate', () => {
+  // Wires makeState().blockConcurrencyWhile to track gate depth, and a content
+  // DO whose /content-claim records whether the gate was held when its (NON-
+  // storage) fetch() fired — the exact await that, ungated, opened the input
+  // gate and let a duplicate connect orphan a socket.
+  function gateProbeEnv(state: DurableObjectState, claimStatus: number) {
+    const probe = { claimFetches: 0, gatedAtClaim: null as boolean | null };
+    let gateDepth = 0;
+    (state.blockConcurrencyWhile as ReturnType<typeof vi.fn>).mockImplementation(
+      async (cb: () => Promise<unknown>) => {
+        gateDepth++;
+        try {
+          return await cb();
+        } finally {
+          gateDepth--;
+        }
+      },
+    );
+    const env = {
+      AGENT_LINK: {
+        idFromName: (name: string) => ({ name }),
+        get: () => ({
+          fetch: async () => {
+            probe.claimFetches++;
+            probe.gatedAtClaim = gateDepth > 0;
+            return new Response(
+              JSON.stringify(claimStatus === 409 ? { error: 'diagram_already_linked' } : { ok: true }),
+              { status: claimStatus },
+            );
+          },
+        }),
+      },
+    };
+    return { env, probe };
+  }
+
+  it('runs the cross-DO content-lock claim (non-storage I/O) INSIDE blockConcurrencyWhile', async () => {
+    const state = makeState();
+    const { env, probe } = gateProbeEnv(state, 200);
+    const doInstance = new AgentLinkSession(state, env as any);
+
+    const proceed = await (doInstance as any).bootstrapSession('CL-TEST-TOKN', CTX);
+
+    expect(proceed).toBe(true);
+    expect(state.blockConcurrencyWhile).toHaveBeenCalledTimes(1);
+    // The crux of the fix: the claim's fetch() fires while the gate is held, so
+    // no duplicate same-token connect can interleave across that non-storage
+    // await and pair a socket the rollback below would orphan.
+    expect(probe.claimFetches).toBe(1);
+    expect(probe.gatedAtClaim).toBe(true);
+    expect((doInstance as any).session.token).toBe('CL-TEST-TOKN');
+  });
+
+  it('a 409 conflict rolls the whole record back (session null, storage + alarm cleared), then signals reject', async () => {
+    const store = new Map<string, unknown>();
+    const state = makeState(store);
+    const { env } = gateProbeEnv(state, 409);
+    const doInstance = new AgentLinkSession(state, env as any);
+
+    const proceed = await (doInstance as any).bootstrapSession('CL-TEST-TOKN', CTX);
+
+    expect(proceed).toBe(false);
+    expect((doInstance as any).session).toBeNull();
+    // put(...) then delete(...) inside the gate — no orphan record left behind.
+    expect(store.has('session')).toBe(false);
+    expect(state.storage.deleteAlarm).toHaveBeenCalled();
+  });
+
+  it('a sibling connect that already bootstrapped this token proceeds without re-claiming the lock', async () => {
+    const state = makeState();
+    const { env, probe } = gateProbeEnv(state, 200);
+    const doInstance = new AgentLinkSession(state, env as any);
+    // The other request won the gate first and bootstrapped; a DO instance is
+    // token-keyed so an existing record is necessarily the same session.
+    (doInstance as any).session = makeSession();
+
+    const proceed = await (doInstance as any).bootstrapSession('CL-TEST-TOKN', CTX);
+
+    expect(proceed).toBe(true);
+    expect(probe.claimFetches).toBe(0); // no second claim — record already exists
   });
 });

@@ -206,9 +206,10 @@ export type AnalyticsEventName =
   | "agent_link_session_suspended"
   | "agent_link_session_resumed"
   // #314 — the client-side TTL watchdog fires this the instant `expiresAt`
-  // (TOKEN_TTL_MS = 10 min) lapses, from ANY still-live state (waiting/
-  // timeout/connected/suspended). Distinct from agent_link_disconnected: no
-  // explicit user action or wire disconnect envelope caused this — the token
+  // (IDLE_TTL_MS = 10 min, sliding — see effectiveExpiryMs) lapses, from ANY
+  // still-live state (waiting/timeout/connected/suspended). Distinct from
+  // agent_link_disconnected: no explicit user action or wire disconnect
+  // envelope caused this — the token
   // simply died server-side and the client noticed on its own clock.
   // `had_agent_connected` distinguishes "an agent was actually paired and
   // lost its session" from "nobody ever paired before the token lapsed".

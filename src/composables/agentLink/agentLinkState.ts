@@ -19,7 +19,7 @@ export type AgentLinkClientState =
   | "closed"
   | "already_linked"
   | "failed"
-  // #314: the relay-minted token's TTL (TOKEN_TTL_MS = 10 min) lapsed on the
+  // #314: the relay-minted token's TTL (IDLE_TTL_MS = 10 min, sliding) lapsed on the
   // client's own clock — see useAgentLinkSession.ts's scheduleExpiry()/
   // handleExpired(). Reachable from any state that has a live-or-pending
   // token (waiting/timeout/connected/suspended); idle/closed/already_linked/

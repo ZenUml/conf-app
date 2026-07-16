@@ -615,7 +615,7 @@ describe('useAgentLinkSession', () => {
   })
 
   // #314 — the relay correctly 403s the agent once the minted token's TTL
-  // (TOKEN_TTL_MS = 10 min) lapses, but nothing previously watched
+  // (IDLE_TTL_MS = 10 min) lapses, but nothing previously watched
   // `expiresAt` against the clock, so the rail stayed stuck showing a
   // connected variant with the countdown pinned at "0:00" forever. These
   // tests drive the fix's client-side TTL watchdog (scheduleExpiry() /
@@ -627,7 +627,7 @@ describe('useAgentLinkSession', () => {
     function makeFakeRelayClient() {
       return { send: vi.fn(), close: vi.fn(), disconnect: vi.fn(), getState: vi.fn(() => 'open') }
     }
-    const TOKEN_TTL_MS = 10 * 60 * 1000
+    const IDLE_TTL_MS = 10 * 60 * 1000
     const boundContext = { cloudId: 'c1', pageId: 'ttl-page', contentId: 'cc1' }
 
     it('a connected session moves to expired when the token TTL lapses, tears down the relay (not disconnect()), persists the expired handoff, and fires agent_link_session_expired', async () => {
@@ -638,7 +638,7 @@ describe('useAgentLinkSession', () => {
         capturedOnStateEvent = onStateEvent
         return fakeClient
       })
-      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token', expiresInSec: TOKEN_TTL_MS / 1000 })
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token', expiresInSec: IDLE_TTL_MS / 1000 })
 
       const session = useAgentLinkSession(bridgeOps, {
         macroType: 'sequence',
@@ -650,7 +650,7 @@ describe('useAgentLinkSession', () => {
       await session.applyEdit('A->B: hi') // edits_count should reach 1 in the terminal event
       vi.mocked(trackAnalyticsEvent).mockClear()
 
-      await vi.advanceTimersByTimeAsync(TOKEN_TTL_MS)
+      await vi.advanceTimersByTimeAsync(IDLE_TTL_MS)
 
       expect(session.state.value).toBe('expired')
       // Teardown uses close() (no wire disconnect envelope needed — the token
@@ -673,7 +673,7 @@ describe('useAgentLinkSession', () => {
     it('a session still "waiting" (agent never paired) also expires on TTL lapse, with had_agent_connected: false', async () => {
       const bridgeOps = makeBridgeOps()
       const connect = vi.fn(() => makeFakeRelayClient())
-      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token', expiresInSec: TOKEN_TTL_MS / 1000 })
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token', expiresInSec: IDLE_TTL_MS / 1000 })
 
       const session = useAgentLinkSession(bridgeOps, {
         macroType: 'sequence',
@@ -684,7 +684,7 @@ describe('useAgentLinkSession', () => {
       expect(session.state.value).toBe('waiting')
       vi.mocked(trackAnalyticsEvent).mockClear()
 
-      await vi.advanceTimersByTimeAsync(TOKEN_TTL_MS)
+      await vi.advanceTimersByTimeAsync(IDLE_TTL_MS)
 
       expect(session.state.value).toBe('expired')
       expect(trackAnalyticsEvent).toHaveBeenCalledWith(
@@ -696,7 +696,7 @@ describe('useAgentLinkSession', () => {
     it('disconnect() before the TTL lapses clears the scheduled watchdog — no expired event fires later', async () => {
       const bridgeOps = makeBridgeOps()
       const connect = vi.fn(() => makeFakeRelayClient())
-      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token', expiresInSec: TOKEN_TTL_MS / 1000 })
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token', expiresInSec: IDLE_TTL_MS / 1000 })
       const session = useAgentLinkSession(bridgeOps, {
         macroType: 'sequence',
         relay: { boundContext: { ...boundContext, pageId: 'ttl-page-disconnect' }, requestSession, connect },
@@ -707,7 +707,7 @@ describe('useAgentLinkSession', () => {
       session.disconnect('user')
       vi.mocked(trackAnalyticsEvent).mockClear()
 
-      await vi.advanceTimersByTimeAsync(TOKEN_TTL_MS)
+      await vi.advanceTimersByTimeAsync(IDLE_TTL_MS)
 
       expect(session.state.value).toBe('closed')
       expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(

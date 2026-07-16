@@ -296,10 +296,11 @@ export function useAgentLinkSession(
   let renderSafetyTimer: unknown = null
   let errorFlashTimer: unknown = null
   // #314: the client-side TTL watchdog. The relay independently 403s the
-  // agent server-side once the minted token's TTL (TOKEN_TTL_MS, 10 min)
-  // lapses, but nothing previously told THIS FSM to leave whatever
-  // live/pending state it was in — the rail stayed stuck showing a connected
-  // variant with the countdown pinned at "0:00" forever. Scheduled against
+  // agent server-side once the minted token's TTL (IDLE_TTL_MS, 10 min,
+  // sliding — see effectiveExpiryMs) lapses, but nothing previously told
+  // THIS FSM to leave whatever live/pending state it was in — the rail
+  // stayed stuck showing a connected variant with the countdown pinned at
+  // "0:00" forever. Scheduled against
   // `expiresAt` (scheduleExpiry()) any time that value is set — the mint
   // success path in startConnect() and the cross-iframe hydrate path in
   // hydrateFrom() — and cleared whenever a fresh/explicit teardown makes the

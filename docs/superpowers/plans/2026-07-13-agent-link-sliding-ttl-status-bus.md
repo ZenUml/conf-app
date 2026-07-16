@@ -46,7 +46,7 @@
 **Interfaces:**
 - Produces: `"agent_link_session_extended"` member of `AnalyticsEventName`; `export type AgentLinkExpiryCause = "idle" | "absolute_cap"`; optional properties `expires_in_sec`, `hit_cap`, `expiry_cause` on `AnalyticsEventProperties`.
 
-- [ ] **Step 1: Add the event + enum to catalog.ts**
+- [x] **Step 1: Add the event + enum to catalog.ts**
 
 Next to the existing `"agent_link_session_expired"` member (~line 215), add:
 
@@ -66,7 +66,7 @@ Near the other agent-link reason enums (~line 242+), add:
 export type AgentLinkExpiryCause = "idle" | "absolute_cap";
 ```
 
-- [ ] **Step 2: Add the properties to types.ts**
+- [x] **Step 2: Add the properties to types.ts**
 
 Add `AgentLinkExpiryCause` to the existing catalog-type import block (~line 17–21), then in the agent-link property block (near `had_agent_connected`, ~line 155):
 
@@ -81,12 +81,12 @@ Add `AgentLinkExpiryCause` to the existing catalog-type import block (~line 17�
   expiry_cause?: AgentLinkExpiryCause;
 ```
 
-- [ ] **Step 3: Verify it compiles standalone**
+- [x] **Step 3: Verify it compiles standalone**
 
 Run: `npx vue-tsc --noEmit 2>&1 | grep -E "catalog|analytics/types" | head`
 Expected: no NEW errors mentioning these two files.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/utils/analytics/catalog.ts src/utils/analytics/types.ts
@@ -113,7 +113,7 @@ git commit -m "feat(analytics): register agent_link_session_extended + expiry_ca
   - `SessionRecord` gains required `lastActivityMs: number`
   - `TOKEN_TTL_MS` is **deleted** — grep confirms remaining importers are `session.ts`, `AgentLinkSession.ts`, `mcp.ts` (+ their specs), all updated in Tasks 4–6. This task may leave them temporarily red; run ONLY the three spec files below in this task.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `sessionToken.spec.ts`, replacing tests that reference `TOKEN_TTL_MS`:
 
@@ -154,12 +154,12 @@ describe('sliding TTL core (spec 2026-07-13 §3)', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `pnpm test:unit functions/agent-link/sessionToken.spec.ts`
 Expected: FAIL — `effectiveExpiryMs` not exported.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `sessionToken.ts`, replace lines 47–48 and 69–72:
 
@@ -197,12 +197,12 @@ export function isExpired(issuedAtMs: number, lastActivityMs: number, nowMs: num
 `mcpAuth.ts` line 37 becomes `isExpired(session.issuedAtMs, session.lastActivityMs, nowMs)`.
 Fix any `SessionRecord` literals in these three spec files by adding `lastActivityMs` (same value as `issuedAtMs` unless the test is about sliding).
 
-- [ ] **Step 4: Run the three spec files**
+- [x] **Step 4: Run the three spec files**
 
 Run: `pnpm test:unit functions/agent-link/sessionToken.spec.ts functions/agent-link/sessionRegistry.spec.ts functions/agent-link/mcpAuth.spec.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add functions/agent-link/sessionToken.ts functions/agent-link/sessionToken.spec.ts functions/agent-link/sessionRegistry.ts functions/agent-link/sessionRegistry.spec.ts functions/agent-link/mcpAuth.ts functions/agent-link/mcpAuth.spec.ts
@@ -221,7 +221,7 @@ git commit -m "feat(agent-link): sliding-TTL core — effectiveExpiry = min(last
 - Produces: `export interface StatusActivity { type: 'agent_request' | 'guardrail_rejected' | 'turn'; detail?: string }`; `export function statusEnvelope(expiresAt: number, hitCap: boolean, activity?: StatusActivity): string`.
 - Deliberate factoring (documents a small spec-v2 deviation): `status` is NOT added to `EnvelopeKind` — that union describes PEER messages, and a peer sending `status` must stay `invalid`/unrouted. The relay-originated envelope gets its own builder instead.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `forwarding.spec.ts`:
 
@@ -247,9 +247,9 @@ describe('statusEnvelope (relay-originated status bus, spec 2026-07-13 §4)', ()
 });
 ```
 
-- [ ] **Step 2: Run to verify failure** — `pnpm test:unit functions/agent-link/forwarding.spec.ts` → FAIL (no export).
+- [x] **Step 2: Run to verify failure** — `pnpm test:unit functions/agent-link/forwarding.spec.ts` → FAIL (no export).
 
-- [ ] **Step 3: Implement** — append to `forwarding.ts`:
+- [x] **Step 3: Implement** — append to `forwarding.ts`:
 
 ```ts
 /** Activity descriptor carried on a relay-originated status envelope
@@ -271,9 +271,9 @@ export function statusEnvelope(expiresAt: number, hitCap: boolean, activity?: St
 }
 ```
 
-- [ ] **Step 4: Run** — same command → PASS (including the peer-rejection test, which needs no code change).
+- [x] **Step 4: Run** — same command → PASS (including the peer-rejection test, which needs no code change).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add functions/agent-link/forwarding.ts functions/agent-link/forwarding.spec.ts
@@ -292,7 +292,7 @@ git commit -m "feat(agent-link): statusEnvelope builder — the relay-originated
 - Consumes: Task 2's `effectiveExpiryMs`/`isAtCap`/`isExpired`/`IDLE_TTL_MS`, Task 3's `statusEnvelope`.
 - Produces: `GET /session?bump=1` (bumps + re-arms + pushes status; response unchanged plus `expiresAtMs`); `POST /activity` body `{type:'guardrail_rejected'|'agent_request'|'turn', detail?}` → 200 `{ok:true}` (auth'd like `/session`); status pushes on the macro socket.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `AgentLinkSession.spec.ts` (follow the existing harness idioms exactly):
 
@@ -388,9 +388,9 @@ describe('sliding TTL + status bus (spec 2026-07-13 §4.2)', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure** — `pnpm test:unit functions/agent-link/AgentLinkSession.spec.ts` → FAIL.
+- [x] **Step 2: Run to verify failure** — `pnpm test:unit functions/agent-link/AgentLinkSession.spec.ts` → FAIL.
 
-- [ ] **Step 3: Implement in `AgentLinkSession.ts`**
+- [x] **Step 3: Implement in `AgentLinkSession.ts`**
 
 Imports (line 73): swap `TOKEN_TTL_MS` for `effectiveExpiryMs, IDLE_TTL_MS, isAtCap`, keep `isExpired, nextState`; add `statusEnvelope` + `StatusActivity` to the forwarding import (line 69).
 
@@ -506,9 +506,9 @@ Deadline-derivation sweep (every `TOKEN_TTL_MS` site):
   }
 ```
 
-- [ ] **Step 4: Run** — `pnpm test:unit functions/agent-link/AgentLinkSession.spec.ts` → PASS (fix any pre-existing tests constructing `SessionRecord` without `lastActivityMs`).
+- [x] **Step 4: Run** — `pnpm test:unit functions/agent-link/AgentLinkSession.spec.ts` → PASS (fix any pre-existing tests constructing `SessionRecord` without `lastActivityMs`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add functions/agent-link/AgentLinkSession.ts functions/agent-link/AgentLinkSession.spec.ts
@@ -527,7 +527,7 @@ git commit -m "feat(agent-link): DO bumps on ?bump=1 + /activity ingress, re-arm
 - Consumes: `IDLE_TTL_MS`, `MAX_SESSION_MS` (Task 2).
 - Produces: mint response `expiresInSec: 600` (idle window — unchanged value, new derivation); content-claim `expiresAt: Date.now() + MAX_SESSION_MS`.
 
-- [ ] **Step 1: Write the failing test** (add to `session.spec.ts`, following its existing request-builder idioms):
+- [x] **Step 1: Write the failing test** (add to `session.spec.ts`, following its existing request-builder idioms):
 
 ```ts
 it('claims the content lock for the ABSOLUTE cap, not the idle window (spec §4.3)', async () => {
@@ -555,13 +555,13 @@ it('claims the content lock for the ABSOLUTE cap, not the idle window (spec §4.
 
 (Adapt `makeContext` to however the existing spec builds a `PagesFunction` context — reuse its helper.)
 
-- [ ] **Step 2: Run to verify failure** — `pnpm test:unit functions/agent-link/session.spec.ts` → FAIL (lock claimed at +10 min).
+- [x] **Step 2: Run to verify failure** — `pnpm test:unit functions/agent-link/session.spec.ts` → FAIL (lock claimed at +10 min).
 
-- [ ] **Step 3: Implement** — in `session.ts`: import `IDLE_TTL_MS, MAX_SESSION_MS` instead of `TOKEN_TTL_MS`; line 77 `expiresAt: Date.now() + MAX_SESSION_MS` (update the surrounding comment: the lock must cover the whole POSSIBLE session lifetime under sliding TTL — spec §4.3); line 88 `expiresInSec: IDLE_TTL_MS / 1000`.
+- [x] **Step 3: Implement** — in `session.ts`: import `IDLE_TTL_MS, MAX_SESSION_MS` instead of `TOKEN_TTL_MS`; line 77 `expiresAt: Date.now() + MAX_SESSION_MS` (update the surrounding comment: the lock must cover the whole POSSIBLE session lifetime under sliding TTL — spec §4.3); line 88 `expiresInSec: IDLE_TTL_MS / 1000`.
 
-- [ ] **Step 4: Run** — same command → PASS.
+- [x] **Step 4: Run** — same command → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add functions/agent-link/session.ts functions/agent-link/session.spec.ts
@@ -581,7 +581,7 @@ git commit -m "fix(agent-link): content-lock claimed at the 60-min cap so slidin
 - Produces: auth requests carry `?bump=1` iff bump-worthy; a `ToolError` with `code === 'guardrail'` triggers a best-effort `POST /activity {type:'guardrail_rejected', detail}`.
 - **Ordering change (documented):** body is parsed BEFORE auth (bump-worthiness needs `method`/`params.name`). The blank-token 401 stays first. Net observable change: invalid-token + malformed-JSON now 400s (was 401) — update any spec asserting that combination.
 
-- [ ] **Step 1: Write the failing tests** (add to `mcp.spec.ts` using `makeDoEnv`, extending its fake stub to RECORD fetched URLs):
+- [x] **Step 1: Write the failing tests** (add to `mcp.spec.ts` using `makeDoEnv`, extending its fake stub to RECORD fetched URLs):
 
 ```ts
 it('tools/call (non-get_status) auths with ?bump=1', async () => {
@@ -615,9 +615,9 @@ it('a guardrail rejection reports POST /activity {type:guardrail_rejected}', asy
 
 Write `makeRecordingDoEnv` as a thin wrapper over the existing `makeDoEnv` pattern that also collects `fetchedUrls: string[]` and `activityBodies: any[]` (parse `init.body` for `/activity` calls). Reuse an existing guardrail-reject fixture from the current spec file if one exists (search `RPC_GUARDRAIL_REJECTED` / `-32004` in `mcp.spec.ts` and copy its arrangement).
 
-- [ ] **Step 2: Run to verify failure** — `pnpm test:unit functions/agent-link/mcp.spec.ts` → new tests FAIL.
+- [x] **Step 2: Run to verify failure** — `pnpm test:unit functions/agent-link/mcp.spec.ts` → new tests FAIL.
 
-- [ ] **Step 3: Implement in `mcp.ts`**
+- [x] **Step 3: Implement in `mcp.ts`**
 
 1. `authenticateViaDo(agentLink, token, bump: boolean)` (line 173): `stub.fetch('https://agent-link-do/session' + (bump ? '?bump=1' : ''), { method: 'GET' })`.
 2. In `onRequestPost` (line 324): move the body-parse + method-validation block (lines 354–363) to directly AFTER the blank-token check (line 335), then compute:
@@ -660,9 +660,9 @@ then `authenticateViaDo(env.AGENT_LINK, token, bumpWorthy)`. The fallback `authe
 
 4. `stubForwardToMacro` get_status (lines 299–311): replace the `TOKEN_TTL_MS` calc with `effectiveExpiryMs(session.issuedAtMs, session.lastActivityMs)`; update the import (line 35).
 
-- [ ] **Step 4: Run the whole file** — `pnpm test:unit functions/agent-link/mcp.spec.ts` → PASS (fix ordering-assumption tests per the Interfaces note).
+- [x] **Step 4: Run the whole file** — `pnpm test:unit functions/agent-link/mcp.spec.ts` → PASS (fix ordering-assumption tests per the Interfaces note).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add functions/agent-link/mcp.ts functions/agent-link/mcp.spec.ts
@@ -680,7 +680,7 @@ git commit -m "feat(agent-link): bump rides MCP auth (?bump=1); guardrail reject
 **Interfaces:**
 - Produces: `RelayEnvelopeKind` gains `'status'`; `RelayEnvelope` gains `expiresAt?: number; hitCap?: boolean; activity?: { type: string; detail?: string }`; `RelayStateEvent` gains `{ type: 'status'; expiresAt?: number; hitCap?: boolean; activity?: { type: string; detail?: string } }`.
 
-- [ ] **Step 1: Write the failing tests** (follow the file's existing mock-WebSocket idiom):
+- [x] **Step 1: Write the failing tests** (follow the file's existing mock-WebSocket idiom):
 
 ```ts
 it('emits a status state event for a relay-originated status envelope', () => {
@@ -700,9 +700,9 @@ it('a status envelope never reaches the op dispatcher', () => {
 
 (`openClient`/`makeBridgeSpy`: reuse the spec file's existing helpers — they exist for every current test; adapt names to match.)
 
-- [ ] **Step 2: Run to verify failure** — `pnpm test:unit src/composables/agentLink/relayClient.spec.ts` → FAIL.
+- [x] **Step 2: Run to verify failure** — `pnpm test:unit src/composables/agentLink/relayClient.spec.ts` → FAIL.
 
-- [ ] **Step 3: Implement** — in `relayClient.ts`: extend the two unions + `RelayEnvelope` per Interfaces; in `handleMessage` (after the `ping` check, line 279):
+- [x] **Step 3: Implement** — in `relayClient.ts`: extend the two unions + `RelayEnvelope` per Interfaces; in `handleMessage` (after the `ping` check, line 279):
 
 ```ts
     if (envelope.kind === 'status') {
@@ -714,9 +714,9 @@ it('a status envelope never reaches the op dispatcher', () => {
     }
 ```
 
-- [ ] **Step 4: Run** — same command → PASS.
+- [x] **Step 4: Run** — same command → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/composables/agentLink/relayClient.ts src/composables/agentLink/relayClient.spec.ts
@@ -735,7 +735,7 @@ git commit -m "feat(agent-link): relayClient surfaces relay-originated status en
 - Consumes: Task 7's `{type:'status'}` event; Task 1's event/properties.
 - Produces: exported `EXTENDED_EVENT_THROTTLE_MS = 60_000`; exported `GUARDRAIL_REJECTED_FEED_SUMMARY = '⚠ Agent submitted an invalid edit — retrying'`.
 
-- [ ] **Step 1: Write the failing tests** (in the existing spec's style — fake relay `connect` capturing `onStateEvent`, injected clock):
+- [x] **Step 1: Write the failing tests** (in the existing spec's style — fake relay `connect` capturing `onStateEvent`, injected clock):
 
 ```ts
 describe('status bus handling (spec 2026-07-13 §4.4)', () => {
@@ -783,9 +783,9 @@ describe('status bus handling (spec 2026-07-13 §4.4)', () => {
 
 Build `mountWithRelay` on the spec file's existing fixtures (it already fakes `requestSession`, `connect`, `clock`, and spies `trackAnalyticsEvent` — reuse, don't reinvent).
 
-- [ ] **Step 2: Run to verify failure** — `pnpm test:unit src/composables/agentLink/useAgentLinkSession.spec.ts` → FAIL.
+- [x] **Step 2: Run to verify failure** — `pnpm test:unit src/composables/agentLink/useAgentLinkSession.spec.ts` → FAIL.
 
-- [ ] **Step 3: Implement in `useAgentLinkSession.ts`**
+- [x] **Step 3: Implement in `useAgentLinkSession.ts`**
 
 Module constants (near `SUSPENDED_FEED_SUMMARY`, line 70):
 
@@ -836,9 +836,9 @@ New branch at the TOP of `handleRelayStateEvent` (line 306), before the `op` bra
 
 Note: `lastExtendedFiredAt = 0` means the FIRST real extension always fires (0 is >60s before any real clock) — intended.
 
-- [ ] **Step 4: Run** — same command → PASS.
+- [x] **Step 4: Run** — same command → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/composables/agentLink/useAgentLinkSession.ts src/composables/agentLink/useAgentLinkSession.spec.ts
@@ -851,10 +851,10 @@ git commit -m "feat(agent-link): client mirrors status-bus deadline; guardrail f
 
 **Files:** none new.
 
-- [ ] **Step 1: Full unit run** — `pnpm test:unit` → everything green (agent-link suites AND the rest — the SessionRecord shape change may ripple into e2e helper types or ApWrapper specs; fix forward).
-- [ ] **Step 2: Type delta vs main** — `npx vue-tsc --noEmit 2>&1 | tee /tmp/pr1-tsc.txt | wc -l`, then the same on `main` (stash/worktree). Only NEW errors block (~150 pre-existing).
-- [ ] **Step 3: Grep discipline** — `git grep -n TOKEN_TTL_MS` → zero hits; `git grep -rn "atlassian.net" -- ':!docs' ':!private'` over the diff → no tenant names.
-- [ ] **Step 4: Commit any fixups** — one-line subjects.
+- [x] **Step 1: Full unit run** — `pnpm test:unit` → everything green (agent-link suites AND the rest — the SessionRecord shape change may ripple into e2e helper types or ApWrapper specs; fix forward).
+- [x] **Step 2: Type delta vs main** — `npx vue-tsc --noEmit 2>&1 | tee /tmp/pr1-tsc.txt | wc -l`, then the same on `main` (stash/worktree). Only NEW errors block (~150 pre-existing).
+- [x] **Step 3: Grep discipline** — `git grep -n TOKEN_TTL_MS` → zero hits; `git grep -rn "atlassian.net" -- ':!docs' ':!private'` over the diff → no tenant names.
+- [x] **Step 4: Commit any fixups** — one-line subjects.
 
 ---
 
@@ -867,7 +867,7 @@ git commit -m "feat(agent-link): client mirrors status-bus deadline; guardrail f
 - Consumes: deployed staging (branch push → `conf-agent-link-stg` worker ~1–2 min + `conf-stg-lite` Pages ~5 min; verify BOTH workflow runs succeeded for this branch before running).
 - Command: `cd tests/e2e-tests && APP=zenuml-lite@stg npx playwright test --project=agent-link --workers=1` (needs `ZENUML_STAGE_USERNAME`/`ZENUML_STAGE_PASSWORD`/`ATLASSIAN_OTP`; the fixed test page shares a 10-min per-contentId lock — one clean run per ~10 min).
 
-- [ ] **Step 1: Add the test** (inside the existing describe, reusing its connect fixture):
+- [x] **Step 1: Add the test** (inside the existing describe, reusing its connect fixture):
 
 ```ts
 test('TTL slides on agent activity (PR1 sliding window)', async ({ page }) => {
@@ -886,9 +886,9 @@ test('TTL slides on agent activity (PR1 sliding window)', async ({ page }) => {
 
 (Match the helper's actual unwrap shape — `agentLinkMcp` returns the parsed `structuredContent`/text payload per the existing tests; get_status does NOT bump, so the probe itself can't mask a broken slide.)
 
-- [ ] **Step 2: Run it** — expected PASS against staging. Also run the full agent-link project once: the pre-existing pairing/edit/crosstalk tests must still pass.
+- [x] **Step 2: Run it** — expected PASS against staging. Also run the full agent-link project once: the pre-existing pairing/edit/crosstalk tests must still pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/e2e-tests
@@ -903,3 +903,34 @@ git commit -m "test(agent-link): e2e — idle window slides on agent activity, p
 - **Placeholder scan:** all steps carry code or exact commands; the three "reuse the spec file's existing helper" notes name the helper and its location — adaptation, not invention.
 - **Type consistency:** `effectiveExpiryMs(issuedAtMs, lastActivityMs)` / `isAtCap(...)` / 3-arg `isExpired` used identically in T2/T4/T5/T6; `statusEnvelope(expiresAt, hitCap, activity?)` identical in T3/T4; `{type:'status', expiresAt, hitCap, activity}` event shape identical in T7/T8; `lastActivityMs` required on `SessionRecord` everywhere.
 - **Migration:** pre-PR1 persisted DO records backfilled in `ensureSession` (T4) — deploy-window sessions survive.
+
+## Deviations (2026-07-16)
+
+- **Suspended sessions do not bump.** `handleAgentOp`'s suspended branch
+  returns before any bump-worthy call reaches the macro — retrying against a
+  gone macro must not extend a macro-less session. The resume window shown is
+  the remaining effective expiry at the moment of the drop, not a
+  freshly-bumped one.
+- **Lock strategy changed from mint-at-cap to mint-at-`IDLE_TTL_MS` +
+  DO re-claim-at-cap on bootstrap.** Plan Task 5 originally called for
+  claiming the content lock at `MAX_SESSION_MS` directly in the (unauthenticated)
+  mint endpoint; that would let anyone grief a diagram with a full-hour
+  exclusivity lock via repeated unauthenticated mints. Landed instead: mint
+  claims the 10-min idle lock; the DO re-claims up to the 60-min cap on first
+  authenticated bootstrap, best-effort (a failed re-claim leaves the shorter
+  lock to self-clear).
+- **Guardrail feed copy is `'— rejected'`, not `'— retrying'`** — the status
+  push reports one rejection at a time and can't promise a retry, so the row
+  states only what demonstrably happened.
+- **The mint 409 now carries `lock_expires_at`**, forwarded by `session.ts`
+  and surfaced client-side as `lockExpiresAt`, feeding an honest
+  already-linked notice instead of a guessed retry window — required because
+  the lock's true expiry now depends on whether the DO re-claimed it.
+- **Task 5 lock value overridden** — see the mint-at-cap → mint-at-idle
+  deviation above; Task 5's own commit landed the idle-window value, and the
+  cap upgrade was added to Task 4's DO bootstrap in the same PR.
+- **Task 10 staging run deferred to post-push.** The E2E spec (Task 10) was
+  written and committed, but the live run against `lite-stg` was deferred
+  until after this branch is pushed and both the DO worker and Pages backend
+  deploys have completed (per the plan's own Global Constraints — staging
+  requires the branch push first).

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Prove end-to-end that a copied ZenUML deeplink (`https://app.zenuml.com/d/<cloudId>/<contentId>`), pasted into the Confluence editor, auto-converts into the existing **Embed macro** and renders the referenced diagram — closing the "create in library → place on page" gap without ever writing the page body (the ADF-insertion trap).
+**Goal:** Prove end-to-end that a copied ZenUML deeplink (`https://confluence.zenuml.com/d/<cloudId>/<contentId>`), pasted into the Confluence editor, auto-converts into the existing **Embed macro** and renders the referenced diagram — closing the "create in library → place on page" gap without ever writing the page body (the ADF-insertion trap).
 
 **Architecture:** Forge macro `autoConvert` matchers (confirmed in the Forge macro manifest reference, 2026-07-16: `autoConvert.matchers[].pattern`, `*` = one path segment, matched URL surfaces as `autoConvertLink` in the extension context) on the existing `zenuml-embed-macro` module. The embed viewer already resolves diagrams by `context.extension.config.customContentId` (`src/forge-embed-viewer.ts:15`); the spike adds a fallback that derives `customContentId` from `autoConvertLink`. All work deploys to the **personal Forge development env only**.
 
@@ -17,14 +17,14 @@
 - **Deploy to the personal development env ONLY** (`FORGE_ENV=development`, lite-dev app). No staging/prod deploys — staging goes via CI/CD only, prod needs explicit approval.
 - **Spike branch never merges; no release.** Productization gets its own TDD plan.
 - **Client privacy:** findings must not contain real customer tenant names; the dev site name is fine.
-- **Deeplink scheme is locked for the spike:** `https://app.zenuml.com/d/<cloudId>/<contentId>` — cloudId is the site UUID, contentId is the numeric custom-content id. HTTPS only (no `http` matcher, deliberate).
+- **Deeplink scheme is locked for the spike:** `https://confluence.zenuml.com/d/<cloudId>/<contentId>` — cloudId is the site UUID, contentId is the numeric custom-content id. HTTPS only (no `http` matcher, deliberate).
 - **Timebox: 1 day.** If Task 5 (paste test) fails after 3 distinct attempts, stop and write findings — do not rabbit-hole.
 
 ## Open Questions This Spike Must Answer
 
 1. **Q1 — Where exactly does the matched URL land?** Docs say "`autoConvertLink` parameter in the extension context"; confirm the precise path (`context.extension.config.autoConvertLink` vs elsewhere) by logging.
 2. **Q2 — Does autoconvert fire in the current editor, and in Live Docs?** (Live Docs restrict some macros.)
-3. **Q3 — Does the deeplink URL need to resolve?** (Assumption A1: pattern matching is local to the editor; no fetch of the URL is required. The `app.zenuml.com/d/...` route does not exist yet — observe whether that degrades anything.)
+3. **Q3 — Does the deeplink URL need to resolve?** (Assumption A1: pattern matching is local to the editor; no fetch of the URL is required. The `confluence.zenuml.com/d/...` route does not exist yet — observe whether that degrades anything.)
 4. **Q4 — What does a cross-site paste look like?** (Deeplink from another cloudId pasted here: macro inserts but must fail soft.)
 
 ---
@@ -80,20 +80,20 @@ const CLOUD = '494a0c9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f';
 
 describe('parseEmbedDeeplink', () => {
   it('parses a canonical deeplink', () => {
-    expect(parseEmbedDeeplink(`https://app.zenuml.com/d/${CLOUD}/123456789`))
+    expect(parseEmbedDeeplink(`https://confluence.zenuml.com/d/${CLOUD}/123456789`))
       .toEqual({ cloudId: CLOUD, contentId: '123456789' });
   });
 
   it('tolerates trailing slash, query and fragment', () => {
-    expect(parseEmbedDeeplink(`https://app.zenuml.com/d/${CLOUD}/42/?utm=x#top`))
+    expect(parseEmbedDeeplink(`https://confluence.zenuml.com/d/${CLOUD}/42/?utm=x#top`))
       .toEqual({ cloudId: CLOUD, contentId: '42' });
   });
 
   it('rejects http, foreign hosts, and malformed paths', () => {
-    expect(parseEmbedDeeplink(`http://app.zenuml.com/d/${CLOUD}/42`)).toBeUndefined();
+    expect(parseEmbedDeeplink(`http://confluence.zenuml.com/d/${CLOUD}/42`)).toBeUndefined();
     expect(parseEmbedDeeplink(`https://evil.example.com/d/${CLOUD}/42`)).toBeUndefined();
-    expect(parseEmbedDeeplink('https://app.zenuml.com/d/42')).toBeUndefined();
-    expect(parseEmbedDeeplink(`https://app.zenuml.com/d/${CLOUD}/not-numeric`)).toBeUndefined();
+    expect(parseEmbedDeeplink('https://confluence.zenuml.com/d/42')).toBeUndefined();
+    expect(parseEmbedDeeplink(`https://confluence.zenuml.com/d/${CLOUD}/not-numeric`)).toBeUndefined();
     expect(parseEmbedDeeplink('')).toBeUndefined();
   });
 });
@@ -109,7 +109,7 @@ Expected: FAIL — `Cannot find module './embedDeeplink'` (or equivalent).
 ```ts
 // src/utils/embedDeeplink.ts
 // Deeplink shape is locked by the autoConvert matcher in manifest.yml:
-//   https://app.zenuml.com/d/<cloudId>/<contentId>
+//   https://confluence.zenuml.com/d/<cloudId>/<contentId>
 // cloudId = site UUID; contentId = numeric Confluence custom-content id.
 export interface EmbedDeeplink {
   cloudId: string;
@@ -117,7 +117,7 @@ export interface EmbedDeeplink {
 }
 
 const DEEPLINK_RE =
-  /^https:\/\/app\.zenuml\.com\/d\/([0-9a-fA-F-]{32,36})\/(\d+)\/?(?:[?#].*)?$/;
+  /^https:\/\/confluence\.zenuml\.com\/d\/([0-9a-fA-F-]{32,36})\/(\d+)\/?(?:[?#].*)?$/;
 
 export function parseEmbedDeeplink(url: string): EmbedDeeplink | undefined {
   const m = DEEPLINK_RE.exec((url || '').trim());
@@ -145,7 +145,7 @@ git commit -m "spike(embed): deeplink parser for autoconvert URLs"
 - Modify: `manifest.yml:229-242` (the `zenuml-embed-macro${LITE_KEY_SUFFIX}` module)
 
 **Interfaces:**
-- Produces: pasting `https://app.zenuml.com/d/*/*` in the editor inserts the Embed macro; the matched URL reaches the iframe (exact context path confirmed in Task 5 / Q1).
+- Produces: pasting `https://confluence.zenuml.com/d/*/*` in the editor inserts the Embed macro; the matched URL reaches the iframe (exact context path confirmed in Task 5 / Q1).
 
 - [ ] **Step 1: Add the matcher to the embed macro module**
 
@@ -173,7 +173,7 @@ Add `autoConvert` at the same indent level as `icon` (one pattern; each `*` matc
 ```yaml
       autoConvert:
         matchers:
-          - pattern: https://app.zenuml.com/d/*/*
+          - pattern: https://confluence.zenuml.com/d/*/*
 ```
 
 - [ ] **Step 2: Deploy to the dev env**
@@ -185,7 +185,7 @@ Expected: deploy succeeds. Note the reported version in the findings — module-
 
 ```bash
 git add manifest.yml
-git commit -m "spike(embed): autoConvert matcher for app.zenuml.com deeplinks"
+git commit -m "spike(embed): autoConvert matcher for confluence.zenuml.com deeplinks"
 ```
 
 ---
@@ -271,7 +271,7 @@ git commit -m "spike(embed): render diagram from autoConvertLink deeplink"
 **Files:** none (evidence-gathering).
 
 **Interfaces:**
-- Produces: `<DEEPLINK>` = `https://app.zenuml.com/d/<cloudId>/<contentId>` pointing at a real diagram on `<DEV_SITE>`, used by Tasks 5–6.
+- Produces: `<DEEPLINK>` = `https://confluence.zenuml.com/d/<cloudId>/<contentId>` pointing at a real diagram on `<DEV_SITE>`, used by Tasks 5–6.
 
 - [ ] **Step 1: Get the site cloudId**
 
@@ -284,7 +284,7 @@ Open any existing page on `<DEV_SITE>` that contains a ZenUML sequence macro in 
 
 - [ ] **Step 3: Compose and record the deeplink**
 
-`<DEEPLINK>` = `https://app.zenuml.com/d/<cloudId>/<contentId>` — paste it into the Findings section.
+`<DEEPLINK>` = `https://confluence.zenuml.com/d/<cloudId>/<contentId>` — paste it into the Findings section.
 
 ---
 
@@ -321,17 +321,17 @@ If `<DEV_SITE>` offers Live Docs: repeat Step 1 in a Live Doc; record convert/re
 
 - [ ] **Step 1: Foreign-site deeplink (Q4)**
 
-Paste `https://app.zenuml.com/d/00000000-0000-4000-8000-000000000000/999999` into a page.
+Paste `https://confluence.zenuml.com/d/00000000-0000-4000-8000-000000000000/999999` into a page.
 Expected: macro inserts (pattern matches), viewer logs the cloudId-mismatch warning and renders the existing empty/error state — record exactly what the user sees (this defines the "diagram lives on another site" card requirement for productization).
 
 - [ ] **Step 2: Near-miss URLs**
 
-Paste `http://app.zenuml.com/d/<cloudId>/<contentId>` (http) and `https://app.zenuml.com/d/<contentId>` (one segment).
+Paste `http://confluence.zenuml.com/d/<cloudId>/<contentId>` (http) and `https://confluence.zenuml.com/d/<contentId>` (one segment).
 Expected: NO conversion — they remain ordinary links. Record any surprise.
 
 - [ ] **Step 3: Unresolvable-URL degradation (Q3 / A1)**
 
-While `app.zenuml.com/d/...` returns 404 (no landing route exists yet), note whether the editor showed any broken-preview artifact at paste time in Tasks 5–6.
+While `confluence.zenuml.com/d/...` returns 404 (no landing route exists yet), note whether the editor showed any broken-preview artifact at paste time in Tasks 5–6.
 Expected: none — conversion is local pattern matching. Record the observation either way.
 
 ---
@@ -374,7 +374,7 @@ git push -u origin spike/embed-autoconvert-deeplink
 - Persist the parsed `customContentId` into macro config on first render (survives link-scheme changes) vs derive-per-render — decide with Q1/Step-3 evidence.
 - Proper foreign-site card ("This diagram lives on another Confluence site").
 - Hub/viewer **Copy link** affordance (concierge prototype already stages this UX).
-- `app.zenuml.com/d/<cloudId>/<contentId>` landing route on Cloudflare Pages (redirect into Confluence + OG preview).
+- `confluence.zenuml.com/d/<cloudId>/<contentId>` landing route on Cloudflare Pages (redirect into Confluence + OG preview).
 - Analytics (register in `src/utils/analytics/catalog.ts` + `types.ts` as the productization branch's first commit): `embed_autoconvert_rendered`, `embed_autoconvert_foreign_site`, `deeplink_copied` — with `source`, `macro_type`, `match` properties.
 - Lite quota semantics: does an embed-by-paste count toward the 100-macro space limit? Decide before GA.
 - Roll out matcher to full/diagramly/asyncapi manifests (asyncapi also has `zenuml-asyncapi-embed-macro`, `manifest.yml:265`).

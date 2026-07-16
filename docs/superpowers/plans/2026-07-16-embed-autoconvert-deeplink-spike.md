@@ -356,18 +356,24 @@ git push -u origin spike/embed-autoconvert-deeplink
 
 ---
 
-## Findings (fill during Task 5–7)
+## Findings (executed 2026-07-16, lite-dev, spike branch @ cda5c537, deployed as 16.118.0)
 
 | Question | Answer | Evidence |
 |---|---|---|
-| Q1 — exact context path of the matched URL | | `[spike]` log JSON |
-| Q2 — converts in current editor? in Live Docs? | | screenshots |
-| Q3 — unresolved URL degrades paste? | | observation |
-| Q4 — foreign-site paste user experience | | screenshot |
-| Version bump on deploy (must be minor) | | `forge deploy` output |
-| Paste → render round-trip works end to end | | screenshots |
+| Q1 — exact context path of the matched URL | The URL is **persisted in the page ADF** as `parameters.autoConvertLink` on the extension node, alongside `hasBeenAutoConverted: true` — it reaches the iframe via the macro's extension config/params, and it survives forever in the page body (derive-per-render is durable; **no config write needed**) | ADF dump of page 46956548 (v2 API, `body-format=atlas_doc_format`) |
+| Q2 — converts in current editor? in Live Docs? | **Both YES.** New editor: paste → instant conversion to "Embed a Diagram, Graph or API Spec Lite" placeholder. **Live Doc: converts AND renders the full diagram inline immediately** (live-doc autosave) | screenshots `spike-after-paste.png`, `spike-livedoc-paste.png` |
+| Q3 — unresolved URL degrades paste? | **No.** `confluence.zenuml.com/d/...` 404s today; conversion was instant and visual-clean — pattern matching is editor-local, no fetch of the URL | observation during Tasks 5–6 |
+| Q4 — foreign-site paste user experience | Macro inserts (pattern matches), viewer fails soft with the existing red message "This embedded diagram couldn't be loaded… Edit the macro to pick a different diagram." No crash, no cross-tenant fetch (cloudId guard). Productization: replace copy with "lives on another Confluence site" | screenshot `spike-foreign-paste.png` |
+| Version bump on deploy (must be minor) | **Minor** — 16.118.0 (16.x line continued); manifest validation passed with `autoConvert` | `forge deploy` output |
+| Paste → render round-trip works end to end | **YES.** Deeplink `https://confluence.zenuml.com/d/bc8bb5b3-…/425987` pasted → autoconverted → published → renders the target sequence diagram ("AAA"/Order Service); debug chip shows the spike build (`spike/embed-aut…@1f8ea3…`) | screenshots `spike-published-view.png` |
+| Bonus — near-miss URLs | `http://` and single-segment `/d/<id>` do NOT convert (stay plain links) — matcher is exact | screenshot `spike-negative-paths.png` |
 
-**Go/no-go:** ☐ GO — draft the productization plan ☐ NO-GO — record the blocker.
+**Execution notes / deviations:**
+- **forge tunnel caveat:** functions bundled and invocations flowed, but Custom UI resource serving failed (`Error: AggregateError` loop; macro iframes stuck on spinner while tunnelled). Killed the tunnel and verified against the **deployed** development build — same spike code, so no evidence lost. Investigate tunnel resource serving separately before relying on it for Custom UI iteration.
+- **Automation artifact:** a synthesized Cmd+V through the Playwright extension relay does not trigger native paste; the paste was delivered as a synthetic `ClipboardEvent` on the ProseMirror root (`defaultPrevented=true` — the editor consumed it). A human Cmd+V is the same event path; not a product concern.
+- Editor identity was eagle.xiao (tunnel-eligible account) throughout; site cloudId `bc8bb5b3-09d2-4932-b68c-9b56fab8e34a` confirmed via `/_edge/tenant_info`.
+
+**Go/no-go:** ☑ **GO** — draft the productization plan ☐ NO-GO.
 
 ## Productization backlog (NOT this spike — feeds the next plan if GO)
 

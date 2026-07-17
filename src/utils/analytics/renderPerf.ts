@@ -9,10 +9,19 @@
 // cross-macro contamination). Every export is read-only on render behavior:
 // it reads clocks or wraps a promise without altering what runs.
 
-export type RenderPhase = 'context' | 'fetch' | 'render';
+export type RenderPhase = 'context' | 'fetch' | 'render' | 'cc_fetch' | 'adf_scan';
 
 const durations: Partial<Record<RenderPhase, number>> = {};
 let bootstrapMs: number | undefined;
+
+// P1.1: set by forgeIndex when the viewer defers the ADF copy-scan. Sticky
+// per iframe, undefined until explicitly marked so editor surfaces (which
+// never decide) emit nothing.
+let adfDeferred: boolean | undefined;
+
+export function markAdfDeferred(deferred: boolean): void {
+  adfDeferred = deferred;
+}
 
 // Sticky "was the tab ever hidden during this load" flag. Tab-backgrounding
 // throttles timers and inflates whichever phase was in flight — the cause of
@@ -69,6 +78,11 @@ export interface RenderTimings {
   context_ms?: number;
   fetch_ms?: number;
   render_ms?: number;
+  // Children of fetch_ms (custom-content GET vs page-ADF copy-scan). Not
+  // added to measured_sum_ms — they'd double-count their parent.
+  custom_content_fetch_ms?: number;
+  page_adf_fetch_ms?: number;
+  adf_deferred?: boolean;
   measured_sum_ms?: number;
   tab_hidden?: boolean;
 }
@@ -89,6 +103,9 @@ export function getTimings(): RenderTimings {
     context_ms: durations.context,
     fetch_ms: durations.fetch,
     render_ms: durations.render,
+    custom_content_fetch_ms: durations.cc_fetch,
+    page_adf_fetch_ms: durations.adf_scan,
+    ...(adfDeferred !== undefined ? { adf_deferred: adfDeferred } : {}),
     measured_sum_ms: measured.length ? measured.reduce((a, b) => a + b, 0) : undefined,
     tab_hidden: everHidden,
   };
@@ -99,6 +116,9 @@ export function _resetForTesting(): void {
   delete durations.context;
   delete durations.fetch;
   delete durations.render;
+  delete durations.cc_fetch;
+  delete durations.adf_scan;
+  adfDeferred = undefined;
   bootstrapMs = undefined;
   everHidden = typeof document !== 'undefined' ? document.hidden : false;
 }

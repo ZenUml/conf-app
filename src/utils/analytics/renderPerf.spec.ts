@@ -1,7 +1,7 @@
 // src/utils/analytics/renderPerf.spec.ts
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { markAppEntry, time, getTimings, _resetForTesting } from "./renderPerf";
+import { markAppEntry, time, getTimings, markAdfDeferred, _resetForTesting } from "./renderPerf";
 
 describe("renderPerf", () => {
   let nowSpy: ReturnType<typeof vi.spyOn>;
@@ -71,5 +71,31 @@ describe("renderPerf", () => {
 
   it("tab_hidden defaults to the document's current hidden state", () => {
     expect(typeof getTimings().tab_hidden).toBe("boolean");
+  });
+});
+
+describe('P1.3 fetch split', () => {
+  beforeEach(() => _resetForTesting());
+
+  it('records cc_fetch and adf_scan as custom_content_fetch_ms / page_adf_fetch_ms', async () => {
+    await time('cc_fetch', async () => 'cc');
+    await time('adf_scan', async () => 'adf');
+    const t = getTimings();
+    expect(t.custom_content_fetch_ms).toBeTypeOf('number');
+    expect(t.page_adf_fetch_ms).toBeTypeOf('number');
+  });
+
+  it('excludes sub-phases from measured_sum_ms', async () => {
+    await time('fetch', async () => {
+      await time('cc_fetch', async () => 'cc');
+    });
+    const t = getTimings();
+    expect(t.measured_sum_ms).toBe(t.fetch_ms);
+  });
+
+  it('emits adf_deferred only when marked', async () => {
+    expect(getTimings().adf_deferred).toBeUndefined();
+    markAdfDeferred(true);
+    expect(getTimings().adf_deferred).toBe(true);
   });
 });

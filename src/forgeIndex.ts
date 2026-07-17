@@ -231,17 +231,78 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 
     let doc: Diagram | undefined;
     let legacyLoadBlocked = false;
+    // P1.1 fix #3 (capture ordering): the completion dispatch must fire
+    // against the SAME doc object mountRoot receives, and `doc` gets
+    // reassigned (spread) further down — e.g. the plantUmlCode backfill.
+    // Rather than close over a `doc` reference that may go stale, capture
+    // only the immutable dispatch input here and fire the actual dispatch
+    // right after the LAST `doc =` reassignment (see that call site for the
+    // invariant this preserves).
+    let deferredCopyCheckPageId: string | number | undefined;
     const customContentId = context.extension?.config?.customContentId || context.extension.modal?.customContentId;
     originalCustomContentId = customContentId;
     recoveryPageId = context.extension?.content?.id;
     // ZEN-1170 Defect 1: see forge-graph-editor.ts for why this uses
     // config.uuid and not forgeGlobal.localId.
     const storageUuid: string | undefined = context.extension?.config?.uuid;
+
+    // Sequence-family discriminator, hoisted up from its original single
+    // call site (still used unchanged further below, around the isSequence/
+    // isGraph/isEmbed/isAsyncApi routing block) so the P1.1 gate immediately
+    // below can reuse the SAME condition rather than re-deriving it. Graph/
+    // embed/asyncapi viewers route to their own entry file (forge-graph-
+    // viewer.ts etc. below) which re-loads its own doc from scratch and
+    // never sees the `doc` fetched in this function — deferring or
+    // completing an ADF copy-scan for those types would run against a doc
+    // nothing ever mounts (wasted detectCopy call when the flag is on, plus
+    // a stray adf_deferred tag polluting those macro types' analytics).
+    const isSequence = context.moduleKey.startsWith('zenuml-sequence-macro') || context.moduleKey.startsWith('gpt-diagram-macro') || context.extension.modal?.diagramType === 'sequence' || context.extension.modal?.diagramType === 'mermaid';
+    const isGraph = context.moduleKey.startsWith('zenuml-graph-macro');
+    const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
+    // AsyncAPI ships two macros — `zenuml-asyncapi-macro` (page-rendered
+    // spec, each instance owns its own custom-content doc) and
+    // `zenuml-asyncapi-embed-macro` (references an existing doc by
+    // customContentId). The embed editor opens a doc picker; the embed
+    // viewer reuses the regular forge-asyncapi-viewer which already
+    // reads extension.config.customContentId.
+    const isAsyncApiEmbed = context.moduleKey.startsWith('zenuml-asyncapi-embed-macro');
+    // isAsyncApi also picks up modal contexts opened from the asyncapi
+    // dashboard ("My API Documents"), which don't carry the macro moduleKey
+    // but do set extension.modal.diagramType='asyncapi'. Without that check
+    // dashboard-launched Create / Edit / View modals fall through to the
+    // swagger editor.
+    const isAsyncApi = context.moduleKey.startsWith('zenuml-asyncapi-macro') || isAsyncApiEmbed || context.extension.modal?.diagramType === 'asyncapi';
+
+    // P1.1: viewer surfaces may defer the ADF copy-scan. Kick the flag read
+    // off NOW so it overlaps the custom-content GET; the decision callback
+    // awaits it only after that GET returns — zero added blocking time when
+    // the flag is off. Editor/config surfaces never defer (their blocking
+    // copy check guards the save path). Also scoped to isSequence — see the
+    // comment on that const above for why graph/embed/asyncapi must not
+    // defer/complete a scan against a doc they discard.
+    const isEditorish =
+      context.extension.modal?.macroMode === 'editor' ||
+      !!context.extension?.macro?.isConfiguring;
+    let shouldDeferAdfScan: (() => Promise<boolean>) | undefined;
+    if (isSequence && !isEditorish) {
+      const flagsPromise = import('@/utils/viewerLoad/flags')
+        .then(({ getViewerLoadFlags }) => getViewerLoadFlags())
+        .catch(() => ({ adfScanDeferred: false }));
+      shouldDeferAdfScan = async () => {
+        const deferred = (await flagsPromise).adfScanDeferred;
+        renderPerf.markAdfDeferred(deferred);
+        return deferred;
+      };
+    }
+
     if (customContentId) {
       const loaded = await renderPerf.time('fetch', () =>
-        globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId));
+        globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId, { shouldDeferAdfScan }));
       console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
       doc = loaded.customContent?.value;
+      if (isSequence && doc?.copyCheckPending && loaded.customContent) {
+        deferredCopyCheckPageId = loaded.customContent.pageId;
+      }
       if (loaded.recoveredFromOrphanId && doc) {
         doc.recoveredFromOrphan = true;
         doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
@@ -439,6 +500,24 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       doc = { ...doc, plantUmlCode: Example.PlantUml };
     }
 
+    // P1.1 completion dispatch — fire-and-forget: render proceeds now via
+    // mountRoot below; the verdict lands on the mounted diagram (store
+    // write-through, see runDeferredCopyCheck) whenever the scan returns.
+    // INVARIANT: this must sit AFTER the LAST `doc =` reassignment in this
+    // function (currently the plantUmlCode backfill immediately above) so it
+    // captures the exact object mountRoot receives. runDeferredCopyCheck's
+    // store write-through does a toRaw identity check against the mounted
+    // diagram — dispatching against an earlier/stale doc reference would
+    // write the verdict onto an object nothing reads, and the copy banner
+    // would never update. If a future edit adds another `doc =` reassignment
+    // below this point, move this block again.
+    if (isSequence && doc.copyCheckPending && customContentId) {
+      import('@/utils/viewerLoad/deferredCopyCheck')
+        .then(({ runDeferredCopyCheck }) =>
+          runDeferredCopyCheck(globals.apWrapper, doc!, customContentId, deferredCopyCheckPageId))
+        .catch(e => console.warn('[viewer-load] deferred copy-scan dispatch failed', e));
+    }
+
     // Start journey tracking for editor mode
     const editable = await isEditorMode();
     if (editable) {
@@ -490,22 +569,9 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       skeletonLoader.style.display = 'none';
     }
 
-    const isSequence = context.moduleKey.startsWith('zenuml-sequence-macro') || context.moduleKey.startsWith('gpt-diagram-macro') || context.extension.modal?.diagramType === 'sequence' || context.extension.modal?.diagramType === 'mermaid';
-    const isGraph = context.moduleKey.startsWith('zenuml-graph-macro');
-    const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
-    // AsyncAPI ships two macros — `zenuml-asyncapi-macro` (page-rendered
-    // spec, each instance owns its own custom-content doc) and
-    // `zenuml-asyncapi-embed-macro` (references an existing doc by
-    // customContentId). The embed editor opens a doc picker; the embed
-    // viewer reuses the regular forge-asyncapi-viewer which already
-    // reads extension.config.customContentId.
-    const isAsyncApiEmbed = context.moduleKey.startsWith('zenuml-asyncapi-embed-macro');
-    // isAsyncApi also picks up modal contexts opened from the asyncapi
-    // dashboard ("My API Documents"), which don't carry the macro moduleKey
-    // but do set extension.modal.diagramType='asyncapi'. Without that check
-    // dashboard-launched Create / Edit / View modals fall through to the
-    // swagger editor.
-    const isAsyncApi = context.moduleKey.startsWith('zenuml-asyncapi-macro') || isAsyncApiEmbed || context.extension.modal?.diagramType === 'asyncapi';
+    // isSequence / isGraph / isEmbed / isAsyncApiEmbed / isAsyncApi are
+    // computed earlier now (hoisted above the customContentId load so the
+    // P1.1 ADF-scan deferral gate can reuse them — see the comment there).
 
     if(isSequence) {
       const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';

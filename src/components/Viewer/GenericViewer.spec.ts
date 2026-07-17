@@ -390,6 +390,33 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
+  // P1.1: the viewer may mount BEFORE the ADF copy-scan finishes
+  // (deferredCopyCheck.ts / forgeIndex.ts wiring). copyCheckPending=true with
+  // isCopy still undefined must NOT read as a copy restriction — editDisabledReason
+  // already treats a falsy isCopy as "no restriction", which is the correct
+  // pending behavior (the editor modal re-runs its own blocking check, so
+  // there's no data-safety hole in leaving Edit enabled meanwhile). When the
+  // deferred scan's verdict lands later, runDeferredCopyCheck writes through
+  // the SAME store.state.diagram object the viewer reads, so the banner must
+  // update reactively without a remount.
+  describe('deferred ADF copy-scan late verdict (P1.1)', () => {
+    it('shows the copy notice when a deferred scan lands after mount', async () => {
+      store.state.diagram.copyCheckPending = true
+      store.state.diagram.isCopy = undefined
+      store.state.diagram.copyReason = undefined
+      const wrapper = mountViewer()
+      await wrapper.vm.$nextTick()
+      expect((wrapper.vm as any).editDisabledReason).toBeNull()
+
+      store.state.diagram.isCopy = true
+      store.state.diagram.copyReason = 'same-page-duplicate'
+      store.state.diagram.copyCheckPending = false
+      await wrapper.vm.$nextTick()
+
+      expect((wrapper.vm as any).editDisabledReason).toContain('multiple copies')
+    })
+  })
+
   describe('bottom-edge pill actions', () => {
     it('shows the five expected actions for a custom-content diagram', () => {
       const wrapper = mountViewer()

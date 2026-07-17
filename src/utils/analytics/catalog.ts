@@ -161,6 +161,9 @@ export type AnalyticsEventName =
   | "viewer_source_opened"
   | "viewer_source_copied"
   | "viewer_load_failed"
+  // Deferred Sequence-family page-ADF copy scan settled after the viewer's
+  // first render. Correlates to macro_viewed through instance_nonce/time_origin.
+  | "viewer_adf_scan_completed"
   | "close_guard_rejected"
   | "renderer_prefetch_started"
   | "renderer_prefetch_completed"

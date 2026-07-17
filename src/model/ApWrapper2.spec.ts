@@ -671,6 +671,21 @@ describe('ApWrapper2', () => {
       expect(trackEvent).not.toHaveBeenCalledWith('cross_page', 'duplication_detect', 'warning');
     });
 
+    it('detectCopy matches the string customContentId used by current Forge ADF', async () => {
+      vi.spyOn(wrapper._page, 'countMacros').mockImplementation(async matcher => {
+        const liveForgeMacroParams = [
+          { customContentId: 'cc-1' },
+          { customContentId: 'cc-1' },
+        ];
+        return liveForgeMacroParams.filter(matcher).length;
+      });
+      vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-1');
+
+      const verdict = await wrapper.detectCopy('cc-1', 'page-1');
+
+      expect(verdict).toEqual({ isCopy: true, copyReason: 'same-page-duplicate' });
+    });
+
     it('detectCopy reports cross-page when CC pageId differs', async () => {
       vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(1);
       vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-2');

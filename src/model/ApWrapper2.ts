@@ -602,7 +602,10 @@ export default class ApWrapper2 implements IApWrapper {
     return renderPerf.time('adf_scan', async () => {
       const count = await this._page.countMacros((m) => {
         //TODO: filter by macro type
-        return m?.customContentId?.value === id;
+        const macroCustomContentId = m?.customContentId;
+        return (typeof macroCustomContentId === 'string'
+          ? macroCustomContentId
+          : macroCustomContentId?.value) === id;
       });
       console.debug(`Found ${count} macros on page`);
       const pageId = await this._page.getPageId();

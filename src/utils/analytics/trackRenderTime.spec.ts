@@ -192,6 +192,22 @@ describe("trackRenderTime", () => {
       })
     );
   });
+
+  it("stamps instance_nonce and time_origin on macro_viewed", () => {
+    trackRenderTime("mermaid", true);
+
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)!;
+    expect(props.instance_nonce).toMatch(/[0-9a-f-]{36}/);
+    expect(props.time_origin).toBeTypeOf("number");
+  });
+
+  it("keeps instance_nonce constant across emissions from one module instance", () => {
+    trackRenderTime("mermaid", true);
+    trackRenderTime("mermaid", true);
+
+    const [a, b] = vi.mocked(trackAnalyticsEvent).mock.calls.slice(-2).map((c) => c[1]);
+    expect(a.instance_nonce).toBe(b.instance_nonce);
+  });
 });
 
 describe("scheduleRendererPrefetch (post-render hook)", () => {

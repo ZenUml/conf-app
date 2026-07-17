@@ -512,9 +512,23 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // would never update. If a future edit adds another `doc =` reassignment
     // below this point, move this block again.
     if (isSequence && doc.copyCheckPending && customContentId) {
+      const deferredMacroType: Extract<
+        MacroTypeValue,
+        'sequence' | 'mermaid' | 'plantuml'
+      > = doc.diagramType === DiagramType.Mermaid
+        ? 'mermaid'
+        : doc.diagramType === DiagramType.PlantUml
+          ? 'plantuml'
+          : 'sequence';
       import('@/utils/viewerLoad/deferredCopyCheck')
         .then(({ runDeferredCopyCheck }) =>
-          runDeferredCopyCheck(globals.apWrapper, doc!, customContentId, deferredCopyCheckPageId))
+          runDeferredCopyCheck(
+            globals.apWrapper,
+            doc!,
+            customContentId,
+            deferredCopyCheckPageId,
+            deferredMacroType,
+          ))
         .catch(e => console.warn('[viewer-load] deferred copy-scan dispatch failed', e));
     }
 

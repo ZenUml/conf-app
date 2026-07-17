@@ -591,8 +591,9 @@ export default class ApWrapper2 implements IApWrapper {
 
   /**
    * P1.1: the ADF copy-scan, extracted so viewers can run it off the
-   * critical path. One full-page ADF GET via _page.countMacros. Timed as
-   * `adf_scan` → macro_viewed.page_adf_fetch_ms (first call wins).
+   * critical path. One full-page ADF GET via _page.countMacros. Synchronous
+   * scans report the `adf_scan` timing on macro_viewed; deferred scans report
+   * their elapsed time on viewer_adf_scan_completed after the first render.
    */
   async detectCopy(
     id: string,

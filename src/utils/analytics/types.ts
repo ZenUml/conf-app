@@ -127,7 +127,7 @@ export type AnalyticsProperties = {
   writeback_target?: 'store' | 'raw';
   // Random per-iframe id + performance.timeOrigin. Makes concurrent
   // duplicate mounts of one macro (remount storms) directly countable
-  // without burst reconstruction. See trackRenderTime.ts.
+  // without burst reconstruction. See renderIdentity.ts.
   instance_nonce?: string;
   time_origin?: number;
   // Renderer-bundle prefetch (renderer_prefetch_started / _completed). Fired

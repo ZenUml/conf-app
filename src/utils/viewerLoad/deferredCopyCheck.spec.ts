@@ -106,6 +106,21 @@ describe('runDeferredCopyCheck', () => {
     )
   })
 
+  it('settles normally when completion telemetry throws', async () => {
+    const doc = makeDoc()
+    store.state.diagram = doc
+    vi.mocked(trackAnalyticsEvent).mockImplementation(() => {
+      throw new Error('analytics unavailable')
+    })
+    const ap = { detectCopy: vi.fn().mockResolvedValue({ isCopy: false }) }
+
+    await expect(
+      runDeferredCopyCheck(ap as any, doc, 'cc-1', 'page-1', 'sequence'),
+    ).resolves.toBeUndefined()
+    expect(store.state.diagram.isCopy).toBe(false)
+    expect(store.state.diagram.copyCheckPending).toBe(false)
+  })
+
   it('writes through the store proxy so a reactive watcher on the mounted doc fires', async () => {
     const doc = makeDoc()
     store.state.diagram = doc

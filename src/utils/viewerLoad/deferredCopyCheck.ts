@@ -26,7 +26,7 @@ export async function runDeferredCopyCheck(
   doc: Diagram,
   customContentId: string,
   ccPageId: string | number | undefined,
-  macroType: DeferredAdfMacroType = 'sequence',
+  macroType: DeferredAdfMacroType,
 ): Promise<void> {
   const startedAt = performance.now();
   let verdict: { isCopy: boolean; copyReason?: Diagram['copyReason'] } | undefined;

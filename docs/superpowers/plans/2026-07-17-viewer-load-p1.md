@@ -8,7 +8,7 @@
 
 **Tech Stack:** Vue 3 + Vuex 4 (`src/model/store2`), TypeScript, Vitest (`pnpm test:unit <path>`), `@forge/bridge` FeatureFlags SDK (pattern: `src/utils/prefetch/flags.ts`).
 
-**Background docs:** `private/operations/2026-07-17-coles-mermaid-root-cause-and-fix-plan.md` (root cause + P1 definition), `RENDERING_PERF_INSTRUMENTATION.md` (phase timer design).
+**Background docs:** `private/operations/2026-07-17-viewer-load-slow-feedback-root-cause-and-fix-plan.md` (root cause + P1 definition; names the affected tenant — private submodule only), `RENDERING_PERF_INSTRUMENTATION.md` (phase timer design).
 
 ## Global Constraints
 
@@ -661,7 +661,7 @@ git commit -m "test(viewer): copy notice appears when deferred scan verdict land
 ### Task 9: Ship
 
 - [ ] **Step 1: Validate the branch** — run the `validate-branch` skill (lint, unit, build sanity).
-- [ ] **Step 2: PR** — run the `submit-branch` skill. PR description must include: root-cause link (private doc path only, no tenant data beyond `colesgroup` — that name must NOT appear; say "an affected enterprise tenant"), the flag rollout steps (create `viewer-adf-scan-deferred` in the Developer Console for lite/full/diagramly/asyncapi apps, default OFF everywhere; enable staging first), and the observation plan (Mixpanel board 11377482, `adf_deferred` split once live).
+- [ ] **Step 2: PR** — run the `submit-branch` skill. PR description must include: root-cause link (neutral private doc path only; refer to the customer as "an affected enterprise tenant" — no real tenant name anywhere), the flag rollout steps (create `viewer-adf-scan-deferred` in the Developer Console for lite/full/diagramly/asyncapi apps, default OFF everywhere; enable staging first), and the observation plan (Mixpanel board 11377482, `adf_deferred` split once live).
 - [ ] **Step 3: Do NOT merge, do NOT create the console flags, do NOT deploy** — those are explicit user go-aheads per repo policy.
 
 ## Client-privacy constraint (repo hard rule)

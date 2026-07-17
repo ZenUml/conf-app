@@ -237,11 +237,38 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // ZEN-1170 Defect 1: see forge-graph-editor.ts for why this uses
     // config.uuid and not forgeGlobal.localId.
     const storageUuid: string | undefined = context.extension?.config?.uuid;
+
+    // P1.1: viewer surfaces may defer the ADF copy-scan. Kick the flag read
+    // off NOW so it overlaps the custom-content GET; the decision callback
+    // awaits it only after that GET returns — zero added blocking time when
+    // the flag is off. Editor/config surfaces never defer (their blocking
+    // copy check guards the save path).
+    const isEditorish =
+      context.extension.modal?.macroMode === 'editor' ||
+      !!context.extension?.macro?.isConfiguring;
+    let shouldDeferAdfScan: (() => Promise<boolean>) | undefined;
+    if (!isEditorish) {
+      const flagsPromise = import('@/utils/viewerLoad/flags')
+        .then(({ getViewerLoadFlags }) => getViewerLoadFlags())
+        .catch(() => ({ adfScanDeferred: false }));
+      shouldDeferAdfScan = async () => {
+        const deferred = (await flagsPromise).adfScanDeferred;
+        renderPerf.markAdfDeferred(deferred);
+        return deferred;
+      };
+    }
+
     if (customContentId) {
       const loaded = await renderPerf.time('fetch', () =>
-        globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId));
+        globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId, { shouldDeferAdfScan }));
       console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
       doc = loaded.customContent?.value;
+      if (doc?.copyCheckPending && loaded.customContent) {
+        // Fire-and-forget: render proceeds now; the verdict lands on the
+        // mounted diagram (store write-through) when the scan returns.
+        import('@/utils/viewerLoad/deferredCopyCheck').then(({ runDeferredCopyCheck }) =>
+          runDeferredCopyCheck(globals.apWrapper, doc!, customContentId, loaded.customContent!.pageId));
+      }
       if (loaded.recoveredFromOrphanId && doc) {
         doc.recoveredFromOrphan = true;
         doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;

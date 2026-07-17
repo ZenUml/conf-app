@@ -1,9 +1,11 @@
 import type ApWrapper2 from '@/model/ApWrapper2';
 import type { Diagram } from '@/model/Diagram/Diagram';
 // @ts-expect-error — src/shims-vue.d.ts re-exports @vue/runtime-dom, which
-// doesn't surface reactivity-only symbols like toRaw (pre-existing gap; see
-// e.g. src/composables/useCustomerSuccessService.ts's `ref` in the tsc
-// baseline for the same pattern with other symbols).
+// doesn't surface reactivity-only symbols like toRaw. This is a project-wide
+// gap, not specific to this file: ref/computed/watch imports from 'vue' fail
+// identically and are already part of the pre-existing ~150-error tsc
+// baseline (no other file suppresses it with @ts-expect-error — this
+// suppression exists solely to keep this task's tsc-count guard at 352).
 import { toRaw } from 'vue';
 
 /**
@@ -35,7 +37,7 @@ export async function runDeferredCopyCheck(
       target.copyReason = verdict.copyReason;
     }
     target.copyCheckPending = false;
-  } catch (e) {
+  } catch {
     // Store not available (tests/teardown) — still clear the raw doc.
     if (verdict) {
       doc.isCopy = verdict.isCopy;

@@ -82,6 +82,24 @@ Output is a JSON object — `{"zenuml-stg":true,"tenant-a":true,...}` — keys a
 
 **Authentication:** the wrapper relies on `npx wrangler` being authenticated. If you get `401 Unauthorized`, run `npx wrangler login` in an interactive terminal or export `CLOUDFLARE_API_TOKEN` with Workers KV read (and write if updating CSS). Until auth works, skip the "on CSS?" column and state clearly that the CSS list was unavailable — do not infer enrollment from Mixpanel alone.
 
+### Refresh the Ops Console "Paywalled" list
+
+Whenever Step 1 returns a live flag, also refresh `private/src/data/paywall-enrolled.json` so the Handbook **Ops Console** client-profiles page ("Customers") shows the **Paywalled** filter accurately. Take the flag keys whose value is `true`, **exclude** internal sites (`zenuml`, `zenuml-connect`, `zenuml-stg`, `lite-stg`) and any **`-x-` soft-disabled** key (those resolve to "not enrolled"), and write (Write tool):
+
+```json
+{
+  "asOf": "<today YYYY-MM-DD>",
+  "source": "Live CUSTOMER_SUCCESS_SERVICE KV flag (paywall skill Step 1).",
+  "domains": ["<enrolled subdomain prefixes, internals + -x- excluded>"]
+}
+```
+
+If auth failed and the live flag was unavailable, **do not** overwrite the file — leave the last good snapshot in place. Commit it with the run:
+
+```bash
+cd ~/workspaces/zenuml/conf-app/private && git add src/data/paywall-enrolled.json && git commit -m "chore(cockpit): paywall-enrolled list $(date +%Y-%m-%d)"
+```
+
 ## Infrastructure constants
 
 | Resource | Value |
@@ -592,6 +610,28 @@ End your run with a section like this:
 ```
 
 Apply proposed improvements directly to the skill file without asking for confirmation.
+
+---
+
+## Emit the Ops Console paywall vital
+
+After the A/B comparison (Step A2/A3), persist the friction headline so the Handbook **Ops Console** cockpit ("Today" → Live Vitals → *Paywall A/B friction*) shows it instead of a placeholder. Write `private/src/data/paywall-ab.json` (Write tool) with this exact shape:
+
+```json
+{
+  "asOf": "<today YYYY-MM-DD>",
+  "groupASuccessPct": <Group A aggregate success_rate, %>,
+  "groupBSuccessPct": <Group B aggregate success_rate, %>,
+  "abGapPp": <groupBSuccessPct − groupASuccessPct, percentage points>,
+  "continuedRatePct": <project-wide paywall_continued_editing / paywall_triggered, %>
+}
+```
+
+The cockpit shows `abGapPp` (the A/B friction gap — the primary signal per Step A3) with the A vs B rates beneath, and stamps `asOf`. Rebuild — `cd private && pnpm build` — or rely on a running dev server's hot-reload. Commit it with the run:
+
+```bash
+cd ~/workspaces/zenuml/conf-app/private && git add src/data/paywall-ab.json && git commit -m "chore(cockpit): paywall vital $(date +%Y-%m-%d)"
+```
 
 ---
 

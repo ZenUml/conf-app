@@ -347,6 +347,27 @@ Peak hour: {time} with {N} total views
 - ✅ No critical issues (or list flags)
 ```
 
+## Emit the Ops Console health vital
+
+After producing the report above, persist the headline numbers so the Handbook **Ops Console** cockpit ("Today" → Live Vitals → *Product Health*) shows them instead of a placeholder. Write `private/src/data/health.json` (Write tool) with this exact shape — use the **1-day** activity totals and today's `save_failed`:
+
+```json
+{
+  "asOf": "<today YYYY-MM-DD>",
+  "window": "1d",
+  "macroViewed": <macro_viewed 1d total>,
+  "createSucceeded": <macro_create_succeeded 1d total>,
+  "saveSucceeded": <macro_save_succeeded 1d total>,
+  "saveFailed": <save_failed today total>
+}
+```
+
+The cockpit reads `macroViewed` + `saveFailed` (the card turns coral when `saveFailed > 0`) and stamps `asOf`. Rebuild so it shows — `cd private && pnpm build` — or rely on a running dev server's hot-reload. Commit it with the run:
+
+```bash
+cd ~/workspaces/zenuml/conf-app/private && git add src/data/health.json && git commit -m "chore(cockpit): health vital $(date +%Y-%m-%d)"
+```
+
 ## Known Limitations
 
 - **Event migration complete (as of 2026-05-05)**: Events were renamed to canonical form on 2026-04-27. Legacy names (`view_macro`, `create_macro_end`, `edit_macro_end`) returned zero for both today and yesterday as of 2026-05-06 — the migration is done. Queries can now use canonical names only (`macro_viewed`, `macro_create_succeeded`, `macro_save_succeeded`). Keep the dual-query approach only if you need historical data before Apr 27; for current health checks, canonical queries alone are sufficient.

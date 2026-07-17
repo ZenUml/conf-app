@@ -3,6 +3,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { measureCacheState, trackRenderTime } from "./trackRenderTime";
 import { trackAnalyticsEvent } from "./trackAnalyticsEvent";
+import { getRenderIdentity } from "./renderIdentity";
 
 vi.mock("./trackAnalyticsEvent", () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -197,8 +198,7 @@ describe("trackRenderTime", () => {
     trackRenderTime("mermaid", true);
 
     const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)!;
-    expect(props.instance_nonce).toMatch(/[0-9a-f-]{36}/);
-    expect(props.time_origin).toBeTypeOf("number");
+    expect(props).toEqual(expect.objectContaining(getRenderIdentity()));
   });
 
   it("keeps instance_nonce constant across emissions from one module instance", () => {

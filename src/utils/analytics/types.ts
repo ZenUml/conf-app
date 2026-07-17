@@ -119,9 +119,15 @@ export type AnalyticsProperties = {
   // True when the viewer deferred the ADF copy-scan off the critical path
   // (flag `viewer-adf-scan-deferred`). Absent on editor/config surfaces.
   adf_deferred?: boolean;
+  // Deferred ADF completion (viewer_adf_scan_completed). `result` is bounded
+  // at the call site to 'succeeded' | 'failed'; failures use only the safe
+  // `failure_reason` value 'detect_copy_failed'.
+  copy_detected?: boolean;
+  copy_reason?: 'cross-page' | 'same-page-duplicate';
+  writeback_target?: 'store' | 'raw';
   // Random per-iframe id + performance.timeOrigin. Makes concurrent
   // duplicate mounts of one macro (remount storms) directly countable
-  // without burst reconstruction. See trackRenderTime.ts.
+  // without burst reconstruction. See renderIdentity.ts.
   instance_nonce?: string;
   time_origin?: number;
   // Renderer-bundle prefetch (renderer_prefetch_started / _completed). Fired

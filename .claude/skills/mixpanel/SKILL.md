@@ -42,7 +42,7 @@ Other events were renamed in the same wave; **`src/utils/analytics/catalog.ts` i
 
 | Event | Means | Key props / gotcha |
 |---|---|---|
-| `macro_viewed` | macro rendered on a page | `macro_type`, `client_domain`, `product_type`, `duration_ms`, `cache_state`. **Forge graph viewer does NOT emit it.** `macro_type='unknown'` signals failure **only** for sequence/mermaid/plantuml — graph/openapi/embed hardcode it. |
+| `macro_viewed` | macro rendered on a page | `macro_type`, `client_domain`, `product_type`, `duration_ms`, `cache_state`. All viewers emit it, including graph (fixed by PR #224 — `ForgeGraphViewer.vue` calls `trackRenderTime('graph', …)` in `renderViewer()`; verified in code 2026-07-18). `macro_type='unknown'` signals failure **only** for sequence/mermaid/plantuml — graph/openapi/embed hardcode it. |
 | `macro_create_succeeded` | new macro saved | `macro_type`, `client_domain` |
 | `macro_save_succeeded` | existing macro saved | `macro_type`, `client_domain` |
 | `macro_save_failed` | save failed | failure fields |
@@ -56,9 +56,9 @@ Full catalog + properties → conf-app `docs/analytics/events-catalog.md` + `src
 - **MCP / Run-Query:** computed boolean `is_internal_client_domain = false` — one filter, verified equivalent to the manual list as of 2026-06 (`danshuitaihejie` added to the manual list 2026-07-03; re-verify the computed prop covers it before relying on exact equivalence).
 - **JQL** (computed props unavailable there): exclude by `contains`/prefix with the canonical minimal set:
   ```
-  ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev", "dia-stg", "diagramly", "danshuitaihejie"]
+  ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev", "dia-stg", "asyncapi-stg", "diagramly", "danshuitaihejie"]
   ```
-  `"zenuml"` as a contains-match already catches `zenuml-connect` and `zenuml-stg`. `danshuitaihejie` is ruixiang's internal dev site — not a customer. This **supersedes the old `["zenuml","zenuml-stg","dia-stg"]`**, which under-excluded.
+  `"zenuml"` as a contains-match already catches `zenuml-connect` and `zenuml-stg`. `danshuitaihejie` is ruixiang's internal dev site — not a customer. `asyncapi-stg` is the AsyncAPI variant's E2E staging site (analogous to `full-stg`/`lite-stg`/`dia-stg`, one per variant) — missing from earlier versions of this list; confirmed 2026-07-16 it was leaking into a new-tenant JQL query (`asyncapi-stg` showed up as a "new customer" with 202 core events). This **supersedes the old `["zenuml","zenuml-stg","dia-stg"]`**, which under-excluded.
 
 ## Forge vs Connect runtime
 

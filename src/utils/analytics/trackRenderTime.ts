@@ -1,17 +1,9 @@
 import { trackAnalyticsEvent } from './trackAnalyticsEvent';
 import type { CacheState, MacroTypeValue, RenderMode, CacheSource } from './catalog';
 import { getTimings } from './renderPerf';
+import { getRenderIdentity } from './renderIdentity';
 import { isPrefetchDue } from '@/utils/prefetch/throttle';
 import type { PrefetchRenderer } from '@/utils/prefetch/rendererPrefetch';
-
-// P1.3 mount identity: one nonce per iframe module instance. Concurrent
-// duplicate mounts of the same macro (remount storms) become countable in
-// Mixpanel as distinct nonces sharing macro_uuid/page_id. crypto.randomUUID
-// is available in all supported browsers; the fallback covers jsdom/tests.
-const INSTANCE_NONCE: string =
-  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `nofallback-${Math.random().toString(36).slice(2)}`;
 
 // Below this many summed wire bytes across same-origin scripts we treat the boot
 // as warm: a disk-cache hit reports transferSize 0 and a 304 revalidation only a
@@ -86,8 +78,7 @@ export function trackRenderTime(
     cache_state: cacheState,
     ...(transferBytes !== undefined ? { transfer_bytes: transferBytes } : {}),
     ...timings,
-    instance_nonce: INSTANCE_NONCE,
-    time_origin: Math.round(performance.timeOrigin),
+    ...getRenderIdentity(),
   });
 
   scheduleRendererPrefetch(macroType);

@@ -112,6 +112,18 @@ export type AnalyticsProperties = {
   render_ms?: number;      // viewer render (lib load + diagram render)
   measured_sum_ms?: number; // bootstrap+context+fetch+render; duration_ms − this = unattributed remainder
   tab_hidden?: boolean;    // tab was backgrounded during load → exclude from percentiles (artifact)
+  // P1.3 fetch split (children of fetch_ms — NOT part of measured_sum_ms):
+  // custom-content GET vs full-page-ADF copy-scan. See renderPerf.ts.
+  custom_content_fetch_ms?: number;
+  page_adf_fetch_ms?: number;
+  // True when the viewer deferred the ADF copy-scan off the critical path
+  // (flag `viewer-adf-scan-deferred`). Absent on editor/config surfaces.
+  adf_deferred?: boolean;
+  // Random per-iframe id + performance.timeOrigin. Makes concurrent
+  // duplicate mounts of one macro (remount storms) directly countable
+  // without burst reconstruction. See trackRenderTime.ts.
+  instance_nonce?: string;
+  time_origin?: number;
   // Renderer-bundle prefetch (renderer_prefetch_started / _completed). Fired
   // only on an actual attempt (throttled to ≤1 per deploy per browser), never
   // on the skip path — volume stays far below page-view scale. See

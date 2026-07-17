@@ -1,5 +1,6 @@
 import {trackEvent, addonKey} from '@/utils/window';
 import time from '@/utils/timer';
+import * as renderPerf from '@/utils/analytics/renderPerf';
 import {IApWrapper, VersionType} from "@/model/IApWrapper";
 import {IMacroData} from "@/model/IMacroData";
 import {IContentProperty} from "@/model/IContentProperty";
@@ -95,6 +96,15 @@ export type ContentPropertyV2Result =
   | { status: 'page_not_found' }
   | { status: 'forbidden' }
   | { status: 'error'; reason: 'http' | 'parse' | 'thrown'; httpStatus?: number };
+
+// P1.1 (viewer-load perf): threaded through loadCustomContentWithOrphanRecovery
+// -> fetchCustomContentByIdV2WithStatus -> parseCustomContentByIdV2Response so
+// the viewer can defer the ADF copy-scan (detectCopy) until after first paint.
+export interface LoadCustomContentOpts {
+  // Resolves true ⇒ skip the blocking ADF copy-scan (viewer defers it).
+  // A callback (not a boolean) so the flag read overlaps the CC GET.
+  shouldDeferAdfScan?: () => Promise<boolean>;
+}
 
 export default class ApWrapper2 implements IApWrapper {
   versionType: VersionType;
@@ -511,14 +521,15 @@ export default class ApWrapper2 implements IApWrapper {
   // probing and rewriting a sibling on top of a transient failure would
   // cause false repairs. Returns a structured result so the loader can
   // decide whether to probe.
-  private async fetchCustomContentByIdV2WithStatus(id: string): Promise<{
+  private async fetchCustomContentByIdV2WithStatus(id: string, opts?: LoadCustomContentOpts): Promise<{
     customContent: ICustomContentV2 | undefined;
     status: 'ok' | 'not_found' | 'other_error';
     errorDetail?: string;
   }> {
     let rawResponse: any;
     try {
-      rawResponse = await this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`);
+      rawResponse = await renderPerf.time('cc_fetch', () =>
+        this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`));
     } catch (e: any) {
       return { customContent: undefined, status: 'other_error', errorDetail: e?.message ? String(e.message) : String(e) };
     }
@@ -542,11 +553,11 @@ export default class ApWrapper2 implements IApWrapper {
       trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
       return { customContent: undefined, status: 'other_error', errorDetail: 'malformed_or_empty_response' };
     }
-    const parsed = await this.parseCustomContentByIdV2Response(id, rawResponse);
+    const parsed = await this.parseCustomContentByIdV2Response(id, rawResponse, opts);
     return { customContent: parsed, status: parsed ? 'ok' : 'other_error' };
   }
 
-  private async parseCustomContentByIdV2Response(id: string, customContent: any): Promise<ICustomContentV2 | undefined> {
+  private async parseCustomContentByIdV2Response(id: string, customContent: any, opts?: LoadCustomContentOpts): Promise<ICustomContentV2 | undefined> {
     // forgeRequest returns the parsed JSON body regardless of HTTP status —
     // a 404 surfaces as { errors: [{ status: 404, code: 'NOT_FOUND', … }] }
     // (truthy but missing body.raw.value). Previously the next line crashed
@@ -560,34 +571,54 @@ export default class ApWrapper2 implements IApWrapper {
     }
     let diagram = JSON.parse(rawValue);
     diagram.source = DataSource.CustomContent;
-    const count = (await this._page.countMacros((m) => {
-      //TODO: filter by macro type
-      return m?.customContentId?.value === id;
-    }));
-    console.debug(`Found ${count} macros on page`);
 
-    const pageId = await this._page.getPageId();
-    // Require both sides present — undefined pageId on the custom content
-    // (e.g. content created via REST API without a container) previously
-    // caused a false-positive isCopy=true (issue #80).
-    let isCrossPageCopy = pageId && customContent?.pageId && pageId !== String(customContent.pageId);
-    if (isCrossPageCopy || count > 1) {
-      diagram.isCopy = true;
-      diagram.copyReason = isCrossPageCopy ? 'cross-page' : 'same-page-duplicate';
-      console.warn(`Detected copied macro - ID: ${id}, Cross-page copy: ${isCrossPageCopy}, Instances on page: ${count}, Source page: ${customContent?.pageId}, Current page: ${pageId}`);
+    if (opts?.shouldDeferAdfScan && await opts.shouldDeferAdfScan()) {
+      // P1.1: viewer chose to run the ADF copy-scan after first paint.
+      // deferredCopyCheck.ts owns completing this and clearing the flag.
+      diagram.copyCheckPending = true;
+    } else {
+      const verdict = await this.detectCopy(id, customContent?.pageId);
+      diagram.isCopy = verdict.isCopy;
+      diagram.copyReason = verdict.copyReason;
+      if (verdict.isCopy) {
+        console.warn(`Detected copied macro - ID: ${id}, reason: ${verdict.copyReason}, Source page: ${customContent?.pageId}`);
+      }
+    }
+    diagram.id = id;
+    let assign = <unknown>Object.assign({}, customContent, {value: diagram});
+    return <ICustomContentV2>assign;
+  }
+
+  /**
+   * P1.1: the ADF copy-scan, extracted so viewers can run it off the
+   * critical path. One full-page ADF GET via _page.countMacros. Timed as
+   * `adf_scan` → macro_viewed.page_adf_fetch_ms (first call wins).
+   */
+  async detectCopy(
+    id: string,
+    ccPageId: string | number | undefined,
+  ): Promise<{ isCopy: boolean; copyReason?: 'cross-page' | 'same-page-duplicate' }> {
+    return renderPerf.time('adf_scan', async () => {
+      const count = await this._page.countMacros((m) => {
+        //TODO: filter by macro type
+        return m?.customContentId?.value === id;
+      });
+      console.debug(`Found ${count} macros on page`);
+      const pageId = await this._page.getPageId();
+      // Require both sides present — undefined pageId on the custom content
+      // previously caused a false-positive isCopy=true (issue #80).
+      const isCrossPageCopy = !!(pageId && ccPageId && pageId !== String(ccPageId));
       if (isCrossPageCopy) {
         trackEvent('cross_page', 'duplication_detect', 'warning');
       }
       if (count > 1) {
         trackEvent('same_page', 'duplication_detect', 'warning');
       }
-    } else {
-      diagram.isCopy = false;
-      diagram.copyReason = undefined;
-    }
-    diagram.id = id;
-    let assign = <unknown>Object.assign({}, customContent, {value: diagram});
-    return <ICustomContentV2>assign;
+      if (isCrossPageCopy || count > 1) {
+        return { isCopy: true, copyReason: isCrossPageCopy ? 'cross-page' as const : 'same-page-duplicate' as const };
+      }
+      return { isCopy: false };
+    });
   }
 
   // ZEN-1170 read-only probe. When a viewer's customContentId can no longer
@@ -690,6 +721,7 @@ export default class ApWrapper2 implements IApWrapper {
   async loadCustomContentWithOrphanRecovery(
     pageId: string | undefined,
     customContentId: string,
+    opts?: LoadCustomContentOpts,
   ): Promise<{
     customContent: ICustomContentV2 | undefined;
     recoveredFromOrphanId?: string;
@@ -704,7 +736,10 @@ export default class ApWrapper2 implements IApWrapper {
     if (!isValidCustomContentId(customContentId)) {
       return { customContent: undefined, directFetchStatus: 'not_found' };
     }
-    const direct = await this.fetchCustomContentByIdV2WithStatus(customContentId);
+    // opts (shouldDeferAdfScan) is only threaded to the DIRECT fetch — the
+    // orphan-recovery re-fetch below (getCustomContentByIdV2) stays blocking
+    // since recovery is rare and its copy semantics must stay exact.
+    const direct = await this.fetchCustomContentByIdV2WithStatus(customContentId, opts);
     if (direct.status === 'ok' && direct.customContent) {
       return { customContent: direct.customContent, directFetchStatus: 'ok' };
     }

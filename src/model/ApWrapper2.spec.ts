@@ -667,6 +667,8 @@ describe('ApWrapper2', () => {
       const verdict = await wrapper.detectCopy('cc-1', 'page-1');
 
       expect(verdict).toEqual({ isCopy: true, copyReason: 'same-page-duplicate' });
+      expect(trackEvent).toHaveBeenCalledWith('same_page', 'duplication_detect', 'warning');
+      expect(trackEvent).not.toHaveBeenCalledWith('cross_page', 'duplication_detect', 'warning');
     });
 
     it('detectCopy reports cross-page when CC pageId differs', async () => {
@@ -676,6 +678,35 @@ describe('ApWrapper2', () => {
       const verdict = await wrapper.detectCopy('cc-1', 'page-1');
 
       expect(verdict).toEqual({ isCopy: true, copyReason: 'cross-page' });
+      expect(trackEvent).toHaveBeenCalledWith('cross_page', 'duplication_detect', 'warning');
+      expect(trackEvent).not.toHaveBeenCalledWith('same_page', 'duplication_detect', 'warning');
+    });
+
+    // Tie-break: a macro can simultaneously be a same-page duplicate (count>1)
+    // AND live on a different page than the CC's stored pageId. The extracted
+    // detectCopy must keep the original inline code's precedence — cross-page
+    // wins the reported copyReason — while still firing BOTH telemetry events
+    // (the original code's two `if`s are independent, not if/else-if).
+    it('detectCopy prefers cross-page as the reported reason when both conditions hold simultaneously', async () => {
+      vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(2);
+      vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-2');
+
+      const verdict = await wrapper.detectCopy('cc-1', 'page-1');
+
+      expect(verdict).toEqual({ isCopy: true, copyReason: 'cross-page' });
+      expect(trackEvent).toHaveBeenCalledWith('cross_page', 'duplication_detect', 'warning');
+      expect(trackEvent).toHaveBeenCalledWith('same_page', 'duplication_detect', 'warning');
+    });
+
+    it('detectCopy reports no copy and fires neither telemetry event when same page and count <= 1', async () => {
+      vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(1);
+      vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-1');
+
+      const verdict = await wrapper.detectCopy('cc-1', 'page-1');
+
+      expect(verdict).toEqual({ isCopy: false });
+      expect(trackEvent).not.toHaveBeenCalledWith('cross_page', 'duplication_detect', 'warning');
+      expect(trackEvent).not.toHaveBeenCalledWith('same_page', 'duplication_detect', 'warning');
     });
   });
 

@@ -308,7 +308,9 @@ export default {
       // this clause those docs have source=ContentProperty so showEdit
       // returns false and the disabled Edit button + tooltip steering the
       // user to the page editor never appears.
-      return this.canUserEdit && (isCustomContent || this.diagram.recoveredFromOrphan);
+      // Snapshot fallback: same surface — Edit is shown disabled with a
+      // "cached copy" tooltip (see editDisabledReason).
+      return this.canUserEdit && (isCustomContent || this.diagram.recoveredFromOrphan || this.diagram.snapshotFallback);
     },
     recoveredFromOrphanMessage() {
       return 'This diagram was recovered from a backup. To save changes, click Edit on the page (top right), then click Edit on this macro.';
@@ -324,6 +326,13 @@ export default {
       // surface (isConfiguring=true) can actually persist the writeback.
       if (this.diagram.recoveredFromOrphan) {
         return this.recoveredFromOrphanMessage;
+      }
+      // Source-snapshot fallback: live CC unreachable; showing host-page cache.
+      // Place before the isCopy branch so a snapshot-restored doc always gets
+      // the honest cached-copy notice (not a cross-page-copy message).
+      if (this.diagram.snapshotFallback) {
+        const when = this.diagram.snapshotAt ? new Date(this.diagram.snapshotAt).toLocaleDateString() : '';
+        return `Showing a cached copy${when ? ` from ${when}` : ''}. The original diagram is unavailable — it may have been deleted, or you may not have permission to view its source page.`;
       }
       if (!this.diagram.isCopy) return null;
       return this.diagram.copyReason === 'cross-page'

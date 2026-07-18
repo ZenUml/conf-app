@@ -70,6 +70,9 @@ describe('GenericViewer (chrome-less)', () => {
     store.state.diagram.isCopy = false
     store.state.diagram.title = 'Login flow'
     store.state.diagram.id = 'content-123'
+    store.state.diagram.snapshotFallback = false
+    store.state.diagram.snapshotAt = undefined
+    store.state.diagram.recoveredFromOrphan = false
   })
 
   describe('layout', () => {
@@ -387,6 +390,21 @@ describe('GenericViewer (chrome-less)', () => {
       await wrapper.vm.$nextTick()
       expect(wrapper.find('.viewer-recovered-chip').exists()).toBe(false)
       expect(wrapper.find('[data-testid="recovered-banner"]').exists()).toBe(false)
+    })
+  })
+
+  // Source-snapshot fallback (docs/superpowers/plans/2026-07-18-diagram-
+  // source-snapshot-attachments.md Task 6): when the viewer mounts a diagram
+  // restored from a host-page JSON snapshot, Edit is disabled with an honest
+  // "cached copy" notice rather than claiming the live source is available.
+  describe('snapshot fallback cached-copy notice', () => {
+    it('editDisabledReason contains "cached copy" when snapshotFallback is true', () => {
+      store.state.diagram.snapshotFallback = true
+      store.state.diagram.snapshotAt = '2026-07-01T00:00:00.000Z'
+      store.state.diagram.isCopy = false
+      store.state.diagram.recoveredFromOrphan = false
+      const wrapper = mountViewer()
+      expect((wrapper.vm as any).editDisabledReason).toContain('cached copy')
     })
   })
 

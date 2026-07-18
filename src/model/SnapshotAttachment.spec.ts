@@ -25,6 +25,7 @@ import {
   buildSnapshot,
   uploadSnapshot,
   fetchSnapshot,
+  snapshotToDiagram,
   type DiagramSnapshotV1,
 } from './SnapshotAttachment';
 
@@ -153,5 +154,69 @@ describe('fetchSnapshot', () => {
   it('returns undefined when getAttachmentsV2 itself throws', async () => {
     mockGetAttachmentsV2.mockRejectedValue(new Error('network error'));
     expect(await fetchSnapshot('page-1', '12345')).toBeUndefined();
+  });
+});
+
+describe('snapshotToDiagram', () => {
+  it('maps dsl to the per-type field and sets snapshot fallback markers', () => {
+    const mermaid = snapshotToDiagram({
+      version: 1,
+      ccId: 'cc-m',
+      diagramType: DiagramType.Mermaid,
+      title: 'Flow',
+      dsl: 'graph TD; A-->B',
+      snapshotAt: '2026-07-01T00:00:00.000Z',
+    });
+    expect(mermaid).toMatchObject({
+      diagramType: DiagramType.Mermaid,
+      mermaidCode: 'graph TD; A-->B',
+      title: 'Flow',
+      id: 'cc-m',
+      snapshotFallback: true,
+      snapshotAt: '2026-07-01T00:00:00.000Z',
+    });
+
+    const sequence = snapshotToDiagram({
+      version: 1,
+      ccId: 'cc-s',
+      diagramType: DiagramType.Sequence,
+      dsl: 'A.method',
+      snapshotAt: '2026-07-02T00:00:00.000Z',
+    });
+    expect(sequence).toMatchObject({
+      diagramType: DiagramType.Sequence,
+      code: 'A.method',
+      id: 'cc-s',
+      snapshotFallback: true,
+    });
+
+    const plantuml = snapshotToDiagram({
+      version: 1,
+      ccId: 'cc-p',
+      diagramType: DiagramType.PlantUml,
+      dsl: '@startuml\nA->B\n@enduml',
+      snapshotAt: '2026-07-03T00:00:00.000Z',
+    });
+    expect(plantuml).toMatchObject({
+      diagramType: DiagramType.PlantUml,
+      plantUmlCode: '@startuml\nA->B\n@enduml',
+      id: 'cc-p',
+      snapshotFallback: true,
+    });
+  });
+
+  it('returns DiagramType.Unknown for unsupported diagramType strings', () => {
+    const restored = snapshotToDiagram({
+      version: 1,
+      ccId: 'cc-x',
+      diagramType: 'graph',
+      dsl: '<mxGraphModel/>',
+      snapshotAt: '2026-07-01T00:00:00.000Z',
+    });
+    expect(restored.diagramType).toBe(DiagramType.Unknown);
+    expect(restored.snapshotFallback).toBe(true);
+    expect(restored.id).toBe('cc-x');
+    expect((restored as any).code).toBeUndefined();
+    expect((restored as any).graphXml).toBeUndefined();
   });
 });

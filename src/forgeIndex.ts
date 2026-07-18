@@ -455,6 +455,26 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       }
     }
 
+    // Snapshot-attachment fallback (docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md):
+    // the CC is unreachable (deleted source page or no read access — the API
+    // returns NOT_FOUND for both) and no legacy body exists. Render the host
+    // page's own snapshot so the macro doesn't go dark.
+    if (!doc && customContentId && recoveryPageId) {
+      const { fetchSnapshot, snapshotToDiagram } = await import('@/model/SnapshotAttachment');
+      const snapshot = await fetchSnapshot(String(recoveryPageId), String(customContentId));
+      if (snapshot) {
+        const restored = snapshotToDiagram(snapshot);
+        if (restored.diagramType !== DiagramType.Unknown) {
+          doc = restored;
+          const ageDays = Math.floor((Date.now() - new Date(snapshot.snapshotAt).getTime()) / 86400000);
+          trackAnalyticsEvent('snapshot_fallback_rendered', {
+            feature_area: 'macro', surface: 'viewer',
+            custom_content_id: String(customContentId), snapshot_age_days: ageDays,
+          });
+        }
+      }
+    }
+
     // ZEN-1170 (pre-Defect-1 behavior preserved): when CC was attempted but
     // failed AND we have no legacy storageUuid to try AND legacy fallback
     // wasn't blocked, mount the placeholder empty doc so the wipe-precursor

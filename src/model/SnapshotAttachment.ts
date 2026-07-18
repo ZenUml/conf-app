@@ -156,3 +156,24 @@ export async function maybeBackfillSnapshot(opts: {
     });
   }
 }
+
+// Verified against Diagram model / DiagramTypeConfig: field is plantUmlCode
+// (capital U), not plantumlCode.
+const DSL_FIELD: Record<string, 'code' | 'mermaidCode' | 'plantUmlCode'> = {
+  [DiagramType.Sequence]: 'code',
+  [DiagramType.Mermaid]: 'mermaidCode',
+  [DiagramType.PlantUml]: 'plantUmlCode',
+};
+
+export function snapshotToDiagram(snapshot: DiagramSnapshotV1): Diagram {
+  const field = DSL_FIELD[snapshot.diagramType];
+  const diagram: any = {
+    diagramType: field ? snapshot.diagramType : DiagramType.Unknown,
+    title: snapshot.title,
+    id: snapshot.ccId,
+    snapshotFallback: true,
+    snapshotAt: snapshot.snapshotAt,
+  };
+  if (field) diagram[field] = snapshot.dsl;
+  return diagram as Diagram;
+}

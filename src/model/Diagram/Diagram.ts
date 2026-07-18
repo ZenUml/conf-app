@@ -84,6 +84,13 @@ export class Diagram {
   // refuses to save such diagrams so a failed legacy load can never be
   // silently replaced with an empty/example diagram.
   legacyLoadBlocked?: boolean = undefined;
+  // Source-snapshot fallback (docs/superpowers/plans/2026-07-18-diagram-
+  // source-snapshot-attachments.md): true when the diagram was restored from
+  // a host-page zenuml-<ccId>.json attachment because the live custom content
+  // was unreachable. GenericViewer surfaces a "cached copy" notice.
+  snapshotFallback?: boolean = undefined;
+  // ISO timestamp of the snapshot attachment used for snapshotFallback.
+  snapshotAt?: string = undefined;
 
   public getCoreData?(): string {
     return getDiagramData(this);

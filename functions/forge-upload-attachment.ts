@@ -39,15 +39,29 @@ import type { ForgeRequestData } from "./utils/authenticate";
 //    writing as the app we confirm the *calling user* can read the target page
 //    (GET as `x-forge-oauth-user`). This stops a user using the app's elevated
 //    scope to write to pages they can't even see (confused-deputy).
-// 3. attachmentName is constrained to our own `zenuml-<id>.png` namespace, the
-//    PNG is size- and magic-byte-checked. We only ever write our own artifact.
+// 3. attachmentName is constrained to our own `zenuml-<id>.{png,json}`
+//    namespace, and the extension must agree with the declared contentType.
+//    A PNG payload is additionally size- and magic-byte-checked. We only ever
+//    write our own artifacts.
 //
 // Wire contract (frontend → here)
 //   { pageId: string, attachmentId?: string, attachmentName: string,
-//     hash: string, versionNumber?: number, pngBase64: string, async?: boolean }
+//     hash: string, versionNumber?: number,
+//     pngBase64?: string, dataBase64?: string, contentType?: string,
+//     async?: boolean }
 //   attachmentId present  → new version of an existing attachment
 //   attachmentId absent   → brand-new attachment
 //   async: true           → save-time fire-and-forget (see below)
+//   contentType           → one of ALLOWED_CONTENT_TYPES; defaults to
+//                            'image/png' when absent (legacy callers). Must
+//                            agree with attachmentName's extension.
+//   pngBase64 / dataBase64 → exactly one of these carries the base64 payload.
+//                            `pngBase64` is the legacy PNG-only field, kept for
+//                            backward compatibility with clients mid-rollout;
+//                            `dataBase64` is the generic field new callers
+//                            (e.g. the diagram-source JSON snapshot,
+//                            zenuml-<ccId>.json) use, together with
+//                            `contentType: 'application/json'`.
 //
 // Response (always HTTP 200 so callRemote doesn't throw on logical failures)
 //   success: { ok: true,  attachmentId: string, versionNumber: number }
@@ -68,11 +82,21 @@ import type { ForgeRequestData } from "./utils/authenticate";
 // has already closed the editor and the view-time backfill remains the net.
 // ---------------------------------------------------------------------------
 
-// Only our own derived artifact — `zenuml-<customContentId>.png`. Rejects path
-// traversal and anything outside our namespace.
-const ATTACHMENT_NAME_RE = /^zenuml-[A-Za-z0-9._-]+\.png$/;
-const MAX_PNG_BYTES = 5 * 1024 * 1024; // generous ceiling for a diagram screenshot
+// Only our own derived artifacts — `zenuml-<customContentId>.png` (backup
+// screenshot) or `zenuml-<customContentId>.json` (diagram-source snapshot,
+// docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md).
+// Rejects path traversal and anything outside our namespace.
+const ATTACHMENT_NAME_RE = /^zenuml-[A-Za-z0-9._-]+\.(png|json)$/;
+const MAX_PAYLOAD_BYTES = 5 * 1024 * 1024; // generous ceiling for a diagram screenshot or snapshot
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47]; // "\x89PNG"
+
+// contentType allowlist -> the file extension it must be paired with. Keeps
+// the namespace guard just as tight as the PNG-only original: a caller can't
+// smuggle an arbitrary MIME type in, and can't mismatch name vs. declared type.
+const ALLOWED_CONTENT_TYPES: Record<string, string> = {
+  'image/png': 'png',
+  'application/json': 'json',
+};
 
 function fail(status: number, body: string) {
   return OkResponse({ ok: false, status, body });
@@ -97,6 +121,7 @@ async function doUpload(
     hash: string;
     versionNumber?: number;
     bytes: Uint8Array;
+    contentType: string;
   },
 ): Promise<UploadResult> {
   // ---- authz: confirm the calling user can read the target page ----------
@@ -119,7 +144,7 @@ async function doUpload(
   }
 
   // ---- upload the attachment data as the app -----------------------------
-  const blob = new Blob([p.bytes], { type: 'image/png' });
+  const blob = new Blob([p.bytes], { type: p.contentType });
   const form = new FormData();
   form.append('minorEdit', 'true');
   form.append('comment', String(p.hash));
@@ -218,35 +243,67 @@ export const onRequest = async ({
     }
 
     const body: any = await request.json();
-    const { pageId, attachmentId, attachmentName, hash, versionNumber, pngBase64, async: asyncMode } = body ?? {};
+    const {
+      pageId, attachmentId, attachmentName, hash, versionNumber,
+      pngBase64, dataBase64, contentType: rawContentType, async: asyncMode,
+    } = body ?? {};
 
     // ---- input validation (confused-deputy mitigation) --------------------
     if (!pageId || !/^[0-9]+$/.test(String(pageId))) {
       return fail(400, 'invalid pageId');
     }
     if (!attachmentName || !ATTACHMENT_NAME_RE.test(String(attachmentName))) {
-      return fail(400, 'invalid attachmentName (must be zenuml-<id>.png)');
+      return fail(400, 'invalid attachmentName (must be zenuml-<id>.png or zenuml-<id>.json)');
     }
-    if (!hash || !pngBase64) {
-      return fail(400, 'missing hash or pngBase64');
+
+    // contentType defaults to image/png for backward compatibility with
+    // legacy callers that only ever sent a PNG and never set this field.
+    const contentType = String(rawContentType ?? 'image/png');
+    if (!(contentType in ALLOWED_CONTENT_TYPES)) {
+      return fail(400, `invalid contentType (must be one of: ${Object.keys(ALLOWED_CONTENT_TYPES).join(', ')})`);
+    }
+    // The attachmentName's extension and the declared contentType must agree —
+    // this is what stops "upload a PNG under a .json name" (or vice versa)
+    // from smuggling the wrong bytes into the wrong-looking artifact.
+    const nameExt = String(attachmentName).slice(String(attachmentName).lastIndexOf('.') + 1).toLowerCase();
+    if (ALLOWED_CONTENT_TYPES[contentType] !== nameExt) {
+      return fail(400, `attachmentName extension (.${nameExt}) does not match contentType (${contentType})`);
+    }
+
+    // Exactly one of the legacy `pngBase64` field and the generic `dataBase64`
+    // field must carry the payload — both keeps backward compatibility with
+    // in-flight Forge rollouts while giving new callers (e.g. the JSON
+    // snapshot) a type-agnostic field name.
+    if (dataBase64 !== undefined && pngBase64 !== undefined) {
+      return fail(400, 'provide only one of dataBase64 or pngBase64');
+    }
+    const payloadBase64 = dataBase64 ?? pngBase64;
+    if (!hash || !payloadBase64) {
+      return fail(400, 'missing hash or data (pngBase64/dataBase64)');
     }
 
     let bytes: Uint8Array;
     try {
-      const binary = atob(String(pngBase64));
+      const binary = atob(String(payloadBase64));
       bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     } catch {
-      return fail(400, 'pngBase64 is not valid base64');
+      return fail(400, 'payload is not valid base64');
     }
-    if (bytes.length > MAX_PNG_BYTES) {
-      return fail(413, `png too large (${bytes.length} bytes)`);
+    if (bytes.length > MAX_PAYLOAD_BYTES) {
+      return fail(413, `payload too large (${bytes.length} bytes)`);
     }
-    if (bytes.length < 8 || !PNG_MAGIC.every((b, i) => bytes[i] === b)) {
+    // Magic-byte check applies only to the PNG payload — an application/json
+    // payload is arbitrary text bytes; the namespace + extension/contentType
+    // consistency check above is its guard.
+    if (contentType === 'image/png' && (bytes.length < 8 || !PNG_MAGIC.every((b, i) => bytes[i] === b))) {
       return fail(400, 'payload is not a PNG');
     }
 
-    const params = { pageId: String(pageId), attachmentId, attachmentName: String(attachmentName), hash: String(hash), versionNumber, bytes };
+    const params = {
+      pageId: String(pageId), attachmentId, attachmentName: String(attachmentName),
+      hash: String(hash), versionNumber, bytes, contentType,
+    };
 
     // Async (save-time) mode: validation has passed, so ACK now and finish the
     // read-check + upload + PUT in waitUntil — that keeps the worker alive past

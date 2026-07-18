@@ -49,16 +49,17 @@ describe('maybeBackfillSnapshot', () => {
 
   it('creates a snapshot on the host page for a cross-page alias with no existing snapshot', async () => {
     mockGetAttachmentsV2.mockResolvedValue([]); // fetchSnapshot: nothing exists yet
-    mockRequestConfluence.mockResolvedValue({ ok: true, status: 200 }); // uploadSnapshot PUT
+    mockRequestConfluence.mockResolvedValue({ ok: true, status: 200 }); // uploadSnapshot POST
 
     await maybeBackfillSnapshot(baseOpts());
 
-    // fetchSnapshot's getAttachmentsV2 GET, then uploadSnapshot's PUT.
+    // fetchSnapshot's getAttachmentsV2 GET, then uploadSnapshot's POST (never PUT —
+    // PUT 404s through the Forge proxy; see SnapshotAttachment.uploadSnapshot).
     expect(mockGetAttachmentsV2).toHaveBeenCalledWith('host-page', { filename: 'zenuml-12345.json' });
     expect(mockRequestConfluence).toHaveBeenCalledTimes(1);
     const [url, init] = mockRequestConfluence.mock.calls[0];
     expect(url).toContain('/wiki/rest/api/content/host-page/child/attachment');
-    expect(init.method).toBe('PUT');
+    expect(init.method).toBe('POST');
     expect(mockTrackAnalyticsEvent).toHaveBeenCalledWith('snapshot_created', expect.objectContaining({
       feature_area: 'macro', surface: 'editor', snapshot_trigger: 'editor_backfill', custom_content_id: '12345',
     }));
@@ -95,7 +96,7 @@ describe('maybeBackfillSnapshot', () => {
 
     await maybeBackfillSnapshot(baseOpts({ ccVersion: 5 }));
 
-    // Only the fetchSnapshot GET/download round trip — no upload PUT.
+    // Only the fetchSnapshot GET/download round trip — no upload POST.
     expect(mockRequestConfluence).toHaveBeenCalledTimes(1);
     expect(mockRequestConfluence.mock.calls[0][0]).toContain('/download/');
   });
@@ -105,7 +106,7 @@ describe('maybeBackfillSnapshot', () => {
       version: 1, ccId: '12345', ccVersion: 2, diagramType: DiagramType.Mermaid,
       dsl: 'graph TD; A-->old', snapshotAt: '2026-06-01T00:00:00.000Z',
     };
-    mockGetAttachmentsV2.mockResolvedValue([{ _links: { download: '/download/attachments/1/zenuml-12345.json' } }]);
+    mockGetAttachmentsV2.mockResolvedValue([{ id: 'att-7', _links: { download: '/download/attachments/1/zenuml-12345.json' } }]);
     mockRequestConfluence.mockImplementation((url: string) => {
       if (url.includes('/download/')) return Promise.resolve({ ok: true, text: () => Promise.resolve(JSON.stringify(staleSnapshot)) });
       return Promise.resolve({ ok: true, status: 200 });
@@ -113,9 +114,11 @@ describe('maybeBackfillSnapshot', () => {
 
     await maybeBackfillSnapshot(baseOpts({ ccVersion: 5 }));
 
-    expect(mockRequestConfluence).toHaveBeenCalledTimes(2); // download check + PUT
-    const putCall = mockRequestConfluence.mock.calls.find(c => c[1]?.method === 'PUT');
-    expect(putCall).toBeTruthy();
+    expect(mockRequestConfluence).toHaveBeenCalledTimes(2); // download check + upload POST
+    const uploadCall = mockRequestConfluence.mock.calls.find(c => c[1]?.method === 'POST');
+    expect(uploadCall).toBeTruthy();
+    // Existing attachment -> the /data update endpoint, not a duplicate create.
+    expect(uploadCall![0]).toBe('/wiki/rest/api/content/host-page/child/attachment/att-7/data');
     expect(mockTrackAnalyticsEvent).toHaveBeenCalledWith('snapshot_created', expect.anything());
   });
 

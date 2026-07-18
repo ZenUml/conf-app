@@ -2,6 +2,7 @@
 
 export type FeatureArea =
   | "macro"
+  | "macro_count"
   | "ai"
   | "upgrade"
   | "content"
@@ -28,6 +29,7 @@ export type Surface =
   | "dashboard"
   | "route"
   | "forge_trigger"
+  | "scheduled_job"
   // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
   // the small-macro `viewer` surface that hosts the initial Connect button.
   | "fullscreen";
@@ -196,6 +198,14 @@ export type AnalyticsEventName =
   // Deferred Sequence-family page-ADF copy scan settled after the viewer's
   // first render. Correlates to macro_viewed through instance_nonce/time_origin.
   | "viewer_adf_scan_completed"
+  // Daily macro-count inventory snapshots. These are emitted by the
+  // Cloudflare snapshot service, not by the browser tracker. Registering them
+  // here keeps the shared analytics vocabulary explicit before the scheduled
+  // job is wired (docs/superpowers/specs/
+  // 2026-07-18-daily-macro-count-snapshots-design.md).
+  | "macro_count_snapshot_completed"
+  | "macro_count_space_changed"
+  | "macro_count_snapshot_failed"
   | "close_guard_rejected"
   | "renderer_prefetch_started"
   | "renderer_prefetch_completed"

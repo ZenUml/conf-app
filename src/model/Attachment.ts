@@ -598,6 +598,7 @@ async function uploadAttachmentViaApp(
   attachmentName: string,
   effectiveHash: string,
   blob: Blob,
+  opts?: { async?: boolean },
 ): Promise<AttachmentMeta> {
   const pngBase64 = await blobToBase64(blob);
   let raw: unknown;
@@ -609,6 +610,9 @@ async function uploadAttachmentViaApp(
       hash: effectiveHash,
       versionNumber: target.versionNumber,
       pngBase64,
+      // Async mode: the backend acks after validation and completes the write
+      // in waitUntil (survives editor teardown). See createAttachmentIfContentChanged.
+      ...(opts?.async ? { async: true } : {}),
     });
   } catch (e) {
     // callRemote throws on a non-2xx transport response (e.g. the function
@@ -622,6 +626,9 @@ async function uploadAttachmentViaApp(
       String(result?.body ?? 'app fallback failed'),
     );
   }
+  // Async mode acks with { ok:true, queued:true } — the real attachmentId
+  // isn't known yet (the write happens server-side after the response). Return
+  // the snapshot version and an empty id; callers use this only for telemetry.
   return {
     attachmentId: String(result.attachmentId ?? target.attachmentId ?? ''),
     versionNumber: typeof result.versionNumber === 'number' ? result.versionNumber : target.versionNumber,
@@ -742,6 +749,26 @@ async function createAttachmentIfContentChanged(
 
       // Render once — the same PNG bytes feed the user attempt AND the fallback.
       const { blob, effectiveHash } = await renderAttachmentPng(hash, content, diagramType);
+
+      // Save-time path (perf/publish-async-backup): the editor blocks its
+      // dialog close on this write only because view.submit tears down the
+      // iframe. Hand the PNG to the backend in async mode — it acks after
+      // validation and finishes the Confluence POST+PUT in waitUntil, which
+      // survives the teardown. So the client blocks on capture + a fast ack
+      // (~1.5–3.5s) instead of capture + the full upload (~3–8s). The user is
+      // the page editor here, so the app-token read-check always passes.
+      if (opts?.fromSave) {
+        await uploadAttachmentViaApp(pageId, target, attachmentName, effectiveHash, blob, { async: true });
+        // Not "succeeded": the write completes server-side after we return, so
+        // this is a queued signal. The view-time backfill + downstream
+        // macro_export_* events measure the ultimate outcome.
+        trackEvent(isUpdate ? 'updated' : 'created', 'attachment_upload_queued', 'export', {
+          ...ctx,
+          version_number: target.versionNumber,
+          from_save: true,
+        });
+        return;
+      }
 
       let attachmentMeta: AttachmentMeta;
       let viaAppFallback = false;

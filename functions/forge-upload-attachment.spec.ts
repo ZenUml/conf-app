@@ -181,4 +181,58 @@ describe('forge-upload-attachment', () => {
     expect((await readJson(res)).status).toBe(401);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  // Async (save-time) mode — perf/publish-async-backup.
+  describe('async mode', () => {
+    it('schedules the write via waitUntil and acks { ok:true, queued:true } immediately', async () => {
+      routeFetch({
+        read: fetchResponse(200, '{}'),
+        upload: fetchResponse(200, JSON.stringify({ results: [{ id: 'att-async-1' }] })),
+        put: fetchResponse(200, '{}'),
+      });
+      const scheduled: Promise<unknown>[] = [];
+      const waitUntil = vi.fn((p: Promise<unknown>) => scheduled.push(p));
+
+      const res = await onRequest({
+        request: makeRequest({ ...basePayload, async: true }),
+        data: FORGE_DATA,
+        waitUntil,
+      } as any);
+
+      // Acked before the write ran.
+      expect(await readJson(res)).toEqual({ ok: true, queued: true });
+      expect(waitUntil).toHaveBeenCalledTimes(1);
+
+      // The scheduled work still performs the full read + upload + PUT.
+      await Promise.all(scheduled);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('still ACKs but does the read+upload+PUT inline when no waitUntil is available', async () => {
+      routeFetch({
+        read: fetchResponse(200, '{}'),
+        upload: fetchResponse(200, JSON.stringify({ results: [{ id: 'att-async-2' }] })),
+        put: fetchResponse(200, '{}'),
+      });
+
+      const res = await onRequest({
+        request: makeRequest({ ...basePayload, async: true }),
+        data: FORGE_DATA,
+      } as any);
+
+      expect(await readJson(res)).toEqual({ ok: true, queued: true });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('rejects invalid input BEFORE acking (validation is not bypassed by async)', async () => {
+      const res = await onRequest({
+        request: makeRequest({ ...basePayload, async: true, attachmentName: '../../evil.png' }),
+        data: FORGE_DATA,
+        waitUntil: vi.fn(),
+      } as any);
+
+      expect(await readJson(res)).toMatchObject({ ok: false, status: 400 });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
 });

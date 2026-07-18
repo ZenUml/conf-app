@@ -160,6 +160,14 @@ export type AnalyticsEventName =
   // text-DSL types only (sequence / mermaid / plantuml).
   | "viewer_source_opened"
   | "viewer_source_copied"
+  // Editor staleness hint (docs/superpowers/specs/
+  // 2026-07-18-job-b-editor-staleness-hint-design.md). Shown on inline
+  // page-editor renders when the host page drifted >=5 versions past the
+  // diagram's last update. Job B shell / author-conversion core: the north
+  // star is a non-author's first macro_save_succeeded after a hint click.
+  | "staleness_hint_shown"
+  | "staleness_hint_clicked"
+  | "staleness_hint_dismissed"
   // User-cohort targeting pipeline (docs/superpowers/plans/
   // 2026-07-18-user-cohort-targeting-pipeline.md). The macro iframe refreshes
   // the current user's cohort membership from /api/user-cohorts (KV-backed,

@@ -10,6 +10,7 @@ import forgeGlobal from '@/model/globals/forgeGlobal';
 import { reportSaveRefusedLegacyLoadBlocked } from '@/utils/legacyContentPropertyTelemetry';
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { buildSnapshot, uploadSnapshot, snapshotAttachmentName } from '@/model/SnapshotAttachment';
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -115,6 +116,38 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
     }
     markRecentMacroActivity(isNew ? 'create' : 'edit');
     markCsatPending();
+
+    // Diagram source snapshot attachment (docs/superpowers/plans/
+    // 2026-07-18-diagram-source-snapshot-attachments.md, Task 3): a per-page
+    // JSON snapshot, written at THIS save (write permission on the current
+    // page is guaranteed here) alongside the existing PNG backup. Snapshot
+    // failures must never fail the save — every step below is wrapped.
+    try {
+      const snapshot = buildSnapshot(diagram, savedId, customContent.version?.number);
+      if (snapshot) {
+        const pageId = await apWrapper._getCurrentPageId();
+        if (pageId) {
+          await uploadSnapshot(pageId, snapshot);
+          trackAnalyticsEvent('snapshot_created', {
+            feature_area: 'macro',
+            surface: 'editor',
+            macro_type: macroType,
+            snapshot_trigger: 'save',
+            custom_content_id: savedId,
+            attachment_name: snapshotAttachmentName(savedId),
+          });
+        }
+      }
+    } catch (e) {
+      trackAnalyticsEvent('snapshot_create_failed', {
+        feature_area: 'macro',
+        surface: 'editor',
+        macro_type: macroType,
+        snapshot_trigger: 'save',
+        custom_content_id: savedId,
+        failure_reason: String(e instanceof Error ? e.message : e).substring(0, 200),
+      });
+    }
   }
 
   // NOTE: macro-metrics reporting is NOT done here. Saving submits/closes the

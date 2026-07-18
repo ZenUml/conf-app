@@ -1,4 +1,5 @@
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import type { MacroTypeValue } from '@/utils/analytics/catalog'
 import { writeDismissMarker } from './core'
 import './hint.css'
 
@@ -26,7 +27,7 @@ export function mountStalenessHint(opts: MountOpts): void {
     surface: 'editor' as const,
     drift_count: opts.drift,
     is_diagram_author: opts.isDiagramAuthor,
-    macro_type: opts.macroType as any,
+    macro_type: opts.macroType as MacroTypeValue,
   }
 
   const ring = document.createElement('div')

@@ -15,11 +15,12 @@ export async function countVersionsSince(pageId: string, sinceIso: string): Prom
   try {
     let url: string | null = `/wiki/api/v2/pages/${pageId}/versions?limit=50`
     let count = 0
+    const sinceMs = Date.parse(sinceIso)
     while (url) {
       const data: any = await forgeRequest(url)
       const results: Array<{ createdAt: string }> = data?.results ?? []
       for (const v of results) {
-        if (v.createdAt <= sinceIso) return count
+        if (Date.parse(v.createdAt) <= sinceMs) return count
         count++
       }
       url = data?._links?.next ?? null

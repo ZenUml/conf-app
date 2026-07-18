@@ -126,6 +126,13 @@ export type AnalyticsProperties = {
   // above so save-latency and render-latency never share a property. See
   // model/ContentProvider/Persistence.ts (saveToPlatform).
   save_duration_ms?: number;
+  // User-perceived publish latency, in ms: the interval from the Publish/Save
+  // click (save-handler entry, synchronous with the click) to the editor's
+  // redirect (view.submit() / view.close()). Rides on macro_publish_completed.
+  // Superset of save_duration_ms — additionally covers the ~500ms pre-submit
+  // delay, the save-time attachment race, and the macro-config writeback. See
+  // utils/analytics/publishTiming.ts.
+  publish_duration_ms?: number;
   // P1.3 fetch split (children of fetch_ms — NOT part of measured_sum_ms):
   // custom-content GET vs full-page-ADF copy-scan. See renderPerf.ts.
   custom_content_fetch_ms?: number;

@@ -85,6 +85,16 @@ export type AnalyticsEventName =
   | "macro_edit_cancelled"
   | "macro_save_succeeded"
   | "macro_save_failed"
+  // Fires the instant the editor begins its redirect after a Publish/Save —
+  // i.e. immediately before view.submit() / view.close(). Carries
+  // `publish_duration_ms`, the user-perceived click→redirect latency. This is a
+  // WIDER window than macro_save_succeeded's `save_duration_ms` (which is only
+  // the persistence round-trip inside saveToPlatform): it additionally covers
+  // the ~500ms pre-submit delay, the save-time attachment race, and the
+  // macro-config writeback. Emitted from all 5 save flows (sequence/mermaid/
+  // plantuml via forgeIndex, graph, openapi, asyncapi, embed). See
+  // utils/analytics/publishTiming.ts.
+  | "macro_publish_completed"
   // Embed re-target attempted from a non-submittable surface (e.g. the
   // view-mode Edit modal). view.submit() throws "view is not submittable"
   // there, so the embed's document reference cannot be changed — the user

@@ -120,6 +120,22 @@ export type AnalyticsProperties = {
   render_ms?: number;      // viewer render (lib load + diagram render)
   measured_sum_ms?: number; // bootstrap+context+fetch+render; duration_ms − this = unattributed remainder
   tab_hidden?: boolean;    // tab was backgrounded during load → exclude from percentiles (artifact)
+  // Publish/save round-trip latency, in ms. Rides on macro_create_succeeded /
+  // macro_save_succeeded. Measures how long the persistence to Confluence took
+  // — from the start of saveToPlatform's real work (custom-content save +
+  // getMacroData) to the moment the success event is emitted. Deliberately
+  // EXCLUDES the post-event syncCustomContent (D1 mirror), which is not on the
+  // user-perceived publish path. Distinct from the render-time `duration_ms`
+  // above so save-latency and render-latency never share a property. See
+  // model/ContentProvider/Persistence.ts (saveToPlatform).
+  save_duration_ms?: number;
+  // User-perceived publish latency, in ms: the interval from the Publish/Save
+  // click (save-handler entry, synchronous with the click) to the editor's
+  // redirect (view.submit() / view.close()). Rides on macro_publish_completed.
+  // Superset of save_duration_ms — additionally covers the ~500ms pre-submit
+  // delay, the save-time attachment race, and the macro-config writeback. See
+  // utils/analytics/publishTiming.ts.
+  publish_duration_ms?: number;
   // P1.3 fetch split (children of fetch_ms — NOT part of measured_sum_ms):
   // custom-content GET vs full-page-ADF copy-scan. See renderPerf.ts.
   custom_content_fetch_ms?: number;

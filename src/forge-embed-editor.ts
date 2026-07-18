@@ -3,6 +3,7 @@ import forgeGlobal, { getView, getContext as initForgeContext } from './model/gl
 import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from "@/utils/window";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { markPublishClicked, trackPublishCompleted } from "@/utils/analytics/publishTiming";
 import { markCsatPending } from "@/utils/csat";
 import { mountRoot } from "@/mount-root";
 import { installRestoreDraftBanner } from "@/utils/restoreDraftBanner";
@@ -24,6 +25,9 @@ import { toast } from '@/utils/toast';
 let originalConfigUuid: string | undefined;
 
 async function saveEmbedAndExit(selectedCustomContentId: string) {
+  // Start the publish-latency clock at the save-handler entry (≈ the Publish
+  // click in DocumentList.vue). Stopped at the redirect below.
+  markPublishClicked();
   // Embed save = point the macro at the user's picked document. No new
   // customContent record is created. The picked CC's body (its native
   // diagramType + code/graphXml/mermaidCode) is what the embed viewer
@@ -104,6 +108,15 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
         EventBus.$emit('save-error', new Error('embed target not fetchable'));
         return;
       }
+      // Redirect starts now (view.submit below). Stop the clock. Placed after
+      // the invalid-id / not-fetchable early-returns so it only fires on a real
+      // redirect, not when the editor stays open for a re-pick.
+      trackPublishCompleted({
+        macro_type: 'embed',
+        operation_mode: isNew ? 'create' : 'edit',
+        content_id: String(selectedCustomContentId),
+        custom_content_id: String(selectedCustomContentId),
+      });
       await (await getView()).submit({config: {
         customContentId: selectedCustomContentId,
         updatedAt: new Date().toISOString(),

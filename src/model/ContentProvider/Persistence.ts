@@ -43,6 +43,12 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
     throw new LegacyLoadBlockedSaveError();
   }
 
+  // Publish/save latency: start the clock at the top of the real save work so
+  // save_duration_ms reflects the full user-perceived publish (custom-content
+  // save round-trip + getMacroData). Read once, just before emitting the
+  // success event, so the post-event syncCustomContent (D1 mirror) is excluded.
+  const saveStartedAt = performance.now();
+
   console.log('Saving diagram to platform content provider', diagram);
   const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
   const customContent = await customContentStorageProvider.save(diagram);
@@ -97,12 +103,15 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
       attachment_name: `zenuml-${savedId}.png`,
     };
 
+    const save_duration_ms = Math.round(performance.now() - saveStartedAt);
+
     if (isNew) {
       trackAnalyticsEvent("macro_create_succeeded", {
         feature_area: "macro",
         surface: "editor",
         macro_type: macroType,
         operation_mode: "create",
+        save_duration_ms,
         ...savedIdProps,
       });
     } else {
@@ -111,6 +120,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
         surface: "editor",
         macro_type: macroType,
         operation_mode: "edit",
+        save_duration_ms,
         ...savedIdProps,
       });
     }

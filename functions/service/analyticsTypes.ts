@@ -3,39 +3,10 @@
 // Keep in sync with src/utils/analytics/catalog.ts and src/utils/analytics/types.ts.
 // TODO: unify into a shared/ module when build config supports it.
 
-export type AnalyticsEventName =
-  | "macro_viewed"
-  | "macro_create_started"
-  | "macro_create_succeeded"
-  | "macro_edit_opened"
-  | "macro_edit_cancelled"
-  | "macro_save_succeeded"
-  | "macro_save_failed"
-  | "macro_export_requested"
-  | "macro_export_succeeded"
-  | "macro_export_failed"
-  | "ai_generation_requested"
-  | "ai_generation_succeeded"
-  | "ai_generation_failed"
-  | "ai_editor_opened"
-  | "ai_feedback_submitted"
-  | "upgrade_modal_shown"
-  | "upgrade_action_blocked"
-  | "upgrade_modal_dismissed"
-  | "upgrade_prompt_hovered"
-  | "content_sync_requested"
-  | "content_sync_succeeded"
-  | "content_sync_failed"
-  | "custom_content_loaded"
-  | "confluence_page_viewed"
-  | "confluence_page_updated"
-  | "csat_submitted"
-  | "feedback_link_clicked"
-  | "feature_flags_fetch_failed"
-  | "attachment_create_failed"
-  | "custom_content_update_failed";
-
-export const CANONICAL_EVENT_NAMES = new Set<string>([
+// Keep one runtime list and derive the TypeScript union from it. The previous
+// hand-maintained union + Set duplicated every name and could drift within this
+// file before frontend/backend drift was even considered.
+export const CANONICAL_EVENT_NAME_LIST = [
   "macro_viewed",
   "macro_create_started",
   "macro_create_succeeded",
@@ -66,7 +37,14 @@ export const CANONICAL_EVENT_NAMES = new Set<string>([
   "feature_flags_fetch_failed",
   "attachment_create_failed",
   "custom_content_update_failed",
-]);
+  "macro_count_snapshot_completed",
+  "macro_count_space_changed",
+  "macro_count_snapshot_failed",
+] as const;
+
+export type AnalyticsEventName = typeof CANONICAL_EVENT_NAME_LIST[number];
+
+export const CANONICAL_EVENT_NAMES: ReadonlySet<string> = new Set(CANONICAL_EVENT_NAME_LIST);
 
 export type TrackCanonicalRequest = {
   transport_version: 2;

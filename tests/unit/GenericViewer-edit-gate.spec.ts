@@ -140,12 +140,17 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
     await wrapper.vm.$nextTick()
 
     const vm = wrapper.vm as any
-    expect(vm.editDisabledReason).toContain('multiple copies')
+    // CustomContentStorageProvider.save() forks a copy into a new,
+    // independent custom-content record rather than updating the shared
+    // original in place — editing a same-page copy does NOT affect the
+    // other copies, so the tooltip must say that, not the reverse.
+    expect(vm.editDisabledReason).toContain('independent diagram')
+    expect(vm.editDisabledReason).not.toContain('affect all of them')
 
     const btn = wrapper.find('button[aria-label="Edit"]')
     expect(btn.exists()).toBe(true)
     expect(btn.attributes('disabled')).toBeDefined()
-    expect(btn.attributes('title')).toContain('multiple copies')
+    expect(btn.attributes('title')).toContain('independent diagram')
   })
 
   it('Edit button is shown and enabled when isCopy=false', async () => {

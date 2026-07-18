@@ -431,7 +431,13 @@ describe('GenericViewer (chrome-less)', () => {
       store.state.diagram.copyCheckPending = false
       await wrapper.vm.$nextTick()
 
-      expect((wrapper.vm as any).editDisabledReason).toContain('multiple copies')
+      // CustomContentStorageProvider.save() forks a copy into a new,
+      // independent custom-content record (createCustomContentV2) rather
+      // than updating the original in place — editing a same-page copy does
+      // NOT affect the other copies. The tooltip must say that, not the
+      // opposite.
+      expect((wrapper.vm as any).editDisabledReason).toContain('independent diagram')
+      expect((wrapper.vm as any).editDisabledReason).not.toContain('affect all of them')
     })
   })
 

@@ -2,11 +2,15 @@
 // (docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md).
 //
 // Writes a small per-page JSON attachment (`zenuml-<ccId>.json`, sibling of
-// the existing `zenuml-<ccId>.png` backup) at the two moments write
-// permission on the HOST page is guaranteed: macro save (Task 3) and
-// editor-preview render of a cross-page alias (Task 4, `maybeBackfillSnapshot`
-// below). The viewer read-side fallback (Task 5/6, READ workstream) consumes
-// `fetchSnapshot` + `snapshotToDiagram` from this same module.
+// the existing `zenuml-<ccId>.png` backup) at macro save (Task 3) and, as a
+// backfill, from `maybeBackfillSnapshot` below (Task 4 + the view-time
+// generalization documented on that function) — an editor-preview render of
+// a cross-page alias, or ANY macro viewed (page-view or fullscreen), since a
+// macro created on a brand-new page never gets a save-time snapshot (the
+// page isn't published yet — same benign 404 the PNG backup already
+// recovers from) and by view time the page IS published. The viewer
+// read-side fallback (Task 5/6, READ workstream) consumes `fetchSnapshot` +
+// `snapshotToDiagram` from this same module.
 //
 // Global constraints (see plan): scope is DiagramType.Sequence/Mermaid/PlantUml
 // ONLY (Graph already embeds its XML in the PNG — #140; Embed/OpenApi/AsyncApi
@@ -183,15 +187,32 @@ export async function fetchSnapshot(pageId: string, ccId: string): Promise<Diagr
 }
 
 /**
- * Editor-preview cross-page backfill (Task 4). Called (fire-and-forget) from
- * the editor-preview load path in forgeIndex.ts right after a custom content
- * load resolves, so a page hosting only an ALIAS macro (the CC's `pageId`
- * differs from the current host page) still gets its own local snapshot —
- * the fallback the viewer needs if the source page/CC later goes dark.
- * Restricted to editor surfaces (write permission is guaranteed there;
- * `isDisplayMode` covers the plain page-view/fullscreen-viewer surfaces where
- * we cannot assume write access) and skipped entirely when a snapshot already
- * exists at least as fresh as the current CC version.
+ * Backfill (fire-and-forget) called from forgeIndex.ts right after a custom
+ * content load resolves. `isDisplayMode` (ApWrapper2.isDisplayMode(): true
+ * for plain page-view AND fullscreen, false only for the editor/config modal)
+ * discriminates two distinct policies that share everything else — the
+ * freshness check, the upload, and the never-throws analytics:
+ *
+ * - Editor surface (Task 4, unchanged): only CROSS-PAGE aliases (the CC's
+ *   `pageId` differs from the current host page) get a host-page-local
+ *   snapshot here. A same-page macro already gets one at save time
+ *   (Persistence.ts) on every save after its first successful one, so an
+ *   editor-preview render of a same-page macro must not re-upload — write
+ *   permission is guaranteed on this surface, but there's nothing new to
+ *   capture.
+ * - Viewer surface (new — the new-page recovery case): backfill for ANY
+ *   macro, same-page included. A macro created on a brand-new page is saved
+ *   BEFORE the page is published, so the save-time attachment write 404s
+ *   (see Attachment.ts's "A 404 on the attachment POST means the parent page
+ *   is not (yet)" — the same benign condition the PNG backup already
+ *   recovers from). The page IS published by the time it's viewed, and
+ *   uploadSnapshot's write goes through the app-authenticated backend
+ *   (`/forge-upload-attachment`, PR #353) rather than the user's own
+ *   Confluence permissions, so a plain viewer (no edit permission) can still
+ *   trigger this safely.
+ *
+ * Either branch skips entirely when a snapshot already exists at least as
+ * fresh as the current CC version.
  */
 export async function maybeBackfillSnapshot(opts: {
   hostPageId: string;
@@ -201,9 +222,14 @@ export async function maybeBackfillSnapshot(opts: {
   ccVersion?: number;
   isDisplayMode: boolean;
 }): Promise<void> {
+  const surface = opts.isDisplayMode ? 'viewer' : 'editor';
+  const snapshotTrigger = opts.isDisplayMode ? 'viewer_backfill' : 'editor_backfill';
   try {
-    if (opts.isDisplayMode) return; // editor surfaces only (write perms guaranteed)
-    if (!opts.ccPageId || String(opts.ccPageId) === String(opts.hostPageId)) return; // cross-page aliases only
+    if (!opts.isDisplayMode) {
+      // Editor surface: cross-page aliases only (see doc comment above).
+      if (!opts.ccPageId || String(opts.ccPageId) === String(opts.hostPageId)) return;
+    }
+    // Viewer surface falls through unconditionally — any macro qualifies.
     const existing = await fetchSnapshot(opts.hostPageId, opts.ccId);
     if (existing && opts.ccVersion !== undefined && (existing.ccVersion ?? -1) >= opts.ccVersion) return;
     const snapshot = buildSnapshot(opts.diagram, opts.ccId, opts.ccVersion);
@@ -211,16 +237,16 @@ export async function maybeBackfillSnapshot(opts: {
     await uploadSnapshot(opts.hostPageId, snapshot);
     trackAnalyticsEvent('snapshot_created', {
       feature_area: 'macro',
-      surface: 'editor',
-      snapshot_trigger: 'editor_backfill',
+      surface,
+      snapshot_trigger: snapshotTrigger,
       custom_content_id: opts.ccId,
       attachment_name: snapshotAttachmentName(opts.ccId),
     });
   } catch (e) {
     trackAnalyticsEvent('snapshot_create_failed', {
       feature_area: 'macro',
-      surface: 'editor',
-      snapshot_trigger: 'editor_backfill',
+      surface,
+      snapshot_trigger: snapshotTrigger,
       custom_content_id: opts.ccId,
       failure_reason: String(e instanceof Error ? e.message : e).substring(0, 200),
     });

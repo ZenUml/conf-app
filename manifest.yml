@@ -39,6 +39,12 @@ remotes:
     operations:
       - compute
       - fetch
+      # Lite daily macro snapshots persist in-scope Confluence-derived rows
+      # in the Cloudflare Remote. Non-Lite variant builds strip this operation
+      # and the storage declaration below.
+      - storage
+    storage:
+      inScopeEUD: true
     auth:
       appSystemToken:
         enabled: true
@@ -296,6 +302,12 @@ modules:
       events:
         - avi:confluence:updated:page
   scheduledTrigger:
+    # Lite-only. Variant builds strip this from Full, Diagramly, and AsyncAPI.
+    # The function exits after one lightweight Remote claim for unenrolled
+    # installations; enrolled tenants perform one complete inventory daily.
+    - key: lite-macro-count-daily
+      function: macroCountSnapshotScheduled
+      interval: day
     # Diagramly-only. CI yq-strips this entry for lite/full so it never runs
     # on those variants. Polls the enrollment KV and creates a demo page for
     # any enrolled space that doesn't yet have one. Interval is a safety net
@@ -435,6 +447,9 @@ modules:
       handler: createDemoPage.handler
     - key: createDemoPageScheduled
       handler: createDemoPage.scheduledHandler
+    - key: macroCountSnapshotScheduled
+      handler: macro-count-snapshot.scheduledHandler
+      timeoutSeconds: 900
 
 resources:
   - key: main

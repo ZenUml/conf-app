@@ -1,42 +1,50 @@
-import { Env } from '../utils/KVEnv';
+import type { ForgeRequestData } from '../utils/authenticate';
+import {
+  authenticateMetricsRequest,
+  errorResponse,
+  isSnapshotEnrolled,
+  jsonResponse,
+  metricsKvKey,
+  readLatestPointer,
+  type DomainMetrics,
+  type SnapshotEnv,
+} from './snapshot/common';
 
-interface SpaceMetrics {
-  space: string;
-  total: number;
-  sequence: number;
-  graph: number;
-  openapi: number;
-  mermaid: number;
-  unknown: number;
-  isLite: boolean;
-  lastUpdated: string;
-}
+export const onRequest = async ({
+  request,
+  env,
+  data,
+}: {
+  request: Request;
+  env: SnapshotEnv;
+  data: ForgeRequestData;
+}) => {
+  try {
+    if (request.method !== 'GET') {
+      return jsonResponse({ error: 'Method Not Allowed' }, 405);
+    }
+    const url = new URL(request.url);
+    const space = url.searchParams.get('space');
+    if (!space) return jsonResponse({ error: 'Missing space parameter' }, 400);
 
-interface DomainData {
-  domain: string;
-  spaces: Record<string, SpaceMetrics>;
-}
+    const context = await authenticateMetricsRequest(request, env, {
+      forgeContext: data.forgeContext,
+    });
+    const enrolled = await isSnapshotEnrolled(env, context);
+    const latest = enrolled ? await readLatestPointer(env, context) : null;
+    const mode = latest ? 'snapshot' : 'legacy';
+    const domainData = await env.confluence_plugin_features.get(
+      metricsKvKey(context),
+      'json',
+    ) as DomainMetrics | null;
+    const metrics = domainData?.spaces?.[space] ?? null;
 
-export const onRequest = async ({ request, env }: { request: Request; env: Env }) => {
-  const url = new URL(request.url);
-  const domain = url.searchParams.get('domain');
-  const space = url.searchParams.get('space');
-  const addonKey = url.searchParams.get('addonKey') || '';
-
-  if (!domain || !space) {
-    return new Response('Missing domain or space parameter', { status: 400 });
+    if (url.searchParams.get('contract') === '2') {
+      return jsonResponse({ mode, metrics });
+    }
+    if (!metrics) return new Response(null, { status: 404 });
+    return jsonResponse(metrics);
+  } catch (error) {
+    return errorResponse(error);
   }
-
-  const isLite = addonKey.includes('-lite');
-  const productType = isLite ? 'lite' : 'full';
-  const key = `metrics:${domain}:${productType}`;
-  const domainData = await env.confluence_plugin_features.get(key, 'json') as DomainData | null;
-
-  if (!domainData || !domainData.spaces || !domainData.spaces[space]) {
-    return new Response(null, { status: 404 });
-  }
-
-  return new Response(JSON.stringify(domainData.spaces[space]), {
-    headers: { 'Content-Type': 'application/json' }
-  });
 };

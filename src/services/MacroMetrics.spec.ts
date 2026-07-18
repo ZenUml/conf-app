@@ -75,7 +75,7 @@ describe('MacroMetrics', () => {
         // macro_count_source telemetry (#302).
         expect(result).toEqual({ ...cachedMetrics, source: 'kv' });
         expect(callRemote).toHaveBeenCalledWith(
-          `/metrics-cache/query?domain=${mockDomain}&space=${mockSpace}&addonKey=com.zenuml.confluence-addon-lite`,
+          `/metrics-cache/query?contract=2&domain=${mockDomain}&space=${mockSpace}&addonKey=com.zenuml.confluence-addon-lite`,
           'GET'
         );
         expect(mockApWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
@@ -91,6 +91,16 @@ describe('MacroMetrics', () => {
         await macroMetrics.getMacroMetrics();
 
         expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalled();
+      });
+
+      it('does not collect when a snapshot-managed space is absent from KV', async () => {
+        (callRemote as any).mockResolvedValueOnce({ mode: 'snapshot', metrics: null });
+
+        const result = await macroMetrics.getMacroMetrics();
+
+        expect(result).toBeUndefined();
+        expect(mockApWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
+        expect(mockApWrapper.requestPaginatedDataUntil).not.toHaveBeenCalled();
       });
 
       it('should collect new metrics if KV read fails', async () => {
@@ -221,6 +231,16 @@ describe('MacroMetrics', () => {
   });
 
   describe('reportMacroMetrics', () => {
+    it('does not enumerate or write in snapshot-managed mode', async () => {
+      (callRemote as any).mockResolvedValueOnce({ mode: 'snapshot', metrics: null });
+
+      await macroMetrics.reportMacroMetrics();
+
+      expect(mockApWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
+      expect(mockApWrapper.requestPaginatedDataUntil).not.toHaveBeenCalled();
+      expect(callRemote).toHaveBeenCalledTimes(1);
+    });
+
     it('should collect metrics in Forge mode', async () => {
       const forgeGlobal = await import('@/model/globals/forgeGlobal');
       (forgeGlobal.default as any).isForge = true;
@@ -479,8 +499,10 @@ describe('MacroMetrics', () => {
         consumer({ results: [] });
         return Promise.resolve({});
       });
-      // the KV update POST rejects
-      (callRemote as any).mockRejectedValueOnce(new Error('KV write failed'));
+      // mode check succeeds, then the KV update POST rejects
+      (callRemote as any)
+        .mockResolvedValueOnce({ mode: 'legacy', metrics: null })
+        .mockRejectedValueOnce(new Error('KV write failed'));
 
       await macroMetrics.reportMacroMetrics();
 

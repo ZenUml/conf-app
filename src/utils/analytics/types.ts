@@ -64,6 +64,46 @@ export type AnalyticsProperties = {
   cta_position?: "primary" | "secondary";
   feature_name?: string;
   source?: string;
+  // Daily macro-count inventory snapshots. These events are emitted by the
+  // Cloudflare backend, but their scalar property vocabulary lives here as the
+  // cross-runtime analytics contract. Snapshot payloads must never include
+  // content rows, page/content ids, titles, logical hashes, or raw errors.
+  run_id?: string;
+  captured_at?: string;
+  space_key?: string;
+  space_count?: number;
+  content_count?: number;
+  changed_space_count?: number;
+  zeroed_space_count?: number;
+  sequence_count?: number;
+  graph_count?: number;
+  openapi_count?: number;
+  mermaid_count?: number;
+  plantuml_count?: number;
+  unknown_count?: number;
+  type_request_count?: number;
+  chunk_count?: number;
+  change_reason?: "new" | "changed" | "zeroed";
+  previous_total?: number;
+  current_total?: number;
+  delta_total?: number;
+  previous_sequence_count?: number;
+  current_sequence_count?: number;
+  previous_graph_count?: number;
+  current_graph_count?: number;
+  previous_openapi_count?: number;
+  current_openapi_count?: number;
+  previous_mermaid_count?: number;
+  current_mermaid_count?: number;
+  previous_plantuml_count?: number;
+  current_plantuml_count?: number;
+  previous_unknown_count?: number;
+  current_unknown_count?: number;
+  failure_stage?: string;
+  completed_type_count?: number;
+  last_completed_type?: string;
+  processed_contents?: number;
+  processed_spaces?: number;
   // AI
   prompt_length?: number;
   generation_source?: string;

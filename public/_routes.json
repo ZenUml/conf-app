@@ -24,6 +24,7 @@
     "/aggregate-events",
     "/metrics-cache/query",
     "/metrics-cache/update",
+    "/metrics-cache/snapshot/*",
     "/admin/metrics-inspect",
     "/feature-flags",
     "/ai-generate-title",

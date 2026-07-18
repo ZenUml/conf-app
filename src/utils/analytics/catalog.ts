@@ -170,6 +170,11 @@ export type AnalyticsEventName =
   | "cohorts_refreshed"
   | "cohorts_refresh_failed"
   | "viewer_load_failed"
+  // Diagram source snapshot attachments (resilience for cross-page copies /
+  // deleted source pages — see docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md)
+  | "snapshot_created"
+  | "snapshot_create_failed"
+  | "snapshot_fallback_rendered"
   // Deferred Sequence-family page-ADF copy scan settled after the viewer's
   // first render. Correlates to macro_viewed through instance_nonce/time_origin.
   | "viewer_adf_scan_completed"

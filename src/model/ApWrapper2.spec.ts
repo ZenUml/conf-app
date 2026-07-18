@@ -624,6 +624,107 @@ describe('ApWrapper2', () => {
     });
   });
 
+  // P1.1 (viewer-load perf): the ADF copy-scan (countMacros + getPageId) is a
+  // full-page ADF GET that today blocks the viewer's critical path. This lets
+  // loadCustomContentWithOrphanRecovery skip it when the caller (viewer)
+  // decides to run it later, and extracts the scan itself into a standalone
+  // detectCopy() so both the blocking and deferred paths share one
+  // implementation.
+  describe('deferred ADF copy-scan (P1.1)', () => {
+    function happyDirectFetch(id: string, pageId = '456') {
+      return {
+        id,
+        pageId,
+        body: { raw: { value: JSON.stringify({ code: 'A.method', diagramType: 'sequence' }) } },
+      };
+    }
+
+    it('skips countMacros and marks copyCheckPending when shouldDeferAdfScan resolves true', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce(happyDirectFetch('cc-1'));
+      const countSpy = vi.spyOn(wrapper._page, 'countMacros');
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(
+        'page-1', 'cc-1', { shouldDeferAdfScan: async () => true });
+
+      expect(countSpy).not.toHaveBeenCalled();
+      expect(result.customContent?.value.copyCheckPending).toBe(true);
+      expect(result.customContent?.value.isCopy).toBeUndefined();
+    });
+
+    it('keeps blocking copy detection when option is absent', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce(happyDirectFetch('cc-1'));
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery('page-1', 'cc-1');
+
+      expect(result.customContent?.value.copyCheckPending).toBeUndefined();
+      expect(typeof result.customContent?.value.isCopy).toBe('boolean');
+    });
+
+    it('detectCopy reports same-page-duplicate when count > 1', async () => {
+      vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(2);
+      vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-1');
+
+      const verdict = await wrapper.detectCopy('cc-1', 'page-1');
+
+      expect(verdict).toEqual({ isCopy: true, copyReason: 'same-page-duplicate' });
+      expect(trackEvent).toHaveBeenCalledWith('same_page', 'duplication_detect', 'warning');
+      expect(trackEvent).not.toHaveBeenCalledWith('cross_page', 'duplication_detect', 'warning');
+    });
+
+    it('detectCopy matches the string customContentId used by current Forge ADF', async () => {
+      vi.spyOn(wrapper._page, 'countMacros').mockImplementation(async matcher => {
+        const liveForgeMacroParams = [
+          { customContentId: 'cc-1' },
+          { customContentId: 'cc-1' },
+        ];
+        return liveForgeMacroParams.filter(matcher).length;
+      });
+      vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-1');
+
+      const verdict = await wrapper.detectCopy('cc-1', 'page-1');
+
+      expect(verdict).toEqual({ isCopy: true, copyReason: 'same-page-duplicate' });
+    });
+
+    it('detectCopy reports cross-page when CC pageId differs', async () => {
+      vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(1);
+      vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-2');
+
+      const verdict = await wrapper.detectCopy('cc-1', 'page-1');
+
+      expect(verdict).toEqual({ isCopy: true, copyReason: 'cross-page' });
+      expect(trackEvent).toHaveBeenCalledWith('cross_page', 'duplication_detect', 'warning');
+      expect(trackEvent).not.toHaveBeenCalledWith('same_page', 'duplication_detect', 'warning');
+    });
+
+    // Tie-break: a macro can simultaneously be a same-page duplicate (count>1)
+    // AND live on a different page than the CC's stored pageId. The extracted
+    // detectCopy must keep the original inline code's precedence — cross-page
+    // wins the reported copyReason — while still firing BOTH telemetry events
+    // (the original code's two `if`s are independent, not if/else-if).
+    it('detectCopy prefers cross-page as the reported reason when both conditions hold simultaneously', async () => {
+      vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(2);
+      vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-2');
+
+      const verdict = await wrapper.detectCopy('cc-1', 'page-1');
+
+      expect(verdict).toEqual({ isCopy: true, copyReason: 'cross-page' });
+      expect(trackEvent).toHaveBeenCalledWith('cross_page', 'duplication_detect', 'warning');
+      expect(trackEvent).toHaveBeenCalledWith('same_page', 'duplication_detect', 'warning');
+    });
+
+    it('detectCopy reports no copy and fires neither telemetry event when same page and count <= 1', async () => {
+      vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(1);
+      vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-1');
+
+      const verdict = await wrapper.detectCopy('cc-1', 'page-1');
+
+      expect(verdict).toEqual({ isCopy: false });
+      expect(trackEvent).not.toHaveBeenCalledWith('cross_page', 'duplication_detect', 'warning');
+      expect(trackEvent).not.toHaveBeenCalledWith('same_page', 'duplication_detect', 'warning');
+    });
+  });
+
   // ZEN-1170 Defect 1 sibling: cross-page-paste recovery via uuid → CC title.
   // Connect-era macros stored only {uuid, updatedAt} in macro params. When
   // copy-pasted, the macro params travel but content properties do not — so

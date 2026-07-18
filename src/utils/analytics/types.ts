@@ -85,6 +85,11 @@ export type AnalyticsProperties = {
   // emitted as `true` today; kept optional for a future "always, with flag"
   // rate variant. See utils/paywall/spaceAdminProbe.ts.
   is_space_admin?: boolean;
+  // Cohort targeting (cohorts_refreshed). `cohorts` = comma-joined cohort list
+  // the refresh resolved; empty string = user in no cohort (still a successful
+  // refresh). `cohort_count` = same list's length, for numeric filtering.
+  cohorts?: string;
+  cohort_count?: number;
   // Whether the current user can edit the page/macro. Set on
   // `viewer_source_opened` / `viewer_source_copied` so read-only vs editor
   // audience for the View Source panel (#333) can be split.
@@ -112,6 +117,24 @@ export type AnalyticsProperties = {
   render_ms?: number;      // viewer render (lib load + diagram render)
   measured_sum_ms?: number; // bootstrap+context+fetch+render; duration_ms − this = unattributed remainder
   tab_hidden?: boolean;    // tab was backgrounded during load → exclude from percentiles (artifact)
+  // P1.3 fetch split (children of fetch_ms — NOT part of measured_sum_ms):
+  // custom-content GET vs full-page-ADF copy-scan. See renderPerf.ts.
+  custom_content_fetch_ms?: number;
+  page_adf_fetch_ms?: number;
+  // True when the viewer deferred the ADF copy-scan off the critical path
+  // (flag `viewer-adf-scan-deferred`). Absent on editor/config surfaces.
+  adf_deferred?: boolean;
+  // Deferred ADF completion (viewer_adf_scan_completed). `result` is bounded
+  // at the call site to 'succeeded' | 'failed'; failures use only the safe
+  // `failure_reason` value 'detect_copy_failed'.
+  copy_detected?: boolean;
+  copy_reason?: 'cross-page' | 'same-page-duplicate';
+  writeback_target?: 'store' | 'raw';
+  // Random per-iframe id + performance.timeOrigin. Makes concurrent
+  // duplicate mounts of one macro (remount storms) directly countable
+  // without burst reconstruction. See renderIdentity.ts.
+  instance_nonce?: string;
+  time_origin?: number;
   // Renderer-bundle prefetch (renderer_prefetch_started / _completed). Fired
   // only on an actual attempt (throttled to ≤1 per deploy per browser), never
   // on the skip path — volume stays far below page-view scale. See

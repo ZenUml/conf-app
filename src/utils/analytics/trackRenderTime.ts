@@ -1,6 +1,7 @@
 import { trackAnalyticsEvent } from './trackAnalyticsEvent';
 import type { CacheState, MacroTypeValue, RenderMode, CacheSource } from './catalog';
 import { getTimings } from './renderPerf';
+import { getRenderIdentity } from './renderIdentity';
 import { isPrefetchDue } from '@/utils/prefetch/throttle';
 import type { PrefetchRenderer } from '@/utils/prefetch/rendererPrefetch';
 
@@ -77,6 +78,7 @@ export function trackRenderTime(
     cache_state: cacheState,
     ...(transferBytes !== undefined ? { transfer_bytes: transferBytes } : {}),
     ...timings,
+    ...getRenderIdentity(),
   });
 
   scheduleRendererPrefetch(macroType);

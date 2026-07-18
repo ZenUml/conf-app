@@ -35,6 +35,8 @@ vi.mock('@/model/globals', () => ({
   }
 }))
 
+vi.mock('@/utils/cohorts/userCohorts', () => ({ refreshUserCohortsIfStale: vi.fn() }))
+
 describe('useCustomerSuccessService - Paid Space Detection', () => {
   beforeEach(async () => {
     // Clear localStorage before each test
@@ -258,5 +260,27 @@ describe('useCustomerSuccessService - Full App (no restrictions)', () => {
     await initialize()
 
     expect(actionRequired.value).toBe(false)
+  })
+})
+
+describe('useCustomerSuccessService - cohort refresh wiring', () => {
+  beforeEach(async () => {
+    localStorage.clear()
+    vi.resetModules()
+    vi.clearAllMocks()
+  })
+
+  it('initialize fires a cohort refresh (fire-and-forget)', async () => {
+    // Both the composable and the cohorts mock must be re-imported after
+    // vi.resetModules() so they come from the same module generation —
+    // otherwise the composable's internal reference would point at a
+    // different (pre-reset) mock instance than the one this test inspects.
+    const { refreshUserCohortsIfStale } = await import('@/utils/cohorts/userCohorts')
+    const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
+    const { initialize } = useCustomerSuccessService()
+
+    await initialize()
+
+    expect(refreshUserCohortsIfStale).toHaveBeenCalledTimes(1)
   })
 })

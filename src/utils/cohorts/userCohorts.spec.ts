@@ -104,4 +104,24 @@ describe('userCohorts marker', () => {
       failure_reason: 'HTTP 500',
     })
   })
+
+  it('tracks storage_write_failed and no success event when the marker write throws', async () => {
+    vi.mocked(callRemote).mockResolvedValue({ cohorts: ['vs-copier'], accountId: 'a-1' })
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError')
+    })
+    try {
+      await refreshUserCohortsIfStale(NOW)
+    } finally {
+      setItem.mockRestore()
+      warnSpy.mockRestore()
+    }
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('cohorts_refresh_failed', {
+      feature_area: 'system',
+      surface: 'viewer',
+      failure_reason: 'storage_write_failed',
+    })
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('cohorts_refreshed', expect.anything())
+  })
 })

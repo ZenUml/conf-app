@@ -61,11 +61,13 @@ export function readUserCohortsMarker(clientDomain?: string): UserCohortsMarker 
   }
 }
 
-function writeUserCohortsMarker(marker: UserCohortsMarker, clientDomain?: string): void {
+function writeUserCohortsMarker(marker: UserCohortsMarker, clientDomain?: string): boolean {
   try {
     localStorage.setItem(userCohortsMarkerKey(clientDomain), JSON.stringify(marker))
+    return true
   } catch (e) {
     console.warn('[cohorts] marker write failed', e)
+    return false
   }
 }
 
@@ -93,11 +95,19 @@ export async function refreshUserCohortsIfStale(now: number = Date.now()): Promi
       return
     }
     const cohorts = (response.cohorts as unknown[]).filter((c): c is string => typeof c === 'string')
-    writeUserCohortsMarker({
+    const writeSuccess = writeUserCohortsMarker({
       cohorts,
       accountId: typeof response.accountId === 'string' ? response.accountId : 'unknown',
       fetchedAt: new Date(now).toISOString(),
     })
+    if (!writeSuccess) {
+      trackAnalyticsEvent('cohorts_refresh_failed', {
+        feature_area: 'system',
+        surface: 'viewer',
+        failure_reason: 'storage_write_failed',
+      })
+      return
+    }
     trackAnalyticsEvent('cohorts_refreshed', {
       feature_area: 'system',
       surface: 'viewer',

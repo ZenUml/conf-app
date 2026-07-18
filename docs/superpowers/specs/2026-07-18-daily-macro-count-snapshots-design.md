@@ -292,10 +292,12 @@ bounded `spaces-*.json` chunks. `/commit` carries only the run ID, expected
 counts, and hashes; it never risks exceeding the same boundary on a tenant with
 thousands of spaces.
 
-The existing `EVENT_BUCKET` binding can host these objects under the isolated
-prefix. An R2 lifecycle rule deletes only `macro-count/v1/` objects after 90
-days; it must not apply the retention rule to unrelated analytics objects in
-the shared bucket.
+The snapshot service uses a dedicated `MACRO_COUNT_SNAPSHOT_BUCKET` binding.
+The existing shared `EVENT_BUCKET` cannot satisfy this requirement because its
+bucket-wide lifecycle rule expires objects after seven days. Separate staging
+and production snapshot buckets receive a lifecycle rule that deletes only
+`macro-count/v1/` objects after 90 days, without changing retention for
+unrelated analytics objects.
 
 ### Run manifest
 

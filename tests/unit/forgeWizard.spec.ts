@@ -1,3 +1,6 @@
+import fs from 'node:fs'
+
+import { load } from 'js-yaml'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -6,6 +9,23 @@ import {
 } from '../../scripts/forge-wizard.mjs'
 
 describe('forge-wizard manifest preview helpers', () => {
+  it('base manifest defines the Lite daily snapshot with backend timeout and EUD storage', () => {
+    const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
+    expect(manifest.modules.scheduledTrigger).toContainEqual({
+      key: 'lite-macro-count-daily',
+      function: 'macroCountSnapshotScheduled',
+      interval: 'day',
+    })
+    expect(manifest.modules.function).toContainEqual({
+      key: 'macroCountSnapshotScheduled',
+      handler: 'macro-count-snapshot.scheduledHandler',
+      timeoutSeconds: 900,
+    })
+    const connect = manifest.remotes.find((remote: any) => remote.key === 'connect')
+    expect(connect.operations).toContain('storage')
+    expect(connect.storage).toEqual({ inScopeEUD: true })
+  })
+
   it('lite strips licensing, contentBylineItem, and asyncapi bits', () => {
     const desc = getManifestEditDescriptions('lite')
     expect(desc).toContain('Remove licensing (lite is free)')
@@ -17,6 +37,7 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(desc).toContain('Remove asyncapi custom content (async-api-doc)')
     expect(desc).toContain('Remove asyncapi spacePage (zenuml-asyncapi-dashboard-page)')
     expect(desc).toContain('Remove Connect lifecycle module (connectModules)')
+    expect(desc).toContain('Remove Diagramly demo-page modules (Lite keeps only macro snapshot schedule)')
 
     const yq = getManifestEditYqArgs('lite').map((x) => x.expr)
     expect(yq).toContain('del(.app.licensing)')
@@ -29,6 +50,7 @@ describe('forge-wizard manifest preview helpers', () => {
     )
     expect(yq).toContain('del(.modules["confluence:spacePage"])')
     expect(yq).toContain('del(.connectModules)')
+    expect(yq.join(' ')).not.toContain('macroCountSnapshotScheduled')
   })
 
   it('full strips asyncapi bits and the Connect lifecycle module', () => {
@@ -38,15 +60,13 @@ describe('forge-wizard manifest preview helpers', () => {
     // the base manifest so the asyncapi variant can keep them, plus the
     // Connect lifecycle module (connectModules) — also asyncapi-only.
     const desc = getManifestEditDescriptions('full')
-    expect(desc).toEqual([
-      'Remove asyncapi macros (zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro)',
-      'Remove asyncapi custom content (async-api-doc)',
-      'Remove asyncapi spacePage (zenuml-asyncapi-dashboard-page)',
-      'Remove Connect lifecycle module (connectModules)',
-    ])
+    expect(desc).toContain('Remove Lite snapshot and Diagramly demo schedules from Full')
+    expect(desc).toContain('Remove Lite remote-storage declaration from Full')
     expect(getManifestEditYqArgs('full').map((x) => x.expr)).toContain(
       'del(.connectModules)',
     )
+    expect(getManifestEditYqArgs('full').map((x) => x.expr).join(' '))
+      .toContain('macroCountSnapshotScheduled')
   })
 
   it('diagramly strips global UI modules, embed, and asyncapi bits', () => {
@@ -58,6 +78,8 @@ describe('forge-wizard manifest preview helpers', () => {
     )
     expect(desc).toContain('Remove asyncapi custom content (async-api-doc)')
     expect(desc).toContain('Remove Connect lifecycle module (connectModules)')
+    expect(desc).toContain('Remove Lite macro snapshot schedule from Diagramly')
+    expect(desc).toContain('Remove Lite remote-storage declaration from Diagramly')
     // Diagramly's globalSettings+globalPage+spacePage strip removes both
     // the ZenUML dashboard and the asyncapi spacePage in a single edit.
 
@@ -72,6 +94,7 @@ describe('forge-wizard manifest preview helpers', () => {
       'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))',
     )
     expect(yq).toContain('del(.connectModules)')
+    expect(yq.join(' ')).toContain('macroCountSnapshotScheduled')
   })
 
   it('asyncapi strips non-asyncapi modules, keeps spacePage + licensing, grants unsafe-eval', () => {
@@ -91,6 +114,8 @@ describe('forge-wizard manifest preview helpers', () => {
     // asyncapi keeps the Connect lifecycle module — it still serves legacy
     // Connect (my-api / AsyncAPI-Conf-V2) installs.
     expect(desc).not.toContain('Remove Connect lifecycle module (connectModules)')
+    expect(desc).toContain('Remove Lite snapshot and Diagramly demo schedules from AsyncAPI')
+    expect(desc).toContain('Remove Lite remote-storage declaration from AsyncAPI')
 
     const yq = getManifestEditYqArgs('asyncapi').map((x) => x.expr)
     expect(yq).not.toContain('del(.connectModules)')
@@ -106,5 +131,6 @@ describe('forge-wizard manifest preview helpers', () => {
       'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"])',
     )
     expect(yq).toContain('.permissions.content.scripts = ["unsafe-eval"]')
+    expect(yq.join(' ')).toContain('macroCountSnapshotScheduled')
   })
 })

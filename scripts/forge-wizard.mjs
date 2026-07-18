@@ -57,6 +57,11 @@ export const APPS = {
         description: 'Remove Connect lifecycle module (connectModules)',
         yqEvalExpr: 'del(.connectModules)',
       },
+      {
+        description: 'Remove Diagramly demo-page modules (Lite keeps only macro snapshot schedule)',
+        yqEvalExpr:
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled")) | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline"))',
+      },
     ],
     sites: {
       staging: ['lite-stg.atlassian.net'],
@@ -102,6 +107,16 @@ export const APPS = {
         // installs). See the lite block above.
         description: 'Remove Connect lifecycle module (connectModules)',
         yqEvalExpr: 'del(.connectModules)',
+      },
+      {
+        description: 'Remove Lite snapshot and Diagramly demo schedules from Full',
+        yqEvalExpr:
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotScheduled")) | del(.modules.scheduledTrigger)',
+      },
+      {
+        description: 'Remove Lite remote-storage declaration from Full',
+        yqEvalExpr:
+          'del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage")) | del(.remotes[] | select(.key == "connect").storage)',
       },
     ],
     sites: {
@@ -156,6 +171,16 @@ export const APPS = {
         // installs). See the lite block above.
         description: 'Remove Connect lifecycle module (connectModules)',
         yqEvalExpr: 'del(.connectModules)',
+      },
+      {
+        description: 'Remove Lite macro snapshot schedule from Diagramly',
+        yqEvalExpr:
+          'del(.modules.function[] | select(.key == "macroCountSnapshotScheduled")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily"))',
+      },
+      {
+        description: 'Remove Lite remote-storage declaration from Diagramly',
+        yqEvalExpr:
+          'del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage")) | del(.remotes[] | select(.key == "connect").storage)',
       },
     ],
     sites: {
@@ -243,6 +268,16 @@ export const APPS = {
         // single app's sandboxed iframe — not the Confluence top-level page.
         description: "Allow 'unsafe-eval' in CSP (required by AsyncAPI Studio runtime schema compilation)",
         yqEvalExpr: '.permissions.content.scripts = ["unsafe-eval"]',
+      },
+      {
+        description: 'Remove Lite snapshot and Diagramly demo schedules from AsyncAPI',
+        yqEvalExpr:
+          'del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotScheduled")) | del(.modules.scheduledTrigger)',
+      },
+      {
+        description: 'Remove Lite remote-storage declaration from AsyncAPI',
+        yqEvalExpr:
+          'del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage")) | del(.remotes[] | select(.key == "connect").storage)',
       },
     ],
     sites: {
@@ -869,4 +904,3 @@ async function main() {
 if (import.meta.url === `file://${process.argv[1]}`) {
   await main()
 }
-

@@ -31,6 +31,11 @@ interface ContentResult {
   };
 }
 
+interface MacroMetricsQueryResult {
+  mode: 'legacy' | 'snapshot';
+  metrics: IMacroMetrics | null;
+}
+
 // The paywall blocks at this many macros (mirrors MACROS_LIMIT in
 // useCustomerSuccessService). On the latency-critical read/gate path we stop
 // counting once the total crosses it.
@@ -48,6 +53,15 @@ export class MacroMetrics {
       const currentSpace = await this.apWrapper.getCurrentSpace();
       const space = currentSpace.key;
       const domain = getClientDomain();
+
+      // Snapshot-managed Lite installations have one authoritative backend
+      // writer. The save path only performs this lightweight mode check and
+      // never enumerates the space or races the scheduled whole-object commit.
+      const cached = await this.readFromKV(domain, space);
+      if (cached?.mode === 'snapshot') {
+        console.debug('[metrics:report] snapshot-managed', { space });
+        return;
+      }
 
       // Always collect fresh metrics on save
       const metrics = await this.collectMetrics(space, currentSpace.id);
@@ -74,10 +88,18 @@ export class MacroMetrics {
       const domain = getClientDomain();
 
       // Read from KV cache
-      const cachedMetrics = await this.readFromKV(domain, space);
-      if (cachedMetrics) {
+      const cached = await this.readFromKV(domain, space);
+      if (cached?.mode === 'snapshot') {
+        if (!cached.metrics) {
+          console.warn('[metrics:kv:read] snapshot miss', { domain, space });
+          return undefined;
+        }
         console.debug('[metrics:kv:read] hit', { domain, space });
-        return { ...cachedMetrics, source: 'kv' };
+        return { ...cached.metrics, source: 'kv' };
+      }
+      if (cached?.metrics) {
+        console.debug('[metrics:kv:read] hit', { domain, space });
+        return { ...cached.metrics, source: 'kv' };
       }
 
       // KV miss, collect fresh metrics. This feeds the awaited paywall gate, so
@@ -196,13 +218,22 @@ export class MacroMetrics {
     return `/rest/api/content/search?expand=body.raw&cql=${spacesFilter} and (${typesFilter})`;
   }
 
-  private async readFromKV(domain: string, space: string): Promise<IMacroMetrics | null> {
+  private async readFromKV(domain: string, space: string): Promise<MacroMetricsQueryResult | null> {
     try {
       const response = await callRemote(
-        `/metrics-cache/query?domain=${domain}&space=${space}&addonKey=${encodeURIComponent(addonKey())}`,
+        `/metrics-cache/query?contract=2&domain=${encodeURIComponent(domain)}&space=${encodeURIComponent(space)}&addonKey=${encodeURIComponent(addonKey())}`,
         'GET'
       );
-      return response;
+      if (
+        response
+        && (response.mode === 'legacy' || response.mode === 'snapshot')
+        && Object.prototype.hasOwnProperty.call(response, 'metrics')
+      ) {
+        return response as MacroMetricsQueryResult;
+      }
+      // Defensive compatibility with a backend that has not deployed
+      // contract=2 yet: treat the old bare object as a legacy cache hit.
+      return response ? { mode: 'legacy', metrics: response as IMacroMetrics } : null;
     } catch (e) {
       console.warn('[metrics:kv:read] failed', { error: (e as Error).message });
       return null;

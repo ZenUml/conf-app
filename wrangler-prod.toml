@@ -6,6 +6,7 @@ pages_build_output_dir = "dist"
 
 [vars]
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://diagramly.ai"
+EXPECTED_FORGE_ENVIRONMENT_TYPE = "PRODUCTION"
 # PAGE_CAPTURE_ALLOWED_DOMAINS is injected into [vars] at deploy time by wrangler-publish
 # Source value: GitHub Actions var PAGE_CAPTURE_ALLOWED_DOMAINS_PROD
 
@@ -13,6 +14,7 @@ DIAGRAMLY_BACKEND_API_BASE_URL = "https://diagramly.ai"
 ENVIRONMENT = "production"
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://diagramly.ai"
 ALLOWED_FORGE_APP_IDS = "8ad26115-211f-4216-971b-0540f606303d,d9e4002b-120b-426b-834b-402a4a5adce7,01ede8b1-4e88-451a-b9ef-89eeef93afaf,49017727-af19-4ab6-8d5a-7d28108936b6" # ZenUML Lite, Full, Diagramly and AsyncAPI
+EXPECTED_FORGE_ENVIRONMENT_TYPE = "PRODUCTION"
 # PAGE_CAPTURE_ALLOWED_DOMAINS is injected into [vars] at deploy time by wrangler-publish
 # Source value: GitHub Actions var PAGE_CAPTURE_ALLOWED_DOMAINS_PROD
 
@@ -29,6 +31,12 @@ id = "ae1a9199a02e4f75b1cad07f0016aae0"
 [[ env.production.r2_buckets ]]
 binding = "EVENT_BUCKET"
 bucket_name = "atlassian-events"
+
+# Dedicated snapshot bucket: the shared EVENT_BUCKET expires every object after
+# 7 days, which cannot satisfy the 90-day macro-count diagnostic history.
+[[ env.production.r2_buckets ]]
+binding = "MACRO_COUNT_SNAPSHOT_BUCKET"
+bucket_name = "conf-macro-count-snapshots-prod"
 
 [[env.production.kv_namespaces]]
 binding = "confluence_plugin_features"
@@ -59,4 +67,3 @@ id = "fe9042cb20994651b0a2ef9e68f9037c"
 
 [env.production.ai]
 binding = "AI"
-

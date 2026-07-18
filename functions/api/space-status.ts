@@ -67,7 +67,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const url = new URL(request.url);
     const payload = await validateContextToken(jwt, allowedForgeAppIds);
-    const cloudId = payload?.payload?.context?.cloudId;
+    const cloudId = payload.cloudId || payload.payload.context?.cloudId;
     // Derived from the Forge-validated token, never a client query param — a
     // query param would let any user claim another user's accountId.
     const accountId = payload?.payload?.principal;

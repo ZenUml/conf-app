@@ -84,13 +84,6 @@ jobs:
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.app.licensing)' -i manifest.yml
-      - name: Upload final manifest
-        if: inputs.variant == 'lite'
-        uses: actions/upload-artifact@v6
-        with:
-          name: manifest-lite-staging
-          path: manifest.yml
-
       # Diagramly: remove ZenUML-only dashboard/get-started entries (keep diagramly admin entry) and the embed macro
       - name: Remove ZenUML-only globalSettings/globalPage entries from Diagramly manifest
         if: inputs.variant == 'diagramly'
@@ -133,8 +126,9 @@ jobs:
         with:
           cmd: yq eval '.permissions.content.scripts = ["unsafe-eval"]' -i manifest.yml
 
-      # Lite/Full: strip the diagramly-only admin module + its function entries
-      # + scheduled trigger
+      # Non-Diagramly: strip only the Diagramly demo pipeline. Do not delete
+      # the whole scheduledTrigger block: Lite also owns the daily macro count
+      # snapshot trigger.
       - name: Remove diagramly admin module from Lite/Full manifest
         if: inputs.variant != 'diagramly'
         uses: mikefarah/yq@master
@@ -144,8 +138,28 @@ jobs:
               del(.modules."confluence:globalSettings"[] | select(.key == "diagramly-admin-create-demo-page"))
               | del(.modules.function[] | select(.key == "createDemoPage"))
               | del(.modules.function[] | select(.key == "createDemoPageScheduled"))
-              | del(.modules.scheduledTrigger)
+              | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline"))
             ' -i manifest.yml
+
+      # The snapshot schedule and remote-storage disclosure ship only in Lite.
+      - name: Remove Lite macro snapshot modules and remote storage from non-Lite variants
+        if: inputs.variant != 'lite'
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval '
+              del(.modules.function[] | select(.key == "macroCountSnapshotScheduled"))
+              | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily"))
+              | del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage"))
+              | del(.remotes[] | select(.key == "connect").storage)
+            ' -i manifest.yml
+
+      - name: Upload final manifest
+        if: inputs.variant == 'lite'
+        uses: actions/upload-artifact@v6
+        with:
+          name: manifest-lite-staging
+          path: manifest.yml
 
       # Workaround for an Atlassian Forge bug: `forge deploy` runs `forge lint`, which
       # fetches Atlassian swagger/OpenAPI JSON via node-fetch. On Node 22+ this

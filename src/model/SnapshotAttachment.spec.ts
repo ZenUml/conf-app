@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DiagramType } from './Diagram/Diagram';
 
-const { mockGetAttachmentsV2, mockRequestConfluence } = vi.hoisted(() => {
+const { mockGetAttachmentsV2, mockRequestConfluence, mockCallRemote } = vi.hoisted(() => {
   return {
     mockGetAttachmentsV2: vi.fn(),
     mockRequestConfluence: vi.fn(),
+    mockCallRemote: vi.fn(),
   };
 });
 
@@ -18,6 +19,10 @@ vi.mock('@/model/globals', () => ({
 
 vi.mock('@forge/bridge', () => ({
   requestConfluence: mockRequestConfluence,
+}));
+
+vi.mock('@/utils/requestUtil', () => ({
+  callRemote: mockCallRemote,
 }));
 
 import {
@@ -87,51 +92,87 @@ describe('uploadSnapshot', () => {
   beforeEach(() => {
     mockRequestConfluence.mockReset();
     mockGetAttachmentsV2.mockReset();
+    mockCallRemote.mockReset();
   });
 
-  // Regression: the first implementation used PUT, which returns 404 through
-  // the Forge requestConfluence proxy even though the v1 spec documents it
-  // (same proxy-vs-direct-REST divergence as the v1 property endpoint's 410 —
-  // see ApWrapper2.getContentPropertyV2). Observed in production on
-  // zenuml.atlassian.net 2026-07-18: every snapshot write failed. The working
-  // PNG path (Attachment.ts) only ever POSTs — mirror it.
-  it('POSTs to the page attachment endpoint when no snapshot exists yet', async () => {
+  // Regression: BOTH prior implementations (PUT, then POST in PR #352) 404'd
+  // through the client-side Forge `requestConfluence` proxy — the v1
+  // `child/attachment` endpoint is unreachable that way regardless of verb.
+  // Verified in production 2026-07-18 on page 2935849027, while the sibling
+  // PNG attachment (Attachment.ts) succeeded on the same save via the
+  // /forge-upload-attachment backend (app-authenticated). The v2 API has no
+  // attachment-upload endpoint at all, so that backend is the only path —
+  // mirror Attachment.ts's uploadAttachmentViaApp exactly.
+  it('calls the backend to create a NEW attachment when none exists yet', async () => {
     mockGetAttachmentsV2.mockResolvedValue([]);
-    mockRequestConfluence.mockResolvedValue({ ok: true, status: 200 });
+    mockCallRemote.mockResolvedValue({ ok: true, attachmentId: 'att-new-1', versionNumber: 1 });
+
     await uploadSnapshot('page-1', snapshot);
-    const [url, init] = mockRequestConfluence.mock.calls[0];
-    expect(url).toBe('/wiki/rest/api/content/page-1/child/attachment');
-    expect(init.method).toBe('POST');
-    expect(init.body).toBeInstanceOf(FormData);
+
+    expect(mockCallRemote).toHaveBeenCalledWith('/forge-upload-attachment', 'POST', expect.objectContaining({
+      pageId: 'page-1',
+      attachmentName: 'zenuml-12345.json',
+      contentType: 'application/json',
+      versionNumber: 1,
+      dataBase64: expect.any(String),
+    }));
+    expect(mockCallRemote).toHaveBeenCalledWith('/forge-upload-attachment', 'POST',
+      expect.not.objectContaining({ attachmentId: expect.anything() }));
+    expect(mockRequestConfluence).not.toHaveBeenCalled();
   });
 
-  it('POSTs to the /data endpoint of the existing attachment on update', async () => {
-    mockGetAttachmentsV2.mockResolvedValue([{ id: 'att-9' }]);
-    mockRequestConfluence.mockResolvedValue({ ok: true, status: 200 });
+  it('calls the backend with the existing attachmentId + bumped version on update', async () => {
+    mockGetAttachmentsV2.mockResolvedValue([{ id: 'att-9', version: { number: 3 } }]);
+    mockCallRemote.mockResolvedValue({ ok: true, attachmentId: 'att-9', versionNumber: 4 });
+
     await uploadSnapshot('page-1', snapshot);
-    const [url, init] = mockRequestConfluence.mock.calls[0];
-    expect(url).toBe('/wiki/rest/api/content/page-1/child/attachment/att-9/data');
-    expect(init.method).toBe('POST');
+
+    expect(mockCallRemote).toHaveBeenCalledWith('/forge-upload-attachment', 'POST', expect.objectContaining({
+      attachmentId: 'att-9',
+      versionNumber: 4,
+    }));
   });
 
-  it('falls back to a create POST when the existence lookup fails', async () => {
+  it('falls back to a create call (version 1, no id) when the existence lookup fails', async () => {
     mockGetAttachmentsV2.mockRejectedValue(new Error('lookup boom'));
-    mockRequestConfluence.mockResolvedValue({ ok: true, status: 200 });
+    mockCallRemote.mockResolvedValue({ ok: true, attachmentId: 'att-new-2', versionNumber: 1 });
+
     await uploadSnapshot('page-1', snapshot);
-    const [url, init] = mockRequestConfluence.mock.calls[0];
-    expect(url).toBe('/wiki/rest/api/content/page-1/child/attachment');
-    expect(init.method).toBe('POST');
+
+    expect(mockCallRemote).toHaveBeenCalledWith('/forge-upload-attachment', 'POST', expect.objectContaining({
+      versionNumber: 1,
+    }));
+    expect(mockCallRemote).toHaveBeenCalledWith('/forge-upload-attachment', 'POST',
+      expect.not.objectContaining({ attachmentId: expect.anything() }));
   });
 
-  it('throws on a non-ok HTTP response', async () => {
+  it('derives a deterministic hash from ccVersion — never Date.now()/random', async () => {
     mockGetAttachmentsV2.mockResolvedValue([]);
-    mockRequestConfluence.mockResolvedValue({ ok: false, status: 403 });
+    mockCallRemote.mockResolvedValue({ ok: true, attachmentId: 'att-1', versionNumber: 1 });
+
+    await uploadSnapshot('page-1', { ...snapshot, ccVersion: 7 });
+    await uploadSnapshot('page-1', { ...snapshot, ccVersion: 7 });
+
+    const hashes = mockCallRemote.mock.calls.map(([, , payload]: any[]) => payload.hash);
+    expect(hashes[0]).toBe('snapshot-v1-cc7');
+    expect(hashes[1]).toBe(hashes[0]); // same ccVersion -> identical hash every time
+  });
+
+  it('throws on a non-ok backend result', async () => {
+    mockGetAttachmentsV2.mockResolvedValue([]);
+    mockCallRemote.mockResolvedValue({ ok: false, status: 403, body: 'forbidden' });
     await expect(uploadSnapshot('page-1', snapshot)).rejects.toThrow(/403/);
+  });
+
+  it('throws when the callRemote transport itself rejects', async () => {
+    mockGetAttachmentsV2.mockResolvedValue([]);
+    mockCallRemote.mockRejectedValue(new Error('network down'));
+    await expect(uploadSnapshot('page-1', snapshot)).rejects.toThrow(/network down/);
   });
 
   it('throws (without a network call) for an invalid ccId', async () => {
     await expect(uploadSnapshot('page-1', { ...snapshot, ccId: 'undefined' })).rejects.toThrow();
-    expect(mockRequestConfluence).not.toHaveBeenCalled();
+    expect(mockCallRemote).not.toHaveBeenCalled();
   });
 });
 

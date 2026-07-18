@@ -19,6 +19,7 @@ import { getCodeFromDiagram } from '@/model/Diagram/DiagramTypeConfig';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import global from '@/model/globals';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { callRemote } from '@/utils/requestUtil';
 
 const SNAPSHOT_TYPES: ReadonlyArray<DiagramType> = [
   DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml,
@@ -67,42 +68,93 @@ export function buildSnapshot(diagram: Diagram, ccId: string, ccVersion?: number
 }
 
 /**
- * Upload (create-or-replace) the snapshot as a page attachment. Uses the v1
- * PUT create-or-update endpoint, which upserts by filename — a same-named
- * attachment becomes a new version instead of erroring (unlike the POST
- * create-only endpoint, whose duplicate-filename behavior is the #75 class of
- * collision). Throws on any failure — every caller wraps this so a snapshot
- * write never fails the surrounding save/render.
+ * Base64-encode the JSON snapshot body for the `dataBase64` wire field. Uses
+ * Blob+FileReader (not a bare `btoa`) so multi-byte diagram content (UTF-8
+ * titles/labels) round-trips correctly — the same problem Attachment.ts's
+ * `blobToBase64` solves for the PNG payload; kept local here rather than
+ * imported to avoid statically pulling Attachment.ts's html-to-image/md5
+ * dependencies into every bundle that touches snapshots.
+ */
+function jsonToBase64(snapshot: DiagramSnapshotV1): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([JSON.stringify(snapshot)], { type: 'application/json' });
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result ?? '');
+      const comma = dataUrl.indexOf(',');
+      resolve(comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('FileReader failed'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Upload (create-or-replace) the snapshot as a page attachment.
+ *
+ * Root cause (verified in production 2026-07-18, page 2935849027): the v1
+ * `child/attachment` endpoint is unreachable through the client-side Forge
+ * `requestConfluence` proxy at all — PUT (attempt 1) and POST (attempt 2, PR
+ * #352) BOTH 404'd, while the sibling PNG attachment (Attachment.ts) succeeded
+ * on the same save via the app-authenticated `/forge-upload-attachment`
+ * backend. The v2 API has no attachment-upload endpoint either, so that
+ * backend is the only path — mirror `uploadAttachmentViaApp` (Attachment.ts)
+ * exactly: same endpoint, same callRemote shape, JSON payload instead of PNG.
+ *
+ * Throws on any failure — every caller wraps this so a snapshot write never
+ * fails the surrounding save/render.
  */
 export async function uploadSnapshot(pageId: string, snapshot: DiagramSnapshotV1): Promise<void> {
   const name = snapshotAttachmentName(snapshot.ccId);
   if (!name) throw new Error('invalid ccId for snapshot');
 
-  // MUST be POST. PUT on this endpoint returns 404 through Forge's
-  // requestConfluence proxy even though the v1 spec documents it — the same
-  // proxy-vs-direct-REST divergence ApWrapper2.getContentPropertyV2 documents
-  // for the v1 property endpoint (410 there). Verified in production
-  // 2026-07-18: every PUT snapshot write 404'd while the sibling PNG upload
-  // (Attachment.ts, POST-only) succeeded on the same page in the same session.
-  // Create -> POST <base>; update -> POST <base>/<attachmentId>/data.
-  const base = `/wiki/rest/api/content/${encodeURIComponent(pageId)}/child/attachment`;
-  let url = base;
+  // Resolve whether a same-named attachment already exists, mirroring how
+  // createAttachmentIfContentChanged builds its UploadTarget: existing ->
+  // its id + version+1; none -> no id, version 1.
+  let attachmentId: string | undefined;
+  let versionNumber = 1;
   try {
     const existing = await global.apWrapper.getAttachmentsV2(pageId, { filename: name });
-    const id = (existing?.[0] as any)?.id;
-    if (id) url = `${base}/${encodeURIComponent(String(id))}/data`;
+    const found = existing?.[0] as any;
+    if (found?.id) {
+      attachmentId = String(found.id);
+      versionNumber = (found.version?.number ?? 0) + 1;
+    }
   } catch {
-    // Existence lookup failed — fall through to a create POST. Worst case the
-    // create is rejected for a duplicate name and the caller records
+    // Existence lookup failed — fall through to a create (version 1). Worst
+    // case the create is rejected for a duplicate name and the caller records
     // snapshot_create_failed; never block the save.
   }
 
-  const form = new FormData();
-  form.append('file', new File([JSON.stringify(snapshot)], name, { type: 'application/json' }));
-  form.append('minorEdit', 'true');
-  const { requestConfluence } = await import('@forge/bridge');
-  const res = await requestConfluence(url, { method: 'POST', body: form });
-  if (!res.ok) throw new Error(`snapshot upload HTTP ${res.status}`);
+  // The backend stores this as the attachment comment for change detection —
+  // deterministic from ccVersion (never Date.now()/random) so re-uploads of
+  // the same version are idempotent and inspectable.
+  const hash = `snapshot-v1-cc${snapshot.ccVersion ?? 0}`;
+  const dataBase64 = await jsonToBase64(snapshot);
+
+  let raw: unknown;
+  try {
+    raw = await callRemote('/forge-upload-attachment', 'POST', {
+      pageId,
+      ...(attachmentId ? { attachmentId } : {}),
+      attachmentName: name,
+      hash,
+      versionNumber,
+      dataBase64,
+      contentType: 'application/json',
+    });
+  } catch (e) {
+    // callRemote throws on a non-2xx transport response (e.g. the function
+    // itself 500'd); normalise so the failure is labelled consistently, same
+    // as Attachment.ts's uploadAttachmentViaApp.
+    throw new Error(`snapshot upload transport error: ${(e as Error)?.message ?? e}`);
+  }
+  const result: any = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  if (!result?.ok) {
+    throw new Error(
+      `snapshot upload HTTP ${typeof result?.status === 'number' ? result.status : 0}: ${String(result?.body ?? 'backend upload failed')}`,
+    );
+  }
 }
 
 

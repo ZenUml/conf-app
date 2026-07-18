@@ -666,17 +666,17 @@ EOF
 )"
 ```
 
-- [ ] **Step 4 (APPROVAL-GATED — do not run without the user's explicit go-ahead): KV upload**
+- [x] **Step 4 (APPROVAL-GATED — do not run without the user's explicit go-ahead): KV upload** — executed 2026-07-18 with user approval.
 
-Staging first, then prod; namespace ids come from the Cloudflare dashboard / `npx wrangler kv namespace list` (SPACE_LICENSE_KV):
+**Correction discovered at execution time:** staging and prod are NOT separate namespaces. `wrangler-stg.toml` and `wrangler-prod.toml` bind SPACE_LICENSE_KV to the **same** namespace id (`8969e852…`); only the dev config (`wrangler-dev.toml`, `e56fcb64…`) is isolated. The plan's two-step staged rollout therefore collapses to a single upload — uploading "to staging" is live for prod immediately. (Same shared stg/prod structure exists for `confluence_plugin_features` — repo convention, not an anomaly.)
 
 ```bash
-node scripts/cohorts/build-kv-bulk.mjs private/growth/cohorts/*.json > /tmp/cohort-bulk.json
-npx wrangler kv bulk put /tmp/cohort-bulk.json --namespace-id <SPACE_LICENSE_KV_STAGING_ID>
-# verify one key:
-npx wrangler kv key get "cohort:user:<one-accountId-from-the-seed>" --namespace-id <SPACE_LICENSE_KV_STAGING_ID>
-# then, after staging spot-check passes:
-npx wrangler kv bulk put /tmp/cohort-bulk.json --namespace-id <SPACE_LICENSE_KV_PROD_ID>
+node scripts/cohorts/build-kv-bulk.mjs private/growth/cohorts/*.json > <scratch>/cohort-bulk.json
+# NOTE: wrangler v4 kv commands default to LOCAL — --remote is required:
+npx wrangler kv bulk put <scratch>/cohort-bulk.json --namespace-id 8969e8528105403bb2d9adca9fc16567 --remote
+# verify: read one key back, and count
+npx wrangler kv key get "cohort:user:<one-accountId-from-the-seed>" --namespace-id 8969e852… --remote
+npx wrangler kv key list --namespace-id 8969e852… --prefix "cohort:user:" --remote
 ```
 
 Post-deploy verification (backend ships via the normal CI release, NOT a local deploy): spot-check on lite-stg that a macro render writes the `userCohorts:<domain>` localStorage marker and Mixpanel receives `cohorts_refreshed`.

@@ -11,6 +11,7 @@ import { getContext as initForgeContext, getView, isInserting, isConfiguring } f
 import AsyncApiStudioEditor from '@/components/Editor/AsyncApiEditor/AsyncApiStudioEditor'
 import { Diagram } from '@/model/Diagram/Diagram'
 import { saveToPlatform } from '@/model/ContentProvider/Persistence'
+import { markPublishClicked, trackPublishCompleted } from '@/utils/analytics/publishTiming'
 import { buildAsyncApiSaveDiagram } from '@/model/asyncapi/buildSaveDiagram'
 // info.title → custom-content title mirroring now lives in
 // buildAsyncApiSaveDiagram (it parses the spec when no explicit title is
@@ -118,6 +119,10 @@ async function initializeMacro() {
   }
 
   const handleSave = async (spec: string) => {
+    // Start the publish-latency clock at the save-handler entry (≈ the Studio
+    // Publish click). Stopped at the redirect below. AsyncAPI submits inline
+    // (no 500ms setTimeout), so its window excludes that delay by design.
+    markPublishClicked()
     // buildAsyncApiSaveDiagram mirrors the spec's info.title onto the CC title
     // and (via pinToId) forces an in-place update for dashboard edits — see
     // isDashboardEdit above and the builder's docs.
@@ -153,6 +158,13 @@ async function initializeMacro() {
     // didn't save".
     const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()])
     const idChanged = !!sourceId && !!savedId && savedId !== sourceId
+    // Redirect starts now (view.submit / view.close below). Stop the clock.
+    trackPublishCompleted({
+      macro_type: 'asyncapi',
+      operation_mode: inserting ? 'create' : 'edit',
+      content_id: String(savedId),
+      custom_content_id: String(savedId),
+    })
     if (inserting || configuring || idChanged) {
       // view.submit throws "this resource's view is not submittable" in
       // surfaces where the Forge runtime hasn't actually opened the editor

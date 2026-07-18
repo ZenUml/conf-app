@@ -23,6 +23,7 @@ import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywal
 import { maybeProbeSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
 import { isPrefetchDue } from '@/utils/prefetch/throttle';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { markPublishClicked, trackPublishCompleted } from '@/utils/analytics/publishTiming'
 import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
@@ -812,6 +813,10 @@ import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
 installRestoreDraftBanner();
 
 EventBus.$on('save', async () => {
+  // Start the publish-latency clock at the save-handler entry — EventBus.$emit
+  // ('save') fires synchronously from the Publish click (Header.vue saveAndExit),
+  // so this is effectively the click instant. Stopped at the redirect below.
+  markPublishClicked();
   notifyAiTitleSaved({ title: store.state.diagram.title, contentId: store.state.diagram.id })
   console.log('save', store.state.diagram);
 
@@ -944,6 +949,14 @@ EventBus.$on('save', async () => {
       macroNeedsRepair,
       legacyMacroNeedsRepair,
       hasId: !!id,
+    });
+    // Redirect starts now (view.submit / view.close below). Stop the
+    // publish-latency clock here so it captures the full user-perceived wait.
+    trackPublishCompleted({
+      macro_type: store.state.diagram.diagramType as MacroTypeValue,
+      operation_mode: inserting ? 'create' : 'edit',
+      content_id: String(id),
+      custom_content_id: String(id),
     });
     try {
       if (needsWriteback && !isValidCustomContentId(id)) {

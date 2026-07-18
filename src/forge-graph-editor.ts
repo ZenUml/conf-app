@@ -8,6 +8,7 @@ import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from "@/utils/window";
 import { toast } from '@/utils/toast';
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { markPublishClicked, trackPublishCompleted } from "@/utils/analytics/publishTiming";
 import { mountRoot } from "@/mount-root";
 import { installRestoreDraftBanner } from "@/utils/restoreDraftBanner";
 import ForgeGraphEditor from "@/components/DrawIoExtension/ForgeGraphEditor.vue";
@@ -57,6 +58,9 @@ const EMPTY_GRAPH = `<mxfile>
 </mxfile>`;
 
 async function saveGraphAndExit(graphXml: string) {
+  // Start the publish-latency clock at the save-handler entry (≈ the DrawIO
+  // Publish click that postMessages here). Stopped at the redirect below.
+  markPublishClicked();
   const diagram = {
     ...window.diagram,
     graphXml,
@@ -133,6 +137,13 @@ async function saveGraphAndExit(graphXml: string) {
     const attemptLegacyMigration = repairWillPersist && legacyMacroNeedsRepair && !!id;
     const idChanged = !!sourceId && !!id && id !== sourceId;
     const needsWriteback = inserting || idChanged || attemptRepair || attemptLegacyMigration;
+    // Redirect starts now (view.submit / view.close below). Stop the clock.
+    trackPublishCompleted({
+      macro_type: 'graph',
+      operation_mode: inserting ? 'create' : 'edit',
+      content_id: String(id),
+      custom_content_id: String(id),
+    });
     try {
       if (needsWriteback && !isValidCustomContentId(id)) {
         // conf-app#320 defense-in-depth: never write a garbage customContentId

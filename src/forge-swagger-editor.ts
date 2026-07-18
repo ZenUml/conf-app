@@ -18,6 +18,7 @@ import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from '@/utils/window';
 import { toast } from '@/utils/toast';
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { markPublishClicked, trackPublishCompleted } from "@/utils/analytics/publishTiming";
 import forgeGlobal, { getView, getContext as initForgeContext, isInserting, isConfiguring } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus';
 import store from "@/model/store2";
@@ -98,6 +99,9 @@ function bootstrapSwaggerUi(mountEl: HTMLElement | null) {
 }
 
 async function saveOpenApiAndExit() {
+  // Start the publish-latency clock at the save-handler entry (≈ the Publish
+  // click in react/Header.tsx). Stopped at the redirect below.
+  markPublishClicked();
   const code = window.specContent;
   console.log('saveOpenApiAndExit - window.diagram', store.state.diagram);
   const diagram = {
@@ -163,6 +167,13 @@ async function saveOpenApiAndExit() {
     const attemptRepair = repairWillPersist && macroNeedsRepair;
     const idChanged = !!sourceId && !!id && id !== sourceId;
     const needsWriteback = inserting || idChanged || attemptRepair;
+    // Redirect starts now (view.submit / view.close below). Stop the clock.
+    trackPublishCompleted({
+      macro_type: 'openapi',
+      operation_mode: inserting ? 'create' : 'edit',
+      content_id: String(id),
+      custom_content_id: String(id),
+    });
     try {
       if (needsWriteback && !isValidCustomContentId(id)) {
         // conf-app#320 defense-in-depth: never write a garbage customContentId

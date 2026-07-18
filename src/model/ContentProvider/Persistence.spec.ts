@@ -118,6 +118,28 @@ describe('Persistence', function () {
     );
   })
 
+  it('macro_create_succeeded carries a numeric save_duration_ms (publish latency)', async () => {
+    await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "macro_create_succeeded",
+      expect.objectContaining({
+        save_duration_ms: expect.any(Number),
+      })
+    );
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls[0];
+    expect((props as any).save_duration_ms).toBeGreaterThanOrEqual(0);
+  })
+
+  it('macro_save_succeeded carries a numeric save_duration_ms (publish latency)', async () => {
+    await saveToPlatform({ ...NULL_DIAGRAM, id: 'existing-id', diagramType: DiagramType.Sequence }, mockApWrapper);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "macro_save_succeeded",
+      expect.objectContaining({
+        save_duration_ms: expect.any(Number),
+      })
+    );
+  })
+
   it('should fire macro_save_succeeded for an existing diagram', async () => {
     await saveToPlatform({ ...NULL_DIAGRAM, id: 'existing-id', diagramType: DiagramType.Sequence }, mockApWrapper);
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(

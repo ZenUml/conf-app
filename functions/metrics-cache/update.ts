@@ -1,64 +1,78 @@
-import { Env } from '../utils/KVEnv';
+import type { ForgeRequestData } from '../utils/authenticate';
+import {
+  KV_EXPIRATION_TTL_SECONDS,
+  assertCounts,
+  authenticateMetricsRequest,
+  errorResponse,
+  isSnapshotEnrolled,
+  jsonResponse,
+  metricsKvKey,
+  readLatestPointer,
+  type DomainMetrics,
+  type MacroCounts,
+  type SnapshotEnv,
+} from './snapshot/common';
 
-interface SpaceMetrics {
-  space: string;
-  total: number;
-  sequence: number;
-  graph: number;
-  openapi: number;
-  mermaid: number;
-  unknown: number;
-  isLite: boolean;
-  lastUpdated?: string;
+interface LegacyUpdateBody extends Record<string, unknown> {
+  domain?: string;
+  space?: string;
+  metrics?: MacroCounts & Record<string, unknown>;
 }
 
-interface DomainData {
-  domain: string;
-  spaces: Record<string, SpaceMetrics>;
-}
+export const onRequest = async ({
+  request,
+  env,
+  data,
+}: {
+  request: Request;
+  env: SnapshotEnv;
+  data: ForgeRequestData;
+}) => {
+  try {
+    if (request.method !== 'POST') {
+      return jsonResponse({ error: 'Method Not Allowed' }, 405);
+    }
+    let body: LegacyUpdateBody;
+    try {
+      body = await request.json<LegacyUpdateBody>();
+    } catch {
+      return jsonResponse({ error: 'Invalid JSON body' }, 400);
+    }
+    if (typeof body.space !== 'string' || !body.space || !body.metrics) {
+      return jsonResponse({ error: 'Missing required fields' }, 400);
+    }
 
-export const onRequest = async ({ request, env }: { request: Request; env: Env }) => {
-  if (request.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405 });
-  }
+    const context = await authenticateMetricsRequest(request, env, {
+      body,
+      forgeContext: data.forgeContext,
+    });
+    const enrolled = await isSnapshotEnrolled(env, context);
+    if (enrolled && await readLatestPointer(env, context)) {
+      return jsonResponse({ success: true, ignored: 'snapshot-managed' });
+    }
 
-  const url = new URL(request.url);
-  const addonKey = url.searchParams.get('addonKey') || '';
-  const { domain, space, metrics } = await request.json();
-
-  if (!domain || !space || !metrics) {
-    return new Response('Missing required fields', { status: 400 });
-  }
-
-  const isLite = addonKey.includes('-lite');
-  const productType = isLite ? 'lite' : 'full';
-  const key = `metrics:${domain}:${productType}`;
-
-  // Read current domain data
-  let domainData = await env.confluence_plugin_features.get(key, 'json') as DomainData | null;
-
-  if (!domainData) {
-    // Create new domain data
-    domainData = {
-      domain,
-      spaces: {}
+    assertCounts(body.metrics);
+    const key = metricsKvKey(context);
+    const domainData = await env.confluence_plugin_features.get(key, 'json') as DomainMetrics | null
+      || { domain: context.clientDomain, spaces: {} };
+    domainData.domain = context.clientDomain;
+    domainData.spaces[body.space] = {
+      space: body.space,
+      total: body.metrics.total,
+      sequence: body.metrics.sequence,
+      graph: body.metrics.graph,
+      openapi: body.metrics.openapi,
+      mermaid: body.metrics.mermaid,
+      plantuml: body.metrics.plantuml,
+      unknown: body.metrics.unknown,
+      isLite: context.productType === 'lite',
+      lastUpdated: new Date().toISOString(),
     };
+    await env.confluence_plugin_features.put(key, JSON.stringify(domainData), {
+      expirationTtl: KV_EXPIRATION_TTL_SECONDS,
+    });
+    return jsonResponse({ success: true });
+  } catch (error) {
+    return errorResponse(error);
   }
-
-  // Update the specific space
-  domainData.spaces[space] = {
-    ...metrics,
-    lastUpdated: new Date().toISOString()
-  };
-
-  // Write back with 365-day TTL (safety cleanup for abandoned domains)
-  await env.confluence_plugin_features.put(
-    key,
-    JSON.stringify(domainData),
-    { expirationTtl: 31536000 } // 365 days
-  );
-
-  return new Response(JSON.stringify({ success: true }), {
-    headers: { 'Content-Type': 'application/json' }
-  });
 };

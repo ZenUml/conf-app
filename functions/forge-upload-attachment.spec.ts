@@ -235,4 +235,111 @@ describe('forge-upload-attachment', () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
   });
+
+  // JSON snapshot payloads (docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md):
+  // the frontend's PUT/POST-to-requestConfluence upload of `zenuml-<ccId>.json`
+  // 404s through the Forge client proxy no matter the verb, and the v2 API has
+  // no attachment-upload endpoint at all — so the snapshot rides this SAME
+  // app-authenticated endpoint as the PNG, distinguished by contentType.
+  describe('JSON snapshot payloads (application/json contentType)', () => {
+    const JSON_BASE64 = Buffer.from(JSON.stringify({ version: 1, ccId: 'abc-uuid', dsl: 'A.method()' })).toString('base64');
+    const jsonPayload = {
+      pageId: '12345',
+      attachmentName: 'zenuml-abc-uuid.json',
+      hash: 'snapshot-v1-cc3',
+      versionNumber: 1,
+      dataBase64: JSON_BASE64,
+      contentType: 'application/json',
+    };
+
+    it('accepts a JSON snapshot name + contentType and writes the blob as application/json', async () => {
+      routeFetch({
+        read: fetchResponse(200, '{}'),
+        upload: fetchResponse(200, JSON.stringify({ results: [{ id: 'att-json-1' }] })),
+        put: fetchResponse(200, '{}'),
+      });
+
+      const res = await onRequest({ request: makeRequest(jsonPayload), data: FORGE_DATA } as any);
+      const json = await readJson(res);
+
+      expect(json).toEqual({ ok: true, attachmentId: 'att-json-1', versionNumber: 1 });
+      const uploadInit = fetchMock.mock.calls[1][1];
+      const file = (uploadInit.body as FormData).get('file') as File;
+      expect(file.type).toBe('application/json');
+      expect(file.name).toBe('zenuml-abc-uuid.json');
+    });
+
+    it('still accepts a legacy call with no contentType field (defaults to image/png)', async () => {
+      routeFetch({});
+      const res = await onRequest({ request: makeRequest(basePayload), data: FORGE_DATA } as any);
+      expect((await readJson(res)).ok).toBe(true);
+      const uploadInit = fetchMock.mock.calls[1][1];
+      const file = (uploadInit.body as FormData).get('file') as File;
+      expect(file.type).toBe('image/png');
+    });
+
+    it('accepts the generic dataBase64 field for a PNG payload', async () => {
+      routeFetch({});
+      const res = await onRequest({
+        request: makeRequest({ ...basePayload, pngBase64: undefined, dataBase64: PNG_BASE64 }),
+        data: FORGE_DATA,
+      } as any);
+      expect((await readJson(res)).ok).toBe(true);
+    });
+
+    it('rejects a contentType outside the allowlist', async () => {
+      const res = await onRequest({
+        request: makeRequest({ ...jsonPayload, contentType: 'text/plain' }),
+        data: FORGE_DATA,
+      } as any);
+      expect((await readJson(res)).status).toBe(400);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('rejects a .json attachmentName paired with contentType image/png (mismatch)', async () => {
+      const res = await onRequest({
+        request: makeRequest({ ...jsonPayload, contentType: 'image/png' }),
+        data: FORGE_DATA,
+      } as any);
+      expect((await readJson(res)).status).toBe(400);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('rejects a .png attachmentName paired with contentType application/json (mismatch)', async () => {
+      const res = await onRequest({
+        request: makeRequest({ ...basePayload, contentType: 'application/json' }),
+        data: FORGE_DATA,
+      } as any);
+      expect((await readJson(res)).status).toBe(400);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('rejects when both dataBase64 and pngBase64 are provided', async () => {
+      const res = await onRequest({
+        request: makeRequest({ ...basePayload, dataBase64: PNG_BASE64 }),
+        data: FORGE_DATA,
+      } as any);
+      expect((await readJson(res)).status).toBe(400);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('rejects when neither dataBase64 nor pngBase64 is provided', async () => {
+      const res = await onRequest({
+        request: makeRequest({ ...basePayload, pngBase64: undefined }),
+        data: FORGE_DATA,
+      } as any);
+      expect((await readJson(res)).status).toBe(400);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('does not enforce PNG magic bytes on an application/json payload', async () => {
+      routeFetch({});
+      const arbitraryJsonBytes = Buffer.from('{"version":1,"dsl":"whatever"}').toString('base64');
+      const res = await onRequest({
+        request: makeRequest({ ...jsonPayload, dataBase64: arbitraryJsonBytes }),
+        data: FORGE_DATA,
+      } as any);
+      expect((await readJson(res)).ok).toBe(true);
+    });
+  });
 });

@@ -160,6 +160,15 @@ export type AnalyticsEventName =
   // text-DSL types only (sequence / mermaid / plantuml).
   | "viewer_source_opened"
   | "viewer_source_copied"
+  // User-cohort targeting pipeline (docs/superpowers/plans/
+  // 2026-07-18-user-cohort-targeting-pipeline.md). The macro iframe refreshes
+  // the current user's cohort membership from /api/user-cohorts (KV-backed,
+  // offline-computed) and persists it as a localStorage marker for synchronous
+  // reads by other iframes (page banner, upgrade modal). `refreshed` fires on
+  // a successful fetch (including an empty cohort list); `refresh_failed` on
+  // network/auth/malformed-response errors.
+  | "cohorts_refreshed"
+  | "cohorts_refresh_failed"
   | "viewer_load_failed"
   // Deferred Sequence-family page-ADF copy scan settled after the viewer's
   // first render. Correlates to macro_viewed through instance_nonce/time_origin.

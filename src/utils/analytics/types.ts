@@ -85,6 +85,11 @@ export type AnalyticsProperties = {
   // emitted as `true` today; kept optional for a future "always, with flag"
   // rate variant. See utils/paywall/spaceAdminProbe.ts.
   is_space_admin?: boolean;
+  // Cohort targeting (cohorts_refreshed). `cohorts` = comma-joined cohort list
+  // the refresh resolved; empty string = user in no cohort (still a successful
+  // refresh). `cohort_count` = same list's length, for numeric filtering.
+  cohorts?: string;
+  cohort_count?: number;
   // Whether the current user can edit the page/macro. Set on
   // `viewer_source_opened` / `viewer_source_copied` so read-only vs editor
   // audience for the View Source panel (#333) can be split.

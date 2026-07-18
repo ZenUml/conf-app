@@ -18,6 +18,7 @@ import { Diagram, DiagramType } from '@/model/Diagram/Diagram';
 import { getCodeFromDiagram } from '@/model/Diagram/DiagramTypeConfig';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import global from '@/model/globals';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 
 const SNAPSHOT_TYPES: ReadonlyArray<DiagramType> = [
   DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml,
@@ -108,5 +109,50 @@ export async function fetchSnapshot(pageId: string, ccId: string): Promise<Diagr
     return parsed as DiagramSnapshotV1;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Editor-preview cross-page backfill (Task 4). Called (fire-and-forget) from
+ * the editor-preview load path in forgeIndex.ts right after a custom content
+ * load resolves, so a page hosting only an ALIAS macro (the CC's `pageId`
+ * differs from the current host page) still gets its own local snapshot —
+ * the fallback the viewer needs if the source page/CC later goes dark.
+ * Restricted to editor surfaces (write permission is guaranteed there;
+ * `isDisplayMode` covers the plain page-view/fullscreen-viewer surfaces where
+ * we cannot assume write access) and skipped entirely when a snapshot already
+ * exists at least as fresh as the current CC version.
+ */
+export async function maybeBackfillSnapshot(opts: {
+  hostPageId: string;
+  ccId: string;
+  ccPageId?: string | number;
+  diagram: Diagram;
+  ccVersion?: number;
+  isDisplayMode: boolean;
+}): Promise<void> {
+  try {
+    if (opts.isDisplayMode) return; // editor surfaces only (write perms guaranteed)
+    if (!opts.ccPageId || String(opts.ccPageId) === String(opts.hostPageId)) return; // cross-page aliases only
+    const existing = await fetchSnapshot(opts.hostPageId, opts.ccId);
+    if (existing && opts.ccVersion !== undefined && (existing.ccVersion ?? -1) >= opts.ccVersion) return;
+    const snapshot = buildSnapshot(opts.diagram, opts.ccId, opts.ccVersion);
+    if (!snapshot) return;
+    await uploadSnapshot(opts.hostPageId, snapshot);
+    trackAnalyticsEvent('snapshot_created', {
+      feature_area: 'macro',
+      surface: 'editor',
+      snapshot_trigger: 'editor_backfill',
+      custom_content_id: opts.ccId,
+      attachment_name: snapshotAttachmentName(opts.ccId),
+    });
+  } catch (e) {
+    trackAnalyticsEvent('snapshot_create_failed', {
+      feature_area: 'macro',
+      surface: 'editor',
+      snapshot_trigger: 'editor_backfill',
+      custom_content_id: opts.ccId,
+      failure_reason: String(e instanceof Error ? e.message : e).substring(0, 200),
+    });
   }
 }

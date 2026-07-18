@@ -317,6 +317,26 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         // empty/example doc and risk a destructive save.
         reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, { recoveryUsed: false });
       }
+
+      // Diagram source snapshot attachments (docs/superpowers/plans/
+      // 2026-07-18-diagram-source-snapshot-attachments.md, Task 4): when this
+      // editor surface is previewing a cross-page alias (the CC's own pageId
+      // differs from the page hosting THIS macro), backfill a snapshot onto
+      // the host page — write permission here is guaranteed (editor surface),
+      // unlike a plain viewer render. Fire-and-forget: never on the critical
+      // rendering path, and maybeBackfillSnapshot itself never throws.
+      if (doc && loaded.customContent) {
+        import('@/model/SnapshotAttachment').then(({ maybeBackfillSnapshot }) =>
+          maybeBackfillSnapshot({
+            hostPageId: String(recoveryPageId),
+            ccId: String(customContentId),
+            ccPageId: loaded.customContent!.pageId,
+            diagram: doc!,
+            ccVersion: loaded.customContent!.version?.number,
+            isDisplayMode: globals.apWrapper.isDisplayMode(),
+          })
+        ).catch(e => console.debug('[snapshot] backfill skipped', e));
+      }
     }
 
     // ZEN-1170 Defect 1: try the legacy content-property fallback whenever

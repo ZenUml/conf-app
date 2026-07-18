@@ -338,6 +338,35 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           })
         ).catch(e => console.debug('[snapshot] backfill skipped', e));
       }
+
+      // Editor staleness hint (docs/superpowers/specs/
+      // 2026-07-18-job-b-editor-staleness-hint-design.md): on inline
+      // page-editor renders only, offer a drift-based "update this diagram"
+      // strip. Fire-and-forget like the snapshot backfill above — never on
+      // the render critical path, and the module gates itself (surface,
+      // type, flag, drift, dismissal) and never throws.
+      //
+      // Integration facts (task-4-report.md):
+      //  - macro type: `doc.diagramType` (src/model/Diagram/Diagram.ts) is
+      //    already the same lowercase string the orchestrator's
+      //    HINT_MACRO_TYPES set expects ('sequence'|'mermaid'|'plantuml'|
+      //    'graph') — no derivation from isSequence/isAsyncApi needed.
+      //  - CTA: EventBus.$emit('edit') is the SAME mechanism the viewer
+      //    toolbar's real Edit button uses (GenericViewer.vue's edit()
+      //    method) — handled by the EventBus.$on('edit', ...) listener
+      //    below, which opens the fullscreen editor modal.
+      if (doc && loaded.customContent?.version) {
+        import('@/utils/stalenessHint/maybeShowStalenessHint').then(({ maybeShowStalenessHint }) =>
+          maybeShowStalenessHint({
+            context,
+            macroType: doc!.diagramType,
+            ccId: String(customContentId),
+            ccLastModified: loaded.customContent!.version!.createdAt,
+            ccAuthorId: loaded.customContent!.version!.authorId,
+            onCta: () => EventBus.$emit('edit'),
+          })
+        ).catch(e => console.debug('[staleness-hint] wiring skipped', e));
+      }
     }
 
     // ZEN-1170 Defect 1: try the legacy content-property fallback whenever

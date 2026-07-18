@@ -93,6 +93,12 @@ export type AnalyticsProperties = {
   // refresh). `cohort_count` = same list's length, for numeric filtering.
   cohorts?: string;
   cohort_count?: number;
+  // Staleness hint (staleness_hint_*). `drift_count` = page versions newer
+  // than the diagram's last update at decision time; `is_diagram_author` =
+  // current accountId equals the diagram custom content's last-version
+  // authorId (picks the copy variant).
+  drift_count?: number;
+  is_diagram_author?: boolean;
   // Whether the current user can edit the page/macro. Set on
   // `viewer_source_opened` / `viewer_source_copied` so read-only vs editor
   // audience for the View Source panel (#333) can be split.

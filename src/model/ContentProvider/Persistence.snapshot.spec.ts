@@ -104,7 +104,7 @@ describe('Persistence — snapshot save-path wiring (Task 3)', () => {
       surface: 'editor',
       snapshot_trigger: 'save',
       custom_content_id: 'mocked_custom_content_id',
-      error_message: expect.stringContaining('boom'),
+      failure_reason: expect.stringContaining('boom'),
     }));
     // The pre-existing save success analytics must still fire — a snapshot
     // failure must never suppress the real save's own telemetry.

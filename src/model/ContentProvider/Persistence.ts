@@ -145,7 +145,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
         macro_type: macroType,
         snapshot_trigger: 'save',
         custom_content_id: savedId,
-        error_message: String(e instanceof Error ? e.message : e).substring(0, 200),
+        failure_reason: String(e instanceof Error ? e.message : e).substring(0, 200),
       });
     }
   }

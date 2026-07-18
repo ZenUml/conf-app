@@ -77,16 +77,34 @@ export function buildSnapshot(diagram: Diagram, ccId: string, ccVersion?: number
 export async function uploadSnapshot(pageId: string, snapshot: DiagramSnapshotV1): Promise<void> {
   const name = snapshotAttachmentName(snapshot.ccId);
   if (!name) throw new Error('invalid ccId for snapshot');
+
+  // MUST be POST. PUT on this endpoint returns 404 through Forge's
+  // requestConfluence proxy even though the v1 spec documents it — the same
+  // proxy-vs-direct-REST divergence ApWrapper2.getContentPropertyV2 documents
+  // for the v1 property endpoint (410 there). Verified in production
+  // 2026-07-18: every PUT snapshot write 404'd while the sibling PNG upload
+  // (Attachment.ts, POST-only) succeeded on the same page in the same session.
+  // Create -> POST <base>; update -> POST <base>/<attachmentId>/data.
+  const base = `/wiki/rest/api/content/${encodeURIComponent(pageId)}/child/attachment`;
+  let url = base;
+  try {
+    const existing = await global.apWrapper.getAttachmentsV2(pageId, { filename: name });
+    const id = (existing?.[0] as any)?.id;
+    if (id) url = `${base}/${encodeURIComponent(String(id))}/data`;
+  } catch {
+    // Existence lookup failed — fall through to a create POST. Worst case the
+    // create is rejected for a duplicate name and the caller records
+    // snapshot_create_failed; never block the save.
+  }
+
   const form = new FormData();
   form.append('file', new File([JSON.stringify(snapshot)], name, { type: 'application/json' }));
   form.append('minorEdit', 'true');
   const { requestConfluence } = await import('@forge/bridge');
-  const res = await requestConfluence(
-    `/wiki/rest/api/content/${encodeURIComponent(pageId)}/child/attachment`,
-    { method: 'PUT', headers: { 'X-Atlassian-Token': 'nocheck' }, body: form },
-  );
+  const res = await requestConfluence(url, { method: 'POST', body: form });
   if (!res.ok) throw new Error(`snapshot upload HTTP ${res.status}`);
 }
+
 
 /**
  * Fetch and parse the host page's snapshot attachment for a given ccId.

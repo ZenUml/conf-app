@@ -86,19 +86,45 @@ describe('uploadSnapshot', () => {
 
   beforeEach(() => {
     mockRequestConfluence.mockReset();
+    mockGetAttachmentsV2.mockReset();
   });
 
-  it('PUTs a FormData body to the page attachment endpoint (upsert-by-filename)', async () => {
+  // Regression: the first implementation used PUT, which returns 404 through
+  // the Forge requestConfluence proxy even though the v1 spec documents it
+  // (same proxy-vs-direct-REST divergence as the v1 property endpoint's 410 —
+  // see ApWrapper2.getContentPropertyV2). Observed in production on
+  // zenuml.atlassian.net 2026-07-18: every snapshot write failed. The working
+  // PNG path (Attachment.ts) only ever POSTs — mirror it.
+  it('POSTs to the page attachment endpoint when no snapshot exists yet', async () => {
+    mockGetAttachmentsV2.mockResolvedValue([]);
     mockRequestConfluence.mockResolvedValue({ ok: true, status: 200 });
     await uploadSnapshot('page-1', snapshot);
-    expect(mockRequestConfluence).toHaveBeenCalledTimes(1);
     const [url, init] = mockRequestConfluence.mock.calls[0];
-    expect(url).toContain('/wiki/rest/api/content/page-1/child/attachment');
-    expect(init.method).toBe('PUT');
+    expect(url).toBe('/wiki/rest/api/content/page-1/child/attachment');
+    expect(init.method).toBe('POST');
     expect(init.body).toBeInstanceOf(FormData);
   });
 
+  it('POSTs to the /data endpoint of the existing attachment on update', async () => {
+    mockGetAttachmentsV2.mockResolvedValue([{ id: 'att-9' }]);
+    mockRequestConfluence.mockResolvedValue({ ok: true, status: 200 });
+    await uploadSnapshot('page-1', snapshot);
+    const [url, init] = mockRequestConfluence.mock.calls[0];
+    expect(url).toBe('/wiki/rest/api/content/page-1/child/attachment/att-9/data');
+    expect(init.method).toBe('POST');
+  });
+
+  it('falls back to a create POST when the existence lookup fails', async () => {
+    mockGetAttachmentsV2.mockRejectedValue(new Error('lookup boom'));
+    mockRequestConfluence.mockResolvedValue({ ok: true, status: 200 });
+    await uploadSnapshot('page-1', snapshot);
+    const [url, init] = mockRequestConfluence.mock.calls[0];
+    expect(url).toBe('/wiki/rest/api/content/page-1/child/attachment');
+    expect(init.method).toBe('POST');
+  });
+
   it('throws on a non-ok HTTP response', async () => {
+    mockGetAttachmentsV2.mockResolvedValue([]);
     mockRequestConfluence.mockResolvedValue({ ok: false, status: 403 });
     await expect(uploadSnapshot('page-1', snapshot)).rejects.toThrow(/403/);
   });

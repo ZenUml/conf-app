@@ -10,6 +10,7 @@ import { callRemote } from '@/utils/requestUtil'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import {
   COHORT_MARKER_TTL_MS,
+  COHORT_RETRY_BACKOFF_MS,
   userCohortsMarkerKey,
   parseUserCohortsMarker,
   isMarkerStale,
@@ -123,5 +124,46 @@ describe('userCohorts marker', () => {
       failure_reason: 'storage_write_failed',
     })
     expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('cohorts_refreshed', expect.anything())
+  })
+
+  it('dedupes concurrent refreshes into a single in-flight request', async () => {
+    let resolveCall: (value: unknown) => void = () => {}
+    vi.mocked(callRemote).mockImplementation(
+      () => new Promise((resolve) => { resolveCall = resolve })
+    )
+
+    const p1 = refreshUserCohortsIfStale(NOW)
+    const p2 = refreshUserCohortsIfStale(NOW)
+
+    resolveCall({ cohorts: ['vs-copier'], accountId: 'a-1' })
+    await Promise.all([p1, p2])
+
+    expect(callRemote).toHaveBeenCalledTimes(1)
+    expect(trackAnalyticsEvent).toHaveBeenCalledTimes(1)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('cohorts_refreshed', {
+      feature_area: 'system',
+      surface: 'viewer',
+      cohorts: 'vs-copier',
+      cohort_count: 1,
+    })
+  })
+
+  it('does not refetch immediately after a failed refresh (backoff)', async () => {
+    vi.mocked(callRemote).mockRejectedValueOnce(new Error('HTTP 500'))
+    await refreshUserCohortsIfStale(NOW)
+    expect(callRemote).toHaveBeenCalledTimes(1)
+
+    await refreshUserCohortsIfStale(NOW + 1000)
+    expect(callRemote).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries once the backoff window has elapsed', async () => {
+    vi.mocked(callRemote).mockRejectedValueOnce(new Error('HTTP 500'))
+    await refreshUserCohortsIfStale(NOW)
+    expect(callRemote).toHaveBeenCalledTimes(1)
+
+    vi.mocked(callRemote).mockResolvedValueOnce({ cohorts: ['vs-copier'], accountId: 'a-1' })
+    await refreshUserCohortsIfStale(NOW + COHORT_RETRY_BACKOFF_MS + 1)
+    expect(callRemote).toHaveBeenCalledTimes(2)
   })
 })

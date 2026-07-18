@@ -19,6 +19,14 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
 export const COHORT_MARKER_TTL_MS = 24 * 60 * 60 * 1000
 
+/**
+ * Failure backoff: once a refresh attempt has been made (success OR
+ * failure), don't retry for this long. Without this, every render of a
+ * macro on a broken backend re-fires a fetch + `cohorts_refresh_failed`,
+ * because a failed attempt writes no marker and so never clears staleness.
+ */
+export const COHORT_RETRY_BACKOFF_MS = 10 * 60 * 1000
+
 export interface UserCohortsMarker {
   cohorts: string[]
   accountId: string
@@ -71,6 +79,34 @@ function writeUserCohortsMarker(marker: UserCohortsMarker, clientDomain?: string
   }
 }
 
+function userCohortsAttemptKey(clientDomain: string = getClientDomain() || 'unknown'): string {
+  return ['userCohortsAttempt', normalizeKeyPart(clientDomain)].join(':')
+}
+
+/** Best-effort, same discipline as writeUserCohortsMarker — a failed write here
+ * only means backoff won't apply, never a thrown error. */
+function writeAttemptStamp(now: number, clientDomain?: string): void {
+  try {
+    localStorage.setItem(userCohortsAttemptKey(clientDomain), new Date(now).toISOString())
+  } catch (e) {
+    console.warn('[cohorts] attempt stamp write failed', e)
+  }
+}
+
+/** Absence or an unparseable stamp means "no prior attempt on record" — never
+ * back off in that case, only when we can positively confirm a recent try. */
+function isWithinRetryBackoff(now: number, clientDomain?: string): boolean {
+  try {
+    const raw = localStorage.getItem(userCohortsAttemptKey(clientDomain))
+    if (!raw) return false
+    const attemptMs = Date.parse(raw)
+    if (!Number.isFinite(attemptMs)) return false
+    return now - attemptMs < COHORT_RETRY_BACKOFF_MS
+  } catch {
+    return false
+  }
+}
+
 /** Synchronous membership check for hot paths (page banner, upgrade modal).
  * A stale marker still answers — staleness only drives refresh, never reads. */
 export function isInCohort(cohort: string): boolean {
@@ -78,12 +114,15 @@ export function isInCohort(cohort: string): boolean {
   return !!marker && marker.cohorts.includes(cohort)
 }
 
-/**
- * Refresh the marker from the backend if it is missing/stale. Never throws
- * and never blocks a render path — callers fire-and-forget (`void refresh…`).
- */
-export async function refreshUserCohortsIfStale(now: number = Date.now()): Promise<void> {
-  if (!isMarkerStale(readUserCohortsMarker(), now)) return
+// Module-level in-flight guard: N concurrent callers (multiple macro
+// iframes; view+editor double-initialize) each observe the same stale
+// marker and would otherwise each fire an identical GET and each emit
+// `cohorts_refreshed`. All concurrent callers within one page/tab share
+// this module instance, so they collapse onto one request.
+let inFlightRefresh: Promise<void> | null = null
+
+async function doRefresh(now: number): Promise<void> {
+  writeAttemptStamp(now)
   try {
     const response = await callRemote('/api/user-cohorts', 'GET')
     if (!response || !Array.isArray(response.cohorts)) {
@@ -121,4 +160,22 @@ export async function refreshUserCohortsIfStale(now: number = Date.now()): Promi
       failure_reason: e instanceof Error ? e.message : 'unknown',
     })
   }
+}
+
+/**
+ * Refresh the marker from the backend if it is missing/stale. Never throws
+ * and never blocks a render path — callers fire-and-forget (`void refresh…`).
+ */
+export async function refreshUserCohortsIfStale(now: number = Date.now()): Promise<void> {
+  if (!isMarkerStale(readUserCohortsMarker(), now)) return
+  if (inFlightRefresh) return inFlightRefresh
+  // Failed attempts write no marker, so staleness alone would refetch on
+  // every render while the backend is broken. Back off using the attempt
+  // stamp — a successful refresh still writes the real marker, which
+  // governs the normal 24h cadence independently of this.
+  if (isWithinRetryBackoff(now)) return
+  inFlightRefresh = doRefresh(now).finally(() => {
+    inFlightRefresh = null
+  })
+  return inFlightRefresh
 }

@@ -126,6 +126,11 @@ export type AnalyticsEventName =
   // there, so the embed's document reference cannot be changed — the user
   // must re-target from the page editor. Tracks how often users hit this.
   | "embed_retarget_blocked"
+  // A pasted confluence.zenuml.com deeplink autoconverted into an embed
+  // macro, but its cloudId doesn't match the pasting site's — rejected
+  // fail-soft rather than fetching cross-tenant. Tracks how often a deeplink
+  // is pasted onto the wrong site.
+  | "embed_autoconvert_cross_tenant_rejected"
   // AsyncAPI dashboard: user clicked a document card's "Page:" reference to
   // open the Confluence page hosting the doc. Tracks dashboard → page nav.
   | "asyncapi_dashboard_page_opened"

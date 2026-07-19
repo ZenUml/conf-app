@@ -337,7 +337,12 @@ export default {
       if (!this.diagram.isCopy) return null;
       return this.diagram.copyReason === 'cross-page'
         ? 'This diagram lives on another page. Edit it there to keep both in sync.'
-        : 'There are multiple copies of this diagram on this page. Edits affect all of them.';
+        // CustomContentStorageProvider.save() forks a copy into a NEW custom-content
+        // record (createCustomContentV2) rather than updating the original shared one
+        // in place — editing a same-page copy creates an independent diagram, it does
+        // not affect the other copies. (The previous "Edits affect all of them" wording
+        // was factually wrong.)
+        : 'This is one of several copies of this diagram on this page. Editing it will create an independent diagram.';
     },
     // Live Agent Link MVP scope (design §11/§12): agent-native DSL types only.
     // Graph/OpenAPI/AsyncAPI/Embed are not offered the Connect affordance.

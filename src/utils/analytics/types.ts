@@ -120,7 +120,7 @@ export type AnalyticsProperties = {
   custom_content_id?: string;
   attachment_name?: string;
   // Snapshot attachments: which flow wrote it, and fallback freshness.
-  snapshot_trigger?: 'save' | 'editor_backfill';
+  snapshot_trigger?: 'save' | 'editor_backfill' | 'viewer_backfill';
   snapshot_age_days?: number;
   space_admin_count?: number;
   // True when the current user is resolved to be a space admin of the current

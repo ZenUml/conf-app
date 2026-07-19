@@ -410,3 +410,54 @@ if (this.diagram.snapshotFallback) {
 - New-page drafts: attachment upload to a never-published draft is unverified; if it fails, the save-path/backfill self-heals on the next editor session after publish.
 - Snapshot staleness: a cross-page snapshot refreshes only on the host page's editor sessions — acceptable by design (disaster fallback, labeled with its date).
 - Stock pages never edited again get no snapshot until viewed/edited (the #212 view-time PNG path's opportunistic model applies if later extended).
+
+---
+
+## Post-implementation addendum (2026-07-18) — corrections from production
+
+This plan shipped, then failed three times in production. Read this before reusing it.
+
+### 1. The HTTP verb and endpoint in Task 2 were WRONG, and were stated as fact
+
+The plan specified `PUT /wiki/rest/api/content/{pageId}/child/attachment` as an "upsert by
+filename". Two independent implementers followed it verbatim, and the unit tests asserted
+`method === 'PUT'` against a **mocked transport** — so 1695 green tests proved nothing about
+production. A mocked transport cannot catch a wrong HTTP verb or an unreachable endpoint.
+
+Correct mechanism (PR #352 then #353): attachment writes go **POST** — create at `<base>`, update
+at `<base>/<attachmentId>/data` — and on the save path they must go through the **backend**
+(`callRemote('/forge-upload-attachment')` → `api.asApp()`), the same route the PNG backup has used
+since #296/#166. Confluence **v2 has no attachment upload endpoint at all** (GET + properties
+only), so the backend route is the only option.
+
+**Rule for future plans:** any named HTTP method / endpoint / API shape is a **verify-point**, not
+a given. Mark it as such and require a real (non-mocked) check before the task counts as done.
+
+### 2. The snapshot lifecycle was missing the new-page case
+
+`uploadSnapshot` runs only at macro-save time. On a **brand-new page** the macro is saved before
+the page is published, so the parent page is not addressable published v1 content and the write
+**404s by construction** — documented in `src/model/Attachment.ts` ("A 404 on the attachment POST
+means the parent page is not (yet)..."). The PNG survives this via a **view-time backfill**; the
+JSON snapshot had none, so macros created on new pages never got a snapshot.
+
+The lifecycle must be **save-time write + view-time backfill** (the page is published by then),
+with the existing ccVersion freshness check making the backfill idempotent.
+
+### 3. The verification method was flawed
+
+Every verification attempt used a brand-new page — the one case that structurally cannot succeed at
+save time. **Verify attachment writes on an ALREADY-PUBLISHED page**, and read the
+`snapshot_created` / `snapshot_create_failed` events in Mixpanel rather than inferring from the page
+attachment list. Those events existed from Task 1 and would have answered the question in one query
+on the first attempt.
+
+### 4. Measured fact that constrains the follow-on design
+
+Confluence **whole-page copy preserves the extension node's `localId` verbatim** (measured on
+lite-stg 2026-07-18: source and copy both `47af1d85-…b13d1`, same ccId). So an ownership model that
+forks when `macro.localId !== owner.localId` **cannot distinguish a page copy from the original** —
+shipping it without the existing `cc.pageId !== hostPageId` guard would let an edit to a page copy
+overwrite the original. Whether the editor's own same-page macro paste regenerates `localId` is
+**still unprobed**; if it also preserves, same-page duplicate detection fundamentally requires
+reading the page ADF, and the ADF Scan can only be **moved to edit time**, not deleted.

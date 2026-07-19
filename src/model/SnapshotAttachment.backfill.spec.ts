@@ -77,15 +77,62 @@ describe('maybeBackfillSnapshot', () => {
     }));
   });
 
-  it('skips entirely in display mode (viewer/fullscreen — write perms not guaranteed)', async () => {
-    await maybeBackfillSnapshot(baseOpts({ isDisplayMode: true }));
-    expect(mockGetAttachmentsV2).not.toHaveBeenCalled();
-    expect(mockRequestConfluence).not.toHaveBeenCalled();
+  // Viewer surface (isDisplayMode: true, covers plain page-view AND fullscreen
+  // — ApWrapper2.isDisplayMode() returns true for both): the new-page recovery
+  // case. A macro created on a brand-new page is saved BEFORE the page is
+  // published, so the save-time attachment write 404s (Persistence.ts / the
+  // PNG's Attachment.ts document this same benign 404). The page IS published
+  // by the time it's viewed, and uploadSnapshot routes through the
+  // app-authenticated backend (/forge-upload-attachment, PR #353), so
+  // viewer-user write permission is not required. Unlike the editor surface,
+  // this covers ANY macro — same-page included — not just cross-page aliases.
+  it('viewer surface backfills a same-page macro with no existing snapshot', async () => {
+    mockGetAttachmentsV2.mockResolvedValue([]); // fetchSnapshot AND uploadSnapshot's existence check: nothing exists yet
+    mockCallRemote.mockResolvedValue({ ok: true, attachmentId: 'att-new-2', versionNumber: 1 });
+
+    await maybeBackfillSnapshot(baseOpts({ isDisplayMode: true, ccPageId: 'host-page' })); // same page as host — no alias
+
+    expect(mockGetAttachmentsV2).toHaveBeenCalledWith('host-page', { filename: 'zenuml-12345.json' });
+    expect(mockCallRemote).toHaveBeenCalledTimes(1);
+    expect(mockCallRemote).toHaveBeenCalledWith('/forge-upload-attachment', 'POST', expect.objectContaining({
+      pageId: 'host-page',
+      attachmentName: 'zenuml-12345.json',
+    }));
+    expect(mockTrackAnalyticsEvent).toHaveBeenCalledWith('snapshot_created', expect.objectContaining({
+      feature_area: 'macro', surface: 'viewer', snapshot_trigger: 'viewer_backfill', custom_content_id: '12345',
+    }));
+  });
+
+  it('viewer surface skips (no upload) when a fresh snapshot already exists', async () => {
+    const existingSnapshot = {
+      version: 1, ccId: '12345', ccVersion: 5, diagramType: DiagramType.Mermaid,
+      dsl: 'graph TD; A-->B', snapshotAt: '2026-07-01T00:00:00.000Z',
+    };
+    mockGetAttachmentsV2.mockResolvedValue([{ _links: { download: '/download/attachments/1/zenuml-12345.json' } }]);
+    mockRequestConfluence.mockResolvedValue({ ok: true, text: () => Promise.resolve(JSON.stringify(existingSnapshot)) });
+
+    await maybeBackfillSnapshot(baseOpts({ isDisplayMode: true, ccPageId: 'host-page', ccVersion: 5 }));
+
     expect(mockCallRemote).not.toHaveBeenCalled();
     expect(mockTrackAnalyticsEvent).not.toHaveBeenCalled();
   });
 
-  it('skips when the macro is on the same page as the custom content (no alias)', async () => {
+  it('viewer surface never throws — a transport failure resolves to snapshot_create_failed', async () => {
+    mockGetAttachmentsV2.mockResolvedValue([]);
+    mockCallRemote.mockResolvedValue({ ok: false, status: 500, body: 'boom' });
+
+    await expect(maybeBackfillSnapshot(baseOpts({ isDisplayMode: true, ccPageId: 'host-page' }))).resolves.toBeUndefined();
+    expect(mockTrackAnalyticsEvent).toHaveBeenCalledWith('snapshot_create_failed', expect.objectContaining({
+      feature_area: 'macro', surface: 'viewer', snapshot_trigger: 'viewer_backfill', custom_content_id: '12345',
+      failure_reason: expect.stringContaining('500'),
+    }));
+  });
+
+  // Editor surface (isDisplayMode: false) keeps its ORIGINAL restriction:
+  // cross-page aliases only. A same-page macro already gets a snapshot at
+  // save time on every save after the first successful one, so an editor
+  // preview render of a same-page macro must NOT re-upload.
+  it('editor surface still skips when the macro is on the same page as the custom content (no alias) — unchanged', async () => {
     await maybeBackfillSnapshot(baseOpts({ ccPageId: 'host-page' }));
     expect(mockGetAttachmentsV2).not.toHaveBeenCalled();
     expect(mockRequestConfluence).not.toHaveBeenCalled();

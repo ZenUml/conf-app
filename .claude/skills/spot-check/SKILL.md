@@ -35,6 +35,23 @@ Each planned check must name:
 
 Each item must be independently pass/fail checkable before you run it.
 
+### A missing signal is NOT a failed assertion
+
+**NEVER conclude "it didn't happen" from "I couldn't find it."** Every signal type here has a
+window in which absence means nothing:
+
+| Signal | Why absence lies | What proves the negative |
+|---|---|---|
+| Mixpanel event | `mixpanel.track` **batches** (several events per `POST /track/`) and ingestion lags minutes | Capture the network (`browser_network_requests` filtered on `api-js.mixpanel.com`, then `browser_network_request … request-body`) — the payload is send-side ground truth |
+| Attachment on a page | A macro saved on a **not-yet-published** page 404s by construction; the write lands later via view-time backfill | Re-check after the page is published AND viewed; see the 404 note in `src/model/Attachment.ts` |
+| Code path "unreachable in variant X" | One guard is rarely the only entry | `grep -rn "<entryFn>" src/ \| grep -v spec` and check the guard on EACH hit; if telemetry exists, query it first |
+
+Rule: when an assertion depends on a *negative*, name in the plan how you will distinguish
+"did not happen" from "not observed yet" — otherwise the check is not pass/fail checkable.
+(2026-07-18: this exact mistake was made three times in one session — a benign new-page 404 read as
+"endpoint unreachable" cost two production releases; a single `isLite()` guard produced two wrong
+"not testable in this variant" verdicts; batched analytics read as "the event never fired".)
+
 ```
 Spot check plan: <short title>
 

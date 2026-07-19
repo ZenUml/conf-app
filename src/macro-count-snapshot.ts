@@ -224,8 +224,19 @@ function jsonByteLength(value: unknown): number {
   return textEncoder.encode(JSON.stringify(value)).byteLength;
 }
 
+// The Forge Functions runtime (Node 20) exposes WebCrypto as `globalThis.crypto`,
+// but this repo's tsconfig declares neither the DOM lib nor `@types/node`'s global
+// augmentation, so the bundler's ts-loader rejects a bare `globalThis.crypto`
+// (TS2339) and emits nothing for this entry. Narrow to just what we call — a
+// type-only shim, so the runtime call is unchanged.
+const webCrypto = (
+  globalThis as unknown as {
+    crypto: { subtle: { digest(algorithm: string, data: Uint8Array): Promise<ArrayBuffer> } };
+  }
+).crypto;
+
 export async function sha256Hex(value: string): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', textEncoder.encode(value));
+  const digest = await webCrypto.subtle.digest('SHA-256', textEncoder.encode(value));
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');

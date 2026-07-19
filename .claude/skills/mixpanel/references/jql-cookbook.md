@@ -29,7 +29,7 @@ Manual auth, if you ever hand-roll it: `Authorization: Basic base64("{API_Secret
 Internal/staging exclusion in JQL is a `contains` check against the canonical set (see SKILL.md):
 
 ```javascript
-var INTERNAL = ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev", "dia-stg", "diagramly"];
+var INTERNAL = ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev", "dia-stg", "asyncapi-stg", "diagramly", "danshuitaihejie"];
 function isInternal(d) {
   if (!d) return true;                       // drop blank client_domain too
   for (var i = 0; i < INTERNAL.length; i++) if (d.indexOf(INTERNAL[i]) !== -1) return true;

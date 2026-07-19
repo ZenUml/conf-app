@@ -1,4 +1,4 @@
-interface IApRequest {
+export interface IApRequest {
   url: string,
   type: string,
   contentType?: string,

@@ -13,7 +13,7 @@
     "resolveJsonModule": true,
     "sourceMap": true,
     "noEmitOnError": false,
-    "noEmit": true,
+    "noEmit": false,
     "baseUrl": ".",
     "types": [
       "webpack-env",

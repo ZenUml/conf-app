@@ -408,18 +408,13 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
-  // P1.1: the viewer may mount BEFORE the ADF copy-scan finishes
-  // (deferredCopyCheck.ts / forgeIndex.ts wiring). copyCheckPending=true with
-  // isCopy still undefined must NOT read as a copy restriction — editDisabledReason
-  // already treats a falsy isCopy as "no restriction", which is the correct
-  // pending behavior (the editor modal re-runs its own blocking check, so
-  // there's no data-safety hole in leaving Edit enabled meanwhile). When the
-  // deferred scan's verdict lands later, runDeferredCopyCheck writes through
-  // the SAME store.state.diagram object the viewer reads, so the banner must
-  // update reactively without a remount.
-  describe('deferred ADF copy-scan late verdict (P1.1)', () => {
-    it('shows the copy notice when a deferred scan lands after mount', async () => {
-      store.state.diagram.copyCheckPending = true
+  // The viewer computes only the zero-network cross-page verdict at load
+  // (ApWrapper2.detectCrossPageCopy); same-page duplicates are detected on
+  // edit/config surfaces only. An undefined verdict must read as "no
+  // restriction", and a verdict written into the store must update the
+  // banner reactively without a remount.
+  describe('cross-page copy verdict', () => {
+    it('treats an undefined verdict as no restriction and reacts when isCopy lands', async () => {
       store.state.diagram.isCopy = undefined
       store.state.diagram.copyReason = undefined
       const wrapper = mountViewer()
@@ -427,17 +422,10 @@ describe('GenericViewer (chrome-less)', () => {
       expect((wrapper.vm as any).editDisabledReason).toBeNull()
 
       store.state.diagram.isCopy = true
-      store.state.diagram.copyReason = 'same-page-duplicate'
-      store.state.diagram.copyCheckPending = false
+      store.state.diagram.copyReason = 'cross-page'
       await wrapper.vm.$nextTick()
 
-      // CustomContentStorageProvider.save() forks a copy into a new,
-      // independent custom-content record (createCustomContentV2) rather
-      // than updating the original in place — editing a same-page copy does
-      // NOT affect the other copies. The tooltip must say that, not the
-      // opposite.
-      expect((wrapper.vm as any).editDisabledReason).toContain('independent diagram')
-      expect((wrapper.vm as any).editDisabledReason).not.toContain('affect all of them')
+      expect((wrapper.vm as any).editDisabledReason).toContain('lives on another page')
     })
   })
 

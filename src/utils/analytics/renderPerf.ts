@@ -14,15 +14,6 @@ export type RenderPhase = 'context' | 'fetch' | 'render' | 'cc_fetch' | 'adf_sca
 const durations: Partial<Record<RenderPhase, number>> = {};
 let bootstrapMs: number | undefined;
 
-// P1.1: set by forgeIndex when the viewer defers the ADF copy-scan. Sticky
-// per iframe, undefined until explicitly marked so editor surfaces (which
-// never decide) emit nothing.
-let adfDeferred: boolean | undefined;
-
-export function markAdfDeferred(deferred: boolean): void {
-  adfDeferred = deferred;
-}
-
 // Sticky "was the tab ever hidden during this load" flag. Tab-backgrounding
 // throttles timers and inflates whichever phase was in flight — the cause of
 // the 40s–425s p99 artifact. Emitting this lets analysts EXCLUDE backgrounded
@@ -82,7 +73,6 @@ export interface RenderTimings {
   // added to measured_sum_ms — they'd double-count their parent.
   custom_content_fetch_ms?: number;
   page_adf_fetch_ms?: number;
-  adf_deferred?: boolean;
   measured_sum_ms?: number;
   tab_hidden?: boolean;
 }
@@ -105,7 +95,6 @@ export function getTimings(): RenderTimings {
     render_ms: durations.render,
     custom_content_fetch_ms: durations.cc_fetch,
     page_adf_fetch_ms: durations.adf_scan,
-    ...(adfDeferred !== undefined ? { adf_deferred: adfDeferred } : {}),
     measured_sum_ms: measured.length ? measured.reduce((a, b) => a + b, 0) : undefined,
     tab_hidden: everHidden,
   };
@@ -118,7 +107,6 @@ export function _resetForTesting(): void {
   delete durations.render;
   delete durations.cc_fetch;
   delete durations.adf_scan;
-  adfDeferred = undefined;
   bootstrapMs = undefined;
   everHidden = typeof document !== 'undefined' ? document.hidden : false;
 }

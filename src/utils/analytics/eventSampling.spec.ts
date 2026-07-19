@@ -38,7 +38,6 @@ describe("eventSampling", () => {
       // not in the map → full rate, so incident detection & funnels stay intact
       expect(sampleRateFor("attachment_upload_failed")).toBe(1);
       expect(sampleRateFor("viewer_load_failed")).toBe(1);
-      expect(sampleRateFor("viewer_adf_scan_completed")).toBe(1);
       expect(sampleRateFor("save_failed")).toBe(1);
       expect(sampleRateFor("csat_displayed")).toBe(1);
       expect(sampleRateFor("macro_create_succeeded")).toBe(1);

@@ -6,7 +6,6 @@ import { getClientDomain } from "@/utils/ContextParameters/ContextParameters"
 import globals from '@/model/globals'
 import { callRemote } from '@/utils/requestUtil'
 import { writeTargetingMarker, toMarkerSeverity } from '@/utils/paywall/warningBanner'
-import { refreshUserCohortsIfStale } from '@/utils/cohorts/userCohorts'
 
 export const MACROS_LIMIT = 100
 const WARNING_THRESHOLD = 85
@@ -234,9 +233,6 @@ export function useCustomerSuccessService() {
       loadSpaceKey(),
     ]);
     persistTargetingMarker();
-    // Fire-and-forget: cohort refresh must never delay macro render or
-    // paywall gating; the module itself rate-limits to one fetch per 24h.
-    void refreshUserCohortsIfStale();
   }
 
   return {

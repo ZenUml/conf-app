@@ -270,7 +270,16 @@ describe('useCustomerSuccessService - cohort refresh wiring', () => {
     vi.clearAllMocks()
   })
 
-  it('initialize fires a cohort refresh (fire-and-forget)', async () => {
+  // Cohort refresh moved OUT of this composable and up into forgeIndex.ts,
+  // called unconditionally (no isLite() gate) alongside — not inside —
+  // useCustomerSuccessService().initialize(). This composable's name and
+  // contents are customer-success / paywall specific; the cohort pipeline is
+  // variant-agnostic (KV allow-list keyed globally by accountId) and
+  // shouldn't be reachable only through the isLite()-gated / paywall-gated
+  // call sites that happened to invoke initialize(). See forgeIndex.ts for
+  // the new call site and the comment explaining why it runs outside the
+  // isLite() block.
+  it('initialize does NOT trigger a cohort refresh (moved to forgeIndex.ts)', async () => {
     // Both the composable and the cohorts mock must be re-imported after
     // vi.resetModules() so they come from the same module generation —
     // otherwise the composable's internal reference would point at a
@@ -281,6 +290,6 @@ describe('useCustomerSuccessService - cohort refresh wiring', () => {
 
     await initialize()
 
-    expect(refreshUserCohortsIfStale).toHaveBeenCalledTimes(1)
+    expect(refreshUserCohortsIfStale).not.toHaveBeenCalled()
   })
 })

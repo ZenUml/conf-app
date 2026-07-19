@@ -14,6 +14,17 @@
  *   copy-scan) off the viewer's critical path; see Task 6's
  *   runDeferredCopyCheck for the completion half.
  *
+ * NOT all four variants can use this flag. forgeIndex.ts only builds a
+ * `shouldDeferAdfScan` callback when `isSequence` holds, and the asyncapi
+ * variant's manifest strips every macro except `zenuml-asyncapi*` /
+ * `zenuml-openapi-macro` (scripts/forge-wizard.mjs — the
+ * `test("zenuml-asyncapi|zenuml-openapi-macro") | not` delete). None of those
+ * satisfy `isSequence`, so on the asyncapi app this module never runs and the
+ * flag is inert no matter how the Console shows it. Creating it there is
+ * harmless but buys nothing. (Verified 2026-07-19: flag created and enabled
+ * for production on the asyncapi app produced zero `adf_deferred` events,
+ * while the same change on full flipped live traffic within a minute.)
+ *
  * Fail-closed: any init/context error, the standalone (non-Forge) dev
  * environment, and flags that don't exist yet all evaluate to off
  * (`checkFlag` default false). No memoization here — a fresh config read

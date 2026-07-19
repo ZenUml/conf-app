@@ -306,7 +306,7 @@ modules:
     # The function exits after one lightweight Remote claim for unenrolled
     # installations; enrolled tenants perform one complete inventory daily.
     - key: lite-macro-count-daily
-      function: macroCountSnapshotScheduled
+      function: macroCountSnapshotFn
       interval: day
     # Diagramly-only. CI yq-strips this entry for lite/full so it never runs
     # on those variants. Polls the enrollment KV and creates a demo page for
@@ -447,7 +447,7 @@ modules:
       handler: createDemoPage.handler
     - key: createDemoPageScheduled
       handler: createDemoPage.scheduledHandler
-    - key: macroCountSnapshotScheduled
+    - key: macroCountSnapshotFn
       handler: macro-count-snapshot.scheduledHandler
       timeoutSeconds: 900
 

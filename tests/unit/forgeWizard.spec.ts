@@ -13,11 +13,11 @@ describe('forge-wizard manifest preview helpers', () => {
     const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
     expect(manifest.modules.scheduledTrigger).toContainEqual({
       key: 'lite-macro-count-daily',
-      function: 'macroCountSnapshotScheduled',
+      function: 'macroCountSnapshotFn',
       interval: 'day',
     })
     expect(manifest.modules.function).toContainEqual({
-      key: 'macroCountSnapshotScheduled',
+      key: 'macroCountSnapshotFn',
       handler: 'macro-count-snapshot.scheduledHandler',
       timeoutSeconds: 900,
     })
@@ -50,7 +50,7 @@ describe('forge-wizard manifest preview helpers', () => {
     )
     expect(yq).toContain('del(.modules["confluence:spacePage"])')
     expect(yq).toContain('del(.connectModules)')
-    expect(yq.join(' ')).not.toContain('macroCountSnapshotScheduled')
+    expect(yq.join(' ')).not.toContain('macroCountSnapshotFn')
   })
 
   it('full strips asyncapi bits and the Connect lifecycle module', () => {
@@ -66,7 +66,7 @@ describe('forge-wizard manifest preview helpers', () => {
       'del(.connectModules)',
     )
     expect(getManifestEditYqArgs('full').map((x) => x.expr).join(' '))
-      .toContain('macroCountSnapshotScheduled')
+      .toContain('macroCountSnapshotFn')
   })
 
   it('diagramly strips global UI modules, embed, and asyncapi bits', () => {
@@ -94,7 +94,7 @@ describe('forge-wizard manifest preview helpers', () => {
       'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))',
     )
     expect(yq).toContain('del(.connectModules)')
-    expect(yq.join(' ')).toContain('macroCountSnapshotScheduled')
+    expect(yq.join(' ')).toContain('macroCountSnapshotFn')
   })
 
   it('asyncapi strips non-asyncapi modules, keeps spacePage + licensing, grants unsafe-eval', () => {
@@ -131,6 +131,6 @@ describe('forge-wizard manifest preview helpers', () => {
       'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"])',
     )
     expect(yq).toContain('.permissions.content.scripts = ["unsafe-eval"]')
-    expect(yq.join(' ')).toContain('macroCountSnapshotScheduled')
+    expect(yq.join(' ')).toContain('macroCountSnapshotFn')
   })
 })

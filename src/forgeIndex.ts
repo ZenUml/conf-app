@@ -21,6 +21,7 @@ import { handleAiAideRoute } from './routes/aiAide';
 import { decidePageBanner, handlePageBannerRoute } from './routes/pageBanner';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { maybeProbeSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
+import { refreshUserCohortsIfStale } from '@/utils/cohorts/userCohorts';
 import { isPrefetchDue } from '@/utils/prefetch/throttle';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { markPublishClicked, trackPublishCompleted } from '@/utils/analytics/publishTiming'
@@ -216,14 +217,27 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       return;
     }
 
+    // User-cohort targeting refresh. Deliberately variant-agnostic: the KV
+    // allow-list is keyed globally by accountId, not by product_type, and
+    // "Lite-only" is a constraint each CONSUMER applies later (paywall recall,
+    // warning banner) — not something this fetch itself should gate. It must
+    // run outside the `isLite()` block below so full/diagramly/asyncapi macro
+    // renders also refresh the marker. Fire-and-forget and never awaited on
+    // the render path; the module rate-limits itself to one fetch per 24h
+    // (see refreshUserCohortsIfStale) so this adds no meaningful cost to
+    // every-macro-render placement.
+    void refreshUserCohortsIfStale();
+
     // Paywall page-banner targeting write. Every macro render (viewer OR editor,
     // any diagram type) refreshes the per-space localStorage marker that the
     // global page-banner iframe reads on a LATER page load. This is the ONLY
     // write path: the editor's paywall gate also calls initialize(), but plain
     // viewer page loads never would — and reaching the user BEFORE they open the
     // editor is the whole point of the redesign. Fire-and-forget and Lite-gated
-    // (the composable no-ops the write for Full/Diagramly) so it never blocks or
-    // breaks the render.
+    // (persistTargetingMarker inside initialize() no-ops for Full/Diagramly) so
+    // it never blocks or breaks the render. NOTE: this isLite() guard scopes
+    // only the paywall-banner write below — it does NOT gate the cohort
+    // refresh above, which runs unconditionally (see the comment on it).
     if (globals.apWrapper.isLite()) {
       import('@/composables/useCustomerSuccessService')
         .then(({ useCustomerSuccessService }) => useCustomerSuccessService().initialize())

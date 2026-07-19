@@ -124,6 +124,10 @@ export async function tryFullscreenViewerPaywall(opts: {
   if (!isFullscreen || isEditor) return false;
 
   const customerSuccess = useCustomerSuccessService();
+  // No variant gate here on purpose: this runs on every fullscreen-viewer
+  // mount regardless of product_type. initialize() itself no-ops the
+  // Lite-only bits internally (persistTargetingMarker checks isLite()); the
+  // paywall block below is separately Lite-scoped via shouldBlockActions.
   await customerSuccess.initialize();
   const viewerBlocked = isFullscreenViewerBlocked(
     isFullscreen,
@@ -168,6 +172,9 @@ export async function tryPageEditorPaywall(opts: {
   customContentId?: string;
 }): Promise<boolean> {
   const customerSuccess = useCustomerSuccessService();
+  // No variant gate here either — same reasoning as tryFullscreenViewerPaywall
+  // above: initialize() runs unconditionally, Lite-only behaviour lives
+  // inside it (persistTargetingMarker) and in shouldBlockActions below.
   await customerSuccess.initialize();
   const editBlocked = !!opts.customContentId && isPageEditorEditBlocked(
     opts.customContentId,

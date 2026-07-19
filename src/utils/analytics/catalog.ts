@@ -22,6 +22,12 @@ export type MacroTypeValue =
   | "none";
 
 export type Surface =
+  // conf-app#368: on macro_viewed, `viewer`-vs-`editor` comes from
+  // ApWrapper2.isDisplayMode(). Builds before 2026-07-19 stamped the native
+  // macro-config surface (insert / edit-params dialog) as `viewer`, so
+  // historical "viewer" render volumes include ~3% authoring-session renders
+  // (no custom_content_id, inflated duration_ms from long-lived editor
+  // iframes). Segment by app_version when comparing across the fix.
   | "viewer"
   | "editor"
   | "modal"

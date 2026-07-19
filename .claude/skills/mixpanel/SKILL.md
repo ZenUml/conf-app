@@ -77,6 +77,7 @@ There is **no reliable runtime boolean** (`isForge` is dead). To split:
 | Trust a 30/90d window | Tracking starts 2026-04-18. Check earliest date. |
 | Join Mixpanel `client_domain` ↔ D1 `clientDomain` directly | Subdomain vs full hostname. Convert first. |
 | `macro_type='unknown'` = failure for graph/openapi/embed | Only valid for sequence/mermaid/plantuml. |
+| `macro_viewed` `surface='viewer'` = a real page view | On builds before 2026-07-19 (conf-app#368) the native macro-config surface was stamped `viewer` too, so historical viewer volumes include ~3% authoring renders — recognizable as no-`custom_content_id` events near `macro_create_started` by the same user, with inflated `duration_ms` (long-lived editor iframes, tab switches re-firing). Fixed in `ApWrapper2.isDisplayMode()`; segment by `app_version` across the fix. |
 
 ## JQL details
 

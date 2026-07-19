@@ -27,8 +27,16 @@ export async function runDeferredCopyCheck(
   customContentId: string,
   ccPageId: string | number | undefined,
   macroType: DeferredAdfMacroType,
+  /**
+   * `performance.now()` captured where the scan was dispatched, before the
+   * idle hop. Reported as `scan_delay_ms` so we can tell a scan that actually
+   * waited for the render from one that started immediately and raced it.
+   */
+  dispatchedAt?: number,
 ): Promise<void> {
   const startedAt = performance.now();
+  const scanDelayMs =
+    typeof dispatchedAt === 'number' ? Math.max(0, Math.round(startedAt - dispatchedAt)) : undefined;
   let verdict: { isCopy: boolean; copyReason?: Diagram['copyReason'] } | undefined;
   try {
     verdict = await apWrapper.detectCopy(customContentId, ccPageId);
@@ -71,6 +79,7 @@ export async function runDeferredCopyCheck(
       adf_deferred: true,
       page_adf_fetch_ms: pageAdfFetchMs,
       writeback_target: writebackTarget,
+      ...(scanDelayMs !== undefined ? { scan_delay_ms: scanDelayMs } : {}),
       ...getRenderIdentity(),
     });
   } catch {

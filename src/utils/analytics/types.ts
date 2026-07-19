@@ -195,6 +195,12 @@ export type AnalyticsProperties = {
   copy_detected?: boolean;
   copy_reason?: 'cross-page' | 'same-page-duplicate';
   writeback_target?: 'store' | 'raw';
+  // Milliseconds between dispatching the deferred copy-scan and the scan
+  // actually starting — i.e. how long the idle scheduler held it back. Near 0
+  // means the scan started immediately and is still racing the render (the
+  // pre-scheduleWhenIdle behaviour); a few hundred ms means it waited for the
+  // render to finish, which is the whole point of deferring it.
+  scan_delay_ms?: number;
   // Random per-iframe id + performance.timeOrigin. Makes concurrent
   // duplicate mounts of one macro (remount storms) directly countable
   // without burst reconstruction. See renderIdentity.ts.

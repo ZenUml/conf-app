@@ -136,6 +136,7 @@ jobs:
             yq eval '
               del(.modules.function[] | select(.key == "macroCountSnapshotFn"))
               | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily"))
+              | del(.modules.scheduledTrigger | select(length == 0))
               | del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage"))
               | del(.remotes[] | select(.key == "connect").storage)
             ' -i manifest.yml

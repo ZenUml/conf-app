@@ -2,6 +2,7 @@ import {AtlasDocFormat, AtlasDocElement, MacroParams, AtlasDocExtensionType, For
 import {trackEvent} from "@/utils/window";
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import { forgeRequest } from "@/utils/requestUtil";
+import {LocationTarget} from "@/model/ILocationContext";
 
 export class AtlasPage {
   async getPageId() {
@@ -24,8 +25,13 @@ export class AtlasPage {
     return forgeGlobal.forgeContext?.extension?.location;
   }
 
-  async getLocationTarget() {
-    return forgeGlobal.forgeContext?.extension?.isEditing ? 'contentEdit' : 'contentView';
+  async getLocationTarget(): Promise<LocationTarget> {
+    // CAUTION (#361): these camelCase literals do NOT match the LocationTarget
+    // enum's lowercase values ('contentedit'/'contentview'), so ApWrapper2's
+    // `target === LocationTarget.ContentEdit` comparison is always false on
+    // the Forge path. The cast deliberately preserves that long-standing
+    // behavior — changing the strings is a behavior change, tracked in #361.
+    return (forgeGlobal.forgeContext?.extension?.isEditing ? 'contentEdit' : 'contentView') as unknown as LocationTarget;
   }
 
   private async macros(): Promise<AtlasDocElement[]> {

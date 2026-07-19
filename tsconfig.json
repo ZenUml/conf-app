@@ -12,8 +12,8 @@
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "sourceMap": true,
-    "noEmitOnError": true,
-    "noEmit": true,
+    "noEmitOnError": false,
+    "noEmit": false,
     "baseUrl": ".",
     "types": [
       "webpack-env",

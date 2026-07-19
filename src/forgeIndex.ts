@@ -39,7 +39,6 @@ import {
 } from '@/utils/legacyContentPropertyTelemetry';
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
-import { scheduleWhenIdle } from '@/utils/viewerLoad/scheduleWhenIdle';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -247,14 +246,6 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 
     let doc: Diagram | undefined;
     let legacyLoadBlocked = false;
-    // P1.1 fix #3 (capture ordering): the completion dispatch must fire
-    // against the SAME doc object mountRoot receives, and `doc` gets
-    // reassigned (spread) further down — e.g. the plantUmlCode backfill.
-    // Rather than close over a `doc` reference that may go stale, capture
-    // only the immutable dispatch input here and fire the actual dispatch
-    // right after the LAST `doc =` reassignment (see that call site for the
-    // invariant this preserves).
-    let deferredCopyCheckPageId: string | number | undefined;
     const customContentId = context.extension?.config?.customContentId || context.extension.modal?.customContentId;
     originalCustomContentId = customContentId;
     recoveryPageId = context.extension?.content?.id;
@@ -264,14 +255,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 
     // Sequence-family discriminator, hoisted up from its original single
     // call site (still used unchanged further below, around the isSequence/
-    // isGraph/isEmbed/isAsyncApi routing block) so the P1.1 gate immediately
-    // below can reuse the SAME condition rather than re-deriving it. Graph/
-    // embed/asyncapi viewers route to their own entry file (forge-graph-
-    // viewer.ts etc. below) which re-loads its own doc from scratch and
-    // never sees the `doc` fetched in this function — deferring or
-    // completing an ADF copy-scan for those types would run against a doc
-    // nothing ever mounts (wasted detectCopy call when the flag is on, plus
-    // a stray adf_deferred tag polluting those macro types' analytics).
+    // isGraph/isEmbed/isAsyncApi routing block) so the copyCheckMode gate
+    // immediately below can reuse the SAME condition rather than re-deriving
+    // it. Graph/embed/asyncapi viewers route to their own entry file
+    // (forge-graph-viewer.ts etc. below) which re-loads its own doc from
+    // scratch and never sees the `doc` fetched in this function — so they
+    // must keep the default full check on their own loads.
     const isSequence = context.moduleKey.startsWith('zenuml-sequence-macro') || context.moduleKey.startsWith('gpt-diagram-macro') || context.extension.modal?.diagramType === 'sequence' || context.extension.modal?.diagramType === 'mermaid';
     const isGraph = context.moduleKey.startsWith('zenuml-graph-macro');
     const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
@@ -289,36 +278,23 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // swagger editor.
     const isAsyncApi = context.moduleKey.startsWith('zenuml-asyncapi-macro') || isAsyncApiEmbed || context.extension.modal?.diagramType === 'asyncapi';
 
-    // P1.1: viewer surfaces may defer the ADF copy-scan. Kick the flag read
-    // off NOW so it overlaps the custom-content GET; the decision callback
-    // awaits it only after that GET returns — zero added blocking time when
-    // the flag is off. Editor/config surfaces never defer (their blocking
-    // copy check guards the save path). Also scoped to isSequence — see the
-    // comment on that const above for why graph/embed/asyncapi must not
-    // defer/complete a scan against a doc they discard.
+    // Viewer surfaces skip the full-page ADF scan entirely: the zero-network
+    // cross-page comparison (ApWrapper2.detectCrossPageCopy) preserves the
+    // cross-page banner and Edit gating, while same-page-duplicate detection
+    // lives on the edit/config surfaces, whose blocking detectCopy guards
+    // the save-fork path. Scoped to isSequence — see the comment on that
+    // const above for why graph/embed/asyncapi (own entry files, own doc
+    // loads) must keep the default.
     const isEditorish =
       context.extension.modal?.macroMode === 'editor' ||
       !!context.extension?.macro?.isConfiguring;
-    let shouldDeferAdfScan: (() => Promise<boolean>) | undefined;
-    if (isSequence && !isEditorish) {
-      const flagsPromise = import('@/utils/viewerLoad/flags')
-        .then(({ getViewerLoadFlags }) => getViewerLoadFlags())
-        .catch(() => ({ adfScanDeferred: false }));
-      shouldDeferAdfScan = async () => {
-        const deferred = (await flagsPromise).adfScanDeferred;
-        renderPerf.markAdfDeferred(deferred);
-        return deferred;
-      };
-    }
+    const copyCheckMode = isSequence && !isEditorish ? ('cross-page-only' as const) : ('full' as const);
 
     if (customContentId) {
       const loaded = await renderPerf.time('fetch', () =>
-        globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId, { shouldDeferAdfScan }));
+        globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId, { copyCheckMode }));
       console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
       doc = loaded.customContent?.value;
-      if (isSequence && doc?.copyCheckPending && loaded.customContent) {
-        deferredCopyCheckPageId = loaded.customContent.pageId;
-      }
       if (loaded.recoveredFromOrphanId && doc) {
         doc.recoveredFromOrphan = true;
         doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
@@ -583,52 +559,6 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // Backfill default PlantUML DSL for existing diagrams created before PlantUML support
     if (!doc.plantUmlCode) {
       doc = { ...doc, plantUmlCode: Example.PlantUml };
-    }
-
-    // P1.1 completion dispatch — fire-and-forget, and scheduled for the next
-    // IDLE period rather than started here. Render proceeds now via mountRoot
-    // below; the verdict lands on the mounted diagram (store write-through,
-    // see runDeferredCopyCheck) whenever the scan returns.
-    //
-    // The idle hop is the point, not politeness. Dispatching straight from
-    // here only moved the page-ADF GET out of `fetch_ms` and into the render
-    // window, where it raced the diagram for the connection pool and the main
-    // thread: on Lite v2026.07.171106 (mermaid) `fetch_ms` fell -315ms while
-    // `render_ms` rose +298ms and user-visible `duration_ms` stayed flat
-    // (2452 → 2417). The whole dynamic import lives inside the callback so
-    // the chunk fetch waits too. See scheduleWhenIdle for the 2s upper bound
-    // on how long the copy banner may lag.
-    // INVARIANT: this must sit AFTER the LAST `doc =` reassignment in this
-    // function (currently the plantUmlCode backfill immediately above) so it
-    // captures the exact object mountRoot receives. runDeferredCopyCheck's
-    // store write-through does a toRaw identity check against the mounted
-    // diagram — dispatching against an earlier/stale doc reference would
-    // write the verdict onto an object nothing reads, and the copy banner
-    // would never update. If a future edit adds another `doc =` reassignment
-    // below this point, move this block again.
-    if (isSequence && doc.copyCheckPending && customContentId) {
-      const deferredMacroType: Extract<
-        MacroTypeValue,
-        'sequence' | 'mermaid' | 'plantuml'
-      > = doc.diagramType === DiagramType.Mermaid
-        ? 'mermaid'
-        : doc.diagramType === DiagramType.PlantUml
-          ? 'plantuml'
-          : 'sequence';
-      const dispatchedAt = performance.now();
-      scheduleWhenIdle(() => {
-        import('@/utils/viewerLoad/deferredCopyCheck')
-          .then(({ runDeferredCopyCheck }) =>
-            runDeferredCopyCheck(
-              globals.apWrapper,
-              doc!,
-              customContentId,
-              deferredCopyCheckPageId,
-              deferredMacroType,
-              dispatchedAt,
-            ))
-          .catch(e => console.warn('[viewer-load] deferred copy-scan dispatch failed', e));
-      });
     }
 
     // Start journey tracking for editor mode

@@ -195,9 +195,6 @@ export type AnalyticsEventName =
   | "snapshot_created"
   | "snapshot_create_failed"
   | "snapshot_fallback_rendered"
-  // Deferred Sequence-family page-ADF copy scan settled after the viewer's
-  // first render. Correlates to macro_viewed through instance_nonce/time_origin.
-  | "viewer_adf_scan_completed"
   // Daily macro-count inventory snapshots. These are emitted by the
   // Cloudflare snapshot service, not by the browser tracker. Registering them
   // here keeps the shared analytics vocabulary explicit before the scheduled

@@ -97,13 +97,16 @@ export type ContentPropertyV2Result =
   | { status: 'forbidden' }
   | { status: 'error'; reason: 'http' | 'parse' | 'thrown'; httpStatus?: number };
 
-// P1.1 (viewer-load perf): threaded through loadCustomContentWithOrphanRecovery
-// -> fetchCustomContentByIdV2WithStatus -> parseCustomContentByIdV2Response so
-// the viewer can defer the ADF copy-scan (detectCopy) until after first paint.
+// Threaded through loadCustomContentWithOrphanRecovery
+// -> fetchCustomContentByIdV2WithStatus -> parseCustomContentByIdV2Response.
 export interface LoadCustomContentOpts {
-  // Resolves true ⇒ skip the blocking ADF copy-scan (viewer defers it).
-  // A callback (not a boolean) so the flag read overlaps the CC GET.
-  shouldDeferAdfScan?: () => Promise<boolean>;
+  // 'cross-page-only' (viewer surfaces): skip the full-page ADF scan and
+  // derive the verdict from the zero-network pageId comparison alone.
+  // Same-page duplicates are invisible to that check by construction — they
+  // are detected on edit/config surfaces only, whose blocking detectCopy
+  // guards the save-fork path. Omitted/'full' preserves the blocking scan
+  // for every other caller.
+  copyCheckMode?: 'full' | 'cross-page-only';
 }
 
 export default class ApWrapper2 implements IApWrapper {
@@ -575,17 +578,13 @@ export default class ApWrapper2 implements IApWrapper {
     let diagram = JSON.parse(rawValue);
     diagram.source = DataSource.CustomContent;
 
-    if (opts?.shouldDeferAdfScan && await opts.shouldDeferAdfScan()) {
-      // P1.1: viewer chose to run the ADF copy-scan after first paint.
-      // deferredCopyCheck.ts owns completing this and clearing the flag.
-      diagram.copyCheckPending = true;
-    } else {
-      const verdict = await this.detectCopy(id, customContent?.pageId);
-      diagram.isCopy = verdict.isCopy;
-      diagram.copyReason = verdict.copyReason;
-      if (verdict.isCopy) {
-        console.warn(`Detected copied macro - ID: ${id}, reason: ${verdict.copyReason}, Source page: ${customContent?.pageId}`);
-      }
+    const verdict = opts?.copyCheckMode === 'cross-page-only'
+      ? await this.detectCrossPageCopy(customContent?.pageId)
+      : await this.detectCopy(id, customContent?.pageId);
+    diagram.isCopy = verdict.isCopy;
+    diagram.copyReason = verdict.copyReason;
+    if (verdict.isCopy) {
+      console.warn(`Detected copied macro - ID: ${id}, reason: ${verdict.copyReason}, Source page: ${customContent?.pageId}`);
     }
     diagram.id = id;
     let assign = <unknown>Object.assign({}, customContent, {value: diagram});
@@ -593,10 +592,27 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   /**
-   * P1.1: the ADF copy-scan, extracted so viewers can run it off the
-   * critical path. One full-page ADF GET via _page.countMacros. Synchronous
-   * scans report the `adf_scan` timing on macro_viewed; deferred scans report
-   * their elapsed time on viewer_adf_scan_completed after the first render.
+   * Zero-network half of the copy check: cross-page detection needs only the
+   * hosting page id (already in the Forge context) and the custom content's
+   * own pageId — no ADF fetch. Comparison semantics mirror detectCopy
+   * verbatim (both-present guard from issue #80, String coercion).
+   */
+  async detectCrossPageCopy(
+    ccPageId: string | number | undefined,
+  ): Promise<{ isCopy: boolean; copyReason?: 'cross-page' }> {
+    const pageId = await this._page.getPageId();
+    if (pageId && ccPageId && pageId !== String(ccPageId)) {
+      trackEvent('cross_page', 'duplication_detect', 'warning');
+      return { isCopy: true, copyReason: 'cross-page' };
+    }
+    return { isCopy: false };
+  }
+
+  /**
+   * The full ADF copy-scan: one full-page ADF GET via _page.countMacros plus
+   * the cross-page comparison. Runs blocking for edit/config surfaces (its
+   * verdict guards the save-fork path) and for callers that pass no
+   * copyCheckMode. Reports the `adf_scan` timing on macro_viewed.
    */
   async detectCopy(
     id: string,
@@ -743,9 +759,9 @@ export default class ApWrapper2 implements IApWrapper {
     if (!isValidCustomContentId(customContentId)) {
       return { customContent: undefined, directFetchStatus: 'not_found' };
     }
-    // opts (shouldDeferAdfScan) is only threaded to the DIRECT fetch — the
-    // orphan-recovery re-fetch below (getCustomContentByIdV2) stays blocking
-    // since recovery is rare and its copy semantics must stay exact.
+    // opts (copyCheckMode) is only threaded to the DIRECT fetch — the
+    // orphan-recovery re-fetch below (getCustomContentByIdV2) keeps the full
+    // check since recovery is rare and its copy semantics must stay exact.
     const direct = await this.fetchCustomContentByIdV2WithStatus(customContentId, opts);
     if (direct.status === 'ok' && direct.customContent) {
       return { customContent: direct.customContent, directFetchStatus: 'ok' };

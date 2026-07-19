@@ -624,13 +624,12 @@ describe('ApWrapper2', () => {
     });
   });
 
-  // P1.1 (viewer-load perf): the ADF copy-scan (countMacros + getPageId) is a
-  // full-page ADF GET that today blocks the viewer's critical path. This lets
-  // loadCustomContentWithOrphanRecovery skip it when the caller (viewer)
-  // decides to run it later, and extracts the scan itself into a standalone
-  // detectCopy() so both the blocking and deferred paths share one
-  // implementation.
-  describe('deferred ADF copy-scan (P1.1)', () => {
+  // Viewer surfaces pass copyCheckMode 'cross-page-only': the verdict comes
+  // from the zero-network pageId comparison (detectCrossPageCopy) and the
+  // full-page ADF GET (countMacros) is never issued. Same-page duplicates are
+  // invisible to that mode by construction — edit/config surfaces keep the
+  // full blocking detectCopy, which guards the save-fork path.
+  describe('viewer copy check (cross-page-only mode)', () => {
     function happyDirectFetch(id: string, pageId = '456') {
       return {
         id,
@@ -639,16 +638,32 @@ describe('ApWrapper2', () => {
       };
     }
 
-    it('skips countMacros and marks copyCheckPending when shouldDeferAdfScan resolves true', async () => {
-      vi.mocked(forgeRequest).mockResolvedValueOnce(happyDirectFetch('cc-1'));
+    it('flags a cross-page copy via the free check without fetching the page ADF', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce(happyDirectFetch('cc-1', '456'));
       const countSpy = vi.spyOn(wrapper._page, 'countMacros');
+      vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-1');
 
       const result = await wrapper.loadCustomContentWithOrphanRecovery(
-        'page-1', 'cc-1', { shouldDeferAdfScan: async () => true });
+        'page-1', 'cc-1', { copyCheckMode: 'cross-page-only' });
 
       expect(countSpy).not.toHaveBeenCalled();
-      expect(result.customContent?.value.copyCheckPending).toBe(true);
-      expect(result.customContent?.value.isCopy).toBeUndefined();
+      expect(result.customContent?.value.isCopy).toBe(true);
+      expect(result.customContent?.value.copyReason).toBe('cross-page');
+      expect(trackEvent).toHaveBeenCalledWith('cross_page', 'duplication_detect', 'warning');
+    });
+
+    it('does not flag a same-page duplicate in cross-page-only mode (no ADF consulted)', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce(happyDirectFetch('cc-1', '456'));
+      // Would report a duplicate if the scan ran — proves the mode never asks.
+      const countSpy = vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(2);
+      vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('456');
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(
+        'page-1', 'cc-1', { copyCheckMode: 'cross-page-only' });
+
+      expect(countSpy).not.toHaveBeenCalled();
+      expect(result.customContent?.value.isCopy).toBe(false);
+      expect(result.customContent?.value.copyReason).toBeUndefined();
     });
 
     it('keeps blocking copy detection when option is absent', async () => {
@@ -656,7 +671,6 @@ describe('ApWrapper2', () => {
 
       const result = await wrapper.loadCustomContentWithOrphanRecovery('page-1', 'cc-1');
 
-      expect(result.customContent?.value.copyCheckPending).toBeUndefined();
       expect(typeof result.customContent?.value.isCopy).toBe('boolean');
     });
 

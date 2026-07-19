@@ -186,21 +186,6 @@ export type AnalyticsProperties = {
   // custom-content GET vs full-page-ADF copy-scan. See renderPerf.ts.
   custom_content_fetch_ms?: number;
   page_adf_fetch_ms?: number;
-  // True when the viewer deferred the ADF copy-scan off the critical path
-  // (flag `viewer-adf-scan-deferred`). Absent on editor/config surfaces.
-  adf_deferred?: boolean;
-  // Deferred ADF completion (viewer_adf_scan_completed). `result` is bounded
-  // at the call site to 'succeeded' | 'failed'; failures use only the safe
-  // `failure_reason` value 'detect_copy_failed'.
-  copy_detected?: boolean;
-  copy_reason?: 'cross-page' | 'same-page-duplicate';
-  writeback_target?: 'store' | 'raw';
-  // Milliseconds between dispatching the deferred copy-scan and the scan
-  // actually starting — i.e. how long the idle scheduler held it back. Near 0
-  // means the scan started immediately and is still racing the render (the
-  // pre-scheduleWhenIdle behaviour); a few hundred ms means it waited for the
-  // render to finish, which is the whole point of deferring it.
-  scan_delay_ms?: number;
   // Random per-iframe id + performance.timeOrigin. Makes concurrent
   // duplicate mounts of one macro (remount storms) directly countable
   // without burst reconstruction. See renderIdentity.ts.

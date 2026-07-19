@@ -1,7 +1,7 @@
 // src/utils/analytics/renderPerf.spec.ts
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { markAppEntry, time, getTimings, markAdfDeferred, _resetForTesting } from "./renderPerf";
+import { markAppEntry, time, getTimings, _resetForTesting } from "./renderPerf";
 
 describe("renderPerf", () => {
   let nowSpy: ReturnType<typeof vi.spyOn>;
@@ -93,9 +93,4 @@ describe('P1.3 fetch split', () => {
     expect(t.measured_sum_ms).toBe(t.fetch_ms);
   });
 
-  it('emits adf_deferred only when marked', async () => {
-    expect(getTimings().adf_deferred).toBeUndefined();
-    markAdfDeferred(true);
-    expect(getTimings().adf_deferred).toBe(true);
-  });
 });

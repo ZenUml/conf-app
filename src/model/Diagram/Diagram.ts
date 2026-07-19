@@ -44,9 +44,6 @@ export class Diagram {
   id?: string; // custom content id or content property id or uuid
   isCopy?: boolean;
   copyReason?: 'cross-page' | 'same-page-duplicate';
-  // P1.1: true while a deferred viewer copy-scan is still in flight.
-  // Cleared (with isCopy/copyReason set) by utils/viewerLoad/deferredCopyCheck.
-  copyCheckPending?: boolean;
   // ZEN-1170 Defect 2b: set when this diagram was loaded via the orphan-
   // sibling recovery path (the macro's stored customContentId 404s but a
   // page-child CC with matching body.id was used instead). The in-viewer

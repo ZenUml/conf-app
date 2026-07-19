@@ -63,6 +63,30 @@ describe('runDeferredCopyCheck', () => {
     })
   })
 
+  it('reports scan_delay_ms as the gap between dispatch and scan start', async () => {
+    const doc = makeDoc()
+    store.state.diagram = doc
+    // dispatched at 100, scan starts at 480 (the idle scheduler held it back
+    // 380ms while the diagram rendered), scan ends at 700.
+    vi.spyOn(performance, 'now').mockReturnValueOnce(480).mockReturnValueOnce(700)
+    const ap = { detectCopy: vi.fn().mockResolvedValue({ isCopy: false }) }
+    await runDeferredCopyCheck(ap as any, doc, 'cc-1', 'page-1', 'mermaid', 100)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'viewer_adf_scan_completed',
+      expect.objectContaining({ scan_delay_ms: 380, page_adf_fetch_ms: 220 }),
+    )
+  })
+
+  it('omits scan_delay_ms when no dispatch timestamp is supplied', async () => {
+    const doc = makeDoc()
+    store.state.diagram = doc
+    vi.spyOn(performance, 'now').mockReturnValueOnce(100).mockReturnValueOnce(350)
+    const ap = { detectCopy: vi.fn().mockResolvedValue({ isCopy: false }) }
+    await runDeferredCopyCheck(ap as any, doc, 'cc-1', 'page-1', 'mermaid')
+    const props = vi.mocked(trackAnalyticsEvent).mock.calls[0][1] as Record<string, unknown>
+    expect(props).not.toHaveProperty('scan_delay_ms')
+  })
+
   it('clears pending without setting isCopy when detectCopy rejects', async () => {
     const doc = makeDoc()
     store.state.diagram = doc

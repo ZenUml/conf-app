@@ -39,6 +39,7 @@ import {
 } from '@/utils/legacyContentPropertyTelemetry';
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
+import { scheduleWhenIdle } from '@/utils/viewerLoad/scheduleWhenIdle';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -584,9 +585,19 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       doc = { ...doc, plantUmlCode: Example.PlantUml };
     }
 
-    // P1.1 completion dispatch — fire-and-forget: render proceeds now via
-    // mountRoot below; the verdict lands on the mounted diagram (store
-    // write-through, see runDeferredCopyCheck) whenever the scan returns.
+    // P1.1 completion dispatch — fire-and-forget, and scheduled for the next
+    // IDLE period rather than started here. Render proceeds now via mountRoot
+    // below; the verdict lands on the mounted diagram (store write-through,
+    // see runDeferredCopyCheck) whenever the scan returns.
+    //
+    // The idle hop is the point, not politeness. Dispatching straight from
+    // here only moved the page-ADF GET out of `fetch_ms` and into the render
+    // window, where it raced the diagram for the connection pool and the main
+    // thread: on Lite v2026.07.171106 (mermaid) `fetch_ms` fell -315ms while
+    // `render_ms` rose +298ms and user-visible `duration_ms` stayed flat
+    // (2452 → 2417). The whole dynamic import lives inside the callback so
+    // the chunk fetch waits too. See scheduleWhenIdle for the 2s upper bound
+    // on how long the copy banner may lag.
     // INVARIANT: this must sit AFTER the LAST `doc =` reassignment in this
     // function (currently the plantUmlCode backfill immediately above) so it
     // captures the exact object mountRoot receives. runDeferredCopyCheck's
@@ -604,16 +615,20 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         : doc.diagramType === DiagramType.PlantUml
           ? 'plantuml'
           : 'sequence';
-      import('@/utils/viewerLoad/deferredCopyCheck')
-        .then(({ runDeferredCopyCheck }) =>
-          runDeferredCopyCheck(
-            globals.apWrapper,
-            doc!,
-            customContentId,
-            deferredCopyCheckPageId,
-            deferredMacroType,
-          ))
-        .catch(e => console.warn('[viewer-load] deferred copy-scan dispatch failed', e));
+      const dispatchedAt = performance.now();
+      scheduleWhenIdle(() => {
+        import('@/utils/viewerLoad/deferredCopyCheck')
+          .then(({ runDeferredCopyCheck }) =>
+            runDeferredCopyCheck(
+              globals.apWrapper,
+              doc!,
+              customContentId,
+              deferredCopyCheckPageId,
+              deferredMacroType,
+              dispatchedAt,
+            ))
+          .catch(e => console.warn('[viewer-load] deferred copy-scan dispatch failed', e));
+      });
     }
 
     // Start journey tracking for editor mode

@@ -470,7 +470,10 @@ export default class ApWrapper2 implements IApWrapper {
     diagram.source = DataSource.CustomContent;
     const count = (await this._page.countMacros((m) => {
       //TODO: filter by macro type
-      return m?.customContentId?.value === id;
+      // Connect-era macros carry {value}; Forge guest params carry a bare
+      // string, which this path has never matched — the typeof narrow keeps
+      // that exact behavior while satisfying the union type.
+      return typeof m?.customContentId === 'object' && m.customContentId?.value === id;
     }));
     console.debug(`Found ${count} macros on page`);
 
@@ -1420,7 +1423,9 @@ export default class ApWrapper2 implements IApWrapper {
     const existing = await this.getCustomContentById(customContentId);
     const pageId = await this._page.getPageId();
     const count = (await this._page.countMacros((m) => {
-      return m?.customContentId?.value === customContentId;
+      // Connect-era {value} form only — bare-string (Forge) params never
+      // matched here; the typeof narrow preserves that.
+      return typeof m?.customContentId === 'object' && m.customContentId?.value === customContentId;
     }));
 
     // pageId is absent when editing in custom content list page;
@@ -1462,7 +1467,7 @@ export default class ApWrapper2 implements IApWrapper {
     const pageId = await this._getCurrentPageId();
     const count = (await this._page.countMacros((m) => {
       return m?.customContentId === customContentId //new forge custom content
-        || m?.customContentId?.value === customContentId;
+        || (typeof m?.customContentId === 'object' && m.customContentId?.value === customContentId);
     }));
 
     // ZEN-1170: UI/control-plane fields (recoveredFromOrphan, legacyLoadBlocked,

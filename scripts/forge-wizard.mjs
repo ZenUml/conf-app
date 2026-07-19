@@ -111,7 +111,7 @@ export const APPS = {
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from Full',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotScheduled")) | del(.modules.scheduledTrigger)',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger)',
       },
       {
         description: 'Remove Lite remote-storage declaration from Full',
@@ -175,7 +175,7 @@ export const APPS = {
       {
         description: 'Remove Lite macro snapshot schedule from Diagramly',
         yqEvalExpr:
-          'del(.modules.function[] | select(.key == "macroCountSnapshotScheduled")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily"))',
+          'del(.modules.function[] | select(.key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily"))',
       },
       {
         description: 'Remove Lite remote-storage declaration from Diagramly',
@@ -272,7 +272,7 @@ export const APPS = {
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from AsyncAPI',
         yqEvalExpr:
-          'del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotScheduled")) | del(.modules.scheduledTrigger)',
+          'del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger)',
       },
       {
         description: 'Remove Lite remote-storage declaration from AsyncAPI',

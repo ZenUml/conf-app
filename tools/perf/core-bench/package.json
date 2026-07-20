@@ -1,0 +1,17 @@
+{
+  "name": "core-bench",
+  "private": true,
+  "type": "module",
+  "description": "Compare @zenuml/core versions: render performance, output parity, parser compatibility.",
+  "scripts": {
+    "serve": "vite --port 5599"
+  },
+  "dependencies": {
+    "core-old": "npm:@zenuml/core@3.47.5",
+    "core-new": "npm:@zenuml/core@3.50.1",
+    "core-v4": "npm:@zenuml/core@4.2.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}

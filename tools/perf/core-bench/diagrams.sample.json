@@ -1,0 +1,5 @@
+{
+  "sample-basic": "A -> B.method()\nB -> C.other()",
+  "sample-nested": "title Checkout\n\n@Actor Client\n@Boundary API\n\nClient -> API.submit() {\n  if (valid) {\n    API -> DB.write()\n    return OK\n  } else {\n    return REJECTED\n  }\n}",
+  "sample-par": "A -> B.start() {\n  par {\n    B -> C.a()\n    B -> D.b()\n  }\n  return done\n}"
+}

@@ -1,0 +1,7 @@
+{
+  "plantuml-wrapper": "@startuml\nA -> B.method()\n@enduml",
+  "block-comment": "/* block comment */\nA -> B.method()",
+  "hash-comment": "# hash comment\nA -> B.method()",
+  "plantuml-quote-comment": "' plantuml quote comment\nA -> B.method()",
+  "plain-control": "A -> B.method()"
+}

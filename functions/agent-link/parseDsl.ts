@@ -11,9 +11,7 @@
 // Feasibility was proven empirically before this was written — see
 // /Users/.../evidence/C0-parser-spike.md. Verdicts reused here verbatim:
 //   - ZenUML  -> `@zenuml/core/parser` `validate()` — native in workerd,
-//               real ANTLR errors with line/col. (Was behind a
-//               `@zenuml/core-parser` alias while the renderer lagged on 3.x;
-//               both are on 4.x now, so the alias is gone.)
+//               real ANTLR errors with line/col.
 //   - Mermaid -> `mermaid` core `.parse()` behind an idempotent linkedom DOM
 //               shim (mermaid needs `document`/`DOMPurify`); covers every
 //               mermaid diagram type (flowchart/sequence/class/pie/…).
@@ -130,8 +128,6 @@ interface ZenumlParseResult {
 }
 
 async function parseZenuml(dsl: string): Promise<ParseDslResult> {
-  // The `/parser` subpath is a separate entry point (~265KB) from the renderer
-  // bundle, so importing it here does not pull the renderer into the worker.
   const { validate } = (await import('@zenuml/core/parser')) as {
     validate(code: string): ZenumlParseResult;
   };

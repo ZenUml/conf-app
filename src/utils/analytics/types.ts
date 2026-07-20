@@ -8,6 +8,7 @@ import type {
   OperationMode,
   FeedbackValue,
   RenderMode,
+  RenderScheduling,
   CacheState,
   CacheSource,
   MacroCountSource,
@@ -149,6 +150,12 @@ export type AnalyticsProperties = {
   is_demo_page?: boolean;
   // Performance
   render_mode?: RenderMode;
+  // Viewport-lazy rendering (#378). On `macro_viewed`: whether this macro
+  // rendered eagerly at mount or was deferred by the IntersectionObserver gate
+  // until it entered the viewport. On `viewer_render_activated`: `defer_ms` is
+  // how long the macro was held between mount and viewport entry.
+  render_scheduling?: RenderScheduling;
+  defer_ms?: number;
   // Where a cached_svg render sourced its SVG (Phase 2: 'cc_body'). Absent/'none' for live_render.
   cache_source?: CacheSource;
   duration_ms?: number;

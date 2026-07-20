@@ -54,6 +54,12 @@ export type DashboardFormatFilter = "all" | "asyncapi" | "openapi";
 
 export type RenderMode = "live_render" | "cached_svg";
 
+// Whether a viewer macro rendered immediately at mount ("eager", already in or
+// near the viewport) or was held by the IntersectionObserver gate and rendered
+// only on viewport entry ("deferred"). Rides on `macro_viewed` so eager and
+// deferred render latency can be compared directly. See #378.
+export type RenderScheduling = "eager" | "deferred";
+
 // Browser cache state at macro render time, derived from Resource Timing
 // transferSize of the macro's same-origin JS bundle:
 //   warm    — bundle served from HTTP/disk cache (transferSize ~ 0)
@@ -206,6 +212,18 @@ export type AnalyticsEventName =
   | "close_guard_rejected"
   | "renderer_prefetch_started"
   | "renderer_prefetch_completed"
+  // Viewport-lazy macro rendering (#378). On macro-dense pages the viewer path
+  // gates each macro's render behind an IntersectionObserver so only near-viewport
+  // macros parse+render, capping the N-way main-thread contention that drives the
+  // multi-macro duration_ms tail. Funnel: `viewer_render_deferred` fires when a
+  // viewer macro mounts outside the viewport and its render is held; then
+  // `viewer_render_activated` fires when it scrolls into range and the render
+  // runs (carrying `defer_ms`, the hold time). A macro that is already visible at
+  // mount renders eagerly and emits neither — its `macro_viewed` carries
+  // `render_scheduling: 'eager'`. Deferred renders carry `'deferred'`, so the
+  // eager-vs-deferred latency comparison is a clean breakdown, not an inference.
+  | "viewer_render_deferred"
+  | "viewer_render_activated"
   // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md
   // §10). Funnel: connect_clicked → session_created → agent_connected →
   // edit_applied → disconnected; setup_shown measures first-time connector

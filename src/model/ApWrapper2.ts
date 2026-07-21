@@ -1550,10 +1550,19 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   isDisplayMode() {
-    const modal = forgeGlobal.forgeContext?.extension?.modal;
-    if (!modal) return true;
-    // fullscreen is a viewer context, not an editor — still display mode
-    return modal.macroMode === 'fullscreen';
+    const ext = forgeGlobal.forgeContext?.extension;
+    const modal = ext?.modal;
+    // Bridge-opened modal: its explicit macroMode wins (modals inherit the
+    // parent extension, so macro flags below may be stale copies).
+    // fullscreen is a viewer context, not an editor — still display mode.
+    if (modal) return modal.macroMode === 'fullscreen';
+    // conf-app#368: the native macro-config surface (Confluence's own insert /
+    // edit-params dialog) has no extension.modal — only
+    // extension.macro.isConfiguring / isInserting. It is an authoring surface,
+    // not display: classifying it as display stamped authoring preview renders
+    // as surface:'viewer' (with no custom_content_id for new macros) and let
+    // view-time attachment writes fire mid-authoring.
+    return !ext?.macro?.isConfiguring && !ext?.macro?.isInserting;
   }
 
   async getCustomContent(): Promise<ICustomContent | undefined> {

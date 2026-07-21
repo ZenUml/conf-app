@@ -1510,4 +1510,76 @@ describe('ApWrapper2', () => {
       expect(hits[0].spaceKey).toBe('MKT');
     });
   });
+
+  // conf-app#368: the native macro-config surface (Confluence's own insert /
+  // edit-params dialog) has NO extension.modal but sets
+  // extension.macro.isConfiguring / isInserting. Classifying it as display
+  // mode stamped every authoring preview render as surface:'viewer' with no
+  // custom_content_id — ~3% of all Lite "viewer" macro_viewed events were
+  // authoring sessions, which is what #368 misread as ids intermittently
+  // going missing at view time.
+  describe('isDisplayMode', () => {
+    async function withContext(extension: any, fn: () => void) {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).forgeContext = extension === null ? null : { extension };
+      try {
+        fn();
+      } finally {
+        (forgeGlobalMod.default as any).forgeContext = null;
+      }
+    }
+
+    it('plain page view (no modal, no macro flags) is display mode', async () => {
+      await withContext({ type: 'macro', content: { id: '1' } }, () => {
+        expect(wrapper.isDisplayMode()).toBe(true);
+      });
+    });
+
+    it('macro flags present but false is still display mode', async () => {
+      await withContext(
+        { type: 'macro', macro: { isConfiguring: false, isInserting: false } },
+        () => {
+          expect(wrapper.isDisplayMode()).toBe(true);
+        },
+      );
+    });
+
+    it('native config surface (isConfiguring, no modal) is NOT display mode', async () => {
+      await withContext(
+        { type: 'macro', macro: { isConfiguring: true, isInserting: false } },
+        () => {
+          expect(wrapper.isDisplayMode()).toBe(false);
+        },
+      );
+    });
+
+    it('native insert surface (isInserting, no modal) is NOT display mode', async () => {
+      await withContext(
+        { type: 'macro', macro: { isConfiguring: false, isInserting: true } },
+        () => {
+          expect(wrapper.isDisplayMode()).toBe(false);
+        },
+      );
+    });
+
+    it('bridge editor modal is NOT display mode', async () => {
+      await withContext(
+        { type: 'macro', modal: { macroMode: 'editor' } },
+        () => {
+          expect(wrapper.isDisplayMode()).toBe(false);
+        },
+      );
+    });
+
+    it('fullscreen viewer modal is display mode, even with inherited macro flags', async () => {
+      // Bridge modals inherit the parent extension; an explicit modal
+      // macroMode must win over any inherited macro flags.
+      await withContext(
+        { type: 'macro', modal: { macroMode: 'fullscreen' }, macro: { isConfiguring: true } },
+        () => {
+          expect(wrapper.isDisplayMode()).toBe(true);
+        },
+      );
+    });
+  });
 });

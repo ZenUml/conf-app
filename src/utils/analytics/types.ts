@@ -10,6 +10,7 @@ import type {
   RenderMode,
   CacheState,
   CacheSource,
+  ContentSource,
   MacroCountSource,
   PrefetchHost,
   PrefetchOutcome,
@@ -151,6 +152,10 @@ export type AnalyticsProperties = {
   render_mode?: RenderMode;
   // Where a cached_svg render sourced its SVG (Phase 2: 'cc_body'). Absent/'none' for live_render.
   cache_source?: CacheSource;
+  // Where the macro's CONTENT (doc) came from this render — 'fetch' (network) or
+  // 'swr_cache' (id-keyed content cache, the revisit fast path). Distinct from
+  // cache_source (rendered-SVG cache). Absent when no content fetch was involved.
+  content_source?: ContentSource;
   duration_ms?: number;
   // Browser cache state at render time, measured via Resource Timing transferSize
   // of same-origin JS bundles, plus the raw summed wire bytes. Lets cold/warm

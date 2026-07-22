@@ -9,10 +9,13 @@
 // cross-macro contamination). Every export is read-only on render behavior:
 // it reads clocks or wraps a promise without altering what runs.
 
+import type { ContentSource } from './catalog';
+
 export type RenderPhase = 'context' | 'fetch' | 'render' | 'cc_fetch' | 'adf_scan';
 
 const durations: Partial<Record<RenderPhase, number>> = {};
 let bootstrapMs: number | undefined;
+let contentSource: ContentSource | undefined;
 
 // Sticky "was the tab ever hidden during this load" flag. Tab-backgrounding
 // throttles timers and inflates whichever phase was in flight — the cause of
@@ -42,6 +45,18 @@ export function markAppEntry(): void {
   const start = loadStart();
   if (start === undefined) return;
   bootstrapMs = Math.round(performance.now() - start);
+}
+
+/**
+ * Record where the macro's CONTENT (the diagram doc) came from this render, so
+ * `trackRenderTime` can tag `macro_viewed` with it (via getTimings). Unlike the
+ * phase timers, this is last-wins: the content-SWR fast path marks 'swr_cache'
+ * when it mounts the cached doc, and a background revalidate that re-renders the
+ * fresh doc overrides it with 'fetch'. Left unmarked (undefined) when no content
+ * fetch was involved — absent in the payload, never a default.
+ */
+export function markContentSource(src: ContentSource): void {
+  contentSource = src;
 }
 
 /**
@@ -75,6 +90,7 @@ export interface RenderTimings {
   page_adf_fetch_ms?: number;
   measured_sum_ms?: number;
   tab_hidden?: boolean;
+  content_source?: ContentSource;
 }
 
 /**
@@ -97,6 +113,7 @@ export function getTimings(): RenderTimings {
     page_adf_fetch_ms: durations.adf_scan,
     measured_sum_ms: measured.length ? measured.reduce((a, b) => a + b, 0) : undefined,
     tab_hidden: everHidden,
+    content_source: contentSource,
   };
 }
 
@@ -108,5 +125,6 @@ export function _resetForTesting(): void {
   delete durations.cc_fetch;
   delete durations.adf_scan;
   bootstrapMs = undefined;
+  contentSource = undefined;
   everHidden = typeof document !== 'undefined' ? document.hidden : false;
 }

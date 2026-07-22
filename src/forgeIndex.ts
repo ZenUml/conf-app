@@ -39,6 +39,7 @@ import {
 } from '@/utils/legacyContentPropertyTelemetry';
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
+import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -290,11 +291,122 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       !!context.extension?.macro?.isConfiguring;
     const copyCheckMode = isSequence && !isEditorish ? ('cross-page-only' as const) : ('full' as const);
 
+    // ── Content SWR: cache-first render on a viewer revisit ──────────────────
+    // Most macro views are revisits of unchanged content (measured: ~66% of
+    // sequence-family viewer views in a week are a repeat of the same user +
+    // customContentId, with no save landing in between) and the view's time is
+    // dominated by the content fetch. The cache is keyed by customContentId —
+    // known from the Forge context BEFORE any fetch — so on a hit we mount the
+    // cached doc immediately and revalidate in the background, taking the
+    // fetch off the critical path.
+    //
+    // Scoped to the plain (non-fullscreen) sequence-family VIEWER: it's the
+    // dominant macro_viewed surface and is read-only (no save path → no
+    // data-loss risk). Fullscreen is excluded so its paywall gate still fires;
+    // the editor is excluded because its load drives save/recovery/paywall
+    // logic. Deliberately calls `await isEditorMode()` here rather than
+    // reusing the `isEditorish` const above — that const is a narrower
+    // synchronous heuristic scoped only to the ADF-scan copyCheckMode gate;
+    // this needs to match `editable` (computed the same way, further below)
+    // exactly, since that's the real switch between the Workspace and
+    // DiagramPortal mount paths.
+    //
+    // Orphan-recovery reporting and the cross-page SnapshotAttachment backfill
+    // are NOT run on the instant cache-hit render — there's no fresh `loaded`
+    // result to report from at that point, and a cache hit means recovery for
+    // this ccid isn't in question anyway (we're serving previously-fetched
+    // valid content, not resolving a possibly-orphaned id). Both still run
+    // inside revalidateSequenceViewer below, which performs the real fetch
+    // moments later, so nothing is silently dropped — it's deferred off the
+    // critical path, same as the fetch itself.
+    // See utils/renderCache/contentCacheStore.ts.
+    const mountSequenceViewer = async (viewerDoc: Diagram) => {
+      const skeleton = document.getElementById('skeleton-loader');
+      if (skeleton) skeleton.style.display = 'none';
+      const { mountRoot } = await import('@/mount-root');
+      const DiagramPortal = (await import('@/components/DiagramPortal.vue')).default;
+      // @ts-ignore - viewerDoc may be a partial spread type; matches the happy-path mount below
+      mountRoot(viewerDoc, DiagramPortal, { autoResize: true });
+    };
+
+    const revalidateSequenceViewer = async (
+      ccId: string,
+      pageId: string | undefined,
+      cachedHash: string,
+    ) => {
+      try {
+        const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(
+          pageId, ccId, { copyCheckMode },
+        );
+        if (loaded.recoveredFromOrphanId && loaded.customContent?.value) {
+          reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, {
+            recoveryUsed: true,
+            recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+          });
+        } else if (!loaded.customContent?.value) {
+          reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, { recoveryUsed: false });
+        }
+        const fresh = loaded.customContent?.value;
+        if (!fresh) return; // content unreadable now — keep the last-known-good cached render
+        if (loaded.customContent) {
+          import('@/model/SnapshotAttachment').then(({ maybeBackfillSnapshot }) =>
+            maybeBackfillSnapshot({
+              hostPageId: String(pageId),
+              ccId: String(ccId),
+              ccPageId: loaded.customContent!.pageId,
+              diagram: fresh,
+              ccVersion: loaded.customContent!.version?.number,
+              isDisplayMode: globals.apWrapper.isDisplayMode(),
+            })
+          ).catch(e => console.debug('[snapshot] backfill skipped', e));
+        }
+        const serialized = JSON.stringify(fresh);
+        putCachedContent(ccId, serialized);
+        if (hashContent(serialized) !== cachedHash) {
+          renderPerf.markContentSource('fetch');
+          // @ts-ignore - fresh may be a partial spread type; matches the happy-path mount below
+          const freshDoc: Diagram = fresh.plantUmlCode ? fresh : { ...fresh, plantUmlCode: Example.PlantUml };
+          await mountSequenceViewer(freshDoc);
+        }
+      } catch (e) {
+        console.warn('[content-swr] background revalidate failed; cached render stands', e);
+      }
+    };
+
+    if (customContentId && isSequence && !(await isEditorMode()) && !(await isFullscreenMode())) {
+      const cached = getCachedContent(customContentId);
+      if (cached) {
+        try {
+          const cachedDoc = JSON.parse(cached.doc) as Diagram;
+          // @ts-ignore - cachedDoc may be a partial spread type; matches the happy-path mount below
+          const viewerDoc: Diagram = cachedDoc.plantUmlCode ? cachedDoc : { ...cachedDoc, plantUmlCode: Example.PlantUml };
+          renderPerf.markContentSource('swr_cache');
+          await mountSequenceViewer(viewerDoc);
+          void revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash);
+          return; // rendered from cache — skip the live-fetch + mount path entirely
+        } catch (e) {
+          console.warn('[content-swr] cache hit failed to render; falling back to live fetch', e);
+          // fall through to the normal fetch path below
+        }
+      }
+    }
+
     if (customContentId) {
       const loaded = await renderPerf.time('fetch', () =>
         globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId, { copyCheckMode }));
       console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
       doc = loaded.customContent?.value;
+      if (isSequence && loaded.customContent?.value) {
+        // Prime the id-keyed SWR cache so a later viewer revisit can render
+        // before the fetch (see the content-SWR block above). Cache the RAW
+        // fetched value (pre-backfill) so its hash matches a future fetch for
+        // change detection; a stale entry self-corrects on the next
+        // revalidate's hash comparison. Primed from both editor and viewer
+        // loads — either is a legitimate source of "current truth" for a
+        // later viewer revisit.
+        putCachedContent(customContentId, JSON.stringify(loaded.customContent.value));
+        renderPerf.markContentSource('fetch');
+      }
       if (loaded.recoveredFromOrphanId && doc) {
         doc.recoveredFromOrphan = true;
         doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;

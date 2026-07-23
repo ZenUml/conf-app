@@ -8,7 +8,7 @@
 import type { RenderGateOutcome } from "@/utils/analytics/catalog";
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import { awaitViewportTurn, type ViewportTurn } from "./viewportGate";
-import { getViewportGateFlag } from "./flags";
+import { getViewportGateFlagFast } from "./flags";
 
 export interface GateTelemetry {
   render_gate?: RenderGateOutcome;
@@ -32,7 +32,9 @@ export async function maybeGateViewerRender(deps?: {
   awaitTurn?: () => Promise<ViewportTurn>;
 }): Promise<void> {
   try {
-    const enabled = await (deps?.getFlag ?? getViewportGateFlag)();
+    // Default flag read is the SYNCHRONOUS cached verdict (flagCache) so a
+    // flag-off render never waits on the bridge FeatureFlags round-trip.
+    const enabled = await (deps?.getFlag ?? (async () => getViewportGateFlagFast()))();
     if (!enabled) return;
   } catch {
     return; // flag layer is fail-closed; a throw here means gate off

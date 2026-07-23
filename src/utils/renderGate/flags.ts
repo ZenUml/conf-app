@@ -34,6 +34,52 @@ async function defaultCreateClient(): Promise<FlagClient> {
   return new FeatureFlags();
 }
 
+export const FLAG_CACHE_KEY = "zenuml.viewportGateFlag";
+// Rollout latency ceiling: a Console toggle reaches a given browser on its
+// first render after the cached value ages past this TTL.
+const FLAG_CACHE_TTL_MS = 30 * 60_000;
+
+/**
+ * Critical-path flag read: returns the last cached verdict SYNCHRONOUSLY
+ * (false when no cache) and refreshes the cache in the background when
+ * missing/stale. The bridge FeatureFlags round-trip therefore never delays
+ * a render — the cost of that guarantee is one render of staleness after a
+ * Console toggle (bounded by the TTL).
+ */
+export function getViewportGateFlagFast(deps?: {
+  fetchFlag?: () => Promise<boolean>;
+  storage?: Pick<Storage, "getItem" | "setItem">;
+  now?: () => number;
+}): boolean {
+  const fetchFlag = deps?.fetchFlag ?? getViewportGateFlag;
+  const now = deps?.now ?? Date.now;
+  let cached: { on: boolean; at: number } | null = null;
+  try {
+    const storage = deps?.storage ?? localStorage;
+    const raw = storage.getItem(FLAG_CACHE_KEY);
+    cached = raw ? (JSON.parse(raw) as { on: boolean; at: number }) : null;
+    if (cached && typeof cached.on !== "boolean") cached = null;
+  } catch {
+    cached = null;
+  }
+  const fresh = !!cached && now() - cached.at < FLAG_CACHE_TTL_MS;
+  if (!fresh) {
+    void fetchFlag()
+      .then((on) => {
+        try {
+          (deps?.storage ?? localStorage).setItem(
+            FLAG_CACHE_KEY,
+            JSON.stringify({ on, at: now() }),
+          );
+        } catch {
+          // storage unavailable — next render just refreshes again
+        }
+      })
+      .catch(() => undefined);
+  }
+  return cached?.on ?? false;
+}
+
 export async function getViewportGateFlag(deps?: {
   createClient?: () => Promise<FlagClient>;
   getForgeContext?: () => Promise<

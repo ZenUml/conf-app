@@ -8,6 +8,7 @@ import type {
   OperationMode,
   FeedbackValue,
   RenderMode,
+  RenderGateOutcome,
   CacheState,
   CacheSource,
   ContentSource,
@@ -196,6 +197,21 @@ export type AnalyticsProperties = {
   // without burst reconstruction. See renderIdentity.ts.
   instance_nonce?: string;
   time_origin?: number;
+  // Viewport render gate (#382): how this viewer render was released.
+  // Absent on ungated renders (flag off / editor / fullscreen / non-sequence).
+  // 'immediate'   — in or near (rootMargin) the top-level viewport at boot
+  // 'scrolled_in' — released by scrolling into the prefetch margin
+  // 'background'  — released by the jittered background-fill timer
+  // 'failopen'    — gate errored or IntersectionObserver unavailable; rendered at once
+  // See utils/renderGate/viewportGate.ts.
+  render_gate?: RenderGateOutcome;
+  // Time (ms) the render waited in the viewport gate. 0 for 'immediate'.
+  // duration_ms INCLUDES this wait — subtract it (or split by render_gate)
+  // when comparing render latency across gated/ungated populations.
+  render_deferred_ms?: number;
+  // Strict (no-margin) top-level-viewport intersection at first observation.
+  // The direct client-side measure of "was this macro on screen at boot".
+  visible_at_boot?: boolean;
   // Renderer-bundle prefetch (renderer_prefetch_started / _completed). Fired
   // only on an actual attempt (throttled to ≤1 per deploy per browser), never
   // on the skip path — volume stays far below page-view scale. See

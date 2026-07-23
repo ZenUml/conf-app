@@ -60,6 +60,15 @@ export type DashboardFormatFilter = "all" | "asyncapi" | "openapi";
 
 export type RenderMode = "live_render" | "cached_svg";
 
+// Viewport render gate (#382): how a gated viewer render was released.
+// Property is ABSENT on ungated renders (flag off / editor / fullscreen /
+// non-sequence-family) — see utils/renderGate/viewportGate.ts.
+export type RenderGateOutcome =
+  | "immediate"
+  | "scrolled_in"
+  | "background"
+  | "failopen";
+
 // Browser cache state at macro render time, derived from Resource Timing
 // transferSize of the macro's same-origin JS bundle:
 //   warm    — bundle served from HTTP/disk cache (transferSize ~ 0)

@@ -55,4 +55,15 @@ export async function maybeGateViewerRender(deps?: {
   } catch {
     telemetry = { render_gate: "failopen" };
   }
+  try {
+    // Spot-check hook (#382 dev verification): per-iframe gate outcome,
+    // readable via Playwright frame.evaluate. Harmless in prod.
+    (window as unknown as Record<string, unknown>).__viewportGateTurn = {
+      ...telemetry,
+      bodyH: document.body?.clientHeight,
+      bodyW: document.body?.clientWidth,
+    };
+  } catch {
+    // debug hook is best-effort
+  }
 }

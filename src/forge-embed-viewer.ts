@@ -20,8 +20,16 @@ async function loadDiagram(): Promise<Diagram | undefined> {
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
     if (!doc) {
-      // ZEN-1170 telemetry: probe page children for a recovery candidate.
-      void reportOrphanObserved(globals.apWrapper, context.extension?.content?.id, customContentId, 'embed');
+      // ZEN-1170 telemetry. #147: the original call passed the arguments in the
+      // WRONG order — (apWrapper, pageId, customContentId, 'embed') against the
+      // real signature (pageId, orphanId, diagramKind, probeResult, options) —
+      // so every embed orphan event was mislabeled (diagram_kind became the
+      // customContentId and page_id became an ApWrapper object). The embed
+      // viewer fetches the doc directly via getCustomContentByIdV2 (no orphan
+      // probe), so there is no probeResult to pass — undefined makes
+      // reportOrphanObserved emit the reduced "probe_skipped_no_probe_result"
+      // shape with the correct diagram_kind='embed'.
+      reportOrphanObserved(pageId, customContentId, 'embed', undefined, { recoveryUsed: false });
     }
   }
 

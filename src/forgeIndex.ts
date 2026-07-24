@@ -31,6 +31,7 @@ import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { isSequenceFamilyEntry } from '@/utils/macroEntryRouting';
 import {
   reportLegacyContentPropertyRestored,
   reportLegacyContentPropertyLoadFailed,
@@ -245,24 +246,18 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         .catch(e => console.warn('[paywall-banner] targeting refresh failed', e));
     }
 
-    let doc: Diagram | undefined;
-    let legacyLoadBlocked = false;
-    const customContentId = context.extension?.config?.customContentId || context.extension.modal?.customContentId;
-    originalCustomContentId = customContentId;
-    recoveryPageId = context.extension?.content?.id;
-    // ZEN-1170 Defect 1: see forge-graph-editor.ts for why this uses
-    // config.uuid and not forgeGlobal.localId.
-    const storageUuid: string | undefined = context.extension?.config?.uuid;
-
-    // Sequence-family discriminator, hoisted up from its original single
-    // call site (still used unchanged further below, around the isSequence/
-    // isGraph/isEmbed/isAsyncApi routing block) so the copyCheckMode gate
-    // immediately below can reuse the SAME condition rather than re-deriving
-    // it. Graph/embed/asyncapi viewers route to their own entry file
-    // (forge-graph-viewer.ts etc. below) which re-loads its own doc from
-    // scratch and never sees the `doc` fetched in this function — so they
-    // must keep the default full check on their own loads.
-    const isSequence = context.moduleKey.startsWith('zenuml-sequence-macro') || context.moduleKey.startsWith('gpt-diagram-macro') || context.extension.modal?.diagramType === 'sequence' || context.extension.modal?.diagramType === 'mermaid';
+    // Macro-type discriminators. context.moduleKey and the modal diagramType are
+    // already available here, so compute them BEFORE the custom-content load.
+    // Only the sequence family (sequence/mermaid/plantuml, under the
+    // zenuml-sequence-macro module) is rendered by forgeIndex itself; graph,
+    // openapi, embed and asyncapi delegate to a dedicated viewer/editor (see the
+    // dispatch below) that owns BOTH the custom-content load AND the
+    // `customcontent_orphan_observed` telemetry. Loading the doc here for those
+    // types was dead work AND fired a SECOND, mislabeled orphan event
+    // (diagram_kind pinned to 'sequence'), doubling the orphan dashboards for
+    // openapi/graph/embed. The load block below is therefore gated on isSequence.
+    // See src/utils/macroEntryRouting.ts.
+    const isSequence = isSequenceFamilyEntry(context.moduleKey, context.extension.modal?.diagramType);
     const isGraph = context.moduleKey.startsWith('zenuml-graph-macro');
     const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
     // AsyncAPI ships two macros — `zenuml-asyncapi-macro` (page-rendered
@@ -278,6 +273,15 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // dashboard-launched Create / Edit / View modals fall through to the
     // swagger editor.
     const isAsyncApi = context.moduleKey.startsWith('zenuml-asyncapi-macro') || isAsyncApiEmbed || context.extension.modal?.diagramType === 'asyncapi';
+
+    let doc: Diagram | undefined;
+    let legacyLoadBlocked = false;
+    const customContentId = context.extension?.config?.customContentId || context.extension.modal?.customContentId;
+    originalCustomContentId = customContentId;
+    recoveryPageId = context.extension?.content?.id;
+    // ZEN-1170 Defect 1: see forge-graph-editor.ts for why this uses
+    // config.uuid and not forgeGlobal.localId.
+    const storageUuid: string | undefined = context.extension?.config?.uuid;
 
     // Viewer surfaces skip the full-page ADF scan entirely: the zero-network
     // cross-page comparison (ApWrapper2.detectCrossPageCopy) preserves the
@@ -391,7 +395,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       }
     }
 
-    if (customContentId) {
+    if (isSequence && customContentId) {
       const loaded = await renderPerf.time('fetch', () =>
         globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId, { copyCheckMode }));
       console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
@@ -478,7 +482,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // state macros (stale customContentId that 404s, but the original legacy
     // body still lives on the page). Without this, a mixed-state macro
     // mounts the example DSL and a save would replace the legacy body.
-    if (!doc && storageUuid) {
+    if (isSequence && !doc && storageUuid) {
       const result = await globals.apWrapper.getContentPropertyV2(
         `zenuml-sequence-macro-${storageUuid}-body`,
       );
@@ -568,7 +572,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // SOURCE page, titled with the uuid. Without this fallback the editor
     // would mount Example.Sequence and a first save would silently wipe
     // the recovered diagram the viewer is showing (PR #139 viewer step 3).
-    if (!doc && storageUuid) {
+    if (isSequence && !doc && storageUuid) {
       const recovered = await globals.apWrapper.findLegacyCustomContentByUuid(storageUuid);
       if (recovered?.value) {
         doc = recovered.value;
@@ -617,10 +621,10 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // blocked-doc branch below MUST be the one that runs — otherwise the
     // placeholder NULL_DIAGRAM would erase the sentinel and persistence
     // would happily save an empty doc over the legacy body.
-    if (!doc && customContentId && !legacyLoadBlocked) {
+    if (isSequence && !doc && customContentId && !legacyLoadBlocked) {
       doc = { ...NULL_DIAGRAM };
     }
-    if (!doc) {
+    if (isSequence && !doc) {
       if (legacyLoadBlocked) {
         // Mount a degraded, save-blocked diagram. Persistence layer will
         // refuse the save; the user sees the editor but cannot destroy the
@@ -668,8 +672,10 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       wipePrecursorActiveFieldEmpty = !activeField;
     }
 
-    // Backfill default PlantUML DSL for existing diagrams created before PlantUML support
-    if (!doc.plantUmlCode) {
+    // Backfill default PlantUML DSL for existing diagrams created before PlantUML
+    // support. `doc` is only populated for the sequence family above; non-sequence
+    // types leave it undefined (the dedicated entry loads their doc), so guard.
+    if (doc && !doc.plantUmlCode) {
       doc = { ...doc, plantUmlCode: Example.PlantUml };
     }
 
@@ -724,9 +730,10 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       skeletonLoader.style.display = 'none';
     }
 
-    // isSequence / isGraph / isEmbed / isAsyncApiEmbed / isAsyncApi are
-    // computed earlier now (hoisted above the customContentId load so the
-    // P1.1 ADF-scan deferral gate can reuse them — see the comment there).
+    // isSequence / isGraph / isEmbed / isAsyncApiEmbed / isAsyncApi are computed
+    // earlier now (hoisted above the customContentId load) so BOTH the P1.1
+    // ADF-scan deferral gate AND the sequence-family load/telemetry gate reuse
+    // them — see that block for the rationale.
 
     if(isSequence) {
       const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';

@@ -112,13 +112,35 @@ export default defineComponent({
       dismiss();
     };
 
-    // Publish gate (ForgeGraphEditor calls window.ensureTitle() before save):
-    // resolve immediately if a title exists, otherwise surface the error and
-    // wait for the user (or an in-flight AI generation) to supply one.
-    const ensureTitle = (): Promise<string> => {
+    // Publish gate (ForgeGraphEditor calls window.ensureTitle() before save).
+    const ensureTitle = async (): Promise<string> => {
       if (currentTitle.value) {
-        return Promise.resolve(currentTitle.value);
+        return currentTitle.value;
       }
+
+      // The title is still empty at publish. Rather than depending on the
+      // debounced while-editing watcher (which may not have fired yet if the
+      // user published right after their last edit), generate on demand from
+      // the diagram content that's being saved right now. The save handler in
+      // ForgeGraphEditor sets window.graphXml = payload.xml immediately before
+      // calling this, so it is the freshest, most complete source.
+      if (debounceTimer) clearTimeout(debounceTimer);
+      const xml = (window as any).graphXml || props.currentXml || "";
+      const code = extractGraphText(xml);
+      if (aiTitleEnabled.value && code.trim() && !isGeneratingTitle.value) {
+        await generate("user", {
+          code,
+          diagramType: DiagramType.Graph,
+          currentTitle: "",
+        });
+        if (currentTitle.value) return currentTitle.value;
+      }
+
+      // No content to title yet (e.g. unlabelled shapes), generation failed, or
+      // a generation is still in flight — surface the error, focus the input,
+      // and wait. The currentTitle watcher below resolves this promise if an
+      // in-flight generation lands a title, so publish can still proceed
+      // automatically without the user typing.
       titleError.value = true;
       headerRef.value?.focusInput();
       return new Promise((resolve) => {

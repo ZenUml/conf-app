@@ -65,9 +65,10 @@ export default {
       }
     },
     onFrameLoad() {
-      // Send initial graph XML to the iframe
+      // Send initial graph XML to the iframe. autosave:1 makes DrawIO emit
+      // 'autosave' events on every model change (see loadGraph below).
       if (this.graphXml) {
-        this.sendToFrame({ action: 'load', xml: this.graphXml });
+        this.sendToFrame({ action: 'load', xml: this.graphXml, autosave: 1 });
       }
     }
   },
@@ -93,7 +94,13 @@ export default {
     // DrawIO stays waiting for a load action that never comes, and the
     // user sees an empty canvas. A subsequent Publish then writes that
     // empty canvas over the customer's real diagram (silent data loss).
-    const loadGraph = (xml) => this.sendToFrame({ action: 'load', xml });
+    // autosave:1 tells DrawIO to postMessage an 'autosave' event (with the
+    // current xml) on every model change. Without it DrawIO only speaks on the
+    // explicit 'save', so `latestXml` (and the AI auto-title watcher + local
+    // draft saver + close-guard, which all consume these events) would never
+    // see live edits. Confluence persistence is unaffected — that still runs
+    // only on the 'save' event.
+    const loadGraph = (xml) => this.sendToFrame({ action: 'load', xml, autosave: 1 });
     this.messageListener = async ({ data }) => {
       if (!data) {
         console.warn('Empty message sent to drawio editor.');
@@ -201,7 +208,7 @@ export default {
     this.restoreListener = (payload) => {
       if (payload?.scope !== this.draftScope || !payload?.draft) return;
       try {
-        this.sendToFrame({ action: 'load', xml: payload.draft.code });
+        this.sendToFrame({ action: 'load', xml: payload.draft.code, autosave: 1 });
         if (payload.draft.title) this.$store.dispatch('updateTitle', payload.draft.title);
         this.drawioModified = true;
         this.latestXml = payload.draft.code;

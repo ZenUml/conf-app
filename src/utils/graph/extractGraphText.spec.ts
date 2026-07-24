@@ -68,4 +68,61 @@ describe('extractGraphText', () => {
     const out = extractGraphText(`<mxGraphModel><root>${many}</root></mxGraphModel>`)
     expect(out.length).toBeLessThanOrEqual(2000)
   })
+
+  describe('shape-only fallback (no text labels)', () => {
+    it('describes AWS library stencils by resource name and counts connectors', () => {
+      const xml = `<mxGraphModel><root>
+        <mxCell id="0" />
+        <mxCell id="2" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.ec2;" vertex="1" />
+        <mxCell id="3" style="sketch=0;resIcon=mxgraph.aws4.rds;" vertex="1" />
+        <mxCell id="4" style="rounded=1;whiteSpace=wrap;" vertex="1" />
+        <mxCell id="5" edge="1" source="2" target="3" />
+      </root></mxGraphModel>`
+      const out = extractGraphText(xml)
+      expect(out).toContain('ec2')
+      expect(out).toContain('rds')
+      expect(out).toContain('1 connector')
+    })
+
+    it('describes geometric primitives (rhombus, ellipse)', () => {
+      const xml = `<mxGraphModel><root>
+        <mxCell id="2" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" />
+        <mxCell id="3" style="ellipse;html=1;" vertex="1" />
+      </root></mxGraphModel>`
+      const out = extractGraphText(xml)
+      expect(out).toContain('rhombus')
+      expect(out).toContain('ellipse')
+    })
+
+    it('aggregates identical plain shapes with a count', () => {
+      const xml = `<mxGraphModel><root>
+        <mxCell id="2" vertex="1" />
+        <mxCell id="3" vertex="1" />
+        <mxCell id="4" vertex="1" />
+      </root></mxGraphModel>`
+      expect(extractGraphText(xml)).toContain('3× box')
+    })
+
+    it('describes even a single recognised library stencil', () => {
+      const xml = `<mxGraphModel><root>
+        <mxCell id="2" style="resIcon=mxgraph.aws4.lambda;" vertex="1" />
+      </root></mxGraphModel>`
+      expect(extractGraphText(xml)).toContain('lambda')
+    })
+
+    it('returns empty for a single blank box (nothing worth titling)', () => {
+      const xml = `<mxGraphModel><root>
+        <mxCell id="2" style="rounded=1;" vertex="1" />
+      </root></mxGraphModel>`
+      expect(extractGraphText(xml)).toBe('')
+    })
+
+    it('prefers text labels over shape descriptors when both exist', () => {
+      const xml = `<mxGraphModel><root>
+        <mxCell id="2" value="Login" style="rhombus;" vertex="1" />
+        <mxCell id="3" style="ellipse;" vertex="1" />
+      </root></mxGraphModel>`
+      expect(extractGraphText(xml)).toBe('Login')
+    })
+  })
 })

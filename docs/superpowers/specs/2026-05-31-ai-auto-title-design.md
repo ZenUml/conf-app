@@ -167,8 +167,21 @@ than `Workspace.vue`/`Header.vue`/`DiagramTitleInput.vue`. It is now supported:
 - **Content signal:** `src/utils/graph/extractGraphText.ts` pulls the shape/edge
   labels (mxCell `value` / object `label` attributes, HTML stripped) from the
   live mxGraph XML. That label text — not the raw XML — is the `dsl` sent to the
-  backend, and doubles as the dedup hash. An unlabelled/empty graph yields `''`,
-  which the existing empty-content guard treats as "no content" (never fires).
+  backend, and doubles as the dedup hash.
+  - **Shape-only fallback:** when a diagram has *no* text labels, it falls back
+    to describing the shape *types* from each cell's `style` — library stencils
+    (`resIcon`/`grIcon`/`shape=mxgraph.aws4.ec2` → "ec2") and geometric
+    primitives (rhombus, cylinder, …), aggregated with counts + connector count
+    (e.g. "Diagram shapes: 3× ec2, 2× rds. 5 connectors."). Good for
+    AWS/Azure/UML/network diagrams; a lone blank box (no named stencil, <2
+    shapes) still yields `''` so we don't emit a junk title.
+- **Publish-time generation:** the debounced while-editing watcher isn't the
+  only trigger — `window.ensureTitle()` (called from the graph `save` handler)
+  generates on demand from the just-saved content when the title is still empty,
+  so publishing right after an edit still lands a title.
+- **Live edits:** the DrawIO `load` messages set `autosave: 1` so DrawIO emits
+  `autosave` events; without it `latestXml` never updated and the watcher (and
+  the pre-existing local draft saver / close-guard) never saw in-progress edits.
 - **Type param:** `titleTypeParam` maps `Graph → 'flowchart'` (`useAutoTitle.ts`).
 - **UI:** the spark button, typewriter, and dismiss × are added to the compact
   `DrawIoHeader` overlay; `DrawIoExtension` owns the `useAutoTitle` wiring, mirroring

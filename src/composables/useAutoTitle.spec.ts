@@ -95,6 +95,21 @@ describe('useAutoTitle', () => {
     expect(showSpark.value).toBe(false)
   })
 
+  it('sends type "flowchart" for Graph diagrams (extracted labels as dsl)', async () => {
+    vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Order Flow'))
+    const { initFlag, generate } = useAutoTitle()
+    await initFlag()
+    const p = generate('init', {
+      code: 'Start\nProcess order\nEnd',
+      diagramType: DiagramType.Graph,
+      currentTitle: '',
+    })
+    await runAnimation('Order Flow')
+    await p
+    expect(aiGenerateTitle).toHaveBeenCalledWith({ dsl: 'Start\nProcess order\nEnd', type: 'flowchart' })
+    expect(fakeStore.dispatch).toHaveBeenCalledWith('updateTitle', 'Order Flow')
+  })
+
   it('does not re-trigger for unchanged content (dedup hash)', async () => {
     vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Order Checkout'))
     const { initFlag, generate } = useAutoTitle()

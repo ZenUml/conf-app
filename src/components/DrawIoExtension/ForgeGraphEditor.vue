@@ -13,8 +13,9 @@
     <!-- Title input overlays the iframe at the top-right, positioned to share
          DrawIO's toolbar row visually (matching the official drawio Confluence
          plugin's filename placement). The right offset clears DrawIO's
-         Save & Exit button. -->
-    <DrawIoExtension :doc="doc" />
+         Save & Exit button. currentXml feeds the AI auto-title watcher with the
+         live diagram content (initial body, then each DrawIO autosave). -->
+    <DrawIoExtension :doc="doc" :current-xml="currentXml" />
   </div>
 </template>
 
@@ -26,6 +27,7 @@ import { setupCloseGuard } from "@/utils/closeGuard";
 import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
 import EventBus from "@/EventBus";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { notifyAiTitleSaved } from "@/composables/useAutoTitle";
 
 const EMPTY_GRAPH = `<mxfile>
   <diagram name="Page-1">
@@ -48,6 +50,13 @@ export default {
     saveGraphAndExit: Function,
     doc: Object,
     customContentId: { type: String, default: undefined }
+  },
+  computed: {
+    // Live diagram content for the AI auto-title watcher: the latest DrawIO
+    // autosave xml once the user starts editing, otherwise the initial body.
+    currentXml() {
+      return this.latestXml || this.graphXml || "";
+    }
   },
   methods: {
     sendToFrame(data) {
@@ -131,6 +140,13 @@ export default {
         // <mxfile> or raw <mxGraphModel>.
         window.graphXml = payload.xml;
         await window.ensureTitle();
+        // Record acceptance if the title still showing is the AI-generated one
+        // (no-op when the user typed their own). Mirrors forgeIndex.ts's save
+        // handler for the code editors.
+        notifyAiTitleSaved({
+          title: this.$store?.state?.diagram?.title,
+          contentId: this.$store?.state?.diagram?.id,
+        });
         await this.saveGraphAndExit(window.graphXml);
       }
       // Note: noExitBtn=1 in the iframe URL suppresses DrawIO's standalone

@@ -57,7 +57,11 @@ const EMPTY_GRAPH = `<mxfile>
   </diagram>
 </mxfile>`;
 
-async function saveGraphAndExit(graphXml: string) {
+// Returns true when the save was accepted and the redirect (view.submit /
+// close) is scheduled — the caller keeps the "Publishing…" overlay up until the
+// modal closes. Returns false on any error path that leaves the editor open, so
+// the caller can clear the overlay and let the user retry.
+async function saveGraphAndExit(graphXml: string): Promise<boolean> {
   // Start the publish-latency clock at the save-handler entry (≈ the DrawIO
   // Publish click that postMessages here). Stopped at the redirect below.
   markPublishClicked();
@@ -87,7 +91,7 @@ async function saveGraphAndExit(graphXml: string) {
         message: 'Legacy diagram content failed to load — saving is disabled to prevent data loss. Please refresh the page or contact support.',
         duration: 8000,
       });
-      return;
+      return false;
     }
     console.error('saveGraphAndExit failed', error);
     trackEvent('save_failed', 'save_failed', 'error', {
@@ -96,7 +100,7 @@ async function saveGraphAndExit(graphXml: string) {
     });
     toast({ message: 'Failed to save. Please try again.', duration: 5000 });
     // Do NOT end journey, do NOT close — keep editor open so the user can retry.
-    return;
+    return false;
   }
 
   // End journey on save
@@ -183,6 +187,9 @@ async function saveGraphAndExit(graphXml: string) {
       });
     }
   }, 500);
+  // saveToPlatform succeeded and the redirect is queued — tell the caller to
+  // hold the "Publishing…" overlay until the modal closes.
+  return true;
 }
 
 async function exit() {

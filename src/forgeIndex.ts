@@ -40,7 +40,7 @@ import {
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
-import { maybeGateViewerRender } from '@/utils/renderGate/maybeGateViewerRender';
+import { maybeGateViewerRender, awaitGateBlocking } from '@/utils/renderGate/maybeGateViewerRender';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -340,10 +340,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // critical path, same as the fetch itself.
     // See utils/renderCache/contentCacheStore.ts.
     const mountSequenceViewer = async (viewerDoc: Diagram) => {
-      // #382: hold the mount (skeleton stays up) until the viewport gate
-      // releases. Resolved instantly when the flag is off; already-resolved
-      // for the revalidate re-mount, so that path never waits twice.
-      if (viewerGatePromise) await viewerGatePromise;
+      // #382: hold the mount until the viewport gate releases (the gate shows
+      // its own shimmer placeholder while holding — index.html has no real
+      // skeleton element). awaitGateBlocking also records the ACTUAL wait at
+      // this mount site as render_deferred_ms. Resolved instantly when the
+      // flag is off; already-resolved for the revalidate re-mount.
+      await awaitGateBlocking(viewerGatePromise);
       const skeleton = document.getElementById('skeleton-loader');
       if (skeleton) skeleton.style.display = 'none';
       const { mountRoot } = await import('@/mount-root');
@@ -404,8 +406,14 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           // @ts-ignore - cachedDoc may be a partial spread type; matches the happy-path mount below
           const viewerDoc: Diagram = cachedDoc.plantUmlCode ? cachedDoc : { ...cachedDoc, plantUmlCode: Example.PlantUml };
           renderPerf.markContentSource('swr_cache');
-          await mountSequenceViewer(viewerDoc);
+          // Revalidate BEFORE the (possibly gated) mount: an offscreen macro
+          // must not delay its freshness check / orphan reporting / snapshot
+          // backfill until the viewport gate releases (#384 review F4). If
+          // the content changed, revalidate's own mountSequenceViewer call
+          // awaits the same gate and lands after this cached mount, so the
+          // fresh doc still wins.
           void revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash);
+          await mountSequenceViewer(viewerDoc);
           return; // rendered from cache — skip the live-fetch + mount path entirely
         } catch (e) {
           console.warn('[content-swr] cache hit failed to render; falling back to live fetch', e);
@@ -741,11 +749,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       }
     }
 
-    // #382: gated fetch-path viewer renders wait here, BEFORE the skeleton is
-    // hidden, so a deferred macro shows the shimmer instead of a blank iframe.
-    // Null for editors/fullscreen/non-sequence; resolved for SWR-hit renders
-    // (mountSequenceViewer already awaited it and returned above).
-    if (viewerGatePromise) await viewerGatePromise;
+    // #382: gated fetch-path viewer renders wait here (the gate shows its own
+    // shimmer placeholder while holding — index.html has no real skeleton
+    // element). Null for editors/fullscreen/non-sequence; resolved for
+    // SWR-hit renders (mountSequenceViewer already awaited it above).
+    // awaitGateBlocking records the actual mount wait as render_deferred_ms.
+    await awaitGateBlocking(viewerGatePromise);
 
     // Hide skeleton loader before mounting the actual content
     const skeletonLoader = document.getElementById('skeleton-loader');

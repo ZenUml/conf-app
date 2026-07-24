@@ -21,11 +21,11 @@ describe("getViewportGateFlagFast", () => {
     expect(on).toBe(false); // never blocks the render path on the bridge
     await flushMicrotasks();
     expect(fetchFlag).toHaveBeenCalledOnce();
-    expect(JSON.parse(storage.dump()!)).toEqual({ on: true, at: 1000 });
+    expect(JSON.parse(storage.dump()!)).toEqual({ on: true, at: 1000, scope: "" });
   });
 
   it("returns the cached value without fetching while the cache is fresh", async () => {
-    const storage = fakeStorage(JSON.stringify({ on: true, at: 1000 }));
+    const storage = fakeStorage(JSON.stringify({ on: true, at: 1000, scope: "" }));
     const fetchFlag = vi.fn(async () => false);
     const on = getViewportGateFlagFast({ fetchFlag, storage, now: () => 1000 + 60_000 });
     expect(on).toBe(true);
@@ -34,7 +34,7 @@ describe("getViewportGateFlagFast", () => {
   });
 
   it("returns the stale cached value but refreshes in the background", async () => {
-    const storage = fakeStorage(JSON.stringify({ on: true, at: 0 }));
+    const storage = fakeStorage(JSON.stringify({ on: true, at: 0, scope: "" }));
     const fetchFlag = vi.fn(async () => false);
     const on = getViewportGateFlagFast({
       fetchFlag,
@@ -50,6 +50,50 @@ describe("getViewportGateFlagFast", () => {
   it("treats corrupt cache JSON as no cache", () => {
     const storage = fakeStorage("not-json{");
     const on = getViewportGateFlagFast({ fetchFlag: async () => true, storage, now: () => 0 });
+    expect(on).toBe(false);
+  });
+
+  it("stamps the evaluation scope into the cache record (#384 review F1)", async () => {
+    const storage = fakeStorage();
+    getViewportGateFlagFast({
+      fetchFlag: async () => true,
+      storage,
+      now: () => 500,
+      scope: "cloud-A|acct-1|development",
+    });
+    await flushMicrotasks();
+    expect(JSON.parse(storage.dump()!)).toEqual({
+      on: true,
+      at: 500,
+      scope: "cloud-A|acct-1|development",
+    });
+  });
+
+  it("rejects a fresh cached verdict from a different scope (cross-tenant/user/env leak)", async () => {
+    const storage = fakeStorage(
+      JSON.stringify({ on: true, at: 1000, scope: "cloud-A|acct-1|development" }),
+    );
+    const fetchFlag = vi.fn(async () => false);
+    const on = getViewportGateFlagFast({
+      fetchFlag,
+      storage,
+      now: () => 1000 + 60_000,
+      scope: "cloud-B|acct-2|development", // different site + account
+    });
+    expect(on).toBe(false); // foreign verdict must not be reused
+    await flushMicrotasks();
+    expect(fetchFlag).toHaveBeenCalledOnce(); // and a scoped refresh was kicked
+    expect(JSON.parse(storage.dump()!).scope).toBe("cloud-B|acct-2|development");
+  });
+
+  it("treats a legacy record without scope as no cache", async () => {
+    const storage = fakeStorage(JSON.stringify({ on: true, at: 1000 }));
+    const on = getViewportGateFlagFast({
+      fetchFlag: async () => true,
+      storage,
+      now: () => 1000 + 60_000,
+      scope: "cloud-A|acct-1|development",
+    });
     expect(on).toBe(false);
   });
 

@@ -45,31 +45,40 @@ const FLAG_CACHE_TTL_MS = 30 * 60_000;
  * missing/stale. The bridge FeatureFlags round-trip therefore never delays
  * a render — the cost of that guarantee is one render of staleness after a
  * Console toggle (bounded by the TTL).
+ *
+ * `scope` is the flag-evaluation identity (`cloudId|accountId|environment`).
+ * The Custom UI iframe ORIGIN is shared across every tenant that installed
+ * this app (see utils/draftStore.ts), so a cached verdict is only reusable
+ * when it was produced for the same site + account + environment — a record
+ * from any other scope is treated as no cache (#384 review F1).
  */
 export function getViewportGateFlagFast(deps?: {
   fetchFlag?: () => Promise<boolean>;
   storage?: Pick<Storage, "getItem" | "setItem">;
   now?: () => number;
+  scope?: string;
 }): boolean {
   const fetchFlag = deps?.fetchFlag ?? getViewportGateFlag;
   const now = deps?.now ?? Date.now;
-  let cached: { on: boolean; at: number } | null = null;
+  const scope = deps?.scope ?? "";
+  let cached: { on: boolean; at: number; scope?: string } | null = null;
   try {
     const storage = deps?.storage ?? localStorage;
     const raw = storage.getItem(FLAG_CACHE_KEY);
-    cached = raw ? (JSON.parse(raw) as { on: boolean; at: number }) : null;
+    cached = raw ? (JSON.parse(raw) as { on: boolean; at: number; scope?: string }) : null;
     if (cached && typeof cached.on !== "boolean") cached = null;
   } catch {
     cached = null;
   }
-  const fresh = !!cached && now() - cached.at < FLAG_CACHE_TTL_MS;
+  const usable = !!cached && cached.scope === scope;
+  const fresh = usable && now() - cached!.at < FLAG_CACHE_TTL_MS;
   if (!fresh) {
     void fetchFlag()
       .then((on) => {
         try {
           (deps?.storage ?? localStorage).setItem(
             FLAG_CACHE_KEY,
-            JSON.stringify({ on, at: now() }),
+            JSON.stringify({ on, at: now(), scope }),
           );
         } catch {
           // storage unavailable — next render just refreshes again
@@ -77,7 +86,7 @@ export function getViewportGateFlagFast(deps?: {
       })
       .catch(() => undefined);
   }
-  return cached?.on ?? false;
+  return usable ? cached!.on : false;
 }
 
 export async function getViewportGateFlag(deps?: {

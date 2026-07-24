@@ -86,6 +86,16 @@ export function awaitViewportTurn(deps: GateDeps = {}): Promise<ViewportTurn> {
       if (settled) return;
       settled = true;
       try {
+        // IO callback order between the two observers is unspecified: the
+        // trigger can settle before the strict observer's first delivery.
+        // Drain its queued entries so visible_at_boot survives that order
+        // (#384 review F5).
+        if (visibleAtBoot === undefined && strict?.takeRecords) {
+          const pending = strict.takeRecords();
+          if (pending.length > 0) {
+            visibleAtBoot = pending.some((e) => e.isIntersecting);
+          }
+        }
         strict?.disconnect();
         trigger?.disconnect();
         if (fillTimer !== undefined) clearTimeoutFn(fillTimer);

@@ -35,6 +35,7 @@ import { isPrefetchDue } from "@/utils/prefetch/throttle";
 import { runRendererPrefetchIfDue } from "@/utils/prefetch/rendererPrefetch";
 import {
   maybeGateViewerRender,
+  awaitGateBlocking,
   _resetForTesting as _resetGateForTesting,
 } from "@/utils/renderGate/maybeGateViewerRender";
 
@@ -222,13 +223,15 @@ describe("trackRenderTime", () => {
         visibleAtBoot: false,
       }),
     });
+    // blocking is measured at the mount-site await, not from the gate's age
+    await awaitGateBlocking(Promise.resolve());
     trackRenderTime("sequence", true);
 
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "macro_viewed",
       expect.objectContaining({
         render_gate: "background",
-        render_deferred_ms: 4321,
+        render_deferred_ms: expect.any(Number),
         visible_at_boot: false,
       }),
     );

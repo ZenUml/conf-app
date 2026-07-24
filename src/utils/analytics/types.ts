@@ -205,9 +205,12 @@ export type AnalyticsProperties = {
   // 'failopen'    — gate errored or IntersectionObserver unavailable; rendered at once
   // See utils/renderGate/viewportGate.ts.
   render_gate?: RenderGateOutcome;
-  // Time (ms) the render waited in the viewport gate. 0 for 'immediate'.
-  // duration_ms INCLUDES this wait — subtract it (or split by render_gate)
-  // when comparing render latency across gated/ungated populations.
+  // Wall time (ms) the mount ACTUALLY waited on the viewport gate, measured
+  // at the mount-site await (renderGate/maybeGateViewerRender). NOT the
+  // gate's age: the gate runs concurrently with the content fetch, so when
+  // the fetch is the slower leg this is ~0 even for a 'background' release.
+  // duration_ms includes exactly this much gate-induced delay — subtracting
+  // it (or splitting by render_gate) is legitimate.
   render_deferred_ms?: number;
   // Strict (no-margin) top-level-viewport intersection at first observation.
   // The direct client-side measure of "was this macro on screen at boot".

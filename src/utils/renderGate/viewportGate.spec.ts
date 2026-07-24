@@ -16,6 +16,7 @@ class FakeIO {
   options: IntersectionObserverInit | undefined;
   observed: Element[] = [];
   disconnected = false;
+  queued: Array<{ isIntersecting: boolean }> = [];
   constructor(cb: IOCallback, options?: IntersectionObserverInit) {
     this.callback = cb;
     this.options = options;
@@ -29,6 +30,15 @@ class FakeIO {
   }
   fire(isIntersecting: boolean) {
     this.callback([{ isIntersecting }]);
+  }
+  // Pending entries not yet delivered to the callback (real IO semantics).
+  queue(isIntersecting: boolean) {
+    this.queued.push({ isIntersecting });
+  }
+  takeRecords() {
+    const q = this.queued;
+    this.queued = [];
+    return q;
   }
 }
 
@@ -166,6 +176,16 @@ describe("awaitViewportTurn", () => {
     const turn = await p;
     expect(turn.outcome).toBe("background");
     triggerIO().fire(true); // must not throw or change anything
+  });
+
+  it("recovers visible_at_boot via takeRecords when the trigger settles before the strict callback (#384 review F5)", async () => {
+    const { deps } = makeDeps();
+    const p = awaitViewportTurn(deps);
+    strictIO().queue(true); // strict entry generated but callback not yet delivered
+    triggerIO().fire(true); // trigger settles first
+    const turn = await p;
+    expect(turn.outcome).toBe("immediate");
+    expect(turn.visibleAtBoot).toBe(true);
   });
 
   it("fails open when the observer constructor throws", async () => {

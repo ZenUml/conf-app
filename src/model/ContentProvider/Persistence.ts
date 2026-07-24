@@ -10,7 +10,7 @@ import forgeGlobal from '@/model/globals/forgeGlobal';
 import { reportSaveRefusedLegacyLoadBlocked } from '@/utils/legacyContentPropertyTelemetry';
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
-import { buildSnapshot, uploadSnapshot, snapshotAttachmentName } from '@/model/SnapshotAttachment';
+import { buildSnapshot, uploadSnapshot, snapshotAttachmentName, snapshotSkipReason } from '@/model/SnapshotAttachment';
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -149,14 +149,32 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
         }
       }
     } catch (e) {
-      trackAnalyticsEvent('snapshot_create_failed', {
-        feature_area: 'macro',
-        surface: 'editor',
-        macro_type: macroType,
-        snapshot_trigger: 'save',
-        custom_content_id: savedId,
-        failure_reason: String(e instanceof Error ? e.message : e).substring(0, 200),
-      });
+      const failure_reason = String(e instanceof Error ? e.message : e).substring(0, 200);
+      // On save the editor has write permission, so a 404 here is the expected
+      // "page not published yet" draft case (the save-path/backfill self-heals
+      // after publish) — record it as a skip, not a failure. Anything else,
+      // including a 401/403 (an app-auth write anomaly the editor's own
+      // permission would not explain), stays a genuine snapshot_create_failed.
+      if (snapshotSkipReason(e) === 'page_not_published') {
+        trackAnalyticsEvent('snapshot_backfill_skipped', {
+          feature_area: 'macro',
+          surface: 'editor',
+          macro_type: macroType,
+          snapshot_trigger: 'save',
+          custom_content_id: savedId,
+          snapshot_skip_reason: 'page_not_published',
+          failure_reason,
+        });
+      } else {
+        trackAnalyticsEvent('snapshot_create_failed', {
+          feature_area: 'macro',
+          surface: 'editor',
+          macro_type: macroType,
+          snapshot_trigger: 'save',
+          custom_content_id: savedId,
+          failure_reason,
+        });
+      }
     }
   }
 

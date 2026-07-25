@@ -41,6 +41,7 @@ import {
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
+import { maybeGateViewerRender, awaitGateBlocking } from '@/utils/renderGate/maybeGateViewerRender';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -295,6 +296,24 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       !!context.extension?.macro?.isConfiguring;
     const copyCheckMode = isSequence && !isEditorish ? ('cross-page-only' as const) : ('full' as const);
 
+    // ── Viewport render gate (#382) ──────────────────────────────────────────
+    // Plain sequence-family VIEWER only (same scope as the content-SWR block
+    // below): on a many-macro page all iframes co-boot within ~20ms and their
+    // CPU work serializes on the shared renderer main thread (measured on
+    // lite-dev: warm solo 1.3s vs 16-macro 5.3s per macro). The gate defers
+    // the heavy mount until this macro is in/near the top-level viewport
+    // (IntersectionObserver implicit root — works from a cross-origin
+    // iframe), with a jittered background fill so offscreen macros — and
+    // no-scroll consumers like snapshot backfill — still render. Zero
+    // cross-macro communication; fail-open everywhere; flag-gated
+    // (viewport-gated-render, fail-closed, localStorage-cached verdict).
+    // Started here (pre-fetch) so observers and the flag refresh run
+    // concurrently with the content load; awaited at the mount points.
+    const viewerGatePromise: Promise<void> | null =
+      isSequence && !(await isEditorMode()) && !(await isFullscreenMode())
+        ? maybeGateViewerRender()
+        : null;
+
     // ── Content SWR: cache-first render on a viewer revisit ──────────────────
     // Most macro views are revisits of unchanged content (measured: ~66% of
     // sequence-family viewer views in a week are a repeat of the same user +
@@ -325,6 +344,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // critical path, same as the fetch itself.
     // See utils/renderCache/contentCacheStore.ts.
     const mountSequenceViewer = async (viewerDoc: Diagram) => {
+      // #382: hold the mount until the viewport gate releases (the gate shows
+      // its own shimmer placeholder while holding — index.html has no real
+      // skeleton element). awaitGateBlocking also records the ACTUAL wait at
+      // this mount site as render_deferred_ms. Resolved instantly when the
+      // flag is off; already-resolved for the revalidate re-mount.
+      await awaitGateBlocking(viewerGatePromise);
       const skeleton = document.getElementById('skeleton-loader');
       if (skeleton) skeleton.style.display = 'none';
       const { mountRoot } = await import('@/mount-root');
@@ -385,8 +410,14 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           // @ts-ignore - cachedDoc may be a partial spread type; matches the happy-path mount below
           const viewerDoc: Diagram = cachedDoc.plantUmlCode ? cachedDoc : { ...cachedDoc, plantUmlCode: Example.PlantUml };
           renderPerf.markContentSource('swr_cache');
-          await mountSequenceViewer(viewerDoc);
+          // Revalidate BEFORE the (possibly gated) mount: an offscreen macro
+          // must not delay its freshness check / orphan reporting / snapshot
+          // backfill until the viewport gate releases (#384 review F4). If
+          // the content changed, revalidate's own mountSequenceViewer call
+          // awaits the same gate and lands after this cached mount, so the
+          // fresh doc still wins.
           void revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash);
+          await mountSequenceViewer(viewerDoc);
           return; // rendered from cache — skip the live-fetch + mount path entirely
         } catch (e) {
           console.warn('[content-swr] cache hit failed to render; falling back to live fetch', e);
@@ -723,6 +754,13 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         });
       }
     }
+
+    // #382: gated fetch-path viewer renders wait here (the gate shows its own
+    // shimmer placeholder while holding — index.html has no real skeleton
+    // element). Null for editors/fullscreen/non-sequence; resolved for
+    // SWR-hit renders (mountSequenceViewer already awaited it above).
+    // awaitGateBlocking records the actual mount wait as render_deferred_ms.
+    await awaitGateBlocking(viewerGatePromise);
 
     // Hide skeleton loader before mounting the actual content
     const skeletonLoader = document.getElementById('skeleton-loader');

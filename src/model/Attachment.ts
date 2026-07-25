@@ -480,10 +480,53 @@ class ToPngError extends Error {
  * which made the upload-failure data unusable in Mixpanel.
  */
 class AttachmentUploadHttpError extends Error {
+  /** e.g. 'PermissionException' — undefined when the body carries no class. */
+  readonly confluenceErrorClass?: string;
+
   constructor(public readonly status: number, body: string) {
-    super(`Confluence attachment API returned ${status}: ${body.slice(0, 200)}`);
+    const detail = extractConfluenceMessage(body);
+    super(`Confluence attachment API returned ${status}: ${detail.slice(0, 200)}`);
     this.name = 'AttachmentUploadHttpError';
+    this.confluenceErrorClass = parseConfluenceErrorClass(detail);
   }
+}
+
+/**
+ * Pull the diagnostic part out of a Confluence v1 error body.
+ *
+ * The v1 API wraps every error in a fixed ~180-char envelope:
+ *   {"statusCode":403,"data":{"authorized":true,"valid":true,"errors":[],
+ *    "successful":true},"message":"com.atlassian…Exception: <the actual reason>"}
+ * Both this error's message and the `error_message` analytics property are
+ * capped at 200 chars, so the envelope alone consumed the entire budget and
+ * every recorded failure ended mid-class-name ("…api.BadReques"). `http_400`
+ * was 21% of failures and completely undiagnosable, and JQL substring matches
+ * for the exception class returned zero (#392). Keep the `message` field so
+ * the 200 chars are spent on the reason instead of the wrapper.
+ */
+function extractConfluenceMessage(body: string): string {
+  try {
+    const parsed = JSON.parse(body);
+    if (typeof parsed?.message === 'string' && parsed.message) return parsed.message;
+  } catch {
+    // The body may be a TRUNCATED envelope — the app-fallback backend caps the
+    // body it relays at 500 chars — so JSON.parse fails on an otherwise
+    // well-formed prefix. Salvage the message field textually before giving up.
+    const salvaged = /"message"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(body);
+    if (salvaged?.[1]) return salvaged[1];
+  }
+  // Not a Confluence envelope: an HTML error page, a plain-text body, or one
+  // of our own backend strings. Keep it as-is.
+  return body;
+}
+
+/**
+ * Low-cardinality Confluence exception class for grouping in Mixpanel, parsed
+ * out of the fully-qualified name (`com.atlassian.…api.PermissionException:
+ * …` -> `PermissionException`). Undefined when the body carries no class.
+ */
+function parseConfluenceErrorClass(detail: string): string | undefined {
+  return /(?:^|[.\s])([A-Za-z]+Exception)\b/.exec(detail)?.[1];
 }
 
 /**
@@ -510,11 +553,50 @@ function extractHttpStatus(e: unknown): number | undefined {
  *   - `SyntaxError`     — body wasn't JSON (Confluence returned HTML/error page)
  *   - `non_error_thrown` — something other than an Error was thrown
  *   - `Error`           — fallback (anonymous Error with no useful name)
+ *   - `app_no_access`   — the app-authenticated fallback 404'd, i.e. the APP
+ *                         cannot see the page (restricted space it isn't a
+ *                         member of). Distinct from a user-side `http_404`,
+ *                         which means the parent page isn't published yet and
+ *                         is recorded as a skip rather than a failure (#211).
  */
-function buildFailureLabel(e: unknown, httpStatus: number | undefined): string {
+function buildFailureLabel(
+  e: unknown,
+  httpStatus: number | undefined,
+  viaAppFallback = false,
+): string {
+  if (httpStatus === 404 && viaAppFallback) return 'app_no_access';
   if (typeof httpStatus === 'number') return `http_${httpStatus}`;
   if (e instanceof Error) return e.name || 'Error';
   return 'non_error_thrown';
+}
+
+/**
+ * Resolve the host page's real status, for classifying the 404-skip bucket.
+ *
+ * The skip's whole justification is "the parent page isn't published yet", and
+ * the event was meant to carry `content_status` so that a 404 on a *current*
+ * page would stand out as a genuine regression rather than hide in the benign
+ * bucket. In production that property is undefined on 100% of skipped events:
+ * it comes from `forgeGlobal.forgeContext.extension.content.status`, which the
+ * surfaces emitting these skips never populate — so the guard rail could not
+ * fire and ~1,470 skips/5d sat in one undifferentiated bucket (#392). One v2
+ * GET on the failure path (a few hundred a day, not per render) makes it real.
+ *
+ * Never throws. `forgeRequest` does not check `res.ok`, so a missing page comes
+ * back as a v2 error envelope rather than an exception — hence the explicit
+ * `errors[].status` check. Anything unresolvable degrades to 'unknown'; the
+ * classification is diagnostic only and must never affect the upload outcome.
+ */
+async function resolvePageStatus(pageId: string | undefined): Promise<string> {
+  if (!pageId) return 'unknown';
+  try {
+    const page = await global.apWrapper.request(`/api/v2/pages/${pageId}`);
+    if (typeof page?.status === 'string' && page.status) return page.status;
+    if (page?.errors?.[0]?.status === 404) return 'not_found';
+    return 'unknown';
+  } catch (e) {
+    return extractHttpStatus(e) === 404 ? 'not_found' : 'unknown';
+  }
 }
 
 /**
@@ -720,6 +802,15 @@ async function createAttachmentIfContentChanged(
 
   window.createAttachmentInProgress = true;
 
+  // Set once the user-side write 401/403s and the app-authenticated fallback is
+  // attempted. Everything recorded after that point describes the APP's write,
+  // not the user's — which changes both how a 404 must be classified (see the
+  // catch below) and what the recorded status means. Stamped onto
+  // `attachment_upload_failed` so the two populations are separable in
+  // Mixpanel instead of only recoverable by count-matching against
+  // `attachment_upload_app_fallback_started` at 10% sampling (#392).
+  let fallbackFromStatus: number | undefined;
+
   try {
     const attachment = await tryGetAttachment(overrideId);
     // metaKey encodes content, diagramType, and a version token so that:
@@ -784,6 +875,7 @@ async function createAttachmentIfContentChanged(
         // 5xx, parse) re-throws so we don't burn the Forge remote on cases the
         // app can't fix anyway.
         if (e instanceof AttachmentUploadHttpError && (e.status === 401 || e.status === 403)) {
+          fallbackFromStatus = e.status;
           // Emit BEFORE the fallback call so attempts are counted even when the
           // backend itself throws. `recovered_from_status` is the headline join.
           trackEvent(`http_${e.status}`, 'attachment_upload_app_fallback_started', 'export', {
@@ -815,6 +907,7 @@ async function createAttachmentIfContentChanged(
     }
   } catch (e: any) {
     const httpStatus = extractHttpStatus(e);
+    const viaAppFallback = fallbackFromStatus !== undefined;
     // A 404 on the attachment POST means the parent page is not (yet) an
     // addressable published v1 content: it's an unpublished/draft/uncommitted
     // page. This reaches us in three shapes, all of which are the SAME benign
@@ -830,16 +923,30 @@ async function createAttachmentIfContentChanged(
     // buried the real upload-failure signal, and the re-throw spammed the
     // console on every draft re-render. Record it as a low-severity skip (10%
     // sampled, see eventSampling.ts) carrying content_status/content_type so we
-    // keep a denominator AND can catch a real regression — a 404 with
-    // content_status 'current' would mean a genuinely broken published page.
-    if (e instanceof DraftPageError || httpStatus === 404) {
+    // keep a denominator AND can catch a real regression.
+    //
+    // The benign reading holds ONLY for a 404 the *user's* write produced.
+    // Once the app-authenticated fallback has run, a 404 is the app saying it
+    // cannot see the page at all (a space the app isn't a member of) — the
+    // dominant failure mode of the fallback, 59% of its failures per #211.
+    // Skipping those buried the single most common way the fallback fails, so
+    // a post-fallback 404 falls through to the genuine-failure path below and
+    // is labelled `app_no_access` there (#392).
+    if (e instanceof DraftPageError || (httpStatus === 404 && !viaAppFallback)) {
       // Both branches are the 404-class skip; DraftPageError carries no numeric
       // status of its own, so normalise to 404 for a consistent denominator.
+      // `content_status` is resolved from the API rather than taken from the
+      // (empty) extension context, so 'current' here really does mean "the
+      // parent IS published" — the regression signal this bucket promised.
       trackEvent(
         e instanceof DraftPageError ? 'draft_page' : 'unpublished_parent',
         'attachment_upload_skipped',
         'export',
-        { ...ctx, http_status: httpStatus ?? 404 },
+        {
+          ...ctx,
+          http_status: httpStatus ?? 404,
+          content_status: ctx.content_status ?? await resolvePageStatus(ctx.page_id),
+        },
       );
       return;
     }
@@ -860,12 +967,18 @@ async function createAttachmentIfContentChanged(
     // the message. Use `http_<status>` when we can recover it.
     const errorName = (e instanceof Error && e.name) ? e.name : (e == null ? 'null' : typeof e);
     const errorMessage = String((e as { message?: unknown })?.message ?? e ?? '').slice(0, 200);
-    const label = buildFailureLabel(e, httpStatus);
+    const label = buildFailureLabel(e, httpStatus, viaAppFallback);
+    const confluenceErrorClass = e instanceof AttachmentUploadHttpError
+      ? e.confluenceErrorClass
+      : undefined;
     trackEvent(label, 'attachment_upload_failed', 'export', {
       ...ctx,
       error_name: errorName,
       error_message: errorMessage,
       http_status: httpStatus,
+      via_app_fallback: viaAppFallback,
+      ...(viaAppFallback ? { fallback_from_status: fallbackFromStatus } : {}),
+      ...(confluenceErrorClass ? { confluence_error_class: confluenceErrorClass } : {}),
     });
     throw e;
   } finally {

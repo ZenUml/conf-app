@@ -306,6 +306,24 @@ export type AnalyticsProperties = {
   error_code?: string;
   error_name?: string;
   error_source?: string;
+  // Attachment upload failures (#392). `via_app_fallback` is true when the
+  // user-side write 401/403'd and the app-authenticated fallback
+  // (/forge-upload-attachment) was attempted before this failure — so the
+  // recorded status/message describe the APP's write, not the user's.
+  // Without it, a post-fallback failure is indistinguishable from a plain
+  // user-side one and the #211 population can only be recovered by
+  // count-matching against attachment_upload_app_fallback_started at 10%
+  // sampling. `fallback_from_status` carries the original user-side status
+  // (401/403) that triggered the fallback.
+  via_app_fallback?: boolean;
+  fallback_from_status?: number;
+  // Low-cardinality Confluence exception class parsed out of the error
+  // envelope — PermissionException / NotFoundException / BadRequestException.
+  // The raw `error_message` is capped at 200 chars and the envelope prefix
+  // ({"statusCode":…,"data":{…},"message":"com.atlassian…) eats ~180 of them,
+  // so before this the class name itself was truncated mid-word and could not
+  // even be substring-matched in JQL.
+  confluence_error_class?: string;
   // Build info — auto-enriched from VITE_APP_VERSION / VITE_APP_COMMIT
   app_version?: string;
   app_commit?: string;

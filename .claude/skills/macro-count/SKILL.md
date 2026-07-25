@@ -85,15 +85,27 @@ viewed-distinct can exceed the live inventory. That divergence is expected; see
 ```bash
 # Domain-wide (all spaces). Pass the BARE subdomain. UA matters — Cloudflare
 # WAF 403s the default python-urllib agent, so use curl.
-curl -s -A curl/8.4.0 "https://conf-full.zenuml.com/admin/metrics-inspect?domain=<bare>"
-curl -s -A curl/8.4.0 "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<bare>&addonKey=zenuml-lite"
+curl -s -A curl/8.4.0 "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<bare>&addonKey=com.zenuml.confluence-addon"
+curl -s -A curl/8.4.0 "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<bare>&addonKey=com.zenuml.confluence-addon-lite"
 ```
 
-A tenant can have data under **both** full and lite (both apps installed across
-different spaces) — query both and merge. Per-space counts are nested under
-`spaces.<KEY>.data` (`.total`, `.sequence`, `.graph`, `.mermaid`, `.openapi`,
-`.plantuml`, `.unknown`). The `/metrics` skill covers status/staleness diagnosis;
-**but its "use the full hostname" instruction is wrong — use the bare subdomain.**
+**The host does not choose the product — the `addonKey` param does.** Every Pages
+project reads the same `confluence_plugin_features` namespace, so both URLs above
+work from either host; only the param selects `metrics:<domain>:<productType>`.
+(`&productType=` is clearer but is honoured only where PR #397 has deployed; older
+handlers ignore it and fall back to Full, which is how you'd get a fossil count
+while believing you asked for Lite. `addonKey` works against both.)
+
+A tenant having data under **both** full and lite usually does **not** mean both
+apps are installed — it is far more often residue from a past writer bug that
+mis-stamped `productType`, frozen at the date it was fixed. 458 of 767 domains
+carry more than one key. Check the tenant's actual Marketplace license (`tenant`
+skill) before believing a second product, and prefer the **freshest** record, never
+the largest: vin3s/VARW served a frozen April `full` count of 438 over the live
+`lite` count of 188. Per-space counts are nested under `spaces.<KEY>.data`
+(`.total`, `.sequence`, `.graph`, `.mermaid`, `.openapi`, `.plantuml`, `.unknown`).
+The `/metrics` skill covers status/staleness diagnosis; **but its "use the full
+hostname" instruction is wrong — use the bare subdomain.**
 
 ### 2. D1 — lifetime rows, per numeric spaceId (Connect-scopable only)
 

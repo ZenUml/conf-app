@@ -243,6 +243,19 @@ export type AnalyticsEventName =
   // (read_check / upload / properties_put / handler_error).
   | "attachment_upload_async_succeeded"
   | "attachment_upload_async_failed"
+  // The async counterpart of `attachment_upload_skipped`: the save-time write
+  // 404'd because the host page is not published yet, which is the SAME benign
+  // condition the sync path already records as a skip rather than an error.
+  // Without this the identical situation was a `skipped` on one path and a
+  // `_failed` on the other — recreating, on the path that carries ~34% of all
+  // attempts, exactly the mislabeling #392 exists to remove (verified on
+  // lite-stg: 14 async failures, all http 404, zero successes).
+  //
+  // A 404 is only benign when the page really is unpublished, so the two are
+  // told apart by `content_status`, read from the page GET the upload already
+  // performs: not-current -> this skip; `current` -> a real failure labelled
+  // `app_no_access` (the app cannot see the page — #211), never a skip.
+  | "attachment_upload_async_skipped"
   // Daily macro-count inventory snapshots. These are emitted by the
   // Cloudflare snapshot service, not by the browser tracker. Registering them
   // here keeps the shared analytics vocabulary explicit before the scheduled

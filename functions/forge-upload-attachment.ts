@@ -118,7 +118,7 @@ type UploadStage = 'read_check' | 'upload' | 'properties_put' | 'handler_error';
 
 type UploadResult =
   | { ok: true; attachmentId: string; versionNumber: number }
-  | { ok: false; status: number; body: string; stage: UploadStage };
+  | { ok: false; status: number; body: string; stage: UploadStage; pageStatus?: string };
 
 interface Env {
   MIXPANEL_TOKEN?: string;
@@ -134,6 +134,72 @@ interface Env {
 function toBareClientDomain(hostname: string | null): string | undefined {
   if (!hostname) return undefined;
   return hostname.split('.')[0] || undefined;
+}
+
+/**
+ * Pull the diagnostic part out of a Confluence v1 error body.
+ *
+ * Mirrors `extractConfluenceMessage` in src/model/Attachment.ts — duplicated
+ * rather than imported because functions/ and src/ are separate builds (the
+ * same reason analyticsTypes.ts duplicates the event catalog). Keep the two in
+ * sync.
+ *
+ * Every v1 error is wrapped in a ~180-char envelope
+ * ({"statusCode":404,"data":{…},"message":"com.atlassian…"}) and this event
+ * caps `failure_reason` at 200 chars, so the envelope alone consumed the whole
+ * budget: verified on lite-stg, every stored reason was exactly 200 chars and
+ * cut mid-sentence at "…No content found with id : Con". The frontend fixed
+ * this for its own events; the backend reporter shipped without it (#392).
+ */
+function extractConfluenceMessage(body: string): string {
+  try {
+    const parsed = JSON.parse(body);
+    if (typeof parsed?.message === 'string' && parsed.message) return parsed.message;
+  } catch {
+    // Possibly a truncated envelope (bodies are capped at 500 chars upstream),
+    // so JSON.parse fails on a well-formed prefix — salvage it textually.
+    const salvaged = /"message"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(body);
+    if (salvaged?.[1]) return salvaged[1];
+  }
+  return body;
+}
+
+/**
+ * Pick the event name and label for an async outcome.
+ *
+ * The interesting case is a 404 from the upload leg. The sync path already
+ * treats that as a benign skip (`attachment_upload_skipped`) because the host
+ * page usually isn't published yet, so v1 has no `current` content to attach
+ * to — and #392's whole thesis is that recording that as an error destroys the
+ * error signal. Shipping the async reporter without the same rule recreated
+ * exactly that: on lite-stg every one of the 14 async events was a `_failed`
+ * with http 404, i.e. an all-benign bucket masquerading as a 100% failure rate.
+ *
+ * A 404 is only benign when the page really is unpublished, so `pageStatus`
+ * (from the read-check the upload already performs) decides:
+ *   - not `current`  -> benign skip, the async twin of the sync 404 skip
+ *   - `current`      -> the app genuinely cannot see the page (#211) ->
+ *                       a real failure, labelled `app_no_access` to match the
+ *                       frontend's vocabulary
+ *   - unknown        -> stays a failure. Never assume benign without evidence;
+ *                       `content_status: 'unknown'` makes the gap visible.
+ * A 401/403 on this path stays a failure regardless — the caller is the page
+ * editor, so an app-auth denial at save time is a real anomaly (the same rule
+ * the snapshot path settled on in #387).
+ */
+function classifyAsyncOutcome(
+  result: UploadResult,
+): { event: 'attachment_upload_async_succeeded' | 'attachment_upload_async_failed' | 'attachment_upload_async_skipped'; label: string } {
+  if (result.ok) return { event: 'attachment_upload_async_succeeded', label: 'succeeded' };
+  if (result.status === 404 && result.stage === 'upload') {
+    if (result.pageStatus && result.pageStatus !== 'current') {
+      return { event: 'attachment_upload_async_skipped', label: 'page_not_published' };
+    }
+    if (result.pageStatus === 'current') {
+      return { event: 'attachment_upload_async_failed', label: 'app_no_access' };
+    }
+  }
+  return { event: 'attachment_upload_async_failed', label: `http_${result.status}` };
 }
 
 /**
@@ -171,18 +237,18 @@ async function reportAsyncOutcome(
       }
     }
 
+    const outcome = classifyAsyncOutcome(result);
+
     await mixpanelTrack(
       {
-        event: result.ok
-          ? 'attachment_upload_async_succeeded'
-          : 'attachment_upload_async_failed',
+        event: outcome.event,
         user_account_id: forgeContext?.accountId,
         feature_area: 'macro',
         surface: 'backend',
         event_category: 'export',
         // Mirrors the frontend's `event_label` grouping so the two sides of the
         // funnel break down the same way.
-        event_label: result.ok ? 'succeeded' : `http_${result.status}`,
+        event_label: outcome.label,
         page_id: params.pageId,
         attachment_name: params.attachmentName,
         content_type: params.contentType,
@@ -194,7 +260,12 @@ async function reportAsyncOutcome(
           : {
               http_status: result.status,
               failure_stage: result.stage,
-              failure_reason: result.body.slice(0, 200),
+              // The Confluence `message`, not the envelope that used to eat the
+              // entire 200-char budget.
+              failure_reason: extractConfluenceMessage(result.body).slice(0, 200),
+              // What made this a skip rather than a failure (or vice versa) —
+              // the same guard rail the sync path carries.
+              content_status: result.pageStatus ?? 'unknown',
             }),
       },
       token,
@@ -241,6 +312,20 @@ async function doUpload(
     return { ok: false, status: 403, body: `caller cannot access page ${p.pageId} (read check ${readResp.status})`, stage: 'read_check' };
   }
 
+  // The read-check response already carries the page's status — keep it. It is
+  // the only thing that tells a benign upload 404 ("page isn't published yet",
+  // so v1 has no `current` content to attach to) apart from a real one ("the
+  // app cannot see this page at all", #211). Without it both are just `404`
+  // and the async path cannot classify its own dominant outcome (#392).
+  // Never fatal: an unreadable body leaves the status unknown, which the
+  // reporter treats as a failure rather than silently assuming benign.
+  let pageStatus: string | undefined;
+  try {
+    pageStatus = (JSON.parse(await readResp.text()) as { status?: string })?.status;
+  } catch {
+    pageStatus = undefined;
+  }
+
   // ---- upload the attachment data as the app -----------------------------
   const blob = new Blob([p.bytes], { type: p.contentType });
   const form = new FormData();
@@ -266,7 +351,7 @@ async function doUpload(
   const uploadText = await uploadResp.text();
   if (!uploadResp.ok) {
     console.warn(`forge-upload-attachment: upload ${uploadResp.status} page=${p.pageId} name=${p.attachmentName}: ${uploadText.slice(0, 200)}`);
-    return { ok: false, status: uploadResp.status, body: uploadText.slice(0, 500), stage: 'upload' };
+    return { ok: false, status: uploadResp.status, body: uploadText.slice(0, 500), stage: 'upload', pageStatus };
   }
 
   // New-attachment path: pull the id out of the v1 results envelope. For a

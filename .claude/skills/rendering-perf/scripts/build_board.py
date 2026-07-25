@@ -200,8 +200,25 @@ def params(shows, *, days, chart, group=None, filters=None, unit="day"):
     }
 
 
-# Applied to every card except the tab-hidden guard, which must see both values.
-VISIBLE_ONLY = [bool_filter("tab_hidden", "is false")]
+# The full pinned population, carried by EVERY card.
+#
+# Originally three of these were board-level filters, which is tidier in the UI —
+# but a board-level `filters` array set through the API left the board rendering
+# "Something went wrong", and there is no board in this project with working
+# board-level filters to copy a known-good shape from. Per-card filters need no
+# unvalidated guessing, and they also let card 9 legitimately omit `tab_hidden`
+# instead of needing a per-card override of a board-wide rule.
+POPULATION = [
+    str_filter("surface", "equals", ["viewer"]),
+    num_filter("duration_ms", "is greater than", 0),
+    bool_filter("is_internal_client_domain", "is false"),
+    bool_filter("tab_hidden", "is false"),
+]
+
+# Card 9 measures the tab_hidden split, so it must see both values.
+POPULATION_ALL_TABS = [f for f in POPULATION if f["value"] != "tab_hidden"]
+
+VISIBLE_ONLY = POPULATION
 
 P50 = metric("Median of duration_ms", "median", "duration_ms")
 P90 = metric("P90 of duration_ms", "p90", "duration_ms")
@@ -213,9 +230,12 @@ def cards():
         ("1 · Loading time p50 / p90 (daily)",
          params([P50, P90], days=14, chart="line", filters=VISIBLE_ONLY)),
 
+        # `> SLOW_MS` subsumes the population's `> 0`, so swap rather than stack —
+        # two filters on one property is needless ambiguity.
         (f"2 · SLO — slow renders over {SLOW_MS}ms (read with card 8)",
          params([metric("Slow renders", "total")], days=14, chart="line",
-                filters=VISIBLE_ONLY + [num_filter("duration_ms", "is greater than", SLOW_MS)])),
+                filters=[f for f in POPULATION if f["value"] != "duration_ms"]
+                        + [num_filter("duration_ms", "is greater than", SLOW_MS)])),
 
         ("3 · By macro type",
          params([P50, P90], days=7, chart="bar", group=[breakdown("macro_type")],
@@ -245,7 +265,8 @@ def cards():
          params([TOTAL], days=14, chart="line", filters=VISIBLE_ONLY)),
 
         ("9 · GUARD: tab_hidden share (no tab_hidden filter — by design)",
-         params([TOTAL], days=14, chart="line", group=[breakdown("tab_hidden")])),
+         params([TOTAL], days=14, chart="line", group=[breakdown("tab_hidden")],
+                filters=POPULATION_ALL_TABS)),
 
         ("10 · Worst tenants — p90 (check the render count before acting)",
          params([P90, TOTAL], days=7, chart="table",
@@ -253,11 +274,9 @@ def cards():
     ]
 
 
-BOARD_FILTERS = [
-    str_filter("surface", "equals", ["viewer"]),
-    num_filter("duration_ms", "is greater than", 0),
-    bool_filter("is_internal_client_domain", "is false"),
-]
+# Deliberately empty: see POPULATION above for why the population lives on the
+# cards instead. Kept as a named constant so the reason stays attached to the code.
+BOARD_FILTERS = []
 
 
 # ------------------------------------------------------------------ actions ---
@@ -271,15 +290,15 @@ def apply_board_settings(board_id, auth):
     problem: it silently pools editor renders, untimed events and our own
     staging tenants into every number.
     """
+    settings = [("description", {"description": DESCRIPTION})]
+    if BOARD_FILTERS:
+        settings.append((f"{len(BOARD_FILTERS)} board filters",
+                         {"filters": BOARD_FILTERS}))
     ok = True
-    for label, body in (("description", {"description": DESCRIPTION}),
-                        (f"{len(BOARD_FILTERS)} board filters", {"filters": BOARD_FILTERS})):
+    for label, body in settings:
         s, b = call("PATCH", f"/dashboards/{board_id}", body, auth=auth)
         print(f"  {label:<18} → {s} {'' if s == 200 else err_of(b)}")
         ok = ok and s == 200
-    if not ok:
-        print("  ⚠ board settings incomplete — the cards' numbers are NOT the "
-              "pinned population until this succeeds.")
     return ok
 
 

@@ -8,10 +8,17 @@ Project **3373228**, event **`macro_viewed`**.
 **`⏱️ Macro Loading Time` — board `11400356`**
 <https://mixpanel.com/project/3373228/view/3879592/app/boards#id=11400356>
 
-Created 2026-07-25 by `.claude/skills/rendering-perf/scripts/build_board.py`, with its title,
-description and the three board-level population filters already applied. **It is empty.**
-Add the 10 cards below through the UI; run the script with `--dry-run` to print them as a
-build checklist with exact metrics, filters, breakdowns and chart types.
+Created 2026-07-25 by `.claude/skills/rendering-perf/scripts/build_board.py`, with its title
+and description set. **It is empty.** Add the 10 cards below through the UI; run the script
+with `--dry-run` to print them as a build checklist with exact metrics, filters, breakdowns
+and chart types.
+
+⚠️ **Unresolved:** this board also showed "Something went wrong" while empty. Board-level
+filters were the suspect and have been cleared; a bare control board (`title` only) was
+created alongside it to isolate whether *any* API-created board renders cleanly. If the
+control board is also broken, then API-created boards are unusable in the UI regardless of
+their contents and the board must be created by hand — the card design below is unaffected
+either way, since it is all card-level.
 
 **Cards cannot be created by API — this was tried properly and it does not work.** A first
 attempt did create all 10 (they computed correctly, and card 1's daily p50 of 1,708–1,847ms
@@ -188,9 +195,16 @@ Two traps worth knowing before you debug an auth failure:
 
 ## First: the population, or the board tracks noise
 
-Set these as **board-level filters** (Board → `⋯` → *Add filter*, then "apply to all
-cards") before adding a single card. Every number below assumes them. Without them the
-board mixes four different workloads and will show "regressions" that are pure mix shift.
+Set these on **every card** (card → *Filter*). Every number below assumes them. Without
+them the board mixes four different workloads and will show "regressions" that are pure
+mix shift.
+
+> **Why per-card and not board-level?** Board-level filters are tidier, and the API does
+> accept them — but a board with an API-set `filters` array rendered "Something went wrong",
+> and no board in this project has working board-level filters to copy a known-good shape
+> from. Per-card filters need no guessing, and they let card 9 legitimately omit
+> `tab_hidden` rather than fighting a board-wide rule. If you set them at board level by
+> hand in the UI instead, that's fine — just remember card 9 then needs an override.
 
 | Filter | Value | Why it is not optional |
 |---|---|---|

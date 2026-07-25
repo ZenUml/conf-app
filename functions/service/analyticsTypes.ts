@@ -36,6 +36,11 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "feedback_link_clicked",
   "feature_flags_fetch_failed",
   "attachment_create_failed",
+  // Terminal outcome of the async (save-time) PNG backup write, emitted by
+  // functions/forge-upload-attachment.ts from inside waitUntil. See the
+  // matching block in src/utils/analytics/catalog.ts (#392).
+  "attachment_upload_async_succeeded",
+  "attachment_upload_async_failed",
   "custom_content_update_failed",
   "macro_count_snapshot_completed",
   "macro_count_space_changed",

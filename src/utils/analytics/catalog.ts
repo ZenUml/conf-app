@@ -230,6 +230,19 @@ export type AnalyticsEventName =
   // snapshot_create_failed.
   | "snapshot_backfill_skipped"
   | "snapshot_fallback_rendered"
+  // Save-time PNG backup upload, async mode (#392). The frontend hands the PNG
+  // to /forge-upload-attachment with `async: true`, gets an ack after
+  // validation, emits `attachment_upload_queued` and returns — the real
+  // Confluence write finishes server-side in `waitUntil`, after the editor
+  // iframe is gone. These two are that write's terminal outcome, emitted by
+  // the Cloudflare function (not the browser tracker), so the save path stops
+  // being a blind channel: before this, ~34% of all upload attempts had no
+  // success/failure signal at all. `attachment_upload_queued` remains the
+  // denominator; every queued event should be followed by exactly one of
+  // these. `failure_stage` splits WHERE the server-side write died
+  // (read_check / upload / properties_put / handler_error).
+  | "attachment_upload_async_succeeded"
+  | "attachment_upload_async_failed"
   // Daily macro-count inventory snapshots. These are emitted by the
   // Cloudflare snapshot service, not by the browser tracker. Registering them
   // here keeps the shared analytics vocabulary explicit before the scheduled

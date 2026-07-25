@@ -125,6 +125,24 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 
 **Trigger:** Backend events fired by the attachment/export service when a PNG export is requested. The frontend references these event names in comments (`Attachment.ts:569`, `forge-upload-attachment.ts:13`) but the events are emitted server-side, not by the client tracker.
 
+### `attachment_upload_async_succeeded` / `attachment_upload_async_failed`
+
+**Trigger:** Terminal outcome of the **save-time (async) PNG backup write**, emitted server-side by `functions/forge-upload-attachment.ts` from inside `waitUntil` — after the editor iframe (and with it the browser tracker) is gone. Registered for #392.
+
+The frontend's `attachment_upload_queued` is the denominator: every queued upload should produce exactly one of these two. Before them, the async path — ~34% of all upload attempts as of Jul 2026 — reported no outcome at all, so `attachment_upload_failed` measured only the synchronous path.
+
+| Property | Notes |
+|---|---|
+| `failure_stage` | `_failed` only: `read_check` \| `upload` \| `properties_put` \| `handler_error` |
+| `http_status` | `_failed` only: status from the stage that failed |
+| `failure_reason` | `_failed` only: truncated response body |
+| `attachment_name` | `zenuml-{customContentId}.{png,json}` |
+| `page_id`, `cloud_id`, `client_domain` | tenant/page attribution (`client_domain` resolved from D1 when available) |
+| `content_type` | `image/png` (backup) or `application/json` (diagram-source snapshot) |
+| `surface` | always `backend` |
+
+**Sampling:** unsampled. Volume tracks saves, not views.
+
 ---
 
 ## AI title generation

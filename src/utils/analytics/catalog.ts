@@ -140,6 +140,18 @@ export type AnalyticsEventName =
   | "macro_export_requested"
   | "macro_export_succeeded"
   | "macro_export_failed"
+  // Export PNG dialog (ExportModal.vue): richer overlay-annotated PNG export
+  // (background + note/arrow/callout/watermark overlays), tracked separately
+  // from the generic macro_export_* triple above (unused by any call site as
+  // of this registration). opened = modal shown; succeeded = PNG delivered
+  // via download or clipboard (`method`), with the `background` value and
+  // has_note/has_arrow/has_callout/has_watermark overlay flags; failed = an
+  // export attempt failed before delivery (`failure_reason`); dismissed =
+  // modal closed with no successful export in that open session.
+  | "export_png_opened"
+  | "export_png_succeeded"
+  | "export_png_failed"
+  | "export_png_dismissed"
   | "ai_generation_requested"
   | "ai_generation_succeeded"
   | "ai_generation_failed"

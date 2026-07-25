@@ -1,6 +1,36 @@
 import * as htmlToImage from 'html-to-image';
 import { saveAs } from 'file-saver';
-import { trackEvent } from '../../utils/window';
+import {
+  VIEWBOX_REF_W,
+  EDGE_PADDING,
+  SANS_FONT_FAMILY,
+  MONO_FONT_FAMILY,
+  computeArrowheadPath,
+  computeNotePosition,
+  computeCalloutPath,
+} from './overlayGeometry';
+
+export type RenderResult = { ok: true; blob: Blob } | { ok: false; reason: 'no_capture_node' | 'blob_null' };
+export type ExportResult = { ok: true } | { ok: false; reason: 'no_capture_node' | 'blob_null' };
+export type ClipboardExportResult = { ok: true } | { ok: false; reason: 'no_capture_node' | 'blob_null' | 'clipboard_denied' };
+
+const MAX_FILENAME_LENGTH = 60;
+const DEFAULT_FILENAME = 'zenuml-diagram-export.png';
+
+export function slugifyFilename(title: string): string {
+  const slug = (title ?? '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, MAX_FILENAME_LENGTH)
+    .replace(/-+$/g, '');
+  return slug ? `${slug}.png` : DEFAULT_FILENAME;
+}
+
+export function isClipboardExportSupported(): boolean {
+  return typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write;
+}
 
 export interface ExportOptions {
   background: string;
@@ -43,27 +73,7 @@ function resolveBgColor(background: string): string | undefined {
   return background;
 }
 
-function computeArrowheadPath(
-  tipX: number, tipY: number,
-  angle: number, thickness: number,
-): string {
-  const arrowHeight = 10 + thickness * 2;
-  const arrowWidth = Math.min(Math.max(5, thickness * 2), thickness + 5);
-  const dipFactor = 0.7;
-  const bx = tipX - arrowHeight * dipFactor * Math.cos(angle);
-  const by = tipY - arrowHeight * dipFactor * Math.sin(angle);
-  const tbx = tipX - arrowHeight * Math.cos(angle);
-  const tby = tipY - arrowHeight * Math.sin(angle);
-  const s1x = tbx + arrowWidth * Math.sin(angle);
-  const s1y = tby - arrowWidth * Math.cos(angle);
-  const s2x = tbx - arrowWidth * Math.sin(angle);
-  const s2y = tby + arrowWidth * Math.cos(angle);
-  return `M ${bx} ${by} L ${s1x} ${s1y} L ${tipX} ${tipY} L ${s2x} ${s2y} Z`;
-}
-
-const VIEWBOX_REF_W = 600;
-
-function buildOverlaySvg(w: number, h: number, options: ExportOptions): string {
+export function buildOverlaySvg(w: number, h: number, options: ExportOptions): string {
   const scale = w / VIEWBOX_REF_W;
 
   const parts: string[] = [];
@@ -82,14 +92,13 @@ function buildOverlaySvg(w: number, h: number, options: ExportOptions): string {
       ny = options.notePoint.y * h;
       anchor = 'middle';
     } else {
-      const pos = options.note.position;
-      const padding = 16 * scale;
-      nx = pos.endsWith('left') ? padding : pos.endsWith('right') ? w - padding : w / 2;
-      ny = pos.startsWith('top') ? padding + fontSize : h - padding;
-      anchor = pos.endsWith('left') ? 'start' : pos.endsWith('right') ? 'end' : 'middle';
+      const pos = computeNotePosition(options.note.position, w, h, fontSize, EDGE_PADDING * scale);
+      nx = pos.x;
+      ny = pos.y;
+      anchor = pos.anchor;
     }
     const escaped = escapeXml(options.note.text);
-    parts.push(`<text x="${nx}" y="${ny}" font-size="${fontSize}" fill="${options.note.color}" font-family="sans-serif" font-weight="500" text-anchor="${anchor}" dominant-baseline="central" filter="url(#ds)">${escaped}</text>`);
+    parts.push(`<text x="${nx}" y="${ny}" font-size="${fontSize}" fill="${options.note.color}" font-family='${SANS_FONT_FAMILY}' font-weight="500" text-anchor="${anchor}" dominant-baseline="central" filter="url(#ds)">${escaped}</text>`);
   }
 
   if (options.arrowPoints) {
@@ -118,27 +127,21 @@ function buildOverlaySvg(w: number, h: number, options: ExportOptions): string {
       const perpX = -Math.sin(angle) * labelOffset;
       const perpY = Math.cos(angle) * labelOffset;
       const labelFontSize = (12 + options.arrow.thickness) * scale;
-      parts.push(`<text x="${midX + perpX}" y="${midY + perpY}" font-size="${labelFontSize}" fill="${color}" font-family="sans-serif" text-anchor="middle" dominant-baseline="central">${escapeXml(options.arrow.label)}</text>`);
+      parts.push(`<text x="${midX + perpX}" y="${midY + perpY}" font-size="${labelFontSize}" fill="${color}" font-family='${SANS_FONT_FAMILY}' text-anchor="middle" dominant-baseline="central">${escapeXml(options.arrow.label)}</text>`);
     }
   }
 
   if (options.callout?.position && options.callout.text) {
     const cx = options.callout.position.x * w;
     const cy = options.callout.position.y * h;
-    const bw = 120 * scale, bh = 40 * scale, r = 5 * scale;
-    const left = cx - bw / 2, top = cy - bh / 2, right = cx + bw / 2, bottom = cy + bh / 2;
-    let calloutPath = `M ${left + r} ${top} L ${right - r} ${top} Q ${right} ${top} ${right} ${top + r} L ${right} ${bottom - r} Q ${right} ${bottom} ${right - r} ${bottom}`;
-    if (options.callout.tipPosition) {
-      const tipX = options.callout.tipPosition.x * w;
-      const tipY = options.callout.tipPosition.y * h;
-      const tipGap = 8 * scale;
-      calloutPath += ` L ${cx + tipGap} ${bottom} L ${tipX} ${tipY} L ${cx - tipGap} ${bottom}`;
-    }
-    calloutPath += ` L ${left + r} ${bottom} Q ${left} ${bottom} ${left} ${bottom - r} L ${left} ${top + r} Q ${left} ${top} ${left + r} ${top} Z`;
+    const tipPx = options.callout.tipPosition
+      ? { x: options.callout.tipPosition.x * w, y: options.callout.tipPosition.y * h }
+      : null;
+    const calloutPath = computeCalloutPath(cx, cy, scale, tipPx);
     const strokeW = 1 * scale;
     const fontSize = options.callout.fontSize * scale;
     parts.push(`<path d="${calloutPath}" fill="${options.callout.bgColor}" stroke="#94a3b8" stroke-width="${strokeW}" stroke-linejoin="round"/>`);
-    parts.push(`<text x="${cx}" y="${cy}" font-size="${fontSize}" fill="${options.callout.color}" font-family="sans-serif" text-anchor="middle" dominant-baseline="central">${escapeXml(options.callout.text)}</text>`);
+    parts.push(`<text x="${cx}" y="${cy}" font-size="${fontSize}" fill="${options.callout.color}" font-family='${SANS_FONT_FAMILY}' text-anchor="middle" dominant-baseline="central">${escapeXml(options.callout.text)}</text>`);
   }
 
   if (options.watermark?.text) {
@@ -146,9 +149,9 @@ function buildOverlaySvg(w: number, h: number, options: ExportOptions): string {
     const fontSize = options.watermark.fontSize * scale;
     const padding = 16 * scale;
     if (options.watermark.position === 'diagonal') {
-      parts.push(`<text x="${w / 2}" y="${h / 2}" font-size="${fontSize}" fill="${options.watermark.color}" opacity="${options.watermark.opacity / 100}" font-family="monospace" font-weight="500" text-anchor="middle" dominant-baseline="central" transform="rotate(-45, ${w / 2}, ${h / 2})">${escaped}</text>`);
+      parts.push(`<text x="${w / 2}" y="${h / 2}" font-size="${fontSize}" fill="${options.watermark.color}" opacity="${options.watermark.opacity / 100}" font-family="${MONO_FONT_FAMILY}" font-weight="500" text-anchor="middle" dominant-baseline="central" transform="rotate(-45, ${w / 2}, ${h / 2})">${escaped}</text>`);
     } else {
-      parts.push(`<text x="${w - padding}" y="${h - padding}" font-size="${fontSize}" fill="${options.watermark.color}" opacity="${options.watermark.opacity / 100}" font-family="monospace" font-weight="500" text-anchor="end">${escaped}</text>`);
+      parts.push(`<text x="${w - padding}" y="${h - padding}" font-size="${fontSize}" fill="${options.watermark.color}" opacity="${options.watermark.opacity / 100}" font-family="${MONO_FONT_FAMILY}" font-weight="500" text-anchor="end">${escaped}</text>`);
     }
   }
 
@@ -177,51 +180,77 @@ function svgToImage(svgString: string): Promise<HTMLImageElement> {
   });
 }
 
-export function useExportEngine() {
-  async function exportDiagram(options: ExportOptions): Promise<void> {
-    const node = document.querySelector('.screen-capture-content') as HTMLElement | null;
-    if (!node) {
-      console.warn('[useExportEngine] .screen-capture-content not found');
-      return;
-    }
-
-    const effectiveBg = resolveBgColor(options.background);
-
-    const blob = await htmlToImage.toBlob(node, {
-      backgroundColor: effectiveBg ?? undefined,
-      skipFonts: true,
-    });
-    if (!blob) {
-      console.warn('[useExportEngine] html-to-image returned null');
-      return;
-    }
-
-    const img = await createImageBitmap(blob);
-    const canvas = document.createElement('canvas');
-    canvas.width = img.width;
-    canvas.height = img.height;
-    const ctx = canvas.getContext('2d')!;
-
-    if (effectiveBg) {
-      ctx.fillStyle = effectiveBg;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-    ctx.drawImage(img, 0, 0);
-
-    const svgString = buildOverlaySvg(canvas.width, canvas.height, options);
-    const svgImg = await svgToImage(svgString);
-    ctx.drawImage(svgImg, 0, 0, canvas.width, canvas.height);
-
-    await new Promise<void>((resolve) => {
-      canvas.toBlob(async (pngBlob) => {
-        if (pngBlob) {
-          trackEvent('download_png', 'click', 'export');
-          saveAs(pngBlob, 'zenuml-diagram-export.png');
-        }
-        resolve();
-      }, 'image/png');
-    });
+async function renderPngBlob(options: ExportOptions, node: HTMLElement | null | undefined): Promise<RenderResult> {
+  const captureNode = node ?? (document.querySelector('.screen-capture-content') as HTMLElement | null);
+  if (!captureNode) {
+    console.warn('[useExportEngine] .screen-capture-content not found');
+    return { ok: false, reason: 'no_capture_node' };
   }
 
-  return { exportDiagram };
+  const effectiveBg = resolveBgColor(options.background);
+
+  const blob = await htmlToImage.toBlob(captureNode, {
+    backgroundColor: effectiveBg ?? undefined,
+    skipFonts: true,
+  });
+  if (!blob) {
+    console.warn('[useExportEngine] html-to-image returned null');
+    return { ok: false, reason: 'blob_null' };
+  }
+
+  const img = await createImageBitmap(blob);
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext('2d')!;
+
+  if (effectiveBg) {
+    ctx.fillStyle = effectiveBg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  ctx.drawImage(img, 0, 0);
+
+  const svgString = buildOverlaySvg(canvas.width, canvas.height, options);
+  const svgImg = await svgToImage(svgString);
+  ctx.drawImage(svgImg, 0, 0, canvas.width, canvas.height);
+
+  const pngBlob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((b) => resolve(b), 'image/png');
+  });
+  if (!pngBlob) {
+    console.warn('[useExportEngine] canvas.toBlob returned null');
+    return { ok: false, reason: 'blob_null' };
+  }
+
+  return { ok: true, blob: pngBlob };
+}
+
+export function useExportEngine() {
+  async function exportDiagram(
+    options: ExportOptions,
+    diagramTitle: string,
+    node?: HTMLElement | null,
+  ): Promise<ExportResult> {
+    const rendered = await renderPngBlob(options, node);
+    if (!rendered.ok) return rendered;
+    saveAs(rendered.blob, slugifyFilename(diagramTitle));
+    return { ok: true };
+  }
+
+  async function exportDiagramToClipboard(
+    options: ExportOptions,
+    node?: HTMLElement | null,
+  ): Promise<ClipboardExportResult> {
+    const rendered = await renderPngBlob(options, node);
+    if (!rendered.ok) return rendered;
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': rendered.blob })]);
+      return { ok: true };
+    } catch (e) {
+      console.warn('[useExportEngine] clipboard write failed:', e);
+      return { ok: false, reason: 'clipboard_denied' };
+    }
+  }
+
+  return { exportDiagram, exportDiagramToClipboard };
 }

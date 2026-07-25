@@ -19,6 +19,41 @@ python3 .claude/skills/rendering-perf/scripts/perf_report.py --days 7
 python3 .claude/skills/rendering-perf/scripts/perf_report.py --days 1 --json today.json
 ```
 
+## Auditing an existing board
+
+To review a board that already exists — e.g.
+`https://mixpanel.com/project/3373228/view/3879592/app/boards#id=11250759`, whose three
+numbers are **project** `3373228`, **workspace** `3879592` (the `/view/` segment) and
+**board** `11250759` (the `#id=` fragment):
+
+```bash
+python3 .claude/skills/rendering-perf/scripts/board_audit.py --board 11250759 --raw board.json
+python3 .claude/skills/rendering-perf/scripts/board_audit.py --report <bookmark_id>
+```
+
+It needs **service-account** credentials in `.env.mixpanel` (gitignored) as
+`MIXPANEL_SA_USER` / `MIXPANEL_SA_SECRET` — create one at *Settings → Project settings →
+Service accounts → + Add service account*; the secret is shown only once.
+
+What was actually verified about Mixpanel auth here (2026-07-25), because the error codes
+are misleading:
+
+| Endpoint | Project API secret | Notes |
+|---|---|---|
+| `/api/2.0/jql`, `/api/2.0/events/names` | ✅ works | Query API accepts the project secret |
+| `/api/app/projects/<p>/...` (boards, bookmarks, schemas) | ❌ `401 Invalid service account credentials` | The app API needs a service account, full stop |
+| board create / update | — | No documented API exists at all |
+
+Two traps worth knowing before you debug an auth failure:
+
+- **Bad credentials on the query API return `400`, not `401`** — body
+  `"Unable to authenticate request"`. A 400 is not automatically a malformed request.
+- **`/api/query/insights?bookmark_id=0` validates the id BEFORE auth**, so it answers
+  `400 "Invalid insights_id"` even for completely bogus credentials. It therefore proves
+  *nothing* about whether your credentials work, and must not be used as an auth check —
+  `board_audit.py` validates against `/api/2.0/events/names` instead, which is the probe
+  confirmed to discriminate (200 vs 400).
+
 ## First: the population, or the board tracks noise
 
 Set these as **board-level filters** (Board → `⋯` → *Add filter*, then "apply to all

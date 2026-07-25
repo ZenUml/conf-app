@@ -336,6 +336,87 @@ describe('forge-upload-attachment', () => {
         });
       });
 
+      // Follow-ups from the lite-stg spot check on #392: every async event was
+      // a _failed/http_404 whose reason was the envelope, truncated at 200
+      // chars — i.e. an all-benign bucket reported as a 100% failure rate,
+      // undiagnosable.
+      it('reports a 404 on an unpublished page as a skip, not a failure', async () => {
+        const calls = await runAsync({
+          read: fetchResponse(200, JSON.stringify({ id: '12345', status: 'draft' })),
+          upload: fetchResponse(
+            404,
+            JSON.stringify({
+              statusCode: 404,
+              data: { authorized: true, valid: true, errors: [], successful: true },
+              message:
+                'com.atlassian.confluence.api.service.exceptions.api.NotFoundException: No content found with id : ContentId{id=12345}',
+            }),
+          ),
+        });
+
+        const event = trackedEvent(calls);
+        expect(event.event).toBe('attachment_upload_async_skipped');
+        expect(event.properties).toMatchObject({
+          event_label: 'page_not_published',
+          content_status: 'draft',
+        });
+      });
+
+      it('keeps a 404 on a PUBLISHED page as a failure (app cannot see it)', async () => {
+        const calls = await runAsync({
+          read: fetchResponse(200, JSON.stringify({ id: '12345', status: 'current' })),
+          upload: fetchResponse(404, JSON.stringify({ statusCode: 404, message: 'NotFoundException: nope' })),
+        });
+
+        const event = trackedEvent(calls);
+        expect(event.event).toBe('attachment_upload_async_failed');
+        expect(event.properties).toMatchObject({
+          event_label: 'app_no_access',
+          content_status: 'current',
+        });
+      });
+
+      it('does not assume benign when the page status is unknown', async () => {
+        const calls = await runAsync({
+          read: fetchResponse(200, 'not json'),
+          upload: fetchResponse(404, JSON.stringify({ statusCode: 404, message: 'NotFoundException: nope' })),
+        });
+
+        const event = trackedEvent(calls);
+        expect(event.event).toBe('attachment_upload_async_failed');
+        expect(event.properties).toMatchObject({ event_label: 'http_404', content_status: 'unknown' });
+      });
+
+      it('keeps a 403 a failure even on an unpublished page', async () => {
+        // The caller is the page editor at save time, so an app-auth denial is
+        // a real anomaly — only 404 is reclassified (#387's rule).
+        const calls = await runAsync({
+          read: fetchResponse(200, JSON.stringify({ status: 'draft' })),
+          upload: fetchResponse(403, JSON.stringify({ statusCode: 403, message: 'PermissionException: denied' })),
+        });
+
+        expect(trackedEvent(calls).event).toBe('attachment_upload_async_failed');
+      });
+
+      it('records the Confluence message, not the envelope, in failure_reason', async () => {
+        const calls = await runAsync({
+          read: fetchResponse(200, JSON.stringify({ status: 'current' })),
+          upload: fetchResponse(
+            400,
+            JSON.stringify({
+              statusCode: 400,
+              data: { authorized: true, valid: true, errors: [], successful: true },
+              message:
+                'com.atlassian.confluence.api.service.exceptions.api.BadRequestException: Cannot add a new attachment with same file name as an existing attachment',
+            }),
+          ),
+        });
+
+        const reason = String(trackedEvent(calls).properties.failure_reason);
+        expect(reason).toContain('same file name as an existing attachment');
+        expect(reason).not.toContain('"authorized"');
+      });
+
       it('completes the write even when no Mixpanel token is configured', async () => {
         const calls = await runAsync(
           {

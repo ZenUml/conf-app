@@ -128,6 +128,46 @@ describe('maybeBackfillSnapshot', () => {
     }));
   });
 
+  // A read-only viewer with no attachment-write permission: the app-auth upload
+  // is denied (403). This is the EXPECTED best-effort outcome (see the module
+  // header / #211/#162) — record it as a skip, NOT snapshot_create_failed, so
+  // that event stays a genuine error signal.
+  it('viewer surface: a 403 permission denial resolves to snapshot_backfill_skipped (no_write_permission), not a failure', async () => {
+    mockGetAttachmentsV2.mockResolvedValue([]);
+    mockCallRemote.mockResolvedValue({ ok: false, status: 403, body: '{"statusCode":403,"message":"PermissionException"}' });
+
+    await expect(maybeBackfillSnapshot(baseOpts({ isDisplayMode: true, ccPageId: 'host-page' }))).resolves.toBeUndefined();
+    expect(mockTrackAnalyticsEvent).toHaveBeenCalledWith('snapshot_backfill_skipped', expect.objectContaining({
+      feature_area: 'macro', surface: 'viewer', snapshot_trigger: 'viewer_backfill', custom_content_id: '12345',
+      snapshot_skip_reason: 'no_write_permission',
+    }));
+    expect(mockTrackAnalyticsEvent).not.toHaveBeenCalledWith('snapshot_create_failed', expect.anything());
+  });
+
+  it('viewer surface: a 401 (missing user token) is also an expected no_write_permission skip', async () => {
+    mockGetAttachmentsV2.mockResolvedValue([]);
+    mockCallRemote.mockResolvedValue({ ok: false, status: 401, body: 'missing x-forge-oauth-user header' });
+
+    await maybeBackfillSnapshot(baseOpts({ isDisplayMode: true, ccPageId: 'host-page' }));
+    expect(mockTrackAnalyticsEvent).toHaveBeenCalledWith('snapshot_backfill_skipped', expect.objectContaining({
+      snapshot_skip_reason: 'no_write_permission', surface: 'viewer',
+    }));
+    expect(mockTrackAnalyticsEvent).not.toHaveBeenCalledWith('snapshot_create_failed', expect.anything());
+  });
+
+  // A macro on a page that isn't published yet: the app-auth upload 404s
+  // (NotFoundException on the parent content). Benign draft case — a skip.
+  it('viewer surface: a 404 (unpublished draft page) resolves to snapshot_backfill_skipped (page_not_published)', async () => {
+    mockGetAttachmentsV2.mockResolvedValue([]);
+    mockCallRemote.mockResolvedValue({ ok: false, status: 404, body: '{"statusCode":404,"message":"NotFoundException: No content"}' });
+
+    await maybeBackfillSnapshot(baseOpts({ isDisplayMode: true, ccPageId: 'host-page' }));
+    expect(mockTrackAnalyticsEvent).toHaveBeenCalledWith('snapshot_backfill_skipped', expect.objectContaining({
+      snapshot_skip_reason: 'page_not_published', surface: 'viewer',
+    }));
+    expect(mockTrackAnalyticsEvent).not.toHaveBeenCalledWith('snapshot_create_failed', expect.anything());
+  });
+
   // Editor surface (isDisplayMode: false) keeps its ORIGINAL restriction:
   // cross-page aliases only. A same-page macro already gets a snapshot at
   // save time on every save after the first successful one, so an editor

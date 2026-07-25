@@ -31,6 +31,7 @@ import {
   uploadSnapshot,
   fetchSnapshot,
   snapshotToDiagram,
+  snapshotSkipReason,
   type DiagramSnapshotV1,
 } from './SnapshotAttachment';
 
@@ -158,10 +159,15 @@ describe('uploadSnapshot', () => {
     expect(hashes[1]).toBe(hashes[0]); // same ccVersion -> identical hash every time
   });
 
-  it('throws on a non-ok backend result', async () => {
+  it('throws on a non-ok backend result, attaching the HTTP status to the error', async () => {
     mockGetAttachmentsV2.mockResolvedValue([]);
     mockCallRemote.mockResolvedValue({ ok: false, status: 403, body: 'forbidden' });
     await expect(uploadSnapshot('page-1', snapshot)).rejects.toThrow(/403/);
+    // The status is attached so callers can classify an expected skip without
+    // re-parsing the message.
+    await uploadSnapshot('page-1', snapshot).catch((e) => {
+      expect((e as { status?: number }).status).toBe(403);
+    });
   });
 
   it('throws when the callRemote transport itself rejects', async () => {
@@ -285,5 +291,28 @@ describe('snapshotToDiagram', () => {
     expect(restored.id).toBe('cc-x');
     expect((restored as any).code).toBeUndefined();
     expect((restored as any).graphXml).toBeUndefined();
+  });
+});
+
+describe('snapshotSkipReason', () => {
+  it('classifies 401/403 as no_write_permission (read-only viewer)', () => {
+    expect(snapshotSkipReason(Object.assign(new Error('x'), { status: 403 }))).toBe('no_write_permission');
+    expect(snapshotSkipReason(Object.assign(new Error('x'), { status: 401 }))).toBe('no_write_permission');
+  });
+
+  it('classifies 404 as page_not_published (unpublished draft)', () => {
+    expect(snapshotSkipReason(Object.assign(new Error('x'), { status: 404 }))).toBe('page_not_published');
+  });
+
+  it('falls back to parsing the HTTP status out of the message when no .status is set', () => {
+    expect(snapshotSkipReason(new Error('snapshot upload HTTP 403: forbidden'))).toBe('no_write_permission');
+    expect(snapshotSkipReason(new Error('snapshot upload HTTP 404: NotFoundException'))).toBe('page_not_published');
+  });
+
+  it('returns undefined for genuine failures (5xx / transport / no status)', () => {
+    expect(snapshotSkipReason(Object.assign(new Error('x'), { status: 500 }))).toBeUndefined();
+    expect(snapshotSkipReason(new Error('snapshot upload transport error: Failed to fetch'))).toBeUndefined();
+    expect(snapshotSkipReason(new Error('something else'))).toBeUndefined();
+    expect(snapshotSkipReason(undefined)).toBeUndefined();
   });
 });

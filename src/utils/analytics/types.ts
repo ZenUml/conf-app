@@ -123,6 +123,13 @@ export type AnalyticsProperties = {
   // Snapshot attachments: which flow wrote it, and fallback freshness.
   snapshot_trigger?: 'save' | 'editor_backfill' | 'viewer_backfill';
   snapshot_age_days?: number;
+  // Why a best-effort snapshot write was skipped rather than failed
+  // (snapshot_backfill_skipped). `no_write_permission`: the app-auth upload was
+  // denied (401/403) — typically a read-only viewer with no attachment-write
+  // permission. `page_not_published`: the host page is an unpublished draft
+  // (404) so there is nothing to attach to yet; the save-path/backfill
+  // self-heals once the page is published.
+  snapshot_skip_reason?: 'no_write_permission' | 'page_not_published';
   space_admin_count?: number;
   // True when the current user is resolved to be a space admin of the current
   // space. Set on `space_admin_active` (Phase 5a admin-activity probe). Only

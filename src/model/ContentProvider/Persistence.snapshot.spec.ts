@@ -9,16 +9,26 @@ import forgeGlobal from '@/model/globals/forgeGlobal';
 // flow WIRES to it correctly (called with the right args, on the right
 // diagram types, and never lets a snapshot failure fail the save). The
 // module's own build/upload correctness is covered by SnapshotAttachment.spec.ts.
-const { mockBuildSnapshot, mockUploadSnapshot, mockSnapshotAttachmentName } = vi.hoisted(() => ({
+const { mockBuildSnapshot, mockUploadSnapshot, mockSnapshotAttachmentName, mockSnapshotSkipReason } = vi.hoisted(() => ({
   mockBuildSnapshot: vi.fn(),
   mockUploadSnapshot: vi.fn(),
   mockSnapshotAttachmentName: vi.fn((ccId: string) => `zenuml-${ccId}.json`),
+  // Faithful stand-in for the real classifier (the module is fully mocked here):
+  // 401/403 -> no_write_permission, 404 -> page_not_published, else undefined.
+  mockSnapshotSkipReason: vi.fn((e: any) => {
+    const m = /HTTP (\d{3})/.exec(String(e?.message ?? e));
+    const s = m ? Number(m[1]) : e?.status;
+    if (s === 401 || s === 403) return 'no_write_permission';
+    if (s === 404) return 'page_not_published';
+    return undefined;
+  }),
 }));
 
 vi.mock('@/model/SnapshotAttachment', () => ({
   buildSnapshot: mockBuildSnapshot,
   uploadSnapshot: mockUploadSnapshot,
   snapshotAttachmentName: mockSnapshotAttachmentName,
+  snapshotSkipReason: mockSnapshotSkipReason,
 }));
 
 const mockSave = vi.fn(() => ({ id: 'mocked_custom_content_id', version: { number: 3 } }));
@@ -109,6 +119,35 @@ describe('Persistence — snapshot save-path wiring (Task 3)', () => {
     // The pre-existing save success analytics must still fire — a snapshot
     // failure must never suppress the real save's own telemetry.
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('macro_create_succeeded', expect.anything());
+  });
+
+  it('a 404 on save (unpublished draft page) records snapshot_backfill_skipped, NOT a failure', async () => {
+    const snapshot = { version: 1, ccId: 'mocked_custom_content_id', dsl: 'A.method()', diagramType: DiagramType.Sequence, snapshotAt: 'now' };
+    mockBuildSnapshot.mockReturnValue(snapshot);
+    mockUploadSnapshot.mockRejectedValue(new Error('snapshot upload HTTP 404: {"message":"NotFoundException: No content"}'));
+
+    const result = await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: 'A.method()' }, mockApWrapper);
+
+    expect(result).toBe('mocked_custom_content_id');
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('snapshot_backfill_skipped', expect.objectContaining({
+      surface: 'editor',
+      snapshot_trigger: 'save',
+      snapshot_skip_reason: 'page_not_published',
+    }));
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('snapshot_create_failed', expect.anything());
+  });
+
+  it('a 403 on save (app-auth write anomaly the editor permission cannot explain) stays snapshot_create_failed', async () => {
+    const snapshot = { version: 1, ccId: 'mocked_custom_content_id', dsl: 'A.method()', diagramType: DiagramType.Sequence, snapshotAt: 'now' };
+    mockBuildSnapshot.mockReturnValue(snapshot);
+    mockUploadSnapshot.mockRejectedValue(new Error('snapshot upload HTTP 403: {"message":"PermissionException"}'));
+
+    await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: 'A.method()' }, mockApWrapper);
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('snapshot_create_failed', expect.objectContaining({
+      surface: 'editor', snapshot_trigger: 'save',
+    }));
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('snapshot_backfill_skipped', expect.anything());
   });
 
   it('does NOT crash the save when the host page id is unavailable', async () => {

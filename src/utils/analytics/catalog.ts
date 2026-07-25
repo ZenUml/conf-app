@@ -209,6 +209,17 @@ export type AnalyticsEventName =
   // deleted source pages — see docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md)
   | "snapshot_created"
   | "snapshot_create_failed"
+  // Emitted when a snapshot write did NOT happen for an EXPECTED, by-design
+  // reason rather than a genuine error — the write path is best-effort and must
+  // "degrade silently" (see the plan). Splitting these out of
+  // snapshot_create_failed keeps that event a real error signal: a plain viewer
+  // with no attachment-write permission (`no_write_permission`, 401/403 from the
+  // app-auth upload) and a save onto a not-yet-published draft page
+  // (`page_not_published`, 404 — the same benign condition the PNG backup
+  // recovers from) are the two normal outcomes, not failures. `snapshot_skip_reason`
+  // carries which one. Genuine transport / 5xx errors still emit
+  // snapshot_create_failed.
+  | "snapshot_backfill_skipped"
   | "snapshot_fallback_rendered"
   // Daily macro-count inventory snapshots. These are emitted by the
   // Cloudflare snapshot service, not by the browser tracker. Registering them

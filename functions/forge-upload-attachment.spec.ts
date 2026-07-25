@@ -68,6 +68,10 @@ describe('forge-upload-attachment', () => {
   }) {
     fetchMock.mockImplementation((url: string, init: any) => {
       const method = init?.method ?? 'GET';
+      // Analytics (#392) rides the same global fetch — always ack it, or a test
+      // routing a 4xx to the upload leg would also fail the Mixpanel POST and
+      // swallow the very event it is asserting on.
+      if (String(url).includes('api.mixpanel.com')) return Promise.resolve(fetchResponse(200, '{}'));
       if (method === 'GET') return Promise.resolve(handlers.read ?? fetchResponse(200, '{}'));
       if (method === 'PUT') return Promise.resolve(handlers.put ?? fetchResponse(200, '{}'));
       // POST upload
@@ -222,6 +226,130 @@ describe('forge-upload-attachment', () => {
 
       expect(await readJson(res)).toEqual({ ok: true, queued: true });
       expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    // #392 — the async write is invisible to the browser tracker (its iframe is
+    // gone by then), so this handler is the only place its outcome can be
+    // recorded. Before this, failures were a console.warn and nothing else.
+    describe('outcome reporting', () => {
+      const ENV = { MIXPANEL_TOKEN: 'tok-1' };
+
+      async function runAsync(handlers: Parameters<typeof routeFetch>[0], env: any = ENV) {
+        routeFetch(handlers);
+        const scheduled: Promise<unknown>[] = [];
+        await onRequest({
+          request: makeRequest({ ...basePayload, async: true }),
+          data: { forgeContext: { ...FORGE_CONTEXT, accountId: 'acct-9' } },
+          env,
+          waitUntil: (p: Promise<unknown>) => scheduled.push(p),
+        } as any);
+        await Promise.all(scheduled);
+        // The Mixpanel import POST is the last call; identify() precedes it.
+        return fetchMock.mock.calls.filter((c: any[]) =>
+          String(c[0]).includes('api.mixpanel.com/import'),
+        );
+      }
+
+      function trackedEvent(calls: any[]) {
+        return JSON.parse(calls[0][1].body)[0];
+      }
+
+      it('reports attachment_upload_async_succeeded when the write lands', async () => {
+        const calls = await runAsync({
+          read: fetchResponse(200, '{}'),
+          upload: fetchResponse(200, JSON.stringify({ results: [{ id: 'att-async-3' }] })),
+          put: fetchResponse(200, '{}'),
+        });
+
+        const event = trackedEvent(calls);
+        expect(event.event).toBe('attachment_upload_async_succeeded');
+        expect(event.properties).toMatchObject({
+          surface: 'backend',
+          from_save: true,
+          page_id: '12345',
+          attachment_name: 'zenuml-abc-uuid.png',
+          attachment_id: 'att-async-3',
+          distinct_id: 'acct-9',
+        });
+      });
+
+      it('reports the failing stage when the app-side upload is rejected', async () => {
+        const calls = await runAsync({
+          read: fetchResponse(200, '{}'),
+          upload: fetchResponse(403, 'PermissionException'),
+        });
+
+        const event = trackedEvent(calls);
+        expect(event.event).toBe('attachment_upload_async_failed');
+        expect(event.properties).toMatchObject({
+          event_label: 'http_403',
+          http_status: 403,
+          failure_stage: 'upload',
+        });
+      });
+
+      it('distinguishes a read-check denial from an upload rejection', async () => {
+        const calls = await runAsync({ read: fetchResponse(404, 'no such page') });
+
+        expect(trackedEvent(calls).properties).toMatchObject({
+          failure_stage: 'read_check',
+          http_status: 403,
+        });
+      });
+
+      it('distinguishes a properties-PUT failure', async () => {
+        const calls = await runAsync({
+          read: fetchResponse(200, '{}'),
+          upload: fetchResponse(200, JSON.stringify({ results: [{ id: 'att-async-4' }] })),
+          put: fetchResponse(500, 'boom'),
+        });
+
+        expect(trackedEvent(calls).properties).toMatchObject({
+          failure_stage: 'properties_put',
+          http_status: 500,
+        });
+      });
+
+      it('reports a thrown handler error rather than losing it', async () => {
+        // A network-level throw is exactly the blind spot this closes — it
+        // never produces an { ok:false } result to inspect.
+        fetchMock.mockImplementation((url: string) =>
+          String(url).includes('api.mixpanel.com')
+            ? Promise.resolve(fetchResponse(200, '{}'))
+            : Promise.reject(new Error('socket hang up')),
+        );
+        const scheduled: Promise<unknown>[] = [];
+        await onRequest({
+          request: makeRequest({ ...basePayload, async: true }),
+          data: FORGE_DATA,
+          env: ENV,
+          waitUntil: (p: Promise<unknown>) => scheduled.push(p),
+        } as any);
+        await Promise.all(scheduled);
+
+        const calls = fetchMock.mock.calls.filter((c: any[]) =>
+          String(c[0]).includes('api.mixpanel.com/import'),
+        );
+        expect(trackedEvent(calls).properties).toMatchObject({
+          failure_stage: 'handler_error',
+          failure_reason: 'socket hang up',
+        });
+      });
+
+      it('completes the write even when no Mixpanel token is configured', async () => {
+        const calls = await runAsync(
+          {
+            read: fetchResponse(200, '{}'),
+            upload: fetchResponse(200, JSON.stringify({ results: [{ id: 'att-async-5' }] })),
+            put: fetchResponse(200, '{}'),
+          },
+          {},
+        );
+
+        expect(calls).toHaveLength(0);
+        // read + upload + PUT still happened; only the reporting is skipped.
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+      });
     });
 
     it('rejects invalid input BEFORE acking (validation is not bypassed by async)', async () => {

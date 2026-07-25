@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { onRequestGet } from '../../functions/feature-flags';
 
 class MockKV {
@@ -80,65 +80,12 @@ describe('feature-flags onRequestGet', () => {
     });
   });
 
-  describe('LITE_PNG_EXPORT', () => {
-    it('returns LITE_PNG_EXPORT with status ENABLED for matching domain', async () => {
-      const ctx = makeContext(
-        { client: 'example.atlassian.net', features: 'LITE_PNG_EXPORT' },
-        { LITE_PNG_EXPORT_ENABLED: 'example.atlassian.net,other.atlassian.net' },
-      );
+  describe('unknown features', () => {
+    it('returns an empty object for a feature name the endpoint does not serve', async () => {
+      const ctx = makeContext({ client: 'example.atlassian.net', features: 'LITE_PNG_EXPORT,TEST' });
       const response = await onRequestGet(ctx);
       const body = await response.json() as Record<string, unknown>;
-      expect(body.LITE_PNG_EXPORT).toEqual({ status: 'ENABLED' });
-    });
-
-    it('returns LITE_PNG_EXPORT with status TRIAL for matching domain', async () => {
-      const ctx = makeContext(
-        { client: 'example.atlassian.net', features: 'LITE_PNG_EXPORT' },
-        { LITE_PNG_EXPORT_TRIAL: 'example.atlassian.net' },
-      );
-      const response = await onRequestGet(ctx);
-      const body = await response.json() as Record<string, unknown>;
-      expect(body.LITE_PNG_EXPORT).toEqual({ status: 'TRIAL' });
-    });
-
-    it('returns LITE_PNG_EXPORT with status LOCKED for matching domain', async () => {
-      const ctx = makeContext(
-        { client: 'example.atlassian.net', features: 'LITE_PNG_EXPORT' },
-        { LITE_PNG_EXPORT_LOCKED: 'example.atlassian.net' },
-      );
-      const response = await onRequestGet(ctx);
-      const body = await response.json() as Record<string, unknown>;
-      expect(body.LITE_PNG_EXPORT).toEqual({ status: 'LOCKED' });
-    });
-
-    it('returns empty object when client only partially matches LITE_PNG_EXPORT (exact match required)', async () => {
-      // LITE_PNG_EXPORT uses exact match (client === d), not substring
-      const ctx = makeContext(
-        { client: 'example.atlassian.net', features: 'LITE_PNG_EXPORT' },
-        { LITE_PNG_EXPORT_ENABLED: 'atlassian.net' }, // substring, not exact
-      );
-      const response = await onRequestGet(ctx);
-      const body = await response.json() as Record<string, unknown>;
-      expect(body.LITE_PNG_EXPORT).toBeUndefined();
-    });
-
-    it('trims whitespace from comma-separated domain lists', async () => {
-      const ctx = makeContext(
-        { client: 'example.atlassian.net', features: 'LITE_PNG_EXPORT' },
-        { LITE_PNG_EXPORT_ENABLED: 'other.atlassian.net, example.atlassian.net' },
-      );
-      const response = await onRequestGet(ctx);
-      const body = await response.json() as Record<string, unknown>;
-      expect(body.LITE_PNG_EXPORT).toEqual({ status: 'ENABLED' });
-    });
-  });
-
-  describe('TEST', () => {
-    it('returns TEST flag always', async () => {
-      const ctx = makeContext({ client: 'any.atlassian.net', features: 'TEST' });
-      const response = await onRequestGet(ctx);
-      const body = await response.json() as Record<string, unknown>;
-      expect(body.TEST).toEqual({ enabled: true, data: 'test data' });
+      expect(body).toEqual({});
     });
   });
 });

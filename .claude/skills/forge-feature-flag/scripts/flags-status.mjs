@@ -105,16 +105,31 @@ function discoverKeys({ branches }) {
   return found;
 }
 
-async function gql(query, variables) {
+async function gql(query, variables, attempts = 3) {
+  // Retry transient transport failures. Without this, a dropped connection
+  // renders as "ERROR fetch failed", which reads like "unknown flag state" —
+  // dangerous when the answer decides whether a flag is safe to delete.
   const auth = Buffer.from(`${process.env.FORGE_EMAIL}:${process.env.FORGE_API_TOKEN}`).toString('base64');
-  const res = await fetch(GRAPHQL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Basic ${auth}` },
-    body: JSON.stringify({ query, variables }),
-  });
-  const body = await res.json();
-  if (body.errors?.length) throw new Error(body.errors.map((e) => e.message).join('; '));
-  return body.data;
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    if (i) await new Promise((r) => setTimeout(r, 400 * 2 ** i));
+    try {
+      const res = await fetch(GRAPHQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Basic ${auth}` },
+        body: JSON.stringify({ query, variables }),
+      });
+      if (res.status === 429 || res.status >= 500) { lastErr = new Error(`HTTP ${res.status}`); continue; }
+      const body = await res.json();
+      if (body.errors?.length) throw new Error(body.errors.map((e) => e.message).join('; '));
+      return body.data;
+    } catch (e) {
+      lastErr = e;
+      // A GraphQL-level error is deterministic — don't burn retries on it.
+      if (!/fetch failed|network|ECONN|ETIMEDOUT|socket/i.test(String(e.message))) throw e;
+    }
+  }
+  throw lastErr;
 }
 
 // NOTE: the typed `changes { rules { new { env passPercentage } } }` selection is

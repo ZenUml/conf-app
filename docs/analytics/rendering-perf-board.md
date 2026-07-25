@@ -3,22 +3,36 @@
 Build spec for the board that tracks how long a macro takes to render for a user.
 Project **3373228**, event **`macro_viewed`**.
 
-## The board shell exists — cards are a UI job
+## Build this board by hand — the API cannot
 
-**`⏱️ Macro Loading Time` — board `11400356`**
-<https://mixpanel.com/project/3373228/view/3879592/app/boards#id=11400356>
+Run this for the exact build order (no credentials needed, it is pure local definition):
 
-Created 2026-07-25 by `.claude/skills/rendering-perf/scripts/build_board.py`, with its title
-and description set. **It is empty.** Add the 10 cards below through the UI; run the script
-with `--dry-run` to print them as a build checklist with exact metrics, filters, breakdowns
-and chart types.
+```bash
+python3 .claude/skills/rendering-perf/scripts/build_board.py
+```
 
-⚠️ **Unresolved:** this board also showed "Something went wrong" while empty. Board-level
-filters were the suspect and have been cleared; a bare control board (`title` only) was
-created alongside it to isolate whether *any* API-created board renders cleanly. If the
-control board is also broken, then API-created boards are unusable in the UI regardless of
-their contents and the board must be created by hand — the card design below is unaffected
-either way, since it is all card-level.
+It prints the board description and all 10 cards with their metrics, filters, breakdowns,
+chart types and windows. `cards()` in that script is the machine-readable twin of the
+design below — change them together.
+
+**Why by hand.** Three boards were created through the app API on 2026-07-25 and every one
+of them rendered "Something went wrong" in the Mixpanel UI. All have been deleted. Two
+independent blockers, each sufficient on its own:
+
+1. **Boards created by a service account do not render.** The error appeared with cards and
+   with zero cards, with board-level `filters` set and cleared. A field-by-field diff against
+   a hand-made board that renders leaves exactly one class of difference: ownership. A service
+   account has no display name, so `creator` and `creator_name` come back as **empty strings**
+   (vs `"Yanhui Li"`), as does `last_modified_by_name`. None is settable — `creator`,
+   `creator_name`, `creator_id` and `last_modified_by_name` are all rejected as "extra keys
+   not allowed". The likely cause is the board header failing on a nameless creator. *This is
+   inferred from the field diff, not proven — the UI cannot be observed from this environment.*
+2. **Cards cannot be placed even when created.** `POST /bookmarks` makes cards that compute
+   correctly, but a card absent from the board's `layout` does not render at all, and layout
+   is unsettable (details below). So an API-built board would be empty regardless of point 1.
+
+The practical upshot: a human creates the board and adds the cards; the API is still useful
+for **auditing** one afterwards (`--verify <board_id>`) and for reading card configs.
 
 **Cards cannot be created by API — this was tried properly and it does not work.** A first
 attempt did create all 10 (they computed correctly, and card 1's daily p50 of 1,708–1,847ms
@@ -57,9 +71,10 @@ secret gets 401 on every `/api/app/` path.
 
 | Action | Call |
 |---|---|
-| create board | `POST /api/app/projects/<p>/dashboards` `{"title": …}` |
-| board identity | `PATCH /api/app/projects/<p>/dashboards/<b>` `{"description": …}` |
-| board filters | `PATCH …/dashboards/<b>` `{"filters": [ … ]}` |
+| create board | `POST /api/app/projects/<p>/dashboards` `{"title": …}` — **succeeds, but the board won't render; see above** |
+| board identity | `PATCH /api/app/projects/<p>/dashboards/<b>` `{"description": …}` (max 400 chars) |
+| board filters | `PATCH …/dashboards/<b>` `{"filters": [ … ]}` — accepted, but no board in this project uses them, so the shape is unvalidated |
+| set creator | **impossible** — and an empty creator appears to be what breaks rendering |
 | create card | `POST /api/app/projects/<p>/bookmarks` `{"name", "type":"insights", "params":"<JSON STRING>", "dashboard_id"}` — **works, but the card will be invisible; see above** |
 | register card | `PATCH /api/app/projects/<p>/bookmarks/<r>` `{"dashboard_id": <b>}` |
 | verify a card | `GET /api/query/insights?project_id=<p>&bookmark_id=<r>` (documented) |

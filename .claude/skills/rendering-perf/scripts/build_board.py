@@ -1,8 +1,40 @@
 #!/usr/bin/env python3
-"""Create the "⏱️ Macro Loading Time" board in Mixpanel from the design in
-docs/analytics/rendering-perf-board.md.
+"""The "⏱️ Macro Loading Time" board: card definitions, build checklist, and audit.
 
-Needs SERVICE-ACCOUNT credentials with a project role that can write
+**The board must be created BY HAND in the Mixpanel UI.** This script does not
+create it — see WHY NOT below. What it does give you:
+
+    --checklist        the 10 cards as an exact build order (default)
+    --verify <id>      audit a board: card count, filters, and whether each card
+                       returns data (uses the documented query endpoint)
+    --delete <id>      delete a board and its cards
+
+The card definitions in `cards()` are the machine-readable source of truth for
+the design in docs/analytics/rendering-perf-board.md — update them together.
+
+WHY NOT CREATE IT HERE
+----------------------
+Boards created through the app API by a SERVICE ACCOUNT do not render: the
+Mixpanel UI shows "Something went wrong" above the board. Verified 2026-07-25
+across three boards, and narrowed by elimination:
+
+  · It happens with cards, and with ZERO cards.
+  · It happens with board-level `filters` set, and with them cleared.
+  · A field-by-field diff against a hand-made board that renders leaves exactly
+    one class of difference: ownership. A service account has no display name, so
+    `creator` and `creator_name` come back as EMPTY STRINGS (vs "Yanhui Li"),
+    along with `last_modified_by_name`.
+  · None of those fields is settable — `creator`, `creator_name`, `creator_id`
+    and `last_modified_by_name` are all rejected as "extra keys not allowed".
+
+So the most likely cause is the board header failing to render a creator with no
+name, which is not fixable from the API side. This is INFERRED from the field
+diff, not proven — the UI is not observable from here. Either way the practical
+conclusion holds: create the board as a human, then add the cards from the
+checklist. Nothing is lost, because cards could never be placed via the API
+anyway (see below).
+
+Needs SERVICE-ACCOUNT credentials for --verify / --delete
 (MIXPANEL_SA_USER / MIXPANEL_SA_SECRET in .env.mixpanel, gitignored).
 
 The whole app API used here is UNDOCUMENTED — it was reverse-engineered on
@@ -25,13 +57,12 @@ Sharp edges, each one paid for:
     PATCH above re-asserts its dashboard_id. Until then the board looks empty.
   · `POST /boards` is 405 — the resource is spelled `dashboards` for writes even
     though the UI and the read path both call them boards.
-WHY CARDS ARE NOT CREATED HERE
-------------------------------
+WHY CARDS COULD NOT BE CREATED EITHER
+-------------------------------------
 `POST /bookmarks` happily creates cards, and they compute correctly — but a card
 that is not placed in the board's `layout` **does not render at all**. The board
-shows Mixpanel's "Looking a little empty…" empty state, plus a "Something went
-wrong" banner, because `contents` lists reports that `layout` does not. There is
-nothing to drag: the cards are invisible, not merely unpositioned.
+shows Mixpanel's "Looking a little empty…" empty state. There is nothing to drag:
+the cards are invisible, not merely unpositioned.
 
 And placement cannot be expressed anywhere in this API. Verified 2026-07-25:
 
@@ -81,11 +112,12 @@ TITLE = "⏱️ Macro Loading Time"
 # description and filters are sent as SEPARATE calls below — bundling them meant
 # an over-long description silently took the board filters down with it.
 DESCRIPTION = (
-    "How long a macro takes to render. Population is pinned by the board filters "
-    "(surface=viewer, duration_ms>0, internal domains excluded) plus a per-card "
-    "tab_hidden=false; see docs/analytics/rendering-perf-board.md before changing "
-    "them. Comparable only within one instrumentation era: phase timers and "
-    "tab_hidden start 2026-07-17, content_source 2026-07-22."
+    "How long a macro takes to render. Every card pins the population: "
+    "surface=viewer, duration_ms>0, is_internal_client_domain=false, "
+    "tab_hidden=false (card 9 omits the last one by design). Read "
+    "docs/analytics/rendering-perf-board.md before changing a filter. Comparable "
+    "only within one instrumentation era: phase timers and tab_hidden start "
+    "2026-07-17, content_source 2026-07-22."
 )
 assert len(DESCRIPTION) <= 400, f"description is {len(DESCRIPTION)} chars, limit 400"
 
@@ -281,27 +313,6 @@ BOARD_FILTERS = []
 
 # ------------------------------------------------------------------ actions ---
 
-def apply_board_settings(board_id, auth):
-    """Set description and filters as INDEPENDENT calls.
-
-    They were originally one PATCH, and a 407-char description blew the 400-char
-    limit — which failed the whole request and left the board with zero filters
-    while every card reported success. An unfiltered board is not a cosmetic
-    problem: it silently pools editor renders, untimed events and our own
-    staging tenants into every number.
-    """
-    settings = [("description", {"description": DESCRIPTION})]
-    if BOARD_FILTERS:
-        settings.append((f"{len(BOARD_FILTERS)} board filters",
-                         {"filters": BOARD_FILTERS}))
-    ok = True
-    for label, body in settings:
-        s, b = call("PATCH", f"/dashboards/{board_id}", body, auth=auth)
-        print(f"  {label:<18} → {s} {'' if s == 200 else err_of(b)}")
-        ok = ok and s == 200
-    return ok
-
-
 def verify(board_id, auth):
     status, body = call("GET", f"/dashboards/{board_id}", auth=auth)
     if status != 200:
@@ -329,37 +340,6 @@ def verify(board_id, auth):
     return res
 
 
-def build(auth, dry_run=False):
-    plan = cards()
-    if dry_run:
-        print(f"would create board {TITLE!r} with {len(plan)} cards:")
-        for name, p in plan:
-            sec = p["sections"]
-            print(f"  · {name}")
-            print(f"      {p['displayOptions']['chartType']:<5} "
-                  f"{sec['time'][0]['window']['value']}d  "
-                  f"metrics={[m['measurement']['math'] for m in sec['show']]}  "
-                  f"group={[g['value'] for g in sec['group']] or '—'}  "
-                  f"filters={[f['value'] for f in sec['filter']] or '—'}")
-        print(f"\nboard-level filters: {[f['value'] for f in BOARD_FILTERS]}")
-        return
-
-    status, body = call("POST", "/dashboards", {"title": TITLE}, auth=auth)
-    if status not in (200, 201):
-        sys.exit(f"create board failed: {status} {err_of(body)}")
-    bid = body["results"]["id"]
-    print(f"created board {bid}")
-
-    apply_board_settings(bid, auth)
-
-    print(f"\nhttps://mixpanel.com/project/{PROJECT_ID}/view/3879592/app/boards#id={bid}")
-    print("\nBoard shell is ready and correctly scoped. Cards must be added in the UI —\n"
-          "see WHY CARDS ARE NOT CREATED HERE at the top of this file. Build each card\n"
-          "with '+ Add to Board', using this checklist:\n")
-    checklist(plan)
-    return bid
-
-
 def checklist(plan):
     """Print the cards as a build checklist for the UI."""
     for name, p in plan:
@@ -383,25 +363,30 @@ def checklist(plan):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--verify", type=int, metavar="BOARD_ID")
+    ap.add_argument("--checklist", action="store_true",
+                    help="print the 10 cards as a UI build order (default)")
+    ap.add_argument("--verify", type=int, metavar="BOARD_ID",
+                    help="audit a board's cards and confirm each returns data")
     ap.add_argument("--delete", type=int, metavar="BOARD_ID")
-    ap.add_argument("--fix-settings", type=int, metavar="BOARD_ID",
-                    help="re-apply description + board filters to an existing board")
     args = ap.parse_args()
 
-    if args.dry_run:
-        return build(None, dry_run=True)
-    auth = _auth()
-    if args.fix_settings:
-        return apply_board_settings(args.fix_settings, auth)
-    if args.verify:
-        return verify(args.verify, auth)
-    if args.delete:
+    if args.verify or args.delete:
+        auth = _auth()
+        if args.verify:
+            return verify(args.verify, auth)
         s, b = call("DELETE", f"/dashboards/{args.delete}", auth=auth)
         print(f"delete board {args.delete} → {s} {'' if s in (200, 204) else err_of(b)}")
         return
-    build(auth)
+
+    # Default: the checklist. Needs no credentials — it is pure local definition.
+    print(f"\n{TITLE}\n")
+    print("Create the board BY HAND in Mixpanel (see WHY NOT in this file's header),")
+    print("set its description, then add these 10 cards with '+ Add to Board'.\n")
+    print(f"Board description (<=400 chars, currently {len(DESCRIPTION)}):")
+    print(f"  {DESCRIPTION}\n")
+    checklist(cards())
+    print("Row layout for arranging them: see \"Board identity and layout\" in")
+    print("docs/analytics/rendering-perf-board.md\n")
 
 
 if __name__ == "__main__":

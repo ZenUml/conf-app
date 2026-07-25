@@ -25,11 +25,34 @@ Sharp edges, each one paid for:
     PATCH above re-asserts its dashboard_id. Until then the board looks empty.
   · `POST /boards` is 405 — the resource is spelled `dashboards` for writes even
     though the UI and the read path both call them boards.
-  · **Card LAYOUT cannot be set.** PATCH accepts `{"layout": {"rows": {}}}` but
-    rejects any populated row with 403 INVALID_LAYOUT, and refuses the `order` /
-    `version` keys that the stored layout itself contains — the write validator
-    predates the board's 2.0.0 layout format. There is no /layout endpoint.
-    Cards therefore arrive attached but unpositioned; arranging them is manual.
+WHY CARDS ARE NOT CREATED HERE
+------------------------------
+`POST /bookmarks` happily creates cards, and they compute correctly — but a card
+that is not placed in the board's `layout` **does not render at all**. The board
+shows Mixpanel's "Looking a little empty…" empty state, plus a "Something went
+wrong" banner, because `contents` lists reports that `layout` does not. There is
+nothing to drag: the cards are invisible, not merely unpositioned.
+
+And placement cannot be expressed anywhere in this API. Verified 2026-07-25:
+
+  · `PATCH …/dashboards/<b>` accepts `{"layout": {"rows": {}}}` (200) but returns
+    403 INVALID_LAYOUT for ANY non-empty `rows`, whatever the shape — list, dict,
+    extra keys, garbage keys, valid or bogus `content_id`. The check is semantic,
+    not schema-based, so no error message ever names the expected form.
+  · It also refuses the `order` and `version` keys that the stored layout itself
+    contains ("extra keys not allowed"), i.e. the write validator cannot express
+    the 2.0.0 layout format these boards use.
+  · No layout endpoint exists: `/layout`, `/contents`, `/dashboard-contents`,
+    `/reorder`, `/add-content`, `/copy`, `/duplicate` are all 404.
+  · `POST /bookmarks` rejects every placement-ish key as "extra keys not allowed":
+    position, layout, row, width, cell_id, include_in_dashboard, is_visible.
+  · A card cannot be detached to become a standalone saved report either —
+    `dashboard_id` must be a valid int, so null/0 are refused.
+  · `DELETE /bookmarks/<r>` returns **500**, so a mis-created card cannot be
+    removed individually. Deleting the whole board removes its cards.
+
+Net: the API can create and scope a BOARD, and that is what this script does.
+Cards are a UI job. The checklist it prints is the build order.
   · `time_filter` at board level rejects the same shape the cards accept, so the
     board-wide date range is left unset and each card carries its own.
 
@@ -310,24 +333,32 @@ def build(auth, dry_run=False):
 
     apply_board_settings(bid, auth)
 
-    for name, p in plan:
-        s, b = call("POST", "/bookmarks",
-                    {"name": name, "type": "insights",
-                     "params": json.dumps(p),          # MUST be a string
-                     "dashboard_id": bid}, auth=auth)
-        if s not in (200, 201):
-            print(f"  ✗ {name[:52]:<52} create failed {s} {err_of(b)}")
-            continue
-        rid = b["results"]["id"]
-        # Without this the card never shows up in the board's contents.
-        s2, b2 = call("PATCH", f"/bookmarks/{rid}", {"dashboard_id": bid}, auth=auth)
-        print(f"  ✓ {name[:52]:<52} card {rid} (register {s2})")
-
-    verify(bid, auth)
     print(f"\nhttps://mixpanel.com/project/{PROJECT_ID}/view/3879592/app/boards#id={bid}")
-    print("Cards are attached but UNPOSITIONED — the layout API cannot express this\n"
-          "board format, so arrange them once by hand (see the design doc's row plan).")
+    print("\nBoard shell is ready and correctly scoped. Cards must be added in the UI —\n"
+          "see WHY CARDS ARE NOT CREATED HERE at the top of this file. Build each card\n"
+          "with '+ Add to Board', using this checklist:\n")
+    checklist(plan)
     return bid
+
+
+def checklist(plan):
+    """Print the cards as a build checklist for the UI."""
+    for name, p in plan:
+        sec = p["sections"]
+        metrics = [m["name"] for m in sec["show"]]
+        print(f"  [ ] {name}")
+        print(f"        chart    {p['displayOptions']['chartType']}, "
+              f"last {sec['time'][0]['window']['value']} days, daily")
+        print(f"        metrics  {', '.join(metrics)}")
+        if sec["group"]:
+            print(f"        break by {', '.join(g['value'] for g in sec['group'])}")
+        if sec["filter"]:
+            desc = ", ".join(
+                f"{f['value']} {f['filterOperator']}"
+                + (f" {f['filterValue']}" if "filterValue" in f else "")
+                for f in sec["filter"])
+            print(f"        filter   {desc}")
+        print()
 
 
 def main():

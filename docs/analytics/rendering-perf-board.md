@@ -3,23 +3,44 @@
 Build spec for the board that tracks how long a macro takes to render for a user.
 Project **3373228**, event **`macro_viewed`**.
 
-## The board exists
+## The board shell exists — cards are a UI job
 
-**`⏱️ Macro Loading Time` — board `11400339`**
-<https://mixpanel.com/project/3373228/view/3879592/app/boards#id=11400339>
+**`⏱️ Macro Loading Time` — board `11400356`**
+<https://mixpanel.com/project/3373228/view/3879592/app/boards#id=11400356>
 
-Created 2026-07-25 by `.claude/skills/rendering-perf/scripts/build_board.py`, which is the
-reproducible definition of every card below — edit the script, not the board, when the design
-changes, and re-run it to build a fresh copy. All 10 cards were verified to return data, and
-card 1's daily p50 (1,708–1,847ms) matches the JQL baseline for the same population
-(1,640–1,835ms; the small gap is the project's +10:00 timezone bucketing vs UTC).
+Created 2026-07-25 by `.claude/skills/rendering-perf/scripts/build_board.py`, with its title,
+description and the three board-level population filters already applied. **It is empty.**
+Add the 10 cards below through the UI; run the script with `--dry-run` to print them as a
+build checklist with exact metrics, filters, breakdowns and chart types.
 
-**One manual step remains: arrange the cards.** The layout API cannot express this board's
-format — `PATCH {"layout": {"rows": {}}}` succeeds but any populated row returns
-`403 INVALID_LAYOUT`, the stored layout's own `order`/`version` keys are rejected as "extra
-keys not allowed", and no `/layout` endpoint exists. The cards are attached and computing;
-they just arrive unpositioned. Drag them into the row plan under "Board identity and layout"
-once, and it stays done.
+**Cards cannot be created by API — this was tried properly and it does not work.** A first
+attempt did create all 10 (they computed correctly, and card 1's daily p50 of 1,708–1,847ms
+matched the JQL baseline of 1,640–1,835ms for the same population, confirming the board
+filters really do apply to saved queries). But **a card that is not placed in the board's
+`layout` does not render at all** — the board showed Mixpanel's "Looking a little empty…"
+state plus a "Something went wrong" banner, because `contents` listed 10 reports the `layout`
+did not. There was nothing to drag; the cards were invisible, not merely unpositioned. That
+board was deleted and replaced by the clean shell above.
+
+Placement is not expressible anywhere in this API. All verified 2026-07-25:
+
+- `PATCH …/dashboards/<b>` takes `{"layout": {"rows": {}}}` (200) but returns
+  `403 INVALID_LAYOUT` for **any** non-empty `rows` — list, dict, extra keys, garbage keys,
+  valid or bogus `content_id` alike. The check is semantic, so no error ever names the
+  expected shape.
+- The same call refuses the `order` and `version` keys the stored layout itself contains, so
+  the write validator cannot express the `2.0.0` layout format these boards use.
+- No layout endpoint exists: `/layout`, `/contents`, `/dashboard-contents`, `/reorder`,
+  `/add-content`, `/copy`, `/duplicate` all 404.
+- `POST /bookmarks` rejects every placement key as "extra keys not allowed": `position`,
+  `layout`, `row`, `width`, `cell_id`, `include_in_dashboard`, `is_visible`.
+- A card can't be detached into a standalone saved report either — `dashboard_id` must be a
+  valid int, so `null`/`0` are refused.
+- `DELETE /bookmarks/<r>` returns **500**: a mis-created card cannot be removed on its own.
+  Deleting the board removes its cards, which is how the first attempt was cleaned up.
+
+So the automation boundary is: **the API can create and scope a board; only the UI can add
+cards.** Don't spend another session rediscovering this.
 
 ### The undocumented write API, as established
 
@@ -32,9 +53,11 @@ secret gets 401 on every `/api/app/` path.
 | create board | `POST /api/app/projects/<p>/dashboards` `{"title": …}` |
 | board identity | `PATCH /api/app/projects/<p>/dashboards/<b>` `{"description": …}` |
 | board filters | `PATCH …/dashboards/<b>` `{"filters": [ … ]}` |
-| create card | `POST /api/app/projects/<p>/bookmarks` `{"name", "type":"insights", "params":"<JSON STRING>", "dashboard_id"}` |
+| create card | `POST /api/app/projects/<p>/bookmarks` `{"name", "type":"insights", "params":"<JSON STRING>", "dashboard_id"}` — **works, but the card will be invisible; see above** |
 | register card | `PATCH /api/app/projects/<p>/bookmarks/<r>` `{"dashboard_id": <b>}` |
 | verify a card | `GET /api/query/insights?project_id=<p>&bookmark_id=<r>` (documented) |
+| place a card | **impossible** |
+| delete one card | **impossible** (500) |
 | delete board | `DELETE …/dashboards/<b>` (also deletes its cards) |
 
 Five things that cost real debugging time:

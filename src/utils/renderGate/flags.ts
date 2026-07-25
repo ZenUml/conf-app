@@ -1,9 +1,9 @@
 /**
  * Feature flag for the #382 viewport render gate — Forge feature flags via
- * the @forge/bridge client-side FeatureFlags SDK, same pattern (and same
- * rationale) as utils/prefetch/flags.ts: `initialize()` pulls the flag
- * config once through the bridge, `checkFlag()` evaluates locally, no Forge
- * Function invocation, toggles live in the Developer Console per app.
+ * the @forge/bridge client-side FeatureFlags SDK, same pattern as
+ * utils/stalenessHint/flags.ts: `initialize()` pulls the flag config once
+ * through the bridge, `checkFlag()` evaluates locally, no Forge Function
+ * invocation, toggles live in the Developer Console per app.
  *
  * - `viewport-gated-render` — master switch for the viewer viewport gate.
  *
@@ -13,7 +13,7 @@
  */
 
 import { getContext } from "@/model/globals/forgeGlobal";
-import { mapEnvironment } from "@/utils/prefetch/flags";
+import { mapEnvironment } from "@/utils/forgeFlagEnvironment";
 
 export const VIEWPORT_GATE_FLAG = "viewport-gated-render";
 

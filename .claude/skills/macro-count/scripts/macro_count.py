@@ -56,17 +56,30 @@ def normalize_domain(raw):
 # Source 1: Metrics KV (current inventory, reported-on-save, space KEY)
 # --------------------------------------------------------------------------- #
 def fetch_kv(bare_domain):
-    """Hit metrics-inspect on both full and lite Pages projects. Merge whatever
-    has data (a domain normally lives on exactly one variant).
+    """Hit metrics-inspect on both full and lite Pages projects. Merge on space KEY,
+    preferring the **freshest** record per space.
+
+    A domain does NOT always live on exactly one variant: a tenant that migrated
+    between variants keeps a frozen snapshot on the old backend forever. vin3s ran
+    Full until 2026-04-24 and moved to Lite on 2026-04-27, so `metrics:vin3s:full`
+    still serves 34 spaces of April data. Selecting the LARGER total (the rule until
+    2026-07-26) let that fossil win — VARW reported 438 macros from April instead of
+    the live 188, and that number was one step away from a customer-facing email.
+    Freshness is the tiebreak; `shadowed` keeps whatever lost so divergence stays
+    visible instead of silently vanishing.
 
     NOTE: the KV key is built from `getClientDomain()` = the BARE subdomain
     (e.g. `zenuml`), NOT the full hostname. Passing `zenuml.atlassian.net` here
     silently returns no_data. (The older /metrics skill docs are wrong on this.)
     """
     out = {}  # space KEY -> {total, sequence, graph, mermaid, openapi, plantuml, unknown, lastUpdated, variant}
+    # Always name the product. metrics-inspect used to default an absent product to
+    # `full`, so the first URL silently asked for a key this tenant may never have
+    # had. Both hosts read the same KV namespace, so the host choice is cosmetic —
+    # the productType param is what selects the key.
     targets = [
-        ("full", f"{KV_FULL_BASE}/admin/metrics-inspect?domain={bare_domain}"),
-        ("lite", f"{KV_LITE_BASE}/admin/metrics-inspect?domain={bare_domain}&addonKey=zenuml-lite"),
+        ("full", f"{KV_FULL_BASE}/admin/metrics-inspect?domain={bare_domain}&productType=full"),
+        ("lite", f"{KV_LITE_BASE}/admin/metrics-inspect?domain={bare_domain}&productType=lite"),
     ]
     errors = []
     for variant, url in targets:
@@ -87,10 +100,8 @@ def fetch_kv(bare_domain):
             # flatter. Accept either shape.
             s = entry.get("data", entry) if isinstance(entry, dict) else {}
             total = s.get("total", 0) or 0
-            # Prefer the variant that actually has macros for this space.
-            if key in out and total <= (out[key].get("total") or 0):
-                continue
-            out[key] = {
+            updated = s.get("lastUpdated") or ""
+            row = {
                 "total": total,
                 "sequence": s.get("sequence", 0),
                 "graph": s.get("graph", 0),
@@ -100,7 +111,19 @@ def fetch_kv(bare_domain):
                 "unknown": s.get("unknown", 0),
                 "lastUpdated": s.get("lastUpdated"),
                 "variant": variant,
+                "shadowed": None,
             }
+            prev = out.get(key)
+            if prev is None:
+                out[key] = row
+                continue
+            # Freshest wins; equal timestamps fall back to the larger count.
+            keep, drop = ((row, prev)
+                          if (updated, total) > ((prev.get("lastUpdated") or ""), prev.get("total") or 0)
+                          else (prev, row))
+            keep["shadowed"] = {"variant": drop["variant"], "total": drop["total"],
+                                "lastUpdated": drop["lastUpdated"]}
+            out[key] = keep
     return out, errors
 
 
@@ -262,6 +285,22 @@ def print_report(bare, full, kv, kv_errors, d1, mp):
                 mp_sum += mpv
             print(f"| {k} | {kvt} | {var} | {mpv} |")
         print(f"| **TOTAL** | **{kv_sum}** | | **{mp_sum}** |")
+
+        # A space present on BOTH backends means the tenant migrated variants and the
+        # old backend still serves a frozen snapshot. Show what was discarded — the
+        # gap is the signal, and hiding it once nearly put an April number in a
+        # customer email (vin3s VARW, 2026-07-26).
+        shadowed = [(k, kv_spaces[k]) for k in all_keys
+                    if (kv_spaces.get(k) or {}).get("shadowed")]
+        if shadowed:
+            print("\n_Superseded records (same space on the other variant's backend — "
+                  "freshest kept):_\n")
+            print("| Space KEY | kept | from | superseded | from |")
+            print("|---|---|---|---|---|")
+            for k, row in shadowed:
+                sh = row["shadowed"]
+                print(f"| {k} | {row['total']} ({row['variant']}) | {row['lastUpdated']} "
+                      f"| {sh['total']} ({sh['variant']}) | {sh['lastUpdated']} |")
     else:
         print("_No KV or Mixpanel per-space data._")
     if kv_errors:

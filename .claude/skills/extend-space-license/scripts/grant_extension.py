@@ -67,7 +67,9 @@ def resolve_cloud_id(full_domain):
 def verify_space(bare_domain, space):
     """Sanity-check the space exists and how many macros it has (so a typo'd /
     truncated space key doesn't silently grant nothing). Returns total or None."""
-    for base, extra in ((KV_LITE_BASE, "&addonKey=zenuml-lite"), (KV_FULL_BASE, "")):
+    # Name the product on BOTH calls: metrics-inspect used to treat an absent
+    # product as `full`, so the fallback quietly read a key the tenant may not own.
+    for base, extra in ((KV_LITE_BASE, "&productType=lite"), (KV_FULL_BASE, "&productType=full")):
         try:
             data = http_json(f"{base}/admin/metrics-inspect?domain={bare_domain}{extra}")
         except Exception:

@@ -30,18 +30,20 @@ Usage: `/metrics <domain> [space]`
 
 Append `/admin/metrics-inspect?domain=<domain>&space=<space>` to the base URL.
 
-For the lite product, always add `&addonKey=com.zenuml.confluence-addon-lite` to the query string — this selects the Lite KV bucket (the endpoint keys off the addonKey containing `-lite`). Omitting it reads the Full bucket, whose counts diverge badly from Lite. For the full product, omit `addonKey`.
+**Always name the product**: add `&productType=lite` (or `full` / `diagramly` / `asyncapi`). This selects the KV key `metrics:<domain>:<productType>`. The base URL does **not** select it — every Pages project reads the same namespace, so `conf-lite` with `productType=full` returns Full data and vice versa. Only the param matters.
+
+Omitting it no longer defaults to Full. The endpoint probes all four products and either resolves a single match (`productResolvedBy: "sole-match"`) or returns `status: "ambiguous_product"` listing each product's `spaceCount` and `newestUpdate` for you to choose from. A product the tenant holds no license for is residue from a past writer bug, not a second install — 458 of 767 domains carry more than one key.
 
 Note: use curl (not WebFetch's follow-through summarization) to get the raw JSON, e.g.
-`curl -s "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>"`
+`curl -s "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>&productType=lite"`
 
 ## Execution
 
 1. Parse the arguments to extract `domain` and optional `space`.
 2. Call the inspect endpoint using `WebFetch`:
-   - If space is provided: `GET <base>/admin/metrics-inspect?domain=<domain>&space=<space>`
-   - If space is omitted: `GET <base>/admin/metrics-inspect?domain=<domain>`
-3. If the user did not specify an environment/variant, determine the variant first — ask, or check which app the tenant has installed (e.g. `forge-installs` skill, or Mixpanel `product_type`) — then use the matching base URL and addonKey. Do not default to Full: Full and Lite read different KV buckets and their counts diverge.
+   - If space is provided: `GET <base>/admin/metrics-inspect?domain=<domain>&productType=<product>&space=<space>`
+   - If space is omitted: `GET <base>/admin/metrics-inspect?domain=<domain>&productType=<product>`
+3. If the user did not specify a variant, determine it first — ask, or check which app the tenant has installed (e.g. `forge-installs` skill, or Mixpanel `product_type`) — then pass the matching `productType`. Do not default to Full: the products read different KV keys and their counts diverge. If you call without `productType` and get `ambiguous_product`, resolve it against the tenant's actual license rather than picking the larger number.
 
 ## Output Format
 

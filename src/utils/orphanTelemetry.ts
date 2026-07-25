@@ -19,6 +19,17 @@ export type ProbeResult = Awaited<ReturnType<ApWrapper2['probeOrphanRecovery']>>
  *
  * Best-effort. Wrapped in try/catch so a telemetry failure can never re-crash
  * the caller.
+ *
+ * INVARIANT — fire at most ONCE per macro load. Every macro type has exactly
+ * one owner for this event: forgeIndex.ts (the shared Custom UI entry) owns it
+ * for the sequence family it renders itself, and each dedicated viewer/editor
+ * entry (forge-graph-*, forge-swagger-*, forge-embed-*, forge-asyncapi-*) owns
+ * it for its own type. The shared entry MUST NOT call this for a macro it
+ * delegates (it gates the load on isSequenceFamilyEntry), otherwise
+ * non-sequence macros double-count and the extra event is mislabeled
+ * diagram_kind='sequence'. The recovery-rate metric is
+ * `count(recovery_used=true) / count(all)`; keeping this event single-fire per
+ * load keeps that ratio meaningful.
  */
 export function reportOrphanObserved(
   pageId: string | undefined,

@@ -16,6 +16,24 @@
          Save & Exit button. currentXml feeds the AI auto-title watcher with the
          live diagram content (initial body, then each DrawIO autosave). -->
     <DrawIoExtension :doc="doc" :current-xml="currentXml" />
+    <!-- Publishing overlay. The graph macro's Publish button lives INSIDE the
+         DrawIO iframe (Save & Exit, relabeled), so unlike the other editors it
+         can't show the PublishButton "Publishing…" spinner. Without this,
+         clicking Publish gives no feedback while saveGraphAndExit uploads to
+         Confluence and redirects (~½s+). This overlay fills that gap and blocks
+         further interaction until the modal closes. -->
+    <div
+      v-if="publishing"
+      class="publishing-overlay"
+      role="status"
+      aria-live="polite"
+    >
+      <svg class="publishing-spinner" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4z" />
+      </svg>
+      <span class="publishing-label">Publishing…</span>
+    </div>
   </div>
 </template>
 
@@ -75,6 +93,7 @@ export default {
   data() {
     return {
       drawioModified: false,
+      publishing: false,
       closeGuardOff: null,
       latestXml: null,
       draftSaver: null,
@@ -146,6 +165,8 @@ export default {
         // and the GraphViewer used in the read path both accept either
         // <mxfile> or raw <mxGraphModel>.
         window.graphXml = payload.xml;
+        // ensureTitle may block on user input (title prompt) — only show the
+        // "Publishing…" overlay once a title exists and the actual upload starts.
         await window.ensureTitle();
         // Record acceptance if the title still showing is the AI-generated one
         // (no-op when the user typed their own). Mirrors forgeIndex.ts's save
@@ -154,7 +175,14 @@ export default {
           title: this.$store?.state?.diagram?.title,
           contentId: this.$store?.state?.diagram?.id,
         });
-        await this.saveGraphAndExit(window.graphXml);
+        this.publishing = true;
+        const published = await this.saveGraphAndExit(window.graphXml);
+        // On success the redirect (view.submit/close) tears down this modal, so
+        // the overlay stays up until it closes. On failure saveGraphAndExit has
+        // already toasted and kept the editor open — clear the overlay to retry.
+        if (!published) {
+          this.publishing = false;
+        }
       }
       // Note: noExitBtn=1 in the iframe URL suppresses DrawIO's standalone
       // Exit button, so we no longer receive payload.event === 'exit'.

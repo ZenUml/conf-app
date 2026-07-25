@@ -200,7 +200,10 @@ jobs:
               pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
               ;;
           esac
-          pnpm forge:deploy:${{ inputs.variant }}:staging
+          # forge deploy runs forge lint, whose swagger fetches drop intermittently
+          # (read ECONNRESET). forge-retry.sh retries ONLY on transient network
+          # signatures — a manifest/lint error still fails on the first attempt.
+          bash scripts/forge-retry.sh pnpm forge:deploy:${{ inputs.variant }}:staging
       - name: Set PAGE_CAPTURE_SECRET in Forge Staging
         if: ${{ vars.PAGE_CAPTURE_SECRET != '' }}
         run: |

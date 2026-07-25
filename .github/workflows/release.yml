@@ -181,6 +181,10 @@ jobs:
       # above stays on Node 24; pin the Forge PRODUCTION deploys to Node 20 until
       # Atlassian migrates off node-fetch.
       # https://community.developer.atlassian.com/t/forge-lint-deploy-issue-with-node-js-22/101420
+      # The pin does not cover the other half of this flake — the same fetch also
+      # dies with "read ECONNRESET" (socket dropped upstream, not mangled locally),
+      # so each deploy below goes through scripts/forge-retry.sh, which retries ONLY
+      # on transient network signatures and lets real lint/manifest errors fail fast.
       - name: Use Node 20 for Forge CLI (node-fetch "Premature close" workaround)
         uses: actions/setup-node@v5
         with:
@@ -191,21 +195,21 @@ jobs:
           pnpm forge:deploy:disable-analytics
           pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
           pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-lite.zenuml.com" -e production
-          pnpm forge:deploy:lite:prod
+          bash scripts/forge-retry.sh pnpm forge:deploy:lite:prod
       - name: Deploy "ZenUML for Confluence Full" to Forge Production
         if: ${{ steps.properties.outputs.license == 'full' }}
         run: |
           pnpm forge:deploy:disable-analytics
           APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
           APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-full.zenuml.com" -e production
-          pnpm forge:deploy:full:prod
+          bash scripts/forge-retry.sh pnpm forge:deploy:full:prod
       - name: Deploy "Diagramly for Confluence" to Forge Production
         if: ${{ steps.properties.outputs.license == 'diagramly' }}
         run: |
           pnpm forge:deploy:disable-analytics
           APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
           APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-lite.zenuml.com" -e production
-          pnpm forge:deploy:diagramly:prod
+          bash scripts/forge-retry.sh pnpm forge:deploy:diagramly:prod
       - name: Deploy "AsyncAPI for Confluence" to Forge Production
         if: ${{ steps.properties.outputs.license == 'asyncapi' }}
         run: |
@@ -219,14 +223,14 @@ jobs:
           # ship before this release, else Forge backend calls — all telemetry/
           # sync, non-critical — 404. Core render/edit goes direct to Confluence.
           APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set BACKEND_API_BASE_URL "https://zenapi.zenuml.com" -e production
-          pnpm forge:deploy:asyncapi:prod
+          bash scripts/forge-retry.sh pnpm forge:deploy:asyncapi:prod
       - name: Deploy "ZenUML for Confluence Full" to Forge Production
         if: ${{ steps.properties.outputs.variant == 'full' }}
         run: |
           pnpm forge:deploy:disable-analytics
           APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e production
           APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-full.zenuml.com" -e production
-          pnpm forge:deploy:full:prod
+          bash scripts/forge-retry.sh pnpm forge:deploy:full:prod
       - name: Set PAGE_CAPTURE_SECRET in Forge Production
         if: ${{ vars.PAGE_CAPTURE_SECRET != '' }}
         run: |

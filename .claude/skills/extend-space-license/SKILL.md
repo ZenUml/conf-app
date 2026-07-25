@@ -8,12 +8,15 @@ description: >
   space that hit the diagram limit, or when handed a request with a client domain +
   space key + macro count. It resolves the cloudId, verifies the exact space key,
   writes the SPACE_LICENSE_KV record, verifies it, computes the Full-plan upgrade
-  price, and drafts the reply from the canonical template. Triggers on "extend",
-  "extension request", "temporary editing extension", "grant a space license",
-  "re-open editing", "paywall lockout", "lift the limit for <space>", "request:
-  temporary Lite editing extension". For the reply template + sent log see the
-  handbook page paywall/extension-request-replies.md; for per-space macro counts
-  use macro-count.
+  price, and drafts the reply from the canonical template. Also handles a REPEAT
+  asker by trading a longer window for product feedback (--feedback-offer: 7 days
+  now, 60 if they answer four questions) instead of silently renewing. Triggers on
+  "extend", "extension request", "temporary editing extension", "grant a space
+  license", "re-open editing", "paywall lockout", "lift the limit for <space>",
+  "request: temporary Lite editing extension", "ask for feedback in exchange",
+  "longer extension if they give feedback". For the reply template + sent log see
+  the handbook page paywall/extension-request-replies.md; for per-space macro
+  counts use macro-count.
 ---
 
 # extend-space-license
@@ -43,6 +46,74 @@ The requester's `accountId` (e.g. `712020:...`) is on the JSM ticket's
 Description field ("User account ID: ...") and in the `extension_request_clicked`
 Mixpanel event's `distinct_id`.
 
+## First: count the prior grants (a "first request" is often not one)
+
+**Before deciding anything, list the tenant's existing license keys.** The sent log
+is hand-maintained and *has* been skipped (ZEN-1185 was granted 2026-07-15 and never
+logged — found only in KV while handling ZEN-1191). An unlogged grant is how a 3rd
+comp gets treated as a 1st.
+
+```bash
+NS=8969e8528105403bb2d9adca9fc16567
+CLOUD=$(curl -s https://<tenant>.atlassian.net/_edge/tenant_info | python3 -c "import sys,json;print(json.load(sys.stdin)['cloudId'])")
+npx wrangler kv key list --namespace-id=$NS --remote 2>/dev/null \
+  | python3 -c "import sys,json;raw=sys.stdin.read();i=raw.find('[');print('\n'.join(k['name'] for k in json.loads(raw[i:]) if '$CLOUD' in k['name']))"
+# then read each one for its expiresAt / activatedBy (which should name the ticket)
+```
+
+Also note **who** asked each time. Requests arrive per-person, so a per-tenant
+"don't renew again" rule is structurally defeatable: three vin3s tickets came from
+three different humans (`vinit.dir.it6@` → `v.luongtx2@` → `nangdv1990@gmail.com`),
+and each one reads as a first request unless you check. Distinct-requester count is
+also what decides scope (see above) — so you need it before you choose a key shape.
+
+## Repeat askers: trade the longer window for feedback (`--feedback-offer`)
+
+When someone asks again and the tenant still hasn't converted, the choice is not
+"renew or refuse". **Grant the standard window, then offer a longer one in exchange
+for product feedback:**
+
+```bash
+python3 .claude/skills/extend-space-license/scripts/grant_extension.py \
+  --domain <tenant> --space <SPACE> --user <accountId> --users <N> --feedback-offer
+```
+
+That writes the **normal 7-day** record and adds a block to the reply promising
+**60 days** (`--feedback-offer N` for a different number; it must exceed `--days`)
+if they answer four questions:
+
+1. What are you using ZenUML for in `<SPACE>` — what documents, where in the workflow? *(JTBD)*
+2. What made you pick it over Confluence's built-in diagramming tools? *(competitive)*
+3. Most annoying thing today, or the thing you keep wishing it did? *(roadmap)*
+4. **If you wanted to lift the limit properly, what's the hard part internally — budget, admin approval, procurement, or simply nobody owning it?** *(the commercial one)*
+
+Q4 is the point of the exercise. After several free comps with no conversion we
+still don't know *which* wall we're hitting, and that answer changes the next move
+entirely (a procurement blocker wants the $299 self-serve Bundle; a "nobody owns it"
+blocker wants a champion, not a price).
+
+Rules that keep this honest:
+- **The offer is time, never scope.** Extend the *duration* for the requester; don't
+  quietly widen a user grant to the whole space as a sweetener — that erases the
+  distributed-pressure signal (§ Default scope).
+- **Decouple it from buying.** The drafted reply ends with *"the 60 days is yours for
+  the feedback — no strings attached to buying anything."* Keep that line; without it
+  the trade reads as coercion.
+- **Say how many comps there have been.** Naming the dates ("30 June, 15 July, and
+  today") is what makes the commercial ask credible. Attribute the count to the
+  **space/team**, not to the individual, when the requesters differ — telling a
+  first-time asker "this is your third" is simply false.
+- **Follow through when feedback lands:** re-run with `--days 60` on the same
+  accountId (the upsert preserves `createdAt`), log the answers in the sent-log
+  entry, and reply confirming the new date.
+- **The default grant is deliberately short (7 days) so the trade is worth taking.**
+  A 7 → 60 day jump is a ~8.5× reward for four answers; at the old 14-day default the
+  offer was only ~4× and a repeat asker could reasonably ignore it and just ask again.
+  Short default + big offer is the whole mechanism — don't "be generous" up front and
+  flatten the incentive. Pass `--days 14` explicitly for a one-off first-time asker
+  where you're **not** soliciting feedback.
+- Changing the ratio is the founder's call, not the skill's.
+
 ## ⚠ This mutates production KV
 
 The grant writes to the prod `SPACE_LICENSE_KV` namespace. That's a
@@ -59,7 +130,7 @@ Run from the conf-app project root:
 python3 .claude/skills/extend-space-license/scripts/grant_extension.py \
   --domain <tenant> --space <SPACE_KEY> --user <accountId> --users <N> --dry-run
 
-# Grant for real (14-day extension, user-scoped) + draft the reply:
+# Grant for real (7-day extension, user-scoped) + draft the reply:
 python3 .claude/skills/extend-space-license/scripts/grant_extension.py \
   --domain <tenant> --space <SPACE_KEY> --user <accountId> --users <N>
 
@@ -69,9 +140,11 @@ python3 .claude/skills/extend-space-license/scripts/grant_extension.py \
 ```
 
 Flags: `--user <accountId>` (scopes the grant to one user — **default choice**;
-omit to grant the whole space) · `--days N` (default 14) · `--users N` (site tier
-→ fills the Full-plan price in the reply) · `--activated-by` · `--no-reply` ·
-`--dry-run`.
+omit to grant the whole space) · `--days N` (default **7**; flows into the reply text
+*and* the default `activatedBy`) · `--users N` (site tier → fills the Full-plan
+price in the reply) · `--feedback-offer [N]` (repeat askers — promise N days,
+default 60, for four answers; must exceed `--days`) · `--activated-by` (append the
+ticket: `support:temp-7d-extension:ZEN-1191`) · `--no-reply` · `--dry-run`.
 
 ## What it does (and why each step matters)
 
@@ -88,7 +161,7 @@ omit to grant the whole space) · `--days N` (default 14) · `--users N` (site t
    `SPACE_LICENSE_KV` (prod ns `8969e8528105403bb2d9adca9fc16567`), upserting so an
    existing record keeps its `createdAt`. Shape mirrors `SpaceLicenseRecord`
    (`functions/api/space-license.ts`): `status:"active"`,
-   `activatedBy:"support:temp-14d-extension"`, `expiresAt:"<+14d>T23:59:59Z"`, plus
+   `activatedBy:"support:temp-<days>d-extension"`, `expiresAt:"<+days>T23:59:59Z"`, plus
    `userAccountId` when scoped to a user.
 4. **Update `license-index`** — read-modify-write append `{cloudId, spaceKey}` (+
    `userAccountId` when scoped) — index is only for the admin GET listing, not
@@ -135,11 +208,45 @@ npx wrangler kv key put "license:$CLOUD:<SPACE>" --path /tmp/rec.json --namespac
 npx wrangler kv key get "license:$CLOUD:<SPACE>:<ACCOUNT_ID>" --namespace-id=$NS --remote   # verify
 ```
 
+## Posting the reply into the JSM ticket
+
+`support@zenuml.com` is the only identity that can read/reply on the ZEN desk, and
+only in-browser — so drive the Jira UI (Playwright MCP): open the ticket, click
+**Reply to customer**, paste, then click `[data-testid="comment-save-button"]`.
+Don't type the reply (`browser_type` times out ~5s mid-word). Paste it in one call:
+focus `#ak-editor-textarea`, build a `DataTransfer` with `setData('text/plain', …)`,
+dispatch a synthetic `ClipboardEvent('paste', {clipboardData, bubbles:true,
+cancelable:true})`.
+
+Three ProseMirror traps, all of which shipped visible defects before being caught:
+
+- **Separate paragraphs need `\n\n`.** A single `\n` becomes a *hard break inside one
+  paragraph*, so the whole reply lands as one wall of text.
+- **A numbered list swallows everything after it** if the following text is only one
+  newline away — items 1–3 render fine and item 4 absorbs the pricing, sign-off and
+  all. `\n\n` after the last question terminates the list.
+- **Any `word.io` auto-linkifies** into a broken `http://Draw.io` smart link. Never
+  name Draw.io in the reply text (the shipped question 2 says "Confluence's built-in
+  diagramming tools" for exactly this reason).
+
+**Verify before saving, not after** — read back `#ak-editor-textarea`: assert the
+top-level block sequence (`P,P,…,OL,P,…`), 4 `li` items, and that every `a[href]` is
+one of the two intended URLs. An element screenshot of the editor is unreliable
+(the bounding box captures the wrong region).
+
+Afterwards the ZEN workflow offers **no "Waiting for customer" transition** (only
+Respond to support / Canceled / Resolved) — leaving it *Waiting for support* is
+correct when a feedback answer is expected, since we owe the follow-through grant.
+
 ## After granting
 
 1. **Log it** — append a dated entry to the handbook page
    `paywall/extension-request-replies.md` "Sent log" (tenant, space, site size,
-   Full-plan price, whether it's a repeat request → conversion signal).
+   Full-plan price, whether it's a repeat request → conversion signal). Include the
+   **KV key, the `activatedBy` (with ticket), and the distinct requester** — that
+   entry is the only thing standing between the next handler and a miscounted
+   "first request". If you discover an unlogged prior grant, backfill it in the same
+   pass and say what you could and couldn't reconstruct.
 2. **Verify it's honored** (no customer UI access → use Mixpanel as the real
    outcome signal): split the space's events at the grant timestamp — **0 blocking
    events after** (`paywall_triggered` / `paywall_blocked_create` /
@@ -151,7 +258,14 @@ npx wrangler kv key get "license:$CLOUD:<SPACE>:<ACCOUNT_ID>" --namespace-id=$NS
    confirm which grant actually satisfied the gate. Gotcha: `paywall_banner_shown`
    (warning, ≥85 macros) can persist for days because `spacePaidStatus` is fetched
    once per session — a residual banner with 0 blocking events is cosmetic, not a
-   failure.
+   failure. Note this check needs the customer to come back and edit — right after a
+   grant there is no post-grant data yet, so report the KV read-back as verified and
+   the in-product check as **pending**, not as passed.
+3. **If you made a `--feedback-offer`, the ticket is not done.** It's waiting on a
+   reply. When the answers land: re-run with `--days <N>` on the same accountId,
+   confirm the new date to the customer, and paste the answers into the sent-log
+   entry — that intel is the whole return on the comp, and it's worthless if it
+   only ever lives in a Jira comment.
 
 ## Related
 

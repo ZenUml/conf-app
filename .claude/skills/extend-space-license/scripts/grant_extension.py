@@ -200,7 +200,7 @@ def through_date(expires_at):
     return d.strftime("%-d %B %Y")  # e.g. "7 July 2026"
 
 
-def print_reply(space, expires_at, users, user_scoped=False):
+def print_reply(space, expires_at, users, user_scoped=False, days=7, feedback_days=None):
     if users:
         price = full_plan_arr(users)
         users_line = f"~{users:,} users"
@@ -212,7 +212,7 @@ def print_reply(space, expires_at, users, user_scoped=False):
     if user_scoped:
         intro = (
             f"To get you unblocked straight away, we've enabled a temporary extension "
-            f"for your account on {space} for the next 14 days (through {through_date(expires_at)}). "
+            f"for your account on {space} for the next {days} days (through {through_date(expires_at)}). "
             f"You can create and edit diagrams there as normal during this window — nothing to set up "
             f"on your end; just refresh the page if you have an editor open (it can take a few minutes to apply)."
         )
@@ -223,7 +223,7 @@ def print_reply(space, expires_at, users, user_scoped=False):
     else:
         intro = (
             f"To get you unblocked straight away, we've enabled a temporary extension on {space} for the "
-            f"next 14 days (through {through_date(expires_at)}). You can create and edit diagrams there as "
+            f"next {days} days (through {through_date(expires_at)}). You can create and edit diagrams there as "
             f"normal during this window — nothing to set up on your end; just refresh the page if you have "
             f"an editor open (it can take a few minutes to apply)."
         )
@@ -231,6 +231,32 @@ def print_reply(space, expires_at, users, user_scoped=False):
             f"The extension covers {space} specifically. If other spaces are hitting the limit too, "
             f"just reply here and we'll take a look."
         )
+
+    # --feedback-offer: trade a LONGER window for product intel, instead of silently
+    # renewing a repeat asker. Q4 is the commercially load-bearing one — after N free
+    # comps with no conversion we still don't know WHICH wall we're hitting.
+    # Deliberately does NOT mention Draw.io by name: Jira's editor auto-linkifies any
+    # "word.io" into a broken http://Draw.io smart link in the customer's email.
+    if feedback_days:
+        feedback_block = f"""
+That brings me to a request, and an offer. We're deciding what to build next, and candid input from a team using ZenUML this heavily is worth more to us than the license fee. If you reply with answers to these four questions, I'll extend your access to {feedback_days} days instead of {days}:
+
+1. What are you using ZenUML for in {space} — what kind of documents, and where does it sit in your workflow?
+
+2. What made you pick it over Confluence's built-in diagramming tools?
+
+3. What's the most annoying thing about it today, or the thing you keep wishing it did?
+
+4. If you wanted to lift the limit properly, what's the hard part internally — budget, admin approval, procurement, or simply nobody owning it?
+
+Blunt answers are the useful ones — we won't take it badly.
+"""
+        # Decouples the free time from a purchase so the trade can't read as coercion.
+        closing = (f"Either way, the {feedback_days} days is yours for the feedback — "
+                   f"no strings attached to buying anything.")
+    else:
+        feedback_block = ""
+        closing = "Tell us which fits better and we'll send exact pricing and the steps."
 
     print("\n" + "=" * 70)
     print("DRAFT REPLY  (canonical template: paywall/extension-request-replies.md)")
@@ -244,14 +270,14 @@ Thanks for reaching out — glad to see your teams getting so much use out of Ze
 A couple of things worth knowing:
 
 {scope_note}
-
+{feedback_block}
 It's a temporary bridge. For a lasting fix there are two routes — happy to help with either:
 
 Per-space (Enterprise Bundle) — ${ENTERPRISE_BUNDLE_USD}/space/year, unlimited macros and users in that space. It's the quickest path and doesn't require a Confluence admin — you can set it up directly, so it's ideal if you'd like {space} unblocked permanently right away. Purchase here: {STRIPE_BUNDLE_LINK} — just reply with the space key after payment and we'll activate it.
 
 Org-wide (Full plan) — removes the limit across all your spaces and users at once; best value if you want everything covered (you're running a large site with diagrams across many spaces). Based on your site's {users_line}, this works out to {full_price}. You can upgrade on the Atlassian Marketplace here: ZenUML Diagrams for Confluence | Atlassian Marketplace ({MARKETPLACE_LINK}) — this one goes through whoever administers Confluence apps for your site.
 
-Tell us which fits better and we'll send exact pricing and the steps.
+{closing}
 
 Best Regards,
 
@@ -263,26 +289,47 @@ def main():
     ap = argparse.ArgumentParser(description="Grant a temporary Lite space-license extension + draft the reply.")
     ap.add_argument("--domain", required=True, help="Client domain (bare, hostname, or URL)")
     ap.add_argument("--space", required=True, help="Confluence space KEY (exact, case-sensitive)")
-    ap.add_argument("--days", type=int, default=14, help="Extension length (default 14)")
+    ap.add_argument("--days", type=int, default=7,
+                    help="Extension length (default 7 — deliberately short so the "
+                         "--feedback-offer trade is worth taking; use 14 for a one-off "
+                         "first-time asker where no feedback is being solicited)")
     ap.add_argument("--users", type=int, help="Site user tier (Marketplace license) → fills Full-plan price in the reply")
     ap.add_argument("--user", dest="user_account_id", default=None,
                     help="Requester's Atlassian accountId (e.g. 712020:...) — scopes the grant to this "
                          "user only. Omit to grant the whole space (manual escalation when multiple "
                          "independent users in the same space have requested).")
-    ap.add_argument("--activated-by", default="support:temp-14d-extension")
+    ap.add_argument("--activated-by", default=None,
+                    help="Provenance string on the record (default support:temp-<days>d-extension). "
+                         "Append the ticket, e.g. support:temp-7d-extension:ZEN-1191, so a grant is "
+                         "traceable to its request even if the sent log misses it.")
+    ap.add_argument("--feedback-offer", dest="feedback_days", type=int, nargs="?", const=60, default=None,
+                    metavar="N",
+                    help="Add the feedback-for-time offer to the reply: grant --days now, promise N days "
+                         "(default 60) in exchange for answers to 4 product questions. Use on a REPEAT "
+                         "asker instead of silently renewing. Does not change what is written to KV — "
+                         "when the feedback arrives, re-run with --days N to extend.")
     ap.add_argument("--dry-run", action="store_true", help="Preview only — no KV writes")
     ap.add_argument("--no-reply", action="store_true", help="Skip the drafted reply")
     args = ap.parse_args()
 
+    if args.feedback_days is not None and args.feedback_days <= args.days:
+        print(f"ERROR: --feedback-offer {args.feedback_days} must exceed --days {args.days} "
+              f"(the offer is a LONGER window in exchange for feedback).", file=sys.stderr)
+        sys.exit(1)
+
+    activated_by = args.activated_by or f"support:temp-{args.days}d-extension"
+
     try:
-        result = grant(args.domain, args.space, args.days, args.activated_by, args.dry_run,
+        result = grant(args.domain, args.space, args.days, activated_by, args.dry_run,
                         user_account_id=args.user_account_id)
     except Exception as e:  # noqa: BLE001
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
     if not args.no_reply:
-        print_reply(result["space"], result["expiresAt"], args.users, user_scoped=bool(args.user_account_id))
+        print_reply(result["space"], result["expiresAt"], args.users,
+                    user_scoped=bool(args.user_account_id), days=args.days,
+                    feedback_days=args.feedback_days)
 
     scope = f"user {args.user_account_id}" if args.user_account_id else "the whole space"
     if result.get("wrote"):

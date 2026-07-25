@@ -61,17 +61,38 @@ Answer, from data we already have, before building:
 |---|---|
 | Lite installs, active tenants, new/lost per week | `forge-installs` skill (`forge install list` — D1 mirror is known-stale) |
 | Distinct Lite authors vs distinct Lite viewers per 28d | Mixpanel `macro_save_succeeded` / `macro_viewed` distinct accountId, project 3373228 |
-| Diagram-bearing page views vs total page views per tenant | D1 `page_viewed` (tenant activity) vs Mixpanel `macro_viewed` — see `docs/analytics/reference.md` |
-| **Does a byline item get clicked at all?** | Diagramly's `ai_aide_route_accessed` volume ÷ Diagramly page views. This is a free, already-instrumented read of byline CTR from a live app. |
+| Diagram-bearing page views vs total page views per tenant | Mixpanel `macro_viewed`; D1 `page_viewed` only for windows **before 2026-06-06** — see below |
+| **Does a byline item get clicked at all?** | Diagramly's `ai_aide_route_accessed`, but only after the mount-semantics check below tells us what that event means |
 
-The last row is the gate. It also settles a load-bearing cost question: whether the byline iframe
-boots on every page view or only on click. The manifest's `viewportContainer` (popup/modal)
-implies click-to-open, but `ai_aide_route_accessed` firing at page-view volume in Diagramly would
-prove otherwise — and would mean the Lite byline mounts a Vue tree on every page load in every
-tenant. **Do not skip this check.**
+The last row is the gate, and getting a number for it takes two steps rather than one ratio.
 
-Kill criteria: if Diagramly byline CTR is < ~0.5% of page views, Phase 2's page-write machinery is
-not worth its risk; ship Phase 1 only and re-evaluate.
+**Step A — mount semantics (do this first).** `ai_aide_route_accessed` fires at the top of
+`handleAiAideRoute()` (`src/routes/aiAide.ts:9`), i.e. when the byline iframe **boots**. If the
+iframe boots on click, that event is a click; if it boots on page load, it is an impression. Same
+event, opposite meaning — so it cannot be used as a numerator until this is settled. The manifest's
+`viewportContainer` (popup/modal) implies click-to-open, but infer nothing: load a page on
+`dia-stg` under Playwright, never touch the byline, and observe whether the iframe boots
+(~30 min, `spot-check` skill). This also answers the load-bearing cost question — eager boot means
+the Lite byline mounts a Vue tree on every page load in every tenant.
+
+**Step B — the ratio, from a historical window.** There is **no current tenant-wide page-view
+count**: `avi:confluence:viewed:page` was removed 2026-06-06 (`manifest.yml:292`) because it fired
+on every page view tenant-wide and accounted for ~98% of billed Forge Functions compute. The
+denominator therefore has to come from D1 `page_viewed` rows **predating** that removal, joined
+against `ai_aide_route_accessed` from the same window. Stale, but real — and preferable to a
+fabricated benchmark.
+
+**Metric shape.** Per-impression CTR is the wrong gate for a *persistent* item: the same link sits
+on every page the same user visits, so the denominator inflates with repeat exposure and CTR decays
+toward zero no matter how good the feature is. The decision metric is the **28-day distinct-user
+open rate** — of users who viewed any page, what share ever opened the byline modal — because the
+job here is discovery, a one-time act, not a repeated ad impression. Keep per-impression CTR as a
+cost/annoyance signal only.
+
+Kill criteria: below roughly a **1% 28-day distinct-user open rate**, Phase 2's page-write
+machinery is not worth its risk — ship Phase 1 only and re-evaluate. That threshold is a judgment
+call anchored on "enough opens per tenant per month to measure a conversion rate at all", **not** a
+measured benchmark; replace it with a real distribution once Step B lands.
 
 ### Phase 1 — the item exists in Lite, modal is read-mostly
 

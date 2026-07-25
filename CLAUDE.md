@@ -77,7 +77,7 @@ Full rules, artifact routing table, pre-commit grep, and background: [docs/polic
 
 ### Never commit directly to `main`
 
-Always use a feature branch. Exception: `.md`-only changes may go directly to `main`.
+Always use a feature branch. Exceptions, both requiring the change be **confined** to those paths: `.md`-only changes, and agent-skill changes under `.claude/skills/**` (any file type — `SKILL.md` *and* its `.py`/`.mjs`/`.sh` helpers; skills are agent tooling, and CI `paths-ignore`s `.claude/**` so a PR adds no signal).
 
 Don't create a worktree reflexively: `.md`-only edits go straight to `main` (worktree only if another session's changes block a clean `git checkout main`), and changes to git-ignored files only need no branch/worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full branching protocol (start-of-issue steps, worktree usage).
 

@@ -4,13 +4,18 @@
 
 Always create a feature branch for new work.
 
-**Exception:** Changes to `.md` files only (docs, CLAUDE.md, README, etc.) may be committed directly to `main`.
+**Exceptions** — these may be committed directly to `main`:
+
+1. **`.md`-only changes** (docs, CLAUDE.md, README, etc.).
+2. **Agent-skill changes confined to `.claude/skills/**`** — *any* file type, including the helper scripts (`.py`, `.mjs`, `.sh`) that sit beside a `SKILL.md`. A skill is agent tooling, not shipped product code: it can't break a build or reach a customer, and both CI triggers `paths-ignore` `.claude/**`, so a branch + PR buys **zero** verification signal — only ceremony. Validate the same way you would on a branch (`python3 -m py_compile`, a `--dry-run`, `--help`) and commit.
+
+Both exceptions require the change to be **confined** to those paths. The moment a commit also touches `src/`, `functions/`, `manifest.yml`, tests, or config, it is a normal code change → feature branch, even if most of the diff is a skill.
 
 ## When you do NOT need a worktree (or a branch)
 
 A worktree is only ever needed to keep two *working trees* from colliding. Don't reach for one reflexively:
 
-- **`.md`-only changes** go straight to `main` (per the exception above) — no feature branch. If your current tree is clean, just `git checkout main && git pull`, commit, push. Only spin up a worktree if the current tree holds **another session's** uncommitted changes (see below) that block a clean `git checkout main`.
+- **`.md`-only changes and `.claude/skills/**`-only changes** go straight to `main` (per the exceptions above) — no feature branch. If your current tree is clean, just `git checkout main && git pull`, commit, push. Only spin up a worktree if the current tree holds **another session's** uncommitted changes (see below) that block a clean `git checkout main` — which is the usual case when you're mid-feature and improve a skill along the way.
 - **Git-ignored files only** (e.g. copied `.env`/auth-state, local `node_modules`, scratch screenshots): there is nothing to commit at all — no branch, no worktree, no PR.
 
 In short: create a worktree when you need an isolated *checkout* — to avoid disrupting another session's dirty tree, or to run two branches at once. Not for trivial docs or untracked local files.

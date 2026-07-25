@@ -605,3 +605,33 @@ Apply proposed improvements directly to the skill file without asking for confir
 | Space license endpoint | `functions/api/space-status.ts`, `functions/api/space-license.ts` |
 | Pricing tiers + cost formula | `docs/pricing-model.yml` |
 | Is a specific tenant already paying / on a trial? | `tenant` skill — `whois <domain>` (single-tenant lookup, incl. Lite Layer-B) |
+
+## How the Lite paywall actually enforces (don't misread this as a bug)
+
+It is a **metered soft-paywall, and the number in "Continue editing without upgrading (N)" IS the gate.**
+`DEFAULT_CONTINUE_ATTEMPTS = 15`; each click decrements N and lets the user reach the editor and
+**save normally — saves persisting during the grace window is BY DESIGN, not a leak.** When N hits 0,
+the Continue-editing button is replaced by non-clickable "Request extension to continue editing"
+(`UpgradePrompt.vue`, `canContinueEditing = remainingContinueAttempts > 0`), and the modal can no
+longer be dismissed into the editor → user is locked out.
+
+So `saveToPlatform` deliberately has **no** `shouldBlockActions` check — access is gated at the modal
+via the counter, not at the persistence layer. (The "save is gated in the persistence layer" code
+comments are misleading wording; ignore them.)
+
+The only real weakness: the counter is `localStorage`-keyed
+(`paywallContinueAttempts:domain:space:user`), so clearing storage/incognito resets it to 15 — a minor
+client-side soft spot, NOT a missing save-gate.
+
+### Skipping the paywall on an over-limit Lite space
+
+When the paywall modal appears at editor mount (e.g. inserting/editing a Lite macro on an over-limit
+space like `ZEN` or `SD`), click the modal's **"Continue editing"** button to proceed into the editor.
+This is the intended in-product bypass — do NOT read paywall code or hunt for `localStorage` overrides
+(`mockSpacePaid` etc.) to suppress it.
+
+### Staging paywall test data
+
+On `lite-stg`, the large space over the 100-macro limit (the one that triggers the paywall) is **`SD`**
+(~1230 macros) — same setup as the `zenuml` instance. Use `SD` when you need a real over-threshold Lite
+space to verify paywall or macro-count behaviour, instead of re-discovering it each time.

@@ -99,12 +99,6 @@ The original directory stays untouched. When in doubt, ask before any destructiv
 
 - **Entry Point**: Single Forge Custom UI entry (`index.html` + `src/forgeIndex.ts`)
 - **Forge Entry Points**: `src/forge-*.ts` files for different diagram types
-- **Core Components**:
-  - `Workspace.vue` — Main editor interface with split layout
-  - `Editor/Editor.vue` — Code editor with syntax highlighting
-  - `DiagramPortal.vue` — Diagram rendering portal
-  - `Header/Header.vue` — Navigation and actions
-  - `Viewer/` — Different viewers for each diagram type
 - **Forge Integration**: `@forge/bridge` for Confluence API access (`requestConfluence`, `invokeRemote`, `view`, `router`)
 
 ### Backend (Cloudflare Workers)
@@ -112,29 +106,12 @@ The original directory stays untouched. When in doubt, ask before any destructiv
 - **Functions**: Located in `functions/` directory. **CRITICAL:** `public/_routes.json` is an explicit allowlist — any new function path must be added to its `include` array, otherwise Cloudflare Pages serves the path as a static SPA HTML fallback instead of routing it to the function. Symptom: `GET /your/path` returns 200 with `content-type: text/html` instead of running your code.
 - **Database**: D1 database with migrations in `functions/migrations/`
 - **Auth**: Forge invocation token (RS256) validated via `functions/utils/authenticate.ts`
-- **Key Endpoints**:
-  - `/forge-custom-content` — Custom content management (Forge OAuth)
-  - `/forge-installed` — Forge install/upgrade lifecycle handler
-  - `/forge-user-behavior` — Forge trigger event handler
-  - `/diagram-likes/` — Diagram like/unlike functionality
-  - `/forge-upload-attachment` — App-authenticated attachment upload fallback
-  - `/api/space-status` — License/payment status check
 
 ### Content management
 
-The app uses custom content (V2 API) for diagram persistence:
-
-- **CustomContentStorageProvider** — Stores data as Confluence custom content
-- **CompositeContentProvider** — Combines multiple providers with fallback chain
+The app uses custom content (V2 API) for diagram persistence.
 
 Confluence is the system of record for diagram content; D1/backend data may support telemetry or sync, but must not become required storage or recovery for user diagram bodies. Rendering and editing must not depend on our Cloudflare backend being available when Confluence storage is available.
-
-### Key models
-
-- **Diagram** — Core diagram model with content and metadata
-- **ContentProvider** — Abstract interface for data persistence
-- **ApWrapper2** — Forge API wrapper for Confluence operations
-- **forgeGlobal** — Runtime context (`@forge/bridge` view, context, environment detection)
 
 ## Local development
 
@@ -144,34 +121,10 @@ Confluence is the system of record for diagram content; D1/backend data may supp
 2. Set up D1 database bindings
 3. Configure environment variables in `wrangler.toml`
 
-### Build & test
+### Build, test & dev server
 
-```bash
-# Build full version
-pnpm build:full
-
-# Build lite version
-pnpm build:lite
-
-# Run unit tests
-pnpm test:unit
-
-# Run E2E tests
-pnpm test:e2e
-```
-
-### Dev server
-
-```bash
-# Start local development (frontend only)
-pnpm start:local
-
-# Start full development environment (frontend + backend proxy)
-pnpm start:sit
-
-# Serve built files via Wrangler
-pnpm wrangler:serve
-```
+See `package.json` scripts — `build:full`, `build:lite`, `test:unit`, `test:e2e`,
+`start:local` (frontend only), `start:sit` (frontend + backend proxy), `wrangler:serve`.
 
 ### Database setup
 
@@ -206,19 +159,9 @@ Lite / full / diagramly map to `conf-stg-lite`, `conf-stg-full`, `conf-lite`, `c
 
 ### Forge Functions usage & cost (GB-seconds)
 
-When an Atlassian "Forge Functions usage" alert fires (free tier: **100,000 GB-seconds/month per app**), **find where the compute goes from the Developer console's own metrics — do NOT infer it from the manifest or from billing-label reasoning.** (We wasted several rounds in June 2026 guessing `exportMacro`, then "sync resolvers", before the console settled it.)
-
-Ground-truth path — `developer.atlassian.com/console/myapps/<appId>/`:
-- **Metrics → Invocation → Invocation count, "Group by: Source"** — per-function/per-trigger invocation counts. This is the dispositive view.
-- **Metrics → Invocation → response time, "Group by: Function"** — per-function duration. GB-seconds = invocations × duration × memory, so the driver is the source that's high on **both** count and duration.
-- **Usage and charges → Functions → Site breakdown** — per-tenant GB-seconds (find the heavy tenants).
-
-Billing subtleties that burned us — get these right:
-- **A product-event `trigger` that forwards to a `remote` endpoint is billed as SYNC compute, not waived async.** The "Async (WAIVED)" bucket on the usage page is only function-based async (e.g. `pageCaptureFn`, `scheduledTrigger`) — do not assume a trigger is "async therefore free".
-- The per-macro `resolver: endpoint: remote-connect` runs on **Cloudflare**, so it does **not** bill Forge Functions GB-seconds. `functions/*` console.logs are Cloudflare cost, not Forge cost.
-- A tenant can be huge in GB-seconds yet show **zero** Mixpanel `macro_viewed` — because (a) `avi:confluence:viewed:page` fires tenant-wide on every page view regardless of our macros, and/or (b) the tenant blocks client-side Mixpanel (server-side events still arrive). Absence of `macro_viewed` is **not** evidence of zero usage.
-
-Historical driver (2026-06): `remote-page-behavior-trigger` (`avi:confluence:viewed:page`) was **~98%** of all invocations and GB-seconds — it fired on every page view across all installs and forwarded to `/forge-user-behavior` (`functions/forge-user-behavior.ts`) only to record low-value, Confluence-wide `page_viewed` telemetry. Disabled in PR #234.
+When a "Forge Functions usage" alert fires, use the **forge-functions-cost** skill — it holds the
+Developer-console ground-truth path and the billing subtleties (a `trigger`→`remote` forward bills as
+SYNC, not waived async).
 
 ### Forge app versions — major vs minor (admin consent)
 
@@ -243,23 +186,14 @@ Key gotcha: `page_viewed` in D1 signals tenant activity on Confluence — **not*
 
 Full reference (event storage, `clientDomain` format, key sources, paywall events): [docs/analytics/reference.md](docs/analytics/reference.md). For query patterns, use the **conf-app** skill.
 
-**Staging paywall test data:** on `lite-stg`, the large space over the 100-macro limit (the one that triggers the paywall) is **`SD`** (~1230 macros) — same setup as the `zenuml` instance. Use `SD` when you need a real over-threshold Lite space to verify paywall or macro-count behaviour, instead of re-discovering it each time.
-
-**Skipping the paywall on an over-limit Lite space:** when the paywall modal appears at editor mount (e.g. inserting/editing a Lite macro on an over-limit space like `ZEN` or `SD`), click the modal's **"Continue editing"** button to proceed into the editor. This is the intended in-product bypass — do NOT read paywall code or hunt for `localStorage` overrides (`mockSpacePaid` etc.) to suppress it. Just click "Continue editing" and carry on with the macro author/publish flow.
-
-**How the Lite paywall actually enforces (don't misread this as a bug):** it is a **metered soft-paywall, and the number in "Continue editing without upgrading (N)" IS the gate.** `DEFAULT_CONTINUE_ATTEMPTS = 15`; each click decrements N and lets the user reach the editor and **save normally — saves persisting during the grace window is BY DESIGN, not a leak.** When N hits 0, the Continue-editing button is replaced by non-clickable "Request extension to continue editing" (`UpgradePrompt.vue`, `canContinueEditing = remainingContinueAttempts > 0`), and the modal can no longer be dismissed into the editor → user is locked out. So `saveToPlatform` deliberately has **no** `shouldBlockActions` check — access is gated at the modal via the counter, not at the persistence layer. (The "save is gated in the persistence layer" code comments are misleading wording; ignore them.) The only real weakness: the counter is `localStorage`-keyed (`paywallContinueAttempts:domain:space:user`), so clearing storage/incognito resets it to 15 — a minor client-side soft spot, NOT a missing save-gate.
+**Paywall mechanics** (metered soft-paywall, the "Continue editing (N)" counter, staging test spaces, how to skip it): use the **paywall** skill.
 
 **Every new feature must include Mixpanel tracking.** When adding a feature, add `trackAnalyticsEvent` calls for the key lifecycle moments (requested, succeeded, failed, dismissed, etc.). Register new event names in `src/utils/analytics/catalog.ts` (`AnalyticsEventName` union) and use appropriate properties from `src/utils/analytics/types.ts`. Tracking is not optional — it is part of the definition of done.
 
 ### Bug reports: User-First Trace
 
-Frame bug reports and incident write-ups with **User-First Trace**:
-
-1. **User journey** — start with what the user did, what they saw, what changed, and what outcome they experienced. Keep the end user as the skeleton of the report and the highest priority.
-2. **Runtime evidence** — layer in console errors, network calls, API responses, analytics events, timing, retries, page/draft state, and environment details.
-3. **Code path** — only after the user journey and runtime evidence are clear, explain the source code paths that produced the behavior.
-
-Use lower-level techniques such as State-Surface Framing inside this structure when relevant: identify where the data truth lives (published page, draft page, macro config, custom content, D1 mirror) and which UI/runtime surface is reading or writing it (page viewer, viewer modal, native macro config, page editor, fullscreen modal).
+Frame bug reports and incident write-ups user-journey first, then runtime evidence, then code path —
+see the **bug-report-framing** skill.
 
 ## Browser automation and Forge iframes
 

@@ -1,8 +1,19 @@
 # 0002 — Idle renderer prefetch: hosts, mechanisms, and kill switch
 
 Date: 2026-06-10
-Status: accepted
+Status: accepted; **decision 4 (kill switch) retired 2026-07-25**
 Related: [docs/features/renderer-prefetch.md](../features/renderer-prefetch.md), EAG-64, PR #231
+
+> **Amendment 2026-07-25 — the kill switch is gone.** Decision 4 below still
+> records why we chose the client-SDK flag over KV, and that reasoning stands
+> for any future flag. But `renderer-prefetch` / `renderer-prefetch-banner` had
+> sat at Everyone/100% in production on lite and diagramly since June with no
+> intervention, so the gate, `utils/prefetch/flags.ts`, and the flags were
+> retired to reclaim slots against the Developer Console's 10-flags-per-app cap.
+> Two accepted consequences: full and asyncapi never had these flags (they were
+> never prefetching, and now start, with no staged rollout), and disabling
+> prefetch now requires a release — the guards in `readGuards` plus the
+> once-per-deploy throttle are the only remaining brakes.
 
 ## Context
 
@@ -70,9 +81,11 @@ page) as the warmer.
   instrumentation.
 - Each release re-colds the cache and triggers one re-warm (~4–8MB) per
   active browser; release cadence multiplies bandwidth, bounded per browser.
-- Two flags must be created in each app's Developer Console (lite, full,
+- ~~Two flags must be created in each app's Developer Console (lite, full,
   diagramly are separate Forge apps) before anything activates; shipped dark
-  by default.
+  by default.~~ Retired 2026-07-25 — see the amendment at the top. In practice
+  this is what made full/asyncapi silently non-participants for six weeks: the
+  flags were only ever created on lite and diagramly.
 - If a refactor renames the `zenuml.esm-*` / `forge-swagger-ui-*` /
   `OpenApiViewer-*` chunk families, the manifest silently drops them — the
   build-verification step in the feature doc is the guard.

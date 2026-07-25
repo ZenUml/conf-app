@@ -19,6 +19,64 @@ python3 .claude/skills/rendering-perf/scripts/perf_report.py --days 7
 python3 .claude/skills/rendering-perf/scripts/perf_report.py --days 1 --json today.json
 ```
 
+## The existing "Rendering Perf" board (11250759) — audit and migration
+
+Audited 2026-07-25 via `board_audit.py`. Board `11250759`, workspace `3879592`, created
+**2026-06-05** by Yanhui Li and **not modified since**; the API reports 0 recorded views
+(that counter may not capture every view, so read it as "not actively used", not as proof
+nobody opened it).
+
+**It is not a loading-time board, and it never was.** It is a one-off A/B harness built to
+compare `cached_svg` against `live_render` on two specific staging diagrams during the SVG
+cache spike. Judged as a spike harness it was fine. Judged as loading-time tracking it
+cannot work, for one structural reason and one historical one:
+
+- **Structural:** every card is pinned to two hardcoded `custom_content_id`s
+  (`2842066972`, `91815969` — the latter on lite-stg). It measures two diagrams on a
+  staging tenant, not the product.
+- **Historical:** it predates the instrumentation. `renderPerf.ts` — `bootstrap_ms`,
+  `context_ms`, `fetch_ms`, `render_ms`, `tab_hidden` — landed **2026-07-17**, and
+  `content_source` **2026-07-22**, six and seven weeks after the board was built. None of
+  the properties that make loading time *attributable* existed yet.
+
+**All three cards are empty today.** Those two content ids last produced an event in June
+2026 (155 events total: 75 + 70 `cached_svg` + 10 `live_render`), and none since:
+
+| Card | Config | Why it shows nothing |
+|---|---|---|
+| `90538442` "live (Page A) vs cached_svg (Page B) — mermaid" | `duration_ms > 0`, `macro_type=mermaid`, `custom_content_id in (2842066972, 91815969)`; grouped by `custom_content_id`; **time = since start of current day**; bar | Those ids get no traffic. A single-day window on dead ids is empty by construction. |
+| `90538444` "… — mermaid 1" | **Byte-identical to 90538442** | Duplicate card. Delete outright. |
+| `90538690` "cached_svg vs live_render — SAME page (lite-stg cc 91815969)" | `duration_ms > 0`, `custom_content_id=91815969`; grouped by `render_mode`; last 14 days; bar; shows Total/**Min**/Median/P90 | No events in the last 14 days. Its premise also expired: `cached_svg` never shipped, so `render_mode` is 100% `live_render` in production — the breakdown has one bucket. |
+
+Defects to carry forward as lessons, independent of the dead ids:
+
+1. **No board-level filters** (`filters: []`, `breakdowns: []`, `time_filter: {}`), so cards
+   disagree with each other — card 1 is "today", card 3 is "last 14 days". Comparing them
+   is meaningless.
+2. **No `surface` filter** → editor and viewer renders are pooled.
+3. **`Minimum of duration_ms`** on card 3 is not a performance statistic; it reports the
+   single luckiest render. Use p50/p90/p99.
+4. **Bar charts for a time-varying metric** → no trend, so a regression is invisible.
+5. **`custom_content_id` as the unit of analysis** is right for an A/B of one diagram and
+   wrong for tracking; it cannot generalize to "how fast is the product".
+
+### Migration
+
+`can_update_basic` is `False` for our service account, so this cannot be scripted — the
+edits are manual. Recommended:
+
+1. **Rename** the board to `Rendering Perf — SVG cache A/B (archived 2026-06)` and leave it,
+   or delete it. Do **not** retrofit it: every card's unit of analysis is wrong for tracking,
+   so there is nothing to salvage beyond the idea.
+2. **Delete `90538444`** regardless — it is a pure duplicate.
+3. **Build the tracking board fresh** from the card spec below. It shares only the event
+   (`macro_viewed`) and one filter (`duration_ms > 0`) with the old board; everything else
+   differs, which is why editing in place is more work than starting clean.
+4. **Re-create the A/B when the SVG cache actually ships.** Card 3's design — same page,
+   grouped by `render_mode` — is the right shape for that comparison. Keep it as the
+   template, and add the `surface` and `tab_hidden` filters it was built too early to know
+   about.
+
 ## Auditing an existing board
 
 To review a board that already exists — e.g.

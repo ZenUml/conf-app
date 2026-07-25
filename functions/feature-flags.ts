@@ -23,29 +23,6 @@ async function handleCustomerSuccessService(
   }
 }
 
-async function handleLitePngExport(
-  kvService: KVNamespace,
-  client: string,
-  result: Record<string, unknown>,
-) {
-  const litePngExportKeys = ['LITE_PNG_EXPORT_ENABLED', 'LITE_PNG_EXPORT_TRIAL', 'LITE_PNG_EXPORT_LOCKED'];
-  for (const key of litePngExportKeys) {
-    const raw = await kvService.get(key);
-    const ENABLED_DOMAINS: string[] = raw?.split(',').map((d) => d.trim()) || [];
-    if (ENABLED_DOMAINS.some((d) => d !== '' && client === d)) {
-      const flagType = key.split('_').pop();
-      if (flagType) {
-        result.LITE_PNG_EXPORT = { status: flagType };
-        break;
-      }
-    }
-  }
-}
-
-function handleTest(result: Record<string, unknown>) {
-  result.TEST = { enabled: true, data: 'test data' };
-}
-
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
@@ -72,12 +49,6 @@ export async function onRequestGet({ request, env }: { request: Request; env: En
   for (const feat of features) {
     if (queryAll || feat === 'CUSTOMER_SUCCESS_SERVICE') {
       await handleCustomerSuccessService(kvService, client, result);
-    }
-    if (queryAll || feat === 'LITE_PNG_EXPORT') {
-      await handleLitePngExport(kvService, client, result);
-    }
-    if (queryAll || feat === 'TEST') {
-      handleTest(result);
     }
   }
 

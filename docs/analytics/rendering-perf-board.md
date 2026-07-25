@@ -3,6 +3,57 @@
 Build spec for the board that tracks how long a macro takes to render for a user.
 Project **3373228**, event **`macro_viewed`**.
 
+## The board exists
+
+**`⏱️ Macro Loading Time` — board `11400339`**
+<https://mixpanel.com/project/3373228/view/3879592/app/boards#id=11400339>
+
+Created 2026-07-25 by `.claude/skills/rendering-perf/scripts/build_board.py`, which is the
+reproducible definition of every card below — edit the script, not the board, when the design
+changes, and re-run it to build a fresh copy. All 10 cards were verified to return data, and
+card 1's daily p50 (1,708–1,847ms) matches the JQL baseline for the same population
+(1,640–1,835ms; the small gap is the project's +10:00 timezone bucketing vs UTC).
+
+**One manual step remains: arrange the cards.** The layout API cannot express this board's
+format — `PATCH {"layout": {"rows": {}}}` succeeds but any populated row returns
+`403 INVALID_LAYOUT`, the stored layout's own `order`/`version` keys are rejected as "extra
+keys not allowed", and no `/layout` endpoint exists. The cards are attached and computing;
+they just arrive unpositioned. Drag them into the row plan under "Board identity and layout"
+once, and it stays done.
+
+### The undocumented write API, as established
+
+Mixpanel documents no board API at all; this was reverse-engineered from an existing board.
+Needs a **service account** (`MIXPANEL_SA_USER` / `MIXPANEL_SA_SECRET`) — a project API
+secret gets 401 on every `/api/app/` path.
+
+| Action | Call |
+|---|---|
+| create board | `POST /api/app/projects/<p>/dashboards` `{"title": …}` |
+| board identity | `PATCH /api/app/projects/<p>/dashboards/<b>` `{"description": …}` |
+| board filters | `PATCH …/dashboards/<b>` `{"filters": [ … ]}` |
+| create card | `POST /api/app/projects/<p>/bookmarks` `{"name", "type":"insights", "params":"<JSON STRING>", "dashboard_id"}` |
+| register card | `PATCH /api/app/projects/<p>/bookmarks/<r>` `{"dashboard_id": <b>}` |
+| verify a card | `GET /api/query/insights?project_id=<p>&bookmark_id=<r>` (documented) |
+| delete board | `DELETE …/dashboards/<b>` (also deletes its cards) |
+
+Five things that cost real debugging time:
+
+1. **`params` must be a JSON-encoded string.** A nested object returns
+   `400 "… is not of type 'string'"`.
+2. **A freshly POSTed card is invisible until the `PATCH` re-asserts its `dashboard_id`.**
+   Before that the board's `contents.report` is `{}` and the board looks empty.
+3. **`POST /boards` is 405** — writes use `dashboards`, even though reads and the UI both
+   say boards.
+4. **`description` is capped at 400 characters, and the cap fails the entire PATCH.** Sending
+   description and filters together meant a 407-char description left the board with *zero*
+   filters while every card reported success — an unfiltered board silently pools editor
+   renders, untimed events and our own staging tenants into every number. `build_board.py`
+   now sends them separately and asserts the length.
+5. **`can_update_basic` is per-board, not per-role.** It stays `False` on someone else's
+   board even for an admin service account, and is `True` on boards the account created.
+   Don't read it as "my credentials can't write".
+
 **This board has to be created by hand.** Mixpanel exposes no API for creating or
 modifying boards — the documented surface is ingestion, query, raw export, pipelines,
 Lexicon, GDPR, warehouse connectors and feature flags only (verified 2026-07-25). The

@@ -85,13 +85,16 @@ viewed-distinct can exceed the live inventory. That divergence is expected; see
 ```bash
 # Domain-wide (all spaces). Pass the BARE subdomain. UA matters — Cloudflare
 # WAF 403s the default python-urllib agent, so use curl.
-curl -s -A curl/8.4.0 "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<bare>&productType=full"
-curl -s -A curl/8.4.0 "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<bare>&productType=lite"
+curl -s -A curl/8.4.0 "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<bare>&addonKey=com.zenuml.confluence-addon"
+curl -s -A curl/8.4.0 "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<bare>&addonKey=com.zenuml.confluence-addon-lite"
 ```
 
-**The host does not choose the product — `productType` does.** Every Pages project
-reads the same `confluence_plugin_features` namespace, so both URLs above work from
-either host; only the param selects `metrics:<domain>:<productType>`.
+**The host does not choose the product — the `addonKey` param does.** Every Pages
+project reads the same `confluence_plugin_features` namespace, so both URLs above
+work from either host; only the param selects `metrics:<domain>:<productType>`.
+(`&productType=` is clearer but is honoured only where PR #397 has deployed; older
+handlers ignore it and fall back to Full, which is how you'd get a fossil count
+while believing you asked for Lite. `addonKey` works against both.)
 
 A tenant having data under **both** full and lite usually does **not** mean both
 apps are installed — it is far more often residue from a past writer bug that

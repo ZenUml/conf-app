@@ -30,20 +30,29 @@ Usage: `/metrics <domain> [space]`
 
 Append `/admin/metrics-inspect?domain=<domain>&space=<space>` to the base URL.
 
-**Always name the product**: add `&productType=lite` (or `full` / `diagramly` / `asyncapi`). This selects the KV key `metrics:<domain>:<productType>`. The base URL does **not** select it — every Pages project reads the same namespace, so `conf-lite` with `productType=full` returns Full data and vice versa. Only the param matters.
+**Always name the product**, using `&addonKey=`:
 
-Omitting it no longer defaults to Full. The endpoint probes all four products and either resolves a single match (`productResolvedBy: "sole-match"`) or returns `status: "ambiguous_product"` listing each product's `spaceCount` and `newestUpdate` for you to choose from. A product the tenant holds no license for is residue from a past writer bug, not a second install — 458 of 767 domains carry more than one key.
+| product | param |
+|---|---|
+| Lite | `&addonKey=com.zenuml.confluence-addon-lite` |
+| Full | `&addonKey=com.zenuml.confluence-addon` |
+
+This selects the KV key `metrics:<domain>:<productType>`. The base URL does **not** select it — every Pages project reads the same namespace, so `conf-lite` with a Full addonKey returns Full data and vice versa. Only the param matters.
+
+`&productType=<full|lite|diagramly|asyncapi>` is the clearer spelling and is accepted **only** once PR #397 reaches an environment. Against an environment still running the older handler it is ignored and silently falls back to Full — so prefer `addonKey`, which both handlers honour.
+
+Omitting the product no longer defaults to Full (post-#397): the endpoint probes all four products and either resolves a single match (`productResolvedBy: "sole-match"`) or returns `status: "ambiguous_product"` listing each product's `spaceCount` and `newestUpdate`. A product the tenant holds no license for is residue from a past writer bug, not a second install — 458 of 767 domains carry more than one key.
 
 Note: use curl (not WebFetch's follow-through summarization) to get the raw JSON, e.g.
-`curl -s "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>&productType=lite"`
+`curl -s "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>&addonKey=com.zenuml.confluence-addon-lite"`
 
 ## Execution
 
 1. Parse the arguments to extract `domain` and optional `space`.
 2. Call the inspect endpoint using `WebFetch`:
-   - If space is provided: `GET <base>/admin/metrics-inspect?domain=<domain>&productType=<product>&space=<space>`
-   - If space is omitted: `GET <base>/admin/metrics-inspect?domain=<domain>&productType=<product>`
-3. If the user did not specify a variant, determine it first — ask, or check which app the tenant has installed (e.g. `forge-installs` skill, or Mixpanel `product_type`) — then pass the matching `productType`. Do not default to Full: the products read different KV keys and their counts diverge. If you call without `productType` and get `ambiguous_product`, resolve it against the tenant's actual license rather than picking the larger number.
+   - If space is provided: `GET <base>/admin/metrics-inspect?domain=<domain>&addonKey=<key>&space=<space>`
+   - If space is omitted: `GET <base>/admin/metrics-inspect?domain=<domain>&addonKey=<key>`
+3. If the user did not specify a variant, determine it first — ask, or check which app the tenant has installed (e.g. `forge-installs` skill, or Mixpanel `product_type`) — then pass the matching `addonKey`. Do not default to Full: the products read different KV keys and their counts diverge. If you get `ambiguous_product`, resolve it against the tenant's actual Marketplace license rather than picking the larger number — the larger one is usually the fossil.
 
 ## Output Format
 

@@ -59,27 +59,37 @@ def fetch_kv(bare_domain):
     """Hit metrics-inspect on both full and lite Pages projects. Merge on space KEY,
     preferring the **freshest** record per space.
 
-    A domain does NOT always live on exactly one variant: a tenant that migrated
-    between variants keeps a frozen snapshot on the old backend forever. vin3s ran
-    Full until 2026-04-24 and moved to Lite on 2026-04-27, so `metrics:vin3s:full`
-    still serves 34 spaces of April data. Selecting the LARGER total (the rule until
-    2026-07-26) let that fossil win — VARW reported 438 macros from April instead of
-    the live 188, and that number was one step away from a customer-facing email.
-    Freshness is the tiebreak; `shadowed` keeps whatever lost so divergence stays
-    visible instead of silently vanishing.
+    A domain can hold more than one product key. That usually is NOT two installs:
+    a since-fixed writer bug mis-stamped `productType`, leaving a frozen snapshot
+    that never updates again (458 of 767 domains carry more than one key). vin3s is
+    Lite-only per Marketplace — no Full license has ever existed — yet
+    `metrics:vin3s:full` still serves 34 spaces frozen at 2026-04-24. Selecting the
+    LARGER total (the rule until 2026-07-26) let that fossil win: VARW reported 438
+    macros from April instead of the live 188, one step from a customer-facing
+    email. Freshness is the tiebreak; `shadowed` keeps whatever lost so divergence
+    stays visible instead of silently vanishing.
 
     NOTE: the KV key is built from `getClientDomain()` = the BARE subdomain
     (e.g. `zenuml`), NOT the full hostname. Passing `zenuml.atlassian.net` here
     silently returns no_data. (The older /metrics skill docs are wrong on this.)
     """
     out = {}  # space KEY -> {total, sequence, graph, mermaid, openapi, plantuml, unknown, lastUpdated, variant}
-    # Always name the product. metrics-inspect used to default an absent product to
-    # `full`, so the first URL silently asked for a key this tenant may never have
-    # had. Both hosts read the same KV namespace, so the host choice is cosmetic —
-    # the productType param is what selects the key.
+    # Always name the product — an absent one used to mean `full`, so a bare URL
+    # silently asked for a key this tenant may never have had. Both hosts read the
+    # same KV namespace, so the host is cosmetic; only the product param selects the
+    # key.
+    #
+    # Use `addonKey`, NOT `productType`. This script talks to PROD, where the older
+    # handler is deployed and ignores `productType` entirely — it would fall back to
+    # `full` and hand the lite target a fossil count, causing the very bug this
+    # function guards against. `addonKey` is honoured by BOTH the deployed handler
+    # (`.includes('-lite')`) and the rewrite (`productFromAddonKey`), so it keeps
+    # working before and after that ships. Verified 2026-07-26.
     targets = [
-        ("full", f"{KV_FULL_BASE}/admin/metrics-inspect?domain={bare_domain}&productType=full"),
-        ("lite", f"{KV_LITE_BASE}/admin/metrics-inspect?domain={bare_domain}&productType=lite"),
+        ("full", f"{KV_FULL_BASE}/admin/metrics-inspect?domain={bare_domain}"
+                 "&addonKey=com.zenuml.confluence-addon"),
+        ("lite", f"{KV_LITE_BASE}/admin/metrics-inspect?domain={bare_domain}"
+                 "&addonKey=com.zenuml.confluence-addon-lite"),
     ]
     errors = []
     for variant, url in targets:

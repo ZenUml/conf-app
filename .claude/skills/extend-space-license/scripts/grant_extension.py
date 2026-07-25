@@ -69,7 +69,18 @@ def verify_space(bare_domain, space):
     truncated space key doesn't silently grant nothing). Returns total or None."""
     # Name the product on BOTH calls: metrics-inspect used to treat an absent
     # product as `full`, so the fallback quietly read a key the tenant may not own.
-    for base, extra in ((KV_LITE_BASE, "&productType=lite"), (KV_FULL_BASE, "&productType=full")):
+    #
+    # Use `addonKey`, NOT `productType`. `productType` is only honoured by the
+    # metrics-inspect rewrite on `fix/metrics-inspect-explicit-product`, which is
+    # deployed to staging but NOT to prod — and this script talks to PROD. Against
+    # prod, `productType=lite` is ignored, the handler falls back to `full`, and a
+    # variant-migrated tenant gets a fossil count (vin3s VARW: 438 frozen at
+    # 2026-04-24, vs 188 live) — which would silently suppress the under-100 warning
+    # below. `addonKey` is honoured by both the deployed handler and the rewrite
+    # (productFromAddonKey maps '-lite' -> lite, 'confluence-addon' -> full), so this
+    # keeps working after that branch ships. Verified 2026-07-26.
+    for base, extra in ((KV_LITE_BASE, "&addonKey=com.zenuml.confluence-addon-lite"),
+                        (KV_FULL_BASE, "&addonKey=com.zenuml.confluence-addon")):
         try:
             data = http_json(f"{base}/admin/metrics-inspect?domain={bare_domain}{extra}")
         except Exception:

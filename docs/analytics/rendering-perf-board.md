@@ -121,28 +121,95 @@ board mixes four different workloads and will show "regressions" that are pure m
 | Filter | Value | Why it is not optional |
 |---|---|---|
 | `surface` | `is` `viewer` | Excludes editor renders — a different workload (long-lived iframes, tab switches re-firing). Before 2026-07-19 (#368) the native macro-config surface was mislabelled `viewer`, so windows crossing that date still blend the two. |
-| `tab_hidden` | `is not` `true` | A backgrounded tab has throttled timers. ~19% of renders; roughly doubles p50 and inflates p99 by ~10x. This one filter matters more than every card choice below. |
+| `tab_hidden` | `is false` | A backgrounded tab has throttled timers. ~19% of renders; roughly doubles p50 and inflates p99 by ~10x. This one filter matters more than every card choice below. **But see the note underneath — the operator choice has a sharp edge.** |
 | `duration_ms` | `>` `0` | Drops events that carry no timing. |
 | `is_internal_client_domain` | `is` `false` | Our own tenants and the four staging sites. This computed property is the UI equivalent of the JQL exclude list in the mixpanel skill. |
+
+**The `tab_hidden` operator is a real decision, not a formality.** `is false` matches only
+events that carry the property *and* set it false — which silently drops every event from a
+build older than **2026-07-17**, when `tab_hidden` was introduced. That is what you want for
+forward-looking tracking, and wrong if you ever widen the window back past mid-July, where
+it would quietly discard the entire earlier population rather than including it. If you need
+those older events, use `does not equal` `true` instead, which keeps events missing the
+property. Either way the board is only comparable within one instrumentation era — a caveat
+worth putting in the board description.
 
 Board **date range: last 7 days**, comparison **"previous period"**. Do not default it to
 30 days: the SWR rollout on 2026-07-23 means a 30-day window currently averages two
 different products together.
+
+## Board identity and layout
+
+- **Title:** `⏱️ Macro Loading Time` (the project's convention is a leading emoji — e.g. the
+  existing health and paywall monitors)
+- **Description:** `How long a macro takes to render for a user. Population is pinned at
+  board level — read "First: the population" in docs/analytics/rendering-perf-board.md
+  before changing any filter.`
+- **Order matters.** Put cards 1–3 in the first two rows: someone opening this board with a
+  "did we regress?" question should get the answer without scrolling. Diagnosis (4–7) sits
+  below, guards (8–9) at the bottom, and the tenant table (10) last since it is the widest.
+
+| Row | Cards | Role |
+|---|---|---|
+| 1 | 2 (SLO), 1 (percentiles) | Is it good? Did it change? |
+| 2 | 3 (by macro type) | Which viewer? |
+| 3 | 4 (phases), 5 (SWR hit rate) | Why? |
+| 4 | 6 (SWR effect), 7 (cold cache) | Which lever? |
+| 5 | 8 (volume), 9 (tab-hidden) | Do I trust the above? |
+| 6 | 10 (worst tenants) | Who is hurting? |
+
+## Verified schema vocabulary
+
+Read out of this project's own boards on 2026-07-25, so these are values Mixpanel actually
+accepts here rather than guesses. Use them verbatim when building cards.
+
+| Field | Confirmed values |
+|---|---|
+| Aggregation (`math`) | `total`, `unique`, `unique_values`, `median`, `p90`, `min`, `conversion_rate_total` |
+| Chart type | `line`, `bar`, `table`, `pie`, `insights-metric`, `funnel-steps` |
+| Date range | `in the last` + `{unit, value}`, or `since` + `$start_of_current_day` |
+| Date unit | `hour`, `day`, `week`, `month` |
+| Filter operator | `equals`, `does not equal`, `is greater than`, `is false` |
+
+Cards 5, 7 and 9 are specified below as **% of total** over a breakdown. That is the natural
+reading of a share, but note `displayOptions.value` is `absolute` in every board sampled
+here, so the percentage toggle is unconfirmed in this project. All three still work as
+absolute counts per breakdown value — you just read the share by eye against card 8's total.
+Don't block the build on finding the toggle.
+
+Two more things this list does **not** confirm — check the UI picker before relying on them:
+
+- **`p99`** appears nowhere in this project's boards. `median` and `p90` are confirmed. If
+  the aggregation menu has no p99, use p90 as the tail metric on cards 1 and 3 and get p99
+  from `perf_report.py`, which computes it directly from JQL.
+- **Stacked area** is not among the chart types observed. Card 5 below therefore specifies
+  `line`, not the stacked area my first draft called for.
 
 ## Cards
 
 Add each as **Insights** unless noted. "Metric" means the event; "aggregate property"
 is under the metric's `⋯` → *Aggregate property*.
 
-### 1. Headline — p50 / p90 / p99 over time
-- Metric `macro_viewed`, three series: aggregate property `duration_ms` → **median**, **p90**, **p99**
-- Chart: **line**, weekly buckets
-- Purpose: the one number anyone asks for. Baseline 2026-07-25: **p50 1,676ms, p90 5,276ms, p99 16,036ms**.
+### 1. Headline — p50 / p90 over time
+- Metric `macro_viewed`, two series: aggregate property `duration_ms` → **median** and **p90**
+  (add **p99** as a third only if the aggregation menu offers it — see the vocabulary note above)
+- Chart: **line**, **daily** buckets — not weekly. Weekly hides the thing this board exists to
+  catch: a rollout or regression landing mid-week shows up as a muted two-week slope instead
+  of a step. The 2026-07-23 SWR rollout is only visible as a step at daily granularity.
+- Purpose: the one number anyone asks for. Baseline 2026-07-25: **p50 1,676ms, p90 5,276ms,
+  p99 16,036ms**.
 
 ### 2. Slow-render share — the actual SLO
-- Metric `macro_viewed` with an added filter `duration_ms` `>` `3000`, displayed as
-  **% of total** (`⋯` → *Show as* → percentage of the unfiltered metric)
+- Two metrics on one card: **A** = `macro_viewed` with an extra card-level filter
+  `duration_ms` `is greater than` `3000`; **B** = `macro_viewed` with no extra filter.
+  Then add a **formula `A/B`** and hide A and B so only the ratio plots.
 - Chart: **line**, daily
+- **Verification caveat:** the report schema does have a `sections.formula` array, but it is
+  empty in every board sampled in this project, and `displayOptions.value` is `absolute`
+  everywhere — so I have not seen a working percentage or formula card here to copy. If the
+  formula path fights you, don't force it: `perf_report.py` already prints `slow%` per day
+  from JQL, and a plain count-of-slow-renders line card (metric A alone) still shows the
+  trend, just not normalized for volume — which is exactly what card 8 is there to provide.
 - Purpose: percentiles move for boring reasons; "what fraction of renders were bad"
   is the number to put in front of non-analysts. 3s sits just above the pooled p75, so it
   tracks the genuinely-slow tail without flapping. Baseline: **25%**, falling through the
@@ -183,7 +250,8 @@ Baseline (7d to 2026-07-25):
 
 ### 5. Content-SWR hit rate — the lever
 - Metric `macro_viewed`, breakdown by **`content_source`**, **% of total**
-- Chart: **stacked area**, daily
+- Chart: **line**, daily (stacked area is not among this project's confirmed chart types;
+  a line per `content_source` reads the rollout just as well)
 - Purpose: the single largest determinant of loading time right now. A cache hit is ~3x
   faster than a fetch. Watch this before blaming code: **a hit-rate drop looks exactly like
   a code regression on card 1, with every phase on card 4 unchanged.**

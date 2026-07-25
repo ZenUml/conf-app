@@ -41,6 +41,7 @@ export const CANONICAL_EVENT_NAME_LIST = [
   // matching block in src/utils/analytics/catalog.ts (#392).
   "attachment_upload_async_succeeded",
   "attachment_upload_async_failed",
+  "attachment_upload_async_skipped",
   "custom_content_update_failed",
   "macro_count_snapshot_completed",
   "macro_count_space_changed",

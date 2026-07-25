@@ -105,7 +105,8 @@ def aggregate_tx(txs):
     """Aggregate transactions by cloudId -> revenue, billing period, paid-through date."""
     agg = defaultdict(lambda: {"vendor": 0.0, "n": 0, "annual": 0, "monthly": 0,
                                "paid_thru": None, "last_sale": "", "company": "", "tier": "",
-                               "last_paid_amount": 0.0, "last_paid_date": ""})
+                               "last_paid_amount": 0.0, "last_paid_date": "", "last_paid_mend": "",
+                               "last_paid_billing": ""})
     for t in txs:
         cid = t.get("cloudId"); p = t.get("purchaseDetails", {}); a = agg[cid]
         amt = float(p.get("vendorAmount", 0) or 0)
@@ -117,10 +118,17 @@ def aggregate_tx(txs):
         sd = p.get("saleDate", "")
         if sd > a["last_sale"]: a["last_sale"] = sd; a["tier"] = p.get("tier", a["tier"])
         if amt > 0:                                  # paid-through = latest PAID coverage end
-            me = pdate(p.get("maintenanceEndDate"))
+            mes = p.get("maintenanceEndDate") or ""
+            me = pdate(mes)
             if me and (a["paid_thru"] is None or me > a["paid_thru"]): a["paid_thru"] = me
-            if sd > a["last_paid_date"]:              # most recent PAID sale -> expected renewal $
-                a["last_paid_date"] = sd; a["last_paid_amount"] = amt
+            # most recent PAID sale -> expected renewal $. Tie-break on maintenanceEndDate:
+            # a cycle often posts TWO same-day transactions — a small trailing true-up for the
+            # cycle just ended (mEnd in the past) plus the real forward line. Comparing saleDate
+            # alone let whichever came first in the API response win, so a $0.27 true-up could
+            # stand in for a $15.49 renewal (socialplus / liberty-corporate, 2026-07-25).
+            if (sd, mes) > (a["last_paid_date"], a["last_paid_mend"]):
+                a["last_paid_date"] = sd; a["last_paid_mend"] = mes; a["last_paid_amount"] = amt
+                a["last_paid_billing"] = bp
     return agg
 
 
@@ -142,6 +150,10 @@ def aggregate_tx_by_app(txs):
 
 
 def billing_of(a):
+    # The CURRENT cycle, not the lifetime majority: maymobility ran 28 monthly cycles before
+    # switching to Annual in 2024-07, so a count-based vote called its $841.50/yr renewal
+    # "Monthly" (2026-07-25). The most recent paid transaction is the authority.
+    if a.get("last_paid_billing"): return a["last_paid_billing"]
     if a["annual"] > a["monthly"] and a["annual"] > 0: return "Annual"
     if a["monthly"] > 0: return "Monthly"
     return "-"
@@ -286,7 +298,9 @@ APP_LABEL = {"com.zenuml.confluence-addon": "Full",
              "com.zenuml.confluence-addon-lite": "Lite",
              "gptdock-confluence": "Diagramly",
              "my-api": "AsyncAPI"}
-INTERNAL_HOSTS = {"zenuml", "zenuml-connect"}    # ZenUML's own instances — not customers
+# ZenUML's own instances — not customers. zenuml-dev is the Forge development site; its
+# license lapsing showed up as "$3.20 of income at risk" in the radar (2026-07-25).
+INTERNAL_HOSTS = {"zenuml", "zenuml-connect", "zenuml-dev"}
 
 
 def cmd_radar(args, auth):
@@ -549,16 +563,24 @@ def cmd_whois(args, auth):
     near-match hosts on a miss. Marketplace tx join on cloudId (see cmd_client)."""
     today = datetime.date.today()
     domain = args.domain
-    lics = export("licenses", auth, text=domain)
+    # The Marketplace text= search matches the tenant SLUG, not the full hostname: passing
+    # "subsplash.atlassian.net" returned zero licenses and a "not paying" verdict for a $5,782
+    # payer (2026-07-25). Every host this tool prints elsewhere is fully qualified, so strip the
+    # suffix before searching and keep `domain` only for display / tenant_info fallback.
+    q = domain[: -len(".atlassian.net")] if domain.lower().endswith(".atlassian.net") else domain
+    lics = export("licenses", auth, text=q)
     cloud_ids = {r.get("cloudId") for r in lics if r.get("cloudId")}
 
-    by_key = {}                                           # dedup: text=domain ∪ per-cloudId
-    for t in export("sales/transactions", auth, text=domain):
+    by_key = {}                                           # dedup: text=slug ∪ per-cloudId
+    for t in export("sales/transactions", auth, text=q):
         by_key[json.dumps(t, sort_keys=True, default=str)] = t
     for cid in cloud_ids:
         for t in export("sales/transactions", auth, text=cid):
             by_key[json.dumps(t, sort_keys=True, default=str)] = t
-    agg = aggregate_tx(list(by_key.values()))
+    # Per (cloudId, addonKey), not per cloudId: maymobility holds a paid Full license AND a
+    # zero-transaction Lite listing on one cloudId, so a cloudId-keyed aggregate gave BOTH rows
+    # $3,996.30 and summed the verdict to $7,992.60 — double its real lifetime (2026-07-25).
+    agg = aggregate_tx_by_app(list(by_key.values()))
 
     LITE = APPS["lite"]
     has_lite = False
@@ -568,7 +590,7 @@ def cmd_whois(args, auth):
         if key == LITE:
             has_lite = True
         app = "Full" if key == APPS["full"] else ("Lite" if key == LITE else key)
-        a = agg.get(r.get("cloudId"), {})
+        a = agg.get((r.get("cloudId"), key), {})
         tag, desc, vendor = _license_state(r, a, today)
         apps.append({
             "app": app, "cloudId": r.get("cloudId"),

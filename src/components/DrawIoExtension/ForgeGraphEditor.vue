@@ -13,8 +13,9 @@
     <!-- Title input overlays the iframe at the top-right, positioned to share
          DrawIO's toolbar row visually (matching the official drawio Confluence
          plugin's filename placement). The right offset clears DrawIO's
-         Save & Exit button. -->
-    <DrawIoExtension :doc="doc" />
+         Save & Exit button. currentXml feeds the AI auto-title watcher with the
+         live diagram content (initial body, then each DrawIO autosave). -->
+    <DrawIoExtension :doc="doc" :current-xml="currentXml" />
     <!-- Publishing overlay. The graph macro's Publish button lives INSIDE the
          DrawIO iframe (Save & Exit, relabeled), so unlike the other editors it
          can't show the PublishButton "Publishing…" spinner. Without this,
@@ -44,6 +45,7 @@ import { setupCloseGuard } from "@/utils/closeGuard";
 import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
 import EventBus from "@/EventBus";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { notifyAiTitleSaved } from "@/composables/useAutoTitle";
 
 const EMPTY_GRAPH = `<mxfile>
   <diagram name="Page-1">
@@ -67,6 +69,13 @@ export default {
     doc: Object,
     customContentId: { type: String, default: undefined }
   },
+  computed: {
+    // Live diagram content for the AI auto-title watcher: the latest DrawIO
+    // autosave xml once the user starts editing, otherwise the initial body.
+    currentXml() {
+      return this.latestXml || this.graphXml || "";
+    }
+  },
   methods: {
     sendToFrame(data) {
       if (this.$refs.drawioFrame) {
@@ -74,9 +83,10 @@ export default {
       }
     },
     onFrameLoad() {
-      // Send initial graph XML to the iframe
+      // Send initial graph XML to the iframe. autosave:1 makes DrawIO emit
+      // 'autosave' events on every model change (see loadGraph below).
       if (this.graphXml) {
-        this.sendToFrame({ action: 'load', xml: this.graphXml });
+        this.sendToFrame({ action: 'load', xml: this.graphXml, autosave: 1 });
       }
     }
   },
@@ -103,7 +113,13 @@ export default {
     // DrawIO stays waiting for a load action that never comes, and the
     // user sees an empty canvas. A subsequent Publish then writes that
     // empty canvas over the customer's real diagram (silent data loss).
-    const loadGraph = (xml) => this.sendToFrame({ action: 'load', xml });
+    // autosave:1 tells DrawIO to postMessage an 'autosave' event (with the
+    // current xml) on every model change. Without it DrawIO only speaks on the
+    // explicit 'save', so `latestXml` (and the AI auto-title watcher + local
+    // draft saver + close-guard, which all consume these events) would never
+    // see live edits. Confluence persistence is unaffected — that still runs
+    // only on the 'save' event.
+    const loadGraph = (xml) => this.sendToFrame({ action: 'load', xml, autosave: 1 });
     this.messageListener = async ({ data }) => {
       if (!data) {
         console.warn('Empty message sent to drawio editor.');
@@ -152,6 +168,13 @@ export default {
         // ensureTitle may block on user input (title prompt) — only show the
         // "Publishing…" overlay once a title exists and the actual upload starts.
         await window.ensureTitle();
+        // Record acceptance if the title still showing is the AI-generated one
+        // (no-op when the user typed their own). Mirrors forgeIndex.ts's save
+        // handler for the code editors.
+        notifyAiTitleSaved({
+          title: this.$store?.state?.diagram?.title,
+          contentId: this.$store?.state?.diagram?.id,
+        });
         this.publishing = true;
         const published = await this.saveGraphAndExit(window.graphXml);
         // On success the redirect (view.submit/close) tears down this modal, so
@@ -213,7 +236,7 @@ export default {
     this.restoreListener = (payload) => {
       if (payload?.scope !== this.draftScope || !payload?.draft) return;
       try {
-        this.sendToFrame({ action: 'load', xml: payload.draft.code });
+        this.sendToFrame({ action: 'load', xml: payload.draft.code, autosave: 1 });
         if (payload.draft.title) this.$store.dispatch('updateTitle', payload.draft.title);
         this.drawioModified = true;
         this.latestXml = payload.draft.code;

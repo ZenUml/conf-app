@@ -50,6 +50,10 @@ function getMermaidType(dsl: string): string {
 function titleTypeParam(diagramType: DiagramType, code: string): string {
   if (diagramType === DiagramType.Mermaid) return getMermaidType(code)
   if (diagramType === DiagramType.PlantUml) return DiagramType.PlantUml
+  // Graph (DrawIO) has no text DSL — DrawIoExtension feeds the extracted shape
+  // labels as `code`. 'flowchart' nudges the model to summarise the labelled
+  // nodes as a process/structure rather than a sequence of messages.
+  if (diagramType === DiagramType.Graph) return 'flowchart'
   return DiagramType.Sequence
 }
 

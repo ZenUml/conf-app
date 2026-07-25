@@ -13,6 +13,11 @@ description: >
 
 Analyse and track macro rendering performance via the `macro_viewed` `duration_ms` property.
 
+**Ongoing tracking**, as opposed to a one-off analysis, has two halves:
+`docs/analytics/rendering-perf-board.md` specs the Mixpanel board card by card (it must be
+built by hand — Mixpanel has no board-creation API), and `scripts/perf_report.py` produces
+the same cuts headlessly for cron/CI/regression diffs.
+
 ## What `duration_ms` measures
 
 `window.__macroLoadStart = performance.now()` is set in `index.html` `<head>` — the first line our JS executes inside the Forge iframe. `trackRenderTime()` fires at the end of each macro's render path.
@@ -93,7 +98,25 @@ reads `API_Secret` from `.env.mixpanel`; in a remote container the secret is usu
 the `MIXPANEL_API_SECRET` env var instead, so write it to a scratchpad `.env.mixpanel`
 and run from there. Never echo or commit the secret.
 
+Fastest path for a standard read — the whole baseline in one command:
+
+```bash
+python3 .claude/skills/rendering-perf/scripts/perf_report.py --days 7          # text
+python3 .claude/skills/rendering-perf/scripts/perf_report.py --days 1 --json d.json
+```
+
+It reports overall + per-type percentiles, phase attribution, the `content_source` split,
+and a daily trend with slow-share/SWR-share/cold-share — the same cuts as the Mixpanel
+board, on the same pinned population. Reach for hand-written JQL only for a cut it
+doesn't cover.
+
 JQL notes that cost time to work out:
+- **Max 8 reducers per `groupBy`.** A 9th returns `412 Precondition Failed`
+  (`UserVisiblePreconditionFailedError: … accept at most 8 reducers`), which looks exactly
+  like a rate limit but is not — retrying never clears it. Split the query instead; that is
+  why `perf_report.py` fetches phases separately from duration percentiles.
+- `412` and `429` *are* also the throttle codes, so check the response **body** before
+  assuming you are rate-limited — the reducer-cap error is only visible there.
 - `mixpanel.reducer.numeric_percentiles(prop, [50, 90, 99])` gives percentiles directly,
   but returns **no count** — pass an array of reducers to get both:
   `groupBy([keyFn], [mixpanel.reducer.count(), mixpanel.reducer.numeric_percentiles(...)])`.

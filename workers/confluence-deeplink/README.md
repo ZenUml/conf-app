@@ -3,6 +3,34 @@
 Serves `https://confluence.zenuml.com`, the host used by the embed autoConvert
 deeplink (`/d/<cloudId>/<contentId>`, PR #360).
 
+## Multi-brand direction (all 4 variants will support deeplinks)
+
+**Requirement (2026-07-27): every variant — lite, full, diagramly, asyncapi —
+will support deeplinks.** The current single-domain (`confluence.zenuml.com`)
+setup is a **v1**, not the final shape. Two things break at 4 variants:
+
+1. **Brand leak** — Diagramly and AsyncAPI are separately-branded products; a
+   `confluence.zenuml.com` URL shared from Diagramly leaks the ZenUML brand.
+2. **Cross-app matcher conflict** — full + AsyncAPI (different products) CAN be
+   co-installed on one tenant; both registering `confluence.zenuml.com/d/*/*`
+   collides (last-declared wins, no platform detection).
+
+**Target design — per-BRAND domains, but still ONE shared Worker:**
+
+| Brand | Domain | Variants |
+|---|---|---|
+| ZenUML | `confluence.zenuml.com` | lite + full (same product, no co-install → no conflict) |
+| Diagramly | e.g. `d.diagramly.ai` | diagramly |
+| AsyncAPI | an asyncapi-branded subdomain | asyncapi |
+
+This Worker's logic is **domain-agnostic** (it only handles `/d/*` and `/i/*`;
+the ticket payload carries everything, the host is irrelevant to it), so ONE
+Worker bound to all these custom domains serves every brand — no per-app Workers.
+Touch-points when this lands: each variant's manifest matcher → its brand domain
+(manifest already substitutes per variant); `src/utils/embedDeeplink.ts`
+`DEEPLINK_RE` → multi-host; the mint endpoint → produce the brand's domain; this
+Worker → add the extra custom-domain routes.
+
 ## Why it exists
 
 Inside Confluence the deeplink never resolves over the network: the editor's

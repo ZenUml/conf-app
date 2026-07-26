@@ -29,11 +29,15 @@ deploy unit, no cross-unit secret sync).
 | Diagramly | e.g. `d.diagramly.ai` on conf-diagramly | diagramly |
 | AsyncAPI | asyncapi-branded subdomain on conf-asyncapi | asyncapi |
 
-Constraint: a custom domain attaches to exactly ONE Pages project, so
-`confluence.zenuml.com` lives on conf-lite OR conf-full (one serves both).
-Fine — lite+full are the same codebase (built from main), released together, so
-they have no independence need between them; independence that matters is
-cross-BRAND, which this fully satisfies.
+lite vs full — a CHOICE, not a constraint: they're both the ZenUML brand, so
+sharing one clean `confluence.zenuml.com` is a branding preference (two domains
+for one brand means awkward/tier-exposing names like `confluence-full`). If
+sharing, one Pages project (conf-lite OR conf-full) owns the custom domain and
+serves both. They CAN instead be fully separated (own domain + own Pages each) —
+but the gain is small: lite+full are the SAME codebase (built from main), so a
+CODE bug hits both regardless; separation only isolates deploy-INFRA failures.
+The isolation that actually matters is cross-BRAND (ZenUML vs Diagramly vs
+AsyncAPI — different apps, different code), which per-brand Pages fully satisfies.
 
 Cost (manageable): the Pages project then serves PUBLIC `/d/*` `/i/*` routes
 next to the authenticated backend API — `_middleware` already applies auth only

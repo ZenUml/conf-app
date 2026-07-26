@@ -35,6 +35,8 @@ interface Ticket {
   c: string; // contentId
   t?: string; // diagram title
   m: string; // minted-at ISO timestamp
+  w?: number; // PNG width (for og:image:width — helps Slack render inline)
+  h?: number; // PNG height
 }
 
 const IMG_TTL_SECONDS = 600;
@@ -57,10 +59,19 @@ const STATIC_PAGE_HEADERS: Record<string, string> = {
 };
 
 // Ticketed pages change state at the 10-minute mark — never cache them.
+// Expired + instruction pages stay noindex (may carry a customer /d path).
 const TICKETED_PAGE_HEADERS: Record<string, string> = {
   ...STATIC_PAGE_HEADERS,
   "cache-control": "no-store",
 };
+
+// The FRESH preview is content the user deliberately shared — fully unfurlable:
+// no noindex (meta OR header), so link unfurlers show the preview image.
+const PREVIEW_PAGE_HEADERS: Record<string, string> = (() => {
+  const h = { ...TICKETED_PAGE_HEADERS };
+  delete h["x-robots-tag"];
+  return h;
+})();
 
 const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -128,18 +139,27 @@ const BASE_STYLE = /* css */ `
   footer a:hover { text-decoration: underline; }
 `;
 
-function shell(opts: { title: string; og: string; body: string; extraStyle?: string }): string {
+function shell(opts: { title: string; og: string; body: string; extraStyle?: string; noindex?: boolean; largeImage?: boolean }): string {
+  // Default noindex (bare instruction / expired pages may carry a customer
+  // /d/<cloudId>/<contentId> path). The fresh preview opts OUT: it is content
+  // the user deliberately shared, and some link unfurlers (Slack included)
+  // suppress the preview image on noindex pages.
+  const noindex = opts.noindex !== false;
+  // twitter:card drives the unfurl image SIZE. `summary` renders a small square
+  // thumbnail (often dropped for non-square images); `summary_large_image`
+  // shows the full-width image — required for the diagram preview to appear.
+  const twitterCard = opts.largeImage ? "summary_large_image" : "summary";
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
+${noindex ? '<meta name="robots" content="noindex">' : ''}
 <title>${esc(opts.title)}</title>
 <meta property="og:site_name" content="ZenUML">
 <meta property="og:type" content="website">
 ${opts.og}
-<meta name="twitter:card" content="summary">
+<meta name="twitter:card" content="${twitterCard}">
 <link rel="icon" href="${FAVICON}">
 <style>${BASE_STYLE}${opts.extraStyle ?? ""}</style>
 </head>
@@ -181,12 +201,21 @@ function confluenceUrl(ticket: Ticket): string {
 function previewPage(origin: string, token: string, ticket: Ticket): string {
   const title = ticket.t ? `${ticket.t} — ZenUML diagram` : "ZenUML diagram";
   const imgUrl = `${origin}/i/${token}`;
+  const dims = ticket.w && ticket.h
+    ? `<meta property="og:image:width" content="${ticket.w}">
+<meta property="og:image:height" content="${ticket.h}">`
+    : "";
   return shell({
     title,
+    noindex: false,
+    largeImage: true,
     og: `<meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="Shared diagram preview — open the link to see the source in Confluence.">
 <meta property="og:image" content="${esc(imgUrl)}">
-<meta property="og:image:type" content="image/png">`,
+<meta property="og:image:secure_url" content="${esc(imgUrl)}">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="${esc(ticket.t || "ZenUML diagram")}">
+${dims}`,
     body: /* html */ `
   <span class="mark" role="img" aria-label="ZenUML"></span>
   <h1>${esc(ticket.t ?? "Shared diagram")}</h1>
@@ -266,7 +295,6 @@ export default {
           "content-type": "image/png",
           // Short cache so CDNs can't extend the capability much past expiry.
           "cache-control": "public, max-age=300",
-          "x-robots-tag": "noindex",
         },
       });
     }
@@ -285,10 +313,9 @@ export default {
         }
         // Bind the ticket to the path it was minted for.
         if (isTicket(raw) && raw.c === strict[2]) {
-          const page = imageFresh(raw)
-            ? previewPage(url.origin, token, raw)
-            : expiredPage(raw);
-          return new Response(page, { status: 200, headers: TICKETED_PAGE_HEADERS });
+          return imageFresh(raw)
+            ? new Response(previewPage(url.origin, token, raw), { status: 200, headers: PREVIEW_PAGE_HEADERS })
+            : new Response(expiredPage(raw), { status: 200, headers: TICKETED_PAGE_HEADERS });
         }
       }
     }

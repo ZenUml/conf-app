@@ -117,6 +117,28 @@ describe("confluence-deeplink worker", () => {
         'href="https://example.atlassian.net/wiki/pages/viewpage.action?pageId=123456"',
       );
       expect(res.headers.get("cache-control")).toBe("no-store");
+      // The fresh preview is deliberately shared → fully unfurlable: NO noindex
+      // (meta or header), summary_large_image so Slack renders the big image.
+      expect(res.headers.get("x-robots-tag")).toBeNull();
+      expect(html).not.toContain('name="robots"');
+      expect(html).toContain('twitter:card" content="summary_large_image"');
+    });
+
+    it("emits og:image dimensions when the ticket carries w/h (helps Slack render inline)", async () => {
+      const { kv } = makeKV();
+      await kv.put(`ticket:${TOKEN}`, ticket({ w: 1012, h: 786 }));
+      const html = await (
+        await get({ DEEPLINK_KV: kv }, `/d/${CLOUD_ID}/425987?t=${TOKEN}`)
+      ).text();
+      expect(html).toContain('og:image:width" content="1012"');
+      expect(html).toContain('og:image:height" content="786"');
+    });
+
+    it("expired page stays noindex (may carry a customer /d path, not deliberately shared)", async () => {
+      const { kv } = makeKV();
+      await kv.put(`ticket:${TOKEN}`, ticket({ m: "2026-01-01T00:00:00Z" }));
+      const res = await get({ DEEPLINK_KV: kv }, `/d/${CLOUD_ID}/425987?t=${TOKEN}`);
+      expect(await res.text()).toContain("This preview has expired");
       expect(res.headers.get("x-robots-tag")).toBe("noindex");
     });
 

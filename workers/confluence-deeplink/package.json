@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test:e2e": "node e2e/run-e2e.mjs",
     "deploy:preview": "wrangler deploy",
     "deploy:prod": "wrangler deploy --env production"
   },

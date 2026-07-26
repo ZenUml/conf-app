@@ -97,6 +97,50 @@ describe("deeplink-ticket", () => {
     expect(res.status).toBe(409);
   });
 
+  it("rejects a PNG over the 2MB cap with 413", async () => {
+    const { kv } = makeKV();
+    // Valid magic followed by >2MB of padding, base64-encoded.
+    const big = new Uint8Array(2 * 1024 * 1024 + 16);
+    big.set([0x89, 0x50, 0x4e, 0x47]);
+    let bin = "";
+    for (let i = 0; i < big.length; i += 0x8000) {
+      bin += String.fromCharCode(...big.subarray(i, i + 0x8000));
+    }
+    const res = await onRequest({
+      request: makeRequest({ ...validBody, pngBase64: btoa(bin) }),
+      env: { DB: makeDB("x.atlassian.net"), DEEPLINK_KV: kv },
+      data: forgeData,
+    });
+    expect(res.status).toBe(413);
+  });
+
+  it("truncates an oversized title instead of rejecting", async () => {
+    const { kv, puts } = makeKV();
+    const res = await onRequest({
+      request: makeRequest({ ...validBody, title: "x".repeat(1000) }),
+      env: { DB: makeDB("x.atlassian.net"), DEEPLINK_KV: kv },
+      data: forgeData,
+    });
+    expect(res.status).toBe(200);
+    const out = (await res.json()) as any;
+    const ticket = puts.find((p) => p.key === `ticket:${out.token}`);
+    expect(ticket).toBeDefined();
+  });
+
+  it("returns 500 (not an unhandled throw) when the KV write fails", async () => {
+    const kv = {
+      put: vi.fn(async () => {
+        throw new Error("kv down");
+      }),
+    } as any;
+    const res = await onRequest({
+      request: makeRequest(validBody),
+      env: { DB: makeDB("x.atlassian.net"), DEEPLINK_KV: kv },
+      data: forgeData,
+    });
+    expect(res.status).toBe(500);
+  });
+
   it("mints: img gets the TTL, ticket does not, url carries the token", async () => {
     const { kv, puts } = makeKV();
     const res = await onRequest({

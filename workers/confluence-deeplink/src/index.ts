@@ -275,7 +275,14 @@ export default {
     if (strict && env.DEEPLINK_KV) {
       const token = url.searchParams.get("t");
       if (token && TOKEN_RE.test(token)) {
-        const raw = await env.DEEPLINK_KV.get(`ticket:${token}`, "json");
+        // Malformed ticket JSON (get throws) or KV trouble must degrade to the
+        // instruction page, never surface a 1101.
+        let raw: unknown = null;
+        try {
+          raw = await env.DEEPLINK_KV.get(`ticket:${token}`, "json");
+        } catch {
+          raw = null;
+        }
         // Bind the ticket to the path it was minted for.
         if (isTicket(raw) && raw.c === strict[2]) {
           const page = imageFresh(raw)

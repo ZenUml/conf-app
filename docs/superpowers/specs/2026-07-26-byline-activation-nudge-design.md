@@ -156,9 +156,11 @@ point is *look first, decide never*. Transparency is carried by the loading copy
 this page…"), which states what is happening at the moment it happens. Rovo (data stays in
 Atlassian) remains an enterprise *enhancement*, not the v1 backend.
 
-**"Generate Again"** takes an optional one-line steer ("What should this diagram show?") —
-same-input rerolls reproduce the miss. If the user edited first, regeneration needs a
-discard confirm.
+**Regeneration is one affordance, not two.** The preview offers a single link — "Not quite
+right?" — which expands into an optional steer input ("What should this diagram show?") whose
+submit is "Generate again"; the trigger hides while the row is open, so only one
+generate-labelled control ever exists. Same-input rerolls reproduce the miss, hence the steer.
+If the user edited first, regeneration needs a discard confirm.
 
 **Why deeplink completion is primary (given #360 ships first):** the activation flow is
 #360's missing *producer* — every activated user mints a link and learns the paste workflow,

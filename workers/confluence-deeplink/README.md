@@ -49,6 +49,18 @@ it the domain has no DNS record and those links dead-end at a resolver error.
   HTML only).
 - `noindex` meta + `X-Robots-Tag` keep customer link paths out of search indexes.
 
+## Operating gotchas (paid for on 2026-07-26)
+
+- **wrangler v4 `kv key put/get/list` default to LOCAL miniflare storage**
+  (`.wrangler/state`), silently. Without `--remote` your writes AND readbacks
+  hit a local store that agrees with itself — while the real namespace stays
+  empty. Symptom: CLI sees keys the deployed Worker can't, and vice versa.
+  Always pass `--remote` when seeding/inspecting real namespaces.
+- The Workers runtime refuses to start a module Worker with a non-handler
+  named export (`export const X` → "Incorrect type for map entry").
+- Top-level `name` and `[env.production] name` must differ, or
+  `deploy:preview` silently overwrites the production service.
+
 ## Deploy
 
 ```bash

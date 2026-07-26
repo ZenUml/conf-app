@@ -283,9 +283,19 @@ The viewer already has three "get this diagram elsewhere" affordances and two of
 | Bottom pill | **Copy code** | DSL text — **same payload** (both call `getCodeFromDiagram`) |
 | Bottom pill | **Copy link** | the **page** URL (`_links.base + webui`) — not the diagram |
 
-- [ ] **Step 1: Measure before deleting**
+- [x] **Step 1: Measured 2026-07-26 — decided**
 
-Run a Mixpanel query for the legacy `copy_code` event (fired at `GenericViewer.vue:700`) over 30 days, split by surface, excluding internal domains. Record the volume here. Keep whichever of the two copy affordances is actually used; delete the other. Do not delete on aesthetics alone.
+Both pill buttons fire the legacy `trackEvent(label, action, ...)`, so they land as event `click` with the name in `event_label` — not as their own events. 30 days, external tenants:
+
+| Affordance | Event | Volume |
+|---|---|---|
+| Source panel Copy | `viewer_source_copied` | **277** (in only 14 days of existence) |
+| Pill "Copy code" | `click` / `event_label=copy_code` | **71** / 30d |
+| Pill "Copy link" | `click` / `event_label=copy_link` | **11** / 30d |
+| _(scale)_ Edit | `click` / `edit` | 732 |
+| _(scale)_ Fullscreen | `click` / `fullscreen` | 423 |
+
+**Decisions:** delete the pill's **Copy code** — same payload as the Source panel's Copy at roughly one-eighth the rate. Repurpose the **Copy link** slot (11/30d, effectively unused, and Confluence has a native page-link affordance anyway) for **Copy diagram link**. Net pill buttons: **−1**, and the deeplink action inherits an existing slot instead of adding one.
 
 - [ ] **Step 2: Rename for disambiguation, add the diagram link**
 

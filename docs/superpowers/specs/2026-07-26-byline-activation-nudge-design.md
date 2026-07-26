@@ -96,6 +96,15 @@ Invocations are measured; duration/memory are assumptions — but even the optim
 busts the tier, and this exact shape was already an incident once
 (`remote-page-behavior-trigger` ≈ 98% of all GB-s, disabled in PR #234).
 
+**⚠️ CHALLENGED 2026-07-26 — this wall is UNVERIFIED and may not exist.** Two soft spots, both cheaply testable:
+
+1. **Duration is an assumption, and the crossover is ~50ms.** GB-s = invocations x duration x memory. At 512 MB, 4,152,322 x 0.05s x 0.5 = 103,808 GB-s, i.e. exactly the free tier. A handler that returns a constant with no I/O plausibly bills well under that (20 ms -> 41,500 GB-s = 42% of tier). Settle it from the console: **Metrics -> Invocation -> response time, Group by: Function** (forge-functions-cost skill). Nobody has looked.
+2. **The 4.15M count assumes the function fires on EVERY content view fleet-wide.** If `displayConditions` are evaluated *before* `dynamicProperties`, it only fires where the item actually displays — with the v5 content-property gate that is *prepared pages only*, i.e. dozens at pilot scale. That is a ~4-order-of-magnitude difference and it dissolves the wall entirely. The docs do not state the ordering (they say conditions "evaluate static context at the manifest level", "executed on the client-side"). §4 verified that gating *works*; it never measured whether a hidden item still invokes app code.
+
+**Test (≈30 min, same rig as 16.128–16.133):** deploy a gated byline whose `dynamicProperties` handler logs; load one page where the condition passes and one where it fails; compare **Metrics -> Invocation -> Invocation count, Group by: Source**. Hidden page produces no invocation ⇒ this section's rejection of per-user variants is void.
+
+**What does NOT change either way:** `dynamicProperties` cannot be offloaded to our Cloudflare backend — `@forge/manifest@12.7.0` `manifest-schema.json:3477-3490` types it `{ function }` with `required: ["function"]`, `additionalProperties: false`; only the sibling `resolver` accepts `{ endpoint }`. And "make it async" is not a lever: the waived-async bucket is **function-based async only**, and a trigger→remote forward bills as SYNC (forge-functions-cost skill) — while `dynamicProperties` is request/response on the render path, with no defer contract at all.
+
 **Cloudflare KV does not help**: the cost is the *invocation*, not the storage, and the
 condition evaluator can only read **Confluence entity properties** anyway.
 `displayConditions` are evaluated by Confluence server-side; with no `dynamicProperties`

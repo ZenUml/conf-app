@@ -56,6 +56,29 @@ Every alternative was measured and lost:
 | Succeeded | 2,099 | 267 |
 | Viewer → try rate | **12.9%** | 13.7% |
 
+**The existing byline is the control group, and it is dead.** `zenuml-byline-aiaide` ships
+unconditionally on every page in Lite/Full/Diagramly. Measured `ai_aide_route_accessed`
+(2026-07-26):
+
+| Window | Events | External events | Domains |
+|---|---:|---:|---:|
+| 90 days | 48 | 26 | 14 external + `zenuml`/`dia-stg` |
+| **30 days** | **15** | **6** | 5 external (+8 events from `zenuml`, i.e. us) |
+
+Six external clicks in 30 days, from an always-visible chip, against 17,780 Lite macro
+viewers a quarter. Two consequences: (a) §8.4's "Aide co-display policy" is moot — there is
+nothing to preserve, so a merged single item simply replaces it; (b) this is the baseline any
+new byline must beat, and it proves a chip alone converts nothing. The difference has to come
+from *what is behind the click*, which is the §6b bet.
+
+**Instrumentation caveat on that number:** `ai_aide_route_accessed` fires as the first line of
+`handleAiAideRoute()` (`src/routes/aiAide.ts:9`), before the Forge context resolves. Every
+event carries the literal placeholder `unknown_user_account_id`, and 27% also lose the tenant
+(`unknown_atlassian_domain`). The event count is trustworthy; the user count is not knowable
+at all. **The new byline events must fire after identity resolution** — switching to
+`trackAnalyticsEvent` does NOT fix this by itself (`trackAnalyticsEvent.ts:56-61` degrades to
+the same placeholder when `apWrapper` is not ready).
+
 Honest framing: 12.9% is **not a crisis** (healthy versus 90-9-1 participation norms).
 This is a **zero-cost growth lever on a warm audience**: ~15,500 Lite viewers per quarter
 sit in diagram-using spaces (byline's gate, by construction) and have never pressed create.
@@ -104,6 +127,21 @@ busts the tier, and this exact shape was already an incident once
 **Test (≈30 min, same rig as 16.128–16.133):** deploy a gated byline whose `dynamicProperties` handler logs; load one page where the condition passes and one where it fails; compare **Metrics -> Invocation -> Invocation count, Group by: Source**. Hidden page produces no invocation ⇒ this section's rejection of per-user variants is void.
 
 **What does NOT change either way:** `dynamicProperties` cannot be offloaded to our Cloudflare backend — `@forge/manifest@12.7.0` `manifest-schema.json:3477-3490` types it `{ function }` with `required: ["function"]`, `additionalProperties: false`; only the sibling `resolver` accepts `{ endpoint }`. And "make it async" is not a lever: the waived-async bucket is **function-based async only**, and a trigger→remote forward bills as SYNC (forge-functions-cost skill) — while `dynamicProperties` is request/response on the render path, with no defer contract at all.
+
+**"Make it async" does not help either (settled 2026-07-26).** Three reasons, strongest first:
+
+1. **The demand side kills it before the cost side does.** The invocation count is fixed at
+   content-view volume — 4.15M/month — whatever the per-invocation price. The measured return
+   on an always-visible byline is **6 external clicks/month** (§3). No async discount closes a
+   gap of that shape; the question is not "how cheap can per-view get" but "why pay per view
+   at all for a per-click feature".
+2. **Async is not on offer for this hook.** `dynamicProperties` returns the `title`/`icon`/
+   `tooltip` the platform needs in order to paint the byline, so the platform blocks on it by
+   construction. (Structural reasoning from the hook's contract, not a doc citation — but
+   returning "later" is not a meaningful option for a value needed at render time.)
+3. **"Async is waived" has already failed us once here.** Our own cost experience is that a
+   `trigger`→`remote` forward bills as **SYNC, not waived async** (see the
+   `forge-functions-cost` skill). Do not plan against an assumed async discount.
 
 **Cloudflare KV does not help**: the cost is the *invocation*, not the storage, and the
 condition evaluator can only read **Confluence entity properties** anyway.
@@ -258,7 +296,10 @@ fail-softs (verified) and the instruction page explains the rest.
 
 ## 7. Rejected on evidence (do not relitigate without new data)
 
-1. **Per-user animation via `dynamicProperties`** — cost wall (§5).
+1. **Per-user animation via `dynamicProperties`** — cost wall (§5). **Including an async
+   variant** — re-argued and rejected 2026-07-26: the invocation count, not the per-invocation
+   price, is the problem; this hook is render-blocking by construction; and the demand side
+   (6 external clicks/30d, §3) does not justify any per-view cost model.
 2. **`entity: user` suppression condition** — evaluator can't see REST-written user
    properties (§4); only worth revisiting via an asApp write if suppression proves necessary.
 3. **Cloudflare KV as the flag store** — unreachable by the evaluator (§5).

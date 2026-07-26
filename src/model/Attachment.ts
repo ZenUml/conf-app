@@ -245,7 +245,13 @@ async function fetchPlantUmlPng(code: string): Promise<Blob | undefined> {
  * server-side PNG fetch above (html-to-image can't reliably rasterize its
  * remote SVG); every other type captures the rendered DOM via toPng().
  */
-async function capturePng(diagramType?: string, content?: string): Promise<Blob | null | undefined> {
+// Exported for the byline activation dialog's completion screen (mint a
+// deeplink PNG). NOTE: DOM capture is scoped to '.screen-capture-content' /
+// '#mainFrame' by bare document lookups, so the diagram preview MUST still be
+// mounted in the live DOM when this is called (capture at/just-after save,
+// not lazily on the completion screen). Proven for sequence/mermaid/plantuml;
+// graph/openapi have no snapshot node and return a non-PNG blob.
+export async function capturePng(diagramType?: string, content?: string): Promise<Blob | null | undefined> {
   const trimmed = content?.trim() ?? '';
   if (diagramType === 'plantuml' && trimmed) {
     // Callers can pass a mismatched content/diagramType pair — e.g. the
@@ -382,7 +388,7 @@ async function postAttachmentAsUser(
  * the PNG to the backend fallback over the JSON `callRemote` wire. Uses
  * FileReader rather than `blob.arrayBuffer()` for jsdom compatibility in tests.
  */
-function blobToBase64(blob: Blob): Promise<string> {
+export function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {

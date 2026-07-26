@@ -87,11 +87,17 @@ jobs:
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi"))) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"])' -i manifest.yml
-      - name: Remove contentBylineItem in manifest.yml
-        if: ${{ steps.properties.outputs.license != 'diagramly' }}
+      # Lite + Full: keep zenuml-byline-newuser (the activation nudge, gated
+      # by displayConditions.entityPropertyExists), drop only
+      # zenuml-byline-aiaide. A whole-module delete here would also remove
+      # newuser — don't reintroduce that. Diagramly keeps the whole module
+      # (incl. aiaide, unchanged); asyncapi strips the whole module via its
+      # own step further below (unchanged).
+      - name: Remove zenuml-byline-aiaide from manifest.yml (keep zenuml-byline-newuser)
+        if: ${{ steps.properties.outputs.license == 'lite' || steps.properties.outputs.license == 'full' }}
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules["confluence:contentBylineItem"])' -i manifest.yml
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))' -i manifest.yml
       # All non-asyncapi variants: strip the Connect lifecycle module
       # (connectModules). It lives in manifest.yml only so the asyncapi
       # variant — which still serves legacy Connect (my-api / AsyncAPI-Conf-V2)

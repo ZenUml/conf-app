@@ -12,7 +12,8 @@ const AUTHENTICATED_PATHS = [
   '/metrics-cache',
   '/forge-custom-content',
   '/forge-upload-attachment',
-  '/deeplink-ticket'
+  '/deeplink-ticket',
+  '/activation-prepared'
 ];
 
 // Create a middleware function that handles authentication

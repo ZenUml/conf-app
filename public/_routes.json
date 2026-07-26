@@ -27,7 +27,8 @@
     "/feature-flags",
     "/ai-generate-title",
     "/agent-link/*",
-    "/deeplink-ticket"
+    "/deeplink-ticket",
+    "/activation-prepared"
   ],
   "exclude": []
 }

@@ -6,31 +6,54 @@
 
 **Why this blocks:** the only argument for "paste produces an embed" is that an embed is *reversible* (it can become a copy; a copy can never become a reference). If the reverse path doesn't exist at acceptable cost, that argument collapses and the default should flip to clone, because a clone is at least always editable. One spike, one design-level consequence.
 
-**Architecture:** three candidate mechanisms, cheapest first.
+**Revision 2026-07-26 (desk pass, before any execution):** Q1 was answered statically and the answer eliminated two of the three original mechanisms. See "Desk findings" below — this doc has been restructured around what survived.
 
-| | Mechanism | Where it would happen |
+---
+
+## Desk findings (2026-07-26, no environment touched)
+
+### D1 — `view.submit`'s payload is unconstrained by the SDK; Q1 is not statically answerable
+
+- `@forge/bridge@5.16.0` types it as `submit: (payload?: any) => Promise<void>` (`out/view/submit.d.ts:1`). `any` neither permits nor forbids an `extensionKey` — **a clean `tsc` run proves nothing here.**
+- The SDK is a pure pass-through: `callBridge('submit', payload)` with no client-side shaping (`out/view/submit.js`). Whatever is accepted is decided by the Confluence host, which is not in `node_modules`.
+- Nothing in `@forge/bridge` or `@forge/manifest` mentions `extensionKey`.
+- **All six** `submit` call sites in this repo pass only `{config: {...}}` — `forge-embed-editor.ts:120`, `forge-swagger-editor.ts:190`, `forge-graph-editor.ts:162`, `forgeIndex.ts:1161`, `forge-asyncapi-editor.ts:180`, `forge-asyncapi-embed-editor.ts:35`. No prior art of anything else.
+
+### D2 — `view.submit` only works in the page-editor config surface, and this has bitten us twice
+
+This is the finding that restructures the spike. Documented independently in three places in our own code:
+
+| Source | What it says |
+|---|---|
+| `src/model/asyncapi/resolveEditorEntry.ts:12-24` | "changing a macro's config is only possible where `view.submit()` is submittable — the native page-editor config gesture (`macro.isInserting` / `macro.isConfiguring`). The view-mode 'Edit' affordance opens a Forge *modal* (`modal.macroMode === 'editor'`) where `view.submit()` throws 'this resource's view is not submittable'." |
+| `src/components/Viewer/GenericViewer.vue:322` | "Our in-viewer Edit opens a modal where `view.submit({config})` can't persist back to the macro — saves would silently create orphans" |
+| `src/model/Diagram/Diagram.ts:50` | "The in-viewer Edit button is gated off because `view.submit({config})` in the modal flow doesn't persist back to the macro XML" |
+
+Two shipped bugs already came from this: the asyncapi embed picker was routed to the view-mode modal and **every** re-target hit the throw ("Failed to embed document. Please try again.", no way to save); and ZEN-1170 Defect 2b had to *disable* the in-viewer Edit button for orphan-recovered diagrams and steer users to "click Edit on the page (top right), then click Edit on this macro."
+
+**Consequence:** any mechanism that writes macro **config** or the page **ADF** can only run from the native page-editor surface. The user journey becomes: enter page edit mode → open the macro config → act → publish the page. That is **≥3 actions plus a full page publish**, which fails Gate A criteria 1 and 2 *by construction* — no experiment needed.
+
+### D3 — what this eliminates
+
+| | Mechanism | Verdict |
 |---|---|---|
-| **A** | `view.submit` changes the node's extension **key** from `zenuml-embed-macro${LITE_KEY_SUFFIX}` to `${SEQUENCE_MACRO_KEY}` | macro editor (`src/forge-embed-editor.ts:120`) |
-| **B** | Keep the embed macro; fork the source into a **new** custom content, repoint `config.customContentId` at the fork, swap the editor from the picker to the DSL editor | macro editor + `ApWrapper2.createCustomContentV2` (`:295`) |
-| **C** | Replace the extension node in the page ADF outright | unknown — the 2026-07-16 spike called this "the ADF-insertion trap" and avoided it without establishing whether it is *unsupported* or merely *unattempted* |
+| ~~**A**~~ | `view.submit` changes the extension key | **Dead on criteria 1–2** regardless of whether the host accepts `extensionKey`. Inherits D2's surface constraint. Q1's live test is now moot. |
+| ~~**B**~~ | Fork the content, repoint `config.customContentId` | **Dead on criteria 1–2.** The repoint is a config write. Inherits D2. |
+| ~~**C**~~ | Replace the extension node in the page ADF | **Dead on criteria 1–2**, and worse: rewriting customer page bodies under the app's identity, racing concurrent human edits. |
+| **B′** | Fork the content and record the override in a **viewer-writable** store, keyed to the macro — never touching config or ADF | **The only survivor.** This is what the spike now tests. |
 
-**Tech Stack:** Forge Custom UI (`view.submit`), `manifest.yml`, `src/forge-embed-editor.ts`, `src/components/DrawIoExtension/ForgeEmbedEditor.vue`, `src/model/ApWrapper2.ts`, Vitest, `pnpm forge:*:dev` (forgex wrapper), Confluence Cloud dev site.
+**B′ is plausible because the viewer *can* write custom content** (`ApWrapper2.saveCustomContentV2` / `createCustomContentV2`; the agent-link feature already persists diagram writes from the viewer surface), and the embed viewer already has a non-config resolution path — the legacy `uuid` recovery block in `src/forge-embed-viewer.ts:28-49`, plus `parameters.autoConvertLink` for pasted embeds. An override keyed on the macro's `localId`/`uuid` would slot into the same resolution chain.
 
-**Spike status:** This is a SPIKE. The branch (`spike/embed-to-copy-escape-hatch`) is **never merged**. Deliverable = the Findings section below, filled in, plus Gate A.
+**B′ is not free**, and the spike must price these, not wave at them:
+- It is a **shadow persistence layer the page ADF knows nothing about**. Copy the page, and the override either follows or doesn't (`localId` is measured to survive whole-page copy — so the fork would be *shared* by the copy, which may be wrong).
+- Delete the macro and the forked content orphans — straight into the `customcontent_orphan_observed` surface we already have pain in.
+- The `EMBED` chip and the embed macro's picker-only editor still describe a reference, not a copy (criterion 5, criterion 3).
 
-## Established facts this spike starts from
+---
 
-Verified 2026-07-26 by reading the code — do not re-derive:
+## Gate A acceptance criteria — FIXED BEFORE RUNNING
 
-- Macro config is written **only** from the editor surface, via `await (await getView()).submit({config: {...}})` — `src/forge-embed-editor.ts:120`. The viewer has **no** config-write path.
-- The embed editor is a **picker only**: `ForgeEmbedEditor.vue` renders `<DocumentList />` and nothing else. It cannot edit DSL.
-- The main diagram macro key is `${SEQUENCE_MACRO_KEY}`; the embed macro key is `zenuml-embed-macro${LITE_KEY_SUFFIX}` (`manifest.yml:193`, `:235`).
-- An embed save creates **no new CustomContent record** — it only points the macro at an existing one (`saveEmbedAndExit` comment, `src/forge-embed-editor.ts:27`).
-- `autoConvertLink` persists in the page ADF as `parameters.autoConvertLink` with `hasBeenAutoConverted: true`, so a pasted embed's target is derivable per render with no config write (2026-07-16 spike, Q1).
-
-## Gate A acceptance criteria — WRITE THIS DOWN BEFORE RUNNING
-
-`REVERSIBLE` requires **all five**. Any failure ⇒ `NOT REVERSIBLE`. Defined up front so the verdict is not rationalised against whatever the implementation turns out to cost.
+`REVERSIBLE` requires **all five**. Any failure ⇒ `NOT REVERSIBLE`. Written down up front so the verdict is not rationalised against whatever the implementation turns out to cost.
 
 1. **≤ 2 user actions** from the blocked Edit click to an editable copy.
 2. **No extra page publish** beyond the one a normal macro edit already requires.
@@ -45,14 +68,14 @@ Verified 2026-07-26 by reading the code — do not re-derive:
 - **Deploy to the personal development env ONLY** (`FORGE_ENV=development`, lite-dev). No staging/prod deploys.
 - **Spike branch never merges; no release.** No analytics events — a spike that never ships needs none.
 - **Client privacy:** findings must not contain real customer tenant names; the dev site name is fine.
-- **Timebox: 1 day.** Per question: stop after 3 distinct attempts, record the failure, move on. A NO on any question is a finding, not a failure.
+- **Timebox: half a day** (was one day; D1–D3 removed three of four questions). Stop after 3 distinct attempts on Q2, record the failure, write findings. A NO is a finding, not a failure.
 
-## Open Questions This Spike Must Answer
+## Open Questions — what is actually left
 
-1. **Q1 — Mechanism A:** can `view.submit` change the extension **key**, or only the config payload? (Expected NO — confirm rather than assume.)
-2. **Q2 — Mechanism B:** does fork + repoint + DSL-editor swap produce something that passes all five Gate A criteria?
-3. **Q3 — Mechanism C:** is replacing the extension node from inside a macro genuinely unsupported by the Forge platform, or just unattempted here?
-4. **Q4 — Paste undo:** does `Cmd+Z` immediately after autoconvert revert to a plain link? autoConvert takes over the paste with no Confluence-native URL/inline/card switcher, so undo is the only escape at paste time — this is part of whether the default is safe.
+1. **Q2 (the whole spike)** — does Mechanism B′ produce something that passes all five Gate A criteria, and what does its shadow-persistence cost look like in practice?
+2. **Q4 (independent, 5 minutes)** — does `Cmd+Z` immediately after autoconvert revert to a plain link? autoConvert takes over the paste with no Confluence-native URL/inline/card switcher, so undo is the only escape at paste time. Does not gate Gate A; it is a productization copy/UX input.
+
+*(Q1 answered on the desk — see D1/D3. Q3 moot — see D3.)*
 
 ---
 
@@ -70,7 +93,7 @@ Run: `forge install list -e development` — expected: one Confluence install; r
 
 - [ ] **Step 2: Branch from the autoconvert spike, not from main**
 
-Mechanism B and Q4 both need a working paste→embed flow, which only exists on the earlier spike branch.
+Q2 and Q4 both need a working paste→embed flow, which only exists on the earlier spike branch.
 
 ```bash
 git fetch origin
@@ -89,7 +112,7 @@ On `<DEV_SITE>`: a page **S** holding a real sequence diagram (the source), and 
 
 ---
 
-### Task 1: Q4 — paste undo (do this first; it is 5 minutes and independent)
+### Task 1: Q4 — paste undo (first; 5 minutes, independent)
 
 **Files:** none (evidence-gathering).
 
@@ -98,100 +121,64 @@ On `<DEV_SITE>`: a page **S** holding a real sequence diagram (the source), and 
 On page **T**, paste a valid deeplink → it autoconverts to the embed macro placeholder. Immediately press `Cmd+Z`.
 Expected (record whichever happens): reverts to a plain link / reverts to nothing / leaves the macro in place.
 
+**Automation caveat (from the 2026-07-16 spike):** a synthesized `Cmd+V` through the Playwright extension relay does **not** trigger native paste. Deliver a synthetic `ClipboardEvent` on the ProseMirror root, or do this step by hand. Never record a UI observation you did not actually see.
+
 - [ ] **Step 2: Repeat after a publish cycle**
 
-Publish, re-edit, and check whether the macro can still be removed the ordinary way (select + delete). Screenshot both.
-
-Record in Findings. **This does not gate the spike** — it is a productization copy/UX input either way.
+Publish, re-edit, confirm the macro can still be removed the ordinary way (select + delete). Screenshot both.
 
 ---
 
-### Task 2: Q1 — can `view.submit` change the extension key?
+### Task 2: Q2 — Mechanism B′, fork + viewer-writable override
+
+The whole spike. Mechanisms A, B and C are already dead on the desk (D3) — **do not spend time re-testing them.**
 
 **Files:**
-- Modify: `src/forge-embed-editor.ts` (the `submit` call at line 120)
-
-**Interfaces:**
-- Produces: a definite yes/no on Mechanism A.
-
-- [ ] **Step 1: Attempt the key change**
-
-In `saveEmbedAndExit`, behind a temporary `?spikeConvert=1` guard, attempt to submit an extension-key change alongside the config — e.g. `submit({ extensionKey: '<SEQUENCE_MACRO_KEY value for lite>' , config: {...} })` and any other shape the `@forge/bridge` `view` typings expose.
-
-Run: `npx tsc --noEmit -p tsconfig.json 2>&1 | grep -i "submit"` — expected: the typings tell you immediately whether anything but `config` is accepted. **Read the typings before running the app; this question may be answerable statically in two minutes.**
-
-- [ ] **Step 2: If the typings allow it, deploy and try it live**
-
-Run: `pnpm forge:all:dev`, then on page **T** open the embed macro's editor with the guard on and submit.
-Expected: record whether the node's key actually changes in the published ADF.
-
-Verify via the ADF dump (same method as the 2026-07-16 spike Q1):
-`GET /wiki/api/v2/pages/<pageId>?body-format=atlas_doc_format` — inspect `extensionKey` on the node.
-
-- [ ] **Step 3: Record and revert**
-
-Record Q1 = YES/NO with the evidence (typing signature or ADF dump). `git checkout src/forge-embed-editor.ts` if NO.
-
----
-
-### Task 3: Q2 — Mechanism B: fork + repoint + DSL editor
-
-The main event. Only run if Q1 = NO (if Q1 = YES, Mechanism A wins and Gate A = REVERSIBLE — go straight to Task 5).
-
-**Files:**
-- Modify: `src/components/DrawIoExtension/ForgeEmbedEditor.vue` (mount the DSL editor instead of `<DocumentList />` when a `?convert=1`-style param is present)
-- Modify: `src/forge-embed-editor.ts` (fork-then-submit path)
+- Modify: `src/forge-embed-viewer.ts` (resolution chain: override → `config.customContentId` → `autoConvertLink` → legacy `uuid`)
 - Modify: `src/components/Viewer/GenericViewer.vue` (temporary "Make an editable copy" affordance on the blocked Edit, to measure criterion 1)
+- Reference: `src/model/ApWrapper2.ts` — `getCustomContentByIdV2` (`:504`), `createCustomContentV2` (`:295`), `saveCustomContentV2` (`:1464`)
 
 **Interfaces:**
-- Consumes: `ApWrapper2.getCustomContentByIdV2(id)` (`:504`) to read the source, `ApWrapper2.createCustomContentV2(content)` (`:295`) to create the fork.
-- Produces: a pasted embed turned into an independently editable diagram — or a specific, named blocker.
+- Produces: a pasted embed turned into an independently editable diagram **without any config or ADF write** — or a specific, named blocker.
 
-- [ ] **Step 1: Fork the content**
+- [ ] **Step 1: Pick the override key and prove the viewer can write it**
 
-From the embed editor, read the source custom content, create a new one from its body under the **current** page as parent, and `view.submit({config: {customContentId: <fork>}})`.
+Candidate keys: the macro's `localId`, or the embed's existing `uuid`. Whichever is chosen, first prove the viewer surface can **write** a record keyed by it and **read it back on the next render** — before building anything on top.
 
-Expected: the macro now renders the forked copy. Check criterion 4 — the source's `latestVersionNumber` must be unchanged.
+Expected: a round trip that survives a page reload. If the viewer cannot persist a keyed override at all, Q2 is answered NO here and the spike is over — go to Task 3.
 
-- [ ] **Step 2: Swap the editor**
+- [ ] **Step 2: Fork the source content**
 
-Make the embed macro's editor mount the normal DSL editor when its config points at a fork it owns (a marker in the forked body, or config, is fine for a spike — note which, since productization has to pick one).
+From the viewer, read the source custom content and create a new one from its body under the **current** page as parent; record the fork's id in the override.
 
-Expected: the user can change the code and publish; the change renders; the source is still untouched.
+Expected: the macro renders the fork. **Check criterion 4 immediately** — the source's `latestVersionNumber` must be unchanged.
 
-- [ ] **Step 3: Check the chrome (criterion 5)**
+- [ ] **Step 3: Make it editable (criterion 3)**
 
-The viewer decides the `EMBED` chip from `isEmbedded` (`GenericViewer.vue:25`). Record whether the chip is still shown on the converted macro, and whether it can be suppressed without a page ADF change.
+The embed macro's editor is the picker (`ForgeEmbedEditor.vue` = `<DocumentList />`). Determine whether a macro carrying a fork override can route to the normal DSL editor instead — and whether that routing decision is even available in the surface the user reaches from the viewer.
 
-- [ ] **Step 4: Count the cost**
+Expected: the user changes the code, publishes, the change renders, the source is still untouched. **If the DSL editor is only reachable through the page-editor surface, criterion 3 fails and Gate A is NOT REVERSIBLE** — record it and stop.
 
-Record, against the five criteria: number of user actions from the blocked Edit; whether an extra publish is needed; whether the DSL editor is genuinely reachable; source untouched (version number before/after); chip honest.
+- [ ] **Step 4: Check the chrome (criterion 5)**
 
-- [ ] **Step 5: Commit the spike state**
+The `EMBED` chip comes from `isEmbedded` (`GenericViewer.vue:25`). Record whether it can be suppressed for a forked macro **without** a page ADF change.
+
+- [ ] **Step 5: Price the shadow layer**
+
+Do not skip this for a green result. Record concretely:
+- **Page copy** — `localId` is measured to survive whole-page copy, so a copied page's macro would resolve the *same* override and share the fork. Is that acceptable, or a data-integrity bug?
+- **Macro delete** — the forked content orphans. How does that interact with `customcontent_orphan_observed` and the existing recovery paths?
+- **Lite quota** — does the fork count toward the 100-macro space limit? (Feeds Gate B in the productization plan.)
+
+- [ ] **Step 6: Count the cost against all five criteria and commit**
 
 ```bash
-git commit -am "spike(embed): fork-and-repoint escape hatch"
+git commit -am "spike(embed): fork + viewer-writable override escape hatch"
 ```
 
 ---
 
-### Task 4: Q3 — is ADF node replacement actually unsupported?
-
-Desk research plus one experiment; run only if Q2 fails.
-
-**Files:** none.
-
-- [ ] **Step 1: Establish what the platform says**
-
-Search the Forge macro / Custom UI docs for any supported way to replace an extension node from within a macro (as opposed to writing the page body wholesale via the REST API). Record the citation or the absence of one — **do not infer support from silence, and do not assert a mechanism you have not seen documented.**
-
-- [ ] **Step 2: Cost the REST alternative**
-
-If the only route is "read the page ADF, swap the node, PUT the page", cost it honestly against the five criteria: it re-publishes the whole page under the app's identity, it races any concurrent human edit, and it puts us in the business of rewriting customer page bodies. Record whether that is acceptable — the recommendation should be NO unless nothing else works.
-
----
-
-### Task 5: Findings + Gate A
+### Task 3: Findings + Gate A
 
 - [ ] **Step 1: Fill the Findings table below** (`.md`-only edits go straight to `main`).
 
@@ -199,7 +186,7 @@ If the only route is "read the page ADF, swap the node, PUT the page", cost it h
 
 Edit `2026-07-26-embed-deeplink-productization.md` → the "Gate A result" line and the decisions log.
 
-If **NOT REVERSIBLE**, also apply its stated consequences: paste produces a clone; Task 5 (escape hatch) is deleted with the reason recorded; Task 3 is rewritten to fork on first render.
+If **NOT REVERSIBLE**, also apply its stated consequences: paste produces a clone; its Task 5 (escape hatch) is deleted with the reason recorded; its Task 3 is rewritten to fork on first render.
 
 - [ ] **Step 3: Commit findings; push the branch unmerged for reference**
 
@@ -213,13 +200,14 @@ git push -u origin spike/embed-to-copy-escape-hatch
 
 ---
 
-## Findings (executed ____, lite-dev, branch @ ____, deployed as ____)
+## Findings
 
 | Question | Answer | Evidence |
 |---|---|---|
-| Q1 — `view.submit` can change the extension key? | | |
-| Q2 — fork + repoint + DSL editor passes all five criteria? | | |
-| Q3 — ADF node replacement supported? | | |
+| Q1 — `view.submit` can change the extension key? | **MOOT** — not statically answerable (`payload?: any`, SDK is a pass-through), and irrelevant because the mechanism fails criteria 1–2 on D2's surface constraint regardless | `@forge/bridge@5.16.0` `out/view/submit.d.ts:1`, `out/view/submit.js`; all 6 in-repo call sites pass only `{config}` |
+| D2 — config writes require the page-editor surface | **CONFIRMED (desk)** — view-mode Edit modal throws "this resource's view is not submittable"; two shipped bugs already caused by it | `resolveEditorEntry.ts:12-24`, `GenericViewer.vue:322`, `Diagram.ts:50` |
+| Q2 — B′ (fork + viewer-writable override) passes all five criteria? | | |
+| Q3 — ADF node replacement supported? | **MOOT** — fails criteria 1–2 by construction; rewrites customer page bodies under the app identity | D3 |
 | Q4 — `Cmd+Z` reverts an autoconverted paste? | | |
 | Criterion 1 — ≤2 actions from blocked Edit | | |
 | Criterion 2 — no extra publish | | |
@@ -232,6 +220,8 @@ git push -u origin spike/embed-to-copy-escape-hatch
 - _(record anything that made the evidence weaker than it looks — e.g. the known `forge tunnel` Custom-UI resource-serving failure from the 2026-07-16 spike; verify against a deployed dev build instead of a tunnel if it recurs)_
 
 **Gate A:** ☐ REVERSIBLE — paste produces an embed, escape hatch ships ☐ NOT REVERSIBLE — paste produces a clone
+
+> Desk evidence already leans NOT REVERSIBLE. Task 2 exists to give B′ a fair, falsifiable run before that is recorded as the verdict — not to confirm a foregone conclusion. If B′ passes all five, the desk lean is wrong and Gate A is REVERSIBLE.
 
 ## If NOT REVERSIBLE — what changes downstream
 

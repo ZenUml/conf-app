@@ -7,13 +7,39 @@ import { getContext as initForgeContext, openModal } from './model/globals/forge
 import { Diagram, getDiagramData } from "@/model/Diagram/Diagram";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
+import { parseEmbedDeeplink } from '@/utils/embedDeeplink';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 
 async function loadDiagram(): Promise<Diagram | undefined> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
-  const customContentId = context.extension?.config?.customContentId;
+  let customContentId = context.extension?.config?.customContentId;
   const pageId = context.extension?.content?.id;
+
+  // AutoConvert: a pasted https://confluence.zenuml.com/d/<cloudId>/<contentId>
+  // deeplink lands with no saved macro config — resolve the target from the
+  // matched URL instead. `autoConvertLink` is a top-level extension-context
+  // field per Atlassian's docs, not nested under `config`:
+  // https://developer.atlassian.com/platform/forge/manifest-reference/modules/macro/
+  if (!customContentId) {
+    const deeplink = context.extension?.autoConvertLink
+      ? parseEmbedDeeplink(context.extension.autoConvertLink)
+      : undefined;
+    if (deeplink) {
+      if (context.cloudId && deeplink.cloudId !== String(context.cloudId).toLowerCase()) {
+        // Fail soft on a foreign-site paste — never fetch cross-tenant.
+        trackAnalyticsEvent('embed_autoconvert_cross_tenant_rejected', {
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: 'embed',
+        });
+      } else {
+        customContentId = deeplink.contentId;
+      }
+    }
+  }
+
   if(!customContentId) {
   } else {
     const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);

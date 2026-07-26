@@ -2,8 +2,8 @@
 
 **Status (v5):** byline mechanics validated on `lite-dev` (dev deploys 16.128.0–16.132.0);
 dialog UX approved 2026-07-26 — **pre-generated, human-curated** diagram of the current page
-served from cache, deeplink completion. One unverified platform dependency: `entity: content`
-display conditions (§8.1).
+served from cache, deeplink completion. The `entity: content` gate — v5's
+critical dependency — is now **verified both directions** (§4).
 **Sequencing assumption:** **#360 ships first** — the activation flow is its missing producer
 (§6b), and it adds two cheap items to #360's release scope.
 **Decision:** build this; `#334` editor-templates and the demo-page port are out (evidence below)
@@ -72,6 +72,7 @@ since the demo-page pipeline is stripped from it, has **no activation mechanism 
 | Icon renders ≈ **19×14**, not square | Element screenshot measurement — draw assets for that ratio |
 | `displayConditions` are enforced on `contentBylineItem` | With no properties set, both gated items disappeared from the byline |
 | `entityPropertyExists` + `entity: space` works | Space property written via ordinary REST (`/rest/api/space/SD/property/...`) → item appeared on next load |
+| **`entity: content` condition works — BOTH directions** | 16.133.0 probe: property `zenuml-prepared-diagram` stamped via v2 REST (`/api/v2/pages/{id}/properties`) → byline appeared on that page only (control page: hidden, unconditional Aide visible on both); property deleted (HTTP 204) → byline disappeared |
 | Sibling conditions = implicit AND; `and:` array form **rejected** | Lint: "property must be object" for the array form; sibling form passes and deploys |
 | Two byline items coexist, independently gated | Deployed both (16.130.0–16.131.0); each obeyed its own condition |
 | **`entity: user` condition does NOT work** (as written) | User property written for the *viewing* user via REST, reads back HTTP 200, both gated items ignore it. Docs are silent on whose user it is and whether the app must write it (asApp) — untested, dropped as marginal |
@@ -117,13 +118,12 @@ confluence:contentBylineItem:
     viewportSize: fullscreen
     displayConditions:
       entityPropertyExists:   # gate: a curated diagram EXISTS for this page
-        entity: content       # ⚠ UNTESTED — verify like §4 before building on it
+        entity: content       # ✅ VERIFIED 2026-07-26 both directions (§4)
         propertyKey: zenuml-prepared-diagram
 ```
 
-Fallback if `entity: content` fails verification: the proven `entity: space` gate
-(`zenuml-space-uses-diagrams`) plus a dialog-side cache check — weaker, reintroduces a
-"nothing prepared for this page" state; avoid if at all possible.
+(The space-gate fallback documented in earlier drafts is no longer needed — the content
+gate verified cleanly.)
 
 **Preparation pipeline (offline):** piggybacks on `lite-macro-count-daily`, which already
 inventories every space daily. Selection: high-density spaces → pages with no diagrams →
@@ -213,9 +213,8 @@ fail-softs (verified) and the instruction page explains the rest.
 
 ## 8. Open items (the actual remaining work)
 
-1. **`entity: content` display condition — CRITICAL PATH, untested.** The whole v5 design
-   gates the byline on a per-page content property. Verify exactly like §4 (stamp property
-   via REST → byline appears; remove → disappears) before building anything else.
+1. ~~`entity: content` display condition~~ — **VERIFIED 2026-07-26** (§4), both directions,
+   via ordinary v2 REST property writes. The v5 gating model is buildable as designed.
 2. **Preparation pipeline.** Page selection scorer, generation backend (own infra —
    `/ai-generate-title` and Diagramly AI are precedents; prompt + output schema
    `diagramType`/`diagramSource`/`title` owned by us), cache store, content-property stamping.

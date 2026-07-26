@@ -1,7 +1,9 @@
 # Byline activation nudge — full context, evidence, and design
 
-**Status (v3):** byline mechanics validated on `lite-dev` (dev deploys 16.128.0–16.132.0);
-dialog UX approved 2026-07-26 — AI-generated diagram of the current page, deeplink completion.
+**Status (v5):** byline mechanics validated on `lite-dev` (dev deploys 16.128.0–16.132.0);
+dialog UX approved 2026-07-26 — **pre-generated, human-curated** diagram of the current page
+served from cache, deeplink completion. One unverified platform dependency: `entity: content`
+display conditions (§8.1).
 **Sequencing assumption:** **#360 ships first** — the activation flow is its missing producer
 (§6b), and it adds two cheap items to #360's release scope.
 **Decision:** build this; `#334` editor-templates and the demo-page port are out (evidence below)
@@ -14,9 +16,10 @@ dialog UX approved 2026-07-26 — AI-generated diagram of the current page, deep
 A `confluence:contentBylineItem` entry (**"View as diagram"**, AI-sparkle icon) that appears **only** on pages
 in spaces that already use our diagrams, aimed at readers who see colleagues' diagrams but have
 never created one. Its icon is a **play-once** animated GIF that draws the eye on first paint and
-then rests. Clicking opens a dialog that **AI-generates a diagram of the page the user is
-reading** — never a blank editor, never a tutorial — and completes via a diagram deeplink pasted
-into any Confluence page (#360). Zero per-view compute by construction.
+then rests. Clicking opens a dialog that reveals **a pre-generated, human-reviewed diagram of the page
+the user is reading** — never a blank editor, never a tutorial, never unreviewed AI output —
+and completes via a diagram deeplink pasted into any Confluence page (#360). The byline only
+exists on pages where a curated diagram is ready. Zero per-view compute by construction.
 
 Philosophy (kept verbatim from the originating proposal): *the AI is not replacing the editor;
 it is removing the blank page.* Don't teach — demonstrate. Never ask the user to choose a
@@ -30,7 +33,8 @@ diagram language (72% use mermaid; the type is an implementation detail the AI s
 | v1 | Byline dialog for users who never created a macro | Reaches every page view with zero seeding — but per-user animation control forces `dynamicProperties` = a Forge function on **every content view** (cost, §5) |
 | v2 | Animated icon, click to cancel, per-user | `entity: user` display condition doesn't work (§6); and `loop=1` GIF makes "click to cancel" unnecessary — the icon quiets itself |
 | v3 | Two conditional byline items gated by a space-level property | User: "never created" is far too broad — most Confluence readers never need a diagram and the nudge would never stop for them. The demand signal is the **space** (the team already uses diagrams), not the individual |
-| **v4 (final)** | **Dialog = AI-generated diagram of the current page; completion = deeplink paste** | User proposal, 2026-07-26: the page the user is reading IS the prompt — no templates, no wizard, no language picker. UX review added release gates (§6b) and swapped completion to deeplink-primary once the user set the sequencing assumption that #360 ships first |
+| v4 | Dialog = AI-generated diagram of the current page; completion = deeplink paste | User proposal, 2026-07-26: the page the user is reading IS the prompt — no templates, no wizard, no language picker. UX review added release gates (§6b) and swapped completion to deeplink-primary once the user set the sequencing assumption that #360 ships first |
+| **v5 (final)** | **Pre-generated & curated: the backend prepares diagrams offline for selected diagram-less pages in high-density spaces; runtime serves the reviewed result from cache behind theatrical loading. No regenerate — dissatisfaction routes to Edit** | User, 2026-07-26: the aha moment cannot tolerate generation variance — bet on curated quality. Also collapses the low-confidence gate entirely: unsuitable pages simply never get a byline |
 
 ## 3. Why byline won the activation bake-off
 
@@ -112,31 +116,41 @@ confluence:contentBylineItem:
     tooltip: See a diagram drawn from this page
     viewportSize: fullscreen
     displayConditions:
-      entityPropertyExists:   # the demand signal: this team already uses diagrams
-        entity: space
-        propertyKey: zenuml-space-uses-diagrams
+      entityPropertyExists:   # gate: a curated diagram EXISTS for this page
+        entity: content       # ⚠ UNTESTED — verify like §4 before building on it
+        propertyKey: zenuml-prepared-diagram
 ```
 
-**Space property writer:** the existing `lite-macro-count-daily` scheduled job already does a
-full per-space macro inventory daily — add one property write per qualifying space
-(threshold e.g. ≥3 diagrams; exact bar is a launch-tuning knob). **Skip spaces at or near the
-Lite paywall cap** — the nudge must never point at a space that would answer a first create
-with an upgrade prompt. Marginal cost ≈ zero. Written via ordinary REST; verified the
-condition evaluator reads it.
+Fallback if `entity: content` fails verification: the proven `entity: space` gate
+(`zenuml-space-uses-diagrams`) plus a dialog-side cache check — weaker, reintroduces a
+"nothing prepared for this page" state; avoid if at all possible.
+
+**Preparation pipeline (offline):** piggybacks on `lite-macro-count-daily`, which already
+inventories every space daily. Selection: high-density spaces → pages with no diagrams →
+diagrammable score. Excluded at selection: spaces at/near the Lite paywall cap (the nudge must
+never point where a first create answers with an upgrade prompt). Approved diagrams stamp the
+page's content property and land in our backend cache keyed by pageId; the dialog fetches
+that cache behind ~2 s of loading theatre.
 
 ## 6b. The dialog — approved v2 flow (2026-07-26)
 
 ```
-Reading page → "View as diagram" byline (AI sparkle, loop=1 animation)
+OFFLINE (batch pipeline, runs beside lite-macro-count-daily):
+  high-density spaces → pages with NO diagrams, scored diagrammable
+  → AI pre-generates → HUMAN/CURATED REVIEW → approved:
+      content property stamped on the page + result cached in our backend
+  (paywall-capped spaces excluded at selection time)
+
+RUNTIME:
+  Reading a PREPARED page → "View as diagram" byline (AI sparkle, loop=1;
+    gated by the content property, so unsuitable pages never show it)
   → ONE CLICK, no consent step → Loading ("Reading this page…" → "Drawing it as a
-    diagram…", aria-live, cancellable)
-  → high confidence:  "This page, as a diagram" + "Just a preview — nothing has
-                       been saved. Feel free to make it yours."
-     low  confidence:  honest fallback + a relevant example        ← gate 1
-  → preview actions: PRIMARY "Use this diagram" (saves directly — edit is OPTIONAL, per the
-    original proposal; a good draft must not be forced through the editor), SECONDARY
-    "Edit diagram" (the normal editor; 92% completion backs this), plus an always-visible
-    quiet steer row ("Want something different? Describe it (optional)" + Generate again)
+    diagram…", aria-live, cancellable) — a REAL backend call answered from cache;
+    ~2 s of theatre that communicates "drawn from your page"
+  → "This page, as a diagram" + "Just a preview — nothing has been saved."
+    Curated quality: no low-confidence path exists at runtime.
+  → preview actions: PRIMARY "Use this diagram" (saves directly — edit is OPTIONAL),
+    SECONDARY "Edit diagram" (the normal editor; 92% completion backs this)
   → Save (current space)
   → Completion screen:
       PRIMARY   "Copy diagram link"
@@ -146,13 +160,13 @@ Reading page → "View as diagram" byline (AI sparkle, loop=1 animation)
   → user opens any page → Edit → ⌘V → Embed macro appears (#360 autoconvert)
 ```
 
-**Two release gates (both cheap, neither needs research):**
+**Release gates:**
 
-1. **Low-confidence fallback.** The byline shows on *every* page of a qualifying space —
-   meeting notes and link lists included. A bad first diagram is worse than a blank page.
-   Gate on the generator's `confidence` field; below threshold show an honest "this page
-   doesn't describe a process — try an architecture or API page" plus a keyword-picked example.
-2. **Paywall exclusion** — encoded in the space-property writer above.
+1. **Curation replaces the low-confidence gate.** Quality is enforced at *targeting time*
+   (only reviewed diagrams ever get a byline), not at runtime. A bad first diagram is worse
+   than a blank page — so no unreviewed output is ever shown. Start with manual review at
+   pilot scale; automate judging only after the approval-rate data says it is safe.
+2. **Paywall exclusion** — encoded in the pipeline's page-selection step.
 
 **No per-interaction consent (decision 2026-07-26):** the T&C already covers page-content
 processing, and an upfront "Generate?" decision defeats the zero-pressure entry — the whole
@@ -160,11 +174,12 @@ point is *look first, decide never*. Transparency is carried by the loading copy
 this page…"), which states what is happening at the moment it happens. Rovo (data stays in
 Atlassian) remains an enterprise *enhancement*, not the v1 backend.
 
-**Regeneration is one always-visible affordance.** A quiet steer row sits under the preview —
-optional input + a single "Generate again" button. No reveal step (an earlier "Not quite
-right?" trigger was cut: a control that only uncovers another control is ceremony), and only
-one generate-labelled control exists. Same-input rerolls reproduce the miss, hence the steer.
-If the user edited first, regeneration needs a discard confirm.
+**No regenerate (decision 2026-07-26).** We bet the curated result is good enough;
+dissatisfaction routes to Edit, which is also the deeper engagement we actually want. This
+removed the steer row and, with it, the last piece of runtime generation UX. (Two earlier
+iterations — a "Not quite right?" reveal trigger, then an always-visible steer row — were
+each cut within a day; the lesson stands: every optional affordance on the preview screen
+taxed the happy path.)
 
 **Why deeplink completion is primary (given #360 ships first):** the activation flow is
 #360's missing *producer* — every activated user mints a link and learns the paste workflow,
@@ -198,29 +213,26 @@ fail-softs (verified) and the instruction page explains the rest.
 
 ## 8. Open items (the actual remaining work)
 
-1. **Aide co-display.** `zenuml-byline-aiaide` is unconditional today — a new user in a
-   qualifying space would see **both** chips. Either gate Aide on the inverse condition or
-   accept two entries. Not yet decided.
-2. **Icon asset.** AI visual language: four-point sparkle, blue→purple gradient
-   (Atlassian-Intelligence-adjacent), ~19×14, play-once, calm final frame. NOTE: a gradient
-   cannot fit the 255-char two-colour data-URI budget — this icon almost certainly requires a
+1. **`entity: content` display condition — CRITICAL PATH, untested.** The whole v5 design
+   gates the byline on a per-page content property. Verify exactly like §4 (stamp property
+   via REST → byline appears; remove → disappears) before building anything else.
+2. **Preparation pipeline.** Page selection scorer, generation backend (own infra —
+   `/ai-generate-title` and Diagramly AI are precedents; prompt + output schema
+   `diagramType`/`diagramSource`/`title` owned by us), cache store, content-property stamping.
+3. **Curation workflow.** Manual review first — pilot scale is dozens of pages, a simple
+   queue is enough. Track approval rate; it decides if/when review can be automated.
+4. **Aide co-display.** `zenuml-byline-aiaide` is unconditional today — a user on a prepared
+   page would see both chips. Gate Aide on the inverse condition or accept two entries.
+5. **Icon asset.** AI visual language: four-point sparkle, blue→purple gradient
+   (Atlassian-Intelligence-adjacent), ~19×14, play-once, calm final frame. A gradient cannot
+   fit the 255-char two-colour data-URI budget — this icon almost certainly requires a
    `permissions.external.images` entry (minor version); `resource:` icons are reported broken
    for byline.
-3. **Threshold** for `zenuml-space-uses-diagrams` (≥N diagrams, freshness window) + the
-   paywall-cap exclusion rule (§6).
-4. **Generation backend.** v1 = own backend (`/ai-generate-title` and Diagramly AI infra are
-   precedents) behind the consent gate; Rovo as enterprise enhancement later. Prompt +
-   structured output schema (`diagramType`, `diagramSource`, `title`, `confidence`) owned by us.
-5. **Confidence threshold + fallback examples** — needs a small eval set of real page types
-   (process doc / architecture doc / meeting notes / link list).
-6. **Dialog build.** `GetStarted.vue` (15 KB + stories) is the starting shell; the flow in §6b
-   is the spec. Consent copy, loading skeleton, error states (timeout / quota / unparseable
-   output), focus management, keyboard path.
-7. **Content-level suppression (nice-to-have):** `entity: content` display conditions could
-   hide the byline on pages that already contain our macros (where it is noise). Platform
-   supports it; **untested** — verify like §4 before relying on it.
-8. **Rollout**: #360 first (with its two added scope items, §6b) → dev → staging spaces →
-   Lite-only initially (it has the gap and 91% of views).
+6. **Dialog build.** `GetStarted.vue` (15 KB + stories) is the starting shell; §6b is the
+   spec. Loading skeleton + theatre timing, cache-miss/error state (should be near-impossible
+   by construction — still needs a graceful fallback), focus management, keyboard path.
+7. **Rollout**: #360 first (with its two added scope items, §6b) → verify item 1 on lite-dev
+   → hand-curate a pilot batch in a few high-density tenants → measure → scale curation.
 
 ## 9. Analytics (events precede code — project rule)
 
@@ -228,16 +240,17 @@ fail-softs (verified) and the instruction page explains the rest.
 |---|---|
 | `activation_nudge_shown` | dialog resource first paint (byline render itself is not observable to us without cost) |
 | `activation_nudge_clicked` | byline clicked → dialog opened |
-| `activation_generation_succeeded` / `_failed` | props: `diagram_type`, `confidence`, `duration_ms`, failure reason |
-| `activation_low_confidence_fallback` | gate 1 fired instead of a generated diagram |
+| `activation_served` | curated diagram delivered from cache; props: `diagram_type`, `prepared_age_days` |
+| `activation_cache_miss` | should be ~impossible by construction — any volume here is a pipeline bug |
 | `activation_diagram_edited` | user modified the generated draft before save |
 | `activation_completed` | props: `path: copy_link \| draft_page` |
 | `activation_nudge_dismissed` | dialog closed without creating |
 | `macro_create_succeeded` (existing) | the activation event |
 | `embed_autoconvert_*` (existing, #360) | closes the loop: link minted here → pasted there |
 
-**Success metric:** shown → clicked → generation ok → save → completed, segmented by space and
-by `confidence`. **Baseline to move: viewer→try = 12.9% (Lite, 90d).** Even +1 pt ≈ ~180 new
+**Success metric:** shown → clicked → served → save → completed, segmented by space.
+**Pipeline metrics (offline):** pages selected, generation yield, **curation approval rate**
+(the number that decides whether review can ever be automated). **Baseline to move: viewer→try = 12.9% (Lite, 90d).** Even +1 pt ≈ ~180 new
 creators/quarter. Register names in `src/utils/analytics/catalog.ts` + `types.ts` as the
 first commit.
 

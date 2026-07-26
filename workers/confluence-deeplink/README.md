@@ -11,12 +11,23 @@ intercepts the paste and converts it into an Embed macro. This Worker exists for
 every other place the link lands — Slack, email, a browser address bar. Without
 it the domain has no DNS record and those links dead-end at a resolver error.
 
-- `/d/*` → static instruction page (200). Loose match on purpose; the strict
-  shape is enforced by the manifest matcher and `src/utils/embedDeeplink.ts`.
-- `/` → 302 to zenuml.com.
-- anything else → 404.
-- Slack/link unfurls are controlled by the page's OG meta tags. The crawler is
-  unauthenticated, so an unfurl can never reveal diagram content.
+- `/d/<cloudId>/<contentId>?t=<token>` with a **fresh ticket** (<10 min) →
+  preview page: the diagram PNG + "Open in Confluence". `og:image` serves the
+  PNG, so the Slack unfurl card IS the diagram; Slack's image proxy caches it,
+  carrying the display after our source expires.
+- same with a **live ticket but expired image** → "preview expired" page + the
+  permanent Open-in-Confluence button (target from the ticket — never resolved
+  from a bare cloudId, which would create a public cloudId→hostname resolver).
+- `/d/*` without a usable ticket → static instruction page (200). Loose match
+  on purpose; the strict shape is enforced by the manifest matcher and
+  `src/utils/embedDeeplink.ts`.
+- `/i/<token>` → preview PNG bytes; 404 after KV physically expires the object.
+- `/` → 302 to zenuml.com; anything else → 404.
+- Tickets are minted by `functions/deeplink-ticket.ts` (Forge-authed, the
+  minter is viewing the diagram with read permission). KV keys: `img:<token>`
+  (PNG, `expirationTtl=600` — physical deletion IS the capability expiry) and
+  `ticket:<token>` ({d,p,c,t,m}, no TTL). Without the `DEEPLINK_KV` binding the
+  Worker behaves exactly like v1 (instruction page only).
 
 ## Contract — keep these three in sync
 

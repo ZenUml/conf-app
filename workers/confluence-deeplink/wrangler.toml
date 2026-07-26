@@ -20,6 +20,17 @@ account_id = "8d5fc7ce04adc5096f52485cce7d7b3d"
 [observability]
 enabled = false
 
+# Ticketed-preview storage (byline-activation spec §6). Written by
+# functions/deeplink-ticket.ts on the Pages backend; read here.
+#   img:<token>     PNG, expirationTtl=600 (physical expiry = capability expiry)
+#   ticket:<token>  {d,p,c,t,m}, no TTL (permanent Open-in-Confluence target)
+# The id below is a LOCAL-DEV PLACEHOLDER (`wrangler dev --local` ignores it).
+# `deploy:preview` fails until a real namespace id is filled in — namespace
+# creation is a cloud change requiring explicit approval.
+[[kv_namespaces]]
+binding = "DEEPLINK_KV"
+id = "00000000000000000000000000000000"
+
 # Production: custom domain on the zenuml.com zone. `custom_domain = true`
 # makes `wrangler deploy` create/own the DNS record — that deploy is the
 # cloud change that needs explicit approval.
@@ -31,3 +42,12 @@ routes = [
 
 [env.production.observability]
 enabled = false
+
+# Production KV binding intentionally ABSENT until the namespace is created
+# (cloud-change approval). The Worker guards on the missing binding: every
+# ticketed link falls back to the static instruction page, so deploying this
+# code without the binding is behavior-identical to v1.
+# When approved, add:
+# [[env.production.kv_namespaces]]
+# binding = "DEEPLINK_KV"
+# id = "<created namespace id>"

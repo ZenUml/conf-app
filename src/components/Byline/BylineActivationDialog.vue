@@ -67,6 +67,7 @@
 
 <script>
 import DiagramPortal from '@/components/DiagramPortal.vue';
+import { DiagramType } from '@/model/Diagram/Diagram';
 import store from '@/model/store2';
 import globals from '@/model/globals';
 import forgeGlobal, { openModal } from '@/model/globals/forgeGlobal';
@@ -83,6 +84,10 @@ import { callRemote } from '@/utils/requestUtil';
 
 const LOADING_MIN_MS = 1800; // theatre floor even on a fast cache hit
 const PROPERTY_KEY = 'zenuml-prepared-diagram';
+// Diagram types DiagramPortal can render read-only in the preview. Graph
+// (DrawIO) / openapi / asyncapi need heavier viewers and ~6s loads — excluded
+// from the prepared preview for v1.
+const RENDERABLE_TYPES = new Set([DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml]);
 
 // Base analytics props for every byline/activation event. surface is passed
 // EXPLICITLY (never inferred) — the byline iframe would otherwise be labelled
@@ -114,20 +119,26 @@ export default {
   async mounted() {
     this.pageId = globals.apWrapper.currentPageId
       || forgeGlobal.forgeContext?.extension?.content?.id;
-    trackAnalyticsEvent('activation_nudge_clicked', baseProps());
 
     // The property VALUE selects the mode. entityPropertyExists only gates
-    // visibility, so the dialog must read the value itself.
+    // visibility, so the dialog must read the value itself. getContentPropertyV2
+    // returns a discriminated union; the value is at res.property.value (NOT
+    // res.value) — see ApWrapper2.ts:214 and the other three call sites.
     let mode = 'prepared';
     try {
       const res = await globals.apWrapper.getContentPropertyV2(PROPERTY_KEY);
-      if (res?.status === 'ok' && res.value && typeof res.value === 'object') {
-        mode = res.value.mode === 'has-content' ? 'has-content' : 'prepared';
+      const val = res?.status === 'ok' ? res.property?.value : undefined;
+      if (val && typeof val === 'object') {
+        mode = val.mode === 'has-content' ? 'has-content' : 'prepared';
       }
     } catch (e) {
       console.warn('byline: property read failed, defaulting to prepared', e);
     }
     this.mode = mode;
+
+    // Fire the funnel entry AFTER the mode is known so byline_mode rides it
+    // (the documented invariant — every activation_*/byline_* event carries it).
+    trackAnalyticsEvent('activation_nudge_clicked', baseProps({ byline_mode: mode }));
 
     if (mode === 'has-content') {
       await this.enterListMode();
@@ -152,6 +163,19 @@ export default {
       if (!payload) {
         trackAnalyticsEvent('activation_cache_miss', baseProps({ byline_mode: 'prepared' }));
         this.errorCopy = 'We couldn’t find a prepared diagram for this page.';
+        this.phase = 'error';
+        return;
+      }
+      // The preview renders through DiagramPortal, which only mounts sequence/
+      // mermaid/plantuml. A curated graph/openapi/asyncapi payload would render
+      // a blank preview — treat it as a miss until DiagramPortal gains those
+      // renderers, so the pipeline can safely never target them for v1.
+      if (!RENDERABLE_TYPES.has(payload.diagramType)) {
+        trackAnalyticsEvent('activation_cache_miss', baseProps({
+          byline_mode: 'prepared',
+          macro_type: payload.diagramType,
+        }));
+        this.errorCopy = 'This diagram type isn’t supported here yet.';
         this.phase = 'error';
         return;
       }
@@ -250,6 +274,11 @@ export default {
 
     async afterEdit() {
       await this.mintDeeplink().catch(() => {});
+      trackAnalyticsEvent('activation_completed', baseProps({
+        byline_mode: 'prepared',
+        macro_type: store.state.diagram.diagramType,
+        activation_path: 'copy_link',
+      }));
       this.phase = 'completion';
     },
 
@@ -267,16 +296,30 @@ export default {
       }
     },
 
+    // Never throws: a saved diagram must always reach the completion screen
+    // with a working link. The rich Slack-preview ticket needs a PNG; without
+    // one (capture miss) or if the mint fails, fall back to the plain deeplink,
+    // which still autoconverts when pasted into Confluence.
     async mintDeeplink() {
       if (!this.savedContentId) return;
-      const raw = await callRemote('/deeplink-ticket', 'POST', {
-        contentId: this.savedContentId,
-        pageId: String(this.pageId),
-        title: store.state.diagram.title || 'Diagram',
-        pngBase64: this.pngBase64,
-      });
-      const result = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      this.deeplinkUrl = result?.url || '';
+      const cloudId = forgeGlobal.forgeContext?.cloudId;
+      const plainUrl = cloudId
+        ? `https://confluence.zenuml.com/d/${cloudId}/${this.savedContentId}`
+        : '';
+      if (!this.pngBase64) { this.deeplinkUrl = plainUrl; return; }
+      try {
+        const raw = await callRemote('/deeplink-ticket', 'POST', {
+          contentId: this.savedContentId,
+          pageId: String(this.pageId),
+          title: store.state.diagram.title || 'Diagram',
+          pngBase64: this.pngBase64,
+        });
+        const result = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        this.deeplinkUrl = result?.url || plainUrl;
+      } catch (e) {
+        console.warn('byline: ticket mint failed, using plain link', e);
+        this.deeplinkUrl = plainUrl;
+      }
     },
 
     async copyLink() {
@@ -313,7 +356,8 @@ export default {
     },
 
     cancel() {
-      trackAnalyticsEvent('activation_nudge_dismissed', baseProps({ byline_mode: this.mode }));
+      // mode may still be unresolved if Cancel is hit during the property read.
+      trackAnalyticsEvent('activation_nudge_dismissed', baseProps({ byline_mode: this.mode || 'unknown' }));
       this.close();
     },
 

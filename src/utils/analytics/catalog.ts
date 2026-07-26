@@ -350,6 +350,11 @@ export type AnalyticsEventName =
   // view — the §5 cost wall (4.15M views/month, 2.1x the free tier at 100ms) and the
   // exact shape of the PR #234 incident. `mode` rides every event so the two
   // journeys stay separable.
+  // NOTE: activation_nudge_shown is NOT emitted — the byline chip is
+  // server-rendered Confluence chrome, not our Custom UI, so we get no
+  // client hook when it renders. `activation_nudge_clicked` IS the funnel
+  // entry; do not build a shown-based CTR against activation_nudge_shown.
+  // (Reserved in case a future Custom UI surface can fire it.)
   | "activation_nudge_shown"
   | "activation_nudge_clicked"
   | "activation_served"

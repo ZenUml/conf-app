@@ -389,6 +389,19 @@ modules:
       viewportContainer: modal
       resolver:
         endpoint: remote-connect
+    - key: zenuml-byline-newuser
+      resource: main
+      title: View as diagram
+      icon: resource:main;image/byline-view-as-diagram.png
+      tooltip: See a diagram drawn from this page
+      viewportSize: fullscreen
+      viewportContainer: modal
+      resolver:
+        endpoint: remote-connect
+      displayConditions:
+        entityPropertyExists:
+          entity: content
+          propertyKey: zenuml-prepared-diagram
   confluence:customContent:
     - key: ${CUSTOM_CONTENT_KEY}
       supportedContainerTypes:

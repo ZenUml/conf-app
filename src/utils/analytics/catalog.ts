@@ -34,6 +34,12 @@ export type Surface =
   | "page_banner"
   | "dashboard"
   | "route"
+  // Byline activation nudge. MUST be passed explicitly on every activation_*/
+  // byline_* event: the dialog runs in a contentBylineItem iframe where
+  // ApWrapper2.isDisplayMode() returns true (no extension.modal/.macro), so an
+  // inferred surface would mislabel byline activity as `viewer` — the exact
+  // #368 misclassification (see MEMORY project_368_surface_misclassification).
+  | "byline"
   | "forge_trigger"
   | "scheduled_job"
   // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from

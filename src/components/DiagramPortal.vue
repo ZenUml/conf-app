@@ -2,7 +2,7 @@
   <generic-viewer :wide="autoResize===true" :hideHeader="hideHeader">
     <mermaid v-if="diagramType===DiagramType.Mermaid"></mermaid>
     <plant-uml v-if="diagramType===DiagramType.PlantUml"></plant-uml>
-    <sequence v-if="diagramType===DiagramType.Sequence" :autoResize="autoResize"></sequence>
+    <sequence v-if="diagramType===DiagramType.Sequence" :autoResize="autoResize" :readOnly="readOnly"></sequence>
   </generic-viewer>
 </template>
 <script>
@@ -21,6 +21,12 @@ export default {
       default: false
     },
     hideHeader: {
+      type: Boolean,
+      default: false
+    },
+    // Forwarded to Sequence to suppress its write-back in preview contexts
+    // (byline activation). See Sequence.vue's readOnly prop.
+    readOnly: {
       type: Boolean,
       default: false
     }

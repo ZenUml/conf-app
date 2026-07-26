@@ -29,7 +29,8 @@
     "/agent-link/*",
     "/d/*",
     "/i/*",
-    "/deeplink-ticket"
+    "/deeplink-ticket",
+    "/activation-prepared"
   ],
   "exclude": []
 }

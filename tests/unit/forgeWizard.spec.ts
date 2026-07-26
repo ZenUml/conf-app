@@ -29,7 +29,7 @@ describe('forge-wizard manifest preview helpers', () => {
   it('lite strips licensing, contentBylineItem, and asyncapi bits', () => {
     const desc = getManifestEditDescriptions('lite')
     expect(desc).toContain('Remove licensing (lite is free)')
-    expect(desc).toContain('Remove confluence:contentBylineItem')
+    expect(desc).toContain('Remove zenuml-byline-aiaide from confluence:contentBylineItem (keep zenuml-byline-newuser)')
     // Single edit strips both zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro.
     expect(desc).toContain(
       'Remove asyncapi macros (zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro)',
@@ -41,7 +41,7 @@ describe('forge-wizard manifest preview helpers', () => {
 
     const yq = getManifestEditYqArgs('lite').map((x) => x.expr)
     expect(yq).toContain('del(.app.licensing)')
-    expect(yq).toContain('del(.modules["confluence:contentBylineItem"])')
+    expect(yq).toContain('del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))')
     expect(yq).toContain(
       'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))',
     )

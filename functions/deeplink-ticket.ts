@@ -34,13 +34,10 @@ const MAX_PNG_BYTES = 2 * 1024 * 1024;
 const MAX_TITLE_CHARS = 300;
 const DIGITS_RE = /^\d+$/;
 const ATLASSIAN_HOST_RE = /^[a-z0-9][a-z0-9.-]*\.atlassian\.net$/i;
-
-// URL-safe id for the KV image object (also embedded in the signed payload).
-function randomId(): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return b64url(bytes);
-}
+// Truncated-MAC + derived-imgKey lengths — keep short to keep the URL short.
+// 16-byte (128-bit) HMAC is unforgeable for a bearer preview capability.
+const SIG_BYTES = 16;
+const IMGKEY_BYTES = 12;
 
 // --- Signing (MUST stay byte-compatible with workers/confluence-deeplink) ---
 const SIGN_ENC = new TextEncoder();
@@ -58,10 +55,20 @@ async function hmac(secret: string, msg: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.sign("HMAC", key, SIGN_ENC.encode(msg)));
 }
 
-// token = base64url(payloadJSON) "." base64url(hmac(payloadJSON))
+async function sha256(msg: string): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", SIGN_ENC.encode(msg)));
+}
+
+// The image KV key is DERIVED from the signed payload (not stored in it) — one
+// fewer field in the URL. Same derivation on the Worker side.
+async function imgKeyFor(payloadB64: string): Promise<string> {
+  return b64url((await sha256(payloadB64)).slice(0, IMGKEY_BYTES));
+}
+
+// token = base64url(payloadJSON) "." base64url(hmac[:16])
 async function signTicket(payload: object, secret: string): Promise<string> {
   const payloadB64 = b64url(SIGN_ENC.encode(JSON.stringify(payload)));
-  const sig = b64url(await hmac(secret, payloadB64));
+  const sig = b64url((await hmac(secret, payloadB64)).slice(0, SIG_BYTES));
   return `${payloadB64}.${sig}`;
 }
 
@@ -167,27 +174,26 @@ export const onRequest = async ({
     return response(503, "Deeplink signing is not configured in this environment");
   }
 
-  // Only the PNG lives in KV now (keyed by a random id, physical 10-min expiry
-  // as the backstop). Everything else — including the mint-time that drives
-  // expiry — rides inside the signed token, so there is no ticket row to store,
-  // read, or clean up, and the expiry cannot be extended server-side.
-  const imgId = randomId();
-  const w = typeof body.width === "number" && body.width > 0 ? Math.round(body.width) : undefined;
-  const h = typeof body.height === "number" && body.height > 0 ? Math.round(body.height) : undefined;
+  // Compact signed payload — kept minimal to keep the URL short:
+  //   d = subdomain only (`.atlassian.net` re-added on read)
+  //   m = mint-time in Unix SECONDS (not an ISO string)
+  //   no imgId field — the image KV key is DERIVED from the payload hash
+  //   no w/h — Slack renders the big image via twitter:card=summary_large_image
+  const subdomain = domain.toLowerCase().replace(/\.atlassian\.net$/, "");
   const payload = {
-    d: domain.toLowerCase(),
+    v: 1,
+    d: subdomain,
     p: pageId,
     c: contentId,
-    m: new Date().toISOString(),
-    i: imgId,
+    m: Math.floor(Date.now() / 1000),
     ...(title ? { t: title } : {}),
-    ...(w && h ? { w, h } : {}),
   };
 
   let token: string;
   try {
-    await kv.put(`img:${imgId}`, png.buffer as ArrayBuffer, { expirationTtl: IMG_TTL_SECONDS });
     token = await signTicket(payload, secret);
+    const imgId = await imgKeyFor(token.split(".")[0]);
+    await kv.put(`img:${imgId}`, png.buffer as ArrayBuffer, { expirationTtl: IMG_TTL_SECONDS });
   } catch (error) {
     console.error("deeplink-ticket mint failed:", error);
     captureError(error);

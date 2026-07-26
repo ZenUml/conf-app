@@ -170,15 +170,26 @@ describe("deeplink-ticket", () => {
     expect(imgWrites[0].opts?.expirationTtl).toBe(IMG_TTL_SECONDS);
     expect(puts.some((p) => p.key.startsWith("ticket:"))).toBe(false);
 
-    // The payload is signed and carries the mint-time + dims (decode the first half).
+    // Compact payload: subdomain-only d, Unix-seconds m, contentId, NO imgId /
+    // dims field (the image KV key is derived from the payload hash).
     const payloadB64 = out.token.split(".")[0];
     const payload = JSON.parse(
       Buffer.from(payloadB64.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString(),
     );
     expect(payload.c).toBe("425987");
-    expect(payload.d).toBe("example.atlassian.net");
-    expect(typeof payload.m).toBe("string");
-    expect(payload.w).toBe(1012);
-    expect(payload.i).toBe(imgWrites[0].key.slice("img:".length));
+    expect(payload.d).toBe("example"); // subdomain only (host = example.atlassian.net)
+    expect(typeof payload.m).toBe("number"); // Unix seconds
+    expect(payload.i).toBeUndefined();
+    expect(payload.w).toBeUndefined();
+
+    // The image is stored under the DERIVED key (sha256(payloadB64)[:12]), not
+    // in the payload — so the mint and worker must agree on the derivation.
+    const crypto = await import("node:crypto");
+    const b64url = (b: Buffer) => b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const derived = b64url(crypto.createHash("sha256").update(payloadB64).digest().subarray(0, 12));
+    expect(imgWrites[0].key).toBe(`img:${derived}`);
+
+    // Signature is a truncated (16-byte → 22-char) HMAC.
+    expect(out.token.split(".")[1].length).toBe(22);
   });
 });

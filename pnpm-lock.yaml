@@ -399,6 +399,18 @@ importers:
         specifier: ^4.14.1
         version: 4.60.0(@cloudflare/workers-types@4.20260103.0)
 
+  workers/confluence-deeplink:
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20260103.0
+        version: 4.20260103.0
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      wrangler:
+        specifier: ^4.14.1
+        version: 4.60.0(@cloudflare/workers-types@4.20260103.0)
+
   workers/cron-aggregate:
     devDependencies:
       '@cloudflare/workers-types':

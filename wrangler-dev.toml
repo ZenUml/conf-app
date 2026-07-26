@@ -73,6 +73,15 @@ id = "e56fcb64cca74e10aac68e1d57b6c05b"
 binding = "SPACE_LICENSE_KV"
 id = "e56fcb64cca74e10aac68e1d57b6c05b"
 
+# Ticketed deeplink previews — staging namespace for dev.
+[[kv_namespaces]]
+binding = "DEEPLINK_KV"
+id = "e37e3e40d3f5421daebf6385a4ed762a"
+
+[[env.production.kv_namespaces]]
+binding = "DEEPLINK_KV"
+id = "e37e3e40d3f5421daebf6385a4ed762a"
+
 # Portal feature flags KV (shared with zenuml-portal staging)
 [[kv_namespaces]]
 binding = "KV_FEATURE_FLAGS"

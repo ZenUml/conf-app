@@ -1,0 +1,16 @@
+{
+  "name": "confluence-deeplink",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "node e2e/run-e2e.mjs",
+    "deploy:preview": "wrangler deploy",
+    "deploy:prod": "wrangler deploy --env production"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260103.0",
+    "typescript": "^5.4.0",
+    "wrangler": "^4.14.1"
+  }
+}

@@ -3,3 +3,4 @@ packages:
   - "forge-console"
   - "workers/cron-aggregate"
   - "workers/agent-link"
+  - "workers/confluence-deeplink"

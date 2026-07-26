@@ -1,0 +1,51 @@
+# Instruction page for ZenUML embed deeplinks (confluence.zenuml.com).
+#
+# Inside Confluence the deeplink is intercepted by the manifest autoConvert
+# matcher and becomes an Embed macro — this Worker never sees it. It serves the
+# page people hit when the link escapes Confluence (Slack, email, address bar).
+#
+# Deploy:
+#   pnpm --filter confluence-deeplink deploy:preview   # *.workers.dev, no DNS change
+#   pnpm --filter confluence-deeplink deploy:prod      # binds confluence.zenuml.com (creates the DNS record)
+#
+# PRIVACY: /d/* paths identify customer sites (cloudId/contentId). Keep
+# observability and logpush OFF. Request counts come from the Cloudflare
+# dashboard's built-in Worker metrics, which store no URLs.
+
+# NOTE: top-level and env.production MUST keep distinct names (cron-aggregate
+# convention) — with a shared name, deploy:preview silently overwrites the
+# production service.
+name = "confluence-deeplink-preview"
+main = "src/index.ts"
+compatibility_date = "2026-07-01"
+account_id = "8d5fc7ce04adc5096f52485cce7d7b3d"
+
+[observability]
+enabled = false
+
+# Ticketed-preview storage (byline-activation spec §6). Written by
+# functions/deeplink-ticket.ts on the Pages backend; read here.
+#   img:<token>     PNG, expirationTtl=600 (physical expiry = capability expiry)
+#   ticket:<token>  {d,p,c,t,m}, no TTL (permanent Open-in-Confluence target)
+# Top-level (local dev + workers.dev preview) uses the STAGING namespace.
+# preview_id (used by `wrangler dev --remote`) is the same staging namespace.
+[[kv_namespaces]]
+binding = "DEEPLINK_KV"
+id = "e37e3e40d3f5421daebf6385a4ed762a"  # deeplink-tickets-stg
+preview_id = "e37e3e40d3f5421daebf6385a4ed762a"
+
+# Production: custom domain on the zenuml.com zone. `custom_domain = true`
+# makes `wrangler deploy` create/own the DNS record — that deploy is the
+# cloud change that needs explicit approval.
+[env.production]
+name = "confluence-deeplink"
+routes = [
+  { pattern = "confluence.zenuml.com", custom_domain = true },
+]
+
+[env.production.observability]
+enabled = false
+
+[[env.production.kv_namespaces]]
+binding = "DEEPLINK_KV"
+id = "246ed3dd01654e428e468580b1f1f447"  # deeplink-tickets-prod

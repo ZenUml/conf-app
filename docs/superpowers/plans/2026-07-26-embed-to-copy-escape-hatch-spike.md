@@ -40,14 +40,31 @@ Two shipped bugs already came from this: the asyncapi embed picker was routed to
 | ~~**A**~~ | `view.submit` changes the extension key | **Dead on criteria 1–2** regardless of whether the host accepts `extensionKey`. Inherits D2's surface constraint. Q1's live test is now moot. |
 | ~~**B**~~ | Fork the content, repoint `config.customContentId` | **Dead on criteria 1–2.** The repoint is a config write. Inherits D2. |
 | ~~**C**~~ | Replace the extension node in the page ADF | **Dead on criteria 1–2**, and worse: rewriting customer page bodies under the app's identity, racing concurrent human edits. |
-| **B′** | Fork the content and record the override in a **viewer-writable** store, keyed to the macro — never touching config or ADF | **The only survivor.** This is what the spike now tests. |
+| **B″** | Fork the content, park it in a **snapshot attachment** (viewer-writable), and let the **next editor save commit the config** — never blocking on a config write from the viewer | **The only survivor.** This is what the spike now tests. |
 
-**B′ is plausible because the viewer *can* write custom content** (`ApWrapper2.saveCustomContentV2` / `createCustomContentV2`; the agent-link feature already persists diagram writes from the viewer surface), and the embed viewer already has a non-config resolution path — the legacy `uuid` recovery block in `src/forge-embed-viewer.ts:28-49`, plus `parameters.autoConvertLink` for pasted embeds. An override keyed on the macro's `localId`/`uuid` would slot into the same resolution chain.
+### D4 — B″ is not a new invention; both halves already ship
 
-**B′ is not free**, and the spike must price these, not wave at them:
-- It is a **shadow persistence layer the page ADF knows nothing about**. Copy the page, and the override either follows or doesn't (`localId` is measured to survive whole-page copy — so the fork would be *shared* by the copy, which may be wrong).
-- Delete the macro and the forked content orphans — straight into the `customcontent_orphan_observed` surface we already have pain in.
-- The `EMBED` chip and the embed macro's picker-only editor still describe a reference, not a copy (criterion 5, criterion 3).
+**The viewer-writable store exists.** `src/model/SnapshotAttachment.ts` writes `zenuml-<ccId>.json`, a per-page JSON attachment carrying `DiagramSnapshotV1 { version, ccId, ccVersion, diagramType, title, dsl, snapshotAt }` — **the actual DSL, not a PNG**. It is written at macro save *and* backfilled from view time ("ANY macro viewed, page-view or fullscreen"), with a read side (`fetchSnapshot` + `snapshotToDiagram`). Its scope is `Sequence / Mermaid / PlantUml` **only** — exactly the three types View Source runs on (mermaid 75%, plantuml 21%, sequence 4% of opens).
+
+**The deferred-config-heal pattern ships too.** `customcontent_orphan_macro_repaired` fires "once the editor save path has" rewritten stale macro config to a repaired custom content id (`src/utils/orphanTelemetry.ts:73`). "Viewer detects, next editor save heals the config" is an established pattern in this codebase, not a novel risk.
+
+### D5 — three things that break B″ as stated, and must be designed around
+
+1. **The attachment key is content-scoped, not macro-scoped.** The name is derived **only** from `customContentId` and the module states it is "never persisted anywhere else" — a deliberate anti-corruption invariant (the poisoned-id guard, `Attachment.ts:688`). For a pasted embed the ccId is the **source's** id, so:
+   - writing the fork to `zenuml-<sourceId>.json` **corrupts the source's own snapshot fallback for every other macro that references it**;
+   - writing it to `zenuml-<forkId>.json` is unreachable — nothing in the ADF points at the fork, so the next render resolves the source again and never looks there.
+
+   An override must be keyed by **macro identity** (`localId` / the embed's `uuid`), which means a second naming scheme alongside a guarded invariant. Design it deliberately; do not overload the existing name.
+
+2. **The store currently fails ~72% of its writes.** Clean window 2026-07-25 → 07-26, external tenants, after the benign-skip split shipped (`snapshot_backfill_skipped`, 2026-07-24): **225 created / 588 genuinely failed / 240 benignly skipped**, and `snapshot_fallback_rendered` = **0**. Failures span 25+ tenants (not tenant-specific) and **93% carry `macro_type: undefined`**. See D6 — this is a precondition, not a footnote.
+
+3. **The ADF divergence is NOT the same risk as orphan repair.** Orphan repair heals an ADF that is *already broken*; deferring costs nothing because the state is wrong either way. A fork override deliberately makes a **correct** ADF diverge from reality. Everything that reads the ADF — `adfExport` (declared on every macro module in `manifest.yml`), page copy, templates, PDF/Word export, search — would see "embed of X" while the user sees their own fork.
+
+   **Therefore: bound the divergence to a single user journey.** The attachment is a **handoff buffer across the surface boundary**, not a permanent override store. If criterion 3 forces the user into the page editor to edit DSL anyway, then "the next editor save" is the very next step, not a distant maybe — the fork rides the attachment across the boundary and the config commits seconds later. An override that can outlive the journey is out of scope; if the design cannot bound it, that is a Gate A failure.
+
+### D6 — separate bug, independent of this design (file it either way)
+
+The snapshot resilience feature shipped 2026-07-18 is, eight days later, failing **72% of writes with genuine errors** (588 vs 225, benign 401/403/404 already excluded), across 25+ tenants, **93% of failures carrying no `macro_type`** — which points at a path where the diagram type isn't resolved (plausibly the view-time backfill; not traced, do not assert). And its read path has fired **zero** times: `snapshot_fallback_rendered` = 0. A resilience feature that mostly fails to write and has never once been read is not providing resilience. This needs its own issue regardless of what Gate A decides.
 
 ---
 
@@ -141,11 +158,17 @@ The whole spike. Mechanisms A, B and C are already dead on the desk (D3) — **d
 **Interfaces:**
 - Produces: a pasted embed turned into an independently editable diagram **without any config or ADF write** — or a specific, named blocker.
 
-- [ ] **Step 1: Pick the override key and prove the viewer can write it**
+- [ ] **Step 0 (PRECONDITION): establish the attachment write path's real reliability**
 
-Candidate keys: the macro's `localId`, or the embed's existing `uuid`. Whichever is chosen, first prove the viewer surface can **write** a record keyed by it and **read it back on the next render** — before building anything on top.
+D5.2 measured 72% genuine write failures over a 2-day window. Before building anything on this store, determine whether that rate applies to **our** population — an editor-permissioned user acting deliberately in the viewer — or is dominated by the view-time backfill firing in conditions that never apply here.
 
-Expected: a round trip that survives a page reload. If the viewer cannot persist a keyed override at all, Q2 is answered NO here and the spike is over — go to Task 3.
+Run the write path by hand on `<DEV_SITE>` as an editor-permissioned user, 10 attempts. Expected: if it fails at anything near 72%, **stop** — Q2 is blocked on D6, and Gate A is NOT REVERSIBLE until the snapshot bug is fixed. Record the rate either way.
+
+- [ ] **Step 1: Pick a macro-scoped key and prove the round trip**
+
+Per D5.1, do **not** overload `zenuml-<ccId>.json` — writing the fork under the source's ccId corrupts the source's fallback for every macro referencing it. Choose a macro-scoped name (`localId` / the embed's `uuid`) and keep the existing content-scoped invariant intact.
+
+Prove the viewer can **write** the record and **read it back on the next render**, surviving a page reload. If it cannot, Q2 is answered NO here and the spike is over — go to Task 3.
 
 - [ ] **Step 2: Fork the source content**
 
@@ -163,9 +186,10 @@ Expected: the user changes the code, publishes, the change renders, the source i
 
 The `EMBED` chip comes from `isEmbedded` (`GenericViewer.vue:25`). Record whether it can be suppressed for a forked macro **without** a page ADF change.
 
-- [ ] **Step 5: Price the shadow layer**
+- [ ] **Step 5: Bound the divergence (D5.3) and price the shadow layer**
 
 Do not skip this for a green result. Record concretely:
+- **How long does the ADF disagree with reality?** The attachment is a handoff buffer, not a permanent store. Measure the actual window between the fork and the config commit in the real journey. If the user can walk away leaving a permanent divergence, that is a Gate A failure — record it as such.
 - **Page copy** — `localId` is measured to survive whole-page copy, so a copied page's macro would resolve the *same* override and share the fork. Is that acceptable, or a data-integrity bug?
 - **Macro delete** — the forked content orphans. How does that interact with `customcontent_orphan_observed` and the existing recovery paths?
 - **Lite quota** — does the fork count toward the 100-macro space limit? (Feeds Gate B in the productization plan.)
@@ -206,7 +230,9 @@ git push -u origin spike/embed-to-copy-escape-hatch
 |---|---|---|
 | Q1 — `view.submit` can change the extension key? | **MOOT** — not statically answerable (`payload?: any`, SDK is a pass-through), and irrelevant because the mechanism fails criteria 1–2 on D2's surface constraint regardless | `@forge/bridge@5.16.0` `out/view/submit.d.ts:1`, `out/view/submit.js`; all 6 in-repo call sites pass only `{config}` |
 | D2 — config writes require the page-editor surface | **CONFIRMED (desk)** — view-mode Edit modal throws "this resource's view is not submittable"; two shipped bugs already caused by it | `resolveEditorEntry.ts:12-24`, `GenericViewer.vue:322`, `Diagram.ts:50` |
-| Q2 — B′ (fork + viewer-writable override) passes all five criteria? | | |
+| Q2 — B″ (fork → snapshot attachment → next editor save commits config) passes all five criteria? | | |
+| Step 0 — attachment write reliability for an editor-permissioned user | | |
+| D5.3 — is the ADF divergence bounded to one journey? | | |
 | Q3 — ADF node replacement supported? | **MOOT** — fails criteria 1–2 by construction; rewrites customer page bodies under the app identity | D3 |
 | Q4 — `Cmd+Z` reverts an autoconverted paste? | | |
 | Criterion 1 — ≤2 actions from blocked Edit | | |

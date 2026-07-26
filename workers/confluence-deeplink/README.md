@@ -15,21 +15,40 @@ setup is a **v1**, not the final shape. Two things break at 4 variants:
    co-installed on one tenant; both registering `confluence.zenuml.com/d/*/*`
    collides (last-declared wins, no platform detection).
 
-**Target design — per-BRAND domains, but still ONE shared Worker:**
+**Target design — per-BRAND domains, and FOLD the serving into each brand's
+Pages project (not this standalone Worker).** Chosen 2026-07-27 for release
+independence: a shared Worker means one bad deploy breaks EVERY brand's deeplink;
+folding the `/d/*` + `/i/*` handlers into each variant's Pages `functions/` makes
+a Diagramly deploy unable to touch ZenUML/AsyncAPI deeplinks, and puts mint +
+serve + KV + signing-secret all in ONE Pages project per brand (no separate
+deploy unit, no cross-unit secret sync).
 
-| Brand | Domain | Variants |
+| Brand | Domain (custom domain on…) | Variants |
 |---|---|---|
-| ZenUML | `confluence.zenuml.com` | lite + full (same product, no co-install → no conflict) |
-| Diagramly | e.g. `d.diagramly.ai` | diagramly |
-| AsyncAPI | an asyncapi-branded subdomain | asyncapi |
+| ZenUML | `confluence.zenuml.com` on conf-lite **or** conf-full | lite + full |
+| Diagramly | e.g. `d.diagramly.ai` on conf-diagramly | diagramly |
+| AsyncAPI | asyncapi-branded subdomain on conf-asyncapi | asyncapi |
 
-This Worker's logic is **domain-agnostic** (it only handles `/d/*` and `/i/*`;
-the ticket payload carries everything, the host is irrelevant to it), so ONE
-Worker bound to all these custom domains serves every brand — no per-app Workers.
-Touch-points when this lands: each variant's manifest matcher → its brand domain
-(manifest already substitutes per variant); `src/utils/embedDeeplink.ts`
-`DEEPLINK_RE` → multi-host; the mint endpoint → produce the brand's domain; this
-Worker → add the extra custom-domain routes.
+Constraint: a custom domain attaches to exactly ONE Pages project, so
+`confluence.zenuml.com` lives on conf-lite OR conf-full (one serves both).
+Fine — lite+full are the same codebase (built from main), released together, so
+they have no independence need between them; independence that matters is
+cross-BRAND, which this fully satisfies.
+
+Cost (manageable): the Pages project then serves PUBLIC `/d/*` `/i/*` routes
+next to the authenticated backend API — `_middleware` already applies auth only
+to `AUTHENTICATED_PATHS`, so exclude these; and the deeplink handler must NOT log
+request paths (customer cloudId/contentId privacy), same discipline this Worker
+already keeps.
+
+Migration when this lands: relocate `src/index.ts` handlers into
+`functions/d/[cloudId]/[contentId].ts` + `functions/i/[token].ts` (+ `/` and
+404), add those to `public/_routes.json`, attach the brand custom domains, retire
+this standalone Worker. `src/utils/embedDeeplink.ts` `DEEPLINK_RE` → multi-host;
+each variant's manifest matcher → its brand domain; the mint → its brand domain.
+
+**This standalone Worker stays the v1** (lite only, `confluence.zenuml.com`) until
+deeplinks actually go multi-brand — no need to rebuild it now.
 
 ## Why it exists
 

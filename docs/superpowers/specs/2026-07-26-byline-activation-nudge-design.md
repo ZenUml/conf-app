@@ -133,7 +133,11 @@ Reading page → "View as diagram" byline (AI sparkle, loop=1 animation)
   → high confidence:  "This page, as a diagram" + "Just a preview — nothing has
                        been saved. Feel free to make it yours."
      low  confidence:  honest fallback + a relevant example        ← gate 1
-  → Edit (optional — the normal editor; 92% completion backs this) → Save (current space)
+  → preview actions: PRIMARY "Use this diagram" (saves directly — edit is OPTIONAL, per the
+    original proposal; a good draft must not be forced through the editor), SECONDARY
+    "Edit diagram" (the normal editor; 92% completion backs this), plus an always-visible
+    quiet steer row ("Want something different? Describe it (optional)" + Generate again)
+  → Save (current space)
   → Completion screen:
       PRIMARY   "Copy diagram link"
                 helper: Paste it into any Confluence page — it becomes the diagram
@@ -156,10 +160,10 @@ point is *look first, decide never*. Transparency is carried by the loading copy
 this page…"), which states what is happening at the moment it happens. Rovo (data stays in
 Atlassian) remains an enterprise *enhancement*, not the v1 backend.
 
-**Regeneration is one affordance, not two.** The preview offers a single link — "Not quite
-right?" — which expands into an optional steer input ("What should this diagram show?") whose
-submit is "Generate again"; the trigger hides while the row is open, so only one
-generate-labelled control ever exists. Same-input rerolls reproduce the miss, hence the steer.
+**Regeneration is one always-visible affordance.** A quiet steer row sits under the preview —
+optional input + a single "Generate again" button. No reveal step (an earlier "Not quite
+right?" trigger was cut: a control that only uncovers another control is ceremony), and only
+one generate-labelled control exists. Same-input rerolls reproduce the miss, hence the steer.
 If the user edited first, regeneration needs a discard confirm.
 
 **Why deeplink completion is primary (given #360 ships first):** the activation flow is

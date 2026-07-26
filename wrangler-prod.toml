@@ -46,6 +46,12 @@ id = "9531a58d3f5b47a6af77750240c09548"
 binding = "SPACE_LICENSE_KV"
 id = "8969e8528105403bb2d9adca9fc16567"
 
+# Ticketed deeplink previews (functions/deeplink-ticket.ts writes; the
+# workers/confluence-deeplink Worker reads the same namespace).
+[[env.production.kv_namespaces]]
+binding = "DEEPLINK_KV"
+id = "246ed3dd01654e428e468580b1f1f447"  # deeplink-tickets-prod
+
 # Live Agent Link relay's Durable Object. Pages cannot host a DO class
 # internally, so this cross-Worker binding points at the standalone
 # `conf-agent-link-prod` Worker (workers/agent-link/) that actually defines

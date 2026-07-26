@@ -1,18 +1,26 @@
 # Byline activation nudge — full context, evidence, and design
 
-**Status:** design validated on `lite-dev` (dev deploys 16.128.0–16.132.0, 2026-07-26); dialog UX not yet designed
+**Status (v3):** byline mechanics validated on `lite-dev` (dev deploys 16.128.0–16.132.0);
+dialog UX approved 2026-07-26 — AI-generated diagram of the current page, deeplink completion.
+**Sequencing assumption:** **#360 ships first** — the activation flow is its missing producer
+(§6b), and it adds two cheap items to #360's release scope.
 **Decision:** build this; `#334` editor-templates and the demo-page port are out (evidence below)
-**Supersedes:** the 2026-07-26 first draft of this file
+**Supersedes:** the 2026-07-26 v1/v2 drafts of this file
 
 ---
 
 ## 1. What this is
 
-A `confluence:contentBylineItem` entry ("Try ZenUML") that appears **only** on pages in spaces
-that already use our diagrams, aimed at readers who see colleagues' diagrams but have never
-created one. Its icon is a **play-once** animated GIF that draws the eye on first paint and
-then rests. Clicking opens a dialog whose single job is to get the user to their first
-successful diagram. Zero per-view compute by construction.
+A `confluence:contentBylineItem` entry (**"Diagram this page"**) that appears **only** on pages
+in spaces that already use our diagrams, aimed at readers who see colleagues' diagrams but have
+never created one. Its icon is a **play-once** animated GIF that draws the eye on first paint and
+then rests. Clicking opens a dialog that **AI-generates a diagram of the page the user is
+reading** — never a blank editor, never a tutorial — and completes via a diagram deeplink pasted
+into any Confluence page (#360). Zero per-view compute by construction.
+
+Philosophy (kept verbatim from the originating proposal): *the AI is not replacing the editor;
+it is removing the blank page.* Don't teach — demonstrate. Never ask the user to choose a
+diagram language (72% use mermaid; the type is an implementation detail the AI selects).
 
 ## 2. How the idea evolved (three pivots, all user-driven)
 
@@ -21,7 +29,8 @@ successful diagram. Zero per-view compute by construction.
 | v0 | Special pasted link shows a guide animation | Never-users don't *have* the link — it needs a champion to seed it. Payload also wrong: a "guide" converts worse than an editable diagram (viewer create-CTA already proven dead) |
 | v1 | Byline dialog for users who never created a macro | Reaches every page view with zero seeding — but per-user animation control forces `dynamicProperties` = a Forge function on **every content view** (cost, §5) |
 | v2 | Animated icon, click to cancel, per-user | `entity: user` display condition doesn't work (§6); and `loop=1` GIF makes "click to cancel" unnecessary — the icon quiets itself |
-| **v3 (final)** | **Two conditional byline items gated by a space-level property** | User: "never created" is far too broad — most Confluence readers never need a diagram and the nudge would never stop for them. The demand signal is the **space** (the team already uses diagrams), not the individual |
+| v3 | Two conditional byline items gated by a space-level property | User: "never created" is far too broad — most Confluence readers never need a diagram and the nudge would never stop for them. The demand signal is the **space** (the team already uses diagrams), not the individual |
+| **v4 (final)** | **Dialog = AI-generated diagram of the current page; completion = deeplink paste** | User proposal, 2026-07-26: the page the user is reading IS the prompt — no templates, no wizard, no language picker. UX review added three release gates (§6b) and swapped completion to deeplink-primary once the user set the sequencing assumption that #360 ships first |
 
 ## 3. Why byline won the activation bake-off
 
@@ -97,8 +106,8 @@ confluence:contentBylineItem:
   - key: zenuml-byline-aiaide
     ...
   - key: zenuml-byline-newuser
-    resource: main            # dialog route TBD (§8.4)
-    title: Try ZenUML
+    resource: main            # dialog route: activation flow (§6b)
+    title: Diagram this page  # value proposition in two words; brand names mean nothing to a first-timer
     icon: <play-once GIF, data: URI ≤255 chars, drawn ~19×14, calm final frame>
     tooltip: Create your first diagram
     viewportSize: fullscreen
@@ -110,8 +119,63 @@ confluence:contentBylineItem:
 
 **Space property writer:** the existing `lite-macro-count-daily` scheduled job already does a
 full per-space macro inventory daily — add one property write per qualifying space
-(threshold e.g. ≥3 diagrams; exact bar is a launch-tuning knob). Marginal cost ≈ zero.
-Written via ordinary REST; verified the condition evaluator reads it.
+(threshold e.g. ≥3 diagrams; exact bar is a launch-tuning knob). **Skip spaces at or near the
+Lite paywall cap** — the nudge must never point at a space that would answer a first create
+with an upgrade prompt. Marginal cost ≈ zero. Written via ordinary REST; verified the
+condition evaluator reads it.
+
+## 6b. The dialog — approved v2 flow (2026-07-26)
+
+```
+Reading page → "Diagram this page" byline (loop=1 animation)
+  → [first time: one-line consent] → Loading ("Reading this page…", aria-live, cancellable)
+  → high confidence:  preview + "Here's a diagram based on this page"
+     low  confidence:  honest fallback + a relevant example        ← gate 1
+  → Edit (optional — the normal editor; 92% completion backs this) → Save (current space)
+  → Completion screen:
+      PRIMARY   "Copy diagram link"
+                helper: Paste it into any Confluence page — it becomes the diagram
+                + 2-second inline paste demo animation (plays once)
+      SECONDARY "No page in mind? Create one with this diagram" (draft page — stall-breaker)
+  → user opens any page → Edit → ⌘V → Embed macro appears (#360 autoconvert)
+```
+
+**Three release gates (all cheap, none needs research):**
+
+1. **Low-confidence fallback.** The byline shows on *every* page of a qualifying space —
+   meeting notes and link lists included. A bad first diagram is worse than a blank page.
+   Gate on the generator's `confidence` field; below threshold show an honest "this page
+   doesn't describe a process — try an architecture or API page" plus a keyword-picked example.
+2. **Consent moment.** Page content leaves Confluence for the generation backend. First click
+   shows a one-line confirm ("Generate a diagram from this page?" + don't-ask-again). Target
+   tenants include banks; silent egress is an admin-escalation event. Rovo (data stays in
+   Atlassian) is an *enterprise enhancement*, not the v1 path — it requires the tenant to have
+   Rovo, so it cannot be the only backend.
+3. **Paywall exclusion** — encoded in the space-property writer above.
+
+**"Generate Again"** takes an optional one-line steer ("What should this diagram show?") —
+same-input rerolls reproduce the miss. If the user edited first, regeneration needs a
+discard confirm.
+
+**Why deeplink completion is primary (given #360 ships first):** the activation flow is
+#360's missing *producer* — every activated user mints a link and learns the paste workflow,
+bootstrapping the diagram-as-asset model. The paste friction is paid down by the inline demo
+animation, and the draft-page secondary catches the "which page?" stall.
+
+**What this adds to #360's release scope (both cheap, both mandatory):**
+
+- **Copy as `text/plain` ONLY** — a `text/html` flavour gets eaten by Confluence's paste
+  handling before autoconvert can match (verified during #360 testing).
+- **Stand up an instruction page at `confluence.zenuml.com/d/*`** — activation puts these URLs
+  in novices' hands; they *will* click them and paste them into Slack. A static page saying
+  "paste this link into any Confluence page to embed the diagram" turns the dead domain into
+  a teacher. We own zenuml.com; one Cloudflare Pages route.
+
+**Technical notes settled by review:** cross-space paste within a tenant works (viewer checks
+cloudId only; fetch runs as the viewing user, who has read on the source space by construction);
+the saved diagram is custom content in the current space, referenced by every pasted Embed —
+born as a *citable asset*, which quietly bootstraps the A-group model; cross-tenant paste
+fail-softs (verified) and the instruction page explains the rest.
 
 ## 7. Rejected on evidence (do not relitigate without new data)
 
@@ -128,30 +192,44 @@ Written via ordinary REST; verified the condition evaluator reads it.
 1. **Aide co-display.** `zenuml-byline-aiaide` is unconditional today — a new user in a
    qualifying space would see **both** chips. Either gate Aide on the inverse condition or
    accept two entries. Not yet decided.
-2. **Icon asset.** Real design at ~19×14, ≤255 chars as data URI, last frame calm.
-   Richer animation requires an `permissions.external.images` entry (minor version) —
+2. **Icon asset.** Draw for "Diagram this page" at ~19×14, ≤255 chars as data URI, last frame
+   calm. Richer animation requires a `permissions.external.images` entry (minor version) —
    `resource:` icons are reported broken for byline.
-3. **Threshold** for `zenuml-space-uses-diagrams` (≥N diagrams, freshness window).
-4. **The dialog — this is the real work.** Everything above is delivery mechanics.
-   The dialog's single job: first successful create. `GetStarted.vue` (15 KB, exists,
-   plus stories) is the starting point. Byline context is read-only view mode —
-   the dialog cannot insert into the current page; candidate flows: guided insert
-   walkthrough, or app-created draft page with a starter macro (create-test-page
-   pattern proves the API path). **Undesigned.**
-5. **Rollout**: dev → staging spaces first; Lite-only initially (it has the gap and 91% of views).
+3. **Threshold** for `zenuml-space-uses-diagrams` (≥N diagrams, freshness window) + the
+   paywall-cap exclusion rule (§6).
+4. **Generation backend.** v1 = own backend (`/ai-generate-title` and Diagramly AI infra are
+   precedents) behind the consent gate; Rovo as enterprise enhancement later. Prompt +
+   structured output schema (`diagramType`, `diagramSource`, `title`, `confidence`) owned by us.
+5. **Confidence threshold + fallback examples** — needs a small eval set of real page types
+   (process doc / architecture doc / meeting notes / link list).
+6. **Dialog build.** `GetStarted.vue` (15 KB + stories) is the starting shell; the flow in §6b
+   is the spec. Consent copy, loading skeleton, error states (timeout / quota / unparseable
+   output), focus management, keyboard path.
+7. **Content-level suppression (nice-to-have):** `entity: content` display conditions could
+   hide the byline on pages that already contain our macros (where it is noise). Platform
+   supports it; **untested** — verify like §4 before relying on it.
+8. **Rollout**: #360 first (with its two added scope items, §6b) → dev → staging spaces →
+   Lite-only initially (it has the gap and 91% of views).
 
 ## 9. Analytics (events precede code — project rule)
 
-| Event | Trigger |
+| Event | Trigger / key props |
 |---|---|
 | `activation_nudge_shown` | dialog resource first paint (byline render itself is not observable to us without cost) |
 | `activation_nudge_clicked` | byline clicked → dialog opened |
+| `activation_nudge_consented` / `_declined` | the consent moment (first run) |
+| `activation_generation_succeeded` / `_failed` | props: `diagram_type`, `confidence`, `duration_ms`, failure reason |
+| `activation_low_confidence_fallback` | gate 1 fired instead of a generated diagram |
+| `activation_diagram_edited` | user modified the generated draft before save |
+| `activation_completed` | props: `path: copy_link \| draft_page` |
 | `activation_nudge_dismissed` | dialog closed without creating |
 | `macro_create_succeeded` (existing) | the activation event |
+| `embed_autoconvert_*` (existing, #360) | closes the loop: link minted here → pasted there |
 
-**Success metric:** shown → clicked → first `macro_create_succeeded`, segmented by space.
-**Baseline to move: viewer→try = 12.9% (Lite, 90d).** Even +1 pt ≈ ~180 new creators/quarter.
-Register names in `src/utils/analytics/catalog.ts` + `types.ts` as the first commit.
+**Success metric:** shown → clicked → generation ok → save → completed, segmented by space and
+by `confidence`. **Baseline to move: viewer→try = 12.9% (Lite, 90d).** Even +1 pt ≈ ~180 new
+creators/quarter. Register names in `src/utils/analytics/catalog.ts` + `types.ts` as the
+first commit.
 
 ## 10. Related artifacts
 

@@ -56,7 +56,9 @@ Two shipped bugs already came from this: the asyncapi embed picker was routed to
 
    An override must be keyed by **macro identity** (`localId` / the embed's `uuid`), which means a second naming scheme alongside a guarded invariant. Design it deliberately; do not overload the existing name.
 
-2. **The store currently fails ~72% of its writes.** Clean window 2026-07-25 → 07-26, external tenants, after the benign-skip split shipped (`snapshot_backfill_skipped`, 2026-07-24): **225 created / 588 genuinely failed / 240 benignly skipped**, and `snapshot_fallback_rendered` = **0**. Failures span 25+ tenants (not tenant-specific) and **93% carry `macro_type: undefined`**. See D6 — this is a precondition, not a footnote.
+2. **Write reliability: acceptable. (Corrected — an earlier revision of this doc claimed 72% failure; that was wrong.)** The 07-25 → 07-26 window straddled the rollout of the benign-skip split, so 526 of 588 "failures" were HTTP 403 `PermissionException` — exactly the benign `no_write_permission` case — logged by installs still on a pre-07-24 build. On the one fully-rolled-out day (**07-26**): **37 created / 19 genuine failures / 232 benign skips** fleet-wide. **B″ is not blocked on write reliability.**
+
+   Two things do carry over: ~86% of backfill attempts are benign skips because **read-only viewers cannot write attachments** (#211/#162) — fine here, since only an editor-permissioned user takes the escape hatch; and `snapshot_fallback_rendered` = **0**, i.e. the read path has never fired in production. See D6.
 
 3. **The ADF divergence is NOT the same risk as orphan repair.** Orphan repair heals an ADF that is *already broken*; deferring costs nothing because the state is wrong either way. A fork override deliberately makes a **correct** ADF diverge from reality. Everything that reads the ADF — `adfExport` (declared on every macro module in `manifest.yml`), page copy, templates, PDF/Word export, search — would see "embed of X" while the user sees their own fork.
 
@@ -64,7 +66,12 @@ Two shipped bugs already came from this: the asyncapi embed picker was routed to
 
 ### D6 — separate bug, independent of this design (file it either way)
 
-The snapshot resilience feature shipped 2026-07-18 is, eight days later, failing **72% of writes with genuine errors** (588 vs 225, benign 401/403/404 already excluded), across 25+ tenants, **93% of failures carrying no `macro_type`** — which points at a path where the diagram type isn't resolved (plausibly the view-time backfill; not traced, do not assert). And its read path has fired **zero** times: `snapshot_fallback_rendered` = 0. A resilience feature that mostly fails to write and has never once been read is not providing resilience. This needs its own issue regardless of what Gate A decides.
+Filed as **ZenUml/conf-app#398**. Two residual defects, both small:
+
+1. `failure_reason` is `String(e.message).substring(0, 200)` with no extraction of the Confluence `message` field, so every stored reason is cut mid-sentence inside the ~180-char v1 error envelope. This is **the same defect #396 fixed on the async attachment reporter** and the snapshot path never received it.
+2. `snapshot_fallback_rendered` = 0 — the read path has never fired. A resilience feature that has never been read has never been proven.
+
+**Method note worth keeping:** the first version of this section claimed a 72% write-failure rate. It was an artifact of measuring a reclassification event (`snapshot_backfill_skipped`, shipped 07-24) before its rollout had fully landed — the same "benign bucket reading as a total outage" trap #396 documents. Do not measure across a reclassification rollout.
 
 ---
 
@@ -158,11 +165,9 @@ The whole spike. Mechanisms A, B and C are already dead on the desk (D3) — **d
 **Interfaces:**
 - Produces: a pasted embed turned into an independently editable diagram **without any config or ADF write** — or a specific, named blocker.
 
-- [ ] **Step 0 (PRECONDITION): establish the attachment write path's real reliability**
+- [ ] **Step 0: sanity-check the write path (no longer a blocking precondition)**
 
-D5.2 measured 72% genuine write failures over a 2-day window. Before building anything on this store, determine whether that rate applies to **our** population — an editor-permissioned user acting deliberately in the viewer — or is dominated by the view-time backfill firing in conditions that never apply here.
-
-Run the write path by hand on `<DEV_SITE>` as an editor-permissioned user, 10 attempts. Expected: if it fails at anything near 72%, **stop** — Q2 is blocked on D6, and Gate A is NOT REVERSIBLE until the snapshot bug is fixed. Record the rate either way.
+D5.2 as corrected shows 19 genuine failures fleet-wide on the fully-rolled-out day, so this store is usable. Still run the write path by hand on `<DEV_SITE>` as an editor-permissioned user, 10 attempts, to confirm our population behaves like the fleet. Expected: ~10/10. A materially worse rate is a finding — record it and reassess before building on it.
 
 - [ ] **Step 1: Pick a macro-scoped key and prove the round trip**
 
@@ -231,7 +236,7 @@ git push -u origin spike/embed-to-copy-escape-hatch
 | Q1 — `view.submit` can change the extension key? | **MOOT** — not statically answerable (`payload?: any`, SDK is a pass-through), and irrelevant because the mechanism fails criteria 1–2 on D2's surface constraint regardless | `@forge/bridge@5.16.0` `out/view/submit.d.ts:1`, `out/view/submit.js`; all 6 in-repo call sites pass only `{config}` |
 | D2 — config writes require the page-editor surface | **CONFIRMED (desk)** — view-mode Edit modal throws "this resource's view is not submittable"; two shipped bugs already caused by it | `resolveEditorEntry.ts:12-24`, `GenericViewer.vue:322`, `Diagram.ts:50` |
 | Q2 — B″ (fork → snapshot attachment → next editor save commits config) passes all five criteria? | | |
-| Step 0 — attachment write reliability for an editor-permissioned user | | |
+| Step 0 — attachment write sanity check (10 attempts, editor-permissioned) | | |
 | D5.3 — is the ADF divergence bounded to one journey? | | |
 | Q3 — ADF node replacement supported? | **MOOT** — fails criteria 1–2 by construction; rewrites customer page bodies under the app identity | D3 |
 | Q4 — `Cmd+Z` reverts an autoconverted paste? | | |

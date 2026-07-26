@@ -75,9 +75,23 @@ from *what is behind the click*, which is the §6b bet.
 `handleAiAideRoute()` (`src/routes/aiAide.ts:9`), before the Forge context resolves. Every
 event carries the literal placeholder `unknown_user_account_id`, and 27% also lose the tenant
 (`unknown_atlassian_domain`). The event count is trustworthy; the user count is not knowable
-at all. **The new byline events must fire after identity resolution** — switching to
-`trackAnalyticsEvent` does NOT fix this by itself (`trackAnalyticsEvent.ts:56-61` degrades to
-the same placeholder when `apWrapper` is not ready).
+at all.
+
+**Corrected 2026-07-26** (an earlier revision of this paragraph overstated the problem):
+`trackAnalyticsEvent` is *partly* self-healing — `_identify()` latches `_identified` only when
+the id is real (`trackAnalyticsEvent.ts:81-90`), so a later event in the same iframe retries
+and re-identifies. What it does **not** do is re-attribute the events already sent: those stay
+under `unknown_user_account_id`, which is a real distinct_id, not an anonymous alias to be
+merged. So the exposure is precise — **the FIRST event in an iframe is at risk, and for the
+byline dialog the first event (`activation_nudge_shown`) is the funnel entry point.** The
+legacy `trackEvent` path used by Aide has no self-healing at all, which is why 100% of its
+events are placeholders.
+
+**Required before the dialog ships:** `ApWrapper2.initializeContext()` (`:130`) resolves
+`currentUser` but exposes no readiness promise, and `:181-182` notes not every entry point
+even calls it. Memoize it and have `trackAnalyticsEvent` await it (bounded by a short timeout
+so tracking can never block the UI) before `_identify()`. Cover it with a test that asserts
+the first event of an iframe carries a real account id.
 
 Honest framing: 12.9% is **not a crisis** (healthy versus 90-9-1 participation norms).
 This is a **zero-cost growth lever on a warm audience**: ~15,500 Lite viewers per quarter

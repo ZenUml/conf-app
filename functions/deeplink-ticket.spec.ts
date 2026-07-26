@@ -41,6 +41,7 @@ function makeRequest(body: unknown, method = "POST"): Request {
   });
 }
 
+const SECRET = "test-secret";
 const forgeData = { forgeContext: { cloudId: "cloud-1" } } as any;
 
 const validBody = {
@@ -55,7 +56,7 @@ describe("deeplink-ticket", () => {
     const { kv } = makeKV();
     const res = await onRequest({
       request: makeRequest(undefined, "GET"),
-      env: { DB: makeDB("x.atlassian.net"), DEEPLINK_KV: kv },
+      env: { DB: makeDB("x.atlassian.net"), DEEPLINK_KV: kv, DEEPLINK_SIGN_SECRET: SECRET },
       data: forgeData,
     });
     expect(res.status).toBe(405);
@@ -72,7 +73,7 @@ describe("deeplink-ticket", () => {
 
   it("rejects non-numeric ids and non-PNG payloads", async () => {
     const { kv } = makeKV();
-    const env = { DB: makeDB("x.atlassian.net"), DEEPLINK_KV: kv };
+    const env = { DB: makeDB("x.atlassian.net"), DEEPLINK_KV: kv, DEEPLINK_SIGN_SECRET: SECRET };
     const badId = await onRequest({
       request: makeRequest({ ...validBody, contentId: "abc" }),
       env,
@@ -91,7 +92,7 @@ describe("deeplink-ticket", () => {
     const { kv } = makeKV();
     const res = await onRequest({
       request: makeRequest({ ...validBody, siteHostname: "evil.example.com" }),
-      env: { DB: makeDB(null), DEEPLINK_KV: kv },
+      env: { DB: makeDB(null), DEEPLINK_KV: kv, DEEPLINK_SIGN_SECRET: SECRET },
       data: forgeData,
     });
     expect(res.status).toBe(409);
@@ -108,7 +109,7 @@ describe("deeplink-ticket", () => {
     }
     const res = await onRequest({
       request: makeRequest({ ...validBody, pngBase64: btoa(bin) }),
-      env: { DB: makeDB("x.atlassian.net"), DEEPLINK_KV: kv },
+      env: { DB: makeDB("x.atlassian.net"), DEEPLINK_KV: kv, DEEPLINK_SIGN_SECRET: SECRET },
       data: forgeData,
     });
     expect(res.status).toBe(413);
@@ -118,13 +119,21 @@ describe("deeplink-ticket", () => {
     const { kv, puts } = makeKV();
     const res = await onRequest({
       request: makeRequest({ ...validBody, title: "x".repeat(1000) }),
-      env: { DB: makeDB("x.atlassian.net"), DEEPLINK_KV: kv },
+      env: { DB: makeDB("x.atlassian.net"), DEEPLINK_KV: kv, DEEPLINK_SIGN_SECRET: SECRET },
       data: forgeData,
     });
     expect(res.status).toBe(200);
-    const out = (await res.json()) as any;
-    const ticket = puts.find((p) => p.key === `ticket:${out.token}`);
-    expect(ticket).toBeDefined();
+    expect(puts.some((p) => p.key.startsWith("img:"))).toBe(true);
+  });
+
+  it("returns 503 when the signing secret is not configured", async () => {
+    const { kv } = makeKV();
+    const res = await onRequest({
+      request: makeRequest(validBody),
+      env: { DB: makeDB("example.atlassian.net"), DEEPLINK_KV: kv } as any,
+      data: forgeData,
+    });
+    expect(res.status).toBe(503);
   });
 
   it("returns 500 (not an unhandled throw) when the KV write fails", async () => {
@@ -135,29 +144,41 @@ describe("deeplink-ticket", () => {
     } as any;
     const res = await onRequest({
       request: makeRequest(validBody),
-      env: { DB: makeDB("x.atlassian.net"), DEEPLINK_KV: kv },
+      env: { DB: makeDB("x.atlassian.net"), DEEPLINK_KV: kv, DEEPLINK_SIGN_SECRET: SECRET },
       data: forgeData,
     });
     expect(res.status).toBe(500);
   });
 
-  it("mints: img gets the TTL, ticket does not, url carries the token", async () => {
+  it("mints a SIGNED token: only the PNG is in KV (TTL), no ticket row, url carries the token", async () => {
     const { kv, puts } = makeKV();
     const res = await onRequest({
-      request: makeRequest(validBody),
-      env: { DB: makeDB("example.atlassian.net"), DEEPLINK_KV: kv },
+      request: makeRequest({ ...validBody, width: 1012, height: 786 }),
+      env: { DB: makeDB("example.atlassian.net"), DEEPLINK_KV: kv, DEEPLINK_SIGN_SECRET: SECRET },
       data: forgeData,
     });
     expect(res.status).toBe(200);
     const out = (await res.json()) as any;
     expect(out.imageTtlSeconds).toBe(IMG_TTL_SECONDS);
-    expect(out.url).toBe(
-      `https://confluence.zenuml.com/d/cloud-1/425987?t=${out.token}`,
-    );
+    // Token is base64url(payload).base64url(sig).
+    expect(out.token).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    expect(out.url).toBe(`https://confluence.zenuml.com/d/cloud-1/425987?t=${out.token}`);
 
-    const img = puts.find((p) => p.key === `img:${out.token}`);
-    const ticket = puts.find((p) => p.key === `ticket:${out.token}`);
-    expect(img?.opts?.expirationTtl).toBe(IMG_TTL_SECONDS);
-    expect(ticket?.opts?.expirationTtl).toBeUndefined();
+    // Exactly one KV write — the image — with the TTL; NO ticket: key.
+    const imgWrites = puts.filter((p) => p.key.startsWith("img:"));
+    expect(imgWrites).toHaveLength(1);
+    expect(imgWrites[0].opts?.expirationTtl).toBe(IMG_TTL_SECONDS);
+    expect(puts.some((p) => p.key.startsWith("ticket:"))).toBe(false);
+
+    // The payload is signed and carries the mint-time + dims (decode the first half).
+    const payloadB64 = out.token.split(".")[0];
+    const payload = JSON.parse(
+      Buffer.from(payloadB64.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString(),
+    );
+    expect(payload.c).toBe("425987");
+    expect(payload.d).toBe("example.atlassian.net");
+    expect(typeof payload.m).toBe("string");
+    expect(payload.w).toBe(1012);
+    expect(payload.i).toBe(imgWrites[0].key.slice("img:".length));
   });
 });

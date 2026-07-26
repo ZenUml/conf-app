@@ -26,16 +26,23 @@
 
 export interface Env {
   DEEPLINK_KV?: KVNamespace;
+  // HMAC secret shared with the mint endpoint (functions/deeplink-ticket.ts).
+  // Without it, ticketed links degrade to the instruction page.
+  DEEPLINK_SIGN_SECRET?: string;
 }
 
+// The ticket is carried IN the URL as a signed token — `?t=<base64url(payload)>.<base64url(hmac)>`
+// — not stored server-side. The mint-time (`m`) and every field are inside the
+// signed payload, so expiry is computed from the token itself and cannot be
+// tampered with; the only thing in KV is the PNG (keyed by `i`).
 interface Ticket {
-  v: number;
   d: string; // site hostname (*.atlassian.net)
   p: string; // pageId
-  c: string; // contentId
+  c: string; // contentId (bound to the URL path)
+  m: string; // minted-at ISO timestamp — expiry source
+  i: string; // image KV id (img:<i> holds the PNG)
   t?: string; // diagram title
-  m: string; // minted-at ISO timestamp
-  w?: number; // PNG width (for og:image:width — helps Slack render inline)
+  w?: number; // PNG width (og:image:width — helps Slack render inline)
   h?: number; // PNG height
 }
 
@@ -45,8 +52,57 @@ const IMG_TTL_SECONDS = 600;
 const IMG_SAFETY_MARGIN_SECONDS = 30;
 
 const STRICT_DEEPLINK_RE = /^\/d\/([0-9a-fA-F-]{32,36})\/(\d+)\/?$/;
-const TOKEN_RE = /^[A-Za-z0-9_-]{16,64}$/;
+// Signed token: base64url(payload) "." base64url(sig). Also the /i/<token> path.
+const SIGNED_TOKEN_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 const ATLASSIAN_HOST_RE = /^[a-z0-9][a-z0-9.-]*\.atlassian\.net$/i;
+
+// --- Signed-token helpers (MUST stay byte-compatible with the mint endpoint,
+// functions/deeplink-ticket.ts) ---------------------------------------------
+const ENC = new TextEncoder();
+
+function b64urlEncode(bytes: Uint8Array): string {
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function b64urlDecode(s: string): Uint8Array {
+  const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4);
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function hmac(secret: string, msg: string): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey(
+    "raw", ENC.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, ENC.encode(msg)));
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let r = 0;
+  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
+}
+
+// Verify the HMAC and return the payload, or undefined if the signature is
+// bad / the payload is malformed. No KV involved.
+async function verifyToken(token: string, secret: string): Promise<Ticket | undefined> {
+  const dot = token.lastIndexOf(".");
+  if (dot < 1) return undefined;
+  const payloadB64 = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  const expected = b64urlEncode(await hmac(secret, payloadB64));
+  if (!timingSafeEqual(sig, expected)) return undefined;
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(b64urlDecode(payloadB64)));
+    if (isTicket(payload)) return payload;
+  } catch { /* fall through */ }
+  return undefined;
+}
 
 const STATIC_PAGE_HEADERS: Record<string, string> = {
   "content-type": "text/html; charset=utf-8",
@@ -267,7 +323,10 @@ function isTicket(value: unknown): value is Ticket {
     typeof t.p === "string" &&
     /^\d+$/.test(t.p) &&
     typeof t.c === "string" &&
-    typeof t.m === "string"
+    /^\d+$/.test(t.c) &&
+    typeof t.m === "string" &&
+    typeof t.i === "string" &&
+    /^[A-Za-z0-9_-]{8,64}$/.test(t.i)
   );
 }
 
@@ -284,10 +343,15 @@ export default {
       return Response.redirect("https://zenuml.com", 302);
     }
 
-    // Preview image bytes. 404 after KV physically expires the object.
-    const imgMatch = /^\/i\/([A-Za-z0-9_-]{16,64})$/.exec(pathname);
-    if (imgMatch && env.DEEPLINK_KV) {
-      const png = await env.DEEPLINK_KV.get(`img:${imgMatch[1]}`, "arrayBuffer");
+    // Preview image bytes. The path IS the signed token; serve the PNG only for
+    // a valid, unexpired token — the image is gated by the same signature as the
+    // page, no separate capability. 404 once the token expires or the KV object
+    // physically vanishes.
+    const imgMatch = /^\/i\/([A-Za-z0-9_.-]{20,4096})$/.exec(pathname);
+    if (imgMatch && env.DEEPLINK_KV && env.DEEPLINK_SIGN_SECRET) {
+      const ticket = await verifyToken(imgMatch[1], env.DEEPLINK_SIGN_SECRET);
+      if (!ticket || !imageFresh(ticket)) return new Response("Not found", { status: 404 });
+      const png = await env.DEEPLINK_KV.get(`img:${ticket.i}`, "arrayBuffer");
       if (!png) return new Response("Not found", { status: 404 });
       return new Response(png, {
         status: 200,
@@ -300,22 +364,17 @@ export default {
     }
 
     const strict = STRICT_DEEPLINK_RE.exec(pathname);
-    if (strict && env.DEEPLINK_KV) {
+    if (strict && env.DEEPLINK_SIGN_SECRET) {
       const token = url.searchParams.get("t");
-      if (token && TOKEN_RE.test(token)) {
-        // Malformed ticket JSON (get throws) or KV trouble must degrade to the
-        // instruction page, never surface a 1101.
-        let raw: unknown = null;
-        try {
-          raw = await env.DEEPLINK_KV.get(`ticket:${token}`, "json");
-        } catch {
-          raw = null;
-        }
-        // Bind the ticket to the path it was minted for.
-        if (isTicket(raw) && raw.c === strict[2]) {
-          return imageFresh(raw)
-            ? new Response(previewPage(url.origin, token, raw), { status: 200, headers: PREVIEW_PAGE_HEADERS })
-            : new Response(expiredPage(raw), { status: 200, headers: TICKETED_PAGE_HEADERS });
+      if (token && SIGNED_TOKEN_RE.test(token)) {
+        const ticket = await verifyToken(token, env.DEEPLINK_SIGN_SECRET);
+        // Bind the ticket to the path it was minted for (the signature already
+        // makes the payload unforgeable; this rejects a valid token replayed on
+        // a different content path).
+        if (ticket && ticket.c === strict[2]) {
+          return imageFresh(ticket)
+            ? new Response(previewPage(url.origin, token, ticket), { status: 200, headers: PREVIEW_PAGE_HEADERS })
+            : new Response(expiredPage(ticket), { status: 200, headers: TICKETED_PAGE_HEADERS });
         }
       }
     }

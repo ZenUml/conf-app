@@ -31,19 +31,19 @@ export interface Env {
   DEEPLINK_SIGN_SECRET?: string;
 }
 
-// The ticket is carried IN the URL as a signed token — `?t=<base64url(payload)>.<base64url(hmac)>`
-// — not stored server-side. The mint-time (`m`) and every field are inside the
-// signed payload, so expiry is computed from the token itself and cannot be
-// tampered with; the only thing in KV is the PNG (keyed by `i`).
+// The ticket is carried IN the URL as a compact signed token —
+// `?t=<base64url(payload)>.<base64url(hmac[:16])>` — not stored server-side.
+// Kept minimal to keep the URL short: `d` is the SUBDOMAIN only, `m` is Unix
+// SECONDS, the image KV key is DERIVED from the payload hash (no field), and
+// there are no dimensions. Expiry (`m`) is inside the signed payload, so it
+// can't be tampered with; the only thing in KV is the PNG.
 interface Ticket {
-  d: string; // site hostname (*.atlassian.net)
+  v: number; // format version
+  d: string; // site SUBDOMAIN (full host = `${d}.atlassian.net`)
   p: string; // pageId
   c: string; // contentId (bound to the URL path)
-  m: string; // minted-at ISO timestamp — expiry source
-  i: string; // image KV id (img:<i> holds the PNG)
+  m: number; // minted-at, Unix seconds — expiry source
   t?: string; // diagram title
-  w?: number; // PNG width (og:image:width — helps Slack render inline)
-  h?: number; // PNG height
 }
 
 const IMG_TTL_SECONDS = 600;
@@ -54,7 +54,6 @@ const IMG_SAFETY_MARGIN_SECONDS = 30;
 const STRICT_DEEPLINK_RE = /^\/d\/([0-9a-fA-F-]{32,36})\/(\d+)\/?$/;
 // Signed token: base64url(payload) "." base64url(sig). Also the /i/<token> path.
 const SIGNED_TOKEN_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
-const ATLASSIAN_HOST_RE = /^[a-z0-9][a-z0-9.-]*\.atlassian\.net$/i;
 
 // --- Signed-token helpers (MUST stay byte-compatible with the mint endpoint,
 // functions/deeplink-ticket.ts) ---------------------------------------------
@@ -74,11 +73,24 @@ function b64urlDecode(s: string): Uint8Array {
   return out;
 }
 
+// Truncated-MAC + derived-imgKey lengths — MUST match the mint endpoint.
+const SIG_BYTES = 16;
+const IMGKEY_BYTES = 12;
+
 async function hmac(secret: string, msg: string): Promise<Uint8Array> {
   const key = await crypto.subtle.importKey(
     "raw", ENC.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
   );
   return new Uint8Array(await crypto.subtle.sign("HMAC", key, ENC.encode(msg)));
+}
+
+async function sha256(msg: string): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", ENC.encode(msg)));
+}
+
+// Image KV key, derived from the signed payload (not carried in the URL).
+async function imgKeyFor(payloadB64: string): Promise<string> {
+  return b64urlEncode((await sha256(payloadB64)).slice(0, IMGKEY_BYTES));
 }
 
 function timingSafeEqual(a: string, b: string): boolean {
@@ -88,14 +100,14 @@ function timingSafeEqual(a: string, b: string): boolean {
   return r === 0;
 }
 
-// Verify the HMAC and return the payload, or undefined if the signature is
-// bad / the payload is malformed. No KV involved.
+// Verify the (truncated) HMAC and return the payload, or undefined if the
+// signature is bad / the payload is malformed. No KV involved.
 async function verifyToken(token: string, secret: string): Promise<Ticket | undefined> {
   const dot = token.lastIndexOf(".");
   if (dot < 1) return undefined;
   const payloadB64 = token.slice(0, dot);
   const sig = token.slice(dot + 1);
-  const expected = b64urlEncode(await hmac(secret, payloadB64));
+  const expected = b64urlEncode((await hmac(secret, payloadB64)).slice(0, SIG_BYTES));
   if (!timingSafeEqual(sig, expected)) return undefined;
   try {
     const payload = JSON.parse(new TextDecoder().decode(b64urlDecode(payloadB64)));
@@ -251,16 +263,12 @@ const INSTRUCTION_PAGE = shell({
 });
 
 function confluenceUrl(ticket: Ticket): string {
-  return `https://${ticket.d}/wiki/pages/viewpage.action?pageId=${ticket.p}`;
+  return `https://${ticket.d}.atlassian.net/wiki/pages/viewpage.action?pageId=${ticket.p}`;
 }
 
 function previewPage(origin: string, token: string, ticket: Ticket): string {
   const title = ticket.t ? `${ticket.t} — ZenUML diagram` : "ZenUML diagram";
   const imgUrl = `${origin}/i/${token}`;
-  const dims = ticket.w && ticket.h
-    ? `<meta property="og:image:width" content="${ticket.w}">
-<meta property="og:image:height" content="${ticket.h}">`
-    : "";
   return shell({
     title,
     noindex: false,
@@ -270,8 +278,7 @@ function previewPage(origin: string, token: string, ticket: Ticket): string {
 <meta property="og:image" content="${esc(imgUrl)}">
 <meta property="og:image:secure_url" content="${esc(imgUrl)}">
 <meta property="og:image:type" content="image/png">
-<meta property="og:image:alt" content="${esc(ticket.t || "ZenUML diagram")}">
-${dims}`,
+<meta property="og:image:alt" content="${esc(ticket.t || "ZenUML diagram")}">`,
     body: /* html */ `
   <span class="mark" role="img" aria-label="ZenUML"></span>
   <h1>${esc(ticket.t ?? "Shared diagram")}</h1>
@@ -309,24 +316,24 @@ function expiredPage(ticket: Ticket): string {
 }
 
 function imageFresh(ticket: Ticket): boolean {
-  const minted = Date.parse(ticket.m);
-  if (Number.isNaN(minted)) return false;
-  return Date.now() - minted < (IMG_TTL_SECONDS - IMG_SAFETY_MARGIN_SECONDS) * 1000;
+  // m is Unix seconds; compare in seconds.
+  return Date.now() / 1000 - ticket.m < IMG_TTL_SECONDS - IMG_SAFETY_MARGIN_SECONDS;
 }
+
+const SUBDOMAIN_RE = /^[a-z0-9][a-z0-9-]*$/i;
 
 function isTicket(value: unknown): value is Ticket {
   const t = value as Ticket | null;
   return (
     !!t &&
     typeof t.d === "string" &&
-    ATLASSIAN_HOST_RE.test(t.d) &&
+    SUBDOMAIN_RE.test(t.d) &&
     typeof t.p === "string" &&
     /^\d+$/.test(t.p) &&
     typeof t.c === "string" &&
     /^\d+$/.test(t.c) &&
-    typeof t.m === "string" &&
-    typeof t.i === "string" &&
-    /^[A-Za-z0-9_-]{8,64}$/.test(t.i)
+    typeof t.m === "number" &&
+    Number.isFinite(t.m)
   );
 }
 
@@ -349,9 +356,11 @@ export default {
     // physically vanishes.
     const imgMatch = /^\/i\/([A-Za-z0-9_.-]{20,4096})$/.exec(pathname);
     if (imgMatch && env.DEEPLINK_KV && env.DEEPLINK_SIGN_SECRET) {
-      const ticket = await verifyToken(imgMatch[1], env.DEEPLINK_SIGN_SECRET);
+      const token = imgMatch[1];
+      const ticket = await verifyToken(token, env.DEEPLINK_SIGN_SECRET);
       if (!ticket || !imageFresh(ticket)) return new Response("Not found", { status: 404 });
-      const png = await env.DEEPLINK_KV.get(`img:${ticket.i}`, "arrayBuffer");
+      const imgId = await imgKeyFor(token.split(".")[0]);
+      const png = await env.DEEPLINK_KV.get(`img:${imgId}`, "arrayBuffer");
       if (!png) return new Response("Not found", { status: 404 });
       return new Response(png, {
         status: 200,

@@ -11,7 +11,7 @@ dialog UX approved 2026-07-26 — AI-generated diagram of the current page, deep
 
 ## 1. What this is
 
-A `confluence:contentBylineItem` entry (**"Diagram this page"**) that appears **only** on pages
+A `confluence:contentBylineItem` entry (**"View as diagram"**, AI-sparkle icon) that appears **only** on pages
 in spaces that already use our diagrams, aimed at readers who see colleagues' diagrams but have
 never created one. Its icon is a **play-once** animated GIF that draws the eye on first paint and
 then rests. Clicking opens a dialog that **AI-generates a diagram of the page the user is
@@ -30,7 +30,7 @@ diagram language (72% use mermaid; the type is an implementation detail the AI s
 | v1 | Byline dialog for users who never created a macro | Reaches every page view with zero seeding — but per-user animation control forces `dynamicProperties` = a Forge function on **every content view** (cost, §5) |
 | v2 | Animated icon, click to cancel, per-user | `entity: user` display condition doesn't work (§6); and `loop=1` GIF makes "click to cancel" unnecessary — the icon quiets itself |
 | v3 | Two conditional byline items gated by a space-level property | User: "never created" is far too broad — most Confluence readers never need a diagram and the nudge would never stop for them. The demand signal is the **space** (the team already uses diagrams), not the individual |
-| **v4 (final)** | **Dialog = AI-generated diagram of the current page; completion = deeplink paste** | User proposal, 2026-07-26: the page the user is reading IS the prompt — no templates, no wizard, no language picker. UX review added three release gates (§6b) and swapped completion to deeplink-primary once the user set the sequencing assumption that #360 ships first |
+| **v4 (final)** | **Dialog = AI-generated diagram of the current page; completion = deeplink paste** | User proposal, 2026-07-26: the page the user is reading IS the prompt — no templates, no wizard, no language picker. UX review added release gates (§6b) and swapped completion to deeplink-primary once the user set the sequencing assumption that #360 ships first |
 
 ## 3. Why byline won the activation bake-off
 
@@ -107,9 +107,9 @@ confluence:contentBylineItem:
     ...
   - key: zenuml-byline-newuser
     resource: main            # dialog route: activation flow (§6b)
-    title: Diagram this page  # value proposition in two words; brand names mean nothing to a first-timer
-    icon: <play-once GIF, data: URI ≤255 chars, drawn ~19×14, calm final frame>
-    tooltip: Create your first diagram
+    title: View as diagram    # zero-pressure invitation to LOOK, not a task; brand names mean nothing to a first-timer
+    icon: <AI-language sparkle, blue→purple gradient, play-once, ~19×14, calm final frame>
+    tooltip: See a diagram drawn from this page
     viewportSize: fullscreen
     displayConditions:
       entityPropertyExists:   # the demand signal: this team already uses diagrams
@@ -127,9 +127,11 @@ condition evaluator reads it.
 ## 6b. The dialog — approved v2 flow (2026-07-26)
 
 ```
-Reading page → "Diagram this page" byline (loop=1 animation)
-  → [first time: one-line consent] → Loading ("Reading this page…", aria-live, cancellable)
-  → high confidence:  preview + "Here's a diagram based on this page"
+Reading page → "View as diagram" byline (AI sparkle, loop=1 animation)
+  → ONE CLICK, no consent step → Loading ("Reading this page…" → "Drawing it as a
+    diagram…", aria-live, cancellable)
+  → high confidence:  "This page, as a diagram" + "Just a preview — nothing has
+                       been saved. Feel free to make it yours."
      low  confidence:  honest fallback + a relevant example        ← gate 1
   → Edit (optional — the normal editor; 92% completion backs this) → Save (current space)
   → Completion screen:
@@ -140,18 +142,19 @@ Reading page → "Diagram this page" byline (loop=1 animation)
   → user opens any page → Edit → ⌘V → Embed macro appears (#360 autoconvert)
 ```
 
-**Three release gates (all cheap, none needs research):**
+**Two release gates (both cheap, neither needs research):**
 
 1. **Low-confidence fallback.** The byline shows on *every* page of a qualifying space —
    meeting notes and link lists included. A bad first diagram is worse than a blank page.
    Gate on the generator's `confidence` field; below threshold show an honest "this page
    doesn't describe a process — try an architecture or API page" plus a keyword-picked example.
-2. **Consent moment.** Page content leaves Confluence for the generation backend. First click
-   shows a one-line confirm ("Generate a diagram from this page?" + don't-ask-again). Target
-   tenants include banks; silent egress is an admin-escalation event. Rovo (data stays in
-   Atlassian) is an *enterprise enhancement*, not the v1 path — it requires the tenant to have
-   Rovo, so it cannot be the only backend.
-3. **Paywall exclusion** — encoded in the space-property writer above.
+2. **Paywall exclusion** — encoded in the space-property writer above.
+
+**No per-interaction consent (decision 2026-07-26):** the T&C already covers page-content
+processing, and an upfront "Generate?" decision defeats the zero-pressure entry — the whole
+point is *look first, decide never*. Transparency is carried by the loading copy ("Reading
+this page…"), which states what is happening at the moment it happens. Rovo (data stays in
+Atlassian) remains an enterprise *enhancement*, not the v1 backend.
 
 **"Generate Again"** takes an optional one-line steer ("What should this diagram show?") —
 same-input rerolls reproduce the miss. If the user edited first, regeneration needs a
@@ -192,9 +195,11 @@ fail-softs (verified) and the instruction page explains the rest.
 1. **Aide co-display.** `zenuml-byline-aiaide` is unconditional today — a new user in a
    qualifying space would see **both** chips. Either gate Aide on the inverse condition or
    accept two entries. Not yet decided.
-2. **Icon asset.** Draw for "Diagram this page" at ~19×14, ≤255 chars as data URI, last frame
-   calm. Richer animation requires a `permissions.external.images` entry (minor version) —
-   `resource:` icons are reported broken for byline.
+2. **Icon asset.** AI visual language: four-point sparkle, blue→purple gradient
+   (Atlassian-Intelligence-adjacent), ~19×14, play-once, calm final frame. NOTE: a gradient
+   cannot fit the 255-char two-colour data-URI budget — this icon almost certainly requires a
+   `permissions.external.images` entry (minor version); `resource:` icons are reported broken
+   for byline.
 3. **Threshold** for `zenuml-space-uses-diagrams` (≥N diagrams, freshness window) + the
    paywall-cap exclusion rule (§6).
 4. **Generation backend.** v1 = own backend (`/ai-generate-title` and Diagramly AI infra are
@@ -217,7 +222,6 @@ fail-softs (verified) and the instruction page explains the rest.
 |---|---|
 | `activation_nudge_shown` | dialog resource first paint (byline render itself is not observable to us without cost) |
 | `activation_nudge_clicked` | byline clicked → dialog opened |
-| `activation_nudge_consented` / `_declined` | the consent moment (first run) |
 | `activation_generation_succeeded` / `_failed` | props: `diagram_type`, `confidence`, `duration_ms`, failure reason |
 | `activation_low_confidence_fallback` | gate 1 fired instead of a generated diagram |
 | `activation_diagram_edited` | user modified the generated draft before save |

@@ -24,6 +24,7 @@ import { isValidCustomContentId } from '@/utils/customContentId';
 import global from '@/model/globals';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { callRemote } from '@/utils/requestUtil';
+import { extractConfluenceMessage, parseConfluenceErrorClass } from '@/model/Attachment';
 
 const SNAPSHOT_TYPES: ReadonlyArray<DiagramType> = [
   DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml,
@@ -186,6 +187,29 @@ export async function uploadSnapshot(pageId: string, snapshot: DiagramSnapshotV1
  * `.status` off the error when present (set by `uploadSnapshot`), falling back
  * to parsing `HTTP <nnn>` from the message.
  */
+/**
+ * Build the analytics failure fields for a snapshot write error (#398).
+ *
+ * `failure_reason` used to be `String(e.message).substring(0, 200)`. The
+ * Confluence v1 error envelope is ~180 chars, so the wrapper consumed the whole
+ * budget and every recorded reason ended mid-sentence inside it
+ * ("...api.PermissionException: Us"). PR #395/#396 fixed exactly this on the
+ * attachment paths; reuse their extractor here rather than duplicating it —
+ * both live in `src/`, so unlike the `functions/` side this is a real import.
+ */
+export function snapshotFailureDetail(e: unknown): {
+  failure_reason: string;
+  confluence_error_class?: string;
+} {
+  const raw = String(e instanceof Error ? e.message : e);
+  const detail = extractConfluenceMessage(raw);
+  const confluence_error_class = parseConfluenceErrorClass(detail);
+  return {
+    failure_reason: detail.substring(0, 200),
+    ...(confluence_error_class ? { confluence_error_class } : {}),
+  };
+}
+
 export function snapshotSkipReason(
   e: unknown,
 ): 'no_write_permission' | 'page_not_published' | undefined {
@@ -281,7 +305,7 @@ export async function maybeBackfillSnapshot(opts: {
       attachment_name: snapshotAttachmentName(opts.ccId),
     });
   } catch (e) {
-    const failure_reason = String(e instanceof Error ? e.message : e).substring(0, 200);
+    const { failure_reason, confluence_error_class } = snapshotFailureDetail(e);
     const skipReason = snapshotSkipReason(e);
     if (skipReason) {
       // Expected best-effort skip (read-only viewer / unpublished draft), not a
@@ -294,6 +318,7 @@ export async function maybeBackfillSnapshot(opts: {
         custom_content_id: opts.ccId,
         snapshot_skip_reason: skipReason,
         failure_reason,
+        ...(confluence_error_class ? { confluence_error_class } : {}),
       });
       return;
     }
@@ -303,6 +328,7 @@ export async function maybeBackfillSnapshot(opts: {
       snapshot_trigger: snapshotTrigger,
       custom_content_id: opts.ccId,
       failure_reason,
+      ...(confluence_error_class ? { confluence_error_class } : {}),
     });
   }
 }

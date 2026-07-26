@@ -630,6 +630,26 @@ space like `ZEN` or `SD`), click the modal's **"Continue editing"** button to pr
 This is the intended in-product bypass — do NOT read paywall code or hunt for `localStorage` overrides
 (`mockSpacePaid` etc.) to suppress it.
 
+**The modal DOM lives INSIDE the Forge iframe, not the top-level page.** Detecting it with
+`page.evaluate(() => document.body.innerText)` on the Confluence page returns nothing and reads as
+"no paywall" — that false negative cost a wrongly-abandoned spot check on 2026-07-25. Find the frame
+first, then assert/click inside it:
+
+```js
+const host = page.frames().find(async f => /reached the ZenUML Lite limit/i.test(await f.evaluate(() => document.body?.innerText || '')));
+await host.locator('[data-testid="continue-editing-btn"]').first().click();  // label: "Continue editing without upgrading (N)"
+```
+
+Two gotchas once you're through: the Graph editor is **two** nested frames (app chrome with
+`Name your graph…` + the DrawIO canvas frame with `.geDiagramContainer` and Publish) — `page.frames()`
+returns them flattened, so locate each by content rather than chaining `.contentFrame()`. And
+`page.keyboard.type()` after a shape insert can land in the **title input** instead of the shape label,
+which silently defeats any empty-title (AI auto-title) assertion — always re-read the title field
+before publishing.
+
+If `N = 0`, the counter is exhausted and the continue button is gone; reset it by deleting
+`paywallContinueAttempts:<domain>:<space>:<accountId>` from the **iframe origin's** localStorage.
+
 ### Staging paywall test data
 
 On `lite-stg`, the large space over the 100-macro limit (the one that triggers the paywall) is **`SD`**

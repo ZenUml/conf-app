@@ -22,6 +22,23 @@ Candidate pool was every macro ever created in the same space (6,282 diagrams, b
 
 **What the data does NOT say:** whether users want a live reference or an independent copy. Embed's own usage numbers cannot answer it — the embed save path wrote an empty placeholder until PR #326 (2026-07-12) and the viewer showed "Unknown diagram type" until PR #324 (2026-07-11), so ~75 of the last 90 days measured a broken feature. Treat all pre-2026-07-12 embed volume as void.
 
+## ⚠️ Parallel work already in flight (synced 2026-07-26)
+
+Two other sessions have open PRs that implement much of this plan. **Read them before executing any task here.**
+
+| PR | Branch | Covers |
+|---|---|---|
+| **#360** | `feat/embed-autoconvert-deeplink` | Task 2 (parser), Task 3 (viewer resolution), Task 8 (manifest matcher), and the cross-tenant analytics event — **done** |
+| **#399** | `feat/confluence-deeplink-page` | Task 7, and far beyond it: a dedicated `workers/confluence-deeplink/` Worker, `functions/deeplink-ticket.ts` (ticketed 10-min PNG preview), `DEEPLINK_KV` for stg + prod, `_routes.json` |
+
+Reconciliation:
+
+- **Task 2 / Task 3 — superseded by #360.** Do not cherry-pick `spike/embed-autoconvert-deeplink`; build on #360. It also resolved the context-path ambiguity against Atlassian's docs: `autoConvertLink` is a **top-level `context.extension` field**, not nested under `config`.
+- **Task 1 — drop `embed_foreign_site`.** #360 already ships `embed_autoconvert_cross_tenant_rejected` for the same case, better named. Still missing and worth adding: **`embed_autoconvert_rendered`** — right now only the *rejection* is tracked, so there is a numerator with no denominator.
+- **Task 7 — superseded by #399.**
+- **Task 8's "matcher ships LAST" is restated.** #360 ships the matcher *with* the resolution in one commit, which satisfies the actual rule: **the matcher must never land ahead of a working resolution path.** Shipping them together is fine; shipping the matcher alone is not.
+- **Gate A is being answered by default.** When #360 + #399 release, "paste = embed" is the shipped production default, before Phase 0 has run. That is probably the right default, but it is now a decision made by shipping order rather than by evidence — so the instrumentation to flip it (Task 10) matters more, not less. Sync comment posted at ZenUml/conf-app#360.
+
 ## Architecture
 
 `autoConvert.matchers` on the embed macro modules (manifest-level; **not** runtime-flaggable — see Constraints). Pasted URL lands in the page ADF as `parameters.autoConvertLink` with `hasBeenAutoConverted: true` and survives forever, so the viewer derives `customContentId` per render with no config write. Deeplinks are minted from the viewer's bottom pill. A landing route on Cloudflare Pages makes the URL resolve outside Confluence.

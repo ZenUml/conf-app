@@ -193,7 +193,21 @@ animation, and the draft-page secondary catches the "which page?" stall.
 - **Stand up an instruction page at `confluence.zenuml.com/d/*`** — activation puts these URLs
   in novices' hands; they *will* click them and paste them into Slack. A static page saying
   "paste this link into any Confluence page to embed the diagram" turns the dead domain into
-  a teacher. We own zenuml.com; one Cloudflare Pages route.
+  a teacher. **BUILT 2026-07-26 (PR #399, grill decisions):** standalone minimal Worker
+  `workers/confluence-deeplink/` (not a Pages route — zero coupling to the backend projects);
+  OG meta tags own the Slack unfurl (unauthenticated crawler → can never leak diagram content);
+  no request logging / observability off / `noindex` because `/d/*` paths identify customer
+  sites (client-privacy policy); root 302→zenuml.com. **Release gate is mechanical, not
+  procedural:** anything merged to `main` rides the next release train unconditionally, so
+  #360 sits in **draft** until the Worker is deployed and `curl` verifies 200 + OG tags on
+  the real domain. The prod deploy creates the `confluence` DNS record (custom_domain=true) —
+  a cloud change requiring explicit approval.
+  Settled in the same grill: the link is **plain identifiers, not a capability token**
+  (cloudId + contentId; possession grants nothing — Confluence auth gates rendering), and has
+  **no TTL by design** (the pasted link IS the macro's stored config; expiry would rot pages).
+  Known issue accepted: lite + full co-installed on one tenant register the same matcher
+  pattern; cross-app winner untested, custom content is app-namespaced so a wrong-app match
+  fail-softs into the orphan path. Low probability; revisit only on real-world signal.
 
 **Technical notes settled by review:** cross-space paste within a tenant works (viewer checks
 cloudId only; fetch runs as the viewing user, who has read on the source space by construction);

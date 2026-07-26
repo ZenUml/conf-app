@@ -202,12 +202,44 @@ animation, and the draft-page secondary catches the "which page?" stall.
   #360 sits in **draft** until the Worker is deployed and `curl` verifies 200 + OG tags on
   the real domain. The prod deploy creates the `confluence` DNS record (custom_domain=true) —
   a cloud change requiring explicit approval.
-  Settled in the same grill: the link is **plain identifiers, not a capability token**
-  (cloudId + contentId; possession grants nothing — Confluence auth gates rendering), and has
-  **no TTL by design** (the pasted link IS the macro's stored config; expiry would rot pages).
+  Settled in the same grill: the **bare path is plain identifiers, not a capability token**
+  (cloudId + contentId; possession grants nothing — Confluence auth gates rendering), and the
+  path has **no TTL by design** (the pasted link IS the macro's stored config; expiry would
+  rot pages). Gate cleared 2026-07-26: Worker live on the real domain, #360 un-drafted.
   Known issue accepted: lite + full co-installed on one tenant register the same matcher
   pattern; cross-app winner untested, custom content is app-namespaced so a wrong-app match
   fail-softs into the orphan path. Low probability; revisit only on real-world signal.
+
+**Ticketed preview — Worker v2 design (settled 2026-07-26, ships WITH the mint side, i.e.
+the activation completion screen; #360 unaffected):** the Slack unfurl card is only useful
+to a receiver if it shows the diagram itself, but serving content unauthenticated forever
+would turn the link into a permanent capability. Resolution — *the address is permanent,
+the capability is momentary*:
+
+- Link shape gains an optional ticket: `/d/<cloudId>/<contentId>?t=<128-bit-random>`.
+  `DEEPLINK_RE` and the autoConvert matcher already tolerate query params (verified) —
+  pasting into Confluence is path-based and never expires.
+- **Mint** (completion-screen "Copy for Confluence", Forge-token-authed backend call): the
+  minter is looking at the diagram with read permission — client uploads the current PNG
+  render; backend writes KV `img:<token>` (PNG, **expirationTtl = 600s — physical deletion,
+  not signature logic**) and `ticket:<token>` (site domain + pageId, tiny, no TTL).
+- **Fresh ticket (<10 min)** → preview page: the PNG + "Open in Confluence" button;
+  `og:image` serves the PNG → the Slack unfurl card IS the diagram. Slack's image proxy
+  caches it, so the message keeps displaying the image after our source expires — the
+  capability window collapses to the moment of sharing (crawler fetches within seconds).
+  Honest caveat: Slack's cache is observed behavior, not contract; a rare eviction+refetch
+  breaks the image in old messages.
+- **Expired image, live ticket** → "preview expired" page + the permanent Open-in-Confluence
+  button (target from the ticket, NOT resolved from cloudId — no public reverse-resolver;
+  only deliberately-shared links redirect, same trust model as a native Confluence share URL
+  which exposes the hostname in the link itself). Copy addresses the receiver: "open it in
+  Confluence, or ask for a freshly copied link" (receivers can't regenerate).
+- **No ticket** → the v1 instruction page.
+- Do NOT burn expiry text into the PNG: the image already delivered to Slack never
+  disappears (their cache), so "expires soon" on the image would be false. The expiry note
+  lives in `og:description` and the expired page.
+- 10-minute TTL is deliberate (user decision): links are for instant sharing; a paste
+  delayed past the window degrades to the generic card and the page explains regeneration.
 
 **Technical notes settled by review:** cross-space paste within a tenant works (viewer checks
 cloudId only; fetch runs as the viewing user, who has read on the source space by construction);

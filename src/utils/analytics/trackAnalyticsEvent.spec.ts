@@ -70,12 +70,12 @@ describe("trackAnalyticsEvent — identity resolution", () => {
     // @ts-ignore — the context has not resolved yet
     window.globals = { apWrapper: { getMacroData: vi.fn().mockResolvedValue({}) } };
 
-    await _awaitableTrackAnalyticsEvent("activation_nudge_shown", {});
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
 
     expect(mixpanel.identify).not.toHaveBeenCalled();
     // ...and the event is still sent — never delayed, never dropped.
     expect(mixpanel.track).toHaveBeenCalledWith(
-      "activation_nudge_shown",
+      "viewer_source_opened",
       expect.any(Object)
     );
   });
@@ -83,12 +83,12 @@ describe("trackAnalyticsEvent — identity resolution", () => {
   it("identifies once the account id resolves on a later event", async () => {
     // @ts-ignore
     window.globals = { apWrapper: { getMacroData: vi.fn().mockResolvedValue({}) } };
-    await _awaitableTrackAnalyticsEvent("activation_nudge_shown", {});
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
     expect(mixpanel.identify).not.toHaveBeenCalled();
 
     // @ts-ignore — context resolves between events
     window.globals = mockGlobals;
-    await _awaitableTrackAnalyticsEvent("activation_nudge_clicked", {});
+    await _awaitableTrackAnalyticsEvent("viewer_source_copied", {});
 
     expect(mixpanel.identify).toHaveBeenCalledTimes(1);
     expect(mixpanel.identify).toHaveBeenCalledWith("user-123");
@@ -96,7 +96,7 @@ describe("trackAnalyticsEvent — identity resolution", () => {
 
   it("SWR: reuses the cached account id so the FIRST event of a later iframe is attributed", async () => {
     // Iframe 1: context resolves, so the id is cached for this domain.
-    await _awaitableTrackAnalyticsEvent("activation_nudge_shown", {});
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
     expect(mixpanel.identify).toHaveBeenCalledWith("user-123");
 
     // Iframe 2 (fresh module state, context not resolved yet) — the cache
@@ -106,13 +106,13 @@ describe("trackAnalyticsEvent — identity resolution", () => {
     // @ts-ignore
     window.globals = { apWrapper: { getMacroData: vi.fn().mockResolvedValue({}) } };
 
-    await _awaitableTrackAnalyticsEvent("activation_nudge_shown", {});
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
 
     expect(mixpanel.identify).toHaveBeenCalledWith("user-123");
   });
 
   it("SWR cache is domain-scoped — another tenant does not inherit the id", async () => {
-    await _awaitableTrackAnalyticsEvent("activation_nudge_shown", {});
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
     expect(mixpanel.identify).toHaveBeenCalledWith("user-123");
 
     _resetForTesting();
@@ -121,15 +121,15 @@ describe("trackAnalyticsEvent — identity resolution", () => {
     // @ts-ignore
     window.globals = { apWrapper: { getMacroData: vi.fn().mockResolvedValue({}) } };
 
-    await _awaitableTrackAnalyticsEvent("activation_nudge_shown", {});
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
 
     expect(mixpanel.identify).not.toHaveBeenCalled();
   });
 
   it("identifies exactly once across many events", async () => {
-    await _awaitableTrackAnalyticsEvent("activation_nudge_shown", {});
-    await _awaitableTrackAnalyticsEvent("activation_nudge_clicked", {});
-    await _awaitableTrackAnalyticsEvent("activation_served", {});
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
+    await _awaitableTrackAnalyticsEvent("viewer_source_copied", {});
+    await _awaitableTrackAnalyticsEvent("fullscreen_opened", {});
 
     expect(mixpanel.identify).toHaveBeenCalledTimes(1);
     expect(mixpanel.identify).toHaveBeenCalledWith("user-123");

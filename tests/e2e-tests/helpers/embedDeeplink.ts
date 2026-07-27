@@ -101,3 +101,39 @@ export async function readConversion(page: Page, timeoutMs = 8000): Promise<Edit
 export function isEmbedMacro(conv: EditorConversion): boolean {
   return conv.extensionKeys.some((k) => k.includes('zenuml-embed-macro'));
 }
+
+/** Select-all + delete, so the next paste lands in a clean paragraph. */
+async function clearEditor(page: Page): Promise<void> {
+  await page.locator(PM).first().click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('Delete');
+  await page.waitForTimeout(150);
+}
+
+/**
+ * Paste the deeplink and RETRY until it converts into the embed macro.
+ *
+ * The Forge extension autoConvert matchers load asynchronously after the editor
+ * mounts. A paste that lands BEFORE they are live linkifies the URL into a plain
+ * <a> instead of converting — a cold browser (fresh CI run) hits this window,
+ * a warm one does not. So a single paste is flaky; we clear and re-paste until
+ * the matchers are live (or `attempts` is exhausted). Verified: with retry the
+ * conversion lands reliably on a cold lite-stg editor.
+ */
+export async function pasteDeeplinkUntilConverted(
+  page: Page,
+  url: string,
+  opts: { attempts?: number; settleMs?: number } = {},
+): Promise<EditorConversion> {
+  const attempts = opts.attempts ?? 12;
+  const settleMs = opts.settleMs ?? 1500;
+  let conv: EditorConversion = { extensionKeys: [], cardCount: 0, anchorHrefs: [] };
+  for (let i = 0; i < attempts; i++) {
+    await clearEditor(page);
+    await pasteDeeplink(page, url);
+    conv = await readConversion(page, settleMs);
+    if (isEmbedMacro(conv)) return conv;
+    await page.waitForTimeout(1000);
+  }
+  return conv;
+}

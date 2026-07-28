@@ -267,6 +267,68 @@ correct when a feedback answer is expected, since we owe the follow-through gran
    entry — that intel is the whole return on the comp, and it's worthless if it
    only ever lives in a Jira comment.
 
+## Outbound: raising the ticket FOR the customer (proactive champion-watch)
+
+Sometimes there is **no inbound request** — the trigger is our own champion-watch: a user is
+about to exhaust (≤5 remaining) or has exhausted their 15 continue-attempts, and the tenant has
+**no live JSM thread**. Then we grant first (flow above) and open the conversation ourselves.
+First done 2026-07-28: ZEN-1193 (tnexwm), ZEN-1194 (propertyguru), ZEN-1195 (xendit).
+
+**Trigger rule (user ruling 2026-07-28 — do NOT blast):** outbound only when BOTH hold:
+(a) a user exhausted or ≤5 `remaining_attempts_after` (7-14d window), (b) no live thread for the
+tenant (JQL `project = ZEN AND text ~ "<domain>"` via `/rest/api/3/search/jql` — v2 search
+silently returns empty). Tenants WITH a thread get an in-thread nudge instead; graduated-class
+tenants are left alone. Blanket outbound to every over-limit tenant is support-costumed marketing
+and exceeds JSM reply capacity — never do it.
+
+**Who to address — the champion himself is unreachable.** This desk's `raiseOnBehalfOf` is
+**email-only** (an accountId → 400 "not a valid email address"), and a foreign accountId (not a
+member/customer of zenuml.atlassian.net) is untouchable: `/rest/api/3/user?accountId=` → 404,
+JSM customer-add → 400 "users could not be found". The reachable, terms-sanctioned contact is
+the **Marketplace license technical contact** — often a real customer-side person (tnexwm), often
+the managing partner (propertyguru → Enreap, xendit → Padah). Extract from the marketplace-audit
+snapshot (`sync` first if stale):
+
+```bash
+sqlite3 .claude/skills/marketplace-audit/scripts/marketplace.db \
+  "SELECT raw FROM licenses WHERE raw LIKE '%<domain>.atlassian%'" | python3 -c "
+import sys,json
+for l in sys.stdin:
+    r=json.loads(l); cd=r.get('contactDetails',{})
+    print(r.get('tier'), cd.get('technicalContact'), r.get('partnerDetails',{}).get('partnerName') if r.get('partnerDetails') else None)"
+```
+
+**Recipe — same-origin `servicedeskapi` fetch beats the ProseMirror UI dance.** From any
+zenuml.atlassian.net page in the support@zenuml.com browser session (Playwright MCP
+`browser_evaluate`); `customfield_10070` ("Plan you're interested in", `{id:"10037"}` = free
+extension) is REQUIRED on request type 9 — omitting it 400s with the field name:
+
+```js
+// 1. create the ticket (201 → issueKey)
+await fetch('/rest/servicedeskapi/request', { method:'POST', credentials:'include',
+  headers:{'Content-Type':'application/json','X-Atlassian-Token':'no-check'},
+  body: JSON.stringify({ serviceDeskId:'1', requestTypeId:'9',
+    raiseOnBehalfOf:'<technical-contact-email>',
+    requestFieldValues:{ summary:'ZenUML Lite limit reached in the <SPACE> space on <site> - temporary extension enabled',
+      description:'Opened by ZenUML support on your behalf (you are the technical contact for ZenUML Diagrams on <site>) - details in the reply below.',
+      customfield_10070:{id:'10037'} } }) });
+// 2. post the real message as a public comment ('\n\n' between paragraphs)
+await fetch('/rest/servicedeskapi/request/<KEY>/comment', { method:'POST', credentials:'include',
+  headers:{'Content-Type':'application/json','X-Atlassian-Token':'no-check'},
+  body: JSON.stringify({ body:'<adapted reply — proactive opening, NOT "thanks for reaching out">', public:true }) });
+```
+
+The reply is the standard template above with a proactive opening ("I'm reaching out because
+you're listed as the technical contact for … — <N> people hit the limit last week; one editor
+used all 15 continue-editing passes, we've already extended their account through <date>").
+Remember the interaction: the grant hides the wall from that user for its duration, so their
+in-product Request-extension path is dormant — the ticket is the only live channel. Log in the
+sent-log as usual.
+
+(Headless variant: needs a local `JSM_API_TOKEN` for support@zenuml.com — currently the token
+exists only as a GH Actions secret, so browser-session fetch is the only path. If a local token
+ever lands in `.env`, this becomes two curl calls and can run from cron.)
+
 ## Related
 
 - `tenant` skill — before granting, `whois <domain>` tells you the tenant's paid status / plan / any existing space-licenses / trial expiry, so you're not comping someone who already pays.

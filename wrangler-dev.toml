@@ -68,10 +68,20 @@ id = "9531a58d3f5b47a6af77750240c09548"
 binding = "SPACE_LICENSE_KV"
 id = "e56fcb64cca74e10aac68e1d57b6c05b"
 
+# Embed deeplink preview images — local dev reuses the STAGING namespace
+# (same STG-namespace precedent as SPACE_LICENSE_KV above).
+[[env.production.kv_namespaces]]
+binding = "DEEPLINK_KV"
+id = "55a29002d56e49f986abe122e8b2c947"
+
 # Local development KV binding
 [[kv_namespaces]]
 binding = "SPACE_LICENSE_KV"
 id = "e56fcb64cca74e10aac68e1d57b6c05b"
+
+[[kv_namespaces]]
+binding = "DEEPLINK_KV"
+id = "55a29002d56e49f986abe122e8b2c947"
 
 # Portal feature flags KV (shared with zenuml-portal staging)
 [[kv_namespaces]]

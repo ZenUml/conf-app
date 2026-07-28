@@ -509,14 +509,16 @@ Backend-declared event. Not currently emitted by client code.
 
 ### `swagger_editor_config_empty_with_modal`
 
-**Trigger:** The OpenAPI editor opened and its config (YAML/JSON) was empty, causing the "paste your spec" onboarding modal to appear. Fired in `forge-swagger-editor.ts`.
+**Trigger:** The OpenAPI editor opened in dashboard-Edit mode — `extension.config` carries no `customContentId` but `extension.modal.customContentId` supplies one (`isDashboardEdit`). Fired in `forge-swagger-editor.ts::initializeMacro`.
+
+**Semantics changed 2026-07-05 (PR #298, dual-format dashboard):** originally added 2026-05-23 (ZEN-1170) as a safety-net regression detector when the `extension.modal.customContentId` fallback was removed — any firing meant a bug, and the Mixpanel board "OpenAPI Modal Fallback Regression Monitor" (11218509) watched for it staying at 0. The dual-format dashboard deliberately reintroduced that path (dashboard Edit opens this editor as a standalone modal carrying the id), so the event now measures the **intended** dashboard-Edit route. Non-zero volume is feature usage, not a regression.
 
 | Property | Notes |
 |---|---|
 | `feature_area` | `"macro"` |
 | `surface` | `"editor"` |
 | `macro_type` | `"openapi"` |
-| `content_id` | Custom content ID (may be `undefined` for a brand-new macro) |
+| `content_id` | Custom content ID passed via `extension.modal.customContentId` |
 
 ---
 

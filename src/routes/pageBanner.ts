@@ -1,6 +1,7 @@
 import { createApp } from 'vue';
 import globals from '@/model/globals';
-import { shouldShowPaywallBanner } from '@/utils/paywall/warningBanner';
+import { shouldShowPaywallBanner, deriveWarningBannerIdentity } from '@/utils/paywall/warningBanner';
+import { isCurrentUserSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
 import { isCsatPendingFresh } from '@/utils/csat';
 
 /**
@@ -11,11 +12,11 @@ import { isCsatPendingFresh } from '@/utils/csat';
  * (this replaces the old two-module + CSAT-defer arrangement, which is why no
  * defer exists here).
  *
- * Priority: the paywall warning (unpaid Lite space over the hard limit with
- * recent macro authoring activity) outranks the CSAT survey. `none` means close
- * the iframe with no work.
+ * Priority: the paywall warning (unpaid Lite space over the hard limit, seen by
+ * a recent macro author or by a space admin of that space) outranks the CSAT
+ * survey. `none` means close the iframe with no work.
  *
- * decidePageBanner() depends only on the two cheap localStorage predicates, so
+ * decidePageBanner() depends only on cheap localStorage predicates, so
  * forgeIndex can run it on the hot path (every page load) to decide whether to
  * close immediately. The heavy banner components load lazily — only when a
  * banner will actually show — inside handlePageBannerRoute().
@@ -23,7 +24,13 @@ import { isCsatPendingFresh } from '@/utils/csat';
 export type PageBannerChoice = 'paywall' | 'csat' | 'none';
 
 export function decidePageBanner(now: number = Date.now()): PageBannerChoice {
-  if (shouldShowPaywallBanner(now)) return 'paywall';
+  // The admin verdict is a third localStorage read, still synchronous. forgeIndex
+  // awaits maybeProbeSpaceAdmin() BEFORE calling this, so on the load that first
+  // resolves admin status the verdict is already written — an admin sees the
+  // banner on that same load, not the next one.
+  if (shouldShowPaywallBanner(now, deriveWarningBannerIdentity(), isCurrentUserSpaceAdmin())) {
+    return 'paywall';
+  }
   if (isCsatPendingFresh(now)) return 'csat';
   return 'none';
 }

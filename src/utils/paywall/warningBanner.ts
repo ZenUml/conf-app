@@ -230,11 +230,14 @@ export function bannerAudience(isSpaceAdmin: boolean): BannerAudience {
  * admin of this over-limit space.
  *
  * The recent-authorship requirement exists to avoid nagging passers-by. It has
- * the side effect of excluding space admins who don't draw diagrams — the only
- * people on the page who can actually resolve the limit. Measured 2026-07-28
- * over 60d across the 19 CSS tenants: the authorship gate reached 358 unique
- * users, while 5,021 unique space admins were already loading this very iframe
- * and being told nothing. `isSpaceAdmin` waives authorship, and nothing else.
+ * the side effect of excluding space admins who don't draw diagrams — the people
+ * on the page most able to resolve the limit. Measured 2026-07-28 over 60d across
+ * the 19 CSS tenants: the authorship gate reached 358 unique users (exact, that
+ * event is unsampled), while `space_admin_active` observed 5,021 unique admins
+ * already loading this very iframe and being told nothing — a 10%-sampled FLOOR,
+ * and one that also counts personal spaces, so treat it as evidence of a large
+ * gap rather than as a population estimate. `isSpaceAdmin` waives authorship, and
+ * nothing else; the over-limit/unpaid/CSS gates below keep the targeting narrow.
  */
 export function isWarningBannerVisible(
   targeting: TargetingMarker | null,

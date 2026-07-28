@@ -91,7 +91,15 @@ import {
   type WarningBannerIdentity,
   type BannerAudience,
 } from '@/utils/paywall/warningBanner'
-import { isCurrentUserSpaceAdmin, readProbeMarker } from '@/utils/paywall/spaceAdminProbe'
+import { readProbeMarker } from '@/utils/paywall/spaceAdminProbe'
+
+/**
+ * `isSpaceAdmin` is supplied by the page-banner host (routes/pageBanner.ts)
+ * rather than re-derived here, because the host is where the Phase 5b flag is
+ * resolved. Deriving it locally would show admin copy to a flagged-off admin who
+ * happens to also qualify as a recent author.
+ */
+const props = withDefaults(defineProps<{ isSpaceAdmin?: boolean }>(), { isSpaceAdmin: false })
 
 // The page-banner iframe has NO live macro context — `macrosCreated` in the
 // composable is 0 here. Everything that describes the space (count, severity,
@@ -114,12 +122,11 @@ let identity: WarningBannerIdentity = { clientDomain: 'unknown', spaceKey: 'unkn
 let severity: 'none' | 'warning' | 'critical' = 'warning'
 let passesGate = false
 let macroCountValue = 0
-let isSpaceAdmin = false
+const isSpaceAdmin = props.isSpaceAdmin
 let spaceAdminCount: number | undefined
 try {
   identity = deriveWarningBannerIdentity()
   const targeting = readTargetingMarker(identity)
-  isSpaceAdmin = isCurrentUserSpaceAdmin(identity)
   spaceAdminCount = readProbeMarker(identity)?.adminCount
   passesGate =
     !!targeting &&

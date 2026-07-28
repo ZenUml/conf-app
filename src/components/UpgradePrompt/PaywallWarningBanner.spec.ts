@@ -120,12 +120,22 @@ describe('PaywallWarningBanner (page banner)', () => {
   // circular, and that relay has produced zero conversions in 15 months. An
   // admin instead gets the one purchase they can complete unaided.
   describe('space-admin audience', () => {
+    // The audience arrives as a prop from the page-banner host, which is where
+    // the Phase 5b flag is resolved — the component never re-derives it.
+    const asAdmin = { props: { isSpaceAdmin: true } }
+
     beforeEach(() => {
       gate.isAdmin = true
     })
 
-    it('swaps the advocacy relay for a direct purchase CTA', () => {
+    it('renders the author copy when the host does not mark the user as an admin', () => {
       const wrapper = mount(PaywallWarningBanner)
+      expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="paywall-banner-copy-admin"]').exists()).toBe(true)
+    })
+
+    it('swaps the advocacy relay for a direct purchase CTA', () => {
+      const wrapper = mount(PaywallWarningBanner, asAdmin)
       expect(wrapper.text()).toContain('You administer this space')
       expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]').exists()).toBe(true)
       expect(wrapper.find('[data-testid="paywall-banner-copy-admin"]').exists()).toBe(false)
@@ -135,14 +145,14 @@ describe('PaywallWarningBanner (page banner)', () => {
     })
 
     it('quotes the bundle price on the CTA', () => {
-      const wrapper = mount(PaywallWarningBanner)
+      const wrapper = mount(PaywallWarningBanner, asAdmin)
       expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]').text()).toContain('$299')
     })
 
     it('opens the bundle checkout and tracks the click with the price', async () => {
       const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
       const { openUrl } = await import('@/model/globals/forgeGlobal')
-      const wrapper = mount(PaywallWarningBanner)
+      const wrapper = mount(PaywallWarningBanner, asAdmin)
 
       await wrapper.find('[data-testid="paywall-banner-unlock-space"]').trigger('click')
 
@@ -160,7 +170,7 @@ describe('PaywallWarningBanner (page banner)', () => {
 
     it('tags the impression as the space_admin audience', async () => {
       const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
-      mount(PaywallWarningBanner)
+      mount(PaywallWarningBanner, asAdmin)
       expect(trackUpgradeEvent).toHaveBeenCalledWith(
         'paywall_banner_shown',
         expect.objectContaining({ is_space_admin: true, banner_audience: 'space_admin' })

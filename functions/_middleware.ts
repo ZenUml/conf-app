@@ -7,12 +7,24 @@ interface Env {
   SENTRY_DSN?: string;
 }
 
-const AUTHENTICATED_PATHS = [
+export const AUTHENTICATED_PATHS = [
   '/diagramly',
   '/metrics-cache',
   '/forge-custom-content',
-  '/forge-upload-attachment'
+  '/forge-upload-attachment',
+  '/deeplink-ticket',
 ];
+
+// Customer deeplink paths (/d/<cloudId>/<contentId>, /i/<token>) identify a
+// tenant + diagram and must never be logged verbatim
+// (docs/policies/client-privacy.md). Redact to just the path prefix.
+const UNLOGGED_PATH_PREFIXES = ['/d', '/i'];
+
+export function redactedRequestUrlForLogging(url: string): string {
+  const { pathname, origin } = new URL(url);
+  const hit = UNLOGGED_PATH_PREFIXES.find((p) => pathname === p || pathname.startsWith(`${p}/`));
+  return hit ? `${origin}${hit} [redacted]` : url;
+}
 
 // Create a middleware function that handles authentication
 const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = async ({
@@ -22,7 +34,7 @@ const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = async ({
   data,
 }) => {
   try {
-    console.log('Function request url:', request.url);
+    console.log('Function request url:', redactedRequestUrlForLogging(request.url));
 
     if (AUTHENTICATED_PATHS.some(path => new URL(request.url).pathname.startsWith(path))) {
       const response = await authenticate({request, env, data});

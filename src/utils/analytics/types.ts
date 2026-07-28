@@ -142,6 +142,13 @@ export type AnalyticsProperties = {
   // refresh). `cohort_count` = same list's length, for numeric filtering.
   cohorts?: string;
   cohort_count?: number;
+  // Draft-restore banner (draft_banner_* / draft_restored / draft_discarded).
+  // `draft_scope_kind` = which draft namespace the banner is for: 'edit' (a
+  // specific custom-content id) or 'new' (an unsaved diagram of some type).
+  // `draft_age_ms` = Date.now() − draft.savedAt at event time — how stale the
+  // recovered work was when the user chose what to do with it.
+  draft_scope_kind?: 'new' | 'edit';
+  draft_age_ms?: number;
   // Staleness hint (staleness_hint_*). `drift_count` = page versions newer
   // than the diagram's last update at decision time; `is_diagram_author` =
   // current accountId equals the diagram custom content's last-version

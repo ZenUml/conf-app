@@ -112,13 +112,31 @@ describe("mint → worker contract over shared KV", () => {
   });
 
   it("minted URL keeps the autoconvert-compatible path shape (#360 contract)", async () => {
+    // #382 Phase 1: the mint's url is now derived from the request's own
+    // origin (functions/deeplink-ticket.ts Task 7), so this contract must be
+    // exercised against one of the real accepted deeplink hosts rather than
+    // the other tests' "backend.example" stand-in origin.
     const kv = sharedKV();
-    const { url } = await mintTicket(kv);
+    const res = await mint({
+      request: new Request("https://conf-lite.zenuml.com/deeplink-ticket", {
+        method: "POST",
+        body: JSON.stringify({
+          contentId: "425987",
+          pageId: "123456",
+          title: "Order flow",
+          pngBase64: TINY_PNG_B64,
+        }),
+      }),
+      env: { DB: dbReturning("example.atlassian.net"), DEEPLINK_KV: kv, DEEPLINK_SIGN_SECRET: SECRET },
+      data: { forgeContext: { cloudId: CLOUD_ID } } as any,
+    });
+    expect(res.status).toBe(200);
+    const { url } = (await res.json()) as { token: string; url: string };
     // Must match src/utils/embedDeeplink.ts DEEPLINK_RE (which tolerates ?query)
-    // and the manifest matcher https://confluence.zenuml.com/d/*/* — pasting a
+    // and the manifest matcher https://conf-lite.zenuml.com/d/*/* — pasting a
     // TICKETED link into Confluence still converts.
     expect(url).toMatch(
-      /^https:\/\/confluence\.zenuml\.com\/d\/[0-9a-fA-F-]{32,36}\/\d+\?t=[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/,
+      /^https:\/\/conf-lite\.zenuml\.com\/d\/[0-9a-fA-F-]{32,36}\/\d+\?t=[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/,
     );
   });
 });

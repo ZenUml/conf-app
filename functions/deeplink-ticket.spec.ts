@@ -162,7 +162,7 @@ describe("deeplink-ticket", () => {
     expect(out.imageTtlSeconds).toBe(IMG_TTL_SECONDS);
     // Token is base64url(payload).base64url(sig).
     expect(out.token).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
-    expect(out.url).toBe(`https://confluence.zenuml.com/d/cloud-1/425987?t=${out.token}`);
+    expect(out.url).toBe(`https://backend.example/d/cloud-1/425987?t=${out.token}`);
 
     // Exactly one KV write — the image — with the TTL; NO ticket: key.
     const imgWrites = puts.filter((p) => p.key.startsWith("img:"));
@@ -191,5 +191,36 @@ describe("deeplink-ticket", () => {
 
     // Signature is a truncated (16-byte → 22-char) HMAC.
     expect(out.token.split(".")[1].length).toBe(22);
+  });
+
+  it("builds the returned url from the request's own origin (per-variant backend host)", async () => {
+    const { kv } = makeKV();
+    const res = await onRequest({
+      request: new Request("https://conf-stg-lite.zenuml.com/deeplink-ticket", {
+        method: "POST",
+        body: JSON.stringify(validBody),
+      }),
+      env: { DB: makeDB("example.atlassian.net"), DEEPLINK_KV: kv, DEEPLINK_SIGN_SECRET: SECRET },
+      data: forgeData,
+    });
+    const out = (await res.json()) as any;
+    expect(out.url).toBe(`https://conf-stg-lite.zenuml.com/d/cloud-1/425987?t=${out.token}`);
+  });
+
+  it("sets ticket.u=1 when minted via the Lite Forge app; omits it for other apps", async () => {
+    const { kv } = makeKV();
+    const liteData = { forgeContext: { cloudId: "cloud-1", forgeAppId: "8ad26115-211f-4216-971b-0540f606303d" } } as any;
+    const diagramlyData = { forgeContext: { cloudId: "cloud-1", forgeAppId: "01ede8b1-4e88-451a-b9ef-89eeef93afaf" } } as any;
+    const env = { DB: makeDB("example.atlassian.net"), DEEPLINK_KV: kv, DEEPLINK_SIGN_SECRET: SECRET };
+    const decode = (token: string) =>
+      JSON.parse(Buffer.from(token.split(".")[0].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString());
+
+    const liteRes = await onRequest({ request: makeRequest(validBody), env, data: liteData });
+    const liteOut = (await liteRes.json()) as any;
+    expect(decode(liteOut.token).u).toBe(1);
+
+    const diaRes = await onRequest({ request: makeRequest(validBody), env, data: diagramlyData });
+    const diaOut = (await diaRes.json()) as any;
+    expect(decode(diaOut.token).u).toBeUndefined();
   });
 });

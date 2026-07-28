@@ -33,6 +33,11 @@ export interface Env extends DeeplinkEnv {
   DB: D1Database;
 }
 
+// Forge APP_ID of the Lite variant (scripts/forge-wizard.mjs APPS.lite.appId).
+// Not a secret — used only to tag a minted ticket as Lite-origin so the /d/
+// preview page can show the upgrade CTA (see functions/utils/deeplinkPages.ts).
+const LITE_FORGE_APP_ID = "8ad26115-211f-4216-971b-0540f606303d";
+
 const MAX_PNG_BYTES = 2 * 1024 * 1024;
 const MAX_TITLE_CHARS = 300;
 const DIGITS_RE = /^\d+$/;
@@ -150,6 +155,7 @@ export const onRequest = async ({
     c: contentId,
     m: Math.floor(Date.now() / 1000),
     ...(title ? { t: title } : {}),
+    ...(data.forgeContext?.forgeAppId === LITE_FORGE_APP_ID ? { u: 1 } : {}),
   };
 
   let token: string;
@@ -165,7 +171,7 @@ export const onRequest = async ({
 
   return OkResponse({
     token,
-    url: `https://confluence.zenuml.com/d/${cloudId}/${contentId}?t=${token}`,
+    url: `${new URL(request.url).origin}/d/${cloudId}/${contentId}?t=${token}`,
     imageTtlSeconds: IMG_TTL_SECONDS,
   });
 };

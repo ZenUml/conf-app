@@ -1,6 +1,10 @@
 import { OkResponse, response } from "./OkResponse";
 import { captureError } from "./utils/sentry";
 import type { ForgeRequestData } from "./utils/authenticate";
+import { signTicket, imgKeyFor, IMG_TTL_SECONDS } from "./utils/deeplink";
+import type { Env as DeeplinkEnv } from "./utils/deeplink";
+
+export { IMG_TTL_SECONDS };
 
 // Mints a shareable-preview ticket for an embed deeplink (byline-activation
 // spec §6, "Ticketed preview"). The caller is an authenticated Forge frontend
@@ -20,57 +24,19 @@ import type { ForgeRequestData } from "./utils/authenticate";
 // conf-stg-lite/full) via `wrangler pages secret put DEEPLINK_SIGN_SECRET`, or
 // the mint 503s. The redirect domain comes ONLY from the DB lookup on the FIT
 // cloudId, never a bare-cloudId reverse-resolve.
+//
+// Signing helpers now live in functions/utils/deeplink.ts, shared with the
+// serving functions (functions/i/, functions/d/) so both sides can never
+// drift out of byte-compatibility.
 
-export interface Env {
+export interface Env extends DeeplinkEnv {
   DB: D1Database;
-  DEEPLINK_KV?: KVNamespace;
-  // HMAC secret shared with the confluence-deeplink Worker. Same value both
-  // places or the Worker rejects every token.
-  DEEPLINK_SIGN_SECRET?: string;
 }
 
-export const IMG_TTL_SECONDS = 600;
 const MAX_PNG_BYTES = 2 * 1024 * 1024;
 const MAX_TITLE_CHARS = 300;
 const DIGITS_RE = /^\d+$/;
 const ATLASSIAN_HOST_RE = /^[a-z0-9][a-z0-9.-]*\.atlassian\.net$/i;
-// Truncated-MAC + derived-imgKey lengths — keep short to keep the URL short.
-// 16-byte (128-bit) HMAC is unforgeable for a bearer preview capability.
-const SIG_BYTES = 16;
-const IMGKEY_BYTES = 12;
-
-// --- Signing (MUST stay byte-compatible with workers/confluence-deeplink) ---
-const SIGN_ENC = new TextEncoder();
-
-function b64url(bytes: Uint8Array): string {
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-async function hmac(secret: string, msg: string): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey(
-    "raw", SIGN_ENC.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
-  );
-  return new Uint8Array(await crypto.subtle.sign("HMAC", key, SIGN_ENC.encode(msg)));
-}
-
-async function sha256(msg: string): Promise<Uint8Array> {
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", SIGN_ENC.encode(msg)));
-}
-
-// The image KV key is DERIVED from the signed payload (not stored in it) — one
-// fewer field in the URL. Same derivation on the Worker side.
-async function imgKeyFor(payloadB64: string): Promise<string> {
-  return b64url((await sha256(payloadB64)).slice(0, IMGKEY_BYTES));
-}
-
-// token = base64url(payloadJSON) "." base64url(hmac[:16])
-async function signTicket(payload: object, secret: string): Promise<string> {
-  const payloadB64 = b64url(SIGN_ENC.encode(JSON.stringify(payload)));
-  const sig = b64url((await hmac(secret, payloadB64)).slice(0, SIG_BYTES));
-  return `${payloadB64}.${sig}`;
-}
 
 function decodeBase64(b64: string): Uint8Array | undefined {
   try {
@@ -86,10 +52,7 @@ function decodeBase64(b64: string): Uint8Array | undefined {
 function isPng(bytes: Uint8Array): boolean {
   return (
     bytes.length > 8 &&
-    bytes[0] === 0x89 &&
-    bytes[1] === 0x50 &&
-    bytes[2] === 0x4e &&
-    bytes[3] === 0x47
+    bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
   );
 }
 

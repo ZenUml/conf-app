@@ -5,9 +5,10 @@ import { mapEnvironment } from '@/utils/forgeFlagEnvironment'
  * Kill switch for the Phase 5b space-admin banner audience.
  *
  * The banner itself is old; what is new is showing it to space admins who have
- * authored nothing. That widens the audience on the 19 CSS-enrolled tenants from
- * ~358 to ~5,021 people (60d, measured 2026-07-28), so it ships behind a flag and
- * is inert until switched on per environment.
+ * authored nothing. That materially widens the audience on the 19 CSS-enrolled
+ * tenants — the author gate reached 358 unique users in 60d, against a 10%-sampled
+ * floor of 5,021 observed space admins — so it ships behind a flag and is inert
+ * until switched on per environment.
  *
  * Deliberately NOT consulted on the hot path: `decidePageBanner()` stays
  * synchronous and this is awaited only once it has already decided the banner

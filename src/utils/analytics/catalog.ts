@@ -183,6 +183,16 @@ export type AnalyticsEventName =
   // hop. Distinct from `extension_request_clicked` (asks US for more free
   // time) and `advocacy_message_copied` (asks SOMEONE ELSE to act).
   | "paywall_bundle_cta_clicked"
+  // The Marketplace (Full plan) rail. Separate event from the bundle rail
+  // because they need different people: Marketplace requires a Confluence SITE
+  // admin, the bundle requires nobody. Splitting them is how we find out which
+  // wall a tenant is actually stuck behind.
+  //
+  // Restores measurement deleted in 05b5287f (2026-05-12), which removed the
+  // pricing UI *and* its `upgrade_cta_clicked` emitter together. Any analysis
+  // reading that event's 0 as "nobody wants to buy" is reading an absent
+  // emitter — buy-intent has been unmeasurable since, not measured as zero.
+  | "paywall_marketplace_cta_clicked"
   | "space_admin_active"
   | "advocacy_message_copied"
   | "advocacy_draft_preview_clicked"

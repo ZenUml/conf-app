@@ -270,6 +270,15 @@ export type AnalyticsEventName =
   | "macro_count_space_changed"
   | "macro_count_snapshot_failed"
   | "close_guard_rejected"
+  // Close-guard draft-restore banner (utils/restoreDraftBanner.ts). Shipped
+  // 2026-05-10 without instrumentation, so 2.5 months of usage are dark —
+  // these four decide whether the feature earns its keep. `shown` is the
+  // denominator; `restored` / `discarded` / `dismissed` are the user's three
+  // exits (✕ leaves the draft in localStorage, Discard deletes it).
+  | "draft_banner_shown"
+  | "draft_restored"
+  | "draft_discarded"
+  | "draft_banner_dismissed"
   | "renderer_prefetch_started"
   | "renderer_prefetch_completed"
   // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md

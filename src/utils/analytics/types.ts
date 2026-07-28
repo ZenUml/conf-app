@@ -133,10 +133,25 @@ export type AnalyticsProperties = {
   snapshot_skip_reason?: 'no_write_permission' | 'page_not_published';
   space_admin_count?: number;
   // True when the current user is resolved to be a space admin of the current
-  // space. Set on `space_admin_active` (Phase 5a admin-activity probe). Only
-  // emitted as `true` today; kept optional for a future "always, with flag"
-  // rate variant. See utils/paywall/spaceAdminProbe.ts.
+  // space. Set on `space_admin_active` (Phase 5a admin-activity probe) and, from
+  // Phase 5b, on every page-banner event so the funnel can be split by audience.
+  // See utils/paywall/spaceAdminProbe.ts.
   is_space_admin?: boolean;
+  // Phase 5b: WHICH gate admitted the paywall page banner, and therefore which
+  // copy/CTA set the user saw.
+  //   'editor'      — legacy gate: this user created/edited a macro in the last
+  //                   30 days. Sees "ask an admin" advocacy copy.
+  //   'space_admin' — new gate: this user is a space admin of an over-limit
+  //                   space, regardless of whether they author diagrams. Sees
+  //                   the direct-purchase copy (Enterprise Bundle) instead.
+  // A user who is BOTH is reported as 'space_admin' — the stronger audience.
+  // This is the primary split for judging Phase 5b: 60d baseline was 358 unique
+  // users reached on the 'editor' gate across 19 CSS tenants, against 5,021
+  // unique space admins already loading the banner iframe unreached.
+  banner_audience?: 'editor' | 'space_admin';
+  // Advertised annual price on the bundle CTA at click time (USD, per space).
+  // Recorded on the event so a later price change stays comparable.
+  bundle_price_usd?: number;
   // Cohort targeting (cohorts_refreshed). `cohorts` = comma-joined cohort list
   // the refresh resolved; empty string = user in no cohort (still a successful
   // refresh). `cohort_count` = same list's length, for numeric filtering.

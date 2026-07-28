@@ -86,3 +86,6 @@ tests/e2e-tests/playwright.spike.config.ts
 # AsyncAPI-Conf-V2's setup: build fresh, do not commit.
 static/asyncapi-studio/
 
+
+# scratch (deeplink staging validation: secret, mint scripts, PNG)
+tmp/

@@ -20,6 +20,42 @@
         <!-- Hero: illustration + title + body -->
         <PaywallHero />
 
+        <!-- Purchase surface. Deliberately ABOVE the advocacy draft: the first
+             thing offered should be a way to fix this yourself, not a way to ask
+             someone else. Between 2026-05-12 (05b5287f, which deleted the
+             pricing cards) and this change the modal had NO purchase path at
+             all — the Marketplace URL and the price appeared only inside the
+             copied message. Rails are ordered by who can actually complete
+             them: the bundle needs nobody, Marketplace needs a site admin. -->
+        <div class="px-4 pb-3">
+          <div class="rounded-md border border-gray-200 bg-white px-3 py-2.5">
+            <div class="flex items-center justify-between gap-3">
+              <div class="min-w-0">
+                <p class="text-xs font-medium text-gray-900 leading-5">
+                  Unlock this space for your whole team
+                </p>
+                <p class="text-[11px] text-gray-600 leading-4">
+                  {{ ENTERPRISE_BUNDLE_PRICE }} · pay by card, no Confluence admin needed
+                </p>
+              </div>
+              <button
+                data-testid="unlock-space-btn"
+                class="shrink-0 rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-1"
+                @click="onUnlockSpace"
+              >Unlock this space — {{ ENTERPRISE_BUNDLE_PRICE }}</button>
+            </div>
+            <p class="mt-1.5 border-t border-gray-100 pt-1.5 text-[11px] text-gray-600 leading-4">
+              Have more than one space over the limit?
+              <button
+                data-testid="marketplace-cta"
+                class="text-blue-600 hover:text-blue-800 hover:underline"
+                @click="onViewMarketplacePlan"
+              >Compare the Full plan →</button>
+              <span class="text-gray-500">Covers every space; a Confluence site admin has to approve it.</span>
+            </p>
+          </div>
+        </div>
+
         <!-- Collapsible draft preview -->
         <div class="px-4 pb-1">
           <button
@@ -105,7 +141,7 @@ import PaywallHero from './PaywallHero.vue'
 import DraftCard from './DraftCard.vue'
 import AdvocacyButton from './AdvocacyButton.vue'
 import { useUpgradeTracking } from './useUpgradeTracking'
-import { trackUpgradeEvent, UpgradeEventName } from '@/utils/upgradeTracking'
+import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking'
 import type { PaywallActionType } from '@/utils/paywall/mountPaywallGate'
 import { CONTINUE_ATTEMPTS_STORAGE_SOURCE } from '@/utils/paywall/continueAttempts'
 import { getUpgradeContext, useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
@@ -234,6 +270,37 @@ async function copyToClipboard(text: string): Promise<boolean> {
     console.warn('[paywall] failed to copy extension request details', e)
     return false
   }
+}
+
+/** Shared context for both purchase rails, so a rail comparison is apples to
+ *  apples. `ui_component: 'modal'` is what separates these from the page-banner
+ *  emissions of the same events. */
+function purchaseContext() {
+  return {
+    ...(props.actionType !== undefined ? { action_type: props.actionType } : {}),
+    ui_component: UIComponent.MODAL,
+    space_key: messageContext.value.spaceKey,
+    ...getUpgradeContext(),
+  }
+}
+
+/** Enterprise Bundle rail — per-space, card payment, completable by anyone.
+ *  This is the primary CTA precisely because it requires no permission the
+ *  person in front of the modal might not have. */
+async function onUnlockSpace() {
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_BUNDLE_CTA_CLICKED, {
+    bundle_price_usd: ENTERPRISE_BUNDLE_ANNUAL_COST,
+    ...purchaseContext(),
+  })
+  await openUrl(props.enterpriseBundleUrl)
+}
+
+/** Marketplace (Full plan) rail — covers every space, but only a Confluence
+ *  site admin can complete it. Tracked separately so we can tell "wanted to buy
+ *  but lacked the rights" apart from "did not want to buy". */
+async function onViewMarketplacePlan() {
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_MARKETPLACE_CTA_CLICKED, purchaseContext())
+  await openUrl(props.upgradeUrl)
 }
 
 async function onRequestExtension() {

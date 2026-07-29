@@ -169,9 +169,16 @@ export type AnalyticsProperties = {
   // unavailable), 'clipboard_failed' = the clipboard write itself threw.
   // `dsl_bytes` / `page_bytes` are the byte sizes of the diagram DSL and the
   // surrounding page context that were attempted, regardless of outcome.
+  // `job` identifies which entry point fired the click: 'generic' = the
+  // one-click primary segment (today's generic prompt, unchanged); the other
+  // five are the split-button menu's job-framed entry points — explain /
+  // update / implement / audit / tests — which only swap the preamble
+  // buildCopyForAiPrompt.ts builds (same DSL + page payload, same fallback
+  // rules). Absent on events emitted before this axis existed.
   outcome?: 'copied' | 'copied_diagram_only' | 'clipboard_failed';
   dsl_bytes?: number;
   page_bytes?: number;
+  job?: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
   // In-viewer Edit dup gate (edit_dup_gate_evaluated): outcome of the
   // click-time same-page shared-id check. `same_page_macro_count` = how many
   // macros on the page reference the clicked macro's customContentId (absent

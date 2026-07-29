@@ -176,3 +176,104 @@ describe('buildCopyForAiPrompt', () => {
     expect(result.pageBytes).toBe(0)
   })
 })
+
+describe('buildCopyForAiPrompt — per-job preambles (split button)', () => {
+  const PAGE = { title: 'Checkout design', url: 'https://example.atlassian.net/wiki/x', text: 'Some page body text.' }
+
+  // `job` defaults to 'generic' and must reproduce today's exact payload —
+  // this is the split button's primary segment, which must not change
+  // behavior at all. Fixture text is the same literal string commit 1 of
+  // this feature's predecessor asserted (buildCopyForAiPrompt's original
+  // spec, "builds the full shape (diagram + page) exactly"), so a
+  // regression here means the primary click's output drifted.
+  it('job "generic" (explicit) stays byte-identical to the pre-split-button payload', () => {
+    const result = buildCopyForAiPrompt({
+      dslLabel: 'ZenUML',
+      fenceLang: 'zenuml',
+      diagramTitle: 'Checkout flow',
+      dsl: 'A->B: hi',
+      page: PAGE,
+      job: 'generic',
+    })
+
+    expect(result.text).toBe(
+      "Context from Confluence — a ZenUML diagram and the text of the page it lives on.\n" +
+      "I'll ask my question next. If you ever propose changes to the diagram, return the\n" +
+      "complete updated ZenUML source in a fenced code block so I can paste it back.\n" +
+      "\n" +
+      "## Diagram: Checkout flow\n" +
+      "\n" +
+      "```zenuml\n" +
+      "A->B: hi\n" +
+      "```\n" +
+      "\n" +
+      "## Page: Checkout design\n" +
+      "https://example.atlassian.net/wiki/x\n" +
+      "\n" +
+      "Some page body text.",
+    )
+  })
+
+  it.each([
+    [
+      'explain',
+      "Context from Confluence — a ZenUML diagram and the text of the page it lives on.\n" +
+      "Help me understand this flow — I'll ask my questions next. If you ever propose changes to the diagram, return the complete updated ZenUML source in a fenced code block so I can paste it back.",
+    ],
+    [
+      'update',
+      "Context from Confluence — a ZenUML diagram and the text of the page it lives on.\n" +
+      "I want to change this diagram. I'll describe the change next — apply it and return the complete updated ZenUML source in a fenced code block so I can paste it back.",
+    ],
+    [
+      'implement',
+      "Context from Confluence — a ZenUML diagram and the text of the page it lives on. They specify a design to implement.\n" +
+      "Treat them as the spec — I'll tell you what to build next. If you ever propose changes to the diagram, return the complete updated ZenUML source in a fenced code block so I can paste it back.",
+    ],
+    [
+      'audit',
+      "Context from Confluence — a ZenUML diagram and the text of the page it lives on. They document how this system is supposed to work.\n" +
+      "Compare this documented flow against the actual code in this repository and list where they disagree. If the diagram should change, return the complete updated ZenUML source in a fenced code block so I can paste it back.",
+    ],
+    [
+      'tests',
+      "Context from Confluence — a ZenUML diagram and the text of the page it lives on.\n" +
+      "Derive test cases from this flow — cover the happy path, branches, and failure modes. If you ever propose changes to the diagram, return the complete updated ZenUML source in a fenced code block so I can paste it back.",
+    ],
+  ] as const)('renders the %s preamble as the first paragraph, with the same ## Diagram / ## Page payload below it', (job, expectedPreamble) => {
+    const result = buildCopyForAiPrompt({
+      dslLabel: 'ZenUML',
+      fenceLang: 'zenuml',
+      diagramTitle: 'Checkout flow',
+      dsl: 'A->B: hi',
+      page: PAGE,
+      job,
+    })
+
+    expect(result.text.split('\n\n')[0]).toBe(expectedPreamble)
+    // The payload below the preamble is untouched by the job axis.
+    expect(result.text).toContain('## Diagram: Checkout flow\n\n```zenuml\nA->B: hi\n```')
+    expect(result.text).toContain('## Page: Checkout design\nhttps://example.atlassian.net/wiki/x\n\nSome page body text.')
+  })
+
+  // Fallback shape (no page) for a non-generic job: same phrase-drop rule as
+  // the generic fallback, and the job's own intro-extra sentence (present
+  // only for implement/audit) survives the drop untouched.
+  it('drops the "and the text of the page it lives on" phrase in the fallback shape for a non-generic job (implement), keeping its extra sentence and omitting ## Page', () => {
+    const result = buildCopyForAiPrompt({
+      dslLabel: 'Mermaid',
+      fenceLang: 'mermaid',
+      diagramTitle: 'Onboarding',
+      dsl: 'graph TD; A-->B',
+      job: 'implement',
+    })
+
+    expect(result.text).toContain(
+      "Context from Confluence — a Mermaid diagram. They specify a design to implement.\n" +
+      "Treat them as the spec — I'll tell you what to build next. If you ever propose changes to the diagram, return the complete updated Mermaid source in a fenced code block so I can paste it back.",
+    )
+    expect(result.text).not.toContain('and the text of the page it lives on')
+    expect(result.text).not.toContain('## Page')
+    expect(result.pageBytes).toBe(0)
+  })
+})

@@ -82,25 +82,31 @@
                 </svg>
                 <span>Source</span>
               </button>
-              <!-- Copy for AI: one-click clipboard payload (diagram DSL + page
-                   context) sized for pasting into an external AI chat. Same
-                   gate as View Source (text-DSL types only) — not restricted
-                   by edit permission or fullscreen, mirroring that button's
-                   audience. -->
-              <button
-                v-if="showViewSource"
-                type="button"
-                class="viewer-btn-ghost"
-                aria-label="Copy for AI"
-                title="Copy diagram + page context for an AI agent"
-                data-testid="copy-for-ai-btn"
-                @click="copyForAi"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.456-2.456L14.25 6l1.035-.259a3.375 3.375 0 0 0 2.456-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
-                </svg>
-                <span>Copy for AI</span>
-              </button>
+              <!-- Copy for AI split button: primary segment (one click = copy
+                   with the generic prompt, job: 'generic') + chevron segment
+                   opening a menu of five job-framed entry points (explain /
+                   update / implement / audit / tests — CopyForAiMenu.vue).
+                   Every entry copies the SAME diagram DSL + page-context
+                   payload (buildCopyForAiPrompt.ts) — only the preamble
+                   differs by job. Same gate as View Source (text-DSL types
+                   only) — not restricted by edit permission or fullscreen,
+                   mirroring that button's audience. -->
+              <div v-if="showViewSource" class="copy-for-ai-split">
+                <button
+                  type="button"
+                  class="viewer-btn-ghost copy-for-ai-split-primary"
+                  aria-label="Copy for AI"
+                  title="Copy diagram + page context for an AI agent"
+                  data-testid="copy-for-ai-btn"
+                  @click="copyForAi('generic')"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.456-2.456L14.25 6l1.035-.259a3.375 3.375 0 0 0 2.456-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+                  </svg>
+                  <span>Copy for AI</span>
+                </button>
+                <CopyForAiMenu @select="copyForAi" />
+              </div>
               <ConnectButton v-if="showAgentLinkConnect" @connect="connectToAgent" />
               <button v-if="!isFullscreenMode" @click="fullscreen" aria-label="Fullscreen" class="viewer-btn-primary">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
@@ -240,6 +246,7 @@ import {DataSource, DiagramType} from "@/model/Diagram/Diagram";
 import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import ExportModal from '@/components/ExportModal/ExportModal.vue'
 import OverflowMenu from '@/components/Viewer/OverflowMenu.vue'
+import CopyForAiMenu from '@/components/Viewer/CopyForAiMenu.vue'
 import ViewSourcePanel from '@/components/Viewer/ViewSourcePanel.vue'
 import { toast } from '@/utils/toast'
 import { buildCopyForAiPrompt } from '@/utils/copyForAi/buildCopyForAiPrompt'
@@ -284,6 +291,7 @@ export default {
     Debug,
     ExportModal,
     OverflowMenu,
+    CopyForAiMenu,
     ViewSourcePanel,
     ConnectButton,
     ConnectPanel,
@@ -827,13 +835,18 @@ export default {
     // "Copy for AI" (catalog.ts: copy_for_ai_clicked): writes the diagram DSL
     // (same source View Source shows) plus best-effort page context to the
     // clipboard as one plain-text payload, for pasting into an external AI
-    // chat. Page context is optional — buildCopyForAiPrompt/resolveCopyForAiPage
-    // decide the fallback; this method only decides the clipboard/analytics
-    // outcome. Empty-DSL guard mirrors copyCode's early-return shape: no
-    // clipboard write, no toast beyond "nothing to copy", and — unlike
-    // copyCode — no analytics event, since an empty copy carries no demand
-    // signal.
-    async copyForAi() {
+    // chat. `job` (default 'generic') selects which preamble
+    // buildCopyForAiPrompt.ts opens the payload with — the split button's
+    // primary segment (CopyForAiMenu.vue) passes its own job value on
+    // @select, the primary segment passes 'generic' explicitly. Every job
+    // shares the exact same clipboard/analytics outcome logic below; only the
+    // copied text and the tracked `job` property vary. Page context is
+    // optional — buildCopyForAiPrompt/resolveCopyForAiPage decide the
+    // fallback; this method only decides the clipboard/analytics outcome.
+    // Empty-DSL guard mirrors copyCode's early-return shape: no clipboard
+    // write, no toast beyond "nothing to copy", and — unlike copyCode — no
+    // analytics event, since an empty copy carries no demand signal.
+    async copyForAi(job = 'generic') {
       if (!this.viewSourceCode) { toast({ message: 'No code to copy', duration: 2000 }); return; }
       const page = await this.resolveCopyForAiPage();
       const result = buildCopyForAiPrompt({
@@ -842,6 +855,7 @@ export default {
         diagramTitle: this.title,
         dsl: this.viewSourceCode,
         page,
+        job,
       });
 
       let outcome;
@@ -867,6 +881,7 @@ export default {
         outcome,
         dsl_bytes: result.dslBytes,
         page_bytes: result.pageBytes,
+        job,
       });
     },
   },
@@ -1025,6 +1040,20 @@ export default {
 .viewer-btn-ghost:hover { background: #F3F4F6; color: #111827; }
 .viewer-btn-ghost:disabled { opacity: 0.45; cursor: not-allowed; }
 .viewer-btn-ghost:disabled:hover { background: transparent; color: #374151; }
+
+/* Copy for AI split button: primary segment (unchanged viewer-btn-ghost look,
+   right corners squared off to join the chevron) + CopyForAiMenu.vue's own
+   chevron trigger (left corners squared off, shares the primary's border).
+   NOT `overflow: hidden` on the wrapper — CopyForAiMenu's popover is a
+   descendant positioned outside this wrapper's own box (top: calc(100% +
+   8px)) and must not be clipped by it. */
+.copy-for-ai-split {
+  display: inline-flex;
+  align-items: stretch;
+}
+.copy-for-ai-split-primary {
+  border-radius: 6px 0 0 6px;
+}
 
 .viewer-btn-primary {
   display: inline-flex;

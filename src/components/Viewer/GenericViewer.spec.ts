@@ -434,6 +434,7 @@ describe('GenericViewer (chrome-less)', () => {
         surface: 'viewer',
         macro_type: DiagramType.Sequence,
         outcome: 'copied',
+        job: 'generic',
       })
       expect((call![1] as any).dsl_bytes).toBeGreaterThan(0)
       expect((call![1] as any).page_bytes).toBeGreaterThan(0)
@@ -485,7 +486,7 @@ describe('GenericViewer (chrome-less)', () => {
 
       const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
       expect(call).toBeTruthy()
-      expect(call![1]).toMatchObject({ outcome: 'copied' })
+      expect(call![1]).toMatchObject({ outcome: 'copied', job: 'generic' })
       expect((call![1] as any).page_bytes).toBeGreaterThan(0)
     })
 
@@ -520,7 +521,7 @@ describe('GenericViewer (chrome-less)', () => {
 
       const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
       expect(call).toBeTruthy()
-      expect(call![1]).toMatchObject({ surface: 'fullscreen' })
+      expect(call![1]).toMatchObject({ surface: 'fullscreen', job: 'generic' })
     })
 
     it('falls back to a diagram-only payload (still copied) when the page fetch rejects', async () => {
@@ -538,7 +539,7 @@ describe('GenericViewer (chrome-less)', () => {
 
       const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
       expect(call).toBeTruthy()
-      expect(call![1]).toMatchObject({ outcome: 'copied_diagram_only', page_bytes: 0 })
+      expect(call![1]).toMatchObject({ outcome: 'copied_diagram_only', page_bytes: 0, job: 'generic' })
       expect((call![1] as any).dsl_bytes).toBeGreaterThan(0)
     })
 
@@ -564,8 +565,100 @@ describe('GenericViewer (chrome-less)', () => {
 
       const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
       expect(call).toBeTruthy()
-      expect(call![1]).toMatchObject({ outcome: 'clipboard_failed' })
+      expect(call![1]).toMatchObject({ outcome: 'clipboard_failed', job: 'generic' })
       expect((call![1] as any).dsl_bytes).toBeGreaterThan(0)
+    })
+
+    // Split button: chevron segment opens a menu of five job-framed entry
+    // points (CopyForAiMenu.vue). Every entry runs the exact same copyForAi
+    // flow with its own `job` value — same clipboard/toast/outcome logic as
+    // the primary segment above, only the preamble text and tracked `job`
+    // property differ.
+    describe('split-button menu', () => {
+      it('renders the chevron trigger with aria-haspopup/aria-expanded, gated the same as the primary button', async () => {
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        const menuBtn = wrapper.find('[data-testid="copy-for-ai-menu-btn"]')
+        expect(menuBtn.exists()).toBe(true)
+        expect(menuBtn.attributes('aria-haspopup')).toBe('menu')
+        expect(menuBtn.attributes('aria-expanded')).toBe('false')
+      })
+
+      it.each([
+        DiagramType.Graph,
+        DiagramType.OpenApi,
+        DiagramType.AsyncApi,
+        DiagramType.Embed,
+      ])('is absent for non-text-DSL type %s (same gate as the primary button)', async (type) => {
+        store.commit('updateDiagramType', type)
+        const wrapper = mountViewer()
+        await flushPromises()
+        expect(wrapper.find('[data-testid="copy-for-ai-menu-btn"]').exists()).toBe(false)
+      })
+
+      it('opens a menu with the five job-framed items on click', async () => {
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        const menuBtn = wrapper.find('[data-testid="copy-for-ai-menu-btn"]')
+        await menuBtn.trigger('click')
+        await wrapper.vm.$nextTick()
+
+        expect(menuBtn.attributes('aria-expanded')).toBe('true')
+        const menu = wrapper.find('[role="menu"]')
+        expect(menu.exists()).toBe(true)
+        expect(wrapper.findAll('[role="menuitem"]')).toHaveLength(5)
+
+        expect(wrapper.find('[data-testid="copy-for-ai-job-explain"]').text()).toContain('Ask about this flow')
+        expect(wrapper.find('[data-testid="copy-for-ai-job-update"]').text()).toContain('Update this diagram')
+        expect(wrapper.find('[data-testid="copy-for-ai-job-implement"]').text()).toContain('Implement this design')
+        expect(wrapper.find('[data-testid="copy-for-ai-job-audit"]').text()).toContain('Check against my codebase')
+        expect(wrapper.find('[data-testid="copy-for-ai-job-tests"]').text()).toContain('Generate test cases')
+      })
+
+      it('clicking a job item copies that job\'s preamble and fires copy_for_ai_clicked with its job + outcome copied', async () => {
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        await wrapper.find('[data-testid="copy-for-ai-menu-btn"]').trigger('click')
+        await wrapper.vm.$nextTick()
+        await wrapper.find('[data-testid="copy-for-ai-job-update"]').trigger('click')
+        await flushPromises()
+
+        const writeText = vi.mocked(navigator.clipboard.writeText)
+        expect(writeText).toHaveBeenCalledTimes(1)
+        const copiedText = writeText.mock.calls[0][0] as string
+        expect(copiedText).toContain(SOURCE_DSL)
+        expect(copiedText).toContain("I want to change this diagram.")
+
+        const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+        expect(call).toBeTruthy()
+        expect(call![1]).toMatchObject({
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: DiagramType.Sequence,
+          outcome: 'copied',
+          job: 'update',
+        })
+      })
+
+      it('closes the menu after selecting a job item', async () => {
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        await wrapper.find('[data-testid="copy-for-ai-menu-btn"]').trigger('click')
+        await wrapper.vm.$nextTick()
+        expect(wrapper.find('[role="menu"]').exists()).toBe(true)
+
+        await wrapper.find('[data-testid="copy-for-ai-job-tests"]').trigger('click')
+        await wrapper.vm.$nextTick()
+        expect(wrapper.find('[role="menu"]').exists()).toBe(false)
+      })
     })
   })
 

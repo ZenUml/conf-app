@@ -161,6 +161,8 @@ async function initializeMacro() {
     content: ForgeGraphViewer,
     loadDiagram,
     afterLoad,
+    // Same id `loadDiagram` reads off `context.extension.config` above.
+    resolveContentId: (context) => context.extension?.config?.customContentId,
     onError: (error) => {
       console.error('Error loading graph viewer', error);
     },

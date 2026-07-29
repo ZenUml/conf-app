@@ -207,6 +207,11 @@ export type AnalyticsEventName =
   // text-DSL types only (sequence / mermaid / plantuml).
   | "viewer_source_opened"
   | "viewer_source_copied"
+  // One-click "Copy for AI" demand-test button in the viewer top-actions row
+  // (alongside View Source). Fires on click. `outcome` distinguishes a full
+  // copy (diagram + surrounding page context) from the diagram-only fallback
+  // (page context unavailable) and an outright clipboard-write failure.
+  | "copy_for_ai_clicked"
   // Editor staleness hint (docs/superpowers/specs/
   // 2026-07-18-job-b-editor-staleness-hint-design.md). Shown on inline
   // page-editor renders when the host page drifted >=5 versions past the

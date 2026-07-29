@@ -163,6 +163,15 @@ export type AnalyticsProperties = {
   // `viewer_source_opened` / `viewer_source_copied` so read-only vs editor
   // audience for the View Source panel (#333) can be split.
   has_edit_permission?: boolean;
+  // "Copy for AI" viewer action (copy_for_ai_clicked — catalog.ts). `outcome`
+  // is the click's terminal result: 'copied' = full page+diagram copy,
+  // 'copied_diagram_only' = fell back to diagram-only content (page context
+  // unavailable), 'clipboard_failed' = the clipboard write itself threw.
+  // `dsl_bytes` / `page_bytes` are the byte sizes of the diagram DSL and the
+  // surrounding page context that were attempted, regardless of outcome.
+  outcome?: 'copied' | 'copied_diagram_only' | 'clipboard_failed';
+  dsl_bytes?: number;
+  page_bytes?: number;
   // In-viewer Edit dup gate (edit_dup_gate_evaluated): outcome of the
   // click-time same-page shared-id check. `same_page_macro_count` = how many
   // macros on the page reference the clicked macro's customContentId (absent

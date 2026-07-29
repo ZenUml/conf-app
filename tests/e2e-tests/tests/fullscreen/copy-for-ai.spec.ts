@@ -1,10 +1,15 @@
-// copy-for-ai:0..1 — "Copy for AI" viewer toolbar button
-// (src/components/Viewer/GenericViewer.vue, data-testid="copy-for-ai-btn").
-// One-click clipboard payload (diagram DSL + best-effort Confluence page
-// context, buildCopyForAiPrompt.ts) sized for pasting into an external AI
-// chat, plus the copy_for_ai_clicked Mixpanel event (catalog.ts). Gated the
-// same way View Source is — text-DSL types only (Sequence / Mermaid /
-// PlantUML); absent on Graph/OpenAPI/AsyncAPI/Embed.
+// copy-for-ai:0..1 — "Copy for AI" viewer toolbar split button
+// (src/components/Viewer/GenericViewer.vue, data-testid="copy-for-ai-btn" +
+// the chevron menu in src/components/Viewer/CopyForAiMenu.vue,
+// data-testid="copy-for-ai-menu-btn" / "copy-for-ai-job-<job>"). Primary
+// segment = one-click clipboard payload with the generic prompt (diagram DSL
+// + best-effort Confluence page context, buildCopyForAiPrompt.ts) sized for
+// pasting into an external AI chat; the chevron opens a menu of five
+// job-framed entry points (explain / update / implement / audit / tests)
+// that copy the SAME payload with a different preamble. Every entry point
+// fires the copy_for_ai_clicked Mixpanel event (catalog.ts) with its `job`.
+// Gated the same way View Source is — text-DSL types only (Sequence /
+// Mermaid / PlantUML); absent on Graph/OpenAPI/AsyncAPI/Embed.
 //
 // Evidence capture: copy-for-ai-button.png and copy-for-ai-clipboard.txt are
 // ALWAYS attached to the Playwright report (testInfo.attach). They are ALSO
@@ -89,12 +94,38 @@ test.describe('Copy for AI button', () => {
       feature_area: 'macro',
       surface: 'viewer',
       macro_type: 'mermaid',
+      job: 'generic',
     });
     // Clipboard write succeeded above, so outcome must reflect a copy (not
     // clipboard_failed) — page context may or may not resolve depending on
     // the freshly-created page's body, so allow either copy outcome.
     expect(['copied', 'copied_diagram_only']).toContain(trackedProps.outcome as string);
     expect(trackedProps.dsl_bytes as number).toBeGreaterThan(0);
+
+    // Split button: the chevron segment opens a menu of five job-framed
+    // entry points (CopyForAiMenu.vue) that share this exact same
+    // clipboard/tracking wiring — only the copied preamble and the tracked
+    // `job` differ (buildCopyForAiPrompt.ts). Exercise one menu item
+    // end-to-end on the SAME macro/page above (no new scaffolding) to prove
+    // the menu reaches the same tracking path with the right `job`. No
+    // clipboard read-back here — known harness gap #420 (see file header);
+    // the primary-click assertion above already covers that ground.
+    const menuBtn = frame.getByTestId('copy-for-ai-menu-btn');
+    await expect(menuBtn).toBeVisible();
+    await menuBtn.click();
+    const updateItem = frame.getByTestId('copy-for-ai-job-update');
+    await expect(updateItem).toBeVisible();
+
+    const [menuTrackedProps] = await Promise.all([
+      waitForCopyForAiTrackingRequest(page),
+      updateItem.click(),
+    ]);
+    expect(menuTrackedProps).toMatchObject({
+      feature_area: 'macro',
+      surface: 'viewer',
+      macro_type: 'mermaid',
+      job: 'update',
+    });
   });
 
   // Cheap negative check — reuses the existing graph insert/publish + frame

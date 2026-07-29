@@ -70,7 +70,12 @@ export function buildCopyForAiPrompt(input: BuildCopyForAiPromptInput): CopyForA
 
   const sections = [`${intro}\n${editBack}`, diagramSection]
   if (hasPage) {
-    sections.push(`## Page: ${page!.title}\n${page!.url}\n\n${page!.text}`)
+    // The URL is best-effort (GenericViewer.vue's resolveCopyForAiPage can
+    // fetch title+text but fail to resolve a URL) — when it's empty/
+    // whitespace, omit the URL line entirely rather than emit a blank one.
+    const url = page!.url.trim()
+    const pageBody = url ? `${url}\n\n${page!.text}` : `\n${page!.text}`
+    sections.push(`## Page: ${page!.title}\n${pageBody}`)
   }
 
   return {

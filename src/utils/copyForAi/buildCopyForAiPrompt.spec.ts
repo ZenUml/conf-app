@@ -136,6 +136,33 @@ describe('buildCopyForAiPrompt', () => {
     expect(result.text).not.toContain('## Diagram:')
   })
 
+  it('omits the URL line (but keeps the ## Page heading + text) when page.url is empty', () => {
+    const result = buildCopyForAiPrompt({
+      dslLabel: 'ZenUML',
+      fenceLang: 'zenuml',
+      diagramTitle: 'Checkout flow',
+      dsl: 'A->B: hi',
+      page: { title: 'Checkout design', url: '', text: 'Some page body text.' },
+    })
+
+    expect(result.text).toContain('## Page: Checkout design\n\nSome page body text.')
+    expect(result.text).not.toMatch(/## Page:.*\nhttps?:\/\//)
+    // Page context still counts as present — the URL is best-effort, not load-bearing.
+    expect(result.pageBytes).toBeGreaterThan(0)
+  })
+
+  it('omits the URL line when page.url is whitespace-only', () => {
+    const result = buildCopyForAiPrompt({
+      dslLabel: 'ZenUML',
+      fenceLang: 'zenuml',
+      diagramTitle: 'Checkout flow',
+      dsl: 'A->B: hi',
+      page: { title: 'Checkout design', url: '   ', text: 'Some page body text.' },
+    })
+
+    expect(result.text).toContain('## Page: Checkout design\n\nSome page body text.')
+  })
+
   it('treats a page whose text is empty (or whitespace-only) after stripping as no page: falls back', () => {
     const result = buildCopyForAiPrompt({
       dslLabel: 'ZenUML',

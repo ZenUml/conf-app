@@ -801,17 +801,23 @@ export default {
     },
     // Page context for "Copy for AI" — same read agentLink's readPage uses
     // (ApWrapper2.getCurrentPage() + _getCurrentPageId(), see
-    // composables/agentLink/forgeBridge.ts's readPage), plus the page URL via
-    // resolvePageUrl() above. Returns undefined on ANY failure (standalone/dev
-    // with no page context, a rejected fetch, no resolvable URL) so the
-    // caller falls back to a diagram-only payload instead of blocking the copy.
+    // composables/agentLink/forgeBridge.ts's readPage). The page URL is
+    // derived from that SAME response's _links (base+webui) rather than a
+    // second /pages/{id} round trip via resolvePageUrl() — the v2 API
+    // includes _links regardless of body-format (verified live). Returns
+    // undefined only when the page fetch itself fails (standalone/dev with
+    // no page context, a rejected request) so the caller falls back to a
+    // diagram-only payload instead of blocking the copy. A page that fetched
+    // fine but has no resolvable URL still comes back with url: '' — title +
+    // text are real context on their own (buildCopyForAiPrompt omits the URL
+    // line when url is empty).
     async resolveCopyForAiPage() {
       try {
-        const pageId = await globals.apWrapper._getCurrentPageId();
         const currentPage = await globals.apWrapper.getCurrentPage();
         const text = htmlToPlainText(currentPage?.body?.export_view?.value || '');
-        const url = await this.resolvePageUrl(pageId);
-        if (!url) return undefined;
+        const base = currentPage?._links?.base || '';
+        const webui = currentPage?._links?.webui || '';
+        const url = (base && webui) ? `${base}${webui}` : '';
         return { title: currentPage?.title || '', url, text };
       } catch (error) {
         console.error('copyForAi: page context unavailable, falling back to diagram-only', error);
@@ -823,8 +829,12 @@ export default {
     // clipboard as one plain-text payload, for pasting into an external AI
     // chat. Page context is optional — buildCopyForAiPrompt/resolveCopyForAiPage
     // decide the fallback; this method only decides the clipboard/analytics
-    // outcome.
+    // outcome. Empty-DSL guard mirrors copyCode's early-return shape: no
+    // clipboard write, no toast beyond "nothing to copy", and — unlike
+    // copyCode — no analytics event, since an empty copy carries no demand
+    // signal.
     async copyForAi() {
+      if (!this.viewSourceCode) { toast({ message: 'No code to copy', duration: 2000 }); return; }
       const page = await this.resolveCopyForAiPage();
       const result = buildCopyForAiPrompt({
         dslLabel: this.viewSourceDslLabel,

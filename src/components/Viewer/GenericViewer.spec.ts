@@ -30,12 +30,15 @@ vi.mock('@/model/globals', () => ({
       getCurrentSpace: vi.fn(() => Promise.resolve({ key: 'TEST' })),
       getAndPrintContentVersions: vi.fn(() => Promise.resolve([])),
       // Copy for AI page context (resolveCopyForAiPage) — same path
-      // agentLink's readPage uses. Individual tests override these to
-      // exercise the diagram-only fallback.
+      // agentLink's readPage uses. The URL is derived from THIS response's
+      // _links (base+webui), not a second request — individual tests
+      // override this fixture to exercise the diagram-only fallback and the
+      // URL-unresolvable-but-text-present case.
       _getCurrentPageId: vi.fn(() => Promise.resolve('page-123')),
       getCurrentPage: vi.fn(() => Promise.resolve({
         title: 'Login flow page',
         body: { export_view: { value: '<p>Some page context.</p>' } },
+        _links: { base: 'https://example.atlassian.net/wiki', webui: '/spaces/TEST/pages/123' },
       })),
     }
   }
@@ -420,6 +423,9 @@ describe('GenericViewer (chrome-less)', () => {
       const copiedText = writeText.mock.calls[0][0] as string
       expect(copiedText).toContain(SOURCE_DSL)
       expect(copiedText).toContain('Login flow page')
+      // URL is derived from getCurrentPage()'s own _links — no second
+      // /pages/{id} round trip (resolvePageUrl stays copyLink-only).
+      expect(copiedText).toContain('https://example.atlassian.net/wiki/spaces/TEST/pages/123')
 
       const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
       expect(call).toBeTruthy()
@@ -431,6 +437,73 @@ describe('GenericViewer (chrome-less)', () => {
       })
       expect((call![1] as any).dsl_bytes).toBeGreaterThan(0)
       expect((call![1] as any).page_bytes).toBeGreaterThan(0)
+    })
+
+    it('derives the page URL from getCurrentPage() without a second /pages/{id} request', async () => {
+      const { requestConfluence } = await import('@forge/bridge')
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+      await flushPromises()
+
+      // globals.apWrapper.getCurrentPage() is stubbed above (not the real
+      // ApWrapper2), so it never reaches requestConfluence in this harness —
+      // meaning ANY call recorded here can only have come from
+      // resolvePageUrl()'s own dynamic `@forge/bridge` import. Before this
+      // change resolveCopyForAiPage called resolvePageUrl for the URL (1
+      // call); now it derives the URL from getCurrentPage()'s own _links, so
+      // resolvePageUrl is never reached from the Copy for AI path — zero
+      // calls (resolvePageUrl remains copyLink-only, tested separately).
+      expect(vi.mocked(requestConfluence)).not.toHaveBeenCalled()
+    })
+
+    // Item 2: resolveCopyForAiPage no longer makes a second request for the
+    // URL — it derives from getCurrentPage()'s own _links. When those are
+    // missing/unresolvable but title+text fetched fine, the page still goes
+    // to the builder with an empty url; outcome stays 'copied' (pageBytes>0).
+    it('keeps page context (outcome copied) when the page has no resolvable URL but text was fetched', async () => {
+      vi.mocked(globals.apWrapper.getCurrentPage).mockResolvedValueOnce({
+        title: 'Login flow page',
+        body: { export_view: { value: '<p>Some page context.</p>' } },
+        _links: {},
+      } as any)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+      await flushPromises()
+
+      const writeText = vi.mocked(navigator.clipboard.writeText)
+      expect(writeText).toHaveBeenCalledTimes(1)
+      const copiedText = writeText.mock.calls[0][0] as string
+      expect(copiedText).toContain(SOURCE_DSL)
+      expect(copiedText).toContain('## Page: Login flow page')
+      expect(copiedText).not.toMatch(/## Page:.*\nhttps?:\/\//)
+
+      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+      expect(call).toBeTruthy()
+      expect(call![1]).toMatchObject({ outcome: 'copied' })
+      expect((call![1] as any).page_bytes).toBeGreaterThan(0)
+    })
+
+    // Item 1: mirrors copyCode's empty-source guard — no clipboard write, no
+    // toast beyond "nothing to copy", and (unlike copyCode) no analytics
+    // event, since an empty copy is not demand signal.
+    it('guards an empty DSL: no clipboard write, no copy_for_ai_clicked event', async () => {
+      store.state.diagram.code = ''
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+      await flushPromises()
+
+      expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
+      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+      expect(call).toBeUndefined()
     })
 
     // surface must distinguish the Fullscreen modal from the inline macro view

@@ -18,10 +18,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { test, expect } from '@playwright/test';
 import { testConfig } from '../../config/test-config.js';
-import { insertAndPublishMacro } from '../../helpers/MacroFlowHelper.js';
 import { viewerFrame } from '../../helpers/ViewerActionsHelper.js';
 import {
   insertAndPublishMermaidMacro,
+  insertAndPublishGraphMacroForCopyForAiTest,
   clickCopyForAiAndRead,
   waitForCopyForAiTrackingRequest,
 } from '../../helpers/CopyForAiHelper.js';
@@ -101,7 +101,7 @@ test.describe('Copy for AI button', () => {
   // helpers already exercised by viewer-actions.spec.ts, no new scaffolding.
   test('copy-for-ai:1 — absent on a Graph macro (not a text-DSL type)', async ({ page }) => {
     test.skip(!testConfig.macros.includes('graph'), 'graph not in profile');
-    await insertAndPublishMacro(page, 'graph', { title: `gr-cfa-${Date.now()}` });
+    await insertAndPublishGraphMacroForCopyForAiTest(page, { title: `gr-cfa-${Date.now()}` });
     const frame = new MacroPage(page).getGraphMacroFrame();
     // Wait for the viewer TOOLBAR, not just the iframe document: a bare
     // `body` visible + toHaveCount(0) would also pass before GenericViewer

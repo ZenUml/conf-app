@@ -96,6 +96,45 @@ export async function insertAndPublishMermaidMacro(
 }
 
 /**
+ * Insert + publish a Graph (DrawIO) macro, dismissing the soft paywall gate
+ * first if present. copy-for-ai:1 (the "absent on Graph" negative test)
+ * needs its own macro-create flow — Graph isn't gated the same way as
+ * Mermaid isn't relevant here, but the SAME over-limit test space blocks
+ * *any* macro-editor open, so this test hits the identical gate as
+ * insertAndPublishMermaidMacro above.
+ *
+ * This deliberately does NOT call MacroFlowHelper.insertAndPublishMacro —
+ * that shared helper is used by every other spec under tests/fullscreen/
+ * and is left untouched (shared-helper policy); it has no seam to inject a
+ * dismiss between its internal insertMacro() and fillEditorTitle() calls.
+ * So this reimplements the same handful of steps for the 'graph' kind,
+ * inserting the dismiss in between. Keep in sync with
+ * MacroFlowHelper.insertAndPublishMacro's 'graph' branch if that changes.
+ */
+export async function insertAndPublishGraphMacroForCopyForAiTest(
+  page: Page,
+  options: { title?: string } = {},
+): Promise<{ editorPage: ConfluenceEditorPage; macroPage: MacroPage; pageId: string }> {
+  const { editorPage } = await insertMacro(page, 'graph');
+  // Same staging-space rationale as insertAndPublishMermaidMacro above —
+  // no-op when the space is under the limit.
+  await dismissPaywallGate(page, modalContentFrame(page, 'edit'));
+  const title = options.title ?? `Test graph ${Date.now()}`;
+  await fillEditorTitle(page, title);
+  // DrawIO Publish lives in the inner nested iframe (matches
+  // MacroFlowHelper.insertAndPublishMacro's 'graph' branch).
+  await clickEditorPublish(page, { nested: 'drawio' });
+  await expectModalClosed(page, 'edit');
+
+  await editorPage.publishPage();
+  const macroPage = new MacroPage(page);
+  await macroPage.dismissSpotlightModal();
+
+  const pageId = page.url().match(/\/pages\/(\d+)\//)?.[1] ?? '';
+  return { editorPage, macroPage, pageId };
+}
+
+/**
  * Click "Copy for AI" and read the clipboard back from the OUTER page (see
  * file header caveat — NOT frame.evaluate on the iframe). Caller must grant
  * clipboard-read/clipboard-write permissions first.

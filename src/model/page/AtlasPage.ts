@@ -34,7 +34,14 @@ export class AtlasPage {
     return (forgeGlobal.forgeContext?.extension?.isEditing ? 'contentEdit' : 'contentView') as unknown as LocationTarget;
   }
 
-  private async macros(): Promise<AtlasDocElement[]> {
+  /**
+   * `null` means the page's ADF could not be read — distinct from `[]`, which
+   * means it WAS read and holds no macros. Callers that make a safety decision
+   * (the Edit dup gate: "is this customContentId shared?") must not treat an
+   * unreadable page as "no duplicates found"; callers that only want a count
+   * keep the historical assume-empty behaviour via `macros()` below.
+   */
+  private async macrosOrNull(): Promise<AtlasDocElement[] | null> {
     let responseBody = '';
     try {
       const pageId = await this.getPageId();
@@ -50,7 +57,8 @@ export class AtlasPage {
       const response = await forgeRequest(`/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format`);
       console.debug('AtlasPage - page response', response);
       if (!response || !response.body) {
-        return [];
+        // A response with no body is a failed read, not an empty page.
+        return null;
       }
       responseBody = response.body;
       const {body: {atlas_doc_format: {value}}} = response;
@@ -65,14 +73,37 @@ export class AtlasPage {
       console.error('==========');
       console.error(responseBody);
       console.error('==========');
-      return [];
+      return null;
     }
   }
 
-  async countMacros(matcher: (mps: MacroParams | ForgeGuestParams) => boolean) {
-    return (await this.macros())
+  private async macros(): Promise<AtlasDocElement[]> {
+    return (await this.macrosOrNull()) ?? [];
+  }
+
+  private static count(
+    elements: AtlasDocElement[],
+    matcher: (mps: MacroParams | ForgeGuestParams) => boolean,
+  ): number {
+    return elements
       .map(c => c.attrs.extensionType === AtlasDocExtensionType.ForgeMacro ? c.attrs.parameters.guestParams : c.attrs.parameters.macroParams)
       .filter(mps => mps && matcher(mps))
       .length;
+  }
+
+  async countMacros(matcher: (mps: MacroParams | ForgeGuestParams) => boolean) {
+    return AtlasPage.count(await this.macros(), matcher);
+  }
+
+  /**
+   * Same count, but `undefined` when the page ADF could not be read at all —
+   * so a caller can tell "scanned, found none" from "could not scan". See
+   * macrosOrNull.
+   */
+  async countMacrosOrUnknown(
+    matcher: (mps: MacroParams | ForgeGuestParams) => boolean,
+  ): Promise<number | undefined> {
+    const elements = await this.macrosOrNull();
+    return elements === null ? undefined : AtlasPage.count(elements, matcher);
   }
 }

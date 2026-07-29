@@ -159,6 +159,15 @@ export type AnalyticsProperties = {
   // `viewer_source_opened` / `viewer_source_copied` so read-only vs editor
   // audience for the View Source panel (#333) can be split.
   has_edit_permission?: boolean;
+  // In-viewer Edit dup gate (edit_dup_gate_evaluated): outcome of the
+  // click-time same-page shared-id check. `same_page_macro_count` = how many
+  // macros on the page reference the clicked macro's customContentId (absent
+  // when the scan failed). `copy_reason` rides on
+  // editor_publish_blocked_fork_unlinkable to say which copy flavor tripped
+  // the editor-side backstop.
+  edit_dup_gate_outcome?: 'blocked' | 'passed' | 'scan_failed';
+  same_page_macro_count?: number;
+  copy_reason?: 'same-page-duplicate' | 'cross-page';
   // Diagramly demo-page engagement: set automatically for macro_* events when
   // the macro lives on a page tagged with the `diagramly-demo-page` page
   // property. See utils/analytics/demoPageStatus.ts.

@@ -281,6 +281,24 @@ export type AnalyticsEventName =
   | "draft_banner_dismissed"
   | "renderer_prefetch_started"
   | "renderer_prefetch_completed"
+  // In-viewer Edit gate for same-page shared-id macros (view-fork silent
+  // orphan: view-editing a macro whose customContentId is shared by N>1
+  // macros on the page forks a new CC on save, but the in-viewer modal cannot
+  // write the new id back into the macro config — writebackGate.ts / #170 —
+  // so the edit lands in a CC nothing references). Evaluated on every viewer
+  // Edit click that carries a customContentId; `edit_dup_gate_outcome`:
+  // 'blocked' = duplicates found, modal NOT opened, user steered to the page
+  // editor; 'passed' = unique reference, modal opened; 'scan_failed' = the
+  // ADF count scan errored, fail-open (modal opened; the editor-side backstop
+  // below still guards Publish).
+  | "edit_dup_gate_evaluated"
+  // The editor-side backstop caught what the click gate let through (its
+  // fail-open path, the staleness-hint CTA on an inline page-editor render,
+  // or any other non-submittable entry): the modal editor loaded a doc
+  // flagged isCopy in a surface where view.submit({config}) cannot persist,
+  // so Publish is disabled with an explanatory tooltip instead of silently
+  // minting an unreferenced CC. `copy_reason` says which copy flavor.
+  | "editor_publish_blocked_fork_unlinkable"
   // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md
   // §10). Funnel: connect_clicked → session_created → agent_connected →
   // edit_applied → disconnected; setup_shown measures first-time connector

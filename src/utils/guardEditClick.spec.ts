@@ -66,6 +66,24 @@ describe('guardEditClick', () => {
     expect(scan).toHaveBeenCalledTimes(2);
   });
 
+  // The real-world failure shape. AtlasPage swallows every page-ADF fetch
+  // error, so countMacrosReferencing signals failure by returning undefined
+  // rather than throwing — it must NOT be read as "scanned, found none",
+  // which would wave a shared-id macro straight into the editor.
+  it('treats an unreadable page ADF (undefined) as scan_failed, not as zero duplicates', async () => {
+    scan.mockResolvedValue(undefined);
+    expect(await guardEditClick({ customContentId: '123', macroType: 'graph' })).toBe(true);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'edit_dup_gate_evaluated',
+      expect.objectContaining({ edit_dup_gate_outcome: 'scan_failed' }),
+    );
+    // No count property: we do not know one.
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+      'edit_dup_gate_evaluated',
+      expect.objectContaining({ same_page_macro_count: 0 }),
+    );
+  });
+
   it('fails OPEN when the scan throws — a network blip must not lock Edit', async () => {
     scan.mockRejectedValue(new Error('403'));
     expect(await guardEditClick({ customContentId: '123', macroType: 'graph' })).toBe(true);

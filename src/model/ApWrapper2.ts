@@ -611,12 +611,17 @@ export default class ApWrapper2 implements IApWrapper {
   /**
    * Count macros on the current page whose config references `id`. Matches
    * both param shapes: Forge bare-string customContentId and Connect-era
-   * {value} objects. One full-page ADF GET (AtlasPage.countMacros). Used by
-   * the blocking detectCopy on edit/config surfaces and by the on-demand
-   * in-viewer Edit gate (model/editDupGate.ts).
+   * {value} objects. One full-page ADF GET.
+   *
+   * Returns `undefined` when that GET failed — the page ADF is unreadable, so
+   * the answer is UNKNOWN, not zero. The Edit dup gate (model/editDupGate.ts)
+   * depends on that distinction: AtlasPage historically swallowed every fetch
+   * error into an empty macro list, which the gate would read as "no
+   * duplicates on this page" and wave a shared-id macro straight into the
+   * editor — the exact silent fork it exists to stop.
    */
-  async countMacrosReferencing(id: string): Promise<number> {
-    return this._page.countMacros((m) => {
+  async countMacrosReferencing(id: string): Promise<number | undefined> {
+    return this._page.countMacrosOrUnknown((m) => {
       //TODO: filter by macro type
       const macroCustomContentId = m?.customContentId;
       return (typeof macroCustomContentId === 'string'
@@ -636,7 +641,11 @@ export default class ApWrapper2 implements IApWrapper {
     ccPageId: string | number | undefined,
   ): Promise<{ isCopy: boolean; copyReason?: 'cross-page' | 'same-page-duplicate' }> {
     return renderPerf.time('adf_scan', async () => {
-      const count = await this.countMacrosReferencing(id);
+      // An unreadable page ADF keeps this path's historical behaviour —
+      // assume no same-page duplicate (cross-page detection below is
+      // unaffected, it needs no ADF). Only the Edit gate acts on the
+      // unknown, because only it is making a data-loss decision.
+      const count = (await this.countMacrosReferencing(id)) ?? 0;
       console.debug(`Found ${count} macros on page`);
       const pageId = await this._page.getPageId();
       // Require both sides present — undefined pageId on the custom content

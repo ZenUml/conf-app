@@ -1,7 +1,7 @@
 # Embed AutoConvert Analytics Design
 
 **Date:** 2026-07-29  
-**Status:** Design approved; written-spec review pending
+**Status:** Approved for implementation
 
 ## Problem
 

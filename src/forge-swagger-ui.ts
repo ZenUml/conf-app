@@ -95,6 +95,10 @@ async function initializeMacro() {
     content: OpenApiViewer,
     loadDiagram,
     afterLoad,
+    // Same id `loadDiagram` reads (config, falling back to the dashboard
+    // modal's carried id) above.
+    resolveContentId: (context) =>
+      context.extension?.config?.customContentId || context.extension?.modal?.customContentId,
     onError: (error) => {
       console.error('Error loading OpenAPI viewer', error);
     },

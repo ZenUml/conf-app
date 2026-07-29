@@ -149,12 +149,38 @@ function afterLoad(doc: Diagram | undefined) {
 
 
 
+/**
+ * Same id resolution `loadDiagram` performs above, before its fetch: the
+ * saved config id, or — for an autoConvert paste that hasn't saved a config
+ * yet — the deeplink target parsed from `autoConvertLink`. `parseEmbedDeeplink`
+ * is a pure regex match (no network call), so this is resolvable synchronously
+ * from context exactly like the graph/openapi resolvers. Cross-tenant pastes
+ * resolve to undefined, same as `loadDiagram` — never cache/read a foreign-site
+ * paste. The legacy-uuid recovery fallback inside `loadDiagram` (for a macro
+ * with neither a saved config id nor a matching deeplink) has no id to resolve
+ * here either — it's excluded from the cache exactly like graph/openapi's own
+ * legacy-uuid fallback.
+ */
+function resolveEmbedContentId(context: any): string | undefined {
+  const direct = context.extension?.config?.customContentId;
+  if (direct) return direct;
+  const deeplink = context.extension?.autoConvertLink
+    ? parseEmbedDeeplink(context.extension.autoConvertLink)
+    : undefined;
+  if (!deeplink) return undefined;
+  if (context.cloudId && deeplink.cloudId !== String(context.cloudId).toLowerCase()) {
+    return undefined;
+  }
+  return deeplink.contentId;
+}
+
 async function initializeMacro() {
   await bootstrapForgeViewer({
     macroKind: 'embed',
     content: ForgeEmbedViewer,
     loadDiagram,
     afterLoad,
+    resolveContentId: resolveEmbedContentId,
     onError: (error) => {
       console.error('Error loading embed viewer', error);
     },

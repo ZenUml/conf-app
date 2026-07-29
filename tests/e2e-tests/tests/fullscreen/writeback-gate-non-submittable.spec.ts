@@ -1,22 +1,28 @@
-// Regression for ZenUml/conf-app#170 — the in-viewer Edit modal must never throw
-// "this resource's view is not submittable" when a save legitimately mints a new
-// customContentId (idChanged) in that non-submittable surface.
+// Regression for ZenUml/conf-app#170 + the view-fork silent orphan: both copy
+// shapes must be stopped at the Edit button, BEFORE the in-viewer modal opens —
+// a fork minted inside that non-submittable surface can never be written back
+// into the macro config, so #170's clean view.close() would strand the user's
+// edit in a CC nothing references (runtime-proven 2026-07-29 on lite-dev:
+// POST 201 fork, both macros still on the old id, edit invisible after reload).
 //
-// #169/1a removed the *spurious* fork (count===0). This covers the two
-// *legitimate* fork shapes that still produce idChanged in the modal:
-//   1. cross-page copy   — the macro's cc lives on another page → samePage===false → fork
-//   2. same-page duplicate — two macros share one cc (count>1) → fork
+// The two copy shapes and their front-line guards:
+//   1. cross-page copy    — detected at LOAD time (zero-network pageId compare)
+//      → in-viewer Edit rendered disabled with a "lives on another page" tooltip.
+//   2. same-page duplicate — invisible at load (viewer runs 'cross-page-only',
+//      PR #370) → detected at CLICK time (model/editDupGate.ts: one on-demand
+//      ADF scan) → modal refused, button flips disabled, toast steers to the
+//      page editor.
 //
 // Both preconditions are built via the v2 API (see helpers/macroDuplication.ts —
-// the editor's clipboard duplication can't be driven from Playwright). Then the
-// macro is edited in its in-viewer Edit Modal and saved.
+// the editor's clipboard duplication can't be driven from Playwright).
 //
-// RED (pre-#2 build): save forks → idChanged → view.submit() in the modal →
-//   throws "not submittable" → dialog stuck open + console error.
-// GREEN (#2): the writeback is gated behind repairWillPersist (false in the
-//   modal) → view.close() → dialog closes cleanly, no submit failure.
+// Behind these front-line guards, two floors remain for anything they miss:
+// the editor-side publishBlock (Publish disabled for a copy-flagged doc in a
+// non-submittable surface) and #170's writeback gate (never throw
+// "not submittable"), both locked by unit tests (editDupGate.spec.ts /
+// writebackGate.spec.ts).
 
-import { test, expect, Page, FrameLocator } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
 import { testConfig } from '../../config/test-config.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 import { createPageAndSetup } from '../insert/insert-helpers.js';
@@ -60,36 +66,11 @@ async function insertAndPublishMacroPage(page: Page): Promise<string> {
   return pageId!;
 }
 
-// Open the macro's in-viewer Edit modal, dirty the code, publish, and assert the
-// modal closes cleanly with no view.submit failure (the #2-fixed behavior).
-async function editInViewerExpectCleanClose(page: Page, macroFrame: FrameLocator, submitFailures: string[]): Promise<void> {
-  await expect(macroFrame.locator('body')).toBeVisible({ timeout: 30_000 });
-  const macroPage = new MacroPage(page);
-  await macroPage.editMacro(macroFrame);
-  await expectModalVisible(page, 'edit');
-  await page.waitForTimeout(1500);
-  await dismissPaywall(page);
-  const cm = modalContentFrame(page, 'edit').locator('.cm-content, .CodeMirror').first();
-  await cm.click();
-  await page.keyboard.press('End');
-  await page.keyboard.type('\n  A170-->B170');
-  await clickEditorPublish(page);
-  // GREEN (#2): fork → idChanged → gated (not submittable) → view.close() → modal closes.
-  // RED  (pre-#2): view.submit() throws → modal stays open + "not submittable".
-  await expectModalClosed(page, 'edit', 20_000);
-  expect(submitFailures, `unexpected writeback failure: ${submitFailures[0] ?? ''}`).toHaveLength(0);
-}
-
-test.describe('REGRESSION #170 — non-submittable in-viewer surfaces never throw "not submittable" on save', () => {
+test.describe('REGRESSION #170 / view-fork gate — copy shapes are stopped before the in-viewer modal', () => {
   test.skip(!testConfig.isLite, 'Lite-only: the in-viewer Edit modal is the non-submittable surface');
   test.skip(!testConfig.macros.includes('sequence'), 'diagram (sequence) macro required');
 
-  test('mechanism 2 — same-page duplicate (count>1) fork closes cleanly', async ({ page }) => {
-    const submitFailures: string[] = [];
-    page.on('console', (m) => {
-      if (/view\.submit\/close failed after save|not submittable/i.test(m.text())) submitFailures.push(m.text());
-    });
-
+  test('mechanism 2 — same-page duplicate (count>1): Edit is gated BEFORE the modal opens', async ({ page }) => {
     const pageId = await insertAndPublishMacroPage(page);
     await duplicateMacroSamePage(page, testConfig.domain, pageId);
 
@@ -97,8 +78,31 @@ test.describe('REGRESSION #170 — non-submittable in-viewer surfaces never thro
     await page.goto(`https://${testConfig.domain}/wiki/spaces/${testConfig.spaceKey}/pages/${pageId}`);
     await expect(page.locator(FORGE_IFRAME)).toHaveCount(2, { timeout: 30_000 });
 
+    // From here on, any custom-content write means the gate failed and a fork
+    // was minted (the silent-orphan bug this spec locks out). Attached only
+    // now — the setup above legitimately POSTs when creating the macro's cc.
+    const ccWrites: string[] = [];
+    page.on('response', (resp) => {
+      const req = resp.request();
+      if (/\/api\/v2\/custom-content/.test(resp.url()) && ['POST', 'PUT'].includes(req.method())) {
+        ccWrites.push(`${req.method()} ${resp.status()} ${resp.url()}`);
+      }
+    });
+
     const firstMacro = page.locator(FORGE_IFRAME).first().contentFrame();
-    await editInViewerExpectCleanClose(page, firstMacro, submitFailures);
+    await expect(firstMacro.locator('body')).toBeVisible({ timeout: 30_000 });
+    await new MacroPage(page).editMacro(firstMacro);
+
+    // The click-time gate scans the page ADF, finds the shared id, and flips
+    // the viewer into the same disabled-Edit state a cross-page copy gets —
+    // this disable happening at all proves the gate fired.
+    const editBtn = firstMacro.getByRole('button', { name: 'Edit' });
+    await expect(editBtn, 'gate must disable Edit after the click').toBeDisabled({ timeout: 15_000 });
+    await expect(editBtn).toHaveAttribute('title', /several copies/i);
+
+    // The modal must never have opened, and nothing may have been written.
+    await expectModalClosed(page, 'edit', 2_000);
+    expect(ccWrites, `unexpected custom-content write(s): ${ccWrites[0] ?? ''}`).toHaveLength(0);
   });
 
   // Mechanism 1 (cross-page copy) cannot reach the #170 fork-in-modal path: a

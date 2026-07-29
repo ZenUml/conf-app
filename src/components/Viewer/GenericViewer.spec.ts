@@ -417,6 +417,25 @@ describe('GenericViewer (chrome-less)', () => {
       expect((call![1] as any).page_bytes).toBeGreaterThan(0)
     })
 
+    // surface must distinguish the Fullscreen modal from the inline macro view
+    // (isFullscreenMode reads window.forgeGlobal.forgeContext.extension.modal.macroMode,
+    // same signal the "fullscreen width" describe block above uses).
+    it('fires copy_for_ai_clicked with surface "fullscreen" when opened from the fullscreen modal', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+      await flushPromises()
+
+      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+      expect(call).toBeTruthy()
+      expect(call![1]).toMatchObject({ surface: 'fullscreen' })
+
+      delete (window as any).forgeGlobal
+    })
+
     it('falls back to a diagram-only payload (still copied) when the page fetch rejects', async () => {
       vi.mocked(globals.apWrapper.getCurrentPage).mockRejectedValueOnce(new Error('network error'))
       store.commit('updateDiagramType', DiagramType.Sequence)

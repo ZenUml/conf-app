@@ -852,7 +852,7 @@ export default {
 
       trackAnalyticsEvent('copy_for_ai_clicked', {
         feature_area: 'macro',
-        surface: 'viewer',
+        surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
         macro_type: this.diagramType,
         outcome,
         dsl_bytes: result.dslBytes,

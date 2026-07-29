@@ -5,13 +5,14 @@
 // edit in a CC nothing references (runtime-proven 2026-07-29 on lite-dev:
 // POST 201 fork, both macros still on the old id, edit invisible after reload).
 //
-// The two copy shapes and their front-line guards:
+// The two copy shapes and their front-line guards — now identical for EVERY
+// macro type (sequence family, graph, openapi, asyncapi), since all viewers
+// load with the zero-network 'cross-page-only' copy check:
 //   1. cross-page copy    — detected at LOAD time (zero-network pageId compare)
 //      → in-viewer Edit rendered disabled with a "lives on another page" tooltip.
-//   2. same-page duplicate — invisible at load (viewer runs 'cross-page-only',
-//      PR #370) → detected at CLICK time (model/editDupGate.ts: one on-demand
-//      ADF scan) → modal refused, button flips disabled, toast steers to the
-//      page editor.
+//   2. same-page duplicate — invisible at load by construction → detected at
+//      CLICK time (utils/guardEditClick.ts: one memoized on-demand ADF scan)
+//      → modal refused, button flips disabled, toast steers to the page editor.
 //
 // Both preconditions are built via the v2 API (see helpers/macroDuplication.ts —
 // the editor's clipboard duplication can't be driven from Playwright).
@@ -66,6 +67,24 @@ async function insertAndPublishMacroPage(page: Page): Promise<string> {
   return pageId!;
 }
 
+// Insert a graph / openapi macro into a fresh page and publish it. Returns pageId.
+async function insertAndPublishNonSequenceMacro(page: Page, kind: 'graph' | 'openapi'): Promise<string> {
+  const editorPage = await createPageAndSetup(page, ' Lite');
+  await editorPage.dismissLearnTheBasicsPanel();
+  await editorPage.clickInsertElements();
+  if (kind === 'openapi') {
+    await editorPage.searchAndSelectMacro('openapi', editorPage.getMacroName('OpenAPI / Swagger'));
+    await editorPage.interactWithOpenApiMacro(`Gate170 openapi ${Date.now()}`);
+  } else {
+    await editorPage.searchAndSelectMacro('graph', editorPage.getMacroName('Graph (DrawIO)'));
+    await editorPage.interactWithGraphMacro(`Gate170 graph ${Date.now()}`);
+  }
+  await editorPage.publishPage();
+  const pageId = page.url().match(/\/pages\/(\d+)\//)?.[1];
+  expect(pageId, 'published page id').toBeTruthy();
+  return pageId!;
+}
+
 test.describe('REGRESSION #170 / view-fork gate — copy shapes are stopped before the in-viewer modal', () => {
   test.skip(!testConfig.isLite, 'Lite-only: the in-viewer Edit modal is the non-submittable surface');
   test.skip(!testConfig.macros.includes('sequence'), 'diagram (sequence) macro required');
@@ -105,46 +124,78 @@ test.describe('REGRESSION #170 / view-fork gate — copy shapes are stopped befo
     expect(ccWrites, `unexpected custom-content write(s): ${ccWrites[0] ?? ''}`).toHaveLength(0);
   });
 
-  // Why the click-time gate is sequence-only. PR #370 dropped the per-render
-  // ADF scan for the SEQUENCE viewer alone (copyCheckMode 'cross-page-only',
-  // forgeIndex.ts) — that is what makes a same-page duplicate invisible at
-  // load there and forces the on-demand click gate. Graph / OpenAPI viewers
-  // still load with the default FULL detectCopy, so their Edit button is
-  // already disabled before any click, and their own EventBus 'edit'
-  // listeners (forge-graph-viewer.ts / forge-swagger-ui.ts — which bypass the
-  // forgeIndex gate) are never reached.
+  // Every viewer type now loads with the zero-network 'cross-page-only' copy
+  // check — the full page-ADF scan it replaces cost ~15% of a graph render's
+  // p50 and ~22% of an openapi render's (measured, 7d external). The gate that
+  // replaced it runs on the Edit click, and it must hold for these types too:
+  // each registers its OWN EventBus 'edit' listener that opens a modal
+  // independently of forgeIndex's, so both consult the (memoized) guard.
   //
-  // This test locks that property: if the #370 optimization is ever extended
-  // to these types, the load-time disable disappears, the silent fork becomes
-  // reachable through their own listeners, and this goes red.
+  // Same assertions as mechanism 2 — the protection must be indistinguishable
+  // across types; that is the whole point of moving them onto one mechanism.
   for (const kind of ['openapi', 'graph'] as const) {
-    test(`mechanism 3 — ${kind} same-page duplicate disables Edit at LOAD (full scan retained)`, async ({ page }) => {
+    test(`mechanism 3 — ${kind} same-page duplicate: Edit is gated BEFORE the modal opens`, async ({ page }) => {
       test.skip(!testConfig.macros.includes(kind), `${kind} macro not in this profile`);
 
-      const editorPage = await createPageAndSetup(page, ' Lite');
-      await editorPage.dismissLearnTheBasicsPanel();
-      await editorPage.clickInsertElements();
-      if (kind === 'openapi') {
-        await editorPage.searchAndSelectMacro('openapi', editorPage.getMacroName('OpenAPI / Swagger'));
-        await editorPage.interactWithOpenApiMacro(`Gate170 openapi ${Date.now()}`);
-      } else {
-        await editorPage.searchAndSelectMacro('graph', editorPage.getMacroName('Graph (DrawIO)'));
-        await editorPage.interactWithGraphMacro(`Gate170 graph ${Date.now()}`);
-      }
-      await editorPage.publishPage();
-      const pageId = page.url().match(/\/pages\/(\d+)\//)?.[1];
-      expect(pageId, 'published page id').toBeTruthy();
-
-      await duplicateMacroSamePage(page, testConfig.domain, pageId!);
+      const pageId = await insertAndPublishNonSequenceMacro(page, kind);
+      await duplicateMacroSamePage(page, testConfig.domain, pageId);
       await page.goto(`https://${testConfig.domain}/wiki/spaces/${testConfig.spaceKey}/pages/${pageId}`);
       await expect(page.locator(FORGE_IFRAME)).toHaveCount(2, { timeout: 30_000 });
 
-      // No click: the load-time full scan must already have disabled Edit.
+      // Attach after load: from here a custom-content write means a fork was
+      // minted, i.e. the gate failed.
+      const ccWrites: string[] = [];
+      page.on('response', (resp) => {
+        const req = resp.request();
+        if (/\/api\/v2\/custom-content/.test(resp.url()) && ['POST', 'PUT'].includes(req.method())) {
+          ccWrites.push(`${req.method()} ${resp.status()} ${resp.url()}`);
+        }
+      });
+
       const firstMacro = page.locator(FORGE_IFRAME).first().contentFrame();
       const editBtn = firstMacro.getByRole('button', { name: 'Edit' });
       await expect(editBtn).toBeVisible({ timeout: 30_000 });
-      await expect(editBtn, `${kind} same-page duplicate must not be editable in-viewer`).toBeDisabled();
+      // Enabled at load now (no load-time full scan) — the gate is the click.
+      await expect(editBtn, 'load-time scan is gone, so Edit starts enabled').toBeEnabled();
+      await editBtn.click();
+
+      await expect(editBtn, `${kind} click gate must disable Edit`).toBeDisabled({ timeout: 20_000 });
       await expect(editBtn).toHaveAttribute('title', /several copies/i);
+      await expectModalClosed(page, 'edit', 3_000);
+      expect(ccWrites, `unexpected custom-content write(s): ${ccWrites[0] ?? ''}`).toHaveLength(0);
+    });
+
+    // False-positive guard: a NORMAL macro of the same type must still open its
+    // editor on the first click. Without this, "the gate works" could just mean
+    // "the gate blocks everything".
+    test(`mechanism 3b — ${kind} unique macro still opens the editor on Edit`, async ({ page }) => {
+      test.skip(!testConfig.macros.includes(kind), `${kind} macro not in this profile`);
+
+      const pageId = await insertAndPublishNonSequenceMacro(page, kind);
+      await page.goto(`https://${testConfig.domain}/wiki/spaces/${testConfig.spaceKey}/pages/${pageId}`);
+      const firstMacro = page.locator(FORGE_IFRAME).first().contentFrame();
+      const editBtn = firstMacro.getByRole('button', { name: 'Edit' });
+      await expect(editBtn).toBeVisible({ timeout: 30_000 });
+      await editBtn.click();
+      await expectModalVisible(page, 'edit', 30_000);
+    });
+
+    // The other half of what 'cross-page-only' must still deliver for these
+    // types: cross-page copies stay disabled at LOAD (that check is the part
+    // that survived — it is zero-network). Guards the switch from detectCopy
+    // to detectCrossPageCopy in their viewer loads.
+    test(`mechanism 3c — ${kind} cross-page copy stays disabled at LOAD`, async ({ page }) => {
+      test.skip(!testConfig.macros.includes(kind), `${kind} macro not in this profile`);
+
+      const sourcePageId = await insertAndPublishNonSequenceMacro(page, kind);
+      const copyPageId = await copyMacroToNewPage(page, testConfig.domain, testConfig.parentPageId, sourcePageId);
+
+      await page.goto(`https://${testConfig.domain}/wiki/spaces/${testConfig.spaceKey}/pages/${copyPageId}`);
+      const firstMacro = page.locator(FORGE_IFRAME).first().contentFrame();
+      const editBtn = firstMacro.getByRole('button', { name: 'Edit' });
+      await expect(editBtn).toBeVisible({ timeout: 30_000 });
+      await expect(editBtn, `${kind} cross-page copy must not be editable in-viewer`).toBeDisabled();
+      await expect(editBtn).toHaveAttribute('title', /lives on another page/i);
     });
   }
 

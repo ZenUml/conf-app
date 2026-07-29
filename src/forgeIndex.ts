@@ -5,7 +5,8 @@ import {trackEvent, serializeError} from "@/utils/window";
 import { toast } from '@/utils/toast';
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import { decideWriteback } from "@/model/writebackGate";
-import { decideEditDupGate, decidePublishBlock, PUBLISH_BLOCK_MESSAGES } from "@/model/editDupGate";
+import { decidePublishBlock, PUBLISH_BLOCK_MESSAGES } from "@/model/editDupGate";
+import { guardEditClick } from "@/utils/guardEditClick";
 import { resolveAsyncApiEditorEntry } from "@/model/asyncapi/resolveEditorEntry";
 
 import './assets/tailwind.css'
@@ -992,54 +993,18 @@ EventBus.$on('edit', async(params: any) => {
   // new diagram and the paywall check is skipped entirely.
   const customContentId = context.extension?.config?.customContentId;
 
-  // In-viewer Edit gate (model/editDupGate.ts): when this macro's id is
-  // shared by another macro on the page, saving from the modal forks a new
-  // CC that can never be linked back (writebackGate.ts / #170) — block
-  // BEFORE the modal opens. One full-page ADF GET, paid only on Edit clicks;
-  // the viewer's render-time check is 'cross-page-only' (PR #370) so this is
-  // the only place same-page duplicates can be caught in view mode.
-  //
-  // Sequence-family only, for BOTH halves of that reasoning. index.html is the
-  // single Custom UI entry (macroEntryRouting.ts), so this listener also runs
-  // for graph/openapi/embed/asyncapi — but those keep the default FULL
-  // detectCopy at viewer load, so their Edit button is already disabled before
-  // any click, and each has its own EventBus 'edit' listener that opens the
-  // modal independently of this one (verified on lite-dev 2026-07-29: a graph
-  // Edit click reached this listener). Scanning there would be a wasted
-  // full-page ADF GET that could not change any outcome.
-  const isSequenceMacro = isSequenceFamilyEntry(context.moduleKey, context.extension.modal?.diagramType);
-  let dupCount: number | undefined;
-  if (isSequenceMacro && customContentId) {
-    try {
-      dupCount = await globals.apWrapper.countMacrosReferencing(String(customContentId));
-    } catch (e) {
-      console.warn('edit dup-gate scan failed (fail-open)', e);
-    }
-  }
-  const gate = isSequenceMacro
-    ? decideEditDupGate({ hasId: !!customContentId, count: dupCount })
-    : { openEditor: true, outcome: 'passed' as const, count: undefined };
-  if (isSequenceMacro && customContentId) {
-    trackAnalyticsEvent('edit_dup_gate_evaluated', {
-      feature_area: 'macro',
-      surface: 'viewer',
-      macro_type: (store.state.diagram?.diagramType as MacroTypeValue) || 'sequence',
-      edit_dup_gate_outcome: gate.outcome as 'blocked' | 'passed' | 'scan_failed',
-      ...(gate.count !== undefined && { same_page_macro_count: gate.count }),
-    });
-  }
-  if (!gate.openEditor) {
-    // Flip the already-rendered viewer into the same disabled-Edit state a
-    // cross-page copy gets at load time — editDisabledReason() in
-    // GenericViewer.vue reacts to these two fields and explains on hover.
-    store.state.diagram.isCopy = true;
-    store.state.diagram.copyReason = 'same-page-duplicate';
-    toast({
-      message: PUBLISH_BLOCK_MESSAGES['same-page-duplicate'],
-      duration: 8000,
-    });
-    return;
-  }
+  // In-viewer Edit gate (utils/guardEditClick.ts): when this macro's id is
+  // shared by another macro on the page, saving from the modal forks a CC that
+  // can never be linked back (writebackGate.ts / #170) — refuse BEFORE the
+  // modal opens. Every viewer type now loads with the zero-network
+  // 'cross-page-only' copy check, so the click is where same-page duplicates
+  // are caught, for ALL types. The guard memoizes its page-ADF scan because
+  // this shared-entry listener and each type's own 'edit' listener both fire
+  // on one click.
+  if (!(await guardEditClick({
+    customContentId,
+    macroType: (store.state.diagram?.diagramType as MacroTypeValue) || 'sequence',
+  }))) return;
 
   const journeyId = startEditJourney(macroUuid, 'dialog');
   const journeyStartTime = getEditJourneyStartTime();

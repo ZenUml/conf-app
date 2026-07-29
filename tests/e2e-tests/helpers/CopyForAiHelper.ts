@@ -48,6 +48,7 @@ import {
   modalContentFrame,
 } from './FullscreenModalHelper.js';
 import { viewerFrame } from './ViewerActionsHelper.js';
+import { dismissPaywallGate } from './paywallGate.js';
 
 /**
  * Insert the Diagram macro, switch to the Mermaid tab, publish the macro,
@@ -59,6 +60,17 @@ export async function insertAndPublishMermaidMacro(
   options: { title?: string } = {},
 ): Promise<{ editorPage: ConfluenceEditorPage; macroPage: MacroPage; pageId: string }> {
   const { editorPage } = await insertMacro(page, 'sequence');
+  // The shared E2E test space (lite-stg, space key SD) is long-lived and has
+  // crossed the Lite 100-macro soft-paywall threshold, so PaywallGate.vue's
+  // UpgradePrompt can mount over the editor iframe as soon as it opens,
+  // intercepting the tab-switch/publish clicks below. Dismiss it defensively
+  // here (no-op under the limit — dismissPaywallGate waits briefly for the
+  // gate and returns false if it never appears) so this helper doesn't
+  // depend on the test space's current macro count. Scoped to this new
+  // helper only, per the shared-helper policy — insertMacro/insertAndPublishMacro
+  // in MacroFlowHelper.ts stay untouched; only the viewer-edit paths
+  // (MacroPage.ts, EditorPage.ts) already dismiss this gate on their own.
+  await dismissPaywallGate(page, modalContentFrame(page, 'edit'));
   await switchEditorTab(page, 'Mermaid');
   // switchEditorTab only clicks — it does not confirm the switch landed. If
   // the click is swallowed (React re-mount mid-click), everything below still

@@ -105,6 +105,49 @@ test.describe('REGRESSION #170 / view-fork gate — copy shapes are stopped befo
     expect(ccWrites, `unexpected custom-content write(s): ${ccWrites[0] ?? ''}`).toHaveLength(0);
   });
 
+  // Why the click-time gate is sequence-only. PR #370 dropped the per-render
+  // ADF scan for the SEQUENCE viewer alone (copyCheckMode 'cross-page-only',
+  // forgeIndex.ts) — that is what makes a same-page duplicate invisible at
+  // load there and forces the on-demand click gate. Graph / OpenAPI viewers
+  // still load with the default FULL detectCopy, so their Edit button is
+  // already disabled before any click, and their own EventBus 'edit'
+  // listeners (forge-graph-viewer.ts / forge-swagger-ui.ts — which bypass the
+  // forgeIndex gate) are never reached.
+  //
+  // This test locks that property: if the #370 optimization is ever extended
+  // to these types, the load-time disable disappears, the silent fork becomes
+  // reachable through their own listeners, and this goes red.
+  for (const kind of ['openapi', 'graph'] as const) {
+    test(`mechanism 3 — ${kind} same-page duplicate disables Edit at LOAD (full scan retained)`, async ({ page }) => {
+      test.skip(!testConfig.macros.includes(kind), `${kind} macro not in this profile`);
+
+      const editorPage = await createPageAndSetup(page, ' Lite');
+      await editorPage.dismissLearnTheBasicsPanel();
+      await editorPage.clickInsertElements();
+      if (kind === 'openapi') {
+        await editorPage.searchAndSelectMacro('openapi', editorPage.getMacroName('OpenAPI / Swagger'));
+        await editorPage.interactWithOpenApiMacro(`Gate170 openapi ${Date.now()}`);
+      } else {
+        await editorPage.searchAndSelectMacro('graph', editorPage.getMacroName('Graph (DrawIO)'));
+        await editorPage.interactWithGraphMacro(`Gate170 graph ${Date.now()}`);
+      }
+      await editorPage.publishPage();
+      const pageId = page.url().match(/\/pages\/(\d+)\//)?.[1];
+      expect(pageId, 'published page id').toBeTruthy();
+
+      await duplicateMacroSamePage(page, testConfig.domain, pageId!);
+      await page.goto(`https://${testConfig.domain}/wiki/spaces/${testConfig.spaceKey}/pages/${pageId}`);
+      await expect(page.locator(FORGE_IFRAME)).toHaveCount(2, { timeout: 30_000 });
+
+      // No click: the load-time full scan must already have disabled Edit.
+      const firstMacro = page.locator(FORGE_IFRAME).first().contentFrame();
+      const editBtn = firstMacro.getByRole('button', { name: 'Edit' });
+      await expect(editBtn).toBeVisible({ timeout: 30_000 });
+      await expect(editBtn, `${kind} same-page duplicate must not be editable in-viewer`).toBeDisabled();
+      await expect(editBtn).toHaveAttribute('title', /several copies/i);
+    });
+  }
+
   // Mechanism 1 (cross-page copy) cannot reach the #170 fork-in-modal path: a
   // cc whose container is another page is detected at load and its in-viewer Edit
   // button is DISABLED with a "lives on another page" tooltip — so the modal

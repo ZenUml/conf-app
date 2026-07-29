@@ -998,16 +998,28 @@ EventBus.$on('edit', async(params: any) => {
   // BEFORE the modal opens. One full-page ADF GET, paid only on Edit clicks;
   // the viewer's render-time check is 'cross-page-only' (PR #370) so this is
   // the only place same-page duplicates can be caught in view mode.
+  //
+  // Sequence-family only, for BOTH halves of that reasoning. index.html is the
+  // single Custom UI entry (macroEntryRouting.ts), so this listener also runs
+  // for graph/openapi/embed/asyncapi — but those keep the default FULL
+  // detectCopy at viewer load, so their Edit button is already disabled before
+  // any click, and each has its own EventBus 'edit' listener that opens the
+  // modal independently of this one (verified on lite-dev 2026-07-29: a graph
+  // Edit click reached this listener). Scanning there would be a wasted
+  // full-page ADF GET that could not change any outcome.
+  const isSequenceMacro = isSequenceFamilyEntry(context.moduleKey, context.extension.modal?.diagramType);
   let dupCount: number | undefined;
-  if (customContentId) {
+  if (isSequenceMacro && customContentId) {
     try {
       dupCount = await globals.apWrapper.countMacrosReferencing(String(customContentId));
     } catch (e) {
       console.warn('edit dup-gate scan failed (fail-open)', e);
     }
   }
-  const gate = decideEditDupGate({ hasId: !!customContentId, count: dupCount });
-  if (customContentId) {
+  const gate = isSequenceMacro
+    ? decideEditDupGate({ hasId: !!customContentId, count: dupCount })
+    : { openEditor: true, outcome: 'passed' as const, count: undefined };
+  if (isSequenceMacro && customContentId) {
     trackAnalyticsEvent('edit_dup_gate_evaluated', {
       feature_area: 'macro',
       surface: 'viewer',

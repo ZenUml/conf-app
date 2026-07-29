@@ -127,9 +127,15 @@ export type AnalyticsEventName =
   // must re-target from the page editor. Tracks how often users hit this.
   | "embed_retarget_blocked"
   // A pasted confluence.zenuml.com deeplink autoconverted into an embed
-  // macro, but its cloudId doesn't match the pasting site's — rejected
-  // fail-soft rather than fetching cross-tenant. Tracks how often a deeplink
-  // is pasted onto the wrong site.
+  // macro. `detected` is the per-viewer-init denominator; exactly one of
+  // `succeeded`, `failed`, or `cross_tenant_rejected` follows. Because the
+  // autoConvertLink persists in ADF, these measure render attempts rather
+  // than unique paste actions.
+  | "embed_autoconvert_detected"
+  | "embed_autoconvert_succeeded"
+  | "embed_autoconvert_failed"
+  // The deeplink's cloudId doesn't match the pasting site's — rejected
+  // fail-soft rather than fetching cross-tenant.
   | "embed_autoconvert_cross_tenant_rejected"
   // AsyncAPI dashboard: user clicked a document card's "Page:" reference to
   // open the Confluence page hosting the doc. Tracks dashboard → page nav.

@@ -66,6 +66,10 @@ export type AnalyticsProperties = {
   cta_position?: "primary" | "secondary";
   feature_name?: string;
   source?: string;
+  // Embed AutoConvert lifecycle. Absent when the Forge context has no cloudId
+  // or the link cannot be parsed; false is reserved for the rejected
+  // cross-tenant path. The raw deeplink/cloudId must never be tracked.
+  is_same_site?: boolean;
   // Daily macro-count inventory snapshots. These events are emitted by the
   // Cloudflare backend, but their scalar property vocabulary lives here as the
   // cross-runtime analytics contract. Snapshot payloads must never include

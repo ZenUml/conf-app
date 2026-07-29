@@ -27,6 +27,9 @@ const ExtendedStore: StoreOptions<RootState> = {
     updateError(state: any, payload: any) {
       state.error = payload
     },
+    setPublishBlock(state: any, payload: any) {
+      state.publishBlock = payload
+    },
   },
   actions: {
     updateCode2({commit}: any, payload: any) {
@@ -62,6 +65,7 @@ const ExtendedStore: StoreOptions<RootState> = {
     // it shows a terminal error instead of spinning forever. Only ForgeEmbedViewer
     // reads it; other viewers ignore it.
     diagramLoadComplete: false,
+    publishBlock: null,
     error: null,
     onElementClick: (codeRange: any) => {
       EventBus.$emit('highlight', codeRange)

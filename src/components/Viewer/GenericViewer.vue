@@ -337,12 +337,13 @@ export default {
       if (!this.diagram.isCopy) return null;
       return this.diagram.copyReason === 'cross-page'
         ? 'This diagram lives on another page. Edit it there to keep both in sync.'
-        // CustomContentStorageProvider.save() forks a copy into a NEW custom-content
-        // record (createCustomContentV2) rather than updating the original shared one
-        // in place — editing a same-page copy creates an independent diagram, it does
-        // not affect the other copies. (The previous "Edits affect all of them" wording
-        // was factually wrong.)
-        : 'This is one of several copies of this diagram on this page. Editing it will create an independent diagram.';
+        // Same-page duplicates reach this disabled state via the click-time
+        // Edit gate (model/editDupGate.ts): saving from the in-viewer modal
+        // would fork a new custom content (CustomContentStorageProvider.save /
+        // saveCustomContentV2 count>1) that can never be written back into the
+        // macro config (#170), silently stranding the edit — so steer to the
+        // page editor, the one surface where the fork can be linked.
+        : 'This is one of several copies of this diagram on this page. To edit it, open the page in edit mode and edit this macro there — it will become an independent diagram.';
     },
     // Live Agent Link MVP scope (design §11/§12): agent-native DSL types only.
     // Graph/OpenAPI/AsyncAPI/Embed are not offered the Connect affordance.

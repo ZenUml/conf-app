@@ -5,6 +5,7 @@ import {trackEvent, serializeError} from "@/utils/window";
 import { toast } from '@/utils/toast';
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import { decideWriteback } from "@/model/writebackGate";
+import { decideEditDupGate, decidePublishBlock, PUBLISH_BLOCK_MESSAGES } from "@/model/editDupGate";
 import { resolveAsyncApiEditorEntry } from "@/model/asyncapi/resolveEditorEntry";
 
 import './assets/tailwind.css'
@@ -742,6 +743,29 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       // Ensure session is initialized
       getOrCreateSession();
 
+      // Editor-side backstop for the in-viewer Edit gate (model/editDupGate.ts):
+      // if a copy-flagged doc still reached a surface where view.submit({config})
+      // cannot persist (gate fail-open, staleness-hint CTA, any other
+      // non-submittable entry), saving would fork a CC nothing references —
+      // #170's gate then silently view.close()s and the edit vanishes from the
+      // page. Disable Publish up front instead (Header.vue + the 'save'
+      // handler both read store.state.publishBlock).
+      const publishBlock = decidePublishBlock({
+        isCopy: !!doc?.isCopy,
+        copyReason: (doc as any)?.copyReason,
+        inserting: !!context.extension?.macro?.isInserting,
+        configuring: !!context.extension?.macro?.isConfiguring,
+      });
+      if (publishBlock) {
+        store.commit('setPublishBlock', publishBlock);
+        trackAnalyticsEvent('editor_publish_blocked_fork_unlinkable', {
+          feature_area: 'macro',
+          surface: 'editor',
+          macro_type: (doc?.diagramType as MacroTypeValue) || 'sequence',
+          copy_reason: publishBlock,
+        });
+      }
+
       // Wipe-precursor telemetry: fire only in editor mode so the signal
       // isn't drowned by viewer page-view volume. The captured state above
       // reflects the RAW loaded doc before any backfill.
@@ -967,6 +991,56 @@ EventBus.$on('edit', async(params: any) => {
   // and the pre-edit paywall gate can fire. Without this the modal opens a blank
   // new diagram and the paywall check is skipped entirely.
   const customContentId = context.extension?.config?.customContentId;
+
+  // In-viewer Edit gate (model/editDupGate.ts): when this macro's id is
+  // shared by another macro on the page, saving from the modal forks a new
+  // CC that can never be linked back (writebackGate.ts / #170) — block
+  // BEFORE the modal opens. One full-page ADF GET, paid only on Edit clicks;
+  // the viewer's render-time check is 'cross-page-only' (PR #370) so this is
+  // the only place same-page duplicates can be caught in view mode.
+  //
+  // Sequence-family only, for BOTH halves of that reasoning. index.html is the
+  // single Custom UI entry (macroEntryRouting.ts), so this listener also runs
+  // for graph/openapi/embed/asyncapi — but those keep the default FULL
+  // detectCopy at viewer load, so their Edit button is already disabled before
+  // any click, and each has its own EventBus 'edit' listener that opens the
+  // modal independently of this one (verified on lite-dev 2026-07-29: a graph
+  // Edit click reached this listener). Scanning there would be a wasted
+  // full-page ADF GET that could not change any outcome.
+  const isSequenceMacro = isSequenceFamilyEntry(context.moduleKey, context.extension.modal?.diagramType);
+  let dupCount: number | undefined;
+  if (isSequenceMacro && customContentId) {
+    try {
+      dupCount = await globals.apWrapper.countMacrosReferencing(String(customContentId));
+    } catch (e) {
+      console.warn('edit dup-gate scan failed (fail-open)', e);
+    }
+  }
+  const gate = isSequenceMacro
+    ? decideEditDupGate({ hasId: !!customContentId, count: dupCount })
+    : { openEditor: true, outcome: 'passed' as const, count: undefined };
+  if (isSequenceMacro && customContentId) {
+    trackAnalyticsEvent('edit_dup_gate_evaluated', {
+      feature_area: 'macro',
+      surface: 'viewer',
+      macro_type: (store.state.diagram?.diagramType as MacroTypeValue) || 'sequence',
+      edit_dup_gate_outcome: gate.outcome as 'blocked' | 'passed' | 'scan_failed',
+      ...(gate.count !== undefined && { same_page_macro_count: gate.count }),
+    });
+  }
+  if (!gate.openEditor) {
+    // Flip the already-rendered viewer into the same disabled-Edit state a
+    // cross-page copy gets at load time — editDisabledReason() in
+    // GenericViewer.vue reacts to these two fields and explains on hover.
+    store.state.diagram.isCopy = true;
+    store.state.diagram.copyReason = 'same-page-duplicate';
+    toast({
+      message: PUBLISH_BLOCK_MESSAGES['same-page-duplicate'],
+      duration: 8000,
+    });
+    return;
+  }
+
   const journeyId = startEditJourney(macroUuid, 'dialog');
   const journeyStartTime = getEditJourneyStartTime();
   
@@ -998,6 +1072,14 @@ import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
 installRestoreDraftBanner();
 
 EventBus.$on('save', async () => {
+  // Belt for the publishBlock backstop (model/editDupGate.ts): Publish is
+  // disabled in Header.vue when set, but keyboard shortcuts / racy emits can
+  // still reach here. Refuse outright rather than forking an unreferenced CC.
+  if (store.state.publishBlock) {
+    toast({ message: PUBLISH_BLOCK_MESSAGES[store.state.publishBlock], duration: 8000 });
+    EventBus.$emit('save-error', new Error(`publish blocked: ${store.state.publishBlock}`));
+    return;
+  }
   // Start the publish-latency clock at the save-handler entry — EventBus.$emit
   // ('save') fires synchronously from the Publish click (Header.vue saveAndExit),
   // so this is effectively the click instant. Stopped at the redirect below.

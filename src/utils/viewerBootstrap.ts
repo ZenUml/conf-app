@@ -5,6 +5,7 @@ import store from '@/model/store2';
 import { Diagram, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { decompress } from '@/utils/compress';
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
+import * as renderPerf from '@/utils/analytics/renderPerf';
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage';
 
 export interface ViewerBootstrapOptions {
@@ -62,7 +63,18 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
       mountRoot(NULL_DIAGRAM, options.content, options.contentProps);
     }
 
-    const doc = await options.loadDiagram();
+    // #413: `fetch_ms` has to belong to whoever actually fetches. forgeIndex
+    // used to load the doc for graph/openapi/embed as well, and its own
+    // `renderPerf.time('fetch', …)` was the only place the phase was recorded.
+    // Once that redundant load was gated to the sequence family the phase went
+    // dark for exactly the two slowest macro types — graph and openapi kept
+    // reporting cc_fetch/adf_scan (recorded inside ApWrapper2) but lost their
+    // parent, so `duration_ms` could no longer be attributed.
+    //
+    // Scope is content resolution only: the deferred PNG/attachment work runs
+    // in `afterLoad`, outside the timer. `renderPerf.time` is first-wins, so
+    // the sequence family — which never bootstraps through here — is untouched.
+    const doc = await renderPerf.time('fetch', () => options.loadDiagram());
     publishLoadedDiagram(doc);
     await options.afterLoad?.(doc);
   } catch (error) {

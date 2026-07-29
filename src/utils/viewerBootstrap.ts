@@ -7,6 +7,8 @@ import { decompress } from '@/utils/compress';
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage';
+import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
+import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
 
 export interface ViewerBootstrapOptions {
   macroKind: MacroKind;
@@ -15,6 +17,20 @@ export interface ViewerBootstrapOptions {
   loadDiagram: () => Promise<Diagram | undefined>;
   afterLoad?: (doc: Diagram | undefined) => void | Promise<void>;
   onError?: (error: unknown) => void;
+  /**
+   * Content-SWR opt-in (see utils/renderCache/contentCacheStore.ts and the
+   * "Content SWR" block in forgeIndex.ts, which this mirrors for the
+   * graph/openapi/embed viewers). Extracts the customContentId that
+   * `loadDiagram` will fetch, from the already-resolved Forge context —
+   * BEFORE any fetch runs. Must resolve the SAME id `loadDiagram` uses (e.g.
+   * forge-swagger-ui.ts: `context.extension?.config?.customContentId ||
+   * context.extension?.modal?.customContentId`).
+   *
+   * Omitted, or resolving to undefined, is exactly today's behavior: no
+   * cache read or write, NULL_DIAGRAM shell, loadDiagram on the critical
+   * path.
+   */
+  resolveContentId?: (context: any) => string | undefined;
 }
 
 /**
@@ -59,7 +75,49 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
       contentProps: options.contentProps,
       macroKind: options.macroKind,
     });
+
+    // ── Content SWR: cache-first render on a viewer revisit ──────────────────
+    // Mirrors the sequence-family block in forgeIndex.ts (measured there:
+    // ~66% of viewer views are a revisit of unchanged content, and the view's
+    // time is dominated by the content fetch — ~300ms median for
+    // graph/openapi, larger at p90). Scoped to the SAME condition as the
+    // plain NULL_DIAGRAM mount below — never the paywalled fullscreen
+    // surface, which must keep tryFullscreenViewerPaywall as the gate the
+    // user actually sees first. `resolveContentId` is optional so a caller
+    // that omits it, or whose id resolves to undefined this render (e.g. the
+    // embed viewer's legacy-uuid recovery path, which has no id to key on),
+    // gets exactly today's behavior below.
+    let customContentId: string | undefined;
     if (!paywalled) {
+      customContentId = options.resolveContentId
+        ? options.resolveContentId(await initForgeContext())
+        : undefined;
+      if (customContentId) {
+        const cached = getCachedContent(customContentId);
+        if (cached) {
+          try {
+            const cachedDoc = JSON.parse(cached.doc) as Diagram;
+            // Mount the cached doc instead of the NULL_DIAGRAM shell, then
+            // publish it through the SAME normalization path a live fetch
+            // uses (normalizeCompressedGraphDoc) — the cache stores the RAW
+            // doc (see the putCachedContent call below), so a legacy
+            // compressed graph body is decompressed here exactly as it would
+            // be on a live load.
+            mountRoot(cachedDoc, options.content, options.contentProps);
+            publishLoadedDiagram(cachedDoc);
+            renderPerf.markContentSource('swr_cache');
+            // Revalidate in the background — never awaited on the critical
+            // path. `afterLoad` (orphan reporting is inline in loadDiagram;
+            // attachment backfill needs a real fetch result) is deferred to
+            // the revalidate's own completion, same reasoning as forgeIndex.
+            void revalidateViewer(customContentId, cached.hash, options);
+            return; // rendered from cache — skip the live-fetch + mount path entirely
+          } catch (e) {
+            console.warn('[content-swr] cache hit failed to render; falling back to live fetch', e);
+            // fall through to the normal fetch path below
+          }
+        }
+      }
       mountRoot(NULL_DIAGRAM, options.content, options.contentProps);
     }
 
@@ -76,6 +134,15 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
     // the sequence family — which never bootstraps through here — is untouched.
     const doc = await renderPerf.time('fetch', () => options.loadDiagram());
     publishLoadedDiagram(doc);
+    if (customContentId && doc) {
+      // Prime the id-keyed SWR cache so a later viewer revisit can render
+      // before the fetch. Cache the RAW fetched value (pre-normalization —
+      // publishLoadedDiagram's normalizeCompressedGraphDoc runs on every
+      // publish, cache hit included above) so its hash matches a future
+      // fetch's raw value for change detection.
+      putCachedContent(customContentId, JSON.stringify(doc));
+      renderPerf.markContentSource('fetch');
+    }
     await options.afterLoad?.(doc);
   } catch (error) {
     if (options.onError) {
@@ -83,5 +150,34 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
       return;
     }
     throw error;
+  }
+}
+
+/**
+ * Background revalidate for a content-SWR cache hit: re-runs the real
+ * `loadDiagram` fetch (still timed as the `fetch` phase — graph/openapi have
+ * no other owner for it, see the #413 comment above), compares against the
+ * cached hash, and only republishes when the content actually changed. A
+ * failed or empty fetch leaves the cached render standing — never throws,
+ * never calls `onError` (this runs off the critical path; the user already
+ * has a valid render).
+ */
+async function revalidateViewer(
+  customContentId: string,
+  cachedHash: string,
+  options: ViewerBootstrapOptions,
+): Promise<void> {
+  try {
+    const fresh = await renderPerf.time('fetch', () => options.loadDiagram());
+    if (!fresh) return; // content unreadable now — keep the last-known-good cached render
+    const serialized = JSON.stringify(fresh);
+    putCachedContent(customContentId, serialized);
+    if (hashContent(serialized) !== cachedHash) {
+      renderPerf.markContentSource('fetch');
+      publishLoadedDiagram(fresh);
+    }
+    await options.afterLoad?.(fresh);
+  } catch (e) {
+    console.warn('[content-swr] background revalidate failed; cached render stands', e);
   }
 }

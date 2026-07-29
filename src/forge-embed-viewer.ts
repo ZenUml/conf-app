@@ -9,12 +9,21 @@ import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
 import { parseEmbedDeeplink } from '@/utils/embedDeeplink';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import type { AnalyticsProperties } from '@/utils/analytics/types';
 
-async function loadDiagram(): Promise<Diagram | undefined> {
+const AUTOCONVERT_ANALYTICS_PROPS = {
+  feature_area: 'macro',
+  surface: 'viewer',
+  macro_type: 'embed',
+  source: 'autoconvert_link',
+} as const satisfies AnalyticsProperties;
+
+export async function loadDiagram(): Promise<Diagram | undefined> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
   let customContentId = context.extension?.config?.customContentId;
+  let autoconvertProps: AnalyticsProperties | undefined;
   const pageId = context.extension?.content?.id;
 
   // AutoConvert: a pasted https://confluence.zenuml.com/d/<cloudId>/<contentId>
@@ -22,30 +31,57 @@ async function loadDiagram(): Promise<Diagram | undefined> {
   // matched URL instead. `autoConvertLink` is a top-level extension-context
   // field per Atlassian's docs, not nested under `config`:
   // https://developer.atlassian.com/platform/forge/manifest-reference/modules/macro/
-  if (!customContentId) {
-    const deeplink = context.extension?.autoConvertLink
-      ? parseEmbedDeeplink(context.extension.autoConvertLink)
-      : undefined;
-    if (deeplink) {
-      if (context.cloudId && deeplink.cloudId !== String(context.cloudId).toLowerCase()) {
+  if (!customContentId && context.extension?.autoConvertLink) {
+    const deeplink = parseEmbedDeeplink(context.extension.autoConvertLink);
+    if (!deeplink) {
+      trackAnalyticsEvent('embed_autoconvert_detected', AUTOCONVERT_ANALYTICS_PROPS);
+      trackAnalyticsEvent('embed_autoconvert_failed', {
+        ...AUTOCONVERT_ANALYTICS_PROPS,
+        failure_reason: 'invalid_link',
+      });
+    } else {
+      const isSameSite = context.cloudId
+        ? deeplink.cloudId === String(context.cloudId).toLowerCase()
+        : undefined;
+      autoconvertProps = {
+        ...AUTOCONVERT_ANALYTICS_PROPS,
+        custom_content_id: deeplink.contentId,
+        ...(isSameSite !== undefined && { is_same_site: isSameSite }),
+      };
+      trackAnalyticsEvent('embed_autoconvert_detected', autoconvertProps);
+
+      if (isSameSite === false) {
         // Fail soft on a foreign-site paste — never fetch cross-tenant.
-        trackAnalyticsEvent('embed_autoconvert_cross_tenant_rejected', {
-          feature_area: 'macro',
-          surface: 'viewer',
-          macro_type: 'embed',
-        });
+        trackAnalyticsEvent('embed_autoconvert_cross_tenant_rejected', autoconvertProps);
       } else {
         customContentId = deeplink.contentId;
       }
     }
   }
 
-  if(!customContentId) {
-  } else {
-    const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
+  if (customContentId) {
+    const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId)
+      .catch((error) => {
+        if (autoconvertProps) {
+          trackAnalyticsEvent('embed_autoconvert_failed', {
+            ...autoconvertProps,
+            failure_reason: 'fetch_failed',
+          });
+        }
+        throw error;
+      });
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
+    if (doc && autoconvertProps) {
+      trackAnalyticsEvent('embed_autoconvert_succeeded', autoconvertProps);
+    }
     if (!doc) {
+      if (autoconvertProps) {
+        trackAnalyticsEvent('embed_autoconvert_failed', {
+          ...autoconvertProps,
+          failure_reason: 'content_not_found',
+        });
+      }
       // ZEN-1170 telemetry. #147: the original call passed the arguments in the
       // WRONG order — (apWrapper, pageId, customContentId, 'embed') against the
       // real signature (pageId, orphanId, diagramKind, probeResult, options) —

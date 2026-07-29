@@ -45,6 +45,7 @@ import {
   clickEditorPublish,
   expectModalClosed,
   switchEditorTab,
+  modalContentFrame,
 } from './FullscreenModalHelper.js';
 import { viewerFrame } from './ViewerActionsHelper.js';
 
@@ -59,6 +60,14 @@ export async function insertAndPublishMermaidMacro(
 ): Promise<{ editorPage: ConfluenceEditorPage; macroPage: MacroPage; pageId: string }> {
   const { editorPage } = await insertMacro(page, 'sequence');
   await switchEditorTab(page, 'Mermaid');
+  // switchEditorTab only clicks — it does not confirm the switch landed. If
+  // the click is swallowed (React re-mount mid-click), everything below still
+  // succeeds and the macro publishes as ZenUML, so the caller's mermaid
+  // assertions fail far from the cause. Assert the tab is selected here, the
+  // same check sequence-create:3 makes.
+  await expect(
+    modalContentFrame(page, 'edit').getByRole('tab', { name: 'Mermaid' }),
+  ).toHaveAttribute('aria-selected', 'true');
   const title = options.title ?? `Test mermaid ${Date.now()}`;
   await fillEditorTitle(page, title);
   await clickEditorPublish(page);

@@ -6,10 +6,13 @@
 // same way View Source is — text-DSL types only (Sequence / Mermaid /
 // PlantUML); absent on Graph/OpenAPI/AsyncAPI/Embed.
 //
-// Evidence capture: this spec writes copy-for-ai-button.png and
-// copy-for-ai-clipboard.txt to the overnight-run evidence directory (both as
-// testInfo attachments AND explicit fs writes), in addition to the normal
-// Playwright assertions.
+// Evidence capture: copy-for-ai-button.png and copy-for-ai-clipboard.txt are
+// ALWAYS attached to the Playwright report (testInfo.attach). They are ALSO
+// written as loose files when COPY_FOR_AI_EVIDENCE_DIR names a directory —
+// that's how an overnight/ad-hoc run collects them outside the report. Never
+// hardcode a machine-specific absolute path here: this spec must run on any
+// checkout and on a CI runner, where a fixed /Users/... mkdir fails with
+// EACCES before a single assertion runs.
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -24,7 +27,14 @@ import {
 } from '../../helpers/CopyForAiHelper.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 
-const EVIDENCE_DIR = '/Users/pengxiao/.overnight-runs/conf-app/2026-07-30-0010/evidence';
+const EVIDENCE_DIR = process.env.COPY_FOR_AI_EVIDENCE_DIR;
+
+/** Write an evidence file only when an evidence dir was requested. */
+function writeEvidence(name: string, body: string | Buffer): void {
+  if (!EVIDENCE_DIR) return;
+  fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
+  fs.writeFileSync(path.join(EVIDENCE_DIR, name), body);
+}
 
 test.describe('Copy for AI button', () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
@@ -45,10 +55,8 @@ test.describe('Copy for AI button', () => {
     await frame.locator('.viewer-surface').hover();
     await expect(btn).toHaveCSS('opacity', '1');
 
-    fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
-    const screenshotBuffer = await page.screenshot({
-      path: path.join(EVIDENCE_DIR, 'copy-for-ai-button.png'),
-    });
+    const screenshotBuffer = await page.screenshot();
+    writeEvidence('copy-for-ai-button.png', screenshotBuffer);
     await testInfo.attach('copy-for-ai-button', { body: screenshotBuffer, contentType: 'image/png' });
 
     // Grant clipboard permissions for the OUTER page — the Forge Custom UI
@@ -71,7 +79,7 @@ test.describe('Copy for AI button', () => {
     // sequence-create:3 uses for the Mermaid tab's default sample.
     expect(clipboardText).toMatch(/sequenceDiagram|flowchart|graph/i);
 
-    fs.writeFileSync(path.join(EVIDENCE_DIR, 'copy-for-ai-clipboard.txt'), clipboardText);
+    writeEvidence('copy-for-ai-clipboard.txt', clipboardText);
     await testInfo.attach('copy-for-ai-clipboard', { body: clipboardText, contentType: 'text/plain' });
 
     // Tracking: surface distinguishes inline viewer from fullscreen (step 0
@@ -95,7 +103,15 @@ test.describe('Copy for AI button', () => {
     test.skip(!testConfig.macros.includes('graph'), 'graph not in profile');
     await insertAndPublishMacro(page, 'graph', { title: `gr-cfa-${Date.now()}` });
     const frame = new MacroPage(page).getGraphMacroFrame();
-    await expect(frame.locator('body')).toBeVisible({ timeout: 30_000 });
+    // Wait for the viewer TOOLBAR, not just the iframe document: a bare
+    // `body` visible + toHaveCount(0) would also pass before GenericViewer
+    // mounts, making the negative vacuous. Fullscreen is the one top-actions
+    // button every macro type renders (viewer-actions:4 clicks it on graph),
+    // so its presence proves the toolbar this button would live in is up.
+    await expect(frame.getByRole('button', { name: 'Fullscreen' })).toBeVisible({ timeout: 30_000 });
     await expect(frame.getByTestId('copy-for-ai-btn')).toHaveCount(0);
+    // Sanity: View Source shares Copy for AI's exact gate, so it must be
+    // absent too — if it were present, the gate (not the button) regressed.
+    await expect(frame.getByTestId('view-source-btn')).toHaveCount(0);
   });
 });

@@ -351,11 +351,15 @@ describe('GenericViewer (chrome-less)', () => {
   // One-click "Copy for AI" clipboard payload (copy_for_ai_clicked, catalog.ts).
   describe('Copy for AI', () => {
     const SOURCE_DSL = 'Alice->Bob: hello\nBob->Alice: hi'
+    let originalClipboard: PropertyDescriptor | undefined
+    let originalIsSecureContext: PropertyDescriptor | undefined
 
     beforeEach(() => {
       store.state.diagram.code = SOURCE_DSL
       store.state.diagram.mermaidCode = 'sequenceDiagram\n  A->>B: hi'
       store.state.diagram.plantUmlCode = '@startuml\nA -> B\n@enduml'
+      originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+      originalIsSecureContext = Object.getOwnPropertyDescriptor(window, 'isSecureContext')
       Object.defineProperty(navigator, 'clipboard', {
         configurable: true,
         value: { writeText: vi.fn(() => Promise.resolve()) },
@@ -364,6 +368,18 @@ describe('GenericViewer (chrome-less)', () => {
         configurable: true,
         value: true,
       })
+    })
+
+    // Restore the globals this block stubs. Without this the clipboard/
+    // isSecureContext stubs (and any per-test forgeGlobal / execCommand) leak
+    // into every describe that runs after this one in the same file.
+    afterEach(() => {
+      if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard)
+      else delete (navigator as any).clipboard
+      if (originalIsSecureContext) Object.defineProperty(window, 'isSecureContext', originalIsSecureContext)
+      else delete (window as any).isSecureContext
+      delete (window as any).forgeGlobal
+      delete (document as any).execCommand
     })
 
     it.each([
@@ -432,8 +448,6 @@ describe('GenericViewer (chrome-less)', () => {
       const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
       expect(call).toBeTruthy()
       expect(call![1]).toMatchObject({ surface: 'fullscreen' })
-
-      delete (window as any).forgeGlobal
     })
 
     it('falls back to a diagram-only payload (still copied) when the page fetch rejects', async () => {
@@ -479,8 +493,6 @@ describe('GenericViewer (chrome-less)', () => {
       expect(call).toBeTruthy()
       expect(call![1]).toMatchObject({ outcome: 'clipboard_failed' })
       expect((call![1] as any).dsl_bytes).toBeGreaterThan(0)
-
-      delete (document as any).execCommand
     })
   })
 

@@ -25,17 +25,19 @@ export default {
       default: false
     }
   },
+  data() {
+    return { renderReported: false };
+  },
   mounted() {
     this.initSwaggerUi();
-    // SwaggerUI renders asynchronously internally — this measures time-to-init,
-    // not time-to-full-paint. Best approximation available without a render callback.
-    trackRenderTime('openapi', this.$store.getters.isDisplayMode);
     this.updateSpecFromDiagram();
+    this.reportRenderOnce();
   },
   watch: {
     doc: {
       handler() {
         this.updateSpecFromDiagram();
+        this.reportRenderOnce();
       },
       deep: true
     },
@@ -44,17 +46,44 @@ export default {
         this.updateSpecFromDiagram();
       },
       deep: true
+    },
+    loadComplete() {
+      this.reportRenderOnce();
     }
   },
   computed: {
     storeDiagram() {
       return this.$store.state.diagram;
     },
+    loadComplete() {
+      return this.$store.state.diagramLoadComplete === true;
+    },
     effectiveDoc() {
       return this.doc ?? this.storeDiagram;
     }
   },
   methods: {
+    // #413: the OpenAPI entry mounts this component BEFORE its content load
+    // resolves (utils/viewerBootstrap.ts mounts a NULL_DIAGRAM shell first), so
+    // reporting from mounted() timed an empty skeleton and snapshotted
+    // renderPerf before a single fetch phase had been recorded — from
+    // v2026.07.250749 openapi shipped no fetch_ms, custom_content_fetch_ms or
+    // page_adf_fetch_ms at all, and its duration_ms silently stopped covering
+    // the content load. Report once the content has settled instead.
+    //
+    // `diagramLoadComplete` flips on failure as well as success, so a macro
+    // whose content 404s still reports (macro_viewed is a readership metric —
+    // it must not become success-only). A `doc` prop means the content was
+    // already in hand at mount (embed host, editor preview): nothing to wait for.
+    reportRenderOnce() {
+      if (this.renderReported) return;
+      if (!this.loadComplete && !this.doc) return;
+      this.renderReported = true;
+      // SwaggerUI renders asynchronously internally — this measures
+      // time-to-content, not time-to-full-paint. Best approximation available
+      // without a render callback.
+      trackRenderTime('openapi', this.$store.getters.isDisplayMode);
+    },
     initSwaggerUi() {
       const element = this.$refs.swaggerUi;
       if (element && element.innerHTML.trim()) {

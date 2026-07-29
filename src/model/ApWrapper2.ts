@@ -609,6 +609,23 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   /**
+   * Count macros on the current page whose config references `id`. Matches
+   * both param shapes: Forge bare-string customContentId and Connect-era
+   * {value} objects. One full-page ADF GET (AtlasPage.countMacros). Used by
+   * the blocking detectCopy on edit/config surfaces and by the on-demand
+   * in-viewer Edit gate (model/editDupGate.ts).
+   */
+  async countMacrosReferencing(id: string): Promise<number> {
+    return this._page.countMacros((m) => {
+      //TODO: filter by macro type
+      const macroCustomContentId = m?.customContentId;
+      return (typeof macroCustomContentId === 'string'
+        ? macroCustomContentId
+        : macroCustomContentId?.value) === id;
+    });
+  }
+
+  /**
    * The full ADF copy-scan: one full-page ADF GET via _page.countMacros plus
    * the cross-page comparison. Runs blocking for edit/config surfaces (its
    * verdict guards the save-fork path) and for callers that pass no
@@ -619,13 +636,7 @@ export default class ApWrapper2 implements IApWrapper {
     ccPageId: string | number | undefined,
   ): Promise<{ isCopy: boolean; copyReason?: 'cross-page' | 'same-page-duplicate' }> {
     return renderPerf.time('adf_scan', async () => {
-      const count = await this._page.countMacros((m) => {
-        //TODO: filter by macro type
-        const macroCustomContentId = m?.customContentId;
-        return (typeof macroCustomContentId === 'string'
-          ? macroCustomContentId
-          : macroCustomContentId?.value) === id;
-      });
+      const count = await this.countMacrosReferencing(id);
       console.debug(`Found ${count} macros on page`);
       const pageId = await this._page.getPageId();
       // Require both sides present — undefined pageId on the custom content

@@ -26,8 +26,8 @@
           :loading="isSaving" />
         <div class="absolute top-full right-0 pt-2 pointer-events-none opacity-0 transition-opacity duration-150"
           :class="isPublishDisabled ? 'group-hover/save:opacity-100' : ''">
-          <div class="shadow-lg px-3 py-2 bg-gray-900 text-white text-xs rounded-md whitespace-nowrap">
-            Add a diagram title to publish
+          <div class="shadow-lg px-3 py-2 bg-gray-900 text-white text-xs rounded-md max-w-xs w-max">
+            {{ publishDisabledHint }}
           </div>
         </div>
       </div>
@@ -50,6 +50,7 @@ import { openUrl } from "@/model/globals/forgeGlobal";
 import LightBulbIcon from '@heroicons/vue/24/outline/LightBulbIcon';
 import QuestionMarkCircleIcon from '@heroicons/vue/24/outline/QuestionMarkCircleIcon';
 import DiagramTitleInput from "@/components/Header/DiagramTitleInput.vue";
+import { PUBLISH_BLOCK_MESSAGES } from "@/model/editDupGate";
 
 export default {
   name: "Header",
@@ -127,7 +128,15 @@ export default {
       };
     },
     isPublishDisabled: function () {
-      return !this.$store.state.diagram.title;
+      return !this.$store.state.diagram.title || !!this.$store.state.publishBlock;
+    },
+    publishDisabledHint: function () {
+      // publishBlock (model/editDupGate.ts): this editor surface cannot link
+      // a forked CC back into the macro — publishing here would silently
+      // strand the edit. Wins over the title hint.
+      const block = this.$store.state.publishBlock;
+      if (block) return PUBLISH_BLOCK_MESSAGES[block] || 'Publishing is unavailable for this diagram here.';
+      return 'Add a diagram title to publish';
     },
   },
   methods: {

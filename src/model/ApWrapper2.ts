@@ -501,9 +501,9 @@ export default class ApWrapper2 implements IApWrapper {
     return <ICustomContent>assign;
   }
 
-  async getCustomContentByIdV2(id: string): Promise<ICustomContentV2 | undefined> {
+  async getCustomContentByIdV2(id: string, opts?: LoadCustomContentOpts): Promise<ICustomContentV2 | undefined> {
     const customContent = await this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`);
-    return this.parseCustomContentByIdV2Response(id, customContent);
+    return this.parseCustomContentByIdV2Response(id, customContent, opts);
   }
 
   /**

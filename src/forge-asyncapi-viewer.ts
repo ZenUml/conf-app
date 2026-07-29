@@ -22,6 +22,7 @@ import { Diagram, DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram'
 import { saveToPlatform } from '@/model/ContentProvider/Persistence'
 import { buildAsyncApiSaveDiagram } from '@/model/asyncapi/buildSaveDiagram'
 import { mountRoot } from '@/mount-root'
+import { guardEditClick } from '@/utils/guardEditClick'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import EventBus from './EventBus'
 
@@ -46,7 +47,11 @@ async function initializeMacro() {
   let loadError: string | undefined
   if (customContentId) {
     try {
-      const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId)
+      // Zero-network viewer copy check — see forge-graph-viewer.ts. Same-page
+      // duplicates are caught on the Edit click (utils/guardEditClick.ts).
+      const customContent = await globals.apWrapper.getCustomContentByIdV2(
+        customContentId, { copyCheckMode: 'cross-page-only' },
+      )
       existing = customContent?.value as Diagram | undefined
       const stored = existing?.code
       if (typeof stored === 'string') spec = stored
@@ -174,6 +179,10 @@ void initializeMacro()
 // Studio chrome.
 EventBus.$on('edit', async () => {
   try {
+    // Same-page duplicate gate — see forge-graph-viewer.ts. Memoized, so the
+    // shared forgeIndex listener firing on this same click costs no extra GET.
+    if (!(await guardEditClick({ customContentId: viewerCustomContentId, macroType: 'asyncapi' }))) return;
+
     trackAnalyticsEvent('macro_edit_opened', {
       feature_area: 'macro',
       surface: 'viewer',

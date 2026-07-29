@@ -29,6 +29,14 @@ vi.mock('@/model/globals', () => ({
       _getCurrentUser: vi.fn(() => Promise.resolve({ atlassianAccountId: 'test-user-id' })),
       getCurrentSpace: vi.fn(() => Promise.resolve({ key: 'TEST' })),
       getAndPrintContentVersions: vi.fn(() => Promise.resolve([])),
+      // Copy for AI page context (resolveCopyForAiPage) — same path
+      // agentLink's readPage uses. Individual tests override these to
+      // exercise the diagram-only fallback.
+      _getCurrentPageId: vi.fn(() => Promise.resolve('page-123')),
+      getCurrentPage: vi.fn(() => Promise.resolve({
+        title: 'Login flow page',
+        body: { export_view: { value: '<p>Some page context.</p>' } },
+      })),
     }
   }
 }))
@@ -337,6 +345,123 @@ describe('GenericViewer (chrome-less)', () => {
       await wrapper.find('[data-testid="view-source-close"]').trigger('click')
       await wrapper.vm.$nextTick()
       expect(wrapper.find('[data-testid="view-source-panel"]').exists()).toBe(false)
+    })
+  })
+
+  // One-click "Copy for AI" clipboard payload (copy_for_ai_clicked, catalog.ts).
+  describe('Copy for AI', () => {
+    const SOURCE_DSL = 'Alice->Bob: hello\nBob->Alice: hi'
+
+    beforeEach(() => {
+      store.state.diagram.code = SOURCE_DSL
+      store.state.diagram.mermaidCode = 'sequenceDiagram\n  A->>B: hi'
+      store.state.diagram.plantUmlCode = '@startuml\nA -> B\n@enduml'
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: vi.fn(() => Promise.resolve()) },
+      })
+      Object.defineProperty(window, 'isSecureContext', {
+        configurable: true,
+        value: true,
+      })
+    })
+
+    it.each([
+      DiagramType.Sequence,
+      DiagramType.Mermaid,
+      DiagramType.PlantUml,
+    ])('renders the Copy for AI button for text-DSL type %s', async (type) => {
+      store.commit('updateDiagramType', type)
+      const wrapper = mountViewer()
+      await flushPromises()
+      const btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
+      expect(btn.exists()).toBe(true)
+      expect(btn.text()).toContain('Copy for AI')
+    })
+
+    it.each([
+      DiagramType.Graph,
+      DiagramType.OpenApi,
+      DiagramType.AsyncApi,
+      DiagramType.Embed,
+    ])('hides the Copy for AI button for non-text-DSL type %s', async (type) => {
+      store.commit('updateDiagramType', type)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
+    })
+
+    it('copies diagram + page context to the clipboard and fires copy_for_ai_clicked with outcome copied', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+      await flushPromises()
+
+      const writeText = vi.mocked(navigator.clipboard.writeText)
+      expect(writeText).toHaveBeenCalledTimes(1)
+      const copiedText = writeText.mock.calls[0][0] as string
+      expect(copiedText).toContain(SOURCE_DSL)
+      expect(copiedText).toContain('Login flow page')
+
+      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+      expect(call).toBeTruthy()
+      expect(call![1]).toMatchObject({
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: DiagramType.Sequence,
+        outcome: 'copied',
+      })
+      expect((call![1] as any).dsl_bytes).toBeGreaterThan(0)
+      expect((call![1] as any).page_bytes).toBeGreaterThan(0)
+    })
+
+    it('falls back to a diagram-only payload (still copied) when the page fetch rejects', async () => {
+      vi.mocked(globals.apWrapper.getCurrentPage).mockRejectedValueOnce(new Error('network error'))
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+      await flushPromises()
+
+      const writeText = vi.mocked(navigator.clipboard.writeText)
+      expect(writeText).toHaveBeenCalledTimes(1)
+      expect(writeText.mock.calls[0][0]).toContain(SOURCE_DSL)
+
+      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+      expect(call).toBeTruthy()
+      expect(call![1]).toMatchObject({ outcome: 'copied_diagram_only', page_bytes: 0 })
+      expect((call![1] as any).dsl_bytes).toBeGreaterThan(0)
+    })
+
+    it('reports clipboard_failed and does not throw when the clipboard write rejects', async () => {
+      // Reject BOTH the modern clipboard API and the legacy execCommand
+      // fallback copyToClipboard falls through to, so the whole write
+      // genuinely rejects (not just returns false) — exercising copyForAi's
+      // own catch block, the same shape as copyCode's failure handling.
+      vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'))
+      // jsdom doesn't implement execCommand at all — define it (throwing) so
+      // the legacy fallback copyToClipboard falls through to also fails,
+      // making the whole write genuinely reject.
+      ;(document as any).execCommand = () => { throw new Error('execCommand unavailable') }
+
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await expect(
+        wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click'),
+      ).resolves.not.toThrow()
+      await flushPromises()
+
+      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+      expect(call).toBeTruthy()
+      expect(call![1]).toMatchObject({ outcome: 'clipboard_failed' })
+      expect((call![1] as any).dsl_bytes).toBeGreaterThan(0)
+
+      delete (document as any).execCommand
     })
   })
 

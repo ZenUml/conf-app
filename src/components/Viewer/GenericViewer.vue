@@ -82,6 +82,25 @@
                 </svg>
                 <span>Source</span>
               </button>
+              <!-- Copy for AI: one-click clipboard payload (diagram DSL + page
+                   context) sized for pasting into an external AI chat. Same
+                   gate as View Source (text-DSL types only) — not restricted
+                   by edit permission or fullscreen, mirroring that button's
+                   audience. -->
+              <button
+                v-if="showViewSource"
+                type="button"
+                class="viewer-btn-ghost"
+                aria-label="Copy for AI"
+                title="Copy diagram + page context for an AI agent"
+                data-testid="copy-for-ai-btn"
+                @click="copyForAi"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.456-2.456L14.25 6l1.035-.259a3.375 3.375 0 0 0 2.456-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+                </svg>
+                <span>Copy for AI</span>
+              </button>
               <ConnectButton v-if="showAgentLinkConnect" @connect="connectToAgent" />
               <button v-if="!isFullscreenMode" @click="fullscreen" aria-label="Fullscreen" class="viewer-btn-primary">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
@@ -223,6 +242,8 @@ import ExportModal from '@/components/ExportModal/ExportModal.vue'
 import OverflowMenu from '@/components/Viewer/OverflowMenu.vue'
 import ViewSourcePanel from '@/components/Viewer/ViewSourcePanel.vue'
 import { toast } from '@/utils/toast'
+import { buildCopyForAiPrompt } from '@/utils/copyForAi/buildCopyForAiPrompt'
+import { htmlToPlainText } from '@/utils/htmlToPlainText'
 import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
 import ConnectButton from '@/components/AgentLink/ConnectButton.vue'
@@ -364,6 +385,18 @@ export default {
         case DiagramType.PlantUml: return 'PlantUML';
         case DiagramType.Sequence:
         default: return 'ZenUML';
+      }
+    },
+    // Fence language for the "Copy for AI" markdown code block. Only
+    // reachable when showViewSource is true (the button's gate), so the
+    // default only exists to satisfy the type — it never observes a
+    // non-text-DSL diagramType in practice.
+    copyForAiFenceLang() {
+      switch (this.diagramType) {
+        case DiagramType.Mermaid: return 'mermaid';
+        case DiagramType.PlantUml: return 'plantuml';
+        case DiagramType.Sequence:
+        default: return 'zenuml';
       }
     },
     // Small-macro action-area affordance — hidden once already in Fullscreen
@@ -739,19 +772,25 @@ export default {
         if (typeof closeMenu === 'function') closeMenu();
       }
     },
+    // Shared page-URL lookup for copyLink and copyForAi's page context.
+    // Dynamic import keeps the standalone (non-Forge) preview harness from
+    // breaking at module load. Returns '' (not a throw) when the page has no
+    // usable base+webui links; throws only on a failed lookup request.
+    async resolvePageUrl(pageId) {
+      const { requestConfluence } = await import('@forge/bridge');
+      const res = await requestConfluence(`/wiki/api/v2/pages/${pageId}`);
+      if (!res.ok) throw new Error(`Page lookup failed: ${res.status}`);
+      const page = await res.json();
+      const base = page._links?.base || '';
+      const webui = page._links?.webui || '';
+      return (base && webui) ? `${base}${webui}` : '';
+    },
     async copyLink() {
       trackEvent('copy_link', 'click', 'viewing');
       try {
         const pageId = window.forgeGlobal?.forgeContext?.extension?.content?.id;
         if (!pageId) { toast({ message: 'Link not available', duration: 2000 }); return; }
-        // Dynamic import keeps the standalone (non-Forge) preview harness from breaking at module load.
-        const { requestConfluence } = await import('@forge/bridge');
-        const res = await requestConfluence(`/wiki/api/v2/pages/${pageId}`);
-        if (!res.ok) throw new Error(`Page lookup failed: ${res.status}`);
-        const page = await res.json();
-        const base = page._links?.base || '';
-        const webui = page._links?.webui || '';
-        const url = (base && webui) ? `${base}${webui}` : '';
+        const url = await this.resolvePageUrl(pageId);
         if (!url) { toast({ message: 'Link not available', duration: 2000 }); return; }
         const ok = await this.copyToClipboard(url);
         toast({ message: ok ? 'Link copied to clipboard' : 'Failed to copy link', duration: 2000 });
@@ -759,6 +798,66 @@ export default {
         console.error('copyLink failed', error);
         toast({ message: 'Failed to copy link', duration: 2000 });
       }
+    },
+    // Page context for "Copy for AI" — same read agentLink's readPage uses
+    // (ApWrapper2.getCurrentPage() + _getCurrentPageId(), see
+    // composables/agentLink/forgeBridge.ts's readPage), plus the page URL via
+    // resolvePageUrl() above. Returns undefined on ANY failure (standalone/dev
+    // with no page context, a rejected fetch, no resolvable URL) so the
+    // caller falls back to a diagram-only payload instead of blocking the copy.
+    async resolveCopyForAiPage() {
+      try {
+        const pageId = await globals.apWrapper._getCurrentPageId();
+        const currentPage = await globals.apWrapper.getCurrentPage();
+        const text = htmlToPlainText(currentPage?.body?.export_view?.value || '');
+        const url = await this.resolvePageUrl(pageId);
+        if (!url) return undefined;
+        return { title: currentPage?.title || '', url, text };
+      } catch (error) {
+        console.error('copyForAi: page context unavailable, falling back to diagram-only', error);
+        return undefined;
+      }
+    },
+    // "Copy for AI" (catalog.ts: copy_for_ai_clicked): writes the diagram DSL
+    // (same source View Source shows) plus best-effort page context to the
+    // clipboard as one plain-text payload, for pasting into an external AI
+    // chat. Page context is optional — buildCopyForAiPrompt/resolveCopyForAiPage
+    // decide the fallback; this method only decides the clipboard/analytics
+    // outcome.
+    async copyForAi() {
+      const page = await this.resolveCopyForAiPage();
+      const result = buildCopyForAiPrompt({
+        dslLabel: this.viewSourceDslLabel,
+        fenceLang: this.copyForAiFenceLang,
+        diagramTitle: this.title,
+        dsl: this.viewSourceCode,
+        page,
+      });
+
+      let outcome;
+      try {
+        const ok = await this.copyToClipboard(result.text);
+        if (ok) {
+          outcome = result.pageBytes > 0 ? 'copied' : 'copied_diagram_only';
+          toast({ message: 'Copied for AI', duration: 2000 });
+        } else {
+          outcome = 'clipboard_failed';
+          toast({ message: 'Failed to copy for AI', duration: 2000 });
+        }
+      } catch (error) {
+        console.error('copyForAi: clipboard write failed', error);
+        outcome = 'clipboard_failed';
+        toast({ message: 'Failed to copy for AI', duration: 2000 });
+      }
+
+      trackAnalyticsEvent('copy_for_ai_clicked', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: this.diagramType,
+        outcome,
+        dsl_bytes: result.dslBytes,
+        page_bytes: result.pageBytes,
+      });
     },
   },
 }

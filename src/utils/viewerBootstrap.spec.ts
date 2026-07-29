@@ -6,6 +6,7 @@ import store from '@/model/store2';
 import globals from '@/model/globals';
 import { mountRoot } from '@/mount-root';
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
+import { getTimings, _resetForTesting } from '@/utils/analytics/renderPerf';
 
 vi.mock('@/model/globals', () => ({
   default: {
@@ -32,6 +33,7 @@ const Component = defineComponent({ template: '<div />' });
 describe('viewerBootstrap', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetForTesting();
     store.state.diagram = { ...NULL_DIAGRAM };
     window.diagram = undefined;
   });
@@ -81,6 +83,36 @@ describe('viewerBootstrap', () => {
 
     expect(mountRoot).not.toHaveBeenCalled();
     expect(store.state.diagram.diagramType).toBe(DiagramType.Graph);
+  });
+
+  // #413 regression guard. graph/openapi/embed have no other owner for the
+  // `fetch` phase — forgeIndex stopped loading their doc — so if this wrapper
+  // is ever removed again their fetch_ms silently disappears from macro_viewed
+  // and duration_ms becomes unattributable. That went unnoticed for four days.
+  it('records the fetch phase around the viewer-owned content load', async () => {
+    expect(getTimings().fetch_ms).toBeUndefined();
+
+    await bootstrapForgeViewer({
+      macroKind: 'openapi',
+      content: Component,
+      loadDiagram: vi.fn(async () => ({ ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi })),
+    });
+
+    expect(getTimings().fetch_ms).toBeTypeOf('number');
+  });
+
+  it('still records the fetch phase when the content load fails', async () => {
+    const boom = new Error('custom content 500');
+    await bootstrapForgeViewer({
+      macroKind: 'graph',
+      content: Component,
+      loadDiagram: vi.fn(async () => { throw boom; }),
+      onError: vi.fn(),
+    });
+
+    // The timer resolves in a `finally`, so a failed load is still attributed
+    // rather than leaving the phase absent and inflating the remainder.
+    expect(getTimings().fetch_ms).toBeTypeOf('number');
   });
 
   it('normalizes a missing document to NULL_DIAGRAM', () => {

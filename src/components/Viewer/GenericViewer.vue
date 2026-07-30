@@ -95,17 +95,32 @@
                 <button
                   type="button"
                   class="viewer-btn-ghost copy-for-ai-split-primary"
-                  aria-label="Copy for AI"
+                  :aria-label="copyForAiButtonLabel"
                   title="Copy diagram + page context for an AI agent"
                   data-testid="copy-for-ai-btn"
+                  :data-copy-state="copyForAiState"
+                  :disabled="copyForAiState === 'copying'"
+                  :aria-busy="copyForAiState === 'copying'"
                   @click="copyForAi('generic')"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
+                  <svg v-if="copyForAiState === 'idle'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.456-2.456L14.25 6l1.035-.259a3.375 3.375 0 0 0 2.456-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
                   </svg>
-                  <span>Copy for AI</span>
+                  <svg v-else-if="copyForAiState === 'copied'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                  <span>{{ copyForAiButtonLabel }}</span>
                 </button>
                 <CopyForAiMenu @select="copyForAi" />
+                <!-- Mintlify-style inline feedback: the button's own label already
+                     shows Copying…/Copied/Copy failed/Nothing to copy visibly, but a
+                     visually-hidden live region also announces the terminal states
+                     (Copied / Copy failed / Nothing to copy) for screen-reader users
+                     who aren't focused on the button when it changes. 'copying' is
+                     already communicated via aria-busy on the button itself, so it's
+                     deliberately not echoed here. No toast anywhere in this flow (see
+                     copyForAi()) — this replaces the old toast confirmation. -->
+                <span class="sr-only" role="status" aria-live="polite" data-testid="copy-for-ai-announcement">{{ copyForAiAnnouncement }}</span>
               </div>
               <ConnectButton v-if="showAgentLinkConnect" @connect="connectToAgent" />
               <button v-if="!isFullscreenMode" @click="fullscreen" aria-label="Fullscreen" class="viewer-btn-primary">
@@ -280,6 +295,14 @@ export default {
     showExportModal: false,
     showSourcePanel: false,
     isDownloadingDebug: false,
+    // Copy for AI inline feedback state machine (Mintlify-style — replaces the
+    // old shared-toast confirmation). 'idle' | 'copying' | 'copied' | 'failed'.
+    // See setCopyForAiState()/copyForAi() below for the transitions and
+    // copy-for-ai-announcement's doc comment above for the live-region pairing.
+    copyForAiState: 'idle',
+    copyForAiLabel: '',
+    copyForAiAnnouncement: '',
+    copyForAiRevertTimer: null,
     // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)
     // master flag, resolved async in mounted(). Defaults false so the flag
     // controls the ENTIRE feature — until it resolves true, this macro
@@ -406,6 +429,13 @@ export default {
         case DiagramType.Sequence:
         default: return 'zenuml';
       }
+    },
+    // Copy for AI split-button primary segment's visible label + accessible
+    // name — idle keeps the original static text, every other state shows
+    // whatever setCopyForAiState() last set (Copying… / Copied / Copy failed
+    // / Nothing to copy).
+    copyForAiButtonLabel() {
+      return this.copyForAiState === 'idle' ? 'Copy for AI' : this.copyForAiLabel;
     },
     // Small-macro action-area affordance — hidden once already in Fullscreen
     // (that surface shows the Connect *rail* instead, see showAgentLinkPanel).
@@ -626,6 +656,10 @@ export default {
     // or non-fullscreen).
     this._agentLinkHandoffUnsubscribe?.();
     this._agentLinkHandoffUnsubscribe = null;
+    if (this.copyForAiRevertTimer) {
+      clearTimeout(this.copyForAiRevertTimer);
+      this.copyForAiRevertTimer = null;
+    }
   },
   methods: {
     edit() {
@@ -832,22 +866,57 @@ export default {
         return undefined;
       }
     },
+    // Drives the Copy for AI split button's inline (Mintlify-style) feedback
+    // state machine — idle -> copying -> copied|failed -> (revert) idle.
+    // Clears any pending revert timer first so a fresh copy started while a
+    // previous 'copied'/'failed' label is still showing (the button is only
+    // disabled during 'copying', not during those terminal states) doesn't
+    // get yanked back to idle by the OLD timer mid-flight. 'copied'/'failed'
+    // arm a ~2s revert timer and update the visually-hidden live region
+    // (copy-for-ai-announcement in the template) so screen-reader users not
+    // focused on the button hear the outcome too; 'copying' is announced via
+    // aria-busy on the button itself instead, so the live region is cleared
+    // for it. beforeUnmount() clears this timer on unmount.
+    setCopyForAiState(state, label) {
+      if (this.copyForAiRevertTimer) {
+        clearTimeout(this.copyForAiRevertTimer);
+        this.copyForAiRevertTimer = null;
+      }
+      this.copyForAiState = state;
+      this.copyForAiLabel = label;
+      this.copyForAiAnnouncement = (state === 'copied' || state === 'failed') ? label : '';
+      if (state === 'copied' || state === 'failed') {
+        this.copyForAiRevertTimer = setTimeout(() => {
+          this.copyForAiState = 'idle';
+          this.copyForAiLabel = '';
+          this.copyForAiAnnouncement = '';
+          this.copyForAiRevertTimer = null;
+        }, 2000);
+      }
+    },
     // "Copy for AI" (catalog.ts: copy_for_ai_clicked): writes the diagram DSL
     // (same source View Source shows) plus best-effort page context to the
     // clipboard as one plain-text payload, for pasting into an external AI
     // chat. `job` (default 'generic') selects which preamble
     // buildCopyForAiPrompt.ts opens the payload with — the split button's
-    // primary segment (CopyForAiMenu.vue) passes its own job value on
-    // @select, the primary segment passes 'generic' explicitly. Every job
-    // shares the exact same clipboard/analytics outcome logic below; only the
-    // copied text and the tracked `job` property vary. Page context is
-    // optional — buildCopyForAiPrompt/resolveCopyForAiPage decide the
-    // fallback; this method only decides the clipboard/analytics outcome.
+    // primary segment passes 'generic' explicitly, CopyForAiMenu.vue's five
+    // menu items pass their own job value on @select and drive this SAME
+    // method, so the state machine below plays on the primary segment no
+    // matter which entry point triggered it. Every job shares the exact same
+    // clipboard/analytics outcome logic below; only the copied text and the
+    // tracked `job` property vary. Page context is optional —
+    // buildCopyForAiPrompt/resolveCopyForAiPage decide the fallback; this
+    // method only decides the clipboard/analytics outcome.
     // Empty-DSL guard mirrors copyCode's early-return shape: no clipboard
-    // write, no toast beyond "nothing to copy", and — unlike copyCode — no
-    // analytics event, since an empty copy carries no demand signal.
+    // write and — unlike copyCode — no analytics event, since an empty copy
+    // carries no demand signal; the button surfaces "Nothing to copy" instead
+    // of a toast. Overlapping-click guard: 'copying' disables the button in
+    // the template, but also short-circuit here for non-pointer activation
+    // paths (e.g. a held Enter key repeating faster than Vue re-renders).
     async copyForAi(job = 'generic') {
-      if (!this.viewSourceCode) { toast({ message: 'No code to copy', duration: 2000 }); return; }
+      if (this.copyForAiState === 'copying') return;
+      if (!this.viewSourceCode) { this.setCopyForAiState('failed', 'Nothing to copy'); return; }
+      this.setCopyForAiState('copying', 'Copying…');
       const page = await this.resolveCopyForAiPage();
       const result = buildCopyForAiPrompt({
         dslLabel: this.viewSourceDslLabel,
@@ -863,15 +932,15 @@ export default {
         const ok = await this.copyToClipboard(result.text);
         if (ok) {
           outcome = result.pageBytes > 0 ? 'copied' : 'copied_diagram_only';
-          toast({ message: 'Copied for AI', duration: 2000 });
+          this.setCopyForAiState('copied', 'Copied');
         } else {
           outcome = 'clipboard_failed';
-          toast({ message: 'Failed to copy for AI', duration: 2000 });
+          this.setCopyForAiState('failed', 'Copy failed');
         }
       } catch (error) {
         console.error('copyForAi: clipboard write failed', error);
         outcome = 'clipboard_failed';
-        toast({ message: 'Failed to copy for AI', duration: 2000 });
+        this.setCopyForAiState('failed', 'Copy failed');
       }
 
       trackAnalyticsEvent('copy_for_ai_clicked', {

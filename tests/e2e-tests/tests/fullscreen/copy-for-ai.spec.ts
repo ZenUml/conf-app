@@ -70,9 +70,20 @@ test.describe('Copy for AI button', () => {
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
 
     // Register the tracking-request listener BEFORE the click that fires it.
+    // The primary segment's own inline state machine reaching data-copy-
+    // state="copied" is run CONCURRENTLY (not after) — it's BETTER evidence
+    // of a successful copy than the outer-page clipboard readback below,
+    // which is a known-flaky harness gap on lite-stg (issue #420: the
+    // in-iframe write can succeed even when the outer page's readText()
+    // comes back empty). It must be concurrent, not sequential, because
+    // waitForCopyForAiTrackingRequest can take several seconds (Mixpanel's
+    // batch_flush_interval_ms=5000) — by the time that resolves, the ~2s
+    // Copied->idle revert may already have fired; expect()'s own polling
+    // catches the state the moment it appears instead.
     const [trackedProps, clipboardText] = await Promise.all([
       waitForCopyForAiTrackingRequest(page),
       clickCopyForAiAndRead(page),
+      expect(btn).toHaveAttribute('data-copy-state', 'copied'),
     ]);
 
     // Clipboard payload: fenced Mermaid DSL + the "Context from Confluence"
@@ -109,7 +120,9 @@ test.describe('Copy for AI button', () => {
     // end-to-end on the SAME macro/page above (no new scaffolding) to prove
     // the menu reaches the same tracking path with the right `job`. No
     // clipboard read-back here — known harness gap #420 (see file header);
-    // the primary-click assertion above already covers that ground.
+    // instead assert the PRIMARY segment's data-copy-state reaches "copied"
+    // (same `btn` locator as above) — proof the menu-item click drives the
+    // primary button's inline state machine, not just its own analytics.
     const menuBtn = frame.getByTestId('copy-for-ai-menu-btn');
     await expect(menuBtn).toBeVisible();
     await menuBtn.click();
@@ -119,6 +132,7 @@ test.describe('Copy for AI button', () => {
     const [menuTrackedProps] = await Promise.all([
       waitForCopyForAiTrackingRequest(page),
       updateItem.click(),
+      expect(btn).toHaveAttribute('data-copy-state', 'copied'),
     ]);
     expect(menuTrackedProps).toMatchObject({
       feature_area: 'macro',

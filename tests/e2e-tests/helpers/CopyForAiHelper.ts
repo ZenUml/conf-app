@@ -144,8 +144,12 @@ export async function clickCopyForAiAndRead(page: Page): Promise<string> {
   const btn = frame.getByTestId('copy-for-ai-btn');
   await expect(btn).toBeVisible({ timeout: 30_000 });
   await btn.click();
-  // Small settle window — clipboard write + toast are async (same pattern as
-  // ViewerActionsHelper.clickCopyCodeAndRead).
+  // Small settle window — the page-context fetch + clipboard write are async
+  // (same pattern as ViewerActionsHelper.clickCopyCodeAndRead). No toast to
+  // wait on here: Copy for AI's feedback is the inline Copying…/Copied state
+  // machine on the button itself (GenericViewer.vue's data-copy-state),
+  // asserted separately by the caller — this helper only owns the clipboard
+  // read.
   await page.waitForTimeout(300);
   return page.evaluate(async () => {
     try {

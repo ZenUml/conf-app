@@ -19,7 +19,7 @@ the user's own clipboard.
 | Audience | All viewers (no edit permission), inline + fullscreen viewer. Not in the editor. |
 | Variants | lite + full + diagramly (wherever text-DSL macros ship). |
 | Flag | None — Lite is at its 10/10 flag cap; worst failure is a dead button; removal is a revert PR. |
-| Interaction | Split button (`src/components/Viewer/GenericViewer.vue` + `CopyForAiMenu.vue`): primary segment = one click → clipboard + toast, generic prompt. Chevron segment = menu of five job-framed entries, same one-click-then-toast interaction per item. No dialog: every added decision point would measure dialog UX, not demand. |
+| Interaction | Split button (`src/components/Viewer/GenericViewer.vue` + `CopyForAiMenu.vue`): primary segment = one click → clipboard write, generic prompt. Feedback is inline on the primary segment itself (Mintlify-style — added 2026-07-30): idle "Copy for AI" → "Copying…" (disabled, `aria-busy`) → "Copied" or "Copy failed"/"Nothing to copy", then reverts to idle after ~2s; no toast. Chevron segment = menu of five job-framed entries; picking one closes the menu and plays the same state machine on the primary segment. No dialog: every added decision point would measure dialog UX, not demand. |
 
 ## Jobs (split-button menu, added 2026-07-30)
 

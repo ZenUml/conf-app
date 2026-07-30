@@ -207,6 +207,16 @@ export type AnalyticsEventName =
   // text-DSL types only (sequence / mermaid / plantuml).
   | "viewer_source_opened"
   | "viewer_source_copied"
+  // "Copy for AI" demand-test button in the viewer top-actions row (alongside
+  // View Source): a split button — a one-click primary segment (job:
+  // 'generic') plus a chevron menu of five job-framed entry points (explain /
+  // update / implement / audit / tests) that only vary the copied preamble
+  // (buildCopyForAiPrompt.ts), never the DSL+page payload itself. Fires once
+  // per click, primary or menu item, with `job` recording which one. `outcome`
+  // distinguishes a full copy (diagram + surrounding page context) from the
+  // diagram-only fallback (page context unavailable) and an outright
+  // clipboard-write failure.
+  | "copy_for_ai_clicked"
   // Editor staleness hint (docs/superpowers/specs/
   // 2026-07-18-job-b-editor-staleness-hint-design.md). Shown on inline
   // page-editor renders when the host page drifted >=5 versions past the

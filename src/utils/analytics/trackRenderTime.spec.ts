@@ -1,7 +1,11 @@
 // src/utils/analytics/trackRenderTime.spec.ts
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { measureCacheState, trackRenderTime } from "./trackRenderTime";
+import {
+  measureCacheState,
+  trackRenderTime,
+  trackViewerLoadOutcome,
+} from "./trackRenderTime";
 import { trackAnalyticsEvent } from "./trackAnalyticsEvent";
 import { getRenderIdentity } from "./renderIdentity";
 
@@ -17,6 +21,7 @@ vi.mock("./renderPerf", () => ({
     render_ms: 40,
     measured_sum_ms: 1040,
     tab_hidden: false,
+    content_source: "fetch",
   })),
 }));
 
@@ -147,6 +152,14 @@ describe("trackRenderTime", () => {
     );
   });
 
+  it("keeps the legacy editor/preview event outside the viewer lifecycle v2 contract", () => {
+    trackRenderTime("mermaid", false);
+
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)!;
+    expect(props).not.toHaveProperty("viewer_lifecycle_version");
+    expect(props).not.toHaveProperty("viewer_load_outcome");
+  });
+
   it("emits render_mode='cached_svg' and cache_source='cc_body' for a cached render", () => {
     trackRenderTime("mermaid", true, "cached_svg", "cc_body");
 
@@ -246,6 +259,54 @@ describe("trackRenderTime", () => {
     expect(props).not.toHaveProperty("render_deferred_ms");
     expect(props).not.toHaveProperty("visible_at_boot");
   });
+});
+
+describe("trackViewerLoadOutcome", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.__macroLoadStart = performance.now();
+  });
+
+  afterEach(() => {
+    delete (window as { __macroLoadStart?: number }).__macroLoadStart;
+    vi.restoreAllMocks();
+  });
+
+  it("emits a rendered lifecycle v2 event with the revision's immutable content source", () => {
+    trackViewerLoadOutcome("graph", true, {
+      outcome: "rendered",
+      contentSource: "swr_cache",
+      renderMode: "cached_svg",
+      cacheSource: "cc_body",
+    });
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({
+        macro_type: "graph",
+        surface: "viewer",
+        viewer_lifecycle_version: 2,
+        viewer_load_outcome: "rendered",
+        content_source: "swr_cache",
+        render_mode: "cached_svg",
+        cache_source: "cc_body",
+      }),
+    );
+  });
+
+  it.each(["empty", "failed"] as const)(
+    "emits %s without inheriting mutable content_source state",
+    (outcome) => {
+      trackViewerLoadOutcome("openapi", true, { outcome });
+
+      const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)!;
+      expect(props).toEqual(expect.objectContaining({
+        viewer_lifecycle_version: 2,
+        viewer_load_outcome: outcome,
+      }));
+      expect(props).not.toHaveProperty("content_source");
+    },
+  );
 });
 
 describe("scheduleRendererPrefetch (post-render hook)", () => {

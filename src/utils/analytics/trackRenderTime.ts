@@ -1,10 +1,18 @@
 import { trackAnalyticsEvent } from './trackAnalyticsEvent';
-import type { CacheState, MacroTypeValue, RenderMode, CacheSource } from './catalog';
+import type {
+  CacheState,
+  MacroTypeValue,
+  RenderMode,
+  CacheSource,
+  ContentSource,
+  ViewerLoadOutcome,
+} from './catalog';
 import { getTimings } from './renderPerf';
 import { getRenderIdentity } from './renderIdentity';
 import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender';
 import { isPrefetchDue } from '@/utils/prefetch/throttle';
 import type { PrefetchRenderer } from '@/utils/prefetch/rendererPrefetch';
+import type { AnalyticsProperties } from './types';
 
 // Below this many summed wire bytes across same-origin scripts we treat the boot
 // as warm: a disk-cache hit reports transferSize 0 and a 304 revalidation only a
@@ -59,17 +67,62 @@ export function trackRenderTime(
   renderMode: RenderMode = 'live_render',
   cacheSource: CacheSource = 'none',
 ): void {
+  emitMacroViewed(macroType, isDisplayMode, renderMode, cacheSource);
+}
+
+export interface ViewerLoadTerminal {
+  outcome: ViewerLoadOutcome;
+  /** Immutable source owned by the terminal render revision. */
+  contentSource?: ContentSource;
+  renderMode?: RenderMode;
+  cacheSource?: CacheSource;
+}
+
+/**
+ * Viewer lifecycle v2 terminal Adapter. Unlike the legacy renderer-owned
+ * trackRenderTime Interface, the lifecycle owns the outcome and the document
+ * revision that reached it. That lets content_source come from the immutable
+ * revision instead of renderPerf's mutable last-wins process state.
+ */
+export function trackViewerLoadOutcome(
+  macroType: MacroTypeValue,
+  isDisplayMode: boolean,
+  terminal: ViewerLoadTerminal,
+): void {
+  emitMacroViewed(
+    macroType,
+    isDisplayMode,
+    terminal.renderMode ?? 'live_render',
+    terminal.cacheSource ?? 'none',
+    terminal,
+  );
+}
+
+function emitMacroViewed(
+  macroType: MacroTypeValue,
+  isDisplayMode: boolean,
+  renderMode: RenderMode,
+  cacheSource: CacheSource,
+  terminal?: ViewerLoadTerminal,
+): void {
   const t0 = window.__macroLoadStart;
   if (typeof t0 !== 'number') return;
   const duration_ms = Math.round(performance.now() - t0);
   const timings = getTimings();
+  const { content_source: mutableContentSource, ...phaseTimings } = timings;
+  const lifecycleProperties = terminal
+    ? {
+        viewer_lifecycle_version: 2 as const,
+        viewer_load_outcome: terminal.outcome,
+        ...(terminal.contentSource !== undefined
+          ? { content_source: terminal.contentSource }
+          : {}),
+      }
+    : mutableContentSource !== undefined
+      ? { content_source: mutableContentSource }
+      : {};
   const { cacheState, transferBytes } = measureCacheState();
-  // Dev-only: surface the phase breakdown locally (mirrors the POC harness).
-  // Stripped from prod by the bundler's `import.meta.env.DEV` constant fold.
-  if (import.meta.env.DEV) {
-    console.debug('[macro_viewed]', { macro_type: macroType, duration_ms, ...timings });
-  }
-  trackAnalyticsEvent('macro_viewed', {
+  const properties: AnalyticsProperties = {
     feature_area: 'macro',
     surface: isDisplayMode ? 'viewer' : 'editor',
     macro_type: macroType,
@@ -78,11 +131,18 @@ export function trackRenderTime(
     duration_ms,
     cache_state: cacheState,
     ...(transferBytes !== undefined ? { transfer_bytes: transferBytes } : {}),
-    ...timings,
+    ...phaseTimings,
+    ...lifecycleProperties,
     ...getRenderIdentity(),
     // #382 viewport gate: {} on ungated renders, so nothing is added.
     ...getGateTelemetry(),
-  });
+  };
+  // Dev-only: surface the phase breakdown locally (mirrors the POC harness).
+  // Stripped from prod by the bundler's `import.meta.env.DEV` constant fold.
+  if (import.meta.env.DEV) {
+    console.debug('[macro_viewed]', properties);
+  }
+  trackAnalyticsEvent('macro_viewed', properties);
 
   scheduleRendererPrefetch(macroType);
 }

@@ -53,7 +53,7 @@ describe('Embed AutoConvert analytics', () => {
     };
   });
 
-  it('records detection and successful resolution for a same-tenant link', async () => {
+  it('records detection and target resolution for a same-tenant link', async () => {
     const diagram = { diagramType: DiagramType.Sequence, code: 'A->B: hi' } as Diagram;
     h.getCustomContentByIdV2.mockResolvedValue({ value: diagram });
 
@@ -65,7 +65,7 @@ describe('Embed AutoConvert analytics', () => {
         custom_content_id: CONTENT_ID,
         is_same_site: true,
       }],
-      ['embed_autoconvert_succeeded', {
+      ['embed_autoconvert_target_resolved', {
         ...BASE_PROPS,
         custom_content_id: CONTENT_ID,
         is_same_site: true,
@@ -84,7 +84,7 @@ describe('Embed AutoConvert analytics', () => {
       ['embed_autoconvert_detected', BASE_PROPS],
       ['embed_autoconvert_failed', {
         ...BASE_PROPS,
-        failure_reason: 'invalid_link',
+        failure_reason: 'invalid_url',
       }],
     ]);
   });
@@ -104,7 +104,7 @@ describe('Embed AutoConvert analytics', () => {
         ...BASE_PROPS,
         custom_content_id: CONTENT_ID,
         is_same_site: true,
-        failure_reason: 'content_not_found',
+        failure_reason: 'target_missing',
       }],
     ]);
   });

@@ -21,8 +21,6 @@ export type MacroTypeValue =
   | "plantuml"
   | "none";
 
-export type EmbedAutoconvertResolution = "autoconvert_link";
-
 export type Surface =
   // conf-app#368: on macro_viewed, `viewer`-vs-`editor` comes from
   // ApWrapper2.isDisplayMode(). Builds before 2026-07-19 stamped the native
@@ -129,9 +127,13 @@ export type AnalyticsEventName =
   // must re-target from the page editor. Tracks how often users hit this.
   | "embed_retarget_blocked"
   // A pasted confluence.zenuml.com deeplink autoconverted into an embed
-  // macro, but its cloudId doesn't match the pasting site's — rejected
-  // fail-soft rather than fetching cross-tenant. Tracks how often a deeplink
-  // is pasted onto the wrong site.
+  // macro. `detected` is the per-viewer-init denominator; exactly one of
+  // `target_resolved`, `failed`, or `cross_tenant_rejected` follows. Because the
+  // autoConvertLink persists in ADF, these measure render attempts rather
+  // than unique paste actions.
+  | "embed_autoconvert_detected"
+  // The deeplink's cloudId doesn't match the pasting site's — rejected
+  // fail-soft rather than fetching cross-tenant.
   | "embed_autoconvert_cross_tenant_rejected"
   // A same-tenant autoConvert link resolved to an existing custom-content
   // document. This is a data-resolution signal, not proof that the diagram
@@ -211,6 +213,16 @@ export type AnalyticsEventName =
   // text-DSL types only (sequence / mermaid / plantuml).
   | "viewer_source_opened"
   | "viewer_source_copied"
+  // "Copy for AI" demand-test button in the viewer top-actions row (alongside
+  // View Source): a split button — a one-click primary segment (job:
+  // 'generic') plus a chevron menu of five job-framed entry points (explain /
+  // update / implement / audit / tests) that only vary the copied preamble
+  // (buildCopyForAiPrompt.ts), never the DSL+page payload itself. Fires once
+  // per click, primary or menu item, with `job` recording which one. `outcome`
+  // distinguishes a full copy (diagram + surrounding page context) from the
+  // diagram-only fallback (page context unavailable) and an outright
+  // clipboard-write failure.
+  | "copy_for_ai_clicked"
   // Editor staleness hint (docs/superpowers/specs/
   // 2026-07-18-job-b-editor-staleness-hint-design.md). Shown on inline
   // page-editor renders when the host page drifted >=5 versions past the
@@ -280,8 +292,35 @@ export type AnalyticsEventName =
   | "macro_count_space_changed"
   | "macro_count_snapshot_failed"
   | "close_guard_rejected"
+  // Close-guard draft-restore banner (utils/restoreDraftBanner.ts). Shipped
+  // 2026-05-10 without instrumentation, so 2.5 months of usage are dark —
+  // these four decide whether the feature earns its keep. `shown` is the
+  // denominator; `restored` / `discarded` / `dismissed` are the user's three
+  // exits (✕ leaves the draft in localStorage, Discard deletes it).
+  | "draft_banner_shown"
+  | "draft_restored"
+  | "draft_discarded"
+  | "draft_banner_dismissed"
   | "renderer_prefetch_started"
   | "renderer_prefetch_completed"
+  // In-viewer Edit gate for same-page shared-id macros (view-fork silent
+  // orphan: view-editing a macro whose customContentId is shared by N>1
+  // macros on the page forks a new CC on save, but the in-viewer modal cannot
+  // write the new id back into the macro config — writebackGate.ts / #170 —
+  // so the edit lands in a CC nothing references). Evaluated on every viewer
+  // Edit click that carries a customContentId; `edit_dup_gate_outcome`:
+  // 'blocked' = duplicates found, modal NOT opened, user steered to the page
+  // editor; 'passed' = unique reference, modal opened; 'scan_failed' = the
+  // ADF count scan errored, fail-open (modal opened; the editor-side backstop
+  // below still guards Publish).
+  | "edit_dup_gate_evaluated"
+  // The editor-side backstop caught what the click gate let through (its
+  // fail-open path, the staleness-hint CTA on an inline page-editor render,
+  // or any other non-submittable entry): the modal editor loaded a doc
+  // flagged isCopy in a surface where view.submit({config}) cannot persist,
+  // so Publish is disabled with an explanatory tooltip instead of silently
+  // minting an unreferenced CC. `copy_reason` says which copy flavor.
+  | "editor_publish_blocked_fork_unlinkable"
   // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md
   // §10). Funnel: connect_clicked → session_created → agent_connected →
   // edit_applied → disconnected; setup_shown measures first-time connector

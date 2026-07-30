@@ -10,6 +10,7 @@ import globals from '@/model/globals'
 import forgeRuntime from '@/model/globals/forgeGlobal'
 import { persistSession } from '@/composables/agentLink/sessionHandoff'
 import ThinkingOverlay from '@/components/AgentLink/ThinkingOverlay.vue'
+import { toast } from '@/utils/toast'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
 
@@ -29,6 +30,17 @@ vi.mock('@/model/globals', () => ({
       _getCurrentUser: vi.fn(() => Promise.resolve({ atlassianAccountId: 'test-user-id' })),
       getCurrentSpace: vi.fn(() => Promise.resolve({ key: 'TEST' })),
       getAndPrintContentVersions: vi.fn(() => Promise.resolve([])),
+      // Copy for AI page context (resolveCopyForAiPage) — same path
+      // agentLink's readPage uses. The URL is derived from THIS response's
+      // _links (base+webui), not a second request — individual tests
+      // override this fixture to exercise the diagram-only fallback and the
+      // URL-unresolvable-but-text-present case.
+      _getCurrentPageId: vi.fn(() => Promise.resolve('page-123')),
+      getCurrentPage: vi.fn(() => Promise.resolve({
+        title: 'Login flow page',
+        body: { export_view: { value: '<p>Some page context.</p>' } },
+        _links: { base: 'https://example.atlassian.net/wiki', webui: '/spaces/TEST/pages/123' },
+      })),
     }
   }
 }))
@@ -337,6 +349,457 @@ describe('GenericViewer (chrome-less)', () => {
       await wrapper.find('[data-testid="view-source-close"]').trigger('click')
       await wrapper.vm.$nextTick()
       expect(wrapper.find('[data-testid="view-source-panel"]').exists()).toBe(false)
+    })
+  })
+
+  // One-click "Copy for AI" clipboard payload (copy_for_ai_clicked, catalog.ts).
+  describe('Copy for AI', () => {
+    const SOURCE_DSL = 'Alice->Bob: hello\nBob->Alice: hi'
+    let originalClipboard: PropertyDescriptor | undefined
+    let originalIsSecureContext: PropertyDescriptor | undefined
+
+    // The button's visible label is a CSS grid-stack (GenericViewer.vue):
+    // every state's label is a permanent DOM node — sized but
+    // visibility:hidden when inactive — so the button's width never changes
+    // across states. That means wrapper.find(...).text() now concatenates
+    // ALL five labels regardless of which is showing; scope state-specific
+    // assertions to the one cell marked data-active="true".
+    const activeCopyLabel = (root: ReturnType<typeof mountViewer>, testid = 'copy-for-ai-btn') =>
+      root.find(`[data-testid="${testid}"] [data-active="true"]`).text()
+
+    beforeEach(() => {
+      store.state.diagram.code = SOURCE_DSL
+      store.state.diagram.mermaidCode = 'sequenceDiagram\n  A->>B: hi'
+      store.state.diagram.plantUmlCode = '@startuml\nA -> B\n@enduml'
+      originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+      originalIsSecureContext = Object.getOwnPropertyDescriptor(window, 'isSecureContext')
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: vi.fn(() => Promise.resolve()) },
+      })
+      Object.defineProperty(window, 'isSecureContext', {
+        configurable: true,
+        value: true,
+      })
+    })
+
+    // Restore the globals this block stubs. Without this the clipboard/
+    // isSecureContext stubs (and any per-test forgeGlobal / execCommand) leak
+    // into every describe that runs after this one in the same file.
+    afterEach(() => {
+      if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard)
+      else delete (navigator as any).clipboard
+      if (originalIsSecureContext) Object.defineProperty(window, 'isSecureContext', originalIsSecureContext)
+      else delete (window as any).isSecureContext
+      delete (window as any).forgeGlobal
+      delete (document as any).execCommand
+    })
+
+    it.each([
+      DiagramType.Sequence,
+      DiagramType.Mermaid,
+      DiagramType.PlantUml,
+    ])('renders the Copy for AI button for text-DSL type %s', async (type) => {
+      store.commit('updateDiagramType', type)
+      const wrapper = mountViewer()
+      await flushPromises()
+      const btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
+      expect(btn.exists()).toBe(true)
+      expect(activeCopyLabel(wrapper)).toBe('Copy for AI')
+      expect(btn.attributes('data-copy-state')).toBe('idle')
+      expect(btn.attributes('disabled')).toBeUndefined()
+    })
+
+    it.each([
+      DiagramType.Graph,
+      DiagramType.OpenApi,
+      DiagramType.AsyncApi,
+      DiagramType.Embed,
+    ])('hides the Copy for AI button for non-text-DSL type %s', async (type) => {
+      store.commit('updateDiagramType', type)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
+    })
+
+    it('copies diagram + page context to the clipboard and fires copy_for_ai_clicked with outcome copied', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+      await flushPromises()
+
+      const btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
+      expect(btn.attributes('data-copy-state')).toBe('copied')
+      expect(activeCopyLabel(wrapper)).toBe('Copied')
+      expect(wrapper.find('[data-testid="copy-for-ai-announcement"]').text()).toBe('Copied')
+      expect(toast).not.toHaveBeenCalled()
+
+      const writeText = vi.mocked(navigator.clipboard.writeText)
+      expect(writeText).toHaveBeenCalledTimes(1)
+      const copiedText = writeText.mock.calls[0][0] as string
+      expect(copiedText).toContain(SOURCE_DSL)
+      expect(copiedText).toContain('Login flow page')
+      // URL is derived from getCurrentPage()'s own _links — no second
+      // /pages/{id} round trip (resolvePageUrl stays copyLink-only).
+      expect(copiedText).toContain('https://example.atlassian.net/wiki/spaces/TEST/pages/123')
+
+      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+      expect(call).toBeTruthy()
+      expect(call![1]).toMatchObject({
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: DiagramType.Sequence,
+        outcome: 'copied',
+        job: 'generic',
+      })
+      expect((call![1] as any).dsl_bytes).toBeGreaterThan(0)
+      expect((call![1] as any).page_bytes).toBeGreaterThan(0)
+    })
+
+    // The button must show its transient "copying" state (disabled,
+    // aria-busy, "Copying…" label) for the whole async window — page fetch
+    // + clipboard write — not just flash and resolve synchronously.
+    it('shows the copying state (disabled, aria-busy, "Copying…") while the page fetch is pending, then resolves to copied', async () => {
+      let resolveGetCurrentPage!: (value: unknown) => void
+      const pending = new Promise((resolve) => { resolveGetCurrentPage = resolve })
+      vi.mocked(globals.apWrapper.getCurrentPage).mockReturnValueOnce(pending as any)
+
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+
+      let btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
+      expect(btn.attributes('data-copy-state')).toBe('copying')
+      expect(btn.attributes('disabled')).toBeDefined()
+      expect(btn.attributes('aria-busy')).toBe('true')
+      expect(activeCopyLabel(wrapper)).toBe('Copying…')
+      // No clipboard write yet — still waiting on the page fetch.
+      expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
+
+      // A second click while copying must not start an overlapping copy.
+      await btn.trigger('click')
+      await flushPromises()
+      expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
+
+      resolveGetCurrentPage({
+        title: 'Login flow page',
+        body: { export_view: { value: '<p>Some page context.</p>' } },
+        _links: { base: 'https://example.atlassian.net/wiki', webui: '/spaces/TEST/pages/123' },
+      })
+      await flushPromises()
+
+      btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
+      expect(btn.attributes('data-copy-state')).toBe('copied')
+      expect(btn.attributes('disabled')).toBeUndefined()
+      expect(btn.attributes('aria-busy')).toBe('false')
+      expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1)
+      expect(toast).not.toHaveBeenCalled()
+    })
+
+    it('reverts from "Copied" to idle ~2s after a successful copy', async () => {
+      vi.useFakeTimers()
+      try {
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await vi.advanceTimersByTimeAsync(0)
+
+        await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+        await vi.advanceTimersByTimeAsync(0)
+
+        let btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
+        expect(btn.attributes('data-copy-state')).toBe('copied')
+        expect(activeCopyLabel(wrapper)).toBe('Copied')
+
+        // Not yet reverted just before the ~2s mark.
+        await vi.advanceTimersByTimeAsync(1900)
+        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('copied')
+
+        await vi.advanceTimersByTimeAsync(200)
+        btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
+        expect(btn.attributes('data-copy-state')).toBe('idle')
+        expect(activeCopyLabel(wrapper)).toBe('Copy for AI')
+        expect(wrapper.find('[data-testid="copy-for-ai-announcement"]').text()).toBe('')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('derives the page URL from getCurrentPage() without a second /pages/{id} request', async () => {
+      const { requestConfluence } = await import('@forge/bridge')
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+      await flushPromises()
+
+      // globals.apWrapper.getCurrentPage() is stubbed above (not the real
+      // ApWrapper2), so it never reaches requestConfluence in this harness —
+      // meaning ANY call recorded here can only have come from
+      // resolvePageUrl()'s own dynamic `@forge/bridge` import. Before this
+      // change resolveCopyForAiPage called resolvePageUrl for the URL (1
+      // call); now it derives the URL from getCurrentPage()'s own _links, so
+      // resolvePageUrl is never reached from the Copy for AI path — zero
+      // calls (resolvePageUrl remains copyLink-only, tested separately).
+      expect(vi.mocked(requestConfluence)).not.toHaveBeenCalled()
+    })
+
+    // Item 2: resolveCopyForAiPage no longer makes a second request for the
+    // URL — it derives from getCurrentPage()'s own _links. When those are
+    // missing/unresolvable but title+text fetched fine, the page still goes
+    // to the builder with an empty url; outcome stays 'copied' (pageBytes>0).
+    it('keeps page context (outcome copied) when the page has no resolvable URL but text was fetched', async () => {
+      vi.mocked(globals.apWrapper.getCurrentPage).mockResolvedValueOnce({
+        title: 'Login flow page',
+        body: { export_view: { value: '<p>Some page context.</p>' } },
+        _links: {},
+      } as any)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+      await flushPromises()
+
+      const writeText = vi.mocked(navigator.clipboard.writeText)
+      expect(writeText).toHaveBeenCalledTimes(1)
+      const copiedText = writeText.mock.calls[0][0] as string
+      expect(copiedText).toContain(SOURCE_DSL)
+      expect(copiedText).toContain('## Page: Login flow page')
+      expect(copiedText).not.toMatch(/## Page:.*\nhttps?:\/\//)
+
+      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+      expect(call).toBeTruthy()
+      expect(call![1]).toMatchObject({ outcome: 'copied', job: 'generic' })
+      expect((call![1] as any).page_bytes).toBeGreaterThan(0)
+    })
+
+    // Item 1: mirrors copyCode's empty-source guard — no clipboard write, no
+    // toast, no analytics event (an empty copy is not demand signal), but the
+    // button DOES surface "Nothing to copy" inline for ~2s (the 'failed'
+    // state, distinct label) before reverting — same as any other failure.
+    it('guards an empty DSL: shows "Nothing to copy", no clipboard write, no copy_for_ai_clicked event, no toast', async () => {
+      store.state.diagram.code = ''
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+      await flushPromises()
+
+      const btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
+      expect(btn.attributes('data-copy-state')).toBe('failed')
+      expect(activeCopyLabel(wrapper)).toBe('Nothing to copy')
+      expect(wrapper.find('[data-testid="copy-for-ai-announcement"]').text()).toBe('Nothing to copy')
+      expect(toast).not.toHaveBeenCalled()
+
+      expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
+      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+      expect(call).toBeUndefined()
+    })
+
+    // surface must distinguish the Fullscreen modal from the inline macro view
+    // (isFullscreenMode reads window.forgeGlobal.forgeContext.extension.modal.macroMode,
+    // same signal the "fullscreen width" describe block above uses).
+    it('fires copy_for_ai_clicked with surface "fullscreen" when opened from the fullscreen modal', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+      await flushPromises()
+
+      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+      expect(call).toBeTruthy()
+      expect(call![1]).toMatchObject({ surface: 'fullscreen', job: 'generic' })
+    })
+
+    it('falls back to a diagram-only payload (still copied) when the page fetch rejects', async () => {
+      vi.mocked(globals.apWrapper.getCurrentPage).mockRejectedValueOnce(new Error('network error'))
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+      await flushPromises()
+
+      const writeText = vi.mocked(navigator.clipboard.writeText)
+      expect(writeText).toHaveBeenCalledTimes(1)
+      expect(writeText.mock.calls[0][0]).toContain(SOURCE_DSL)
+
+      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+      expect(call).toBeTruthy()
+      expect(call![1]).toMatchObject({ outcome: 'copied_diagram_only', page_bytes: 0, job: 'generic' })
+      expect((call![1] as any).dsl_bytes).toBeGreaterThan(0)
+    })
+
+    it('shows "Copy failed" and does not throw when the clipboard write rejects (no toast)', async () => {
+      // Reject BOTH the modern clipboard API and the legacy execCommand
+      // fallback copyToClipboard falls through to, so the whole write
+      // genuinely rejects (not just returns false) — exercising copyForAi's
+      // own catch block, the same shape as copyCode's failure handling.
+      vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'))
+      // jsdom doesn't implement execCommand at all — define it (throwing) so
+      // the legacy fallback copyToClipboard falls through to also fails,
+      // making the whole write genuinely reject.
+      ;(document as any).execCommand = () => { throw new Error('execCommand unavailable') }
+
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await expect(
+        wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click'),
+      ).resolves.not.toThrow()
+      await flushPromises()
+
+      const btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
+      expect(btn.attributes('data-copy-state')).toBe('failed')
+      expect(activeCopyLabel(wrapper)).toBe('Copy failed')
+      expect(wrapper.find('[data-testid="copy-for-ai-announcement"]').text()).toBe('Copy failed')
+      expect(toast).not.toHaveBeenCalled()
+
+      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+      expect(call).toBeTruthy()
+      expect(call![1]).toMatchObject({ outcome: 'clipboard_failed', job: 'generic' })
+      expect((call![1] as any).dsl_bytes).toBeGreaterThan(0)
+    })
+
+    it('reverts from "Copy failed" to idle ~2s after a rejected clipboard write', async () => {
+      vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'))
+      ;(document as any).execCommand = () => { throw new Error('execCommand unavailable') }
+
+      vi.useFakeTimers()
+      try {
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await vi.advanceTimersByTimeAsync(0)
+
+        await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+        await vi.advanceTimersByTimeAsync(0)
+
+        let btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
+        expect(btn.attributes('data-copy-state')).toBe('failed')
+        expect(activeCopyLabel(wrapper)).toBe('Copy failed')
+
+        await vi.advanceTimersByTimeAsync(2000)
+        btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
+        expect(btn.attributes('data-copy-state')).toBe('idle')
+        expect(activeCopyLabel(wrapper)).toBe('Copy for AI')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    // Split button: chevron segment opens a menu of five job-framed entry
+    // points (CopyForAiMenu.vue). Every entry runs the exact same copyForAi
+    // flow with its own `job` value — same clipboard/toast/outcome logic as
+    // the primary segment above, only the preamble text and tracked `job`
+    // property differ.
+    describe('split-button menu', () => {
+      it('renders the chevron trigger with aria-haspopup/aria-expanded, gated the same as the primary button', async () => {
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        const menuBtn = wrapper.find('[data-testid="copy-for-ai-menu-btn"]')
+        expect(menuBtn.exists()).toBe(true)
+        expect(menuBtn.attributes('aria-haspopup')).toBe('menu')
+        expect(menuBtn.attributes('aria-expanded')).toBe('false')
+      })
+
+      it.each([
+        DiagramType.Graph,
+        DiagramType.OpenApi,
+        DiagramType.AsyncApi,
+        DiagramType.Embed,
+      ])('is absent for non-text-DSL type %s (same gate as the primary button)', async (type) => {
+        store.commit('updateDiagramType', type)
+        const wrapper = mountViewer()
+        await flushPromises()
+        expect(wrapper.find('[data-testid="copy-for-ai-menu-btn"]').exists()).toBe(false)
+      })
+
+      it('opens a menu with the five job-framed items on click', async () => {
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        const menuBtn = wrapper.find('[data-testid="copy-for-ai-menu-btn"]')
+        await menuBtn.trigger('click')
+        await wrapper.vm.$nextTick()
+
+        expect(menuBtn.attributes('aria-expanded')).toBe('true')
+        const menu = wrapper.find('[role="menu"]')
+        expect(menu.exists()).toBe(true)
+        expect(wrapper.findAll('[role="menuitem"]')).toHaveLength(5)
+
+        expect(wrapper.find('[data-testid="copy-for-ai-job-explain"]').text()).toContain('Ask about this flow')
+        expect(wrapper.find('[data-testid="copy-for-ai-job-update"]').text()).toContain('Update this diagram')
+        expect(wrapper.find('[data-testid="copy-for-ai-job-implement"]').text()).toContain('Implement this design')
+        expect(wrapper.find('[data-testid="copy-for-ai-job-audit"]').text()).toContain('Check against my codebase')
+        expect(wrapper.find('[data-testid="copy-for-ai-job-tests"]').text()).toContain('Generate test cases')
+      })
+
+      it('clicking a job item copies that job\'s preamble, fires copy_for_ai_clicked with its job + outcome copied, and drives the PRIMARY segment\'s state machine (no toast)', async () => {
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        await wrapper.find('[data-testid="copy-for-ai-menu-btn"]').trigger('click')
+        await wrapper.vm.$nextTick()
+        await wrapper.find('[data-testid="copy-for-ai-job-update"]').trigger('click')
+        await flushPromises()
+
+        const writeText = vi.mocked(navigator.clipboard.writeText)
+        expect(writeText).toHaveBeenCalledTimes(1)
+        const copiedText = writeText.mock.calls[0][0] as string
+        expect(copiedText).toContain(SOURCE_DSL)
+        expect(copiedText).toContain("I want to change this diagram.")
+
+        // Same state machine as a primary-segment click — plays on the
+        // PRIMARY button (data-testid="copy-for-ai-btn"), not the chevron.
+        const primaryBtn = wrapper.find('[data-testid="copy-for-ai-btn"]')
+        expect(primaryBtn.attributes('data-copy-state')).toBe('copied')
+        expect(activeCopyLabel(wrapper)).toBe('Copied')
+        expect(wrapper.find('[data-testid="copy-for-ai-announcement"]').text()).toBe('Copied')
+        expect(toast).not.toHaveBeenCalled()
+
+        const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+        expect(call).toBeTruthy()
+        expect(call![1]).toMatchObject({
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: DiagramType.Sequence,
+          outcome: 'copied',
+          job: 'update',
+        })
+      })
+
+      it('closes the menu immediately after selecting a job item, while the primary segment is already showing "Copying…"', async () => {
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        await wrapper.find('[data-testid="copy-for-ai-menu-btn"]').trigger('click')
+        await wrapper.vm.$nextTick()
+        expect(wrapper.find('[role="menu"]').exists()).toBe(true)
+
+        // Deliberately don't flushPromises() here — this asserts the menu
+        // closes and the primary segment starts its state machine on the
+        // SAME tick as the click, not after the copy's async work settles.
+        await wrapper.find('[data-testid="copy-for-ai-job-tests"]').trigger('click')
+        expect(wrapper.find('[role="menu"]').exists()).toBe(false)
+        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('copying')
+
+        await flushPromises()
+        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('copied')
+      })
     })
   })
 

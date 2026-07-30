@@ -142,6 +142,8 @@ The legacy MCP-based approach below is preserved for the cases where the script 
 "breakdowns": [{"metric": {"type": "property", "propertyName": "client_domain", "propertyType": "string", "resource": "event"}}]
 ```
 
+**Filter shapes (MCP fallback, verified 2026-07-28):** string filters take a SINGLE value — no arrays (`{"type":"string","propertyName":"client_domain","operator":"equals","value":"<one-domain>"}`). For a domain list, either breakdown by `client_domain` and filter rows client-side, or use one metric per domain with metric-level `filters`. Boolean filters need both operator and value: `{"type":"boolean","propertyName":"is_internal_client_domain","operator":"false","value":false}`. For per-editor (champion-structure) breakdowns use `user_account_id` — breaking down by `distinct_id` returns a single `"undefined"` bucket.
+
 The daily script runs these events in parallel internally.
 
 **Q1 — Paywall block events**

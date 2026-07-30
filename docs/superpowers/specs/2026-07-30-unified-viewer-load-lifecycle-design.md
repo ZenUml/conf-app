@@ -1,7 +1,7 @@
 # Unified Viewer Load Lifecycle
 
 **Date:** 2026-07-30
-**Status:** Scope approved; written specification pending review
+**Status:** Approved; implementation in progress
 
 ## Context
 
@@ -98,7 +98,7 @@ The Module owns:
 - the resolved Forge context value for the session, after preserving any
   required `apWrapper` initialization;
 - target resolution and cache identity construction;
-- paywall-before-content ordering for callers that use the fullscreen gate;
+- paywall-before-mount ordering for callers that use the fullscreen gate;
 - cache read, decode, publication, revalidation, and write;
 - content fetch timing;
 - explicit load-state transitions;
@@ -242,7 +242,9 @@ detail.
 ### Cache miss
 
 1. Initialize Forge context once.
-2. Run paywall/gate checks in their current order.
+2. Run paywall/gate checks without allowing cache publication or a viewer mount
+   to precede a blocking fullscreen paywall. Existing content-request ordering
+   is preserved where it differs between entry points.
 3. Resolve one target and optional complete cache identity.
 4. Mount the compatible loading shell and enter `loading`.
 5. Time and execute `adapter.load(target)`.
@@ -287,7 +289,10 @@ today, and is not awaited by the first cached render.
 
 ## Compatibility constraints
 
-- Fullscreen paywall is evaluated before a cache-backed viewer can mount.
+- Fullscreen paywall is evaluated before a cache-backed viewer can mount. This
+  refactor does not make network-request order part of the Interface: the
+  Diagram macro may preserve its existing request-before-gate order while the
+  dedicated viewers preserve their gate-before-request order.
 - Sequence viewport deferral still starts revalidation immediately rather than
   waiting for the viewport gate.
 - Raw compressed Graph documents remain cached raw and are normalized only at

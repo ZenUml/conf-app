@@ -103,13 +103,59 @@
                   :aria-busy="copyForAiState === 'copying'"
                   @click="copyForAi('generic')"
                 >
-                  <svg v-if="copyForAiState === 'idle'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.456-2.456L14.25 6l1.035-.259a3.375 3.375 0 0 0 2.456-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
-                  </svg>
-                  <svg v-else-if="copyForAiState === 'copied'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                  </svg>
-                  <span>{{ copyForAiButtonLabel }}</span>
+                  <!-- Constant-width sizer: every possible label (icon+text pair)
+                       is stacked in the same grid cell (grid-area: 1 / 1) so the
+                       button's width is permanently the widest of the five —
+                       identical in idle and through every transition. Only the
+                       state matching copyForAiActiveLabelKey is visible
+                       (visibility, not display:none, so it keeps sizing the
+                       grid); the rest stay in the layout aria-hidden. The
+                       button's own aria-label (above) already carries the
+                       correct accessible name regardless of which cell is
+                       visible. -->
+                  <span class="copy-for-ai-label-stack">
+                    <span
+                      class="copy-for-ai-label-cell"
+                      :data-active="copyForAiActiveLabelKey === 'idle' ? 'true' : 'false'"
+                      :aria-hidden="copyForAiActiveLabelKey === 'idle' ? null : 'true'"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.456-2.456L14.25 6l1.035-.259a3.375 3.375 0 0 0 2.456-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+                      </svg>
+                      <span>Copy for AI</span>
+                    </span>
+                    <span
+                      class="copy-for-ai-label-cell"
+                      :data-active="copyForAiActiveLabelKey === 'copying' ? 'true' : 'false'"
+                      :aria-hidden="copyForAiActiveLabelKey === 'copying' ? null : 'true'"
+                    >
+                      <span>Copying…</span>
+                    </span>
+                    <span
+                      class="copy-for-ai-label-cell"
+                      :data-active="copyForAiActiveLabelKey === 'copied' ? 'true' : 'false'"
+                      :aria-hidden="copyForAiActiveLabelKey === 'copied' ? null : 'true'"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                      </svg>
+                      <span>Copied</span>
+                    </span>
+                    <span
+                      class="copy-for-ai-label-cell"
+                      :data-active="copyForAiActiveLabelKey === 'copy-failed' ? 'true' : 'false'"
+                      :aria-hidden="copyForAiActiveLabelKey === 'copy-failed' ? null : 'true'"
+                    >
+                      <span>Copy failed</span>
+                    </span>
+                    <span
+                      class="copy-for-ai-label-cell"
+                      :data-active="copyForAiActiveLabelKey === 'nothing-to-copy' ? 'true' : 'false'"
+                      :aria-hidden="copyForAiActiveLabelKey === 'nothing-to-copy' ? null : 'true'"
+                    >
+                      <span>Nothing to copy</span>
+                    </span>
+                  </span>
                 </button>
                 <CopyForAiMenu @select="copyForAi" />
                 <!-- Mintlify-style inline feedback: the button's own label already
@@ -436,6 +482,16 @@ export default {
     // / Nothing to copy).
     copyForAiButtonLabel() {
       return this.copyForAiState === 'idle' ? 'Copy for AI' : this.copyForAiLabel;
+    },
+    // Selects which grid-stack cell (see the template) is the currently
+    // visible one. Mirrors copyForAiButtonLabel's state->text mapping, but as
+    // a fixed key: the 'failed' state carries two different possible labels
+    // (empty-DSL guard vs. clipboard-write failure), and the sizer needs a
+    // literal, always-present cell per label — not one cell whose text swaps
+    // at runtime — so the button's width truly never changes.
+    copyForAiActiveLabelKey() {
+      if (this.copyForAiState !== 'failed') return this.copyForAiState;
+      return this.copyForAiLabel === 'Nothing to copy' ? 'nothing-to-copy' : 'copy-failed';
     },
     // Small-macro action-area affordance — hidden once already in Fullscreen
     // (that surface shows the Connect *rail* instead, see showAgentLinkPanel).
@@ -1122,6 +1178,27 @@ export default {
 }
 .copy-for-ai-split-primary {
   border-radius: 6px 0 0 6px;
+}
+
+/* Constant-width sizer (see the template comment above the button markup):
+   every label cell shares grid-area 1/1, so the grid's own size — and with
+   it the button's content-box width — is permanently the widest cell,
+   independent of which one is visible. visibility:hidden (not display:none)
+   keeps the inactive cells sized-but-invisible so they keep contributing to
+   that measurement through every transition. */
+.copy-for-ai-label-stack {
+  display: grid;
+  justify-items: center;
+  align-items: center;
+}
+.copy-for-ai-label-cell {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.copy-for-ai-label-cell[data-active="false"] {
+  visibility: hidden;
 }
 
 .viewer-btn-primary {

@@ -358,6 +358,15 @@ describe('GenericViewer (chrome-less)', () => {
     let originalClipboard: PropertyDescriptor | undefined
     let originalIsSecureContext: PropertyDescriptor | undefined
 
+    // The button's visible label is a CSS grid-stack (GenericViewer.vue):
+    // every state's label is a permanent DOM node — sized but
+    // visibility:hidden when inactive — so the button's width never changes
+    // across states. That means wrapper.find(...).text() now concatenates
+    // ALL five labels regardless of which is showing; scope state-specific
+    // assertions to the one cell marked data-active="true".
+    const activeCopyLabel = (root: ReturnType<typeof mountViewer>, testid = 'copy-for-ai-btn') =>
+      root.find(`[data-testid="${testid}"] [data-active="true"]`).text()
+
     beforeEach(() => {
       store.state.diagram.code = SOURCE_DSL
       store.state.diagram.mermaidCode = 'sequenceDiagram\n  A->>B: hi'
@@ -396,7 +405,7 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises()
       const btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
       expect(btn.exists()).toBe(true)
-      expect(btn.text()).toContain('Copy for AI')
+      expect(activeCopyLabel(wrapper)).toBe('Copy for AI')
       expect(btn.attributes('data-copy-state')).toBe('idle')
       expect(btn.attributes('disabled')).toBeUndefined()
     })
@@ -423,7 +432,7 @@ describe('GenericViewer (chrome-less)', () => {
 
       const btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
       expect(btn.attributes('data-copy-state')).toBe('copied')
-      expect(btn.text()).toContain('Copied')
+      expect(activeCopyLabel(wrapper)).toBe('Copied')
       expect(wrapper.find('[data-testid="copy-for-ai-announcement"]').text()).toBe('Copied')
       expect(toast).not.toHaveBeenCalled()
 
@@ -467,7 +476,7 @@ describe('GenericViewer (chrome-less)', () => {
       expect(btn.attributes('data-copy-state')).toBe('copying')
       expect(btn.attributes('disabled')).toBeDefined()
       expect(btn.attributes('aria-busy')).toBe('true')
-      expect(btn.text()).toContain('Copying')
+      expect(activeCopyLabel(wrapper)).toBe('Copying…')
       // No clipboard write yet — still waiting on the page fetch.
       expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
 
@@ -503,7 +512,7 @@ describe('GenericViewer (chrome-less)', () => {
 
         let btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
         expect(btn.attributes('data-copy-state')).toBe('copied')
-        expect(btn.text()).toContain('Copied')
+        expect(activeCopyLabel(wrapper)).toBe('Copied')
 
         // Not yet reverted just before the ~2s mark.
         await vi.advanceTimersByTimeAsync(1900)
@@ -512,7 +521,7 @@ describe('GenericViewer (chrome-less)', () => {
         await vi.advanceTimersByTimeAsync(200)
         btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
         expect(btn.attributes('data-copy-state')).toBe('idle')
-        expect(btn.text()).toContain('Copy for AI')
+        expect(activeCopyLabel(wrapper)).toBe('Copy for AI')
         expect(wrapper.find('[data-testid="copy-for-ai-announcement"]').text()).toBe('')
       } finally {
         vi.useRealTimers()
@@ -584,7 +593,7 @@ describe('GenericViewer (chrome-less)', () => {
 
       const btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
       expect(btn.attributes('data-copy-state')).toBe('failed')
-      expect(btn.text()).toContain('Nothing to copy')
+      expect(activeCopyLabel(wrapper)).toBe('Nothing to copy')
       expect(wrapper.find('[data-testid="copy-for-ai-announcement"]').text()).toBe('Nothing to copy')
       expect(toast).not.toHaveBeenCalled()
 
@@ -651,7 +660,7 @@ describe('GenericViewer (chrome-less)', () => {
 
       const btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
       expect(btn.attributes('data-copy-state')).toBe('failed')
-      expect(btn.text()).toContain('Copy failed')
+      expect(activeCopyLabel(wrapper)).toBe('Copy failed')
       expect(wrapper.find('[data-testid="copy-for-ai-announcement"]').text()).toBe('Copy failed')
       expect(toast).not.toHaveBeenCalled()
 
@@ -676,12 +685,12 @@ describe('GenericViewer (chrome-less)', () => {
 
         let btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
         expect(btn.attributes('data-copy-state')).toBe('failed')
-        expect(btn.text()).toContain('Copy failed')
+        expect(activeCopyLabel(wrapper)).toBe('Copy failed')
 
         await vi.advanceTimersByTimeAsync(2000)
         btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
         expect(btn.attributes('data-copy-state')).toBe('idle')
-        expect(btn.text()).toContain('Copy for AI')
+        expect(activeCopyLabel(wrapper)).toBe('Copy for AI')
       } finally {
         vi.useRealTimers()
       }
@@ -757,7 +766,7 @@ describe('GenericViewer (chrome-less)', () => {
         // PRIMARY button (data-testid="copy-for-ai-btn"), not the chevron.
         const primaryBtn = wrapper.find('[data-testid="copy-for-ai-btn"]')
         expect(primaryBtn.attributes('data-copy-state')).toBe('copied')
-        expect(primaryBtn.text()).toContain('Copied')
+        expect(activeCopyLabel(wrapper)).toBe('Copied')
         expect(wrapper.find('[data-testid="copy-for-ai-announcement"]').text()).toBe('Copied')
         expect(toast).not.toHaveBeenCalled()
 

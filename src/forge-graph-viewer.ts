@@ -5,119 +5,13 @@ import {decompress} from '@/utils/compress';
 import ForgeGraphViewer from "@/components/Viewer/ForgeGraphViewer.vue";
 import EventBus from './EventBus'
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
-import { DataSource, Diagram, DiagramType } from "@/model/Diagram/Diagram";
-import { reportOrphanObserved } from '@/utils/orphanTelemetry';
-import {
-  reportLegacyContentPropertyRestored,
-  reportLegacyContentPropertyLoadFailed,
-  reportLegacyContentPropertyValueUnexpected,
-} from '@/utils/legacyContentPropertyTelemetry';
-import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
+import { type Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
 import { guardEditClick } from '@/utils/guardEditClick';
-
-async function loadDiagram(): Promise<Diagram | undefined> {
-  const context = await initForgeContext();
-
-  let doc: Diagram | undefined;
-  const customContentId = context.extension?.config?.customContentId;
-  const pageId = context.extension?.content?.id;
-  if(!customContentId) {
-  } else {
-    // Viewer copy check is the zero-network cross-page comparison only. The
-    // full-page ADF scan it replaces was ~15% of a graph render's p50
-    // (354ms of 2338ms, 7d external) and its ONLY viewer-visible product —
-    // disabling Edit on a same-page duplicate — is now produced on demand by
-    // the Edit click gate (utils/guardEditClick.ts). The editor keeps the
-    // blocking full scan, which is what guards the save-fork path.
-    const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(
-      pageId, customContentId, { copyCheckMode: 'cross-page-only' },
-    );
-    console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
-    doc = loaded.customContent?.value;
-    if (loaded.recoveredFromOrphanId && doc) {
-      doc.recoveredFromOrphan = true;
-      doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
-      reportOrphanObserved(pageId, customContentId, 'graph', loaded.probeResult, {
-        recoveryUsed: true,
-        recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
-      });
-    } else if (!doc) {
-      reportOrphanObserved(pageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false });
-    }
-  }
-
-  // ZEN-1170 Defect 1: legacy macros (Connect-era) stored their body in a
-  // page content property keyed by config.uuid. The Forge viewer code path
-  // lost that fallback, leaving affected legacy pages with an empty iframe.
-  // Try the legacy property when custom content didn't produce a doc
-  // (whether because customContentId was missing OR because the orphan path
-  // didn't recover anything). Key MUST come from config.uuid, not localId
-  // (those are different identifiers; the legacy writer used config.uuid).
-  if (!doc) {
-    const storageUuid = context.extension?.config?.uuid;
-    if (storageUuid) {
-      const result = await globals.apWrapper.getContentPropertyV2(
-        `zenuml-graph-macro-${storageUuid}-body`,
-      );
-      if (result.status === 'ok') {
-        const value = result.property.value;
-        if (value && typeof value === 'object') {
-          // Legacy V1 storage (Connect-era) compressed graphXml and set
-          // `compressed: true` on the property value; the post-Forge CC
-          // path stores plain XML. Decompress here so doc.graphXml is
-          // always plain XML downstream. The viewer reacts to the store update
-          // after the shell mount, so publishing compressed bytes would still
-          // render blank.
-          const restored = value as Diagram & { compressed?: boolean };
-          let graphXml = restored.graphXml;
-          if (restored.compressed && graphXml && !graphXml.startsWith('<mxGraphModel')) {
-            graphXml = decompress(graphXml);
-          }
-          doc = {
-            ...restored,
-            graphXml,
-            compressed: false,
-            diagramType: DiagramType.Graph,
-            source: DataSource.ContentProperty,
-            id: undefined,
-            recoveredFromOrphan: true,
-          };
-          reportLegacyContentPropertyRestored('viewer', 'graph', storageUuid, { pageId });
-        } else if (typeof value === 'string') {
-          reportLegacyContentPropertyValueUnexpected('viewer', 'graph', storageUuid, 'string');
-        } else {
-          reportLegacyContentPropertyValueUnexpected('viewer', 'graph', storageUuid, value == null ? 'null' : 'other');
-        }
-      } else if (result.status !== 'not_found') {
-        reportLegacyContentPropertyLoadFailed('viewer', 'graph', storageUuid, result.status === 'forbidden' ? 'forbidden' : result.status === 'error' ? result.reason : 'thrown', { pageId });
-      }
-
-      // ZEN-1170 Defect 1 sibling: cross-page-paste recovery. The content
-      // property above lives on THIS page, but a Connect-era macro copy-
-      // pasted to a new page has no property here — its body survives only
-      // as a CustomContent on the SOURCE page, titled with the uuid. This
-      // step finds it by exact-title CQL search and flags isCopy=true so
-      // the viewer renders the cross-page warning.
-      if (!doc) {
-        const recovered = await globals.apWrapper.findLegacyCustomContentByUuid(storageUuid);
-        if (recovered?.value) {
-          doc = recovered.value;
-          doc.recoveredFromOrphan = true;
-          trackEvent(storageUuid, 'legacy_custom_content_by_uuid_restored', 'info', {
-            surface: 'viewer',
-            macro_type: 'graph',
-            recovered_id: String(recovered.id ?? ''),
-            is_copy: doc.isCopy ? 'true' : 'false',
-            ...(pageId && { page_id: pageId }),
-          });
-        }
-      }
-    }
-  }
-
-  return doc;
-}
+import { mountRoot } from '@/mount-root';
+import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
+import { runViewerLoadLifecycle } from '@/utils/viewerLoadLifecycle';
+import { graphViewerAdapter } from '@/utils/viewerAdapters/graphViewerAdapter';
 
 function afterLoad(doc: Diagram | undefined) {
   // Rendering is driven by the store (publishLoadedDiagram normalizes legacy
@@ -156,13 +50,25 @@ function afterLoad(doc: Diagram | undefined) {
 
 async function initializeMacro() {
   await ensureDrawioViewerLoaded();
-  await bootstrapForgeViewer({
-    macroKind: 'graph',
-    content: ForgeGraphViewer,
-    loadDiagram,
-    afterLoad,
-    // Same id `loadDiagram` reads off `context.extension.config` above.
-    resolveContentId: (context) => context.extension?.config?.customContentId,
+  await runViewerLoadLifecycle({
+    macroType: 'graph',
+    initializeContext: () => globals.apWrapper.initializeContext(),
+    getContext: initForgeContext,
+    adapter: graphViewerAdapter,
+    loadingDocument: NULL_DIAGRAM,
+    mountLoadingBeforeCache: true,
+    mount: async (doc, reporter) => {
+      const paywalled = await tryFullscreenViewerPaywall({
+        doc,
+        content: ForgeGraphViewer,
+        macroKind: 'graph',
+        viewerRenderReporter: reporter,
+      });
+      if (!paywalled) {
+        mountRoot(doc, ForgeGraphViewer, {}, { viewerRenderReporter: reporter });
+      }
+    },
+    afterFreshLoad: afterLoad,
     onError: (error) => {
       console.error('Error loading graph viewer', error);
     },

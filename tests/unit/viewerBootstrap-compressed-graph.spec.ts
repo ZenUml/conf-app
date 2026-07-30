@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import store from '@/model/store2';
-import { publishLoadedDiagram } from '@/utils/viewerBootstrap';
+import { runViewerLoadLifecycle } from '@/utils/viewerLoadLifecycle';
 import { compress } from '@/utils/compress';
 import { DiagramType } from '@/model/Diagram/Diagram';
 
@@ -14,11 +14,23 @@ import { DiagramType } from '@/model/Diagram/Diagram';
 //
 // The fix normalizes at the single store-write boundary (publishLoadedDiagram),
 // so the store always holds plain <mxGraphModel> XML regardless of load path.
-describe('publishLoadedDiagram — legacy compressed graph normalization', () => {
+describe('viewerLoadLifecycle — legacy compressed graph normalization', () => {
   const SAMPLE_XML =
     '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" value="IA/RDA"/></root></mxGraphModel>';
 
-  it('decompresses a compressed graph doc before it reaches the store', () => {
+  async function publish(doc: any) {
+    await runViewerLoadLifecycle({
+      macroType: 'graph',
+      getContext: async () => ({}),
+      adapter: {
+        resolve: async () => ({ status: 'loadable', target: 'graph' }),
+        load: async () => doc,
+      },
+      mount: () => undefined,
+    });
+  }
+
+  it('decompresses a compressed graph doc before it reaches the store', async () => {
     const doc = {
       diagramType: DiagramType.Graph,
       compressed: true,
@@ -28,22 +40,22 @@ describe('publishLoadedDiagram — legacy compressed graph normalization', () =>
     // viewer detects via `!graphXml.startsWith('<mxGraphModel')`).
     expect(doc.graphXml.startsWith('<mxGraphModel')).toBe(false);
 
-    publishLoadedDiagram(doc);
+    await publish(doc);
 
-    expect(store.state.diagram.graphXml.startsWith('<mxGraphModel')).toBe(true);
+    expect(store.state.diagram.graphXml?.startsWith('<mxGraphModel')).toBe(true);
     expect(store.state.diagram.graphXml).toBe(SAMPLE_XML);
     expect(store.state.diagram.compressed).toBe(false);
   });
 
-  it('passes a plain-XML graph doc through unchanged', () => {
+  it('passes a plain-XML graph doc through unchanged', async () => {
     const doc = { diagramType: DiagramType.Graph, graphXml: SAMPLE_XML } as any;
 
-    publishLoadedDiagram(doc);
+    await publish(doc);
 
     expect(store.state.diagram.graphXml).toBe(SAMPLE_XML);
   });
 
-  it('does not mutate the caller doc (afterLoad telemetry still sees compressed)', () => {
+  it('does not mutate the caller doc (afterLoad telemetry still sees compressed)', async () => {
     const compressed = compress(SAMPLE_XML);
     const doc = {
       diagramType: DiagramType.Graph,
@@ -51,7 +63,7 @@ describe('publishLoadedDiagram — legacy compressed graph normalization', () =>
       graphXml: compressed,
     } as any;
 
-    publishLoadedDiagram(doc);
+    await publish(doc);
 
     expect(doc.compressed).toBe(true);
     expect(doc.graphXml).toBe(compressed);

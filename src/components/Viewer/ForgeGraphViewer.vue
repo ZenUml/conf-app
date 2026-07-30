@@ -45,10 +45,17 @@
 <script>
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import { viewerRenderReporterKey } from '@/utils/viewerRenderReporter';
 export default {
   name: "ForgeGraphViewer",
   components: {
     GenericViewer
+  },
+  inject: {
+    viewerRenderReporter: {
+      from: viewerRenderReporterKey,
+      default: null,
+    },
   },
   props: {
     graphXml: String
@@ -77,6 +84,7 @@ export default {
     renderViewer() {
       const container = this.$refs.graphContainer;
       if (!container || !this.effectiveGraphXml) return;
+      const revision = this.viewerRenderReporter?.captureRevision() ?? 0;
       container.innerHTML = '';
       try {
         // GraphViewer accepts <mxfile> (multi-page) and raw <mxGraphModel>
@@ -93,9 +101,14 @@ export default {
         });
         this.pageCount = this.graphViewer.diagrams?.length || 0;
         this.currentPage = this.graphViewer.currentPage || 0;
-        trackRenderTime('graph', this.$store.getters.isDisplayMode);
+        if (this.viewerRenderReporter && revision > 0) {
+          this.viewerRenderReporter.rendered(revision);
+        } else if (!this.viewerRenderReporter) {
+          trackRenderTime('graph', this.$store.getters.isDisplayMode);
+        }
       } catch (e) {
         console.error('ForgeGraphViewer: GraphViewer init failed:', e);
+        this.viewerRenderReporter?.failed(revision, e);
       }
     },
     goToPage(index) {

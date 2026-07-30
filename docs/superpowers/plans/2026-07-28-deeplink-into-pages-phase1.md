@@ -22,14 +22,14 @@
 
 `functions/deeplink-ticket.ts` (+ `functions/deeplink-ticket.spec.ts`, `functions/deeplink-ticket.contract.spec.ts`) live on branch `feat/confluence-deeplink-page` (#399), NOT on this branch (off origin/main). Task 1 refactors the mint, so it must be present first.
 
-- [ ] Copy the three files from #399 into this branch:
+- [x] Copy the three files from #399 into this branch:
 ```bash
 git show origin/feat/confluence-deeplink-page:functions/deeplink-ticket.ts > functions/deeplink-ticket.ts
 git show origin/feat/confluence-deeplink-page:functions/deeplink-ticket.spec.ts > functions/deeplink-ticket.spec.ts
 git show origin/feat/confluence-deeplink-page:functions/deeplink-ticket.contract.spec.ts > functions/deeplink-ticket.contract.spec.ts
 ```
 - [ ] Run `npx vitest run functions/deeplink-ticket.spec.ts functions/deeplink-ticket.contract.spec.ts` — expect PASS (baseline before Task 1's refactor).
-- [ ] Commit: `git add functions/deeplink-ticket*.ts && git commit -m "chore(deeplink): bring mint endpoint into the pages-migration branch from #399"`
+- [x] Commit: `git add functions/deeplink-ticket*.ts && git commit -m "chore(deeplink): bring mint endpoint into the pages-migration branch from #399"`
 
 ### Task 1: Shared signing/ticket module — `functions/utils/deeplink.ts`
 **Files:**
@@ -43,7 +43,7 @@ git show origin/feat/confluence-deeplink-page:functions/deeplink-ticket.contract
 - Consumes: nothing (pure Web Crypto + string helpers, ported verbatim from `workers/confluence-deeplink/src/index.ts` lines 40-101 and 105-117 and 318-338, plus `signTicket` moved from `functions/deeplink-ticket.ts` lines 69-73 of the pre-refactor file).
 - Note: `Ticket.u` is new (not in the Worker). It is set only by the mint (Task 7) when the calling Forge app is Lite, and consumed only by `previewPage()` (Task 2) to gate the Lite upgrade CTA. It does not affect signing or verification — `isTicket()` never required it, so it round-trips as an ordinary optional JSON field.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 ```ts
 // functions/utils/deeplink.spec.ts
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -113,7 +113,7 @@ describe("functions/utils/deeplink (shared signing/ticket helpers)", () => {
 - [ ] **Step 2: Run test to verify it fails**
   `npx vitest run functions/utils/deeplink.spec.ts` — expect a resolution error: `Cannot find module './deeplink'` (the module does not exist yet).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   Create `functions/utils/deeplink.ts`:
   ```ts
@@ -277,10 +277,10 @@ describe("functions/utils/deeplink (shared signing/ticket helpers)", () => {
   ```
   Keep `onRequest` body exactly as-is (it already calls `signTicket(payload, secret)` and `imgKeyFor(...)` — those calls now resolve to the imported functions, no change needed at the call sites in this task). Do **not** change the hardcoded `url: \`https://confluence.zenuml.com/...\`` line yet — that is Task 7.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
   `npx vitest run functions/utils/deeplink.spec.ts functions/deeplink-ticket.spec.ts` — both files pass; `deeplink-ticket.spec.ts` is unchanged and must still pass unmodified (confirms the refactor introduced no behavior change).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git add functions/utils/deeplink.ts functions/utils/deeplink.spec.ts functions/deeplink-ticket.ts`
   `git commit -m "refactor(deeplink): extract shared signing/ticket helpers into functions/utils/deeplink.ts"`
 
@@ -296,7 +296,7 @@ describe("functions/utils/deeplink (shared signing/ticket helpers)", () => {
 - Consumes: `Ticket` type from `./deeplink` (Task 1).
 - Design note on the CTA: gating is on `ticket.u === 1`, **not** on request host. Diagramly rides the same `conf-lite.zenuml.com` backend as Lite, so a host-based check would incorrectly show the Lite upsell to Diagramly users. `ticket.u` is set at mint time (Task 7) from the Forge app identity of the *caller*, which is the only reliable signal — the serving side has no other way to know which product minted a given ticket.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 ```ts
 // functions/utils/deeplinkPages.spec.ts
 import { describe, it, expect } from "vitest";
@@ -346,7 +346,7 @@ describe("deeplinkPages", () => {
 - [ ] **Step 2: Run test to verify it fails**
   `npx vitest run functions/utils/deeplinkPages.spec.ts` — expect `Cannot find module './deeplinkPages'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   Create `functions/utils/deeplinkPages.ts`:
   ```ts
@@ -571,10 +571,10 @@ describe("deeplinkPages", () => {
   }
   ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
   `npx vitest run functions/utils/deeplinkPages.spec.ts`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git add functions/utils/deeplinkPages.ts functions/utils/deeplinkPages.spec.ts`
   `git commit -m "feat(deeplink): port page renderers to functions/utils/deeplinkPages.ts, add Lite upgrade CTA"`
 
@@ -589,7 +589,7 @@ describe("deeplinkPages", () => {
 - Consumes: `Env`, `verifyToken`, `imageFresh`, `imgKeyFor` from `../utils/deeplink` (Task 1).
 - Produces: `onRequest: PagesFunction<Env, "token">`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 ```ts
 // functions/i/token-route.spec.ts
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -657,7 +657,7 @@ describe("functions/i/[token] (image serving)", () => {
 - [ ] **Step 2: Run test to verify it fails**
   `npx vitest run functions/i/token-route.spec.ts` — expect `Cannot find module './[token]'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 ```ts
 // functions/i/[token].ts
 // Serves the /i/<token> preview PNG — ported from
@@ -697,10 +697,10 @@ export const onRequest: PagesFunction<Env, "token"> = async ({ request, env, par
 };
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
   `npx vitest run functions/i/token-route.spec.ts`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git add functions/i/`
   `git commit -m "feat(deeplink): serve /i/<token> preview PNG as a Pages Function"`
 
@@ -716,7 +716,7 @@ export const onRequest: PagesFunction<Env, "token"> = async ({ request, env, par
 - Produces: `onRequest: PagesFunction<Env, "path">`.
 - Deliberately does **not** port the Worker's `/` → 302 redirect (Worker lines 349-351) or its generic 404 fallback (Worker lines 397-404) — those are whole-domain-ownership concerns; `conf-lite.zenuml.com` already owns `/` via the existing SPA. This function only ever receives `/d` and `/d/*` requests (Cloudflare's `[[path]]` catch-all + the `public/_routes.json` allowlist added in Task 5), so there is no other path space to default-404 on.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 ```ts
 // functions/d/path-route.spec.ts
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -825,7 +825,7 @@ describe("functions/d/[[path]] (page serving)", () => {
 - [ ] **Step 2: Run test to verify it fails**
   `npx vitest run functions/d/path-route.spec.ts` — expect `Cannot find module './[[path]]'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 ```ts
 // functions/d/[[path]].ts
 // Serves the /d/<cloudId>/<contentId> deeplink page — ported from
@@ -880,10 +880,10 @@ export const onRequest: PagesFunction<Env, "path"> = async ({ request, env }) =>
 };
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
   `npx vitest run functions/d/path-route.spec.ts`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git add functions/d/`
   `git commit -m "feat(deeplink): serve /d/<cloudId>/<contentId> page as a Pages Function"`
 
@@ -899,7 +899,7 @@ export const onRequest: PagesFunction<Env, "path"> = async ({ request, env }) =>
 **Interfaces:**
 - Produces (new, exported from `functions/_middleware.ts`): `AUTHENTICATED_PATHS: string[]`, `redactedRequestUrlForLogging(url: string): string`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 ```ts
 // public/_routes.spec.ts
 import { describe, it, expect } from "vitest";
@@ -944,7 +944,7 @@ describe("_middleware", () => {
 - [ ] **Step 2: Run test to verify it fails**
   `npx vitest run public/_routes.spec.ts functions/_middleware.spec.ts` — `_routes.spec.ts` fails on the `arrayContaining` assertion (paths not yet present); `_middleware.spec.ts` fails with `does not provide an export named 'AUTHENTICATED_PATHS'` (not yet exported) and `'redactedRequestUrlForLogging'` (does not exist).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   `public/_routes.json` — add to the `include` array (after `"/agent-link/*"`):
   ```json
@@ -1023,10 +1023,10 @@ describe("_middleware", () => {
   ];
   ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
   `npx vitest run public/_routes.spec.ts functions/_middleware.spec.ts`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git add public/_routes.json functions/_middleware.ts public/_routes.spec.ts functions/_middleware.spec.ts`
   `git commit -m "feat(deeplink): allowlist /d /i /deeplink-ticket; gate mint on auth; redact deeplink paths from logs"`
 
@@ -1042,7 +1042,7 @@ describe("_middleware", () => {
 - Consumer (unchanged, no edit needed): `src/forge-embed-viewer.ts` calls `parseEmbedDeeplink(context.extension.autoConvertLink)`.
 - Design note: staging hosts (`conf-stg-lite.zenuml.com`) are deliberately **not** accepted. The Forge manifest `autoConvert` matcher is a single literal string, not environment-templated (see Task 8) — every install, staging or production, ships the same production-host matcher. A pasted deeplink therefore always carries the production host, even on a staging site.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 ```ts
 // src/utils/embedDeeplink.spec.ts
 import { describe, it, expect } from 'vitest';
@@ -1080,7 +1080,7 @@ describe('parseEmbedDeeplink', () => {
 - [ ] **Step 2: Run test to verify it fails**
   `npx vitest run src/utils/embedDeeplink.spec.ts` — the new `it.each` cases for `conf-lite.zenuml.com` / `conf-full.zenuml.com` fail (regex still single-host); the `conf-stg-lite.zenuml.com` rejection case passes coincidentally (already rejected) but is now asserted deliberately rather than by accident.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 ```ts
 // src/utils/embedDeeplink.ts
 // Deeplink shape is locked by the autoConvert matcher in manifest.yml. Each
@@ -1104,10 +1104,10 @@ export function parseEmbedDeeplink(url: string): EmbedDeeplink | undefined {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
   `npx vitest run src/utils/embedDeeplink.spec.ts`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git add src/utils/embedDeeplink.ts src/utils/embedDeeplink.spec.ts`
   `git commit -m "feat(deeplink): accept conf-lite/conf-full hosts in the embed-macro deeplink parser"`
 
@@ -1122,7 +1122,7 @@ export function parseEmbedDeeplink(url: string): EmbedDeeplink | undefined {
 - Behavior change only (signature unchanged): the JSON response's `url` field is now built from `new URL(request.url).origin` instead of a hardcoded host. The minted payload gains `u: 1` when `data.forgeContext?.forgeAppId === LITE_FORGE_APP_ID`.
 - `LITE_FORGE_APP_ID = "8ad26115-211f-4216-971b-0540f606303d"` — the Lite app's Forge `APP_ID`, taken from `scripts/forge-wizard.mjs` (`APPS.lite.appId`); already a public, non-secret value checked into this repo.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
   Update the existing assertion in `functions/deeplink-ticket.spec.ts` (the `"mints a SIGNED token..."` test) — change:
   ```ts
@@ -1171,7 +1171,7 @@ export function parseEmbedDeeplink(url: string): EmbedDeeplink | undefined {
 - [ ] **Step 2: Run test to verify it fails**
   `npx vitest run functions/deeplink-ticket.spec.ts` — the modified assertion fails (still returns `confluence.zenuml.com`); the two new tests fail (`url` mismatch; `u` always `undefined`).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   In `functions/deeplink-ticket.ts`, add the constant (near the top, with the other constants):
   ```ts
@@ -1201,10 +1201,10 @@ export function parseEmbedDeeplink(url: string): EmbedDeeplink | undefined {
   });
   ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
   `npx vitest run functions/deeplink-ticket.spec.ts`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git add functions/deeplink-ticket.ts functions/deeplink-ticket.spec.ts`
   `git commit -m "feat(deeplink): mint url from request origin (per-variant host); tag Lite tickets for the upgrade CTA"`
 
@@ -1220,7 +1220,7 @@ export function parseEmbedDeeplink(url: string): EmbedDeeplink | undefined {
 - `getManifestEditYqArgs(appKey): { expr: string }[]` (existing, from `scripts/forge-wizard.mjs`) — asserted against, not changed in signature.
 - Resolved design-spec open item: diagramly does **not** ship `zenuml-embed-macro` at all — `APPS.diagramly.manifestEdits` already contains `del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))`. So diagramly needs **no** matcher edit (there is no macro left to carry one); it still *rides* `conf-lite.zenuml.com` for minting/serving (Tasks 1-7), it just can't autoConvert a pasted link into its own macro. This is pre-existing behavior, not a regression from this migration (confirmed by `tests/e2e-tests/config/apps.ts`'s `diagramly@*` profiles already excluding `'embed'` from `macros`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 ```ts
 // manifest.spec.ts
 import { describe, it, expect } from "vitest";
@@ -1252,7 +1252,7 @@ describe("manifest.yml embed deeplink autoConvert matcher", () => {
 - [ ] **Step 2: Run test to verify it fails**
   `npx vitest run manifest.spec.ts` — first test fails (current pattern is `https://confluence.zenuml.com/d/*/*`); second test fails (full has no such edit yet).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   In `manifest.yml`, change (this is the only occurrence of this string in the file):
   ```yaml
@@ -1273,11 +1273,11 @@ describe("manifest.yml embed deeplink autoConvert matcher", () => {
   ```
   (Verified locally against a scratch copy of `manifest.yml` with `yq eval '<expr>' -i <file>` — `yq (mikefarah) v4.52.5` — the `select(.key | test(...))` form is required because the manifest key is the literal string `zenuml-embed-macro${LITE_KEY_SUFFIX}` before Forge's own env-var substitution; an exact `select(.key == "zenuml-embed-macro")` does not match.)
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
   `npx vitest run manifest.spec.ts`
   Also dry-run the new yq expression against the real file without `-i` to double check no other manifest edit ordering issue: `yq eval '(.modules.macro[] | select(.key | test("zenuml-embed-macro")) | .autoConvert.matchers[0].pattern) = "https://conf-full.zenuml.com/d/*/*"' manifest.yml | grep -A2 "zenuml-embed-macro\${LITE_KEY_SUFFIX}"`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git add manifest.yml scripts/forge-wizard.mjs manifest.spec.ts`
   `git commit -m "feat(deeplink): point default autoConvert matcher at conf-lite; full overrides to conf-full"`
 

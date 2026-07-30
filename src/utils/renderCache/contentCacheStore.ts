@@ -1,12 +1,13 @@
 /**
- * Content stale-while-revalidate cache (per-browser, localStorage), keyed by
- * customContentId — NOT by source hash.
+ * Content stale-while-revalidate cache (per-browser, localStorage), keyed by a
+ * complete viewer identity — NOT by source hash.
  *
  * The render cache (renderCacheStore) keys by hash(source), so it can only be read
  * AFTER the content is fetched — it never hides the dominant ~1337 ms content GET. This
- * store keys by the macro's customContentId, which is known from the Forge context
- * BEFORE any fetch, so the viewer can render from cache immediately and revalidate in the
- * background (SWR). That moves the content fetch off the critical path on a revisit.
+ * store keys by the Forge cloud + macro customContentId, which are known BEFORE
+ * any fetch, so the viewer can render from cache immediately and revalidate in
+ * the background (SWR). That moves the content fetch off the critical path on a
+ * revisit without treating an id from another cloud as the same document.
  *
  * Stores the serialized diagram doc + a content hash for cheap change-detection on
  * revalidate. Bounded + quota-safe like renderCacheStore: a miss / clear / overflow just
@@ -19,7 +20,7 @@
  * corrected the moment the background fetch returns a different hash.
  */
 
-const NS = 'zenuml:ccache:';
+const NS = 'zenuml:ccache:v2:';
 const INDEX_KEY = NS + '__index__'; // LRU, oldest first
 const MAX_ENTRIES = 32;
 const MAX_DOC_BYTES = 256 * 1024; // graph mxfile can be large; over this, don't cache
@@ -45,8 +46,40 @@ export interface CachedContent {
   hash: string;
 }
 
-function keyFor(customContentId: string): string {
-  return NS + customContentId;
+export type ViewerContentMacroKind =
+  | 'sequence'
+  | 'mermaid'
+  | 'plantuml'
+  | 'graph'
+  | 'openapi'
+  | 'embed';
+
+export interface ViewerContentIdentity {
+  cloudId: string;
+  customContentId: string;
+  macroKind: ViewerContentMacroKind;
+}
+
+const VIEWER_MACRO_KINDS = new Set<ViewerContentMacroKind>([
+  'sequence',
+  'mermaid',
+  'plantuml',
+  'graph',
+  'openapi',
+  'embed',
+]);
+
+function isCompleteIdentity(identity: ViewerContentIdentity | undefined): identity is ViewerContentIdentity {
+  return !!identity
+    && typeof identity.cloudId === 'string'
+    && identity.cloudId.length > 0
+    && typeof identity.customContentId === 'string'
+    && identity.customContentId.length > 0
+    && VIEWER_MACRO_KINDS.has(identity.macroKind);
+}
+
+function keyFor(identity: ViewerContentIdentity): string {
+  return `${NS}${encodeURIComponent(identity.cloudId.toLowerCase())}:${encodeURIComponent(identity.macroKind)}:${encodeURIComponent(identity.customContentId)}`;
 }
 
 function readIndex(): string[] {
@@ -67,10 +100,10 @@ function writeIndex(index: string[]): void {
  * Read the cached content for a macro. Returns undefined on miss / any storage error.
  * Touches LRU recency on a hit.
  */
-export function getCachedContent(customContentId: string): CachedContent | undefined {
+export function getCachedContent(identity: ViewerContentIdentity | undefined): CachedContent | undefined {
   try {
-    if (!customContentId) return undefined;
-    const key = keyFor(customContentId);
+    if (!isCompleteIdentity(identity)) return undefined;
+    const key = keyFor(identity);
     const raw = localStorage.getItem(key);
     if (raw == null) return undefined;
     const parsed = JSON.parse(raw);
@@ -88,12 +121,12 @@ export function getCachedContent(customContentId: string): CachedContent | undef
  * Store a macro's content (best-effort, bounded). `doc` is the serialized diagram.
  * Returns true if stored. Never throws; purges its namespace on quota error.
  */
-export function putCachedContent(customContentId: string, doc: string): boolean {
-  if (!customContentId || typeof doc !== 'string' || doc.length === 0 || doc.length > MAX_DOC_BYTES) {
+export function putCachedContent(identity: ViewerContentIdentity | undefined, doc: string): boolean {
+  if (!isCompleteIdentity(identity) || typeof doc !== 'string' || doc.length === 0 || doc.length > MAX_DOC_BYTES) {
     return false;
   }
   try {
-    const key = keyFor(customContentId);
+    const key = keyFor(identity);
     const entry: CachedContent = { doc, hash: hashContent(doc) };
     localStorage.setItem(key, JSON.stringify(entry));
     const index = readIndex().filter((k) => k !== key);

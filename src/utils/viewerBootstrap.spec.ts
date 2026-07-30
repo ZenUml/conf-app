@@ -37,7 +37,7 @@ vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
 // shape doesn't matter for these tests (resolveContentId is test-controlled
 // below); this only needs to resolve so `await initForgeContext()` doesn't hang.
 vi.mock('@/model/globals/forgeGlobal', () => ({
-  getContext: vi.fn(() => Promise.resolve({ extension: {} })),
+  getContext: vi.fn(() => Promise.resolve({ cloudId: 'cloud-test', extension: {} })),
 }));
 
 // Spy-wrapped but functionally real (backed by an in-memory Map, reusing the
@@ -49,11 +49,12 @@ vi.mock('@/utils/renderCache/contentCacheStore', async () => {
     '@/utils/renderCache/contentCacheStore',
   );
   let map = new Map<string, { doc: string; hash: string }>();
+  const keyOf = (identity: unknown) => JSON.stringify(identity);
   return {
     hashContent: actual.hashContent,
-    getCachedContent: vi.fn((id: string) => map.get(id)),
-    putCachedContent: vi.fn((id: string, doc: string) => {
-      map.set(id, { doc, hash: actual.hashContent(doc) });
+    getCachedContent: vi.fn((identity: unknown) => map.get(keyOf(identity))),
+    putCachedContent: vi.fn((identity: unknown, doc: string) => {
+      map.set(keyOf(identity), { doc, hash: actual.hashContent(doc) });
       return true;
     }),
     _resetForTesting: vi.fn(() => {
@@ -182,6 +183,11 @@ describe('viewerBootstrap', () => {
 // embed.
 describe('viewerBootstrap content SWR', () => {
   const CC_ID = 'cc-swr-1';
+  const CACHE_IDENTITY = {
+    cloudId: 'cloud-test',
+    customContentId: CC_ID,
+    macroKind: 'openapi',
+  } as const;
   const cachedDiagram = { ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi, code: 'openapi: 3.0.0\ncached' };
 
   beforeEach(() => {
@@ -193,7 +199,7 @@ describe('viewerBootstrap content SWR', () => {
   });
 
   it('a cache hit renders the cached doc without awaiting the fetch', async () => {
-    putCachedContent(CC_ID, JSON.stringify(cachedDiagram));
+    putCachedContent(CACHE_IDENTITY, JSON.stringify(cachedDiagram));
     const loadDiagram = vi.fn(() => new Promise<typeof cachedDiagram>(() => {})); // never resolves
 
     await bootstrapForgeViewer({
@@ -218,7 +224,7 @@ describe('viewerBootstrap content SWR', () => {
   });
 
   it('background revalidate republishes when the fetched content hash changed', async () => {
-    putCachedContent(CC_ID, JSON.stringify(cachedDiagram));
+    putCachedContent(CACHE_IDENTITY, JSON.stringify(cachedDiagram));
     const freshDiagram = { ...cachedDiagram, code: 'openapi: 3.0.0\nCHANGED' };
     const fetch = deferred<typeof freshDiagram>();
     const loadDiagram = vi.fn(() => fetch.promise);
@@ -239,11 +245,11 @@ describe('viewerBootstrap content SWR', () => {
     expect(store.state.diagram).toEqual(freshDiagram); // republished after the hash changed
     expect(window.diagram).toEqual(freshDiagram);
     expect(afterLoad).toHaveBeenCalledWith(freshDiagram);
-    expect(putCachedContent).toHaveBeenCalledWith(CC_ID, JSON.stringify(freshDiagram));
+    expect(putCachedContent).toHaveBeenCalledWith(CACHE_IDENTITY, JSON.stringify(freshDiagram));
   });
 
   it('background revalidate does not republish when the content is unchanged', async () => {
-    putCachedContent(CC_ID, JSON.stringify(cachedDiagram));
+    putCachedContent(CACHE_IDENTITY, JSON.stringify(cachedDiagram));
     const loadDiagram = vi.fn(async () => ({ ...cachedDiagram })); // same content, new object identity
     const afterLoad = vi.fn();
 
@@ -265,7 +271,7 @@ describe('viewerBootstrap content SWR', () => {
   });
 
   it('a revalidate failure leaves the cached render standing and does not throw', async () => {
-    putCachedContent(CC_ID, JSON.stringify(cachedDiagram));
+    putCachedContent(CACHE_IDENTITY, JSON.stringify(cachedDiagram));
     const boom = new Error('custom content 500');
     const loadDiagram = vi.fn(async () => { throw boom; });
     const afterLoad = vi.fn();
@@ -294,7 +300,7 @@ describe('viewerBootstrap content SWR', () => {
 
   it('never reads or writes the cache on the paywalled fullscreen path', async () => {
     vi.mocked(tryFullscreenViewerPaywall).mockResolvedValueOnce(true);
-    putCachedContent(CC_ID, JSON.stringify(cachedDiagram)); // pre-existing entry, must be left alone
+    putCachedContent(CACHE_IDENTITY, JSON.stringify(cachedDiagram)); // pre-existing entry, must be left alone
     vi.mocked(putCachedContent).mockClear(); // clear the priming call above
     const resolveContentId = vi.fn(() => CC_ID);
     const loaded = { ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi, code: 'live' };
@@ -310,7 +316,7 @@ describe('viewerBootstrap content SWR', () => {
     expect(getCachedContent).not.toHaveBeenCalled();
     expect(putCachedContent).not.toHaveBeenCalled();
     expect(mountRoot).not.toHaveBeenCalled(); // paywall gate mounted its own shell
-    expect(getCachedContent(CC_ID)?.doc).toBe(JSON.stringify(cachedDiagram)); // untouched
+    expect(getCachedContent(CACHE_IDENTITY)?.doc).toBe(JSON.stringify(cachedDiagram)); // untouched
   });
 
   it('without a resolveContentId, never reads or writes the cache (today\'s behavior)', async () => {
@@ -329,7 +335,7 @@ describe('viewerBootstrap content SWR', () => {
   });
 
   it('afterLoad is not called on the cache-hit render — only once revalidate resolves', async () => {
-    putCachedContent(CC_ID, JSON.stringify(cachedDiagram));
+    putCachedContent(CACHE_IDENTITY, JSON.stringify(cachedDiagram));
     const fetch = deferred<typeof cachedDiagram>();
     const loadDiagram = vi.fn(() => fetch.promise);
     const afterLoad = vi.fn();
@@ -352,7 +358,7 @@ describe('viewerBootstrap content SWR', () => {
   });
 
   it('marks content_source swr_cache on a hit, then fetch once revalidate finds changed content', async () => {
-    putCachedContent(CC_ID, JSON.stringify(cachedDiagram));
+    putCachedContent(CACHE_IDENTITY, JSON.stringify(cachedDiagram));
     const freshDiagram = { ...cachedDiagram, code: 'CHANGED' };
     const fetch = deferred<typeof freshDiagram>();
     const loadDiagram = vi.fn(() => fetch.promise);
@@ -371,7 +377,7 @@ describe('viewerBootstrap content SWR', () => {
   });
 
   it('marks content_source swr_cache on a hit and leaves it unchanged when revalidate finds no change', async () => {
-    putCachedContent(CC_ID, JSON.stringify(cachedDiagram));
+    putCachedContent(CACHE_IDENTITY, JSON.stringify(cachedDiagram));
     const loadDiagram = vi.fn(async () => ({ ...cachedDiagram }));
 
     await bootstrapForgeViewer({
@@ -396,7 +402,7 @@ describe('viewerBootstrap content SWR', () => {
     });
 
     expect(getTimings().content_source).toBe('fetch');
-    expect(putCachedContent).toHaveBeenCalledWith(CC_ID, JSON.stringify(loaded));
+    expect(putCachedContent).toHaveBeenCalledWith(CACHE_IDENTITY, JSON.stringify(loaded));
   });
 
   it('a cache hit that fails to JSON.parse falls back to a live fetch instead of throwing', async () => {

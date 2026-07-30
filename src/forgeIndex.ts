@@ -42,7 +42,12 @@ import {
 } from '@/utils/legacyContentPropertyTelemetry';
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
-import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
+import {
+  getCachedContent,
+  putCachedContent,
+  hashContent,
+  type ViewerContentIdentity,
+} from '@/utils/renderCache/contentCacheStore';
 import { maybeGateViewerRender, awaitGateBlocking } from '@/utils/renderGate/maybeGateViewerRender';
 
 // Track editor session start time
@@ -280,6 +285,14 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     let doc: Diagram | undefined;
     let legacyLoadBlocked = false;
     const customContentId = context.extension?.config?.customContentId || context.extension.modal?.customContentId;
+    const sequenceCacheIdentity: ViewerContentIdentity | undefined =
+      context.cloudId && customContentId
+        ? {
+            cloudId: String(context.cloudId),
+            customContentId: String(customContentId),
+            macroKind: 'sequence',
+          }
+        : undefined;
     originalCustomContentId = customContentId;
     recoveryPageId = context.extension?.content?.id;
     // ZEN-1170 Defect 1: see forge-graph-editor.ts for why this uses
@@ -361,11 +374,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     };
 
     const revalidateSequenceViewer = async (
-      ccId: string,
+      cacheIdentity: ViewerContentIdentity,
       pageId: string | undefined,
       cachedHash: string,
     ) => {
       try {
+        const ccId = cacheIdentity.customContentId;
         const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(
           pageId, ccId, { copyCheckMode },
         );
@@ -392,7 +406,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           ).catch(e => console.debug('[snapshot] backfill skipped', e));
         }
         const serialized = JSON.stringify(fresh);
-        putCachedContent(ccId, serialized);
+        putCachedContent(cacheIdentity, serialized);
         if (hashContent(serialized) !== cachedHash) {
           renderPerf.markContentSource('fetch');
           // @ts-ignore - fresh may be a partial spread type; matches the happy-path mount below
@@ -404,8 +418,8 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       }
     };
 
-    if (customContentId && isSequence && !(await isEditorMode()) && !(await isFullscreenMode())) {
-      const cached = getCachedContent(customContentId);
+    if (sequenceCacheIdentity && isSequence && !(await isEditorMode()) && !(await isFullscreenMode())) {
+      const cached = getCachedContent(sequenceCacheIdentity);
       if (cached) {
         try {
           const cachedDoc = JSON.parse(cached.doc) as Diagram;
@@ -418,7 +432,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           // the content changed, revalidate's own mountSequenceViewer call
           // awaits the same gate and lands after this cached mount, so the
           // fresh doc still wins.
-          void revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash);
+          void revalidateSequenceViewer(sequenceCacheIdentity, recoveryPageId, cached.hash);
           await mountSequenceViewer(viewerDoc);
           return; // rendered from cache — skip the live-fetch + mount path entirely
         } catch (e) {
@@ -441,7 +455,9 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         // revalidate's hash comparison. Primed from both editor and viewer
         // loads — either is a legitimate source of "current truth" for a
         // later viewer revisit.
-        putCachedContent(customContentId, JSON.stringify(loaded.customContent.value));
+        if (sequenceCacheIdentity) {
+          putCachedContent(sequenceCacheIdentity, JSON.stringify(loaded.customContent.value));
+        }
         renderPerf.markContentSource('fetch');
       }
       if (loaded.recoveredFromOrphanId && doc) {

@@ -1,6 +1,6 @@
 # Embed AutoConvert Analytics Design
 
-**Date:** 2026-07-29  
+**Date:** 2026-07-29
 **Status:** Approved for implementation
 
 ## Problem
@@ -29,8 +29,8 @@ The landing-page Worker cannot fill this gap: Confluence intercepts a matching p
 | Event | Trigger | Key properties |
 |---|---|---|
 | `embed_autoconvert_detected` | The Embed viewer has no configured `customContentId` and receives a top-level `autoConvertLink`. Fires once per viewer initialization. | Standard enriched context; `feature_area: macro`; `surface: viewer`; `macro_type: embed`; `source: autoconvert_link`; parsed `custom_content_id` when available; `is_same_site` when determinable. |
-| `embed_autoconvert_succeeded` | A valid accepted link resolves to custom content containing a diagram value. | Same properties, with `custom_content_id` and `is_same_site: true` when the current cloud ID is available. |
-| `embed_autoconvert_failed` | AutoConvert resolution cannot proceed or complete. | Same properties plus `failure_reason`: `invalid_link`, `content_not_found`, or `fetch_failed`. |
+| `embed_autoconvert_target_resolved` | A valid accepted link resolves to custom content containing a diagram value. This is not a visual-render success claim. | Same properties, with `custom_content_id` and `is_same_site: true` when the current cloud ID is available. |
+| `embed_autoconvert_failed` | AutoConvert resolution cannot proceed or complete. | Same properties plus `failure_reason`: `invalid_url`, `target_missing`, or `fetch_failed`. |
 | `embed_autoconvert_cross_tenant_rejected` | Existing event: the parsed cloud ID differs from the current site. It remains the terminal outcome for this case; no duplicate `embed_autoconvert_failed` is emitted. | Add `source: autoconvert_link`, parsed `custom_content_id`, and `is_same_site: false`. |
 
 Every detected initialization produces exactly one terminal event: `succeeded`, `failed`, or `cross_tenant_rejected`.
@@ -39,7 +39,7 @@ The tracker already enriches events with `client_domain`, `user_account_id`, `pr
 
 ## Interpretation
 
-`embed_autoconvert_detected` proves that Confluence created or retained an Embed macro carrying `autoConvertLink`; it does not uniquely count paste actions. `embed_autoconvert_succeeded` proves that the app resolved a valid diagram document; it does not independently prove pixels were visible.
+`embed_autoconvert_detected` proves that Confluence created or retained an Embed macro carrying `autoConvertLink`; it does not uniquely count paste actions. `embed_autoconvert_target_resolved` proves that the app resolved a valid diagram document; it does not independently prove pixels were visible.
 
 For adoption reporting:
 
@@ -56,11 +56,11 @@ The existing precedence remains unchanged:
 
 1. Use configured `customContentId` when present; emit no AutoConvert events.
 2. Otherwise, if `autoConvertLink` is present, emit `detected` and parse it.
-3. Invalid link: emit `failed` with `invalid_link`; preserve existing fallback behavior.
+3. Invalid link: emit `failed` with `invalid_url`; preserve existing fallback behavior.
 4. Cross-tenant link: emit the existing rejection event and never fetch.
 5. Same-tenant link: fetch the referenced custom content.
-6. Valid diagram value: emit `succeeded` and continue the existing render flow.
-7. Empty/missing value: emit `failed` with `content_not_found`, then continue existing orphan/fallback handling.
+6. Valid diagram value: emit `target_resolved` and continue the existing render flow.
+7. Empty/missing value: emit `failed` with `target_missing`, then continue existing orphan/fallback handling.
 8. Thrown fetch: emit `failed` with `fetch_failed`, then rethrow so existing viewer error handling remains unchanged.
 
 ## Analytics registration and commit order
@@ -73,9 +73,9 @@ All events remain unsampled because feature adoption volume is expected to be lo
 
 A focused Vitest suite around the Embed viewer load callback will mock Forge context, custom-content fetch, and `trackAnalyticsEvent`. It will verify:
 
-- same-tenant success emits `detected` then `succeeded`;
-- an invalid link emits `detected` then `failed: invalid_link`;
-- missing content emits `detected` then `failed: content_not_found`;
+- same-tenant resolution emits `detected` then `target_resolved`;
+- an invalid link emits `detected` then `failed: invalid_url`;
+- missing content emits `detected` then `failed: target_missing`;
 - a thrown fetch emits `detected` then `failed: fetch_failed` and preserves the throw;
 - cross-tenant input emits `detected` then `cross_tenant_rejected`, performs no fetch, and does not emit generic failure;
 - an ordinary configured Embed macro emits no AutoConvert lifecycle events.

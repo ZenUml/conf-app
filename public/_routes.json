@@ -26,7 +26,10 @@
     "/admin/metrics-inspect",
     "/feature-flags",
     "/ai-generate-title",
-    "/agent-link/*"
+    "/agent-link/*",
+    "/d/*",
+    "/i/*",
+    "/deeplink-ticket"
   ],
   "exclude": []
 }

@@ -35,6 +35,7 @@ function afterLoad(doc: Diagram | undefined) {
 
   }, 1500);
 }
+
 async function initializeMacro() {
   await runViewerLoadLifecycle({
     macroType: 'embed',

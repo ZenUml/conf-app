@@ -133,15 +133,21 @@ export type AnalyticsEventName =
   | "embed_retarget_blocked"
   // A pasted confluence.zenuml.com deeplink autoconverted into an embed
   // macro. `detected` is the per-viewer-init denominator; exactly one of
-  // `succeeded`, `failed`, or `cross_tenant_rejected` follows. Because the
+  // `target_resolved`, `failed`, or `cross_tenant_rejected` follows. Because the
   // autoConvertLink persists in ADF, these measure render attempts rather
   // than unique paste actions.
   | "embed_autoconvert_detected"
-  | "embed_autoconvert_succeeded"
-  | "embed_autoconvert_failed"
   // The deeplink's cloudId doesn't match the pasting site's — rejected
   // fail-soft rather than fetching cross-tenant.
   | "embed_autoconvert_cross_tenant_rejected"
+  // A same-tenant autoConvert link resolved to an existing custom-content
+  // document. This is a data-resolution signal, not proof that the diagram
+  // painted successfully; macro_viewed remains the rendered-view signal.
+  | "embed_autoconvert_target_resolved"
+  // An autoConvert link could not be resolved. `failure_reason` distinguishes
+  // parser/matcher drift (`invalid_url`) from missing custom content
+  // (`target_missing`). Cross-tenant rejection keeps its dedicated event.
+  | "embed_autoconvert_failed"
   // AsyncAPI dashboard: user clicked a document card's "Page:" reference to
   // open the Confluence page hosting the doc. Tracks dashboard → page nav.
   | "asyncapi_dashboard_page_opened"

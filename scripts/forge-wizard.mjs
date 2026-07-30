@@ -118,6 +118,11 @@ export const APPS = {
         yqEvalExpr:
           'del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage")) | del(.remotes[] | select(.key == "connect").storage)',
       },
+      {
+        description: 'Point embed deeplink autoConvert matcher at conf-full.zenuml.com',
+        yqEvalExpr:
+          '(.modules.macro[] | select(.key | test("zenuml-embed-macro")) | .autoConvert.matchers[0].pattern) = "https://conf-full.zenuml.com/d/*/*"',
+      },
     ],
     sites: {
       staging: ['full-stg.atlassian.net'],

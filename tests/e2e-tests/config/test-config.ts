@@ -14,6 +14,8 @@ interface TestConfig {
   isLite: boolean;
   isForge: boolean;
   isProd: boolean;
+  /** Pages host matched by this variant's embed macro autoConvert rule. */
+  deeplinkHost: string;
   macros: MacroType[];
   addonKey: string;
   sequenceMacroKey: string;
@@ -83,6 +85,7 @@ export const testConfig: TestConfig = {
   isLite: profile.isLite,
   isForge: profile.isForge,
   isProd: profile.id.endsWith('@prod'),
+  deeplinkHost: profile.productType === 'full' ? 'conf-full.zenuml.com' : 'conf-lite.zenuml.com',
   macros: profile.macros,
   addonKey: profile.addonKey,
   sequenceMacroKey: profile.sequenceMacroKey,

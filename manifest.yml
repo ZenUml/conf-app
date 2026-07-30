@@ -248,7 +248,7 @@ modules:
         - unlicensed
       autoConvert:
         matchers:
-          - pattern: https://confluence.zenuml.com/d/*/*
+          - pattern: https://conf-lite.zenuml.com/d/*/*
     # AsyncAPI macro: ships only with the asyncapi variant; lite/full/diagramly
     # strip this entry via manifestEdits in scripts/forge-wizard.mjs.
     - key: zenuml-asyncapi-macro

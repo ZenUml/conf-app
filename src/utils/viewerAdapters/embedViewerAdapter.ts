@@ -78,7 +78,7 @@ export const embedViewerAdapter: ViewerContentAdapter<EmbedViewerContext, EmbedV
       trackAnalyticsEvent('embed_autoconvert_detected', AUTOCONVERT_ANALYTICS_PROPS);
       trackAnalyticsEvent('embed_autoconvert_failed', {
         ...AUTOCONVERT_ANALYTICS_PROPS,
-        failure_reason: 'invalid_link',
+        failure_reason: 'invalid_url',
       });
       return legacyOrEmpty(legacyTarget, 'invalid_target');
     }
@@ -133,13 +133,15 @@ export const embedViewerAdapter: ViewerContentAdapter<EmbedViewerContext, EmbedV
       console.log('loadDiagram - customContent', customContent);
       doc = customContent?.value;
       if (doc && target.autoconvertProps) {
-        trackAnalyticsEvent('embed_autoconvert_succeeded', target.autoconvertProps);
+        // Resolution proves that the target document loaded. The lifecycle's
+        // macro_viewed terminal remains the visual-render success signal.
+        trackAnalyticsEvent('embed_autoconvert_target_resolved', target.autoconvertProps);
       }
       if (!doc) {
         if (target.autoconvertProps) {
           trackAnalyticsEvent('embed_autoconvert_failed', {
             ...target.autoconvertProps,
-            failure_reason: 'content_not_found',
+            failure_reason: 'target_missing',
           });
         }
         reportOrphanObserved(

@@ -822,11 +822,17 @@ export default {
       textarea.style.top = '-9999px';
       textarea.setAttribute('readonly', '');
       document.body.appendChild(textarea);
-      textarea.select();
-      textarea.setSelectionRange(0, text.length);
-      const ok = document.execCommand('copy');
-      document.body.removeChild(textarea);
-      return ok;
+      // finally: execCommand can throw (e.g. no user activation); without it the
+      // off-screen textarea leaks into the DOM on every failed copy.
+      try {
+        textarea.select();
+        textarea.setSelectionRange(0, text.length);
+        return document.execCommand('copy');
+      } catch {
+        return false;
+      } finally {
+        document.body.removeChild(textarea);
+      }
     },
     async copyCode() {
       trackEvent("copy_code", "click", this.diagramType);

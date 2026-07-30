@@ -21,6 +21,8 @@ export type MacroTypeValue =
   | "plantuml"
   | "none";
 
+export type EmbedAutoconvertResolution = "autoconvert_link";
+
 export type Surface =
   // conf-app#368: on macro_viewed, `viewer`-vs-`editor` comes from
   // ApWrapper2.isDisplayMode(). Builds before 2026-07-19 stamped the native
@@ -131,6 +133,14 @@ export type AnalyticsEventName =
   // fail-soft rather than fetching cross-tenant. Tracks how often a deeplink
   // is pasted onto the wrong site.
   | "embed_autoconvert_cross_tenant_rejected"
+  // A same-tenant autoConvert link resolved to an existing custom-content
+  // document. This is a data-resolution signal, not proof that the diagram
+  // painted successfully; macro_viewed remains the rendered-view signal.
+  | "embed_autoconvert_target_resolved"
+  // An autoConvert link could not be resolved. `failure_reason` distinguishes
+  // parser/matcher drift (`invalid_url`) from missing custom content
+  // (`target_missing`). Cross-tenant rejection keeps its dedicated event.
+  | "embed_autoconvert_failed"
   // AsyncAPI dashboard: user clicked a document card's "Page:" reference to
   // open the Confluence page hosting the doc. Tracks dashboard → page nav.
   | "asyncapi_dashboard_page_opened"

@@ -1,10 +1,21 @@
-# Deeplink → per-variant Pages (Phase 1: lite + diagramly on conf-lite) — Implementation Plan
+# Deeplink → per-variant Pages (Phase 1: Lite + Full) — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fold the standalone `confluence-deeplink` Worker's `/d/` (page) and `/i/` (image) serving into the Lite/Diagramly Cloudflare Pages backend (`conf-stg-lite` → `conf-lite`), alongside the already-written `functions/deeplink-ticket.ts` mint, so Lite and Diagramly serve their own embed deeplinks from one deploy unit with no standalone-Worker dependency.
+**Goal:** Fold the standalone `confluence-deeplink` Worker's `/d/` (page) and `/i/` (image) serving into the Lite and Full Cloudflare Pages backends (`conf-stg-lite`/`conf-stg-full` and `conf-lite`/`conf-full`), alongside the already-written `functions/deeplink-ticket.ts` mint. Diagramly continues to share the Lite backend.
 
-**Architecture:** Two new file-based Pages routes — `functions/i/[token].ts` (PNG serving) and `functions/d/[[path]].ts` (page serving) — join the existing `functions/deeplink-ticket.ts` mint. All three share one `functions/utils/deeplink.ts` module (HMAC signing + ticket verify/mint) and one `functions/utils/deeplinkPages.ts` module (HTML renderers), so the crypto can never drift out of byte-compatibility across mint and serve. Diagramly has no Pages project of its own, so it rides `conf-lite`'s deployment for free; Full (`conf-full.zenuml.com`) is Phase 2 and untouched here.
+**Architecture:** Two new file-based Pages routes — `functions/i/[token].ts` (PNG serving) and `functions/d/[[path]].ts` (page serving) — join the existing `functions/deeplink-ticket.ts` mint. All three share one `functions/utils/deeplink.ts` module (HMAC signing + ticket verify/mint) and one `functions/utils/deeplinkPages.ts` module (HTML renderers), so the crypto can never drift out of byte-compatibility across mint and serve. Lite and Full use their existing Pages projects; Diagramly has no Pages project of its own, so it rides `conf-lite`'s deployment.
+
+## Readiness amendment (approved 2026-07-30)
+
+This section supersedes conflicting instructions later in the original execution plan:
+
+- Full is included in Phase 1. Keep and validate its `conf-full.zenuml.com` matcher and provision both Full Pages environments alongside Lite.
+- Every `/d/` state remains private-by-default with both `<meta name="robots" content="noindex">` and `X-Robots-Tag: noindex`, including a fresh ticketed preview.
+- The untracked Lite upgrade CTA and its signed-ticket `u` field are deferred to a separately instrumented growth change.
+- Define and implement `embed_autoconvert_target_resolved` and `embed_autoconvert_failed` analytics. A resolved target is explicitly not a rendered-outcome claim.
+- Import the #404 Playwright coverage and derive the deeplink host from the active Lite/Full test profile.
+- Reuse the existing production deeplink KV namespace for both production Pages projects; use one signing secret per environment across the Lite and Full Pages projects so mint and serve remain byte-compatible.
 
 **Tech Stack:** Cloudflare Pages Functions (Workers runtime), vitest, Forge manifest (yq), TypeScript.
 
@@ -1471,7 +1482,6 @@ describe("manifest.yml embed deeplink autoConvert matcher", () => {
 
   No further deploy action here — staging is already live from Task 9's bindings plus the CI/CD pipeline picking up Tasks 1-8's merged commits. Cutting `conf-lite` (production) repeats Task 9's prod commands (already included there) and is otherwise just "merge to main, let CI/CD deploy" per this repo's standing release process — no separate task needed.
 
-## Next phases (out of scope here)
+## Next phase (out of scope here)
 
-- **Phase 2 (full):** repeat Tasks 3-5 verification, Task 9 (bindings), and Task 10 (validation) against `conf-stg-full` / `conf-full` — the code from Tasks 1-8 already supports Full (multi-host regex, full-variant matcher edit) without further changes.
-- **Phase 3 (retire the Worker):** once lite, diagramly, and full all serve from Pages, un-deploy `workers/confluence-deeplink` and drop the `confluence.zenuml.com` DNS record. Keep the Worker's code in-repo for history. Re-scope or close #399.
+- **Retire the Worker:** once Lite, Diagramly, and Full have been validated on their Pages backends, un-deploy `workers/confluence-deeplink` and drop the `confluence.zenuml.com` DNS record. Keep the Worker's code in-repo for history. Re-scope or close #399.

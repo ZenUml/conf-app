@@ -1,7 +1,7 @@
 # Deeplink serving → per-variant Cloudflare Pages (retire the standalone Worker)
 
 **Date:** 2026-07-28
-**Status:** Design (brainstorming approved; pending spec review → writing-plans)
+**Status:** Approved; rollout scope amended 2026-07-30 to include Lite and Full
 **Related:** #360 (autoConvert matcher — merged), #399 (standalone Worker + mint — open), #404 (autoConvert E2E — open)
 
 ## Problem
@@ -43,7 +43,7 @@ Fold the deeplink serving (`/d/`, `/i/`, `/`) into each variant's Cloudflare Pag
 
 The `confluence.zenuml.com` standalone Worker is **retired** once all matchers repoint.
 
-**Tier visibility is intentional, not a leak.** A Lite user sharing `conf-lite.zenuml.com/d/...` surfaces the free tier — an accepted freemium growth signal. But the hostname is a **weak** vehicle: Slack hides the raw URL behind the unfurl card, and in-Confluence the link becomes a macro with no URL shown. So the **real upgrade lever is a deliberate CTA on the Lite `/d/` preview page**, which we fully control. Scoped as a growth item below.
+**Tier visibility is intentional, not a leak.** A Lite user sharing `conf-lite.zenuml.com/d/...` surfaces the free tier — an accepted freemium signal. A dedicated Lite `/d/` upgrade CTA is deferred: it is a separate growth feature and must not ship without its own approved analytics and acceptance criteria.
 
 ### Architecture — identical shape per variant, in `functions/`
 
@@ -57,7 +57,8 @@ Ported from `workers/confluence-deeplink/src/index.ts`:
 - Per Pages project: bind the deeplink **KV** namespace; set **`DEEPLINK_SIGN_SECRET`** (`wrangler pages secret put`, same value the mint + serve share).
 - **Privacy:** no request-path logging (customer cloudId/contentId), matching the Worker's discipline; static HTML only, `noindex` + `X-Robots-Tag` on `/d/`.
 - `src/utils/embedDeeplink.ts` `DEEPLINK_RE` → **multi-host** (accept every live deeplink host, since variants now differ).
-- **Lite `/d/` preview page: add an upgrade CTA** (growth).
+- `/d/` preview pages are product-neutral in this phase; no Lite-only ticket field or upgrade CTA.
+- AutoConvert telemetry distinguishes resolution from rendering: `embed_autoconvert_target_resolved` fires only after same-tenant custom content resolves, `embed_autoconvert_failed` records `invalid_url` or `target_missing`, and the existing cross-tenant rejection event remains separate. Resolution is not treated as proof of visual render success.
 
 ### Manifest matcher changes
 
@@ -67,9 +68,8 @@ Each variant's `manifest.yml` autoConvert matcher → its own deeplink host (lit
 
 `confluence.zenuml.com` can only retire once **all three** matchers point elsewhere; until then keep the Worker live (or point `confluence.zenuml.com` at conf-lite Pages as a transitional catch-all).
 
-- **Phase 1 — lite (+ diagramly, which shares conf-lite):** add the functions + routes + KV/secret to `conf-stg-lite` then `conf-lite`; repoint lite's matcher to `conf-lite.zenuml.com` (and diagramly's too **if** it ships the standard embed matcher — confirm during planning; either way diagramly is served by conf-lite Pages); add the Lite preview CTA. Validate on `conf-stg-lite` (curl the 3 states; run the #404 autoConvert E2E, now expecting `conf-lite.zenuml.com`). Cut prod.
-- **Phase 2 — full:** same on `conf-stg-full` then `conf-full`; matcher → `conf-full.zenuml.com`.
-- **Phase 3 — retire the Worker:** once lite/full/diagramly all serve from Pages, un-deploy `workers/confluence-deeplink` and drop the `confluence.zenuml.com` DNS record. Keep the code in-repo (history). Re-scope or close #399.
+- **Phase 1 — lite + full (+ diagramly sharing conf-lite):** add the functions + routes + shared signing configuration to both `conf-stg-lite`/`conf-stg-full`, bind the production deeplink KV for both `conf-lite`/`conf-full`, and repoint the Lite and Full matchers to their respective Pages hosts. Validate the same route states and the autoConvert E2E on both staging variants before treating the rollout as complete.
+- **Phase 2 — retire the Worker:** once lite/full/diagramly all serve from Pages, un-deploy `workers/confluence-deeplink` and drop the `confluence.zenuml.com` DNS record. Keep the code in-repo (history). Re-scope or close #399.
 
 diagramly's **own** host waits for the `conf-diagramly` split (pre-GA); until then its deeplinks ride `conf-lite.zenuml.com` — a temporary same-host cross-brand condition, documented and accepted.
 

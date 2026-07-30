@@ -22,6 +22,7 @@ import type {
   AgentLinkGuardrailRejectReason,
   AgentLinkSessionSuspendReason,
   AgentLinkListScope,
+  EmbedAutoconvertResolution,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -45,6 +46,9 @@ export type AnalyticsProperties = {
   format_filter?: DashboardFormatFilter;
   result?: string;
   failure_reason?: string;
+  // `embed_autoconvert_target_resolved`: identifies the resolver path while
+  // deliberately avoiding a claim that the viewer painted successfully.
+  resolution?: EmbedAutoconvertResolution;
   // Upgrade
   product_option?: string;
   ui_component?: string;

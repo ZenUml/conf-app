@@ -15,6 +15,29 @@ export const AUTHENTICATED_PATHS = [
   '/deeplink-ticket',
 ];
 
+const DEEPLINK_TICKET_CORS_HEADERS: Record<string, string> = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'POST, OPTIONS',
+  'access-control-allow-headers': 'Authorization, Content-Type',
+  'access-control-max-age': '86400',
+};
+
+function isDeeplinkTicketPath(pathname: string): boolean {
+  return pathname === '/deeplink-ticket' || pathname === '/deeplink-ticket/';
+}
+
+function withDeeplinkTicketCors(response: Response): Response {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(DEEPLINK_TICKET_CORS_HEADERS)) {
+    headers.set(name, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 // Customer deeplink paths (/d/<cloudId>/<contentId>, /i/<token>) identify a
 // tenant + diagram and must never be logged verbatim
 // (docs/policies/client-privacy.md). Redact to just the path prefix.
@@ -27,7 +50,7 @@ export function redactedRequestUrlForLogging(url: string): string {
 }
 
 // Create a middleware function that handles authentication
-const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = async ({
+export const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = async ({
   next,
   request,
   env,
@@ -36,14 +59,21 @@ const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = async ({
   try {
     console.log('Function request url:', redactedRequestUrlForLogging(request.url));
 
-    if (AUTHENTICATED_PATHS.some(path => new URL(request.url).pathname.startsWith(path))) {
+    const { pathname } = new URL(request.url);
+    const isDeeplinkTicket = isDeeplinkTicketPath(pathname);
+    if (isDeeplinkTicket && request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: DEEPLINK_TICKET_CORS_HEADERS });
+    }
+
+    if (AUTHENTICATED_PATHS.some(path => pathname.startsWith(path))) {
       const response = await authenticate({request, env, data});
       if(response.status !== 200) {
-        return response;
+        return isDeeplinkTicket ? withDeeplinkTicketCors(response) : response;
       }
     }
 
-    return await next();
+    const response = await next();
+    return isDeeplinkTicket ? withDeeplinkTicketCors(response) : response;
   } catch (e) {
     // Log the error to console first as a fallback
     console.error('Authentication middleware error:', e);

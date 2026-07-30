@@ -12,6 +12,8 @@ import type {
   CacheState,
   CacheSource,
   ContentSource,
+  ViewerLifecycleVersion,
+  ViewerLoadOutcome,
   MacroCountSource,
   PrefetchHost,
   PrefetchOutcome,
@@ -200,6 +202,11 @@ export type AnalyticsProperties = {
   // 'swr_cache' (id-keyed content cache, the revisit fast path). Distinct from
   // cache_source (rendered-SVG cache). Absent when no content fetch was involved.
   content_source?: ContentSource;
+  // Plain-viewer lifecycle v2. The version separates the new end-at-terminal
+  // duration definition from historical renderer-specific timing windows;
+  // outcome lets performance queries select successful renders explicitly.
+  viewer_lifecycle_version?: ViewerLifecycleVersion;
+  viewer_load_outcome?: ViewerLoadOutcome;
   duration_ms?: number;
   // Browser cache state at render time, measured via Resource Timing transferSize
   // of same-origin JS bundles, plus the raw summed wire bytes. Lets cold/warm

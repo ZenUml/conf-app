@@ -92,6 +92,11 @@ export type CacheSource = "none" | "cc_body" | "attachment" | "localstorage";
 // yet wired for the content cache). See utils/renderCache/contentCacheStore.ts.
 export type ContentSource = "fetch" | "swr_cache";
 
+// Versioned plain-viewer lifecycle contract. Keep the version literal bounded
+// so historical and v2 duration windows cannot be mixed accidentally.
+export type ViewerLifecycleVersion = 2;
+export type ViewerLoadOutcome = "rendered" | "empty" | "failed";
+
 // Where the macro count used by the Lite paywall gate came from, and — when the
 // count is unusable — WHY. Rides on `paywall_gate_evaluated.macro_count_source`.
 // This is the dispositive dimension for the #302 fail-open leak: the gate is

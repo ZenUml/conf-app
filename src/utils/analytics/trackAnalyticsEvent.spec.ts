@@ -213,6 +213,24 @@ describe("trackAnalyticsEvent", () => {
     );
   });
 
+  it("accepts the versioned viewer lifecycle outcome contract", async () => {
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "graph",
+      viewer_lifecycle_version: 2,
+      viewer_load_outcome: "rendered",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({
+        viewer_lifecycle_version: 2,
+        viewer_load_outcome: "rendered",
+      })
+    );
+  });
+
   it("auto-enriches user_account_id from window.globals", async () => {
     await _awaitableTrackAnalyticsEvent("macro_viewed", {
       feature_area: "macro",

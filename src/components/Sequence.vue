@@ -13,10 +13,10 @@
 import EventBus from "@/EventBus";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { trackEvent } from "@/utils/window";
-import globals from "@/model/globals";
 import ViewResizer from "./Viewer/ViewResizer.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
 import * as renderPerf from "@/utils/analytics/renderPerf";
+import { viewerRenderReporterKey } from '@/utils/viewerRenderReporter';
 
 // Create a promise to load ZenUml only when needed
 const loadZenUml = () => import("@zenuml/core").then(module => module.default);
@@ -33,6 +33,15 @@ const getThemeStorageKey = (id) => {
 export default {
   name: "Sequence",
   components: { ViewResizer },
+  inject: {
+    viewerRenderReporter: {
+      from: viewerRenderReporterKey,
+      default: null,
+    },
+  },
+  data() {
+    return { legacyRenderReported: false };
+  },
   props: {
     autoResize: {
       type: Boolean,
@@ -51,6 +60,7 @@ export default {
     },
   },
   async mounted() {
+    const mountRevision = this.viewerRenderReporter?.captureRevision() ?? 0;
     try {
       // Load ZenUml dynamically
       const ZenUml = await loadZenUml();
@@ -58,7 +68,6 @@ export default {
       zenuml = new ZenUml(this.$refs["zenuml"]);
       // Phase 0b: render_ms for the initial mount render (recorded once).
       await renderPerf.time('render', () => this.render());
-      trackRenderTime('sequence', this.isDisplayMode);
       // The awaits above can span seconds (cold ZenUML chunk + render). If the
       // user switched diagram type meanwhile, emitting the sequence `code`
       // with the NEW store diagramType would upload a mislabeled attachment
@@ -73,6 +82,7 @@ export default {
       }
     } catch (error) {
       console.error("Error loading ZenUML Core:", error);
+      this.viewerRenderReporter?.failed(mountRevision, error);
     }
   },
   methods: {
@@ -82,12 +92,14 @@ export default {
         return;
       }
 
+      const revision = this.viewerRenderReporter?.captureRevision() ?? 0;
       const id = this.$store.state.diagram.id;
       const globalTheme = localStorage.getItem(getThemeStorageKey("global"));
       const scopeTheme = id
         ? localStorage.getItem(getThemeStorageKey(id))
         : sessionStorage.getItem(getThemeStorageKey());
-      await zenuml.render(this.$store.state.diagram.code, {
+      try {
+        await zenuml.render(this.$store.state.diagram.code, {
         // stickyOffset is used only at view mode or edit when the iframe scroll out of the viewport
         // In fullscreen viewer or editor mode, the iFrame element is not scrollable, so we don't need to offset.
         // Note when the iframe is not scrollable, the stickyOffset does not have any effect.
@@ -115,7 +127,17 @@ export default {
             trackEvent(data.label, data.action, data.category);
           }
         }
-      });
+        });
+        if (this.viewerRenderReporter && revision > 0) {
+          this.viewerRenderReporter.rendered(revision);
+        } else if (!this.viewerRenderReporter && !this.legacyRenderReported) {
+          this.legacyRenderReported = true;
+          trackRenderTime('sequence', this.isDisplayMode);
+        }
+      } catch (error) {
+        this.viewerRenderReporter?.failed(revision, error);
+        throw error;
+      }
     },
     updateCode(newCode) {
       this.$store.dispatch("updateCode2", newCode);

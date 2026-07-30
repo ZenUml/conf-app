@@ -43,11 +43,18 @@ import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { decompress } from '@/utils/compress';
 import { trackEvent } from '@/utils/window';
 import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
+import { viewerRenderReporterKey } from '@/utils/viewerRenderReporter';
 
 export default {
   name: "ForgeGraphViewerEmbed",
   components: {
     GenericViewer
+  },
+  inject: {
+    viewerRenderReporter: {
+      from: viewerRenderReporterKey,
+      default: null,
+    },
   },
   props: {
     doc: {
@@ -81,10 +88,15 @@ export default {
         console.error('Failed to load DrawIO scripts:', error);
         this.error = 'Failed to load graph viewer';
         this.loading = false;
+        this.viewerRenderReporter?.failed(
+          this.viewerRenderReporter.captureRevision(),
+          error,
+        );
       }
     },
     
     initGraph() {
+      const revision = this.viewerRenderReporter?.captureRevision() ?? 0;
       let graphXml = this.graphXml || this.doc?.value?.graphXml || this.doc?.graphXml;
 
       // Legacy compressed records — flag still controls decompression.
@@ -99,6 +111,7 @@ export default {
       if (!this.$refs.graphContainer || !graphXml || !window.GraphViewer) {
         this.error = !window.GraphViewer ? 'Graph viewer not loaded' : 'Missing graph data';
         this.loading = false;
+        this.viewerRenderReporter?.failed(revision, new Error(this.error));
         return;
       }
 
@@ -115,10 +128,12 @@ export default {
         this.pageCount = this.graphViewer.diagrams?.length || 0;
         this.currentPage = this.graphViewer.currentPage || 0;
         this.loading = false;
+        if (revision > 0) this.viewerRenderReporter?.rendered(revision);
       } catch (error) {
         console.error('Failed to initialize graph viewer:', error);
         this.error = 'Failed to initialize graph';
         this.loading = false;
+        this.viewerRenderReporter?.failed(revision, error);
       }
     },
     goToPage(index) {

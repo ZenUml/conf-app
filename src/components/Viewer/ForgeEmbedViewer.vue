@@ -23,9 +23,16 @@
 <script>
 import { loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
 import { DiagramType } from "@/model/Diagram/Diagram";
+import { viewerRenderReporterKey } from '@/utils/viewerRenderReporter';
 
 export default {
   name: "ForgeEmbedViewer",
+  inject: {
+    viewerRenderReporter: {
+      from: viewerRenderReporterKey,
+      default: null,
+    },
+  },
   props: {
     diagramType: String,
     doc: Object
@@ -47,20 +54,23 @@ export default {
     effectiveDiagramType() {
       return this.diagramType || this.effectiveDoc?.diagramType;
     },
+    viewerLoadStatus() {
+      // Prop-driven editor previews already have content. Plain Embed viewers
+      // use the lifecycle's explicit state instead of inferring completion from
+      // NULL_DIAGRAM plus a separate boolean.
+      return this.doc ? 'rendered' : this.$store.state.viewerLoadState?.status ?? 'loading';
+    },
     loadComplete() {
-      // A prop-supplied doc is already loaded; otherwise defer to the store flag
-      // set by publishLoadedDiagram once the async loadDiagram() resolves.
-      return !!this.doc || this.$store.state.diagramLoadComplete === true;
+      return this.viewerLoadStatus !== 'loading';
     }
   },
   watch: {
     effectiveDiagramType() {
       this.initializeViewer();
     },
-    // Re-evaluate when the load finishes even if the type didn't change: a
-    // failed load leaves the store on NULL_DIAGRAM ('unknown'), so only this
-    // flag tells us to stop spinning and surface the error.
-    loadComplete() {
+    // Empty/failed loads can leave diagramType='unknown', so status is the
+    // signal that terminates the spinner even when the document never changes.
+    viewerLoadStatus() {
       this.initializeViewer();
     }
   },
@@ -93,6 +103,10 @@ export default {
           ? `Unknown diagram type: ${type}`
           : "This embedded diagram couldn't be loaded. It may have been deleted or moved, or it's a draft or in a space you can't access. Edit the macro to pick a different diagram.";
         this.loading = false;
+        const revision = this.viewerRenderReporter?.captureRevision() ?? 0;
+        if (revision > 0) {
+          this.viewerRenderReporter.failed(revision, new Error(this.error));
+        }
         return;
       }
 

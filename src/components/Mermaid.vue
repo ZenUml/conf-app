@@ -19,13 +19,21 @@ import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
 import * as renderPerf from '@/utils/analytics/renderPerf';
+import { viewerRenderReporterKey } from '@/utils/viewerRenderReporter';
 
 export default {
   name: "Mermaid",
+  inject: {
+    viewerRenderReporter: {
+      from: viewerRenderReporterKey,
+      default: null,
+    },
+  },
   data() {
     return {
       svg: null,
-      renderId: null
+      renderId: null,
+      legacyRenderReported: false,
     }
   },
   computed: {
@@ -37,12 +45,14 @@ export default {
     },
   },
   async mounted() {
-    if (!this.mermaidCode) return;
+    if (!this.mermaidCode) {
+      this.reportRendered(this.viewerRenderReporter?.captureRevision() ?? 0);
+      return;
+    }
     // Phase 0b: render_ms = loadMermaid + mermaid.render — exactly what an SVG
     // cache (Lever D) would skip. Only the initial mount render is timed
     // (renderPerf records once); the watch-driven re-render below is not.
     this.svg = await renderPerf.time('render', () => this.render(this.mermaidCode));
-    trackRenderTime('mermaid', this.isDisplayMode);
     // Type may have switched during the async render — the gated computed
     // would then be `false` and the store diagramType stale. Skip; the new
     // type's component emits its own diagramLoaded.
@@ -58,6 +68,7 @@ export default {
     async mermaidCode(newVal) {
       if (!newVal) {
         this.svg = null;
+        this.reportRendered(this.viewerRenderReporter?.captureRevision() ?? 0);
       } else {
         this.svg = await this.render(this.mermaidCode);
       }
@@ -65,12 +76,14 @@ export default {
   },
   methods: {
     async render(code) {
+      const revision = this.viewerRenderReporter?.captureRevision() ?? 0;
       // Generate a unique ID to avoid conflicts
       this.renderId = `mermaid-${crypto.randomUUID()}`;
       try {
         const mermaid = await loadMermaid();
         // Use the unique ID to render, avoiding creating extra elements in the body
         const { svg } = await mermaid.render(this.renderId, code);
+        this.reportRendered(revision);
         return svg;
       } catch (error) {
         console.error('mermaid render error', error);
@@ -78,6 +91,15 @@ export default {
           const tempElement = document.getElementById(`d${this.renderId}`);
           tempElement?.remove();
         }
+        this.viewerRenderReporter?.failed(revision, error);
+      }
+    },
+    reportRendered(revision) {
+      if (this.viewerRenderReporter && revision > 0) {
+        this.viewerRenderReporter.rendered(revision);
+      } else if (!this.viewerRenderReporter && !this.legacyRenderReported) {
+        this.legacyRenderReported = true;
+        trackRenderTime('mermaid', this.isDisplayMode);
       }
     }
   }

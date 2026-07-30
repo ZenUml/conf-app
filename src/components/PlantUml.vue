@@ -25,11 +25,18 @@ import EventBus from '@/EventBus';
 import { debounce } from 'lodash';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
 import * as renderPerf from '@/utils/analytics/renderPerf';
+import { viewerRenderReporterKey } from '@/utils/viewerRenderReporter';
 
 const PLANTUML_SERVER = 'https://www.plantuml.com/plantuml/svg/';
 
 export default {
   name: 'PlantUml',
+  inject: {
+    viewerRenderReporter: {
+      from: viewerRenderReporterKey,
+      default: null,
+    },
+  },
   data() {
     return {
       svg: null,
@@ -49,7 +56,10 @@ export default {
   },
   async mounted() {
     this.debouncedRender = debounce(this.fetchSvg, 500);
-    if (!this.plantUmlCode) return;
+    if (!this.plantUmlCode) {
+      this.reportRendered(this.viewerRenderReporter?.captureRevision() ?? 0);
+      return;
+    }
     await this.validateAndRender(this.plantUmlCode);
     // Type may have switched during the async render — the gated computed
     // would then be `false` and the store diagramType stale. Skip; the new
@@ -70,6 +80,7 @@ export default {
         this.svg = null;
         this.error = null;
         this.$store.dispatch('updateError', null);
+        this.reportRendered(this.viewerRenderReporter?.captureRevision() ?? 0);
       } else {
         this.validateAndRender(newVal);
       }
@@ -92,6 +103,11 @@ export default {
         // Also set local error
         this.error = validationResult.error;
         this.svg = null;
+        const error = new Error(validationResult.error || 'Invalid PlantUML syntax');
+        this.viewerRenderReporter?.failed(
+          this.viewerRenderReporter.captureRevision(),
+          error,
+        );
         return;
       }
       
@@ -103,6 +119,7 @@ export default {
     },
     async fetchSvg(code) {
       if (!code) return;
+      const revision = this.viewerRenderReporter?.captureRevision() ?? 0;
       this.loading = true;
       this.error = null;
       try {
@@ -117,16 +134,22 @@ export default {
           }
           return await response.text();
         });
-        if (!this.initialRenderTracked) {
-          this.initialRenderTracked = true;
-          trackRenderTime('plantuml', this.isDisplayMode);
-        }
+        this.reportRendered(revision);
       } catch (err) {
         console.error('PlantUML render error', err);
         this.error = `Failed to render PlantUML: ${err.message}`;
         this.$store.dispatch('updateError', this.error);
+        this.viewerRenderReporter?.failed(revision, err);
       } finally {
         this.loading = false;
+      }
+    },
+    reportRendered(revision) {
+      if (this.viewerRenderReporter && revision > 0) {
+        this.viewerRenderReporter.rendered(revision);
+      } else if (!this.viewerRenderReporter && !this.initialRenderTracked) {
+        this.initialRenderTracked = true;
+        trackRenderTime('plantuml', this.isDisplayMode);
       }
     },
   },

@@ -4,122 +4,11 @@ import globals from '@/model/globals';
 import ForgeEmbedViewer from "@/components/Viewer/ForgeEmbedViewer.vue";
 import EventBus from './EventBus'
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
-import { Diagram, getDiagramData } from "@/model/Diagram/Diagram";
-import { reportOrphanObserved } from '@/utils/orphanTelemetry';
-import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
-import { parseEmbedDeeplink } from '@/utils/embedDeeplink';
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
-import type { AnalyticsProperties } from '@/utils/analytics/types';
-
-const AUTOCONVERT_ANALYTICS_PROPS = {
-  feature_area: 'macro',
-  surface: 'viewer',
-  macro_type: 'embed',
-  source: 'autoconvert_link',
-} as const satisfies AnalyticsProperties;
-
-export async function loadDiagram(): Promise<Diagram | undefined> {
-  const context = await initForgeContext();
-
-  let doc: Diagram | undefined;
-  let customContentId = context.extension?.config?.customContentId;
-  let autoconvertProps: AnalyticsProperties | undefined;
-  const pageId = context.extension?.content?.id;
-
-  // AutoConvert: a pasted https://confluence.zenuml.com/d/<cloudId>/<contentId>
-  // deeplink lands with no saved macro config — resolve the target from the
-  // matched URL instead. `autoConvertLink` is a top-level extension-context
-  // field per Atlassian's docs, not nested under `config`:
-  // https://developer.atlassian.com/platform/forge/manifest-reference/modules/macro/
-  if (!customContentId && context.extension?.autoConvertLink) {
-    const deeplink = parseEmbedDeeplink(context.extension.autoConvertLink);
-    if (!deeplink) {
-      trackAnalyticsEvent('embed_autoconvert_detected', AUTOCONVERT_ANALYTICS_PROPS);
-      trackAnalyticsEvent('embed_autoconvert_failed', {
-        ...AUTOCONVERT_ANALYTICS_PROPS,
-        failure_reason: 'invalid_link',
-      });
-    } else {
-      const isSameSite = context.cloudId
-        ? deeplink.cloudId === String(context.cloudId).toLowerCase()
-        : undefined;
-      autoconvertProps = {
-        ...AUTOCONVERT_ANALYTICS_PROPS,
-        custom_content_id: deeplink.contentId,
-        ...(isSameSite !== undefined && { is_same_site: isSameSite }),
-      };
-      trackAnalyticsEvent('embed_autoconvert_detected', autoconvertProps);
-
-      if (isSameSite === false) {
-        // Fail soft on a foreign-site paste — never fetch cross-tenant.
-        trackAnalyticsEvent('embed_autoconvert_cross_tenant_rejected', autoconvertProps);
-      } else {
-        customContentId = deeplink.contentId;
-      }
-    }
-  }
-
-  if (customContentId) {
-    const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId)
-      .catch((error) => {
-        if (autoconvertProps) {
-          trackAnalyticsEvent('embed_autoconvert_failed', {
-            ...autoconvertProps,
-            failure_reason: 'fetch_failed',
-          });
-        }
-        throw error;
-      });
-    console.log('loadDiagram - customContent', customContent);
-    doc = customContent?.value;
-    if (doc && autoconvertProps) {
-      trackAnalyticsEvent('embed_autoconvert_succeeded', autoconvertProps);
-    }
-    if (!doc) {
-      if (autoconvertProps) {
-        trackAnalyticsEvent('embed_autoconvert_failed', {
-          ...autoconvertProps,
-          failure_reason: 'content_not_found',
-        });
-      }
-      // ZEN-1170 telemetry. #147: the original call passed the arguments in the
-      // WRONG order — (apWrapper, pageId, customContentId, 'embed') against the
-      // real signature (pageId, orphanId, diagramKind, probeResult, options) —
-      // so every embed orphan event was mislabeled (diagram_kind became the
-      // customContentId and page_id became an ApWrapper object). The embed
-      // viewer fetches the doc directly via getCustomContentByIdV2 (no orphan
-      // probe), so there is no probeResult to pass — undefined makes
-      // reportOrphanObserved emit the reduced "probe_skipped_no_probe_result"
-      // shape with the correct diagram_kind='embed'.
-      reportOrphanObserved(pageId, customContentId, 'embed', undefined, { recoveryUsed: false });
-    }
-  }
-
-  // ZEN-1170 Defect 1 sibling: cross-page-paste recovery via uuid → CC title.
-  // Embed macros never used content properties (no Defect 1 path here), but
-  // the Connect-era {uuid, updatedAt}-only param shape is possible for them
-  // too, and copy-pasting such a macro leaves the destination with no
-  // customContentId. Find the surviving CC by exact-title CQL search.
-  if (!doc) {
-    const storageUuid = context.extension?.config?.uuid;
-    if (storageUuid) {
-      const recovered = await globals.apWrapper.findLegacyCustomContentByUuid(storageUuid);
-      if (recovered?.value) {
-        doc = recovered.value;
-        doc.recoveredFromOrphan = true;
-        trackEvent(storageUuid, 'legacy_custom_content_by_uuid_restored', 'info', {
-          surface: 'viewer',
-          macro_type: 'embed',
-          recovered_id: String(recovered.id ?? ''),
-          is_copy: doc.isCopy ? 'true' : 'false',
-          ...(pageId && { page_id: pageId }),
-        });
-      }
-    }
-  }
-
-  return doc;
-}
+import { type Diagram, getDiagramData, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { mountRoot } from '@/mount-root';
+import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
+import { runViewerLoadLifecycle } from '@/utils/viewerLoadLifecycle';
+import { embedViewerAdapter } from '@/utils/viewerAdapters/embedViewerAdapter';
 
 function afterLoad(doc: Diagram | undefined) {
   setTimeout(async function () {
@@ -146,41 +35,26 @@ function afterLoad(doc: Diagram | undefined) {
 
   }, 1500);
 }
-
-
-
-/**
- * Same id resolution `loadDiagram` performs above, before its fetch: the
- * saved config id, or — for an autoConvert paste that hasn't saved a config
- * yet — the deeplink target parsed from `autoConvertLink`. `parseEmbedDeeplink`
- * is a pure regex match (no network call), so this is resolvable synchronously
- * from context exactly like the graph/openapi resolvers. Cross-tenant pastes
- * resolve to undefined, same as `loadDiagram` — never cache/read a foreign-site
- * paste. The legacy-uuid recovery fallback inside `loadDiagram` (for a macro
- * with neither a saved config id nor a matching deeplink) has no id to resolve
- * here either — it's excluded from the cache exactly like graph/openapi's own
- * legacy-uuid fallback.
- */
-function resolveEmbedContentId(context: any): string | undefined {
-  const direct = context.extension?.config?.customContentId;
-  if (direct) return direct;
-  const deeplink = context.extension?.autoConvertLink
-    ? parseEmbedDeeplink(context.extension.autoConvertLink)
-    : undefined;
-  if (!deeplink) return undefined;
-  if (context.cloudId && deeplink.cloudId !== String(context.cloudId).toLowerCase()) {
-    return undefined;
-  }
-  return deeplink.contentId;
-}
-
 async function initializeMacro() {
-  await bootstrapForgeViewer({
-    macroKind: 'embed',
-    content: ForgeEmbedViewer,
-    loadDiagram,
-    afterLoad,
-    resolveContentId: resolveEmbedContentId,
+  await runViewerLoadLifecycle({
+    macroType: 'embed',
+    initializeContext: () => globals.apWrapper.initializeContext(),
+    getContext: initForgeContext,
+    adapter: embedViewerAdapter,
+    loadingDocument: NULL_DIAGRAM,
+    mountLoadingBeforeCache: true,
+    mount: async (doc, reporter) => {
+      const paywalled = await tryFullscreenViewerPaywall({
+        doc,
+        content: ForgeEmbedViewer,
+        macroKind: 'embed',
+        viewerRenderReporter: reporter,
+      });
+      if (!paywalled) {
+        mountRoot(doc, ForgeEmbedViewer, {}, { viewerRenderReporter: reporter });
+      }
+    },
+    afterFreshLoad: afterLoad,
     onError: (error) => {
       console.error('Error loading embed viewer', error);
     },

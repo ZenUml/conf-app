@@ -7,7 +7,6 @@ const h = vi.hoisted(() => ({
   trackAnalyticsEvent: vi.fn(),
 }));
 
-vi.mock('@/model/Attachment', () => ({ default: vi.fn() }));
 vi.mock('@/model/globals', () => ({
   default: {
     apWrapper: {
@@ -18,18 +17,12 @@ vi.mock('@/model/globals', () => ({
     },
   },
 }));
-vi.mock('@/model/globals/forgeGlobal', () => ({
-  getContext: vi.fn(async () => h.context),
-  openModal: vi.fn(),
-}));
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: h.trackAnalyticsEvent,
 }));
 vi.mock('@/utils/orphanTelemetry', () => ({ reportOrphanObserved: vi.fn() }));
-vi.mock('@/utils/viewerBootstrap', () => ({ bootstrapForgeViewer: vi.fn() }));
-vi.mock('./EventBus', () => ({ default: { $on: vi.fn() } }));
 
-import { loadDiagram } from './forge-embed-viewer';
+import { embedViewerAdapter } from '@/utils/viewerAdapters/embedViewerAdapter';
 
 const CLOUD_ID = '494a0c9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f';
 const CONTENT_ID = '123456789';
@@ -39,6 +32,14 @@ const BASE_PROPS = {
   macro_type: 'embed',
   source: 'autoconvert_link',
 } as const;
+
+async function resolveAndLoad() {
+  const resolution = await embedViewerAdapter.resolve(h.context);
+  const doc = resolution.status === 'loadable'
+    ? await embedViewerAdapter.load(resolution.target)
+    : undefined;
+  return { resolution, doc };
+}
 
 describe('Embed AutoConvert analytics', () => {
   beforeEach(() => {
@@ -57,7 +58,18 @@ describe('Embed AutoConvert analytics', () => {
     const diagram = { diagramType: DiagramType.Sequence, code: 'A->B: hi' } as Diagram;
     h.getCustomContentByIdV2.mockResolvedValue({ value: diagram });
 
-    await expect(loadDiagram()).resolves.toBe(diagram);
+    const { resolution, doc } = await resolveAndLoad();
+
+    expect(doc).toBe(diagram);
+    expect(resolution).toMatchObject({
+      status: 'loadable',
+      target: { customContentId: CONTENT_ID },
+      cacheIdentity: {
+        cloudId: CLOUD_ID,
+        customContentId: CONTENT_ID,
+        macroKind: 'embed',
+      },
+    });
 
     expect(h.trackAnalyticsEvent.mock.calls).toEqual([
       ['embed_autoconvert_detected', {
@@ -77,7 +89,10 @@ describe('Embed AutoConvert analytics', () => {
     h.context.extension.autoConvertLink =
       `https://confluence.zenuml.com/d/${CLOUD_ID}/not-numeric`;
 
-    await expect(loadDiagram()).resolves.toBeUndefined();
+    const { resolution, doc } = await resolveAndLoad();
+
+    expect(doc).toBeUndefined();
+    expect(resolution).toEqual({ status: 'empty', reason: 'invalid_target' });
 
     expect(h.getCustomContentByIdV2).not.toHaveBeenCalled();
     expect(h.trackAnalyticsEvent.mock.calls).toEqual([
@@ -92,7 +107,9 @@ describe('Embed AutoConvert analytics', () => {
   it('records missing custom content as a terminal failure', async () => {
     h.getCustomContentByIdV2.mockResolvedValue(undefined);
 
-    await expect(loadDiagram()).resolves.toBeUndefined();
+    const { doc } = await resolveAndLoad();
+
+    expect(doc).toBeUndefined();
 
     expect(h.trackAnalyticsEvent.mock.calls).toEqual([
       ['embed_autoconvert_detected', {
@@ -113,7 +130,10 @@ describe('Embed AutoConvert analytics', () => {
     const error = new Error('Confluence request failed');
     h.getCustomContentByIdV2.mockRejectedValue(error);
 
-    await expect(loadDiagram()).rejects.toBe(error);
+    const resolution = await embedViewerAdapter.resolve(h.context);
+    expect(resolution.status).toBe('loadable');
+    if (resolution.status !== 'loadable') throw new Error('expected loadable target');
+    await expect(embedViewerAdapter.load(resolution.target)).rejects.toBe(error);
 
     expect(h.trackAnalyticsEvent.mock.calls).toEqual([
       ['embed_autoconvert_detected', {
@@ -135,7 +155,10 @@ describe('Embed AutoConvert analytics', () => {
     h.context.extension.autoConvertLink =
       `https://confluence.zenuml.com/d/${foreignCloudId}/${CONTENT_ID}`;
 
-    await expect(loadDiagram()).resolves.toBeUndefined();
+    const { resolution, doc } = await resolveAndLoad();
+
+    expect(doc).toBeUndefined();
+    expect(resolution).toEqual({ status: 'empty', reason: 'cross_tenant' });
 
     expect(h.getCustomContentByIdV2).not.toHaveBeenCalled();
     const props = {
@@ -154,7 +177,9 @@ describe('Embed AutoConvert analytics', () => {
     h.context.extension.config.customContentId = CONTENT_ID;
     h.getCustomContentByIdV2.mockResolvedValue({ value: diagram });
 
-    await expect(loadDiagram()).resolves.toBe(diagram);
+    const { doc } = await resolveAndLoad();
+
+    expect(doc).toBe(diagram);
 
     expect(h.getCustomContentByIdV2).toHaveBeenCalledWith(CONTENT_ID);
     expect(h.trackAnalyticsEvent).not.toHaveBeenCalled();

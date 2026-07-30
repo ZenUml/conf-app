@@ -44,6 +44,8 @@ export interface ViewerLoadLifecycleOptions<TContext, TTarget> {
   mount: (doc: Diagram, reporter: ViewerRenderReporter) => void | Promise<void>;
   /** Dedicated viewers mount a stable shell on a cache miss. */
   loadingDocument?: Diagram;
+  /** Evaluate/mount a dedicated-viewer paywall shell before cache access. */
+  mountLoadingBeforeCache?: boolean;
   /** Optional mount deferral such as the Sequence viewport gate. */
   beforeMount?: () => void | Promise<void>;
   afterFreshLoad?: (doc: Diagram, target: TTarget) => void | Promise<void>;
@@ -131,6 +133,7 @@ class ViewerLoadSessionImplementation<TContext, TTarget> implements ViewerLoadSe
     }
 
     const { target, cacheIdentity } = resolution;
+    if (this.options.mountLoadingBeforeCache && !(await this.mountLoadingDocument())) return;
     const cached = getCachedContent(cacheIdentity);
     if (cached) {
       let cachedDocument: Diagram | undefined;

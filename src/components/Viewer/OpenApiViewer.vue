@@ -11,10 +11,17 @@ import "swagger-ui/dist/swagger-ui.css";
 import SpecListener from '@/utils/spec-listener';
 import OpenApiExample from '@/model/OpenApi/OpenApiExample';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import { viewerRenderReporterKey } from '@/utils/viewerRenderReporter';
 
 export default {
   name: "OpenApiViewer",
   components: { GenericViewer },
+  inject: {
+    viewerRenderReporter: {
+      from: viewerRenderReporterKey,
+      default: null,
+    },
+  },
   props: {
     doc: {
       type: Object,
@@ -31,13 +38,11 @@ export default {
   mounted() {
     this.initSwaggerUi();
     this.updateSpecFromDiagram();
-    this.reportRenderOnce();
   },
   watch: {
     doc: {
       handler() {
         this.updateSpecFromDiagram();
-        this.reportRenderOnce();
       },
       deep: true
     },
@@ -46,38 +51,23 @@ export default {
         this.updateSpecFromDiagram();
       },
       deep: true
-    },
-    loadComplete() {
-      this.reportRenderOnce();
     }
   },
   computed: {
     storeDiagram() {
       return this.$store.state.diagram;
     },
-    loadComplete() {
-      return this.$store.state.diagramLoadComplete === true;
-    },
     effectiveDoc() {
       return this.doc ?? this.storeDiagram;
     }
   },
   methods: {
-    // #413: the OpenAPI entry mounts this component BEFORE its content load
-    // resolves (utils/viewerBootstrap.ts mounts a NULL_DIAGRAM shell first), so
-    // reporting from mounted() timed an empty skeleton and snapshotted
-    // renderPerf before a single fetch phase had been recorded — from
-    // v2026.07.250749 openapi shipped no fetch_ms, custom_content_fetch_ms or
-    // page_adf_fetch_ms at all, and its duration_ms silently stopped covering
-    // the content load. Report once the content has settled instead.
-    //
-    // `diagramLoadComplete` flips on failure as well as success, so a macro
-    // whose content 404s still reports (macro_viewed is a readership metric —
-    // it must not become success-only). A `doc` prop means the content was
-    // already in hand at mount (embed host, editor preview): nothing to wait for.
+    // Compatibility Adapter for editor/embed previews that mount this renderer
+    // with a doc prop but without a plain-viewer lifecycle session.
     reportRenderOnce() {
+      if (this.viewerRenderReporter) return;
       if (this.renderReported) return;
-      if (!this.loadComplete && !this.doc) return;
+      if (!this.doc) return;
       this.renderReported = true;
       // SwaggerUI renders asynchronously internally — this measures
       // time-to-content, not time-to-full-paint. Best approximation available
@@ -100,7 +90,21 @@ export default {
       if (!window.ui) return;
       const doc = this.effectiveDoc;
       const spec = doc?.value?.code || doc?.code || OpenApiExample;
-      window.ui.specActions.updateSpec(spec);
+      const revision = this.viewerRenderReporter?.captureRevision() ?? 0;
+      try {
+        window.ui.specActions.updateSpec(spec);
+        if (this.viewerRenderReporter && revision > 0) {
+          this.viewerRenderReporter.rendered(revision);
+        } else {
+          this.reportRenderOnce();
+        }
+      } catch (error) {
+        if (this.viewerRenderReporter) {
+          this.viewerRenderReporter.failed(revision, error);
+          return;
+        }
+        throw error;
+      }
     }
   }
 }

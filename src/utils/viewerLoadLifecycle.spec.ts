@@ -130,6 +130,25 @@ describe('viewerLoadLifecycle', () => {
     });
   });
 
+  it('can mount a dedicated-viewer gate before touching a valid cache entry', async () => {
+    putCachedContent(IDENTITY, JSON.stringify(CACHED));
+    const order: string[] = [];
+    const never = deferred<Diagram | undefined>();
+    const adapter = loadableAdapter(() => {
+      order.push('revalidate');
+      return never.promise;
+    });
+
+    await runViewerLoadLifecycle(options(adapter, {
+      loadingDocument: NULL_DIAGRAM,
+      mountLoadingBeforeCache: true,
+      mount: vi.fn(() => { order.push('gate-and-mount'); }),
+    }));
+
+    expect(order).toEqual(['gate-and-mount', 'revalidate']);
+    expect(store.state.diagram).toEqual(CACHED);
+  });
+
   it('publishes changed revalidation as a new revision and ignores the stale callback', async () => {
     putCachedContent(IDENTITY, JSON.stringify(CACHED));
     const fresh = deferred<Diagram | undefined>();

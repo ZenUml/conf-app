@@ -7,70 +7,12 @@ import globals from '@/model/globals';
 import OpenApiViewer from "@/components/Viewer/OpenApiViewer.vue";
 import EventBus from './EventBus'
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
-import { Diagram } from "@/model/Diagram/Diagram";
-import { reportOrphanObserved } from '@/utils/orphanTelemetry';
-import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
+import { type Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import { guardEditClick } from '@/utils/guardEditClick';
-
-async function loadDiagram(): Promise<Diagram | undefined> {
-  const context = await initForgeContext();
-
-  let doc: Diagram | undefined;
-  // Read from config (page-macro viewer) AND modal — the dual-format dashboard's
-  // View action opens this viewer as a modal carrying the id via
-  // modal.customContentId (mirrors forge-asyncapi-viewer). Without the modal
-  // fallback, a dashboard View of an OpenAPI doc renders empty.
-  const customContentId =
-    context.extension?.config?.customContentId
-    || context.extension?.modal?.customContentId;
-  const pageId = context.extension?.content?.id;
-  if(!customContentId) {
-  } else {
-    // Zero-network viewer copy check — see forge-graph-viewer.ts for the
-    // rationale. Measured cost of the scan this drops: 319ms of a 1429ms
-    // openapi render p50 (~22%, 7d external).
-    const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(
-      pageId, customContentId, { copyCheckMode: 'cross-page-only' },
-    );
-    console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
-    doc = loaded.customContent?.value;
-    if (loaded.recoveredFromOrphanId && doc) {
-      doc.recoveredFromOrphan = true;
-      doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
-      reportOrphanObserved(pageId, customContentId, 'openapi', loaded.probeResult, {
-        recoveryUsed: true,
-        recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
-      });
-    } else if (!doc) {
-      reportOrphanObserved(pageId, customContentId, 'openapi', loaded.probeResult, { recoveryUsed: false });
-    }
-  }
-
-  // ZEN-1170 Defect 1 sibling: cross-page-paste recovery via uuid → CC title.
-  // OpenAPI macros never used content properties (no Defect 1 path here),
-  // but the Connect-era {uuid, updatedAt}-only param shape exists for them
-  // too, and copy-pasting such a macro leaves the destination with no
-  // customContentId. Find the surviving CC by exact-title CQL search.
-  if (!doc) {
-    const storageUuid = context.extension?.config?.uuid;
-    if (storageUuid) {
-      const recovered = await globals.apWrapper.findLegacyCustomContentByUuid(storageUuid);
-      if (recovered?.value) {
-        doc = recovered.value;
-        doc.recoveredFromOrphan = true;
-        trackEvent(storageUuid, 'legacy_custom_content_by_uuid_restored', 'info', {
-          surface: 'viewer',
-          macro_type: 'openapi',
-          recovered_id: String(recovered.id ?? ''),
-          is_copy: doc.isCopy ? 'true' : 'false',
-          ...(pageId && { page_id: pageId }),
-        });
-      }
-    }
-  }
-
-  return doc;
-}
+import { mountRoot } from '@/mount-root';
+import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
+import { runViewerLoadLifecycle } from '@/utils/viewerLoadLifecycle';
+import { openApiViewerAdapter } from '@/utils/viewerAdapters/openApiViewerAdapter';
 
 function afterLoad(doc: Diagram | undefined) {
   setTimeout(async function () {
@@ -90,15 +32,25 @@ function afterLoad(doc: Diagram | undefined) {
 }
 
 async function initializeMacro() {
-  await bootstrapForgeViewer({
-    macroKind: 'openapi',
-    content: OpenApiViewer,
-    loadDiagram,
-    afterLoad,
-    // Same id `loadDiagram` reads (config, falling back to the dashboard
-    // modal's carried id) above.
-    resolveContentId: (context) =>
-      context.extension?.config?.customContentId || context.extension?.modal?.customContentId,
+  await runViewerLoadLifecycle({
+    macroType: 'openapi',
+    initializeContext: () => globals.apWrapper.initializeContext(),
+    getContext: initForgeContext,
+    adapter: openApiViewerAdapter,
+    loadingDocument: NULL_DIAGRAM,
+    mountLoadingBeforeCache: true,
+    mount: async (doc, reporter) => {
+      const paywalled = await tryFullscreenViewerPaywall({
+        doc,
+        content: OpenApiViewer,
+        macroKind: 'openapi',
+        viewerRenderReporter: reporter,
+      });
+      if (!paywalled) {
+        mountRoot(doc, OpenApiViewer, {}, { viewerRenderReporter: reporter });
+      }
+    },
+    afterFreshLoad: afterLoad,
     onError: (error) => {
       console.error('Error loading OpenAPI viewer', error);
     },

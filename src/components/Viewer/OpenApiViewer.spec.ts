@@ -4,7 +4,11 @@ import OpenApiViewer from '@/components/Viewer/OpenApiViewer.vue';
 import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
-import { time as timePhase, _resetForTesting } from '@/utils/analytics/renderPerf';
+import { _resetForTesting } from '@/utils/analytics/renderPerf';
+import {
+  viewerRenderReporterKey,
+  type ViewerRenderReporter,
+} from '@/utils/viewerRenderReporter';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -47,8 +51,22 @@ describe('OpenApiViewer', () => {
   // stale instance's reporter too and inflate the counts below.
   enableAutoUnmount(afterEach);
 
+  const reporter: ViewerRenderReporter = {
+    captureRevision: vi.fn(() => 0),
+    rendered: vi.fn(),
+    failed: vi.fn(),
+  };
+
+  const mountLifecycleViewer = () => mount(OpenApiViewer, {
+    global: {
+      plugins: [store],
+      provide: { [viewerRenderReporterKey as symbol]: reporter },
+    },
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(reporter.captureRevision).mockReturnValue(0);
     _resetForTesting();
     window.ui = undefined;
     window.__macroLoadStart = 0;
@@ -86,60 +104,51 @@ describe('OpenApiViewer', () => {
     expect(swaggerMock.updateSpec).toHaveBeenCalledWith(store.state.diagram.code);
   });
 
-  // #413. The OpenAPI entry mounts this component before its content load
-  // resolves, so reporting from mounted() both timed an empty skeleton and
-  // snapshotted renderPerf before any fetch phase existed — openapi shipped
-  // zero fetch_ms/custom_content_fetch_ms/page_adf_fetch_ms for 1,187
-  // production renders before anyone noticed.
-  describe('macro_viewed reporting', () => {
-    it('waits for the content load to settle instead of reporting at mount', async () => {
-      const wrapper = mount(OpenApiViewer, { global: { plugins: [store] } });
+  describe('viewer lifecycle reporter', () => {
+    it('does not complete the lifecycle from the loading shell', () => {
+      mountLifecycleViewer();
 
+      expect(reporter.rendered).not.toHaveBeenCalled();
       expect(macroViewedCalls()).toHaveLength(0);
-
-      store.state.diagramLoadComplete = true;
-      await wrapper.vm.$nextTick();
-
-      expect(macroViewedCalls()).toHaveLength(1);
     });
 
-    it('carries the fetch phase recorded during the load', async () => {
-      const wrapper = mount(OpenApiViewer, { global: { plugins: [store] } });
-      // Stand in for viewerBootstrap's wrapped load, which records the phase
-      // after this component has already mounted.
-      await timePhase('fetch', async () => undefined);
+    it('reports the captured revision only after handing the loaded spec to SwaggerUI', async () => {
+      const wrapper = mountLifecycleViewer();
+      swaggerMock.updateSpec.mockClear();
+      vi.mocked(reporter.captureRevision).mockReturnValue(1);
 
-      store.state.diagramLoadComplete = true;
+      store.state.diagram = {
+        ...NULL_DIAGRAM,
+        diagramType: DiagramType.OpenApi,
+        code: 'openapi: 3.0.0\ninfo:\n  title: Loaded API',
+      };
       await wrapper.vm.$nextTick();
 
-      const [, props] = macroViewedCalls()[0];
-      expect(props.macro_type).toBe('openapi');
-      expect(props.fetch_ms).toBeTypeOf('number');
+      expect(swaggerMock.updateSpec).toHaveBeenCalledWith(store.state.diagram.code);
+      expect(reporter.rendered).toHaveBeenCalledWith(1);
+      expect(swaggerMock.updateSpec.mock.invocationCallOrder.at(-1))
+        .toBeLessThan(vi.mocked(reporter.rendered).mock.invocationCallOrder.at(-1)!);
+      expect(macroViewedCalls()).toHaveLength(0);
     });
 
-    it('reports once, not once per store mutation', async () => {
-      const wrapper = mount(OpenApiViewer, { global: { plugins: [store] } });
-      store.state.diagramLoadComplete = true;
+    it('reports a SwaggerUI update failure for the same captured revision', async () => {
+      const wrapper = mountLifecycleViewer();
+      const error = new Error('SwaggerUI rejected the spec');
+      vi.mocked(reporter.captureRevision).mockReturnValue(2);
+      swaggerMock.updateSpec.mockImplementationOnce(() => { throw error; });
+
+      store.state.diagram = {
+        ...NULL_DIAGRAM,
+        diagramType: DiagramType.OpenApi,
+        code: 'not valid OpenAPI',
+      };
       await wrapper.vm.$nextTick();
 
-      store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi, code: 'openapi: 3.0.0' };
-      await wrapper.vm.$nextTick();
-
-      expect(macroViewedCalls()).toHaveLength(1);
+      expect(reporter.failed).toHaveBeenCalledWith(2, error);
+      expect(reporter.rendered).not.toHaveBeenCalled();
     });
 
-    it('reports a failed load too — macro_viewed is readership, not success', async () => {
-      const wrapper = mount(OpenApiViewer, { global: { plugins: [store] } });
-
-      // publishLoadedDiagram(undefined): the doc never arrived, but the load
-      // did settle.
-      store.state.diagramLoadComplete = true;
-      await wrapper.vm.$nextTick();
-
-      expect(macroViewedCalls()).toHaveLength(1);
-    });
-
-    it('reports at mount when the content is already in hand (embed host, editor preview)', () => {
+    it('keeps legacy tracking for an editor/embed preview mounted without a lifecycle', () => {
       mount(OpenApiViewer, {
         props: { doc: { ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi, code: 'openapi: 3.0.0' } },
         global: { plugins: [store] },

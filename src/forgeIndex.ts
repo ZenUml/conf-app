@@ -42,7 +42,8 @@ import {
 } from '@/utils/legacyContentPropertyTelemetry';
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
-import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
+import { getCachedContent, putCachedContent } from '@/utils/renderCache/contentCacheStore';
+import { revalidateViewerContent } from '@/utils/renderCache/revalidateViewerContent';
 import { maybeGateViewerRender, awaitGateBlocking } from '@/utils/renderGate/maybeGateViewerRender';
 
 // Track editor session start time
@@ -360,12 +361,14 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       mountRoot(viewerDoc, DiagramPortal, { autoResize: true });
     };
 
-    const revalidateSequenceViewer = async (
+    const revalidateSequenceViewer = (
       ccId: string,
       pageId: string | undefined,
       cachedHash: string,
-    ) => {
-      try {
+    ) => revalidateViewerContent({
+      customContentId: ccId,
+      cachedHash,
+      loadFresh: async () => {
         const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(
           pageId, ccId, { copyCheckMode },
         );
@@ -378,8 +381,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, { recoveryUsed: false });
         }
         const fresh = loaded.customContent?.value;
-        if (!fresh) return; // content unreadable now — keep the last-known-good cached render
-        if (loaded.customContent) {
+        if (fresh && loaded.customContent) {
           import('@/model/SnapshotAttachment').then(({ maybeBackfillSnapshot }) =>
             maybeBackfillSnapshot({
               hostPageId: String(pageId),
@@ -391,18 +393,15 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
             })
           ).catch(e => console.debug('[snapshot] backfill skipped', e));
         }
-        const serialized = JSON.stringify(fresh);
-        putCachedContent(ccId, serialized);
-        if (hashContent(serialized) !== cachedHash) {
-          renderPerf.markContentSource('fetch');
-          // @ts-ignore - fresh may be a partial spread type; matches the happy-path mount below
-          const freshDoc: Diagram = fresh.plantUmlCode ? fresh : { ...fresh, plantUmlCode: Example.PlantUml };
-          await mountSequenceViewer(freshDoc);
-        }
-      } catch (e) {
-        console.warn('[content-swr] background revalidate failed; cached render stands', e);
-      }
-    };
+        return fresh;
+      },
+      onChanged: async (fresh) => {
+        renderPerf.markContentSource('fetch');
+        // @ts-ignore - fresh may be a partial spread type; matches the happy-path mount below
+        const freshDoc: Diagram = fresh.plantUmlCode ? fresh : { ...fresh, plantUmlCode: Example.PlantUml };
+        await mountSequenceViewer(freshDoc);
+      },
+    });
 
     if (customContentId && isSequence && !(await isEditorMode()) && !(await isFullscreenMode())) {
       const cached = getCachedContent(customContentId);

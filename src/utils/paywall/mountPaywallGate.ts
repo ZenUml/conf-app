@@ -26,6 +26,7 @@ import {
   isPageEditorEditBlocked,
   isPageEditorCreateBlocked,
 } from '@/utils/paywall/preEditGate';
+import type { ViewerRenderReporter } from '@/utils/viewerRenderReporter';
 
 type CustomerSuccess = ReturnType<typeof useCustomerSuccessService>;
 
@@ -82,6 +83,7 @@ export async function mountUnderPaywallGate(opts: {
   customerSuccess: CustomerSuccess;
   logTag: string;
   actionType: PaywallActionType;
+  viewerRenderReporter?: ViewerRenderReporter;
 }): Promise<void> {
   const spaceKey = await resolveSpaceKey(opts.logTag);
   mountRoot(opts.doc, PaywallGate, {
@@ -102,6 +104,8 @@ export async function mountUnderPaywallGate(opts: {
     onClose: async () => {
       await (await getView()).close();
     },
+  }, {
+    viewerRenderReporter: opts.viewerRenderReporter,
   });
 }
 
@@ -118,6 +122,7 @@ export async function tryFullscreenViewerPaywall(opts: {
   content: Component;
   contentProps?: Record<string, unknown>;
   macroKind: MacroKind;
+  viewerRenderReporter?: ViewerRenderReporter;
 }): Promise<boolean> {
   const isFullscreen = await isFullscreenMode();
   const isEditor = await isEditorMode();
@@ -153,6 +158,7 @@ export async function tryFullscreenViewerPaywall(opts: {
     customerSuccess,
     logTag: 'fullscreen-viewer',
     actionType: 'fullscreen_viewer',
+    viewerRenderReporter: opts.viewerRenderReporter,
   });
   return true;
 }

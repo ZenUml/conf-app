@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { NULL_DIAGRAM } from '@/model/Diagram/Diagram'
+import type { ViewerRenderReporter } from '@/utils/viewerRenderReporter'
 
 // Verifies `paywall_gate_evaluated` (#302 fail-open instrumentation) fires on
 // every Lite gate decision — blocked OR not — carrying gate_fired +
@@ -116,6 +117,36 @@ describe('paywall_gate_evaluated (#302 instrumentation)', () => {
     await gate.tryFullscreenViewerPaywall({ doc: undefined, content: StubContent, macroKind: 'sequence' })
     const call = gateEvalCall(trackUpgradeEvent, UpgradeEventName.PAYWALL_GATE_EVALUATED)
     expect(call![1]).toMatchObject({ action_type: 'fullscreen_viewer', surface: 'viewer', gate_fired: false })
+  })
+
+  it('preserves the viewer lifecycle reporter through the fullscreen paywall wrapper', async () => {
+    fakeCS.shouldBlockActions.value = true
+    fakeCS.macrosCreated.value = 150
+    fakeCS.macroCountSource.value = 'kv'
+    const forge = await import('@/model/globals/forgeGlobal')
+    vi.mocked(forge.isFullscreenMode).mockResolvedValue(true)
+    vi.mocked(forge.isEditorMode).mockResolvedValue(false)
+    const reporter: ViewerRenderReporter = {
+      captureRevision: () => 1,
+      rendered: vi.fn(),
+      failed: vi.fn(),
+    }
+
+    const { gate } = await imports()
+    await gate.tryFullscreenViewerPaywall({
+      doc: NULL_DIAGRAM,
+      content: StubContent,
+      macroKind: 'sequence',
+      viewerRenderReporter: reporter,
+    })
+
+    const { mountRoot } = await import('@/mount-root')
+    expect(mountRoot).toHaveBeenCalledWith(
+      NULL_DIAGRAM,
+      expect.anything(),
+      expect.any(Object),
+      { viewerRenderReporter: reporter },
+    )
   })
 
   it('carries space_paid_scope from the customer-success service (user_license)', async () => {

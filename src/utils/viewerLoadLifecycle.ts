@@ -34,10 +34,13 @@ export type ViewerTargetResolution<TTarget> =
 export interface ViewerContentAdapter<TContext, TTarget> {
   resolve(context: TContext): Promise<ViewerTargetResolution<TTarget>>;
   load(target: TTarget): Promise<Diagram | undefined>;
+  /** Adapt raw storage shape only when publishing to the renderer. */
+  normalize?(document: Diagram): Diagram;
 }
 
 export interface ViewerLoadLifecycleOptions<TContext, TTarget> {
-  macroType: MacroTypeValue;
+  /** Resolve lazily when the fetched document determines the rendered family. */
+  macroType: MacroTypeValue | (() => MacroTypeValue);
   initializeContext?: () => Promise<void>;
   getContext: () => Promise<TContext>;
   adapter: ViewerContentAdapter<TContext, TTarget>;
@@ -236,7 +239,8 @@ class ViewerLoadSessionImplementation<TContext, TTarget> implements ViewerLoadSe
   }
 
   private async publish(rawDocument: Diagram, source: ContentSource): Promise<void> {
-    const document = normalizeViewerDocument(rawDocument);
+    const normalized = normalizeViewerDocument(rawDocument);
+    const document = this.options.adapter.normalize?.(normalized) ?? normalized;
     const published = { revision: this.nextRevision++, source };
     this.currentRevision = published;
     this.currentDocument = document;
@@ -319,8 +323,11 @@ class ViewerLoadSessionImplementation<TContext, TTarget> implements ViewerLoadSe
   ): void {
     if (this.terminalTracked) return;
     this.terminalTracked = true;
+    const macroType = typeof this.options.macroType === 'function'
+      ? this.options.macroType()
+      : this.options.macroType;
     trackViewerLoadOutcome(
-      this.options.macroType,
+      macroType,
       this.options.isDisplayMode ?? true,
       {
         outcome,

@@ -43,12 +43,13 @@ import {
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import {
-  getCachedContent,
   putCachedContent,
-  hashContent,
   type ViewerContentIdentity,
 } from '@/utils/renderCache/contentCacheStore';
 import { maybeGateViewerRender, awaitGateBlocking } from '@/utils/renderGate/maybeGateViewerRender';
+import { runViewerLoadLifecycle } from '@/utils/viewerLoadLifecycle';
+import { diagramViewerAdapter } from '@/utils/viewerAdapters/diagramViewerAdapter';
+import type { ViewerRenderReporter } from '@/utils/viewerRenderReporter';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -310,6 +311,8 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       context.extension.modal?.macroMode === 'editor' ||
       !!context.extension?.macro?.isConfiguring;
     const copyCheckMode = isSequence && !isEditorish ? ('cross-page-only' as const) : ('full' as const);
+    const editable = await isEditorMode();
+    const fullscreenMode = isSequence ? await isFullscreenMode() : false;
 
     // ── Viewport render gate (#382) ──────────────────────────────────────────
     // Plain sequence-family VIEWER only (same scope as the content-SWR block
@@ -325,122 +328,73 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // Started here (pre-fetch) so observers and the flag refresh run
     // concurrently with the content load; awaited at the mount points.
     const viewerGatePromise: Promise<void> | null =
-      isSequence && !(await isEditorMode()) && !(await isFullscreenMode())
+      isSequence && !editable && !fullscreenMode
         ? maybeGateViewerRender()
         : null;
 
-    // ── Content SWR: cache-first render on a viewer revisit ──────────────────
-    // Most macro views are revisits of unchanged content (measured: ~66% of
-    // sequence-family viewer views in a week are a repeat of the same user +
-    // customContentId, with no save landing in between) and the view's time is
-    // dominated by the content fetch. The cache is keyed by customContentId —
-    // known from the Forge context BEFORE any fetch — so on a hit we mount the
-    // cached doc immediately and revalidate in the background, taking the
-    // fetch off the critical path.
-    //
-    // Scoped to the plain (non-fullscreen) sequence-family VIEWER: it's the
-    // dominant macro_viewed surface and is read-only (no save path → no
-    // data-loss risk). Fullscreen is excluded so its paywall gate still fires;
-    // the editor is excluded because its load drives save/recovery/paywall
-    // logic. Deliberately calls `await isEditorMode()` here rather than
-    // reusing the `isEditorish` const above — that const is a narrower
-    // synchronous heuristic scoped only to the ADF-scan copyCheckMode gate;
-    // this needs to match `editable` (computed the same way, further below)
-    // exactly, since that's the real switch between the Workspace and
-    // DiagramPortal mount paths.
-    //
-    // Orphan-recovery reporting and the cross-page SnapshotAttachment backfill
-    // are NOT run on the instant cache-hit render — there's no fresh `loaded`
-    // result to report from at that point, and a cache hit means recovery for
-    // this ccid isn't in question anyway (we're serving previously-fetched
-    // valid content, not resolving a possibly-orphaned id). Both still run
-    // inside revalidateSequenceViewer below, which performs the real fetch
-    // moments later, so nothing is silently dropped — it's deferred off the
-    // critical path, same as the fetch itself.
-    // See utils/renderCache/contentCacheStore.ts.
-    const mountSequenceViewer = async (viewerDoc: Diagram) => {
-      // #382: hold the mount until the viewport gate releases (the gate shows
-      // its own shimmer placeholder while holding — index.html has no real
-      // skeleton element). awaitGateBlocking also records the ACTUAL wait at
-      // this mount site as render_deferred_ms. Resolved instantly when the
-      // flag is off; already-resolved for the revalidate re-mount.
-      await awaitGateBlocking(viewerGatePromise);
-      const skeleton = document.getElementById('skeleton-loader');
-      if (skeleton) skeleton.style.display = 'none';
-      const { mountRoot } = await import('@/mount-root');
-      const DiagramPortal = (await import('@/components/DiagramPortal.vue')).default;
-      // @ts-ignore - viewerDoc may be a partial spread type; matches the happy-path mount below
-      mountRoot(viewerDoc, DiagramPortal, { autoResize: true });
-    };
+    if (isSequence && !editable) {
+      const fallbackMacroType = context.extension.modal?.diagramType;
+      const currentMacroType = (): 'sequence' | 'mermaid' | 'plantuml' => {
+        const type = store.state.diagram.diagramType;
+        if (type === DiagramType.Mermaid) return 'mermaid';
+        if (type === DiagramType.PlantUml) return 'plantuml';
+        if (type === DiagramType.Sequence) return 'sequence';
+        if (fallbackMacroType === 'mermaid' || fallbackMacroType === 'plantuml') {
+          return fallbackMacroType;
+        }
+        return 'sequence';
+      };
 
-    const revalidateSequenceViewer = async (
-      cacheIdentity: ViewerContentIdentity,
-      pageId: string | undefined,
-      cachedHash: string,
-    ) => {
-      try {
-        const ccId = cacheIdentity.customContentId;
-        const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(
-          pageId, ccId, { copyCheckMode },
+      const mountDiagramViewer = async (
+        viewerDoc: Diagram,
+        reporter: ViewerRenderReporter,
+      ) => {
+        // Revalidation starts before this wait inside the lifecycle Module, so
+        // an offscreen macro never delays its freshness check.
+        await awaitGateBlocking(viewerGatePromise);
+        const skeleton = document.getElementById('skeleton-loader');
+        if (skeleton) skeleton.style.display = 'none';
+        const DiagramPortal = (await import('@/components/DiagramPortal.vue')).default;
+        const macroKind = currentMacroType();
+        if (fullscreenMode && await tryFullscreenViewerPaywall({
+          doc: viewerDoc,
+          content: DiagramPortal,
+          contentProps: { autoResize: false },
+          macroKind,
+          viewerRenderReporter: reporter,
+        })) return;
+
+        mountRoot(
+          viewerDoc,
+          DiagramPortal,
+          { autoResize: !fullscreenMode },
+          { viewerRenderReporter: reporter },
         );
-        if (loaded.recoveredFromOrphanId && loaded.customContent?.value) {
-          reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, {
-            recoveryUsed: true,
-            recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
-          });
-        } else if (!loaded.customContent?.value) {
-          reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, { recoveryUsed: false });
-        }
-        const fresh = loaded.customContent?.value;
-        if (!fresh) return; // content unreadable now — keep the last-known-good cached render
-        if (loaded.customContent) {
-          import('@/model/SnapshotAttachment').then(({ maybeBackfillSnapshot }) =>
-            maybeBackfillSnapshot({
-              hostPageId: String(pageId),
-              ccId: String(ccId),
-              ccPageId: loaded.customContent!.pageId,
-              diagram: fresh,
-              ccVersion: loaded.customContent!.version?.number,
-              isDisplayMode: globals.apWrapper.isDisplayMode(),
-            })
-          ).catch(e => console.debug('[snapshot] backfill skipped', e));
-        }
-        const serialized = JSON.stringify(fresh);
-        putCachedContent(cacheIdentity, serialized);
-        if (hashContent(serialized) !== cachedHash) {
-          renderPerf.markContentSource('fetch');
-          // @ts-ignore - fresh may be a partial spread type; matches the happy-path mount below
-          const freshDoc: Diagram = fresh.plantUmlCode ? fresh : { ...fresh, plantUmlCode: Example.PlantUml };
-          await mountSequenceViewer(freshDoc);
-        }
-      } catch (e) {
-        console.warn('[content-swr] background revalidate failed; cached render stands', e);
-      }
-    };
+      };
 
-    if (sequenceCacheIdentity && isSequence && !(await isEditorMode()) && !(await isFullscreenMode())) {
-      const cached = getCachedContent(sequenceCacheIdentity);
-      if (cached) {
-        try {
-          const cachedDoc = JSON.parse(cached.doc) as Diagram;
-          // @ts-ignore - cachedDoc may be a partial spread type; matches the happy-path mount below
-          const viewerDoc: Diagram = cachedDoc.plantUmlCode ? cachedDoc : { ...cachedDoc, plantUmlCode: Example.PlantUml };
-          renderPerf.markContentSource('swr_cache');
-          // Revalidate BEFORE the (possibly gated) mount: an offscreen macro
-          // must not delay its freshness check / orphan reporting / snapshot
-          // backfill until the viewport gate releases (#384 review F4). If
-          // the content changed, revalidate's own mountSequenceViewer call
-          // awaits the same gate and lands after this cached mount, so the
-          // fresh doc still wins.
-          void revalidateSequenceViewer(sequenceCacheIdentity, recoveryPageId, cached.hash);
-          await mountSequenceViewer(viewerDoc);
-          return; // rendered from cache — skip the live-fetch + mount path entirely
-        } catch (e) {
-          console.warn('[content-swr] cache hit failed to render; falling back to live fetch', e);
-          // fall through to the normal fetch path below
-        }
+      const session = await runViewerLoadLifecycle({
+        macroType: currentMacroType,
+        getContext: async () => context,
+        adapter: diagramViewerAdapter,
+        mount: mountDiagramViewer,
+        isDisplayMode: globals.apWrapper.isDisplayMode(),
+        onError: (error) => console.error('Error loading diagram viewer', error),
+      });
+
+      // The legacy path mounted an empty DiagramPortal after exhausted
+      // recovery. Keep the stable viewer/paywall shell while the lifecycle
+      // owns the explicit empty/failed terminal state and analytics.
+      if (
+        session.state.status === 'empty'
+        || (session.state.status === 'failed' && session.state.reason !== 'render')
+      ) {
+        await mountDiagramViewer({ ...NULL_DIAGRAM }, session.reporter);
       }
+      return;
     }
+
+    /* Editor-only load path. Plain Sequence/Mermaid/PlantUML viewers return
+       through viewerLoadLifecycle above. */
 
     if (isSequence && customContentId) {
       const loaded = await renderPerf.time('fetch', () =>
@@ -729,7 +683,6 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     }
 
     // Start journey tracking for editor mode
-    const editable = await isEditorMode();
     if (editable) {
       // Refresh the macro-count cache while the editor is open. This is the safe
       // place for the full enumeration (~10s for a large space): the editing
@@ -796,13 +749,6 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       }
     }
 
-    // #382: gated fetch-path viewer renders wait here (the gate shows its own
-    // shimmer placeholder while holding — index.html has no real skeleton
-    // element). Null for editors/fullscreen/non-sequence; resolved for
-    // SWR-hit renders (mountSequenceViewer already awaited it above).
-    // awaitGateBlocking records the actual mount wait as render_deferred_ms.
-    await awaitGateBlocking(viewerGatePromise);
-
     // Hide skeleton loader before mounting the actual content
     const skeletonLoader = document.getElementById('skeleton-loader');
     if (skeletonLoader) {
@@ -815,63 +761,45 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // them — see that block for the rationale.
 
     if(isSequence) {
-      const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';
-      const fullscreenMode = await isFullscreenMode();
+      const macroKind = doc?.diagramType === DiagramType.Mermaid
+        ? 'mermaid'
+        : doc?.diagramType === DiagramType.PlantUml
+          ? 'plantuml'
+          : 'sequence';
 
-      // Editor paywall: mount Workspace under PaywallGate so the iframe is
-      // never blank; save remains gated in the persistence layer.
-      if (editable) {
-        // @ts-ignore - Workspace's Split() helper checks window.split
-        window.split = true;
-        const Workspace = (await import('@/components/Workspace.vue')).default;
-        if (await tryPageEditorPaywall({
-          // @ts-ignore - doc may be a partial spread type; matches the happy-path mount below
-          doc: doc ?? NULL_DIAGRAM,
-          content: Workspace,
-          contentProps: { autoResize: !fullscreenMode },
-          macroKind,
-          customContentId,
-        })) return;
-      }
+      // Plain viewers returned through viewerLoadLifecycle above, so this is
+      // the editor-only Workspace path and keeps all save/recovery guards.
+      // @ts-ignore - Workspace's Split() helper checks window.split
+      window.split = true;
+      const Workspace = (await import('@/components/Workspace.vue')).default;
+      if (await tryPageEditorPaywall({
+        // @ts-ignore - doc may be a partial spread type; matches the happy-path mount below
+        doc: doc ?? NULL_DIAGRAM,
+        content: Workspace,
+        contentProps: { autoResize: !fullscreenMode },
+        macroKind,
+        customContentId,
+      })) return;
 
-      // Fullscreen viewer paywall: blocking modal over the read-only diagram.
-      // Fires only when the user clicked Fullscreen on a saturated Lite space.
-      if (!editable && fullscreenMode) {
-        const DiagramPortal = (await import('@/components/DiagramPortal.vue')).default;
-        if (await tryFullscreenViewerPaywall({
-          // @ts-ignore - doc may be a partial spread type; matches the happy-path mount below
-          doc,
-          content: DiagramPortal,
-          contentProps: { autoResize: false },
-          macroKind,
-        })) return;
-      }
+      // @ts-ignore - editor recovery may intentionally supply a partial doc
+      mountRoot(doc, Workspace, { autoResize: false });
 
-      const component = editable
-      ? (await import("@/components/Workspace.vue")).default
-      : (await import("@/components/DiagramPortal.vue")).default;
-
-      //@ts-ignore
-      mountRoot(doc, component, { autoResize: !editable && !fullscreenMode });
-
-      if (editable) {
-        const isNew = !customContentId;
-        const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';
-        if (isNew) {
-          trackAnalyticsEvent("macro_create_started", {
-            feature_area: "macro",
-            surface: "editor",
-            macro_type: macroType,
-            entry_point: "page_editor",
-          });
-        } else {
-          trackAnalyticsEvent("macro_edit_opened", {
-            feature_area: "macro",
-            surface: "editor",
-            macro_type: macroType,
-            entry_point: "macro_toolbar",
-          });
-        }
+      const isNew = !customContentId;
+      const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';
+      if (isNew) {
+        trackAnalyticsEvent("macro_create_started", {
+          feature_area: "macro",
+          surface: "editor",
+          macro_type: macroType,
+          entry_point: "page_editor",
+        });
+      } else {
+        trackAnalyticsEvent("macro_edit_opened", {
+          feature_area: "macro",
+          surface: "editor",
+          macro_type: macroType,
+          entry_point: "macro_toolbar",
+        });
       }
     } else if(isGraph) {
       await import(editable ? "@/forge-graph-editor" : "@/forge-graph-viewer");

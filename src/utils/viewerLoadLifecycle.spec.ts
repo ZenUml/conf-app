@@ -106,6 +106,21 @@ describe('viewerLoadLifecycle', () => {
     });
   });
 
+  it('resolves the macro type at terminal time after publishing the document', async () => {
+    const mermaid = { ...FRESH, diagramType: DiagramType.Mermaid };
+    const session = await runViewerLoadLifecycle(options(
+      loadableAdapter(async () => mermaid),
+      { macroType: () => store.state.diagram.diagramType as 'mermaid' },
+    ));
+
+    session.reporter.rendered(1);
+
+    expect(trackViewerLoadOutcome).toHaveBeenCalledWith('mermaid', true, {
+      outcome: 'rendered',
+      contentSource: 'fetch',
+    });
+  });
+
   it('starts revalidation before a synchronous cache render and attributes it to swr_cache', async () => {
     putCachedContent(IDENTITY, JSON.stringify(CACHED));
     const order: string[] = [];

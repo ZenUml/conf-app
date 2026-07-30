@@ -148,6 +148,18 @@ export function putCachedContent(identity: ViewerContentIdentity | undefined, do
   }
 }
 
+/** Remove one corrupt/stale entry without disturbing the rest of the LRU. */
+export function removeCachedContent(identity: ViewerContentIdentity | undefined): void {
+  try {
+    if (!isCompleteIdentity(identity)) return;
+    const key = keyFor(identity);
+    localStorage.removeItem(key);
+    writeIndex(readIndex().filter((indexedKey) => indexedKey !== key));
+  } catch {
+    // Cache eviction is best effort; source-of-truth loading still proceeds.
+  }
+}
+
 /** Test helper: clear the whole content cache. */
 export function _resetForTesting(): void {
   try {

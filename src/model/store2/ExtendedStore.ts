@@ -3,6 +3,7 @@ import { RootState} from "@/model/store2/types";
 import {DiagramType, NULL_DIAGRAM} from "@/model/Diagram/Diagram";
 import globals from "@/model/globals";
 import EventBus from "@/EventBus";
+import { initialViewerLoadState } from '@/utils/viewerLoadState';
 
 const ExtendedStore: StoreOptions<RootState> = {
   mutations: {
@@ -65,6 +66,7 @@ const ExtendedStore: StoreOptions<RootState> = {
     // it shows a terminal error instead of spinning forever. Only ForgeEmbedViewer
     // reads it; other viewers ignore it.
     diagramLoadComplete: false,
+    viewerLoadState: initialViewerLoadState(),
     publishBlock: null,
     error: null,
     onElementClick: (codeRange: any) => {

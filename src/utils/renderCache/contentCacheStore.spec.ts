@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   getCachedContent,
   putCachedContent,
+  removeCachedContent,
   hashContent,
   _resetForTesting,
   type ViewerContentIdentity,
@@ -52,6 +53,18 @@ describe('contentCacheStore (SWR content cache, keyed by complete viewer identit
 
   it('returns undefined on a miss', () => {
     expect(getCachedContent(identity('cloud-a', 'never'))).toBeUndefined();
+  });
+
+  it('removes one corrupt entry without clearing another identity', () => {
+    const corrupt = identity('cloud-a', 'corrupt');
+    const healthy = identity('cloud-a', 'healthy');
+    putCachedContent(corrupt, '{not-json');
+    putCachedContent(healthy, DOC);
+
+    removeCachedContent(corrupt);
+
+    expect(getCachedContent(corrupt)).toBeUndefined();
+    expect(getCachedContent(healthy)?.doc).toBe(DOC);
   });
 
   it('keys by id — the hash changes when content changes (drives revalidate re-render)', () => {

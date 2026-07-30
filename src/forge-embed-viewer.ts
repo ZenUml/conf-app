@@ -7,14 +7,17 @@ import { getContext as initForgeContext, openModal } from './model/globals/forge
 import { Diagram, getDiagramData } from "@/model/Diagram/Diagram";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
-import { parseEmbedDeeplink } from '@/utils/embedDeeplink';
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import {
+  resolveEmbedAutoconvertTarget,
+  trackEmbedAutoconvertTargetResult,
+} from '@/utils/embedAutoconvertTelemetry';
 
 async function loadDiagram(): Promise<Diagram | undefined> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
   let customContentId = context.extension?.config?.customContentId;
+  let resolvedFromAutoConvert = false;
   const pageId = context.extension?.content?.id;
 
   // AutoConvert: a pasted https://confluence.zenuml.com/d/<cloudId>/<contentId>
@@ -22,21 +25,14 @@ async function loadDiagram(): Promise<Diagram | undefined> {
   // matched URL instead. `autoConvertLink` is a top-level extension-context
   // field per Atlassian's docs, not nested under `config`:
   // https://developer.atlassian.com/platform/forge/manifest-reference/modules/macro/
-  if (!customContentId) {
-    const deeplink = context.extension?.autoConvertLink
-      ? parseEmbedDeeplink(context.extension.autoConvertLink)
-      : undefined;
-    if (deeplink) {
-      if (context.cloudId && deeplink.cloudId !== String(context.cloudId).toLowerCase()) {
-        // Fail soft on a foreign-site paste — never fetch cross-tenant.
-        trackAnalyticsEvent('embed_autoconvert_cross_tenant_rejected', {
-          feature_area: 'macro',
-          surface: 'viewer',
-          macro_type: 'embed',
-        });
-      } else {
-        customContentId = deeplink.contentId;
-      }
+  if (!customContentId && context.extension?.autoConvertLink) {
+    const target = resolveEmbedAutoconvertTarget(
+      context.extension.autoConvertLink,
+      context.cloudId ? String(context.cloudId) : undefined,
+    );
+    if (target) {
+      customContentId = target.contentId;
+      resolvedFromAutoConvert = true;
     }
   }
 
@@ -45,6 +41,9 @@ async function loadDiagram(): Promise<Diagram | undefined> {
     const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
+    if (resolvedFromAutoConvert) {
+      trackEmbedAutoconvertTargetResult(Boolean(doc));
+    }
     if (!doc) {
       // ZEN-1170 telemetry. #147: the original call passed the arguments in the
       // WRONG order — (apWrapper, pageId, customContentId, 'embed') against the

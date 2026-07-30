@@ -20,9 +20,6 @@ export function mountRoot(
 ) {
   console.debug('Mounting root', doc);
   store.state.diagram = doc;
-  // A fresh mount starts before the real doc is loaded; publishLoadedDiagram
-  // flips this true once loadDiagram() resolves. See ExtendedStore state.
-  store.state.diagramLoadComplete = false;
 
   const appElement = document.getElementById('app');
   if (appElement) {

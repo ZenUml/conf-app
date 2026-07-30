@@ -196,7 +196,7 @@ async function initializeCriticalPath() {
 }
 
 // Load heavy components asynchronously
-async function loadHeavyComponents(criticalData: { macroData: any }) {
+async function loadHeavyComponents(_criticalData: { macroData: any }) {
   try {
     // Dynamically import heavy dependencies
     const [
@@ -769,11 +769,10 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 
       // Plain viewers returned through viewerLoadLifecycle above, so this is
       // the editor-only Workspace path and keeps all save/recovery guards.
-      // @ts-ignore - Workspace's Split() helper checks window.split
+      // @ts-expect-error - Workspace's Split() helper reads this legacy global
       window.split = true;
       const Workspace = (await import('@/components/Workspace.vue')).default;
       if (await tryPageEditorPaywall({
-        // @ts-ignore - doc may be a partial spread type; matches the happy-path mount below
         doc: doc ?? NULL_DIAGRAM,
         content: Workspace,
         contentProps: { autoResize: !fullscreenMode },
@@ -781,8 +780,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         customContentId,
       })) return;
 
-      // @ts-ignore - editor recovery may intentionally supply a partial doc
-      mountRoot(doc, Workspace, { autoResize: false });
+      mountRoot(doc ?? NULL_DIAGRAM, Workspace, { autoResize: false });
 
       const isNew = !customContentId;
       const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';

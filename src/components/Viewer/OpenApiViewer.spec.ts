@@ -46,9 +46,8 @@ vi.mock('@/components/Viewer/GenericViewer.vue', () => ({
 }));
 
 describe('OpenApiViewer', () => {
-  // The store is a module singleton: a wrapper left mounted by an earlier case
-  // keeps watching it, so a later `diagramLoadComplete` flip would fire that
-  // stale instance's reporter too and inflate the counts below.
+  // The store is a module singleton; always unmount wrappers so stale watchers
+  // cannot observe a later case's published revision.
   enableAutoUnmount(afterEach);
 
   const reporter: ViewerRenderReporter = {
@@ -71,7 +70,6 @@ describe('OpenApiViewer', () => {
     window.ui = undefined;
     window.__macroLoadStart = 0;
     store.state.diagram = { ...NULL_DIAGRAM };
-    store.state.diagramLoadComplete = false;
   });
 
   it('initializes SwaggerUI after its own DOM node is mounted even without a doc prop', () => {

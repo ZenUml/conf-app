@@ -4,10 +4,6 @@ import type { ViewerLoadState } from '@/utils/viewerLoadState';
 
 export interface RootState {
   diagram: Diagram
-  // Flipped true once the viewer's async loadDiagram() has resolved (success
-  // OR failure); only ForgeEmbedViewer reads it. Optional because most store
-  // consumers never touch it.
-  diagramLoadComplete?: boolean
   /** Explicit plain-viewer lifecycle state; viewerLoadLifecycle is its owner. */
   viewerLoadState: ViewerLoadState
   // Editor-side backstop (model/editDupGate.ts): non-null when the mounted

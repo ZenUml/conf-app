@@ -218,7 +218,7 @@ export type AnalyticsProperties = {
   // can pick the right optimization lever. Absent phases are omitted, not 0.
   bootstrap_ms?: number;   // __macroLoadStart → first app code (head scripts incl. DrawIO + bundle eval)
   context_ms?: number;     // Forge getContext() resolution
-  fetch_ms?: number;       // custom-content REST round trip. Recorded by whoever owns the load: forgeIndex for the sequence family, viewerBootstrap for graph/openapi/embed (#413).
+  fetch_ms?: number;       // custom-content REST round trip. Recorded by the shared viewer lifecycle around the selected Adapter (#413).
   render_ms?: number;      // viewer render (lib load + diagram render)
   measured_sum_ms?: number; // bootstrap+context+fetch+render; duration_ms − this = unattributed remainder
   tab_hidden?: boolean;    // tab was backgrounded during load → exclude from percentiles (artifact)

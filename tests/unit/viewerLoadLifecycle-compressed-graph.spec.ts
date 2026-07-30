@@ -12,7 +12,7 @@ import { DiagramType } from '@/model/Diagram/Diagram';
 // `mxUtils.parseXml(<base64>)` threw (swallowed → blank). The content-property
 // recovery path already decompressed; the customContentId path did not.
 //
-// The fix normalizes at the single store-write boundary (publishLoadedDiagram),
+// The fix normalizes at the lifecycle's single publication boundary,
 // so the store always holds plain <mxGraphModel> XML regardless of load path.
 describe('viewerLoadLifecycle — legacy compressed graph normalization', () => {
   const SAMPLE_XML =

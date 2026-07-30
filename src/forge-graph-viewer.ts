@@ -14,7 +14,7 @@ import { runViewerLoadLifecycle } from '@/utils/viewerLoadLifecycle';
 import { graphViewerAdapter } from '@/utils/viewerAdapters/graphViewerAdapter';
 
 function afterLoad(doc: Diagram | undefined) {
-  // Rendering is driven by the store (publishLoadedDiagram normalizes legacy
+  // Rendering is driven by the store (viewerLoadLifecycle normalizes legacy
   // compressed graph bodies to plain XML before the store write). Here we only
   // need plain XML for the attachment side-effect below, plus the compressed_*
   // telemetry that sizes how many legacy compressed graph macros are loaded.

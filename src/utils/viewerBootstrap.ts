@@ -8,7 +8,8 @@ import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage';
 import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
-import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
+import { getCachedContent, putCachedContent } from '@/utils/renderCache/contentCacheStore';
+import { revalidateViewerContent } from '@/utils/renderCache/revalidateViewerContent';
 
 export interface ViewerBootstrapOptions {
   macroKind: MacroKind;
@@ -76,17 +77,9 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
       macroKind: options.macroKind,
     });
 
-    // ── Content SWR: cache-first render on a viewer revisit ──────────────────
-    // Mirrors the sequence-family block in forgeIndex.ts (measured there:
-    // ~66% of viewer views are a revisit of unchanged content, and the view's
-    // time is dominated by the content fetch — ~300ms median for
-    // graph/openapi, larger at p90). Scoped to the SAME condition as the
-    // plain NULL_DIAGRAM mount below — never the paywalled fullscreen
-    // surface, which must keep tryFullscreenViewerPaywall as the gate the
-    // user actually sees first. `resolveContentId` is optional so a caller
-    // that omits it, or whose id resolves to undefined this render (e.g. the
-    // embed viewer's legacy-uuid recovery path, which has no id to key on),
-    // gets exactly today's behavior below.
+    // Content SWR stays disabled behind the fullscreen paywall and when the
+    // caller has no custom-content id. Only its background revalidation is
+    // shared with the sequence-family path.
     let customContentId: string | undefined;
     if (!paywalled) {
       customContentId = options.resolveContentId
@@ -110,7 +103,16 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
             // path. `afterLoad` (orphan reporting is inline in loadDiagram;
             // attachment backfill needs a real fetch result) is deferred to
             // the revalidate's own completion, same reasoning as forgeIndex.
-            void revalidateViewer(customContentId, cached.hash, options);
+            void revalidateViewerContent({
+              customContentId,
+              cachedHash: cached.hash,
+              loadFresh: () => renderPerf.time('fetch', () => options.loadDiagram()),
+              onChanged: (fresh) => {
+                renderPerf.markContentSource('fetch');
+                publishLoadedDiagram(fresh);
+              },
+              afterFresh: (fresh) => options.afterLoad?.(fresh),
+            });
             return; // rendered from cache — skip the live-fetch + mount path entirely
           } catch (e) {
             console.warn('[content-swr] cache hit failed to render; falling back to live fetch', e);
@@ -150,34 +152,5 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
       return;
     }
     throw error;
-  }
-}
-
-/**
- * Background revalidate for a content-SWR cache hit: re-runs the real
- * `loadDiagram` fetch (still timed as the `fetch` phase — graph/openapi have
- * no other owner for it, see the #413 comment above), compares against the
- * cached hash, and only republishes when the content actually changed. A
- * failed or empty fetch leaves the cached render standing — never throws,
- * never calls `onError` (this runs off the critical path; the user already
- * has a valid render).
- */
-async function revalidateViewer(
-  customContentId: string,
-  cachedHash: string,
-  options: ViewerBootstrapOptions,
-): Promise<void> {
-  try {
-    const fresh = await renderPerf.time('fetch', () => options.loadDiagram());
-    if (!fresh) return; // content unreadable now — keep the last-known-good cached render
-    const serialized = JSON.stringify(fresh);
-    putCachedContent(customContentId, serialized);
-    if (hashContent(serialized) !== cachedHash) {
-      renderPerf.markContentSource('fetch');
-      publishLoadedDiagram(fresh);
-    }
-    await options.afterLoad?.(fresh);
-  } catch (e) {
-    console.warn('[content-swr] background revalidate failed; cached render stands', e);
   }
 }

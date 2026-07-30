@@ -6,18 +6,18 @@ import type { Ticket } from "./deeplink";
 const ticket: Ticket = { v: 1, d: "example", p: "123456", c: "425987", m: 1, t: "Order flow" };
 
 describe("deeplinkPages", () => {
-  it("previewPage renders no CTA for a non-Lite ticket (u absent)", () => {
+  it("previewPage is product-neutral", () => {
     const html = previewPage("https://conf-lite.zenuml.com", "tok.sig", ticket);
     expect(html).not.toContain("See what the Full plan unlocks");
     expect(html).toContain("<h1>Order flow</h1>");
     expect(html).toContain('og:image" content="https://conf-lite.zenuml.com/i/tok.sig"');
   });
 
-  it("previewPage renders the upgrade CTA only when ticket.u === 1 (Lite-minted)", () => {
-    const liteTicket: Ticket = { ...ticket, u: 1 };
-    const html = previewPage("https://conf-lite.zenuml.com", "tok.sig", liteTicket);
-    expect(html).toContain("See what the Full plan unlocks");
-    expect(html).toContain('href="https://zenuml.com/pricing"');
+  it("ignores a legacy Lite marker instead of rendering an untracked upsell", () => {
+    const legacyLiteTicket = { ...ticket, u: 1 } as Ticket;
+    const html = previewPage("https://conf-lite.zenuml.com", "tok.sig", legacyLiteTicket);
+    expect(html).not.toContain("See what the Full plan unlocks");
+    expect(html).not.toContain('href="https://zenuml.com/pricing"');
   });
 
   it("escapes a hostile title", () => {

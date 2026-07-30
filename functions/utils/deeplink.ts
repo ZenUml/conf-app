@@ -21,10 +21,6 @@ export interface Ticket {
   c: string; // contentId (bound to the URL path)
   m: number; // minted-at, Unix seconds — expiry source
   t?: string; // diagram title
-  /** Present (=1) only when minted by the Lite Forge app — gates the Lite
-   *  upgrade CTA on the /d/ preview page (see deeplinkPages.ts). Omitted
-   *  for every other variant (diagramly, full). */
-  u?: number;
 }
 
 export const IMG_TTL_SECONDS = 600;

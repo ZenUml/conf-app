@@ -1,7 +1,5 @@
-// Deeplink page renderers — copied verbatim from
-// workers/confluence-deeplink/src/index.ts (lines 119-316), plus a
-// Lite-only upgrade CTA added to previewPage() (growth item — design spec
-// "the real upgrade lever is a deliberate CTA on the Lite /d/ preview page").
+// Deeplink page renderers — copied from
+// workers/confluence-deeplink/src/index.ts (lines 119-316).
 //
 // Privacy: /d/<cloudId>/<contentId> paths identify customer sites. Never log
 // the request URL, never reflect path segments into the response
@@ -25,11 +23,9 @@ export const TICKETED_PAGE_HEADERS: Record<string, string> = {
 };
 
 // Lines 138-142.
-export const PREVIEW_PAGE_HEADERS: Record<string, string> = (() => {
-  const h = { ...TICKETED_PAGE_HEADERS };
-  delete h["x-robots-tag"];
-  return h;
-})();
+export const PREVIEW_PAGE_HEADERS: Record<string, string> = {
+  ...TICKETED_PAGE_HEADERS,
+};
 
 // Lines 144-145.
 const esc = (s: string) =>
@@ -101,15 +97,14 @@ const BASE_STYLE = /* css */ `
 `;
 
 // Lines 210-242.
-function shell(opts: { title: string; og: string; body: string; extraStyle?: string; noindex?: boolean; largeImage?: boolean }): string {
-  const noindex = opts.noindex !== false;
+function shell(opts: { title: string; og: string; body: string; extraStyle?: string; largeImage?: boolean }): string {
   const twitterCard = opts.largeImage ? "summary_large_image" : "summary";
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-${noindex ? '<meta name="robots" content="noindex">' : ''}
+<meta name="robots" content="noindex">
 <title>${esc(opts.title)}</title>
 <meta property="og:site_name" content="ZenUML">
 <meta property="og:type" content="website">
@@ -156,17 +151,12 @@ export function confluenceUrl(ticket: Ticket): string {
   return `https://${ticket.d}.atlassian.net/wiki/pages/viewpage.action?pageId=${ticket.p}`;
 }
 
-// Lines 269-299, PLUS the Lite upgrade CTA (gated on ticket.u === 1 — see
-// the file-level design note above).
+// Lines 269-299.
 export function previewPage(origin: string, token: string, ticket: Ticket): string {
   const title = ticket.t ? `${ticket.t} — ZenUML diagram` : "ZenUML diagram";
   const imgUrl = `${origin}/i/${token}`;
-  const upgradeCta = ticket.u === 1
-    ? `<p class="cta">You're viewing a Free-plan diagram. <a href="https://zenuml.com/pricing">See what the Full plan unlocks →</a></p>`
-    : "";
   return shell({
     title,
-    noindex: false,
     largeImage: true,
     og: `<meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="Shared diagram preview — open the link to see the source in Confluence.">
@@ -180,7 +170,6 @@ export function previewPage(origin: string, token: string, ticket: Ticket): stri
   <p class="sub">A snapshot shared from Confluence.</p>
   <img class="preview" src="/i/${esc(token)}" alt="Diagram preview">
   <div><a class="btn" href="${esc(confluenceUrl(ticket))}">Open in Confluence</a></div>
-  ${upgradeCta}
   <p class="note">This preview is served for 10 minutes after the link is copied —
   links are for instant sharing. The link itself keeps working: it opens the source
   in Confluence, and pasted into a Confluence page it becomes the live diagram.</p>
@@ -190,12 +179,6 @@ export function previewPage(origin: string, token: string, ticket: Ticket): stri
     display: block; max-width: 100%; border: 1px solid var(--line);
     border-radius: 8px; background: #fff; margin: 0 0 18px;
   }
-  .cta {
-    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
-    padding: 10px 14px; font-size: 0.9rem; margin: 0 0 18px;
-  }
-  .cta a { color: var(--accent); font-weight: 600; text-decoration: none; }
-  .cta a:hover { text-decoration: underline; }
 `,
   });
 }

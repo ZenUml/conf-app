@@ -64,7 +64,8 @@ describe("functions/d/[[path]] (page serving)", () => {
       expect(html).toContain("<h1>Order flow</h1>");
       expect(html).toContain(`og:image" content="https://conf-lite.zenuml.com/i/${token}"`);
       expect(html).toContain('href="https://example.atlassian.net/wiki/pages/viewpage.action?pageId=123456"');
-      expect(res.headers.get("x-robots-tag")).toBeNull();
+      expect(html).toContain('<meta name="robots" content="noindex">');
+      expect(res.headers.get("x-robots-tag")).toBe("noindex");
     });
   });
 

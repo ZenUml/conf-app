@@ -216,9 +216,18 @@
             <div class="viewer-edge-bottom-pill" role="toolbar" aria-label="Diagram actions">
               <!-- Graph viewer slots in multi-page nav (prev / X of Y / next) here. -->
               <slot name="pill-prefix"></slot>
-              <button @click="copyCode" title="Copy code" aria-label="Copy code" class="viewer-pill-btn">
+              <!-- Diagram deeplink (task 6, docs/superpowers/sdd/
+                   2026-07-26-embed-deeplink-productization): the supply side
+                   of the autoConvert paste->embed flow. Only rendered when
+                   both a custom content id exists (same isCustomContent gate
+                   as Versions below) AND the variant has a mapped host
+                   (deeplinkHostForProductType — asyncapi has none yet).
+                   Reuses the slot freed by deleting the "Copy code" button
+                   (same payload as the Source panel's Copy, at ~1/8th the
+                   usage — see the task brief's Step 1 measurement). -->
+              <button v-if="isCustomContent && deeplinkHost" @click="copyDeeplink" title="Copy diagram link" aria-label="Copy diagram link" class="viewer-pill-btn">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.933 2.185 2.25 2.25 0 0 0-3.933-2.185Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
                 </svg>
               </button>
               <button @click="showExportModal = true" title="Export PNG" aria-label="Export PNG" class="viewer-pill-btn">
@@ -231,7 +240,10 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                 </svg>
               </button>
-              <button @click="copyLink" title="Copy link" aria-label="Copy link" class="viewer-pill-btn">
+              <!-- Renamed from "Copy link" (was ambiguous once "Copy diagram
+                   link" landed above) — same page-URL behavior and legacy
+                   copy_link tracking, unchanged. -->
+              <button @click="copyLink" title="Copy page link" aria-label="Copy page link" class="viewer-pill-btn">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
                 </svg>
@@ -325,6 +337,7 @@ import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
 import { readSession, readAnySession } from '@/composables/agentLink/sessionHandoff'
 import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
 import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
+import { deeplinkHostForProductType, buildEmbedDeeplink } from '@/utils/embedDeeplink'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 
@@ -390,6 +403,12 @@ export default {
     },
     isCustomContent() {
       return this.diagram.source === DataSource.CustomContent;
+    },
+    // Deeplink mint host for this build's variant (task 6) — static per
+    // PRODUCT_TYPE, so no need to re-derive per click. undefined for asyncapi
+    // (deferred) hides the pill button entirely; see embedDeeplink.ts.
+    deeplinkHost() {
+      return deeplinkHostForProductType(import.meta.env.PRODUCT_TYPE);
     },
     title() {
       const t = this.diagram?.title?.trim?.()
@@ -834,16 +853,51 @@ export default {
         document.body.removeChild(textarea);
       }
     },
-    async copyCode() {
-      trackEvent("copy_code", "click", this.diagramType);
+    // Mints and copies the bare embed deeplink (task 6). Fires
+    // deeplink_copied ONCE per click, in a finally block, after the terminal
+    // outcome is known — same outcome convention as copy_for_ai_clicked
+    // (see that method below): 'copied' = clipboard write succeeded,
+    // 'clipboard_failed' = the write itself returned false or threw,
+    // 'unavailable' = the link couldn't even be minted (no host/contentId,
+    // or cloudId unresolved) — three silent-failure paths that used to fire
+    // the exact same event as success. cloudId comes from the Forge context
+    // (getContext() memoizes and degrades to an unresolvable standalone
+    // context outside Forge — see forgeGlobal.ts); contentId is the
+    // diagram's custom content id, already gated present by the template's
+    // isCustomContent check.
+    async copyDeeplink() {
+      let outcome;
       try {
-        const code = getCodeFromDiagram(this.diagram, this.diagramType);
-        if (!code) { toast({ message: 'No code to copy', duration: 2000 }); return; }
-        const ok = await this.copyToClipboard(code);
-        toast({ message: ok ? 'Code copied to clipboard' : 'Failed to copy code', duration: 2000 });
+        const host = this.deeplinkHost;
+        const contentId = this.diagram.id;
+        if (!host || !contentId) {
+          outcome = 'unavailable';
+          toast({ message: 'Diagram link not available', duration: 2000 });
+          return;
+        }
+        const ctx = await getContext();
+        const cloudId = ctx?.cloudId;
+        if (!cloudId) {
+          outcome = 'unavailable';
+          toast({ message: 'Diagram link not available', duration: 2000 });
+          return;
+        }
+        const url = buildEmbedDeeplink(host, cloudId, String(contentId));
+        const ok = await this.copyToClipboard(url);
+        outcome = ok ? 'copied' : 'clipboard_failed';
+        toast({ message: ok ? 'Diagram link copied to clipboard' : 'Failed to copy diagram link', duration: 2000 });
       } catch (error) {
-        console.error('copyCode failed', error);
-        toast({ message: 'Failed to copy code', duration: 2000 });
+        console.error('copyDeeplink failed', error);
+        outcome = 'clipboard_failed';
+        toast({ message: 'Failed to copy diagram link', duration: 2000 });
+      } finally {
+        trackAnalyticsEvent('deeplink_copied', {
+          feature_area: 'macro',
+          surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+          macro_type: this.diagramType ?? 'none',
+          link_source: 'viewer_pill',
+          outcome,
+        });
       }
     },
     async onDownloadDebugInfo(closeMenu) {
@@ -969,12 +1023,12 @@ export default {
     // tracked `job` property vary. Page context is optional —
     // buildCopyForAiPrompt/resolveCopyForAiPage decide the fallback; this
     // method only decides the clipboard/analytics outcome.
-    // Empty-DSL guard mirrors copyCode's early-return shape: no clipboard
-    // write and — unlike copyCode — no analytics event, since an empty copy
-    // carries no demand signal; the button surfaces "Nothing to copy" instead
-    // of a toast. Overlapping-click guard: 'copying' disables the button in
-    // the template, but also short-circuit here for non-pointer activation
-    // paths (e.g. a held Enter key repeating faster than Vue re-renders).
+    // Empty-DSL guard: no clipboard write and no analytics event, since an
+    // empty copy carries no demand signal; the button surfaces "Nothing to
+    // copy" instead of a toast. Overlapping-click guard: 'copying' disables
+    // the button in the template, but also short-circuit here for
+    // non-pointer activation paths (e.g. a held Enter key repeating faster
+    // than Vue re-renders).
     async copyForAi(job = 'generic') {
       if (this.copyForAiState === 'copying') return;
       if (!this.viewSourceCode) { this.setCopyForAiState('failed', 'Nothing to copy'); return; }

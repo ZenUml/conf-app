@@ -145,17 +145,17 @@ export const APPS = {
       staging: 'https://conf-stg-lite.zenuml.com',
       production: 'https://conf-lite.zenuml.com',
     },
-    // Diagramly includes licensing; remove only the global UI modules and embed macro.
+    // Diagramly includes licensing; remove only the global UI modules. The
+    // embed macro ships in Diagramly (task 6 deeplink productization) — do
+    // NOT add a "remove embed macro" edit here. CI (.github/workflows/
+    // release.yml + staging-deploy.yml) maintains its OWN parallel copy of
+    // these manifest edits, independent of this array — if you change what
+    // this wizard strips/keeps for diagramly, change both CI workflows too.
     manifestEdits: [
       {
         description: 'Remove globalSettings + globalPage + spacePage',
         yqEvalExpr:
           'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:spacePage"])',
-      },
-      {
-        description: 'Remove embed macro (zenuml-embed-macro)',
-        yqEvalExpr:
-          'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))',
       },
       {
         // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and

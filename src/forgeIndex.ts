@@ -4,7 +4,7 @@ import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
 import { toast } from '@/utils/toast';
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
-import { decideWriteback } from "@/model/writebackGate";
+import { decideWriteback, deriveWritebackSignals } from "@/model/writebackGate";
 import { decidePublishBlock, PUBLISH_BLOCK_MESSAGES } from "@/model/editDupGate";
 import { guardEditClick } from "@/utils/guardEditClick";
 import { resolveAsyncApiEditorEntry } from "@/model/asyncapi/resolveEditorEntry";
@@ -1164,26 +1164,7 @@ EventBus.$on('save', async () => {
     }
   }
 
-  // ZEN-1170 Defect 2b: repair stale macro XML when we saved against the
-  // recovered sibling id. view.submit({config:...}) only persists back to
-  // the macro XML in surfaces where the parent is the macro-config editor —
-  // i.e. inserting a new macro or editing via the in-page "edit macro params"
-  // affordance (isConfiguring). In viewer-launched modals the submitted
-  // payload is forwarded to onClose and discarded, so repair would be a
-  // no-op and the telemetry event would be misleading. Gate accordingly.
-  const macroNeedsRepair = !!(originalCustomContentId && id && id !== originalCustomContentId);
-  // ZEN-1170 Defect 1: legacy migration writeback. See forge-graph-editor.ts
-  // for the rationale — detect via source rather than a parallel flag, so we
-  // reuse Defect 2b's writeback path without adding new Diagram fields.
-  const legacyMacroNeedsRepair = !originalCustomContentId
-    && (store.state.diagram?.source === DataSource.ContentProperty
-        || store.state.diagram?.source === DataSource.ContentPropertyOld
-        // PR #139 same-page recovery — see forge-graph-editor.ts for the
-        // full rationale. Cross-page recovery already writes back via the
-        // idChanged path; this branch only fires when the recovered CC
-        // lives on the same page so save updates in place (idChanged=false).
-        || (store.state.diagram?.source === DataSource.CustomContent
-            && !!(store.state.diagram as any)?.recoveredFromOrphan));
+  // Writeback signal derivation: see deriveWritebackSignals in @/model/writebackGate.
 
   // Run the writeback + close immediately — no artificial delay. The 500ms
   // buffer here used to exist "to give trackEvents time to send", but the
@@ -1197,16 +1178,18 @@ EventBus.$on('save', async () => {
     // repoint the macro at the recovered sibling id, or (d) we migrated a
     // legacy uuid-only macro and must write customContentId for the first time.
     const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
-    const idChanged = !!sourceId && !!id && id !== sourceId;
     // #170: never view.submit in a non-submittable surface — see writebackGate.ts.
-    const { attemptRepair, attemptLegacyMigration, needsWriteback } = decideWriteback({
-      inserting: !!inserting,
-      configuring: !!configuring,
-      idChanged,
-      macroNeedsRepair,
-      legacyMacroNeedsRepair,
-      hasId: !!id,
-    });
+    const { attemptRepair, attemptLegacyMigration, needsWriteback } = decideWriteback(
+      deriveWritebackSignals({
+        sourceId,
+        newId: id,
+        originalCustomContentId,
+        docSource: store.state.diagram?.source,
+        recoveredFromOrphan: !!(store.state.diagram as any)?.recoveredFromOrphan,
+        inserting,
+        configuring,
+      })
+    );
     // Redirect starts now (view.submit / view.close below). Stop the
     // publish-latency clock here so it captures the full user-perceived wait.
     trackPublishCompleted({

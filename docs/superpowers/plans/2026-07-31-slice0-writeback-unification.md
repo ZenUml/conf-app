@@ -25,7 +25,7 @@
 
 ## Accepted behavior changes (from the approved spec — do not "fix" these back)
 
-1. Graph in-viewer Edit modal + forked id: was a `view.submit` throw ("not submittable", dialog sticks open) → becomes a clean `view.close()` with the draft preserved. This is THE bug fix.
+1. Graph in-viewer Edit modal + forked id: was a `view.submit` throw ("not submittable", dialog sticks open) → becomes a clean `view.close()` with the draft preserved. This is the bug fix — a code-verified defect class; on current staging it sits behind `guardEditClick` and the load-time cross-page gate as a defense-in-depth floor (see Task 5 Step 3).
 2. Swagger in-viewer Edit modal + forked id: same fix.
 3. Swagger same-page orphan/uuid recovery now triggers the legacy-migration writeback on submittable surfaces (macro params get `customContentId` stamped, ending repeat tenant-wide title searches). Falls out of sharing the derivation; data-integrity positive.
 
@@ -342,10 +342,10 @@ git commit -m "refactor(sequence): fold the save-handler signal derivation into 
 
 - [ ] **Step 1:** Run the repo's validate-branch skill (`/validate-branch`) — unit tests, lint, typecheck-vs-main, build.
 - [ ] **Step 2:** Ship via the repo pipeline (`/ship-branch`): PR against `main`, CI green (the authoritative `pull_request` run — a `CANCELLED` sibling `push` run is normal), merge. The existing E2E guard `tests/e2e-tests/tests/fullscreen/writeback-gate-non-submittable.spec.ts` must be green in CI — it covers the Sequence surface of exactly this gate.
-- [ ] **Step 3:** Per the spec's delivery gates, after the staging deploy run a spot check: edit a Graph diagram via the in-viewer Edit modal on staging, save, and confirm the dialog closes cleanly (no stuck "Publishing…" overlay, no `view.submit` error in the console). This is the user-visible proof of behavior change #1.
+- [ ] **Step 3:** Per the spec's delivery gates, after the staging deploy run a NON-REGRESSION spot check: edit a normal Graph diagram via the in-viewer Edit modal on staging, save, confirm it saves and the dialog closes cleanly. Note this check passes identically on the pre-fix code — the normal edit path takes the in-place update (id unchanged) on both versions. The fork-producing shapes (same-page duplicate count > 1; cross-page copy) are blocked ahead of the modal by `guardEditClick` and the load-time gate, so no staging repro of the fixed path is known; the residual reachable shape is a container-less custom content (missing `pageId`). The #170 gate this branch adopts is therefore a defense-in-depth floor behind those guards, pinned by `src/model/writebackGate.spec.ts` — not a user-visible staging-verifiable fix.
 
 ## Ledger impact (spec acceptance table)
 
 - Writeback decisions: 3 (two defective) → 1. Derivations: 3 → 1.
-- Production LOC: net negative (~30 lines of drifted derivation + formula + duplicated rationale comments deleted; ~35 added once in `writebackGate.ts`, offset by three call-site collapses).
+- Production LOC: measured net +13 across the four src/ files (+82/−69) — within the spec's "modestly positive" allowance; the countable wins are the point: writeback decisions 3 → 1, derivations 3 → 1.
 - Live defect fixed: Graph/Swagger modal `view.submit` throw.

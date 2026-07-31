@@ -2,7 +2,8 @@
 //
 // 1. Macro context (page-rendered AsyncAPI macro): mount AsyncApiMacroViewer
 //    (Vue) so the spec render sits inside GenericViewer — full host chrome
-//    (Edit, Fullscreen, Copy code, Export PNG, Versions, Copy link).
+//    (Edit, Fullscreen, Export PNG, Versions, Copy page link — no diagram
+//    deeplink button, since asyncapi has no mapped deeplink host).
 //    Edit opens the editor modal via EventBus, matching the OpenAPI viewer.
 //
 // 2. Modal context (dashboard's "View" flow): render the React
@@ -153,7 +154,7 @@ async function initializeMacro() {
   } else {
     // -------- Page-rendered macro path --------
     // Mount the Vue wrapper so GenericViewer's chrome (Edit / Fullscreen /
-    // Export PNG / Versions / Copy link) shows up around the spec.
+    // Export PNG / Versions / Copy page link) shows up around the spec.
     const [{ default: AsyncApiMacroViewer }] = await Promise.all([
       import('@/components/Viewer/AsyncApiViewer/AsyncApiMacroViewer.vue'),
     ])

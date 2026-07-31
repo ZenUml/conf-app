@@ -893,19 +893,34 @@ describe('GenericViewer (chrome-less)', () => {
   })
 
   describe('bottom-edge pill actions', () => {
-    it('shows the five expected actions for a custom-content diagram', () => {
+    afterEach(() => { vi.unstubAllEnvs() })
+
+    it('shows the five expected actions for a custom-content diagram (Copy code removed, Copy diagram link in its slot)', () => {
+      vi.stubEnv('PRODUCT_TYPE', 'lite')
       const wrapper = mountViewer()
       const labels = wrapper.findAll('[role="toolbar"][aria-label="Diagram actions"] button')
         .map(b => b.attributes('aria-label'))
-      expect(labels).toEqual(['Copy code', 'Export PNG', 'Versions', 'Copy link', 'More'])
+      expect(labels).toEqual(['Copy diagram link', 'Export PNG', 'Versions', 'Copy page link', 'More'])
     })
 
-    it('hides the Versions button when the diagram is not custom content', () => {
+    it('hides Versions AND Copy diagram link when the diagram is not custom content (no custom content id)', () => {
+      vi.stubEnv('PRODUCT_TYPE', 'lite')
       store.state.diagram.source = DataSource.MacroBody
       const wrapper = mountViewer()
       const labels = wrapper.findAll('[role="toolbar"][aria-label="Diagram actions"] button')
         .map(b => b.attributes('aria-label'))
-      expect(labels).toEqual(['Copy code', 'Export PNG', 'Copy link', 'More'])
+      expect(labels).toEqual(['Export PNG', 'Copy page link', 'More'])
+    })
+
+    // asyncapi has no deeplinkHost mapping (embedDeeplink.ts) — deferred, its
+    // viewer doesn't route through GenericViewer anyway — so the button must
+    // stay hidden even though isCustomContent is true (Versions still shows).
+    it('hides Copy diagram link for asyncapi even with a custom content id (no mapped host)', () => {
+      vi.stubEnv('PRODUCT_TYPE', 'asyncapi')
+      const wrapper = mountViewer()
+      const labels = wrapper.findAll('[role="toolbar"][aria-label="Diagram actions"] button')
+        .map(b => b.attributes('aria-label'))
+      expect(labels).toEqual(['Export PNG', 'Versions', 'Copy page link', 'More'])
     })
 
     it('opens the export modal when Export PNG is clicked', async () => {
@@ -914,6 +929,97 @@ describe('GenericViewer (chrome-less)', () => {
       expect(vm.showExportModal).toBe(false)
       await wrapper.find('button[aria-label="Export PNG"]').trigger('click')
       expect(vm.showExportModal).toBe(true)
+    })
+  })
+
+  // Task 6 (docs/superpowers/sdd/2026-07-26-embed-deeplink-productization):
+  // mints https://<host>/d/<cloudId>/<contentId> — the bare deeplink, never
+  // the ticketed /deeplink-ticket share-preview URL — and copies it via the
+  // same copyToClipboard/toast pattern as Copy page link.
+  describe('Copy diagram link (task 6)', () => {
+    let originalClipboard: PropertyDescriptor | undefined
+    let originalIsSecureContext: PropertyDescriptor | undefined
+    let writeText: ReturnType<typeof vi.fn>
+
+    beforeEach(() => {
+      originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+      originalIsSecureContext = Object.getOwnPropertyDescriptor(window, 'isSecureContext')
+      writeText = vi.fn(() => Promise.resolve())
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+      Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+    })
+
+    afterEach(() => {
+      vi.unstubAllEnvs()
+      if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard)
+      else delete (navigator as any).clipboard
+      if (originalIsSecureContext) Object.defineProperty(window, 'isSecureContext', originalIsSecureContext)
+      else delete (window as any).isSecureContext
+      delete (document as any).execCommand
+    })
+
+    it.each([
+      ['lite', 'conf-lite.zenuml.com'],
+      ['diagramly', 'conf-lite.zenuml.com'],
+      ['full', 'conf-full.zenuml.com'],
+    ])('mints the %s-variant host, copies it, and fires deeplink_copied with link_source viewer_pill', async (productType, expectedHost) => {
+      vi.stubEnv('PRODUCT_TYPE', productType)
+      store.commit('updateDiagramType', DiagramType.Mermaid)
+      const wrapper = mountViewer()
+      await flushPromises()
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      await wrapper.find('button[aria-label="Copy diagram link"]').trigger('click')
+      await flushPromises()
+
+      expect(writeText).toHaveBeenCalledWith(`https://${expectedHost}/d/cloud-1/content-123`)
+      expect(toast).toHaveBeenCalledWith({ message: 'Diagram link copied to clipboard', duration: 2000 })
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('deeplink_copied', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: DiagramType.Mermaid,
+        link_source: 'viewer_pill',
+      })
+    })
+
+    it('surfaces a toast on clipboard failure — never silently swallows', async () => {
+      vi.stubEnv('PRODUCT_TYPE', 'lite')
+      writeText.mockRejectedValueOnce(new Error('denied'))
+      ;(document as any).execCommand = () => { throw new Error('execCommand unavailable') }
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await expect(
+        wrapper.find('button[aria-label="Copy diagram link"]').trigger('click'),
+      ).resolves.not.toThrow()
+      await flushPromises()
+
+      expect(toast).toHaveBeenCalledWith({ message: 'Failed to copy diagram link', duration: 2000 })
+    })
+
+    // getContext() memoizes on forgeRuntime.forgeContext (see forgeGlobal.ts)
+    // and by this point in the file it's already cached from the tests
+    // above, so mutating it directly (rather than re-mocking '@forge/bridge')
+    // is the only way to exercise an unresolvable cloudId without disturbing
+    // every other test's fixture.
+    it('surfaces a toast (never a thrown error) when cloudId cannot be resolved', async () => {
+      vi.stubEnv('PRODUCT_TYPE', 'lite')
+      const originalCloudId = (forgeRuntime as any).forgeContext?.cloudId
+      ;(forgeRuntime as any).forgeContext = { ...(forgeRuntime as any).forgeContext, cloudId: undefined }
+      try {
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        await expect(
+          wrapper.find('button[aria-label="Copy diagram link"]').trigger('click'),
+        ).resolves.not.toThrow()
+        await flushPromises()
+
+        expect(writeText).not.toHaveBeenCalled()
+        expect(toast).toHaveBeenCalledWith({ message: 'Diagram link not available', duration: 2000 })
+      } finally {
+        (forgeRuntime as any).forgeContext = { ...(forgeRuntime as any).forgeContext, cloudId: originalCloudId }
+      }
     })
   })
 

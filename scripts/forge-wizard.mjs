@@ -145,17 +145,12 @@ export const APPS = {
       staging: 'https://conf-stg-lite.zenuml.com',
       production: 'https://conf-lite.zenuml.com',
     },
-    // Diagramly includes licensing; remove only the global UI modules and embed macro.
+    // Diagramly includes licensing; remove only the global UI modules.
     manifestEdits: [
       {
         description: 'Remove globalSettings + globalPage + spacePage',
         yqEvalExpr:
           'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:spacePage"])',
-      },
-      {
-        description: 'Remove embed macro (zenuml-embed-macro)',
-        yqEvalExpr:
-          'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))',
       },
       {
         // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and

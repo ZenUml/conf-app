@@ -229,6 +229,12 @@ export type AnalyticsEventName =
   // being viewed — the supply side of the autoConvert paste->embed flow.
   // `link_source` records which affordance minted it (today only the viewer
   // pill; a future share-preview surface would use a different value).
+  // Fires once per click, in a finally block, after the terminal outcome is
+  // known — same convention as `copy_for_ai_clicked`. `outcome` distinguishes
+  // a successful clipboard write from a clipboard-write failure from the
+  // three "couldn't even mint a link" paths (missing host/contentId, or an
+  // unresolvable cloudId), which used to fire this event identically to
+  // success.
   | "deeplink_copied"
   // Editor staleness hint (docs/superpowers/specs/
   // 2026-07-18-job-b-editor-staleness-hint-design.md). Shown on inline

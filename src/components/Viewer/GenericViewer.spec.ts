@@ -11,6 +11,7 @@ import forgeRuntime from '@/model/globals/forgeGlobal'
 import { persistSession } from '@/composables/agentLink/sessionHandoff'
 import ThinkingOverlay from '@/components/AgentLink/ThinkingOverlay.vue'
 import { toast } from '@/utils/toast'
+import { parseEmbedDeeplink } from '@/utils/embedDeeplink'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
 
@@ -48,7 +49,10 @@ vi.mock('@/model/globals', () => ({
 vi.mock('@forge/bridge', () => ({
   view: {
     getContext: vi.fn(() => Promise.resolve({
-      cloudId: 'cloud-1',
+      // A realistic UUID (parseEmbedDeeplink requires 32-36 hex/dash chars) —
+      // NOT the plain 'cloud-1' this used to be, which silently produced an
+      // unparseable minted URL that no test ever actually parsed back.
+      cloudId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
       environmentType: 'DEVELOPMENT',
       extension: {
         content: { id: 'page-123' },
@@ -81,7 +85,9 @@ describe('GenericViewer (chrome-less)', () => {
     store.state.diagram.source = DataSource.CustomContent
     store.state.diagram.isCopy = false
     store.state.diagram.title = 'Login flow'
-    store.state.diagram.id = 'content-123'
+    // Numeric (parseEmbedDeeplink requires \d+) — NOT the plain 'content-123'
+    // this used to be, for the same reason as the cloudId fixture above.
+    store.state.diagram.id = '987654321'
     store.state.diagram.snapshotFallback = false
     store.state.diagram.snapshotAt = undefined
     store.state.diagram.recoveredFromOrphan = false
@@ -972,22 +978,32 @@ describe('GenericViewer (chrome-less)', () => {
       await wrapper.find('button[aria-label="Copy diagram link"]').trigger('click')
       await flushPromises()
 
-      expect(writeText).toHaveBeenCalledWith(`https://${expectedHost}/d/cloud-1/content-123`)
+      const expectedUrl = `https://${expectedHost}/d/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/987654321`
+      expect(writeText).toHaveBeenCalledWith(expectedUrl)
+      // The minted URL must round-trip through the SAME parser the paste-side
+      // autoConvert handler uses (finding: the old 'cloud-1'/'content-123'
+      // fixtures minted a URL parseEmbedDeeplink could never actually parse).
+      expect(parseEmbedDeeplink(expectedUrl)).toEqual({
+        cloudId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+        contentId: '987654321',
+      })
       expect(toast).toHaveBeenCalledWith({ message: 'Diagram link copied to clipboard', duration: 2000 })
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('deeplink_copied', {
         feature_area: 'macro',
         surface: 'viewer',
         macro_type: DiagramType.Mermaid,
         link_source: 'viewer_pill',
+        outcome: 'copied',
       })
     })
 
-    it('surfaces a toast on clipboard failure — never silently swallows', async () => {
+    it('surfaces a toast on clipboard failure — never silently swallows — and fires deeplink_copied with outcome clipboard_failed', async () => {
       vi.stubEnv('PRODUCT_TYPE', 'lite')
       writeText.mockRejectedValueOnce(new Error('denied'))
       ;(document as any).execCommand = () => { throw new Error('execCommand unavailable') }
       const wrapper = mountViewer()
       await flushPromises()
+      vi.mocked(trackAnalyticsEvent).mockClear()
 
       await expect(
         wrapper.find('button[aria-label="Copy diagram link"]').trigger('click'),
@@ -995,6 +1011,14 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises()
 
       expect(toast).toHaveBeenCalledWith({ message: 'Failed to copy diagram link', duration: 2000 })
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('deeplink_copied', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: DiagramType.Sequence,
+        link_source: 'viewer_pill',
+        outcome: 'clipboard_failed',
+      })
     })
 
     // getContext() memoizes on forgeRuntime.forgeContext (see forgeGlobal.ts)
@@ -1002,13 +1026,14 @@ describe('GenericViewer (chrome-less)', () => {
     // above, so mutating it directly (rather than re-mocking '@forge/bridge')
     // is the only way to exercise an unresolvable cloudId without disturbing
     // every other test's fixture.
-    it('surfaces a toast (never a thrown error) when cloudId cannot be resolved', async () => {
+    it('surfaces a toast (never a thrown error) when cloudId cannot be resolved, and fires deeplink_copied with outcome unavailable', async () => {
       vi.stubEnv('PRODUCT_TYPE', 'lite')
       const originalCloudId = (forgeRuntime as any).forgeContext?.cloudId
       ;(forgeRuntime as any).forgeContext = { ...(forgeRuntime as any).forgeContext, cloudId: undefined }
       try {
         const wrapper = mountViewer()
         await flushPromises()
+        vi.mocked(trackAnalyticsEvent).mockClear()
 
         await expect(
           wrapper.find('button[aria-label="Copy diagram link"]').trigger('click'),
@@ -1017,6 +1042,14 @@ describe('GenericViewer (chrome-less)', () => {
 
         expect(writeText).not.toHaveBeenCalled()
         expect(toast).toHaveBeenCalledWith({ message: 'Diagram link not available', duration: 2000 })
+        expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledTimes(1)
+        expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('deeplink_copied', {
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: DiagramType.Sequence,
+          link_source: 'viewer_pill',
+          outcome: 'unavailable',
+        })
       } finally {
         (forgeRuntime as any).forgeContext = { ...(forgeRuntime as any).forgeContext, cloudId: originalCloudId }
       }

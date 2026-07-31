@@ -854,33 +854,50 @@ export default {
       }
     },
     // Mints and copies the bare embed deeplink (task 6). Fires
-    // deeplink_copied on click, same as copyCode/copyLink's legacy trackEvent
-    // convention — the click IS the demand signal, independent of whether
-    // the clipboard write itself succeeds. cloudId comes from the Forge
-    // context (getContext() memoizes and degrades to an unresolvable
-    // standalone context outside Forge — see forgeGlobal.ts); contentId is
-    // the diagram's custom content id, already gated present by the
-    // template's isCustomContent check.
+    // deeplink_copied ONCE per click, in a finally block, after the terminal
+    // outcome is known — same outcome convention as copy_for_ai_clicked
+    // (see that method below): 'copied' = clipboard write succeeded,
+    // 'clipboard_failed' = the write itself returned false or threw,
+    // 'unavailable' = the link couldn't even be minted (no host/contentId,
+    // or cloudId unresolved) — three silent-failure paths that used to fire
+    // the exact same event as success. cloudId comes from the Forge context
+    // (getContext() memoizes and degrades to an unresolvable standalone
+    // context outside Forge — see forgeGlobal.ts); contentId is the
+    // diagram's custom content id, already gated present by the template's
+    // isCustomContent check.
     async copyDeeplink() {
-      trackAnalyticsEvent('deeplink_copied', {
-        feature_area: 'macro',
-        surface: 'viewer',
-        macro_type: this.diagramType ?? 'none',
-        link_source: 'viewer_pill',
-      });
+      let outcome;
       try {
         const host = this.deeplinkHost;
         const contentId = this.diagram.id;
-        if (!host || !contentId) { toast({ message: 'Diagram link not available', duration: 2000 }); return; }
+        if (!host || !contentId) {
+          outcome = 'unavailable';
+          toast({ message: 'Diagram link not available', duration: 2000 });
+          return;
+        }
         const ctx = await getContext();
         const cloudId = ctx?.cloudId;
-        if (!cloudId) { toast({ message: 'Diagram link not available', duration: 2000 }); return; }
+        if (!cloudId) {
+          outcome = 'unavailable';
+          toast({ message: 'Diagram link not available', duration: 2000 });
+          return;
+        }
         const url = buildEmbedDeeplink(host, cloudId, String(contentId));
         const ok = await this.copyToClipboard(url);
+        outcome = ok ? 'copied' : 'clipboard_failed';
         toast({ message: ok ? 'Diagram link copied to clipboard' : 'Failed to copy diagram link', duration: 2000 });
       } catch (error) {
         console.error('copyDeeplink failed', error);
+        outcome = 'clipboard_failed';
         toast({ message: 'Failed to copy diagram link', duration: 2000 });
+      } finally {
+        trackAnalyticsEvent('deeplink_copied', {
+          feature_area: 'macro',
+          surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+          macro_type: this.diagramType ?? 'none',
+          link_source: 'viewer_pill',
+          outcome,
+        });
       }
     },
     async onDownloadDebugInfo(closeMenu) {

@@ -163,26 +163,32 @@ export type AnalyticsProperties = {
   // `viewer_source_opened` / `viewer_source_copied` so read-only vs editor
   // audience for the View Source panel (#333) can be split.
   has_edit_permission?: boolean;
-  // "Copy for AI" viewer action (copy_for_ai_clicked — catalog.ts). `outcome`
-  // is the click's terminal result: 'copied' = full page+diagram copy,
-  // 'copied_diagram_only' = fell back to diagram-only content (page context
-  // unavailable), 'clipboard_failed' = the clipboard write itself threw.
+  // "Copy for AI" viewer action (copy_for_ai_clicked — catalog.ts) AND the
+  // "Copy diagram link" pill action (deeplink_copied — catalog.ts) share this
+  // one `outcome` axis. For copy_for_ai_clicked: 'copied' = full page+diagram
+  // copy, 'copied_diagram_only' = fell back to diagram-only content (page
+  // context unavailable), 'clipboard_failed' = the clipboard write itself
+  // threw. For deeplink_copied: 'copied' = clipboard write succeeded,
+  // 'clipboard_failed' = the write returned false or threw, 'unavailable' =
+  // the link couldn't be minted at all (no host/contentId, or cloudId
+  // unresolved) — 'copied_diagram_only' does not apply to deeplink_copied.
   // `dsl_bytes` / `page_bytes` are the byte sizes of the diagram DSL and the
-  // surrounding page context that were attempted, regardless of outcome.
+  // surrounding page context that were attempted, regardless of outcome
+  // (copy_for_ai_clicked only).
   // `job` identifies which entry point fired the click: 'generic' = the
   // one-click primary segment (today's generic prompt, unchanged); the other
   // five are the split-button menu's job-framed entry points — explain /
   // update / implement / audit / tests — which only swap the preamble
   // buildCopyForAiPrompt.ts builds (same DSL + page payload, same fallback
   // rules). Absent on events emitted before this axis existed.
-  outcome?: 'copied' | 'copied_diagram_only' | 'clipboard_failed';
+  outcome?: 'copied' | 'copied_diagram_only' | 'clipboard_failed' | 'unavailable';
   dsl_bytes?: number;
   page_bytes?: number;
   job?: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
   // Bottom-pill "Copy diagram link" (deeplink_copied — catalog.ts). Which
   // affordance minted the deeplink; only the viewer pill exists today. Not
   // the same surface as the `/deeplink-ticket` share-preview endpoint, which
-  // is owned by other PRs.
+  // is owned by other PRs. See `outcome` above for this event's values.
   link_source?: 'viewer_pill';
   // In-viewer Edit dup gate (edit_dup_gate_evaluated): outcome of the
   // click-time same-page shared-id check. `same_page_macro_count` = how many

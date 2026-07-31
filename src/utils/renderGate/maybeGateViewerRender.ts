@@ -22,22 +22,24 @@ export interface GateTelemetry {
   gate_mode?: RenderGateMode;
 }
 
-// #382 load-gate spike: how deep the gate holds. 'render' (default) gates the
-// paint only — context + content fetch run immediately, exactly the shipped
-// behavior. 'load' also holds the content fetch (and SWR revalidate) until
-// the viewport turn, so an offscreen storm remount costs ~bundle boot +
-// context until released. Spike toggle is a localStorage key so the perf
-// harness (and a lite-dev browser) can flip modes per-profile without a new
-// Forge flag — Lite is at its 10-flag cap; production mode selection is a
-// later decision, this key is NOT a rollout mechanism.
+// #382 gate depth. 'load' (the default) holds the content fetch and the SWR
+// revalidate until the viewport turn as well as the paint, so an offscreen
+// mount costs ~bundle boot + context until released. Measured on a 12-macro
+// lite-dev page (4× CPU, warm): render-depth fires all 12 content GETs in a
+// ~500ms burst; load-depth dissolves the burst over ~5s and improved BOTH
+// first-macro (~-1.2s) and all-macros (~-3s) time on every run — deferring
+// offscreen work relieves the contention the visible macros compete under.
+// The localStorage key is a DIAGNOSTIC override only ('render' restores
+// paint-only gating for A/B comparison in the perf harness or a dev
+// browser); the rollout lever is the viewport-gated-render flag itself.
 export const GATE_MODE_KEY = "zenuml.gateMode";
 
 export function getGateMode(storage?: Pick<Storage, "getItem">): RenderGateMode {
   try {
     const raw = (storage ?? localStorage).getItem(GATE_MODE_KEY);
-    return raw === "load" ? "load" : "render";
+    return raw === "render" ? "render" : "load";
   } catch {
-    return "render";
+    return "load";
   }
 }
 

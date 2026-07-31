@@ -419,11 +419,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           // awaits the same gate and lands after this cached mount, so the
           // fresh doc still wins.
           //
-          // gate_mode='load' (#382 spike) deliberately reverses F4: on a
-          // storm page the revalidate fetches are exactly the broker load
-          // we're trying to shed, and the canary showed ~98% of these mounts
-          // are never seen. Freshness/orphan checks still run — at gate
-          // release (≤ background-fill 3–7s later), not immediately.
+          // gate_mode='load' (#382, the default) deliberately reverses F4:
+          // on a storm page the revalidate fetches are exactly the broker
+          // load we're trying to shed, and the colesgroup canary showed ~98%
+          // of these mounts are never seen. Freshness/orphan checks still
+          // run — at gate release (≤ background-fill 3–7s later), not
+          // immediately.
           if (viewerGatePromise && getGateMode() === 'load') {
             void viewerGatePromise.then(() =>
               revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash));
@@ -440,11 +441,11 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     }
 
     if (isSequence && customContentId) {
-      // gate_mode='load' (#382 spike): hold the content fetch itself until
-      // the viewport turn, so an offscreen mount costs ~boot+context until
-      // released. viewerGatePromise is null for editors/fullscreen (await is
-      // then a no-op) and render_deferred_ms is recorded HERE (first await
-      // wins), so with this mode it means "wait before the load began" and
+      // gate_mode='load' (#382, the default): hold the content fetch itself
+      // until the viewport turn, so an offscreen mount costs ~boot+context
+      // until released. viewerGatePromise is null for editors/fullscreen
+      // (await is then a no-op) and render_deferred_ms is recorded HERE
+      // (first await wins), so it means "wait before the load began" and
       // fetch_ms stays a clean network measure starting at release.
       if (getGateMode() === 'load') {
         await awaitGateBlocking(viewerGatePromise);

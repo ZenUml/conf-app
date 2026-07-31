@@ -69,10 +69,12 @@ export type RenderGateOutcome =
   | "background"
   | "failopen";
 
-// Viewport gate depth (#382 spike): what the gate held back for this render.
-//   render — paint only; context + content fetch ran immediately (shipped behavior)
-//   load   — content fetch (and SWR revalidate) also waited for the viewport turn,
-//            so an offscreen mount costs ~bundle boot + context until released
+// Viewport gate depth (#382): what the gate held back for this render.
+//   load   — the default: content fetch (and SWR revalidate) waited for the
+//            viewport turn too, so an offscreen mount costs ~bundle boot +
+//            context until released
+//   render — paint-only gating (fetch ran immediately); reachable only via
+//            the zenuml.gateMode localStorage diagnostic override
 // Absent whenever render_gate is absent.
 export type RenderGateMode = "render" | "load";
 

@@ -41,7 +41,7 @@ describe("maybeGateViewerRender", () => {
     // Blocking is measured at the mount-site await (awaitGateBlocking).
     expect(getGateTelemetry()).toEqual({
       render_gate: "background",
-      gate_mode: "render",
+      gate_mode: "load",
       visible_at_boot: false,
     });
   });
@@ -53,7 +53,7 @@ describe("maybeGateViewerRender", () => {
     });
     expect(getGateTelemetry()).toEqual({
       render_gate: "failopen",
-      gate_mode: "render",
+      gate_mode: "load",
     });
   });
 
@@ -95,7 +95,7 @@ describe("maybeGateViewerRender", () => {
         throw new Error("observer exploded");
       },
     });
-    expect(getGateTelemetry()).toEqual({ render_gate: "failopen", gate_mode: "render" });
+    expect(getGateTelemetry()).toEqual({ render_gate: "failopen", gate_mode: "load" });
   });
 });
 
@@ -146,36 +146,36 @@ describe("awaitGateBlocking (#384 review F3 — blocking measured at the mount s
 describe("getGateMode (#382 load-gate spike toggle)", () => {
   beforeEach(() => localStorage.removeItem(GATE_MODE_KEY));
 
-  it("defaults to 'render' with no key, and on garbage values", () => {
-    expect(getGateMode()).toBe("render");
+  it("defaults to 'load' with no key, and on garbage values", () => {
+    expect(getGateMode()).toBe("load");
     localStorage.setItem(GATE_MODE_KEY, "yolo");
-    expect(getGateMode()).toBe("render");
-  });
-
-  it("returns 'load' only for the exact literal", () => {
-    localStorage.setItem(GATE_MODE_KEY, "load");
     expect(getGateMode()).toBe("load");
   });
 
-  it("fails safe to 'render' when storage throws", () => {
+  it("returns 'render' only for the exact diagnostic-override literal", () => {
+    localStorage.setItem(GATE_MODE_KEY, "render");
+    expect(getGateMode()).toBe("render");
+  });
+
+  it("fails safe to 'load' when storage throws", () => {
     expect(
       getGateMode({
         getItem: () => {
           throw new Error("blocked");
         },
       }),
-    ).toBe("render");
+    ).toBe("load");
   });
 
-  it("stamps gate_mode='load' on gated telemetry when the toggle is set", async () => {
-    localStorage.setItem(GATE_MODE_KEY, "load");
+  it("stamps gate_mode='render' on gated telemetry when the diagnostic override is set", async () => {
+    localStorage.setItem(GATE_MODE_KEY, "render");
     await maybeGateViewerRender({
       getFlag: async () => true,
       awaitTurn: async () => ({ outcome: "background", deferredMs: 10, visibleAtBoot: false }),
     });
     expect(getGateTelemetry()).toEqual({
       render_gate: "background",
-      gate_mode: "load",
+      gate_mode: "render",
       visible_at_boot: false,
     });
     localStorage.removeItem(GATE_MODE_KEY);

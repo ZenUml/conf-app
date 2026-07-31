@@ -142,4 +142,11 @@ describe('deriveWritebackSignals (slice 0 — one derivation for all editors)', 
     expect(s.hasId).toBe(false);
     expect(decideWriteback(s).attemptLegacyMigration).toBe(false);
   });
+
+  it('coerces undefined surface flags to booleans (any-typed Forge context)', () => {
+    const s = deriveWritebackSignals({ ...base, inserting: undefined, configuring: undefined, newId: '222' });
+    expect(s.inserting).toBe(false);
+    expect(s.configuring).toBe(false);
+    expect(decideWriteback(s).needsWriteback).toBe(false);
+  });
 });

@@ -54,8 +54,8 @@ export function decideWriteback(s: WritebackSignals): WritebackDecision {
 // (forgeIndex: store.state.diagram; graph/swagger: window.diagram) captured
 // BEFORE any deferred writeback runs.
 export interface WritebackDerivationInput {
-  inserting: boolean;
-  configuring: boolean;
+  inserting: boolean | undefined;
+  configuring: boolean | undefined;
   /** custom-content id loaded into the editor ('' when none). */
   sourceId: string;
   /** id returned by saveToPlatform ('' when save produced none). */
@@ -70,13 +70,16 @@ export interface WritebackDerivationInput {
 
 export function deriveWritebackSignals(i: WritebackDerivationInput): WritebackSignals {
   return {
-    inserting: i.inserting,
-    configuring: i.configuring,
+    inserting: !!i.inserting,
+    configuring: !!i.configuring,
     idChanged: !!i.sourceId && !!i.newId && i.newId !== i.sourceId,
     // ZEN-1170 Defect 2b: saved against a recovered sibling id.
     macroNeedsRepair: !!(i.originalCustomContentId && i.newId && i.newId !== i.originalCustomContentId),
     // ZEN-1170 Defect 1 + PR #139 same-page recovery: uuid-only macro whose
     // doc came from a legacy source — stamp customContentId on first save.
+    // Cross-page recovery needs no term here: it forks a new CC, so the
+    // idChanged path already writes back; this only covers same-page hits
+    // where save updates in place.
     legacyMacroNeedsRepair:
       !i.originalCustomContentId &&
       (i.docSource === DataSource.ContentProperty ||

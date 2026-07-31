@@ -43,7 +43,7 @@ import {
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
-import { maybeGateViewerRender, awaitGateBlocking } from '@/utils/renderGate/maybeGateViewerRender';
+import { maybeGateViewerRender, awaitGateBlocking, getGateMode } from '@/utils/renderGate/maybeGateViewerRender';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -418,7 +418,18 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           // the content changed, revalidate's own mountSequenceViewer call
           // awaits the same gate and lands after this cached mount, so the
           // fresh doc still wins.
-          void revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash);
+          //
+          // gate_mode='load' (#382 spike) deliberately reverses F4: on a
+          // storm page the revalidate fetches are exactly the broker load
+          // we're trying to shed, and the canary showed ~98% of these mounts
+          // are never seen. Freshness/orphan checks still run — at gate
+          // release (≤ background-fill 3–7s later), not immediately.
+          if (viewerGatePromise && getGateMode() === 'load') {
+            void viewerGatePromise.then(() =>
+              revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash));
+          } else {
+            void revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash);
+          }
           await mountSequenceViewer(viewerDoc);
           return; // rendered from cache — skip the live-fetch + mount path entirely
         } catch (e) {
@@ -429,6 +440,15 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     }
 
     if (isSequence && customContentId) {
+      // gate_mode='load' (#382 spike): hold the content fetch itself until
+      // the viewport turn, so an offscreen mount costs ~boot+context until
+      // released. viewerGatePromise is null for editors/fullscreen (await is
+      // then a no-op) and render_deferred_ms is recorded HERE (first await
+      // wins), so with this mode it means "wait before the load began" and
+      // fetch_ms stays a clean network measure starting at release.
+      if (getGateMode() === 'load') {
+        await awaitGateBlocking(viewerGatePromise);
+      }
       const loaded = await renderPerf.time('fetch', () =>
         globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId, { copyCheckMode }));
       console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);

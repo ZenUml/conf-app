@@ -6,7 +6,7 @@
 // Invariant: this function NEVER rejects and never blocks a render on an
 // error — every failure path resolves promptly (fail-open).
 
-import type { RenderGateOutcome } from "@/utils/analytics/catalog";
+import type { RenderGateMode, RenderGateOutcome } from "@/utils/analytics/catalog";
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import { awaitViewportTurn, type ViewportTurn } from "./viewportGate";
 import { getViewportGateFlagFast } from "./flags";
@@ -19,6 +19,28 @@ export interface GateTelemetry {
   // delay whenever the fetch was the slower leg (#384 review F3).
   render_deferred_ms?: number;
   visible_at_boot?: boolean;
+  gate_mode?: RenderGateMode;
+}
+
+// #382 gate depth. 'load' (the default) holds the content fetch and the SWR
+// revalidate until the viewport turn as well as the paint, so an offscreen
+// mount costs ~bundle boot + context until released. Measured on a 12-macro
+// lite-dev page (4× CPU, warm): render-depth fires all 12 content GETs in a
+// ~500ms burst; load-depth dissolves the burst over ~5s and improved BOTH
+// first-macro (~-1.2s) and all-macros (~-3s) time on every run — deferring
+// offscreen work relieves the contention the visible macros compete under.
+// The localStorage key is a DIAGNOSTIC override only ('render' restores
+// paint-only gating for A/B comparison in the perf harness or a dev
+// browser); the rollout lever is the viewport-gated-render flag itself.
+export const GATE_MODE_KEY = "zenuml.gateMode";
+
+export function getGateMode(storage?: Pick<Storage, "getItem">): RenderGateMode {
+  try {
+    const raw = (storage ?? localStorage).getItem(GATE_MODE_KEY);
+    return raw === "render" ? "render" : "load";
+  } catch {
+    return "load";
+  }
 }
 
 let telemetry: GateTelemetry = {};
@@ -100,12 +122,13 @@ export async function maybeGateViewerRender(deps?: {
         })))();
     telemetry = {
       render_gate: turn.outcome,
+      gate_mode: getGateMode(),
       ...(turn.visibleAtBoot !== undefined
         ? { visible_at_boot: turn.visibleAtBoot }
         : {}),
     };
   } catch {
-    telemetry = { render_gate: "failopen" };
+    telemetry = { render_gate: "failopen", gate_mode: getGateMode() };
   } finally {
     removePlaceholder();
   }

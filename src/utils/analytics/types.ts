@@ -8,6 +8,7 @@ import type {
   OperationMode,
   FeedbackValue,
   RenderMode,
+  RenderGateMode,
   RenderGateOutcome,
   CacheState,
   CacheSource,
@@ -258,6 +259,12 @@ export type AnalyticsProperties = {
   // Strict (no-margin) top-level-viewport intersection at first observation.
   // The direct client-side measure of "was this macro on screen at boot".
   visible_at_boot?: boolean;
+  // Gate depth for this render (#382 spike): 'render' = paint-only gating
+  // (fetch ran immediately), 'load' = the content fetch also waited for the
+  // viewport turn. Absent when render_gate is absent. With gate_mode='load',
+  // fetch_ms starts at gate release, so render_deferred_ms still bounds the
+  // total gate-induced delay inside duration_ms.
+  gate_mode?: RenderGateMode;
   // Renderer-bundle prefetch (renderer_prefetch_started / _completed). Fired
   // only on an actual attempt (throttled to ≤1 per deploy per browser), never
   // on the skip path — volume stays far below page-view scale. See

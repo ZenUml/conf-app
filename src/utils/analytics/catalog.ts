@@ -69,6 +69,15 @@ export type RenderGateOutcome =
   | "background"
   | "failopen";
 
+// Viewport gate depth (#382): what the gate held back for this render.
+//   load   — the default: content fetch (and SWR revalidate) waited for the
+//            viewport turn too, so an offscreen mount costs ~bundle boot +
+//            context until released
+//   render — paint-only gating (fetch ran immediately); reachable only via
+//            the zenuml.gateMode localStorage diagnostic override
+// Absent whenever render_gate is absent.
+export type RenderGateMode = "render" | "load";
+
 // Browser cache state at macro render time, derived from Resource Timing
 // transferSize of the macro's same-origin JS bundle:
 //   warm    — bundle served from HTTP/disk cache (transferSize ~ 0)

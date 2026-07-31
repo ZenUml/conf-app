@@ -33,6 +33,7 @@ import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { decideWriteback, deriveWritebackSignals } from "@/model/writebackGate";
 
 installRestoreDraftBanner();
 import SwaggerForgeEditorShell from '@/components/OpenApi/SwaggerForgeEditorShell.vue';
@@ -154,19 +155,23 @@ async function saveOpenApiAndExit() {
     endEditJourney('saved');
   }
 
-  // ZEN-1170 Defect 2b: repair stale macro XML when we saved against the
-  // recovered sibling id. Only fires in surfaces where view.submit({config})
-  // actually persists (insert / isConfiguring). See forgeIndex.ts for the
-  // full rationale on viewer-launched modal contexts being a no-op.
-  const macroNeedsRepair = !!(originalCustomContentId && id && id !== originalCustomContentId);
+  // Capture derivation inputs now — window.diagram may move under the
+  // deferred writeback below.
+  const derivationInput = {
+    sourceId,
+    newId: id,
+    originalCustomContentId,
+    // @ts-ignore
+    docSource: window.diagram?.source,
+    recoveredFromOrphan: !!(window.diagram as any)?.recoveredFromOrphan,
+  };
 
   /* eslint-disable no-undef */
   setTimeout(async () => {
     const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
-    const repairWillPersist = inserting || configuring;
-    const attemptRepair = repairWillPersist && macroNeedsRepair;
-    const idChanged = !!sourceId && !!id && id !== sourceId;
-    const needsWriteback = inserting || idChanged || attemptRepair;
+    const { attemptRepair, needsWriteback } = decideWriteback(
+      deriveWritebackSignals({ ...derivationInput, inserting, configuring })
+    );
     // Redirect starts now (view.submit / view.close below). Stop the clock.
     trackPublishCompleted({
       macro_type: 'openapi',

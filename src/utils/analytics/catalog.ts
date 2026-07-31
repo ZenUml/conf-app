@@ -69,6 +69,13 @@ export type RenderGateOutcome =
   | "background"
   | "failopen";
 
+// Viewport gate depth (#382 spike): what the gate held back for this render.
+//   render — paint only; context + content fetch ran immediately (shipped behavior)
+//   load   — content fetch (and SWR revalidate) also waited for the viewport turn,
+//            so an offscreen mount costs ~bundle boot + context until released
+// Absent whenever render_gate is absent.
+export type RenderGateMode = "render" | "load";
+
 // Browser cache state at macro render time, derived from Resource Timing
 // transferSize of the macro's same-origin JS bundle:
 //   warm    — bundle served from HTTP/disk cache (transferSize ~ 0)

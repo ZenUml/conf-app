@@ -40,7 +40,12 @@ describe('deeplinkHostForProductType', () => {
 
   // asyncapi deeplinks are deferred — its viewer doesn't route through
   // GenericViewer, so there is no host to mint against yet.
-  it.each([
+  // Mixed-arity rows ([string, string] | [undefined, string]) need an
+  // explicit tuple type — otherwise vitest/TS infers a union of fixed-length
+  // tuples and a single-parameter callback can't satisfy both arities
+  // (TS2345, caught by plain `tsc`; vue-tsc itself can't run in this
+  // checkout — 1.8.27 is incompatible with the resolved typescript@5.9.3).
+  it.each<[string | undefined, string]>([
     ['asyncapi', 'no deeplink host is defined for it yet'],
     [undefined, 'no product type is unresolved at build time'],
     ['unknown', 'an unrecognised product type must fail closed, not fall back to a default host'],

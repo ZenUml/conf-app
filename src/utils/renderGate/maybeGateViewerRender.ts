@@ -6,7 +6,7 @@
 // Invariant: this function NEVER rejects and never blocks a render on an
 // error — every failure path resolves promptly (fail-open).
 
-import type { RenderGateOutcome } from "@/utils/analytics/catalog";
+import type { RenderGateMode, RenderGateOutcome } from "@/utils/analytics/catalog";
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import { awaitViewportTurn, type ViewportTurn } from "./viewportGate";
 import { getViewportGateFlagFast } from "./flags";
@@ -19,6 +19,26 @@ export interface GateTelemetry {
   // delay whenever the fetch was the slower leg (#384 review F3).
   render_deferred_ms?: number;
   visible_at_boot?: boolean;
+  gate_mode?: RenderGateMode;
+}
+
+// #382 load-gate spike: how deep the gate holds. 'render' (default) gates the
+// paint only — context + content fetch run immediately, exactly the shipped
+// behavior. 'load' also holds the content fetch (and SWR revalidate) until
+// the viewport turn, so an offscreen storm remount costs ~bundle boot +
+// context until released. Spike toggle is a localStorage key so the perf
+// harness (and a lite-dev browser) can flip modes per-profile without a new
+// Forge flag — Lite is at its 10-flag cap; production mode selection is a
+// later decision, this key is NOT a rollout mechanism.
+export const GATE_MODE_KEY = "zenuml.gateMode";
+
+export function getGateMode(storage?: Pick<Storage, "getItem">): RenderGateMode {
+  try {
+    const raw = (storage ?? localStorage).getItem(GATE_MODE_KEY);
+    return raw === "load" ? "load" : "render";
+  } catch {
+    return "render";
+  }
 }
 
 let telemetry: GateTelemetry = {};
@@ -100,12 +120,13 @@ export async function maybeGateViewerRender(deps?: {
         })))();
     telemetry = {
       render_gate: turn.outcome,
+      gate_mode: getGateMode(),
       ...(turn.visibleAtBoot !== undefined
         ? { visible_at_boot: turn.visibleAtBoot }
         : {}),
     };
   } catch {
-    telemetry = { render_gate: "failopen" };
+    telemetry = { render_gate: "failopen", gate_mode: getGateMode() };
   } finally {
     removePlaceholder();
   }

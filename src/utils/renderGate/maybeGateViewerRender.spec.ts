@@ -3,6 +3,8 @@ import {
   maybeGateViewerRender,
   awaitGateBlocking,
   getGateTelemetry,
+  getGateMode,
+  GATE_MODE_KEY,
   _resetForTesting,
 } from "./maybeGateViewerRender";
 
@@ -39,6 +41,7 @@ describe("maybeGateViewerRender", () => {
     // Blocking is measured at the mount-site await (awaitGateBlocking).
     expect(getGateTelemetry()).toEqual({
       render_gate: "background",
+      gate_mode: "render",
       visible_at_boot: false,
     });
   });
@@ -50,6 +53,7 @@ describe("maybeGateViewerRender", () => {
     });
     expect(getGateTelemetry()).toEqual({
       render_gate: "failopen",
+      gate_mode: "render",
     });
   });
 
@@ -91,7 +95,7 @@ describe("maybeGateViewerRender", () => {
         throw new Error("observer exploded");
       },
     });
-    expect(getGateTelemetry()).toEqual({ render_gate: "failopen" });
+    expect(getGateTelemetry()).toEqual({ render_gate: "failopen", gate_mode: "render" });
   });
 });
 
@@ -136,5 +140,44 @@ describe("awaitGateBlocking (#384 review F3 — blocking measured at the mount s
     await maybeGateViewerRender({ getFlag: async () => false });
     await awaitGateBlocking(new Promise((r) => setTimeout(r, 30)));
     expect(getGateTelemetry()).toEqual({});
+  });
+});
+
+describe("getGateMode (#382 load-gate spike toggle)", () => {
+  beforeEach(() => localStorage.removeItem(GATE_MODE_KEY));
+
+  it("defaults to 'render' with no key, and on garbage values", () => {
+    expect(getGateMode()).toBe("render");
+    localStorage.setItem(GATE_MODE_KEY, "yolo");
+    expect(getGateMode()).toBe("render");
+  });
+
+  it("returns 'load' only for the exact literal", () => {
+    localStorage.setItem(GATE_MODE_KEY, "load");
+    expect(getGateMode()).toBe("load");
+  });
+
+  it("fails safe to 'render' when storage throws", () => {
+    expect(
+      getGateMode({
+        getItem: () => {
+          throw new Error("blocked");
+        },
+      }),
+    ).toBe("render");
+  });
+
+  it("stamps gate_mode='load' on gated telemetry when the toggle is set", async () => {
+    localStorage.setItem(GATE_MODE_KEY, "load");
+    await maybeGateViewerRender({
+      getFlag: async () => true,
+      awaitTurn: async () => ({ outcome: "background", deferredMs: 10, visibleAtBoot: false }),
+    });
+    expect(getGateTelemetry()).toEqual({
+      render_gate: "background",
+      gate_mode: "load",
+      visible_at_boot: false,
+    });
+    localStorage.removeItem(GATE_MODE_KEY);
   });
 });

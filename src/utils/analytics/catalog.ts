@@ -223,6 +223,13 @@ export type AnalyticsEventName =
   // diagram-only fallback (page context unavailable) and an outright
   // clipboard-write failure.
   | "copy_for_ai_clicked"
+  // Bottom-pill "Copy diagram link" action (task 6, docs/superpowers/sdd/
+  // 2026-07-26-embed-deeplink-productization): mints and copies the bare
+  // embed deeplink (https://<host>/d/<cloudId>/<contentId>) for the diagram
+  // being viewed — the supply side of the autoConvert paste->embed flow.
+  // `link_source` records which affordance minted it (today only the viewer
+  // pill; a future share-preview surface would use a different value).
+  | "deeplink_copied"
   // Editor staleness hint (docs/superpowers/specs/
   // 2026-07-18-job-b-editor-staleness-hint-design.md). Shown on inline
   // page-editor renders when the host page drifted >=5 versions past the

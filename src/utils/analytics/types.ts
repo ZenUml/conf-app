@@ -179,6 +179,11 @@ export type AnalyticsProperties = {
   dsl_bytes?: number;
   page_bytes?: number;
   job?: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
+  // Bottom-pill "Copy diagram link" (deeplink_copied — catalog.ts). Which
+  // affordance minted the deeplink; only the viewer pill exists today. Not
+  // the same surface as the `/deeplink-ticket` share-preview endpoint, which
+  // is owned by other PRs.
+  link_source?: 'viewer_pill';
   // In-viewer Edit dup gate (edit_dup_gate_evaluated): outcome of the
   // click-time same-page shared-id check. `same_page_macro_count` = how many
   // macros on the page reference the clicked macro's customContentId (absent

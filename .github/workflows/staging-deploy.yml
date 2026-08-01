@@ -73,12 +73,25 @@ jobs:
         with:
           cmd: yq eval 'del(.connectModules)' -i manifest.yml
 
-      # Lite: remove contentBylineItem and licensing
-      - name: Remove contentBylineItem from manifest
+      # Lite: keep only its own byline entry, and remove licensing.
+      # The Aide entry is Diagramly-branded and calls the diagramly chat
+      # backend, so Lite must not inherit it — but a blanket module delete here
+      # would take zenuml-byline-diagrams with it and the feature would never
+      # reach staging.
+      - name: Keep only the Lite byline entry in manifest
         if: inputs.variant == 'lite'
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules["confluence:contentBylineItem"])' -i manifest.yml
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key != "zenuml-byline-diagrams"))' -i manifest.yml
+      # Full and Diagramly keep Aide on staging (their existing behaviour) but
+      # must not pick up Lite's entry. NOTE: production Full ships no byline at
+      # all (release.yml) — a pre-existing staging/prod divergence for Full,
+      # left as-is here rather than changed under an unrelated feature.
+      - name: Remove the Lite byline entry from non-Lite manifests
+        if: inputs.variant != 'lite' && inputs.variant != 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams"))' -i manifest.yml
       - name: Remove licensing (Lite is free)
         if: inputs.variant == 'lite'
         uses: mikefarah/yq@master

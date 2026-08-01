@@ -87,8 +87,27 @@ jobs:
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi"))) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"])' -i manifest.yml
+      # confluence:contentBylineItem carries one entry per audience and each
+      # variant ships at most one of them. This is NOT a mirror of
+      # scripts/forge-wizard.mjs by accident — these steps are the deploy path
+      # for released apps, so a variant's byline is whatever THIS file leaves
+      # behind. Before 2026-08-01 a single blanket delete ran for every
+      # non-diagramly variant, which is why production Full has never had a
+      # byline item despite the wizard keeping one.
+      - name: Keep only the Lite byline entry in manifest.yml
+        if: ${{ steps.properties.outputs.license == 'lite' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key != "zenuml-byline-diagrams"))' -i manifest.yml
+      - name: Keep only the Aide byline entry in manifest.yml
+        if: ${{ steps.properties.outputs.license == 'diagramly' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key != "zenuml-byline-aiaide"))' -i manifest.yml
+      # Full and AsyncAPI ship no byline at all — preserving the behaviour the
+      # blanket delete gave them.
       - name: Remove contentBylineItem in manifest.yml
-        if: ${{ steps.properties.outputs.license != 'diagramly' }}
+        if: ${{ steps.properties.outputs.license != 'diagramly' && steps.properties.outputs.license != 'lite' }}
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules["confluence:contentBylineItem"])' -i manifest.yml

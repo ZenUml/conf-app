@@ -65,13 +65,31 @@ Two conclusions follow:
    page views) is nowhere near page-view volume, so Confluence does **not** boot the byline iframe
    on page load. The per-page-load cost worry is dead — and so is any hope of using byline
    *impressions* as telemetry, since the app learns nothing until someone clicks.
-2. **The surface is inert.** Full ships the identical byline module — `scripts/forge-wizard.mjs`
-   has no `contentBylineItem` strip in the `full` entry, and `src/forgeIndex.ts:122` branches on
-   `extension.type` with no variant gate, so a Full user opening it would emit the event. 1,329
-   distinct monthly users, 3.5 months, **zero opens**. Whatever reach the byline has in theory, it
-   is not converting to clicks in practice.
+2. ~~**The surface is inert.** Full ships the identical byline module…~~ **RETRACTED 2026-08-01 —
+   this was wrong.** See the correction below.
 
-The plan below assumed reach ≈ engagement. It does not.
+### Correction: the Full evidence was invalid (2026-08-01)
+
+The original conclusion rested on "Full ships the same byline module and got zero opens from 1,329
+monthly users". It does not ship it. `scripts/forge-wizard.mjs` is **not** the deploy path for
+released apps — `.github/workflows/release.yml` is, and it duplicated the strips inline rather than
+calling the wizard. Its byline step ran for every variant where `license != 'diagramly'`, so
+**production Full has never had a byline item at all**. Those 1,329 users had nothing to click.
+
+Found while preparing a dev deploy; both workflows are fixed in the same change as this correction
+(Lite keeps `zenuml-byline-diagrams`, Diagramly keeps `zenuml-byline-aiaide`, Full/AsyncAPI keep
+neither — preserving Full's existing production behaviour). Note the fix was necessary for Phase 1
+to ship at all: the blanket delete would have stripped Lite's new entry on every release.
+
+**What survives of Phase 0:** the mount-semantics finding (click-to-open, unaffected — it rests on
+Diagramly's own numbers), and Diagramly's engagement: 32 external opens in 3.5 months. But
+Diagramly has only **31 distinct monthly macro-viewing users**, so that is a far weaker kill signal
+than "zero from 1,329" implied — arguably not a kill signal at all. The honest position is that
+**the byline has never been measured on a meaningful user base**, which makes Phase 1 on Lite
+(9,611 monthly actives) the first real test rather than a long shot against known-bad odds.
+
+The recommendation below was written under the retracted reading. Item 1 ("do not build Phases
+1–3") no longer follows from the evidence; items 2 and 3 stand on their own merits.
 
 ### What is still unknown, and why it no longer changes the decision
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildNewDiagramLink, parseNewDiagramLink, readAutoConvertLink } from './newDiagramLink'
+import { applyNewDiagramLink, buildNewDiagramLink, parseNewDiagramLink, readAutoConvertLink } from './newDiagramLink'
 import { DiagramType } from '@/model/Diagram/Diagram'
 
 describe('buildNewDiagramLink', () => {
@@ -77,5 +77,50 @@ describe('readAutoConvertLink', () => {
     expect(readAutoConvertLink({ extension: { config: { customContentId: '1' } } })).toBeUndefined()
     expect(readAutoConvertLink({})).toBeUndefined()
     expect(readAutoConvertLink(undefined)).toBeUndefined()
+  })
+})
+
+describe('applyNewDiagramLink', () => {
+  const LINK = 'https://confluence.zenuml.com/new/mermaid'
+
+  it('retypes the sequence family placeholder — the case the first version missed', () => {
+    // forgeIndex assigns this doc before seeding runs; guarding on "no doc"
+    // skipped exactly the family the feature exists for.
+    const placeholder = {
+      diagramType: DiagramType.Sequence,
+      code: 'seq example',
+      mermaidCode: 'graph TD;',
+      plantUmlCode: '@startuml',
+      isNew: true,
+    }
+    const { doc, seededType } = applyNewDiagramLink(placeholder, LINK, false)
+    expect(seededType).toBe(DiagramType.Mermaid)
+    expect(doc!.diagramType).toBe(DiagramType.Mermaid)
+  })
+
+  it('keeps the example bodies and the isNew flag rather than replacing the doc', () => {
+    const placeholder = { diagramType: DiagramType.Sequence, mermaidCode: 'graph TD;', isNew: true }
+    const { doc } = applyNewDiagramLink(placeholder, LINK, false)
+    expect(doc).toMatchObject({ mermaidCode: 'graph TD;', isNew: true })
+  })
+
+  it('creates a doc for the types that arrive without one (graph, openapi)', () => {
+    const { doc, seededType } = applyNewDiagramLink(undefined, 'https://confluence.zenuml.com/new/graph', false)
+    expect(seededType).toBe(DiagramType.Graph)
+    expect(doc!.diagramType).toBe(DiagramType.Graph)
+  })
+
+  it("never retypes a macro that has stored content", () => {
+    const stored = { diagramType: DiagramType.Sequence, code: 'real diagram' }
+    const { doc, seededType } = applyNewDiagramLink(stored, LINK, true)
+    expect(seededType).toBeUndefined()
+    expect(doc).toBe(stored)
+  })
+
+  it('leaves an ordinary insert untouched when there is no link', () => {
+    const placeholder = { diagramType: DiagramType.Sequence, isNew: true }
+    const { doc, seededType } = applyNewDiagramLink(placeholder, undefined, false)
+    expect(seededType).toBeUndefined()
+    expect(doc).toBe(placeholder)
   })
 })

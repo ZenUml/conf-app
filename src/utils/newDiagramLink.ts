@@ -90,3 +90,30 @@ export function readAutoConvertLink(context: any): string | undefined {
     undefined
   )
 }
+
+/**
+ * Apply a paste-to-create link to the doc a fresh macro is about to mount with.
+ *
+ * Extracted and unit-tested because the *guard* is where this went wrong the
+ * first time: the original inline version skipped when a doc already existed,
+ * which silently excluded the sequence family — it assigns its own placeholder
+ * doc (diagramType Sequence, example bodies pre-filled) before this point,
+ * while graph and openapi leave the doc undefined. Measured 2026-08-01:
+ * `/new/graph` and `/new/openapi` seeded, `/new/mermaid` pasted as a sequence
+ * diagram.
+ *
+ * `hasStoredContent` is the real "leave it alone" signal — a macro with a
+ * customContentId has a type of its own that must always win.
+ */
+export function applyNewDiagramLink<T extends { diagramType?: string }>(
+  doc: T | undefined,
+  link: unknown,
+  hasStoredContent: boolean,
+): { doc: T | undefined; seededType?: DiagramType } {
+  if (hasStoredContent) return { doc }
+  const seededType = parseNewDiagramLink(link)
+  if (!seededType) return { doc }
+  // Keep the placeholder's example bodies and isNew flag; only the type moves.
+  const next = (doc ? { ...doc, diagramType: seededType } : { diagramType: seededType }) as T
+  return { doc: next, seededType }
+}

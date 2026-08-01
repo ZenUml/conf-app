@@ -41,7 +41,7 @@ import {
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
-import { parseNewDiagramLink, readAutoConvertLink } from '@/utils/newDiagramLink';
+import { applyNewDiagramLink, readAutoConvertLink } from '@/utils/newDiagramLink';
 import { maybeGateViewerRender, awaitGateBlocking } from '@/utils/renderGate/maybeGateViewerRender';
 
 // Track editor session start time
@@ -793,11 +793,18 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // macro. Only ever applies to a macro with no stored content — an existing
     // diagram's own type always wins — so a link that somehow survives on a
     // saved macro can never re-type it.
-    if (!doc && !customContentId) {
-      const seededType = parseNewDiagramLink(readAutoConvertLink(context));
-      if (seededType) {
-        doc = { ...NULL_DIAGRAM, diagramType: seededType } as Diagram;
-        trackEvent('', 'new_diagram_link_seeded', 'macro', { macro_type: seededType });
+    // Gate on `!customContentId` (a macro with nothing stored yet), NOT on
+    // `!doc`. The sequence family assigns its own placeholder doc above —
+    // diagramType Sequence with all three example bodies pre-filled — so a
+    // `!doc` guard silently skipped exactly the family this feature is for:
+    // measured 2026-08-01, `/new/graph` and `/new/openapi` seeded while
+    // `/new/mermaid` pasted as a sequence diagram, because only the sequence
+    // branch had already populated `doc`.
+    {
+      const seeded = applyNewDiagramLink(doc, readAutoConvertLink(context), !!customContentId);
+      doc = seeded.doc;
+      if (seeded.seededType) {
+        trackEvent('', 'new_diagram_link_seeded', 'macro', { macro_type: seeded.seededType });
       }
     }
 

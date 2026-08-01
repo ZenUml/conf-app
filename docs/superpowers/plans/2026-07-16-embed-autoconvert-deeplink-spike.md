@@ -416,13 +416,25 @@ insertion is paste-autoconvert.
   editor, and the hero copy now says what actually happens rather than
   promising the macro is pre-placed.
 
-**Questions this spike must answer (needs a human paste — unanswered here):**
+**Findings (paste executed on lite-stg, 2026-08-01):**
 
-1. Does `/new/<type>` convert into the right macro in the current editor? In a
-   Live Doc? (The embed spike proved both for its own pattern.)
-2. Which context path carries `autoConvertLink` for a macro created this way —
-   and does it arrive before the editor picks its type, i.e. does the seeded
-   type actually stick?
+| Question | Answer | Evidence |
+|---|---|---|
+| Does `/new/<type>` convert into the right macro? | **YES** — pasting `https://confluence.zenuml.com/new/mermaid` produced a ZenUML macro in the editor | user paste on lite-stg |
+| Does `autoConvertLink` reach the iframe, and at which path? | **YES**, and `readAutoConvertLink`'s first candidate is sufficient — the link parsed and seeded on the paths that reached the seeding code | Mixpanel `new_diagram_link_seeded`: `graph` ×2, `OpenAPI` ×1 on lite-stg |
+| Does the seeded type stick? | **NO for the sequence family, YES for graph/openapi** — `/new/mermaid` opened as a sequence diagram. Cause: the seeding guard tested `!doc`, but forgeIndex assigns the sequence family a placeholder doc (diagramType Sequence, example bodies pre-filled) *before* that point, so the guard was already false for exactly the family this feature targets. graph/openapi leave `doc` undefined and seeded correctly. | absence of a `mermaid` row in the same Mixpanel query is the discriminator |
+
+Fixed by gating on `!customContentId` (a macro with nothing stored) instead of
+`!doc`, and by flipping the placeholder's `diagramType` rather than replacing
+the doc — the placeholder already carries the mermaid/plantuml example bodies
+and the `isNew` flag. The guard now lives in a unit-tested
+`applyNewDiagramLink()` rather than inline in forgeIndex, since the guard is
+what was wrong.
+
+**Still to confirm on the next paste:**
+
+1. `/new/mermaid` and `/new/plantuml` now open in the right type (the fix above).
+2. Conversion inside a **Live Doc** (the embed spike proved it for its own pattern).
 3. Does the converted macro open its editor directly, or insert a placeholder
    the user must then click?
 4. Version bump stays **minor** (the embed matcher deploy was 16.118.0). Confirm

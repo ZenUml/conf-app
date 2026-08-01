@@ -153,8 +153,19 @@ async function dirtySequenceEditor(frame: FrameLocator): Promise<void> {
  * `window.specContent`.
  */
 async function dirtyOpenApiEditor(frame: FrameLocator): Promise<void> {
+  // Ace keeps its real input in an off-screen `textarea.ace_text-input` and
+  // paints the visible text in `.ace_content` on top of it, so clicking the
+  // textarea directly always loses to "ace_content intercepts pointer events".
+  // Click the visible content layer instead — that is what ace itself listens
+  // for, and it focuses the hidden textarea as a side effect — then type
+  // through the focused element rather than re-targeting the textarea.
+  const aceContent = frame.locator('.ace_content').first();
   const yamlEditor = frame.locator('.swagger-editor textarea, [data-editor="ace"], .ace_editor textarea').first();
-  await yamlEditor.click();
+  if (await aceContent.count()) {
+    await aceContent.click();
+  } else {
+    await yamlEditor.click({ force: true });
+  }
   await yamlEditor.press('End');
   await yamlEditor.pressSequentially(' # dirty', { delay: 30 });
 }

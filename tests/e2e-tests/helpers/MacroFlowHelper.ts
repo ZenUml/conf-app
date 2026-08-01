@@ -23,6 +23,7 @@ import {
   clickEditorPublish,
   expectModalClosed,
 } from './FullscreenModalHelper.js';
+import { dismissPaywallGate } from './paywallGate.js';
 
 export type MacroKind = 'sequence' | 'graph' | 'openapi';
 
@@ -60,6 +61,16 @@ export async function insertMacro(
   // Vue/React mount + spec listeners need a beat to settle; the OpenAPI
   // baseline isn't captured otherwise. Same delay as close-guard.spec.ts.
   await page.waitForTimeout(1500);
+  // On a Lite space that has hit the 100-macro limit the upgrade gate mounts
+  // OVER the editor, and its `fixed inset-0 bg-black bg-opacity-75` backdrop
+  // eats every subsequent click — fillEditorTitle and Publish both time out
+  // with "subtree intercepts pointer events" even though the editor itself
+  // loaded fine behind it. Specs that already knew this dismissed the gate
+  // themselves (writeback-gate-non-submittable, draft-only-binding-*); the
+  // rest inherited a latent failure that only shows up once the target space
+  // crosses the limit. Doing it here covers every tests/fullscreen/ spec, and
+  // it is a documented no-op on an under-limit space (see paywallGate.ts).
+  await dismissPaywallGate(page, modalContentFrame(page, 'edit'));
   return { editorPage, macroName };
 }
 
@@ -109,5 +120,9 @@ export async function openEditModal(page: Page, kind: MacroKind): Promise<FrameL
   await macroPage.editMacro(frame);
   await expectModalVisible(page, 'edit');
   await page.waitForTimeout(1500); // mount settle
-  return modalContentFrame(page, 'edit');
+  // Same over-limit upgrade gate insertMacro dismisses — it mounts over the
+  // re-opened editor too, so the edit flow needs it independently.
+  const contentFrame = modalContentFrame(page, 'edit');
+  await dismissPaywallGate(page, contentFrame);
+  return contentFrame;
 }

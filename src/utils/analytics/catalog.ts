@@ -9,7 +9,11 @@ export type FeatureArea =
   | "confluence"
   | "feedback"
   | "system"
-  | "agent_link";
+  | "agent_link"
+  // The confluence:contentBylineItem entry point under the page title. Its own
+  // area because it is an activation surface, not part of a macro's lifecycle:
+  // it renders on every page, including pages with no diagram at all.
+  | "byline";
 
 export type MacroTypeValue =
   | "sequence"
@@ -38,7 +42,12 @@ export type Surface =
   | "scheduled_job"
   // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
   // the small-macro `viewer` surface that hosts the initial Connect button.
-  | "fullscreen";
+  | "fullscreen"
+  // The contentBylineItem modal. Confluence boots this iframe only when the
+  // item is CLICKED (measured 2026-08-01: 5 opens against 39,197 macro views on
+  // the variants that ship it), so every event carrying this surface is a
+  // deliberate user action — there are no byline impressions to filter out.
+  | "byline";
 
 export type EntryPoint =
   | "page_view"
@@ -50,6 +59,7 @@ export type EntryPoint =
   | "dashboard"
   | "route"
   | "forge_trigger"
+  | "byline"
   | "unknown";
 
 export type OperationMode = "create" | "edit" | "unknown";
@@ -213,6 +223,27 @@ export type AnalyticsEventName =
   // network/auth/malformed-response errors.
   | "cohorts_refreshed"
   | "cohorts_refresh_failed"
+  // Lite byline activation, Phase 1 (docs/superpowers/specs/
+  // 2026-07-25-lite-byline-activation-design.md). The whole point of Phase 1 is
+  // to measure whether a contentBylineItem earns clicks in OUR app: the same
+  // module has been opened 39 times in 3.5 months on Diagramly and never on
+  // Full, so `byline_opened` IS the experiment's readout, not supporting
+  // telemetry. Every event here is user-initiated — Confluence boots the byline
+  // iframe on click only.
+  | "byline_opened"
+  // A listed diagram was acted on from the modal (jump / open fullscreen).
+  | "byline_diagram_opened"
+  // "Add a diagram" clicked. Splits from byline_editor_deeplinked so an
+  // intent-to-create that fails to route is still visible.
+  | "byline_create_clicked"
+  // The modal routed the user to the page editor (router.navigate). Phase 1's
+  // create path ends here: the macro itself is inserted with the editor's own
+  // insert menu. North star = a first-ever macro_create_succeeded by an
+  // accountId within 30 minutes of this event.
+  | "byline_editor_deeplinked"
+  // Modal closed with no diagram opened and no create click — the "looked and
+  // left" outcome. `dwell_ms` separates a misfire from a real evaluation.
+  | "byline_dismissed"
   | "viewer_load_failed"
   // Diagram source snapshot attachments (resilience for cross-page copies /
   // deleted source pages — see docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md)

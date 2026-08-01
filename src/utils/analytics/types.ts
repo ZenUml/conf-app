@@ -142,6 +142,17 @@ export type AnalyticsProperties = {
   // refresh). `cohort_count` = same list's length, for numeric filtering.
   cohorts?: string;
   cohort_count?: number;
+  // Lite byline activation (byline_*). `page_has_diagram` / `diagram_count`
+  // describe the page the modal opened on — the two populations behave
+  // differently (index-a-diagram vs create-the-first-one) and the create
+  // funnel must be measurable separately for each. `macro_types` is the
+  // comma-joined set found on the page, empty string when none.
+  // `dwell_ms` = modal mount → close, carried on byline_dismissed so a
+  // fat-finger open is distinguishable from a real look.
+  page_has_diagram?: boolean;
+  diagram_count?: number;
+  macro_types?: string;
+  dwell_ms?: number;
   // Staleness hint (staleness_hint_*). `drift_count` = page versions newer
   // than the diagram's last update at decision time; `is_diagram_author` =
   // current accountId equals the diagram custom content's last-version

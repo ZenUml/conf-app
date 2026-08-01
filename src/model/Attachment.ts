@@ -422,7 +422,13 @@ function buildPutRequestToUpdateAttachmentProperties(
 // Attachment Name & Link Functions
 // ============================================================================
 
-function attachmentNameByIdentifier(id: string): string {
+/**
+ * The single definition of the backup-PNG filename. Exported because the byline
+ * modal resolves thumbnails by matching this exact name against a page's
+ * attachments (utils/byline/thumbnails.ts) — if the convention ever changes,
+ * both sides must move together or thumbnails silently stop resolving.
+ */
+export function attachmentNameByIdentifier(id: string): string {
   return `zenuml-${id}.png`;
 }
 

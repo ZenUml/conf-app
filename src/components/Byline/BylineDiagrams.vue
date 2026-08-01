@@ -9,6 +9,14 @@
         </div>
         <ul class="byline__items">
           <li v-for="d in diagrams" :key="d.id" class="byline__item" data-testid="byline-item">
+            <img
+              v-if="thumbnails[d.id]"
+              class="byline__thumb"
+              :src="thumbnails[d.id]"
+              alt=""
+              data-testid="byline-thumb"
+            />
+            <span v-else class="byline__thumb byline__thumb--empty" aria-hidden="true"></span>
             <span class="byline__badge">{{ label(d.diagramType) }}</span>
             <span class="byline__title" :title="d.title">{{ d.title }}</span>
             <button
@@ -51,10 +59,18 @@ import {
   typeLabel,
   type PageDiagram,
 } from '@/utils/byline/pageDiagrams'
+import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnails'
 
 const loading = ref(true)
 const diagrams = ref<PageDiagram[]>([])
 const copiedId = ref<string | null>(null)
+/** customContentId -> data: URL. Populated after the list renders. */
+const thumbnails = ref<Record<string, string>>({})
+
+/** Pathological pages exist (demo pages, architecture indexes). Each thumbnail
+ *  is its own authenticated round trip, so cap the fan-out — rows past the cap
+ *  simply render without one, which is already a supported state. */
+const MAX_THUMBNAILS = 12
 
 // Dwell is measured from mount (when the user's click actually opened this
 // iframe), so byline_dismissed can tell a mis-click from a real evaluation.
@@ -90,9 +106,43 @@ onMounted(async () => {
     // Emitted after the list resolves so page_has_diagram / diagram_count are
     // populated — this event IS the Phase 1 readout, and a version of it
     // without those two properties would not answer the question it exists for.
+    // Thumbnails are deliberately NOT awaited first: the list is the feature
+    // and must paint immediately, and delaying the readout behind N image
+    // fetches would make byline_opened hostage to attachment latency.
     trackAnalyticsEvent('byline_opened', baseProps())
+    void loadThumbnails()
   }
 })
+
+/**
+ * Resolve each listed diagram's backup PNG into an inline thumbnail. Runs after
+ * the list has painted and never blocks it; a page whose diagrams predate the
+ * attachment backup just keeps the placeholder.
+ */
+async function loadThumbnails() {
+  try {
+    const ids = diagrams.value.slice(0, MAX_THUMBNAILS).map(d => d.id)
+    if (!ids.length) return
+    const attachments = await globals.apWrapper.getAttachmentsV2(pageId)
+    const refs = indexThumbnails(attachments as any, ids)
+    const resolved = await Promise.all(
+      refs.map(async r => ({ id: r.customContentId, dataUrl: await fetchThumbnailDataUrl(r.path) })),
+    )
+    const next: Record<string, string> = {}
+    for (const r of resolved) {
+      if (r.dataUrl) next[r.id] = r.dataUrl
+    }
+    thumbnails.value = next
+    // Coverage rides on its own event rather than being retrofitted onto
+    // byline_opened, which has already fired by now.
+    trackAnalyticsEvent('byline_thumbnails_loaded', {
+      ...baseProps(),
+      thumbnail_count: Object.keys(next).length,
+    })
+  } catch (e) {
+    console.debug('[byline] thumbnail load failed', e)
+  }
+}
 
 onBeforeUnmount(() => {
   if (acted) return
@@ -164,6 +214,22 @@ async function onAddDiagram() {
   gap: 8px;
   padding: 6px 0;
   border-bottom: 1px solid #ebecf0;
+}
+/* Fixed box whether or not a PNG resolved, so rows never reflow as thumbnails
+   arrive after the list has painted. */
+.byline__thumb {
+  flex: none;
+  width: 44px;
+  height: 30px;
+  object-fit: contain;
+  object-position: left center;
+  border-radius: 3px;
+  background: #fff;
+  border: 1px solid #ebecf0;
+}
+.byline__thumb--empty {
+  background: #f4f5f7;
+  border-style: dashed;
 }
 .byline__badge {
   flex: none;

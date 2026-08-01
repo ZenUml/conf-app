@@ -244,6 +244,12 @@ export type AnalyticsEventName =
   // Modal closed with no diagram opened and no create click — the "looked and
   // left" outcome. `dwell_ms` separates a misfire from a real evaluation.
   | "byline_dismissed"
+  // Thumbnail resolution finished. Separate from byline_opened because
+  // thumbnails load AFTER the list paints (they must never delay the Phase 1
+  // readout), so the coverage number simply does not exist yet when
+  // byline_opened fires. `thumbnail_count` vs `diagram_count` is the coverage
+  // ratio that decides whether the visual index earns its requests.
+  | "byline_thumbnails_loaded"
   | "viewer_load_failed"
   // Diagram source snapshot attachments (resilience for cross-page copies /
   // deleted source pages — see docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md)

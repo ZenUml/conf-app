@@ -153,6 +153,12 @@ export type AnalyticsProperties = {
   diagram_count?: number;
   macro_types?: string;
   dwell_ms?: number;
+  // Byline thumbnails: how many of `diagram_count` resolved to a backup-PNG
+  // attachment. Coverage is the whole question for this feature — diagrams
+  // saved before the attachment backup existed, failed captures, and viewers
+  // without attachment read permission all land here as a shortfall, and a
+  // consistently low ratio means the visual index is not worth its requests.
+  thumbnail_count?: number;
   // Staleness hint (staleness_hint_*). `drift_count` = page versions newer
   // than the diagram's last update at decision time; `is_diagram_author` =
   // current accountId equals the diagram custom content's last-version

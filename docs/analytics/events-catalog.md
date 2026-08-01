@@ -125,6 +125,11 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 
 **Trigger:** Backend events fired by the attachment/export service when a PNG export is requested. The frontend references these event names in comments (`Attachment.ts:569`, `forge-upload-attachment.ts:13`) but the events are emitted server-side, not by the client tracker.
 
+| Property | Notes |
+|---|---|
+| `macro_type` | Present on the empty-attachment path only, read from custom content (#435). It cannot be recovered by joining `macro_viewed`: ~79% of `attachment_not_found` macros have never been viewed, so they have no view event either. |
+| `render_source` | `server_plantuml` when `export.js` rendered the image itself because no attachment existed; absent on the normal path, which reuses the browser-generated backup PNG (#434). |
+
 ### `attachment_upload_async_succeeded` / `_failed` / `_skipped`
 
 **Trigger:** Terminal outcome of the **save-time (async) PNG backup write**, emitted server-side by `functions/forge-upload-attachment.ts` from inside `waitUntil` — after the editor iframe (and with it the browser tracker) is gone. Registered for #392.

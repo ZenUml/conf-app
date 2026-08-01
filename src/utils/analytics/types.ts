@@ -360,6 +360,12 @@ export type AnalyticsProperties = {
   error_code?: string;
   error_name?: string;
   error_source?: string;
+  // Export render source (#434). Absent on the normal path, where the export
+  // reuses the browser-generated backup PNG. Set when `export.js` had to
+  // produce the image itself because no attachment existed — the case that
+  // accounts for ~79% of `attachment_not_found` failures (macros nobody has
+  // ever opened, so no browser ever rendered one).
+  render_source?: 'attachment' | 'server_plantuml';
   // Attachment upload failures (#392). `via_app_fallback` is true when the
   // user-side write 401/403'd and the app-authenticated fallback
   // (/forge-upload-attachment) was attempted before this failure — so the

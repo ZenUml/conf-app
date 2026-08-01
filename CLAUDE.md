@@ -107,6 +107,10 @@ The original directory stays untouched. When in doubt, ask before any destructiv
 - **Database**: D1 database with migrations in `functions/migrations/`
 - **Auth**: Forge invocation token (RS256) validated via `functions/utils/authenticate.ts`
 
+### Feature flags
+
+Two providers, one registry. **Forge Console flags** (client-side via `@forge/bridge`, boolean, per-app, max 10 per app) gate client-side behavior and rollouts; **Cloudflare KV flags** (`KV_FEATURE_FLAGS`, JSON values, per client domain) serve server-side and per-tenant config like `CUSTOMER_SUCCESS_SERVICE`. Every flag is declared in `src/utils/featureFlags/registry.ts` (single source of truth; drift-guarded by its spec) and evaluated fail-closed. Decision framework, inventory, and lifecycle: [docs/policies/feature-flags.md](docs/policies/feature-flags.md).
+
 ### Content management
 
 The app uses custom content (V2 API) for diagram persistence.

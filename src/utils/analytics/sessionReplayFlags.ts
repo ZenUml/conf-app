@@ -1,14 +1,12 @@
 /**
  * Mixpanel session-replay sampling — controlled live from the Forge Developer
- * Console, never hardcoded in this repo.
- *
- * Uses the @forge/bridge client-side FeatureFlags SDK (bridge ≥ 5.15):
- * `initialize()` downloads the flag configuration once through the Forge
- * bridge, then `checkFlag()` evaluates locally and synchronously. No Forge
- * Function is invoked (zero GB-seconds) and our Cloudflare backend is not in
- * the path. Targeting (per-site via installContext) and percentage rollouts
- * live in the Developer Console per app (lite / full / diagramly are separate
- * Forge apps — each needs both flags created once).
+ * Console, never hardcoded in this repo. Keys live in
+ * utils/featureFlags/registry.ts; evaluation goes through the shared
+ * utils/featureFlags/forgeFlagClient.ts one-shot evaluator (client-side
+ * @forge/bridge SDK — no Forge Function invoked, zero GB-seconds, Cloudflare
+ * not in the path). Targeting and percentage rollouts live in the Developer
+ * Console per app (lite / full / diagramly are separate Forge apps — each
+ * needs both flags created once).
  *
  * Two boolean flags, resolved by precedence into `record_sessions_percent`:
  *
@@ -35,10 +33,15 @@
  * means Console changes apply on the next iframe mount.
  */
 
-import { getContext } from '@/model/globals/forgeGlobal';
+import { FORGE_FLAGS } from '@/utils/featureFlags/registry';
+import { evaluateForgeFlags, type ForgeFlagDeps } from '@/utils/featureFlags/forgeFlagClient';
 
-export const FULL_FLAG = 'session-replay-full';
-export const SAMPLED_FLAG = 'session-replay';
+export const FULL_FLAG = FORGE_FLAGS.sessionReplayFull;
+export const SAMPLED_FLAG = FORGE_FLAGS.sessionReplay;
+
+// Re-exported for existing importers/specs; canonical home is
+// utils/forgeFlagEnvironment.ts.
+export { mapEnvironment } from '@/utils/forgeFlagEnvironment';
 
 export type SessionReplaySource = 'targeted' | 'sampled' | 'off';
 
@@ -49,83 +52,27 @@ export interface SessionReplayConfig {
   source: SessionReplaySource;
 }
 
-type FeatureFlagEnvironment = 'development' | 'staging' | 'production';
-
-// Forge context reports DEVELOPMENT/STAGING/PRODUCTION; the SDK wants
-// lowercase. Unknown/missing maps to 'production', where flags are off until
-// explicitly configured — the fail-closed direction.
-export function mapEnvironment(environmentType: unknown): FeatureFlagEnvironment {
-  const env = typeof environmentType === 'string' ? environmentType.toLowerCase() : '';
-  return env === 'development' || env === 'staging' ? env : 'production';
-}
-
-interface FlagClient {
-  initialize(
-    user: {
-      attributes?: Record<string, string | number>;
-      identifiers?: { installContext?: string; accountId?: string };
-    },
-    config?: { environment: FeatureFlagEnvironment },
-  ): Promise<void>;
-  checkFlag(flagName: string, defaultValue?: boolean): boolean;
-  shutdown(): void;
-}
-
-async function defaultCreateClient(): Promise<FlagClient> {
-  const { FeatureFlags } = await import('@forge/bridge');
-  return new FeatureFlags();
-}
-
 const OFF: SessionReplayConfig = { percent: 0, source: 'off' };
 
-export async function getSessionReplayConfig(deps?: {
-  createClient?: () => Promise<FlagClient>;
-  getForgeContext?: () => Promise<{ cloudId?: string; accountId?: string; environmentType?: string } | undefined>;
-}): Promise<SessionReplayConfig> {
-  let client: FlagClient | undefined;
-  try {
-    const context = await (deps?.getForgeContext ?? getContext)();
-    const cloudId = context?.cloudId;
-    if (!cloudId) {
-      // Fail-closed: without a cloudId there is no install to target
-      // (standalone dev, or an unexpected context shape). The Custom UI context
-      // has NO `installContext` field — the install ARI is constructed from
-      // cloudId and passed as an ATTRIBUTE, with accountId as the bucketing
-      // identifier (verified live on lite-dev, 2026-06-10).
-      console.debug('[session-replay] off: no cloudId in context', Object.keys(context ?? {}));
+export async function getSessionReplayConfig(deps?: ForgeFlagDeps): Promise<SessionReplayConfig> {
+  const config = await evaluateForgeFlags<SessionReplayConfig>(
+    '[session-replay]',
+    (client) => {
+      // Targeted inspection wins over the general rate, so a full capture keeps
+      // running even while `session-replay` is dialed down.
+      if (client.checkFlag(FULL_FLAG, false)) {
+        console.debug('[session-replay] targeted full capture');
+        return { percent: 100, source: 'targeted' };
+      }
+      if (client.checkFlag(SAMPLED_FLAG, false)) {
+        // In the rollout cohort: record this user's sessions at 100%. The cohort
+        // SIZE (the rollout %) is the live rate, set in the console.
+        console.debug('[session-replay] in general rollout cohort');
+        return { percent: 100, source: 'sampled' };
+      }
       return OFF;
-    }
-
-    client = await (deps?.createClient ?? defaultCreateClient)();
-    await client.initialize(
-      {
-        attributes: { installContext: `ari:cloud:confluence::site/${cloudId}` },
-        identifiers: { accountId: context?.accountId },
-      },
-      { environment: mapEnvironment(context?.environmentType) },
-    );
-
-    // Targeted inspection wins over the general rate, so a full capture keeps
-    // running even while `session-replay` is dialed down.
-    if (client.checkFlag(FULL_FLAG, false)) {
-      console.debug('[session-replay] targeted full capture');
-      return { percent: 100, source: 'targeted' };
-    }
-    if (client.checkFlag(SAMPLED_FLAG, false)) {
-      // In the rollout cohort: record this user's sessions at 100%. The cohort
-      // SIZE (the rollout %) is the live rate, set in the console.
-      console.debug('[session-replay] in general rollout cohort');
-      return { percent: 100, source: 'sampled' };
-    }
-    return OFF;
-  } catch (e) {
-    console.debug('[session-replay] off: evaluation failed', e);
-    return OFF;
-  } finally {
-    try {
-      client?.shutdown();
-    } catch {
-      // shutdown is best-effort cleanup
-    }
-  }
+    },
+    deps,
+  );
+  return config ?? OFF;
 }

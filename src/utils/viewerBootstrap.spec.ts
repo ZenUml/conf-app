@@ -189,9 +189,9 @@ describe('viewerBootstrap', () => {
     await bootstrapForgeViewer({
       macroKind: 'openapi',
       content: Component,
-      loadDiagram: vi.fn(async () => ({ doc: undefined, loadError: { kind: 'not_found' as const } })),
+      loadDiagram: vi.fn(async () => ({ doc: undefined, loadError: { kind: 'not_found' as const, indeterminate: false } })),
     });
-    expect(store.state.diagram).toEqual({ ...NULL_DIAGRAM, loadError: { kind: 'not_found' } });
+    expect(store.state.diagram).toEqual({ ...NULL_DIAGRAM, loadError: { kind: 'not_found', indeterminate: false } });
     expect(store.state.diagramLoadComplete).toBe(true);
   });
 });

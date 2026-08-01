@@ -1,6 +1,5 @@
 
 import api, { route } from '@forge/api';
-import { plantumlEncode } from './utils/plantuml/encode';
 
 // PlantUML's public server renders straight to a raster from an encoded source,
 // so it needs no DOM — which is what makes it the one diagram type this Forge
@@ -41,15 +40,35 @@ async function fetchDiagramSource(customContentId) {
   }
 }
 
+// The browser path encodes with deflate + PlantUML's base64 variant, which
+// needs `pako`. Importing that here fails the build outright: the Forge CLI
+// type-checks the whole function module graph and pako ships no declarations
+// (TS7016) — and it would drag a compression library into the FaaS bundle for
+// one URL. PlantUML's `~h` prefix takes plain hex instead, verified against
+// the live server, so this stays dependency-free.
+//
+// Hex is ~2x the source rather than compressed, so a very large diagram would
+// produce a URL no server will accept. MAX_PLANTUML_SOURCE keeps that a clean
+// "cannot render" rather than a mystery 414; the render probe would catch it
+// regardless.
+const MAX_PLANTUML_SOURCE = 3000;
+
+function plantumlHexEncode(text) {
+  const bytes = new TextEncoder().encode(text);
+  let out = '';
+  for (const b of bytes) out += b.toString(16).padStart(2, '0');
+  return out;
+}
+
 /**
  * Build a PlantUML render URL for a diagram, or undefined when this diagram
- * isn't PlantUML / carries no source.
+ * isn't PlantUML, carries no source, or is too large to express as a URL.
  */
 export function plantUmlRenderUrl(diagram) {
   if (diagram?.diagramType !== 'plantuml') return undefined;
   const code = diagram?.plantUmlCode;
-  if (!code) return undefined;
-  return `${PLANTUML_PNG_SERVER}${plantumlEncode(code)}`;
+  if (!code || code.length > MAX_PLANTUML_SOURCE) return undefined;
+  return `${PLANTUML_PNG_SERVER}~h${plantumlHexEncode(code)}`;
 }
 
 /**

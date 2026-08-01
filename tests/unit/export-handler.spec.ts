@@ -373,7 +373,9 @@ describe('Forge export resolver (src/export.js)', () => {
 
       const result = await handler(payload);
 
-      expect(JSON.stringify(result)).toContain('plantuml.com/plantuml/png/');
+      // ~h = PlantUML's plain-hex encoding, verified against the live server.
+      // Keeps pako (and its missing type declarations) out of the Forge bundle.
+      expect(JSON.stringify(result)).toContain('plantuml.com/plantuml/png/~h');
       const rows = mixpanelBodiesFromFetch(fetch) as Array<{ event?: string; properties?: any }>;
       const ok = rows.find((r) => r.event === 'macro_export_succeeded');
       expect(ok?.properties).toMatchObject({ macro_type: 'plantuml', render_source: 'server_plantuml' });
@@ -394,6 +396,19 @@ describe('Forge export resolver (src/export.js)', () => {
       const rows = mixpanelBodiesFromFetch(fetch) as Array<{ event?: string; properties?: any }>;
       expect(rows.find((r) => r.event === 'macro_export_failed')?.properties?.failure_reason)
         .toBe('attachment_not_found');
+    });
+
+    it('refuses to build a URL for an oversized PlantUML source', async () => {
+      routeAsApp({ diagramType: 'plantuml', plantUmlCode: 'A -> B\n'.repeat(2000) });
+
+      const result = await handler(payload);
+
+      expect(JSON.stringify(result)).not.toContain('plantuml.com');
+      const rows = mixpanelBodiesFromFetch(fetch) as Array<{ event?: string; properties?: any }>;
+      expect(rows.find((r) => r.event === 'macro_export_failed')?.properties).toMatchObject({
+        failure_reason: 'attachment_not_found',
+        macro_type: 'plantuml',
+      });
     });
 
     it('records macro_type on the failure for a type it cannot render', async () => {

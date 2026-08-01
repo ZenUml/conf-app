@@ -27,15 +27,17 @@ Run a local five-service stack:
 1. Inspect `git status`, staged and unstaged diffs, and existing `JOINT-DEBUG` markers.
 2. Obtain the full Diagramly checkout path. Discover likely sibling checkouts first; ask only when multiple plausible paths remain.
 3. Verify `wrangler.toml` contains `NGROK_AUTHTOKEN` and `NGROK_DOMAIN` without displaying their values.
-4. In `src/model/globals/forgeGlobal.ts`, replace only `DEVELOPMENT_LITE` and `DEVELOPMENT_FULL` with `https://<NGROK_DOMAIN>` using idempotent markers:
+4. In `src/model/globals/forgeGlobal.ts`, replace only `DEVELOPMENT_LITE`, `DEVELOPMENT_FULL`, and `DEVELOPMENT_ASYNCAPI` with `https://<NGROK_DOMAIN>` using idempotent markers. AsyncAPI must be included because its bundled OpenAPI macro reaches AI Repair through `/diagramly/*`:
 
    ```typescript
    // [JOINT-DEBUG-START]
    DEVELOPMENT_LITE: 'https://<NGROK_DOMAIN>',
    DEVELOPMENT_FULL: 'https://<NGROK_DOMAIN>',
+   DEVELOPMENT_ASYNCAPI: 'https://<NGROK_DOMAIN>',
    // [JOINT-DEBUG-END]
    // DEVELOPMENT_LITE: '<original>', // [JOINT-DEBUG-ORIGINAL]
    // DEVELOPMENT_FULL: '<original>', // [JOINT-DEBUG-ORIGINAL]
+   // DEVELOPMENT_ASYNCAPI: '<original>', // [JOINT-DEBUG-ORIGINAL]
    ```
 
 5. In `wrangler.toml`, set `DIAGRAMLY_BACKEND_API_BASE_URL = "http://localhost:3000"` with TOML `JOINT-DEBUG` markers and preserve the original line as `JOINT-DEBUG-ORIGINAL`.
@@ -71,6 +73,16 @@ First inspect `packages/database/prisma/schema.prisma`; Diagramly uses PostgreSQ
 6. After Diagramly starts, require `GET http://127.0.0.1:3000/api/health?deep=1` to report `db: "up"`.
 
 The repository's `.env.test.example` local defaults are suitable for a dedicated test database. Treat any remote, staging, or production database URL as a configuration error for this workflow.
+
+## Before launch
+
+Before starting any of the five services, ask the user whether to run the following command to update the app installed on the development site:
+
+```bash
+pnpm forge:upgrade:diagramly:dev
+```
+
+Run it from the conf-app root only after the user explicitly agrees, and wait for it to complete successfully before launching services. If the user declines, skip it and continue with the launch.
 
 ## Launch mode
 

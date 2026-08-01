@@ -2,7 +2,7 @@
   <div class="byline" data-testid="byline-diagrams">
     <!-- Header. Present in every state so the shell never shifts between them. -->
     <div class="byline__header">
-      <img class="byline__logo" src="/image/zenuml_logo.png" alt="" />
+      <img class="byline__logo" :src="LOGO_SRC" alt="" />
       <span class="byline__heading">Diagrams on this page</span>
       <span v-if="!loading && !failed && diagrams.length" class="byline__pill" data-testid="byline-count">
         {{ diagrams.length }}
@@ -176,6 +176,18 @@ const thumbs = ref<Record<string, string>>({})
  *  keep the icon fallback, which is already a supported state. */
 const MAX_THUMBNAILS = 12
 
+/** Public-directory assets are referenced RELATIVELY: vite.config sets
+ *  `base: './'`, and the Forge CDN serves this app under a hashed path, so a
+ *  leading-slash URL resolves against the CDN root and 404s (all four icons and
+ *  both example renders came back broken on lite-stg). The proven convention in
+ *  this repo is relative — see the DrawIO loader and ForgeGraphEditor's iframe.
+ *
+ *  It has to be a BOUND src, not a literal one: the Vue SFC compiler rewrites a
+ *  static relative `src` attribute into a module import, which fails the build
+ *  because these files live in public/ and are never processed by Rollup. Every
+ *  other icon here is already bound through DIAGRAM_TYPES / MACRO_ICONS. */
+const LOGO_SRC = './image/zenuml_logo.png'
+
 const SKELETON_TITLE_WIDTHS = ['70%', '55%', '62%', '48%']
 const SKELETON_SUB_WIDTHS = ['40%', '35%', '30%', '26%']
 
@@ -196,45 +208,45 @@ const DIAGRAM_TYPES: TypeTile[] = [
     key: 'sequence',
     name: 'Sequence',
     desc: 'Who calls what, in order',
-    icon: '/image/diagram_macro_icon.png',
-    example: '/image/byline-example-sequence.png',
+    icon: './image/diagram_macro_icon.png',
+    example: './image/byline-example-sequence.png',
     macroType: 'sequence',
   },
   {
     key: 'flowchart',
     name: 'Flowchart',
     desc: 'Mermaid or PlantUML',
-    icon: '/image/diagram_macro_icon.png',
-    example: '/image/byline-example-flowchart.png',
+    icon: './image/diagram_macro_icon.png',
+    example: './image/byline-example-flowchart.png',
     macroType: 'mermaid',
   },
   {
     key: 'graph',
     name: 'Graph',
     desc: 'Free-form, DrawIO',
-    icon: '/image/graph_macro_icon.png',
+    icon: './image/graph_macro_icon.png',
     macroType: 'graph',
   },
   {
     key: 'openapi',
     name: 'OpenAPI',
     desc: 'Render a spec inline',
-    icon: '/image/openapi_macro_icon.png',
+    icon: './image/openapi_macro_icon.png',
     macroType: 'openapi',
   },
 ]
 
 const MACRO_ICONS: Record<string, string> = {
-  [DiagramType.Sequence]: '/image/diagram_macro_icon.png',
-  [DiagramType.Mermaid]: '/image/diagram_macro_icon.png',
-  [DiagramType.PlantUml]: '/image/diagram_macro_icon.png',
-  [DiagramType.Graph]: '/image/graph_macro_icon.png',
-  [DiagramType.OpenApi]: '/image/openapi_macro_icon.png',
-  [DiagramType.AsyncApi]: '/image/openapi_macro_icon.png',
+  [DiagramType.Sequence]: './image/diagram_macro_icon.png',
+  [DiagramType.Mermaid]: './image/diagram_macro_icon.png',
+  [DiagramType.PlantUml]: './image/diagram_macro_icon.png',
+  [DiagramType.Graph]: './image/graph_macro_icon.png',
+  [DiagramType.OpenApi]: './image/openapi_macro_icon.png',
+  [DiagramType.AsyncApi]: './image/openapi_macro_icon.png',
 }
 
 function macroIcon(diagramType: string): string {
-  return MACRO_ICONS[diagramType] || '/image/diagram_macro_icon.png'
+  return MACRO_ICONS[diagramType] || './image/diagram_macro_icon.png'
 }
 
 const label = typeLabel

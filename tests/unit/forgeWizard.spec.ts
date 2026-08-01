@@ -26,10 +26,10 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(connect.storage).toEqual({ inScopeEUD: true })
   })
 
-  it('lite strips licensing, contentBylineItem, and asyncapi bits', () => {
+  it('lite strips licensing, the Aide byline entry, and asyncapi bits', () => {
     const desc = getManifestEditDescriptions('lite')
     expect(desc).toContain('Remove licensing (lite is free)')
-    expect(desc).toContain('Remove confluence:contentBylineItem')
+    expect(desc).toContain('Remove the Aide byline entry (Lite ships zenuml-byline-diagrams)')
     // Single edit strips both zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro.
     expect(desc).toContain(
       'Remove asyncapi macros (zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro)',
@@ -41,7 +41,12 @@ describe('forge-wizard manifest preview helpers', () => {
 
     const yq = getManifestEditYqArgs('lite').map((x) => x.expr)
     expect(yq).toContain('del(.app.licensing)')
-    expect(yq).toContain('del(.modules["confluence:contentBylineItem"])')
+    // Lite keeps the module and drops only the Diagramly-branded entry — a
+    // whole-module delete here would take zenuml-byline-diagrams with it.
+    expect(yq).toContain(
+      'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))',
+    )
+    expect(yq).not.toContain('del(.modules["confluence:contentBylineItem"])')
     expect(yq).toContain(
       'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))',
     )
@@ -60,6 +65,7 @@ describe('forge-wizard manifest preview helpers', () => {
     // the base manifest so the asyncapi variant can keep them, plus the
     // Connect lifecycle module (connectModules) — also asyncapi-only.
     const desc = getManifestEditDescriptions('full')
+    expect(desc).toContain('Remove the Lite diagrams byline entry (Full keeps Aide)')
     expect(desc).toContain('Remove Lite snapshot and Diagramly demo schedules from Full')
     expect(desc).toContain('Remove Lite remote-storage declaration from Full')
     expect(getManifestEditYqArgs('full').map((x) => x.expr)).toContain(
@@ -78,6 +84,7 @@ describe('forge-wizard manifest preview helpers', () => {
     )
     expect(desc).toContain('Remove asyncapi custom content (async-api-doc)')
     expect(desc).toContain('Remove Connect lifecycle module (connectModules)')
+    expect(desc).toContain('Remove the Lite diagrams byline entry (Diagramly keeps Aide)')
     expect(desc).toContain('Remove Lite macro snapshot schedule from Diagramly')
     expect(desc).toContain('Remove Lite remote-storage declaration from Diagramly')
     // Diagramly's globalSettings+globalPage+spacePage strip removes both

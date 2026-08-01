@@ -369,13 +369,39 @@ modules:
       route: zenuml-asyncapi-dashboard
       resolver:
         endpoint: remote-connect
-  confluence:contentBylineItem: #Note: This module is applicable for "Diagramly for Confluence", not "ZenUML for Confluence"
+  # Two byline entries, one per audience; scripts/forge-wizard.mjs strips the
+  # one that doesn't apply, so no variant ever ships both. Confluence boots a
+  # byline iframe ONLY on click (measured 2026-08-01: 5 opens against 39,197
+  # macro views on the variants shipping `zenuml-byline-aiaide`), so an unused
+  # entry here costs nothing at page-load time.
+  confluence:contentBylineItem:
+    # Diagramly + Full. Opens the AI Aide chat (src/routes/aiAide.ts).
     - key: zenuml-byline-aiaide
       resource: main
       title: Aide${LITE_TITLE_SUFFIX}
       icon: resource:main;image/ai-aide-logo.png
       tooltip: AI Aide
       viewportSize: fullscreen
+      viewportContainer: modal
+      resolver:
+        endpoint: remote-connect
+    # Lite only. Diagram index + create entry point (src/routes/byline.ts).
+    #
+    # The label is deliberately a noun, not a call to action: this item renders
+    # on EVERY page, and a page with three diagrams already on it makes "Diagram
+    # this page" read wrong. It also carries no ${LITE_TITLE_SUFFIX} — the entry
+    # ships in exactly one variant, so there is no sibling app to disambiguate
+    # from, and "Diagrams Lite" under a page title reads like a product upsell.
+    #
+    # A count in the label ("3 diagrams") would be the strongest signal but
+    # needs `dynamicProperties`, which costs a function invocation on every page
+    # RENDER — deferred to Phase 3 behind a measured cost estimate.
+    - key: zenuml-byline-diagrams
+      resource: main
+      title: Diagrams
+      icon: resource:main;image/zenuml_logo.png
+      tooltip: See the diagrams on this page, or add one
+      viewportSize: medium
       viewportContainer: modal
       resolver:
         endpoint: remote-connect

@@ -28,8 +28,11 @@ export const APPS = {
         yqEvalExpr: 'del(.app.licensing)',
       },
       {
-        description: 'Remove confluence:contentBylineItem',
-        yqEvalExpr: 'del(.modules["confluence:contentBylineItem"])',
+        // Lite keeps the byline module, but only its own entry: the "Aide"
+        // item is Diagramly-branded and opens the diagramly chat backend.
+        description: 'Remove the Aide byline entry (Lite ships zenuml-byline-diagrams)',
+        yqEvalExpr:
+          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))',
       },
       {
         // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and
@@ -109,6 +112,11 @@ export const APPS = {
         yqEvalExpr: 'del(.connectModules)',
       },
       {
+        description: 'Remove the Lite diagrams byline entry (Full keeps Aide)',
+        yqEvalExpr:
+          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams"))',
+      },
+      {
         description: 'Remove Lite snapshot and Diagramly demo schedules from Full',
         yqEvalExpr:
           'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger)',
@@ -171,6 +179,11 @@ export const APPS = {
         // installs). See the lite block above.
         description: 'Remove Connect lifecycle module (connectModules)',
         yqEvalExpr: 'del(.connectModules)',
+      },
+      {
+        description: 'Remove the Lite diagrams byline entry (Diagramly keeps Aide)',
+        yqEvalExpr:
+          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams"))',
       },
       {
         description: 'Remove Lite macro snapshot schedule from Diagramly',

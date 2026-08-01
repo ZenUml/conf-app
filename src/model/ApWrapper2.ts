@@ -729,6 +729,38 @@ export default class ApWrapper2 implements IApWrapper {
     }
   }
 
+  // Lite byline modal: the page's diagram custom-content children, raw.
+  //
+  // Deliberately thin — it returns the REST responses untouched (including
+  // error-shaped ones) and leaves every interpretation to
+  // utils/byline/pageDiagrams.ts, which is pure and unit-tested against the
+  // malformed bodies that occur in real customer data.
+  //
+  // Reads only. The byline item renders on every page, including pages with no
+  // diagram at all, so the empty result is the expected common case, not a
+  // failure. `Promise.all` over the two Lite content types mirrors
+  // probeOrphanRecovery: graph macros stored under the Connect-era
+  // `zenuml-content-graph` type are invisible to a sequence-typed listing.
+  async listPageDiagramContents(pageId: string): Promise<Array<any>> {
+    const limit = 100;
+    const types = customContentTypesForVariant().map(t => this.customContentType(t));
+    try {
+      return await Promise.all(
+        types.map(t =>
+          this.makeRequest(
+            `/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(t)}&body-format=raw&limit=${limit}`,
+          ).catch(e => ({ errors: [{ title: e?.message ? String(e.message) : String(e) }] })),
+        ),
+      );
+    } catch (e: any) {
+      // Promise.all itself failing means every type failed; the modal shows its
+      // empty state, which is indistinguishable to the user from a page with no
+      // diagrams — acceptable for a read-only affordance.
+      console.error('[byline] listPageDiagramContents failed', e);
+      return [];
+    }
+  }
+
   // ZEN-1170 Defect 2b. Read-OR-recover for the macro's referenced CC.
   // - On happy path: returns the requested CC, no recovery marker.
   // - When the requested CC 404s AND the page has exactly one custom-content

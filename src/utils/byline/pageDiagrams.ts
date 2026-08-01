@@ -1,0 +1,125 @@
+import { DiagramType, getDiagramData } from '@/model/Diagram/Diagram'
+
+/**
+ * Lite byline (docs/superpowers/specs/2026-07-25-lite-byline-activation-design.md).
+ *
+ * The byline modal opens on EVERY page, most of which have no diagram at all,
+ * so this module's job is to turn a page's custom-content children into a list
+ * the modal can render — and to say "none" cleanly, which is the common case.
+ *
+ * Parsing is kept pure and separate from the fetch so the failure modes that
+ * actually occur in customer data (malformed body JSON, a body with no
+ * recognizable type, a child with no title) are unit-testable without a Forge
+ * context. A single unparseable child must never take the whole list down: the
+ * modal degrades to listing the rest.
+ */
+
+/** Diagram types whose stored source is text a user can meaningfully copy.
+ *  Graph (DrawIO XML) and the API specs are excluded — copying raw XML or a
+ *  whole spec out of a byline popup is not a coherent affordance. Mirrors the
+ *  View Source panel's text-DSL-only scope (#333). */
+const COPYABLE_TYPES: ReadonlyArray<string> = [
+  DiagramType.Sequence,
+  DiagramType.Mermaid,
+  DiagramType.PlantUml,
+]
+
+export interface PageDiagram {
+  /** Custom content id — stable, used as the list key. */
+  id: string
+  /** Custom content title. Falls back to a type label; never empty. */
+  title: string
+  /** Normalized diagram type, or 'unknown' when the body doesn't declare one. */
+  diagramType: string
+  /** Stored source, empty string when the type has no copyable text form. */
+  source: string
+  /** Whether the modal should offer "Copy source" for this entry. */
+  copyable: boolean
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  [DiagramType.Sequence]: 'Sequence',
+  [DiagramType.Mermaid]: 'Mermaid',
+  [DiagramType.PlantUml]: 'PlantUML',
+  [DiagramType.Graph]: 'Graph',
+  [DiagramType.OpenApi]: 'OpenAPI',
+  [DiagramType.AsyncApi]: 'AsyncAPI',
+  [DiagramType.Embed]: 'Embed',
+}
+
+export function typeLabel(diagramType: string): string {
+  return TYPE_LABELS[diagramType] || 'Diagram'
+}
+
+/**
+ * Turn raw `/api/v2/pages/{id}/custom-content?body-format=raw` responses into
+ * the modal's list. Accepts the array of responses (one per probed content
+ * type) exactly as the REST layer returns them, including error-shaped ones.
+ */
+export function parsePageDiagrams(responses: Array<any>): PageDiagram[] {
+  const out: PageDiagram[] = []
+  const seen = new Set<string>()
+
+  for (const response of responses || []) {
+    // An errored response contributes nothing but must not abort the others —
+    // one content type 403ing should still list the type that succeeded.
+    if (!response || response.errors) continue
+    const results: Array<any> = Array.isArray(response.results) ? response.results : []
+
+    for (const child of results) {
+      const id = child?.id != null ? String(child.id) : ''
+      if (!id || seen.has(id)) continue
+
+      let body: any = null
+      try {
+        const raw = child?.body?.raw?.value
+        body = raw ? JSON.parse(raw) : null
+      } catch {
+        // Malformed stored body. The diagram still exists on the page and the
+        // user can still see it there, so list it as an untyped entry rather
+        // than silently dropping it — a disappearing diagram would read as
+        // data loss.
+        body = null
+      }
+
+      const diagramType = typeof body?.diagramType === 'string' ? body.diagramType : DiagramType.Unknown
+      const copyable = COPYABLE_TYPES.includes(diagramType)
+      let source = ''
+      if (copyable) {
+        try {
+          source = getDiagramData(body) || ''
+        } catch {
+          source = ''
+        }
+      }
+
+      seen.add(id)
+      out.push({
+        id,
+        title: String(child?.title || '').trim() || typeLabel(diagramType),
+        diagramType,
+        source,
+        // A copyable type with an empty body has nothing to copy — don't offer
+        // a button that yields an empty clipboard.
+        copyable: copyable && source.length > 0,
+      })
+    }
+  }
+
+  return out
+}
+
+/** Analytics shape for `byline_opened`. `macro_types` is comma-joined and
+ *  de-duplicated so it stays a low-cardinality Mixpanel property. */
+export function summarizeDiagrams(diagrams: PageDiagram[]): {
+  page_has_diagram: boolean
+  diagram_count: number
+  macro_types: string
+} {
+  const types = Array.from(new Set(diagrams.map(d => d.diagramType))).sort()
+  return {
+    page_has_diagram: diagrams.length > 0,
+    diagram_count: diagrams.length,
+    macro_types: types.join(','),
+  }
+}

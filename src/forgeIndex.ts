@@ -118,9 +118,19 @@ async function initializeCriticalPath() {
       return { macroData: null };
     }
 
-    // Check if this is a content byline item route (AI Aide)
+    // Content byline item. Two entries share this extension type and the
+    // manifest guarantees a variant ships exactly one of them (see
+    // scripts/forge-wizard.mjs): `zenuml-byline-diagrams` on Lite,
+    // `zenuml-byline-aiaide` on Full/Diagramly. Branch on moduleKey rather than
+    // PRODUCT_TYPE so a manifest/route mismatch fails visibly here instead of
+    // silently rendering the other variant's UI.
     if (!isOpenedModal && context.extension?.type === 'confluence:contentBylineItem') {
-      await handleAiAideRoute();
+      if (context.moduleKey === 'zenuml-byline-diagrams') {
+        const { handleBylineRoute } = await import('./routes/byline');
+        await handleBylineRoute();
+      } else {
+        await handleAiAideRoute();
+      }
       return { macroData: null };
     }
 

@@ -80,3 +80,39 @@ describe('decideWriteback (#170 — gate view.submit to submittable surfaces)', 
     });
   });
 });
+
+describe('decideWriteback — first bind (autoConvert paste)', () => {
+  const base = {
+    inserting: false,
+    configuring: false,
+    idChanged: false,
+    macroNeedsRepair: false,
+    legacyMacroNeedsRepair: false,
+    hasId: true,
+  }
+
+  it('writes back the first id for a macro that was never inserted through the macro browser', () => {
+    // An autoConvert paste creates the ADF node before its editor opens, so
+    // Forge reports neither inserting nor an id change. Without this the id is
+    // never bound and every save orphans a fresh custom content.
+    expect(decideWriteback({ ...base, configuring: true, hasSourceId: false }).needsWriteback).toBe(true)
+  })
+
+  it('still refuses on a non-submittable surface, preserving #170', () => {
+    // In-viewer Edit modal: inserting and configuring both false. view.submit
+    // would throw "view is not submittable".
+    expect(decideWriteback({ ...base, hasSourceId: false }).needsWriteback).toBe(false)
+  })
+
+  it('does not fire for a macro that already references a custom content', () => {
+    expect(decideWriteback({ ...base, configuring: true, hasSourceId: true }).needsWriteback).toBe(false)
+  })
+
+  it('does not fire when the save produced no usable id', () => {
+    expect(decideWriteback({ ...base, configuring: true, hasId: false, hasSourceId: false }).needsWriteback).toBe(false)
+  })
+
+  it('leaves the slash-menu insert path unchanged', () => {
+    expect(decideWriteback({ ...base, inserting: true, hasSourceId: false }).needsWriteback).toBe(true)
+  })
+})

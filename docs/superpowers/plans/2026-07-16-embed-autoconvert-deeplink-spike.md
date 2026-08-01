@@ -431,9 +431,44 @@ and the `isNew` flag. The guard now lives in a unit-tested
 `applyNewDiagramLink()` rather than inline in forgeIndex, since the guard is
 what was wrong.
 
+**Second round (lite-stg page 185926781, 2026-08-01) — routing is right, binding is not.**
+
+Ground truth read straight from the REST API rather than the UI:
+
+| Evidence | Result |
+|---|---|
+| ADF extension nodes on the page | `/new/sequence` → `zenuml-sequence-macro-lite`, `/new/mermaid` → `zenuml-sequence-macro-lite`, `/new/graph` → `zenuml-graph-macro-lite` — **autoConvert routes every URL to the correct macro** |
+| `autoConvertLink` in the ADF | present on all three, with `hasBeenAutoConverted: true`, under the node's `parameters` |
+| `customContentId` in the ADF | **absent on all three** |
+| Custom content children of the page | three contents, all `diagramType: 'graph'` with real `graphXml`, all version 1, created 10:12:42 / 10:13:02 / 10:13:15 |
+
+So three saves of one pasted graph macro produced three orphaned contents and a
+macro still bound to none of them. (The byline modal listing three GRAPH cards
+was therefore correct — it was faithfully showing what is stored. The sequence
+and mermaid macros were never saved, so they have no content to list. Note the
+Forge save path stores every type under `zenuml-content-sequence`; the
+`zenuml-content-graph` type is Connect-era only.)
+
+**Root cause:** `decideWriteback` fired `view.submit` only when `inserting ||
+idChanged || repair || legacyMigration`. A pasted macro is none of those on its
+first save — Forge does not report `inserting` for a node that autoConvert put
+in the ADF, and `idChanged` needs a previous id. So the new customContentId was
+never written into the macro, and the next save created another content.
+
+**Fixed** by adding a `firstBind` case (`!hasSourceId && hasId`) to the gate,
+still behind `repairWillPersist` so the #170 non-submittable-surface rule is
+untouched. A `writeback_unbound_first_save` event now records `inserting` /
+`configuring` whenever a save produces an id it cannot bind — if the pasted
+macro's editor turns out to be a non-submittable surface, that event will say so
+without needing a browser.
+
 **Still to confirm on the next paste:**
 
-1. `/new/mermaid` and `/new/plantuml` now open in the right type (the fix above).
+1. `/new/mermaid` and `/new/plantuml` now open in the right type.
+1b. A pasted macro's first save now binds its content — the macro renders after
+    save, and a second save updates in place instead of creating a new content.
+    Watch for `writeback_unbound_first_save` in Mixpanel; if it appears, the
+    editor surface is non-submittable and needs a different fix.
 2. Conversion inside a **Live Doc** (the embed spike proved it for its own pattern).
 3. Does the converted macro open its editor directly, or insert a placeholder
    the user must then click?

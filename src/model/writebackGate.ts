@@ -18,6 +18,9 @@ export interface WritebackSignals {
   legacyMacroNeedsRepair: boolean;
   /** the save produced a usable custom-content id (!!id). */
   hasId: boolean;
+  /** the macro already referenced a custom content before this save
+   *  (!!originalCustomContentId). False for a macro that has never been saved. */
+  hasSourceId?: boolean;
 }
 
 export interface WritebackDecision {
@@ -42,7 +45,17 @@ export function decideWriteback(s: WritebackSignals): WritebackDecision {
   // view.close() with the local draft preserved as a retry anchor, instead of
   // throwing "this resource's view is not submittable" and sticking the dialog
   // open. On the submittable surfaces (insert/configure) behavior is unchanged.
+  // First bind: the macro had no customContentId and this save produced one.
+  // `inserting` covers that for a slash-menu insert, but NOT for a macro that
+  // arrived in the ADF some other way — an autoConvert paste
+  // (https://confluence.zenuml.com/new/<type>) creates the node before its
+  // editor is ever opened, so Forge reports neither inserting nor an id change,
+  // every other signal here is false, and the id was never written back.
+  // Observed on lite-stg 2026-08-01: three saves of one pasted graph macro
+  // produced three version-1 custom contents and an ADF node still carrying no
+  // customContentId — i.e. every save orphaned its own content.
+  const firstBind = !s.hasSourceId && s.hasId;
   const needsWriteback =
-    repairWillPersist && (s.inserting || s.idChanged || attemptRepair || attemptLegacyMigration);
+    repairWillPersist && (s.inserting || firstBind || s.idChanged || attemptRepair || attemptLegacyMigration);
   return { repairWillPersist, attemptRepair, attemptLegacyMigration, needsWriteback };
 }

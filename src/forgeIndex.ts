@@ -1178,7 +1178,20 @@ EventBus.$on('save', async () => {
       macroNeedsRepair,
       legacyMacroNeedsRepair,
       hasId: !!id,
+      hasSourceId: !!originalCustomContentId,
     });
+    // A save that produced an id but cannot bind it leaves an orphaned custom
+    // content behind and a macro that still renders empty — the failure mode
+    // paste-to-create hit on lite-stg. Record the surface signals so the cause
+    // is visible without a browser: `firstBind` is now handled, so anything
+    // reaching here is a non-submittable surface.
+    if (!!id && !originalCustomContentId && !needsWriteback) {
+      trackEvent('', 'writeback_unbound_first_save', 'warn', {
+        inserting: !!inserting,
+        configuring: !!configuring,
+        custom_content_id: String(id),
+      });
+    }
     // Redirect starts now (view.submit / view.close below). Stop the
     // publish-latency clock here so it captures the full user-perceived wait.
     trackPublishCompleted({

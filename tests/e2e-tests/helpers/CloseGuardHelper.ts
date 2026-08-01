@@ -74,6 +74,39 @@ export async function dispatchSyntheticBeforeunload(frame: FrameLocator): Promis
 }
 
 /**
+ * Read back the per-keystroke draft the editor persists to localStorage
+ * (`zenuml.draft.<cloudId>.<scope>` — see src/utils/draftStore.ts).
+ *
+ * This is the mechanism that REPLACED beforeunload. src/utils/closeGuard.ts
+ * explains why: a parent page JS-destroying an iframe fires beforeunload
+ * listeners but suppresses the dialog by design, so the old synthetic-dispatch
+ * assertion only ever proved a listener was registered. The listener is gone
+ * now; the draft is what actually protects unsaved work, so that is what the
+ * dirty-path tests assert.
+ *
+ * Scans rather than reconstructing the key, because cloudId is resolved inside
+ * the iframe and the scope differs between create (`new:openapi`) and edit
+ * (`edit:<id>`).
+ */
+export async function readPersistedDraft(
+  frame: FrameLocator,
+): Promise<{ key: string; code: string } | null> {
+  return frame.locator('body').evaluate(() => {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith('zenuml.draft.')) continue;
+      try {
+        const value = JSON.parse(localStorage.getItem(key) ?? 'null');
+        if (value && typeof value.code === 'string') return { key, code: value.code };
+      } catch {
+        // Corrupt entry — keep scanning.
+      }
+    }
+    return null;
+  });
+}
+
+/**
  * Same primitive but operating on the top-level Confluence page, not a
  * Forge iframe. Useful for `page-actions:3` (close-page-while-dirty) where
  * Confluence's own editor registers a beforeunload listener.
@@ -147,6 +180,18 @@ async function dirtySequenceEditor(frame: FrameLocator): Promise<void> {
 }
 
 /**
+ * The spec dirtyOpenApiEditor types in. Valid OpenAPI (so Publish still works
+ * for callers that save afterwards) with a title that differs from the
+ * OpenApiExample template every OpenAPI test starts from.
+ */
+const DIRTY_OPENAPI_SPEC = `openapi: 3.0.0
+info:
+  title: Dirty Edit
+  version: 0.0.1
+paths: {}
+`;
+
+/**
  * OpenAPI/Swagger editor: type into the YAML editor textarea.
  * `react/Header.tsx` captures the baseline lazily via `window.specListeners`
  * (the first non-empty spec value); typing fires the listener and updates
@@ -154,20 +199,50 @@ async function dirtySequenceEditor(frame: FrameLocator): Promise<void> {
  */
 async function dirtyOpenApiEditor(frame: FrameLocator): Promise<void> {
   // Ace keeps its real input in an off-screen `textarea.ace_text-input` and
-  // paints the visible text in `.ace_content` on top of it, so clicking the
-  // textarea directly always loses to "ace_content intercepts pointer events".
-  // Click the visible content layer instead — that is what ace itself listens
-  // for, and it focuses the hidden textarea as a side effect — then type
-  // through the focused element rather than re-targeting the textarea.
+  // paints the visible text in `.ace_content` on top of it. Two consequences,
+  // both of which this helper used to get wrong:
+  //
+  //  1. Clicking the textarea always loses to "ace_content intercepts pointer
+  //     events". Click the content layer — that is what ace itself listens on.
+  //  2. That textarea is a one-character proxy, not the document, so
+  //     `pressSequentially` against it silently no-ops: the buffer came back
+  //     byte-identical and every caller's assertion failed. Select the whole
+  //     document and `fill()` instead — the one ace-input path in this repo
+  //     known to work (enterCodeInAceEditor in DiagramTestHelper.ts).
+  //
+  // The replacement is a valid spec with a DIFFERENT `info.title` on purpose:
+  // callers assert both that the buffer changed AND that the rendered swagger
+  // heading changed, and the old ` # dirty` append satisfied neither — it is a
+  // YAML comment, so it could never move `info.title`.
   const aceContent = frame.locator('.ace_content').first();
-  const yamlEditor = frame.locator('.swagger-editor textarea, [data-editor="ace"], .ace_editor textarea').first();
-  if (await aceContent.count()) {
-    await aceContent.click();
-  } else {
-    await yamlEditor.click({ force: true });
-  }
-  await yamlEditor.press('End');
-  await yamlEditor.pressSequentially(' # dirty', { delay: 30 });
+  await aceContent.waitFor({ state: 'visible', timeout: 15_000 });
+  await aceContent.click();
+  const textarea = frame.locator('textarea').first();
+  await textarea.press('ControlOrMeta+a');
+  await textarea.fill(DIRTY_OPENAPI_SPEC);
+
+  // Ace's buffer changes synchronously, but swagger-editor syncs ace ->
+  // `window.specContent` through a debounce, and that is the value both the
+  // close guard and the callers' assertions read. Callers used to sleep a flat
+  // 500ms, which is under the debounce for a whole-buffer replace — the editor
+  // visibly held the new spec while `specContent` still held the old one. Wait
+  // for the propagation instead of guessing at it.
+  await frame
+    .locator('body')
+    .evaluate(
+      (_el, expected) =>
+        new Promise<void>((resolve) => {
+          const deadline = Date.now() + 5000;
+          const tick = () => {
+            const w = window as unknown as { specContent?: string };
+            if (w.specContent?.includes(expected) || Date.now() > deadline) resolve();
+            else setTimeout(tick, 100);
+          };
+          tick();
+        }),
+      'Dirty Edit',
+    )
+    .catch(() => {});
 }
 
 /**

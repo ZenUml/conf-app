@@ -155,4 +155,31 @@ describe('openDocument (Slice 1 core pipeline)', () => {
     });
     expect(outcome).toEqual({ kind: 'failed', error: { kind: 'not_found', customContentId: 'cc-1' } });
   });
+
+  it('no id at all, but a legacy fallback recovers a doc: opens even when onMiss=fail (the uuid-recovery regression)', async () => {
+    const recovered = { ...NULL_DIAGRAM, code: 'from uuid, no customContentId ever existed' } as Diagram;
+    const fallback = vi.fn(async (ctx: any) => {
+      expect(ctx.pageId).toBe('page-1');
+      return recovered;
+    });
+    const outcome = await openDocument({
+      policy: 'read', context: {}, pageId: 'page-1',
+      target: baseTarget({ resolveId: () => undefined, onMiss: 'fail', legacyFallbacks: [fallback] }),
+    });
+    expect(fallback).toHaveBeenCalledTimes(1);
+    expect(globals.apWrapper.loadCustomContentWithOrphanRecovery).not.toHaveBeenCalled();
+    expect(outcome).toEqual({
+      kind: 'opened',
+      document: {
+        doc: recovered,
+        origin: {
+          contentId: undefined,
+          source: undefined,
+          recoveredFromOrphan: true,
+          originalCustomContentId: undefined,
+          recoveryPageId: 'page-1',
+        },
+      },
+    });
+  });
 });

@@ -134,10 +134,25 @@ jobs:
           pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e "$FORGE_ENV"
           pnpm exec forge deploy -e "$FORGE_ENV" --non-interactive --verbose
 
+      # Non-fatal, for two reasons learned from the first real run:
+      #
+      # 1. It is usually unnecessary. A minor version (no scope or module
+      #    change) auto-applies to existing installs — only a major version
+      #    needs re-consent, and --non-interactive could not give it anyway.
+      # 2. It needs the CI Forge principal (support@zenuml.com) to be a site
+      #    admin of whimet4, which it is not: install and upgrade both return
+      #    "insufficient permissions" there. That is a property of whose
+      #    credentials CI holds, not of the deploy.
+      #
+      # The deploy above is the meaningful outcome, so a failure here must not
+      # fail the job. The summary reports the two separately.
+      #
       # install is idempotent-ish: it fails when the app is already installed,
       # so fall through to upgrade. Same pattern as the staging installs.
       - name: Install / upgrade on whimet4
+        id: install
         if: inputs.install
+        continue-on-error: true
         run: |
           pnpm exec forge install --site "$SITE" --product confluence -e "$FORGE_ENV" --non-interactive \
             || pnpm exec forge install --upgrade --site "$SITE" --product confluence -e "$FORGE_ENV" --non-interactive
@@ -154,5 +169,12 @@ jobs:
             echo "| Variant | lite |"
             echo "| Forge environment | \`$FORGE_ENV\` |"
             echo "| Site | https://$SITE/wiki |"
-            echo "| Installed/upgraded | ${{ inputs.install }} |"
+            echo "| Deploy | succeeded |"
+            echo "| Install/upgrade | ${{ inputs.install && steps.install.outcome || 'skipped' }} |"
+            if [ "${{ steps.install.outcome }}" = "failure" ]; then
+              echo ""
+              echo "> Install/upgrade failed but the deploy landed. This is expected when the"
+              echo "> CI Forge account is not a site admin of whimet4; a minor version"
+              echo "> auto-applies to the existing install, so no action is usually needed."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

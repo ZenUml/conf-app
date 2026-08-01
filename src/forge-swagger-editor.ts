@@ -143,12 +143,16 @@ async function saveOpenApiAndExit() {
     // @ts-ignore
     id = await saveToPlatform(window.diagram);
   } catch (error) {
-    // ZEN-1170 Defect 1: persistence layer refused save because the legacy
-    // content-property load failed. Retry won't help — direct the user to
-    // refresh / contact support instead (mirrors forge-graph-editor.ts).
+    // Persistence layer refused save because the direct fetch came back
+    // indeterminate (forbidden/5xx/malformed) rather than a confirmed
+    // absence — content may still exist, unverified. Retry won't help until
+    // that's resolved — direct the user to refresh / contact support instead
+    // (mirrors forge-graph-editor.ts's own LegacyLoadBlockedSaveError handling,
+    // with wording accurate to OpenAPI, which never used legacy content
+    // properties — see openApiTarget.ts).
     if (error instanceof LegacyLoadBlockedSaveError) {
       toast({
-        message: 'Legacy diagram content failed to load — saving is disabled to prevent data loss. Please refresh the page or contact support.',
+        message: "This diagram's content couldn't be verified — saving is disabled to prevent data loss. Please refresh the page or contact support.",
         duration: 8000,
       });
       EventBus.$emit('save-error', error);
@@ -364,15 +368,27 @@ async function initializeMacro() {
         recoveryPageId: outcome.document.origin.recoveryPageId,
         recoveredFromOrphan: outcome.document.origin.recoveredFromOrphan,
       };
-    } else {
-      // An id existed but every direct fetch, orphan recovery, and legacy
-      // fallback missed. Data-integrity guard (accepted behavior change #2):
-      // mount NULL_DIAGRAM with legacyLoadBlocked set so saveToPlatform
-      // refuses to persist over it (src/model/ContentProvider/Persistence.ts:41),
-      // instead of silently letting Publish overwrite the real document with
-      // a blank OpenApiExample template.
+    } else if (outcome.error.indeterminate) {
+      // An id existed but the failure was indeterminate (forbidden/5xx/
+      // malformed on the direct fetch) — content may still exist, just
+      // unverifiable right now. Data-integrity guard: mount NULL_DIAGRAM
+      // with legacyLoadBlocked set so saveToPlatform refuses to persist
+      // over it, instead of silently letting Publish overwrite the real
+      // document with a blank template.
       doc = { ...NULL_DIAGRAM, legacyLoadBlocked: true };
       capturedOrigin = { recoveredFromOrphan: false };
+    } else {
+      // A clean, confirmed-absent customContentId (deleted, or nothing ever
+      // existed) with nothing left to recover — self-heals like a brand-new
+      // macro: a fresh save creates a new document, and originalCustomContentId
+      // (the now-dead id) still drives deriveWritebackSignals' macroNeedsRepair
+      // so the macro config gets repointed at the replacement, mirroring
+      // forge-graph-editor.ts's own not-found repair path.
+      doc = { ...NULL_DIAGRAM };
+      capturedOrigin = {
+        originalCustomContentId: outcome.error.customContentId,
+        recoveredFromOrphan: false,
+      };
     }
 
     // Record that a dashboard-edit target actually loaded with content, so

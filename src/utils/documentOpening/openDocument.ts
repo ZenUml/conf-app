@@ -10,6 +10,7 @@ export async function openDocument(opts: OpenDocumentOptions): Promise<OpenOutco
 
   let doc: Diagram | undefined;
   let recoveredFromOrphan = false;
+  let directFetchStatus: 'ok' | 'not_found' | 'other_error' | undefined;
 
   if (resolved?.contentId) {
     const { contentId } = resolved;
@@ -18,6 +19,7 @@ export async function openDocument(opts: OpenDocumentOptions): Promise<OpenOutco
       pageId, contentId, { copyCheckMode },
     );
     doc = loaded.customContent?.value;
+    directFetchStatus = loaded.directFetchStatus;
 
     if (loaded.recoveredFromOrphanId && doc) {
       doc.recoveredFromOrphan = true;
@@ -51,7 +53,19 @@ export async function openDocument(opts: OpenDocumentOptions): Promise<OpenOutco
         document: { doc: target.defaultDoc!(), origin: { recoveredFromOrphan: false } },
       };
     }
-    return { kind: 'failed', error: { kind: 'not_found', customContentId: resolved?.contentId } };
+    // A clean, confirmed-absent primary fetch (directFetchStatus === 'not_found',
+    // or no id was ever resolved at all) is CONFIRMED GONE, not ambiguous —
+    // mirrors forge-graph-editor.ts's own distinction between a clean not-found
+    // (savable, self-heals) and an indeterminate failure (forbidden/5xx/
+    // malformed — content may still exist, just unverifiable right now).
+    return {
+      kind: 'failed',
+      error: {
+        kind: 'not_found',
+        customContentId: resolved?.contentId,
+        indeterminate: directFetchStatus === 'other_error',
+      },
+    };
   }
 
   return {

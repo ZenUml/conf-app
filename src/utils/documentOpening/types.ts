@@ -50,6 +50,9 @@ export interface TargetSpec {
    * "miss", it's a real resolution failure.
    */
   onMiss: 'default-doc' | 'fail';
+  /** Called with no arguments; MUST return a fresh object each call — never
+   *  a shared/module-level singleton, since callers may mutate the result
+   *  (e.g. the editor's save handler writes the user's draft onto it). */
   defaultDoc?: () => Diagram;
   /** `reportOrphanObserved`'s `diagramKind` argument. */
   macroType: OrphanDiagramKind;
@@ -81,6 +84,13 @@ export type OpenErrorKind = 'not_found';
 export interface OpenError {
   kind: OpenErrorKind;
   customContentId?: string;
+  /** True when the failure is ambiguous (the direct fetch returned something
+   *  other than a clean 404 — forbidden/5xx/malformed) rather than a
+   *  confirmed absence. Callers use this to decide whether a fresh save
+   *  should be blocked (content may still exist, unverified) or allowed to
+   *  self-heal (content is confirmed gone) — mirrors the distinction
+   *  forge-graph-editor.ts already makes for its own legacy-fallback failures. */
+  indeterminate: boolean;
 }
 
 export type OpenOutcome =

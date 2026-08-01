@@ -36,7 +36,7 @@ describe('openDocument (Slice 1 core pipeline)', () => {
   it('no id, onMiss=fail: returns failed without calling loadCustomContentWithOrphanRecovery', async () => {
     const target = baseTarget({ resolveId: () => undefined });
     const outcome = await openDocument({ policy: 'read', context: {}, target });
-    expect(outcome).toEqual({ kind: 'failed', error: { kind: 'not_found' } });
+    expect(outcome).toEqual({ kind: 'failed', error: { kind: 'not_found', indeterminate: false } });
     expect(globals.apWrapper.loadCustomContentWithOrphanRecovery).not.toHaveBeenCalled();
   });
 
@@ -153,7 +153,36 @@ describe('openDocument (Slice 1 core pipeline)', () => {
     const outcome = await openDocument({
       policy: 'write', context: {}, target: baseTarget({ legacyFallbacks: [vi.fn(async () => undefined)] }),
     });
-    expect(outcome).toEqual({ kind: 'failed', error: { kind: 'not_found', customContentId: 'cc-1' } });
+    expect(outcome).toEqual({
+      kind: 'failed',
+      error: { kind: 'not_found', customContentId: 'cc-1', indeterminate: false },
+    });
+  });
+
+  it('a clean not-found direct-fetch status is NOT indeterminate', async () => {
+    vi.mocked(globals.apWrapper.loadCustomContentWithOrphanRecovery).mockResolvedValue({
+      customContent: undefined,
+      directFetchStatus: 'not_found',
+      probeResult: { recoverable: false } as any,
+    });
+    const outcome = await openDocument({ policy: 'write', context: {}, target: baseTarget() });
+    expect(outcome).toEqual({
+      kind: 'failed',
+      error: { kind: 'not_found', customContentId: 'cc-1', indeterminate: false },
+    });
+  });
+
+  it('an other_error direct-fetch status IS indeterminate', async () => {
+    vi.mocked(globals.apWrapper.loadCustomContentWithOrphanRecovery).mockResolvedValue({
+      customContent: undefined,
+      directFetchStatus: 'other_error',
+      probeResult: undefined,
+    });
+    const outcome = await openDocument({ policy: 'write', context: {}, target: baseTarget() });
+    expect(outcome).toEqual({
+      kind: 'failed',
+      error: { kind: 'not_found', customContentId: 'cc-1', indeterminate: true },
+    });
   });
 
   it('no id at all, but a legacy fallback recovers a doc: opens even when onMiss=fail (the uuid-recovery regression)', async () => {

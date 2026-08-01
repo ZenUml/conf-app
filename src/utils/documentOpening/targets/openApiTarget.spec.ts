@@ -28,10 +28,22 @@ describe('openApiTarget', () => {
     expect(target.defaultDoc).toBeUndefined();
   });
 
-  it('editor target: onMiss=default-doc resolves to NULL_DIAGRAM', () => {
+  it('editor target: onMiss=default-doc resolves to a NULL_DIAGRAM-shaped doc', () => {
     const target = buildOpenApiEditorTarget();
     expect(target.onMiss).toBe('default-doc');
-    expect(target.defaultDoc!()).toBe(NULL_DIAGRAM);
+    expect(target.defaultDoc!()).toEqual(NULL_DIAGRAM);
+  });
+
+  it('editor target: defaultDoc() returns a fresh object each call, never the shared singleton', () => {
+    // Regression guard: the editor's save handler mutates whatever defaultDoc()
+    // returns (Object.assign(window.diagram || {}, diagram)) — returning the
+    // module-level NULL_DIAGRAM singleton directly would corrupt it for every
+    // other caller in the same session.
+    const target = buildOpenApiEditorTarget();
+    const first = target.defaultDoc!();
+    const second = target.defaultDoc!();
+    expect(first).not.toBe(NULL_DIAGRAM);
+    expect(first).not.toBe(second);
   });
 
   it('both targets tag macroType openapi', () => {

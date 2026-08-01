@@ -49,7 +49,11 @@ export function buildOpenApiEditorTarget(): TargetSpec {
     resolveId: resolveOpenApiId,
     legacyFallbacks: [makeUuidTitleFallback('editor')],
     onMiss: 'default-doc',
-    defaultDoc: () => NULL_DIAGRAM,
+    // NULL_DIAGRAM is a shared module-level singleton, not a factory — the
+    // editor's save handler later does Object.assign(window.diagram || {}, ...)
+    // on whatever defaultDoc() returns, so returning the singleton directly
+    // would mutate it in place with the user's draft. Return a fresh copy.
+    defaultDoc: () => ({ ...NULL_DIAGRAM }),
     macroType: 'openapi',
   };
 }

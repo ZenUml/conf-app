@@ -52,6 +52,28 @@ export function typeLabel(diagramType: string): string {
 }
 
 /**
+ * Stored `diagramType` values are not the analytics vocabulary: the body says
+ * `OpenAPI` / `AsyncAPI` while `MacroTypeValue` in the catalog is all lowercase.
+ * Casting one to the other would quietly put `OpenAPI` in Mixpanel next to
+ * `openapi` from every other surface and split the same macro type across two
+ * buckets. Anything unrecognised becomes `none`, which the catalog already
+ * defines, rather than a novel value.
+ */
+const MACRO_TYPE_BY_DIAGRAM_TYPE: Record<string, string> = {
+  [DiagramType.Sequence]: 'sequence',
+  [DiagramType.Mermaid]: 'mermaid',
+  [DiagramType.PlantUml]: 'plantuml',
+  [DiagramType.Graph]: 'graph',
+  [DiagramType.OpenApi]: 'openapi',
+  [DiagramType.AsyncApi]: 'asyncapi',
+  [DiagramType.Embed]: 'embed',
+}
+
+export function toMacroType(diagramType: string): string {
+  return MACRO_TYPE_BY_DIAGRAM_TYPE[diagramType] || 'none'
+}
+
+/**
  * Turn raw `/api/v2/pages/{id}/custom-content?body-format=raw` responses into
  * the modal's list. Accepts the array of responses (one per probed content
  * type) exactly as the REST layer returns them, including error-shaped ones.

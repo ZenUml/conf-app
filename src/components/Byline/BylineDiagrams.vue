@@ -1,62 +1,161 @@
 <template>
   <div class="byline" data-testid="byline-diagrams">
-    <div v-if="loading" class="byline__loading" data-testid="byline-loading">Loading diagrams…</div>
+    <!-- Header. Present in every state so the shell never shifts between them. -->
+    <div class="byline__header">
+      <img class="byline__logo" src="/image/zenuml_logo.png" alt="" />
+      <span class="byline__heading">Diagrams on this page</span>
+      <span v-if="!loading && !failed && diagrams.length" class="byline__pill" data-testid="byline-count">
+        {{ diagrams.length }}
+      </span>
+    </div>
 
-    <template v-else>
-      <div v-if="diagrams.length" class="byline__list" data-testid="byline-list">
-        <div class="byline__heading">
-          {{ diagrams.length }} {{ diagrams.length === 1 ? 'diagram' : 'diagrams' }} on this page
+    <!-- State 3: loading. Four skeleton cards, so the grid does not reflow when
+         the real cards land. -->
+    <div v-if="loading" class="byline__body byline__body--grid" data-testid="byline-loading">
+      <div v-for="n in 4" :key="n" class="skel" :class="{ 'skel--static': n > 2 }">
+        <div class="skel__preview"></div>
+        <div class="skel__meta">
+          <div class="skel__bar skel__bar--title" :style="{ width: SKELETON_TITLE_WIDTHS[n - 1] }"></div>
+          <div class="skel__bar skel__bar--sub" :style="{ width: SKELETON_SUB_WIDTHS[n - 1] }"></div>
         </div>
-        <ul class="byline__items">
-          <li v-for="d in diagrams" :key="d.id" class="byline__item" data-testid="byline-item">
-            <img
-              v-if="thumbnails[d.id]"
-              class="byline__thumb"
-              :src="thumbnails[d.id]"
-              alt=""
-              data-testid="byline-thumb"
-            />
-            <span v-else class="byline__thumb byline__thumb--empty" aria-hidden="true"></span>
-            <span class="byline__badge">{{ label(d.diagramType) }}</span>
-            <span class="byline__title" :title="d.title">{{ d.title }}</span>
+      </div>
+    </div>
+
+    <!-- State 1: the page has diagrams. -->
+    <div v-else-if="diagrams.length" class="byline__body byline__body--grid" :class="{ 'byline__body--paged': diagrams.length > 3 }" data-testid="byline-list">
+      <div
+        v-for="d in diagrams"
+        :key="d.id"
+        class="card"
+        data-testid="byline-item"
+        @click="onOpenDiagram(d)"
+      >
+        <div class="card__preview">
+          <img v-if="thumbs[d.id]" class="card__thumb" :src="thumbs[d.id]" alt="" data-testid="byline-thumb" />
+          <img v-else class="card__icon" :src="macroIcon(d.diagramType)" alt="" />
+        </div>
+        <div class="card__meta">
+          <div class="card__title" :title="d.title">{{ d.title }}</div>
+          <div class="card__row">
+            <span class="card__type">{{ label(d.diagramType) }}</span>
             <button
               v-if="d.copyable"
-              class="byline__link"
+              class="card__action"
               :data-testid="copiedId === d.id ? 'byline-copied' : 'byline-copy-source'"
-              @click="onCopySource(d)"
+              @click.stop="onCopySource(d)"
             >{{ copiedId === d.id ? '✓ Copied' : 'Copy source' }}</button>
-          </li>
-        </ul>
+            <span v-else-if="!thumbs[d.id]" class="card__nopreview">No preview</span>
+          </div>
+        </div>
       </div>
 
-      <div v-else class="byline__empty" data-testid="byline-empty">
-        <div class="byline__heading">No diagrams on this page yet</div>
-        <p class="byline__hint">
-          Sequence diagrams, flowcharts, graphs and API specs live inline on the page.
-        </p>
+      <!-- Always the last cell, so the grid is never ragged. -->
+      <div class="addtile" data-testid="byline-add-tile" @click="onAddDiagram()">
+        <span class="addtile__plus">+</span>
+        <span class="addtile__label">Add a diagram</span>
       </div>
+    </div>
 
-      <div class="byline__cta">
-        <button class="byline__btn" data-testid="byline-add-diagram" @click="onAddDiagram">
-          Add a diagram
-        </button>
-        <p class="byline__hint">
-          Opens this page in the editor. Type <code>/zenuml</code> where you want the diagram.
-        </p>
+    <!-- State 4: the listing failed. Creating still works, so the picker stays
+         and only the banner explains what happened. -->
+    <div v-else-if="failed" class="byline__body byline__body--stack" data-testid="byline-failed">
+      <div class="banner">
+        <div class="banner__text">
+          <div class="banner__title">Couldn't list this page's diagrams</div>
+          <div class="banner__sub">Usually restricted content. Adding one still works.</div>
+        </div>
+        <button class="btn-secondary" data-testid="byline-retry" @click="onRetry">Try again</button>
       </div>
-    </template>
+      <div class="typegrid">
+        <div
+          v-for="t in DIAGRAM_TYPES"
+          :key="t.key"
+          class="tile"
+          :data-testid="`byline-type-${t.key}`"
+          @click="onAddDiagram(t.macroType)"
+        >
+          <div class="tile__preview">
+            <img v-if="t.example" class="tile__example" :src="t.example" alt="" />
+            <img v-else class="tile__bigicon" :src="t.icon" alt="" />
+          </div>
+          <div class="tile__label tile__label--compact">
+            <img class="tile__icon" :src="t.icon" alt="" />
+            <span class="tile__name">{{ t.name }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- State 2: empty page — the state most users see, and the one that has to
+         earn a first diagram. -->
+    <div v-else class="byline__body byline__body--stack" data-testid="byline-empty">
+      <div class="hero">
+        <div class="hero__title">Nothing diagrammed here yet</div>
+        <div class="hero__sub">Pick a type and we'll open the editor with it ready to drop in.</div>
+      </div>
+      <div class="typegrid">
+        <div
+          v-for="t in DIAGRAM_TYPES"
+          :key="t.key"
+          class="tile"
+          :data-testid="`byline-type-${t.key}`"
+          @click="onAddDiagram(t.macroType)"
+        >
+          <div class="tile__preview">
+            <img v-if="t.example" class="tile__example" :src="t.example" alt="" />
+            <img v-else class="tile__bigicon" :src="t.icon" alt="" />
+          </div>
+          <div class="tile__label">
+            <img class="tile__icon" :src="t.icon" alt="" />
+            <span class="tile__text">
+              <span class="tile__name">{{ t.name }}</span>
+              <span class="tile__desc">{{ t.desc }}</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer. Pinned in every state; only the hint and the right slot vary. -->
+    <div class="byline__footer">
+      <span class="byline__hint">
+        <template v-if="loading">Reading this page…</template>
+        <template v-else-if="failed">Type <code>/zenuml</code> anywhere on the page.</template>
+        <template v-else-if="diagrams.length">Click a diagram to jump to it on the page.</template>
+        <template v-else>Already editing? Type <code>/zenuml</code> anywhere on the page.</template>
+      </span>
+      <a
+        v-if="!loading && !failed && !diagrams.length"
+        class="byline__learn"
+        href="#"
+        data-testid="byline-learn-more"
+        @click.prevent="onLearnMore"
+      >Learn more</a>
+      <button
+        v-else
+        class="btn-primary"
+        :class="{ 'btn-primary--muted': loading }"
+        :disabled="loading"
+        data-testid="byline-add-diagram"
+        @click="onAddDiagram()"
+      >Add a diagram</button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import globals from '@/model/globals'
+import { openModal } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
+import { DiagramType } from '@/model/Diagram/Diagram'
+import type { MacroTypeValue } from '@/utils/analytics/catalog'
 import {
   parsePageDiagrams,
   summarizeDiagrams,
   typeLabel,
+  toMacroType,
   type PageDiagram,
 } from '@/utils/byline/pageDiagrams'
 import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnails'
@@ -64,13 +163,80 @@ import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnail
 const loading = ref(true)
 const diagrams = ref<PageDiagram[]>([])
 const copiedId = ref<string | null>(null)
-/** customContentId -> data: URL. Populated after the list renders. */
-const thumbnails = ref<Record<string, string>>({})
+/** Separates "this page has no diagrams" (state 2) from "we could not find out"
+ *  (state 4). Previously both collapsed into the empty state, which told a user
+ *  with restricted content that their diagrams did not exist. */
+const failed = ref(false)
+/** customContentId -> data: URL. Fills in after the cards paint. */
+const thumbs = ref<Record<string, string>>({})
 
 /** Pathological pages exist (demo pages, architecture indexes). Each thumbnail
- *  is its own authenticated round trip, so cap the fan-out — rows past the cap
- *  simply render without one, which is already a supported state. */
+ *  is its own authenticated round trip, so cap the fan-out — cards past the cap
+ *  keep the icon fallback, which is already a supported state. */
 const MAX_THUMBNAILS = 12
+
+const SKELETON_TITLE_WIDTHS = ['70%', '55%', '62%', '48%']
+const SKELETON_SUB_WIDTHS = ['40%', '35%', '30%', '26%']
+
+interface TypeTile {
+  key: string
+  name: string
+  desc: string
+  icon: string
+  example?: string
+  macroType: MacroTypeValue
+}
+
+/** The picker shown on an empty or unreadable page. `macroType` rides on
+ *  `byline_create_clicked` so the funnel can be split by what the user reached
+ *  for — the tiles are the only place we learn intended type before the editor. */
+const DIAGRAM_TYPES: TypeTile[] = [
+  {
+    key: 'sequence',
+    name: 'Sequence',
+    desc: 'Who calls what, in order',
+    icon: '/image/diagram_macro_icon.png',
+    example: '/image/byline-example-sequence.png',
+    macroType: 'sequence',
+  },
+  {
+    key: 'flowchart',
+    name: 'Flowchart',
+    desc: 'Mermaid or PlantUML',
+    icon: '/image/diagram_macro_icon.png',
+    example: '/image/byline-example-flowchart.png',
+    macroType: 'mermaid',
+  },
+  {
+    key: 'graph',
+    name: 'Graph',
+    desc: 'Free-form, DrawIO',
+    icon: '/image/graph_macro_icon.png',
+    macroType: 'graph',
+  },
+  {
+    key: 'openapi',
+    name: 'OpenAPI',
+    desc: 'Render a spec inline',
+    icon: '/image/openapi_macro_icon.png',
+    macroType: 'openapi',
+  },
+]
+
+const MACRO_ICONS: Record<string, string> = {
+  [DiagramType.Sequence]: '/image/diagram_macro_icon.png',
+  [DiagramType.Mermaid]: '/image/diagram_macro_icon.png',
+  [DiagramType.PlantUml]: '/image/diagram_macro_icon.png',
+  [DiagramType.Graph]: '/image/graph_macro_icon.png',
+  [DiagramType.OpenApi]: '/image/openapi_macro_icon.png',
+  [DiagramType.AsyncApi]: '/image/openapi_macro_icon.png',
+}
+
+function macroIcon(diagramType: string): string {
+  return MACRO_ICONS[diagramType] || '/image/diagram_macro_icon.png'
+}
+
+const label = typeLabel
 
 // Dwell is measured from mount (when the user's click actually opened this
 // iframe), so byline_dismissed can tell a mis-click from a real evaluation.
@@ -79,8 +245,6 @@ const openedAt = Date.now()
 // "looked and left" event on unmount.
 let acted = false
 let pageId = ''
-
-const label = typeLabel
 
 function baseProps() {
   return {
@@ -91,33 +255,47 @@ function baseProps() {
   }
 }
 
-onMounted(async () => {
+async function loadDiagrams() {
   try {
     pageId = await globals.apWrapper._getCurrentPageId()
     const responses = await globals.apWrapper.listPageDiagramContents(pageId)
     diagrams.value = parsePageDiagrams(responses)
+    failed.value = false
   } catch (e) {
-    // An unreadable page lists nothing; the create CTA still works, which is
-    // the half of this modal that matters for activation.
+    // An unreadable page is NOT an empty page. The create path still works, so
+    // state 4 keeps the picker and says what happened.
     console.error('[byline] failed to list page diagrams', e)
     diagrams.value = []
+    failed.value = true
   } finally {
     loading.value = false
     // Emitted after the list resolves so page_has_diagram / diagram_count are
     // populated — this event IS the Phase 1 readout, and a version of it
     // without those two properties would not answer the question it exists for.
-    // Thumbnails are deliberately NOT awaited first: the list is the feature
-    // and must paint immediately, and delaying the readout behind N image
-    // fetches would make byline_opened hostage to attachment latency.
+    // Thumbnails are deliberately NOT awaited first: the cards must paint
+    // immediately, and delaying the readout behind N image fetches would make
+    // byline_opened hostage to attachment latency.
     trackAnalyticsEvent('byline_opened', baseProps())
     void loadThumbnails()
   }
+}
+
+onMounted(loadDiagrams)
+
+onBeforeUnmount(() => {
+  // Object URLs are never created (thumbnails are inlined as data: URLs), so
+  // there is nothing to revoke here.
+  if (acted) return
+  trackAnalyticsEvent('byline_dismissed', {
+    ...baseProps(),
+    dwell_ms: Date.now() - openedAt,
+  })
 })
 
 /**
  * Resolve each listed diagram's backup PNG into an inline thumbnail. Runs after
- * the list has painted and never blocks it; a page whose diagrams predate the
- * attachment backup just keeps the placeholder.
+ * the cards have painted and never blocks them; a page whose diagrams predate
+ * the attachment backup just keeps the macro-type icon.
  */
 async function loadThumbnails() {
   try {
@@ -132,7 +310,7 @@ async function loadThumbnails() {
     for (const r of resolved) {
       if (r.dataUrl) next[r.id] = r.dataUrl
     }
-    thumbnails.value = next
+    thumbs.value = next
     // Coverage rides on its own event rather than being retrofitted onto
     // byline_opened, which has already fired by now.
     trackAnalyticsEvent('byline_thumbnails_loaded', {
@@ -144,13 +322,43 @@ async function loadThumbnails() {
   }
 }
 
-onBeforeUnmount(() => {
-  if (acted) return
-  trackAnalyticsEvent('byline_dismissed', {
+function onRetry() {
+  failed.value = false
+  loading.value = true
+  thumbs.value = {}
+  void loadDiagrams()
+}
+
+/**
+ * Open the clicked diagram.
+ *
+ * The design's first choice was scrolling the host page to the macro via a URL
+ * fragment, with an explicit instruction to confirm the anchor form against a
+ * real rendered page first and to fall back to opening the diagram fullscreen
+ * if it could not be made reliable. That confirmation needs a browser, so this
+ * takes the documented fallback: the same `openModal` viewer the AsyncAPI
+ * dashboard already uses to open a diagram from a non-macro surface.
+ */
+async function onOpenDiagram(d: PageDiagram) {
+  acted = true
+  trackAnalyticsEvent('byline_diagram_opened', {
     ...baseProps(),
-    dwell_ms: Date.now() - openedAt,
+    macro_type: toMacroType(d.diagramType) as MacroTypeValue,
   })
-})
+  try {
+    await openModal({
+      resource: 'main',
+      size: 'fullscreen',
+      context: {
+        macroMode: 'viewer',
+        diagramType: d.diagramType,
+        customContentId: d.id,
+      },
+    })
+  } catch (e) {
+    console.error('[byline] failed to open diagram', e)
+  }
+}
 
 async function onCopySource(d: PageDiagram) {
   acted = true
@@ -165,13 +373,16 @@ async function onCopySource(d: PageDiagram) {
   }
   trackAnalyticsEvent('byline_diagram_opened', {
     ...baseProps(),
-    macro_type: d.diagramType as any,
+    macro_type: toMacroType(d.diagramType) as MacroTypeValue,
   })
 }
 
-async function onAddDiagram() {
+async function onAddDiagram(macroType?: MacroTypeValue) {
   acted = true
-  trackAnalyticsEvent('byline_create_clicked', baseProps())
+  trackAnalyticsEvent('byline_create_clicked', {
+    ...baseProps(),
+    ...(macroType ? { macro_type: macroType } : {}),
+  })
   try {
     const spaceKey = getSpaceKey() || ''
     const { router } = await import('@forge/bridge')
@@ -190,105 +401,429 @@ async function onAddDiagram() {
     })
   }
 }
+
+async function onLearnMore() {
+  acted = true
+  trackAnalyticsEvent('feedback_link_clicked', { ...baseProps(), source: 'byline_learn_more' })
+  try {
+    const { router } = await import('@forge/bridge')
+    router.open('https://zenuml.com/docs/')
+  } catch (e) {
+    console.error('[byline] learn-more navigation failed', e)
+  }
+}
 </script>
 
 <style scoped>
+/* Fixed 618 x 529 modal (viewportSize: medium). The shell is header / body /
+   footer with only the body flexing, so the modal itself never scrolls. */
 .byline {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: #ffffff;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 14px;
   color: #172b4d;
-  padding: 16px;
 }
-.byline__heading {
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-.byline__items {
-  list-style: none;
-  margin: 0 0 16px;
-  padding: 0;
-}
-.byline__item {
+
+/* Header ------------------------------------------------------------------ */
+.byline__header {
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 0;
+  gap: 10px;
+  padding: 16px 20px;
   border-bottom: 1px solid #ebecf0;
 }
-/* Fixed box whether or not a PNG resolved, so rows never reflow as thumbnails
-   arrive after the list has painted. */
-.byline__thumb {
-  flex: none;
-  width: 44px;
-  height: 30px;
+.byline__logo {
+  width: 18px;
+  height: 18px;
   object-fit: contain;
-  object-position: left center;
-  border-radius: 3px;
-  background: #fff;
-  border: 1px solid #ebecf0;
+  display: block;
 }
-.byline__thumb--empty {
-  background: #f4f5f7;
-  border-style: dashed;
+.byline__heading {
+  font-size: 15px;
+  font-weight: 600;
 }
-.byline__badge {
-  flex: none;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.byline__pill {
+  font-size: 12px;
+  font-weight: 600;
   color: #5e6c84;
   background: #f4f5f7;
-  border-radius: 3px;
-  padding: 2px 6px;
+  border-radius: 10px;
+  padding: 2px 8px;
 }
-.byline__title {
+
+/* Body -------------------------------------------------------------------- */
+.byline__body {
   flex: 1 1 auto;
+  min-height: 0;
+}
+.byline__body--grid {
+  padding: 16px 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 14px;
+  height: 100%;
+  box-sizing: border-box;
+}
+/* Past 3 diagrams the rows stop dividing the height and keep card proportions,
+   and only the grid area scrolls. */
+.byline__body--paged {
+  grid-template-rows: none;
+  grid-auto-rows: minmax(150px, 1fr);
+  overflow-y: auto;
+}
+.byline__body--stack {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-sizing: border-box;
+}
+
+/* Diagram card ------------------------------------------------------------ */
+.card {
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  background: #fff;
+  min-height: 0;
+}
+.card:hover {
+  border-color: #0052cc;
+  box-shadow: 0 1px 4px rgba(9, 30, 66, 0.16);
+}
+.card__preview {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: #fafbfc;
+  border-bottom: 1px solid #ebecf0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.card__thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 3px;
+  box-sizing: border-box;
+  display: block;
+}
+.card__icon {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  opacity: 0.45;
+}
+.card__meta {
+  flex: none;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.card__title {
+  font-size: 13px;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.byline__link {
-  flex: none;
+.card__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.card__type {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5e6c84;
+}
+.card__action {
   background: none;
   border: none;
   padding: 0;
+  font-size: 12px;
+  font-weight: 500;
   color: #0052cc;
   cursor: pointer;
-  font-size: 13px;
+  font-family: inherit;
 }
-.byline__link:hover {
+.card__action:hover {
   text-decoration: underline;
 }
-.byline__empty {
-  margin-bottom: 16px;
+.card__nopreview {
+  font-size: 12px;
+  color: #5e6c84;
+}
+
+/* Add tile ---------------------------------------------------------------- */
+.addtile {
+  border: 1px dashed #c1c7d0;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #5e6c84;
+  cursor: pointer;
+  min-height: 0;
+}
+.addtile:hover {
+  border-color: #0052cc;
+  color: #0052cc;
+  background: #f7f8f9;
+}
+.addtile__plus {
+  font-size: 22px;
+  font-weight: 300;
+  line-height: 1;
+}
+.addtile__label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Empty / failed states --------------------------------------------------- */
+.hero {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.hero__title {
+  font-size: 17px;
+  font-weight: 600;
+}
+.hero__sub {
+  font-size: 13px;
+  color: #5e6c84;
+  text-wrap: pretty;
+}
+.typegrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.tile {
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  background: #fff;
+  min-height: 0;
+}
+.tile:hover {
+  border-color: #0052cc;
+  box-shadow: 0 1px 4px rgba(9, 30, 66, 0.16);
+}
+.tile__preview {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: #fafbfc;
+  border-bottom: 1px solid #ebecf0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tile__example {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 3px;
+  box-sizing: border-box;
+  display: block;
+}
+.tile__bigicon {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  opacity: 0.45;
+}
+.tile__label {
+  flex: none;
+  padding: 9px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tile__icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  flex: none;
+}
+.tile__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.tile__name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.tile__desc {
+  font-size: 12px;
+  color: #5e6c84;
+}
+
+/* Error banner ------------------------------------------------------------ */
+.banner {
+  flex: none;
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  background: #fafbfc;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.banner__title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.banner__sub {
+  font-size: 12px;
+  color: #5e6c84;
+}
+.btn-secondary {
+  background: #fff;
+  color: #172b4d;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  flex: none;
+  /* Required: without it the button wraps to two lines inside space-between. */
+  white-space: nowrap;
+}
+.btn-secondary:hover {
+  background: #f4f5f7;
+}
+
+/* Loading skeleton -------------------------------------------------------- */
+.skel {
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #fff;
+}
+.skel__preview {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: linear-gradient(90deg, #f4f5f7 0%, #ebecf0 40%, #f4f5f7 80%);
+  background-size: 320px 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+.skel__meta {
+  flex: none;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.skel__bar {
+  border-radius: 3px;
+  background: linear-gradient(90deg, #f4f5f7 0%, #ebecf0 40%, #f4f5f7 80%);
+  background-size: 320px 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+.skel__bar--title {
+  height: 10px;
+}
+.skel__bar--sub {
+  height: 8px;
+}
+/* Cards 3-4 sit still so the eye isn't pulled between four competing shimmers. */
+.skel--static .skel__preview {
+  background: #f7f8f9;
+  animation: none;
+}
+.skel--static .skel__bar {
+  background: #f4f5f7;
+  animation: none;
+}
+@keyframes shimmer {
+  0% {
+    background-position: -320px 0;
+  }
+  100% {
+    background-position: 320px 0;
+  }
+}
+
+/* Footer ------------------------------------------------------------------ */
+.byline__footer {
+  flex: none;
+  border-top: 1px solid #ebecf0;
+  padding: 12px 20px;
+  background: #fafbfc;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 .byline__hint {
-  color: #5e6c84;
   font-size: 12px;
-  margin: 6px 0 0;
+  color: #5e6c84;
 }
-.byline__cta {
-  border-top: 1px solid #ebecf0;
-  padding-top: 12px;
+.byline__hint code {
+  background: #f4f5f7;
+  border-radius: 3px;
+  padding: 1px 5px;
 }
-.byline__btn {
+.byline__learn {
+  font-size: 13px;
+  color: #5e6c84;
+  text-decoration: none;
+  flex: none;
+}
+.byline__learn:hover {
+  text-decoration: underline;
+}
+.btn-primary {
   background: #0052cc;
   color: #fff;
   border: none;
   border-radius: 3px;
-  padding: 6px 12px;
+  padding: 7px 14px;
   font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
   cursor: pointer;
+  flex: none;
+  white-space: nowrap;
 }
-.byline__btn:hover {
+.btn-primary:hover {
   background: #0065ff;
 }
-.byline__loading {
-  color: #5e6c84;
-}
-code {
-  background: #f4f5f7;
-  border-radius: 3px;
-  padding: 0 4px;
+.btn-primary--muted,
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 </style>

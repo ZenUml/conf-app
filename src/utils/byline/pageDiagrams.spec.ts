@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parsePageDiagrams, summarizeDiagrams, typeLabel } from './pageDiagrams'
+import { parsePageDiagrams, summarizeDiagrams, typeLabel, toMacroType } from './pageDiagrams'
 import { DiagramType } from '@/model/Diagram/Diagram'
 
 const child = (id: string, title: string, body: any) => ({
@@ -103,6 +103,29 @@ describe('summarizeDiagrams', () => {
       { id: '3', title: 'c', diagramType: 'sequence', source: '', copyable: false },
     ])
     expect(out).toEqual({ page_has_diagram: true, diagram_count: 3, macro_types: 'mermaid,sequence' })
+  })
+})
+
+describe('toMacroType', () => {
+  it('lowercases the spec types so they do not split the Mixpanel bucket', () => {
+    // Stored bodies say `OpenAPI`/`AsyncAPI`; every other surface reports
+    // lowercase, and casting instead of mapping would create a second bucket
+    // for the same macro type.
+    expect(toMacroType(DiagramType.OpenApi)).toBe('openapi')
+    expect(toMacroType(DiagramType.AsyncApi)).toBe('asyncapi')
+  })
+
+  it('passes through the types that already match the catalog', () => {
+    expect(toMacroType(DiagramType.Sequence)).toBe('sequence')
+    expect(toMacroType(DiagramType.Mermaid)).toBe('mermaid')
+    expect(toMacroType(DiagramType.PlantUml)).toBe('plantuml')
+    expect(toMacroType(DiagramType.Graph)).toBe('graph')
+    expect(toMacroType(DiagramType.Embed)).toBe('embed')
+  })
+
+  it('maps anything unrecognised to a value the catalog already defines', () => {
+    expect(toMacroType(DiagramType.Unknown)).toBe('none')
+    expect(toMacroType('something-new')).toBe('none')
   })
 })
 

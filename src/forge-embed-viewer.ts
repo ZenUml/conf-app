@@ -7,12 +7,22 @@ import { getContext as initForgeContext, openModal } from './model/globals/forge
 import { Diagram, getDiagramData } from "@/model/Diagram/Diagram";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
+import { resolveLocalContentId } from '@/utils/embedDeeplink';
+import { readAutoConvertLink } from '@/utils/newDiagramLink';
 
 async function loadDiagram(): Promise<Diagram | undefined> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
-  const customContentId = context.extension?.config?.customContentId;
+  // A macro created by pasting a diagram deeplink has no config yet — the id
+  // lives in the matched URL. Falling back to it is what makes paste-to-place
+  // render on the first load, with no config write needed (the link persists in
+  // the page ADF, so this stays true on every later render).
+  const pastedContentId = resolveLocalContentId(
+    readAutoConvertLink(context),
+    (context as any)?.cloudId,
+  );
+  const customContentId = context.extension?.config?.customContentId || pastedContentId;
   const pageId = context.extension?.content?.id;
   if(!customContentId) {
   } else {

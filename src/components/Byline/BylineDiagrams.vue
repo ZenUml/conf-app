@@ -9,9 +9,32 @@
       </span>
     </div>
 
+    <!-- Post-create. The diagram is saved and already listed; the only thing
+         left is placing it on the page, so this takes over the body until the
+         user dismisses it. -->
+    <div v-if="createdLink" class="byline__body byline__body--stack" data-testid="byline-created">
+      <div class="hero">
+        <div class="hero__title">Diagram saved</div>
+        <div class="hero__sub">
+          {{ createdCopied ? 'Link copied.' : 'Copy this link,' }}
+          Paste it into the page where you want the diagram to appear.
+        </div>
+      </div>
+      <div class="linkbox">
+        <code class="linkbox__url" data-testid="byline-created-link">{{ createdLink }}</code>
+        <button class="btn-secondary" data-testid="byline-copy-link" @click="onCopyCreatedLink">
+          {{ createdCopied ? '✓ Copied' : 'Copy link' }}
+        </button>
+      </div>
+      <p class="byline__hint">
+        Pasting the link converts it into an embedded diagram — it stays linked to
+        this one, so edits show up everywhere it is placed.
+      </p>
+    </div>
+
     <!-- State 3: loading. Four skeleton cards, so the grid does not reflow when
          the real cards land. -->
-    <div v-if="loading" class="byline__body byline__body--grid" data-testid="byline-loading">
+    <div v-else-if="loading" class="byline__body byline__body--grid" data-testid="byline-loading">
       <div v-for="n in 4" :key="n" class="skel" :class="{ 'skel--static': n > 2 }">
         <div class="skel__preview"></div>
         <div class="skel__meta">
@@ -119,13 +142,20 @@
     <!-- Footer. Pinned in every state; only the hint and the right slot vary. -->
     <div class="byline__footer">
       <span class="byline__hint">
-        <template v-if="loading">Reading this page…</template>
+        <template v-if="createdLink">The diagram is saved whether or not you paste it now.</template>
+        <template v-else-if="loading">Reading this page…</template>
         <template v-else-if="failed">Type <code>/zenuml</code> anywhere on the page.</template>
         <template v-else-if="diagrams.length">Click a diagram to jump to it on the page.</template>
         <template v-else>Already editing? Type <code>/zenuml</code> anywhere on the page.</template>
       </span>
+      <button
+        v-if="createdLink"
+        class="btn-primary"
+        data-testid="byline-created-done"
+        @click="onDismissCreated"
+      >Done</button>
       <a
-        v-if="!loading && !failed && !diagrams.length"
+        v-else-if="!loading && !failed && !diagrams.length"
         class="byline__learn"
         href="#"
         data-testid="byline-learn-more"
@@ -134,8 +164,8 @@
       <button
         v-else
         class="btn-primary"
-        :class="{ 'btn-primary--muted': loading }"
-        :disabled="loading"
+        :class="{ 'btn-primary--muted': loading || creating }"
+        :disabled="loading || creating"
         data-testid="byline-add-diagram"
         @click="onAddDiagram()"
       >Add a diagram</button>
@@ -146,7 +176,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import globals from '@/model/globals'
-import { openModal } from '@/model/globals/forgeGlobal'
+import forgeGlobal, { openModal } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 import { DiagramType } from '@/model/Diagram/Diagram'
@@ -160,7 +190,7 @@ import {
   type PageDiagram,
 } from '@/utils/byline/pageDiagrams'
 import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnails'
-import { buildNewDiagramLink } from '@/utils/newDiagramLink'
+import { buildEmbedDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 
 const loading = ref(true)
 const diagrams = ref<PageDiagram[]>([])
@@ -188,6 +218,14 @@ const MAX_THUMBNAILS = 12
  *  because these files live in public/ and are never processed by Rollup. Every
  *  other icon here is already bound through DIAGRAM_TYPES / MACRO_ICONS. */
 const LOGO_SRC = './image/zenuml_logo.png'
+
+/** Set once the user saves a diagram from the byline editor: the deeplink to
+ *  paste onto the page. Its presence switches the modal to the "now paste it"
+ *  panel — the diagram exists at that point, so the only thing left is placing
+ *  it. */
+const createdLink = ref<string | null>(null)
+const createdCopied = ref(false)
+const creating = ref(false)
 
 const SKELETON_TITLE_WIDTHS = ['70%', '55%', '62%', '48%']
 const SKELETON_SUB_WIDTHS = ['40%', '35%', '30%', '26%']
@@ -404,18 +442,95 @@ async function onCopySource(d: PageDiagram) {
 }
 
 /**
- * Put the paste-to-create link for `diagramType` on the clipboard.
+ * Create a diagram from the byline, then hand back a link that places it.
  *
- * This is the only way a byline iframe can place a typed macro: no API inserts
- * into the editor, so the user pastes and Confluence's autoConvert turns the
- * link into the macro at their cursor. Returns whether the clipboard actually
- * took it, so the caller never claims a copy that did not happen.
+ * Opening the editor with no `customContentId` gives a genuinely new diagram;
+ * saving it creates the custom content on this page. The editor cannot tell us
+ * the new id — there is no macro to write back to and `view.submit` is invalid
+ * on a byline-opened modal — so the id is recovered by diffing the page's
+ * diagram list across the modal.
+ *
+ * Only then is there something to link to. That ordering is the point of this
+ * flow: the previous version copied a `/new/<type>` link before any diagram
+ * existed, so a user who pasted it got an empty macro they still had to fill in.
  */
-async function copyNewDiagramLink(diagramType: string): Promise<boolean> {
-  const link = buildNewDiagramLink(diagramType)
-  if (!link) return false
+async function onAddDiagram(macroType?: MacroTypeValue, diagramType?: string) {
+  acted = true
+  trackAnalyticsEvent('byline_create_clicked', {
+    ...baseProps(),
+    ...(macroType ? { macro_type: macroType } : {}),
+  })
+
+  const before = diagrams.value.map(d => d.id)
+  creating.value = true
   try {
-    await navigator.clipboard.writeText(link)
+    await openModal({
+      resource: 'main',
+      size: 'fullscreen',
+      context: {
+        macroMode: 'editor',
+        // Undefined for the generic "Add a diagram" button — the editor opens
+        // in its own default type, which is the sequence family.
+        diagramType: diagramType ? toModalDiagramType(diagramType) : 'sequence',
+      },
+      onClose: () => {
+        void afterEditorClosed(before, macroType)
+      },
+    })
+  } catch (e) {
+    creating.value = false
+    console.error('[byline] failed to open the editor', e)
+    trackAnalyticsEvent('byline_editor_deeplinked', {
+      ...baseProps(),
+      result: 'failed',
+      failure_reason: (e as any)?.message ? String((e as any).message) : String(e),
+    })
+  }
+}
+
+/**
+ * Re-read the page after the editor closes. A new id means the user saved;
+ * no new id means they cancelled, and the modal simply returns to the list.
+ */
+async function afterEditorClosed(before: string[], macroType?: MacroTypeValue) {
+  try {
+    const responses = await globals.apWrapper.listPageDiagramContents(pageId)
+    const after = parsePageDiagrams(responses)
+    diagrams.value = after
+    const newId = newlyCreatedId(before, after.map(d => d.id))
+    if (!newId) {
+      trackAnalyticsEvent('byline_create_cancelled', { ...baseProps(), ...(macroType ? { macro_type: macroType } : {}) })
+      return
+    }
+    // Same accessor model/Attachment.ts uses — `globals` is the app singleton
+    // (apWrapper etc.) and carries no Forge context.
+    const cloudId = forgeGlobal.forgeContext?.cloudId
+    const link = buildEmbedDeeplink(cloudId, newId)
+    trackAnalyticsEvent('byline_diagram_created', {
+      ...baseProps(),
+      ...(macroType ? { macro_type: macroType } : {}),
+      custom_content_id: String(newId),
+      result: link ? 'linked' : 'no_cloud_id',
+    })
+    if (!link) {
+      // The diagram is saved and listed either way; without a cloudId we simply
+      // cannot offer the paste link, so say nothing rather than a broken one.
+      console.error('[byline] no cloudId available for the deeplink')
+      return
+    }
+    createdLink.value = link
+    createdCopied.value = await copyText(link)
+    void loadThumbnails()
+  } catch (e) {
+    console.error('[byline] failed to resolve the created diagram', e)
+  } finally {
+    creating.value = false
+  }
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
     return true
   } catch (e) {
     console.error('[byline] clipboard write failed', e)
@@ -423,31 +538,15 @@ async function copyNewDiagramLink(diagramType: string): Promise<boolean> {
   }
 }
 
-async function onAddDiagram(macroType?: MacroTypeValue, diagramType?: string) {
-  acted = true
-  const linkCopied = diagramType ? await copyNewDiagramLink(diagramType) : false
-  trackAnalyticsEvent('byline_create_clicked', {
-    ...baseProps(),
-    ...(macroType ? { macro_type: macroType } : {}),
-    ...(diagramType ? { result: linkCopied ? 'link_copied' : 'link_copy_failed' } : {}),
-  })
-  try {
-    const spaceKey = getSpaceKey() || ''
-    const { router } = await import('@forge/bridge')
-    // edit-v2 is the current Confluence editor route; the same one
-    // DebugBar.vue navigates to for a page view.
-    await router.navigate(`/wiki/spaces/${spaceKey}/pages/edit-v2/${pageId}`)
-    trackAnalyticsEvent('byline_editor_deeplinked', baseProps())
-  } catch (e) {
-    // Kept distinct from byline_create_clicked on purpose: an intent to create
-    // that never reached the editor is the failure this split exists to expose.
-    console.error('[byline] editor navigation failed', e)
-    trackAnalyticsEvent('byline_editor_deeplinked', {
-      ...baseProps(),
-      result: 'failed',
-      failure_reason: (e as any)?.message ? String((e as any).message) : String(e),
-    })
-  }
+async function onCopyCreatedLink() {
+  if (!createdLink.value) return
+  createdCopied.value = await copyText(createdLink.value)
+  trackAnalyticsEvent('advocacy_message_copied', { ...baseProps(), ui_component: 'byline_created_link' })
+}
+
+function onDismissCreated() {
+  createdLink.value = null
+  createdCopied.value = false
 }
 
 async function onLearnMore() {
@@ -825,6 +924,29 @@ async function onLearnMore() {
 }
 
 /* Footer ------------------------------------------------------------------ */
+.linkbox {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  background: #fafbfc;
+  padding: 10px 12px;
+}
+.linkbox__url {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #172b4d;
+  background: #f4f5f7;
+  border-radius: 3px;
+  padding: 4px 6px;
+}
+
 .byline__footer {
   flex: none;
   border-top: 1px solid #ebecf0;

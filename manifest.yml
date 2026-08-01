@@ -254,6 +254,16 @@ modules:
       unlicensedAccess:
         - unlicensed
     - key: zenuml-embed-macro${LITE_KEY_SUFFIX}
+      # Paste-to-place. A diagram created from the byline modal has no macro on
+      # any page yet; the modal hands back
+      # https://confluence.zenuml.com/d/<cloudId>/<contentId>, and pasting that
+      # converts into this macro pointed at the saved diagram. Proven end to end
+      # (current editor + Live Docs) in
+      # docs/superpowers/plans/2026-07-16-embed-autoconvert-deeplink-spike.md;
+      # the URL never has to resolve, matching is editor-local.
+      autoConvert:
+        matchers:
+          - pattern: https://confluence.zenuml.com/d/*/*
       title: Embed a Diagram, Graph or API Spec${LITE_TITLE_SUFFIX}
       description: Embed an existing Diagram, Graph or API Spec. ${APP_LABEL}
       resource: main

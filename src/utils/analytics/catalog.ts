@@ -250,6 +250,14 @@ export type AnalyticsEventName =
   // byline_opened fires. `thumbnail_count` vs `diagram_count` is the coverage
   // ratio that decides whether the visual index earns its requests.
   | "byline_thumbnails_loaded"
+  // The byline editor produced a saved diagram, and (when a cloudId is
+  // available) a deeplink to place it. This is the conversion the picker exists
+  // for: unlike byline_create_clicked it cannot fire on intent alone — a custom
+  // content exists by the time it does.
+  | "byline_diagram_created"
+  // The byline editor closed without saving. Splits abandonment from failure,
+  // which byline_create_clicked alone cannot distinguish.
+  | "byline_create_cancelled"
   | "viewer_load_failed"
   // Diagram source snapshot attachments (resilience for cross-page copies /
   // deleted source pages — see docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md)

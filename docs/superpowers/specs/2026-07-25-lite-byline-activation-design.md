@@ -4,8 +4,76 @@ Growth plan for using `confluence:contentBylineItem` to raise Lite active users.
 Slots into the dormant-activation program alongside ② user-cohort targeting and ③ the editor
 staleness hint (`docs/superpowers/specs/2026-07-18-job-b-editor-staleness-hint-design.md`).
 
-Status: **PROPOSED** — not approved, not started. Phase 0 (baseline) must run before Phase 1 is
-committed to.
+Status: **NOT RECOMMENDED as specced** — Phase 0 ran 2026-08-01 and the surface it depends on is
+inert in our own live apps. See "Phase 0 results" immediately below; the rest of the document is
+kept as the design that the evidence argues against, plus what to do instead.
+
+## Phase 0 results (2026-08-01) — the thesis does not survive contact with the data
+
+Mixpanel project 3373228, JQL, external tenants only (canonical internal-domain exclude list).
+`ai_aide_route_accessed` is unsampled (`src/utils/analytics/eventSampling.ts` — no entry, rate 1),
+and it fires on the first line of `handleAiAideRoute()`, so it counts every byline iframe boot.
+
+**28 days (2026-07-04 → 2026-08-01):**
+
+| variant | distinct users w/ `macro_viewed` | `macro_viewed` | byline opens | distinct byline users |
+|---|---|---|---|---|
+| lite | 9,611 | 263,155 | — (module stripped) | — |
+| full | 1,329 | 39,197 | **0** | **0** |
+| diagramly | 31 | 768 | 5 | 1 |
+
+**All time (tracking starts 2026-04-18 → 2026-08-01, ~3.5 months):** 32 external byline opens on
+diagramly, 7 on events with no `product_type`, 9 internal. **Zero on Full, ever.**
+
+Two conclusions follow:
+
+1. **Mount semantics: click-to-open, confirmed.** 5 opens against 39,197 macro views (and far more
+   page views) is nowhere near page-view volume, so Confluence does **not** boot the byline iframe
+   on page load. The per-page-load cost worry is dead — and so is any hope of using byline
+   *impressions* as telemetry, since the app learns nothing until someone clicks.
+2. **The surface is inert.** Full ships the identical byline module — `scripts/forge-wizard.mjs`
+   has no `contentBylineItem` strip in the `full` entry, and `src/forgeIndex.ts:122` branches on
+   `extension.type` with no variant gate, so a Full user opening it would emit the event. 1,329
+   distinct monthly users, 3.5 months, **zero opens**. Whatever reach the byline has in theory, it
+   is not converting to clicks in practice.
+
+The plan below assumed reach ≈ engagement. It does not.
+
+### What is still unknown, and why it no longer changes the decision
+
+Whether the item is **visible and ignored** or **not visible at all** (buried behind Confluence's
+byline overflow, or not rendering as expected on Full) is unresolved — a Playwright check was
+attempted on `dia-stg` and could not run: this container has no browser egress (Chromium returns
+`ERR_CONNECTION_RESET` for every host, including `example.com`, direct and through the proxy, while
+`curl` reaches the same hosts normally). **Marked SKIPPED, not passed** — no UI evidence was
+obtained.
+
+It is worth an hour on a machine with browser access, but note that it decides *why*, not
+*whether*: if the item is visible and ignored, the lever is dead; if Confluence buries app byline
+items, the "100% of page views" reach premise was simply false and the lever is dead for a
+different reason. Neither outcome revives the plan.
+
+### Recommendation
+
+1. **Do not build Phases 1–3 as specced.** The page-write machinery in Phase 2 is real risk bought
+   against a surface with a measured zero.
+2. **Redirect the activation effort to in-macro surfaces**, which have engagement precedent in this
+   product: the Job B staleness hint (③) renders inside a diagram the user is already looking at,
+   and the View Source affordance (#333) is cited in that design doc at 45% engagement. Lite is
+   also where the users are — 9,611 monthly actives vs Full's 1,329 — so the same effort applied to
+   an in-macro Lite surface reaches ~7× the audience.
+3. **One cheap experiment is still worth running**, because it is the only way to learn whether the
+   zero is about the *surface* or the *label*: rename the existing Full/Diagramly byline item from
+   "Aide" (with the AI logo) to a value-bearing label, ship nothing else, and watch for four weeks.
+   It costs a manifest string. If CTR stays at zero, the surface is settled and this document can
+   be closed for good.
+
+---
+
+## Original design (retained for the record)
+
+What follows is the plan as written before Phase 0 ran. Its premise — that byline reach converts to
+engagement — is the thing the data above contradicts.
 
 ## Why the byline
 

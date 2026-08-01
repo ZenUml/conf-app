@@ -44,8 +44,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # v5 + an explicit version, matching build-test-deploy.yml and the
+      # wrangler-publish action. package.json has no `packageManager` field, so
+      # the action cannot infer one and hard-fails without this.
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
+        with:
+          version: 10.x
 
       - name: Setup Node
         uses: actions/setup-node@v5

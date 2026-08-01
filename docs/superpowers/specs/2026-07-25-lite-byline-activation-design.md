@@ -4,9 +4,43 @@ Growth plan for using `confluence:contentBylineItem` to raise Lite active users.
 Slots into the dormant-activation program alongside ② user-cohort targeting and ③ the editor
 staleness hint (`docs/superpowers/specs/2026-07-18-job-b-editor-staleness-hint-design.md`).
 
-Status: **NOT RECOMMENDED as specced** — Phase 0 ran 2026-08-01 and the surface it depends on is
-inert in our own live apps. See "Phase 0 results" immediately below; the rest of the document is
-kept as the design that the evidence argues against, plus what to do instead.
+Status: **Phase 1 BUILT, UNVERIFIED IN UI** (2026-08-01), over a Phase 0 result that argues against
+it. Phase 0 found the surface inert in our own live apps; the call to build Phase 1 anyway was made
+after seeing that, on the reading that Phase 0 measured a Diagramly-branded "Aide" item and not a
+diagram-shaped one. Phase 1 is exactly the cheap instrumented test of that reading — if
+`byline_opened` stays near zero on Lite, the surface is settled and Phases 2–3 must not be built.
+
+### Phase 1 as built
+
+- `manifest.yml` now carries two `confluence:contentBylineItem` entries; `scripts/forge-wizard.mjs`
+  strips the inapplicable one per variant, so Lite ships `zenuml-byline-diagrams` ("Diagrams") and
+  Full/Diagramly keep `zenuml-byline-aiaide` ("Aide"). Lite's old whole-module delete is gone.
+- `src/forgeIndex.ts` branches on `moduleKey` (not `PRODUCT_TYPE`) into `src/routes/byline.ts`.
+- `src/components/Byline/BylineDiagrams.vue` lists the page's diagrams (type badge, title, "Copy
+  source" for text DSLs only) and offers "Add a diagram" → `router.navigate` to the page editor.
+  **No page writes** — the macro is still inserted with the editor's own insert menu.
+- `src/utils/byline/pageDiagrams.ts` holds the pure parsing; 11 unit tests cover malformed bodies,
+  a 403 on one content type, missing titles, empty sources and duplicate ids.
+- Events `byline_opened` / `byline_diagram_opened` / `byline_create_clicked` /
+  `byline_editor_deeplinked` / `byline_dismissed`, with `feature_area`/`surface`/`entry_point` =
+  `byline`.
+
+**Verified:** unit tests (116 passing across the touched specs), `pnpm build:lite` succeeds and
+code-splits the component into its own chunk, and the two yq strips were checked to leave exactly
+one byline entry per variant.
+
+**Not verified — no UI evidence exists for any of this.** It has never rendered in a Forge iframe:
+this environment has no browser egress (Chromium `ERR_CONNECTION_RESET` on every host, `curl` fine),
+so nobody has seen the item appear under a page title, seen the modal open, or confirmed the editor
+deep-link resolves. Before release it needs a `spot-check` on `lite-stg`: item visible under the
+title, modal opens, list matches the page, "Add a diagram" lands in the editor, and `byline_opened`
+arrives in Mixpanel with `page_has_diagram` populated. Treat the deep-link route
+(`/wiki/spaces/{key}/pages/edit-v2/{id}`) as the most likely thing to be wrong.
+
+**No dark launch exists.** Shipping this puts the item under every page title in every Lite tenant
+at once; the rollback is removing the entry, itself a minor auto-upgrading release.
+
+See "Phase 0 results" immediately below for the evidence this is being tested against.
 
 ## Phase 0 results (2026-08-01) — the thesis does not survive contact with the data
 

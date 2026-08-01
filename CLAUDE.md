@@ -109,7 +109,7 @@ The original directory stays untouched. When in doubt, ask before any destructiv
 
 ### Feature flags
 
-Two providers, one registry. **Forge Console flags** (client-side via `@forge/bridge`, boolean, per-app, max 10 per app) gate client-side behavior and rollouts; **Cloudflare KV flags** (`KV_FEATURE_FLAGS`, JSON values, per client domain) serve server-side and per-tenant config like `CUSTOMER_SUCCESS_SERVICE`. Every flag is declared in `src/utils/featureFlags/registry.ts` (single source of truth; drift-guarded by its spec) and evaluated fail-closed. Decision framework, inventory, and lifecycle: [docs/policies/feature-flags.md](docs/policies/feature-flags.md).
+Two providers: **Forge Console flags** (client-side via `@forge/bridge`, boolean, per-app, max 10 per app) and **Cloudflare KV flags** (`KV_FEATURE_FLAGS`, JSON values, per client domain, e.g. `CUSTOMER_SUCCESS_SERVICE`). Before adding any flag, work through the decision framework — ordered questions, guard-rails, and worked examples — in [docs/policies/feature-flags.md](docs/policies/feature-flags.md). All flags are fail-closed: unavailable must equal off.
 
 ### Content management
 

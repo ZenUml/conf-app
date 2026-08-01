@@ -1,118 +1,112 @@
-# Feature flags — which provider, and why
+# Feature flags — decision framework: Forge flag or Cloudflare KV?
 
-We run two feature-flag systems. This document is the decision framework for
-choosing between them, the inventory of what lives where, and the lifecycle
-rules. The machine-readable source of truth is
-[`src/utils/featureFlags/registry.ts`](../../src/utils/featureFlags/registry.ts) —
-every flag is declared there with its provider, and `registry.spec.ts` guards
-against drift between the registry and the evaluating modules.
+We run two feature-flag providers. This is the decision framework for choosing
+between them when you introduce a new toggle — work through Step 0, then the
+questions in order; **the first question that answers "yes" decides the
+provider**. The worked examples at the end classify every current flag with
+its reasoning, so you can decide new cases by analogy.
 
-## The two providers
+## The two providers in one line each
 
-| | **Forge feature flags** | **Cloudflare KV flags** |
+- **Forge feature flag** — a boolean created in the Forge Developer Console
+  per app, evaluated client-side in the Custom UI iframe via the
+  `@forge/bridge` `FeatureFlags` SDK. Console-toggled, env-targeted,
+  percentage-rampable, per-install targetable. Our backend is not in the path.
+- **Cloudflare KV flag** — a KV record (arbitrary JSON) in the
+  `KV_FEATURE_FLAGS` namespace, evaluated server-side by
+  `functions/feature-flags.ts` and fetched by the frontend per client domain
+  (`src/apis/featureFlags.ts`). Toggled with `wrangler kv`, no deploy.
+
+## Step 0 — is a feature flag the right tool at all?
+
+Rule out the neighboring mechanisms first; mis-filing here is the most common
+mistake:
+
+| If the thing you're gating is… | Use instead |
+|---|---|
+| Different behavior per **product variant** (lite/full/diagramly/asyncapi), fixed at release | `PRODUCT_TYPE` build-time gating / manifest strip — not a runtime flag |
+| **Who paid / who is entitled** (space licenses, per-user extensions) | `SPACE_LICENSE_KV` `license:*` entitlement records (`/api/space-status`) — entitlements, not flags |
+| **Which users belong to a targeting group** for messaging/UX experiments | `cohort:user:*` records (`/api/user-cohorts`) |
+| A **developer-only override** for local testing | `localStorage` mocks (`mockCSSEnabled`, `mockAiTitleEnabled`, …) |
+
+If none of those fit — you genuinely need a runtime on/off or config dial —
+continue.
+
+## The decision questions (in order, first "yes" wins)
+
+**Q1. Does server-side code need to read it?**
+If a Worker / Pages Function branches on the value → **Cloudflare KV**.
+Forge flags are evaluated only inside the Custom UI iframe; our backend
+cannot see them. (Corollary: if both client *and* server must see one
+decision, the KV value is the source of truth and the client fetches it.)
+
+**Q2. Is the value more than a boolean?**
+Per-domain config objects, allowlists, anything with a payload → **Cloudflare
+KV**. Forge flags are booleans, full stop. Don't encode data into a
+constellation of booleans.
+
+**Q3. Is it operator-curated per tenant domain?**
+"Enable this for acme-corp and these 12 other customers, with per-customer
+settings" is a small dataset the team edits, not a rollout → **Cloudflare
+KV** (that's exactly what `CUSTOMER_SUCCESS_SERVICE` is).
+
+**Q4. Is it on the render/edit critical path?**
+Anything that gates whether/how a diagram renders or the editor works must
+keep working when our Cloudflare backend is down (CLAUDE.md: rendering must
+not depend on our backend) → **Forge**, mandatory. A KV flag here would
+couple rendering to backend availability.
+
+**Q5. Do you need a staged rollout, per-install targeting, or an instant
+kill switch for client-side behavior?**
+Percentage ramps, "turn it on just for this customer's install", staging-only
+enablement, one-click Console kill → **Forge**. This is the default home for
+ordinary client-side feature gates.
+
+**Default:** if you reached here it's a plain client-side boolean → **Forge**.
+
+## Guard-rails that can overturn the answer
+
+- **The 10-flag cap.** Each Forge app allows at most 10 flags, and lite is at
+  the cap (2026-07-25). A new Forge flag may require retiring an old one
+  first. If nothing is retirable and the gate can tolerate backend coupling
+  (i.e. it is NOT render-path), KV is the overflow valve.
+- **Four apps, four inventories.** A Forge flag exists per app — create it in
+  every variant you ship the feature in. If keeping four consoles in sync is
+  a real operational burden for your case, weigh KV (one shared backend per
+  Pages project).
+- **Fail-closed is non-negotiable, both providers.** Missing flag, evaluation
+  error, dead backend → today's behavior. Design the gate so "flag
+  unavailable" and "flag off" are the same code path (`checkFlag(key, false)`;
+  KV fetch errors return `{}`). A flag that fails open is a bug.
+- **Latency of the dial.** Forge Console changes apply on the next iframe
+  mount (plus any caching the call site adds — the render gate holds a 30-min
+  localStorage cache); KV writes apply on the next fetch. Neither needs a
+  deploy. If you need sub-minute revocation semantics, neither is suitable —
+  that's an entitlement check, see Step 0.
+
+## Worked examples — every current flag, with the deciding question
+
+| Flag | Provider | Deciding question |
 |---|---|---|
-| Where it lives | Forge Developer Console, per app (lite / full / diagramly / asyncapi are **separate apps with separate flag inventories**) | `KV_FEATURE_FLAGS` namespace, one shared backend (per Pages project) |
-| Evaluated | Client-side in the Custom UI iframe (`@forge/bridge` `FeatureFlags` SDK; config downloaded once via the bridge, `checkFlag` local). No Forge Function invoked — zero GB-seconds; our backend not in the path | Server-side by `functions/feature-flags.ts`; frontend fetches via `src/apis/featureFlags.ts` (`GET /feature-flags?client=…&features=…`) |
-| Value shape | Boolean only | Arbitrary JSON (e.g. per-domain config objects) |
-| Scope / targeting | Per install (`installContext` ARI) + accountId bucketing; env targeting (dev/staging/prod); **percentage rollouts** | Per client domain (keys inside the JSON value); any custom shape you encode |
-| Toggle latency | Console change, no deploy; applies on next iframe mount (renderGate adds a 30-min localStorage cache on top) | `wrangler kv` write, no deploy; applies on next fetch |
-| Limits | **Max 10 flags per app** (lite hit the cap 2026-07-25) | Effectively unlimited |
-| Availability coupling | Works whenever the Forge bridge works — independent of our backend | Requires our Cloudflare backend to be up |
-| Server-side visibility | **None** — our Workers cannot read Forge flags | Full — Workers read KV directly |
+| `ai-title-enabled`, `ai-repair-enabled`, `agent-link-enabled` | Forge | Q5 — client-side feature gates needing staged rollout + kill switch; boolean; no server read |
+| `viewport-gated-render` (#382) | Forge | Q4 — render path; must not depend on our backend |
+| `editor-staleness-hint-enabled` | Forge | Q5 — plain client-side UI gate |
+| `session-replay`, `session-replay-full` | Forge | Q5 — the rollout **percentage** in the Console is the live sampling rate; per-install targeting does the targeted 100% capture |
+| `CUSTOMER_SUCCESS_SERVICE` | Cloudflare KV | Q3 (and Q2) — operator-curated JSON keyed by client domain: the enrolled-tenant list for the Lite paywall |
 
-## Decision rules
+## Lifecycle rules (the decisions after the provider decision)
 
-Pick **Forge** when the flag is:
-
-1. a boolean kill switch or staged rollout for **client-side behavior** (new UI,
-   render-path change, sampling rate);
-2. something you may want to **percentage-ramp** or target per install/user;
-3. needed even when our Cloudflare backend is degraded — Forge flags are the
-   only option for anything on the render/edit path, because rendering **must
-   not depend on our backend** (see CLAUDE.md, Content management).
-
-Pick **Cloudflare KV** when the flag:
-
-1. must be read **server-side** (a Worker/Pages Function branches on it);
-2. carries a **non-boolean payload** (per-domain config, allowlists);
-3. is **operator-curated per tenant domain** (e.g. paywall enrollment), where
-   "the value" is really a small dataset, not a toggle;
-4. would not fit the 10-per-app Forge cap, or must be shared across variants
-   from one place.
-
-Both systems are **fail-closed by convention**: a missing flag, an evaluation
-error, or a dead backend must resolve to today's behavior (`checkFlag(key,
-false)` everywhere; KV fetch errors return `{}`). A flag that fails open is a
-bug.
-
-## Code entry points
-
-- **Registry (start here):** `src/utils/featureFlags/registry.ts` — declare the
-  key + provider first, import the key from here in the evaluating module.
-- **Forge, one-shot reads:** `src/utils/featureFlags/forgeFlagClient.ts` —
-  `checkForgeFlag(label, key, deps?)` for a single boolean;
-  `evaluateForgeFlags(label, fn, deps?)` when one init serves several flags
-  (see `sessionReplayFlags.ts`). Handles identity (install ARI from cloudId,
-  accountId bucketing), env mapping, fail-closed, and client shutdown.
-- **Forge, long-lived client:** `src/apis/aiTitleFeatureFlag.ts` keeps a
-  memoized client for repeated editor-session reads — the exception, not the
-  template.
-- **KV:** `src/apis/featureFlags.ts` (frontend fetch) →
-  `functions/feature-flags.ts` (KV read). New KV-served feature names must be
-  handled there, and any new function path added to `public/_routes.json`.
-
-## Inventory
-
-Forge Console flags (all `site-user` scoped, all default-off):
-
-| Key | Gates | Evaluated in |
-|---|---|---|
-| `ai-title-enabled` | AI diagram titles | `src/apis/aiTitleFeatureFlag.ts` |
-| `ai-repair-enabled` | AI Repair on syntax errors | `src/apis/aiTitleFeatureFlag.ts` |
-| `agent-link-enabled` | Live Agent Link master switch | `src/apis/aiTitleFeatureFlag.ts` |
-| `viewport-gated-render` | #382 viewer viewport gate | `src/utils/renderGate/flags.ts` |
-| `editor-staleness-hint-enabled` | Editor staleness hint | `src/utils/stalenessHint/flags.ts` |
-| `session-replay` | Mixpanel replay general sampling (rollout % = live rate) | `src/utils/analytics/sessionReplayFlags.ts` |
-| `session-replay-full` | Targeted 100% replay capture | `src/utils/analytics/sessionReplayFlags.ts` |
-
-Cloudflare KV flags (`KV_FEATURE_FLAGS`, served by `/feature-flags`):
-
-| Key | Gates | Evaluated in |
-|---|---|---|
-| `CUSTOMER_SUCCESS_SERVICE` | Lite paywall enrollment — JSON object keyed by client domain | `src/composables/useCustomerSuccessService.ts` (via `src/apis/featureFlags.ts`) |
-
-**Related KV records that are NOT feature flags** (listed to prevent
-mis-filing): `SPACE_LICENSE_KV` holds `license:*` entitlement records
-(space/user paywall extensions — `functions/api/space-status.ts`, see the
-`extend-space-license` skill) and `cohort:user:*` targeting cohorts
-(`functions/api/user-cohorts.ts`). They are entitlements/cohort data with
-their own contracts, not toggles; don't add them to the registry.
-
-## Lifecycle
-
-**Adding a flag**
-
-1. Decide the provider with the rules above; add the key to
-   `FORGE_FLAGS`/`KV_FLAGS` and an entry in `FEATURE_FLAG_REGISTRY`.
-2. Evaluate it through the entry points above — never a bare string literal at
-   the call site, never fail-open.
-3. Forge: create the Console flag **per app variant** you ship it in (the
-   `forge-feature-flag` skill has the workflow, Console URLs, and the
-   env-chip verification trap — a new flag's rule defaults to dev+staging
-   only). Mind the 10-flag cap; retiring may have to come first.
-4. KV: extend `functions/feature-flags.ts` (or a dedicated function +
-   `public/_routes.json` entry) and write the KV value with `wrangler kv`.
-5. Per CLAUDE.md, plan the feature's Mixpanel events before implementing the
-   gated feature itself.
-
-**Retiring a flag** (order matters for Forge)
-
-1. Remove the code gate (feature fully on or fully removed) and **release**.
-2. Only then delete the Console flag — deleting first flips a live-at-100%
-   flag back to its `false` default and silently disables a shipped feature.
-3. Remove the registry entry in the same PR as the code-gate removal.
-
-**Verifying a Forge flag** — never trust the Console header alone; prove the
-runtime value on a live macro (Mixpanel event properties or debug logs). Reads
-without a browser: `node
-.claude/skills/forge-feature-flag/scripts/flags-status.mjs`.
+- **Adding — Forge:** create the Console flag in each shipped variant (the
+  `forge-feature-flag` skill has the workflow; note a new flag's rule
+  defaults to dev+staging only — production must be configured explicitly,
+  and runtime evidence on a live macro, not the Console header, is the proof
+  it's on). Mind the cap.
+- **Adding — KV:** new feature names are served by
+  `functions/feature-flags.ts`; a new function path must also be added to
+  `public/_routes.json` or Pages serves it as SPA HTML.
+- **Retiring — Forge, order matters:** remove the code gate and **release
+  first**, delete the Console flag second. Deleting first flips a
+  live-at-100% flag back to `false` and silently disables a shipped feature.
+- **Either provider:** the feature behind the flag still follows the
+  analytics-first rule (CLAUDE.md) — plan its Mixpanel events before
+  implementing.

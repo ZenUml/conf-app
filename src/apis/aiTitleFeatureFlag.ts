@@ -1,13 +1,9 @@
 import { FeatureFlags, type FeatureFlagUser, type ForgeFeatureFlagConfig } from '@forge/bridge'
 import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
-import { FORGE_FLAGS } from '@/utils/featureFlags/registry'
 
-// Unlike the one-shot flag modules (renderGate, stalenessHint), this module
-// keeps a memoized long-lived FeatureFlags client, so it does not go through
-// utils/featureFlags/forgeFlagClient.ts — keys still come from the registry.
-export const AI_TITLE_FLAG_ID = FORGE_FLAGS.aiTitle
-export const AI_REPAIR_FLAG_ID = FORGE_FLAGS.aiRepair
-export const AGENT_LINK_FLAG_ID = FORGE_FLAGS.agentLink
+const AI_TITLE_FLAG_ID = 'ai-title-enabled'
+const AI_REPAIR_FLAG_ID = 'ai-repair-enabled'
+const AGENT_LINK_FLAG_ID = 'agent-link-enabled'
 
 let featureFlags: FeatureFlags | undefined
 let initializePromise: Promise<FeatureFlags> | undefined

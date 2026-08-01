@@ -72,7 +72,7 @@
           :key="t.key"
           class="tile"
           :data-testid="`byline-type-${t.key}`"
-          @click="onAddDiagram(t.macroType)"
+          @click="onAddDiagram(t.macroType, t.diagramType)"
         >
           <div class="tile__preview">
             <img v-if="t.example" class="tile__example" :src="t.example" alt="" />
@@ -91,7 +91,7 @@
     <div v-else class="byline__body byline__body--stack" data-testid="byline-empty">
       <div class="hero">
         <div class="hero__title">Nothing diagrammed here yet</div>
-        <div class="hero__sub">Pick a type and we'll open the editor with it ready to drop in.</div>
+        <div class="hero__sub">Pick a type — we'll copy a link and open the editor. Paste it where you want the diagram.</div>
       </div>
       <div class="typegrid">
         <div
@@ -99,7 +99,7 @@
           :key="t.key"
           class="tile"
           :data-testid="`byline-type-${t.key}`"
-          @click="onAddDiagram(t.macroType)"
+          @click="onAddDiagram(t.macroType, t.diagramType)"
         >
           <div class="tile__preview">
             <img v-if="t.example" class="tile__example" :src="t.example" alt="" />
@@ -160,6 +160,7 @@ import {
   type PageDiagram,
 } from '@/utils/byline/pageDiagrams'
 import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnails'
+import { buildNewDiagramLink } from '@/utils/newDiagramLink'
 
 const loading = ref(true)
 const diagrams = ref<PageDiagram[]>([])
@@ -198,6 +199,9 @@ interface TypeTile {
   icon: string
   example?: string
   macroType: MacroTypeValue
+  /** Storage `diagramType`, used to build the paste-to-create link. Distinct
+   *  from `macroType`, which is the analytics vocabulary. */
+  diagramType: string
 }
 
 /** The picker shown on an empty or unreadable page. `macroType` rides on
@@ -206,6 +210,7 @@ interface TypeTile {
 const DIAGRAM_TYPES: TypeTile[] = [
   {
     key: 'sequence',
+    diagramType: DiagramType.Sequence,
     name: 'Sequence',
     desc: 'Who calls what, in order',
     icon: './image/diagram_macro_icon.png',
@@ -214,6 +219,7 @@ const DIAGRAM_TYPES: TypeTile[] = [
   },
   {
     key: 'flowchart',
+    diagramType: DiagramType.Mermaid,
     name: 'Flowchart',
     desc: 'Mermaid or PlantUML',
     icon: './image/diagram_macro_icon.png',
@@ -222,6 +228,7 @@ const DIAGRAM_TYPES: TypeTile[] = [
   },
   {
     key: 'graph',
+    diagramType: DiagramType.Graph,
     name: 'Graph',
     desc: 'Free-form, DrawIO',
     icon: './image/graph_macro_icon.png',
@@ -229,6 +236,7 @@ const DIAGRAM_TYPES: TypeTile[] = [
   },
   {
     key: 'openapi',
+    diagramType: DiagramType.OpenApi,
     name: 'OpenAPI',
     desc: 'Render a spec inline',
     icon: './image/openapi_macro_icon.png',
@@ -395,11 +403,33 @@ async function onCopySource(d: PageDiagram) {
   })
 }
 
-async function onAddDiagram(macroType?: MacroTypeValue) {
+/**
+ * Put the paste-to-create link for `diagramType` on the clipboard.
+ *
+ * This is the only way a byline iframe can place a typed macro: no API inserts
+ * into the editor, so the user pastes and Confluence's autoConvert turns the
+ * link into the macro at their cursor. Returns whether the clipboard actually
+ * took it, so the caller never claims a copy that did not happen.
+ */
+async function copyNewDiagramLink(diagramType: string): Promise<boolean> {
+  const link = buildNewDiagramLink(diagramType)
+  if (!link) return false
+  try {
+    await navigator.clipboard.writeText(link)
+    return true
+  } catch (e) {
+    console.error('[byline] clipboard write failed', e)
+    return false
+  }
+}
+
+async function onAddDiagram(macroType?: MacroTypeValue, diagramType?: string) {
   acted = true
+  const linkCopied = diagramType ? await copyNewDiagramLink(diagramType) : false
   trackAnalyticsEvent('byline_create_clicked', {
     ...baseProps(),
     ...(macroType ? { macro_type: macroType } : {}),
+    ...(diagramType ? { result: linkCopied ? 'link_copied' : 'link_copy_failed' } : {}),
   })
   try {
     const spaceKey = getSpaceKey() || ''

@@ -41,6 +41,7 @@ import {
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
+import { parseNewDiagramLink, readAutoConvertLink } from '@/utils/newDiagramLink';
 import { maybeGateViewerRender, awaitGateBlocking } from '@/utils/renderGate/maybeGateViewerRender';
 
 // Track editor session start time
@@ -783,6 +784,21 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const skeletonLoader = document.getElementById('skeleton-loader');
     if (skeletonLoader) {
       skeletonLoader.style.display = 'none';
+    }
+
+    // Paste-to-create seeding. A macro produced by pasting a
+    // `https://confluence.zenuml.com/new/<type>` link carries that URL as
+    // `autoConvertLink`; it names the type the user picked in the byline modal,
+    // which is otherwise unknowable here because the editor opens on a blank
+    // macro. Only ever applies to a macro with no stored content — an existing
+    // diagram's own type always wins — so a link that somehow survives on a
+    // saved macro can never re-type it.
+    if (!doc && !customContentId) {
+      const seededType = parseNewDiagramLink(readAutoConvertLink(context));
+      if (seededType) {
+        doc = { ...NULL_DIAGRAM, diagramType: seededType } as Diagram;
+        trackEvent('', 'new_diagram_link_seeded', 'macro', { macro_type: seededType });
+      }
     }
 
     // isSequence / isGraph / isEmbed / isAsyncApiEmbed / isAsyncApi are computed

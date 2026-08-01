@@ -384,3 +384,52 @@ git push -u origin spike/embed-autoconvert-deeplink
 - Analytics (register in `src/utils/analytics/catalog.ts` + `types.ts` as the productization branch's first commit): `embed_autoconvert_rendered`, `embed_autoconvert_foreign_site`, `deeplink_copied` — with `source`, `macro_type`, `match` properties.
 - Lite quota semantics: does an embed-by-paste count toward the 100-macro space limit? Decide before GA.
 - Roll out matcher to full/diagramly/asyncapi manifests (asyncapi also has `zenuml-asyncapi-embed-macro`, `manifest.yml:265`).
+
+---
+
+## Follow-on spike: paste-to-CREATE (`/new/<type>`) — 2026-08-01
+
+Same mechanism, different job. The embed spike converted a link to an
+**existing** diagram; this converts a link into a **new, empty** diagram of a
+chosen type, so the Lite byline type picker can place a macro at the user's
+cursor. Nothing else can: there is no API that inserts a macro into the editor
+from another iframe, and Atlassian's own guidance for programmatic-feeling
+insertion is paste-autoconvert.
+
+**Built (branch `claude/byline-lite-app-growth-dx2r3s`, deployed to lite-stg by CI):**
+
+- `manifest.yml` — `autoConvert.matchers` on the three creation macros:
+  sequence family (`/new/sequence`, `/new/mermaid`, `/new/plantuml`),
+  `zenuml-openapi-macro` (`/new/openapi`), `zenuml-graph-macro` (`/new/graph`).
+  Literal patterns, https only — the manifest reference allows a fully literal
+  URL and requires a separate matcher per protocol.
+- `src/utils/newDiagramLink.ts` — build/parse the link, plus
+  `readAutoConvertLink()`, which reads **three** candidate context paths
+  (`extension.config`, `extension`, `extension.parameters`) precisely because
+  the exact one is what this spike has to confirm; reading a single guessed path
+  and getting it wrong would be indistinguishable from "autoConvert never
+  fired". 13 unit tests.
+- `src/forgeIndex.ts` — seeds a blank macro's `diagramType` from the link,
+  gated on `!doc && !customContentId` so an existing diagram's own type always
+  wins.
+- `BylineDiagrams.vue` — a type tile copies the link before routing to the
+  editor, and the hero copy now says what actually happens rather than
+  promising the macro is pre-placed.
+
+**Questions this spike must answer (needs a human paste — unanswered here):**
+
+1. Does `/new/<type>` convert into the right macro in the current editor? In a
+   Live Doc? (The embed spike proved both for its own pattern.)
+2. Which context path carries `autoConvertLink` for a macro created this way —
+   and does it arrive before the editor picks its type, i.e. does the seeded
+   type actually stick?
+3. Does the converted macro open its editor directly, or insert a placeholder
+   the user must then click?
+4. Version bump stays **minor** (the embed matcher deploy was 16.118.0). Confirm
+   from `forge deploy` output.
+
+**Do not merge to `main` on the strength of the code alone** — this is spike
+scope. Two productization questions are already open from the embed spike and
+apply here unchanged: whether a pasted macro counts toward the Lite 100-macro
+limit, and how the paywall gate applies to a create path that never passes
+through our editor's save flow.

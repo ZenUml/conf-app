@@ -202,6 +202,21 @@ modules:
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/diagram_macro_icon.png
+      # Paste-to-create (byline type picker). Pasting one of these URLs into the
+      # editor converts it into this macro at the cursor; the macro reads
+      # `autoConvertLink` and starts in the named type. There is no API to
+      # insert a macro into the editor from another iframe, so this is the only
+      # way the byline can honour "pick a type and place it here".
+      #
+      # The mechanism is proven on the embed macro — see
+      # docs/superpowers/plans/2026-07-16-embed-autoconvert-deeplink-spike.md:
+      # converts in the current editor AND Live Docs, needs no resolvable URL
+      # (matching is editor-local), and deployed as a MINOR version bump.
+      autoConvert:
+        matchers:
+          - pattern: https://confluence.zenuml.com/new/sequence
+          - pattern: https://confluence.zenuml.com/new/mermaid
+          - pattern: https://confluence.zenuml.com/new/plantuml
       unlicensedAccess:
         - unlicensed
     - key: zenuml-openapi-macro${LITE_KEY_SUFFIX}
@@ -216,6 +231,9 @@ modules:
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/openapi_macro_icon.png
+      autoConvert:
+        matchers:
+          - pattern: https://confluence.zenuml.com/new/openapi
       unlicensedAccess:
         - unlicensed
     - key: zenuml-graph-macro${LITE_KEY_SUFFIX}
@@ -230,6 +248,9 @@ modules:
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/graph_macro_icon.png
+      autoConvert:
+        matchers:
+          - pattern: https://confluence.zenuml.com/new/graph
       unlicensedAccess:
         - unlicensed
     - key: zenuml-embed-macro${LITE_KEY_SUFFIX}

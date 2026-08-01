@@ -3,7 +3,7 @@ import { trackEvent } from '@/utils/window';
 import globals from '@/model/globals';
 import type { LegacyFallback, ResolvedTarget, TargetSpec } from '@/utils/documentOpening/types';
 
-function resolveOpenApiId(context: any): ResolvedTarget | undefined {
+export function resolveOpenApiId(context: any): ResolvedTarget | undefined {
   const configId = context.extension?.config?.customContentId;
   const modalId = context.extension?.modal?.customContentId;
   const contentId = configId || modalId;

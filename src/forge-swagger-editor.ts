@@ -383,10 +383,15 @@ async function initializeMacro() {
       // macro: a fresh save creates a new document, and originalCustomContentId
       // (the now-dead id) still drives deriveWritebackSignals' macroNeedsRepair
       // so the macro config gets repointed at the replacement, mirroring
-      // forge-graph-editor.ts's own not-found repair path.
+      // forge-graph-editor.ts's own not-found repair path. That repoint only
+      // happens on submittable surfaces (inserting || configuring) though —
+      // in the in-viewer Edit modal, decideWriteback correctly returns
+      // needsWriteback: false (issue #170's pre-existing gate) and the macro
+      // keeps pointing at the dead id.
       doc = { ...NULL_DIAGRAM };
       capturedOrigin = {
         originalCustomContentId: outcome.error.customContentId,
+        recoveryPageId,
         recoveredFromOrphan: false,
       };
     }

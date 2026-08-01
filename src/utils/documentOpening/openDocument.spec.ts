@@ -44,7 +44,7 @@ describe('openDocument (Slice 1 core pipeline)', () => {
     const target = baseTarget({
       resolveId: () => undefined,
       onMiss: 'default-doc',
-      defaultDoc: () => NULL_DIAGRAM,
+      defaultDoc: () => ({ ...NULL_DIAGRAM }),
     });
     const outcome = await openDocument({ policy: 'write', context: {}, target });
     expect(outcome).toEqual({

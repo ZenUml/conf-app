@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { buildOpenApiViewerTarget, buildOpenApiEditorTarget } from './openApiTarget';
+import { buildOpenApiViewerTarget, buildOpenApiEditorTarget, resolveOpenApiId } from './openApiTarget';
 import { NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 
 vi.mock('@/model/globals', () => ({
@@ -44,6 +44,14 @@ describe('openApiTarget', () => {
     const second = target.defaultDoc!();
     expect(first).not.toBe(NULL_DIAGRAM);
     expect(first).not.toBe(second);
+  });
+
+  it('resolveOpenApiId is exported directly for reuse outside the TargetSpec (forge-swagger-ui.ts dedupe)', () => {
+    expect(resolveOpenApiId({ extension: { config: { customContentId: 'cc-config' } } }))
+      .toEqual({ contentId: 'cc-config', source: 'config' });
+    expect(resolveOpenApiId({ extension: { modal: { customContentId: 'cc-modal' } } }))
+      .toEqual({ contentId: 'cc-modal', source: 'modal' });
+    expect(resolveOpenApiId({ extension: {} })).toBeUndefined();
   });
 
   it('both targets tag macroType openapi', () => {

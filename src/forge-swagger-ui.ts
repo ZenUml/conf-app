@@ -10,7 +10,7 @@ import { getContext as initForgeContext, openModal } from './model/globals/forge
 import type { Diagram } from "@/model/Diagram/Diagram";
 import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/viewerBootstrap';
 import { openDocument } from '@/utils/documentOpening/openDocument';
-import { buildOpenApiViewerTarget } from '@/utils/documentOpening/targets/openApiTarget';
+import { buildOpenApiViewerTarget, resolveOpenApiId } from '@/utils/documentOpening/targets/openApiTarget';
 import { guardEditClick } from '@/utils/guardEditClick';
 
 async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
@@ -51,10 +51,10 @@ async function initializeMacro() {
     content: OpenApiViewer,
     loadDiagram,
     afterLoad,
-    // Same id `loadDiagram` reads (config, falling back to the dashboard
-    // modal's carried id) above.
-    resolveContentId: (context) =>
-      context.extension?.config?.customContentId || context.extension?.modal?.customContentId,
+    // Same resolver the TargetSpec above uses (config, falling back to the
+    // dashboard modal's carried id) — this also doubles as the SWR cache key,
+    // so it must resolve the SAME id `loadDiagram`'s openDocument() call does.
+    resolveContentId: (context) => resolveOpenApiId(context)?.contentId,
     onError: (error) => {
       console.error('Error loading OpenAPI viewer', error);
     },

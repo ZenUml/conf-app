@@ -1,5 +1,77 @@
 
 import api, { route } from '@forge/api';
+import { plantumlEncode } from './utils/plantuml/encode';
+
+// PlantUML's public server renders straight to a raster from an encoded source,
+// so it needs no DOM — which is what makes it the one diagram type this Forge
+// function (nodejs22.x, no browser) can render on its own. Same server the
+// browser path already uses (model/Attachment.ts), so the source is not newly
+// disclosed to a third party by doing it here.
+const PLANTUML_PNG_SERVER = 'https://www.plantuml.com/plantuml/png/';
+
+/**
+ * Load the macro's diagram from custom content — the system of record, always
+ * present (it is what the macro renders from), and readable with app auth.
+ *
+ * The backup PNG is only ever produced by a *browser* rendering the macro, so
+ * for a macro nobody has opened it has never existed. Custom content is the
+ * only artifact that is guaranteed to be there, which is why the empty
+ * attachment path reads from it rather than from any browser-written artifact
+ * (the diagram-source snapshots are written on the same browser paths as the
+ * PNG, so they are absent for exactly the same macros). See #434 / #73.
+ *
+ * Never throws: this runs on a path that already has a working error document,
+ * and a diagnostic read must not turn a handled failure into an exception.
+ */
+async function fetchDiagramSource(customContentId) {
+  try {
+    const res = await api.asApp().requestConfluence(
+      route`/wiki/api/v2/custom-content/${customContentId}?body-format=raw`,
+    );
+    if (!res.ok) return undefined;
+    const body = await res.json();
+    // A v2 404 comes back as { errors: [...] } with no body.raw.value rather
+    // than a non-ok status — the same shape ApWrapper2 guards against.
+    const raw = body?.body?.raw?.value;
+    if (!raw || body?.errors) return undefined;
+    return JSON.parse(raw);
+  } catch (e) {
+    console.warn(`Export: custom content read failed for ${customContentId}: ${e?.message}`);
+    return undefined;
+  }
+}
+
+/**
+ * Build a PlantUML render URL for a diagram, or undefined when this diagram
+ * isn't PlantUML / carries no source.
+ */
+export function plantUmlRenderUrl(diagram) {
+  if (diagram?.diagramType !== 'plantuml') return undefined;
+  const code = diagram?.plantUmlCode;
+  if (!code) return undefined;
+  return `${PLANTUML_PNG_SERVER}${plantumlEncode(code)}`;
+}
+
+/**
+ * Confirm the render URL actually yields a PNG before handing it to the
+ * exporter.
+ *
+ * The ADF references images by URL (`type: "external"`), so a URL that 404s or
+ * returns an error page would put a broken image in the user's PDF — strictly
+ * worse than the current explanatory message. Fetching it here costs one
+ * request and turns that regression into the existing, handled failure path.
+ */
+async function renderUrlIsLive(url) {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return false;
+    const type = resp.headers?.get?.('content-type') ?? '';
+    return type.includes('image');
+  } catch (e) {
+    console.warn(`Export: PlantUML render probe failed: ${e?.message}`);
+    return false;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Analytics — Phase 1 instrumentation (spec: docs/superpowers/specs/2026-05-12-pdf-export-paywall-strategy-design.md)
@@ -202,9 +274,32 @@ export const handler = async (payload) => {
 
     if (!attachmentsData?.results?.length) {
       console.debug(`Export: ${attachmentName} not found on page ${pageId}`);
+
+      // No attachment means no browser has ever rendered this macro (~79% of
+      // these failures — #434). Fall back to the diagram source and render it
+      // here where we can. Reading it also gives us `macro_type`, which these
+      // events have never carried, so the failing population can finally be
+      // sized per diagram type (#435) — and it cannot be recovered by joining
+      // `macro_viewed`, because these macros have no view events either.
+      const diagram = await fetchDiagramSource(customContentId);
+      const macroType = diagram?.diagramType;
+
+      const renderUrl = plantUmlRenderUrl(diagram);
+      if (renderUrl && await renderUrlIsLive(renderUrl)) {
+        console.info(`Export: server-rendered PlantUML for ${customContentId} (no attachment)`);
+        await trackExportEvent('macro_export_succeeded', {
+          ...joinKeyProps(ctx),
+          macro_type: macroType,
+          render_source: 'server_plantuml',
+          ...fallbackProps(fallbackInfo),
+        });
+        return createMediaDocument(renderUrl);
+      }
+
       await trackExportEvent('macro_export_failed', {
         ...joinKeyProps(ctx),
         failure_reason: 'attachment_not_found',
+        macro_type: macroType,
         ...fallbackProps(fallbackInfo),
       });
       return createErrorDocument("Diagram image not yet generated. Please open the Confluence page containing this diagram to generate it, then export again.");

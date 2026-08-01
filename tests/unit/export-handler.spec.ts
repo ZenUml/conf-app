@@ -327,6 +327,104 @@ describe('Forge export resolver (src/export.js)', () => {
     expect(failed?.properties?.fallback_error_name).toBe('NEEDS_AUTHENTICATION_ERR');
   });
 
+  // #434 / #435 — no attachment means no browser ever rendered this macro.
+  // Fall back to the diagram source: render it here when we can, and record
+  // macro_type either way so the failing population can be sized per type.
+  describe('empty-attachment fallback (#434)', () => {
+    const EMPTY_ATTACHMENTS = {
+      ok: true,
+      status: 200,
+      text: async () => '',
+      json: async () => ({ results: [], _links: { base: 'https://acme.atlassian.net' } }),
+    };
+
+    function customContent(diagram) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => '',
+        json: async () => ({ body: { raw: { value: JSON.stringify(diagram) } } }),
+      };
+    }
+
+    function routeAsApp(diagram) {
+      asAppRequest.mockImplementation(async (url) =>
+        String(url).includes('/custom-content/') ? customContent(diagram) : EMPTY_ATTACHMENTS,
+      );
+    }
+
+    const payload = {
+      context: {
+        cloudId: 'cloud-z',
+        siteUrl: 'https://acme.atlassian.net/wiki',
+        spaceKey: 'SK',
+        extension: { content: { id: '333' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-fallback' } },
+    };
+
+    it('server-renders a PlantUML diagram instead of failing', async () => {
+      routeAsApp({ diagramType: 'plantuml', plantUmlCode: '@startuml\nA -> B\n@enduml' });
+      vi.stubGlobal('fetch', vi.fn(async (url) =>
+        String(url).includes('plantuml.com')
+          ? { ok: true, status: 200, headers: { get: () => 'image/png' }, text: async () => '' }
+          : { ok: true, status: 200, text: async () => '' },
+      ));
+
+      const result = await handler(payload);
+
+      expect(JSON.stringify(result)).toContain('plantuml.com/plantuml/png/');
+      const rows = mixpanelBodiesFromFetch(fetch) as Array<{ event?: string; properties?: any }>;
+      const ok = rows.find((r) => r.event === 'macro_export_succeeded');
+      expect(ok?.properties).toMatchObject({ macro_type: 'plantuml', render_source: 'server_plantuml' });
+      expect(rows.find((r) => r.event === 'macro_export_failed')).toBeUndefined();
+    });
+
+    it('does NOT hand the exporter a URL that does not render (no broken image)', async () => {
+      routeAsApp({ diagramType: 'plantuml', plantUmlCode: '@startuml\nA -> B\n@enduml' });
+      vi.stubGlobal('fetch', vi.fn(async (url) =>
+        String(url).includes('plantuml.com')
+          ? { ok: false, status: 502, headers: { get: () => 'text/html' }, text: async () => '' }
+          : { ok: true, status: 200, text: async () => '' },
+      ));
+
+      const result = await handler(payload);
+
+      expect(JSON.stringify(result)).not.toContain('plantuml.com');
+      const rows = mixpanelBodiesFromFetch(fetch) as Array<{ event?: string; properties?: any }>;
+      expect(rows.find((r) => r.event === 'macro_export_failed')?.properties?.failure_reason)
+        .toBe('attachment_not_found');
+    });
+
+    it('records macro_type on the failure for a type it cannot render', async () => {
+      routeAsApp({ diagramType: 'mermaid', mermaidCode: 'graph TD; A-->B;' });
+
+      const result = await handler(payload);
+
+      const rows = mixpanelBodiesFromFetch(fetch) as Array<{ event?: string; properties?: any }>;
+      expect(rows.find((r) => r.event === 'macro_export_failed')?.properties).toMatchObject({
+        failure_reason: 'attachment_not_found',
+        macro_type: 'mermaid',
+      });
+      expect(JSON.stringify(result)).toContain('not yet generated');
+    });
+
+    it('still fails cleanly when the custom content read fails', async () => {
+      asAppRequest.mockImplementation(async (url) =>
+        String(url).includes('/custom-content/')
+          ? { ok: false, status: 404, text: async () => '', json: async () => ({}) }
+          : EMPTY_ATTACHMENTS,
+      );
+
+      const result = await handler(payload);
+
+      const rows = mixpanelBodiesFromFetch(fetch) as Array<{ event?: string; properties?: any }>;
+      expect(rows.find((r) => r.event === 'macro_export_failed')?.properties?.failure_reason)
+        .toBe('attachment_not_found');
+      expect(JSON.stringify(result)).toContain('not yet generated');
+    });
+  });
+
   it('uses subdomain prefix as client_domain in analytics events', async () => {
     asAppRequest.mockRejectedValue(new Error('forced failure'));
 

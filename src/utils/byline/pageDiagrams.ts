@@ -74,6 +74,37 @@ export function toMacroType(diagramType: string): string {
 }
 
 /**
+ * The `diagramType` to hand `openModal` so forgeIndex routes the modal to the
+ * right viewer.
+ *
+ * A modal opened from the byline carries `moduleKey: 'zenuml-byline-diagrams'`,
+ * not a macro key, so every moduleKey-based discriminator in forgeIndex misses
+ * and `extension.modal.diagramType` is the only signal left. Two consequences:
+ *
+ * - The whole text-DSL family maps to `sequence`. `isSequenceFamilyEntry`
+ *   recognises only `sequence` and `mermaid` as modal types, so a plantuml
+ *   diagram announced as `plantuml` would fall through the routing chain to the
+ *   swagger viewer. They share one macro anyway, and the renderer is chosen
+ *   from the loaded document's own `diagramType`, so the family name is the
+ *   correct routing hint.
+ * - Everything else passes through lowercased to match what forgeIndex compares
+ *   against.
+ */
+const MODAL_ROUTING_TYPE: Record<string, string> = {
+  [DiagramType.Sequence]: 'sequence',
+  [DiagramType.Mermaid]: 'mermaid',
+  [DiagramType.PlantUml]: 'sequence',
+  [DiagramType.Graph]: 'graph',
+  [DiagramType.OpenApi]: 'openapi',
+  [DiagramType.AsyncApi]: 'asyncapi',
+  [DiagramType.Embed]: 'embed',
+}
+
+export function toModalDiagramType(diagramType: string): string {
+  return MODAL_ROUTING_TYPE[diagramType] || 'sequence'
+}
+
+/**
  * Turn raw `/api/v2/pages/{id}/custom-content?body-format=raw` responses into
  * the modal's list. Accepts the array of responses (one per probed content
  * type) exactly as the REST layer returns them, including error-shaped ones.

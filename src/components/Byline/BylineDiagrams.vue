@@ -156,6 +156,7 @@ import {
   summarizeDiagrams,
   typeLabel,
   toMacroType,
+  toModalDiagramType,
   type PageDiagram,
 } from '@/utils/byline/pageDiagrams'
 import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnails'
@@ -330,14 +331,19 @@ function onRetry() {
 }
 
 /**
- * Open the clicked diagram.
+ * Open the clicked diagram in the fullscreen viewer.
  *
  * The design's first choice was scrolling the host page to the macro via a URL
  * fragment, with an explicit instruction to confirm the anchor form against a
  * real rendered page first and to fall back to opening the diagram fullscreen
  * if it could not be made reliable. That confirmation needs a browser, so this
- * takes the documented fallback: the same `openModal` viewer the AsyncAPI
- * dashboard already uses to open a diagram from a non-macro surface.
+ * takes the documented fallback.
+ *
+ * `macroMode` MUST be `'fullscreen'`, not `'viewer'`: `isFullscreenMode()`
+ * (model/globals/forgeGlobal.ts) is what GenericViewer reads to switch to the
+ * centred, full-height layout and drop the inline toolbar. With `'viewer'` the
+ * diagram renders in its small inline form pinned to the top-left of a
+ * fullscreen modal — which is exactly what shipped and got reported.
  */
 async function onOpenDiagram(d: PageDiagram) {
   acted = true
@@ -350,8 +356,8 @@ async function onOpenDiagram(d: PageDiagram) {
       resource: 'main',
       size: 'fullscreen',
       context: {
-        macroMode: 'viewer',
-        diagramType: d.diagramType,
+        macroMode: 'fullscreen',
+        diagramType: toModalDiagramType(d.diagramType),
         customContentId: d.id,
       },
     })

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parsePageDiagrams, summarizeDiagrams, typeLabel, toMacroType } from './pageDiagrams'
+import { parsePageDiagrams, summarizeDiagrams, typeLabel, toMacroType, toModalDiagramType } from './pageDiagrams'
 import { DiagramType } from '@/model/Diagram/Diagram'
 
 const child = (id: string, title: string, body: any) => ({
@@ -126,6 +126,28 @@ describe('toMacroType', () => {
   it('maps anything unrecognised to a value the catalog already defines', () => {
     expect(toMacroType(DiagramType.Unknown)).toBe('none')
     expect(toMacroType('something-new')).toBe('none')
+  })
+})
+
+describe('toModalDiagramType', () => {
+  it('routes the whole text-DSL family as sequence', () => {
+    // isSequenceFamilyEntry only recognises 'sequence'/'mermaid' as modal
+    // types, so announcing 'plantuml' would fall through to the swagger viewer.
+    expect(toModalDiagramType(DiagramType.Sequence)).toBe('sequence')
+    expect(toModalDiagramType(DiagramType.PlantUml)).toBe('sequence')
+    expect(toModalDiagramType(DiagramType.Mermaid)).toBe('mermaid')
+  })
+
+  it('routes the moduleKey-discriminated types by their lowercase name', () => {
+    expect(toModalDiagramType(DiagramType.Graph)).toBe('graph')
+    expect(toModalDiagramType(DiagramType.Embed)).toBe('embed')
+    expect(toModalDiagramType(DiagramType.OpenApi)).toBe('openapi')
+    expect(toModalDiagramType(DiagramType.AsyncApi)).toBe('asyncapi')
+  })
+
+  it('falls back to the family that can render an unknown body', () => {
+    expect(toModalDiagramType(DiagramType.Unknown)).toBe('sequence')
+    expect(toModalDiagramType('something-new')).toBe('sequence')
   })
 })
 

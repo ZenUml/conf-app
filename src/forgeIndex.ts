@@ -269,8 +269,15 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // openapi/graph/embed. The load block below is therefore gated on isSequence.
     // See src/utils/macroEntryRouting.ts.
     const isSequence = isSequenceFamilyEntry(context.moduleKey, context.extension.modal?.diagramType);
-    const isGraph = context.moduleKey.startsWith('zenuml-graph-macro');
-    const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
+    // The `modal?.diagramType` arms exist for modals opened from a NON-macro
+    // surface — the Lite byline modal opens a diagram with
+    // `moduleKey: 'zenuml-byline-diagrams'`, so every moduleKey test here misses
+    // and the routing chain would fall through to the swagger viewer. This
+    // mirrors what isSequenceFamilyEntry already does with the same field.
+    const isGraph = context.moduleKey.startsWith('zenuml-graph-macro')
+      || context.extension.modal?.diagramType === 'graph';
+    const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro')
+      || context.extension.modal?.diagramType === 'embed';
     // AsyncAPI ships two macros — `zenuml-asyncapi-macro` (page-rendered
     // spec, each instance owns its own custom-content doc) and
     // `zenuml-asyncapi-embed-macro` (references an existing doc by

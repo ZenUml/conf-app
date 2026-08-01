@@ -88,6 +88,12 @@ export class Diagram {
   snapshotFallback?: boolean = undefined;
   // ISO timestamp of the snapshot attachment used for snapshotFallback.
   snapshotAt?: string = undefined;
+  // Slice 1 of the content-opening unification: set when openDocument's
+  // resolution totally failed (an id existed but every direct fetch, orphan
+  // recovery, and legacy fallback missed). OpenApiViewer.vue (and later
+  // families as they migrate) render a terminal message instead of silently
+  // falling back to an example/blank document.
+  loadError?: { kind: 'not_found'; customContentId?: string } = undefined;
 
   public getCoreData?(): string {
     return getDiagramData(this);

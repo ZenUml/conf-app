@@ -1,6 +1,9 @@
 <template>
 <generic-viewer :wide="true" :hideHeader="hideHeader">
-  <div id="swagger-ui" ref="swaggerUi"></div>
+  <div v-if="loadError" class="openapi-load-error" role="status">
+    This diagram isn't available.
+  </div>
+  <div v-else id="swagger-ui" ref="swaggerUi"></div>
 </generic-viewer>
 </template>
 
@@ -29,21 +32,31 @@ export default {
     return { renderReported: false };
   },
   mounted() {
-    this.initSwaggerUi();
-    this.updateSpecFromDiagram();
+    // Slice 1 (Diagram.loadError): nothing to mount SwaggerUI onto when the
+    // document totally failed to resolve — the template renders a terminal
+    // message instead. reportRenderOnce() still runs unconditionally below:
+    // macro_viewed is a readership metric, not success-only.
+    if (!this.loadError) {
+      this.initSwaggerUi();
+      this.updateSpecFromDiagram();
+    }
     this.reportRenderOnce();
   },
   watch: {
     doc: {
       handler() {
-        this.updateSpecFromDiagram();
+        if (!this.loadError) {
+          this.updateSpecFromDiagram();
+        }
         this.reportRenderOnce();
       },
       deep: true
     },
     storeDiagram: {
       handler() {
-        this.updateSpecFromDiagram();
+        if (!this.loadError) {
+          this.updateSpecFromDiagram();
+        }
       },
       deep: true
     },
@@ -60,6 +73,9 @@ export default {
     },
     effectiveDoc() {
       return this.doc ?? this.storeDiagram;
+    },
+    loadError() {
+      return this.effectiveDoc?.loadError ?? null;
     }
   },
   methods: {

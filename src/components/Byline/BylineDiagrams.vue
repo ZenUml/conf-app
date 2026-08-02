@@ -75,25 +75,6 @@
 
     </div>
 
-    <!-- Type strip. Present whenever the page already has diagrams: the picker
-         is the only place a type can be chosen, so hiding it behind a single
-         "Add a diagram" tile made every type but the default two clicks further
-         away on exactly the pages people add diagrams to most. -->
-    <div v-if="!createdLink && !loading && diagrams.length" class="typestrip" data-testid="byline-type-strip">
-      <span class="typestrip__label">Add</span>
-      <button
-        v-for="t in DIAGRAM_TYPES"
-        :key="t.key"
-        class="typestrip__btn"
-        :data-testid="`byline-strip-${t.key}`"
-        :disabled="creating"
-        @click="onAddDiagram(t.macroType, t.diagramType)"
-      >
-        <img class="typestrip__icon" :src="t.icon" alt="" />
-        <span>{{ t.name }}</span>
-      </button>
-    </div>
-
     <!-- State 4: the listing failed. Creating still works, so the picker stays
          and only the banner explains what happened. -->
     <div v-else-if="failed" class="byline__body byline__body--stack" data-testid="byline-failed">
@@ -153,6 +134,30 @@
         </div>
       </div>
     </div>
+
+    <!-- Type strip. Sits AFTER the whole v-if/v-else-if chain above, never
+         inside it: a v-else-if must immediately follow its sibling, so a plain
+         v-if wedged between two branches re-parents everything after it and the
+         trailing v-else (the type tiles) starts rendering alongside the
+         created-link panel instead of as its alternative.
+
+         Shown only alongside the list — the empty and failed states already
+         show the full tile grid. -->
+    <div v-if="!createdLink && !loading && diagrams.length" class="typestrip" data-testid="byline-type-strip">
+      <span class="typestrip__label">Add</span>
+      <button
+        v-for="t in DIAGRAM_TYPES"
+        :key="t.key"
+        class="typestrip__btn"
+        :data-testid="`byline-strip-${t.key}`"
+        :disabled="creating"
+        @click="onAddDiagram(t.macroType, t.diagramType)"
+      >
+        <img class="typestrip__icon" :src="t.icon" alt="" />
+        <span>{{ t.name }}</span>
+      </button>
+    </div>
+
 
     <!-- Footer. Pinned in every state; only the hint and the right slot vary. -->
     <div class="byline__footer">

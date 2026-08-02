@@ -677,10 +677,13 @@ async function onLearnMore() {
 .byline__body--grid {
   padding: 16px 20px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* Columns adapt to the viewport instead of being pinned at two: the modal is
+     fullscreen, where 1fr 1fr would give two absurdly wide cards on a desktop
+     and the same two on a laptop. */
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   /* Rows size to content, capped, rather than dividing the modal in two. A
      fixed `1fr 1fr` reserved a second row even for a single diagram — visible
-     as an empty band — and at the larger viewport it either stretched two cards
+     as an empty band — and at a larger viewport it either stretched two cards
      over the whole modal or left half of it blank. */
   grid-auto-rows: minmax(150px, 300px);
   align-content: start;

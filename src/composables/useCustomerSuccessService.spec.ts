@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useCustomerSuccessService } from './useCustomerSuccessService'
+import { getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 
 // Mock dependencies
 vi.mock('@/apis/featureFlags', () => ({
@@ -291,5 +292,29 @@ describe('useCustomerSuccessService - cohort refresh wiring', () => {
     await initialize()
 
     expect(refreshUserCohortsIfStale).not.toHaveBeenCalled()
+  })
+})
+
+describe('useCustomerSuccessService - enterprise bundle attribution', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    vi.mocked(getSpaceKey).mockReturnValue('ENG')
+    ;(useCustomerSuccessService as any).__resetForTests()
+  })
+
+  it('rides a tenant__space client_reference_id on the Stripe Payment Link', () => {
+    const { enterpriseBundleUrl } = useCustomerSuccessService()
+    const url = new URL(enterpriseBundleUrl.value)
+    expect(`${url.origin}${url.pathname}`).toBe('https://buy.stripe.com/cNifZifkN7hzavK12H7IY05')
+    expect(url.searchParams.get('client_reference_id')).toBe('test-domain__ENG')
+  })
+
+  it('sanitises characters Stripe rejects — a personal space key ("~…") must not void the parameter', () => {
+    vi.mocked(getSpaceKey).mockReturnValue('~7120201234abc')
+    const { enterpriseBundleUrl } = useCustomerSuccessService()
+    const reference = new URL(enterpriseBundleUrl.value).searchParams.get('client_reference_id')
+    expect(reference).toBe('test-domain___7120201234abc')
+    expect(reference).toMatch(/^[A-Za-z0-9_-]+$/)
   })
 })

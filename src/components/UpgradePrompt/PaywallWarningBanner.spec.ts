@@ -32,23 +32,20 @@ vi.mock('@/utils/paywall/spaceAdminProbe', () => ({
 
 const closeView = vi.fn()
 
-vi.mock('@/utils/upgradeTracking', () => ({
-  trackUpgradeEvent: vi.fn(),
-  UpgradeEventName: {
-    PAYWALL_BANNER_SHOWN: 'paywall_banner_shown',
-    PAYWALL_BANNER_DISMISSED: 'paywall_banner_dismissed',
-    PAYWALL_BUNDLE_CTA_CLICKED: 'paywall_bundle_cta_clicked',
-    ADVOCACY_MESSAGE_COPIED: 'advocacy_message_copied',
-    EXTENSION_REQUEST_CLICKED: 'extension_request_clicked',
-  },
-}))
+// Keep the real module (enum + bundleClientReferenceId) and stub only the
+// tracker — the component parses client_reference_id off the bundle URL via
+// the real helper at click time.
+vi.mock('@/utils/upgradeTracking', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/upgradeTracking')>()
+  return { ...actual, trackUpgradeEvent: vi.fn() }
+})
 
 vi.mock('@/composables/useCustomerSuccessService', () => ({
   // The component only reads `.value` on these (pure URL refs), so plain
   // { value } stand-ins suffice — no need to import vue's ref into the factory.
   useCustomerSuccessService: () => ({
     upgradeUrl: { value: 'https://upgrade.example.com' },
-    enterpriseBundleUrl: { value: 'https://bundle.example.com' },
+    enterpriseBundleUrl: { value: 'https://bundle.example.com/pay?client_reference_id=acme__ENG' },
   }),
   MACROS_LIMIT: 100,
 }))
@@ -163,9 +160,10 @@ describe('PaywallWarningBanner (page banner)', () => {
           bundle_price_usd: 299,
           is_space_admin: true,
           banner_audience: 'space_admin',
+          client_reference_id: 'acme__ENG',
         })
       )
-      expect(openUrl).toHaveBeenCalledWith('https://bundle.example.com')
+      expect(openUrl).toHaveBeenCalledWith('https://bundle.example.com/pay?client_reference_id=acme__ENG')
     })
 
     it('tags the impression as the space_admin audience', async () => {

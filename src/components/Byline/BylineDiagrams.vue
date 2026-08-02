@@ -135,29 +135,38 @@
       </div>
     </div>
 
-    <!-- Type strip. Sits AFTER the whole v-if/v-else-if chain above, never
-         inside it: a v-else-if must immediately follow its sibling, so a plain
-         v-if wedged between two branches re-parents everything after it and the
-         trailing v-else (the type tiles) starts rendering alongside the
-         created-link panel instead of as its alternative.
+    <!-- Add-a-diagram tiles. Sits AFTER the whole v-if/v-else-if chain above,
+         never inside it: a v-else-if must immediately follow its sibling, so a
+         plain v-if wedged between two branches re-parents everything after it
+         and the trailing v-else starts rendering alongside the created-link
+         panel instead of as its alternative.
 
-         Shown only alongside the list — the empty and failed states already
-         show the full tile grid. -->
-    <div v-if="!createdLink && !loading && diagrams.length" class="typestrip" data-testid="byline-type-strip">
-      <span class="typestrip__label">Add</span>
-      <button
-        v-for="t in DIAGRAM_TYPES"
-        :key="t.key"
-        class="typestrip__btn"
-        :data-testid="`byline-strip-${t.key}`"
-        :disabled="creating"
-        @click="onAddDiagram(t.macroType, t.diagramType)"
-      >
-        <img class="typestrip__icon" :src="t.icon" alt="" />
-        <span>{{ t.name }}</span>
-      </button>
+         Same tiles as the empty state, laid out in one row — a page that
+         already has diagrams is exactly where the next one gets added, so the
+         picker has to be as reachable here as it is on a blank page. Shown only
+         alongside the list; the empty and failed states carry their own grid. -->
+    <div v-if="!createdLink && !loading && diagrams.length" class="addtiles" data-testid="byline-type-strip">
+      <div class="addtiles__label">Add a diagram</div>
+      <div class="typegrid typegrid--row">
+        <div
+          v-for="t in DIAGRAM_TYPES"
+          :key="t.key"
+          class="tile"
+          :class="{ 'tile--busy': creating }"
+          :data-testid="`byline-type-${t.key}`"
+          @click="!creating && onAddDiagram(t.macroType, t.diagramType)"
+        >
+          <div class="tile__preview">
+            <img v-if="t.example" class="tile__example" :src="t.example" alt="" />
+            <img v-else class="tile__bigicon" :src="t.icon" alt="" />
+          </div>
+          <div class="tile__label tile__label--compact">
+            <img class="tile__icon" :src="t.icon" alt="" />
+            <span class="tile__name">{{ t.name }}</span>
+          </div>
+        </div>
+      </div>
     </div>
-
 
     <!-- Footer. Pinned in every state; only the hint and the right slot vary. -->
     <div class="byline__footer">
@@ -979,47 +988,35 @@ async function onLearnMore() {
 }
 
 /* Sits between the scrolling body and the footer, so it never scrolls away. */
-.typestrip {
+.addtiles {
   flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
+  padding: 12px 20px;
   border-top: 1px solid #ebecf0;
   background: #fff;
 }
-.typestrip__label {
+.addtiles__label {
   font-size: 12px;
   color: #5e6c84;
+  margin-bottom: 8px;
+}
+/* One row of four, with a short preview: enough to recognise the type at a
+   glance without taking the height the list needs. */
+.typegrid--row {
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: none;
+  gap: 10px;
   flex: none;
 }
-.typestrip__btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid #dfe1e6;
-  border-radius: 3px;
-  background: #fff;
-  color: #172b4d;
-  font-family: inherit;
-  font-size: 13px;
-  padding: 5px 10px;
-  cursor: pointer;
+.typegrid--row .tile__preview {
+  flex: none;
+  height: 64px;
 }
-.typestrip__btn:hover:not(:disabled) {
-  border-color: #0052cc;
-  color: #0052cc;
-  background: #f7f8f9;
+.typegrid--row .tile__label {
+  padding: 7px 10px;
 }
-.typestrip__btn:disabled {
+.tile--busy {
   opacity: 0.5;
   cursor: default;
-}
-.typestrip__icon {
-  width: 16px;
-  height: 16px;
-  object-fit: contain;
-  flex: none;
 }
 
 .byline__footer {

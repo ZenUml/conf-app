@@ -46,7 +46,7 @@
     </div>
 
     <!-- State 1: the page has diagrams. -->
-    <div v-else-if="diagrams.length" class="byline__body byline__body--grid" :class="{ 'byline__body--paged': diagrams.length > 3 }" data-testid="byline-list">
+    <div v-else-if="diagrams.length" class="byline__body byline__body--grid" :class="{ 'byline__body--paged': diagrams.length > 4 }" data-testid="byline-list">
       <div
         v-for="d in diagrams"
         :key="d.id"
@@ -73,11 +73,25 @@
         </div>
       </div>
 
-      <!-- Always the last cell, so the grid is never ragged. -->
-      <div class="addtile" data-testid="byline-add-tile" @click="onAddDiagram()">
-        <span class="addtile__plus">+</span>
-        <span class="addtile__label">Add a diagram</span>
-      </div>
+    </div>
+
+    <!-- Type strip. Present whenever the page already has diagrams: the picker
+         is the only place a type can be chosen, so hiding it behind a single
+         "Add a diagram" tile made every type but the default two clicks further
+         away on exactly the pages people add diagrams to most. -->
+    <div v-if="!createdLink && !loading && diagrams.length" class="typestrip" data-testid="byline-type-strip">
+      <span class="typestrip__label">Add</span>
+      <button
+        v-for="t in DIAGRAM_TYPES"
+        :key="t.key"
+        class="typestrip__btn"
+        :data-testid="`byline-strip-${t.key}`"
+        :disabled="creating"
+        @click="onAddDiagram(t.macroType, t.diagramType)"
+      >
+        <img class="typestrip__icon" :src="t.icon" alt="" />
+        <span>{{ t.name }}</span>
+      </button>
     </div>
 
     <!-- State 4: the listing failed. Creating still works, so the picker stays
@@ -753,34 +767,6 @@ async function onLearnMore() {
   color: #5e6c84;
 }
 
-/* Add tile ---------------------------------------------------------------- */
-.addtile {
-  border: 1px dashed #c1c7d0;
-  border-radius: 6px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  color: #5e6c84;
-  cursor: pointer;
-  min-height: 0;
-}
-.addtile:hover {
-  border-color: #0052cc;
-  color: #0052cc;
-  background: #f7f8f9;
-}
-.addtile__plus {
-  font-size: 22px;
-  font-weight: 300;
-  line-height: 1;
-}
-.addtile__label {
-  font-size: 13px;
-  font-weight: 500;
-}
-
 /* Empty / failed states --------------------------------------------------- */
 .hero {
   flex: none;
@@ -983,6 +969,50 @@ async function onLearnMore() {
   background: #f4f5f7;
   border-radius: 3px;
   padding: 4px 6px;
+}
+
+/* Sits between the scrolling body and the footer, so it never scrolls away. */
+.typestrip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-top: 1px solid #ebecf0;
+  background: #fff;
+}
+.typestrip__label {
+  font-size: 12px;
+  color: #5e6c84;
+  flex: none;
+}
+.typestrip__btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  background: #fff;
+  color: #172b4d;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.typestrip__btn:hover:not(:disabled) {
+  border-color: #0052cc;
+  color: #0052cc;
+  background: #f7f8f9;
+}
+.typestrip__btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.typestrip__icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  flex: none;
 }
 
 .byline__footer {

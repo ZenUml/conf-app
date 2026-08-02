@@ -441,7 +441,10 @@ modules:
       title: Diagrams
       icon: resource:main;image/zenuml_logo.png
       tooltip: See the diagrams on this page, or add one
-      viewportSize: medium
+      # `large`, not `medium`: at medium (618x529) the 2x2 preview grid leaves
+      # each card barely taller than its own meta block, and the type strip has
+      # to compete with it for the same height.
+      viewportSize: large
       viewportContainer: modal
       resolver:
         endpoint: remote-connect

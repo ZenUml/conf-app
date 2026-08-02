@@ -110,10 +110,45 @@ export function applyNewDiagramLink<T extends { diagramType?: string }>(
   link: unknown,
   hasStoredContent: boolean,
 ): { doc: T | undefined; seededType?: DiagramType } {
-  if (hasStoredContent) return { doc }
-  const seededType = parseNewDiagramLink(link)
-  if (!seededType) return { doc }
+  return applyRequestedDiagramType(doc, parseNewDiagramLink(link), hasStoredContent)
+}
+
+/** Modal `diagramType` (the routing vocabulary forgeIndex compares against) →
+ *  the storage type a seeded doc needs. */
+const DIAGRAM_TYPE_BY_MODAL_TYPE: Record<string, DiagramType> = {
+  sequence: DiagramType.Sequence,
+  mermaid: DiagramType.Mermaid,
+  plantuml: DiagramType.PlantUml,
+  graph: DiagramType.Graph,
+  openapi: DiagramType.OpenApi,
+  asyncapi: DiagramType.AsyncApi,
+}
+
+export function diagramTypeFromModalType(modalType: unknown): DiagramType | undefined {
+  if (typeof modalType !== 'string') return undefined
+  return DIAGRAM_TYPE_BY_MODAL_TYPE[modalType.toLowerCase()]
+}
+
+/**
+ * Seed a fresh macro's type from whatever asked for it — a pasted link, or the
+ * `modal.diagramType` of an editor opened from a non-macro surface.
+ *
+ * The second source is why this is shared. The byline type picker opens the
+ * editor with `modal.diagramType`, but forgeIndex only ever consulted that
+ * field for ROUTING; the doc itself kept the sequence-family placeholder's
+ * `Sequence`, so picking Flowchart and picking Sequence both opened a sequence
+ * editor.
+ *
+ * `hasStoredContent` is the "leave it alone" signal — an existing diagram's own
+ * type always wins.
+ */
+export function applyRequestedDiagramType<T extends { diagramType?: string }>(
+  doc: T | undefined,
+  requested: DiagramType | undefined,
+  hasStoredContent: boolean,
+): { doc: T | undefined; seededType?: DiagramType } {
+  if (hasStoredContent || !requested) return { doc }
   // Keep the placeholder's example bodies and isNew flag; only the type moves.
-  const next = (doc ? { ...doc, diagramType: seededType } : { diagramType: seededType }) as T
-  return { doc: next, seededType }
+  const next = (doc ? { ...doc, diagramType: requested } : { diagramType: requested }) as T
+  return { doc: next, seededType: requested }
 }

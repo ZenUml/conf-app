@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { applyNewDiagramLink, buildNewDiagramLink, parseNewDiagramLink, readAutoConvertLink } from './newDiagramLink'
+import { applyNewDiagramLink, applyRequestedDiagramType, buildNewDiagramLink, diagramTypeFromModalType, parseNewDiagramLink, readAutoConvertLink } from './newDiagramLink'
 import { DiagramType } from '@/model/Diagram/Diagram'
 
 describe('buildNewDiagramLink', () => {
@@ -122,5 +122,32 @@ describe('applyNewDiagramLink', () => {
     const { doc, seededType } = applyNewDiagramLink(placeholder, undefined, false)
     expect(seededType).toBeUndefined()
     expect(doc).toBe(placeholder)
+  })
+})
+
+describe('diagramTypeFromModalType / applyRequestedDiagramType', () => {
+  it('maps the routing vocabulary back to storage types', () => {
+    expect(diagramTypeFromModalType('mermaid')).toBe(DiagramType.Mermaid)
+    expect(diagramTypeFromModalType('graph')).toBe(DiagramType.Graph)
+    expect(diagramTypeFromModalType('openapi')).toBe(DiagramType.OpenApi)
+    expect(diagramTypeFromModalType('nonsense')).toBeUndefined()
+    expect(diagramTypeFromModalType(undefined)).toBeUndefined()
+  })
+
+  it('retypes the placeholder so Flowchart does not open a sequence editor', () => {
+    const placeholder = { diagramType: DiagramType.Sequence, mermaidCode: 'graph TD;', isNew: true }
+    const { doc, seededType } = applyRequestedDiagramType(placeholder, DiagramType.Mermaid, false)
+    expect(seededType).toBe(DiagramType.Mermaid)
+    expect(doc).toMatchObject({ diagramType: DiagramType.Mermaid, mermaidCode: 'graph TD;', isNew: true })
+  })
+
+  it('never touches a macro that already has stored content', () => {
+    const stored = { diagramType: DiagramType.Sequence }
+    expect(applyRequestedDiagramType(stored, DiagramType.Graph, true).doc).toBe(stored)
+  })
+
+  it('is a no-op when nothing was requested', () => {
+    const placeholder = { diagramType: DiagramType.Sequence }
+    expect(applyRequestedDiagramType(placeholder, undefined, false).doc).toBe(placeholder)
   })
 })

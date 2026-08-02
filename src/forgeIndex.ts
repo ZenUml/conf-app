@@ -41,7 +41,7 @@ import {
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
-import { applyNewDiagramLink, readAutoConvertLink } from '@/utils/newDiagramLink';
+import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink } from '@/utils/newDiagramLink';
 import { resolveLocalTypedContentId } from '@/utils/embedDeeplink';
 import { maybeGateViewerRender, awaitGateBlocking } from '@/utils/renderGate/maybeGateViewerRender';
 
@@ -813,8 +813,22 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     {
       const seeded = applyNewDiagramLink(doc, readAutoConvertLink(context), !!customContentId);
       doc = seeded.doc;
-      if (seeded.seededType) {
-        trackEvent('', 'new_diagram_link_seeded', 'macro', { macro_type: seeded.seededType });
+      // Second source: an editor opened from a non-macro surface (the byline
+      // type picker) states the chosen type in `modal.diagramType`. forgeIndex
+      // consulted that field for ROUTING only, so the doc kept the
+      // sequence-family placeholder's Sequence and picking Flowchart opened a
+      // sequence editor.
+      const fromModal = seeded.seededType
+        ? { doc, seededType: undefined as any }
+        : applyRequestedDiagramType(
+            doc,
+            diagramTypeFromModalType(context.extension.modal?.diagramType),
+            !!customContentId,
+          );
+      doc = fromModal.doc;
+      const seededType = seeded.seededType || fromModal.seededType;
+      if (seededType) {
+        trackEvent('', 'new_diagram_link_seeded', 'macro', { macro_type: seededType });
       }
     }
 

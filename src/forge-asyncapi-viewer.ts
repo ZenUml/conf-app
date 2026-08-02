@@ -2,7 +2,8 @@
 //
 // 1. Macro context (page-rendered AsyncAPI macro): mount AsyncApiMacroViewer
 //    (Vue) so the spec render sits inside GenericViewer — full host chrome
-//    (Edit, Fullscreen, Copy code, Export PNG, Versions, Copy link).
+//    (Edit, Fullscreen, Export PNG, Versions, Copy page link — no diagram
+//    deeplink button, since asyncapi has no mapped deeplink host).
 //    Edit opens the editor modal via EventBus, matching the OpenAPI viewer.
 //
 // 2. Modal context (dashboard's "View" flow): render the React
@@ -22,6 +23,7 @@ import { Diagram, DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram'
 import { saveToPlatform } from '@/model/ContentProvider/Persistence'
 import { buildAsyncApiSaveDiagram } from '@/model/asyncapi/buildSaveDiagram'
 import { mountRoot } from '@/mount-root'
+import { guardEditClick } from '@/utils/guardEditClick'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import EventBus from './EventBus'
 
@@ -46,7 +48,11 @@ async function initializeMacro() {
   let loadError: string | undefined
   if (customContentId) {
     try {
-      const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId)
+      // Zero-network viewer copy check — see forge-graph-viewer.ts. Same-page
+      // duplicates are caught on the Edit click (utils/guardEditClick.ts).
+      const customContent = await globals.apWrapper.getCustomContentByIdV2(
+        customContentId, { copyCheckMode: 'cross-page-only' },
+      )
       existing = customContent?.value as Diagram | undefined
       const stored = existing?.code
       if (typeof stored === 'string') spec = stored
@@ -148,7 +154,7 @@ async function initializeMacro() {
   } else {
     // -------- Page-rendered macro path --------
     // Mount the Vue wrapper so GenericViewer's chrome (Edit / Fullscreen /
-    // Export PNG / Versions / Copy link) shows up around the spec.
+    // Export PNG / Versions / Copy page link) shows up around the spec.
     const [{ default: AsyncApiMacroViewer }] = await Promise.all([
       import('@/components/Viewer/AsyncApiViewer/AsyncApiMacroViewer.vue'),
     ])
@@ -174,6 +180,10 @@ void initializeMacro()
 // Studio chrome.
 EventBus.$on('edit', async () => {
   try {
+    // Same-page duplicate gate — see forge-graph-viewer.ts. Memoized, so the
+    // shared forgeIndex listener firing on this same click costs no extra GET.
+    if (!(await guardEditClick({ customContentId: viewerCustomContentId, macroType: 'asyncapi' }))) return;
+
     trackAnalyticsEvent('macro_edit_opened', {
       feature_area: 'macro',
       surface: 'viewer',

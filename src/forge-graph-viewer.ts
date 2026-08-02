@@ -15,6 +15,7 @@ import {
 import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
 import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
+import { guardEditClick } from '@/utils/guardEditClick';
 
 async function loadDiagram(): Promise<Diagram | undefined> {
   const context = await initForgeContext();
@@ -27,7 +28,15 @@ async function loadDiagram(): Promise<Diagram | undefined> {
   const pageId = context.extension?.content?.id;
   if(!customContentId) {
   } else {
-    const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(pageId, customContentId);
+    // Viewer copy check is the zero-network cross-page comparison only. The
+    // full-page ADF scan it replaces was ~15% of a graph render's p50
+    // (354ms of 2338ms, 7d external) and its ONLY viewer-visible product —
+    // disabling Edit on a same-page duplicate — is now produced on demand by
+    // the Edit click gate (utils/guardEditClick.ts). The editor keeps the
+    // blocking full scan, which is what guards the save-fork path.
+    const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(
+      pageId, customContentId, { copyCheckMode: 'cross-page-only' },
+    );
     console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
     if (loaded.recoveredFromOrphanId && doc) {
@@ -156,6 +165,8 @@ async function initializeMacro() {
     content: ForgeGraphViewer,
     loadDiagram,
     afterLoad,
+    // Same id `loadDiagram` reads off `context.extension.config` above.
+    resolveContentId: (context) => context.extension?.config?.customContentId,
     onError: (error) => {
       console.error('Error loading graph viewer', error);
     },
@@ -166,6 +177,16 @@ async function initializeMacro() {
 export default initializeMacro();
 
 EventBus.$on('edit', async () => {
+  // Same-page duplicate gate — the viewer load no longer scans the page ADF,
+  // so this click is where a shared customContentId is caught. The guard is
+  // memoized: forgeIndex.ts's shared-entry listener fires on this same click
+  // and consults it too, but the page GET is paid once.
+  const ctx = await initForgeContext();
+  if (!(await guardEditClick({
+    customContentId: ctx.extension?.config?.customContentId,
+    macroType: 'graph',
+  }))) return;
+
   await openModal({
     resource: 'main',
     onClose: (payload: any) => {

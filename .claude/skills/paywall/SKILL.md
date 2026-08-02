@@ -142,6 +142,8 @@ The legacy MCP-based approach below is preserved for the cases where the script 
 "breakdowns": [{"metric": {"type": "property", "propertyName": "client_domain", "propertyType": "string", "resource": "event"}}]
 ```
 
+**Filter shapes (MCP fallback, verified 2026-07-28):** string filters take a SINGLE value — no arrays (`{"type":"string","propertyName":"client_domain","operator":"equals","value":"<one-domain>"}`). For a domain list, either breakdown by `client_domain` and filter rows client-side, or use one metric per domain with metric-level `filters`. Boolean filters need both operator and value: `{"type":"boolean","propertyName":"is_internal_client_domain","operator":"false","value":false}`. For per-editor (champion-structure) breakdowns use `user_account_id` — breaking down by `distinct_id` returns a single `"undefined"` bucket.
+
 The daily script runs these events in parallel internally.
 
 **Q1 — Paywall block events**
@@ -629,6 +631,26 @@ When the paywall modal appears at editor mount (e.g. inserting/editing a Lite ma
 space like `ZEN` or `SD`), click the modal's **"Continue editing"** button to proceed into the editor.
 This is the intended in-product bypass — do NOT read paywall code or hunt for `localStorage` overrides
 (`mockSpacePaid` etc.) to suppress it.
+
+**The modal DOM lives INSIDE the Forge iframe, not the top-level page.** Detecting it with
+`page.evaluate(() => document.body.innerText)` on the Confluence page returns nothing and reads as
+"no paywall" — that false negative cost a wrongly-abandoned spot check on 2026-07-25. Find the frame
+first, then assert/click inside it:
+
+```js
+const host = page.frames().find(async f => /reached the ZenUML Lite limit/i.test(await f.evaluate(() => document.body?.innerText || '')));
+await host.locator('[data-testid="continue-editing-btn"]').first().click();  // label: "Continue editing without upgrading (N)"
+```
+
+Two gotchas once you're through: the Graph editor is **two** nested frames (app chrome with
+`Name your graph…` + the DrawIO canvas frame with `.geDiagramContainer` and Publish) — `page.frames()`
+returns them flattened, so locate each by content rather than chaining `.contentFrame()`. And
+`page.keyboard.type()` after a shape insert can land in the **title input** instead of the shape label,
+which silently defeats any empty-title (AI auto-title) assertion — always re-read the title field
+before publishing.
+
+If `N = 0`, the counter is exhausted and the continue button is gone; reset it by deleting
+`paywallContinueAttempts:<domain>:<space>:<accountId>` from the **iframe origin's** localStorage.
 
 ### Staging paywall test data
 

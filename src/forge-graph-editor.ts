@@ -30,6 +30,7 @@ import {
   reportLegacyContentPropertyValueUnexpected,
   reportLegacyContentPropertyMacroRepaired,
 } from '@/utils/legacyContentPropertyTelemetry';
+import { decideWriteback, deriveWritebackSignals } from "@/model/writebackGate";
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -109,39 +110,21 @@ async function saveGraphAndExit(graphXml: string): Promise<boolean> {
     endEditJourney('saved');
   }
 
-  // ZEN-1170 Defect 2b: repair stale macro XML when we saved against the
-  // recovered sibling id. Only fires in surfaces where view.submit({config})
-  // actually persists (insert / isConfiguring). See forgeIndex.ts for the
-  // full rationale on viewer-launched modal contexts being a no-op.
-  const macroNeedsRepair = !!(originalCustomContentId && id && id !== originalCustomContentId);
-  // ZEN-1170 Defect 1: legacy-content-property migration. When the editor
-  // mounted a doc loaded from the legacy page content property, the macro
-  // XML still has uuid only (no customContentId). originalCustomContentId
-  // is therefore undefined, so macroNeedsRepair above is false. Detect this
-  // case via window.diagram.source so the same writeback block migrates the
-  // macro XML to a CC-backed shape on first save.
-  const legacyMacroNeedsRepair = !originalCustomContentId
-    && (window.diagram?.source === DataSource.ContentProperty
-        || window.diagram?.source === DataSource.ContentPropertyOld
-        // PR #139 same-page recovery: my findLegacyCustomContentByUuid
-        // fallback may resolve a CC on the SAME page (rare — Connect-era
-        // macro on its original page where the CC was migrated). In that
-        // case save updates the recovered CC in place (id unchanged ⇒
-        // idChanged is false), so without this writeback the macro params
-        // would stay uuid-only and every future view would re-trigger the
-        // tenant-wide title search. Cross-page recovery (the common case)
-        // already triggers writeback via the idChanged path (isCopy=true
-        // forks to a new CC), so this only kicks in for same-page hits.
-        || (window.diagram?.source === DataSource.CustomContent
-            && !!(window.diagram as any)?.recoveredFromOrphan));
+  // Capture derivation inputs now — window.diagram may move under the
+  // deferred writeback below.
+  const derivationInput = {
+    sourceId,
+    newId: id,
+    originalCustomContentId,
+    docSource: window.diagram?.source,
+    recoveredFromOrphan: !!(window.diagram as any)?.recoveredFromOrphan,
+  };
 
   setTimeout(async () => {
     const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
-    const repairWillPersist = inserting || configuring;
-    const attemptRepair = repairWillPersist && macroNeedsRepair;
-    const attemptLegacyMigration = repairWillPersist && legacyMacroNeedsRepair && !!id;
-    const idChanged = !!sourceId && !!id && id !== sourceId;
-    const needsWriteback = inserting || idChanged || attemptRepair || attemptLegacyMigration;
+    const { attemptRepair, attemptLegacyMigration, needsWriteback } = decideWriteback(
+      deriveWritebackSignals({ ...derivationInput, inserting, configuring })
+    );
     // Redirect starts now (view.submit / view.close below). Stop the clock.
     trackPublishCompleted({
       macro_type: 'graph',

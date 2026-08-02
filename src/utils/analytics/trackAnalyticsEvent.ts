@@ -53,12 +53,60 @@ function _initMixpanel(): Promise<void> {
   return _initPromise;
 }
 
+// A single constant shared by EVERY user, returned whenever the Forge context
+// has not resolved yet. It must never reach mixpanel.identify() — see _identify.
+const UNKNOWN_USER_ACCOUNT_ID = "unknown_user_account_id";
+
+// SWR account-id cache. Same discipline as the cohort marker
+// (utils/cohorts/userCohorts.ts): a localStorage marker written by whichever
+// iframe has a resolved Forge context and read synchronously by the next one,
+// **scoped by clientDomain** so one tenant can never inherit another's id.
+//
+// Why: the anonymous fallback in _identify only merges an iframe's early events
+// AFTER the context resolves. The cache removes the gap entirely — the very
+// first event of every subsequent iframe is attributed immediately, with no
+// wait and no dependence on Mixpanel's ID-merge mode.
+//
+// Residual risk, accepted: two Atlassian accounts sharing one browser profile
+// on the same site. The stale id would mis-attribute that iframe's first events
+// until the real one resolves, at which point the cache is corrected. localStorage
+// is per-browser ≈ per-user (the same assumption userCohorts.ts already makes),
+// and the alternative — staying anonymous — mis-attributes 100% of first events
+// rather than a rare few.
+function _accountIdCacheKey(): string {
+  return `zenumlAccountId:${getClientDomain() || "unknown"}`;
+}
+
+function _readCachedAccountId(): string | undefined {
+  try {
+    return localStorage.getItem(_accountIdCacheKey()) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function _cacheAccountId(id: string): void {
+  try {
+    if (localStorage.getItem(_accountIdCacheKey()) !== id) {
+      localStorage.setItem(_accountIdCacheKey(), id);
+    }
+  } catch {
+    /* private mode / storage disabled — degrade to the anonymous path */
+  }
+}
+
 function _getCurrentUserAccountId(): string {
-  return (
+  const live =
     // @ts-ignore — globals set by Forge bridge at runtime
-    window.globals?.apWrapper?.currentUser?.atlassianAccountId ||
-    "unknown_user_account_id"
-  );
+    window.globals?.apWrapper?.currentUser?.atlassianAccountId as
+      | string
+      | undefined;
+  if (live) {
+    // Write-through: also corrects a stale entry after an account switch.
+    _cacheAccountId(live);
+    return live;
+  }
+  return _readCachedAccountId() || UNKNOWN_USER_ACCOUNT_ID;
 }
 
 async function _getMacroUuid(): Promise<string> {
@@ -81,14 +129,28 @@ function _getProductType(): "lite" | "full" | "diagramly" {
 }
 
 function _identify() {
-  if (!_identified) {
-    const id = _getCurrentUserAccountId();
-    try {
-      mixpanel.identify(id);
-      _identified = id !== "unknown_user_account_id";
-    } catch (e) {
-      console.error("mixpanel.identify error", e);
-    }
+  if (_identified) return;
+  const id = _getCurrentUserAccountId();
+  // Never identify as the placeholder. It is one constant shared by every user,
+  // so identifying with it permanently pins the event to a single bogus profile
+  // — the events cannot be merged into the real user later, because that id is
+  // not an anonymous alias, it is a legitimate distinct_id belonging to no one.
+  // Measured 2026-07-26 (30d): the loss is confined to events that fire before
+  // the context resolves — ai_aide_route_accessed 100%, renderer_prefetch_*
+  // 35-37%, legacy_content_property_load_failed 30% (fleet-wide only 0.06%,
+  // because every high-volume event fires after resolution).
+  //
+  // Returning early leaves the event on Mixpanel's own per-device anonymous
+  // distinct_id, which the later identify() merges into the real user. Chosen
+  // over waiting for the context: a bounded wait would delay every first event
+  // and lose it outright if the iframe unmounts first — a mis-attributed event
+  // is bad, a missing one is worse.
+  if (id === UNKNOWN_USER_ACCOUNT_ID) return;
+  try {
+    mixpanel.identify(id);
+    _identified = true;
+  } catch (e) {
+    console.error("mixpanel.identify error", e);
   }
 }
 

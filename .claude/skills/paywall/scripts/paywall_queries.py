@@ -240,7 +240,7 @@ def call_jql_unique(
         },
     )
     rows = json.loads(_open_with_retry(req, timeout=120, delays=[10.0, 30.0, 60.0]).decode())
-    return {(r["key"][0] if r["key"] else "<null>"): r["value"] for r in rows}
+    return {(r["key"][0] if (r["key"] and r["key"][0] is not None) else "<null>"): r["value"] for r in rows}
 
 
 def call_jql_unique_by_domain(
@@ -265,7 +265,7 @@ def call_jql_unique_by_domain(
         },
     )
     rows = json.loads(_open_with_retry(req, timeout=120, delays=[10.0, 30.0, 60.0]).decode())
-    return {(r["key"][0] if r["key"] else "<null>"): r["value"] for r in rows}
+    return {(r["key"][0] if (r["key"] and r["key"][0] is not None) else "<null>"): r["value"] for r in rows}
 
 
 def call_jql_per_space_all(

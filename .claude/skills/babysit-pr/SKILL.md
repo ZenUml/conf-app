@@ -65,6 +65,14 @@ This is the most important step — your evaluation of "did CI pass?" depends on
 
 - **All expected jobs passed** (and skipped jobs are the right ones): report success and stop.
 - **Some expected jobs still pending/in_progress**: wait. Use `gh run watch <RUN_ID> --repo ZenUml/conf-app` (10-minute timeout). Then re-evaluate.
+
+> **NEVER trust `gh run watch`'s exit code.** Observed twice on 2026-07-26 on the same run: it exited **0** while the run's conclusion was `failure`, then exited **1** on a re-run whose conclusion was `success`. Believing it would have reported a red main as green. After any watch, always re-read the authoritative value:
+> ```bash
+> gh run view <RUN_ID> --repo ZenUml/conf-app --json status,conclusion --jq '"\(.status)/\(.conclusion)"'
+> gh run view <RUN_ID> --repo ZenUml/conf-app --json jobs \
+>   --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped") | "\(.conclusion)\t\(.name)\t\(.databaseId)"'
+> ```
+> The same applies to `gh pr checks`, which lists the **cancelled duplicate `push` run's** jobs as `fail`. Resolve the authoritative run first with `gh run list --branch <b> --json event,conclusion,headSha` and read only the `pull_request` one (on `main`, the `push` one — `cancel-in-progress` is off there, so both main runs complete and the newest SHA is the one that matters).
 - **An expected job failed**: proceed to Step 3.
 - **An expected job was unexpectedly `skipped`** (e.g. `E2E: Lite` skipped on a Ready PR): this is a configuration bug, not a normal failure. Report it: "Expected `E2E: Lite` to run on this Ready PR but it was skipped — check the workflow `if:` condition or the PR's draft state."
 
@@ -155,6 +163,8 @@ Common E2E failure patterns:
 - **Visual snapshot mismatch** — rendering change in the app
 
 #### E2E Flaky / Confluence Infra
+
+**`page.goto: Timeout ... exceeded` is infra, not code.** The navigation itself never completed, so nothing the app does inside the macro iframe can be the cause — do not go looking for a code culprit. Confirmed pattern (2026-07-26): three retries all timing out identically at `page.goto`, *different shards* failing across two runs of near-identical code, and a shard that was green on the PR's own run going red on main. Re-run and move on.
 
 1. **Re-run the failed jobs**:
    ```bash

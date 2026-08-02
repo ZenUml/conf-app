@@ -501,9 +501,9 @@ export default class ApWrapper2 implements IApWrapper {
     return <ICustomContent>assign;
   }
 
-  async getCustomContentByIdV2(id: string): Promise<ICustomContentV2 | undefined> {
+  async getCustomContentByIdV2(id: string, opts?: LoadCustomContentOpts): Promise<ICustomContentV2 | undefined> {
     const customContent = await this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`);
-    return this.parseCustomContentByIdV2Response(id, customContent);
+    return this.parseCustomContentByIdV2Response(id, customContent, opts);
   }
 
   /**
@@ -609,6 +609,28 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   /**
+   * Count macros on the current page whose config references `id`. Matches
+   * both param shapes: Forge bare-string customContentId and Connect-era
+   * {value} objects. One full-page ADF GET.
+   *
+   * Returns `undefined` when that GET failed — the page ADF is unreadable, so
+   * the answer is UNKNOWN, not zero. The Edit dup gate (model/editDupGate.ts)
+   * depends on that distinction: AtlasPage historically swallowed every fetch
+   * error into an empty macro list, which the gate would read as "no
+   * duplicates on this page" and wave a shared-id macro straight into the
+   * editor — the exact silent fork it exists to stop.
+   */
+  async countMacrosReferencing(id: string): Promise<number | undefined> {
+    return this._page.countMacrosOrUnknown((m) => {
+      //TODO: filter by macro type
+      const macroCustomContentId = m?.customContentId;
+      return (typeof macroCustomContentId === 'string'
+        ? macroCustomContentId
+        : macroCustomContentId?.value) === id;
+    });
+  }
+
+  /**
    * The full ADF copy-scan: one full-page ADF GET via _page.countMacros plus
    * the cross-page comparison. Runs blocking for edit/config surfaces (its
    * verdict guards the save-fork path) and for callers that pass no
@@ -619,13 +641,11 @@ export default class ApWrapper2 implements IApWrapper {
     ccPageId: string | number | undefined,
   ): Promise<{ isCopy: boolean; copyReason?: 'cross-page' | 'same-page-duplicate' }> {
     return renderPerf.time('adf_scan', async () => {
-      const count = await this._page.countMacros((m) => {
-        //TODO: filter by macro type
-        const macroCustomContentId = m?.customContentId;
-        return (typeof macroCustomContentId === 'string'
-          ? macroCustomContentId
-          : macroCustomContentId?.value) === id;
-      });
+      // An unreadable page ADF keeps this path's historical behaviour —
+      // assume no same-page duplicate (cross-page detection below is
+      // unaffected, it needs no ADF). Only the Edit gate acts on the
+      // unknown, because only it is making a data-loss decision.
+      const count = (await this.countMacrosReferencing(id)) ?? 0;
       console.debug(`Found ${count} macros on page`);
       const pageId = await this._page.getPageId();
       // Require both sides present — undefined pageId on the custom content
@@ -1731,7 +1751,12 @@ export default class ApWrapper2 implements IApWrapper {
     return '';
   }
 
-  async getCurrentPage(): Promise<{title: string, body: {export_view: {value: string}}} | undefined> {
+  // _links (base/webui) is part of the standard v2 "get page by id" envelope
+  // regardless of body-format — confirmed live against lite-dev on 2026-07-30
+  // (identical _links shape with and without ?body-format=export_view) — so
+  // callers can derive the page URL from this single response instead of a
+  // second /pages/{id} round trip (see GenericViewer.vue's copyForAi path).
+  async getCurrentPage(): Promise<{title: string, body: {export_view: {value: string}}, _links?: {base?: string, webui?: string}} | undefined> {
     const pageId = await this._getCurrentPageId();
     return await this.request(`/api/v2/pages/${pageId}?body-format=export_view`);
   }

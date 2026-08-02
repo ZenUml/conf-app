@@ -510,7 +510,7 @@ class AttachmentUploadHttpError extends Error {
  * for the exception class returned zero (#392). Keep the `message` field so
  * the 200 chars are spent on the reason instead of the wrapper.
  */
-function extractConfluenceMessage(body: string): string {
+export function extractConfluenceMessage(body: string): string {
   try {
     const parsed = JSON.parse(body);
     if (typeof parsed?.message === 'string' && parsed.message) return parsed.message;
@@ -531,7 +531,7 @@ function extractConfluenceMessage(body: string): string {
  * out of the fully-qualified name (`com.atlassian.…api.PermissionException:
  * …` -> `PermissionException`). Undefined when the body carries no class.
  */
-function parseConfluenceErrorClass(detail: string): string | undefined {
+export function parseConfluenceErrorClass(detail: string): string | undefined {
   return /(?:^|[.\s])([A-Za-z]+Exception)\b/.exec(detail)?.[1];
 }
 

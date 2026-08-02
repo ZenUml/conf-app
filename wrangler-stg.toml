@@ -48,6 +48,13 @@ id = "9531a58d3f5b47a6af77750240c09548"
 binding = "SPACE_LICENSE_KV"
 id = "8969e8528105403bb2d9adca9fc16567"
 
+# Embed deeplink preview images (functions/i/, functions/d/,
+# functions/deeplink-ticket.ts). TTL'd PNG blobs only — no ticket data is
+# stored (tickets are signed tokens carried in the URL, not KV rows).
+[[env.production.kv_namespaces]]
+binding = "DEEPLINK_KV"
+id = "55a29002d56e49f986abe122e8b2c947"
+
 # Live Agent Link relay's Durable Object. Pages cannot host a DO class
 # internally, so this cross-Worker binding points at the standalone
 # `conf-agent-link-stg` Worker (workers/agent-link/) that actually defines

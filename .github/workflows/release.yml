@@ -131,11 +131,6 @@ jobs:
               del(.modules."confluence:globalSettings"[] | select(.key == "zenuml-get-started-settings"))
               | del(.modules."confluence:globalPage")
             ' -i manifest.yml
-      - name: Remove embed macro for Diagramly
-        if: ${{ steps.properties.outputs.license == 'diagramly' }}
-        uses: mikefarah/yq@master
-        with:
-          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))' -i manifest.yml
       - name: Remove diagramly admin module from Lite/Full
         if: ${{ steps.properties.outputs.license != 'diagramly' }}
         uses: mikefarah/yq@master
@@ -189,6 +184,14 @@ jobs:
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.app.licensing)' -i manifest.yml
+      # Full: the source manifest carries Lite's canonical matcher. CI edits
+      # manifests independently of scripts/forge-wizard.mjs, so keep this
+      # variant override here as well. Mirrors staging-deploy.yml.
+      - name: Point Full embed deeplink matcher at conf-full
+        if: ${{ steps.properties.outputs.license == 'full' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval '(.modules.macro[] | select(.key | test("zenuml-embed-macro")) | .autoConvert.matchers[0].pattern) = "https://conf-full.zenuml.com/d/*/*"' -i manifest.yml
       - name: Upload final manifest
         uses: actions/upload-artifact@v6
         with:

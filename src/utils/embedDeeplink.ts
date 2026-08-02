@@ -1,54 +1,47 @@
-/**
- * Diagram deeplinks — `https://confluence.zenuml.com/d/<cloudId>/<contentId>`.
- *
- * Pasting one into the editor auto-converts it into the **embed** macro, which
- * renders the referenced diagram. This is the "create it, then place it" half of
- * the byline flow: the modal opens a real editor, the user saves a diagram, and
- * the link that comes back is how that diagram gets onto the page.
- *
- * The scheme and its behaviour were proven end to end on 2026-07-16 — see
- * docs/superpowers/plans/2026-07-16-embed-autoconvert-deeplink-spike.md.
- * Conversion works in the current editor and in Live Docs, and the URL never has
- * to resolve, because matching is editor-local (the host still 404s).
- *
- * `cloudId` is in the URL so a link pasted into a DIFFERENT site can be
- * recognised as foreign and refused rather than silently fetching, or worse,
- * resolving to an unrelated content id that happens to collide.
- */
-
+// Deeplink shape is locked by the autoConvert matcher in manifest.yml. Each
+// variant's matcher points at its own backend host — multi-host since the
+// #382 Phase 1 migration: lite + diagramly ride conf-lite.zenuml.com, full
+// rides conf-full.zenuml.com. confluence.zenuml.com is the retired
+// standalone-Worker host, still accepted during the Phase 1->3 transition
+// (see docs/superpowers/specs/2026-07-28-deeplink-serving-pages-migration-design.md).
+// cloudId = site UUID; contentId = numeric Confluence custom-content id.
 export interface EmbedDeeplink {
-  cloudId: string
-  contentId: string
+  cloudId: string;
+  contentId: string;
 }
 
-export const EMBED_DEEPLINK_BASE = 'https://confluence.zenuml.com/d'
+const DEEPLINK_RE =
+  /^https:\/\/(?:confluence|conf-lite|conf-full)\.zenuml\.com\/d\/([0-9a-fA-F-]{32,36})\/(\d+)\/?(?:[?#].*)?$/;
 
-export function buildEmbedDeeplink(cloudId: string, contentId: string): string | undefined {
-  if (!cloudId || !contentId) return undefined
-  return `${EMBED_DEEPLINK_BASE}/${encodeURIComponent(cloudId)}/${encodeURIComponent(contentId)}`
+export function parseEmbedDeeplink(url: string): EmbedDeeplink | undefined {
+  const m = DEEPLINK_RE.exec((url || '').trim());
+  return m ? { cloudId: m[1].toLowerCase(), contentId: m[2] } : undefined;
 }
 
-/**
- * Parse a pasted link. Returns undefined for anything that is not exactly our
- * two-segment https form — the manifest matcher is `/d/*​/*`, so a URL of any
- * other shape never converts and must never be interpreted here either.
- */
-export function parseEmbedDeeplink(link: unknown): EmbedDeeplink | undefined {
-  if (typeof link !== 'string' || !link) return undefined
-  let url: URL
-  try {
-    url = new URL(link)
-  } catch {
-    return undefined
+// Mint side (task 6): which host a variant's minted deeplink points at, keyed
+// off the SAME build-time PRODUCT_TYPE (import.meta.env.PRODUCT_TYPE) that
+// selects the variant's manifest autoConvert matcher — lite and diagramly
+// share the multi-tenant conf-lite Worker, full gets its own. asyncapi has no
+// deeplink affordance yet (its viewer doesn't route through GenericViewer),
+// so it returns undefined and callers must treat that as "don't render the
+// button" rather than falling back to a host.
+export function deeplinkHostForProductType(productType: string | undefined): string | undefined {
+  switch (productType) {
+    case 'lite':
+    case 'diagramly':
+      return 'conf-lite.zenuml.com';
+    case 'full':
+      return 'conf-full.zenuml.com';
+    default:
+      return undefined;
   }
-  if (url.protocol !== 'https:') return undefined
-  if (url.host !== 'confluence.zenuml.com') return undefined
-  const parts = url.pathname.split('/').filter(Boolean)
-  if (parts.length !== 3 || parts[0] !== 'd') return undefined
-  const cloudId = decodeURIComponent(parts[1])
-  const contentId = decodeURIComponent(parts[2])
-  if (!cloudId || !contentId) return undefined
-  return { cloudId, contentId }
+}
+
+// Bare deeplink URL builder — no ticket, no query params (see the module
+// comment: the ticketed `/deeplink-ticket` share-preview surface is owned by
+// other PRs). Intentionally the exact inverse of DEEPLINK_RE above.
+export function buildEmbedDeeplink(host: string, cloudId: string, contentId: string): string {
+  return `https://${host}/d/${cloudId}/${contentId}`;
 }
 
 /**
@@ -61,11 +54,15 @@ export function parseEmbedDeeplink(link: unknown): EmbedDeeplink | undefined {
  * instead of failing. Returning undefined lets the viewer fall through to its
  * existing "couldn't be loaded" message.
  */
-export function resolveLocalContentId(link: unknown, currentCloudId: string | undefined): string | undefined {
-  const parsed = parseEmbedDeeplink(link)
-  if (!parsed) return undefined
-  if (!currentCloudId || parsed.cloudId !== currentCloudId) return undefined
-  return parsed.contentId
+export function resolveLocalContentId(
+  link: unknown,
+  currentCloudId: string | undefined,
+): string | undefined {
+  if (typeof link !== 'string') return undefined;
+  const parsed = parseEmbedDeeplink(link);
+  if (!parsed) return undefined;
+  if (!currentCloudId || parsed.cloudId !== String(currentCloudId).toLowerCase()) return undefined;
+  return parsed.contentId;
 }
 
 /**
@@ -80,11 +77,10 @@ export function resolveLocalContentId(link: unknown, currentCloudId: string | un
  * up looking at.
  */
 export function newlyCreatedId(before: Array<string>, after: Array<string>): string | undefined {
-  const seen = new Set(before || [])
-  const fresh = (after || []).filter(id => id && !seen.has(id))
-  return fresh.length ? fresh[fresh.length - 1] : undefined
+  const seen = new Set(before || []);
+  const fresh = (after || []).filter(id => id && !seen.has(id));
+  return fresh.length ? fresh[fresh.length - 1] : undefined;
 }
-
 
 /**
  * Typed diagram deeplink — `.../d/<type>/<cloudId>/<contentId>`.
@@ -107,39 +103,38 @@ export function newlyCreatedId(before: Array<string>, after: Array<string>): str
  * or shared as the three-segment form keep resolving as embeds.
  */
 export interface TypedDiagramDeeplink extends EmbedDeeplink {
-  type: string
+  type: string;
 }
 
-const DEEPLINK_TYPES = ['sequence', 'mermaid', 'plantuml', 'graph', 'openapi']
+const DEEPLINK_TYPES = ['sequence', 'mermaid', 'plantuml', 'graph', 'openapi'];
+
+// Parsing accepts every host the embed form accepts, so a typed link keeps
+// resolving after the #382 host migration completes. MINTING stays on
+// confluence.zenuml.com because that is the host the typed autoConvert matchers
+// in manifest.yml are written against — mint a host the matchers don't list and
+// the paste silently fails to convert. Moving both together is follow-up work.
+const TYPED_DEEPLINK_HOST = 'confluence.zenuml.com';
+
+const TYPED_DEEPLINK_RE =
+  /^https:\/\/(?:confluence|conf-lite|conf-full)\.zenuml\.com\/d\/([a-z]+)\/([0-9a-fA-F-]{32,36})\/(\d+)\/?(?:[?#].*)?$/;
 
 export function buildDiagramDeeplink(
   type: string,
   cloudId: string,
   contentId: string,
 ): string | undefined {
-  const segment = String(type || '').toLowerCase()
-  if (!DEEPLINK_TYPES.includes(segment) || !cloudId || !contentId) return undefined
-  return `${EMBED_DEEPLINK_BASE}/${segment}/${encodeURIComponent(cloudId)}/${encodeURIComponent(contentId)}`
+  const segment = String(type || '').toLowerCase();
+  if (!DEEPLINK_TYPES.includes(segment) || !cloudId || !contentId) return undefined;
+  return `https://${TYPED_DEEPLINK_HOST}/d/${segment}/${encodeURIComponent(cloudId)}/${encodeURIComponent(contentId)}`;
 }
 
 export function parseDiagramDeeplink(link: unknown): TypedDiagramDeeplink | undefined {
-  if (typeof link !== 'string' || !link) return undefined
-  let url: URL
-  try {
-    url = new URL(link)
-  } catch {
-    return undefined
-  }
-  if (url.protocol !== 'https:') return undefined
-  if (url.host !== 'confluence.zenuml.com') return undefined
-  const parts = url.pathname.split('/').filter(Boolean)
-  if (parts.length !== 4 || parts[0] !== 'd') return undefined
-  const type = parts[1].toLowerCase()
-  if (!DEEPLINK_TYPES.includes(type)) return undefined
-  const cloudId = decodeURIComponent(parts[2])
-  const contentId = decodeURIComponent(parts[3])
-  if (!cloudId || !contentId) return undefined
-  return { type, cloudId, contentId }
+  if (typeof link !== 'string' || !link) return undefined;
+  const m = TYPED_DEEPLINK_RE.exec(link.trim());
+  if (!m) return undefined;
+  const type = m[1].toLowerCase();
+  if (!DEEPLINK_TYPES.includes(type)) return undefined;
+  return { type, cloudId: m[2].toLowerCase(), contentId: m[3] };
 }
 
 /**
@@ -151,8 +146,8 @@ export function resolveLocalTypedContentId(
   link: unknown,
   currentCloudId: string | undefined,
 ): string | undefined {
-  const parsed = parseDiagramDeeplink(link)
-  if (!parsed) return undefined
-  if (!currentCloudId || parsed.cloudId !== currentCloudId) return undefined
-  return parsed.contentId
+  const parsed = parseDiagramDeeplink(link);
+  if (!parsed) return undefined;
+  if (!currentCloudId || parsed.cloudId !== String(currentCloudId).toLowerCase()) return undefined;
+  return parsed.contentId;
 }

@@ -272,6 +272,11 @@ modules:
       # the URL never has to resolve, matching is editor-local.
       autoConvert:
         matchers:
+          # conf-lite is the migrated serving host (#382 Phase 1);
+          # confluence.zenuml.com is the retired standalone-Worker host, kept so
+          # links already pasted or shared keep converting. Both must stay until
+          # Phase 3 retires the old form.
+          - pattern: https://conf-lite.zenuml.com/d/*/*
           - pattern: https://confluence.zenuml.com/d/*/*
       title: Embed a Diagram, Graph or API Spec${LITE_TITLE_SUFFIX}
       description: Embed an existing Diagram, Graph or API Spec. ${APP_LABEL}

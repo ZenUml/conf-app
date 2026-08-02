@@ -8,6 +8,7 @@ import type {
   OperationMode,
   FeedbackValue,
   RenderMode,
+  RenderGateMode,
   RenderGateOutcome,
   CacheState,
   CacheSource,
@@ -66,6 +67,10 @@ export type AnalyticsProperties = {
   cta_position?: "primary" | "secondary";
   feature_name?: string;
   source?: string;
+  // Embed AutoConvert lifecycle. Absent when the Forge context has no cloudId
+  // or the link cannot be parsed; false is reserved for the rejected
+  // cross-tenant path. The raw deeplink/cloudId must never be tracked.
+  is_same_site?: boolean;
   // Daily macro-count inventory snapshots. These events are emitted by the
   // Cloudflare backend, but their scalar property vocabulary lives here as the
   // cross-runtime analytics contract. Snapshot payloads must never include
@@ -159,6 +164,13 @@ export type AnalyticsProperties = {
   // without attachment read permission all land here as a shortfall, and a
   // consistently low ratio means the visual index is not worth its requests.
   thumbnail_count?: number;
+  // Draft-restore banner (draft_banner_* / draft_restored / draft_discarded).
+  // `draft_scope_kind` = which draft namespace the banner is for: 'edit' (a
+  // specific custom-content id) or 'new' (an unsaved diagram of some type).
+  // `draft_age_ms` = Date.now() − draft.savedAt at event time — how stale the
+  // recovered work was when the user chose what to do with it.
+  draft_scope_kind?: 'new' | 'edit';
+  draft_age_ms?: number;
   // Staleness hint (staleness_hint_*). `drift_count` = page versions newer
   // than the diagram's last update at decision time; `is_diagram_author` =
   // current accountId equals the diagram custom content's last-version
@@ -169,6 +181,42 @@ export type AnalyticsProperties = {
   // `viewer_source_opened` / `viewer_source_copied` so read-only vs editor
   // audience for the View Source panel (#333) can be split.
   has_edit_permission?: boolean;
+  // "Copy for AI" viewer action (copy_for_ai_clicked — catalog.ts) AND the
+  // "Copy diagram link" pill action (deeplink_copied — catalog.ts) share this
+  // one `outcome` axis. For copy_for_ai_clicked: 'copied' = full page+diagram
+  // copy, 'copied_diagram_only' = fell back to diagram-only content (page
+  // context unavailable), 'clipboard_failed' = the clipboard write itself
+  // threw. For deeplink_copied: 'copied' = clipboard write succeeded,
+  // 'clipboard_failed' = the write returned false or threw, 'unavailable' =
+  // the link couldn't be minted at all (no host/contentId, or cloudId
+  // unresolved) — 'copied_diagram_only' does not apply to deeplink_copied.
+  // `dsl_bytes` / `page_bytes` are the byte sizes of the diagram DSL and the
+  // surrounding page context that were attempted, regardless of outcome
+  // (copy_for_ai_clicked only).
+  // `job` identifies which entry point fired the click: 'generic' = the
+  // one-click primary segment (today's generic prompt, unchanged); the other
+  // five are the split-button menu's job-framed entry points — explain /
+  // update / implement / audit / tests — which only swap the preamble
+  // buildCopyForAiPrompt.ts builds (same DSL + page payload, same fallback
+  // rules). Absent on events emitted before this axis existed.
+  outcome?: 'copied' | 'copied_diagram_only' | 'clipboard_failed' | 'unavailable';
+  dsl_bytes?: number;
+  page_bytes?: number;
+  job?: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
+  // Bottom-pill "Copy diagram link" (deeplink_copied — catalog.ts). Which
+  // affordance minted the deeplink; only the viewer pill exists today. Not
+  // the same surface as the `/deeplink-ticket` share-preview endpoint, which
+  // is owned by other PRs. See `outcome` above for this event's values.
+  link_source?: 'viewer_pill';
+  // In-viewer Edit dup gate (edit_dup_gate_evaluated): outcome of the
+  // click-time same-page shared-id check. `same_page_macro_count` = how many
+  // macros on the page reference the clicked macro's customContentId (absent
+  // when the scan failed). `copy_reason` rides on
+  // editor_publish_blocked_fork_unlinkable to say which copy flavor tripped
+  // the editor-side backstop.
+  edit_dup_gate_outcome?: 'blocked' | 'passed' | 'scan_failed';
+  same_page_macro_count?: number;
+  copy_reason?: 'same-page-duplicate' | 'cross-page';
   // Diagramly demo-page engagement: set automatically for macro_* events when
   // the macro lives on a page tagged with the `diagramly-demo-page` page
   // property. See utils/analytics/demoPageStatus.ts.
@@ -192,7 +240,7 @@ export type AnalyticsProperties = {
   // can pick the right optimization lever. Absent phases are omitted, not 0.
   bootstrap_ms?: number;   // __macroLoadStart → first app code (head scripts incl. DrawIO + bundle eval)
   context_ms?: number;     // Forge getContext() resolution
-  fetch_ms?: number;       // custom-content REST round trip
+  fetch_ms?: number;       // custom-content REST round trip. Recorded by whoever owns the load: forgeIndex for the sequence family, viewerBootstrap for graph/openapi/embed (#413).
   render_ms?: number;      // viewer render (lib load + diagram render)
   measured_sum_ms?: number; // bootstrap+context+fetch+render; duration_ms − this = unattributed remainder
   tab_hidden?: boolean;    // tab was backgrounded during load → exclude from percentiles (artifact)
@@ -239,6 +287,12 @@ export type AnalyticsProperties = {
   // Strict (no-margin) top-level-viewport intersection at first observation.
   // The direct client-side measure of "was this macro on screen at boot".
   visible_at_boot?: boolean;
+  // Gate depth for this render (#382 spike): 'render' = paint-only gating
+  // (fetch ran immediately), 'load' = the content fetch also waited for the
+  // viewport turn. Absent when render_gate is absent. With gate_mode='load',
+  // fetch_ms starts at gate release, so render_deferred_ms still bounds the
+  // total gate-induced delay inside duration_ms.
+  gate_mode?: RenderGateMode;
   // Renderer-bundle prefetch (renderer_prefetch_started / _completed). Fired
   // only on an actual attempt (throttled to ≤1 per deploy per browser), never
   // on the skip path — volume stays far below page-view scale. See

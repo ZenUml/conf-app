@@ -75,10 +75,17 @@ describe('forge-wizard manifest preview helpers', () => {
       .toContain('macroCountSnapshotFn')
   })
 
-  it('diagramly strips global UI modules, embed, and asyncapi bits', () => {
+  it('diagramly strips global UI modules and asyncapi bits, but KEEPS the embed macro', () => {
+    // Diagramly ships the embed macro (task 6, deeplink productization,
+    // commit c539e1f7) — this test used to assert the opposite (a
+    // 'Remove embed macro (zenuml-embed-macro)' edit) and went stale the
+    // moment that commit landed without updating it. CI's parallel manifest
+    // edits (.github/workflows/release.yml + staging-deploy.yml) must agree
+    // with this wizard — see the comment on diagramly's manifestEdits array
+    // in scripts/forge-wizard.mjs.
     const desc = getManifestEditDescriptions('diagramly')
     expect(desc).toContain('Remove globalSettings + globalPage + spacePage')
-    expect(desc).toContain('Remove embed macro (zenuml-embed-macro)')
+    expect(desc).not.toContain('Remove embed macro (zenuml-embed-macro)')
     expect(desc).toContain(
       'Remove asyncapi macros (zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro)',
     )
@@ -94,7 +101,7 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(yq).toContain(
       'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:spacePage"])',
     )
-    expect(yq).toContain(
+    expect(yq).not.toContain(
       'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))',
     )
     expect(yq).toContain(

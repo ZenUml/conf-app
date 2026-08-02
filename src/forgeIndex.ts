@@ -4,7 +4,9 @@ import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
 import { toast } from '@/utils/toast';
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
-import { decideWriteback } from "@/model/writebackGate";
+import { decideWriteback, deriveWritebackSignals } from "@/model/writebackGate";
+import { decidePublishBlock, PUBLISH_BLOCK_MESSAGES } from "@/model/editDupGate";
+import { guardEditClick } from "@/utils/guardEditClick";
 import { resolveAsyncApiEditorEntry } from "@/model/asyncapi/resolveEditorEntry";
 
 import './assets/tailwind.css'
@@ -42,7 +44,7 @@ import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
 import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink } from '@/utils/newDiagramLink';
-import { maybeGateViewerRender, awaitGateBlocking } from '@/utils/renderGate/maybeGateViewerRender';
+import { maybeGateViewerRender, awaitGateBlocking, getGateMode } from '@/utils/renderGate/maybeGateViewerRender';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -441,7 +443,19 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           // the content changed, revalidate's own mountSequenceViewer call
           // awaits the same gate and lands after this cached mount, so the
           // fresh doc still wins.
-          void revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash);
+          //
+          // gate_mode='load' (#382, the default) deliberately reverses F4:
+          // on a storm page the revalidate fetches are exactly the broker
+          // load we're trying to shed, and the colesgroup canary showed ~98%
+          // of these mounts are never seen. Freshness/orphan checks still
+          // run — at gate release (≤ background-fill 3–7s later), not
+          // immediately.
+          if (viewerGatePromise && getGateMode() === 'load') {
+            void viewerGatePromise.then(() =>
+              revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash));
+          } else {
+            void revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash);
+          }
           await mountSequenceViewer(viewerDoc);
           return; // rendered from cache — skip the live-fetch + mount path entirely
         } catch (e) {
@@ -452,6 +466,15 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     }
 
     if (isSequence && customContentId) {
+      // gate_mode='load' (#382, the default): hold the content fetch itself
+      // until the viewport turn, so an offscreen mount costs ~boot+context
+      // until released. viewerGatePromise is null for editors/fullscreen
+      // (await is then a no-op) and render_deferred_ms is recorded HERE
+      // (first await wins), so it means "wait before the load began" and
+      // fetch_ms stays a clean network measure starting at release.
+      if (getGateMode() === 'load') {
+        await awaitGateBlocking(viewerGatePromise);
+      }
       const loaded = await renderPerf.time('fetch', () =>
         globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId, { copyCheckMode }));
       console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
@@ -767,6 +790,29 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       // Ensure session is initialized
       getOrCreateSession();
 
+      // Editor-side backstop for the in-viewer Edit gate (model/editDupGate.ts):
+      // if a copy-flagged doc still reached a surface where view.submit({config})
+      // cannot persist (gate fail-open, staleness-hint CTA, any other
+      // non-submittable entry), saving would fork a CC nothing references —
+      // #170's gate then silently view.close()s and the edit vanishes from the
+      // page. Disable Publish up front instead (Header.vue + the 'save'
+      // handler both read store.state.publishBlock).
+      const publishBlock = decidePublishBlock({
+        isCopy: !!doc?.isCopy,
+        copyReason: (doc as any)?.copyReason,
+        inserting: !!context.extension?.macro?.isInserting,
+        configuring: !!context.extension?.macro?.isConfiguring,
+      });
+      if (publishBlock) {
+        store.commit('setPublishBlock', publishBlock);
+        trackAnalyticsEvent('editor_publish_blocked_fork_unlinkable', {
+          feature_area: 'macro',
+          surface: 'editor',
+          macro_type: (doc?.diagramType as MacroTypeValue) || 'sequence',
+          copy_reason: publishBlock,
+        });
+      }
+
       // Wipe-precursor telemetry: fire only in editor mode so the signal
       // isn't drowned by viewer page-view volume. The captured state above
       // reflects the RAW loaded doc before any backfill.
@@ -1027,7 +1073,22 @@ EventBus.$on('edit', async(params: any) => {
   // Forward the macro's customContentId so the modal can load the right diagram
   // and the pre-edit paywall gate can fire. Without this the modal opens a blank
   // new diagram and the paywall check is skipped entirely.
+  // Resolved (not a raw config read) so a pasted macro forwards its real id.
   const customContentId = resolveEffectiveCustomContentId(context);
+
+  // In-viewer Edit gate (utils/guardEditClick.ts): when this macro's id is
+  // shared by another macro on the page, saving from the modal forks a CC that
+  // can never be linked back (writebackGate.ts / #170) — refuse BEFORE the
+  // modal opens. Every viewer type now loads with the zero-network
+  // 'cross-page-only' copy check, so the click is where same-page duplicates
+  // are caught, for ALL types. The guard memoizes its page-ADF scan because
+  // this shared-entry listener and each type's own 'edit' listener both fire
+  // on one click.
+  if (!(await guardEditClick({
+    customContentId,
+    macroType: (store.state.diagram?.diagramType as MacroTypeValue) || 'sequence',
+  }))) return;
+
   const journeyId = startEditJourney(macroUuid, 'dialog');
   const journeyStartTime = getEditJourneyStartTime();
   
@@ -1060,6 +1121,14 @@ import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentI
 installRestoreDraftBanner();
 
 EventBus.$on('save', async () => {
+  // Belt for the publishBlock backstop (model/editDupGate.ts): Publish is
+  // disabled in Header.vue when set, but keyboard shortcuts / racy emits can
+  // still reach here. Refuse outright rather than forking an unreferenced CC.
+  if (store.state.publishBlock) {
+    toast({ message: PUBLISH_BLOCK_MESSAGES[store.state.publishBlock], duration: 8000 });
+    EventBus.$emit('save-error', new Error(`publish blocked: ${store.state.publishBlock}`));
+    return;
+  }
   // Start the publish-latency clock at the save-handler entry — EventBus.$emit
   // ('save') fires synchronously from the Publish click (Header.vue saveAndExit),
   // so this is effectively the click instant. Stopped at the redirect below.
@@ -1158,26 +1227,7 @@ EventBus.$on('save', async () => {
     }
   }
 
-  // ZEN-1170 Defect 2b: repair stale macro XML when we saved against the
-  // recovered sibling id. view.submit({config:...}) only persists back to
-  // the macro XML in surfaces where the parent is the macro-config editor —
-  // i.e. inserting a new macro or editing via the in-page "edit macro params"
-  // affordance (isConfiguring). In viewer-launched modals the submitted
-  // payload is forwarded to onClose and discarded, so repair would be a
-  // no-op and the telemetry event would be misleading. Gate accordingly.
-  const macroNeedsRepair = !!(originalCustomContentId && id && id !== originalCustomContentId);
-  // ZEN-1170 Defect 1: legacy migration writeback. See forge-graph-editor.ts
-  // for the rationale — detect via source rather than a parallel flag, so we
-  // reuse Defect 2b's writeback path without adding new Diagram fields.
-  const legacyMacroNeedsRepair = !originalCustomContentId
-    && (store.state.diagram?.source === DataSource.ContentProperty
-        || store.state.diagram?.source === DataSource.ContentPropertyOld
-        // PR #139 same-page recovery — see forge-graph-editor.ts for the
-        // full rationale. Cross-page recovery already writes back via the
-        // idChanged path; this branch only fires when the recovered CC
-        // lives on the same page so save updates in place (idChanged=false).
-        || (store.state.diagram?.source === DataSource.CustomContent
-            && !!(store.state.diagram as any)?.recoveredFromOrphan));
+  // Writeback signal derivation: see deriveWritebackSignals in @/model/writebackGate.
 
   // Run the writeback + close immediately — no artificial delay. The 500ms
   // buffer here used to exist "to give trackEvents time to send", but the
@@ -1191,23 +1241,24 @@ EventBus.$on('save', async () => {
     // repoint the macro at the recovered sibling id, or (d) we migrated a
     // legacy uuid-only macro and must write customContentId for the first time.
     const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
-    const idChanged = !!sourceId && !!id && id !== sourceId;
     // #170: never view.submit in a non-submittable surface — see writebackGate.ts.
-    const { attemptRepair, attemptLegacyMigration, needsWriteback } = decideWriteback({
-      inserting: !!inserting,
-      configuring: !!configuring,
-      idChanged,
-      macroNeedsRepair,
-      legacyMacroNeedsRepair,
-      hasId: !!id,
-      hasSourceId: !!originalCustomContentId,
-    });
+    const { attemptRepair, attemptLegacyMigration, needsWriteback } = decideWriteback(
+      deriveWritebackSignals({
+        sourceId,
+        newId: id,
+        originalCustomContentId,
+        docSource: store.state.diagram?.source,
+        recoveredFromOrphan: !!(store.state.diagram as any)?.recoveredFromOrphan,
+        inserting,
+        configuring,
+      })
+    );
     // A save that produced an id but cannot bind it leaves an orphaned custom
     // content behind and a macro that still renders empty — the failure mode
     // paste-to-create hit on lite-stg. Record the surface signals so the cause
     // is visible without a browser: `firstBind` is now handled, so anything
     // reaching here is a non-submittable surface.
-    if (!!id && !originalCustomContentId && !needsWriteback) {
+    if (!!id && !sourceId && !originalCustomContentId && !needsWriteback) {
       trackEvent('', 'writeback_unbound_first_save', 'warn', {
         inserting: !!inserting,
         configuring: !!configuring,

@@ -7,26 +7,92 @@ import { getContext as initForgeContext, openModal } from './model/globals/forge
 import { Diagram, getDiagramData } from "@/model/Diagram/Diagram";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
-import { resolveLocalContentId } from '@/utils/embedDeeplink';
+import { parseEmbedDeeplink } from '@/utils/embedDeeplink';
 import { readAutoConvertLink } from '@/utils/newDiagramLink';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import type { AnalyticsProperties } from '@/utils/analytics/types';
 
-async function loadDiagram(): Promise<Diagram | undefined> {
+const AUTOCONVERT_ANALYTICS_PROPS = {
+  feature_area: 'macro',
+  surface: 'viewer',
+  macro_type: 'embed',
+  source: 'autoconvert_link',
+} as const satisfies AnalyticsProperties;
+
+export async function loadDiagram(): Promise<Diagram | undefined> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
-  // resolveEffectiveCustomContentId covers config / modal / typed deeplink;
-  // resolveLocalContentId additionally accepts the legacy 3-segment embed form,
-  // which only this macro handles.
-  const customContentId = resolveEffectiveCustomContentId(context)
-    || resolveLocalContentId(readAutoConvertLink(context), (context as any)?.cloudId);
+  // Covers a saved macro config, a modal opened from a non-macro surface, and a
+  // pasted TYPED deeplink (`/d/<type>/<cloudId>/<contentId>`). The 3-segment
+  // embed form is handled by the instrumented block below, which additionally
+  // reports why a paste failed to resolve.
+  let customContentId = resolveEffectiveCustomContentId(context);
+  let autoconvertProps: AnalyticsProperties | undefined;
   const pageId = context.extension?.content?.id;
-  if(!customContentId) {
-  } else {
-    const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
+
+  // AutoConvert: a pasted https://<host>/d/<cloudId>/<contentId> deeplink lands
+  // with no saved macro config — resolve the target from the matched URL
+  // instead. `autoConvertLink` is a top-level extension-context field per
+  // Atlassian's docs, not nested under `config`:
+  // https://developer.atlassian.com/platform/forge/manifest-reference/modules/macro/
+  // readAutoConvertLink also accepts the `config` and `parameters` shapes,
+  // because the value observed in a live page's ADF sits under `parameters`.
+  const autoConvertLink = readAutoConvertLink(context);
+  if (!customContentId && autoConvertLink) {
+    const deeplink = parseEmbedDeeplink(autoConvertLink);
+    if (!deeplink) {
+      trackAnalyticsEvent('embed_autoconvert_detected', AUTOCONVERT_ANALYTICS_PROPS);
+      trackAnalyticsEvent('embed_autoconvert_failed', {
+        ...AUTOCONVERT_ANALYTICS_PROPS,
+        failure_reason: 'invalid_url',
+      });
+    } else {
+      const isSameSite = context.cloudId
+        ? deeplink.cloudId === String(context.cloudId).toLowerCase()
+        : undefined;
+      autoconvertProps = {
+        ...AUTOCONVERT_ANALYTICS_PROPS,
+        custom_content_id: deeplink.contentId,
+        ...(isSameSite !== undefined && { is_same_site: isSameSite }),
+      };
+      trackAnalyticsEvent('embed_autoconvert_detected', autoconvertProps);
+
+      if (isSameSite === false) {
+        // Fail soft on a foreign-site paste — never fetch cross-tenant.
+        trackAnalyticsEvent('embed_autoconvert_cross_tenant_rejected', autoconvertProps);
+      } else {
+        customContentId = deeplink.contentId;
+      }
+    }
+  }
+
+  if (customContentId) {
+    const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId)
+      .catch((error) => {
+        if (autoconvertProps) {
+          trackAnalyticsEvent('embed_autoconvert_failed', {
+            ...autoconvertProps,
+            failure_reason: 'fetch_failed',
+          });
+        }
+        throw error;
+      });
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
+    if (doc && autoconvertProps) {
+      // Resolution proves the referenced document loaded, not that pixels
+      // painted. `macro_viewed` remains the rendered-view signal.
+      trackAnalyticsEvent('embed_autoconvert_target_resolved', autoconvertProps);
+    }
     if (!doc) {
+      if (autoconvertProps) {
+        trackAnalyticsEvent('embed_autoconvert_failed', {
+          ...autoconvertProps,
+          failure_reason: 'target_missing',
+        });
+      }
       // ZEN-1170 telemetry. #147: the original call passed the arguments in the
       // WRONG order — (apWrapper, pageId, customContentId, 'embed') against the
       // real signature (pageId, orphanId, diagramKind, probeResult, options) —
@@ -94,12 +160,38 @@ function afterLoad(doc: Diagram | undefined) {
 
 
 
+/**
+ * Same id resolution `loadDiagram` performs above, before its fetch: the
+ * saved config id, or — for an autoConvert paste that hasn't saved a config
+ * yet — the deeplink target parsed from `autoConvertLink`. `parseEmbedDeeplink`
+ * is a pure regex match (no network call), so this is resolvable synchronously
+ * from context exactly like the graph/openapi resolvers. Cross-tenant pastes
+ * resolve to undefined, same as `loadDiagram` — never cache/read a foreign-site
+ * paste. The legacy-uuid recovery fallback inside `loadDiagram` (for a macro
+ * with neither a saved config id nor a matching deeplink) has no id to resolve
+ * here either — it's excluded from the cache exactly like graph/openapi's own
+ * legacy-uuid fallback.
+ */
+function resolveEmbedContentId(context: any): string | undefined {
+  const direct = context.extension?.config?.customContentId;
+  if (direct) return direct;
+  const deeplink = context.extension?.autoConvertLink
+    ? parseEmbedDeeplink(context.extension.autoConvertLink)
+    : undefined;
+  if (!deeplink) return undefined;
+  if (context.cloudId && deeplink.cloudId !== String(context.cloudId).toLowerCase()) {
+    return undefined;
+  }
+  return deeplink.contentId;
+}
+
 async function initializeMacro() {
   await bootstrapForgeViewer({
     macroKind: 'embed',
     content: ForgeEmbedViewer,
     loadDiagram,
     afterLoad,
+    resolveContentId: resolveEmbedContentId,
     onError: (error) => {
       console.error('Error loading embed viewer', error);
     },

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { callDiagramly } from './diagramlyService';
+import { callDiagramly, modifyDiagram } from './diagramlyService';
 
 function makeContext(cloudId?: string) {
   return {
@@ -33,6 +33,28 @@ describe('callDiagramly', () => {
     expect(init.headers).toMatchObject({
       'x-external-id': 'client-account-123',
       'x-team-id': 'verified-cloud-789',
+    });
+  });
+
+  it('forwards the explicit OpenAPI language key for AI repair', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue('{"jobId":"openapi-repair-job"}'),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await modifyDiagram(
+      makeContext('verified-cloud-789'),
+      'openapi: 3.0.0\ninfo:',
+      'Missing required field: info',
+      'OpenAPI',
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(init.body)).toMatchObject({
+      diagramType: 'openapi',
+      languageKey: 'LANG_OPENAPI',
     });
   });
 

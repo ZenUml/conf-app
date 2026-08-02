@@ -56,8 +56,9 @@ on:
 # Spec-level parallelism via Playwright's `--shard=N/M`. With auth deduped above,
 # shards do pure test work (no per-shard login), so scaling shards finally cuts
 # wall-clock instead of multiplying auth-flake exposure (the reason an earlier
-# N=4 attempt without dedup was slower). N=4 splits the 9-test insert suite
-# ~2/3/3/1. Note: `--shard` splits CONTIGUOUSLY by file and can't split within a
+# N=4 attempt without dedup was slower). N=4 splits the insert suite, which is
+# 14 tests across 9 files on Lite since typed-deeplink-autoconvert added 4.
+# Note: `--shard` splits CONTIGUOUSLY by file and can't split within a
 # file, so the dense paywall spec bounds the heaviest shard. On Full/Diagramly the
 # paywall spec is skipped (Lite-only), so a couple of their shards are near-idle —
 # cheap now that they no longer each pay an OTP login. Keep strategy.matrix.shard

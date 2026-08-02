@@ -141,7 +141,7 @@ import PaywallHero from './PaywallHero.vue'
 import DraftCard from './DraftCard.vue'
 import AdvocacyButton from './AdvocacyButton.vue'
 import { useUpgradeTracking } from './useUpgradeTracking'
-import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking'
+import { trackUpgradeEvent, UpgradeEventName, UIComponent, bundleClientReferenceId } from '@/utils/upgradeTracking'
 import type { PaywallActionType } from '@/utils/paywall/mountPaywallGate'
 import { CONTINUE_ATTEMPTS_STORAGE_SOURCE } from '@/utils/paywall/continueAttempts'
 import { getUpgradeContext, useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
@@ -288,8 +288,10 @@ function purchaseContext() {
  *  This is the primary CTA precisely because it requires no permission the
  *  person in front of the modal might not have. */
 async function onUnlockSpace() {
+  const reference = bundleClientReferenceId(props.enterpriseBundleUrl)
   trackUpgradeEvent(UpgradeEventName.PAYWALL_BUNDLE_CTA_CLICKED, {
     bundle_price_usd: ENTERPRISE_BUNDLE_ANNUAL_COST,
+    ...(reference !== undefined ? { client_reference_id: reference } : {}),
     ...purchaseContext(),
   })
   await openUrl(props.enterpriseBundleUrl)

@@ -152,6 +152,11 @@ export type AnalyticsProperties = {
   // Advertised annual price on the bundle CTA at click time (USD, per space).
   // Recorded on the event so a later price change stays comparable.
   bundle_price_usd?: number;
+  // Attribution token embedded in the Stripe Payment Link URL
+  // (`<clientDomain>__<spaceKey>`, sanitised to Stripe's [A-Za-z0-9_-]).
+  // Stripe returns it verbatim on the Checkout Session, so a $299 payment
+  // joins back to the exact bundle CTA click without manual reconciliation.
+  client_reference_id?: string;
   // Cohort targeting (cohorts_refreshed). `cohorts` = comma-joined cohort list
   // the refresh resolved; empty string = user in no cohort (still a successful
   // refresh). `cohort_count` = same list's length, for numeric filtering.

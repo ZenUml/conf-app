@@ -2,7 +2,7 @@ import { ref, computed } from 'vue'
 import type { MacroCountSource } from '@/utils/analytics/catalog'
 import getFeatureFlagsForCurrentDomain from "@/apis/featureFlags"
 import macroMetrics from "@/services/MacroMetrics"
-import { getClientDomain } from "@/utils/ContextParameters/ContextParameters"
+import { getClientDomain, getSpaceKey } from "@/utils/ContextParameters/ContextParameters"
 import globals from '@/model/globals'
 import { callRemote } from '@/utils/requestUtil'
 import { writeTargetingMarker, toMarkerSeverity } from '@/utils/paywall/warningBanner'
@@ -68,7 +68,18 @@ export function useCustomerSuccessService() {
   })
 
   const enterpriseBundleUrl = computed(() => {
-    return 'https://buy.stripe.com/cNifZifkN7hzavK12H7IY05'
+    // client_reference_id rides the Payment Link into the Checkout Session and
+    // comes back verbatim in Stripe's payment records, so a $299 payment can
+    // be attributed to tenant+space without asking the customer to type
+    // anything. Stripe accepts only [A-Za-z0-9_-] (≤200 chars) and silently
+    // drops the whole parameter otherwise — sanitise, because personal space
+    // keys start with "~". Prefer currentSpaceKey (same identity the KV space
+    // license is granted against) and fall back to the synchronous context
+    // read before it loads.
+    const reference = `${getClientDomain()}__${currentSpaceKey.value || getSpaceKey()}`
+      .replace(/[^A-Za-z0-9_-]/g, '_')
+      .slice(0, 200)
+    return `https://buy.stripe.com/cNifZifkN7hzavK12H7IY05?client_reference_id=${reference}`
   })
 
   const learnMoreUrl = computed(() => {

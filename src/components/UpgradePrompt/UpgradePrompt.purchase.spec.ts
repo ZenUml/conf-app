@@ -84,6 +84,20 @@ describe('UpgradePrompt — purchase surface', () => {
     )
   })
 
+  it('records the Stripe attribution token (client_reference_id) on the bundle click', async () => {
+    const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
+    const wrapper = mountModal({
+      enterpriseBundleUrl: 'https://buy.stripe.example.com/bundle?client_reference_id=acme__ENG',
+    })
+
+    await wrapper.find('[data-testid="unlock-space-btn"]').trigger('click')
+
+    expect(trackUpgradeEvent).toHaveBeenCalledWith(
+      'paywall_bundle_cta_clicked',
+      expect.objectContaining({ client_reference_id: 'acme__ENG' })
+    )
+  })
+
   it('opens the Marketplace listing and tracks the OTHER rail distinctly', async () => {
     const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
     const { openUrl } = await import('@/model/globals/forgeGlobal')

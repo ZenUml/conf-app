@@ -9,20 +9,17 @@ import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
 import { resolveLocalContentId } from '@/utils/embedDeeplink';
 import { readAutoConvertLink } from '@/utils/newDiagramLink';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 
 async function loadDiagram(): Promise<Diagram | undefined> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
-  // A macro created by pasting a diagram deeplink has no config yet — the id
-  // lives in the matched URL. Falling back to it is what makes paste-to-place
-  // render on the first load, with no config write needed (the link persists in
-  // the page ADF, so this stays true on every later render).
-  const pastedContentId = resolveLocalContentId(
-    readAutoConvertLink(context),
-    (context as any)?.cloudId,
-  );
-  const customContentId = context.extension?.config?.customContentId || pastedContentId;
+  // resolveEffectiveCustomContentId covers config / modal / typed deeplink;
+  // resolveLocalContentId additionally accepts the legacy 3-segment embed form,
+  // which only this macro handles.
+  const customContentId = resolveEffectiveCustomContentId(context)
+    || resolveLocalContentId(readAutoConvertLink(context), (context as any)?.cloudId);
   const pageId = context.extension?.content?.id;
   if(!customContentId) {
   } else {

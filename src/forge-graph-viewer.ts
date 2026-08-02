@@ -14,12 +14,16 @@ import {
 } from '@/utils/legacyContentPropertyTelemetry';
 import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
 import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 
 async function loadDiagram(): Promise<Diagram | undefined> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
-  const customContentId = context.extension?.config?.customContentId;
+  // Includes the pasted-deeplink fallback: a graph macro created by
+  // autoConvert has no config, and reading only config left it rendering an
+  // empty canvas that stayed empty after editing.
+  const customContentId = resolveEffectiveCustomContentId(context);
   const pageId = context.extension?.content?.id;
   if(!customContentId) {
   } else {

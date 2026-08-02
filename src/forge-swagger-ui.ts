@@ -10,6 +10,7 @@ import { getContext as initForgeContext, openModal } from './model/globals/forge
 import { Diagram } from "@/model/Diagram/Diagram";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 
 async function loadDiagram(): Promise<Diagram | undefined> {
   const context = await initForgeContext();
@@ -19,9 +20,7 @@ async function loadDiagram(): Promise<Diagram | undefined> {
   // View action opens this viewer as a modal carrying the id via
   // modal.customContentId (mirrors forge-asyncapi-viewer). Without the modal
   // fallback, a dashboard View of an OpenAPI doc renders empty.
-  const customContentId =
-    context.extension?.config?.customContentId
-    || context.extension?.modal?.customContentId;
+  const customContentId = resolveEffectiveCustomContentId(context);
   const pageId = context.extension?.content?.id;
   if(!customContentId) {
   } else {
@@ -104,7 +103,7 @@ EventBus.$on('edit', async () => {
   // sequence-editor pattern in forgeIndex.ts). Without this, viewer-launched
   // edits arrive at forge-swagger-editor.ts with no customContentId and are
   // mistakenly treated as new-macro sessions.
-  const customContentId = ctx.extension?.config?.customContentId;
+  const customContentId = resolveEffectiveCustomContentId(ctx);
   await openModal({
     resource: 'main',
     onClose: (payload: any) => {

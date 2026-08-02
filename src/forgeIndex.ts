@@ -42,7 +42,6 @@ import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
 import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink } from '@/utils/newDiagramLink';
-import { resolveLocalTypedContentId } from '@/utils/embedDeeplink';
 import { maybeGateViewerRender, awaitGateBlocking } from '@/utils/renderGate/maybeGateViewerRender';
 
 // Track editor session start time
@@ -303,9 +302,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // but its editor is a document picker, so a diagram placed that way could
     // never be edited again. The link persists in the page ADF, so this keeps
     // resolving on every later render with no config write needed.
-    const customContentId = context.extension?.config?.customContentId
-      || context.extension.modal?.customContentId
-      || resolveLocalTypedContentId(readAutoConvertLink(context), (context as any)?.cloudId);
+    const customContentId = resolveEffectiveCustomContentId(context);
     originalCustomContentId = customContentId;
     recoveryPageId = context.extension?.content?.id;
     // ZEN-1170 Defect 1: see forge-graph-editor.ts for why this uses
@@ -1030,7 +1027,7 @@ EventBus.$on('edit', async(params: any) => {
   // Forward the macro's customContentId so the modal can load the right diagram
   // and the pre-edit paywall gate can fire. Without this the modal opens a blank
   // new diagram and the paywall check is skipped entirely.
-  const customContentId = context.extension?.config?.customContentId;
+  const customContentId = resolveEffectiveCustomContentId(context);
   const journeyId = startEditJourney(macroUuid, 'dialog');
   const journeyStartTime = getEditJourneyStartTime();
   
@@ -1059,6 +1056,7 @@ EventBus.$on('edit', async(params: any) => {
 // 'draft-available' on EventBus and renders a fixed-position banner at the
 // top of the page; each editor's mount logic emits the event on reopen.
 import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 installRestoreDraftBanner();
 
 EventBus.$on('save', async () => {

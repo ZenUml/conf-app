@@ -16,8 +16,9 @@
       <div class="hero">
         <div class="hero__title">Diagram saved</div>
         <div class="hero__sub">
-          {{ createdCopied ? 'Link copied.' : 'Copy this link,' }}
-          Paste it into the page where you want the diagram to appear.
+          {{ createdCopied
+            ? 'The link is on your clipboard. Open the editor and paste it where you want the diagram.'
+            : 'Copy the link, then open the editor and paste it where you want the diagram.' }}
         </div>
       </div>
       <div class="linkbox">
@@ -114,7 +115,7 @@
     <div v-else class="byline__body byline__body--stack" data-testid="byline-empty">
       <div class="hero">
         <div class="hero__title">Nothing diagrammed here yet</div>
-        <div class="hero__sub">Pick a type — we'll copy a link and open the editor. Paste it where you want the diagram.</div>
+        <div class="hero__sub">Pick a type and draw it. We'll give you a link to drop anywhere on the page.</div>
       </div>
       <div class="typegrid">
         <div
@@ -142,18 +143,25 @@
     <!-- Footer. Pinned in every state; only the hint and the right slot vary. -->
     <div class="byline__footer">
       <span class="byline__hint">
-        <template v-if="createdLink">The diagram is saved whether or not you paste it now.</template>
+        <template v-if="createdLink">Saved either way — you can paste the link any time.</template>
         <template v-else-if="loading">Reading this page…</template>
         <template v-else-if="failed">Type <code>/zenuml</code> anywhere on the page.</template>
         <template v-else-if="diagrams.length">Click a diagram to jump to it on the page.</template>
         <template v-else>Already editing? Type <code>/zenuml</code> anywhere on the page.</template>
       </span>
-      <button
-        v-if="createdLink"
-        class="btn-primary"
-        data-testid="byline-created-done"
-        @click="onDismissCreated"
-      >Done</button>
+      <template v-if="createdLink">
+        <a
+          class="byline__learn"
+          href="#"
+          data-testid="byline-created-done"
+          @click.prevent="onDismissCreated"
+        >Not now</a>
+        <button
+          class="btn-primary"
+          data-testid="byline-open-editor"
+          @click="onOpenEditorToPaste"
+        >Open editor</button>
+      </template>
       <a
         v-else-if="!loading && !failed && !diagrams.length"
         class="byline__learn"
@@ -542,6 +550,31 @@ async function onCopyCreatedLink() {
   if (!createdLink.value) return
   createdCopied.value = await copyText(createdLink.value)
   trackAnalyticsEvent('advocacy_message_copied', { ...baseProps(), ui_component: 'byline_created_link' })
+}
+
+/**
+ * Hand off to the page editor with the link already on the clipboard, so the
+ * paste is the user's next keystroke.
+ *
+ * Deliberately a click rather than an automatic redirect after the copy: this
+ * navigation reloads the host page and cannot be undone, and if the clipboard
+ * write failed (`createdCopied` false) an automatic jump would strand the user
+ * in an editor with nothing to paste. The diagram is already saved either way.
+ */
+async function onOpenEditorToPaste() {
+  try {
+    const spaceKey = getSpaceKey() || ''
+    const { router } = await import('@forge/bridge')
+    await router.navigate(`/wiki/spaces/${spaceKey}/pages/edit-v2/${pageId}`)
+    trackAnalyticsEvent('byline_editor_deeplinked', { ...baseProps(), result: 'after_create' })
+  } catch (e) {
+    console.error('[byline] editor navigation failed', e)
+    trackAnalyticsEvent('byline_editor_deeplinked', {
+      ...baseProps(),
+      result: 'failed',
+      failure_reason: (e as any)?.message ? String((e as any).message) : String(e),
+    })
+  }
 }
 
 function onDismissCreated() {

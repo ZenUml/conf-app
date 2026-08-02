@@ -441,10 +441,16 @@ modules:
       title: Diagrams
       icon: resource:main;image/zenuml_logo.png
       tooltip: See the diagrams on this page, or add one
-      # `large`, not `medium`: at medium (618x529) the 2x2 preview grid leaves
-      # each card barely taller than its own meta block, and the type strip has
-      # to compete with it for the same height.
-      viewportSize: large
+      # `max` — the largest non-fullscreen modal. `medium` (618x529) left each
+      # card barely taller than its own meta block; `large` was measurably wider
+      # (~800px, confirmed from the deployed manifest artifact + a screenshot)
+      # but not enough to read as different, and the body still ran mostly empty
+      # at two diagrams.
+      #
+      # If `max` also lands short, the next step is `fullscreen` — the one value
+      # proven on a contentBylineItem in this app, since zenuml-byline-aiaide
+      # has used it in production all along.
+      viewportSize: max
       viewportContainer: modal
       resolver:
         endpoint: remote-connect

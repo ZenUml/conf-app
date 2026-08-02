@@ -669,16 +669,18 @@ async function onLearnMore() {
   padding: 16px 20px;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
+  /* Rows size to content, capped, rather than dividing the modal in two. A
+     fixed `1fr 1fr` reserved a second row even for a single diagram — visible
+     as an empty band — and at the larger viewport it either stretched two cards
+     over the whole modal or left half of it blank. */
+  grid-auto-rows: minmax(150px, 300px);
+  align-content: start;
   gap: 14px;
   height: 100%;
   box-sizing: border-box;
+  overflow-y: auto;
 }
-/* Past 3 diagrams the rows stop dividing the height and keep card proportions,
-   and only the grid area scrolls. */
 .byline__body--paged {
-  grid-template-rows: none;
-  grid-auto-rows: minmax(150px, 1fr);
   overflow-y: auto;
 }
 .byline__body--stack {

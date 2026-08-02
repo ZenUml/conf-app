@@ -217,6 +217,13 @@ modules:
           - pattern: https://confluence.zenuml.com/new/sequence
           - pattern: https://confluence.zenuml.com/new/mermaid
           - pattern: https://confluence.zenuml.com/new/plantuml
+          # Place an EXISTING diagram as this (editable) macro. The embed macro
+          # keeps the 3-segment /d/*/* form, which renders but cannot be edited;
+          # a matcher's * covers exactly one segment, so the 4-segment typed form
+          # can never collide with it.
+          - pattern: https://confluence.zenuml.com/d/sequence/*/*
+          - pattern: https://confluence.zenuml.com/d/mermaid/*/*
+          - pattern: https://confluence.zenuml.com/d/plantuml/*/*
       unlicensedAccess:
         - unlicensed
     - key: zenuml-openapi-macro${LITE_KEY_SUFFIX}
@@ -234,6 +241,7 @@ modules:
       autoConvert:
         matchers:
           - pattern: https://confluence.zenuml.com/new/openapi
+          - pattern: https://confluence.zenuml.com/d/openapi/*/*
       unlicensedAccess:
         - unlicensed
     - key: zenuml-graph-macro${LITE_KEY_SUFFIX}
@@ -251,6 +259,7 @@ modules:
       autoConvert:
         matchers:
           - pattern: https://confluence.zenuml.com/new/graph
+          - pattern: https://confluence.zenuml.com/d/graph/*/*
       unlicensedAccess:
         - unlicensed
     - key: zenuml-embed-macro${LITE_KEY_SUFFIX}

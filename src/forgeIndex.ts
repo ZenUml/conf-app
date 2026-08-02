@@ -42,6 +42,7 @@ import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
 import { applyNewDiagramLink, readAutoConvertLink } from '@/utils/newDiagramLink';
+import { resolveLocalTypedContentId } from '@/utils/embedDeeplink';
 import { maybeGateViewerRender, awaitGateBlocking } from '@/utils/renderGate/maybeGateViewerRender';
 
 // Track editor session start time
@@ -295,7 +296,16 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
 
     let doc: Diagram | undefined;
     let legacyLoadBlocked = false;
-    const customContentId = context.extension?.config?.customContentId || context.extension.modal?.customContentId;
+    // A macro created by pasting a typed diagram deeplink
+    // (.../d/<type>/<cloudId>/<contentId>) has no config yet — the id is in the
+    // matched URL. Deriving it here is what makes that paste an ORDINARY,
+    // editable macro rather than an embed: the embed macro renders a diagram
+    // but its editor is a document picker, so a diagram placed that way could
+    // never be edited again. The link persists in the page ADF, so this keeps
+    // resolving on every later render with no config write needed.
+    const customContentId = context.extension?.config?.customContentId
+      || context.extension.modal?.customContentId
+      || resolveLocalTypedContentId(readAutoConvertLink(context), (context as any)?.cloudId);
     originalCustomContentId = customContentId;
     recoveryPageId = context.extension?.content?.id;
     // ZEN-1170 Defect 1: see forge-graph-editor.ts for why this uses

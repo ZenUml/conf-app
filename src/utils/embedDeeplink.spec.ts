@@ -4,6 +4,9 @@ import {
   parseEmbedDeeplink,
   resolveLocalContentId,
   newlyCreatedId,
+  buildDiagramDeeplink,
+  parseDiagramDeeplink,
+  resolveLocalTypedContentId,
 } from './embedDeeplink'
 
 const CLOUD = 'bc8bb5b3-09d2-4932-b68c-9b56fab8e34a'
@@ -85,5 +88,38 @@ describe('newlyCreatedId', () => {
   it('tolerates a failed listing on either side', () => {
     expect(newlyCreatedId(undefined as any, ['1'])).toBe('1')
     expect(newlyCreatedId(['1'], undefined as any)).toBeUndefined()
+  })
+})
+
+describe('typed diagram deeplinks', () => {
+  const TYPED = `https://confluence.zenuml.com/d/sequence/${CLOUD}/425987`
+
+  it('builds a four-segment link per supported type', () => {
+    expect(buildDiagramDeeplink('sequence', CLOUD, '425987')).toBe(TYPED)
+    expect(buildDiagramDeeplink('graph', CLOUD, '1')).toBe(`https://confluence.zenuml.com/d/graph/${CLOUD}/1`)
+  })
+
+  it('refuses a type no macro declares a matcher for', () => {
+    // A link nothing matches pastes as plain text — worse than not offering it.
+    expect(buildDiagramDeeplink('asyncapi', CLOUD, '1')).toBeUndefined()
+    expect(buildDiagramDeeplink('embed', CLOUD, '1')).toBeUndefined()
+    expect(buildDiagramDeeplink('', CLOUD, '1')).toBeUndefined()
+  })
+
+  it('round-trips', () => {
+    expect(parseDiagramDeeplink(TYPED)).toEqual({ type: 'sequence', cloudId: CLOUD, contentId: '425987' })
+  })
+
+  it('keeps the two forms apart by segment count', () => {
+    // /d/*/* (embed, 3 segments) vs /d/<type>/*/* (real macro, 4). A matcher's
+    // * covers exactly one segment, so neither pattern can catch the other.
+    expect(parseDiagramDeeplink(`https://confluence.zenuml.com/d/${CLOUD}/425987`)).toBeUndefined()
+    expect(parseEmbedDeeplink(TYPED)).toBeUndefined()
+  })
+
+  it('resolves only same-site links', () => {
+    expect(resolveLocalTypedContentId(TYPED, CLOUD)).toBe('425987')
+    expect(resolveLocalTypedContentId(TYPED, 'another-cloud')).toBeUndefined()
+    expect(resolveLocalTypedContentId(TYPED, undefined)).toBeUndefined()
   })
 })

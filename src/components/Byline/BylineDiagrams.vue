@@ -28,8 +28,8 @@
         </button>
       </div>
       <p class="byline__hint">
-        Pasting the link converts it into an embedded diagram — it stays linked to
-        this one, so edits show up everywhere it is placed.
+        Pasting the link places this diagram on the page as a normal macro — you
+        can edit it there like any other.
       </p>
     </div>
 
@@ -198,7 +198,7 @@ import {
   type PageDiagram,
 } from '@/utils/byline/pageDiagrams'
 import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnails'
-import { buildEmbedDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
+import { buildDiagramDeeplink, buildEmbedDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 
 const loading = ref(true)
 const diagrams = ref<PageDiagram[]>([])
@@ -513,7 +513,12 @@ async function afterEditorClosed(before: string[], macroType?: MacroTypeValue) {
     // Same accessor model/Attachment.ts uses — `globals` is the app singleton
     // (apWrapper etc.) and carries no Forge context.
     const cloudId = forgeGlobal.forgeContext?.cloudId
-    const link = buildEmbedDeeplink(cloudId, newId)
+    // Typed link, so the paste becomes the real (editable) macro for this
+    // diagram's type. buildEmbedDeeplink is the older 3-segment form, which
+    // pastes as a read-only embed; it stays only for links already in the wild.
+    const created = after.find(d => d.id === newId)
+    const link = buildDiagramDeeplink(toMacroType(created?.diagramType || ''), cloudId || '', newId)
+      || buildEmbedDeeplink(cloudId || '', newId)
     trackAnalyticsEvent('byline_diagram_created', {
       ...baseProps(),
       ...(macroType ? { macro_type: macroType } : {}),

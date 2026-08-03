@@ -21,13 +21,6 @@ import { pasteUntil, isMacro, typedDeeplinkUrl } from '../../helpers/embedDeepli
  *
  * Two pages by design — page A owns a real diagram, page B receives only the
  * link — so the assertion on B cannot be satisfied by A's macro.
- *
- * NOT IN THE CI GATE YET (see playwright.config.ts testIgnore). It was authored
- * without a browser available to run it, and an unvalidated spec in a merge gate
- * costs more than it catches. Promote it by deleting its testIgnore entry after
- * one green local run:
- *   APP=zenuml-lite@stg npx playwright test --project=insert \
- *     tests/insert/typed-deeplink-render.spec.ts
  */
 
 const macroType = 'graph' as const;
@@ -73,6 +66,11 @@ test.describe(`Typed deeplink renders its target - ${testConfig.productType}`, (
     page,
     request,
   }) => {
+    // Two page creations and two publishes — comfortably the heaviest test in
+    // the insert suite, and the only one that builds its own fixture instead of
+    // using a fixed id. Triple the project timeout rather than have a slow
+    // staging run read as a product failure.
+    test.slow();
     const variantLabel = testConfig.isLite ? ' Lite' : '';
     const cloudId = await fetchCloudId(request);
 

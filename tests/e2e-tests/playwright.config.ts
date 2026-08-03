@@ -55,18 +55,7 @@ export default defineConfig({
       // upgrade-prompt suite is gated on the unreleased space-licensing Forge
       // build and skips at runtime in CI. Excluding at collection time so
       // `--shard` doesn't allocate idle slots to skipped tests.
-      //
-      // typed-deeplink-render is excluded for a different reason: it was
-      // authored without a browser available to run it, so it has never had a
-      // green run. Promote it into the gate (delete it from this list) after one
-      // verified local pass — see the header comment in the spec.
-      testIgnore: process.env.CI
-        ? [
-            'insert/upgrade-prompt.spec.ts',
-            'insert/spot-check-metrics-fix.spec.ts',
-            'insert/typed-deeplink-render.spec.ts',
-          ]
-        : [],
+      testIgnore: process.env.CI ? ['insert/upgrade-prompt.spec.ts', 'insert/spot-check-metrics-fix.spec.ts'] : [],
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['auth'],
       timeout: 300000,

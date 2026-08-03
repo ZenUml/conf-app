@@ -57,9 +57,12 @@ on:
 # shards do pure test work (no per-shard login), so scaling shards finally cuts
 # wall-clock instead of multiplying auth-flake exposure (the reason an earlier
 # N=4 attempt without dedup was slower). N=4 splits the insert suite, which is
-# 14 tests across 9 files on Lite since typed-deeplink-autoconvert added 4.
+# 15 tests across 10 files on Lite since the typed-deeplink specs were added.
 # Note: `--shard` splits CONTIGUOUSLY by file and can't split within a
-# file, so the dense paywall spec bounds the heaviest shard. On Full/Diagramly the
+# file, so the dense paywall spec bounds the heaviest shard. typed-deeplink-render
+# lands alone on shard 4 — it builds its own fixture (insert a graph, publish,
+# read back its custom content, paste a link to it on a second page) and is the
+# longest single test, so having it not share a shard is deliberate. On Full/Diagramly the
 # paywall spec is skipped (Lite-only), so a couple of their shards are near-idle —
 # cheap now that they no longer each pay an OTP login. Keep strategy.matrix.shard
 # in sync with SHARD_COUNT.

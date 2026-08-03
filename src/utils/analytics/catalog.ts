@@ -407,7 +407,21 @@ export type AnalyticsEventName =
   // never sent — only `query_len` (privacy).
   | "agent_link_diagram_read"
   | "agent_link_search_performed"
-  | "agent_link_list_performed";
+  | "agent_link_list_performed"
+  // Starter-template gallery (#334, JTBD: author job). The real "hire moment"
+  // for diagram creation is at the macro editor, before the user has typed
+  // anything — the gallery replaces the old external "Examples" link
+  // (Header.vue templateClick, which sent the user away to zenuml.com/
+  // mermaid.js.org/plantuml.com docs) with 6-10 curated, one-click,
+  // in-product templates per text-DSL macro type (sequence/mermaid/plantuml).
+  // `editor_template_gallery_opened` is the denominator; `editor_template_applied`
+  // (keyed by `template_id`) is the per-template pull signal the JTBD's
+  // success metric needs ("editor_template_applied share of new creates").
+  // AI text->diagram entry from the same issue is explicitly OUT OF SCOPE
+  // here (deferred 2026-08-03) — its ai_generation_* events already exist
+  // above and are reused, not redefined, when that lands.
+  | "editor_template_gallery_opened"
+  | "editor_template_applied";
 
 // Where an idle renderer-bundle prefetch ran: an alive macro iframe after its
 // own render settled, or the page-banner iframe on its no-banner fast-path.

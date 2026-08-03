@@ -39,22 +39,35 @@ async function fetchCloudId(request: APIRequestContext): Promise<string> {
  * The custom content a page's macros own. Same endpoint and `type` key the app
  * itself uses (ApWrapper2.getPageCustomContent) — every diagram type is stored
  * under the one custom-content key, graph included.
+ *
+ * Deliberately NO `type` filter. The wire format is the FULLY QUALIFIED type
+ * (`ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence` — see
+ * ApWrapper2.getCustomContentTypePrefix), not the bare key, and the prefix
+ * varies per variant in a way that does not track `testConfig.addonKey`
+ * (diagramly uses `gptdock-confluence`). Passing the bare key returns 400.
+ * `type` is optional on this endpoint and the page has exactly one macro, so
+ * reconstructing the prefix here would be a second source of truth for no gain.
+ * The filter below still prefers a ZenUML-looking type when one is present.
  */
 async function fetchPageCustomContentId(
   request: APIRequestContext,
   pageId: string,
 ): Promise<string> {
-  const url =
-    `https://${testConfig.domain}/wiki/api/v2/pages/${pageId}` +
-    `/custom-content?type=${encodeURIComponent(testConfig.customContentKey)}&limit=25`;
+  const url = `https://${testConfig.domain}/wiki/api/v2/pages/${pageId}/custom-content?limit=25`;
   const r = await request.get(url, { headers: { Accept: 'application/json' } });
-  expect(r.ok(), `custom-content listing failed: ${r.status()} ${url}`).toBe(true);
-  const body = await r.json();
-  const id = body?.results?.[0]?.id;
+  // Include the body: a bare status turned a one-line API mistake into a
+  // source-diving exercise the first time this ran.
+  const raw = await r.text();
+  expect(r.ok(), `custom-content listing failed: ${r.status()} ${url}\n${raw.slice(0, 500)}`)
+    .toBe(true);
+
+  const results: Array<{ id?: string; type?: string }> = JSON.parse(raw)?.results ?? [];
+  const mine = results.find(c => (c.type || '').includes(testConfig.customContentKey));
+  const id = (mine ?? results[0])?.id;
   expect(
     id,
-    `page ${pageId} reported no ${testConfig.customContentKey} children — ` +
-      `the source diagram was not persisted, so the paste has nothing to resolve`,
+    `page ${pageId} reported no custom-content children — the source diagram was ` +
+      `not persisted, so the paste would have nothing to resolve. Got: ${raw.slice(0, 300)}`,
   ).toBeTruthy();
   return String(id);
 }

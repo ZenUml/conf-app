@@ -55,7 +55,7 @@ const meta: Meta<typeof Header> = {
     docs: {
       description: {
         component:
-          'Top toolbar in the Workspace editor. Contains the diagram-type tab switcher (Sequence / Mermaid / PlantUML), the diagram title input, Examples and Help buttons, and the Publish button. Publish is disabled until a title is provided.',
+          'Top toolbar in the Workspace editor. Contains the diagram-type tab switcher (Sequence / Mermaid / PlantUML), the diagram title input, Templates (starter-template gallery) and Help buttons, and the Publish button. Publish is disabled until a title is provided.',
       },
     },
   },

@@ -122,4 +122,17 @@ describe('Header — starter-template gallery (#334)', () => {
     expect(store.state.diagram.code).toBe('')
     expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('editor_template_applied', expect.anything())
   })
+
+  it('closes the gallery if diagramType changes while it is open (no focus trap on the overlay)', async () => {
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+
+    const templatesButton = wrapper.findAll('button').find(b => b.text().includes('Templates'))!
+    await templatesButton.trigger('click')
+    expect(wrapper.find('[data-testid="template-gallery"]').exists()).toBe(true)
+
+    store.commit('updateDiagramType', DiagramType.Mermaid)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('[data-testid="template-gallery"]').exists()).toBe(false)
+  })
 })

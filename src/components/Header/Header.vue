@@ -204,6 +204,18 @@ export default {
       await openUrl(this.helpUrl);
     },
   },
+  watch: {
+    // The gallery overlay covers the TabSwitcher while open, so a mouse
+    // click can't reach it — but there's no focus trap, so keyboard/AT
+    // navigation could still tab to a hidden tab button and switch
+    // diagramType. Closing on change avoids a template list that reacts
+    // out from under the user mid-interaction, and keeps `applyTemplate`
+    // (which re-reads getStoreUpdateAction(this.diagramType) at click time)
+    // acting on the type the user actually opened the panel for.
+    diagramType() {
+      this.isTemplateGalleryOpen = false;
+    },
+  },
   async mounted() {
     // Load user's preferred diagram type from localStorage for new diagrams
     const isNewDiagram = this.$store.state.diagram.isNew;

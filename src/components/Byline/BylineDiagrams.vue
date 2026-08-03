@@ -227,6 +227,7 @@ import {
 } from '@/utils/byline/pageDiagrams'
 import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnails'
 import { buildDiagramDeeplink, buildEmbedDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
+import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
 
 const loading = ref(true)
 const diagrams = ref<PageDiagram[]>([])
@@ -508,6 +509,13 @@ async function onAddDiagram(macroType?: MacroTypeValue, diagramType?: string) {
         // Undefined for the generic "Add a diagram" button — the editor opens
         // in its own default type, which is the sequence family.
         diagramType: diagramType ? toModalDiagramType(diagramType) : 'sequence',
+        // The paywall gate already fires on this path — the editor mounts with
+        // no customContentId, so tryPageEditorPaywall takes its create branch
+        // exactly as an insert-menu create does. This marker does not change
+        // WHETHER it fires, only that the resulting events say `byline_create`
+        // instead of `page_editor_create`, so a byline create dying at the limit
+        // is countable against byline_create_clicked.
+        origin: BYLINE_MODAL_ORIGIN,
       },
       onClose: () => {
         void afterEditorClosed(before, macroType)

@@ -12,6 +12,7 @@ import {
 import {
   default as forgeGlobal,
   getView,
+  getContext,
   isFullscreenMode,
   isEditorMode,
 } from '@/model/globals/forgeGlobal';
@@ -21,6 +22,8 @@ import {
   UpgradeEventName,
   UIComponent,
 } from '@/utils/upgradeTracking';
+import type { Surface } from '@/utils/analytics/catalog';
+import { isBylineModal } from '@/utils/paywall/modalOrigin';
 import {
   isFullscreenViewerBlocked,
   isPageEditorEditBlocked,
@@ -28,6 +31,59 @@ import {
 } from '@/utils/paywall/preEditGate';
 
 type CustomerSuccess = ReturnType<typeof useCustomerSuccessService>;
+
+/**
+ * The surface a gate decision was made on.
+ *
+ * `byline_create` is a create exactly like `page_editor_create` — same block
+ * predicate, same modal, same counter — but it must be countable separately.
+ * The Lite byline exists to be measured (does an entry point on every page turn
+ * readers into authors?), and a byline create that dies at the paywall is a
+ * completely different outcome from one that succeeds. Folding it into
+ * `page_editor_create` makes that funnel unreadable, because the insert-menu
+ * create dwarfs it.
+ */
+export type PaywallActionType =
+  | 'page_editor'
+  | 'page_editor_create'
+  | 'byline_create'
+  | 'fullscreen_viewer';
+
+/**
+ * The `surface` property that pairs with an action type. Kept beside the union
+ * so a new action type cannot silently inherit `editor` — the byline is its own
+ * surface in the analytics catalog and has to report as one.
+ */
+export function surfaceForActionType(actionType: PaywallActionType): Surface {
+  if (actionType === 'fullscreen_viewer') return 'viewer';
+  if (actionType === 'byline_create') return 'byline';
+  return 'editor';
+}
+
+/**
+ * Which create surface this editor was opened from.
+ *
+ * The byline opens the ordinary editor via `openModal({ macroMode: 'editor' })`,
+ * so it arrives here indistinguishable from an insert-menu create unless it says
+ * so. Resolved from the modal context rather than threaded through every call
+ * site, because all three editor entry points (forgeIndex for the sequence
+ * family, forge-graph-editor, forge-swagger-editor) reach this function and none
+ * of them otherwise knows or cares where the modal came from.
+ *
+ * Note this changes the LABEL only. A byline create takes the same block
+ * predicate as any other create — being reachable from a new surface has never
+ * been a reason to let it past the limit.
+ */
+async function resolveCreateActionType(): Promise<PaywallActionType> {
+  try {
+    return isBylineModal(await getContext()) ? 'byline_create' : 'page_editor_create';
+  } catch (e) {
+    // Never let a context read decide whether the gate runs — only how it is
+    // labelled. Fall back to the pre-existing label.
+    console.debug('Could not resolve modal origin for the paywall gate', e);
+    return 'page_editor_create';
+  }
+}
 
 /**
  * Emit `paywall_gate_evaluated` for one gate decision — fired on every Lite
@@ -46,7 +102,7 @@ function trackGateEvaluated(
   if (!globals.apWrapper.isLite()) return;
   trackUpgradeEvent(UpgradeEventName.PAYWALL_GATE_EVALUATED, {
     ...getUpgradeContext(),
-    surface: actionType === 'fullscreen_viewer' ? 'viewer' : 'editor',
+    surface: surfaceForActionType(actionType),
     action_type: actionType,
     gate_fired: gateFired,
     macro_count: customerSuccess.macrosCreated.value,
@@ -72,8 +128,6 @@ async function resolveSpaceKey(logTag: string): Promise<string> {
  * Caller is responsible for firing the upstream tracking events (PAYWALL_*)
  * since their event names / ui_components differ per surface.
  */
-export type PaywallActionType = 'page_editor' | 'page_editor_create' | 'fullscreen_viewer';
-
 export async function mountUnderPaywallGate(opts: {
   doc: Diagram;
   content: Component;
@@ -186,8 +240,11 @@ export async function tryPageEditorPaywall(opts: {
 
   // customContentId present ⟺ an edit attempt (editBlocked when gated); absent ⟺
   // create. Matches the blocked-branch actionType below, but computed here so the
-  // gate-evaluated event tags the not-fired (fail-open) case too.
-  const actionType: PaywallActionType = opts.customContentId ? 'page_editor' : 'page_editor_create';
+  // gate-evaluated event tags the not-fired (fail-open) case too. A create is
+  // split further by which surface opened the editor — see resolveCreateActionType.
+  const actionType: PaywallActionType = opts.customContentId
+    ? 'page_editor'
+    : await resolveCreateActionType();
   trackGateEvaluated(customerSuccess, actionType, editBlocked || createBlocked);
 
   if (!editBlocked && !createBlocked) return false;
@@ -213,7 +270,7 @@ export async function tryPageEditorPaywall(opts: {
     contentProps: opts.contentProps,
     macroKind: opts.macroKind,
     customerSuccess,
-    logTag: editBlocked ? 'page-editor' : 'page-editor-create',
+    logTag: editBlocked ? 'page-editor' : actionType.replace(/_/g, '-'),
     actionType,
   });
   return true;

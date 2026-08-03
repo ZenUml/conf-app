@@ -9,9 +9,9 @@
     </div>
     <div class="flex items-center gap-3 shrink-0">
       <button class="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
-        @click="templateClick">
+        @click="openTemplateGallery">
         <LightBulbIcon class="w-4 h-4" />
-        <span>Examples</span>
+        <span>Templates</span>
       </button>
       <button class="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
         @click="helpClick">
@@ -33,23 +33,31 @@
       </div>
     </div>
   </header>
+  <TemplateGallery
+    :visible="isTemplateGalleryOpen"
+    :diagram-type="diagramType"
+    @close="closeTemplateGallery"
+    @select="applyTemplate"
+  />
 </template>
 
 <script>
-import { mapState, mapMutations } from "vuex";
+import { mapMutations } from "vuex";
 import PublishButton from "@/components/PublishButton.vue";
 import TabSwitcher from "@/components/TabSwitcher/TabSwitcher.vue";
 import { setupCloseGuard } from "@/utils/closeGuard";
 import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
 import { DiagramType } from "@/model/Diagram/Diagram";
-import { getEditorDiagramOptions, getDiagramConfig, getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
+import { getEditorDiagramOptions, getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
 import { trackEvent } from "@/utils/window";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { getEditJourneyId, getOrCreateSession } from "@/utils/journeyTracking";
 import { openUrl } from "@/model/globals/forgeGlobal";
 import LightBulbIcon from '@heroicons/vue/24/outline/LightBulbIcon';
 import QuestionMarkCircleIcon from '@heroicons/vue/24/outline/QuestionMarkCircleIcon';
 import DiagramTitleInput from "@/components/Header/DiagramTitleInput.vue";
+import TemplateGallery from "@/components/TemplateGallery/TemplateGallery.vue";
 import { PUBLISH_BLOCK_MESSAGES } from "@/model/editDupGate";
 
 export default {
@@ -58,6 +66,7 @@ export default {
     PublishButton,
     TabSwitcher,
     DiagramTitleInput,
+    TemplateGallery,
     LightBulbIcon: { render: LightBulbIcon },
     QuestionMarkCircleIcon: { render: QuestionMarkCircleIcon },
   },
@@ -71,6 +80,10 @@ export default {
       // is in flight. Without this the button sits inert for 2–8s with no
       // feedback and stays clickable, so an impatient user can double-fire.
       isSaving: false,
+      // Starter-template gallery (#334). Replaces the old external "Examples"
+      // link (which sent the user to zenuml.com/mermaid.js.org/plantuml.com
+      // docs) with an in-product panel of curated, one-click templates.
+      isTemplateGalleryOpen: false,
     };
   },
   computed: {
@@ -87,10 +100,6 @@ export default {
         localStorage.setItem('zenuml-preferred-diagram-type', value);
       }
     },
-    ...mapState({
-      templateUrl: (state) =>
-        getDiagramConfig(state.diagram.diagramType)?.templateUrl || '',
-    }),
     currentCode() {
       return getCodeFromDiagram(this.$store.state.diagram, this.diagramType);
     },
@@ -155,11 +164,40 @@ export default {
       this.isSaving = false;
       clearTimeout(this._savingTimeout);
     },
-    async templateClick() {
+    // #334: opens the starter-template gallery panel. Keeps the pre-existing
+    // "template click" legacy signal (unknown downstream consumers) and adds
+    // the new editor_template_gallery_opened event alongside it, rather than
+    // replacing one tracker with the other.
+    openTemplateGallery() {
       trackEvent("template", "click", this.diagramType);
-      if (this.templateUrl) {
-        await openUrl(this.templateUrl);
-      }
+      trackAnalyticsEvent("editor_template_gallery_opened", {
+        feature_area: "macro",
+        surface: "editor",
+        macro_type: this.diagramType,
+        is_new_macro: !this.$store.state.diagram.id,
+      });
+      this.isTemplateGalleryOpen = true;
+    },
+    closeTemplateGallery() {
+      this.isTemplateGalleryOpen = false;
+    },
+    // Applies the chosen template's DSL into the current diagram-type's code
+    // field via the same store action the CodeMirror editor dispatches on
+    // every keystroke (getStoreUpdateAction) — Editor.vue's `watch(code)`
+    // then pushes the new doc into the editor. A plain buffer replace: the
+    // user can Ctrl/Cmd+Z it in CodeMirror, and nothing reaches Confluence
+    // until Publish, so no destructive-overwrite guard is needed here.
+    applyTemplate(template) {
+      const action = getStoreUpdateAction(this.diagramType);
+      if (action) this.$store.dispatch(action, template.dsl);
+      trackAnalyticsEvent("editor_template_applied", {
+        feature_area: "macro",
+        surface: "editor",
+        template_id: template.id,
+        macro_type: this.diagramType,
+        is_new_macro: !this.$store.state.diagram.id,
+      });
+      this.isTemplateGalleryOpen = false;
     },
     async helpClick() {
       trackEvent("help", "click", this.diagramType);

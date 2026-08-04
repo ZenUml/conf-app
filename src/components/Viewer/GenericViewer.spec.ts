@@ -483,7 +483,9 @@ describe('GenericViewer (chrome-less)', () => {
       expect(btn.attributes('disabled')).toBeDefined()
       expect(btn.attributes('aria-busy')).toBe('true')
       expect(activeCopyLabel(wrapper)).toBe('Copying…')
-      // No clipboard write yet — still waiting on the page fetch.
+      // No writeText yet — this environment has no ClipboardItem, so the
+      // legacy fallback runs and resolves the page fetch before writing.
+      // The activation-preserving path is covered by the #442 block below.
       expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
 
       // A second click while copying must not start an overlapping copy.
@@ -504,6 +506,117 @@ describe('GenericViewer (chrome-less)', () => {
       expect(btn.attributes('aria-busy')).toBe('false')
       expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1)
       expect(toast).not.toHaveBeenCalled()
+    })
+
+    // #442: Safari revokes the transient user activation across the awaited
+    // page fetch, so a clipboard call made after that await always throws
+    // NotAllowedError there. The fix hands the STILL-PENDING payload to a
+    // ClipboardItem constructed synchronously in the click task and calls
+    // navigator.clipboard.write() before any await. jsdom has no
+    // ClipboardItem, so this block stubs it; every other test in this file
+    // (no ClipboardItem stub) exercises the legacy writeText fallback.
+    describe('activation-preserving clipboard write (#442)', () => {
+      class FakeClipboardItem {
+        static instances: FakeClipboardItem[] = []
+        data: Record<string, Promise<Blob> | Blob | string>
+        constructor(data: Record<string, Promise<Blob> | Blob | string>) {
+          this.data = data
+          FakeClipboardItem.instances.push(this)
+        }
+      }
+      let write: ReturnType<typeof vi.fn>
+
+      beforeEach(() => {
+        FakeClipboardItem.instances = []
+        write = vi.fn(() => Promise.resolve())
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: { write, writeText: vi.fn(() => Promise.resolve()) },
+        })
+        ;(window as any).ClipboardItem = FakeClipboardItem
+      })
+
+      afterEach(() => {
+        delete (window as any).ClipboardItem
+      })
+
+      it('calls clipboard.write with a synchronously constructed ClipboardItem while the page fetch is still pending', async () => {
+        let resolveGetCurrentPage!: (value: unknown) => void
+        const pending = new Promise((resolve) => { resolveGetCurrentPage = resolve })
+        vi.mocked(globals.apWrapper.getCurrentPage).mockReturnValueOnce(pending as any)
+
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+
+        // The write must already be in flight BEFORE the page fetch resolves —
+        // this is the property Safari enforces.
+        expect(write).toHaveBeenCalledTimes(1)
+        expect(FakeClipboardItem.instances).toHaveLength(1)
+
+        resolveGetCurrentPage({
+          title: 'Login flow page',
+          body: { export_view: { value: '<p>Some page context.</p>' } },
+          _links: { base: 'https://example.atlassian.net/wiki', webui: '/spaces/TEST/pages/123' },
+        })
+        await flushPromises()
+
+        // The payload handed to the ClipboardItem resolves to the full text.
+        // (FileReader instead of Blob.text() — jsdom's Blob has no .text().)
+        const blob = await FakeClipboardItem.instances[0].data['text/plain']
+        const text = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.onerror = () => reject(reader.error)
+          reader.readAsText(blob as Blob)
+        })
+        expect(text).toContain(SOURCE_DSL)
+        expect(text).toContain('Login flow page')
+
+        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('copied')
+        expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
+        const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+        expect(call).toBeTruthy()
+        expect(call![1]).toMatchObject({ outcome: 'copied', job: 'generic' })
+      })
+
+      it('falls back to the legacy writeText path when clipboard.write rejects', async () => {
+        write.mockRejectedValueOnce(new Error('promise payloads unsupported'))
+
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+        await flushPromises()
+
+        expect(write).toHaveBeenCalledTimes(1)
+        expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1)
+        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('copied')
+        const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+        expect(call![1]).toMatchObject({ outcome: 'copied' })
+      })
+
+      it('reports clipboard_failed when both the modern write and the fallback fail', async () => {
+        write.mockRejectedValueOnce(new Error('denied'))
+        vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'))
+        ;(document as any).execCommand = vi.fn(() => false)
+
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+        await flushPromises()
+
+        expect(write).toHaveBeenCalledTimes(1)
+        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('failed')
+        expect(activeCopyLabel(wrapper)).toBe('Copy failed')
+        const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+        expect(call![1]).toMatchObject({ outcome: 'clipboard_failed' })
+      })
     })
 
     it('reverts from "Copied" to idle ~2s after a successful copy', async () => {

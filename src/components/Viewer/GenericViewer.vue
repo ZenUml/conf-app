@@ -830,6 +830,26 @@ export default {
         .catch(error => console.error('Error retrieving content versions:', error));
       toast({ message: 'Version history printed to developer console (F12)', duration: 2200 });
     },
+    // #442: Safari-safe clipboard write. MUST be called before any await in
+    // the click task: the ClipboardItem is constructed synchronously with a
+    // still-pending payload promise — the pattern WebKit supports for async
+    // clipboard content, keeping the write tied to the user gesture.
+    // Resolves false when the modern API is unavailable or the write is
+    // rejected; the caller then retries via copyToClipboard's legacy order.
+    writeClipboardKeepingActivation(resultPromise) {
+      const supported = navigator.clipboard
+        && typeof navigator.clipboard.write === 'function'
+        && typeof window.ClipboardItem === 'function'
+        && window.isSecureContext;
+      if (!supported) return Promise.resolve(false);
+      const item = new window.ClipboardItem({
+        'text/plain': resultPromise.then(r => new Blob([r.text], { type: 'text/plain' })),
+      });
+      return navigator.clipboard.write([item]).then(() => true, (error) => {
+        console.warn('copyForAi: ClipboardItem write rejected, falling back to legacy copy', error);
+        return false;
+      });
+    },
     async copyToClipboard(text) {
       if (navigator.clipboard && window.isSecureContext) {
         try { await navigator.clipboard.writeText(text); return true; }
@@ -1033,28 +1053,48 @@ export default {
       if (this.copyForAiState === 'copying') return;
       if (!this.viewSourceCode) { this.setCopyForAiState('failed', 'Nothing to copy'); return; }
       this.setCopyForAiState('copying', 'Copying…');
-      const page = await this.resolveCopyForAiPage();
-      const result = buildCopyForAiPrompt({
+      // #442: the clipboard call must be issued in the click's own task.
+      // Safari drops the transient user activation across an awaited fetch,
+      // so the previous order (await page fetch, then write) threw
+      // NotAllowedError on every Safari click. The payload is therefore
+      // built as a promise and handed to the clipboard API synchronously via
+      // writeClipboardKeepingActivation; no await may precede that call.
+      const resultPromise = this.resolveCopyForAiPage().then(page => buildCopyForAiPrompt({
         dslLabel: this.viewSourceDslLabel,
         fenceLang: this.copyForAiFenceLang,
         diagramTitle: this.title,
         dsl: this.viewSourceCode,
         page,
         job,
-      });
+      }));
 
-      let outcome;
+      let ok = false;
       try {
-        const ok = await this.copyToClipboard(result.text);
-        if (ok) {
-          outcome = result.pageBytes > 0 ? 'copied' : 'copied_diagram_only';
-          this.setCopyForAiState('copied', 'Copied');
-        } else {
-          outcome = 'clipboard_failed';
-          this.setCopyForAiState('failed', 'Copy failed');
-        }
+        ok = await this.writeClipboardKeepingActivation(resultPromise);
       } catch (error) {
-        console.error('copyForAi: clipboard write failed', error);
+        console.error('copyForAi: activation-preserving clipboard write failed', error);
+      }
+      if (!ok) {
+        // Legacy order (resolve payload first, then writeText/execCommand):
+        // the only path for browsers without ClipboardItem, and the retry
+        // when the modern write is rejected. On Safari a rejection here is
+        // expected — the activation is already gone — and surfaces as
+        // outcome=clipboard_failed, same as before this fix.
+        try {
+          const built = await resultPromise;
+          ok = await this.copyToClipboard(built.text);
+        } catch (error) {
+          console.error('copyForAi: clipboard write failed', error);
+          ok = false;
+        }
+      }
+
+      const result = await resultPromise;
+      let outcome;
+      if (ok) {
+        outcome = result.pageBytes > 0 ? 'copied' : 'copied_diagram_only';
+        this.setCopyForAiState('copied', 'Copied');
+      } else {
         outcome = 'clipboard_failed';
         this.setCopyForAiState('failed', 'Copy failed');
       }

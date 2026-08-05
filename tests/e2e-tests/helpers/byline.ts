@@ -10,8 +10,22 @@ import { Frame, Page, expect } from '@playwright/test';
  * iframe is open the selectors are exact.
  */
 
-/** Manifest title of the Lite byline entry — the accessible name to click. */
-const BYLINE_TITLE = 'Diagrams';
+/**
+ * Manifest title of the Lite byline entry, as a PREFIX.
+ *
+ * Not an exact match: staging appends an environment suffix, so the button reads
+ * "Diagrams (Staging)" on lite-stg and "Diagrams" in production (confirmed from
+ * the CI DOM dump on 2026-08-05). Matching exactly works in prod and silently
+ * never matches on staging — where this test actually runs.
+ */
+const BYLINE_TITLE = /^Diagrams\b/;
+
+/**
+ * Confluence's test id for a Forge contentBylineItem button. Distinct from its
+ * own byline controls (e.g. `byline-listen`), so this plus the title prefix
+ * identifies our entry even when another app ships a byline item too.
+ */
+const BYLINE_BUTTON = '[data-testid="byline-forge-app-button"]';
 
 /** Forge app iframes are served from this origin (or localhost under tunnel). */
 function isAppFrame(f: Frame): boolean {
@@ -53,18 +67,18 @@ export async function frameWithTestId(
 /**
  * Click the byline item and return the frame hosting the byline modal.
  *
- * The locator is the one genuinely unverified selector in this flow — it targets
- * Confluence's byline chrome, which we don't own and which has no documented
- * test id. Rather than guess silently, a miss throws with the byline region's
- * actual contents so the correct locator is readable from one CI run instead of
- * inferred over several.
+ * This targets Confluence's own byline chrome rather than our markup. The
+ * primary locator below was read off a CI DOM dump; the fallbacks and the
+ * diagnostic throw are kept because that chrome can change under us without any
+ * change on our side, and a bare "element not found" would send the next person
+ * hunting instead of handing them the answer.
  */
 export async function openBylineModal(page: Page): Promise<Frame> {
   const candidates = [
-    page.getByRole('button', { name: BYLINE_TITLE, exact: true }),
-    page.getByRole('link', { name: BYLINE_TITLE, exact: true }),
-    page.locator(`[data-testid*="byline"] >> text="${BYLINE_TITLE}"`),
-    page.getByText(BYLINE_TITLE, { exact: true }),
+    page.locator(BYLINE_BUTTON).filter({ hasText: BYLINE_TITLE }),
+    page.locator(BYLINE_BUTTON),
+    page.getByRole('button', { name: BYLINE_TITLE }),
+    page.getByRole('link', { name: BYLINE_TITLE }),
   ];
 
   for (const c of candidates) {
@@ -91,7 +105,7 @@ export async function openBylineModal(page: Page): Promise<Frame> {
     return out.slice(0, 40);
   });
   throw new Error(
-    `Could not open the byline modal by any candidate locator for "${BYLINE_TITLE}".\n` +
+    `Could not open the byline modal by any candidate locator for ${BYLINE_TITLE}.\n` +
       `Byline-ish candidates on the page:\n${dump.join('\n') || '(none found)'}`,
   );
 }

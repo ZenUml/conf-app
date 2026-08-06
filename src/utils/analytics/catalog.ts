@@ -262,6 +262,19 @@ export type AnalyticsEventName =
   // network/auth/malformed-response errors.
   | "cohorts_refreshed"
   | "cohorts_refresh_failed"
+  // Two independent producers, disambiguated by `failure_stage` (reliability
+  // audit 2026-08-06 §3/§4/§12 items 1-2, conf-app#149/#150):
+  // - unset/'syntax': GenericViewer's `$store.state.error` watcher — client-
+  //   side syntax validation (mermaid/plantuml/sequence) or, for PlantUML
+  //   only, its own fetch failure (audit §2.1 — PlantUML's fetch-failure
+  //   class is a separate, still-open investigation, audit §12 item 3).
+  // - 'render_crash': trackViewerRenderCrash() — a genuine exception from the
+  //   render pipeline itself (mermaid.js, zenuml.render, GraphViewer,
+  //   SwaggerUIBundle) that previously produced a silent blank/broken macro
+  //   with `console.error` as the only signal. Before this, Mermaid+Sequence
+  //   (81% of view volume) had no way to distinguish "never rendered" from
+  //   "rendered fine", and Graph/OpenAPI (12.4%) had no failure telemetry at
+  //   all — a Graph crash fired neither this event nor `macro_viewed`.
   | "viewer_load_failed"
   // Diagram source snapshot attachments (resilience for cross-page copies /
   // deleted source pages — see docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md)

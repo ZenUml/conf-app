@@ -145,12 +145,11 @@ trial and error** — read [docs/reference/agent-container-credentials.md](docs/
 The short version:
 
 - `FORGE_EMAIL` + `FORGE_API_TOKEN` → Confluence REST v2 on all seven of our sites, **and** the Marketplace vendor export API. This is the credential for all Confluence content work.
-- `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` → D1 query, KV read, Pages. Use the **REST API** — there is no `wrangler` CLI in the container.
+- `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` → D1 query, KV read, Pages. Prefer the **REST API** for one-offs; `wrangler` works too, but only after `pnpm install`.
 - `MIXPANEL_SA_USER` + `MIXPANEL_SA_SECRET` → project `3373228` query API.
 - `ATLASSIAN_USERNAME` / `ATLASSIAN_PASSWORD` / `ATLASSIAN_OTP` → robot account for **browser login only** (Playwright); these do not work as REST basic auth.
 - GitHub → the `mcp__github__*` tools. `GH_TOKEN` is the placeholder string `proxy-injected`, and a direct `api.github.com` call returns **`200` with an error body** — never read that status as success.
 - `forge` and `wrangler` are devDependencies — they exist only **after `pnpm install`** (the e2e workspace needs its own install). `forge` then authenticates from `FORGE_EMAIL`/`FORGE_API_TOKEN`, but its first run dies on a non-TTY analytics prompt; clear it with `forge settings set usage-analytics false` and `forge install list` works.
-- `HUBSPOT_PAT` is expired.
 
 Never echo a secret's value; prove access with a status code instead.
 

@@ -138,6 +138,21 @@ wrangler d1 migrations apply zenuml-for-confluence --remote
 
 ## Operations
 
+### Agent container — what you can actually reach
+
+When running in the Claude Code remote container, **do not rediscover credentials by
+trial and error** — read [docs/reference/agent-container-credentials.md](docs/reference/agent-container-credentials.md).
+The short version:
+
+- `FORGE_EMAIL` + `FORGE_API_TOKEN` → Confluence REST v2 on all seven of our sites, **and** the Marketplace vendor export API. This is the credential for all Confluence content work.
+- `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` → D1 query, KV read, Pages. Use the **REST API** — there is no `wrangler` CLI in the container.
+- `MIXPANEL_SA_USER` + `MIXPANEL_SA_SECRET` → project `3373228` query API.
+- `ATLASSIAN_USERNAME` / `ATLASSIAN_PASSWORD` / `ATLASSIAN_OTP` → robot account for **browser login only** (Playwright); these do not work as REST basic auth.
+- GitHub → the `mcp__github__*` tools. `GH_TOKEN` is the placeholder string `proxy-injected`, and a direct `api.github.com` call returns **`200` with an error body** — never read that status as success.
+- No `forge` CLI ⇒ the **forge-installs** skill cannot run in the container. `HUBSPOT_PAT` is expired.
+
+Never echo a secret's value; prove access with a status code instead.
+
 ### Forge deployment
 
 ```bash

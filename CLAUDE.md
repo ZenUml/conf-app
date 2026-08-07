@@ -149,7 +149,8 @@ The short version:
 - `MIXPANEL_SA_USER` + `MIXPANEL_SA_SECRET` → project `3373228` query API.
 - `ATLASSIAN_USERNAME` / `ATLASSIAN_PASSWORD` / `ATLASSIAN_OTP` → robot account for **browser login only** (Playwright); these do not work as REST basic auth.
 - GitHub → the `mcp__github__*` tools. `GH_TOKEN` is the placeholder string `proxy-injected`, and a direct `api.github.com` call returns **`200` with an error body** — never read that status as success.
-- No `forge` CLI ⇒ the **forge-installs** skill cannot run in the container. `HUBSPOT_PAT` is expired.
+- `forge` and `wrangler` are devDependencies — they exist only **after `pnpm install`** (the e2e workspace needs its own install). `forge` then authenticates from `FORGE_EMAIL`/`FORGE_API_TOKEN`, but its first run dies on a non-TTY analytics prompt; clear it with `forge settings set usage-analytics false` and `forge install list` works.
+- `HUBSPOT_PAT` is expired.
 
 Never echo a secret's value; prove access with a status code instead.
 

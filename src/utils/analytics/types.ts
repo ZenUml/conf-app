@@ -14,6 +14,7 @@ import type {
   CacheSource,
   ContentSource,
   MacroCountSource,
+  PaywallPolicySource,
   PrefetchHost,
   PrefetchOutcome,
   DashboardFormatFilter,
@@ -61,6 +62,12 @@ export type AnalyticsProperties = {
   macro_count?: number;
   macro_count_source?: MacroCountSource;
   css_enabled?: boolean;
+  // Which policy produced the effective Lite paywall decision on this
+  // evaluation (lite-paywall-default-on): `default_on` when the backend
+  // explicitly returned `PAYWALL_EXEMPT: false`, `exemption` when it returned
+  // `true`, `fail_open` when the property was absent or unusable. See
+  // PaywallPolicySource in catalog.ts for the full contract.
+  paywall_policy_source?: PaywallPolicySource;
   space_paid?: boolean;
   space_paid_scope?: 'user_license' | 'space_license';
   is_lite?: boolean;

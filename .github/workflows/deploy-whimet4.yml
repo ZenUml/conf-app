@@ -35,8 +35,15 @@ jobs:
     name: 'Deploy: whimet4'
     runs-on: ubuntu-latest
     env:
-      FORGE_EMAIL: "${{ vars.FORGE_EMAIL }}"
-      FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN }}"
+      # whimet4-specific Forge credentials, falling back to the shared CI ones.
+      # The shared principal (support@zenuml.com) is not a site admin of
+      # whimet4, so install/upgrade there returns "insufficient permissions" —
+      # fine for a minor version, which auto-applies, but it cannot consent to a
+      # MAJOR one (scope / module changes). WHIMET4_* holds the site owner's
+      # credentials so those land too. The `||` keeps the workflow working if
+      # they are ever unset rather than deploying as an empty principal.
+      FORGE_EMAIL: "${{ vars.WHIMET4_FORGE_EMAIL || vars.FORGE_EMAIL }}"
+      FORGE_API_TOKEN: "${{ secrets.WHIMET4_FORGE_API_TOKEN || secrets.FORGE_API_TOKEN }}"
       # whimet4's Forge environment. Not "development" — the install lives in a
       # named custom environment (see `forge install list`).
       FORGE_ENV: yanhui
@@ -89,10 +96,15 @@ jobs:
         with:
           cmd: yq eval 'del(.connectModules)' -i manifest.yml
 
-      - name: Remove contentBylineItem from manifest
+      # Keep Lite's byline entry, drop the others — this deploys the Lite app,
+      # and `zenuml-byline-diagrams` IS Lite's byline. Deleting the whole
+      # contentBylineItem block (what this step used to do) shipped a build with
+      # the feature silently absent, which is exactly the failure #78204e5 fixed
+      # in release.yml / staging-deploy.yml. Mirrors staging-deploy.yml:81-85.
+      - name: Keep only the Lite byline entry in manifest
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules["confluence:contentBylineItem"])' -i manifest.yml
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key != "zenuml-byline-diagrams"))' -i manifest.yml
 
       - name: Remove licensing (Lite is free)
         uses: mikefarah/yq@master

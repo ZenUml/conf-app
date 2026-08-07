@@ -139,7 +139,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const url = new URL(request.url);
     const payload = await validateContextToken(jwt, allowedForgeAppIds);
-    const cloudId = payload.cloudId || payload.payload.context?.cloudId;
+    // `context.cloudId` is typed `unknown` on the FIT payload, so the raw
+    // expression is `string | {}` — fine while it only fed template literals,
+    // but the D1 paid-rail check below binds it as a parameter. Narrow to a
+    // real string; a non-string value now reads as absent (falsy), which the
+    // guard below already treats as "no decision to make".
+    const rawCloudId = payload.cloudId || payload.payload.context?.cloudId;
+    const cloudId = typeof rawCloudId === 'string' ? rawCloudId : undefined;
     // Derived from the Forge-validated token, never a client query param — a
     // query param would let any user claim another user's accountId.
     const accountId = payload?.payload?.principal;

@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import type { MacroCountSource } from '@/utils/analytics/catalog'
+import type { MacroCountSource, PaywallPolicySource } from '@/utils/analytics/catalog'
 import getFeatureFlagsForCurrentDomain from "@/apis/featureFlags"
 import macroMetrics from "@/services/MacroMetrics"
 import { getClientDomain, getSpaceKey } from "@/utils/ContextParameters/ContextParameters"
@@ -17,6 +17,16 @@ const macrosCreated = ref<number>(0)
 // signal, surfaced on `paywall_gate_evaluated`. 'undefined' pre-read and when
 // the read returns undefined; 'zero' when the read returns total:0.
 const macroCountSource = ref<MacroCountSource>('undefined')
+// Which policy produced the effective Lite paywall decision (lite-paywall-
+// default-on). Starts 'fail_open' (the safe default before a real decision
+// is loaded) and stays 'fail_open' for the whole session on a non-Lite
+// variant, a missing/unreadable/malformed PAYWALL_EXEMPT lookup, or a
+// rejected /feature-flags call. Rides on paywall_gate_evaluated.
+const policySource = ref<PaywallPolicySource>('fail_open')
+// Effective paywall-enabled boolean — kept under its legacy CSS name for
+// compatibility (return value `cssEnabled`, the page-banner marker's
+// `customerSuccessServiceEnabled` field, and saved Mixpanel queries). `true`
+// only when `policySource` is 'default_on'.
 const customerSuccessServiceEnabled = ref<boolean>(false)
 const spacePaidStatus = ref<boolean>(false)
 // Which grant satisfied spacePaidStatus — 'user_license' (per-requester
@@ -124,30 +134,70 @@ export function useCustomerSuccessService() {
     }
   }
 
-  async function loadCSSFeatureFlag(): Promise<void> {
+  // Resolve the fixed Lite paywall policy: on by default, unless the backend
+  // returns an explicit exemption, unless the lookup itself is unavailable
+  // (missing/malformed KV, rejected fetch) — in which case the decision fails
+  // open. Non-Lite variants never make the PAYWALL_EXEMPT lookup at all; the
+  // effective paywall stays disabled for the whole session.
+  async function loadPaywallPolicy(): Promise<void> {
     if (cssFlagLoaded) {
-      console.log('🏁 Feature flag already loaded, skipping')
+      console.log('🏁 Paywall policy already loaded, skipping')
+      return;
+    }
+
+    if (!globals.apWrapper.isLite()) {
+      // Leave the effective paywall disabled and do not request the new
+      // feature at all — Full/Diagramly/AsyncAPI have no paywall.
+      policySource.value = 'fail_open'
+      customerSuccessServiceEnabled.value = false
+      cssFlagLoaded = true;
       return;
     }
 
     try {
       if (localStorage.mockCSSEnabled !== undefined) {
-        customerSuccessServiceEnabled.value = localStorage.mockCSSEnabled === 'true'
+        // Legacy-named dev/test override, retained as the effective decision
+        // override (design doc): 'true' behaves like default_on, 'false'
+        // behaves like an explicit exemption. Does not traverse the real
+        // PAYWALL_EXEMPT lookup.
+        const mockEnabled = localStorage.mockCSSEnabled === 'true'
+        policySource.value = mockEnabled ? 'default_on' : 'exemption'
+        customerSuccessServiceEnabled.value = mockEnabled
         console.log('🧪 Using mock CSS Feature Flag:', customerSuccessServiceEnabled.value)
         cssFlagLoaded = true;
         return;
       }
 
-      console.log('🔍 Loading CUSTOMER_SUCCESS_SERVICE feature flag...')
-      const flags: any = await getFeatureFlagsForCurrentDomain(['CUSTOMER_SUCCESS_SERVICE'])
-      customerSuccessServiceEnabled.value = !!flags.CUSTOMER_SUCCESS_SERVICE
-      console.log('✅ Feature flag loaded:', {
-        CUSTOMER_SUCCESS_SERVICE: flags.CUSTOMER_SUCCESS_SERVICE,
+      console.log('🔍 Loading PAYWALL_EXEMPT feature flag...')
+      const flags: any = await getFeatureFlagsForCurrentDomain(['PAYWALL_EXEMPT'])
+      if (typeof flags.PAYWALL_EXEMPT !== 'boolean') {
+        // Absent property: missing/unreadable/malformed KV, or the lookup
+        // itself failed inside getFeatureFlagsForCurrentDomain (which turns
+        // any transport error into `{}`). Fail open — never treat "unknown"
+        // as "safe to restrict".
+        policySource.value = 'fail_open'
+        customerSuccessServiceEnabled.value = false
+      } else if (flags.PAYWALL_EXEMPT) {
+        policySource.value = 'exemption'
+        customerSuccessServiceEnabled.value = false
+      } else {
+        policySource.value = 'default_on'
+        customerSuccessServiceEnabled.value = true
+      }
+      console.log('✅ Paywall policy loaded:', {
+        PAYWALL_EXEMPT: flags.PAYWALL_EXEMPT,
+        policySource: policySource.value,
         enabled: customerSuccessServiceEnabled.value,
       })
-      cssFlagLoaded = true;
     } catch (error) {
-      console.error("❌ Error loading CSS feature flag:", error);
+      console.error("❌ Error loading paywall policy:", error);
+      policySource.value = 'fail_open'
+      customerSuccessServiceEnabled.value = false
+    } finally {
+      // Mark loaded even on failure: an unavailable decision is resolved for
+      // this iframe's lifecycle, not retried into a surprise mid-session
+      // restriction.
+      cssFlagLoaded = true;
     }
   }
 
@@ -239,7 +289,7 @@ export function useCustomerSuccessService() {
   const initialize = async () => {
     await Promise.all([
       loadMacroMetrics(),
-      loadCSSFeatureFlag(),
+      loadPaywallPolicy(),
       loadSpacePaidStatus(),
       loadSpaceKey(),
     ]);
@@ -258,7 +308,11 @@ export function useCustomerSuccessService() {
     learnMoreUrl,
     spacePaid: spacePaidStatus,
     spacePaidSource,
+    // Legacy-named alias of the effective paywall-enabled boolean, kept for
+    // saved-query compatibility until downstream consumers migrate to
+    // paywallPolicySource.
     cssEnabled: customerSuccessServiceEnabled,
+    paywallPolicySource: policySource,
     initialize,
   }
 }
@@ -266,6 +320,7 @@ export function useCustomerSuccessService() {
 ;(useCustomerSuccessService as any).__resetForTests = () => {
   macrosCreated.value = 0
   macroCountSource.value = 'undefined'
+  policySource.value = 'fail_open'
   customerSuccessServiceEnabled.value = false
   spacePaidStatus.value = false
   spacePaidSource.value = undefined

@@ -8,7 +8,12 @@ import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextP
  *
  *   - TARGETING marker (`paywallWarning:<domain>:<space>`) — written ONLY by the
  *     macro iframe (useCustomerSuccessService) when a macro renders. Records the
- *     space's computed severity / macro count / paid status / CSS flag state.
+ *     space's computed severity / macro count / paid status / effective paywall
+ *     state (legacy field name `customerSuccessServiceEnabled` — since the
+ *     lite-paywall-default-on change this is the EFFECTIVE decision, `true`
+ *     only when `paywallPolicySource` is 'default_on'; a domain/wildcard
+ *     exemption or a fail-open lookup both write `false`, same as the old
+ *     "not CSS-enrolled" case).
  *   - DISMISSAL marker (`paywallBanner:<domain>:<space>`) — written ONLY by the
  *     page-banner iframe. Records show count + the last dismissal timestamp.
  *   - ACTIVITY marker (`paywallActivity:<domain>:<space>`) — written by editor
@@ -50,6 +55,8 @@ export interface TargetingMarker {
   severity: WarningSeverity
   macroCount: number
   spacePaid: boolean
+  /** Legacy field name; holds the EFFECTIVE Lite paywall-enabled boolean
+   * (see the module doc comment above), not a raw CSS flag read. */
   customerSuccessServiceEnabled: boolean
   updatedAt: string
 }

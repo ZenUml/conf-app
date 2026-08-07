@@ -73,3 +73,54 @@ describe('resolveEffectiveCustomContentId', () => {
     expect(resolveEffectiveCustomContentId(undefined)).toBeUndefined()
   })
 })
+
+// The attachment path (src/model/Attachment.ts) resolves the backup PNG's name
+// AND its own run/skip guard through this function. Before it did, both read
+// `extension.config.customContentId` raw, so a macro placed by pasting a typed
+// deeplink — which has no config — produced `undefined`, the guard bailed, and
+// the view-time backfill never wrote `zenuml-<id>.png` on the page the macro
+// actually sits on. Downstream that surfaces as PDF/Word export failing with
+// attachment_not_found, long after the paste.
+describe('resolveEffectiveCustomContentId — attachment naming', () => {
+  const CLOUD_ID = 'bc8bb5b3-09d2-4932-b68c-9b56fab8e34a'
+  const name = (ctx: any) => {
+    const id = resolveEffectiveCustomContentId(ctx)
+    return id ? `zenuml-${id}.png` : undefined
+  }
+
+  it('names the backup after the pasted link when there is no config', () => {
+    expect(
+      name({
+        cloudId: CLOUD_ID,
+        extension: {
+          parameters: {
+            autoConvertLink: `https://confluence.zenuml.com/d/sequence/${CLOUD_ID}/703430669`,
+          },
+        },
+      }),
+    ).toBe('zenuml-703430669.png')
+  })
+
+  it('never yields zenuml-undefined.png for a pasted macro', () => {
+    const n = name({
+      cloudId: CLOUD_ID,
+      extension: {
+        parameters: { autoConvertLink: `https://confluence.zenuml.com/d/graph/${CLOUD_ID}/42` },
+      },
+    })
+    expect(n).not.toContain('undefined')
+  })
+
+  it('a foreign-site link still yields no name — better none than a colliding one', () => {
+    expect(
+      name({
+        cloudId: CLOUD_ID,
+        extension: {
+          parameters: {
+            autoConvertLink: 'https://confluence.zenuml.com/d/sequence/other-cloud-id/42',
+          },
+        },
+      }),
+    ).toBeUndefined()
+  })
+})

@@ -6,6 +6,7 @@ import global from '@/model/globals';
 import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import {forgeRequest, callRemote} from '@/utils/requestUtil';
 import type { Attachment } from '@/model/ConfluenceTypes';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 
 // ============================================================================
 // Type Definitions
@@ -88,9 +89,23 @@ interface UploadContext {
 // Helper Functions
 // ============================================================================
 
+/**
+ * The custom content this attachment belongs to.
+ *
+ * Resolved, not a raw `config` read: a macro placed by pasting a typed deeplink
+ * has NO config at all — its id lives only in the matched URL, which Confluence
+ * keeps in the page ADF. Reading config directly returned undefined for those,
+ * so the guard in createAttachmentIfContentChanged bailed and the backup PNG was
+ * never written on the page the macro actually sits on. That is the view-time
+ * backfill the save path explicitly relies on ("the view-time path remains as a
+ * backfill"), so losing it means a pasted diagram can end up with no backup at
+ * all — and PDF/Word export then fails with attachment_not_found.
+ *
+ * Same omission as ZEN #278e3ab, which fixed the viewer/editor entry points but
+ * not this one.
+ */
 async function getIdentifier(): Promise<string | undefined> {
-  const context = await initForgeContext();
-  return context?.extension?.config?.customContentId;
+  return resolveEffectiveCustomContentId(await initForgeContext());
 }
 
 /**
@@ -784,7 +799,7 @@ async function createAttachmentIfContentChanged(
   // — the next save migrates the macro and subsequent calls write the
   // correctly-named attachment. Centralised here so embed/swagger/other
   // viewer call sites are covered without per-caller guards.
-  const macroCustomContentId = overrideId ?? forgeGlobal.forgeContext?.extension?.config?.customContentId;
+  const macroCustomContentId = overrideId ?? resolveEffectiveCustomContentId(forgeGlobal.forgeContext);
   if (!macroCustomContentId) {
     return;
   }

@@ -30,9 +30,11 @@ const policySource = ref<PaywallPolicySource>('fail_open')
 const customerSuccessServiceEnabled = ref<boolean>(false)
 const spacePaidStatus = ref<boolean>(false)
 // Which grant satisfied spacePaidStatus — 'user_license' (per-requester
-// extension) vs 'space_license' (whole-space extension or a paid plan).
-// Undefined when the space isn't paid. Rides on paywall_gate_evaluated.
-const spacePaidSource = ref<'user_license' | 'space_license' | undefined>(undefined)
+// extension), 'space_license' (whole-space extension or a paid plan), or
+// 'paid_rail' (D1 ForgeInstallation trial-window suppression — see
+// functions/api/space-status.ts checkPaidRail). Undefined when the space
+// isn't paid. Rides on paywall_gate_evaluated.
+const spacePaidSource = ref<'user_license' | 'space_license' | 'paid_rail' | undefined>(undefined)
 const currentSpaceKey = ref<string>('')
 
 let macroMetricsLoaded = false;

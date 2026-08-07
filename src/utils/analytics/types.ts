@@ -56,8 +56,11 @@ export type AnalyticsProperties = {
   // (the #302 fail-open signal). `css_enabled` / `space_paid` / `is_lite` are
   // the other gate inputs, captured so a not-fired decision is fully explained.
   // `space_paid_scope` = which grant satisfied `space_paid` — 'user_license'
-  // (per-requester extension) vs 'space_license' (whole-space extension or a
-  // paid plan). Lets user-level vs space-level unlocks be measured separately.
+  // (per-requester extension), 'space_license' (whole-space extension or a
+  // paid plan), or 'paid_rail' (D1 ForgeInstallation trial-window
+  // suppression — a recent Full/Diagramly install on the same tenant, NOT a
+  // real license; see functions/api/space-status.ts checkPaidRail). Lets
+  // user-level, space-level, and paid-rail unlocks be measured separately.
   gate_fired?: boolean;
   macro_count?: number;
   macro_count_source?: MacroCountSource;
@@ -69,7 +72,7 @@ export type AnalyticsProperties = {
   // PaywallPolicySource in catalog.ts for the full contract.
   paywall_policy_source?: PaywallPolicySource;
   space_paid?: boolean;
-  space_paid_scope?: 'user_license' | 'space_license';
+  space_paid_scope?: 'user_license' | 'space_license' | 'paid_rail';
   is_lite?: boolean;
   cta_position?: "primary" | "secondary";
   feature_name?: string;

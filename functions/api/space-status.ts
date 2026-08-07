@@ -6,11 +6,59 @@ import type { SpaceLicenseRecord } from './space-license';
 interface Env {
   SPACE_LICENSE_KV: KVNamespace;
   ALLOWED_FORGE_APP_IDS?: string;
+  // Optional: the project-wide "DB" D1 binding (conf-zenuml-prod). Optional
+  // because some environments (tests, older wrangler configs) don't bind it —
+  // the paid-rail check below must degrade to the existing not-paid path
+  // rather than fail the request when it's absent.
+  DB?: D1Database;
 }
 
 interface SpaceStatusResponse {
   isPaid: boolean;
-  source?: 'user_license' | 'space_license';
+  source?: 'user_license' | 'space_license' | 'paid_rail';
+}
+
+// Full and Diagramly Forge app identifiers (our own app IDs, not tenant
+// data — see .claude/skills/forge-installs/SKILL.md).
+const FULL_APP_ID = 'd9e4002b-120b-426b-834b-402a4a5adce7';
+const DIAGRAMLY_APP_ID = '01ede8b1-4e88-451a-b9ef-89eeef93afaf';
+
+// Atlassian's Forge trial is 30 days; +15 days buffer for install-to-decision
+// lag. Long-term paid Full/Diagramly tenants are handled by explicit
+// PAYWALL_EXEMPTIONS entries (see the paywall skill), NOT by this query —
+// this suppression is deliberately time-boxed so it can never substitute for
+// a real license check on an old install.
+const PAID_RAIL_TRIAL_WINDOW_MS = 45 * 24 * 60 * 60 * 1000;
+
+/**
+ * Paid-rail suppression (owner directive 2026-08-07): a cloudId with a
+ * RECENT Full or Diagramly Forge install is very likely mid-trial on one of
+ * those products and evaluating whether to buy — don't paywall their Lite
+ * usage on the same tenant while that evaluation is in flight. This is our
+ * own D1 (ForgeInstallation), not the Atlassian Marketplace API.
+ *
+ * Returns the paid-rail response when a qualifying install is found, `null`
+ * on a miss OR any error (never throws into the caller — a D1 outage must
+ * fall through to the existing not-paid path, not fail the request).
+ */
+async function checkPaidRail(db: D1Database | undefined, cloudId: string): Promise<SpaceStatusResponse | null> {
+  if (!db) return null;
+  try {
+    const cutoff = new Date(Date.now() - PAID_RAIL_TRIAL_WINDOW_MS).toISOString();
+    const row = await db
+      .prepare(
+        `SELECT 1 FROM ForgeInstallation WHERE cloudId = ?1 AND appId IN ('${FULL_APP_ID}','${DIAGRAMLY_APP_ID}') AND createdAt >= ?2 LIMIT 1`
+      )
+      .bind(cloudId, cutoff)
+      .first();
+    if (row) {
+      return { isPaid: true, source: 'paid_rail' };
+    }
+    return null;
+  } catch (error) {
+    console.error('space-status: paid_rail D1 check failed', error);
+    return null;
+  }
 }
 
 /** Forge invokeRemote requires valid JSON + application/json for every status (incl. errors). */
@@ -31,6 +79,20 @@ function jsonResponse(
     headers['Cache-Control'] = 'no-store';
   }
   return new Response(JSON.stringify(body), { status, headers });
+}
+
+/**
+ * The shared tail for both "no active license" exits: a missing space-level
+ * KV record, and a record that's present but inactive/expired. Both must
+ * check the D1 paid-rail fallback before finally reporting not-paid — the
+ * user- and space-license checks above this still win when they hit.
+ */
+async function notPaidOrPaidRail(env: Env, cloudId: string): Promise<Response> {
+  const paidRail = await checkPaidRail(env.DB, cloudId);
+  if (paidRail) {
+    return jsonResponse(200, paidRail, 'short');
+  }
+  return jsonResponse(200, { isPaid: false }, 'short');
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -101,7 +163,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     if (!licenseRaw) {
       console.log('space-status: no license found for', `license:${cloudId}:${spaceKey}`);
-      return jsonResponse(200, { isPaid: false }, 'short');
+      return await notPaidOrPaidRail(env, cloudId);
     }
 
     const record = JSON.parse(licenseRaw) as SpaceLicenseRecord;
@@ -127,7 +189,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       );
     }
 
-    return jsonResponse(200, { isPaid: false }, 'short');
+    return await notPaidOrPaidRail(env, cloudId);
   } catch (error) {
     console.error('Error checking space status:', error);
     captureError(error);

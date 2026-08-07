@@ -19,31 +19,14 @@ const global = {
 // on its own hostnames (staging: conf-stg-lite; prod: zenapi.zenuml.com — a
 // custom domain aliased to conf-lite), so it needs its own entries rather than
 // reusing LITE (whose prod host is conf-lite.zenuml.com).
-// DEVELOPMENT_* deliberately reuse the STAGING backends.
-//
-// They used to point at https://confluence-plugin.pages.dev, which NOTHING in
-// CI deploys (.github/workflows only publish conf-stg-lite / conf-stg-full /
-// conf-lite / conf-full). That project drifted: measured 2026-08-07 it still
-// served older routes (/feature-flags 400, /api/space-status 401) but answered
-// /forge-upload-attachment with 405 and no content-type — the static SPA
-// handler, i.e. the path is absent from its deployed public/_routes.json. So
-// every DEVELOPMENT Forge environment — whimet4's `yanhui`, and any local
-// `forge:tunnel` session — silently lost any backend route added after that
-// project was last deployed. The attachment app-fallback surfaced it as
-// "cannot parse body as JSON. Status: 405".
-//
-// Pointing dev at staging keeps the invariant above satisfiable: the whimet4
-// workflow already sets BACKEND_API_BASE_URL=conf-stg-lite, so client and
-// manifest now agree. The tradeoff is that dev traffic reads/writes the staging
-// D1 + KV; that was already true of anything routed through the manifest remote.
 const REMOTE_BASE_URL_MAP = {
-  DEVELOPMENT_LITE: 'https://conf-stg-lite.zenuml.com',
+  DEVELOPMENT_LITE: 'https://confluence-plugin.pages.dev',
   STAGING_LITE: 'https://conf-stg-lite.zenuml.com',
   PRODUCTION_LITE: 'https://conf-lite.zenuml.com',
-  DEVELOPMENT_FULL: 'https://conf-stg-full.zenuml.com',
+  DEVELOPMENT_FULL: 'https://confluence-plugin.pages.dev',
   STAGING_FULL: 'https://conf-stg-full.zenuml.com',
   PRODUCTION_FULL: 'https://conf-full.zenuml.com',
-  DEVELOPMENT_ASYNCAPI: 'https://conf-stg-lite.zenuml.com',
+  DEVELOPMENT_ASYNCAPI: 'https://confluence-plugin.pages.dev',
   STAGING_ASYNCAPI: 'https://conf-stg-lite.zenuml.com',
   PRODUCTION_ASYNCAPI: 'https://zenapi.zenuml.com',
 };

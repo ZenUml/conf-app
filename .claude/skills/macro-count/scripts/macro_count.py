@@ -277,11 +277,17 @@ def print_report(bare, full, kv, kv_errors, d1, mp):
     mp_spaces = (mp or {}).get("spaces", {})
     all_keys = sorted(set(kv_spaces) | set(mp_spaces))
 
-    print("## Per-space (KV inventory + Mixpanel 90d distinct-viewed)\n")
+    print("## Per-space (KV inventory + Mixpanel 90d distinct MACROS viewed)\n")
     if mp.get("window"):
         print(f"_Mixpanel window: {mp['window']} (clamped to tracking start)_\n")
     if all_keys:
-        print(f"| Space KEY | KV total | KV variant | MP {'%dd' % 90} distinct-viewed |")
+        # NOT a user count: the JQL groups by [space, macro_uuid] and counts the
+        # groups, so this is how many DISTINCT MACROS were viewed in the space.
+        # A column reading 383 next to 89 actual viewers is normal. For people,
+        # query Mixpanel directly: macro_viewed unique, broken down by
+        # confluence_space. (Misread as a user count on 2026-08-07, nearly
+        # putting a 4x-wrong figure into a customer email.)
+        print(f"| Space KEY | KV total | KV variant | MP {'%dd' % 90} distinct macros viewed |")
         print("|---|---|---|---|")
         kv_sum = 0
         mp_sum = 0

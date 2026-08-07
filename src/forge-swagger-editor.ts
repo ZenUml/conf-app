@@ -12,7 +12,7 @@ import './assets/tailwind.css'
 import OpenApiExample from '@/model/OpenApi/OpenApiExample'
 import globals from '@/model/globals';
 import './utils/IgnoreEsc'
-import { Diagram, DataSource, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { Diagram, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import { saveToPlatform } from "@/model/ContentProvider/Persistence";
 import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from '@/utils/window';
@@ -38,6 +38,10 @@ import { decideWriteback, deriveWritebackSignals } from "@/model/writebackGate";
 installRestoreDraftBanner();
 import SwaggerForgeEditorShell from '@/components/OpenApi/SwaggerForgeEditorShell.vue';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
+import {
+  buildOpenApiSaveDiagram,
+  createOpenApiEditorState,
+} from '@/model/OpenApi/OpenApiEditorState';
 
 // Captured at editor open from extension.config.uuid; forwarded back through
 // view.submit's replace-semantics so Connect-era guestParams.uuid survives.
@@ -106,21 +110,15 @@ async function saveOpenApiAndExit() {
   markPublishClicked();
   const code = window.specContent;
   console.log('saveOpenApiAndExit - window.diagram', store.state.diagram);
-  const diagram = {
-    ...window.diagram,
-    code: code,
-    diagramType: DiagramType.OpenApi,
-    source: DataSource.CustomContent,
-    // Dashboard Edit: force an in-place update. CustomContentStorageProvider.save
-    // only updates when (id && !isCopy); the dashboard space page false-positives
-    // isCopy=true, which would otherwise fork a new doc ("editing made a new
-    // diagram"). Pin the known id and clear isCopy — the same guard
-    // buildAsyncApiSaveDiagram applies via pinToId for AsyncAPI dashboard edits.
-    // Gated on dashboardEditDocLoaded so a failed load can't pin + overwrite.
-    ...(isDashboardEdit && dashboardEditDocLoaded && originalCustomContentId
-      ? { id: originalCustomContentId, isCopy: false }
-      : {}),
-  };
+  const diagram = buildOpenApiSaveDiagram({
+    existing: window.diagram,
+    spec: code,
+    // Dashboard Edit: force an in-place update. Gated on a successful document
+    // load so a transient failure cannot pin and overwrite the real document.
+    pinToId: isDashboardEdit && dashboardEditDocLoaded
+      ? originalCustomContentId
+      : undefined,
+  });
   console.log('saveOpenApiAndExit - diagram', JSON.stringify(diagram, null, 2));
   // @ts-ignore
   window.diagram = Object.assign(window.diagram || {}, diagram);
@@ -384,10 +382,16 @@ async function initializeMacro() {
       dashboardEditDocLoaded = true;
     }
 
-    store.state.diagram = doc ?? NULL_DIAGRAM;
+    // Swagger renders OpenApiExample for a new macro. Mirror that visible spec
+    // (and the OpenAPI type) into Vuex so SyntaxErrorBox/AIRepair does not read
+    // an empty code value from the Unknown sentinel diagram.
+    const editorDiagram = createOpenApiEditorState(doc);
+    store.state.diagram = editorDiagram;
 
-    // @ts-ignore
-    window.diagram = doc;
+    // Header title edits and saveOpenApiAndExit both use window.diagram. New
+    // macros must share this initialized object too, otherwise their title is
+    // visible in React but absent from the custom-content save payload.
+    window.diagram = editorDiagram;
 
     // Telemetry: existing macro (customContentId set) loaded with an empty
     // spec. Wipe-precursor signal aligned with the cross-editor event in
@@ -404,7 +408,7 @@ async function initializeMacro() {
     console.log('-------------- loaded spec:', doc?.code);
     // eslint-disable-next-line
     // @ts-ignore
-    window.updateSpec(doc?.code || OpenApiExample);
+    window.updateSpec(store.state.diagram.code || OpenApiExample);
     console.log('-------------- updateSpec with:', doc?.code);
 
     // Initialize spec listeners for validation and store sync

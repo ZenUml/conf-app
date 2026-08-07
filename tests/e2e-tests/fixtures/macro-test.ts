@@ -3,6 +3,7 @@ import { MacroPage } from '../pages/MacroPage.js';
 import { testConfig } from '../config/test-config.js';
 import type { MacroType } from '../config/test-config.js';
 import { getPageId } from '../utils/page-registry.js';
+import { registerAnnouncementModalHandler } from '../helpers/announcementModal.js';
 
 export type DiagramType = MacroType;
 
@@ -14,6 +15,11 @@ export function createMacroTest(diagramType: DiagramType) {
       if (!testConfig.renderMacros.includes(diagramType)) {
         test.skip();
       }
+
+      // Arm before navigating — an Atlassian announcement modal (e.g. the
+      // Rovo "reintroduce myself" promo) can intercept the very first click
+      // after page load.
+      await registerAnnouncementModalHandler(page);
 
       const pageId = getPageId(diagramType);
       await page.goto(testConfig.pageUrl(pageId));

@@ -95,8 +95,10 @@ export const testConfig: TestConfig = {
   macroNameOverrides: profile.macroNameOverrides ?? {},
 
   credentials: {
-    username: process.env.ZENUML_STAGE_USERNAME || '',
-    password: process.env.ZENUML_STAGE_PASSWORD || '',
+    // ATLASSIAN_* are the names the agent container injects; ZENUML_STAGE_* are
+    // the local/CI names. Accept either so E2E runs unchanged in both.
+    username: process.env.ZENUML_STAGE_USERNAME || process.env.ATLASSIAN_USERNAME || '',
+    password: process.env.ZENUML_STAGE_PASSWORD || process.env.ATLASSIAN_PASSWORD || '',
   },
 
   get baseUrl(): string {
@@ -109,10 +111,10 @@ export const testConfig: TestConfig = {
 
   validate(): void {
     if (!this.credentials.username) {
-      throw new Error('Missing username (ZENUML_STAGE_USERNAME)');
+      throw new Error('Missing username (ZENUML_STAGE_USERNAME or ATLASSIAN_USERNAME)');
     }
     if (!this.credentials.password) {
-      throw new Error('Missing password (ZENUML_STAGE_PASSWORD)');
+      throw new Error('Missing password (ZENUML_STAGE_PASSWORD or ATLASSIAN_PASSWORD)');
     }
   },
 };

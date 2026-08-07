@@ -28,6 +28,7 @@ Each row was confirmed by a live call from inside the container on 2026-08-07.
 | **GitHub** | — (MCP tools) | `mcp__github__*` tools are authenticated as `whimet`, scoped to `ZenUml/conf-app`. |
 | **git over HTTPS** | — (git proxy) | `git fetch` / `git push` to `https://github.com/ZenUml/conf-app` work. SSH remotes are auto-rewritten to HTTPS. |
 | **Playwright / Chromium** | `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers` | Chromium pre-installed. Never run `playwright install`. |
+| **Forge CLI** | `FORGE_EMAIL`, `FORGE_API_TOKEN` *(secret)* | `forge whoami` and `forge install list` both work — after `pnpm install` **and** clearing the analytics prompt. See the tooling section. |
 
 ### Sites reachable with `FORGE_EMAIL` + `FORGE_API_TOKEN`
 
@@ -51,21 +52,54 @@ This is the credential for **every read/write against Confluence content**:
 
 ---
 
-## Missing tooling — and the REST substitute
+## Tooling — available, but only after `pnpm install`
 
-The container has `node` 22, `npm`, `pnpm`, `python3` 3.11 — but **no
-`node_modules`, no `forge` CLI, and no `wrangler` CLI**. Several skills document
-a CLI path that cannot run here as written:
+The container ships `node` 22, `npm`, `pnpm`, `python3` 3.11 and Chromium, but the
+repo starts with **no `node_modules`**. Both CLIs you are likely to want are
+ordinary devDependencies, so they do not exist until you install:
 
-| Skill / doc | Documented CLI | Substitute in the container |
-|---|---|---|
-| `forge-installs` | `forge install list` | No substitute — the Forge platform install list has no REST equivalent we use. **This skill cannot run in the container.** Run it on a laptop with `forge login`. |
-| `forge-feature-flag` | `forge` CLI | Same limitation for the write path. |
-| `paywall`, `extend-space-license`, `test-space-license` | `wrangler kv key put/get` | Cloudflare REST API with `CLOUDFLARE_API_TOKEN`: `…/accounts/$CLOUDFLARE_ACCOUNT_ID/storage/kv/namespaces/<id>/values/<key>`. |
-| any D1 query | `wrangler d1 execute` | `POST …/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database/<uuid>/query` with `{"sql": "..."}`. |
+```bash
+pnpm install --frozen-lockfile                      # root  — ~35s, gives forge + wrangler
+cd tests/e2e-tests && pnpm install --frozen-lockfile # e2e   — separate package + lockfile
+```
 
-Installing a CLI is possible (`npm registry` is in `NO_PROXY`) but costs minutes;
-prefer the REST call for a one-off.
+After that, `./node_modules/.bin/forge` (`@forge/cli` 12.20.1) and
+`./node_modules/.bin/wrangler` (4.60.0) both work. Installing is cheap — the npm
+registry is in `NO_PROXY`, so it does not traverse the egress proxy.
+
+### Forge CLI: clear the analytics prompt first
+
+`forge whoami` authenticates fine from `FORGE_EMAIL` + `FORGE_API_TOKEN` — no
+`forge login`, no keychain. But on a fresh container the **first** invocation
+tries to ask for usage-analytics consent and dies:
+
+```
+Error: Prompts can not be meaningfully rendered in non-TTY environments
+```
+
+This is not an auth failure and `docs/debugging/forge-cli-auth.md` will not help.
+Answer the prompt once, non-interactively, then proceed:
+
+```bash
+./node_modules/.bin/forge settings set usage-analytics false
+./node_modules/.bin/forge whoami        # -> Logged in as Yanhui Li
+```
+
+With that done, **`forge install list` works in the container** — confirmed
+returning the full installation table for the asyncapi variant. The
+`forge-installs` and `forge-feature-flag` skills therefore *do* run here; they
+only need the two setup steps above, which their SKILL.md files do not yet
+mention.
+
+### Wrangler vs REST
+
+`wrangler` works post-install, but for a one-off read the Cloudflare REST API is
+faster than installing and configuring a `wrangler.toml`:
+
+| Task | REST substitute |
+|---|---|
+| KV read/write (`paywall`, `extend-space-license`, `test-space-license`) | `…/accounts/$CLOUDFLARE_ACCOUNT_ID/storage/kv/namespaces/<id>/values/<key>` |
+| D1 query | `POST …/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database/<uuid>/query` with `{"sql": "..."}` |
 
 ### Cloudflare REST gotcha
 
@@ -90,9 +124,12 @@ The container supplies `ATLASSIAN_USERNAME` / `ATLASSIAN_PASSWORD`, but
 `ZENUML_STAGE_PASSWORD`. `ATLASSIAN_OTP` is the one name that matches.
 
 `test-config.ts` now falls back to the `ATLASSIAN_*` names, so `pnpm test:e2e`
-and the `smoke-test` skill work in the container with no extra setup. If you see
-`Missing username (ZENUML_STAGE_USERNAME)`, you are on a build predating that
-fallback — export the mapping for the session:
+and the `smoke-test` skill work in the container with no extra setup. Verified in
+the container: the config resolves the robot username and password from the
+`ATLASSIAN_*` variables and `validate()` passes, where it previously threw.
+
+If you see `Missing username (ZENUML_STAGE_USERNAME …)`, you are on a build
+predating that fallback — export the mapping for the session:
 
 ```bash
 export ZENUML_STAGE_USERNAME="$ATLASSIAN_USERNAME"

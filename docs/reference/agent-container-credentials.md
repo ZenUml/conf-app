@@ -48,7 +48,6 @@ This is the credential for **every read/write against Confluence content**:
 | `GH_TOKEN`, `GITHUB_TOKEN` | Literal string `proxy-injected` | Direct `api.github.com` calls return a `200` body saying *"GitHub access is not enabled for this session."* **Use the `mcp__github__*` tools instead.** Do not treat the `200` as success — read the body. |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Literal `proxy-injected` | No AWS access. We don't use AWS. |
 | `CLOUDSDK_AUTH_ACCESS_TOKEN` | Literal `proxy-injected` | No GCP access. |
-| `HUBSPOT_PAT` | **Expired.** `401`; token-info endpoint returns `"Access token requires new signature"` | No HubSpot access. The value is a short-lived OAuth access token (`CiRh…` format), not a long-lived private-app PAT. Nothing in this repo references HubSpot, so nothing breaks — but don't plan work around it without re-issuing the token. |
 
 ---
 

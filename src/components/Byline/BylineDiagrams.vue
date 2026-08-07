@@ -810,13 +810,19 @@ async function onLearnMore() {
   color: #5e6c84;
   text-wrap: pretty;
 }
+/* Same sizing contract as .byline__body--grid, and for the same reason: the
+   modal is `viewportSize: fullscreen`, so anything told to fill the container
+   fills a whole desktop screen. The original `1fr 1fr` rows with `flex: 1 1
+   auto` divided the viewport between four tiles, which on a laptop rendered a
+   ~1000×800px preview per type. Cap the row height and stop stretching; the
+   tiles are a picker, not the content. */
 .typegrid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-auto-rows: 190px;
   gap: 12px;
-  flex: 1 1 auto;
-  min-height: 0;
+  align-content: start;
+  flex: none;
 }
 .tile {
   border: 1px solid #dfe1e6;
@@ -1014,7 +1020,8 @@ async function onLearnMore() {
    glance without taking the height the list needs. */
 .typegrid--row {
   grid-template-columns: repeat(4, 1fr);
-  grid-template-rows: none;
+  /* Height comes from the 64px preview + label, not the base 190px cap. */
+  grid-auto-rows: auto;
   gap: 10px;
   flex: none;
 }

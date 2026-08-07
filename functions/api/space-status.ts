@@ -28,6 +28,16 @@ const DIAGRAMLY_APP_ID = '01ede8b1-4e88-451a-b9ef-89eeef93afaf';
 // PAYWALL_EXEMPTIONS entries (see the paywall skill), NOT by this query —
 // this suppression is deliberately time-boxed so it can never substitute for
 // a real license check on an old install.
+//
+// Caveat (verified against Atlassian's own docs, not assumed): ForgeInstallation.createdAt
+// (functions/utils/dbUtils.ts upsertForgeInstallation) is overwritten to "now" on EVERY
+// upsert, including avi:forge:upgraded:app — but per
+// https://developer.atlassian.com/platform/forge/events-reference/life-cycle/ that event
+// "is not sent for minor or patch version upgrades", only major ones (scope/licensing/consent
+// changes — see this repo's own "Forge app versions" doc). Majors are rare, so createdAt is a
+// reasonable install-date proxy for most tenants; a tenant whose install had a recent MAJOR
+// version bump (not a routine release) will also read as "recent" here — an occasional,
+// fail-safe (over-suppressing, not under-suppressing) false positive, not a systemic one.
 const PAID_RAIL_TRIAL_WINDOW_MS = 45 * 24 * 60 * 60 * 1000;
 
 /**

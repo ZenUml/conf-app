@@ -312,11 +312,15 @@ follow-up above:
 
 1. **Paid-rail trial suppression.** `functions/api/space-status.ts` now checks D1
    (`ForgeInstallation`) after both existing license checks miss: a cloudId with a Full or
-   Diagramly install created within the last 45 days (30-day Atlassian trial + buffer) returns
-   `isPaid: true, source: 'paid_rail'`, suppressing the Lite paywall for that tenant. This is our
-   own D1, not the Marketplace API, and is deliberately time-boxed — it is not a substitute for a
-   real license check. Long-term paid Full/Diagramly tenants still need an explicit
-   `PAYWALL_EXEMPTIONS` entry; the query does not look them up.
+   Diagramly install whose `createdAt` is within the last 45 days (30-day Atlassian trial +
+   buffer) returns `isPaid: true, source: 'paid_rail'`, suppressing the Lite paywall for that
+   tenant. This is our own D1, not the Marketplace API, and is deliberately time-boxed — it is
+   not a substitute for a real license check. Long-term paid Full/Diagramly tenants still need an
+   explicit `PAYWALL_EXEMPTIONS` entry; the query does not look them up. Caveat, confirmed against
+   Atlassian's Forge life-cycle-events docs: `createdAt` is overwritten on every install AND every
+   MAJOR-version upgrade (never minor/patch, per Atlassian's own docs) of that installation, so it
+   is an install-date proxy, not an exact one — a tenant with a recent major-version bump also
+   reads as "recent" here. This only widens suppression (fail-safe), and majors are rare.
 2. **Stripe activation precondition.** `functions/api/stripe-webhook.ts` previously read only
    `session.metadata`, which Stripe Payment Links cannot set — so every Bundle purchase through the
    purchase-surface Payment Link 400'd and never activated a space license. The webhook now falls

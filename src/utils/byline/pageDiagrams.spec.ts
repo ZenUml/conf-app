@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parsePageDiagrams, summarizeDiagrams, typeLabel, toMacroType, toModalDiagramType } from './pageDiagrams'
+import { parsePageDiagrams, summarizeDiagrams, summarizeListing, typeLabel, toMacroType, toModalDiagramType } from './pageDiagrams'
 import { DiagramType } from '@/model/Diagram/Diagram'
 
 const child = (id: string, title: string, body: any) => ({
@@ -103,6 +103,64 @@ describe('summarizeDiagrams', () => {
       { id: '3', title: 'c', diagramType: 'sequence', source: '', copyable: false },
     ])
     expect(out).toEqual({ page_has_diagram: true, diagram_count: 3, macro_types: 'mermaid,sequence' })
+  })
+
+  it('emits the catalog vocabulary, not the stored one', () => {
+    // The stored `diagramType` for the spec types is `OpenAPI`/`AsyncAPI` and
+    // the fallback is `unknown` — none of which are values `macro_type` ever
+    // carries. Emitting them raw meant byline_opened.macro_types could not be
+    // joined against macro_type on any other byline event without per-query
+    // string munging. Sequence/mermaid happen to coincide, which is why the
+    // test above stayed green through the bug.
+    const out = summarizeDiagrams([
+      { id: '1', title: 'a', diagramType: DiagramType.OpenApi, source: '', copyable: false },
+      { id: '2', title: 'b', diagramType: DiagramType.AsyncApi, source: '', copyable: false },
+      { id: '3', title: 'c', diagramType: DiagramType.Unknown, source: '', copyable: false },
+    ])
+    expect(out.macro_types).toBe('asyncapi,none,openapi')
+  })
+})
+
+describe('summarizeListing', () => {
+  const okWith = (n: number) => ({ results: new Array(n).fill({}) })
+  const errored = { errors: [{ title: 'Current user not permitted' }] }
+
+  it('does not call a fully-readable page a failure', () => {
+    expect(summarizeListing([okWith(0), okWith(2)])).toEqual({
+      failed_type_count: 0,
+      listing_failed: false,
+    })
+  })
+
+  it('separates "no diagrams" from "could not find out"', () => {
+    // The whole point: forgeRequest resolves error bodies rather than throwing,
+    // so a 403 reaches parsePageDiagrams as a response with no `results` and is
+    // indistinguishable from an empty page. Both cases below produce
+    // `diagram_count: 0`; only one of them means the page has no diagrams.
+    expect(summarizeListing([okWith(0), okWith(0)]).listing_failed).toBe(false)
+    expect(summarizeListing([errored, errored]).listing_failed).toBe(true)
+  })
+
+  it('counts a partial failure without declaring the whole listing unknown', () => {
+    // One content type 403ing still leaves a usable answer for the other, which
+    // is why parsePageDiagrams skips error responses rather than aborting.
+    expect(summarizeListing([errored, okWith(3)])).toEqual({
+      failed_type_count: 1,
+      listing_failed: false,
+    })
+  })
+
+  it('treats an empty array as total failure, not as nothing probed', () => {
+    // [] is listPageDiagramContents's outer-catch return value.
+    expect(summarizeListing([]).listing_failed).toBe(true)
+    expect(summarizeListing(null as any).listing_failed).toBe(true)
+  })
+
+  it('treats a response with no results array as errored', () => {
+    expect(summarizeListing([null, undefined, {}] as any)).toEqual({
+      failed_type_count: 3,
+      listing_failed: true,
+    })
   })
 })
 

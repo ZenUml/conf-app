@@ -279,9 +279,22 @@ export type AnalyticsEventName =
   // Full, so `byline_opened` IS the experiment's readout, not supporting
   // telemetry. Every event here is user-initiated — Confluence boots the byline
   // iframe on click only.
+  // Fires exactly ONCE per modal open, even though the emit sits after the
+  // listing resolves (it needs diagram_count to be the readout at all). The
+  // retry button re-runs the same loader, so an unguarded emit counted a retry
+  // as a second open — an inflation only users who hit a load failure could
+  // produce, biasing the primary metric toward the failure population.
   | "byline_opened"
+  // A retried listing, so the retry rate is measurable without it landing in
+  // byline_opened. `result` = 'recovered' | 'failed'.
+  | "byline_list_retried"
   // A listed diagram was acted on from the modal (jump / open fullscreen).
   | "byline_diagram_opened"
+  // The diagram's DSL was copied to the clipboard from a card. Deliberately NOT
+  // byline_diagram_opened: "the index helped me find and open a diagram" and "I
+  // grabbed the source text" are different intents, and folding them together
+  // makes index engagement read higher than the behaviour it describes.
+  | "byline_diagram_source_copied"
   // "Add a diagram" clicked. Splits from byline_editor_deeplinked so an
   // intent-to-create that fails to route is still visible.
   | "byline_create_clicked"

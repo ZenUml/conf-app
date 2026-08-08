@@ -804,6 +804,26 @@ async function createAttachmentIfContentChanged(
     return;
   }
 
+  // The guard above used to do double duty. It read only
+  // `extension.config.customContentId`, which is unset in a dashboard modal
+  // ("My API Documents" → View/Edit — the surface forge-swagger-editor calls
+  // `isDashboardEdit`), so those modals returned early as a side effect of the
+  // id being empty. Widening the read to resolveEffectiveCustomContentId is
+  // right for the pasted-macro case, but it also makes the id non-empty there,
+  // and a dashboard modal has NO page: the upload would have nowhere to land
+  // and would only produce a failing request plus attachment_upload_failed
+  // noise on a path that was previously silent. Check page context explicitly,
+  // so that surface still returns early for its own stated reason.
+  let attachmentPageId = '';
+  try {
+    attachmentPageId = await global.apWrapper._getCurrentPageId();
+  } catch {
+    attachmentPageId = '';
+  }
+  if (!attachmentPageId) {
+    return;
+  }
+
   // Ensure this method will NOT be called multiple times at the same time.
   // There's an issue when diagram is edited through page edit, multiple 'diagramLoaded'
   // events are fired afterwards, thus multiple calls to this method at (almost) same time,

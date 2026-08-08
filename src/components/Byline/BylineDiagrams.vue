@@ -27,10 +27,27 @@
           {{ createdCopied ? '✓ Copied' : 'Copy link' }}
         </button>
       </div>
-      <p class="byline__hint">
+      <p v-if="navFailed" class="byline__hint" data-testid="byline-nav-failed">
+        We couldn't open the page editor from here. Edit the page yourself and
+        paste the link — the diagram is already saved.
+      </p>
+      <p v-else class="byline__hint">
         Pasting the link places this diagram on the page as a normal macro — you
         can edit it there like any other.
       </p>
+    </div>
+
+    <!-- The editor closed but the page could not be re-read, so we cannot say
+         whether a diagram was saved. Never fall through to the list: that would
+         wipe visible diagrams and report a save as a cancellation. -->
+    <div v-else-if="createUnresolved" class="byline__body byline__body--stack" data-testid="byline-create-unresolved">
+      <div class="banner">
+        <div class="banner__text">
+          <div class="banner__title">Couldn't check what you saved</div>
+          <div class="banner__sub">If you saved a diagram it's on the page — we just can't read the list right now.</div>
+        </div>
+        <button class="btn-secondary" data-testid="byline-retry-create" @click="onRetryCreate">Try again</button>
+      </div>
     </div>
 
     <!-- State 3: loading. Four skeleton cards, so the grid does not reflow when
@@ -145,7 +162,7 @@
          already has diagrams is exactly where the next one gets added, so the
          picker has to be as reachable here as it is on a blank page. Shown only
          alongside the list; the empty and failed states carry their own grid. -->
-    <div v-if="!createdLink && !loading && diagrams.length" class="addtiles" data-testid="byline-type-strip">
+    <div v-if="!createdLink && !createUnresolved && !loading && diagrams.length" class="addtiles" data-testid="byline-type-strip">
       <div class="addtiles__label">Add a diagram</div>
       <div class="typegrid typegrid--row">
         <div
@@ -172,6 +189,7 @@
     <div class="byline__footer">
       <span class="byline__hint">
         <template v-if="createdLink">Saved either way — you can paste the link any time.</template>
+        <template v-else-if="createUnresolved">Nothing was lost — retry when you're ready.</template>
         <template v-else-if="loading">Reading this page…</template>
         <template v-else-if="failed">Type <code>/zenuml</code> anywhere on the page.</template>
         <template v-else-if="diagrams.length">Click a diagram to jump to it on the page.</template>
@@ -214,19 +232,21 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 import globals from '@/model/globals'
 import forgeGlobal, { openModal } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
-import { getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
+import { getSpaceKey, NO_SPACE_CONTEXT } from '@/utils/ContextParameters/ContextParameters'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import type { MacroTypeValue } from '@/utils/analytics/catalog'
 import {
   parsePageDiagrams,
   summarizeDiagrams,
+  summarizeListing,
   typeLabel,
   toMacroType,
   toModalDiagramType,
+  type ListingHealth,
   type PageDiagram,
 } from '@/utils/byline/pageDiagrams'
 import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnails'
-import { buildDiagramDeeplink, buildEmbedDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
+import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
 
 const loading = ref(true)
@@ -236,6 +256,13 @@ const copiedId = ref<string | null>(null)
  *  (state 4). Previously both collapsed into the empty state, which told a user
  *  with restricted content that their diagrams did not exist. */
 const failed = ref(false)
+/** Set when the post-editor re-read of the page failed, so we cannot say whether
+ *  the user saved. Distinct from `failed` (the initial listing) because the
+ *  recovery is different: the diagram may already exist and be counted. */
+const createUnresolved = ref(false)
+/** The arguments of the create that `createUnresolved` refers to, so its retry
+ *  can re-run the same diff instead of starting over. */
+let pendingCreate: { before: string[]; macroType?: MacroTypeValue } | null = null
 /** customContentId -> data: URL. Fills in after the cards paint. */
 const thumbs = ref<Record<string, string>>({})
 
@@ -263,6 +290,9 @@ const LOGO_SRC = './image/zenuml_logo.png'
 const createdLink = ref<string | null>(null)
 const createdCopied = ref(false)
 const creating = ref(false)
+/** The "Open editor" handoff could not navigate. The diagram is saved and the
+ *  link is on the clipboard, so the panel stays and only says so. */
+const navFailed = ref(false)
 
 const SKELETON_TITLE_WIDTHS = ['70%', '55%', '62%', '48%']
 const SKELETON_SUB_WIDTHS = ['40%', '35%', '30%', '26%']
@@ -351,18 +381,33 @@ function baseProps() {
   }
 }
 
+const LISTING_TOTAL_FAILURE: ListingHealth = { failed_type_count: 0, listing_failed: true }
+
+/** byline_opened must fire exactly once per modal open — see the catalog entry.
+ *  onRetry re-runs this loader, so the emit below is guarded and a retry gets
+ *  its own event instead. */
+let openedTracked = false
+
 async function loadDiagrams() {
+  let health: ListingHealth = LISTING_TOTAL_FAILURE
   try {
     pageId = await globals.apWrapper._getCurrentPageId()
     const responses = await globals.apWrapper.listPageDiagramContents(pageId)
+    health = summarizeListing(responses)
     diagrams.value = parsePageDiagrams(responses)
-    failed.value = false
-  } catch (e) {
     // An unreadable page is NOT an empty page. The create path still works, so
     // state 4 keeps the picker and says what happened.
+    //
+    // This — not the catch — is what a 403 or a rate-limit actually looks like:
+    // the listing resolves with error bodies rather than rejecting, so reading
+    // `failed` off a thrown exception alone left the banner unreachable and
+    // showed a user with restricted content the "nothing here yet" state.
+    failed.value = health.listing_failed
+  } catch (e) {
     console.error('[byline] failed to list page diagrams', e)
     diagrams.value = []
     failed.value = true
+    health = LISTING_TOTAL_FAILURE
   } finally {
     loading.value = false
     // Emitted after the list resolves so page_has_diagram / diagram_count are
@@ -371,7 +416,16 @@ async function loadDiagrams() {
     // Thumbnails are deliberately NOT awaited first: the cards must paint
     // immediately, and delaying the readout behind N image fetches would make
     // byline_opened hostage to attachment latency.
-    trackAnalyticsEvent('byline_opened', baseProps())
+    if (openedTracked) {
+      trackAnalyticsEvent('byline_list_retried', {
+        ...baseProps(),
+        ...health,
+        result: health.listing_failed ? 'failed' : 'recovered',
+      })
+    } else {
+      openedTracked = true
+      trackAnalyticsEvent('byline_opened', { ...baseProps(), ...health })
+    }
     void loadThumbnails()
   }
 }
@@ -472,7 +526,10 @@ async function onCopySource(d: PageDiagram) {
   } catch (e) {
     console.error('[byline] clipboard write failed', e)
   }
-  trackAnalyticsEvent('byline_diagram_opened', {
+  // Its own event, not byline_diagram_opened: copying the DSL is not opening
+  // the diagram, and counting both as index engagement would make that number
+  // read higher than the behaviour it is meant to describe.
+  trackAnalyticsEvent('byline_diagram_source_copied', {
     ...baseProps(),
     macro_type: toMacroType(d.diagramType) as MacroTypeValue,
   })
@@ -539,6 +596,28 @@ async function onAddDiagram(macroType?: MacroTypeValue, diagramType?: string) {
 async function afterEditorClosed(before: string[], macroType?: MacroTypeValue) {
   try {
     const responses = await globals.apWrapper.listPageDiagramContents(pageId)
+    const health = summarizeListing(responses)
+    if (health.listing_failed) {
+      // An unreadable re-read cannot tell us whether the user saved, and the
+      // listing resolves rather than rejects, so this used to land on the
+      // success path: the list was overwritten with an empty one (wiping
+      // diagrams the user could see a moment ago), the diff found no new id, and
+      // byline_create_cancelled fired for a diagram that WAS saved — and is
+      // already counted against the Lite 100-macro limit — with no paste link.
+      // That inverts the very funnel byline_create_cancelled exists to measure.
+      // Hold the list, say so, and offer a retry.
+      pendingCreate = { before, macroType }
+      createUnresolved.value = true
+      trackAnalyticsEvent('byline_diagram_created', {
+        ...baseProps(),
+        ...(macroType ? { macro_type: macroType } : {}),
+        ...health,
+        result: 'listing_failed',
+      })
+      return
+    }
+    createUnresolved.value = false
+    pendingCreate = null
     const after = parsePageDiagrams(responses)
     diagrams.value = after
     const newId = newlyCreatedId(before, after.map(d => d.id))
@@ -549,22 +628,29 @@ async function afterEditorClosed(before: string[], macroType?: MacroTypeValue) {
     // Same accessor model/Attachment.ts uses — `globals` is the app singleton
     // (apWrapper etc.) and carries no Forge context.
     const cloudId = forgeGlobal.forgeContext?.cloudId
-    // Typed link, so the paste becomes the real (editable) macro for this
-    // diagram's type. buildEmbedDeeplink is the older 3-segment form, which
-    // pastes as a read-only embed; it stays only for links already in the wild.
+    // Typed link only. There is deliberately no fall back to the 3-segment
+    // buildEmbedDeeplink form: it pastes as a READ-ONLY embed rather than the
+    // editable macro the byline promises, and its (host, cloudId, contentId)
+    // signature meant the two-argument call built
+    // `https://<cloudId>/d/<newId>/undefined` — a URL no autoConvert matcher
+    // claims, and always truthy, so the unlinkable branch below could never be
+    // reached and `result` was always 'linked'. (`tsc --noEmit` does not
+    // type-check .vue files, which is why the arity mismatch stayed green.)
     const created = after.find(d => d.id === newId)
     const link = buildDiagramDeeplink(toMacroType(created?.diagramType || ''), cloudId || '', newId)
-      || buildEmbedDeeplink(cloudId || '', newId)
     trackAnalyticsEvent('byline_diagram_created', {
       ...baseProps(),
       ...(macroType ? { macro_type: macroType } : {}),
       custom_content_id: String(newId),
-      result: link ? 'linked' : 'no_cloud_id',
+      // buildDiagramDeeplink returns undefined for a missing cloudId or a type
+      // outside DEEPLINK_TYPES; every picker tile is in that set, so the second
+      // case means the saved diagram's stored type was not what we asked for.
+      result: link ? 'linked' : (cloudId ? 'unlinkable_type' : 'no_cloud_id'),
     })
     if (!link) {
-      // The diagram is saved and listed either way; without a cloudId we simply
-      // cannot offer the paste link, so say nothing rather than a broken one.
-      console.error('[byline] no cloudId available for the deeplink')
+      // The diagram is saved and listed either way; we simply cannot offer the
+      // paste link, so say nothing rather than hand over a broken one.
+      console.error('[byline] no deeplink available for the created diagram', { cloudId: !!cloudId })
       return
     }
     createdLink.value = link
@@ -572,9 +658,21 @@ async function afterEditorClosed(before: string[], macroType?: MacroTypeValue) {
     void loadThumbnails()
   } catch (e) {
     console.error('[byline] failed to resolve the created diagram', e)
+    pendingCreate = { before, macroType }
+    createUnresolved.value = true
   } finally {
     creating.value = false
   }
+}
+
+/** Re-run the post-editor diff against the SAME `before` snapshot, so a diagram
+ *  saved before the failed re-read is still recognised as new. */
+function onRetryCreate() {
+  if (!pendingCreate) return
+  const { before, macroType } = pendingCreate
+  createUnresolved.value = false
+  creating.value = true
+  void afterEditorClosed(before, macroType)
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -604,12 +702,30 @@ async function onCopyCreatedLink() {
  */
 async function onOpenEditorToPaste() {
   try {
-    const spaceKey = getSpaceKey() || ''
+    // Compared against the sentinel, NOT `|| ''`: getSpaceKey returns the string
+    // 'no_space_context' rather than an empty value, so the old fallback never
+    // fired and the sentinel went straight into the URL — navigating to
+    // /wiki/spaces/no_space_context/pages/edit-v2/<pageId>, which 404s, while
+    // byline_editor_deeplinked still reported result: 'after_create'. The
+    // diagram is saved and the link is on the clipboard, so the recoverable
+    // outcome is to say the editor could not be opened, not to jump nowhere.
+    const spaceKey = getSpaceKey()
+    if (!spaceKey || spaceKey === NO_SPACE_CONTEXT) {
+      console.error('[byline] no space key in context; cannot open the page editor')
+      navFailed.value = true
+      trackAnalyticsEvent('byline_editor_deeplinked', {
+        ...baseProps(),
+        result: 'failed',
+        failure_reason: 'no_space_context',
+      })
+      return
+    }
     const { router } = await import('@forge/bridge')
     await router.navigate(`/wiki/spaces/${spaceKey}/pages/edit-v2/${pageId}`)
     trackAnalyticsEvent('byline_editor_deeplinked', { ...baseProps(), result: 'after_create' })
   } catch (e) {
     console.error('[byline] editor navigation failed', e)
+    navFailed.value = true
     trackAnalyticsEvent('byline_editor_deeplinked', {
       ...baseProps(),
       result: 'failed',

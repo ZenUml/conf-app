@@ -163,16 +163,60 @@ export function parsePageDiagrams(responses: Array<any>): PageDiagram[] {
 }
 
 /** Analytics shape for `byline_opened`. `macro_types` is comma-joined and
- *  de-duplicated so it stays a low-cardinality Mixpanel property. */
+ *  de-duplicated so it stays a low-cardinality Mixpanel property.
+ *
+ *  The types go through `toMacroType` first: emitting the raw stored values
+ *  would put `OpenAPI` / `Sequence` / `unknown` in `macro_types` while
+ *  `macro_type` on every other byline event carries the lowercase catalog
+ *  vocabulary, so the two could not be joined in Mixpanel without per-query
+ *  string munging — the exact friction the catalog exists to remove. */
 export function summarizeDiagrams(diagrams: PageDiagram[]): {
   page_has_diagram: boolean
   diagram_count: number
   macro_types: string
 } {
-  const types = Array.from(new Set(diagrams.map(d => d.diagramType))).sort()
+  const types = Array.from(new Set(diagrams.map(d => toMacroType(d.diagramType)))).sort()
   return {
     page_has_diagram: diagrams.length > 0,
     diagram_count: diagrams.length,
     macro_types: types.join(','),
+  }
+}
+
+/**
+ * Nothing on the listing path rejects.
+ *
+ * `forgeRequest` resolves with the API's error body regardless of HTTP status
+ * (see the note above `assertSavedCustomContent` in ApWrapper2), and
+ * `listPageDiagramContents` additionally converts a genuine throw into the same
+ * `{ errors: [...] }` shape. So a 403 or a rate-limit arrives here looking
+ * exactly like a page that has no diagrams, and callers that only watch for a
+ * rejection see a clean, empty, wrong answer.
+ *
+ * That reaches past the UI: `byline_opened` IS the Phase 1 readout, so a
+ * permissions blip on a subset of tenants would report `diagram_count: 0` /
+ * `page_has_diagram: false` for pages that do have diagrams, biasing the
+ * primary metric toward "the byline finds nothing here" with no way to tell it
+ * apart from the real thing.
+ */
+function isErrorResponse(response: any): boolean {
+  return !response || !!response.errors || !Array.isArray(response.results)
+}
+
+export interface ListingHealth {
+  /** How many of the probed content types came back error-shaped. */
+  failed_type_count: number
+  /** True when NOTHING usable came back — the list is unknown, not empty. */
+  listing_failed: boolean
+}
+
+export function summarizeListing(responses: Array<any>): ListingHealth {
+  const list = Array.isArray(responses) ? responses : []
+  const failed = list.filter(isErrorResponse).length
+  return {
+    failed_type_count: failed,
+    // An empty array is `listPageDiagramContents`'s outer-catch return value,
+    // which means every type failed — not that no type was probed.
+    listing_failed: list.length === 0 || failed === list.length,
   }
 }

@@ -151,13 +151,22 @@ export type AnalyticsProperties = {
   // describe the page the modal opened on — the two populations behave
   // differently (index-a-diagram vs create-the-first-one) and the create
   // funnel must be measurable separately for each. `macro_types` is the
-  // comma-joined set found on the page, empty string when none.
+  // comma-joined set found on the page, in the same lowercase vocabulary as
+  // `macro_type`, empty string when none.
   // `dwell_ms` = modal mount → close, carried on byline_dismissed so a
   // fat-finger open is distinguishable from a real look.
   page_has_diagram?: boolean;
   diagram_count?: number;
   macro_types?: string;
   dwell_ms?: number;
+  // Byline listing health. Nothing on the listing path rejects — forgeRequest
+  // resolves error bodies — so a 403 or rate-limit is otherwise reported as a
+  // page with zero diagrams. `listing_failed` marks a `diagram_count: 0` that
+  // means "unknown" rather than "none", which matters because byline_opened is
+  // the Phase 1 readout; `failed_type_count` counts the probed custom-content
+  // types that errored, so a partial failure is visible too.
+  listing_failed?: boolean;
+  failed_type_count?: number;
   // Byline thumbnails: how many of `diagram_count` resolved to a backup-PNG
   // attachment. Coverage is the whole question for this feature — diagrams
   // saved before the attachment backup existed, failed captures, and viewers

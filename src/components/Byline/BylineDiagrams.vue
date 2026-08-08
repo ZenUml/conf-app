@@ -108,6 +108,21 @@
       </div>
     </div>
 
+    <!-- Still reading the page.
+         The two states this resolves into are different LAYOUTS, not different
+         contents of one layout: an empty page puts the full picker in the body,
+         while a page with diagrams puts the list there and demotes the picker to
+         a strip. So rendering either one before the answer is known guarantees a
+         visible swap, and it picked the wrong one on exactly the pages that have
+         diagrams — the panel opened claiming "Add a diagram to this page" and
+         then rearranged into "3 diagrams on this page".
+         Deliberately NOT the skeleton cards this replaced either: four card
+         outlines promised four diagrams to a page that usually has none. One
+         quiet line promises nothing and commits to no layout. -->
+    <div v-else-if="loading" class="byline__body byline__body--waiting" data-testid="byline-loading">
+      <span class="waiting__text">Reading this page…</span>
+    </div>
+
     <!-- The listing failed. Creating still works, so the picker stays and only
          the banner explains what happened. -->
     <div v-else-if="failed" class="byline__body byline__body--stack" data-testid="byline-failed">
@@ -229,12 +244,19 @@
         <template v-if="createdLink && hostInEditor">Paste it anywhere on the page — the diagram is already saved.</template>
         <template v-else-if="createdLink">Saved either way — paste it any time.</template>
         <template v-else-if="createUnresolved">Nothing was lost — retry when you're ready.</template>
+        <!-- Nothing, deliberately: the body already says it is reading, and a
+             hint here would be a second line of text that swaps out a moment
+             later for an unrelated one. -->
+        <template v-else-if="loading"></template>
         <template v-else-if="failed">Type <code>/zenuml</code> anywhere on the page.</template>
         <!-- Says what the click actually does. The old hint promised the modal
              would scroll the page to the macro; onOpenDiagram takes the
              documented fallback and opens the fullscreen viewer instead. -->
         <template v-else-if="diagrams.length">Opens the diagram full screen — it stays where it is on the page.</template>
-        <template v-else>Already editing? Type <code>/zenuml</code> on the page.</template>
+        <!-- The empty state carries no hint. Its whole job is the first diagram,
+             and a note about the slash command points at a different way to do
+             the same thing — competing with the four rows above it at the exact
+             moment the user is choosing between them. -->
       </span>
       <!-- Already in the editor: "Open editor" would navigate to where the user
            already is, reloading the editor they are typing in. The only thing
@@ -275,7 +297,7 @@
            is only saved from claiming the slot by the created diagram being in
            `diagrams`. Say what is meant rather than rely on that. -->
       <a
-        v-else-if="!createdLink && !failed && !diagrams.length"
+        v-else-if="!createdLink && !loading && !failed && !diagrams.length"
         class="byline__learn"
         href="#"
         data-testid="byline-learn-more"
@@ -344,7 +366,7 @@ const MAX_THUMBNAILS = 12
  *  static relative `src` attribute into a module import, which fails the build
  *  because these files live in public/ and are never processed by Rollup. Every
  *  other icon here is already bound through DIAGRAM_TYPES / MACRO_ICONS. */
-const LOGO_SRC = './image/zenuml_logo.png'
+const LOGO_SRC = './image/zenuml-wordmark.png'
 
 /** Set once the user saves a diagram from the byline editor: the deeplink to
  *  paste onto the page. Its presence switches the modal to the "now paste it"
@@ -391,6 +413,11 @@ const linkChip = computed(() => {
 const heading = computed(() => {
   if (createdLink.value) return createdTitle.value || 'Diagram saved'
   if (createUnresolved.value) return 'Diagrams on this page'
+  // While the count is unknown, name the module rather than guess. This is the
+  // one place the old pinned title was right: over "Reading this page…" it
+  // contradicts nothing, and it is what "Add a diagram to this page" got wrong
+  // by answering a question we had not asked yet.
+  if (loading.value) return 'Diagrams on this page'
   const n = diagrams.value.length
   if (!failed.value && n) return `${n} diagram${n === 1 ? '' : 's'} on this page`
   return 'Add a diagram to this page'
@@ -1015,11 +1042,15 @@ async function onLearnMore() {
   padding: 16px 20px;
   border-bottom: 1px solid #ebecf0;
 }
+/* The zenuml.com wordmark, which is 90x72 — set the HEIGHT and let the width
+   follow. Boxing it into the 18x18 square the old lifeline mark used would
+   letterbox it to 18x14 and make the two lines of type unreadable. */
 .byline__logo {
-  width: 18px;
-  height: 18px;
+  height: 22px;
+  width: auto;
   object-fit: contain;
   display: block;
+  flex: none;
 }
 .byline__heading {
   font-size: 15px;
@@ -1046,6 +1077,17 @@ async function onLearnMore() {
   padding: 8px 20px 16px;
   display: flex;
   flex-direction: column;
+}
+/* Occupies the body without committing to either resolved layout. */
+.byline__body--waiting {
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.waiting__text {
+  font-size: 13px;
+  color: #7a869a;
 }
 .byline__lede {
   font-size: 13px;

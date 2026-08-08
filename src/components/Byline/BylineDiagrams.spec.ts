@@ -504,10 +504,8 @@ describe('BylineDiagrams', () => {
   });
 
   describe('creating from the picker', () => {
-    it('renders the picker immediately rather than a skeleton', async () => {
-      // Four skeleton cards resolved into an empty state on most pages: they
-      // promised diagrams to a page that has none. The picker is valid in every
-      // state, so it goes up first and the list fills in above it.
+    /** Mount with the listing held open, so the loading state can be asserted. */
+    async function mountPending() {
       let release: (v: any) => void = () => {};
       apWrapper.listPageDiagramContents.mockReturnValue(
         new Promise(resolve => {
@@ -516,13 +514,56 @@ describe('BylineDiagrams', () => {
       );
       const wrapper = mount(BylineDiagrams);
       await flushPromises();
+      return { wrapper, release: async (r: any[]) => (release(r), flushPromises()) };
+    }
 
-      expect(wrapper.find('[data-testid="byline-loading"]').exists()).toBe(false);
-      expect(wrapper.find('[data-testid="byline-type-flowchart"]').exists()).toBe(true);
+    it('commits to neither layout while the count is unknown', async () => {
+      // The empty state and the list are different LAYOUTS, not different
+      // contents of one: an empty page puts the full picker in the body, a page
+      // with diagrams puts the list there and demotes the picker to a strip.
+      // Rendering the empty state first meant every page that HAS diagrams
+      // opened on the wrong one and visibly rearranged.
+      const { wrapper } = await mountPending();
 
-      release([ok()]);
-      await flushPromises();
+      expect(wrapper.find('[data-testid="byline-loading"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="byline-empty"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="byline-list"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="byline-type-strip"]').exists()).toBe(false);
+      // And no claim about the count before there is one.
+      expect(wrapper.find('[data-testid="byline-heading"]').text()).toBe('Diagrams on this page');
+    });
+
+    it('promises no diagrams to a page that has none', async () => {
+      // The skeleton this replaced drew four card outlines, which resolved into
+      // an empty state on the majority of pages.
+      const { wrapper } = await mountPending();
+
+      expect(wrapper.find('[data-testid="byline-loading"]').text()).toBe('Reading this page…');
+      expect(wrapper.findAll('[data-testid="byline-item"]')).toHaveLength(0);
+    });
+
+    it('resolves straight into the right layout', async () => {
+      const empty = await mountPending();
+      await empty.release([ok()]);
+      expect(empty.wrapper.find('[data-testid="byline-empty"]').exists()).toBe(true);
+      expect(empty.wrapper.find('[data-testid="byline-loading"]').exists()).toBe(false);
+
+      const listed = await mountPending();
+      await listed.release([ok(child('1', 'A', DiagramType.Sequence))]);
+      expect(listed.wrapper.find('[data-testid="byline-list"]').exists()).toBe(true);
+      expect(listed.wrapper.find('[data-testid="byline-empty"]').exists()).toBe(false);
+    });
+
+    it('leaves the empty state without a competing slash-command hint', async () => {
+      // Its whole job is the first diagram; a note about /zenuml points at a
+      // different way to do the same thing, right where the user is choosing.
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      const wrapper = await mountByline();
+
       expect(wrapper.find('[data-testid="byline-empty"]').exists()).toBe(true);
+      expect(wrapper.find('.byline__hint').text()).toBe('');
+      // The one action there is stays.
+      expect(wrapper.find('[data-testid="byline-learn-more"]').exists()).toBe(true);
     });
 
     it('leaves no way to create without saying which type', async () => {

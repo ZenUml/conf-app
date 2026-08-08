@@ -18,11 +18,7 @@
          the headline made a developer artifact compete with the button that
          actually finishes the job. -->
     <div v-if="createdLink" class="byline__body byline__body--created" data-testid="byline-created">
-      <div class="created__thumb">
-        <img v-if="createdThumb" class="created__img" :src="createdThumb" alt="" />
-        <img v-else class="created__icon" :src="macroIcon(createdType)" alt="" />
-      </div>
-      <div class="created__text">
+      <div class="created__head">
         <!-- Deliberately does NOT keep claiming the link is on the clipboard
              once the copy failed. The automatic copy happens once, at save;
              anything the user copies afterwards silently replaces it, which is
@@ -31,26 +27,62 @@
           {{ createdCopied ? 'Saved — link copied to clipboard' : 'Saved — copy the link to place it' }}
         </div>
         <div v-if="hostInEditor" class="created__sub" data-testid="byline-created-sub-editing">
-          Paste it into the page where you want it. It becomes a normal, editable macro.
+          Paste the link where you want it. Confluence turns it into the diagram itself.
         </div>
         <div v-else class="created__sub">
-          Open the editor and paste it where you want it. It becomes a normal, editable macro.
+          Paste the link into the page editor. Confluence turns it into the diagram itself.
         </div>
-        <div class="linkrow">
-          <code class="linkrow__url" data-testid="byline-created-link">{{ createdLink }}</code>
-          <!-- The label flashes and reverts rather than latching on '✓ Copied'.
-               A permanently-copied button reads as done, so a user whose
-               clipboard was overwritten in between had no signal that clicking
-               again would help — and no feedback when they did. -->
-          <button type="button" class="btn-secondary btn-secondary--tight" data-testid="byline-copy-link" @click="onCopyCreatedLink">
-            {{ linkJustCopied ? '✓ Copied' : 'Copy' }}
-          </button>
-        </div>
-        <p v-if="navFailed" class="created__warn" data-testid="byline-nav-failed">
-          We couldn't open the page editor from here. Edit the page yourself and
-          paste the link — the diagram is already saved.
-        </p>
       </div>
+
+      <!-- Shows the paste rather than describing it. "Paste a URL and it becomes
+           a diagram" is the one genuinely surprising step in this flow, and a
+           sentence asking a user to trust that is weaker than two frames of
+           before-and-after. Decorative, so the whole strip is hidden from
+           assistive tech — the sentence above already carries the instruction. -->
+      <div class="steps" aria-hidden="true">
+        <div class="step">
+          <div class="step__label">1 · Paste in the editor</div>
+          <div class="step__frame">
+            <div class="step__line step__line--long"></div>
+            <div class="step__chip">
+              <span class="step__caret"></span>
+              <span class="step__chiptext">{{ linkChip }}</span>
+            </div>
+            <div class="step__line step__line--short"></div>
+          </div>
+        </div>
+        <div class="steps__arrow">→</div>
+        <div class="step">
+          <div class="step__label">2 · It renders in place</div>
+          <div class="step__frame">
+            <div class="step__line step__line--long"></div>
+            <!-- The diagram the user just saved, not a generic illustration:
+                 the promise is about THEIR diagram. Falls back to the type icon,
+                 which is the common case at this instant — the backup PNG is
+                 captured on save and may not have landed yet. -->
+            <div class="step__render" data-testid="byline-created-preview">
+              <img v-if="createdThumb" class="step__img" :src="createdThumb" alt="" />
+              <img v-else class="step__icon" :src="macroIcon(createdType)" alt="" />
+            </div>
+            <div class="step__line step__line--short"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="linkrow">
+        <code class="linkrow__url" data-testid="byline-created-link">{{ createdLink }}</code>
+        <!-- The label flashes and reverts rather than latching on '✓ Copied'.
+             A permanently-copied button reads as done, so a user whose
+             clipboard was overwritten in between had no signal that clicking
+             again would help — and no feedback when they did. -->
+        <button type="button" class="btn-secondary btn-secondary--tight" data-testid="byline-copy-link" @click="onCopyCreatedLink">
+          {{ linkJustCopied ? '✓ Copied' : 'Copy' }}
+        </button>
+      </div>
+      <p v-if="navFailed" class="created__warn" data-testid="byline-nav-failed">
+        We couldn't open the page editor from here. Edit the page yourself and
+        paste the link — the diagram is already saved.
+      </p>
     </div>
 
     <!-- The editor closed but the page could not be re-read, so we cannot say
@@ -318,6 +350,15 @@ const creating = ref(false)
 const navFailed = ref(false)
 
 const createdThumb = computed(() => (createdId.value ? thumbs.value[createdId.value] : undefined))
+
+/** The link as it appears in the step-1 illustration: host and route only.
+ *  The full URL is a line away in the copy row, and the point of the frame is
+ *  that a pasted link becomes a diagram — not which link. */
+const linkChip = computed(() => {
+  const bare = (createdLink.value || '').replace(/^https?:\/\//, '')
+  const route = bare.indexOf('/d/')
+  return route === -1 ? bare : `${bare.slice(0, route + 3)}…`
+})
 
 /** The header names whatever is actually below it. */
 const heading = computed(() => {
@@ -726,10 +767,15 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
     createdTitle.value = created?.title || ''
     createdType.value = created?.diagramType || ''
     createdLink.value = link
+    // Kicked off BEFORE the copy, not after it. The step-2 frame renders the
+    // diagram from this, and nothing about it depends on the clipboard — but
+    // sequencing it behind the await made it hostage to a write that can hang
+    // rather than reject when the document is not focused, which left the frame
+    // on its icon fallback forever. Independent work, started independently.
+    void loadThumbnails()
     // Copy for the user immediately — the next thing they do is paste — but
     // treat it as best-effort. The button below stays live either way.
     await copyCreatedLink('auto')
-    void loadThumbnails()
   } catch (e) {
     console.error('[byline] failed to resolve the created diagram', e)
     pendingCreate = { before, macroType }
@@ -1207,40 +1253,16 @@ async function onLearnMore() {
 
 /* Post-create panel ------------------------------------------------------- */
 .byline__body--created {
-  padding: 20px;
-  display: flex;
-  gap: 16px;
-}
-.created__thumb {
-  width: 120px;
-  height: 84px;
-  flex: none;
-  border: 1px solid #ebecf0;
-  border-radius: 4px;
-  background: #fafbfc;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.created__img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
-}
-.created__icon {
-  width: 30px;
-  height: 30px;
-  object-fit: contain;
-  opacity: 0.45;
-}
-.created__text {
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  flex: 1 1 auto;
+  gap: 14px;
+}
+.created__head {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 .created__title {
   font-size: 17px;
@@ -1257,6 +1279,108 @@ async function onLearnMore() {
   margin: 0;
   text-wrap: pretty;
 }
+/* Before / after frames ---------------------------------------------------- */
+.steps {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.step {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.step__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #7a869a;
+}
+/* A stand-in for the page editor: two lines of body copy with the thing that
+   changes between the frames sitting between them. */
+.step__frame {
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  background: #fff;
+  padding: 10px 12px;
+  height: 96px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  justify-content: center;
+}
+.step__line {
+  height: 7px;
+  border-radius: 4px;
+  background: #ebecf0;
+}
+.step__line--long {
+  width: 88%;
+}
+.step__line--short {
+  width: 64%;
+}
+.step__chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: #deebff;
+  border-radius: 3px;
+  padding: 4px 7px;
+  align-self: flex-start;
+  max-width: 100%;
+}
+/* The text caret, so frame 1 reads as "just pasted" rather than "already had
+   a link in it". */
+.step__caret {
+  width: 5px;
+  height: 12px;
+  background: #0052cc;
+  border-radius: 1px;
+  flex: none;
+}
+.step__chiptext {
+  font-size: 11px;
+  color: #0052cc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.step__render {
+  flex: none;
+  height: 46px;
+  border: 1px solid #ebecf0;
+  border-radius: 3px;
+  background: #fafbfc;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.step__img {
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.step__icon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  opacity: 0.45;
+}
+.steps__arrow {
+  flex: none;
+  font-size: 20px;
+  color: #7a869a;
+  /* Aligns with the frames, not with the labels above them. */
+  padding-top: 20px;
+}
+
 /* The URL is evidence, not the instruction: quiet, one line, with the button
    that makes it useful again if the clipboard has moved on. */
 .linkrow {
@@ -1267,7 +1391,7 @@ async function onLearnMore() {
   border-radius: 4px;
   background: #fafbfc;
   padding: 6px 6px 6px 10px;
-  margin-top: 2px;
+  flex: none;
 }
 .linkrow__url {
   flex: 1 1 auto;

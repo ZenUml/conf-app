@@ -346,7 +346,9 @@ describe('BylineDiagrams', () => {
       expect(wrapper.find('[data-testid="byline-created-done"]').text()).toBe('Done');
       // The link is still there to copy — the paste is the whole remaining step.
       expect(wrapper.find('[data-testid="byline-created-link"]').exists()).toBe(true);
-      expect(wrapper.find('[data-testid="byline-created-sub-editing"]').text()).toContain('Paste it into the page');
+      expect(wrapper.find('[data-testid="byline-created-sub-editing"]').text()).toContain(
+        'Paste the link where you want it',
+      );
     });
 
     it('still offers the handoff from a view-mode page', async () => {
@@ -539,6 +541,77 @@ describe('BylineDiagrams', () => {
         expect(img.exists(), `${key} has no sample render`).toBe(true);
         expect(img.attributes('src')).toBe(`./image/byline-example-${key}.png`);
       }
+    });
+  });
+
+  describe('the after-saving view', () => {
+    async function reachCreatedPanel(thumb?: string) {
+      // Set in BOTH directions: vi.clearAllMocks() clears calls but keeps
+      // implementations, so a thumbnail stubbed by one test would otherwise
+      // leak into the next one and make the fallback case unfalsifiable.
+      const { indexThumbnails, fetchThumbnailDataUrl } = await import('@/utils/byline/thumbnails');
+      vi.mocked(indexThumbnails).mockReturnValue(thumb ? [{ customContentId: '99', path: 'p' }] : ([] as any));
+      vi.mocked(fetchThumbnailDataUrl).mockResolvedValue(thumb ?? '');
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      const wrapper = await mountByline();
+      await wrapper.find('[data-testid="byline-type-sequence"]').trigger('click');
+      await flushPromises();
+      apWrapper.listPageDiagramContents.mockResolvedValue([
+        ok(child('99', 'Checkout call flow', DiagramType.Sequence)),
+      ]);
+      await closeEditor();
+      return wrapper;
+    }
+
+    it('shows the paste instead of describing it', async () => {
+      // "Paste a URL and it becomes a diagram" is the one genuinely surprising
+      // step here, and a sentence asking the user to trust that is weaker than
+      // two frames of before-and-after.
+      const wrapper = await reachCreatedPanel();
+      const text = wrapper.find('[data-testid="byline-created"]').text();
+
+      expect(text).toContain('1 · Paste in the editor');
+      expect(text).toContain('2 · It renders in place');
+      // Host and route only — the full URL is a line away in the copy row.
+      expect(text).toContain('confluence.zenuml.com/d/…');
+      expect(text).not.toContain('/d/sequence/cloud-1/99…');
+    });
+
+    it('previews the diagram the user just saved, not a generic illustration', async () => {
+      const wrapper = await reachCreatedPanel('data:image/png;base64,AAAA');
+      const img = wrapper.find('[data-testid="byline-created-preview"] img');
+
+      expect(img.attributes('src')).toBe('data:image/png;base64,AAAA');
+    });
+
+    it('falls back to the type icon before the backup PNG lands', async () => {
+      // The backup is captured on save, so at this instant it usually does not
+      // exist yet — the common case, not an error case.
+      const wrapper = await reachCreatedPanel();
+      const img = wrapper.find('[data-testid="byline-created-preview"] img');
+
+      expect(img.attributes('src')).toBe('./image/diagram_macro_icon.png');
+    });
+
+    it('loads the preview even when the clipboard write never settles', async () => {
+      // `navigator.clipboard.writeText` can HANG rather than reject when the
+      // document is not focused. With the thumbnail load sequenced behind that
+      // await, the step-2 frame stayed on its icon fallback forever — caught by
+      // rendering the panel in a real browser, where the page has no focus.
+      vi.mocked(navigator.clipboard.writeText).mockReturnValue(new Promise(() => {}));
+      const wrapper = await reachCreatedPanel('data:image/png;base64,BBBB');
+
+      expect(wrapper.find('[data-testid="byline-created-preview"] img').attributes('src')).toBe(
+        'data:image/png;base64,BBBB',
+      );
+    });
+
+    it('keeps the illustration out of the accessibility tree', async () => {
+      // The sentence above it already carries the instruction; the frames are
+      // decoration and would otherwise be read out as stray fragments.
+      const wrapper = await reachCreatedPanel();
+
+      expect(wrapper.find('.steps').attributes('aria-hidden')).toBe('true');
     });
   });
 

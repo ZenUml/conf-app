@@ -272,7 +272,7 @@ describe('BylineDiagrams', () => {
 
         vi.advanceTimersByTime(2000);
         await wrapper.vm.$nextTick();
-        expect(wrapper.find('[data-testid="byline-copy-link"]').text()).toContain('Copy link');
+        expect(wrapper.find('[data-testid="byline-copy-link"]').text()).toBe('Copy');
       } finally {
         vi.useRealTimers();
       }
@@ -306,7 +306,7 @@ describe('BylineDiagrams', () => {
         copy_trigger: 'auto',
         result: 'failed',
       });
-      expect(wrapper.find('[data-testid="byline-copy-link"]').text()).toContain('Copy link');
+      expect(wrapper.find('[data-testid="byline-copy-link"]').text()).toBe('Copy');
 
       await wrapper.find('[data-testid="byline-copy-link"]').trigger('click');
       await flushPromises();
@@ -455,6 +455,111 @@ describe('BylineDiagrams', () => {
       expect(viewClose).not.toHaveBeenCalled();
       expect(events('byline_view_close_requested')).toHaveLength(0);
       expect(wrapper.find('[data-testid="byline-created"]').exists()).toBe(false);
+    });
+  });
+
+  describe('the header', () => {
+    const heading = (w: any) => w.find('[data-testid="byline-heading"]').text();
+
+    it('names what is actually below it, in every state', async () => {
+      // A pinned "Diagrams on this page" sat over "Nothing diagrammed here yet"
+      // on the majority of pages — a title contradicting its own body.
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      expect(heading(await mountByline())).toBe('Add a diagram to this page');
+
+      apWrapper.listPageDiagramContents.mockResolvedValue([
+        ok(child('1', 'A', DiagramType.Sequence), child('2', 'B', DiagramType.Mermaid)),
+      ]);
+      expect(heading(await mountByline())).toBe('2 diagrams on this page');
+
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok(child('1', 'A', DiagramType.Sequence))]);
+      expect(heading(await mountByline())).toBe('1 diagram on this page');
+    });
+
+    it('names the saved diagram once there is one', async () => {
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      const wrapper = await mountByline();
+      await wrapper.find('[data-testid="byline-type-sequence"]').trigger('click');
+      await flushPromises();
+      apWrapper.listPageDiagramContents.mockResolvedValue([
+        ok(child('99', 'Checkout call flow', DiagramType.Sequence)),
+      ]);
+      await closeEditor();
+
+      expect(heading(wrapper)).toBe('Checkout call flow');
+    });
+  });
+
+  describe('creating from the picker', () => {
+    it('renders the picker immediately rather than a skeleton', async () => {
+      // Four skeleton cards resolved into an empty state on most pages: they
+      // promised diagrams to a page that has none. The picker is valid in every
+      // state, so it goes up first and the list fills in above it.
+      let release: (v: any) => void = () => {};
+      apWrapper.listPageDiagramContents.mockReturnValue(
+        new Promise(resolve => {
+          release = resolve;
+        }) as any,
+      );
+      const wrapper = mount(BylineDiagrams);
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="byline-loading"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="byline-type-flowchart"]').exists()).toBe(true);
+
+      release([ok()]);
+      await flushPromises();
+      expect(wrapper.find('[data-testid="byline-empty"]').exists()).toBe(true);
+    });
+
+    it('leaves no way to create without saying which type', async () => {
+      // The footer's "Add a diagram" duplicated the picker but passed no
+      // macro_type, so it lost the signal the picker exists to capture AND
+      // dropped the user into a sequence editor they had not asked for.
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok(child('1', 'A', DiagramType.Sequence))]);
+      const wrapper = await mountByline();
+      expect(wrapper.find('[data-testid="byline-add-diagram"]').exists()).toBe(false);
+
+      await wrapper.find('[data-testid="byline-type-graph"]').trigger('click');
+      await flushPromises();
+
+      expect(events('byline_create_clicked')[0][1]).toMatchObject({ macro_type: 'graph' });
+      const opts = vi.mocked(openModal).mock.calls.at(-1)?.[0] as any;
+      expect(opts.context.diagramType).toBe('graph');
+    });
+
+    it('offers a sample render for every type, not just the two that had one', async () => {
+      // Graph and OpenAPI fell back to a 30px icon at 45% opacity on grey,
+      // which reads as "unavailable" rather than "no preview".
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      const wrapper = await mountByline();
+
+      for (const key of ['flowchart', 'sequence', 'graph', 'openapi']) {
+        const img = wrapper.find(`[data-testid="byline-type-${key}"] img`);
+        expect(img.exists(), `${key} has no sample render`).toBe(true);
+        expect(img.attributes('src')).toBe(`./image/byline-example-${key}.png`);
+      }
+    });
+  });
+
+  describe('keyboard reachability', () => {
+    it('makes every click target a real button', async () => {
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok(child('1', 'Login', DiagramType.Sequence))]);
+      const wrapper = await mountByline();
+
+      // Cards and tiles were <div> with @click: no tab stop, no role, no Enter.
+      expect(wrapper.find('[data-testid="byline-item"] button').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="byline-type-sequence"]').element.tagName).toBe('BUTTON');
+    });
+
+    it('does not nest the copy button inside the open button', async () => {
+      // A <button> inside a <button> is invalid HTML, and was what shipped.
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok(child('1', 'Login', DiagramType.Sequence))]);
+      const wrapper = await mountByline();
+
+      const copy = wrapper.find('[data-testid="byline-copy-source"]').element;
+      expect(copy.tagName).toBe('BUTTON');
+      expect(copy.parentElement?.closest('button')).toBeNull();
     });
   });
 });

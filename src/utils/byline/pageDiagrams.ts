@@ -37,10 +37,23 @@ export interface PageDiagram {
   copyable: boolean
 }
 
+/**
+ * The ONE user-facing name per diagram type, for every byline surface.
+ *
+ * The picker and the list used to name types from separate tables, so a tile
+ * labelled "Flowchart" created a card labelled "MERMAID" — the user picked one
+ * thing and was shown another, with no way to tell they were the same. The
+ * picker's names win because they are the ones a user reads before they know
+ * what our types are called: Mermaid and PlantUML are two dialects behind a
+ * single "Flowchart" choice (they share one macro), so both resolve to it here.
+ *
+ * `BylineDiagrams.vue` builds its picker names from this table too — anything
+ * that needs a type's name must go through `typeLabel`, never a local literal.
+ */
 const TYPE_LABELS: Record<string, string> = {
   [DiagramType.Sequence]: 'Sequence',
-  [DiagramType.Mermaid]: 'Mermaid',
-  [DiagramType.PlantUml]: 'PlantUML',
+  [DiagramType.Mermaid]: 'Flowchart',
+  [DiagramType.PlantUml]: 'Flowchart',
   [DiagramType.Graph]: 'Graph',
   [DiagramType.OpenApi]: 'OpenAPI',
   [DiagramType.AsyncApi]: 'AsyncAPI',

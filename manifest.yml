@@ -448,12 +448,16 @@ modules:
       tooltip: See the diagrams on this page, or add one
       # contentBylineItem accepts only small | medium | large | fullscreen —
       # `forge lint` rejects anything else outright (it refused `max` with
-      # exactly that list). `medium` (618x529) left each card barely taller than
-      # its own meta block; `large` was measurably wider at roughly 800px but
-      # did not read as a change. That leaves fullscreen as the only step up,
-      # and it is proven on this module type: zenuml-byline-aiaide has shipped
-      # with it in production all along.
-      viewportSize: fullscreen
+      # exactly that list).
+      #
+      # `medium` (618x529) is the size this panel was designed for. It briefly
+      # shipped as `fullscreen` to give the preview grid more room, and that
+      # inverted the problem: the content here is a picker and a short list, so
+      # a whole-screen modal had to be capped back down at every level — fixed
+      # row heights, `auto-fill` columns, a tile-height cap — and a laptop still
+      # rendered a ~1000x800px preview per type. The layout is a single column
+      # of rows now, which fits 618px without any of those caps.
+      viewportSize: medium
       viewportContainer: modal
       resolver:
         endpoint: remote-connect

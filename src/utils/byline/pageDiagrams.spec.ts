@@ -66,7 +66,7 @@ describe('parsePageDiagrams', () => {
         child('2', '   ', { diagramType: DiagramType.Unknown }),
       ),
     ])
-    expect(out[0].title).toBe('Mermaid')
+    expect(out[0].title).toBe('Flowchart')
     expect(out[1].title).toBe('Diagram')
   })
 
@@ -211,7 +211,16 @@ describe('toModalDiagramType', () => {
 
 describe('typeLabel', () => {
   it('labels known types and degrades gracefully', () => {
-    expect(typeLabel(DiagramType.PlantUml)).toBe('PlantUML')
+    expect(typeLabel(DiagramType.Sequence)).toBe('Sequence')
+    expect(typeLabel(DiagramType.Graph)).toBe('Graph')
     expect(typeLabel('something-new')).toBe('Diagram')
+  })
+
+  it('gives both flowchart dialects the one name the picker offers', () => {
+    // The picker offers a single "Flowchart" choice covering both, so labelling
+    // the result MERMAID / PLANTUML showed the user a type they never picked
+    // and gave them no way to tell it was the thing they asked for.
+    expect(typeLabel(DiagramType.Mermaid)).toBe('Flowchart')
+    expect(typeLabel(DiagramType.PlantUml)).toBe('Flowchart')
   })
 })

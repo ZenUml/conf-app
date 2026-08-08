@@ -1,55 +1,56 @@
 <template>
   <div class="byline" data-testid="byline-diagrams">
-    <!-- Header. Present in every state so the shell never shifts between them. -->
+    <!-- Header. Present in every state so the shell never shifts — but it NAMES
+         the state it sits above rather than the module. A fixed "Diagrams on
+         this page" sat over "Nothing diagrammed here yet" on the majority of
+         pages, which is the one thing a title must never do. -->
     <div class="byline__header">
       <img class="byline__logo" :src="LOGO_SRC" alt="" />
-      <span class="byline__heading">Diagrams on this page</span>
-      <span v-if="!loading && !failed && diagrams.length" class="byline__pill" data-testid="byline-count">
-        {{ diagrams.length }}
-      </span>
+      <span class="byline__heading" data-testid="byline-heading">{{ heading }}</span>
     </div>
 
     <!-- Post-create. The diagram is saved and already listed; the only thing
          left is placing it on the page, so this takes over the body until the
-         user dismisses it. -->
-    <div v-if="createdLink" class="byline__body byline__body--stack" data-testid="byline-created">
-      <div class="hero">
-        <div class="hero__title">Diagram saved</div>
-        <!-- Deliberately does NOT keep claiming the link is on the clipboard.
-             The automatic copy happens once, at save; anything the user copies
-             afterwards silently replaces it, and a panel that still says "it's
-             on your clipboard" would be lying by the time they get to the
-             editor. State the copy as an event that happened, and keep the
-             button available to make it true again. -->
-        <div v-if="hostInEditor" class="hero__sub" data-testid="byline-created-sub-editing">
-          {{ createdCopied
-            ? "We copied the link for you. Paste it into the page where you want the diagram — copy again any time."
-            : 'Copy the link, then paste it into the page where you want the diagram.' }}
-        </div>
-        <div v-else class="hero__sub">
-          {{ createdCopied
-            ? 'We copied the link for you. Open the editor and paste it where you want the diagram — copy again any time.'
-            : 'Copy the link, then open the editor and paste it where you want the diagram.' }}
-        </div>
+         user dismisses it.
+
+         The link is on the clipboard by now, so the panel leads with that fact
+         and the URL itself is demoted to a quiet row. Showing a raw deeplink as
+         the headline made a developer artifact compete with the button that
+         actually finishes the job. -->
+    <div v-if="createdLink" class="byline__body byline__body--created" data-testid="byline-created">
+      <div class="created__thumb">
+        <img v-if="createdThumb" class="created__img" :src="createdThumb" alt="" />
+        <img v-else class="created__icon" :src="macroIcon(createdType)" alt="" />
       </div>
-      <div class="linkbox">
-        <code class="linkbox__url" data-testid="byline-created-link">{{ createdLink }}</code>
-        <!-- The label flashes and reverts rather than latching on '✓ Copied'.
-             A permanently-copied button reads as done, so a user whose
-             clipboard was overwritten in between had no signal that clicking
-             again would help — and no feedback when they did. -->
-        <button class="btn-secondary" data-testid="byline-copy-link" @click="onCopyCreatedLink">
-          {{ linkJustCopied ? '✓ Copied' : 'Copy link' }}
-        </button>
+      <div class="created__text">
+        <!-- Deliberately does NOT keep claiming the link is on the clipboard
+             once the copy failed. The automatic copy happens once, at save;
+             anything the user copies afterwards silently replaces it, which is
+             what the Copy button below is for. -->
+        <div class="created__title">
+          {{ createdCopied ? 'Saved — link copied to clipboard' : 'Saved — copy the link to place it' }}
+        </div>
+        <div v-if="hostInEditor" class="created__sub" data-testid="byline-created-sub-editing">
+          Paste it into the page where you want it. It becomes a normal, editable macro.
+        </div>
+        <div v-else class="created__sub">
+          Open the editor and paste it where you want it. It becomes a normal, editable macro.
+        </div>
+        <div class="linkrow">
+          <code class="linkrow__url" data-testid="byline-created-link">{{ createdLink }}</code>
+          <!-- The label flashes and reverts rather than latching on '✓ Copied'.
+               A permanently-copied button reads as done, so a user whose
+               clipboard was overwritten in between had no signal that clicking
+               again would help — and no feedback when they did. -->
+          <button type="button" class="btn-secondary btn-secondary--tight" data-testid="byline-copy-link" @click="onCopyCreatedLink">
+            {{ linkJustCopied ? '✓ Copied' : 'Copy' }}
+          </button>
+        </div>
+        <p v-if="navFailed" class="created__warn" data-testid="byline-nav-failed">
+          We couldn't open the page editor from here. Edit the page yourself and
+          paste the link — the diagram is already saved.
+        </p>
       </div>
-      <p v-if="navFailed" class="byline__hint" data-testid="byline-nav-failed">
-        We couldn't open the page editor from here. Edit the page yourself and
-        paste the link — the diagram is already saved.
-      </p>
-      <p v-else class="byline__hint">
-        Pasting the link places this diagram on the page as a normal macro — you
-        can edit it there like any other.
-      </p>
     </div>
 
     <!-- The editor closed but the page could not be re-read, so we cannot say
@@ -61,142 +62,122 @@
           <div class="banner__title">Couldn't check what you saved</div>
           <div class="banner__sub">If you saved a diagram it's on the page — we just can't read the list right now.</div>
         </div>
-        <button class="btn-secondary" data-testid="byline-retry-create" @click="onRetryCreate">Try again</button>
+        <button type="button" class="btn-secondary" data-testid="byline-retry-create" @click="onRetryCreate">Try again</button>
       </div>
     </div>
 
-    <!-- State 3: loading. Four skeleton cards, so the grid does not reflow when
-         the real cards land. -->
-    <div v-else-if="loading" class="byline__body byline__body--grid" data-testid="byline-loading">
-      <div v-for="n in 4" :key="n" class="skel" :class="{ 'skel--static': n > 2 }">
-        <div class="skel__preview"></div>
-        <div class="skel__meta">
-          <div class="skel__bar skel__bar--title" :style="{ width: SKELETON_TITLE_WIDTHS[n - 1] }"></div>
-          <div class="skel__bar skel__bar--sub" :style="{ width: SKELETON_SUB_WIDTHS[n - 1] }"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- State 1: the page has diagrams. -->
-    <div v-else-if="diagrams.length" class="byline__body byline__body--grid" :class="{ 'byline__body--paged': diagrams.length > 4 }" data-testid="byline-list">
-      <div
-        v-for="d in diagrams"
-        :key="d.id"
-        class="card"
-        data-testid="byline-item"
-        @click="onOpenDiagram(d)"
-      >
-        <div class="card__preview">
-          <img v-if="thumbs[d.id]" class="card__thumb" :src="thumbs[d.id]" alt="" data-testid="byline-thumb" />
-          <img v-else class="card__icon" :src="macroIcon(d.diagramType)" alt="" />
-        </div>
-        <div class="card__meta">
-          <div class="card__title" :title="d.title">{{ d.title }}</div>
-          <div class="card__row">
-            <span class="card__type">{{ label(d.diagramType) }}</span>
-            <button
-              v-if="d.copyable"
-              class="card__action"
-              :data-testid="copiedId === d.id ? 'byline-copied' : 'byline-copy-source'"
-              @click.stop="onCopySource(d)"
-            >{{ copiedId === d.id ? '✓ Copied' : 'Copy source' }}</button>
-            <span v-else-if="!thumbs[d.id]" class="card__nopreview">No preview</span>
-          </div>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- State 4: the listing failed. Creating still works, so the picker stays
-         and only the banner explains what happened. -->
+    <!-- The listing failed. Creating still works, so the picker stays and only
+         the banner explains what happened. -->
     <div v-else-if="failed" class="byline__body byline__body--stack" data-testid="byline-failed">
       <div class="banner">
         <div class="banner__text">
           <div class="banner__title">Couldn't list this page's diagrams</div>
           <div class="banner__sub">Usually restricted content. Adding one still works.</div>
         </div>
-        <button class="btn-secondary" data-testid="byline-retry" @click="onRetry">Try again</button>
+        <button type="button" class="btn-secondary" data-testid="byline-retry" @click="onRetry">Try again</button>
       </div>
-      <div class="typegrid">
-        <div
+      <div class="picker">
+        <button
           v-for="t in DIAGRAM_TYPES"
           :key="t.key"
-          class="tile"
+          type="button"
+          class="typerow"
+          :disabled="creating"
           :data-testid="`byline-type-${t.key}`"
           @click="onAddDiagram(t.macroType, t.diagramType)"
         >
-          <div class="tile__preview">
-            <img v-if="t.example" class="tile__example" :src="t.example" alt="" />
-            <img v-else class="tile__bigicon" :src="t.icon" alt="" />
-          </div>
-          <div class="tile__label tile__label--compact">
-            <img class="tile__icon" :src="t.icon" alt="" />
-            <span class="tile__name">{{ t.name }}</span>
-          </div>
-        </div>
+          <span class="typerow__preview"><img class="typerow__example" :src="t.example" alt="" /></span>
+          <span class="typerow__text"><span class="typerow__name">{{ t.name }}</span></span>
+        </button>
       </div>
     </div>
 
-    <!-- State 2: empty page — the state most users see, and the one that has to
-         earn a first diagram. -->
+    <!-- The page has diagrams. One list, one create row, and no second CTA: the
+         footer button that used to sit here passed no macro_type, so it both
+         lost the signal the picker exists to capture and dropped the user into a
+         default sequence editor they had not asked for. -->
+    <div v-else-if="diagrams.length" class="byline__body byline__body--list" data-testid="byline-list">
+      <!-- The row is a real <button>, and Copy source is its SIBLING rather than
+           a button nested inside it (which is invalid HTML, and is what shipped).
+           Copy source is a power-user affordance on a minority of types, so it
+           stays out of the way until the row is hovered or focused — the open,
+           which is what the whole row does, is the labelled action. -->
+      <div v-for="d in diagrams" :key="d.id" class="row" data-testid="byline-item">
+        <button type="button" class="row__open" @click="onOpenDiagram(d)">
+          <span class="row__thumb">
+            <img v-if="thumbs[d.id]" class="row__img" :src="thumbs[d.id]" alt="" data-testid="byline-thumb" />
+            <img v-else class="row__icon" :src="macroIcon(d.diagramType)" alt="" />
+          </span>
+          <span class="row__text">
+            <span class="row__title" :title="d.title">{{ d.title }}</span>
+            <span class="row__type">{{ label(d.diagramType) }}</span>
+          </span>
+          <span class="row__cta">Open</span>
+        </button>
+        <button
+          v-if="d.copyable"
+          type="button"
+          class="row__copy"
+          :data-testid="copiedId === d.id ? 'byline-copied' : 'byline-copy-source'"
+          @click="onCopySource(d)"
+        >{{ copiedId === d.id ? '✓ Copied' : 'Copy source' }}</button>
+        <!-- Copy source exists for text-DSL types only, so most lists mix rows
+             that have it with rows that don't. Without a placeholder holding
+             the slot, "Open" lands in a different place on every other row. -->
+        <span v-else class="row__copy row__copy--slot" aria-hidden="true">Copy source</span>
+      </div>
+    </div>
+
+    <!-- Empty page — the state most users see, and the one that has to earn a
+         first diagram. Also the state shown WHILE the list loads: the picker is
+         valid on every page, so rendering it immediately beats a skeleton that
+         promises four diagrams to a page that has none. -->
     <div v-else class="byline__body byline__body--stack" data-testid="byline-empty">
-      <div class="hero">
-        <div class="hero__title">Nothing diagrammed here yet</div>
-        <div class="hero__sub">Pick a type and draw it. We'll give you a link to drop anywhere on the page.</div>
-      </div>
-      <div class="typegrid">
-        <div
+      <div class="byline__lede">Draw it here, then drop it on the page. Takes about a minute.</div>
+      <div class="picker">
+        <button
           v-for="t in DIAGRAM_TYPES"
           :key="t.key"
-          class="tile"
+          type="button"
+          class="typerow"
+          :class="{ 'typerow--recommended': t.recommended }"
+          :disabled="creating"
           :data-testid="`byline-type-${t.key}`"
           @click="onAddDiagram(t.macroType, t.diagramType)"
         >
-          <div class="tile__preview">
-            <img v-if="t.example" class="tile__example" :src="t.example" alt="" />
-            <img v-else class="tile__bigicon" :src="t.icon" alt="" />
-          </div>
-          <div class="tile__label">
-            <img class="tile__icon" :src="t.icon" alt="" />
-            <span class="tile__text">
-              <span class="tile__name">{{ t.name }}</span>
-              <span class="tile__desc">{{ t.desc }}</span>
-            </span>
-          </div>
-        </div>
+          <span class="typerow__preview"><img class="typerow__example" :src="t.example" alt="" /></span>
+          <span class="typerow__text">
+            <span class="typerow__name">{{ t.name }}</span>
+            <span class="typerow__desc">{{ t.desc }}</span>
+          </span>
+          <span v-if="t.recommended" class="typerow__badge">Most used</span>
+        </button>
       </div>
     </div>
 
-    <!-- Add-a-diagram tiles. Sits AFTER the whole v-if/v-else-if chain above,
+    <!-- Add-another chips. Sits AFTER the whole v-if/v-else-if chain above,
          never inside it: a v-else-if must immediately follow its sibling, so a
          plain v-if wedged between two branches re-parents everything after it
          and the trailing v-else starts rendering alongside the created-link
          panel instead of as its alternative.
 
-         Same tiles as the empty state, laid out in one row — a page that
-         already has diagrams is exactly where the next one gets added, so the
-         picker has to be as reachable here as it is on a blank page. Shown only
-         alongside the list; the empty and failed states carry their own grid. -->
-    <div v-if="!createdLink && !createUnresolved && !loading && diagrams.length" class="addtiles" data-testid="byline-type-strip">
-      <div class="addtiles__label">Add a diagram</div>
-      <div class="typegrid typegrid--row">
-        <div
+         Shown only alongside the list — the empty and failed states carry the
+         full picker, and a page that already has diagrams is exactly where the
+         next one gets added, so the types have to stay reachable here too. -->
+    <div v-if="showAddAnother" class="addrow" data-testid="byline-type-strip">
+      <div class="addrow__label">Add another</div>
+      <div class="chips">
+        <button
           v-for="t in DIAGRAM_TYPES"
           :key="t.key"
-          class="tile"
-          :class="{ 'tile--busy': creating }"
+          type="button"
+          class="chip"
+          :disabled="creating"
           :data-testid="`byline-type-${t.key}`"
-          @click="!creating && onAddDiagram(t.macroType, t.diagramType)"
+          @click="onAddDiagram(t.macroType, t.diagramType)"
         >
-          <div class="tile__preview">
-            <img v-if="t.example" class="tile__example" :src="t.example" alt="" />
-            <img v-else class="tile__bigicon" :src="t.icon" alt="" />
-          </div>
-          <div class="tile__label tile__label--compact">
-            <img class="tile__icon" :src="t.icon" alt="" />
-            <span class="tile__name">{{ t.name }}</span>
-          </div>
-        </div>
+          <img class="chip__icon" :src="t.icon" alt="" />{{ t.name }}
+        </button>
       </div>
     </div>
 
@@ -204,18 +185,21 @@
     <div class="byline__footer">
       <span class="byline__hint">
         <template v-if="createdLink && hostInEditor">Paste it anywhere on the page — the diagram is already saved.</template>
-        <template v-else-if="createdLink">Saved either way — you can paste the link any time.</template>
+        <template v-else-if="createdLink">Saved either way — paste it any time.</template>
         <template v-else-if="createUnresolved">Nothing was lost — retry when you're ready.</template>
-        <template v-else-if="loading">Reading this page…</template>
         <template v-else-if="failed">Type <code>/zenuml</code> anywhere on the page.</template>
-        <template v-else-if="diagrams.length">Click a diagram to jump to it on the page.</template>
-        <template v-else>Already editing? Type <code>/zenuml</code> anywhere on the page.</template>
+        <!-- Says what the click actually does. The old hint promised the modal
+             would scroll the page to the macro; onOpenDiagram takes the
+             documented fallback and opens the fullscreen viewer instead. -->
+        <template v-else-if="diagrams.length">Opens the diagram full screen — it stays where it is on the page.</template>
+        <template v-else>Already editing? Type <code>/zenuml</code> on the page.</template>
       </span>
       <!-- Already in the editor: "Open editor" would navigate to where the user
            already is, reloading the editor they are typing in. The only thing
            left for them is the paste, so the panel just gets out of the way. -->
       <template v-if="createdLink && hostInEditor">
         <button
+          type="button"
           class="btn-primary"
           data-testid="byline-created-done"
           @click="onDismissCreated"
@@ -228,33 +212,28 @@
           data-testid="byline-created-done"
           @click.prevent="onDismissCreated"
         >Not now</a>
+        <!-- Names the whole action, not just the navigation: the paste is the
+             step that finishes the job, and the button is what carries it. -->
         <button
+          type="button"
           class="btn-primary"
           data-testid="byline-open-editor"
           @click="onOpenEditorToPaste"
-        >Open editor</button>
+        >Open editor &amp; paste</button>
       </template>
       <a
-        v-else-if="!loading && !failed && !diagrams.length"
+        v-else-if="!failed && !diagrams.length"
         class="byline__learn"
         href="#"
         data-testid="byline-learn-more"
         @click.prevent="onLearnMore"
       >Learn more</a>
-      <button
-        v-else
-        class="btn-primary"
-        :class="{ 'btn-primary--muted': loading || creating }"
-        :disabled="loading || creating"
-        data-testid="byline-add-diagram"
-        @click="onAddDiagram()"
-      >Add a diagram</button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import globals from '@/model/globals'
 import forgeGlobal, { openModal } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
@@ -276,11 +255,15 @@ import { isHostPageInEditor } from '@/utils/byline/hostEditor'
 import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
 
+/** Drives nothing in the template any more — the picker renders immediately
+ *  rather than behind a skeleton (see the empty-state comment) — but the list
+ *  itself must not be treated as final until this clears, or a page with
+ *  diagrams would emit its readout as an empty one. */
 const loading = ref(true)
 const diagrams = ref<PageDiagram[]>([])
 const copiedId = ref<string | null>(null)
-/** Separates "this page has no diagrams" (state 2) from "we could not find out"
- *  (state 4). Previously both collapsed into the empty state, which told a user
+/** Separates "this page has no diagrams" (empty) from "we could not find out"
+ *  (failed). Previously both collapsed into the empty state, which told a user
  *  with restricted content that their diagrams did not exist. */
 const failed = ref(false)
 /** Set when the post-editor re-read of the page failed, so we cannot say whether
@@ -289,12 +272,12 @@ const failed = ref(false)
 const createUnresolved = ref(false)
 /** The arguments of the create that `createUnresolved` refers to, so its retry
  *  can re-run the same diff instead of starting over. */
-let pendingCreate: { before: string[]; macroType?: MacroTypeValue } | null = null
-/** customContentId -> data: URL. Fills in after the cards paint. */
+let pendingCreate: { before: string[]; macroType: MacroTypeValue } | null = null
+/** customContentId -> data: URL. Fills in after the rows paint. */
 const thumbs = ref<Record<string, string>>({})
 
 /** Pathological pages exist (demo pages, architecture indexes). Each thumbnail
- *  is its own authenticated round trip, so cap the fan-out — cards past the cap
+ *  is its own authenticated round trip, so cap the fan-out — rows past the cap
  *  keep the icon fallback, which is already a supported state. */
 const MAX_THUMBNAILS = 12
 
@@ -315,6 +298,11 @@ const LOGO_SRC = './image/zenuml_logo.png'
  *  panel — the diagram exists at that point, so the only thing left is placing
  *  it. */
 const createdLink = ref<string | null>(null)
+/** Title, type and id of that diagram, so the panel can show what was saved
+ *  rather than describing it in the abstract. */
+const createdTitle = ref('')
+const createdType = ref('')
+const createdId = ref('')
 /** Did the automatic copy at save time succeed. Drives the wording once, and
  *  never latches the button — see `linkJustCopied`. */
 const createdCopied = ref(false)
@@ -329,57 +317,89 @@ const creating = ref(false)
  *  link is on the clipboard, so the panel stays and only says so. */
 const navFailed = ref(false)
 
-const SKELETON_TITLE_WIDTHS = ['70%', '55%', '62%', '48%']
-const SKELETON_SUB_WIDTHS = ['40%', '35%', '30%', '26%']
+const createdThumb = computed(() => (createdId.value ? thumbs.value[createdId.value] : undefined))
+
+/** The header names whatever is actually below it. */
+const heading = computed(() => {
+  if (createdLink.value) return createdTitle.value || 'Diagram saved'
+  if (createUnresolved.value) return 'Diagrams on this page'
+  const n = diagrams.value.length
+  if (!failed.value && n) return `${n} diagram${n === 1 ? '' : 's'} on this page`
+  return 'Add a diagram to this page'
+})
+
+const showAddAnother = computed(
+  () => !createdLink.value && !createUnresolved.value && !failed.value && diagrams.value.length > 0,
+)
 
 interface TypeTile {
   key: string
   name: string
   desc: string
   icon: string
-  example?: string
+  example: string
   macroType: MacroTypeValue
   /** Storage `diagramType`, used to build the paste-to-create link. Distinct
    *  from `macroType`, which is the analytics vocabulary. */
   diagramType: string
+  /** Surfaced as a "Most used" badge, and ordered first. */
+  recommended?: boolean
 }
 
-/** The picker shown on an empty or unreadable page. `macroType` rides on
- *  `byline_create_clicked` so the funnel can be split by what the user reached
- *  for — the tiles are the only place we learn intended type before the editor. */
+/** The picker. `macroType` rides on `byline_create_clicked` so the funnel can be
+ *  split by what the user reached for — the picker is the only place we learn
+ *  intended type before the editor, which is why there is no longer an untyped
+ *  "Add a diagram" button anywhere in this panel.
+ *
+ *  Names come from `typeLabel`, never from a literal here: the tile and the row
+ *  it creates have to agree on what the type is called.
+ *
+ *  EVERY type carries a sample render. Two of them used to fall back to a 30px
+ *  icon at 45% opacity, which reads as "unavailable" rather than "no preview".
+ *  The Graph and OpenAPI samples are drawn to DrawIO's own palette and Swagger
+ *  UI's method colours respectively; swap in real product screenshots when
+ *  convenient, the composition is the point.
+ *
+ *  Flowchart leads and is badged from measured Lite usage, not intuition: over
+ *  the 90 days to 2026-08-07, `macro_create_succeeded` on `product_type: lite`
+ *  counted 15,577 flowchart creates (mermaid 13,698 + plantuml 1,879) against
+ *  1,885 sequence, 2,852 graph and 1,481 openapi. */
 const DIAGRAM_TYPES: TypeTile[] = [
+  {
+    key: 'flowchart',
+    diagramType: DiagramType.Mermaid,
+    name: typeLabel(DiagramType.Mermaid),
+    desc: 'Mermaid or PlantUML',
+    icon: './image/diagram_macro_icon.png',
+    example: './image/byline-example-flowchart.png',
+    macroType: 'mermaid',
+    recommended: true,
+  },
   {
     key: 'sequence',
     diagramType: DiagramType.Sequence,
-    name: 'Sequence',
+    name: typeLabel(DiagramType.Sequence),
     desc: 'Who calls what, in order',
     icon: './image/diagram_macro_icon.png',
     example: './image/byline-example-sequence.png',
     macroType: 'sequence',
   },
   {
-    key: 'flowchart',
-    diagramType: DiagramType.Mermaid,
-    name: 'Flowchart',
-    desc: 'Mermaid or PlantUML',
-    icon: './image/diagram_macro_icon.png',
-    example: './image/byline-example-flowchart.png',
-    macroType: 'mermaid',
-  },
-  {
     key: 'graph',
     diagramType: DiagramType.Graph,
-    name: 'Graph',
+    name: typeLabel(DiagramType.Graph),
     desc: 'Free-form, DrawIO',
     icon: './image/graph_macro_icon.png',
+    example: './image/byline-example-graph.png',
     macroType: 'graph',
   },
   {
     key: 'openapi',
     diagramType: DiagramType.OpenApi,
-    name: 'OpenAPI',
+    name: typeLabel(DiagramType.OpenApi),
     desc: 'Render a spec inline',
     icon: './image/openapi_macro_icon.png',
+    example: './image/byline-example-openapi.png',
     macroType: 'openapi',
   },
 ]
@@ -444,7 +464,7 @@ async function loadDiagrams() {
     health = summarizeListing(responses)
     diagrams.value = parsePageDiagrams(responses)
     // An unreadable page is NOT an empty page. The create path still works, so
-    // state 4 keeps the picker and says what happened.
+    // the failed state keeps the picker and says what happened.
     //
     // This — not the catch — is what a 403 or a rate-limit actually looks like:
     // the listing resolves with error bodies rather than rejecting, so reading
@@ -461,7 +481,7 @@ async function loadDiagrams() {
     // Emitted after the list resolves so page_has_diagram / diagram_count are
     // populated — this event IS the Phase 1 readout, and a version of it
     // without those two properties would not answer the question it exists for.
-    // Thumbnails are deliberately NOT awaited first: the cards must paint
+    // Thumbnails are deliberately NOT awaited first: the rows must paint
     // immediately, and delaying the readout behind N image fetches would make
     // byline_opened hostage to attachment latency.
     if (openedTracked) {
@@ -493,7 +513,7 @@ onBeforeUnmount(() => {
 
 /**
  * Resolve each listed diagram's backup PNG into an inline thumbnail. Runs after
- * the cards have painted and never blocks them; a page whose diagrams predate
+ * the rows have painted and never blocks them; a page whose diagrams predate
  * the attachment backup just keeps the macro-type icon.
  */
 async function loadThumbnails() {
@@ -535,7 +555,8 @@ function onRetry() {
  * fragment, with an explicit instruction to confirm the anchor form against a
  * real rendered page first and to fall back to opening the diagram fullscreen
  * if it could not be made reliable. That confirmation needs a browser, so this
- * takes the documented fallback.
+ * takes the documented fallback — and the footer hint says so, rather than
+ * promising the scroll that was never built.
  *
  * `macroMode` MUST be `'fullscreen'`, not `'viewer'`: `isFullscreenMode()`
  * (model/globals/forgeGlobal.ts) is what GenericViewer reads to switch to the
@@ -596,13 +617,14 @@ async function onCopySource(d: PageDiagram) {
  * Only then is there something to link to. That ordering is the point of this
  * flow: the previous version copied a `/new/<type>` link before any diagram
  * existed, so a user who pasted it got an empty macro they still had to fill in.
+ *
+ * Both arguments are REQUIRED. Every entry point into this function is a typed
+ * picker choice now, and the untyped variant that used to exist reported no
+ * macro_type and silently opened the sequence editor whatever the user wanted.
  */
-async function onAddDiagram(macroType?: MacroTypeValue, diagramType?: string) {
+async function onAddDiagram(macroType: MacroTypeValue, diagramType: string) {
   acted = true
-  trackAnalyticsEvent('byline_create_clicked', {
-    ...baseProps(),
-    ...(macroType ? { macro_type: macroType } : {}),
-  })
+  trackAnalyticsEvent('byline_create_clicked', { ...baseProps(), macro_type: macroType })
 
   const before = diagrams.value.map(d => d.id)
   creating.value = true
@@ -612,9 +634,7 @@ async function onAddDiagram(macroType?: MacroTypeValue, diagramType?: string) {
       size: 'fullscreen',
       context: {
         macroMode: 'editor',
-        // Undefined for the generic "Add a diagram" button — the editor opens
-        // in its own default type, which is the sequence family.
-        diagramType: diagramType ? toModalDiagramType(diagramType) : 'sequence',
+        diagramType: toModalDiagramType(diagramType),
         // The paywall gate already fires on this path — the editor mounts with
         // no customContentId, so tryPageEditorPaywall takes its create branch
         // exactly as an insert-menu create does. This marker does not change
@@ -642,7 +662,7 @@ async function onAddDiagram(macroType?: MacroTypeValue, diagramType?: string) {
  * Re-read the page after the editor closes. A new id means the user saved;
  * no new id means they cancelled, and the modal simply returns to the list.
  */
-async function afterEditorClosed(before: string[], macroType?: MacroTypeValue) {
+async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
   try {
     const responses = await globals.apWrapper.listPageDiagramContents(pageId)
     const health = summarizeListing(responses)
@@ -659,7 +679,7 @@ async function afterEditorClosed(before: string[], macroType?: MacroTypeValue) {
       createUnresolved.value = true
       trackAnalyticsEvent('byline_diagram_created', {
         ...baseProps(),
-        ...(macroType ? { macro_type: macroType } : {}),
+        macro_type: macroType,
         ...health,
         result: 'listing_failed',
       })
@@ -671,7 +691,7 @@ async function afterEditorClosed(before: string[], macroType?: MacroTypeValue) {
     diagrams.value = after
     const newId = newlyCreatedId(before, after.map(d => d.id))
     if (!newId) {
-      trackAnalyticsEvent('byline_create_cancelled', { ...baseProps(), ...(macroType ? { macro_type: macroType } : {}) })
+      trackAnalyticsEvent('byline_create_cancelled', { ...baseProps(), macro_type: macroType })
       return
     }
     // Same accessor model/Attachment.ts uses — `globals` is the app singleton
@@ -689,7 +709,7 @@ async function afterEditorClosed(before: string[], macroType?: MacroTypeValue) {
     const link = buildDiagramDeeplink(toMacroType(created?.diagramType || ''), cloudId || '', newId)
     trackAnalyticsEvent('byline_diagram_created', {
       ...baseProps(),
-      ...(macroType ? { macro_type: macroType } : {}),
+      macro_type: macroType,
       custom_content_id: String(newId),
       // buildDiagramDeeplink returns undefined for a missing cloudId or a type
       // outside DEEPLINK_TYPES; every picker tile is in that set, so the second
@@ -702,6 +722,9 @@ async function afterEditorClosed(before: string[], macroType?: MacroTypeValue) {
       console.error('[byline] no deeplink available for the created diagram', { cloudId: !!cloudId })
       return
     }
+    createdId.value = newId
+    createdTitle.value = created?.title || ''
+    createdType.value = created?.diagramType || ''
     createdLink.value = link
     // Copy for the user immediately — the next thing they do is paste — but
     // treat it as best-effort. The button below stays live either way.
@@ -850,6 +873,9 @@ async function requestCloseView(): Promise<'closed' | 'unsupported' | 'failed'> 
 async function onDismissCreated() {
   const closing = hostInEditor ? requestCloseView() : null
   createdLink.value = null
+  createdTitle.value = ''
+  createdType.value = ''
+  createdId.value = ''
   createdCopied.value = false
   linkJustCopied.value = false
   if (copyFlashTimer) clearTimeout(copyFlashTimer)
@@ -878,7 +904,11 @@ async function onLearnMore() {
 
 <style scoped>
 /* Fixed 618 x 529 modal (viewportSize: medium). The shell is header / body /
-   footer with only the body flexing, so the modal itself never scrolls. */
+   footer with only the body flexing, so the modal itself never scrolls.
+
+   Everything here is a single column of rows. The grid this replaced needed a
+   row-height cap, `auto-fill` columns and a tile-height cap purely to survive
+   being rendered fullscreen; at 618px none of that is load-bearing. */
 .byline {
   display: flex;
   flex-direction: column;
@@ -908,224 +938,343 @@ async function onLearnMore() {
 .byline__heading {
   font-size: 15px;
   font-weight: 600;
-}
-.byline__pill {
-  font-size: 12px;
-  font-weight: 600;
-  color: #5e6c84;
-  background: #f4f5f7;
-  border-radius: 10px;
-  padding: 2px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Body -------------------------------------------------------------------- */
 .byline__body {
   flex: 1 1 auto;
   min-height: 0;
-}
-.byline__body--grid {
-  padding: 16px 20px;
-  display: grid;
-  /* Columns adapt to the viewport instead of being pinned at two: the modal is
-     fullscreen, where 1fr 1fr would give two absurdly wide cards on a desktop
-     and the same two on a laptop. */
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  /* Rows size to content, capped, rather than dividing the modal in two. A
-     fixed `1fr 1fr` reserved a second row even for a single diagram — visible
-     as an empty band — and at a larger viewport it either stretched two cards
-     over the whole modal or left half of it blank. */
-  grid-auto-rows: minmax(150px, 300px);
-  align-content: start;
-  gap: 14px;
-  height: 100%;
   box-sizing: border-box;
-  overflow-y: auto;
-}
-.byline__body--paged {
   overflow-y: auto;
 }
 .byline__body--stack {
-  padding: 18px 20px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  box-sizing: border-box;
+  gap: 6px;
+}
+.byline__body--list {
+  padding: 8px 20px 16px;
+  display: flex;
+  flex-direction: column;
+}
+.byline__lede {
+  font-size: 13px;
+  color: #5e6c84;
+  text-wrap: pretty;
+  margin-bottom: 6px;
 }
 
-/* Diagram card ------------------------------------------------------------ */
-.card {
-  border: 1px solid #dfe1e6;
-  border-radius: 6px;
-  overflow: hidden;
+/* Type picker ------------------------------------------------------------- */
+.picker {
   display: flex;
   flex-direction: column;
+  gap: 6px;
+}
+/* A real <button>, not a div with @click: these are the only way to create a
+   diagram from here, and as divs they had no tab stop, no role and no Enter. */
+.typerow {
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   cursor: pointer;
   background: #fff;
-  min-height: 0;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
 }
-.card:hover {
+.typerow:hover:not(:disabled) {
   border-color: #0052cc;
-  box-shadow: 0 1px 4px rgba(9, 30, 66, 0.16);
 }
-.card__preview {
-  flex: 1 1 auto;
-  min-height: 0;
+.typerow:focus-visible {
+  outline: 2px solid #0052cc;
+  outline-offset: 1px;
+}
+.typerow:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.typerow--recommended {
+  border: 2px solid #0052cc;
+  /* Absorbs the extra border so the recommended row is the same height as the
+     others and the column does not step. */
+  padding: 9px 11px;
+}
+.typerow__preview {
+  width: 84px;
+  height: 56px;
+  flex: none;
+  border: 1px solid #ebecf0;
+  border-radius: 4px;
   background: #fafbfc;
-  border-bottom: 1px solid #ebecf0;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.card__thumb {
+.typerow__example {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  padding: 3px;
+  padding: 2px;
   box-sizing: border-box;
   display: block;
 }
-.card__icon {
-  width: 30px;
-  height: 30px;
+.typerow__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 2px;
+}
+.typerow__name {
+  font-size: 14px;
+  font-weight: 600;
+}
+.typerow__desc {
+  font-size: 12px;
+  color: #5e6c84;
+}
+.typerow__badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #0052cc;
+  background: #deebff;
+  border-radius: 3px;
+  padding: 3px 8px;
+  flex: none;
+}
+
+/* Diagram list ------------------------------------------------------------ */
+.row {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #ebecf0;
+}
+.row__open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+}
+.row__open:focus-visible {
+  outline: 2px solid #0052cc;
+  outline-offset: -2px;
+}
+.row__thumb {
+  width: 64px;
+  height: 44px;
+  flex: none;
+  border: 1px solid #ebecf0;
+  border-radius: 4px;
+  background: #fafbfc;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.row__img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.row__icon {
+  width: 22px;
+  height: 22px;
   object-fit: contain;
   opacity: 0.45;
 }
-.card__meta {
-  flex: none;
-  padding: 10px 12px;
+.row__text {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 2px;
 }
-.card__title {
-  font-size: 13px;
+.row__title {
+  font-size: 14px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.card__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.card__type {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.row__type {
+  font-size: 12px;
   color: #5e6c84;
 }
-.card__action {
+.row__cta {
+  font-size: 13px;
+  color: #0052cc;
+  font-weight: 500;
+  flex: none;
+}
+/* Kept in the layout at all times so revealing it never shifts the row, and
+   faded rather than hidden so it stays reachable by keyboard — :focus-within
+   brings it up when the user tabs onto it. */
+.row__copy {
+  flex: none;
+  margin-left: 12px;
   background: none;
   border: none;
   padding: 0;
   font-size: 12px;
   font-weight: 500;
-  color: #0052cc;
+  color: #5e6c84;
   cursor: pointer;
   font-family: inherit;
+  opacity: 0;
+  transition: opacity 0.12s ease-in;
 }
-.card__action:hover {
+.row:hover .row__copy,
+.row:focus-within .row__copy {
+  opacity: 1;
+}
+/* Holds the slot open, never appears and never takes focus. */
+.row__copy--slot {
+  visibility: hidden;
+}
+.row__copy:hover {
+  color: #0052cc;
   text-decoration: underline;
 }
-.card__nopreview {
+
+/* Add another ------------------------------------------------------------- */
+/* Sits between the scrolling body and the footer, so it never scrolls away. */
+.addrow {
+  flex: none;
+  padding: 12px 20px;
+  border-top: 1px solid #ebecf0;
+  background: #fff;
+}
+.addrow__label {
   font-size: 12px;
   color: #5e6c84;
+  margin-bottom: 8px;
 }
-
-/* Empty / failed states --------------------------------------------------- */
-.hero {
-  flex: none;
+.chips {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
-.hero__title {
-  font-size: 17px;
-  font-weight: 600;
-}
-.hero__sub {
-  font-size: 13px;
-  color: #5e6c84;
-  text-wrap: pretty;
-}
-/* Same sizing contract as .byline__body--grid, and for the same reason: the
-   modal is `viewportSize: fullscreen`, so anything told to fill the container
-   fills a whole desktop screen. The original `1fr 1fr` rows with `flex: 1 1
-   auto` divided the viewport between four tiles, which on a laptop rendered a
-   ~1000×800px preview per type. Cap the row height and stop stretching; the
-   tiles are a picker, not the content. */
-.typegrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  grid-auto-rows: 190px;
-  gap: 12px;
-  align-content: start;
-  flex: none;
-}
-.tile {
+.chip {
   border: 1px solid #dfe1e6;
-  border-radius: 6px;
-  overflow: hidden;
+  border-radius: 4px;
+  padding: 6px 12px 6px 8px;
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
   background: #fff;
-  min-height: 0;
+  font-family: inherit;
+  color: inherit;
 }
-.tile:hover {
+.chip:hover:not(:disabled) {
   border-color: #0052cc;
-  box-shadow: 0 1px 4px rgba(9, 30, 66, 0.16);
 }
-.tile__preview {
-  flex: 1 1 auto;
-  min-height: 0;
+.chip:focus-visible {
+  outline: 2px solid #0052cc;
+  outline-offset: 1px;
+}
+.chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.chip__icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+/* Post-create panel ------------------------------------------------------- */
+.byline__body--created {
+  padding: 20px;
+  display: flex;
+  gap: 16px;
+}
+.created__thumb {
+  width: 120px;
+  height: 84px;
+  flex: none;
+  border: 1px solid #ebecf0;
+  border-radius: 4px;
   background: #fafbfc;
-  border-bottom: 1px solid #ebecf0;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.tile__example {
+.created__img {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  padding: 3px;
-  box-sizing: border-box;
   display: block;
 }
-.tile__bigicon {
+.created__icon {
   width: 30px;
   height: 30px;
   object-fit: contain;
   opacity: 0.45;
 }
-.tile__label {
-  flex: none;
-  padding: 9px 12px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.tile__icon {
-  width: 20px;
-  height: 20px;
-  object-fit: contain;
-  flex: none;
-}
-.tile__text {
+.created__text {
   display: flex;
   flex-direction: column;
+  gap: 8px;
   min-width: 0;
+  flex: 1 1 auto;
 }
-.tile__name {
-  font-size: 13px;
+.created__title {
+  font-size: 17px;
   font-weight: 600;
 }
-.tile__desc {
+.created__sub {
+  font-size: 13px;
+  color: #5e6c84;
+  text-wrap: pretty;
+}
+.created__warn {
+  font-size: 12px;
+  color: #5e6c84;
+  margin: 0;
+  text-wrap: pretty;
+}
+/* The URL is evidence, not the instruction: quiet, one line, with the button
+   that makes it useful again if the clipboard has moved on. */
+.linkrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  background: #fafbfc;
+  padding: 6px 6px 6px 10px;
+  margin-top: 2px;
+}
+.linkrow__url {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
   color: #5e6c84;
 }
@@ -1141,6 +1290,7 @@ async function onLearnMore() {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  margin-bottom: 8px;
 }
 .banner__title {
   font-size: 14px;
@@ -1163,121 +1313,16 @@ async function onLearnMore() {
   /* Required: without it the button wraps to two lines inside space-between. */
   white-space: nowrap;
 }
+.btn-secondary--tight {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
 .btn-secondary:hover {
   background: #f4f5f7;
 }
 
-/* Loading skeleton -------------------------------------------------------- */
-.skel {
-  border: 1px solid #dfe1e6;
-  border-radius: 6px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: #fff;
-}
-.skel__preview {
-  flex: 1 1 auto;
-  min-height: 0;
-  background: linear-gradient(90deg, #f4f5f7 0%, #ebecf0 40%, #f4f5f7 80%);
-  background-size: 320px 100%;
-  animation: shimmer 1.2s linear infinite;
-}
-.skel__meta {
-  flex: none;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.skel__bar {
-  border-radius: 3px;
-  background: linear-gradient(90deg, #f4f5f7 0%, #ebecf0 40%, #f4f5f7 80%);
-  background-size: 320px 100%;
-  animation: shimmer 1.2s linear infinite;
-}
-.skel__bar--title {
-  height: 10px;
-}
-.skel__bar--sub {
-  height: 8px;
-}
-/* Cards 3-4 sit still so the eye isn't pulled between four competing shimmers. */
-.skel--static .skel__preview {
-  background: #f7f8f9;
-  animation: none;
-}
-.skel--static .skel__bar {
-  background: #f4f5f7;
-  animation: none;
-}
-@keyframes shimmer {
-  0% {
-    background-position: -320px 0;
-  }
-  100% {
-    background-position: 320px 0;
-  }
-}
-
 /* Footer ------------------------------------------------------------------ */
-.linkbox {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid #dfe1e6;
-  border-radius: 6px;
-  background: #fafbfc;
-  padding: 10px 12px;
-}
-.linkbox__url {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: #172b4d;
-  background: #f4f5f7;
-  border-radius: 3px;
-  padding: 4px 6px;
-}
-
-/* Sits between the scrolling body and the footer, so it never scrolls away. */
-.addtiles {
-  flex: none;
-  padding: 12px 20px;
-  border-top: 1px solid #ebecf0;
-  background: #fff;
-}
-.addtiles__label {
-  font-size: 12px;
-  color: #5e6c84;
-  margin-bottom: 8px;
-}
-/* One row of four, with a short preview: enough to recognise the type at a
-   glance without taking the height the list needs. */
-.typegrid--row {
-  grid-template-columns: repeat(4, 1fr);
-  /* Height comes from the 64px preview + label, not the base 190px cap. */
-  grid-auto-rows: auto;
-  gap: 10px;
-  flex: none;
-}
-.typegrid--row .tile__preview {
-  flex: none;
-  height: 64px;
-}
-.typegrid--row .tile__label {
-  padding: 7px 10px;
-}
-.tile--busy {
-  opacity: 0.5;
-  cursor: default;
-}
-
 .byline__footer {
   flex: none;
   border-top: 1px solid #ebecf0;
@@ -1321,10 +1366,5 @@ async function onLearnMore() {
 }
 .btn-primary:hover {
   background: #0065ff;
-}
-.btn-primary--muted,
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 </style>

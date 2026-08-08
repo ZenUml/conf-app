@@ -444,7 +444,13 @@ modules:
     - key: zenuml-byline-diagrams
       resource: main
       title: Diagrams
-      icon: resource:main;image/zenuml_logo.png
+      # The zenuml.com wordmark, matching the panel's own header. Chosen over
+      # the square lifeline mark (image/zenuml_logo.png) for brand consistency,
+      # with a known trade-off: Confluence renders a byline icon at roughly
+      # 16px, and this mark is two stacked lines of type, so it reads as a blue
+      # smudge at that size where the lifeline mark stayed legible. The label
+      # "Diagrams" sits next to it and carries the meaning either way.
+      icon: resource:main;image/zenuml-wordmark.png
       tooltip: See the diagrams on this page, or add one
       # contentBylineItem accepts only small | medium | large | fullscreen —
       # `forge lint` rejects anything else outright (it refused `max` with

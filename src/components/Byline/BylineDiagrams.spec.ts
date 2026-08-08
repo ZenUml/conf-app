@@ -36,7 +36,11 @@ vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
 }));
 
 const routerNavigate = vi.hoisted(() => vi.fn(async () => {}));
-vi.mock('@forge/bridge', () => ({ router: { navigate: routerNavigate, open: vi.fn() } }));
+const viewClose = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock('@forge/bridge', () => ({
+  router: { navigate: routerNavigate, open: vi.fn() },
+  view: { close: viewClose },
+}));
 
 const child = (id: string, title: string, diagramType: string, code = 'A->B: hi') => ({
   id,
@@ -356,6 +360,38 @@ describe('BylineDiagrams', () => {
       expect(wrapper.find('[data-testid="byline-created-sub-editing"]').exists()).toBe(false);
     });
 
+    it('closes the byline view when Done is pressed, instead of falling back to the list', async () => {
+      // Reported from whimet4: Done cleared the created panel, which fell
+      // through to "Diagrams on this page" — a panel sitting over the page the
+      // user needs to click into to paste. In the editor the flow is finished.
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { location: EDIT_URL } };
+      const wrapper = await reachCreatedPanel();
+
+      await wrapper.find('[data-testid="byline-created-done"]').trigger('click');
+      await flushPromises();
+
+      expect(viewClose).toHaveBeenCalled();
+      expect(events('byline_view_close_requested')[0][1]).toMatchObject({ result: 'closed' });
+    });
+
+    it('still clears the panel when the close request cannot be honoured', async () => {
+      // Forge documents view.close() as a *request* and says nothing about
+      // contentBylineItem, so a no-op is possible. The state reset must not be
+      // conditional on it, or a refused close would strand the user on the
+      // created panel — strictly worse than the list it replaced.
+      viewClose.mockRejectedValueOnce(new Error('not supported here'));
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { location: EDIT_URL } };
+      const wrapper = await reachCreatedPanel();
+
+      await wrapper.find('[data-testid="byline-created-done"]').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="byline-created"]').exists()).toBe(false);
+      expect(events('byline_view_close_requested')[0][1]).toMatchObject({ result: 'failed' });
+      consoleErrorSpy.mockRestore();
+    });
+
     it('reports which journey this was, so the detection is verifiable', async () => {
       // Detection silently degrading to false looks identical to "nobody opens
       // the byline while editing", so it has to be readable from the data.
@@ -406,6 +442,19 @@ describe('BylineDiagrams', () => {
 
       expect(routerNavigate).toHaveBeenCalledWith('/wiki/spaces/SPACE/pages/edit-v2/page-1');
       expect(events('byline_editor_deeplinked').at(-1)?.[1]).toMatchObject({ result: 'after_create' });
+    });
+
+    it('does not try to close the view from a view-mode page', async () => {
+      // "Not now" there means "keep looking" — the user has not left the page,
+      // and the diagram list is a reasonable place to land.
+      const wrapper = await reachCreatedPanel();
+
+      await wrapper.find('[data-testid="byline-created-done"]').trigger('click');
+      await flushPromises();
+
+      expect(viewClose).not.toHaveBeenCalled();
+      expect(events('byline_view_close_requested')).toHaveLength(0);
+      expect(wrapper.find('[data-testid="byline-created"]').exists()).toBe(false);
     });
   });
 });

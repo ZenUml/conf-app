@@ -816,12 +816,52 @@ async function onOpenEditorToPaste() {
   }
 }
 
-function onDismissCreated() {
+/**
+ * Ask Confluence to close the byline view.
+ *
+ * Forge documents `view.close()` as "request the closure of the current view.
+ * For example, close a modal" — with no stated module restrictions, but also no
+ * statement that it works for confluence:contentBylineItem specifically. So it
+ * is attempted, never depended on: the caller always applies the in-app
+ * dismissal too, which is what the user gets if the request is a no-op.
+ */
+async function requestCloseView(): Promise<'closed' | 'unsupported' | 'failed'> {
+  try {
+    const { view } = await import('@forge/bridge')
+    if (typeof (view as any)?.close !== 'function') return 'unsupported'
+    await (view as any).close()
+    return 'closed'
+  } catch (e) {
+    console.error('[byline] could not close the byline view', e)
+    return 'failed'
+  }
+}
+
+/**
+ * Dismiss the post-create panel.
+ *
+ * In the editor this is the end of the whole flow: the diagram is saved, the
+ * link is on the clipboard, and the user's next keystroke is the paste. Merely
+ * clearing `createdLink` falls through to the diagram list, which puts a panel
+ * over the page they need to click into — so ask Confluence to close the view
+ * as well. The state reset still runs either way, so a close request that does
+ * nothing leaves the previous behaviour rather than a stuck panel.
+ */
+async function onDismissCreated() {
+  const closing = hostInEditor ? requestCloseView() : null
   createdLink.value = null
   createdCopied.value = false
   linkJustCopied.value = false
   if (copyFlashTimer) clearTimeout(copyFlashTimer)
   copyFlashTimer = undefined
+  if (!closing) return
+  // Whether a byline item can close itself is not something this repo can
+  // verify without a real Confluence editor, so record the outcome instead of
+  // assuming it.
+  trackAnalyticsEvent('byline_view_close_requested', {
+    ...baseProps(),
+    result: await closing,
+  })
 }
 
 async function onLearnMore() {

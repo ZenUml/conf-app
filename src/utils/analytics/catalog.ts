@@ -320,6 +320,13 @@ export type AnalyticsEventName =
   // The byline editor closed without saving. Splits abandonment from failure,
   // which byline_create_clicked alone cannot distinguish.
   | "byline_create_cancelled"
+  // "Done" was pressed on the post-create panel while the host page was in the
+  // editor, and the app asked Confluence to close the byline view. Forge
+  // documents view.close() as a *request* with no module restrictions stated,
+  // but says nothing about contentBylineItem specifically — `result`
+  // ('closed' | 'unsupported' | 'failed') is how we find out whether a byline
+  // item can dismiss itself, rather than assuming it.
+  | "byline_view_close_requested"
   // Two independent producers, disambiguated by `failure_stage` (reliability
   // audit 2026-08-06 §3/§4/§12 items 1-2, conf-app#149/#150):
   // - unset/'syntax': GenericViewer's `$store.state.error` watcher — client-

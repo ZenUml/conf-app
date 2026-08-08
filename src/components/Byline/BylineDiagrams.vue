@@ -15,16 +15,26 @@
     <div v-if="createdLink" class="byline__body byline__body--stack" data-testid="byline-created">
       <div class="hero">
         <div class="hero__title">Diagram saved</div>
+        <!-- Deliberately does NOT keep claiming the link is on the clipboard.
+             The automatic copy happens once, at save; anything the user copies
+             afterwards silently replaces it, and a panel that still says "it's
+             on your clipboard" would be lying by the time they get to the
+             editor. State the copy as an event that happened, and keep the
+             button available to make it true again. -->
         <div class="hero__sub">
           {{ createdCopied
-            ? 'The link is on your clipboard. Open the editor and paste it where you want the diagram.'
+            ? 'We copied the link for you. Open the editor and paste it where you want the diagram — copy again any time.'
             : 'Copy the link, then open the editor and paste it where you want the diagram.' }}
         </div>
       </div>
       <div class="linkbox">
         <code class="linkbox__url" data-testid="byline-created-link">{{ createdLink }}</code>
+        <!-- The label flashes and reverts rather than latching on '✓ Copied'.
+             A permanently-copied button reads as done, so a user whose
+             clipboard was overwritten in between had no signal that clicking
+             again would help — and no feedback when they did. -->
         <button class="btn-secondary" data-testid="byline-copy-link" @click="onCopyCreatedLink">
-          {{ createdCopied ? '✓ Copied' : 'Copy link' }}
+          {{ linkJustCopied ? '✓ Copied' : 'Copy link' }}
         </button>
       </div>
       <p v-if="navFailed" class="byline__hint" data-testid="byline-nav-failed">
@@ -288,7 +298,15 @@ const LOGO_SRC = './image/zenuml_logo.png'
  *  panel — the diagram exists at that point, so the only thing left is placing
  *  it. */
 const createdLink = ref<string | null>(null)
+/** Did the automatic copy at save time succeed. Drives the wording once, and
+ *  never latches the button — see `linkJustCopied`. */
 const createdCopied = ref(false)
+/** Transient "✓ Copied" acknowledgement on the copy button, set by both the
+ *  automatic and the manual copy and cleared after COPY_FLASH_MS so the button
+ *  returns to an obviously-clickable state. */
+const linkJustCopied = ref(false)
+const COPY_FLASH_MS = 2000
+let copyFlashTimer: ReturnType<typeof setTimeout> | undefined
 const creating = ref(false)
 /** The "Open editor" handoff could not navigate. The diagram is saved and the
  *  link is on the clipboard, so the panel stays and only says so. */
@@ -435,6 +453,7 @@ onMounted(loadDiagrams)
 onBeforeUnmount(() => {
   // Object URLs are never created (thumbnails are inlined as data: URLs), so
   // there is nothing to revoke here.
+  if (copyFlashTimer) clearTimeout(copyFlashTimer)
   if (acted) return
   trackAnalyticsEvent('byline_dismissed', {
     ...baseProps(),
@@ -654,7 +673,9 @@ async function afterEditorClosed(before: string[], macroType?: MacroTypeValue) {
       return
     }
     createdLink.value = link
-    createdCopied.value = await copyText(link)
+    // Copy for the user immediately — the next thing they do is paste — but
+    // treat it as best-effort. The button below stays live either way.
+    await copyCreatedLink('auto')
     void loadThumbnails()
   } catch (e) {
     console.error('[byline] failed to resolve the created diagram', e)
@@ -685,10 +706,41 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-async function onCopyCreatedLink() {
-  if (!createdLink.value) return
-  createdCopied.value = await copyText(createdLink.value)
-  trackAnalyticsEvent('advocacy_message_copied', { ...baseProps(), ui_component: 'byline_created_link' })
+function flashCopied() {
+  linkJustCopied.value = true
+  if (copyFlashTimer) clearTimeout(copyFlashTimer)
+  copyFlashTimer = setTimeout(() => {
+    linkJustCopied.value = false
+    copyFlashTimer = undefined
+  }, COPY_FLASH_MS)
+}
+
+/**
+ * Copy the paste link, from either trigger.
+ *
+ * `copy_trigger` splits the automatic copy at save from a deliberate re-copy.
+ * They answer different questions: 'auto' failing is a clipboard-permission
+ * problem in the Forge iframe (the write is not user-gesture-initiated on that
+ * path, which is exactly why the manual button has to exist), while a run of
+ * 'manual' events on one created link means the automatic copy is not
+ * surviving to the paste and the handoff needs rethinking.
+ */
+async function copyCreatedLink(trigger: 'auto' | 'manual'): Promise<boolean> {
+  if (!createdLink.value) return false
+  const copied = await copyText(createdLink.value)
+  createdCopied.value = copied
+  if (copied) flashCopied()
+  trackAnalyticsEvent('advocacy_message_copied', {
+    ...baseProps(),
+    ui_component: 'byline_created_link',
+    copy_trigger: trigger,
+    result: copied ? 'copied' : 'failed',
+  })
+  return copied
+}
+
+function onCopyCreatedLink() {
+  void copyCreatedLink('manual')
 }
 
 /**
@@ -737,6 +789,9 @@ async function onOpenEditorToPaste() {
 function onDismissCreated() {
   createdLink.value = null
   createdCopied.value = false
+  linkJustCopied.value = false
+  if (copyFlashTimer) clearTimeout(copyFlashTimer)
+  copyFlashTimer = undefined
 }
 
 async function onLearnMore() {

@@ -229,6 +229,92 @@ describe('BylineDiagrams', () => {
     });
   });
 
+  describe('the paste link on the clipboard', () => {
+    async function reachCreatedPanel() {
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      const wrapper = await mountByline();
+      await wrapper.find('[data-testid="byline-type-sequence"]').trigger('click');
+      await flushPromises();
+      apWrapper.listPageDiagramContents.mockResolvedValue([
+        ok(child('99', 'New', DiagramType.Sequence)),
+      ]);
+      await closeEditor();
+      return wrapper;
+    }
+
+    it('copies the link for the user as soon as the diagram is saved', async () => {
+      const wrapper = await reachCreatedPanel();
+
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        'https://confluence.zenuml.com/d/sequence/cloud-1/99',
+      );
+      expect(events('advocacy_message_copied')).toHaveLength(1);
+      expect(events('advocacy_message_copied')[0][1]).toMatchObject({
+        ui_component: 'byline_created_link',
+        copy_trigger: 'auto',
+        result: 'copied',
+      });
+      expect(wrapper.find('[data-testid="byline-copy-link"]').text()).toContain('Copied');
+    });
+
+    it('returns the button to a clickable state so the link can be re-copied', async () => {
+      // The automatic copy happens once. Anything the user copies afterwards
+      // replaces it, and a button latched on '✓ Copied' reads as done — no
+      // signal that clicking again would help, and no feedback when they do.
+      vi.useFakeTimers();
+      try {
+        const wrapper = await reachCreatedPanel();
+        expect(wrapper.find('[data-testid="byline-copy-link"]').text()).toContain('Copied');
+
+        vi.advanceTimersByTime(2000);
+        await wrapper.vm.$nextTick();
+        expect(wrapper.find('[data-testid="byline-copy-link"]').text()).toContain('Copy link');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('re-copies on demand and reports it as a separate trigger', async () => {
+      const wrapper = await reachCreatedPanel();
+      vi.mocked(navigator.clipboard.writeText).mockClear();
+
+      await wrapper.find('[data-testid="byline-copy-link"]').trigger('click');
+      await flushPromises();
+
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        'https://confluence.zenuml.com/d/sequence/cloud-1/99',
+      );
+      expect(events('advocacy_message_copied').at(-1)?.[1]).toMatchObject({
+        copy_trigger: 'manual',
+        result: 'copied',
+      });
+    });
+
+    it('keeps the button usable when the automatic copy is refused', async () => {
+      // The save-time write is not user-gesture-initiated, so the Forge iframe
+      // can refuse it. The manual click is, which is the whole reason the
+      // button has to survive an auto-copy failure.
+      vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'));
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const wrapper = await reachCreatedPanel();
+
+      expect(events('advocacy_message_copied')[0][1]).toMatchObject({
+        copy_trigger: 'auto',
+        result: 'failed',
+      });
+      expect(wrapper.find('[data-testid="byline-copy-link"]').text()).toContain('Copy link');
+
+      await wrapper.find('[data-testid="byline-copy-link"]').trigger('click');
+      await flushPromises();
+
+      expect(events('advocacy_message_copied').at(-1)?.[1]).toMatchObject({
+        copy_trigger: 'manual',
+        result: 'copied',
+      });
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
   describe('the editor handoff', () => {
     async function reachCreatedPanel() {
       apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);

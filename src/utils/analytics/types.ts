@@ -174,6 +174,12 @@ export type AnalyticsProperties = {
   // inside the Forge iframe — and a run of 'manual' copies against one created
   // link means the automatic one is not surviving to the paste.
   copy_trigger?: 'auto' | 'manual';
+  // Was the host page already in the Confluence editor when the byline opened.
+  // Carried on every byline event because it splits two genuinely different
+  // journeys — reader-discovers-the-app vs author-mid-edit — and because the
+  // detection degrading to false is otherwise indistinguishable from "nobody
+  // opens the byline while editing".
+  host_in_editor?: boolean;
   // Byline thumbnails: how many of `diagram_count` resolved to a backup-PNG
   // attachment. Coverage is the whole question for this feature — diagrams
   // saved before the attachment backup existed, failed captures, and viewers

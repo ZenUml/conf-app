@@ -315,6 +315,58 @@ describe('BylineDiagrams', () => {
     });
   });
 
+  describe('when the byline is opened from inside the page editor', () => {
+    // A real Confluence editor URL carries the NUMERIC content id, which is
+    // what separates it from a view URL whose last segment is the page title.
+    const EDIT_URL = 'https://example.atlassian.net/wiki/spaces/SPACE/pages/edit-v2/703430669';
+
+    async function reachCreatedPanel() {
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      const wrapper = await mountByline();
+      await wrapper.find('[data-testid="byline-type-sequence"]').trigger('click');
+      await flushPromises();
+      apWrapper.listPageDiagramContents.mockResolvedValue([
+        ok(child('99', 'New', DiagramType.Sequence)),
+      ]);
+      await closeEditor();
+      return wrapper;
+    }
+
+    it('does not offer to open the editor the user is already in', async () => {
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { location: EDIT_URL } };
+      const wrapper = await reachCreatedPanel();
+
+      // Taking that button would navigate to where they already are, reloading
+      // the editor they were typing in.
+      expect(wrapper.find('[data-testid="byline-open-editor"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="byline-created-done"]').text()).toBe('Done');
+      // The link is still there to copy — the paste is the whole remaining step.
+      expect(wrapper.find('[data-testid="byline-created-link"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="byline-created-sub-editing"]').text()).toContain('Paste it into the page');
+    });
+
+    it('still offers the handoff from a view-mode page', async () => {
+      forgeGlobalMock.forgeContext = {
+        cloudId: 'cloud-1',
+        extension: { location: 'https://example.atlassian.net/wiki/spaces/SPACE/pages/703430669/Title' },
+      };
+      const wrapper = await reachCreatedPanel();
+
+      expect(wrapper.find('[data-testid="byline-open-editor"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="byline-created-sub-editing"]').exists()).toBe(false);
+    });
+
+    it('reports which journey this was, so the detection is verifiable', async () => {
+      // Detection silently degrading to false looks identical to "nobody opens
+      // the byline while editing", so it has to be readable from the data.
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { location: EDIT_URL } };
+      await reachCreatedPanel();
+
+      expect(events('byline_opened')[0][1]).toMatchObject({ host_in_editor: true });
+      expect(events('byline_diagram_created')[0][1]).toMatchObject({ host_in_editor: true });
+    });
+  });
+
   describe('the editor handoff', () => {
     async function reachCreatedPanel() {
       apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);

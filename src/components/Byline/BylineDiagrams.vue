@@ -21,7 +21,12 @@
              on your clipboard" would be lying by the time they get to the
              editor. State the copy as an event that happened, and keep the
              button available to make it true again. -->
-        <div class="hero__sub">
+        <div v-if="hostInEditor" class="hero__sub" data-testid="byline-created-sub-editing">
+          {{ createdCopied
+            ? "We copied the link for you. Paste it into the page where you want the diagram — copy again any time."
+            : 'Copy the link, then paste it into the page where you want the diagram.' }}
+        </div>
+        <div v-else class="hero__sub">
           {{ createdCopied
             ? 'We copied the link for you. Open the editor and paste it where you want the diagram — copy again any time.'
             : 'Copy the link, then open the editor and paste it where you want the diagram.' }}
@@ -198,14 +203,25 @@
     <!-- Footer. Pinned in every state; only the hint and the right slot vary. -->
     <div class="byline__footer">
       <span class="byline__hint">
-        <template v-if="createdLink">Saved either way — you can paste the link any time.</template>
+        <template v-if="createdLink && hostInEditor">Paste it anywhere on the page — the diagram is already saved.</template>
+        <template v-else-if="createdLink">Saved either way — you can paste the link any time.</template>
         <template v-else-if="createUnresolved">Nothing was lost — retry when you're ready.</template>
         <template v-else-if="loading">Reading this page…</template>
         <template v-else-if="failed">Type <code>/zenuml</code> anywhere on the page.</template>
         <template v-else-if="diagrams.length">Click a diagram to jump to it on the page.</template>
         <template v-else>Already editing? Type <code>/zenuml</code> anywhere on the page.</template>
       </span>
-      <template v-if="createdLink">
+      <!-- Already in the editor: "Open editor" would navigate to where the user
+           already is, reloading the editor they are typing in. The only thing
+           left for them is the paste, so the panel just gets out of the way. -->
+      <template v-if="createdLink && hostInEditor">
+        <button
+          class="btn-primary"
+          data-testid="byline-created-done"
+          @click="onDismissCreated"
+        >Done</button>
+      </template>
+      <template v-else-if="createdLink">
         <a
           class="byline__learn"
           href="#"
@@ -256,6 +272,7 @@ import {
   type PageDiagram,
 } from '@/utils/byline/pageDiagrams'
 import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnails'
+import { isHostPageInEditor } from '@/utils/byline/hostEditor'
 import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
 
@@ -390,11 +407,24 @@ const openedAt = Date.now()
 let acted = false
 let pageId = ''
 
+/**
+ * Whether the host page is already in the editor. Read once at mount: the
+ * byline iframe is booted by Confluence per host render, so it cannot outlive a
+ * view↔edit transition, and re-reading it per event would only add noise.
+ *
+ * Carried on every byline event, not just the ones that branch on it. Neither
+ * signal it derives from is verifiable from this container, and the detection
+ * quietly degrading to `false` looks exactly like "nobody opens the byline
+ * while editing" — a claim that must be readable from data rather than assumed.
+ */
+const hostInEditor = isHostPageInEditor(forgeGlobal.forgeContext)
+
 function baseProps() {
   return {
     feature_area: 'byline' as const,
     surface: 'byline' as const,
     entry_point: 'byline' as const,
+    host_in_editor: hostInEditor,
     ...summarizeDiagrams(diagrams.value),
   }
 }

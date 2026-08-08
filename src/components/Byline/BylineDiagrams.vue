@@ -13,15 +13,21 @@
          left is placing it on the page, so this takes over the body until the
          user dismisses it. -->
     <div v-if="createdLink" class="byline__body byline__body--stack" data-testid="byline-created">
+      <!-- The subtitle deliberately does NOT keep claiming the link is on the
+           clipboard. The automatic copy happens once, at save; anything the
+           user copies afterwards silently replaces it, and a panel that still
+           says "it's on your clipboard" would be lying by the time they get to
+           the editor. State the copy as an event that happened, and keep the
+           button available to make it true again.
+
+           The `finishedInEditor` branch is the terminal state after Done, shown
+           only when the close request did not actually dismiss the popup. -->
       <div class="hero">
-        <div class="hero__title">Diagram saved</div>
-        <!-- Deliberately does NOT keep claiming the link is on the clipboard.
-             The automatic copy happens once, at save; anything the user copies
-             afterwards silently replaces it, and a panel that still says "it's
-             on your clipboard" would be lying by the time they get to the
-             editor. State the copy as an event that happened, and keep the
-             button available to make it true again. -->
-        <div v-if="hostInEditor" class="hero__sub" data-testid="byline-created-sub-editing">
+        <div class="hero__title">{{ finishedInEditor ? 'Ready to paste' : 'Diagram saved' }}</div>
+        <div v-if="finishedInEditor" class="hero__sub" data-testid="byline-finished">
+          Close this popup and paste the link into the page.
+        </div>
+        <div v-else-if="hostInEditor" class="hero__sub" data-testid="byline-created-sub-editing">
           {{ createdCopied
             ? "We copied the link for you. Paste it into the page where you want the diagram — copy again any time."
             : 'Copy the link, then paste it into the page where you want the diagram.' }}
@@ -214,14 +220,21 @@
       <!-- Already in the editor: "Open editor" would navigate to where the user
            already is, reloading the editor they are typing in. The only thing
            left for them is the paste, so the panel just gets out of the way. -->
-      <template v-if="createdLink && hostInEditor">
+      <!-- Once Done has been pressed there is nothing left to offer: either the
+           popup closed, or it did not and pressing the same button again would
+           not change that. -->
+      <template v-if="createdLink && hostInEditor && !finishedInEditor">
         <button
           class="btn-primary"
           data-testid="byline-created-done"
           @click="onDismissCreated"
         >Done</button>
       </template>
-      <template v-else-if="createdLink">
+      <!-- Explicitly NOT a bare `v-else-if="createdLink"`: in the editor after
+           Done, the branch above stops matching, and a bare condition would
+           fall through to this pair — putting "Open editor" back in front of a
+           user who is already in the editor and has finished. -->
+      <template v-else-if="createdLink && !hostInEditor">
         <a
           class="byline__learn"
           href="#"
@@ -328,6 +341,12 @@ const creating = ref(false)
 /** The "Open editor" handoff could not navigate. The diagram is saved and the
  *  link is on the clipboard, so the panel stays and only says so. */
 const navFailed = ref(false)
+/** Done was pressed in the editor. `view.close()` is documented as a *request*,
+ *  so it can resolve without the popup going away — and we cannot detect that.
+ *  This state is what the user sees if it does not: a terminal "ready to paste"
+ *  panel rather than the diagram index, which is the thing they pressed Done to
+ *  get away from. When the close does work, it is never seen. */
+const finishedInEditor = ref(false)
 
 const SKELETON_TITLE_WIDTHS = ['70%', '55%', '62%', '48%']
 const SKELETON_SUB_WIDTHS = ['40%', '35%', '30%', '26%']
@@ -848,13 +867,24 @@ async function requestCloseView(): Promise<'closed' | 'unsupported' | 'failed'> 
  * nothing leaves the previous behaviour rather than a stuck panel.
  */
 async function onDismissCreated() {
-  const closing = hostInEditor ? requestCloseView() : null
-  createdLink.value = null
-  createdCopied.value = false
-  linkJustCopied.value = false
+  if (!hostInEditor) {
+    createdLink.value = null
+    createdCopied.value = false
+    linkJustCopied.value = false
+    if (copyFlashTimer) clearTimeout(copyFlashTimer)
+    copyFlashTimer = undefined
+    return
+  }
+  // In the editor, deliberately do NOT clear createdLink. Clearing it falls
+  // through the v-if chain to the diagram index — a panel over the page the
+  // user has to click into to paste, and the thing they pressed Done to leave.
+  // Since a resolved close() does not prove the popup went away, the visible
+  // fallback has to be a terminal state, not the list.
+  const closing = requestCloseView()
+  finishedInEditor.value = true
   if (copyFlashTimer) clearTimeout(copyFlashTimer)
   copyFlashTimer = undefined
-  if (!closing) return
+  linkJustCopied.value = false
   // Whether a byline item can close itself is not something this repo can
   // verify without a real Confluence editor, so record the outcome instead of
   // assuming it.

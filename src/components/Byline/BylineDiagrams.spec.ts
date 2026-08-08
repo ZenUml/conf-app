@@ -372,9 +372,12 @@ describe('BylineDiagrams', () => {
 
       expect(viewClose).toHaveBeenCalled();
       expect(events('byline_view_close_requested')[0][1]).toMatchObject({ result: 'closed' });
+      // Never the index, under any close outcome.
+      expect(wrapper.find('[data-testid="byline-list"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="byline-empty"]').exists()).toBe(false);
     });
 
-    it('still clears the panel when the close request cannot be honoured', async () => {
+    it('lands on a terminal state, never the index, when the close is not honoured', async () => {
       // Forge documents view.close() as a *request* and says nothing about
       // contentBylineItem, so a no-op is possible. The state reset must not be
       // conditional on it, or a refused close would strand the user on the
@@ -387,7 +390,15 @@ describe('BylineDiagrams', () => {
       await wrapper.find('[data-testid="byline-created-done"]').trigger('click');
       await flushPromises();
 
-      expect(wrapper.find('[data-testid="byline-created"]').exists()).toBe(false);
+      // A resolved-but-ignored close() is undetectable, so the fallback must be
+      // a terminal state rather than the diagram index the user just left.
+      expect(wrapper.find('[data-testid="byline-finished"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="byline-list"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="byline-empty"]').exists()).toBe(false);
+      // The link stays available — pasting it is the whole remaining step.
+      expect(wrapper.find('[data-testid="byline-created-link"]').exists()).toBe(true);
+      // Done is spent; pressing it again could not change the outcome.
+      expect(wrapper.find('[data-testid="byline-created-done"]').exists()).toBe(false);
       expect(events('byline_view_close_requested')[0][1]).toMatchObject({ result: 'failed' });
       consoleErrorSpy.mockRestore();
     });

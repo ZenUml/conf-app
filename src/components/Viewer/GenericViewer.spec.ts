@@ -191,6 +191,41 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
+  // ZEN fullscreen-fit follow-up: .viewer-frame had no height rule, so a
+  // diagram shorter than the fullscreen viewport left most of the screen a
+  // bare void beneath it. viewer-frame--fullscreen ties the frame to the
+  // viewport height regardless of diagram type/width (isWide is orthogonal).
+  describe('fullscreen height (all diagram types)', () => {
+    const setFullscreen = (on: boolean) => {
+      ;(window as any).forgeGlobal = on
+        ? { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+        : undefined
+    }
+    afterEach(() => { delete (window as any).forgeGlobal })
+
+    it('applies viewer-frame--fullscreen in fullscreen mode', () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('.viewer-frame').classes()).toContain('viewer-frame--fullscreen')
+    })
+
+    it('does not apply viewer-frame--fullscreen on the inline (non-fullscreen) page', () => {
+      setFullscreen(false)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('.viewer-frame').classes()).not.toContain('viewer-frame--fullscreen')
+    })
+  })
+
   describe('top-edge actions', () => {
     it('emits edit on the EventBus when Edit is clicked', async () => {
       const spy = vi.spyOn(EventBus, '$emit')

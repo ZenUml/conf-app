@@ -12,7 +12,7 @@
     </template>
 
     <template v-else>
-      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide}">
+      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode}">
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
              two-column flex row — see .viewer-body--with-agent-rail below. -->
@@ -1127,6 +1127,33 @@ export default {
 }
 .viewer-frame--auto { width: fit-content; margin-left: auto; margin-right: auto; }
 .viewer-frame--wide { width: 100%; }
+
+/* Fullscreen modal gets the whole browser viewport (Forge's autoResize is
+   disabled there — see forgeIndex.ts), but .viewer-frame itself has no height
+   rule, so a diagram shorter than the window left most of the screen a bare
+   void beneath it (spotted once the View Source panel was fixed to actually
+   fill that same viewport — the mismatch between a full-height panel and a
+   content-height diagram card became visible). min-height ties the frame to
+   the viewport; the flex chain lets .viewer-canvas absorb the extra space and
+   center its (possibly short) diagram in it, without touching isWide's own
+   width math above. */
+.viewer-frame--fullscreen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+/* height:100% here would need a DEFINITE height on .viewer-body, but
+   min-height alone never makes a flex container's resolved size definite for
+   percentage-resolution purposes — .viewer-surface's height would compute to
+   auto and the centering below would never engage. Flex the whole chain
+   instead so each level's size comes from layout, not a percentage. */
+.viewer-frame--fullscreen .viewer-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.viewer-frame--fullscreen .viewer-surface { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.viewer-frame--fullscreen .viewer-canvas { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+/* .viewer-frame--fullscreen .viewer-body (0,2,0) would otherwise outrank
+   .viewer-body--with-agent-rail (0,1,0) below and force its Connect-rail row
+   back into a column. */
+.viewer-frame--fullscreen .viewer-body--with-agent-rail { flex-direction: row; }
 
 .viewer-surface { position: relative; }
 

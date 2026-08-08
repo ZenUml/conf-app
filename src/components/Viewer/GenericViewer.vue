@@ -296,6 +296,7 @@
           :visible="showSourcePanel"
           :source="viewSourceCode"
           :dsl-label="viewSourceDslLabel"
+          :fullscreen="isFullscreenMode"
           @close="showSourcePanel = false"
           @copy="onViewSourceCopied"
         />

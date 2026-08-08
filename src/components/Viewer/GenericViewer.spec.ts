@@ -356,6 +356,34 @@ describe('GenericViewer (chrome-less)', () => {
       await wrapper.vm.$nextTick()
       expect(wrapper.find('[data-testid="view-source-panel"]').exists()).toBe(false)
     })
+
+    // ZEN fullscreen-fit: .viewer-frame is fit-content-sized to the diagram
+    // in the fullscreen modal (see isWide comment), so the panel must anchor
+    // to the actual viewport (fixed) instead of that short box (absolute).
+    it('sizes the panel for the fullscreen viewport when opened from the fullscreen modal', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-testid="view-source-panel"]').classes()).toContain('view-source-panel--fullscreen')
+
+      delete (window as any).forgeGlobal
+    })
+
+    it('does not use fullscreen sizing for the inline (non-fullscreen) viewer', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-testid="view-source-panel"]').classes()).not.toContain('view-source-panel--fullscreen')
+    })
   })
 
   // One-click "Copy for AI" clipboard payload (copy_for_ai_clicked, catalog.ts).

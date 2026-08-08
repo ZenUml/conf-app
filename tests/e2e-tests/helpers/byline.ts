@@ -111,6 +111,64 @@ export async function openBylineModal(page: Page): Promise<Frame> {
 }
 
 /**
+ * The Forge frame matching `selector`, excluding frames already known.
+ *
+ * The byline's editor opens as a SECOND top-level Forge modal while the byline
+ * frame is still mounted, and both are `custom-ui-fullscreen-modal-dialog`s
+ * hosting a `hosted-resources-iframe` — so the page-object's
+ * `getByTestId('custom-ui-fullscreen-modal-dialog')` matches two things here and
+ * cannot be reused. Excluding the frames that existed before the click is what
+ * makes "the editor" unambiguous.
+ */
+async function newFrameWithSelector(
+  page: Page,
+  selector: string,
+  known: Set<string>,
+  timeoutMs = 30000,
+): Promise<Frame> {
+  const deadline = Date.now() + timeoutMs;
+  let lastSeen: string[] = [];
+  while (Date.now() < deadline) {
+    const candidates = page.frames().filter(f => isAppFrame(f) && !known.has(f.url()));
+    lastSeen = candidates.map(f => f.url());
+    for (const f of candidates) {
+      const hit = await f.locator(selector).count().catch(() => 0);
+      if (hit > 0) return f;
+    }
+    await page.waitForTimeout(500);
+  }
+  throw new Error(
+    `No NEW Forge frame matched ${selector} within ${timeoutMs}ms. ` +
+      `New app frames seen: ${JSON.stringify(lastSeen)}`,
+  );
+}
+
+/**
+ * Pick a type in the byline and save the diagram its editor opens.
+ *
+ * This is the byline's whole create path: the tile opens the ordinary diagram
+ * editor as its own Forge modal, and only once that editor saves does a custom
+ * content exist for the modal to hand back a link to. Returns after the editor
+ * has published, so the caller can assert on the post-create panel.
+ */
+export async function createDiagramFromByline(
+  page: Page,
+  bylineFrame: Frame,
+  typeKey: string,
+  title: string,
+): Promise<void> {
+  const known = new Set(page.frames().map(f => f.url()));
+  await bylineFrame.locator(`[data-testid="byline-type-${typeKey}"]`).first().click();
+
+  const editor = await newFrameWithSelector(page, 'button:has-text("Publish")', known);
+  // Same shape as EditorPage.interactWithForgeDiagramMacro: the title input is
+  // the first text field, and Publish only enables once it has a value.
+  await editor.locator('input[type="text"]').first().fill(title);
+  await page.waitForTimeout(500);
+  await editor.locator('button:has-text("Publish")').click();
+}
+
+/**
  * Assert the Lite paywall modal is up inside `frame`.
  *
  * `continue-editing-btn` is the load-bearing element: the Lite paywall is a

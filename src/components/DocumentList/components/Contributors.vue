@@ -9,6 +9,7 @@
       :href="contributor.link"
       :title="contributor.name"
       target="_blank"
+      @click.prevent="contributor.link && openLink(contributor.link)"
     >
       <div
         class="w-7 h-7 rounded-full border-2 border-solid border-white ml-[-8px] overflow-hidden"
@@ -31,6 +32,13 @@
 
 <script setup lang="ts">
 import { defineProps } from "vue";
+import { openUrl } from "@/model/globals/forgeGlobal";
+
+// @click.prevent + openUrl: the Forge iframe sandbox has no allow-popups,
+// so a bare target="_blank" anchor click is silently dropped.
+const openLink = (url: string) => {
+  void openUrl(url);
+};
 
 defineProps({
   contributors: {

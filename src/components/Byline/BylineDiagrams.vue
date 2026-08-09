@@ -167,12 +167,31 @@
           </span>
           <span class="row__text">
             <span class="row__title" :title="d.title">{{ d.title }}</span>
-            <span class="row__type">{{ label(d.diagramType) }}</span>
+            <span class="row__type">
+              {{ label(d.diagramType) }}<template v-if="isUnplaced(d)"> · not on this page</template>
+            </span>
           </span>
           <span class="row__cta">Open</span>
         </button>
+        <!-- Saved but never pasted: it exists as this page's custom content and
+             already counts against the Lite limit, but no macro renders it. The
+             link is the only way to place it, so it is offered outright rather
+             than on hover — this row is the one place the diagram is reachable
+             at all. -->
         <button
-          v-if="d.copyable"
+          v-if="isUnplaced(d)"
+          type="button"
+          class="row__copy row__copy--url"
+          :data-testid="copiedId === d.id ? 'byline-copied' : 'byline-copy-url'"
+          title="Copy a link that places this diagram on the page"
+          @click="onCopyUrl(d)"
+        >{{ copiedId === d.id ? '✓ Copied' : 'Copy URL' }}</button>
+        <!-- Copy URL takes the slot when it applies: on a diagram that is not on
+             the page, placing it beats copying its source, and two buttons plus
+             Open do not fit 618px. The source is still reachable by opening the
+             diagram. -->
+        <button
+          v-else-if="d.copyable"
           type="button"
           class="row__copy"
           :data-testid="copiedId === d.id ? 'byline-copied' : 'byline-copy-source'"
@@ -277,12 +296,12 @@
            fall through to this pair — putting "Open editor" back in front of a
            user who is already in the editor and has finished. -->
       <template v-else-if="createdLink && !hostInEditor">
-        <a
-          class="byline__learn"
-          href="#"
+        <button
+          type="button"
+          class="btn-secondary"
           data-testid="byline-created-done"
-          @click.prevent="onDismissCreated"
-        >Not now</a>
+          @click="onDismissCreated"
+        >Not now</button>
         <!-- Names the whole action, not just the navigation: the paste is the
              step that finishes the job, and the button is what carries it. -->
         <button
@@ -351,6 +370,28 @@ let pendingCreate: { before: string[]; macroType: MacroTypeValue } | null = null
 /** customContentId -> data: URL. Fills in after the rows paint. */
 const thumbs = ref<Record<string, string>>({})
 
+/** customContentIds that a macro on the published page actually renders, or
+ *  `undefined` while unknown — either not scanned yet, or the page ADF could not
+ *  be read. Unknown must NOT read as "nothing is placed": that would label every
+ *  diagram on the page as stray. See `isUnplaced`. */
+const placedIds = ref<Set<string> | undefined>(undefined)
+
+/**
+ * Is this diagram absent from the page it is stored on?
+ *
+ * True only when the scan positively succeeded and did not find it. A diagram
+ * gets here by being saved from the byline and never pasted — it exists, it
+ * counts against the Lite 100-macro limit, and nothing renders it, so the paste
+ * link is the only way to make it visible.
+ *
+ * The scan reads the PUBLISHED ADF (a Forge iframe cannot see the editor's
+ * draft), so a macro pasted into an unpublished draft looks unplaced. That is
+ * why this only ever ADDS an affordance — it never hides or disables anything.
+ */
+function isUnplaced(d: PageDiagram): boolean {
+  return !!placedIds.value && !placedIds.value.has(d.id)
+}
+
 /** Pathological pages exist (demo pages, architecture indexes). Each thumbnail
  *  is its own authenticated round trip, so cap the fan-out — rows past the cap
  *  keep the icon fallback, which is already a supported state. */
@@ -366,7 +407,7 @@ const MAX_THUMBNAILS = 12
  *  static relative `src` attribute into a module import, which fails the build
  *  because these files live in public/ and are never processed by Rollup. Every
  *  other icon here is already bound through DIAGRAM_TYPES / MACRO_ICONS. */
-const LOGO_SRC = './image/zenuml-wordmark.png'
+const LOGO_SRC = './image/zenuml-favicon.png'
 
 /** Set once the user saves a diagram from the byline editor: the deeplink to
  *  paste onto the page. Its presence switches the modal to the "now paste it"
@@ -590,6 +631,7 @@ async function loadDiagrams() {
       trackAnalyticsEvent('byline_opened', { ...baseProps(), ...health })
     }
     void loadThumbnails()
+    void loadPlacement()
   }
 }
 
@@ -636,10 +678,32 @@ async function loadThumbnails() {
   }
 }
 
+/**
+ * Find which listed diagrams no macro on the page renders.
+ *
+ * Runs alongside the thumbnails, after the rows paint and never blocking them:
+ * it is a full-page ADF GET, and the list must not wait on it. A page whose ADF
+ * cannot be read simply never gets the Copy URL affordance — `placedIds` stays
+ * undefined and `isUnplaced` stays false for everything.
+ */
+async function loadPlacement() {
+  try {
+    if (!diagrams.value.length) return
+    const ids = await globals.apWrapper.referencedCustomContentIds()
+    if (!ids) return
+    placedIds.value = ids
+    const unplaced = diagrams.value.filter(d => !ids.has(d.id)).length
+    trackAnalyticsEvent('byline_unplaced_scanned', { ...baseProps(), unplaced_count: unplaced })
+  } catch (e) {
+    console.debug('[byline] placement scan failed', e)
+  }
+}
+
 function onRetry() {
   failed.value = false
   loading.value = true
   thumbs.value = {}
+  placedIds.value = undefined
   void loadDiagrams()
 }
 
@@ -697,6 +761,46 @@ async function onCopySource(d: PageDiagram) {
   trackAnalyticsEvent('byline_diagram_source_copied', {
     ...baseProps(),
     macro_type: toMacroType(d.diagramType) as MacroTypeValue,
+  })
+}
+
+/**
+ * Copy the link that places an already-saved diagram onto the page.
+ *
+ * Same deeplink the post-create panel hands over — this is that panel's offer,
+ * recovered for a diagram whose creation ended without the paste (the modal was
+ * dismissed, the tab closed, the clipboard overwritten). Without it, a saved but
+ * unplaced diagram is unreachable from the page it belongs to.
+ */
+async function onCopyUrl(d: PageDiagram) {
+  acted = true
+  const cloudId = forgeGlobal.forgeContext?.cloudId
+  const link = buildDiagramDeeplink(toMacroType(d.diagramType), cloudId || '', d.id)
+  if (!link) {
+    // No link is possible for this type or context; say nothing rather than put
+    // a broken URL on the clipboard.
+    console.error('[byline] no deeplink available for the listed diagram', { cloudId: !!cloudId })
+    trackAnalyticsEvent('advocacy_message_copied', {
+      ...baseProps(),
+      ui_component: 'byline_unplaced_link',
+      macro_type: toMacroType(d.diagramType) as MacroTypeValue,
+      result: cloudId ? 'unlinkable_type' : 'no_cloud_id',
+    })
+    return
+  }
+  const copied = await copyText(link)
+  if (copied) {
+    copiedId.value = d.id
+    setTimeout(() => {
+      if (copiedId.value === d.id) copiedId.value = null
+    }, COPY_FLASH_MS)
+  }
+  trackAnalyticsEvent('advocacy_message_copied', {
+    ...baseProps(),
+    ui_component: 'byline_unplaced_link',
+    macro_type: toMacroType(d.diagramType) as MacroTypeValue,
+    copy_trigger: 'manual',
+    result: copied ? 'copied' : 'failed',
   })
 }
 
@@ -1042,12 +1146,11 @@ async function onLearnMore() {
   padding: 16px 20px;
   border-bottom: 1px solid #ebecf0;
 }
-/* The zenuml.com wordmark, which is 90x72 — set the HEIGHT and let the width
-   follow. Boxing it into the 18x18 square the old lifeline mark used would
-   letterbox it to 18x14 and make the two lines of type unreadable. */
+/* zenuml.com's favicon — square, so it sits in a square box. The wordmark this
+   replaced needed height-only sizing and still read poorly small. */
 .byline__logo {
-  height: 22px;
-  width: auto;
+  width: 20px;
+  height: 20px;
   object-fit: contain;
   display: block;
   flex: none;
@@ -1257,8 +1360,13 @@ async function onLearnMore() {
 /* Kept in the layout at all times so revealing it never shifts the row, and
    faded rather than hidden so it stays reachable by keyboard — :focus-within
    brings it up when the user tabs onto it. */
+/* Fixed width, right-aligned: the slot holds "Copy source", "Copy URL" or a
+   hidden placeholder, and "Open" sits immediately before it. Sizing the slot to
+   its content moved Open on whichever rows had the longer label. */
 .row__copy {
   flex: none;
+  width: 82px;
+  text-align: right;
   margin-left: 12px;
   background: none;
   border: none;
@@ -1278,6 +1386,13 @@ async function onLearnMore() {
 /* Holds the slot open, never appears and never takes focus. */
 .row__copy--slot {
   visibility: hidden;
+}
+/* Always visible, unlike Copy source. An unplaced diagram is invisible on the
+   page it belongs to, so its one route back must not be behind a hover. Placed
+   after the base rule deliberately — same specificity, later wins. */
+.row__copy--url {
+  opacity: 1;
+  color: #0052cc;
 }
 .row__copy:hover {
   color: #0052cc;

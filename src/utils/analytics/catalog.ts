@@ -312,6 +312,14 @@ export type AnalyticsEventName =
   // byline_opened fires. `thumbnail_count` vs `diagram_count` is the coverage
   // ratio that decides whether the visual index earns its requests.
   | "byline_thumbnails_loaded"
+  // The page's published ADF was scanned to find which listed diagrams no macro
+  // references. `unplaced_count` vs `diagram_count` measures the one failure
+  // mode the whole create→paste handoff has: a diagram saved from the byline
+  // that the user never pasted. It is already counted against the Lite
+  // 100-macro limit at that point, so a rising ratio is both a UX failure and a
+  // quota cost. Emitted once per open, after the list paints — the scan is a
+  // full-page ADF GET and must never delay it.
+  | "byline_unplaced_scanned"
   // The byline editor produced a saved diagram, and (when a cloudId is
   // available) a deeplink to place it. This is the conversion the picker exists
   // for: unlike byline_create_clicked it cannot fire on intent alone — a custom

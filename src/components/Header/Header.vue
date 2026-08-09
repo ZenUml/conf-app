@@ -167,9 +167,17 @@ export default {
     },
   },
   async mounted() {
-    // Load user's preferred diagram type from localStorage for new diagrams
+    // Load user's preferred diagram type from localStorage for new diagrams.
+    //
+    // Skipped when the type was explicitly ASKED for — the byline's type picker
+    // and a pasted /new/<type> link both seed the doc and set `typeRequested`
+    // (see applyRequestedDiagramType). A remembered preference is a default, and
+    // a default must not overrule a choice the user just made: picking Flowchart
+    // in the byline opened a Sequence editor for anyone whose last diagram was a
+    // sequence, which is most people.
     const isNewDiagram = this.$store.state.diagram.isNew;
-    if (isNewDiagram) {
+    const typeWasRequested = !!this.$store.state.diagram.typeRequested;
+    if (isNewDiagram && !typeWasRequested) {
       const savedDiagramType = localStorage.getItem('zenuml-preferred-diagram-type');
       if (savedDiagramType && (savedDiagramType === DiagramType.Sequence || savedDiagramType === DiagramType.Mermaid)) {
         this.updateDiagramType(savedDiagramType);

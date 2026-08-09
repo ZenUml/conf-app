@@ -186,6 +186,12 @@ export type AnalyticsProperties = {
   // without attachment read permission all land here as a shortfall, and a
   // consistently low ratio means the visual index is not worth its requests.
   thumbnail_count?: number;
+  // byline_unplaced_scanned. How many of the page's listed diagrams no macro on
+  // the published page references — a diagram saved from the byline and never
+  // pasted. Read against `diagram_count` from the same event. Deliberately
+  // absent rather than 0 when the ADF could not be read: "scanned, found none"
+  // and "could not scan" must not collapse into the same number.
+  unplaced_count?: number;
   // Draft-restore banner (draft_banner_* / draft_restored / draft_discarded).
   // `draft_scope_kind` = which draft namespace the banner is for: 'edit' (a
   // specific custom-content id) or 'new' (an unsaved diagram of some type).

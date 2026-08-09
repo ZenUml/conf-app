@@ -60,6 +60,13 @@ export class Diagram {
   // so future probe-based recovery still finds the CC even if the
   // macro-config repair via view.submit doesn't land.
   recoveredFromOrphanId?: string;
+  // Transient, never persisted (stripped by sanitizeCustomContentBody alongside
+  // the recovery flags above). Set when something EXPLICITLY asked for this
+  // diagram's type — the byline's type picker, or a pasted /new/<type> link —
+  // as opposed to the type merely being a default. Header.vue reads it to know
+  // that the remembered `zenuml-preferred-diagram-type` must not overrule the
+  // user's choice.
+  typeRequested?: boolean;
   diagramType: DiagramType = DiagramType.Unknown;
   code?: string = '';
   title?: string = '';

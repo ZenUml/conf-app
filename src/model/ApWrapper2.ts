@@ -401,6 +401,11 @@ export default class ApWrapper2 implements IApWrapper {
     delete body.recoveredFromOrphan;
     delete body.recoveredFromOrphanId;
     delete body.legacyLoadBlocked;
+    // Editor-session state: which surface asked for this diagram's type. It
+    // answers a question that only exists while the editor is open, so writing
+    // it into the stored body would put a permanent flag on customer content to
+    // record a decision made once, seconds earlier.
+    delete body.typeRequested;
 
     // Legacy graph records used `compressed: true` with an LZUTF8 graphXml
     // body. DrawIO saves now emit plain XML, so persisting a stale true flag
@@ -620,6 +625,16 @@ export default class ApWrapper2 implements IApWrapper {
    * duplicates on this page" and wave a shared-id macro straight into the
    * editor — the exact silent fork it exists to stop.
    */
+  /**
+   * The customContentIds this page's macros reference, or `undefined` when the
+   * page ADF could not be read. One ADF GET for the whole page — see
+   * AtlasPage.referencedCustomContentIds for why the byline needs the set form
+   * rather than N countMacrosReferencing calls.
+   */
+  async referencedCustomContentIds(): Promise<Set<string> | undefined> {
+    return this._page.referencedCustomContentIds();
+  }
+
   async countMacrosReferencing(id: string): Promise<number | undefined> {
     return this._page.countMacrosOrUnknown((m) => {
       //TODO: filter by macro type

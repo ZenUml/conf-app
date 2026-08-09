@@ -106,4 +106,37 @@ export class AtlasPage {
     const elements = await this.macrosOrNull();
     return elements === null ? undefined : AtlasPage.count(elements, matcher);
   }
+
+  /**
+   * Every customContentId referenced by a macro on this page, in ONE ADF read.
+   *
+   * `countMacrosOrUnknown` answers the same question per id, but the byline asks
+   * it about every diagram on the page at once — N calls there would be N
+   * full-page ADF GETs.
+   *
+   * `undefined` (not an empty Set) when the page could not be read, and the
+   * distinction matters: a caller that labels unreferenced diagrams would
+   * otherwise label ALL of them on a page it simply failed to scan.
+   *
+   * Reads the PUBLISHED ADF — the Forge iframe cannot see the editor's
+   * collaborative draft (see macrosOrNull). So a macro placed but not yet
+   * published looks unreferenced here, and callers must treat "unreferenced" as
+   * a hint, never as proof the diagram is unused.
+   */
+  async referencedCustomContentIds(): Promise<Set<string> | undefined> {
+    const elements = await this.macrosOrNull();
+    if (elements === null) return undefined;
+    const ids = new Set<string>();
+    for (const el of elements) {
+      const params = el.attrs.extensionType === AtlasDocExtensionType.ForgeMacro
+        ? el.attrs.parameters.guestParams
+        : el.attrs.parameters.macroParams;
+      const raw = params?.customContentId;
+      // Connect macros nest it as `{ value }`, Forge guest params store a bare
+      // string — the same split countMacrosReferencing handles.
+      const id = typeof raw === 'string' ? raw : raw?.value;
+      if (id) ids.add(String(id));
+    }
+    return ids;
+  }
 }

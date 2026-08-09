@@ -13,6 +13,7 @@ const apWrapper = vi.hoisted(() => ({
   _getCurrentPageId: vi.fn(async () => 'page-1'),
   listPageDiagramContents: vi.fn(async () => [] as any[]),
   getAttachmentsV2: vi.fn(async () => []),
+  referencedCustomContentIds: vi.fn(async () => undefined as Set<string> | undefined),
 }));
 vi.mock('@/model/globals', () => ({ default: { apWrapper } }));
 
@@ -78,6 +79,7 @@ describe('BylineDiagrams', () => {
     apWrapper._getCurrentPageId.mockResolvedValue('page-1');
     apWrapper.listPageDiagramContents.mockResolvedValue([]);
     apWrapper.getAttachmentsV2.mockResolvedValue([]);
+    apWrapper.referencedCustomContentIds.mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: vi.fn(async () => {}) },
       configurable: true,
@@ -664,6 +666,84 @@ describe('BylineDiagrams', () => {
       const wrapper = await reachCreatedPanel();
 
       expect(wrapper.find('.steps').attributes('aria-hidden')).toBe('true');
+    });
+  });
+
+  describe('diagrams that are not on the page', () => {
+    const TWO = [
+      ok(child('1', 'Placed', DiagramType.Sequence), child('2', 'Stray', DiagramType.Sequence)),
+    ];
+
+    it('offers a Copy URL only on the diagram no macro renders', async () => {
+      // A diagram saved from the byline and never pasted exists as this page's
+      // custom content — and counts against the Lite limit — but nothing shows
+      // it. The link is the only way to place it.
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(new Set(['1']));
+      const wrapper = await mountByline();
+
+      const rows = wrapper.findAll('[data-testid="byline-item"]');
+      expect(rows[0].find('[data-testid="byline-copy-url"]').exists()).toBe(false);
+      expect(rows[1].find('[data-testid="byline-copy-url"]').exists()).toBe(true);
+      expect(rows[1].text()).toContain('not on this page');
+    });
+
+    it('offers nothing when the page could not be scanned', async () => {
+      // `undefined` is "could not read the ADF", not "no macros". Treating them
+      // alike would label every diagram on the page as stray.
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(undefined);
+      const wrapper = await mountByline();
+
+      expect(wrapper.findAll('[data-testid="byline-copy-url"]')).toHaveLength(0);
+      expect(wrapper.text()).not.toContain('not on this page');
+      expect(events('byline_unplaced_scanned')).toHaveLength(0);
+    });
+
+    it('copies the typed deeplink for the stray diagram', async () => {
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(new Set(['1']));
+      const wrapper = await mountByline();
+
+      await wrapper.find('[data-testid="byline-copy-url"]').trigger('click');
+      await flushPromises();
+
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        'https://confluence.zenuml.com/d/sequence/cloud-1/2',
+      );
+      expect(events('advocacy_message_copied').at(-1)?.[1]).toMatchObject({
+        ui_component: 'byline_unplaced_link',
+        macro_type: 'sequence',
+        result: 'copied',
+      });
+    });
+
+    it('reports how many were never placed', async () => {
+      // unplaced_count against diagram_count is the only measure of whether the
+      // create→paste handoff actually completes.
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(new Set(['1']));
+      await mountByline();
+
+      expect(events('byline_unplaced_scanned')[0][1]).toMatchObject({
+        unplaced_count: 1,
+        diagram_count: 2,
+      });
+    });
+
+    it('does not hand over a broken link when there is no cloudId', async () => {
+      forgeGlobalMock.forgeContext = { cloudId: undefined };
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(new Set(['1']));
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const wrapper = await mountByline();
+
+      await wrapper.find('[data-testid="byline-copy-url"]').trigger('click');
+      await flushPromises();
+
+      expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+      expect(events('advocacy_message_copied').at(-1)?.[1]).toMatchObject({ result: 'no_cloud_id' });
+      consoleErrorSpy.mockRestore();
     });
   });
 

@@ -142,13 +142,22 @@ export function diagramTypeFromModalType(modalType: unknown): DiagramType | unde
  * `hasStoredContent` is the "leave it alone" signal — an existing diagram's own
  * type always wins.
  */
-export function applyRequestedDiagramType<T extends { diagramType?: string }>(
+export function applyRequestedDiagramType<T extends { diagramType?: string; typeRequested?: boolean }>(
   doc: T | undefined,
   requested: DiagramType | undefined,
   hasStoredContent: boolean,
 ): { doc: T | undefined; seededType?: DiagramType } {
   if (hasStoredContent || !requested) return { doc }
   // Keep the placeholder's example bodies and isNew flag; only the type moves.
-  const next = (doc ? { ...doc, diagramType: requested } : { diagramType: requested }) as T
+  //
+  // `typeRequested` rides along into `store.state.diagram` (mount-root assigns
+  // the doc wholesale) so Header.vue can tell an explicitly chosen type from a
+  // default one. Without it, Header's remembered `zenuml-preferred-diagram-type`
+  // overwrote the type on EVERY new diagram — so picking Flowchart in the byline
+  // opened whichever of Sequence/Mermaid the user last used, and the seeding
+  // above was undone a moment after it happened.
+  const next = (doc
+    ? { ...doc, diagramType: requested, typeRequested: true }
+    : { diagramType: requested, typeRequested: true }) as T
   return { doc: next, seededType: requested }
 }

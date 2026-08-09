@@ -3,6 +3,7 @@ import { expect, userEvent, within } from 'storybook/test'
 import PaywallWarningBanner from './PaywallWarningBanner.vue'
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { targetingMarkerKey, macroActivityMarkerKey } from '@/utils/paywall/warningBanner'
+import { spaceAdminProbeKey } from '@/utils/paywall/spaceAdminProbe'
 
 type Story = StoryObj<typeof PaywallWarningBanner>
 
@@ -44,6 +45,27 @@ function installMarkers() {
       lastActivityAt: new Date().toISOString(),
       activityType: 'edit',
     })
+  )
+
+  // Admin probe marker: not an admin, so the default stories render the author
+  // (advocacy) variant. SpaceAdmin overrides this.
+  localStorage.setItem(
+    spaceAdminProbeKey(identity),
+    JSON.stringify({ lastProbedAt: new Date().toISOString(), isAdmin: false, adminCount: 3 })
+  )
+}
+
+/**
+ * Phase 5b variant: the viewer administers this space. Note NO activity marker —
+ * this is the whole point, an admin who never authors a diagram is now reached.
+ */
+function installSpaceAdminMarkers() {
+  installMarkers()
+  const identity = { clientDomain: DOMAIN, spaceKey: SPACE }
+  localStorage.removeItem(macroActivityMarkerKey(identity))
+  localStorage.setItem(
+    spaceAdminProbeKey(identity),
+    JSON.stringify({ lastProbedAt: new Date().toISOString(), isAdmin: true, adminCount: 3 })
   )
 }
 
@@ -147,6 +169,33 @@ export const Dismissed: Story = {
     await userEvent.click(await canvas.findByTestId('paywall-banner-dismiss'))
     // Banner should no longer be in the DOM
     await expect(canvas.queryByTestId('paywall-warning-banner')).toBeNull()
+  },
+}
+
+/**
+ * Phase 5b: the viewer is a space admin of the over-limit space and has authored
+ * nothing. The old gate showed this person nothing at all — they were the 93% of
+ * reachable admins the banner never spoke to. They now get the direct purchase
+ * CTA (Enterprise Bundle, per-space, card-paid, no site admin needed) instead of
+ * the "copy a message to your admin" relay, which for an admin is circular.
+ */
+export const SpaceAdmin: Story = {
+  name: 'Space admin — direct purchase CTA, no authoring required',
+  decorators: [
+    () => {
+      installSpaceAdminMarkers()
+      return { template: '<story />' }
+    },
+  ],
+  play: async () => {
+    const canvas = within(document.body)
+    const banner = await canvas.findByTestId('paywall-warning-banner')
+    await expect(banner).toBeVisible()
+    await expect(banner).toHaveTextContent('You administer this space')
+    // The purchase CTA replaces the advocacy relay for this audience.
+    await expect(await canvas.findByTestId('paywall-banner-unlock-space')).toHaveTextContent('$299')
+    await expect(await canvas.findByTestId('paywall-banner-request-extension')).toBeVisible()
+    await expect(canvas.queryByTestId('paywall-banner-copy-admin')).toBeNull()
   },
 }
 

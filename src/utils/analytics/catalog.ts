@@ -196,6 +196,14 @@ export type AnalyticsEventName =
   | "paywall_gate_evaluated"
   | "paywall_banner_shown"
   | "paywall_banner_dismissed"
+  // Phase 5b: the space-admin-only purchase CTA on the page banner. A space
+  // admin can buy an Enterprise Bundle ($299/space/yr, Stripe) WITHOUT a
+  // Confluence site admin — the Marketplace upgrade path needs a site admin,
+  // which a space admin is not. This is the only event that measures whether
+  // admin-targeted copy produces a purchase intent rather than another relay
+  // hop. Distinct from `extension_request_clicked` (asks US for more free
+  // time) and `advocacy_message_copied` (asks SOMEONE ELSE to act).
+  | "paywall_bundle_cta_clicked"
   | "space_admin_active"
   | "advocacy_message_copied"
   | "advocacy_draft_preview_clicked"

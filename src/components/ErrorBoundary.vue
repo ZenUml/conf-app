@@ -15,7 +15,9 @@
     <div class="flex">
       <button type="button" class="text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-xs px-3 py-1.5 mr-2 text-center inline-flex items-center dark:bg-red-800 dark:hover:bg-red-900">
         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
-        <a target="_blank" href="https://zenuml.atlassian.net/servicedesk/customer/portals">Submit a ticket</a>
+<!-- @click.prevent + openUrl: the Forge iframe sandbox has no allow-popups,
+             so a bare target="_blank" anchor click is silently dropped. -->
+        <a target="_blank" href="https://zenuml.atlassian.net/servicedesk/customer/portals" @click.prevent="openTicketPortal">Submit a ticket</a>
       </button>
     </div>
     <h2>Please also include (if applicable):</h2>
@@ -28,11 +30,18 @@
 </template>
 
 <script>
+import { openUrl } from "@/model/globals/forgeGlobal";
+
 export default {
   name: "ErrorBoundary",
   computed: {
     error() {
       return this.$store.state.error;
+    }
+  },
+  methods: {
+    openTicketPortal() {
+      openUrl("https://zenuml.atlassian.net/servicedesk/customer/portals");
     }
   }
 }

@@ -1,6 +1,6 @@
 <template>
 <!-- screen-capture-content class is used in Attachment.ts to select the node. -->
-<div class="generic viewer">
+<div class="generic viewer" :class="{'generic--source-panel-open': isFullscreenMode && showSourcePanel}">
   <Debug />
     <!-- Syntax errors are surfaced by the SyntaxErrorBox (with AI Repair); no
          "Submit a ticket" error panel here. -->
@@ -1154,6 +1154,21 @@ export default {
    .viewer-body--with-agent-rail (0,1,0) below and force its Connect-rail row
    back into a column. */
 .viewer-frame--fullscreen .viewer-body--with-agent-rail { flex-direction: row; }
+
+/* The Source panel is position:fixed in fullscreen (ViewSourcePanel.vue) —
+   out of layout flow — so neither .viewer-frame--auto's fit-content+auto-
+   margin centering nor .viewer-frame--wide's width:100% has any way to know
+   the panel now covers part of the screen; both centered on the FULL width,
+   landing the diagram visibly right of the actually-visible left pane.
+   Reserving that same width as padding on the root shrinks the space both
+   centering paths compute against, for either case, with one rule. Width
+   must match ViewSourcePanel.vue's --fullscreen panel width (min(560px,
+   45vw)) — kept as a literal in both files: Vue's scoped-style :root
+   rewriting (:root becomes :root[data-v-xxx], which never matches the real
+   root element) rules out sharing it via a CSS custom property. */
+.generic--source-panel-open .viewer-frame--fullscreen {
+  padding-right: min(560px, 45vw);
+}
 
 .viewer-surface { position: relative; }
 

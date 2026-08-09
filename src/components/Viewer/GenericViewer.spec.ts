@@ -419,6 +419,41 @@ describe('GenericViewer (chrome-less)', () => {
 
       expect(wrapper.find('[data-testid="view-source-panel"]').classes()).not.toContain('view-source-panel--fullscreen')
     })
+
+    // ZEN fullscreen-fit follow-up: the panel is position:fixed (out of
+    // layout flow) once open, so .viewer-frame's own centering can't see it —
+    // the diagram centered on the FULL width, landing right of the actually-
+    // visible left pane. generic--source-panel-open reserves the panel's
+    // width so the frame centers against the space that's actually visible.
+    it('reserves space for the open fullscreen panel so the frame centers on the visible pane', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('.generic').classes()).not.toContain('generic--source-panel-open')
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.generic').classes()).toContain('generic--source-panel-open')
+
+      await wrapper.find('[data-testid="view-source-close"]').trigger('click')
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.generic').classes()).not.toContain('generic--source-panel-open')
+
+      delete (window as any).forgeGlobal
+    })
+
+    it('does not reserve panel space on the inline (non-fullscreen) viewer', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('.generic').classes()).not.toContain('generic--source-panel-open')
+    })
   })
 
   // One-click "Copy for AI" clipboard payload (copy_for_ai_clicked, catalog.ts).

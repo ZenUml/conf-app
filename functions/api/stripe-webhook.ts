@@ -10,6 +10,7 @@ interface StripeCheckoutSession {
   customer_email: string | null
   customer_details?: { email?: string }
   metadata: Record<string, string>
+  client_reference_id?: string | null
 }
 
 interface StripeEvent {
@@ -109,6 +110,34 @@ async function activateLicense(
   }
 }
 
+/**
+ * The Payment Link stamps `client_reference_id=<domain>__<spaceKey>` (see
+ * useCustomerSuccessService.enterpriseBundleUrl). A Confluence subdomain can
+ * only contain [a-z0-9-] (DNS), so the FIRST `__` unambiguously splits domain
+ * from spaceKey even though a sanitised spaceKey may itself contain `_`
+ * (personal-space `~` is replaced with `_` before stamping — those keys will
+ * not match the real KV key and still need manual activation).
+ */
+export function parseClientReference(
+  ref: string | null | undefined
+): { domain: string; spaceKey: string } | null {
+  if (!ref) return null
+  const idx = ref.indexOf('__')
+  if (idx <= 0) return null
+  const domain = ref.slice(0, idx)
+  const spaceKey = ref.slice(idx + 2)
+  if (!spaceKey) return null
+  if (!/^[a-z0-9-]+$/.test(domain)) return null
+  return { domain, spaceKey }
+}
+
+async function resolveCloudId(domain: string): Promise<string | null> {
+  const res = await fetch(`https://${domain}.atlassian.net/_edge/tenant_info`)
+  if (!res.ok) return null
+  const body = (await res.json()) as { cloudId?: string }
+  return body.cloudId ?? null
+}
+
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env } = context
 
@@ -144,13 +173,39 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   }
 
   const session = event.data.object
-  const { cloudId, spaceKey } = session.metadata ?? {}
+  let { cloudId, spaceKey } = session.metadata ?? {}
+
+  // Payment Links can't set metadata; the purchase surface stamps
+  // client_reference_id instead. Fall back to it when metadata is absent.
+  if (!cloudId || !spaceKey) {
+    const parsed = parseClientReference(session.client_reference_id)
+    if (parsed) {
+      spaceKey = parsed.spaceKey
+      const resolved = await resolveCloudId(parsed.domain).catch(() => null)
+      if (!resolved) {
+        // Transient tenant_info failure must NOT ack the event — a 500 makes
+        // Stripe retry, so a real payment can't silently fail to activate.
+        console.error(
+          `Stripe session ${session.id}: could not resolve cloudId for domain "${parsed.domain}"`
+        )
+        return jsonResponse(500, {
+          error: 'cloud_id_resolution_failed',
+          message: `Could not resolve cloudId for ${parsed.domain}`,
+        })
+      }
+      cloudId = resolved
+    }
+  }
 
   if (!cloudId || !spaceKey) {
-    console.error('Stripe session missing cloudId or spaceKey in metadata', session.id)
+    console.error(
+      'Stripe session missing cloudId/spaceKey in metadata AND no parseable client_reference_id',
+      session.id
+    )
     return jsonResponse(400, {
       error: 'missing_metadata',
-      message: 'Checkout session metadata must include cloudId and spaceKey',
+      message:
+        'Checkout session must carry cloudId+spaceKey metadata or a <domain>__<spaceKey> client_reference_id',
     })
   }
 

@@ -110,6 +110,17 @@ export type ContentSource = "fetch" | "swr_cache";
 // stale-low); `collect` = fresh space enumeration; `mock` = localStorage override.
 export type MacroCountSource = "kv" | "collect" | "undefined" | "zero" | "mock";
 
+// Which policy produced the Lite paywall's effective enabled/disabled state
+// for this `paywall_gate_evaluated` decision (lite-paywall-default-on):
+//   default_on — the backend explicitly returned `PAYWALL_EXEMPT: false`;
+//                 Lite's paywall is on, per the fixed default policy.
+//   exemption  — the backend explicitly returned `PAYWALL_EXEMPT: true`
+//                 (a domain or the wildcard `"*"` entry in PAYWALL_EXEMPTIONS).
+//   fail_open  — the `PAYWALL_EXEMPT` property was absent (missing/unreadable/
+//                 malformed KV, or the lookup was never made) — an unavailable
+//                 decision, not evidence the tenant is safe to restrict.
+export type PaywallPolicySource = "default_on" | "exemption" | "fail_open";
+
 export type FeedbackValue = "good" | "partial" | "bad";
 
 export type AnalyticsEventName =

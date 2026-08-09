@@ -108,13 +108,19 @@ export class AtlasPage {
   }
 
   /**
-   * Every customContentId referenced by a macro on this page, in ONE ADF read.
+   * Every customContentId referenced by a macro on this page, IN DOCUMENT ORDER,
+   * from ONE ADF read.
    *
-   * `countMacrosOrUnknown` answers the same question per id, but the byline asks
-   * it about every diagram on the page at once — N calls there would be N
-   * full-page ADF GETs.
+   * `countMacrosOrUnknown` answers a per-id question, but the byline asks about
+   * every diagram on the page at once — N calls there would be N full-page ADF
+   * GETs. It also needs the order, to list diagrams the way the page reads.
    *
-   * `undefined` (not an empty Set) when the page could not be read, and the
+   * An array rather than a Set precisely because order is the point; duplicates
+   * are kept (one custom content can be referenced by several macros) so callers
+   * can decide what a repeat means. `getMacros` traverses `content` depth-first,
+   * so the array is in reading order.
+   *
+   * `undefined` (not an empty array) when the page could not be read, and the
    * distinction matters: a caller that labels unreferenced diagrams would
    * otherwise label ALL of them on a page it simply failed to scan.
    *
@@ -123,10 +129,10 @@ export class AtlasPage {
    * published looks unreferenced here, and callers must treat "unreferenced" as
    * a hint, never as proof the diagram is unused.
    */
-  async referencedCustomContentIds(): Promise<Set<string> | undefined> {
+  async referencedCustomContentIds(): Promise<string[] | undefined> {
     const elements = await this.macrosOrNull();
     if (elements === null) return undefined;
-    const ids = new Set<string>();
+    const ids: string[] = [];
     for (const el of elements) {
       const params = el.attrs.extensionType === AtlasDocExtensionType.ForgeMacro
         ? el.attrs.parameters.guestParams
@@ -135,7 +141,7 @@ export class AtlasPage {
       // Connect macros nest it as `{ value }`, Forge guest params store a bare
       // string — the same split countMacrosReferencing handles.
       const id = typeof raw === 'string' ? raw : raw?.value;
-      if (id) ids.add(String(id));
+      if (id) ids.push(String(id));
     }
     return ids;
   }

@@ -35,6 +35,10 @@ export interface PageDiagram {
   source: string
   /** Whether the modal should offer "Copy source" for this entry. */
   copyable: boolean
+  /** Custom content's own `createdAt` (ISO-8601, UTC), '' when absent. NOT
+   *  `version.createdAt`, which is the current version's timestamp — i.e. the
+   *  last edit, which for an edited diagram is not when it was created. */
+  createdAt: string
 }
 
 /**
@@ -168,11 +172,53 @@ export function parsePageDiagrams(responses: Array<any>): PageDiagram[] {
         // A copyable type with an empty body has nothing to copy — don't offer
         // a button that yields an empty clipboard.
         copyable: copyable && source.length > 0,
+        createdAt: typeof child?.createdAt === 'string' ? child.createdAt : '',
       })
     }
   }
 
   return out
+}
+
+/**
+ * Order the list the way the page reads.
+ *
+ * Primary key is where the diagram's macro sits on the page, so the panel is an
+ * index of the page rather than of the API's return order — which is grouped by
+ * custom-content type (all sequence-family entries, then all graphs) and has no
+ * relationship to what the reader sees.
+ *
+ * Diagrams no macro references have no position, so they sort after everything
+ * placed, oldest first. That is also the whole-list order when `placedOrder` is
+ * absent — either the page ADF could not be read, or it has not arrived yet.
+ *
+ * `createdAt` is compared as a string: these are ISO-8601 UTC timestamps from
+ * the v2 API (`2025-12-28T09:53:08.890Z`), a format whose lexicographic order is
+ * its chronological order. Entries missing one sort last within their group —
+ * unknown is not "oldest".
+ */
+export function sortPageDiagrams(diagrams: PageDiagram[], placedOrder?: string[]): PageDiagram[] {
+  const position = new Map<string, number>()
+  // First occurrence wins: one custom content can be referenced by several
+  // macros (a copied macro), and the entry belongs where the reader first meets
+  // it, not at its last duplicate.
+  placedOrder?.forEach((id, i) => {
+    if (!position.has(id)) position.set(id, i)
+  })
+
+  const byCreation = (a: PageDiagram, b: PageDiagram): number => {
+    if (!a.createdAt || !b.createdAt) return (a.createdAt ? 0 : 1) - (b.createdAt ? 0 : 1)
+    return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0
+  }
+
+  return [...diagrams].sort((a, b) => {
+    const pa = position.get(a.id)
+    const pb = position.get(b.id)
+    if (pa !== undefined && pb !== undefined) return pa - pb
+    if (pa !== undefined) return -1
+    if (pb !== undefined) return 1
+    return byCreation(a, b)
+  })
 }
 
 /** Analytics shape for `byline_opened`. `macro_types` is comma-joined and

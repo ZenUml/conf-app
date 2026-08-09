@@ -13,7 +13,7 @@ const apWrapper = vi.hoisted(() => ({
   _getCurrentPageId: vi.fn(async () => 'page-1'),
   listPageDiagramContents: vi.fn(async () => [] as any[]),
   getAttachmentsV2: vi.fn(async () => []),
-  referencedCustomContentIds: vi.fn(async () => undefined as Set<string> | undefined),
+  referencedCustomContentIds: vi.fn(async () => undefined as string[] | undefined),
 }));
 vi.mock('@/model/globals', () => ({ default: { apWrapper } }));
 
@@ -459,17 +459,39 @@ describe('BylineDiagrams', () => {
       expect(events('byline_editor_deeplinked').at(-1)?.[1]).toMatchObject({ result: 'after_create' });
     });
 
-    it('does not try to close the view from a view-mode page', async () => {
-      // "Not now" there means "keep looking" — the user has not left the page,
-      // and the diagram list is a reasonable place to land.
+    it('closes the byline view from a view-mode page too', async () => {
+      // "Not now" means the user is finished with the panel. The diagram is
+      // saved, so the answer is to get the popup off the page — not to swap it
+      // for the diagram list, which is a screen they did not ask for.
       const wrapper = await reachCreatedPanel();
 
       await wrapper.find('[data-testid="byline-created-done"]').trigger('click');
       await flushPromises();
 
-      expect(viewClose).not.toHaveBeenCalled();
-      expect(events('byline_view_close_requested')).toHaveLength(0);
+      expect(viewClose).toHaveBeenCalled();
+      expect(events('byline_view_close_requested')[0][1]).toMatchObject({
+        result: 'closed',
+        host_in_editor: false,
+      });
+    });
+
+    it('falls back to the list, not a terminal state, when the close is refused', async () => {
+      // The editor's fallback is a terminal panel because the list would sit
+      // over the page the user must click into to paste. In view mode nothing
+      // is blocked and there is nothing to paste into, so the byline's own home
+      // screen is the right place to be left.
+      viewClose.mockRejectedValueOnce(new Error('not supported here'));
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const wrapper = await reachCreatedPanel();
+
+      await wrapper.find('[data-testid="byline-created-done"]').trigger('click');
+      await flushPromises();
+
       expect(wrapper.find('[data-testid="byline-created"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="byline-finished"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="byline-list"]').exists()).toBe(true);
+      expect(events('byline_view_close_requested')[0][1]).toMatchObject({ result: 'failed' });
+      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -679,13 +701,30 @@ describe('BylineDiagrams', () => {
       // custom content — and counts against the Lite limit — but nothing shows
       // it. The link is the only way to place it.
       apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
-      apWrapper.referencedCustomContentIds.mockResolvedValue(new Set(['1']));
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
       const wrapper = await mountByline();
 
       const rows = wrapper.findAll('[data-testid="byline-item"]');
       expect(rows[0].find('[data-testid="byline-copy-url"]').exists()).toBe(false);
       expect(rows[1].find('[data-testid="byline-copy-url"]').exists()).toBe(true);
       expect(rows[1].text()).toContain('not on this page');
+    });
+
+    it('renders the rows in the order the page reads, strays last', async () => {
+      // The API returns them grouped by custom-content type, which bears no
+      // relation to what the reader sees on the page.
+      apWrapper.listPageDiagramContents.mockResolvedValue([
+        ok(
+          { ...child('1', 'First on page', DiagramType.Sequence), createdAt: '2025-01-01T00:00:00.000Z' },
+          { ...child('2', 'Stray', DiagramType.Sequence), createdAt: '2025-06-01T00:00:00.000Z' },
+          { ...child('3', 'Second on page', DiagramType.Sequence), createdAt: '2025-02-01T00:00:00.000Z' },
+        ),
+      ]);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['3', '1']);
+      const wrapper = await mountByline();
+
+      const titles = wrapper.findAll('[data-testid="byline-item"]').map(r => r.find('.row__title').text());
+      expect(titles).toEqual(['Second on page', 'First on page', 'Stray']);
     });
 
     it('offers nothing when the page could not be scanned', async () => {
@@ -702,7 +741,7 @@ describe('BylineDiagrams', () => {
 
     it('copies the typed deeplink for the stray diagram', async () => {
       apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
-      apWrapper.referencedCustomContentIds.mockResolvedValue(new Set(['1']));
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
       const wrapper = await mountByline();
 
       await wrapper.find('[data-testid="byline-copy-url"]').trigger('click');
@@ -722,7 +761,7 @@ describe('BylineDiagrams', () => {
       // unplaced_count against diagram_count is the only measure of whether the
       // create→paste handoff actually completes.
       apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
-      apWrapper.referencedCustomContentIds.mockResolvedValue(new Set(['1']));
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
       await mountByline();
 
       expect(events('byline_unplaced_scanned')[0][1]).toMatchObject({
@@ -734,7 +773,7 @@ describe('BylineDiagrams', () => {
     it('does not hand over a broken link when there is no cloudId', async () => {
       forgeGlobalMock.forgeContext = { cloudId: undefined };
       apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
-      apWrapper.referencedCustomContentIds.mockResolvedValue(new Set(['1']));
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const wrapper = await mountByline();
 

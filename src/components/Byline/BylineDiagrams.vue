@@ -159,7 +159,7 @@
            Copy source is a power-user affordance on a minority of types, so it
            stays out of the way until the row is hovered or focused — the open,
            which is what the whole row does, is the labelled action. -->
-      <div v-for="d in diagrams" :key="d.id" class="row" data-testid="byline-item">
+      <div v-for="d in orderedDiagrams" :key="d.id" class="row" data-testid="byline-item">
         <button type="button" class="row__open" @click="onOpenDiagram(d)">
           <span class="row__thumb">
             <img v-if="thumbs[d.id]" class="row__img" :src="thumbs[d.id]" alt="" data-testid="byline-thumb" />
@@ -338,6 +338,7 @@ import {
   parsePageDiagrams,
   summarizeDiagrams,
   summarizeListing,
+  sortPageDiagrams,
   typeLabel,
   toMacroType,
   toModalDiagramType,
@@ -370,11 +371,17 @@ let pendingCreate: { before: string[]; macroType: MacroTypeValue } | null = null
 /** customContentId -> data: URL. Fills in after the rows paint. */
 const thumbs = ref<Record<string, string>>({})
 
-/** customContentIds that a macro on the published page actually renders, or
+/** customContentIds the published page's macros render, in document order, or
  *  `undefined` while unknown — either not scanned yet, or the page ADF could not
  *  be read. Unknown must NOT read as "nothing is placed": that would label every
  *  diagram on the page as stray. See `isUnplaced`. */
-const placedIds = ref<Set<string> | undefined>(undefined)
+const placedOrder = ref<string[] | undefined>(undefined)
+const placedIds = computed(() => (placedOrder.value ? new Set(placedOrder.value) : undefined))
+
+/** The list as the page reads it — macro order first, then anything unplaced by
+ *  creation time. `diagrams` itself stays in API order: it is the snapshot the
+ *  create-diff and every analytics count are taken from. */
+const orderedDiagrams = computed(() => sortPageDiagrams(diagrams.value, placedOrder.value))
 
 /**
  * Is this diagram absent from the page it is stored on?
@@ -592,11 +599,33 @@ const LISTING_TOTAL_FAILURE: ListingHealth = { failed_type_count: 0, listing_fai
  *  its own event instead. */
 let openedTracked = false
 
+/**
+ * How long the list will wait for the placement scan before painting without it.
+ *
+ * The scan decides both the row ORDER and which rows offer Copy URL, so landing
+ * it before the first paint is what stops the list from visibly re-sorting a
+ * moment after it appears. It runs concurrently with the listing, so waiting
+ * usually costs nothing — but it is a second network call, and a slow or hung
+ * one must never hold the panel on "Reading this page…". Past this bound the
+ * list paints in creation order and the scan applies whenever it lands.
+ */
+const PLACEMENT_WAIT_MS = 2500
+
+/** Resolve `undefined` rather than hang past `ms`, while letting the original
+ *  promise keep running — a late answer is still worth applying. */
+function withDeadline<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
+  return Promise.race([p, new Promise<undefined>(r => setTimeout(() => r(undefined), ms))])
+}
+
 async function loadDiagrams() {
   let health: ListingHealth = LISTING_TOTAL_FAILURE
   try {
     pageId = await globals.apWrapper._getCurrentPageId()
+    // Started together, not in sequence: two independent reads of the same page,
+    // so the wall-clock cost is the slower of them rather than their sum.
+    const placement = scanPlacement()
     const responses = await globals.apWrapper.listPageDiagramContents(pageId)
+    await withDeadline(placement, PLACEMENT_WAIT_MS)
     health = summarizeListing(responses)
     diagrams.value = parsePageDiagrams(responses)
     // An unreadable page is NOT an empty page. The create path still works, so
@@ -631,7 +660,7 @@ async function loadDiagrams() {
       trackAnalyticsEvent('byline_opened', { ...baseProps(), ...health })
     }
     void loadThumbnails()
-    void loadPlacement()
+    reportPlacement()
   }
 }
 
@@ -679,31 +708,39 @@ async function loadThumbnails() {
 }
 
 /**
- * Find which listed diagrams no macro on the page renders.
+ * Read the page's macro order, which gives both the row order and which rows are
+ * not on the page at all.
  *
- * Runs alongside the thumbnails, after the rows paint and never blocking them:
- * it is a full-page ADF GET, and the list must not wait on it. A page whose ADF
- * cannot be read simply never gets the Copy URL affordance — `placedIds` stays
- * undefined and `isUnplaced` stays false for everything.
+ * Never throws and never rejects: a page whose ADF cannot be read simply keeps
+ * `placedOrder` undefined, so the list falls back to creation order and offers
+ * Copy URL on nothing.
  */
-async function loadPlacement() {
+async function scanPlacement() {
   try {
-    if (!diagrams.value.length) return
     const ids = await globals.apWrapper.referencedCustomContentIds()
-    if (!ids) return
-    placedIds.value = ids
-    const unplaced = diagrams.value.filter(d => !ids.has(d.id)).length
-    trackAnalyticsEvent('byline_unplaced_scanned', { ...baseProps(), unplaced_count: unplaced })
+    if (ids) placedOrder.value = ids
   } catch (e) {
     console.debug('[byline] placement scan failed', e)
   }
+}
+
+/** Emitted once the list AND the scan have both resolved, so `unplaced_count`
+ *  and `diagram_count` describe the same moment. Absent — not 0 — when the scan
+ *  did not land: "none unplaced" and "we could not tell" are different answers. */
+function reportPlacement() {
+  const ids = placedIds.value
+  if (!ids || !diagrams.value.length) return
+  trackAnalyticsEvent('byline_unplaced_scanned', {
+    ...baseProps(),
+    unplaced_count: diagrams.value.filter(d => !ids.has(d.id)).length,
+  })
 }
 
 function onRetry() {
   failed.value = false
   loading.value = true
   thumbs.value = {}
-  placedIds.value = undefined
+  placedOrder.value = undefined
   void loadDiagrams()
 }
 
@@ -1065,42 +1102,42 @@ async function requestCloseView(): Promise<'closed' | 'unsupported' | 'failed'> 
 }
 
 /**
- * Dismiss the post-create panel.
+ * Dismiss the post-create panel — "Done" in the editor, "Not now" in view mode.
  *
- * In the editor this is the end of the whole flow: the diagram is saved, the
- * link is on the clipboard, and the user's next keystroke is the paste. Merely
- * clearing `createdLink` falls through to the diagram list, which puts a panel
- * over the page they need to click into — so ask Confluence to close the view,
- * and switch to a terminal state rather than resetting. `view.close()` is a
- * *request*: it can resolve without the popup going away, and nothing
- * distinguishes the two, so whatever stays on screen has to be correct in the
- * case where the close did nothing.
+ * Both mean the same thing: the user is finished with this panel. The diagram is
+ * saved either way, so the answer in both cases is to get the popup off the
+ * page rather than to swap it for another screen the user did not ask for.
+ *
+ * `view.close()` is a *request*. It can resolve without the popup going away and
+ * nothing distinguishes the two, so what stays behind has to be correct in the
+ * case where the close did nothing — and that differs by surface:
+ *
+ * - In the EDITOR, falling back to the diagram list is the worst option: it puts
+ *   a panel over the page the user has to click into to paste, which is exactly
+ *   what they pressed Done to leave. So `createdLink` is deliberately NOT
+ *   cleared and a terminal "Ready to paste" state takes over.
+ * - In VIEW mode there is nothing to paste into and nothing being blocked. The
+ *   list is the byline's own home screen, so it is a fine place to be left if
+ *   the close is refused — and the state is reset to reach it.
  */
 async function onDismissCreated() {
-  if (!hostInEditor) {
+  const closing = requestCloseView()
+  if (hostInEditor) {
+    finishedInEditor.value = true
+  } else {
     createdLink.value = null
     createdTitle.value = ''
     createdType.value = ''
     createdId.value = ''
     createdCopied.value = false
-    linkJustCopied.value = false
-    if (copyFlashTimer) clearTimeout(copyFlashTimer)
-    copyFlashTimer = undefined
-    return
   }
-  // In the editor, deliberately do NOT clear createdLink. Clearing it falls
-  // through the v-if chain to the diagram index — a panel over the page the
-  // user has to click into to paste, and the thing they pressed Done to leave.
-  // Since a resolved close() does not prove the popup went away, the visible
-  // fallback has to be a terminal state, not the list.
-  const closing = requestCloseView()
-  finishedInEditor.value = true
+  linkJustCopied.value = false
   if (copyFlashTimer) clearTimeout(copyFlashTimer)
   copyFlashTimer = undefined
-  linkJustCopied.value = false
   // Whether a byline item can close itself is not something this repo can
   // verify without a real Confluence editor, so record the outcome instead of
-  // assuming it.
+  // assuming it. `host_in_editor` rides on baseProps, so the two surfaces stay
+  // separable — they may well behave differently.
   trackAnalyticsEvent('byline_view_close_requested', {
     ...baseProps(),
     result: await closing,

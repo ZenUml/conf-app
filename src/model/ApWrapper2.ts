@@ -626,12 +626,12 @@ export default class ApWrapper2 implements IApWrapper {
    * editor — the exact silent fork it exists to stop.
    */
   /**
-   * The customContentIds this page's macros reference, or `undefined` when the
-   * page ADF could not be read. One ADF GET for the whole page — see
-   * AtlasPage.referencedCustomContentIds for why the byline needs the set form
-   * rather than N countMacrosReferencing calls.
+   * The customContentIds this page's macros reference, in document order, or
+   * `undefined` when the page ADF could not be read. One ADF GET for the whole
+   * page — see AtlasPage.referencedCustomContentIds for why the byline needs the
+   * ordered form rather than N countMacrosReferencing calls.
    */
-  async referencedCustomContentIds(): Promise<Set<string> | undefined> {
+  async referencedCustomContentIds(): Promise<string[] | undefined> {
     return this._page.referencedCustomContentIds();
   }
 

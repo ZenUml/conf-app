@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parsePageDiagrams, summarizeDiagrams, summarizeListing, typeLabel, toMacroType, toModalDiagramType } from './pageDiagrams'
+import { parsePageDiagrams, summarizeDiagrams, summarizeListing, sortPageDiagrams, typeLabel, toMacroType, toModalDiagramType } from './pageDiagrams'
 import { DiagramType } from '@/model/Diagram/Diagram'
 
 const child = (id: string, title: string, body: any) => ({
@@ -98,9 +98,9 @@ describe('summarizeDiagrams', () => {
 
   it('de-duplicates and sorts types so the property stays low-cardinality', () => {
     const out = summarizeDiagrams([
-      { id: '1', title: 'a', diagramType: 'sequence', source: '', copyable: false },
-      { id: '2', title: 'b', diagramType: 'mermaid', source: '', copyable: false },
-      { id: '3', title: 'c', diagramType: 'sequence', source: '', copyable: false },
+      { id: '1', title: 'a', diagramType: 'sequence', source: '', copyable: false, createdAt: '' },
+      { id: '2', title: 'b', diagramType: 'mermaid', source: '', copyable: false, createdAt: '' },
+      { id: '3', title: 'c', diagramType: 'sequence', source: '', copyable: false, createdAt: '' },
     ])
     expect(out).toEqual({ page_has_diagram: true, diagram_count: 3, macro_types: 'mermaid,sequence' })
   })
@@ -113,9 +113,9 @@ describe('summarizeDiagrams', () => {
     // string munging. Sequence/mermaid happen to coincide, which is why the
     // test above stayed green through the bug.
     const out = summarizeDiagrams([
-      { id: '1', title: 'a', diagramType: DiagramType.OpenApi, source: '', copyable: false },
-      { id: '2', title: 'b', diagramType: DiagramType.AsyncApi, source: '', copyable: false },
-      { id: '3', title: 'c', diagramType: DiagramType.Unknown, source: '', copyable: false },
+      { id: '1', title: 'a', diagramType: DiagramType.OpenApi, source: '', copyable: false, createdAt: '' },
+      { id: '2', title: 'b', diagramType: DiagramType.AsyncApi, source: '', copyable: false, createdAt: '' },
+      { id: '3', title: 'c', diagramType: DiagramType.Unknown, source: '', copyable: false, createdAt: '' },
     ])
     expect(out.macro_types).toBe('asyncapi,none,openapi')
   })
@@ -206,6 +206,50 @@ describe('toModalDiagramType', () => {
   it('falls back to the family that can render an unknown body', () => {
     expect(toModalDiagramType(DiagramType.Unknown)).toBe('sequence')
     expect(toModalDiagramType('something-new')).toBe('sequence')
+  })
+})
+
+describe('sortPageDiagrams', () => {
+  const d = (id: string, createdAt = ''): any => ({ id, createdAt, title: id, diagramType: 'sequence', source: '', copyable: false })
+
+  it('lists diagrams the way the page reads', () => {
+    // The API returns them grouped by custom-content type — all sequence-family
+    // entries, then all graphs — which has no relation to what the reader sees.
+    const out = sortPageDiagrams([d('c'), d('a'), d('b')], ['b', 'a', 'c'])
+    expect(out.map(x => x.id)).toEqual(['b', 'a', 'c'])
+  })
+
+  it('puts diagrams no macro references last, oldest first', () => {
+    const out = sortPageDiagrams(
+      [d('stray-new', '2025-03-01T00:00:00.000Z'), d('placed'), d('stray-old', '2025-01-01T00:00:00.000Z')],
+      ['placed'],
+    )
+    expect(out.map(x => x.id)).toEqual(['placed', 'stray-old', 'stray-new'])
+  })
+
+  it('falls back to creation order when the page could not be scanned', () => {
+    // Not "leave it as the API returned it": that order is type-grouped, so an
+    // unscannable page would list graphs after sequences for no visible reason.
+    const out = sortPageDiagrams([d('b', '2025-02-01T00:00:00.000Z'), d('a', '2025-01-01T00:00:00.000Z')])
+    expect(out.map(x => x.id)).toEqual(['a', 'b'])
+  })
+
+  it('places a diagram at its first macro, not its last', () => {
+    // One custom content can be referenced by several macros (a copied macro).
+    // The entry belongs where the reader first meets it.
+    const out = sortPageDiagrams([d('x'), d('y')], ['y', 'x', 'y'])
+    expect(out.map(x => x.id)).toEqual(['y', 'x'])
+  })
+
+  it('sorts an unknown creation time last rather than first', () => {
+    const out = sortPageDiagrams([d('no-date'), d('dated', '2025-01-01T00:00:00.000Z')])
+    expect(out.map(x => x.id)).toEqual(['dated', 'no-date'])
+  })
+
+  it('does not mutate the caller\'s array', () => {
+    const input = [d('b'), d('a')]
+    sortPageDiagrams(input, ['a', 'b'])
+    expect(input.map(x => x.id)).toEqual(['b', 'a'])
   })
 })
 

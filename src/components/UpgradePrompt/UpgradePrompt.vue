@@ -311,6 +311,7 @@ async function onViewMarketplacePlan() {
 }
 
 async function onLearnMore() {
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_LEARN_MORE_CLICKED, purchaseContext())
   await openUrl('https://zenuml.com/upgrade/')
 }
 

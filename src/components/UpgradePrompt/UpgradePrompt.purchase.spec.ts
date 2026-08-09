@@ -156,12 +156,25 @@ describe('UpgradePrompt — outbound links route through openUrl', () => {
 
   it('footer "Why do I need to upgrade?" opens via openUrl, not a bare anchor', async () => {
     const wrapper = mountModal()
-    const link = wrapper.findAll('a').find((a) => a.text().includes('Why do I need to upgrade?'))
+    const link = wrapper.findAll('a').find((a: { text: () => string }) => a.text().includes('Why do I need to upgrade?'))
     expect(link, 'footer learn-more link must exist').toBeTruthy()
 
     await link!.trigger('click')
 
     expect(openUrl).toHaveBeenCalledWith('https://zenuml.com/upgrade/')
+  })
+
+  it('tracks the learn-more click — dead-anchor era left this signal at an absent-emitter zero', async () => {
+    const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
+    const wrapper = mountModal()
+    const link = wrapper.findAll('a').find((a: { text: () => string }) => a.text().includes('Why do I need to upgrade?'))
+
+    await link!.trigger('click')
+
+    expect(trackUpgradeEvent).toHaveBeenCalledWith(
+      'paywall_learn_more_clicked',
+      expect.objectContaining({ ui_component: 'modal' })
+    )
   })
 
   it('DraftCard preview links open via openUrl, not bare anchors', async () => {

@@ -1,7 +1,11 @@
 <template>
 <!-- screen-capture-content class is used in Attachment.ts to select the node. -->
 <div class="generic viewer" :class="{'generic--source-panel-open': isFullscreenMode && showSourcePanel}">
-  <Debug />
+  <!-- The debug strip is a dev affordance for the inline macro. In the
+       fullscreen modal it stacks above .viewer-frame, which is min-height:100vh,
+       so the page ends up taller than the viewport and scrolls; it also eats the
+       top of a surface whose whole point is showing the diagram large. -->
+  <Debug v-if="!isFullscreenMode" />
     <!-- Syntax errors are surfaced by the SyntaxErrorBox (with AI Repair); no
          "Submit a ticket" error panel here. -->
     <!-- Embed/portal hosts request a chrome-less surface — render the diagram only. -->

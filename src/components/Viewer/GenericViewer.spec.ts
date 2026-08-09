@@ -214,6 +214,33 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('.viewer-frame').classes()).toContain('viewer-frame--fullscreen')
     })
 
+    // The debug strip stacks above .viewer-frame. With the frame at
+    // min-height:100vh the page would exceed the viewport and scroll, and the
+    // strip covers the top of a surface meant to show the diagram large.
+    // jsdom has window.self === window.top, so Debug's own gate is open here
+    // and these assertions exercise the isFullscreenMode gate specifically.
+    it('hides the debug strip in fullscreen', () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('[aria-label="Debug information"]').exists()).toBe(false)
+    })
+
+    it('keeps the debug strip on the inline page', () => {
+      setFullscreen(false)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('[aria-label="Debug information"]').exists()).toBe(true)
+    })
+
     it('does not apply viewer-frame--fullscreen on the inline (non-fullscreen) page', () => {
       setFullscreen(false)
       store.commit('updateDiagramType', DiagramType.Sequence)

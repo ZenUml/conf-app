@@ -12,6 +12,11 @@ interface Env {
   ALLOWED_FORGE_APP_IDS?: string;
   DB: D1Database;
   EVENT_BUCKET?: R2Bucket;
+  // M1 kill switch: "true" makes app_first_seen answer { disabled: true } —
+  // the client latches its 30-day marker on that response, so the fleet goes
+  // quiet within one page load per browser. NOTE: Pages bakes env at deploy;
+  // flipping this is an env change + backend redeploy, not an instant toggle.
+  FIRST_SEEN_DISABLED?: string;
 }
 
 export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil }) => {
@@ -33,6 +38,13 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil })
 
     const forgeContext = await validateContextToken(jwt, allowedForgeAppIds);
     const body = await request.json() as ForgeUserBehaviorEventBody;
+
+    // M1 kill switch — before the upsert and the mapper, after auth. The
+    // client treats { disabled: true } as success-for-throttle (writes its
+    // 30-day marker), so this both stops the writes and quiets the fleet.
+    if (body.eventType === "app_first_seen" && env.FIRST_SEEN_DISABLED === "true") {
+      return OkResponse({ disabled: true });
+    }
 
     const cloudId = forgeContext.payload?.context?.cloudId;
     const siteUrl = forgeContext.payload?.context?.siteUrl;

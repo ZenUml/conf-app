@@ -137,6 +137,12 @@ export type AnalyticsProperties = {
   // self-heals once the page is published.
   snapshot_skip_reason?: 'no_write_permission' | 'page_not_published';
   space_admin_count?: number;
+  // M1 `app_first_seen` census props. Explicit, not ambient: the P3 denominator
+  // is COUNT(DISTINCT account_id) per cloud_id, so both ride on the event
+  // itself rather than relying on Mixpanel identity resolution (which is
+  // placeholder-prone on first iframe events — see the ai_aide lesson).
+  cloud_id?: string;
+  account_id?: string;
   // True when the current user is resolved to be a space admin of the current
   // space. Set on `space_admin_active` (Phase 5a admin-activity probe) and, from
   // Phase 5b, on every page-banner event so the funnel can be split by audience.

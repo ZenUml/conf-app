@@ -215,6 +215,17 @@ export type AnalyticsEventName =
   // emitter — buy-intent has been unmeasurable since, not measured as zero.
   | "paywall_marketplace_cta_clicked"
   | "space_admin_active"
+  // M1 first-seen ping (onboarding spec Phase 1). Fired from the page-banner
+  // host — the only surface that mounts on EVERY Confluence page in every
+  // variant — at most once per browser per tenant per 30 days, AFTER the
+  // authenticated backend POST succeeded. Two jobs: (a) the POST's invocation
+  // token carries context.siteUrl, so the backend resolves the tenant domain
+  // for installs where nobody ever opened a macro (85.7% of post-June
+  // Diagramly installs are domain-less); (b) counted per account_id it is the
+  // first census of Confluence-ACTIVE users per tenant — the P3 denominator.
+  // Census semantics: "active browsers with a resolved account", not "users"
+  // (localStorage throttle; cleared storage / second browsers inflate).
+  | "app_first_seen"
   | "advocacy_message_copied"
   | "advocacy_draft_preview_clicked"
   | "extension_request_clicked"

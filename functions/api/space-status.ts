@@ -13,7 +13,7 @@ interface Env {
   DB?: D1Database;
 }
 
-interface SpaceStatusResponse {
+export interface SpaceStatusResponse {
   isPaid: boolean;
   source?: 'user_license' | 'space_license' | 'paid_rail';
 }

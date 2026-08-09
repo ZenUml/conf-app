@@ -13,7 +13,7 @@ vi.mock('../../functions/utils/sentry', () => ({
   captureError: vi.fn(),
 }));
 
-import { onRequest } from '../../functions/api/space-status';
+import { onRequest, type SpaceStatusResponse } from '../../functions/api/space-status';
 import { getAuthorizationHeader } from '../../functions/utils/requestUtils';
 import { validateContextToken } from '../../functions/utils/authenticate';
 
@@ -88,7 +88,7 @@ describe('space-status API (KV-only)', () => {
       const ctx = createMockContext({ env: makeEnv() });
       const response = await onRequest(ctx);
       expect(response.status).toBe(401);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(false);
     });
   });
@@ -124,7 +124,7 @@ describe('space-status API (KV-only)', () => {
 
       const response = await onRequest(ctx);
       expect(response.status).toBe(200);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(true);
       expect(body.source).toBe('space_license');
     });
@@ -154,7 +154,7 @@ describe('space-status API (KV-only)', () => {
       });
 
       const response = await onRequest(ctx);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(false);
       expect(body.source).toBeUndefined();
     });
@@ -184,7 +184,7 @@ describe('space-status API (KV-only)', () => {
       });
 
       const response = await onRequest(ctx);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(false);
     });
 
@@ -203,7 +203,7 @@ describe('space-status API (KV-only)', () => {
       });
 
       const response = await onRequest(ctx);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(false);
     });
 
@@ -222,7 +222,7 @@ describe('space-status API (KV-only)', () => {
       });
 
       const response = await onRequest(ctx);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(false);
     });
 
@@ -244,7 +244,7 @@ describe('space-status API (KV-only)', () => {
       });
 
       const response = await onRequest(ctx);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(false); // No KV record = not paid, despite accountType=licensed
     });
   });
@@ -289,7 +289,7 @@ describe('space-status API (KV-only)', () => {
       });
 
       const response = await onRequest(ctx);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(true);
       expect(body.source).toBe('user_license');
     });
@@ -309,7 +309,7 @@ describe('space-status API (KV-only)', () => {
       });
 
       const response = await onRequest(ctx);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(true);
       expect(body.source).toBe('space_license');
     });
@@ -331,7 +331,7 @@ describe('space-status API (KV-only)', () => {
       });
 
       const response = await onRequest(ctx);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(true);
       expect(body.source).toBe('space_license');
     });
@@ -349,7 +349,7 @@ describe('space-status API (KV-only)', () => {
       });
 
       const response = await onRequest(ctx);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(true);
       expect(body.source).toBe('space_license');
       expect(kv.getCalls.some((k) => k.includes(':undefined') || k.includes(':null'))).toBe(false);
@@ -368,7 +368,7 @@ describe('space-status API (KV-only)', () => {
         env: makeEnv(),
       });
       const grantedResponse = await onRequest(grantedCtx);
-      const grantedBody = await grantedResponse.json();
+      const grantedBody = (await grantedResponse.json()) as SpaceStatusResponse;
       expect(grantedBody.isPaid).toBe(true);
       expect(grantedBody.source).toBe('user_license');
 
@@ -379,7 +379,7 @@ describe('space-status API (KV-only)', () => {
         env: makeEnv(),
       });
       const otherResponse = await onRequest(otherCtx);
-      const otherBody = await otherResponse.json();
+      const otherBody = (await otherResponse.json()) as SpaceStatusResponse;
       expect(otherBody.isPaid).toBe(false);
     });
   });
@@ -424,7 +424,7 @@ describe('space-status API (KV-only)', () => {
       });
 
       const response = await onRequest(ctx);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(false);
     });
   });
@@ -463,7 +463,7 @@ describe('space-status API (KV-only)', () => {
 
       const response = await onRequest(ctx);
       expect(response.status).toBe(200);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(true);
       expect(body.source).toBe('paid_rail');
       expect(db.prepare).toHaveBeenCalledTimes(1);
@@ -485,7 +485,7 @@ describe('space-status API (KV-only)', () => {
 
       const response = await onRequest(ctx);
       expect(response.status).toBe(200);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(false);
       expect(body.source).toBeUndefined();
     });
@@ -505,7 +505,7 @@ describe('space-status API (KV-only)', () => {
 
       const response = await onRequest(ctx);
       expect(response.status).toBe(200);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(false);
     });
 
@@ -534,7 +534,7 @@ describe('space-status API (KV-only)', () => {
       });
 
       const response = await onRequest(ctx);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(true);
       expect(body.source).toBe('user_license');
       expect(db.prepare).not.toHaveBeenCalled();
@@ -563,7 +563,7 @@ describe('space-status API (KV-only)', () => {
       });
 
       const response = await onRequest(ctx);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(true);
       expect(body.source).toBe('paid_rail');
     });
@@ -581,7 +581,7 @@ describe('space-status API (KV-only)', () => {
       });
 
       const response = await onRequest(ctx);
-      const body = await response.json();
+      const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(false);
     });
   });

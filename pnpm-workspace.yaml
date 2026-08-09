@@ -3,20 +3,22 @@ packages:
   - "forge-console"
   - "workers/cron-aggregate"
   - "workers/agent-link"
+# pnpm ≥10 ignores package.json's pnpm.onlyBuiltDependencies; approvals live
+# here now. Same five packages that list allowed, everything else stays off.
 allowBuilds:
-  '@forge/cli': set this to true or false
-  '@scarf/scarf': set this to true or false
-  '@tree-sitter-grammars/tree-sitter-yaml': set this to true or false
-  cloudflared: set this to true or false
-  core-js: set this to true or false
-  core-js-pure: set this to true or false
-  esbuild: set this to true or false
-  iframe-resizer: set this to true or false
-  keytar: set this to true or false
-  protobufjs: set this to true or false
-  react-ace: set this to true or false
-  sharp: set this to true or false
-  swagger-editor: set this to true or false
-  tree-sitter: set this to true or false
-  tree-sitter-json: set this to true or false
-  workerd: set this to true or false
+  '@forge/cli': true
+  '@scarf/scarf': false
+  '@tree-sitter-grammars/tree-sitter-yaml': false
+  cloudflared: true
+  core-js: true
+  core-js-pure: false
+  esbuild: true
+  iframe-resizer: false
+  keytar: true
+  protobufjs: false
+  react-ace: false
+  sharp: false
+  swagger-editor: false
+  tree-sitter: false
+  tree-sitter-json: false
+  workerd: false

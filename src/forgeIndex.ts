@@ -23,6 +23,7 @@ import { handleAiAideRoute } from './routes/aiAide';
 import { decidePageBanner, handlePageBannerRoute } from './routes/pageBanner';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { maybeProbeSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
+import { maybeSendFirstSeenPing } from '@/utils/firstSeen/firstSeenPing';
 import { refreshUserCohortsIfStale } from '@/utils/cohorts/userCohorts';
 import { isPrefetchDue } from '@/utils/prefetch/throttle';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
@@ -148,6 +149,17 @@ async function initializeCriticalPath() {
       // before any init/REST. Awaited before view.close() — closing the iframe
       // would abort the in-flight REST call — and never throws.
       await maybeProbeSpaceAdmin();
+
+      // M1 first-seen ping (onboarding Phase 1): one authenticated POST per
+      // browser per tenant per 30 days, resolving the tenant domain for
+      // installs where nobody ever opens a macro, and producing the per-account
+      // census (P3 denominator). All variants — this is deliberately NOT
+      // Lite-gated like the admin probe. Placed before decidePageBanner() so a
+      // load that SHOWS a banner still counts toward the census (deviation
+      // from the spec's literal "none path" — recorded in deviation-log.md).
+      // Awaited for the same reason as the probe: view.close() aborts
+      // in-flight requests. Never throws.
+      await maybeSendFirstSeenPing();
 
       const choice = decidePageBanner();
       if (choice === 'none') {

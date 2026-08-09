@@ -181,6 +181,10 @@ export const Dismissed: Story = {
  */
 export const SpaceAdmin: Story = {
   name: 'Space admin — direct purchase CTA, no authoring required',
+  // Since 16459050 the audience is resolved by the host route (Phase 5b flag)
+  // and passed down as a prop — the component never re-derives it from the
+  // probe marker, so the story must pass the prop explicitly.
+  args: { isSpaceAdmin: true },
   decorators: [
     () => {
       installSpaceAdminMarkers()

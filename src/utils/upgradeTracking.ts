@@ -18,6 +18,7 @@ export enum UpgradeEventName {
   PAYWALL_BANNER_SHOWN = 'paywall_banner_shown',
   PAYWALL_BANNER_DISMISSED = 'paywall_banner_dismissed',
   PAYWALL_BUNDLE_CTA_CLICKED = 'paywall_bundle_cta_clicked',
+  PAYWALL_MARKETPLACE_CTA_CLICKED = 'paywall_marketplace_cta_clicked',
 }
 
 export enum UIComponent {
@@ -29,6 +30,20 @@ export enum UIComponent {
 }
 
 type UpgradeEventParams = Partial<Omit<AnalyticsProperties, 'feature_area'>> & Record<string, unknown>;
+
+/**
+ * Read the client_reference_id off a Stripe Payment Link URL so the click
+ * event records exactly the attribution token the payment will carry —
+ * parsed from the URL actually opened, never re-derived, so the two can't
+ * drift apart.
+ */
+export function bundleClientReferenceId(url: string): string | undefined {
+  try {
+    return new URL(url).searchParams.get('client_reference_id') ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export function trackUpgradeEvent(
   eventName: UpgradeEventName,

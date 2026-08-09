@@ -67,6 +67,7 @@ import { useCustomerSuccessService, MACROS_LIMIT } from '@/composables/useCustom
 import {
   trackUpgradeEvent,
   UpgradeEventName,
+  bundleClientReferenceId,
 } from '@/utils/upgradeTracking'
 import {
   buildAdvocacyMessage,
@@ -270,13 +271,16 @@ async function onCopyAdminMessage() {
  * space admin is not, and which we cannot detect at all.
  */
 async function onUnlockSpace() {
+  const bundleUrl = customerSuccess.enterpriseBundleUrl.value
+  const reference = bundleClientReferenceId(bundleUrl)
   trackUpgradeEvent(UpgradeEventName.PAYWALL_BUNDLE_CTA_CLICKED, {
     surface: 'page_banner',
     severity,
     bundle_price_usd: ENTERPRISE_BUNDLE_ANNUAL_COST,
+    ...(reference !== undefined ? { client_reference_id: reference } : {}),
     ...bannerContext(),
   })
-  await openUrl(customerSuccess.enterpriseBundleUrl.value)
+  await openUrl(bundleUrl)
 }
 
 async function onRequestExtension() {

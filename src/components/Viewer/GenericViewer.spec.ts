@@ -191,6 +191,68 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
+  // ZEN fullscreen-fit follow-up: .viewer-frame had no height rule, so a
+  // diagram shorter than the fullscreen viewport left most of the screen a
+  // bare void beneath it. viewer-frame--fullscreen ties the frame to the
+  // viewport height regardless of diagram type/width (isWide is orthogonal).
+  describe('fullscreen height (all diagram types)', () => {
+    const setFullscreen = (on: boolean) => {
+      ;(window as any).forgeGlobal = on
+        ? { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+        : undefined
+    }
+    afterEach(() => { delete (window as any).forgeGlobal })
+
+    it('applies viewer-frame--fullscreen in fullscreen mode', () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('.viewer-frame').classes()).toContain('viewer-frame--fullscreen')
+    })
+
+    // The debug strip stacks above .viewer-frame. With the frame at
+    // min-height:100vh the page would exceed the viewport and scroll, and the
+    // strip covers the top of a surface meant to show the diagram large.
+    // jsdom has window.self === window.top, so Debug's own gate is open here
+    // and these assertions exercise the isFullscreenMode gate specifically.
+    it('hides the debug strip in fullscreen', () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('[aria-label="Debug information"]').exists()).toBe(false)
+    })
+
+    it('keeps the debug strip on the inline page', () => {
+      setFullscreen(false)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('[aria-label="Debug information"]').exists()).toBe(true)
+    })
+
+    it('does not apply viewer-frame--fullscreen on the inline (non-fullscreen) page', () => {
+      setFullscreen(false)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('.viewer-frame').classes()).not.toContain('viewer-frame--fullscreen')
+    })
+  })
+
   describe('top-edge actions', () => {
     it('emits edit on the EventBus when Edit is clicked', async () => {
       const spy = vi.spyOn(EventBus, '$emit')
@@ -355,6 +417,69 @@ describe('GenericViewer (chrome-less)', () => {
       await wrapper.find('[data-testid="view-source-close"]').trigger('click')
       await wrapper.vm.$nextTick()
       expect(wrapper.find('[data-testid="view-source-panel"]').exists()).toBe(false)
+    })
+
+    // ZEN fullscreen-fit: .viewer-frame is fit-content-sized to the diagram
+    // in the fullscreen modal (see isWide comment), so the panel must anchor
+    // to the actual viewport (fixed) instead of that short box (absolute).
+    it('sizes the panel for the fullscreen viewport when opened from the fullscreen modal', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-testid="view-source-panel"]').classes()).toContain('view-source-panel--fullscreen')
+
+      delete (window as any).forgeGlobal
+    })
+
+    it('does not use fullscreen sizing for the inline (non-fullscreen) viewer', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-testid="view-source-panel"]').classes()).not.toContain('view-source-panel--fullscreen')
+    })
+
+    // ZEN fullscreen-fit follow-up: the panel is position:fixed (out of
+    // layout flow) once open, so .viewer-frame's own centering can't see it —
+    // the diagram centered on the FULL width, landing right of the actually-
+    // visible left pane. generic--source-panel-open reserves the panel's
+    // width so the frame centers against the space that's actually visible.
+    it('reserves space for the open fullscreen panel so the frame centers on the visible pane', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('.generic').classes()).not.toContain('generic--source-panel-open')
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.generic').classes()).toContain('generic--source-panel-open')
+
+      await wrapper.find('[data-testid="view-source-close"]').trigger('click')
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.generic').classes()).not.toContain('generic--source-panel-open')
+
+      delete (window as any).forgeGlobal
+    })
+
+    it('does not reserve panel space on the inline (non-fullscreen) viewer', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('.generic').classes()).not.toContain('generic--source-panel-open')
     })
   })
 

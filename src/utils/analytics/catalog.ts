@@ -193,6 +193,13 @@ export type AnalyticsEventName =
   // reading that event's 0 as "nobody wants to buy" is reading an absent
   // emitter — buy-intent has been unmeasurable since, not measured as zero.
   | "paywall_marketplace_cta_clicked"
+  // Footer "Why do I need to upgrade?" link in the paywall modal. Until
+  // 2026-08-10 this was a bare target="_blank" anchor, silently dropped by the
+  // Forge iframe sandbox (no allow-popups) — zero effect on click AND zero
+  // telemetry, so the four months of no clicks are an absent emitter, not
+  // absent interest. Low-intent signal vs the two purchase rails: it measures
+  // "wants to understand the pricing story", not "ready to pay".
+  | "paywall_learn_more_clicked"
   | "space_admin_active"
   | "advocacy_message_copied"
   | "advocacy_draft_preview_clicked"

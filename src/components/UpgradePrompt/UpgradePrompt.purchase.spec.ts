@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import UpgradePrompt from './UpgradePrompt.vue'
+import DraftCard from './DraftCard.vue'
+import { openUrl } from '@/model/globals/forgeGlobal'
 
 /**
  * The paywall modal shipped for four months with NO purchase surface: its only
@@ -136,5 +138,51 @@ describe('UpgradePrompt — purchase surface', () => {
     const wrapper = mountModal({ remainingContinueAttempts: 15 })
     expect(wrapper.find('[data-testid="request-extension-btn"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="continue-editing-btn"]').exists()).toBe(true)
+  })
+})
+
+/**
+ * The Forge Custom UI iframe sandbox is `allow-downloads allow-forms
+ * allow-modals allow-pointer-lock allow-same-origin allow-scripts` — no
+ * `allow-popups` (observed on lite-dev, 2026-08-10). A bare
+ * `<a target="_blank">` click is therefore silently dropped by the browser:
+ * "Blocked opening 'https://zenuml.com/upgrade/' in a new window because the
+ * request was made in a sandboxed frame whose 'allow-popups' permission is
+ * not set." Every outbound link in the modal must route through openUrl()
+ * (router.open in Forge), which pops the platform consent dialog and opens.
+ */
+describe('UpgradePrompt — outbound links route through openUrl', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('footer "Why do I need to upgrade?" opens via openUrl, not a bare anchor', async () => {
+    const wrapper = mountModal()
+    const link = wrapper.findAll('a').find((a) => a.text().includes('Why do I need to upgrade?'))
+    expect(link, 'footer learn-more link must exist').toBeTruthy()
+
+    await link!.trigger('click')
+
+    expect(openUrl).toHaveBeenCalledWith('https://zenuml.com/upgrade/')
+  })
+
+  it('DraftCard preview links open via openUrl, not bare anchors', async () => {
+    const wrapper = mount(DraftCard, {
+      props: {
+        ctx: {
+          spaceKey: 'ENG',
+          macroCount: 147,
+          macrosLimit: 100,
+          upgradeUrl: BASE_PROPS.upgradeUrl,
+          enterpriseBundleUrl: BASE_PROPS.enterpriseBundleUrl,
+          enterpriseBundlePrice: '$299/yr/space',
+          macroKind: 'unknown' as const,
+        },
+      },
+    })
+    const link = wrapper.find('a')
+    expect(link.exists(), 'draft preview must render its URLs as links').toBe(true)
+
+    await link.trigger('click')
+
+    expect(openUrl).toHaveBeenCalledWith(BASE_PROPS.upgradeUrl)
   })
 })

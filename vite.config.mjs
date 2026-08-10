@@ -356,6 +356,9 @@ export default defineConfig(({ command }) => ({
       '**/tests/e2e-tests/**',
       '**/tests/export-modal/**',
       '**/packages/**',
+      // Scratch dir — sessions park ad-hoc Playwright specs here; a stray
+      // *.spec.ts under tmp/ otherwise fails the whole run at collection.
+      '**/tmp/**',
       // Skip the asyncapi-studio submodule's own tests — they import
       // upstream `@/*` aliases that aren't resolvable in our root tsconfig
       // and aren't relevant to this repo's test suite.

@@ -121,11 +121,16 @@
               :aria-label="continueButtonAriaLabel"
             >Request extension to continue editing</span>
           </div>
+          <!-- @click.prevent + openUrl, NOT a bare target="_blank": the Forge
+               Custom UI iframe sandbox has no allow-popups, so the browser
+               silently drops plain anchor navigations. router.open (inside
+               openUrl) is the only working outbound path. -->
           <a
             href="https://zenuml.com/upgrade/"
             target="_blank"
             rel="noopener noreferrer"
             class="shrink-0 text-xs text-blue-600 hover:text-blue-800 hover:underline"
+            @click.prevent="onLearnMore"
           >
             Why do I need to upgrade? →
           </a>
@@ -303,6 +308,11 @@ async function onUnlockSpace() {
 async function onViewMarketplacePlan() {
   trackUpgradeEvent(UpgradeEventName.PAYWALL_MARKETPLACE_CTA_CLICKED, purchaseContext())
   await openUrl(props.upgradeUrl)
+}
+
+async function onLearnMore() {
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_LEARN_MORE_CLICKED, purchaseContext())
+  await openUrl('https://zenuml.com/upgrade/')
 }
 
 async function onRequestExtension() {

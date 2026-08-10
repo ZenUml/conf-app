@@ -17,6 +17,7 @@ vi.mock('@/model/globals', () => ({
   default: {
     apWrapper: {
       initializeContext: vi.fn(() => Promise.resolve()),
+      isDisplayMode: vi.fn(() => true),
     },
   },
 }));
@@ -36,7 +37,12 @@ vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
 // Forge bridge context resolve — resolveContentId's argument. The actual
 // shape doesn't matter for these tests (resolveContentId is test-controlled
 // below); this only needs to resolve so `await initForgeContext()` doesn't hang.
+// `default` mirrors the real module's default export — getForgeCustomContentId
+// (viewerLoadOutcome.ts) reads forgeContext off it; individual tests below
+// mutate mockForgeGlobal.forgeContext rather than window.forgeGlobal.
+const mockForgeGlobal = vi.hoisted(() => ({ forgeContext: undefined as any }));
 vi.mock('@/model/globals/forgeGlobal', () => ({
+  default: mockForgeGlobal,
   getContext: vi.fn(() => Promise.resolve({ extension: {} })),
 }));
 
@@ -88,7 +94,10 @@ describe('viewerBootstrap', () => {
     _resetForTesting();
     _resetContentCacheForTesting();
     store.state.diagram = { ...NULL_DIAGRAM };
+    store.state.viewerLoadState = null;
+    store.state.loadError = null;
     window.diagram = undefined;
+    vi.mocked(globals.apWrapper.isDisplayMode).mockReturnValue(true);
   });
 
   it('mounts a stable NULL_DIAGRAM shell before loading and then publishes the loaded diagram', async () => {
@@ -122,7 +131,73 @@ describe('viewerBootstrap', () => {
     expect(mountRoot).toHaveBeenCalledWith(NULL_DIAGRAM, Component, undefined);
     expect(events).toEqual(['mount', 'load', 'afterLoad']);
     expect(store.state.diagram).toStrictEqual(loaded);
+    expect(store.state.viewerLoadState).toBe('ready');
     expect(window.diagram).toStrictEqual(loaded);
+  });
+
+  it('marks rejected loadDiagram as failed_with_source when a custom content id exists', async () => {
+    mockForgeGlobal.forgeContext = {
+      extension: { config: { customContentId: 'cc-missing' } },
+    };
+    const onError = vi.fn();
+
+    await bootstrapForgeViewer({
+      macroKind: 'graph',
+      content: Component,
+      loadDiagram: vi.fn(async () => {
+        throw new Error('network down');
+      }),
+      onError,
+    });
+
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+    expect(store.state.viewerLoadState).toBe('failed_with_source');
+    expect(store.state.loadError).toMatchObject({
+      errorClass: 'thrown',
+      errorCode: 'network down',
+    });
+    // publishLoadedDiagram attaches the load error to the published diagram
+    // (the `doc`-prop channel OpenApiViewer reads) alongside the store slots.
+    expect(store.state.diagram).toStrictEqual({
+      ...NULL_DIAGRAM,
+      loadError: store.state.loadError,
+    });
+  });
+
+  it('marks rejected loadDiagram as failed_without_source when no custom content id exists', async () => {
+    mockForgeGlobal.forgeContext = {
+      extension: { config: {} },
+    };
+
+    await bootstrapForgeViewer({
+      macroKind: 'embed',
+      content: Component,
+      loadDiagram: vi.fn(async () => {
+        throw new Error('load blew up');
+      }),
+      onError: vi.fn(),
+    });
+
+    expect(store.state.viewerLoadState).toBe('failed_without_source');
+    expect(store.state.loadError?.errorClass).toBe('thrown');
+  });
+
+  it('marks failed loads with a source id as failed_with_source', async () => {
+    mockForgeGlobal.forgeContext = {
+      extension: { config: { customContentId: 'cc-missing' } },
+    };
+
+    await bootstrapForgeViewer({
+      macroKind: 'openapi',
+      content: Component,
+      loadDiagram: vi.fn(async () => ({
+        doc: undefined,
+        loadError: { httpStatus: 404, directFetchStatus: 'not_found' as const },
+      })),
+    });
+
+    expect(store.state.viewerLoadState).toBe('failed_with_source');
+    expect(store.state.loadError).toEqual({ httpStatus: 404, directFetchStatus: 'not_found' });
   });
 
   it('does not mount directly when fullscreen paywall mounts the shell', async () => {
@@ -189,9 +264,15 @@ describe('viewerBootstrap', () => {
     await bootstrapForgeViewer({
       macroKind: 'openapi',
       content: Component,
-      loadDiagram: vi.fn(async () => ({ doc: undefined, loadError: { kind: 'not_found' as const, indeterminate: false } })),
+      loadDiagram: vi.fn(async () => ({
+        doc: undefined,
+        loadError: { directFetchStatus: 'not_found' as const, errorClass: 'structured' as const },
+      })),
     });
-    expect(store.state.diagram).toEqual({ ...NULL_DIAGRAM, loadError: { kind: 'not_found', indeterminate: false } });
+    expect(store.state.diagram).toEqual({
+      ...NULL_DIAGRAM,
+      loadError: { directFetchStatus: 'not_found', errorClass: 'structured' },
+    });
     expect(store.state.diagramLoadComplete).toBe(true);
   });
 });

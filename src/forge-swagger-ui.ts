@@ -11,6 +11,7 @@ import type { Diagram } from "@/model/Diagram/Diagram";
 import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/viewerBootstrap';
 import { openDocument } from '@/utils/documentOpening/openDocument';
 import { buildOpenApiViewerTarget, resolveOpenApiId } from '@/utils/documentOpening/targets/openApiTarget';
+import { mapOpenErrorToLoadError } from '@/utils/viewerLoadOutcome';
 import { guardEditClick } from '@/utils/guardEditClick';
 
 async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
@@ -23,7 +24,10 @@ async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
     target: buildOpenApiViewerTarget(),
   });
   if (outcome.kind === 'failed') {
-    return { doc: undefined, loadError: outcome.error };
+    // Pipeline OpenError → store-level DiagramLoadError at this boundary, so
+    // the recovery panel (GenericViewer, store.viewerLoadState) and the
+    // openDocument pipeline keep their own vocabularies without a third one.
+    return { doc: undefined, loadError: mapOpenErrorToLoadError(outcome.error) };
   }
   return { doc: outcome.document.doc, loadError: null };
 }

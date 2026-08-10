@@ -3,7 +3,7 @@ import { DiagramType, type Diagram } from '@/model/Diagram/Diagram';
 
 const h = vi.hoisted(() => ({
   context: {} as any,
-  getCustomContentByIdV2: vi.fn(),
+  loadCustomContentWithOrphanRecovery: vi.fn(),
   trackAnalyticsEvent: vi.fn(),
 }));
 
@@ -11,7 +11,7 @@ vi.mock('@/model/Attachment', () => ({ default: vi.fn() }));
 vi.mock('@/model/globals', () => ({
   default: {
     apWrapper: {
-      getCustomContentByIdV2: h.getCustomContentByIdV2,
+      loadCustomContentWithOrphanRecovery: h.loadCustomContentWithOrphanRecovery,
       findLegacyCustomContentByUuid: vi.fn(),
       isDisplayMode: vi.fn(() => false),
       canUserEdit: vi.fn(() => false),
@@ -55,9 +55,9 @@ describe('Embed AutoConvert analytics', () => {
 
   it('records detection and target resolution for a same-tenant link', async () => {
     const diagram = { diagramType: DiagramType.Sequence, code: 'A->B: hi' } as Diagram;
-    h.getCustomContentByIdV2.mockResolvedValue({ value: diagram });
+    h.loadCustomContentWithOrphanRecovery.mockResolvedValue({ customContent: { value: diagram } });
 
-    await expect(loadDiagram()).resolves.toBe(diagram);
+    await expect(loadDiagram()).resolves.toEqual({ doc: diagram, loadError: null });
 
     expect(h.trackAnalyticsEvent.mock.calls).toEqual([
       ['embed_autoconvert_detected', {
@@ -77,9 +77,9 @@ describe('Embed AutoConvert analytics', () => {
     h.context.extension.autoConvertLink =
       `https://confluence.zenuml.com/d/${CLOUD_ID}/not-numeric`;
 
-    await expect(loadDiagram()).resolves.toBeUndefined();
+    await expect(loadDiagram()).resolves.toEqual({ doc: undefined, loadError: null });
 
-    expect(h.getCustomContentByIdV2).not.toHaveBeenCalled();
+    expect(h.loadCustomContentWithOrphanRecovery).not.toHaveBeenCalled();
     expect(h.trackAnalyticsEvent.mock.calls).toEqual([
       ['embed_autoconvert_detected', BASE_PROPS],
       ['embed_autoconvert_failed', {
@@ -89,10 +89,21 @@ describe('Embed AutoConvert analytics', () => {
     ]);
   });
 
-  it('records missing custom content as a terminal failure', async () => {
-    h.getCustomContentByIdV2.mockResolvedValue(undefined);
+  it('records missing custom content as a terminal failure, with a structured loadError', async () => {
+    h.loadCustomContentWithOrphanRecovery.mockResolvedValue({
+      customContent: undefined,
+      directFetchStatus: 'not_found',
+    });
 
-    await expect(loadDiagram()).resolves.toBeUndefined();
+    await expect(loadDiagram()).resolves.toEqual({
+      doc: undefined,
+      loadError: {
+        directFetchStatus: 'not_found',
+        httpStatus: undefined,
+        errorCode: undefined,
+        errorClass: undefined,
+      },
+    });
 
     expect(h.trackAnalyticsEvent.mock.calls).toEqual([
       ['embed_autoconvert_detected', {
@@ -109,35 +120,21 @@ describe('Embed AutoConvert analytics', () => {
     ]);
   });
 
-  it('records a thrown custom-content fetch and preserves the error', async () => {
-    const error = new Error('Confluence request failed');
-    h.getCustomContentByIdV2.mockRejectedValue(error);
-
-    await expect(loadDiagram()).rejects.toBe(error);
-
-    expect(h.trackAnalyticsEvent.mock.calls).toEqual([
-      ['embed_autoconvert_detected', {
-        ...BASE_PROPS,
-        custom_content_id: CONTENT_ID,
-        is_same_site: true,
-      }],
-      ['embed_autoconvert_failed', {
-        ...BASE_PROPS,
-        custom_content_id: CONTENT_ID,
-        is_same_site: true,
-        failure_reason: 'fetch_failed',
-      }],
-    ]);
-  });
+  // loadCustomContentWithOrphanRecovery classifies failures into its return
+  // shape rather than throwing (same contract every other caller in this
+  // codebase relies on) — unlike the old bare getCustomContentByIdV2 call,
+  // there is no thrown-fetch path left to distinguish with a 'fetch_failed'
+  // reason. A fetch failure now surfaces exactly like the previous test:
+  // customContent stays undefined and it reports as 'target_missing'.
 
   it('records cross-tenant rejection as the sole terminal event and never fetches', async () => {
     const foreignCloudId = '11111111-2222-3333-4444-555555555555';
     h.context.extension.autoConvertLink =
       `https://confluence.zenuml.com/d/${foreignCloudId}/${CONTENT_ID}`;
 
-    await expect(loadDiagram()).resolves.toBeUndefined();
+    await expect(loadDiagram()).resolves.toEqual({ doc: undefined, loadError: null });
 
-    expect(h.getCustomContentByIdV2).not.toHaveBeenCalled();
+    expect(h.loadCustomContentWithOrphanRecovery).not.toHaveBeenCalled();
     const props = {
       ...BASE_PROPS,
       custom_content_id: CONTENT_ID,
@@ -152,11 +149,11 @@ describe('Embed AutoConvert analytics', () => {
   it('does not emit autoconvert events for an ordinary configured embed', async () => {
     const diagram = { diagramType: DiagramType.Sequence, code: 'A->B: hi' } as Diagram;
     h.context.extension.config.customContentId = CONTENT_ID;
-    h.getCustomContentByIdV2.mockResolvedValue({ value: diagram });
+    h.loadCustomContentWithOrphanRecovery.mockResolvedValue({ customContent: { value: diagram } });
 
-    await expect(loadDiagram()).resolves.toBe(diagram);
+    await expect(loadDiagram()).resolves.toEqual({ doc: diagram, loadError: null });
 
-    expect(h.getCustomContentByIdV2).toHaveBeenCalledWith(CONTENT_ID);
+    expect(h.loadCustomContentWithOrphanRecovery).toHaveBeenCalledWith('page-1', CONTENT_ID);
     expect(h.trackAnalyticsEvent).not.toHaveBeenCalled();
   });
 });

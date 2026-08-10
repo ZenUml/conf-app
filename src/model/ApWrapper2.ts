@@ -532,13 +532,31 @@ export default class ApWrapper2 implements IApWrapper {
     customContent: ICustomContentV2 | undefined;
     status: 'ok' | 'not_found' | 'other_error';
     errorDetail?: string;
+    // Richer diagnostics threaded through to the load-failed support payload
+    // (see viewerLoadOutcome.mapCustomContentLoadError). httpStatus / errorCode
+    // come from the Atlassian error envelope; errorClass distinguishes a thrown
+    // request, a structured { errors: [...] } body, and a malformed response.
+    httpStatus?: number;
+    errorCode?: string;
+    errorClass?: 'thrown' | 'structured' | 'malformed';
   }> {
     let rawResponse: any;
     try {
       rawResponse = await renderPerf.time('cc_fetch', () =>
         this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`));
     } catch (e: any) {
-      return { customContent: undefined, status: 'other_error', errorDetail: e?.message ? String(e.message) : String(e) };
+      const httpStatus =
+        typeof e?.status === 'number' ? e.status
+        : typeof e?.statusCode === 'number' ? e.statusCode
+        : typeof e?.xhr?.status === 'number' ? e.xhr.status
+        : undefined;
+      return {
+        customContent: undefined,
+        status: 'other_error',
+        errorDetail: e?.message ? String(e.message) : String(e),
+        httpStatus,
+        errorClass: 'thrown',
+      };
     }
     const errors = rawResponse?.errors;
     if (Array.isArray(errors) && errors.length > 0) {
@@ -553,15 +571,32 @@ export default class ApWrapper2 implements IApWrapper {
       const status: 'not_found' | 'other_error' = allStrictNotFound ? 'not_found' : 'other_error';
       // Telemetry for non-success shapes preserved from the legacy parsing path.
       trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
-      return { customContent: undefined, status, errorDetail: JSON.stringify(errors) };
+      const firstError = errors[0] ?? {};
+      return {
+        customContent: undefined,
+        status,
+        errorDetail: JSON.stringify(errors),
+        httpStatus: typeof firstError.status === 'number' ? firstError.status : undefined,
+        errorCode: firstError.code != null ? String(firstError.code) : undefined,
+        errorClass: 'structured',
+      };
     }
     if (!rawResponse?.body?.raw?.value) {
       // Truthy response but no parseable body — unexpected shape, not a 404.
       trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
-      return { customContent: undefined, status: 'other_error', errorDetail: 'malformed_or_empty_response' };
+      return {
+        customContent: undefined,
+        status: 'other_error',
+        errorDetail: 'malformed_or_empty_response',
+        errorClass: 'malformed',
+      };
     }
     const parsed = await this.parseCustomContentByIdV2Response(id, rawResponse, opts);
-    return { customContent: parsed, status: parsed ? 'ok' : 'other_error' };
+    return {
+      customContent: parsed,
+      status: parsed ? 'ok' : 'other_error',
+      errorClass: parsed ? undefined : 'malformed',
+    };
   }
 
   private async parseCustomContentByIdV2Response(id: string, customContent: any, opts?: LoadCustomContentOpts): Promise<ICustomContentV2 | undefined> {
@@ -771,6 +806,9 @@ export default class ApWrapper2 implements IApWrapper {
     recoveredFromOrphanId?: string;
     probeResult?: Awaited<ReturnType<ApWrapper2['probeOrphanRecovery']>>;
     directFetchStatus?: 'ok' | 'not_found' | 'other_error';
+    directFetchHttpStatus?: number;
+    directFetchErrorCode?: string;
+    directFetchErrorClass?: 'thrown' | 'structured' | 'malformed';
   }> {
     // conf-app#320: a macro whose stored customContentId is the string
     // "undefined"/"null"/empty (a broken save writeback) can never resolve.
@@ -787,14 +825,22 @@ export default class ApWrapper2 implements IApWrapper {
     if (direct.status === 'ok' && direct.customContent) {
       return { customContent: direct.customContent, directFetchStatus: 'ok' };
     }
+    // Carry the direct-fetch diagnostics onto every no-content return so the
+    // load-failed support payload can report the real HTTP status / code /
+    // class instead of "(unknown)".
+    const directDiagnostics = {
+      directFetchHttpStatus: direct.httpStatus,
+      directFetchErrorCode: direct.errorCode,
+      directFetchErrorClass: direct.errorClass,
+    };
     if (direct.status !== 'not_found') {
       // Transient / 403 / 5xx / malformed — refuse to probe. Probing here
       // could surface a sibling for a CC that's only briefly unavailable
       // and (in config surface) later cause an incorrect macro XML rewrite.
-      return { customContent: undefined, directFetchStatus: direct.status };
+      return { customContent: undefined, directFetchStatus: direct.status, ...directDiagnostics };
     }
     if (!pageId) {
-      return { customContent: undefined, directFetchStatus: 'not_found' };
+      return { customContent: undefined, directFetchStatus: 'not_found', ...directDiagnostics };
     }
 
     const probeResult = await this.probeOrphanRecovery(pageId, customContentId);
@@ -808,12 +854,12 @@ export default class ApWrapper2 implements IApWrapper {
       probeResult.candidateCount !== 1 ||
       !probeResult.candidateIds?.[0]
     ) {
-      return { customContent: undefined, probeResult, directFetchStatus: 'not_found' };
+      return { customContent: undefined, probeResult, directFetchStatus: 'not_found', ...directDiagnostics };
     }
     const recoveredId = probeResult.candidateIds[0];
     const recovered = await this.getCustomContentByIdV2(recoveredId);
     if (!recovered) {
-      return { customContent: undefined, probeResult, directFetchStatus: 'not_found' };
+      return { customContent: undefined, probeResult, directFetchStatus: 'not_found', ...directDiagnostics };
     }
     return {
       customContent: recovered,

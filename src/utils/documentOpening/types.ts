@@ -82,11 +82,10 @@ export interface OpenedDocument {
 export type OpenErrorKind = 'not_found';
 
 /**
- * Shape MUST stay in sync with `Diagram.loadError` in
- * src/model/Diagram/Diagram.ts. That field flows in at runtime (via
- * publishLoadedDiagram in viewerBootstrap.ts) but can't import this type
- * directly — Diagram.ts is a low-level model file and this module already
- * imports Diagram from it, so the literal is duplicated there instead.
+ * Pipeline-internal error contract. This does NOT flow onto Diagram.loadError
+ * directly: loaders convert it into the store-level `DiagramLoadError`
+ * (mapOpenErrorToLoadError in utils/viewerLoadOutcome.ts) at their return, so
+ * the store/recovery-panel layer keeps a single error vocabulary.
  */
 export interface OpenError {
   kind: OpenErrorKind;

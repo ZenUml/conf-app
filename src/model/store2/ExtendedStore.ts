@@ -6,6 +6,10 @@ import EventBus from "@/EventBus";
 
 const ExtendedStore: StoreOptions<RootState> = {
   mutations: {
+    setViewerLoadState(state: RootState, payload: { viewerLoadState: RootState['viewerLoadState']; loadError?: RootState['loadError'] }) {
+      state.viewerLoadState = payload.viewerLoadState;
+      state.loadError = payload.loadError ?? null;
+    },
     updateCode2(state: any, payload: any) {
       state.diagram.code = payload
     },
@@ -65,6 +69,8 @@ const ExtendedStore: StoreOptions<RootState> = {
     // it shows a terminal error instead of spinning forever. Only ForgeEmbedViewer
     // reads it; other viewers ignore it.
     diagramLoadComplete: false,
+    viewerLoadState: null,
+    loadError: null,
     publishBlock: null,
     error: null,
     onElementClick: (codeRange: any) => {

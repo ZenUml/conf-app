@@ -90,7 +90,7 @@ describe('OpenApiViewer', () => {
 
   describe('loadError terminal state (Diagram.loadError, slice 1)', () => {
     it('shows a terminal message instead of the example spec when loadError is already set at mount', () => {
-      store.state.diagram = { ...NULL_DIAGRAM, loadError: { kind: 'not_found', indeterminate: false } };
+      store.state.diagram = { ...NULL_DIAGRAM, loadError: { directFetchStatus: 'not_found', errorClass: 'structured' } };
 
       const wrapper = mount(OpenApiViewer, {
         global: { plugins: [store] },
@@ -109,7 +109,7 @@ describe('OpenApiViewer', () => {
       });
       swaggerMock.updateSpec.mockClear();
 
-      store.state.diagram = { ...NULL_DIAGRAM, loadError: { kind: 'not_found', indeterminate: false } };
+      store.state.diagram = { ...NULL_DIAGRAM, loadError: { directFetchStatus: 'not_found', errorClass: 'structured' } };
       await wrapper.vm.$nextTick();
 
       expect(wrapper.text()).toContain("This diagram isn't available");
@@ -130,7 +130,7 @@ describe('OpenApiViewer', () => {
     it('still reports macro_viewed on a failed load — readership metric, not success-only', async () => {
       const wrapper = mount(OpenApiViewer, { global: { plugins: [store] } });
 
-      store.state.diagram = { ...NULL_DIAGRAM, loadError: { kind: 'not_found', indeterminate: false } };
+      store.state.diagram = { ...NULL_DIAGRAM, loadError: { directFetchStatus: 'not_found', errorClass: 'structured' } };
       store.state.diagramLoadComplete = true;
       await wrapper.vm.$nextTick();
 

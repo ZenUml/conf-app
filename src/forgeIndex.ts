@@ -32,6 +32,8 @@ import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
+import { applyViewerLoadOutcome, mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
+import type { DiagramLoadError } from '@/model/store2/types';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import { isSequenceFamilyEntry } from '@/utils/macroEntryRouting';
@@ -298,6 +300,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const isAsyncApi = context.moduleKey.startsWith('zenuml-asyncapi-macro') || isAsyncApiEmbed || context.extension.modal?.diagramType === 'asyncapi';
 
     let doc: Diagram | undefined;
+    let ccLoadError: DiagramLoadError | null = null;
     let legacyLoadBlocked = false;
     const customContentId = context.extension?.config?.customContentId || context.extension.modal?.customContentId;
     originalCustomContentId = customContentId;
@@ -498,6 +501,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         // content-property fallback below try storageUuid before we mount an
         // empty/example doc and risk a destructive save.
         reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, { recoveryUsed: false });
+        ccLoadError = mapCustomContentLoadError(loaded);
       }
 
       // Diagram source snapshot attachments (docs/superpowers/plans/
@@ -876,8 +880,17 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       ? (await import("@/components/Workspace.vue")).default
       : (await import("@/components/DiagramPortal.vue")).default;
 
+      const mountDoc = editable
+        ? doc
+        : applyViewerLoadOutcome({
+            doc,
+            customContentId,
+            loadError: ccLoadError,
+            macroKind,
+          });
+
       //@ts-ignore
-      mountRoot(doc, component, { autoResize: !editable && !fullscreenMode });
+      mountRoot(mountDoc, component, { autoResize: !editable && !fullscreenMode });
 
       if (editable) {
         const isNew = !customContentId;

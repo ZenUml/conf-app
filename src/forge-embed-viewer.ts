@@ -6,7 +6,8 @@ import EventBus from './EventBus'
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
 import { Diagram, getDiagramData } from "@/model/Diagram/Diagram";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
-import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
+import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/viewerBootstrap';
+import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
 import { parseEmbedDeeplink } from '@/utils/embedDeeplink';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { AnalyticsProperties } from '@/utils/analytics/types';
@@ -18,10 +19,11 @@ const AUTOCONVERT_ANALYTICS_PROPS = {
   source: 'autoconvert_link',
 } as const satisfies AnalyticsProperties;
 
-export async function loadDiagram(): Promise<Diagram | undefined> {
+export async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
+  let loadError = null;
   let customContentId = context.extension?.config?.customContentId;
   let autoconvertProps: AnalyticsProperties | undefined;
   const pageId = context.extension?.content?.id;
@@ -60,18 +62,25 @@ export async function loadDiagram(): Promise<Diagram | undefined> {
   }
 
   if (customContentId) {
-    const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId)
-      .catch((error) => {
-        if (autoconvertProps) {
-          trackAnalyticsEvent('embed_autoconvert_failed', {
-            ...autoconvertProps,
-            failure_reason: 'fetch_failed',
-          });
-        }
-        throw error;
+    // loadCustomContentWithOrphanRecovery (not the bare getCustomContentByIdV2
+    // this used before) — brings embed to parity with graph/sequence's orphan
+    // recovery and gives loadError a real probeResult instead of undefined.
+    // It classifies failures into its return shape rather than throwing (same
+    // contract every other caller in this codebase relies on), so the old
+    // 'fetch_failed' autoconvert-analytics reason — which fired on a THROWN
+    // fetch error — no longer has a distinct trigger; those failures now
+    // report as 'target_missing' like any other unresolved id.
+    const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(pageId, customContentId);
+    console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
+    doc = loaded.customContent?.value;
+    if (loaded.recoveredFromOrphanId && doc) {
+      doc.recoveredFromOrphan = true;
+      doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
+      reportOrphanObserved(pageId, customContentId, 'embed', loaded.probeResult, {
+        recoveryUsed: true,
+        recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
       });
-    console.log('loadDiagram - customContent', customContent);
-    doc = customContent?.value;
+    }
     if (doc && autoconvertProps) {
       // Resolution proves the referenced document loaded, not that pixels
       // painted. `macro_viewed` remains the rendered-view signal.
@@ -84,16 +93,8 @@ export async function loadDiagram(): Promise<Diagram | undefined> {
           failure_reason: 'target_missing',
         });
       }
-      // ZEN-1170 telemetry. #147: the original call passed the arguments in the
-      // WRONG order — (apWrapper, pageId, customContentId, 'embed') against the
-      // real signature (pageId, orphanId, diagramKind, probeResult, options) —
-      // so every embed orphan event was mislabeled (diagram_kind became the
-      // customContentId and page_id became an ApWrapper object). The embed
-      // viewer fetches the doc directly via getCustomContentByIdV2 (no orphan
-      // probe), so there is no probeResult to pass — undefined makes
-      // reportOrphanObserved emit the reduced "probe_skipped_no_probe_result"
-      // shape with the correct diagram_kind='embed'.
-      reportOrphanObserved(pageId, customContentId, 'embed', undefined, { recoveryUsed: false });
+      reportOrphanObserved(pageId, customContentId, 'embed', loaded.probeResult, { recoveryUsed: false });
+      loadError = mapCustomContentLoadError(loaded);
     }
   }
 
@@ -120,7 +121,7 @@ export async function loadDiagram(): Promise<Diagram | undefined> {
     }
   }
 
-  return doc;
+  return { doc, loadError };
 }
 
 function afterLoad(doc: Diagram | undefined) {

@@ -121,9 +121,17 @@ async function initializeCriticalPath() {
       return { macroData: null };
     }
 
-    // Check if this is a content byline item route (AI Aide)
+    // Content byline items. Both items share extension.type, so discriminate by
+    // moduleKey (same pattern as the pageBanner route below). The activation
+    // nudge ("View as diagram", zenuml-byline-newuser) routes to its own dialog;
+    // everything else stays the Aide route.
     if (!isOpenedModal && context.extension?.type === 'confluence:contentBylineItem') {
-      await handleAiAideRoute();
+      if (context.moduleKey === 'zenuml-byline-newuser') {
+        const { handleBylineActivationRoute } = await import('./routes/bylineActivation');
+        await handleBylineActivationRoute();
+      } else {
+        await handleAiAideRoute();
+      }
       return { macroData: null };
     }
 

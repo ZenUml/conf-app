@@ -28,8 +28,12 @@ export const APPS = {
         yqEvalExpr: 'del(.app.licensing)',
       },
       {
-        description: 'Remove confluence:contentBylineItem',
-        yqEvalExpr: 'del(.modules["confluence:contentBylineItem"])',
+        // Key-scoped: keep zenuml-byline-newuser (the activation nudge),
+        // drop only zenuml-byline-aiaide. A whole-module delete here would
+        // also remove newuser — don't reintroduce that.
+        description: 'Remove zenuml-byline-aiaide from confluence:contentBylineItem (keep zenuml-byline-newuser)',
+        yqEvalExpr:
+          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))',
       },
       {
         // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and
@@ -107,6 +111,13 @@ export const APPS = {
         // installs). See the lite block above.
         description: 'Remove Connect lifecycle module (connectModules)',
         yqEvalExpr: 'del(.connectModules)',
+      },
+      {
+        // Key-scoped: keep zenuml-byline-newuser (the activation nudge),
+        // drop only zenuml-byline-aiaide. Mirrors the lite block above.
+        description: 'Remove zenuml-byline-aiaide from confluence:contentBylineItem (keep zenuml-byline-newuser)',
+        yqEvalExpr:
+          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))',
       },
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from Full',

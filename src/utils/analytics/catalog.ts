@@ -215,6 +215,12 @@ export type AnalyticsEventName =
   | "upgrade_feature_enabled"
   | "paywall_continue_used"
   | "paywall_attempts_exhausted"
+  // Last-continue commitment beat (paywall-rhythm W1): when only one continue
+  // attempt remains, the plain Continue link is replaced by a three-option
+  // commitment prompt (degrees of yes — no "no" option). `commitment_answer`
+  // records which path the user picked; the paywall's effectiveness at its
+  // final metered step is unmeasurable without it.
+  | "paywall_commitment_answered"
   // Fires once per Lite paywall gate evaluation (editor + fullscreen-viewer
   // mount), whether or not the gate fired. Direct instrumentation for the #302
   // fail-open leak: `gate_fired` + `macro_count` + `macro_count_source` let us

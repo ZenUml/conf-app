@@ -75,6 +75,14 @@ export type AnalyticsProperties = {
   paywall_policy_source?: PaywallPolicySource;
   space_paid?: boolean;
   space_paid_scope?: 'user_license' | 'space_license' | 'paid_rail';
+  // paywall-rhythm W1: which path the user picked on the last-continue
+  // commitment prompt. 'continue_last' burns the final attempt; 'unlock' and
+  // 'ask_admin' route to the bundle CTA / advocacy copy without burning it.
+  commitment_answer?: 'unlock' | 'ask_admin' | 'continue_last';
+  // paywall-rhythm W2: which tier of investment-mirror copy was shown with
+  // this event. 'space' ships first (client-side macro count); 'personal' and
+  // 'team' arrive with the /api/user-diagram-stats endpoint.
+  mirror_level?: 'personal' | 'space' | 'team';
   is_lite?: boolean;
   cta_position?: "primary" | "secondary";
   feature_name?: string;

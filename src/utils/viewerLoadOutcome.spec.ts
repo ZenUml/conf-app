@@ -62,7 +62,13 @@ describe('viewerLoadOutcome', () => {
     });
     expect(store.state.viewerLoadState).toBe('failed_with_source');
     expect(store.state.loadError).toEqual({ directFetchStatus: 'not_found' });
-    expect(store.state.diagram).toStrictEqual(NULL_DIAGRAM);
+    // The published diagram carries the load error too — components that
+    // receive it as a `doc` prop (OpenApiViewer in the embed host / editor
+    // preview) key their terminal state off diagram.loadError.
+    expect(store.state.diagram).toStrictEqual({
+      ...NULL_DIAGRAM,
+      loadError: { directFetchStatus: 'not_found' },
+    });
   });
 
   it('maps thrown load errors to structured diagnostics', () => {

@@ -156,7 +156,12 @@ describe('viewerBootstrap', () => {
       errorClass: 'thrown',
       errorCode: 'network down',
     });
-    expect(store.state.diagram).toStrictEqual(NULL_DIAGRAM);
+    // publishLoadedDiagram attaches the load error to the published diagram
+    // (the `doc`-prop channel OpenApiViewer reads) alongside the store slots.
+    expect(store.state.diagram).toStrictEqual({
+      ...NULL_DIAGRAM,
+      loadError: store.state.loadError,
+    });
   });
 
   it('marks rejected loadDiagram as failed_without_source when no custom content id exists', async () => {
@@ -259,9 +264,15 @@ describe('viewerBootstrap', () => {
     await bootstrapForgeViewer({
       macroKind: 'openapi',
       content: Component,
-      loadDiagram: vi.fn(async () => ({ doc: undefined, loadError: { kind: 'not_found' as const, indeterminate: false } })),
+      loadDiagram: vi.fn(async () => ({
+        doc: undefined,
+        loadError: { directFetchStatus: 'not_found' as const, errorClass: 'structured' as const },
+      })),
     });
-    expect(store.state.diagram).toEqual({ ...NULL_DIAGRAM, loadError: { kind: 'not_found', indeterminate: false } });
+    expect(store.state.diagram).toEqual({
+      ...NULL_DIAGRAM,
+      loadError: { directFetchStatus: 'not_found', errorClass: 'structured' },
+    });
     expect(store.state.diagramLoadComplete).toBe(true);
   });
 });

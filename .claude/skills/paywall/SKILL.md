@@ -7,11 +7,32 @@ description: Manage the ZenUML Lite paywall rollout (Lite variant only — Full 
 
 This skill covers the Lite variant only. Full and Diagramly have no in-app restrictions.
 
+## Default-on semantics (2026-08-07, lite-paywall-default-on)
+
+The Lite paywall is now **on by default for every Lite tenant**. `CUSTOMER_SUCCESS_SERVICE`
+(CSS, Step 1 below) is **no longer the live paywall gate** — it is only the daily
+macro-count snapshot enrollment list. The runtime gate is a separate KV value,
+`PAYWALL_EXEMPTIONS`, in the same `KV_FEATURE_FLAGS` namespace:
+
+- absent from `PAYWALL_EXEMPTIONS` → tenant gets the default-on paywall (warn 85 / block 100);
+- an exact domain key set to `true` → that tenant is exempt (unrestricted);
+- `"*": true` → fleet-wide kill switch, every tenant is exempt;
+- `false` values are the same as absent — not exempt;
+- read/write with `python3 .claude/skills/paywall/scripts/paywall_exemptions.py get|put '<json>'`
+  (same namespace as `css_flag.py`, key `PAYWALL_EXEMPTIONS`, boolean-only values enforced
+  before any write reaches KV).
+
+Do not read `-x-` soft-disabled CSS keys (Step 1's convention below) as the live
+disable mechanism anymore — that convention now only affects snapshot enrollment. A
+tenant's real paywall state comes from `PAYWALL_EXEMPTIONS`, not CSS. See
+`docs/superpowers/specs/2026-08-04-lite-paywall-default-on-design.md` for the full
+design and rollout gates.
+
 ## Default Behaviour (no arguments)
 
 When invoked with no description or extra prompt, run **both** the daily monitoring and A/B impact analysis automatically:
 
-1. Read the current CSS flag (Step 1) — the live CSS flag is the authoritative domain list
+1. Read the current CSS flag (Step 1) — CSS is the snapshot-enrollment list, kept for the tenant-data gathering steps below; it is NOT the live paywall gate (see **Default-on semantics** above — that's `PAYWALL_EXEMPTIONS`)
 2. Run the parallel Mixpanel queries for the last 1 day (Step 2 below) — Q1–Q4 in parallel, then Q5 for domains with blocks or high save volume
 3. Build the domain table and suggest next steps
 4. Run the **A/B Impact Analysis** section — measures paywall friction against control tenants
@@ -25,12 +46,12 @@ When debugging a specific tenant (version drift, missing paywall, odd events), u
 
 ## Rollout States
 
-Every Lite tenant sits in one of three states. Your job is to determine which state each tenant is in and recommend the next action.
+Every Lite tenant sits in one of three states. Your job is to determine which state each tenant is in and recommend the next action. The "gate" column is `PAYWALL_EXEMPTIONS` (see **Default-on semantics** above), not CSS — CSS only decides snapshot enrollment.
 
-| State | CSS | What user sees |
+| State | Gate (`PAYWALL_EXEMPTIONS`) | What user sees |
 |-------|-----|----------------|
-| **Unrestricted** | ❌ | No paywall at all |
-| **Paywall on** | ✅ | Warning at 85 macros (per space), blocked at 100 macros (per space). `UpgradePrompt` when an edit is blocked. The user gets **15 "continue editing" attempts per user+space** before the modal hard-blocks (continue button disappears, replaced by "Request extension to continue editing") — see **Continue-attempts gate** below. |
+| **Unrestricted (exempt)** | domain or `"*"` set to `true` | No paywall at all |
+| **Paywall on (default)** | absent or `false` | Warning at 85 macros (per space), blocked at 100 macros (per space). `UpgradePrompt` when an edit is blocked. The user gets **15 "continue editing" attempts per user+space** before the modal hard-blocks (continue button disappears, replaced by "Request extension to continue editing") — see **Continue-attempts gate** below. |
 | **Licensed** | any | Space paid via KV license — restrictions bypassed entirely |
 
 ## Continue-attempts gate (added 2026-06-02, `v2026.06.02-lite`)
@@ -87,6 +108,7 @@ Output is a JSON object — `{"zenuml-stg":true,"tenant-a":true,...}` — keys a
 | Resource | Value |
 |----------|-------|
 | CSS flag KV namespace (`KV_FEATURE_FLAGS` — CSS flag only, NOT space licenses) | `fe9042cb20994651b0a2ef9e68f9037c` |
+| `PAYWALL_EXEMPTIONS` KV key (same namespace, production only — see **Default-on semantics** above) | `python3 .claude/skills/paywall/scripts/paywall_exemptions.py get\|put '<json>'` |
 | D1 production DB | `conf-zenuml-prod` |
 | metrics-inspect URL | `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>&addonKey=com.zenuml.confluence-addon-lite` |
 | Mixpanel project ID | `3373228` (full reference: the **mixpanel** skill) |
@@ -141,6 +163,8 @@ The legacy MCP-based approach below is preserved for the cases where the script 
 ```json
 "breakdowns": [{"metric": {"type": "property", "propertyName": "client_domain", "propertyType": "string", "resource": "event"}}]
 ```
+
+**Filter shapes (MCP fallback, verified 2026-07-28):** string filters take a SINGLE value — no arrays (`{"type":"string","propertyName":"client_domain","operator":"equals","value":"<one-domain>"}`). For a domain list, either breakdown by `client_domain` and filter rows client-side, or use one metric per domain with metric-level `filters`. Boolean filters need both operator and value: `{"type":"boolean","propertyName":"is_internal_client_domain","operator":"false","value":false}`. For per-editor (champion-structure) breakdowns use `user_account_id` — breaking down by `distinct_id` returns a single `"undefined"` bucket.
 
 The daily script runs these events in parallel internally.
 
@@ -605,3 +629,53 @@ Apply proposed improvements directly to the skill file without asking for confir
 | Space license endpoint | `functions/api/space-status.ts`, `functions/api/space-license.ts` |
 | Pricing tiers + cost formula | `docs/pricing-model.yml` |
 | Is a specific tenant already paying / on a trial? | `tenant` skill — `whois <domain>` (single-tenant lookup, incl. Lite Layer-B) |
+
+## How the Lite paywall actually enforces (don't misread this as a bug)
+
+It is a **metered soft-paywall, and the number in "Continue editing without upgrading (N)" IS the gate.**
+`DEFAULT_CONTINUE_ATTEMPTS = 15`; each click decrements N and lets the user reach the editor and
+**save normally — saves persisting during the grace window is BY DESIGN, not a leak.** When N hits 0,
+the Continue-editing button is replaced by non-clickable "Request extension to continue editing"
+(`UpgradePrompt.vue`, `canContinueEditing = remainingContinueAttempts > 0`), and the modal can no
+longer be dismissed into the editor → user is locked out.
+
+So `saveToPlatform` deliberately has **no** `shouldBlockActions` check — access is gated at the modal
+via the counter, not at the persistence layer. (The "save is gated in the persistence layer" code
+comments are misleading wording; ignore them.)
+
+The only real weakness: the counter is `localStorage`-keyed
+(`paywallContinueAttempts:domain:space:user`), so clearing storage/incognito resets it to 15 — a minor
+client-side soft spot, NOT a missing save-gate.
+
+### Skipping the paywall on an over-limit Lite space
+
+When the paywall modal appears at editor mount (e.g. inserting/editing a Lite macro on an over-limit
+space like `ZEN` or `SD`), click the modal's **"Continue editing"** button to proceed into the editor.
+This is the intended in-product bypass — do NOT read paywall code or hunt for `localStorage` overrides
+(`mockSpacePaid` etc.) to suppress it.
+
+**The modal DOM lives INSIDE the Forge iframe, not the top-level page.** Detecting it with
+`page.evaluate(() => document.body.innerText)` on the Confluence page returns nothing and reads as
+"no paywall" — that false negative cost a wrongly-abandoned spot check on 2026-07-25. Find the frame
+first, then assert/click inside it:
+
+```js
+const host = page.frames().find(async f => /reached the ZenUML Lite limit/i.test(await f.evaluate(() => document.body?.innerText || '')));
+await host.locator('[data-testid="continue-editing-btn"]').first().click();  // label: "Continue editing without upgrading (N)"
+```
+
+Two gotchas once you're through: the Graph editor is **two** nested frames (app chrome with
+`Name your graph…` + the DrawIO canvas frame with `.geDiagramContainer` and Publish) — `page.frames()`
+returns them flattened, so locate each by content rather than chaining `.contentFrame()`. And
+`page.keyboard.type()` after a shape insert can land in the **title input** instead of the shape label,
+which silently defeats any empty-title (AI auto-title) assertion — always re-read the title field
+before publishing.
+
+If `N = 0`, the counter is exhausted and the continue button is gone; reset it by deleting
+`paywallContinueAttempts:<domain>:<space>:<accountId>` from the **iframe origin's** localStorage.
+
+### Staging paywall test data
+
+On `lite-stg`, the large space over the 100-macro limit (the one that triggers the paywall) is **`SD`**
+(~1230 macros) — same setup as the `zenuml` instance. Use `SD` when you need a real over-threshold Lite
+space to verify paywall or macro-count behaviour, instead of re-discovering it each time.

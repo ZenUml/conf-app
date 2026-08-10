@@ -4,7 +4,9 @@ import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
 import { toast } from '@/utils/toast';
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
-import { decideWriteback } from "@/model/writebackGate";
+import { decideWriteback, deriveWritebackSignals } from "@/model/writebackGate";
+import { decidePublishBlock, PUBLISH_BLOCK_MESSAGES } from "@/model/editDupGate";
+import { guardEditClick } from "@/utils/guardEditClick";
 import { resolveAsyncApiEditorEntry } from "@/model/asyncapi/resolveEditorEntry";
 
 import './assets/tailwind.css'
@@ -21,6 +23,7 @@ import { handleAiAideRoute } from './routes/aiAide';
 import { decidePageBanner, handlePageBannerRoute } from './routes/pageBanner';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { maybeProbeSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
+import { maybeSendFirstSeenPing } from '@/utils/firstSeen/firstSeenPing';
 import { refreshUserCohortsIfStale } from '@/utils/cohorts/userCohorts';
 import { isPrefetchDue } from '@/utils/prefetch/throttle';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
@@ -31,6 +34,7 @@ import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { isSequenceFamilyEntry } from '@/utils/macroEntryRouting';
 import {
   reportLegacyContentPropertyRestored,
   reportLegacyContentPropertyLoadFailed,
@@ -40,6 +44,7 @@ import {
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
+import { maybeGateViewerRender, awaitGateBlocking, getGateMode } from '@/utils/renderGate/maybeGateViewerRender';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -145,6 +150,17 @@ async function initializeCriticalPath() {
       // would abort the in-flight REST call — and never throws.
       await maybeProbeSpaceAdmin();
 
+      // M1 first-seen ping (onboarding Phase 1): one authenticated POST per
+      // browser per tenant per 30 days, resolving the tenant domain for
+      // installs where nobody ever opens a macro, and producing the per-account
+      // census (P3 denominator). All variants — this is deliberately NOT
+      // Lite-gated like the admin probe. Placed before decidePageBanner() so a
+      // load that SHOWS a banner still counts toward the census (deviation
+      // from the spec's literal "none path" — recorded in deviation-log.md).
+      // Awaited for the same reason as the probe: view.close() aborts
+      // in-flight requests. Never throws.
+      await maybeSendFirstSeenPing();
+
       const choice = decidePageBanner();
       if (choice === 'none') {
         // Idle renderer prefetch (EAG-64): the banner mounts on every page —
@@ -245,24 +261,18 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         .catch(e => console.warn('[paywall-banner] targeting refresh failed', e));
     }
 
-    let doc: Diagram | undefined;
-    let legacyLoadBlocked = false;
-    const customContentId = context.extension?.config?.customContentId || context.extension.modal?.customContentId;
-    originalCustomContentId = customContentId;
-    recoveryPageId = context.extension?.content?.id;
-    // ZEN-1170 Defect 1: see forge-graph-editor.ts for why this uses
-    // config.uuid and not forgeGlobal.localId.
-    const storageUuid: string | undefined = context.extension?.config?.uuid;
-
-    // Sequence-family discriminator, hoisted up from its original single
-    // call site (still used unchanged further below, around the isSequence/
-    // isGraph/isEmbed/isAsyncApi routing block) so the copyCheckMode gate
-    // immediately below can reuse the SAME condition rather than re-deriving
-    // it. Graph/embed/asyncapi viewers route to their own entry file
-    // (forge-graph-viewer.ts etc. below) which re-loads its own doc from
-    // scratch and never sees the `doc` fetched in this function — so they
-    // must keep the default full check on their own loads.
-    const isSequence = context.moduleKey.startsWith('zenuml-sequence-macro') || context.moduleKey.startsWith('gpt-diagram-macro') || context.extension.modal?.diagramType === 'sequence' || context.extension.modal?.diagramType === 'mermaid';
+    // Macro-type discriminators. context.moduleKey and the modal diagramType are
+    // already available here, so compute them BEFORE the custom-content load.
+    // Only the sequence family (sequence/mermaid/plantuml, under the
+    // zenuml-sequence-macro module) is rendered by forgeIndex itself; graph,
+    // openapi, embed and asyncapi delegate to a dedicated viewer/editor (see the
+    // dispatch below) that owns BOTH the custom-content load AND the
+    // `customcontent_orphan_observed` telemetry. Loading the doc here for those
+    // types was dead work AND fired a SECOND, mislabeled orphan event
+    // (diagram_kind pinned to 'sequence'), doubling the orphan dashboards for
+    // openapi/graph/embed. The load block below is therefore gated on isSequence.
+    // See src/utils/macroEntryRouting.ts.
+    const isSequence = isSequenceFamilyEntry(context.moduleKey, context.extension.modal?.diagramType);
     const isGraph = context.moduleKey.startsWith('zenuml-graph-macro');
     const isEmbed = context.moduleKey.startsWith('zenuml-embed-macro');
     // AsyncAPI ships two macros — `zenuml-asyncapi-macro` (page-rendered
@@ -279,6 +289,15 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // swagger editor.
     const isAsyncApi = context.moduleKey.startsWith('zenuml-asyncapi-macro') || isAsyncApiEmbed || context.extension.modal?.diagramType === 'asyncapi';
 
+    let doc: Diagram | undefined;
+    let legacyLoadBlocked = false;
+    const customContentId = context.extension?.config?.customContentId || context.extension.modal?.customContentId;
+    originalCustomContentId = customContentId;
+    recoveryPageId = context.extension?.content?.id;
+    // ZEN-1170 Defect 1: see forge-graph-editor.ts for why this uses
+    // config.uuid and not forgeGlobal.localId.
+    const storageUuid: string | undefined = context.extension?.config?.uuid;
+
     // Viewer surfaces skip the full-page ADF scan entirely: the zero-network
     // cross-page comparison (ApWrapper2.detectCrossPageCopy) preserves the
     // cross-page banner and Edit gating, while same-page-duplicate detection
@@ -290,6 +309,24 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       context.extension.modal?.macroMode === 'editor' ||
       !!context.extension?.macro?.isConfiguring;
     const copyCheckMode = isSequence && !isEditorish ? ('cross-page-only' as const) : ('full' as const);
+
+    // ── Viewport render gate (#382) ──────────────────────────────────────────
+    // Plain sequence-family VIEWER only (same scope as the content-SWR block
+    // below): on a many-macro page all iframes co-boot within ~20ms and their
+    // CPU work serializes on the shared renderer main thread (measured on
+    // lite-dev: warm solo 1.3s vs 16-macro 5.3s per macro). The gate defers
+    // the heavy mount until this macro is in/near the top-level viewport
+    // (IntersectionObserver implicit root — works from a cross-origin
+    // iframe), with a jittered background fill so offscreen macros — and
+    // no-scroll consumers like snapshot backfill — still render. Zero
+    // cross-macro communication; fail-open everywhere; flag-gated
+    // (viewport-gated-render, fail-closed, localStorage-cached verdict).
+    // Started here (pre-fetch) so observers and the flag refresh run
+    // concurrently with the content load; awaited at the mount points.
+    const viewerGatePromise: Promise<void> | null =
+      isSequence && !(await isEditorMode()) && !(await isFullscreenMode())
+        ? maybeGateViewerRender()
+        : null;
 
     // ── Content SWR: cache-first render on a viewer revisit ──────────────────
     // Most macro views are revisits of unchanged content (measured: ~66% of
@@ -321,6 +358,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // critical path, same as the fetch itself.
     // See utils/renderCache/contentCacheStore.ts.
     const mountSequenceViewer = async (viewerDoc: Diagram) => {
+      // #382: hold the mount until the viewport gate releases (the gate shows
+      // its own shimmer placeholder while holding — index.html has no real
+      // skeleton element). awaitGateBlocking also records the ACTUAL wait at
+      // this mount site as render_deferred_ms. Resolved instantly when the
+      // flag is off; already-resolved for the revalidate re-mount.
+      await awaitGateBlocking(viewerGatePromise);
       const skeleton = document.getElementById('skeleton-loader');
       if (skeleton) skeleton.style.display = 'none';
       const { mountRoot } = await import('@/mount-root');
@@ -381,8 +424,26 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           // @ts-ignore - cachedDoc may be a partial spread type; matches the happy-path mount below
           const viewerDoc: Diagram = cachedDoc.plantUmlCode ? cachedDoc : { ...cachedDoc, plantUmlCode: Example.PlantUml };
           renderPerf.markContentSource('swr_cache');
+          // Revalidate BEFORE the (possibly gated) mount: an offscreen macro
+          // must not delay its freshness check / orphan reporting / snapshot
+          // backfill until the viewport gate releases (#384 review F4). If
+          // the content changed, revalidate's own mountSequenceViewer call
+          // awaits the same gate and lands after this cached mount, so the
+          // fresh doc still wins.
+          //
+          // gate_mode='load' (#382, the default) deliberately reverses F4:
+          // on a storm page the revalidate fetches are exactly the broker
+          // load we're trying to shed, and the colesgroup canary showed ~98%
+          // of these mounts are never seen. Freshness/orphan checks still
+          // run — at gate release (≤ background-fill 3–7s later), not
+          // immediately.
+          if (viewerGatePromise && getGateMode() === 'load') {
+            void viewerGatePromise.then(() =>
+              revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash));
+          } else {
+            void revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash);
+          }
           await mountSequenceViewer(viewerDoc);
-          void revalidateSequenceViewer(customContentId, recoveryPageId, cached.hash);
           return; // rendered from cache — skip the live-fetch + mount path entirely
         } catch (e) {
           console.warn('[content-swr] cache hit failed to render; falling back to live fetch', e);
@@ -391,7 +452,16 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       }
     }
 
-    if (customContentId) {
+    if (isSequence && customContentId) {
+      // gate_mode='load' (#382, the default): hold the content fetch itself
+      // until the viewport turn, so an offscreen mount costs ~boot+context
+      // until released. viewerGatePromise is null for editors/fullscreen
+      // (await is then a no-op) and render_deferred_ms is recorded HERE
+      // (first await wins), so it means "wait before the load began" and
+      // fetch_ms stays a clean network measure starting at release.
+      if (getGateMode() === 'load') {
+        await awaitGateBlocking(viewerGatePromise);
+      }
       const loaded = await renderPerf.time('fetch', () =>
         globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId, { copyCheckMode }));
       console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
@@ -478,7 +548,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // state macros (stale customContentId that 404s, but the original legacy
     // body still lives on the page). Without this, a mixed-state macro
     // mounts the example DSL and a save would replace the legacy body.
-    if (!doc && storageUuid) {
+    if (isSequence && !doc && storageUuid) {
       const result = await globals.apWrapper.getContentPropertyV2(
         `zenuml-sequence-macro-${storageUuid}-body`,
       );
@@ -568,7 +638,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // SOURCE page, titled with the uuid. Without this fallback the editor
     // would mount Example.Sequence and a first save would silently wipe
     // the recovered diagram the viewer is showing (PR #139 viewer step 3).
-    if (!doc && storageUuid) {
+    if (isSequence && !doc && storageUuid) {
       const recovered = await globals.apWrapper.findLegacyCustomContentByUuid(storageUuid);
       if (recovered?.value) {
         doc = recovered.value;
@@ -617,10 +687,10 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // blocked-doc branch below MUST be the one that runs — otherwise the
     // placeholder NULL_DIAGRAM would erase the sentinel and persistence
     // would happily save an empty doc over the legacy body.
-    if (!doc && customContentId && !legacyLoadBlocked) {
+    if (isSequence && !doc && customContentId && !legacyLoadBlocked) {
       doc = { ...NULL_DIAGRAM };
     }
-    if (!doc) {
+    if (isSequence && !doc) {
       if (legacyLoadBlocked) {
         // Mount a degraded, save-blocked diagram. Persistence layer will
         // refuse the save; the user sees the editor but cannot destroy the
@@ -668,8 +738,10 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       wipePrecursorActiveFieldEmpty = !activeField;
     }
 
-    // Backfill default PlantUML DSL for existing diagrams created before PlantUML support
-    if (!doc.plantUmlCode) {
+    // Backfill default PlantUML DSL for existing diagrams created before PlantUML
+    // support. `doc` is only populated for the sequence family above; non-sequence
+    // types leave it undefined (the dedicated entry loads their doc), so guard.
+    if (doc && !doc.plantUmlCode) {
       doc = { ...doc, plantUmlCode: Example.PlantUml };
     }
 
@@ -705,6 +777,29 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       // Ensure session is initialized
       getOrCreateSession();
 
+      // Editor-side backstop for the in-viewer Edit gate (model/editDupGate.ts):
+      // if a copy-flagged doc still reached a surface where view.submit({config})
+      // cannot persist (gate fail-open, staleness-hint CTA, any other
+      // non-submittable entry), saving would fork a CC nothing references —
+      // #170's gate then silently view.close()s and the edit vanishes from the
+      // page. Disable Publish up front instead (Header.vue + the 'save'
+      // handler both read store.state.publishBlock).
+      const publishBlock = decidePublishBlock({
+        isCopy: !!doc?.isCopy,
+        copyReason: (doc as any)?.copyReason,
+        inserting: !!context.extension?.macro?.isInserting,
+        configuring: !!context.extension?.macro?.isConfiguring,
+      });
+      if (publishBlock) {
+        store.commit('setPublishBlock', publishBlock);
+        trackAnalyticsEvent('editor_publish_blocked_fork_unlinkable', {
+          feature_area: 'macro',
+          surface: 'editor',
+          macro_type: (doc?.diagramType as MacroTypeValue) || 'sequence',
+          copy_reason: publishBlock,
+        });
+      }
+
       // Wipe-precursor telemetry: fire only in editor mode so the signal
       // isn't drowned by viewer page-view volume. The captured state above
       // reflects the RAW loaded doc before any backfill.
@@ -718,15 +813,23 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       }
     }
 
+    // #382: gated fetch-path viewer renders wait here (the gate shows its own
+    // shimmer placeholder while holding — index.html has no real skeleton
+    // element). Null for editors/fullscreen/non-sequence; resolved for
+    // SWR-hit renders (mountSequenceViewer already awaited it above).
+    // awaitGateBlocking records the actual mount wait as render_deferred_ms.
+    await awaitGateBlocking(viewerGatePromise);
+
     // Hide skeleton loader before mounting the actual content
     const skeletonLoader = document.getElementById('skeleton-loader');
     if (skeletonLoader) {
       skeletonLoader.style.display = 'none';
     }
 
-    // isSequence / isGraph / isEmbed / isAsyncApiEmbed / isAsyncApi are
-    // computed earlier now (hoisted above the customContentId load so the
-    // P1.1 ADF-scan deferral gate can reuse them — see the comment there).
+    // isSequence / isGraph / isEmbed / isAsyncApiEmbed / isAsyncApi are computed
+    // earlier now (hoisted above the customContentId load) so BOTH the P1.1
+    // ADF-scan deferral gate AND the sequence-family load/telemetry gate reuse
+    // them — see that block for the rationale.
 
     if(isSequence) {
       const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';
@@ -922,6 +1025,20 @@ EventBus.$on('edit', async(params: any) => {
   // and the pre-edit paywall gate can fire. Without this the modal opens a blank
   // new diagram and the paywall check is skipped entirely.
   const customContentId = context.extension?.config?.customContentId;
+
+  // In-viewer Edit gate (utils/guardEditClick.ts): when this macro's id is
+  // shared by another macro on the page, saving from the modal forks a CC that
+  // can never be linked back (writebackGate.ts / #170) — refuse BEFORE the
+  // modal opens. Every viewer type now loads with the zero-network
+  // 'cross-page-only' copy check, so the click is where same-page duplicates
+  // are caught, for ALL types. The guard memoizes its page-ADF scan because
+  // this shared-entry listener and each type's own 'edit' listener both fire
+  // on one click.
+  if (!(await guardEditClick({
+    customContentId,
+    macroType: (store.state.diagram?.diagramType as MacroTypeValue) || 'sequence',
+  }))) return;
+
   const journeyId = startEditJourney(macroUuid, 'dialog');
   const journeyStartTime = getEditJourneyStartTime();
   
@@ -953,6 +1070,14 @@ import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
 installRestoreDraftBanner();
 
 EventBus.$on('save', async () => {
+  // Belt for the publishBlock backstop (model/editDupGate.ts): Publish is
+  // disabled in Header.vue when set, but keyboard shortcuts / racy emits can
+  // still reach here. Refuse outright rather than forking an unreferenced CC.
+  if (store.state.publishBlock) {
+    toast({ message: PUBLISH_BLOCK_MESSAGES[store.state.publishBlock], duration: 8000 });
+    EventBus.$emit('save-error', new Error(`publish blocked: ${store.state.publishBlock}`));
+    return;
+  }
   // Start the publish-latency clock at the save-handler entry — EventBus.$emit
   // ('save') fires synchronously from the Publish click (Header.vue saveAndExit),
   // so this is effectively the click instant. Stopped at the redirect below.
@@ -1051,26 +1176,7 @@ EventBus.$on('save', async () => {
     }
   }
 
-  // ZEN-1170 Defect 2b: repair stale macro XML when we saved against the
-  // recovered sibling id. view.submit({config:...}) only persists back to
-  // the macro XML in surfaces where the parent is the macro-config editor —
-  // i.e. inserting a new macro or editing via the in-page "edit macro params"
-  // affordance (isConfiguring). In viewer-launched modals the submitted
-  // payload is forwarded to onClose and discarded, so repair would be a
-  // no-op and the telemetry event would be misleading. Gate accordingly.
-  const macroNeedsRepair = !!(originalCustomContentId && id && id !== originalCustomContentId);
-  // ZEN-1170 Defect 1: legacy migration writeback. See forge-graph-editor.ts
-  // for the rationale — detect via source rather than a parallel flag, so we
-  // reuse Defect 2b's writeback path without adding new Diagram fields.
-  const legacyMacroNeedsRepair = !originalCustomContentId
-    && (store.state.diagram?.source === DataSource.ContentProperty
-        || store.state.diagram?.source === DataSource.ContentPropertyOld
-        // PR #139 same-page recovery — see forge-graph-editor.ts for the
-        // full rationale. Cross-page recovery already writes back via the
-        // idChanged path; this branch only fires when the recovered CC
-        // lives on the same page so save updates in place (idChanged=false).
-        || (store.state.diagram?.source === DataSource.CustomContent
-            && !!(store.state.diagram as any)?.recoveredFromOrphan));
+  // Writeback signal derivation: see deriveWritebackSignals in @/model/writebackGate.
 
   // Run the writeback + close immediately — no artificial delay. The 500ms
   // buffer here used to exist "to give trackEvents time to send", but the
@@ -1084,16 +1190,18 @@ EventBus.$on('save', async () => {
     // repoint the macro at the recovered sibling id, or (d) we migrated a
     // legacy uuid-only macro and must write customContentId for the first time.
     const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
-    const idChanged = !!sourceId && !!id && id !== sourceId;
     // #170: never view.submit in a non-submittable surface — see writebackGate.ts.
-    const { attemptRepair, attemptLegacyMigration, needsWriteback } = decideWriteback({
-      inserting: !!inserting,
-      configuring: !!configuring,
-      idChanged,
-      macroNeedsRepair,
-      legacyMacroNeedsRepair,
-      hasId: !!id,
-    });
+    const { attemptRepair, attemptLegacyMigration, needsWriteback } = decideWriteback(
+      deriveWritebackSignals({
+        sourceId,
+        newId: id,
+        originalCustomContentId,
+        docSource: store.state.diagram?.source,
+        recoveredFromOrphan: !!(store.state.diagram as any)?.recoveredFromOrphan,
+        inserting,
+        configuring,
+      })
+    );
     // Redirect starts now (view.submit / view.close below). Stop the
     // publish-latency clock here so it captures the full user-perceived wait.
     trackPublishCompleted({

@@ -36,7 +36,7 @@ describe('useCustomerSuccessService', () => {
 
   it('exposes spacePaid = true for paid spaces', async () => {
     (callRemote as any).mockResolvedValue({ isPaid: true, source: 'space_license' });
-    (getFeatureFlags as any).mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true });
+    (getFeatureFlags as any).mockResolvedValue({ PAYWALL_EXEMPT: false });
 
     const svc = useCustomerSuccessService();
     await svc.initialize();
@@ -45,7 +45,7 @@ describe('useCustomerSuccessService', () => {
 
   it('exposes spacePaid = false for unpaid spaces', async () => {
     (callRemote as any).mockResolvedValue({ isPaid: false });
-    (getFeatureFlags as any).mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true });
+    (getFeatureFlags as any).mockResolvedValue({ PAYWALL_EXEMPT: false });
 
     const svc = useCustomerSuccessService();
     await svc.initialize();
@@ -55,7 +55,7 @@ describe('useCustomerSuccessService', () => {
   it('shouldBlockActions is true when macroCount >= MACROS_LIMIT and CSS flag is on and isLite', async () => {
     localStorage.setItem('mockMacroCount', '120');
     (callRemote as any).mockResolvedValue({ isPaid: false });
-    (getFeatureFlags as any).mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true });
+    (getFeatureFlags as any).mockResolvedValue({ PAYWALL_EXEMPT: false });
 
     const svc = useCustomerSuccessService();
     await svc.initialize();
@@ -64,6 +64,24 @@ describe('useCustomerSuccessService', () => {
       macroCount: 120,
       spacePaid: false,
       customerSuccessServiceEnabled: true,
+    });
+    expect(svc.paywallPolicySource.value).toBe('default_on');
+    localStorage.removeItem('mockMacroCount');
+  });
+
+  it('an explicit exemption stores the effective boolean (false) on the legacy page-banner marker field', async () => {
+    localStorage.setItem('mockMacroCount', '120');
+    (callRemote as any).mockResolvedValue({ isPaid: false });
+    (getFeatureFlags as any).mockResolvedValue({ PAYWALL_EXEMPT: true });
+
+    const svc = useCustomerSuccessService();
+    await svc.initialize();
+    expect(svc.shouldBlockActions.value).toBe(false);
+    expect(svc.paywallPolicySource.value).toBe('exemption');
+    expect(JSON.parse(localStorage.getItem('paywallWarning:acme.atlassian.net:ENG') || '{}')).toMatchObject({
+      macroCount: 120,
+      spacePaid: false,
+      customerSuccessServiceEnabled: false,
     });
     localStorage.removeItem('mockMacroCount');
   });

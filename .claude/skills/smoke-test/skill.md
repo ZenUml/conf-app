@@ -70,6 +70,46 @@ Full and Diagramly share the exact same display name, so `.filter({ hasText: 'Di
 
 Same disambiguation applies to **Graph (DrawIO)** and **OpenAPI** macros — on multi-install sites, expect 2–3 entries per macro type; pick by description text. If a variant's macro browser entry isn't observable, the app likely isn't installed on that site.
 
+## Lite paywall on over-limit test spaces (e.g. `lite-stg` / `SD`)
+
+`lite-stg`'s `SD` space is deliberately kept over the Lite 100-macro limit (thousands of macros) as
+shared paywall test data (see the **paywall** skill). Every macro-editor mount there shows the
+`UpgradePrompt` modal INSIDE the Forge iframe — handle it unconditionally right after locating the
+modal frame, before any tab/title interaction:
+
+```js
+const draftBanner = frame.locator('[data-zenuml-draft-banner]');
+if (await draftBanner.isVisible({ timeout: 1000 }).catch(() => false)) {
+  await draftBanner.locator('button', { hasText: 'Discard' }).click();  // stale in-progress edit from a prior aborted session
+  await page.waitForTimeout(500);
+}
+const paywallBtn = frame.locator('button', { hasText: 'Continue editing' });
+if (await paywallBtn.first().isVisible({ timeout: 3000 }).catch(() => false)) {
+  await paywallBtn.first().click();
+  await page.waitForTimeout(500);
+}
+```
+
+**Do NOT locate this button with `getByRole('button', { name: ... })`** — it has an
+`aria-label` ("You have N temporary continue attempt left...") that differs entirely from its
+visible text ("Continue editing without upgrading (N)"), so role-based name matching never
+resolves and hangs for the full timeout with no error. Plain tag+text locators bypass this
+(verified 2026-07-27).
+
+**The counter is cumulative, not per test run.** It's `localStorage`-keyed
+`paywallContinueAttempts:<domain>:<spaceKey>:<accountId>` inside the **Forge iframe's origin**
+(`*.cdn.prod.atlassian-dev.net`), default 15, decremented once per click across *all* smoke-test
+runs and manual testing against that (domain, space) pair — a single 5-macro run does not reset it.
+If it hits 0, the button is replaced by non-clickable "Request extension" text. Reset it proactively
+at the start of a run (cheap) rather than discovering exhaustion mid-run:
+
+```js
+const forgeFrame = page.frames().find(f => f.url().includes('cdn.prod.atlassian-dev.net'));
+const keys = await forgeFrame.evaluate(() => Object.keys(localStorage));
+const key = keys.find(k => k.startsWith('paywallContinueAttempts:'));  // find the actual accountId suffix first
+if (key) await forgeFrame.evaluate((k) => localStorage.removeItem(k), key);
+```
+
 ## Page title format (required)
 
 Whenever this skill **creates a new Confluence page**, set the **page title** to:
@@ -244,30 +284,42 @@ browser_run_code code="async (page) => {
   // All variants use custom-ui-fullscreen-modal-dialog. Scope to modal to avoid strict-mode violations.
   await page.waitForTimeout(5000);
   const frame = page.locator('[data-testid=\"custom-ui-fullscreen-modal-dialog\"] [data-testid=\"hosted-resources-iframe\"]').contentFrame();
-  await frame.getByRole('tab', { name: 'Sequence' }).click();  // change tab name as needed
+
+  // Handle stale-draft banner + Lite paywall (see \"Lite paywall\" section above) — do NOT use getByRole here
+  const draftBanner = frame.locator('[data-zenuml-draft-banner]');
+  if (await draftBanner.isVisible({ timeout: 1000 }).catch(() => false)) {
+    await draftBanner.locator('button', { hasText: 'Discard' }).click();
+    await page.waitForTimeout(500);
+  }
+  const paywallBtn = frame.locator('button', { hasText: 'Continue editing' });
+  if (await paywallBtn.first().isVisible({ timeout: 3000 }).catch(() => false)) {
+    await paywallBtn.first().click();
+    await page.waitForTimeout(500);
+  }
+
+  await frame.locator('button', { hasText: 'Sequence' }).click();  // change tab name as needed
   await frame.getByRole('textbox', { name: 'Name your diagram…' }).fill('Test Sequence');
-  await frame.getByRole('button', { name: 'Publish' }).click();
+  await frame.locator('button', { hasText: 'Publish' }).first().click();
 
   // Publish the Confluence page
   // The 'Publish page' confirmation modal may intercept clicks on the toolbar publish-button.
-  // Detect it via the blanket element and click its Publish button directly.
   await page.waitForTimeout(2000);
   await page.getByTestId('publish-button').click();
-  await page.waitForTimeout(500);
-  try {
-    const blanket = page.locator('[data-testid=\"publish-modal--blanket\"]');
-    if (await blanket.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await blanket.locator('..').getByRole('button', { name: 'Publish' }).click();
-    } else {
-      await page.getByRole('button', { name: 'Publish' }).last().click({ timeout: 2000 });
-    }
-  } catch {}
-  await page.waitForURL(/^(?!.*edit-v2)/, { timeout: 30000 });
+  await page.waitForTimeout(1500);
+  const dialogPublish = page.locator('button', { hasText: 'Publish' }).last();
+  if (await dialogPublish.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await dialogPublish.click({ timeout: 5000 });
+  }
+  await page.waitForURL(u => !u.toString().includes('edit-v2'), { timeout: 30000 });
   return page.url();
 }"
 ```
 
 Change `tab: 'Sequence'` → `'Mermaid'` or `'PlantUML'` and title accordingly per macro.
+Use `frame.locator('button', { hasText: ... })` for tabs and Publish buttons throughout —
+`getByRole('tab'/'button', { name })` is unreliable in this app (confirmed 2026-07-27: the tab
+buttons and the page-level "Publish page" confirmation button both intermittently fail role-based
+name matching even though they resolve fine via a plain tag+text locator).
 Swap the variant filter chain per the per-variant recipe in the snippet comments — always include the description-text filter when running on a multi-install site like `zenuml.atlassian.net` (production) where Full and Diagramly share the same display name.
 
 **For Graph (DrawIO):**
@@ -305,6 +357,19 @@ browser_run_code code="async (page) => {
   // DrawIO: double-nested iframe — title in outer, canvas + Publish in inner
   await page.waitForTimeout(8000);
   const outerFrame = page.locator('[data-testid=\"custom-ui-fullscreen-modal-dialog\"] [data-testid=\"hosted-resources-iframe\"]').contentFrame();
+
+  // Handle stale-draft banner + Lite paywall (see \"Lite paywall\" section above) — do NOT use getByRole here
+  const draftBanner = outerFrame.locator('[data-zenuml-draft-banner]');
+  if (await draftBanner.isVisible({ timeout: 1000 }).catch(() => false)) {
+    await draftBanner.locator('button', { hasText: 'Discard' }).click();
+    await page.waitForTimeout(500);
+  }
+  const paywallBtn = outerFrame.locator('button', { hasText: 'Continue editing' });
+  if (await paywallBtn.first().isVisible({ timeout: 3000 }).catch(() => false)) {
+    await paywallBtn.first().click();
+    await page.waitForTimeout(500);
+  }
+
   await outerFrame.getByRole('textbox', { name: 'Name your graph…' }).fill('Test Graph');
   const innerFrame = outerFrame.locator('iframe').contentFrame();
 
@@ -322,12 +387,21 @@ browser_run_code code="async (page) => {
   await page.keyboard.press('Escape');                    // commit the label
   await page.waitForTimeout(800);
 
-  await innerFrame.getByRole('button', { name: 'Publish' }).click();
+  // Re-read the title before publishing — the shape-label typing above can land in the
+  // title field instead if focus didn't move as expected (see paywall skill's Graph gotcha).
+  const titleAfter = await outerFrame.getByRole('textbox', { name: 'Name your graph…' }).inputValue().catch(() => null);
+  if (titleAfter !== 'Test Graph') await outerFrame.getByRole('textbox', { name: 'Name your graph…' }).fill('Test Graph');
+
+  await innerFrame.locator('button', { hasText: 'Publish' }).click();
 
   await page.waitForTimeout(2000);
   await page.getByTestId('publish-button').click();
-  try { await page.getByRole('button', { name: 'Publish' }).last().click({ timeout: 2000 }); } catch {}
-  await page.waitForURL(u => !u.includes('edit-v2'), { timeout: 30000 });
+  await page.waitForTimeout(1500);
+  const dialogPublish = page.locator('button', { hasText: 'Publish' }).last();
+  if (await dialogPublish.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await dialogPublish.click({ timeout: 5000 });
+  }
+  await page.waitForURL(u => !u.toString().includes('edit-v2'), { timeout: 30000 });
   return page.url();
 }"
 ```
@@ -365,14 +439,33 @@ browser_run_code code="async (page) => {
   await page.getByTestId('ModalElementBrowser__insert-button').click();
 
   await page.waitForTimeout(5000);
-  const frame = page.locator('[data-testid=\"hosted-resources-iframe\"]').contentFrame();
+  // MUST scope to the modal wrapper — a bare [data-testid="hosted-resources-iframe"] locator
+  // throws a strict-mode violation here: the page banner also renders one (confirmed 2026-07-27).
+  const frame = page.locator('[data-testid=\"custom-ui-fullscreen-modal-dialog\"] [data-testid=\"hosted-resources-iframe\"]').contentFrame();
+
+  // Handle stale-draft banner + Lite paywall (see \"Lite paywall\" section above) — do NOT use getByRole here
+  const draftBanner = frame.locator('[data-zenuml-draft-banner]');
+  if (await draftBanner.isVisible({ timeout: 1000 }).catch(() => false)) {
+    await draftBanner.locator('button', { hasText: 'Discard' }).click();
+    await page.waitForTimeout(500);
+  }
+  const paywallBtn = frame.locator('button', { hasText: 'Continue editing' });
+  if (await paywallBtn.first().isVisible({ timeout: 3000 }).catch(() => false)) {
+    await paywallBtn.first().click();
+    await page.waitForTimeout(500);
+  }
+
   await frame.getByRole('textbox', { name: 'Title' }).fill('Test OpenAPI');
-  await frame.getByRole('button', { name: 'Publish' }).click();
+  await frame.locator('button', { hasText: 'Publish' }).first().click();
 
   await page.waitForTimeout(2000);
   await page.getByTestId('publish-button').click();
-  try { await page.getByRole('button', { name: 'Publish' }).last().click({ timeout: 2000 }); } catch {}
-  await page.waitForURL(u => !u.includes('edit-v2'), { timeout: 30000 });
+  await page.waitForTimeout(1500);
+  const dialogPublish = page.locator('button', { hasText: 'Publish' }).last();
+  if (await dialogPublish.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await dialogPublish.click({ timeout: 5000 });
+  }
+  await page.waitForURL(u => !u.toString().includes('edit-v2'), { timeout: 30000 });
   return page.url();
 }"
 ```
@@ -436,6 +529,22 @@ children, so it can silently miss the real `PVT` page when the parent has many c
 Combined with `createFolder` swallowing the resulting 400 ("page already exists"), the move
 ends up calling `movePage(pageId, undefined)` which returns 200 without re-parenting — a
 silent failure. Use the v2 space-scoped lookup with an exact-title + parentId filter instead.
+
+**Second gotcha (confirmed 2026-07-27 on `lite-stg`/`SD`): the top-level `PVT` folder may not be
+a direct child of `parentId` at all.** Confluence page titles are unique per-*space*, not
+per-parent, so an existing `PVT` page can be nested arbitrarily deep under some other historical
+parent (e.g. found under `Software Development → Before release test pages → PVT` instead of
+directly under `Software Development`). A parent-scoped lookup for `PVT` correctly finds nothing,
+then `createFolder('PVT', parentId)` correctly 400s ("already exists") against the space-wide
+title — the failure isn't pagination this time, it's a wrong assumption about nesting depth.
+**Find the existing `PVT` page space-wide by CQL before ever attempting to create one:**
+
+```
+browser_navigate url="https://{domain}/wiki/rest/api/content/search?cql=space%3D{spaceKey}%20AND%20title%3D%22PVT%22&expand=ancestors&limit=5"
+```
+
+Read the single result's `id` and use it directly as `pvtId` for the year/month lookups below —
+only fall back to `createFolder('PVT', parentId)` if this search genuinely returns zero results.
 
 ```
 browser_evaluate function="async () => {
@@ -508,7 +617,12 @@ Summarize:
 | Second/third macro not visible on published page | Cursor repositioning (Step 2d) failed — editor was not active when typing "/". Always verify `[contenteditable=true]` before proceeding |
 | DrawIO editor needs depth ≥ 10 snapshot | DrawIO is double-nested: outer `hosted-resources-iframe` (f72e*) + inner DrawIO canvas iframe (f74e*). Title is in outer (f72e*), Publish button is in inner (f74e*) |
 | OpenAPI title field is "Title" not "Name your diagram…" | OpenAPI modal uses different label — search for `textbox "Title"` in snapshot, not "Name your diagram…" |
-| `hosted-resources-iframe` strict mode violation | Multi-install site has 3 iframes — scope with `[data-testid="custom-ui-fullscreen-modal-dialog"] [data-testid="hosted-resources-iframe"]` |
+| `hosted-resources-iframe` strict mode violation | Multi-install site OR a page banner also rendering one — always scope with `[data-testid="custom-ui-fullscreen-modal-dialog"] [data-testid="hosted-resources-iframe"]`, never the bare selector (hit even on single-variant `lite-stg`, 2026-07-27) |
 | iframe not found with `custom-ui-modal-dialog` | Obsolete — all variants now use `custom-ui-fullscreen-modal-dialog` (verified 2026-06-04, Lite + Full + Diagramly) |
 | Page title `[placeholder="Give this page a title"]` returns null | Use `textarea[name="editpages-title"]` instead |
-| `publish-button` click blocked by blanket overlay | "Publish page" confirmation modal is open — detect via `[data-testid="publish-modal--blanket"]` and click its parent's Publish button |
+| `publish-button` click blocked by blanket overlay | "Publish page" confirmation modal is open — click its Publish button via `page.locator('button', { hasText: 'Publish' }).last()`, not `getByRole` (see next row) |
+| `getByRole('button'/'tab', { name })` times out with no "intercepted" trace, element confirmed to exist via plain locator | Role-based name matching is unreliable across this app's buttons/tabs (the paywall's Continue button has a mismatched `aria-label`; other buttons intermittently fail for unclear reasons) — default to `locator('button', { hasText: ... })` everywhere in this skill, not just for the paywall |
+| Lite paywall modal appears at macro-editor mount, blocking the tab/title interaction | See **Lite paywall** section above — `lite-stg`/`SD` is intentionally over the 100-macro limit; handle unconditionally, don't treat as an error |
+| Paywall "Continue editing" button is gone, replaced by "Request extension" text | Counter (`paywallContinueAttempts:...`) hit 0 — it's cumulative across all past sessions, not per-run. Delete the key from the **Forge iframe origin's** localStorage (see **Lite paywall** section) to reset to 15 |
+| "Unsaved changes from N mins ago — these were preserved when the modal closed" banner blocks the tab click | A prior aborted/interrupted script run left an in-progress edit. Click its `Discard` button (see **Lite paywall** section snippet) before proceeding |
+| `createFolder('PVT', parentId)` 400s "already exists" even though a parent-scoped search found nothing | The existing `PVT` page isn't a direct child of `parentId` — Confluence titles are unique per-space, not per-parent. Find it space-wide by CQL first (see Step 5's second gotcha) instead of assuming nesting depth |

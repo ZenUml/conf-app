@@ -2,6 +2,7 @@ import { trackAnalyticsEvent } from './trackAnalyticsEvent';
 import type { CacheState, MacroTypeValue, RenderMode, CacheSource } from './catalog';
 import { getTimings } from './renderPerf';
 import { getRenderIdentity } from './renderIdentity';
+import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender';
 import { isPrefetchDue } from '@/utils/prefetch/throttle';
 import type { PrefetchRenderer } from '@/utils/prefetch/rendererPrefetch';
 
@@ -79,6 +80,8 @@ export function trackRenderTime(
     ...(transferBytes !== undefined ? { transfer_bytes: transferBytes } : {}),
     ...timings,
     ...getRenderIdentity(),
+    // #382 viewport gate: {} on ungated renders, so nothing is added.
+    ...getGateTelemetry(),
   });
 
   scheduleRendererPrefetch(macroType);

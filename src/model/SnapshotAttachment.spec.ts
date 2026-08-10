@@ -1,13 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DiagramType } from './Diagram/Diagram';
 
-const { mockGetAttachmentsV2, mockRequestConfluence, mockCallRemote } = vi.hoisted(() => {
+const { mockGetAttachmentsV2, mockRequestConfluence, mockCallRemote, mockTrack } = vi.hoisted(() => {
   return {
     mockGetAttachmentsV2: vi.fn(),
     mockRequestConfluence: vi.fn(),
     mockCallRemote: vi.fn(),
+    mockTrack: vi.fn(),
   };
 });
+
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
+  trackAnalyticsEvent: mockTrack,
+}));
 
 vi.mock('@/model/globals', () => ({
   default: {
@@ -31,6 +36,9 @@ import {
   uploadSnapshot,
   fetchSnapshot,
   snapshotToDiagram,
+  snapshotSkipReason,
+  snapshotFailureDetail,
+  maybeBackfillSnapshot,
   type DiagramSnapshotV1,
 } from './SnapshotAttachment';
 
@@ -158,10 +166,15 @@ describe('uploadSnapshot', () => {
     expect(hashes[1]).toBe(hashes[0]); // same ccVersion -> identical hash every time
   });
 
-  it('throws on a non-ok backend result', async () => {
+  it('throws on a non-ok backend result, attaching the HTTP status to the error', async () => {
     mockGetAttachmentsV2.mockResolvedValue([]);
     mockCallRemote.mockResolvedValue({ ok: false, status: 403, body: 'forbidden' });
     await expect(uploadSnapshot('page-1', snapshot)).rejects.toThrow(/403/);
+    // The status is attached so callers can classify an expected skip without
+    // re-parsing the message.
+    await uploadSnapshot('page-1', snapshot).catch((e) => {
+      expect((e as { status?: number }).status).toBe(403);
+    });
   });
 
   it('throws when the callRemote transport itself rejects', async () => {
@@ -221,6 +234,106 @@ describe('fetchSnapshot', () => {
   it('returns undefined when getAttachmentsV2 itself throws', async () => {
     mockGetAttachmentsV2.mockRejectedValue(new Error('network error'));
     expect(await fetchSnapshot('page-1', '12345')).toBeUndefined();
+  });
+});
+
+// #398: the stored `failure_reason` was `String(e.message).substring(0, 200)`,
+// and the Confluence v1 error envelope is ~180 chars, so every recorded reason
+// was cut mid-sentence inside the wrapper ("...api.PermissionException: Us").
+// PR #395/#396 fixed exactly this on the attachment paths; the snapshot path
+// never received the same treatment.
+describe('snapshotFailureDetail', () => {
+  const envelope = (status: number, cls: string, msg: string) =>
+    new Error(
+      `snapshot upload HTTP ${status}: ` +
+        JSON.stringify({
+          statusCode: status,
+          data: { authorized: true, valid: true, errors: [], successful: true },
+          message: `com.atlassian.confluence.api.service.exceptions.api.${cls}: ${msg}`,
+        })
+    );
+
+  it('keeps the Confluence reason instead of the envelope', () => {
+    const d = snapshotFailureDetail(
+      envelope(403, 'PermissionException', 'User not permitted to update attachment')
+    );
+    expect(d.failure_reason).toContain('User not permitted to update attachment');
+    expect(d.failure_reason).not.toContain('statusCode');
+    expect(d.failure_reason.length).toBeLessThanOrEqual(200);
+  });
+
+  it('records the exception class for low-cardinality grouping', () => {
+    expect(
+      snapshotFailureDetail(envelope(404, 'NotFoundException', 'No content found with id')).confluence_error_class
+    ).toBe('NotFoundException');
+  });
+
+  it('salvages the message from a TRUNCATED envelope', () => {
+    const raw = 'snapshot upload HTTP 400: {"statusCode":400,"data":{},"message":"com.x.BadRequestException: Cannot add a new';
+    const d = snapshotFailureDetail(new Error(raw));
+    expect(d.failure_reason).toContain('Cannot add a new');
+    expect(d.confluence_error_class).toBe('BadRequestException');
+  });
+
+  it('passes through a non-Confluence body unchanged (HTML page, transport error)', () => {
+    const d = snapshotFailureDetail(new Error('network down'));
+    expect(d.failure_reason).toBe('network down');
+    expect(d.confluence_error_class).toBeUndefined();
+  });
+
+  it('handles a non-Error throwable', () => {
+    expect(snapshotFailureDetail('boom').failure_reason).toBe('boom');
+  });
+});
+
+// The emitters themselves had ZERO coverage, which is how the #398 truncation
+// shipped in the first place — and how a first attempt at this very fix wired
+// the new field into the skip event twice and the failure event not at all.
+describe('maybeBackfillSnapshot — analytics emission', () => {
+  const diagram = { diagramType: DiagramType.Mermaid, mermaidCode: 'graph TD; A-->B' } as any;
+  const envelope = (status: number, cls: string, msg: string) =>
+    Object.assign(
+      new Error(
+        `snapshot upload HTTP ${status}: ` +
+          JSON.stringify({ statusCode: status, data: {}, message: `com.atlassian.x.${cls}: ${msg}` })
+      ),
+      { status }
+    );
+
+  beforeEach(() => {
+    mockTrack.mockReset();
+    mockGetAttachmentsV2.mockReset();
+    mockCallRemote.mockReset();
+    mockGetAttachmentsV2.mockResolvedValue([]);
+  });
+
+  it('stamps confluence_error_class on snapshot_create_failed (genuine error)', async () => {
+    mockCallRemote.mockRejectedValue(envelope(500, 'InternalServerException', 'boom'));
+
+    await maybeBackfillSnapshot({
+      hostPageId: 'page-1', ccId: '12345', diagram, isDisplayMode: true,
+    });
+
+    const call = mockTrack.mock.calls.find((c) => c[0] === 'snapshot_create_failed');
+    expect(call).toBeDefined();
+    expect(call![1]).toMatchObject({ confluence_error_class: 'InternalServerException' });
+    expect(call![1].failure_reason).toContain('boom');
+  });
+
+  it('stamps confluence_error_class on snapshot_backfill_skipped (benign 403)', async () => {
+    mockCallRemote.mockRejectedValue(envelope(403, 'PermissionException', 'not permitted'));
+
+    await maybeBackfillSnapshot({
+      hostPageId: 'page-1', ccId: '12345', diagram, isDisplayMode: true,
+    });
+
+    const call = mockTrack.mock.calls.find((c) => c[0] === 'snapshot_backfill_skipped');
+    expect(call).toBeDefined();
+    expect(call![1]).toMatchObject({
+      snapshot_skip_reason: 'no_write_permission',
+      confluence_error_class: 'PermissionException',
+    });
+    expect(mockTrack.mock.calls.some((c) => c[0] === 'snapshot_create_failed')).toBe(false);
   });
 });
 
@@ -285,5 +398,28 @@ describe('snapshotToDiagram', () => {
     expect(restored.id).toBe('cc-x');
     expect((restored as any).code).toBeUndefined();
     expect((restored as any).graphXml).toBeUndefined();
+  });
+});
+
+describe('snapshotSkipReason', () => {
+  it('classifies 401/403 as no_write_permission (read-only viewer)', () => {
+    expect(snapshotSkipReason(Object.assign(new Error('x'), { status: 403 }))).toBe('no_write_permission');
+    expect(snapshotSkipReason(Object.assign(new Error('x'), { status: 401 }))).toBe('no_write_permission');
+  });
+
+  it('classifies 404 as page_not_published (unpublished draft)', () => {
+    expect(snapshotSkipReason(Object.assign(new Error('x'), { status: 404 }))).toBe('page_not_published');
+  });
+
+  it('falls back to parsing the HTTP status out of the message when no .status is set', () => {
+    expect(snapshotSkipReason(new Error('snapshot upload HTTP 403: forbidden'))).toBe('no_write_permission');
+    expect(snapshotSkipReason(new Error('snapshot upload HTTP 404: NotFoundException'))).toBe('page_not_published');
+  });
+
+  it('returns undefined for genuine failures (5xx / transport / no status)', () => {
+    expect(snapshotSkipReason(Object.assign(new Error('x'), { status: 500 }))).toBeUndefined();
+    expect(snapshotSkipReason(new Error('snapshot upload transport error: Failed to fetch'))).toBeUndefined();
+    expect(snapshotSkipReason(new Error('something else'))).toBeUndefined();
+    expect(snapshotSkipReason(undefined)).toBeUndefined();
   });
 });

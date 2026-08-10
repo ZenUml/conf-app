@@ -1,0 +1,190 @@
+# Deploy any branch to whimet4.atlassian.net for hands-on testing.
+#
+# Why this exists: whimet4 runs the Lite app in a personal Forge environment
+# ("yanhui"), and deploying to it otherwise means running `forge deploy` from a
+# laptop. That is fine until the machine cannot do it — e.g. a sandbox whose
+# hard file-descriptor cap (4096) is below the file count in `dist/` (~4300),
+# where the Forge packager dies with EMFILE. A runner has no such limit.
+#
+# Scope, deliberately narrow:
+#   - Forge only. It does NOT publish to Cloudflare Pages, so the app points at
+#     the existing conf-stg-lite backend rather than standing up a new one.
+#   - The "yanhui" environment only. Production and staging are never touched.
+#
+# Trigger from the Actions tab, pick the branch in the "Use workflow from"
+# dropdown, and Run workflow.
+name: Deploy branch to whimet4 (dev)
+
+on:
+  workflow_dispatch:
+    inputs:
+      install:
+        description: 'Also install/upgrade the app on whimet4 (needed after a module or scope change)'
+        type: boolean
+        default: true
+
+concurrency:
+  # One deploy at a time to a single shared dev environment — a second run
+  # would race the first's `forge deploy`. Not cancel-in-progress: killing a
+  # half-finished deploy is worse than queueing behind it.
+  group: deploy-whimet4
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: 'Deploy: whimet4'
+    runs-on: ubuntu-latest
+    env:
+      # whimet4-specific Forge credentials, falling back to the shared CI ones.
+      # The shared principal (support@zenuml.com) is not a site admin of
+      # whimet4, so install/upgrade there returns "insufficient permissions" —
+      # fine for a minor version, which auto-applies, but it cannot consent to a
+      # MAJOR one (scope / module changes). WHIMET4_* holds the site owner's
+      # credentials so those land too. The `||` keeps the workflow working if
+      # they are ever unset rather than deploying as an empty principal.
+      FORGE_EMAIL: "${{ vars.WHIMET4_FORGE_EMAIL || vars.FORGE_EMAIL }}"
+      FORGE_API_TOKEN: "${{ secrets.WHIMET4_FORGE_API_TOKEN || secrets.FORGE_API_TOKEN }}"
+      # whimet4's Forge environment. Not "development" — the install lives in a
+      # named custom environment (see `forge install list`).
+      FORGE_ENV: yanhui
+      SITE: whimet4.atlassian.net
+    steps:
+      - uses: actions/checkout@v5
+
+      # No `version` input: package.json's `packageManager` field is the single
+      # source of the pnpm version, and action-setup hard-errors when the two
+      # disagree ("Multiple versions of pnpm specified").
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # `resources.main` in manifest.yml points at dist/, so the Custom UI
+      # assets have to exist before `forge deploy` packages the app.
+      - name: Build Lite frontend
+        run: pnpm build:lite
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          VITE_MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}
+          VITE_APP_VERSION: "${{ github.ref_name }}-${{ github.sha }}"
+
+      # ---------------------------------------------------------------------
+      # Manifest edits for the Lite variant.
+      #
+      # KEEP IN SYNC with the lite-applicable steps in staging-deploy.yml,
+      # which in turn mirror the lite manifestEdits in scripts/forge-wizard.mjs
+      # (the source of truth). Deploying the unedited manifest would ship
+      # modules Lite does not have — and any scope change that implies would
+      # make the install need re-consent, which --non-interactive cannot give.
+      # ---------------------------------------------------------------------
+      - name: Remove asyncapi modules from manifest
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi"))) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"])' -i manifest.yml
+
+      - name: Remove Connect lifecycle module (connectModules) from manifest
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.connectModules)' -i manifest.yml
+
+      # Keep Lite's byline entry, drop the others — this deploys the Lite app,
+      # and `zenuml-byline-diagrams` IS Lite's byline. Deleting the whole
+      # contentBylineItem block (what this step used to do) shipped a build with
+      # the feature silently absent, which is exactly the failure #78204e5 fixed
+      # in release.yml / staging-deploy.yml. Mirrors staging-deploy.yml:81-85.
+      - name: Keep only the Lite byline entry in manifest
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key != "zenuml-byline-diagrams"))' -i manifest.yml
+
+      - name: Remove licensing (Lite is free)
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.app.licensing)' -i manifest.yml
+
+      - name: Remove diagramly admin module from Lite manifest
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval '
+              del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page"))
+              | del(.modules.function[] | select(.key == "createDemoPage"))
+              | del(.modules.function[] | select(.key == "createDemoPageScheduled"))
+              | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline"))
+            ' -i manifest.yml
+
+      - name: Upload final manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifest-lite-whimet4
+          path: manifest.yml
+          retention-days: 7
+
+      # Same workaround as staging-deploy.yml: the Forge CLI's node-fetch throws
+      # "Premature close" on newer Node.
+      - name: Use Node 20 for Forge CLI
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20.x'
+
+      - name: Deploy to Forge (${{ env.FORGE_ENV }})
+        env:
+          MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}
+        run: |
+          pnpm forge:deploy:disable-analytics
+          # Default APP_ID (no override) is the Lite app — the one whimet4 has.
+          pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e "$FORGE_ENV"
+          pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e "$FORGE_ENV"
+          pnpm exec forge deploy -e "$FORGE_ENV" --non-interactive --verbose
+
+      # Non-fatal, for two reasons learned from the first real run:
+      #
+      # 1. It is usually unnecessary. A minor version (no scope or module
+      #    change) auto-applies to existing installs — only a major version
+      #    needs re-consent, and --non-interactive could not give it anyway.
+      # 2. It needs the CI Forge principal (support@zenuml.com) to be a site
+      #    admin of whimet4, which it is not: install and upgrade both return
+      #    "insufficient permissions" there. That is a property of whose
+      #    credentials CI holds, not of the deploy.
+      #
+      # The deploy above is the meaningful outcome, so a failure here must not
+      # fail the job. The summary reports the two separately.
+      #
+      # install is idempotent-ish: it fails when the app is already installed,
+      # so fall through to upgrade. Same pattern as the staging installs.
+      - name: Install / upgrade on whimet4
+        id: install
+        if: inputs.install
+        continue-on-error: true
+        run: |
+          pnpm exec forge install --site "$SITE" --product confluence -e "$FORGE_ENV" --non-interactive \
+            || pnpm exec forge install --upgrade --site "$SITE" --product confluence -e "$FORGE_ENV" --non-interactive
+
+      - name: Write deployment summary
+        if: always()
+        run: |
+          {
+            echo "## Deployed to whimet4"
+            echo "| Property | Value |"
+            echo "|----------|-------|"
+            echo "| Branch | \`${{ github.ref_name }}\` |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo "| Variant | lite |"
+            echo "| Forge environment | \`$FORGE_ENV\` |"
+            echo "| Site | https://$SITE/wiki |"
+            echo "| Deploy | succeeded |"
+            echo "| Install/upgrade | ${{ inputs.install && steps.install.outcome || 'skipped' }} |"
+            if [ "${{ steps.install.outcome }}" = "failure" ]; then
+              echo ""
+              echo "> Install/upgrade failed but the deploy landed. This is expected when the"
+              echo "> CI Forge account is not a site admin of whimet4; a minor version"
+              echo "> auto-applies to the existing install, so no action is usually needed."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

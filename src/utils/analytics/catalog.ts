@@ -60,6 +60,24 @@ export type DashboardFormatFilter = "all" | "asyncapi" | "openapi";
 
 export type RenderMode = "live_render" | "cached_svg";
 
+// Viewport render gate (#382): how a gated viewer render was released.
+// Property is ABSENT on ungated renders (flag off / editor / fullscreen /
+// non-sequence-family) — see utils/renderGate/viewportGate.ts.
+export type RenderGateOutcome =
+  | "immediate"
+  | "scrolled_in"
+  | "background"
+  | "failopen";
+
+// Viewport gate depth (#382): what the gate held back for this render.
+//   load   — the default: content fetch (and SWR revalidate) waited for the
+//            viewport turn too, so an offscreen mount costs ~bundle boot +
+//            context until released
+//   render — paint-only gating (fetch ran immediately); reachable only via
+//            the zenuml.gateMode localStorage diagnostic override
+// Absent whenever render_gate is absent.
+export type RenderGateMode = "render" | "load";
+
 // Browser cache state at macro render time, derived from Resource Timing
 // transferSize of the macro's same-origin JS bundle:
 //   warm    — bundle served from HTTP/disk cache (transferSize ~ 0)
@@ -92,6 +110,17 @@ export type ContentSource = "fetch" | "swr_cache";
 // stale-low); `collect` = fresh space enumeration; `mock` = localStorage override.
 export type MacroCountSource = "kv" | "collect" | "undefined" | "zero" | "mock";
 
+// Which policy produced the Lite paywall's effective enabled/disabled state
+// for this `paywall_gate_evaluated` decision (lite-paywall-default-on):
+//   default_on — the backend explicitly returned `PAYWALL_EXEMPT: false`;
+//                 Lite's paywall is on, per the fixed default policy.
+//   exemption  — the backend explicitly returned `PAYWALL_EXEMPT: true`
+//                 (a domain or the wildcard `"*"` entry in PAYWALL_EXEMPTIONS).
+//   fail_open  — the `PAYWALL_EXEMPT` property was absent (missing/unreadable/
+//                 malformed KV, or the lookup was never made) — an unavailable
+//                 decision, not evidence the tenant is safe to restrict.
+export type PaywallPolicySource = "default_on" | "exemption" | "fail_open";
+
 export type FeedbackValue = "good" | "partial" | "bad";
 
 export type AnalyticsEventName =
@@ -117,6 +146,23 @@ export type AnalyticsEventName =
   // there, so the embed's document reference cannot be changed — the user
   // must re-target from the page editor. Tracks how often users hit this.
   | "embed_retarget_blocked"
+  // A pasted confluence.zenuml.com deeplink autoconverted into an embed
+  // macro. `detected` is the per-viewer-init denominator; exactly one of
+  // `target_resolved`, `failed`, or `cross_tenant_rejected` follows. Because the
+  // autoConvertLink persists in ADF, these measure render attempts rather
+  // than unique paste actions.
+  | "embed_autoconvert_detected"
+  // The deeplink's cloudId doesn't match the pasting site's — rejected
+  // fail-soft rather than fetching cross-tenant.
+  | "embed_autoconvert_cross_tenant_rejected"
+  // A same-tenant autoConvert link resolved to an existing custom-content
+  // document. This is a data-resolution signal, not proof that the diagram
+  // painted successfully; macro_viewed remains the rendered-view signal.
+  | "embed_autoconvert_target_resolved"
+  // An autoConvert link could not be resolved. `failure_reason` distinguishes
+  // parser/matcher drift (`invalid_url`) from missing custom content
+  // (`target_missing`). Cross-tenant rejection keeps its dedicated event.
+  | "embed_autoconvert_failed"
   // AsyncAPI dashboard: user clicked a document card's "Page:" reference to
   // open the Confluence page hosting the doc. Tracks dashboard → page nav.
   | "asyncapi_dashboard_page_opened"
@@ -161,7 +207,43 @@ export type AnalyticsEventName =
   | "paywall_gate_evaluated"
   | "paywall_banner_shown"
   | "paywall_banner_dismissed"
+  // Phase 5b: the space-admin-only purchase CTA on the page banner. A space
+  // admin can buy an Enterprise Bundle ($299/space/yr, Stripe) WITHOUT a
+  // Confluence site admin — the Marketplace upgrade path needs a site admin,
+  // which a space admin is not. This is the only event that measures whether
+  // admin-targeted copy produces a purchase intent rather than another relay
+  // hop. Distinct from `extension_request_clicked` (asks US for more free
+  // time) and `advocacy_message_copied` (asks SOMEONE ELSE to act).
+  | "paywall_bundle_cta_clicked"
+  // The Marketplace (Full plan) rail. Separate event from the bundle rail
+  // because they need different people: Marketplace requires a Confluence SITE
+  // admin, the bundle requires nobody. Splitting them is how we find out which
+  // wall a tenant is actually stuck behind.
+  //
+  // Restores measurement deleted in 05b5287f (2026-05-12), which removed the
+  // pricing UI *and* its `upgrade_cta_clicked` emitter together. Any analysis
+  // reading that event's 0 as "nobody wants to buy" is reading an absent
+  // emitter — buy-intent has been unmeasurable since, not measured as zero.
+  | "paywall_marketplace_cta_clicked"
+  // Footer "Why do I need to upgrade?" link in the paywall modal. Until
+  // 2026-08-10 this was a bare target="_blank" anchor, silently dropped by the
+  // Forge iframe sandbox (no allow-popups) — zero effect on click AND zero
+  // telemetry, so the four months of no clicks are an absent emitter, not
+  // absent interest. Low-intent signal vs the two purchase rails: it measures
+  // "wants to understand the pricing story", not "ready to pay".
+  | "paywall_learn_more_clicked"
   | "space_admin_active"
+  // M1 first-seen ping (onboarding spec Phase 1). Fired from the page-banner
+  // host — the only surface that mounts on EVERY Confluence page in every
+  // variant — at most once per browser per tenant per 30 days, AFTER the
+  // authenticated backend POST succeeded. Two jobs: (a) the POST's invocation
+  // token carries context.siteUrl, so the backend resolves the tenant domain
+  // for installs where nobody ever opened a macro (85.7% of post-June
+  // Diagramly installs are domain-less); (b) counted per account_id it is the
+  // first census of Confluence-ACTIVE users per tenant — the P3 denominator.
+  // Census semantics: "active browsers with a resolved account", not "users"
+  // (localStorage throttle; cleared storage / second browsers inflate).
+  | "app_first_seen"
   | "advocacy_message_copied"
   | "advocacy_draft_preview_clicked"
   | "extension_request_clicked"
@@ -187,6 +269,29 @@ export type AnalyticsEventName =
   // text-DSL types only (sequence / mermaid / plantuml).
   | "viewer_source_opened"
   | "viewer_source_copied"
+  // "Copy for AI" demand-test button in the viewer top-actions row (alongside
+  // View Source): a split button — a one-click primary segment (job:
+  // 'generic') plus a chevron menu of five job-framed entry points (explain /
+  // update / implement / audit / tests) that only vary the copied preamble
+  // (buildCopyForAiPrompt.ts), never the DSL+page payload itself. Fires once
+  // per click, primary or menu item, with `job` recording which one. `outcome`
+  // distinguishes a full copy (diagram + surrounding page context) from the
+  // diagram-only fallback (page context unavailable) and an outright
+  // clipboard-write failure.
+  | "copy_for_ai_clicked"
+  // Bottom-pill "Copy diagram link" action (task 6, docs/superpowers/sdd/
+  // 2026-07-26-embed-deeplink-productization): mints and copies the bare
+  // embed deeplink (https://<host>/d/<cloudId>/<contentId>) for the diagram
+  // being viewed — the supply side of the autoConvert paste->embed flow.
+  // `link_source` records which affordance minted it (today only the viewer
+  // pill; a future share-preview surface would use a different value).
+  // Fires once per click, in a finally block, after the terminal outcome is
+  // known — same convention as `copy_for_ai_clicked`. `outcome` distinguishes
+  // a successful clipboard write from a clipboard-write failure from the
+  // three "couldn't even mint a link" paths (missing host/contentId, or an
+  // unresolvable cloudId), which used to fire this event identically to
+  // success.
+  | "deeplink_copied"
   // Editor staleness hint (docs/superpowers/specs/
   // 2026-07-18-job-b-editor-staleness-hint-design.md). Shown on inline
   // page-editor renders when the host page drifted >=5 versions past the
@@ -204,12 +309,62 @@ export type AnalyticsEventName =
   // network/auth/malformed-response errors.
   | "cohorts_refreshed"
   | "cohorts_refresh_failed"
+  // Two independent producers, disambiguated by `failure_stage` (reliability
+  // audit 2026-08-06 §3/§4/§12 items 1-2, conf-app#149/#150):
+  // - unset/'syntax': GenericViewer's `$store.state.error` watcher — client-
+  //   side syntax validation (mermaid/plantuml/sequence) or, for PlantUML
+  //   only, its own fetch failure (audit §2.1 — PlantUML's fetch-failure
+  //   class is a separate, still-open investigation, audit §12 item 3).
+  // - 'render_crash': trackViewerRenderCrash() — a genuine exception from the
+  //   render pipeline itself (mermaid.js, zenuml.render, GraphViewer,
+  //   SwaggerUIBundle) that previously produced a silent blank/broken macro
+  //   with `console.error` as the only signal. Before this, Mermaid+Sequence
+  //   (81% of view volume) had no way to distinguish "never rendered" from
+  //   "rendered fine", and Graph/OpenAPI (12.4%) had no failure telemetry at
+  //   all — a Graph crash fired neither this event nor `macro_viewed`.
   | "viewer_load_failed"
   // Diagram source snapshot attachments (resilience for cross-page copies /
   // deleted source pages — see docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md)
   | "snapshot_created"
   | "snapshot_create_failed"
+  // Emitted when a snapshot write did NOT happen for an EXPECTED, by-design
+  // reason rather than a genuine error — the write path is best-effort and must
+  // "degrade silently" (see the plan). Splitting these out of
+  // snapshot_create_failed keeps that event a real error signal: a plain viewer
+  // with no attachment-write permission (`no_write_permission`, 401/403 from the
+  // app-auth upload) and a save onto a not-yet-published draft page
+  // (`page_not_published`, 404 — the same benign condition the PNG backup
+  // recovers from) are the two normal outcomes, not failures. `snapshot_skip_reason`
+  // carries which one. Genuine transport / 5xx errors still emit
+  // snapshot_create_failed.
+  | "snapshot_backfill_skipped"
   | "snapshot_fallback_rendered"
+  // Save-time PNG backup upload, async mode (#392). The frontend hands the PNG
+  // to /forge-upload-attachment with `async: true`, gets an ack after
+  // validation, emits `attachment_upload_queued` and returns — the real
+  // Confluence write finishes server-side in `waitUntil`, after the editor
+  // iframe is gone. These two are that write's terminal outcome, emitted by
+  // the Cloudflare function (not the browser tracker), so the save path stops
+  // being a blind channel: before this, ~34% of all upload attempts had no
+  // success/failure signal at all. `attachment_upload_queued` remains the
+  // denominator; every queued event should be followed by exactly one of
+  // these. `failure_stage` splits WHERE the server-side write died
+  // (read_check / upload / properties_put / handler_error).
+  | "attachment_upload_async_succeeded"
+  | "attachment_upload_async_failed"
+  // The async counterpart of `attachment_upload_skipped`: the save-time write
+  // 404'd because the host page is not published yet, which is the SAME benign
+  // condition the sync path already records as a skip rather than an error.
+  // Without this the identical situation was a `skipped` on one path and a
+  // `_failed` on the other — recreating, on the path that carries ~34% of all
+  // attempts, exactly the mislabeling #392 exists to remove (verified on
+  // lite-stg: 14 async failures, all http 404, zero successes).
+  //
+  // A 404 is only benign when the page really is unpublished, so the two are
+  // told apart by `content_status`, read from the page GET the upload already
+  // performs: not-current -> this skip; `current` -> a real failure labelled
+  // `app_no_access` (the app cannot see the page — #211), never a skip.
+  | "attachment_upload_async_skipped"
   // Daily macro-count inventory snapshots. These are emitted by the
   // Cloudflare snapshot service, not by the browser tracker. Registering them
   // here keeps the shared analytics vocabulary explicit before the scheduled
@@ -219,8 +374,35 @@ export type AnalyticsEventName =
   | "macro_count_space_changed"
   | "macro_count_snapshot_failed"
   | "close_guard_rejected"
+  // Close-guard draft-restore banner (utils/restoreDraftBanner.ts). Shipped
+  // 2026-05-10 without instrumentation, so 2.5 months of usage are dark —
+  // these four decide whether the feature earns its keep. `shown` is the
+  // denominator; `restored` / `discarded` / `dismissed` are the user's three
+  // exits (✕ leaves the draft in localStorage, Discard deletes it).
+  | "draft_banner_shown"
+  | "draft_restored"
+  | "draft_discarded"
+  | "draft_banner_dismissed"
   | "renderer_prefetch_started"
   | "renderer_prefetch_completed"
+  // In-viewer Edit gate for same-page shared-id macros (view-fork silent
+  // orphan: view-editing a macro whose customContentId is shared by N>1
+  // macros on the page forks a new CC on save, but the in-viewer modal cannot
+  // write the new id back into the macro config — writebackGate.ts / #170 —
+  // so the edit lands in a CC nothing references). Evaluated on every viewer
+  // Edit click that carries a customContentId; `edit_dup_gate_outcome`:
+  // 'blocked' = duplicates found, modal NOT opened, user steered to the page
+  // editor; 'passed' = unique reference, modal opened; 'scan_failed' = the
+  // ADF count scan errored, fail-open (modal opened; the editor-side backstop
+  // below still guards Publish).
+  | "edit_dup_gate_evaluated"
+  // The editor-side backstop caught what the click gate let through (its
+  // fail-open path, the staleness-hint CTA on an inline page-editor render,
+  // or any other non-submittable entry): the modal editor loaded a doc
+  // flagged isCopy in a surface where view.submit({config}) cannot persist,
+  // so Publish is disabled with an explanatory tooltip instead of silently
+  // minting an unreferenced CC. `copy_reason` says which copy flavor.
+  | "editor_publish_blocked_fork_unlinkable"
   // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md
   // §10). Funnel: connect_clicked → session_created → agent_connected →
   // edit_applied → disconnected; setup_shown measures first-time connector

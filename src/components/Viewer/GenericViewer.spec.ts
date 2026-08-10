@@ -191,6 +191,68 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
+  // ZEN fullscreen-fit follow-up: .viewer-frame had no height rule, so a
+  // diagram shorter than the fullscreen viewport left most of the screen a
+  // bare void beneath it. viewer-frame--fullscreen ties the frame to the
+  // viewport height regardless of diagram type/width (isWide is orthogonal).
+  describe('fullscreen height (all diagram types)', () => {
+    const setFullscreen = (on: boolean) => {
+      ;(window as any).forgeGlobal = on
+        ? { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+        : undefined
+    }
+    afterEach(() => { delete (window as any).forgeGlobal })
+
+    it('applies viewer-frame--fullscreen in fullscreen mode', () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('.viewer-frame').classes()).toContain('viewer-frame--fullscreen')
+    })
+
+    // The debug strip stacks above .viewer-frame. With the frame at
+    // min-height:100vh the page would exceed the viewport and scroll, and the
+    // strip covers the top of a surface meant to show the diagram large.
+    // jsdom has window.self === window.top, so Debug's own gate is open here
+    // and these assertions exercise the isFullscreenMode gate specifically.
+    it('hides the debug strip in fullscreen', () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('[aria-label="Debug information"]').exists()).toBe(false)
+    })
+
+    it('keeps the debug strip on the inline page', () => {
+      setFullscreen(false)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('[aria-label="Debug information"]').exists()).toBe(true)
+    })
+
+    it('does not apply viewer-frame--fullscreen on the inline (non-fullscreen) page', () => {
+      setFullscreen(false)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('.viewer-frame').classes()).not.toContain('viewer-frame--fullscreen')
+    })
+  })
+
   describe('top-edge actions', () => {
     it('emits edit on the EventBus when Edit is clicked', async () => {
       const spy = vi.spyOn(EventBus, '$emit')
@@ -356,6 +418,69 @@ describe('GenericViewer (chrome-less)', () => {
       await wrapper.vm.$nextTick()
       expect(wrapper.find('[data-testid="view-source-panel"]').exists()).toBe(false)
     })
+
+    // ZEN fullscreen-fit: .viewer-frame is fit-content-sized to the diagram
+    // in the fullscreen modal (see isWide comment), so the panel must anchor
+    // to the actual viewport (fixed) instead of that short box (absolute).
+    it('sizes the panel for the fullscreen viewport when opened from the fullscreen modal', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-testid="view-source-panel"]').classes()).toContain('view-source-panel--fullscreen')
+
+      delete (window as any).forgeGlobal
+    })
+
+    it('does not use fullscreen sizing for the inline (non-fullscreen) viewer', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-testid="view-source-panel"]').classes()).not.toContain('view-source-panel--fullscreen')
+    })
+
+    // ZEN fullscreen-fit follow-up: the panel is position:fixed (out of
+    // layout flow) once open, so .viewer-frame's own centering can't see it —
+    // the diagram centered on the FULL width, landing right of the actually-
+    // visible left pane. generic--source-panel-open reserves the panel's
+    // width so the frame centers against the space that's actually visible.
+    it('reserves space for the open fullscreen panel so the frame centers on the visible pane', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('.generic').classes()).not.toContain('generic--source-panel-open')
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.generic').classes()).toContain('generic--source-panel-open')
+
+      await wrapper.find('[data-testid="view-source-close"]').trigger('click')
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.generic').classes()).not.toContain('generic--source-panel-open')
+
+      delete (window as any).forgeGlobal
+    })
+
+    it('does not reserve panel space on the inline (non-fullscreen) viewer', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('.generic').classes()).not.toContain('generic--source-panel-open')
+    })
   })
 
   // One-click "Copy for AI" clipboard payload (copy_for_ai_clicked, catalog.ts).
@@ -483,7 +608,9 @@ describe('GenericViewer (chrome-less)', () => {
       expect(btn.attributes('disabled')).toBeDefined()
       expect(btn.attributes('aria-busy')).toBe('true')
       expect(activeCopyLabel(wrapper)).toBe('Copying…')
-      // No clipboard write yet — still waiting on the page fetch.
+      // No writeText yet — this environment has no ClipboardItem, so the
+      // legacy fallback runs and resolves the page fetch before writing.
+      // The activation-preserving path is covered by the #442 block below.
       expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
 
       // A second click while copying must not start an overlapping copy.
@@ -504,6 +631,117 @@ describe('GenericViewer (chrome-less)', () => {
       expect(btn.attributes('aria-busy')).toBe('false')
       expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1)
       expect(toast).not.toHaveBeenCalled()
+    })
+
+    // #442: Safari revokes the transient user activation across the awaited
+    // page fetch, so a clipboard call made after that await always throws
+    // NotAllowedError there. The fix hands the STILL-PENDING payload to a
+    // ClipboardItem constructed synchronously in the click task and calls
+    // navigator.clipboard.write() before any await. jsdom has no
+    // ClipboardItem, so this block stubs it; every other test in this file
+    // (no ClipboardItem stub) exercises the legacy writeText fallback.
+    describe('activation-preserving clipboard write (#442)', () => {
+      class FakeClipboardItem {
+        static instances: FakeClipboardItem[] = []
+        data: Record<string, Promise<Blob> | Blob | string>
+        constructor(data: Record<string, Promise<Blob> | Blob | string>) {
+          this.data = data
+          FakeClipboardItem.instances.push(this)
+        }
+      }
+      let write: ReturnType<typeof vi.fn>
+
+      beforeEach(() => {
+        FakeClipboardItem.instances = []
+        write = vi.fn(() => Promise.resolve())
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: { write, writeText: vi.fn(() => Promise.resolve()) },
+        })
+        ;(window as any).ClipboardItem = FakeClipboardItem
+      })
+
+      afterEach(() => {
+        delete (window as any).ClipboardItem
+      })
+
+      it('calls clipboard.write with a synchronously constructed ClipboardItem while the page fetch is still pending', async () => {
+        let resolveGetCurrentPage!: (value: unknown) => void
+        const pending = new Promise((resolve) => { resolveGetCurrentPage = resolve })
+        vi.mocked(globals.apWrapper.getCurrentPage).mockReturnValueOnce(pending as any)
+
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+
+        // The write must already be in flight BEFORE the page fetch resolves —
+        // this is the property Safari enforces.
+        expect(write).toHaveBeenCalledTimes(1)
+        expect(FakeClipboardItem.instances).toHaveLength(1)
+
+        resolveGetCurrentPage({
+          title: 'Login flow page',
+          body: { export_view: { value: '<p>Some page context.</p>' } },
+          _links: { base: 'https://example.atlassian.net/wiki', webui: '/spaces/TEST/pages/123' },
+        })
+        await flushPromises()
+
+        // The payload handed to the ClipboardItem resolves to the full text.
+        // (FileReader instead of Blob.text() — jsdom's Blob has no .text().)
+        const blob = await FakeClipboardItem.instances[0].data['text/plain']
+        const text = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.onerror = () => reject(reader.error)
+          reader.readAsText(blob as Blob)
+        })
+        expect(text).toContain(SOURCE_DSL)
+        expect(text).toContain('Login flow page')
+
+        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('copied')
+        expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
+        const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+        expect(call).toBeTruthy()
+        expect(call![1]).toMatchObject({ outcome: 'copied', job: 'generic' })
+      })
+
+      it('falls back to the legacy writeText path when clipboard.write rejects', async () => {
+        write.mockRejectedValueOnce(new Error('promise payloads unsupported'))
+
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+        await flushPromises()
+
+        expect(write).toHaveBeenCalledTimes(1)
+        expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1)
+        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('copied')
+        const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+        expect(call![1]).toMatchObject({ outcome: 'copied' })
+      })
+
+      it('reports clipboard_failed when both the modern write and the fallback fail', async () => {
+        write.mockRejectedValueOnce(new Error('denied'))
+        vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'))
+        ;(document as any).execCommand = vi.fn(() => false)
+
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+        await flushPromises()
+
+        expect(write).toHaveBeenCalledTimes(1)
+        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('failed')
+        expect(activeCopyLabel(wrapper)).toBe('Copy failed')
+        const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+        expect(call![1]).toMatchObject({ outcome: 'clipboard_failed' })
+      })
     })
 
     it('reverts from "Copied" to idle ~2s after a successful copy', async () => {

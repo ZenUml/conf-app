@@ -16,6 +16,7 @@ import { trackEvent } from "@/utils/window";
 import globals from "@/model/globals";
 import ViewResizer from "./Viewer/ViewResizer.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
 import * as renderPerf from "@/utils/analytics/renderPerf";
 
 // Create a promise to load ZenUml only when needed
@@ -73,6 +74,10 @@ export default {
       }
     } catch (error) {
       console.error("Error loading ZenUML Core:", error);
+      // reliability-audit-2026-08-06 §3/§12.1: this catch used to be
+      // console.error-only — a chunk-load or zenuml.render() exception here
+      // produced a blank macro with zero Mixpanel signal on either side.
+      trackViewerRenderCrash('sequence', this.isDisplayMode, error);
     }
   },
   methods: {
@@ -127,7 +132,16 @@ export default {
     // another way would be use the https://www.npmjs.com/package/vue-async-computed
     async code() {
       if (!this.code) return;
-      await this.render();
+      try {
+        await this.render();
+      } catch (error) {
+        // reliability-audit-2026-08-06 §3/§12.1: this re-render path (every
+        // content update after the first mount) previously had no try/catch
+        // at all — a zenuml.render() exception here was an unhandled promise
+        // rejection with zero telemetry of any kind.
+        console.error("Error re-rendering ZenUML:", error);
+        trackViewerRenderCrash('sequence', this.isDisplayMode, error);
+      }
     },
   },
 };

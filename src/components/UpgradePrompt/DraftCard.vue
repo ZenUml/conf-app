@@ -10,7 +10,7 @@
     <div
       class="px-3.5 py-3 text-[12.5px] leading-[1.55] text-gray-800 whitespace-pre-wrap font-sans max-h-[240px] overflow-y-auto"
       data-testid="advocacy-draft-body"
-    ><template v-for="(seg, i) in segments" :key="i"><span v-if="seg.type === 'token'" class="pw-draft-token">{{ seg.value }}</span><a v-else-if="seg.type === 'link'" :href="seg.value" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-700 hover:underline break-all">{{ seg.value }}</a><template v-else>{{ seg.value }}</template></template></div>
+    ><template v-for="(seg, i) in segments" :key="i"><span v-if="seg.type === 'token'" class="pw-draft-token">{{ seg.value }}</span><a v-else-if="seg.type === 'link'" :href="seg.value" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-700 hover:underline break-all" @click.prevent="openLink(seg.value)">{{ seg.value }}</a><template v-else>{{ seg.value }}</template></template></div>
   </div>
 </template>
 
@@ -20,12 +20,19 @@ import {
   advocacySegments,
   type AdvocacyMessageContext,
 } from './buildAdvocacyMessage'
+import { openUrl } from '@/model/globals/forgeGlobal'
 
 const props = defineProps<{
   ctx: AdvocacyMessageContext
 }>()
 
 const segments = computed(() => advocacySegments(props.ctx))
+
+// @click.prevent + openUrl — the Forge iframe sandbox has no allow-popups,
+// so a bare target="_blank" anchor click is silently dropped by the browser.
+function openLink(url: string) {
+  void openUrl(url)
+}
 </script>
 
 <style scoped>

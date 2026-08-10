@@ -11,6 +11,7 @@ import "swagger-ui/dist/swagger-ui.css";
 import SpecListener from '@/utils/spec-listener';
 import OpenApiExample from '@/model/OpenApi/OpenApiExample';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import { trackViewerRenderCrash } from '@/utils/analytics/trackViewerRenderCrash';
 
 export default {
   name: "OpenApiViewer",
@@ -84,23 +85,38 @@ export default {
       // without a render callback.
       trackRenderTime('openapi', this.$store.getters.isDisplayMode);
     },
+    // reliability-audit-2026-08-06 §4/§12.2 (conf-app#149/#150): this file had
+    // no error handling at all — a SwaggerUIBundle/updateSpec exception threw
+    // straight out of the mounted() lifecycle hook with zero Mixpanel signal.
+    // Caught locally (not left to propagate) so a crash here can't also break
+    // reportRenderOnce()'s call further down mounted().
     initSwaggerUi() {
       const element = this.$refs.swaggerUi;
       if (element && element.innerHTML.trim()) {
         element.innerHTML = '';
       }
-      const ui = SwaggerUIBundle({
-        dom_id: '#swagger-ui',
-        presets: [SwaggerUIBundle.presets.apis],
-        plugins: [SwaggerUIBundle.plugins.DownloadUrl, SpecListener],
-      });
-      window.ui = ui;
+      try {
+        const ui = SwaggerUIBundle({
+          dom_id: '#swagger-ui',
+          presets: [SwaggerUIBundle.presets.apis],
+          plugins: [SwaggerUIBundle.plugins.DownloadUrl, SpecListener],
+        });
+        window.ui = ui;
+      } catch (e) {
+        console.error('OpenApiViewer: SwaggerUI init failed:', e);
+        trackViewerRenderCrash('openapi', this.$store.getters.isDisplayMode, e);
+      }
     },
     updateSpecFromDiagram() {
       if (!window.ui) return;
       const doc = this.effectiveDoc;
       const spec = doc?.value?.code || doc?.code || OpenApiExample;
-      window.ui.specActions.updateSpec(spec);
+      try {
+        window.ui.specActions.updateSpec(spec);
+      } catch (e) {
+        console.error('OpenApiViewer: updateSpec failed:', e);
+        trackViewerRenderCrash('openapi', this.$store.getters.isDisplayMode, e);
+      }
     }
   }
 }

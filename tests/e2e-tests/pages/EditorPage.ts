@@ -2,6 +2,7 @@ import { Page, FrameLocator, expect } from '@playwright/test';
 import { testConfig, TIMEOUTS } from '../config/test-config.js';
 import { dismissPaywallGate } from '../helpers/paywallGate.js';
 import { expectVisibleOrFailOnLogin } from '../helpers/authGuard.js';
+import { registerAnnouncementModalHandler } from '../helpers/announcementModal.js';
 
 export class ConfluenceEditorPage {
   constructor(private page: Page) {}
@@ -41,6 +42,11 @@ export class ConfluenceEditorPage {
     if (!testConfig.parentPageId) {
       throw new Error(`No parent page ID configured for domain: ${testConfig.domain}. Set APP env var or PARENT_PAGE_ID.`);
     }
+    // Arm before navigating — this is the single choke point every editor
+    // flow passes through before createChildPage()/clickInsertElements()/etc,
+    // and the handler stays armed for the page's whole lifetime (including
+    // later direct page.goto() calls that reuse the same page).
+    await registerAnnouncementModalHandler(this.page);
     const url = `https://${testConfig.domain}/wiki/spaces/${testConfig.spaceKey}/pages/${testConfig.parentPageId}/${encodeURIComponent(testConfig.parentPageName)}`;
     await this.page.goto(url);
     // Fail fast if the reused session bounced us to the Atlassian login screen,

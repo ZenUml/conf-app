@@ -110,6 +110,17 @@ export type ContentSource = "fetch" | "swr_cache";
 // stale-low); `collect` = fresh space enumeration; `mock` = localStorage override.
 export type MacroCountSource = "kv" | "collect" | "undefined" | "zero" | "mock";
 
+// Which policy produced the Lite paywall's effective enabled/disabled state
+// for this `paywall_gate_evaluated` decision (lite-paywall-default-on):
+//   default_on — the backend explicitly returned `PAYWALL_EXEMPT: false`;
+//                 Lite's paywall is on, per the fixed default policy.
+//   exemption  — the backend explicitly returned `PAYWALL_EXEMPT: true`
+//                 (a domain or the wildcard `"*"` entry in PAYWALL_EXEMPTIONS).
+//   fail_open  — the `PAYWALL_EXEMPT` property was absent (missing/unreadable/
+//                 malformed KV, or the lookup was never made) — an unavailable
+//                 decision, not evidence the tenant is safe to restrict.
+export type PaywallPolicySource = "default_on" | "exemption" | "fail_open";
+
 export type FeedbackValue = "good" | "partial" | "bad";
 
 export type AnalyticsEventName =
@@ -196,7 +207,43 @@ export type AnalyticsEventName =
   | "paywall_gate_evaluated"
   | "paywall_banner_shown"
   | "paywall_banner_dismissed"
+  // Phase 5b: the space-admin-only purchase CTA on the page banner. A space
+  // admin can buy an Enterprise Bundle ($299/space/yr, Stripe) WITHOUT a
+  // Confluence site admin — the Marketplace upgrade path needs a site admin,
+  // which a space admin is not. This is the only event that measures whether
+  // admin-targeted copy produces a purchase intent rather than another relay
+  // hop. Distinct from `extension_request_clicked` (asks US for more free
+  // time) and `advocacy_message_copied` (asks SOMEONE ELSE to act).
+  | "paywall_bundle_cta_clicked"
+  // The Marketplace (Full plan) rail. Separate event from the bundle rail
+  // because they need different people: Marketplace requires a Confluence SITE
+  // admin, the bundle requires nobody. Splitting them is how we find out which
+  // wall a tenant is actually stuck behind.
+  //
+  // Restores measurement deleted in 05b5287f (2026-05-12), which removed the
+  // pricing UI *and* its `upgrade_cta_clicked` emitter together. Any analysis
+  // reading that event's 0 as "nobody wants to buy" is reading an absent
+  // emitter — buy-intent has been unmeasurable since, not measured as zero.
+  | "paywall_marketplace_cta_clicked"
+  // Footer "Why do I need to upgrade?" link in the paywall modal. Until
+  // 2026-08-10 this was a bare target="_blank" anchor, silently dropped by the
+  // Forge iframe sandbox (no allow-popups) — zero effect on click AND zero
+  // telemetry, so the four months of no clicks are an absent emitter, not
+  // absent interest. Low-intent signal vs the two purchase rails: it measures
+  // "wants to understand the pricing story", not "ready to pay".
+  | "paywall_learn_more_clicked"
   | "space_admin_active"
+  // M1 first-seen ping (onboarding spec Phase 1). Fired from the page-banner
+  // host — the only surface that mounts on EVERY Confluence page in every
+  // variant — at most once per browser per tenant per 30 days, AFTER the
+  // authenticated backend POST succeeded. Two jobs: (a) the POST's invocation
+  // token carries context.siteUrl, so the backend resolves the tenant domain
+  // for installs where nobody ever opened a macro (85.7% of post-June
+  // Diagramly installs are domain-less); (b) counted per account_id it is the
+  // first census of Confluence-ACTIVE users per tenant — the P3 denominator.
+  // Census semantics: "active browsers with a resolved account", not "users"
+  // (localStorage throttle; cleared storage / second browsers inflate).
+  | "app_first_seen"
   | "advocacy_message_copied"
   | "advocacy_draft_preview_clicked"
   | "extension_request_clicked"
@@ -262,6 +309,19 @@ export type AnalyticsEventName =
   // network/auth/malformed-response errors.
   | "cohorts_refreshed"
   | "cohorts_refresh_failed"
+  // Two independent producers, disambiguated by `failure_stage` (reliability
+  // audit 2026-08-06 §3/§4/§12 items 1-2, conf-app#149/#150):
+  // - unset/'syntax': GenericViewer's `$store.state.error` watcher — client-
+  //   side syntax validation (mermaid/plantuml/sequence) or, for PlantUML
+  //   only, its own fetch failure (audit §2.1 — PlantUML's fetch-failure
+  //   class is a separate, still-open investigation, audit §12 item 3).
+  // - 'render_crash': trackViewerRenderCrash() — a genuine exception from the
+  //   render pipeline itself (mermaid.js, zenuml.render, GraphViewer,
+  //   SwaggerUIBundle) that previously produced a silent blank/broken macro
+  //   with `console.error` as the only signal. Before this, Mermaid+Sequence
+  //   (81% of view volume) had no way to distinguish "never rendered" from
+  //   "rendered fine", and Graph/OpenAPI (12.4%) had no failure telemetry at
+  //   all — a Graph crash fired neither this event nor `macro_viewed`.
   | "viewer_load_failed"
   // Diagram source snapshot attachments (resilience for cross-page copies /
   // deleted source pages — see docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md)

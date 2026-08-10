@@ -35,6 +35,25 @@ Each planned check must name:
 
 Each item must be independently pass/fail checkable before you run it.
 
+### Treat create and edit as separate paths
+
+Never use a successful check on existing content as evidence that creating new content works.
+Create and edit often use different initialization paths: an existing document hydrates persisted
+state, while a new document may render a default value in the UI before its store, globals, or save
+payload have been initialized.
+
+For behavior involving editor state, default content, validation, AI actions, drafts, titles, or
+persistence:
+
+1. Plan **create/new** and **edit/existing** as separate assertions unless the requested scope
+   explicitly excludes one.
+2. Exercise the create path through the real editor UI when testing initialization or first save.
+   An API-created fixture or an existing macro does not cover that path.
+3. Assert the value after initial mount, after the triggering interaction, and after first save when
+   persistence is involved.
+4. If only one lifecycle path is tested, list the other under `Skipped` with the reason. Never imply
+   that one path covers the other.
+
 ### A missing signal is NOT a failed assertion
 
 **NEVER conclude "it didn't happen" from "I couldn't find it."** Every signal type here has a
@@ -99,7 +118,9 @@ Analytics reference: [docs/analytics-reference.md](../../../docs/analytics-refer
 
 1. **Plan** — behavior, target page/macro or data path, expected signal per assertion (see above).
 2. **Navigate** — open the target Confluence site if UI is involved. Reuse the Chrome logged-in session when possible.
-3. **Reuse fixtures** — prefer an existing page with the relevant macro. Create one only if none exists (**create-test-page** skill for API-only setup).
+3. **Choose the lifecycle fixture** — reuse an existing page only for edit/view checks. For editor
+   initialization or first-save checks, create the macro through the real UI. Use the
+   **create-test-page** skill only for API-only rendering checks that intentionally bypass creation.
 4. **Execute** — run each planned check. Screenshot or capture evidence after key steps. Report pass / fail / skipped per assertion.
 
 ## Forge iframe tooling

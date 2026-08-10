@@ -114,11 +114,6 @@ export const APPS = {
           'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger)',
       },
       {
-        description: 'Remove Lite remote-storage declaration from Full',
-        yqEvalExpr:
-          'del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage")) | del(.remotes[] | select(.key == "connect").storage)',
-      },
-      {
         description: 'Point embed deeplink autoConvert matcher at conf-full.zenuml.com',
         yqEvalExpr:
           '(.modules.macro[] | select(.key | test("zenuml-embed-macro")) | .autoConvert.matchers[0].pattern) = "https://conf-full.zenuml.com/d/*/*"',
@@ -181,11 +176,6 @@ export const APPS = {
         description: 'Remove Lite macro snapshot schedule from Diagramly',
         yqEvalExpr:
           'del(.modules.function[] | select(.key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily"))',
-      },
-      {
-        description: 'Remove Lite remote-storage declaration from Diagramly',
-        yqEvalExpr:
-          'del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage")) | del(.remotes[] | select(.key == "connect").storage)',
       },
     ],
     sites: {
@@ -278,11 +268,6 @@ export const APPS = {
         description: 'Remove Lite snapshot and Diagramly demo schedules from AsyncAPI',
         yqEvalExpr:
           'del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger)',
-      },
-      {
-        description: 'Remove Lite remote-storage declaration from AsyncAPI',
-        yqEvalExpr:
-          'del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage")) | del(.remotes[] | select(.key == "connect").storage)',
       },
     ],
     sites: {

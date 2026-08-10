@@ -52,8 +52,12 @@
                 :key="containerPage.id"
                 class="block px-6 py-3 bg-white border-t hover:bg-gray-50">
                 <div class="mt-2 text-sm text-gray-600">
+<!-- @click.prevent + openUrl: the Forge iframe sandbox has no
+                       allow-popups, so a bare target="_blank" anchor click is
+                       silently dropped. -->
                   <a :href="`${baseUrl}${containerPage.id}`"
                     target="_blank"
+                    @click.prevent="openUrl(`${baseUrl}${containerPage.id}`)"
                     class="flex items-center justify-between hover:underline group">
                     <span class="inline-block truncate">Page: {{ containerPage.title }}</span>
                     <svg xmlns="http://www.w3.org/2000/svg"
@@ -113,7 +117,7 @@ import EventBus from "@/EventBus";
 import { AtlasPage } from "@/model/page/AtlasPage";
 import _ from 'lodash';
 import { trackEvent } from "@/utils/window";
-import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
+import { getContext as initForgeContext, openUrl } from '@/model/globals/forgeGlobal';
 import globals from '@/model/globals';
 import { setupCloseGuard } from "@/utils/closeGuard";
 import { primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
@@ -263,6 +267,7 @@ export default {
     }
   },
   methods: {
+    openUrl,
     startSaving() {
       this.isSaving = true;
       // Safety net so an unexpected hang can't strand the spinner (embed save

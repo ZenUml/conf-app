@@ -18,6 +18,7 @@ import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import { trackViewerRenderCrash } from '@/utils/analytics/trackViewerRenderCrash';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 
 export default {
@@ -74,6 +75,12 @@ export default {
         return svg;
       } catch (error) {
         console.error('mermaid render error', error);
+        // reliability-audit-2026-08-06 §3/§12.1: a mermaid.js exception used to
+        // be console.error-only — the blank result below still got recorded as
+        // a successful macro_viewed by mounted()'s unconditional trackRenderTime.
+        // This adds the missing failure signal without changing that existing
+        // (silent-degrade) UX.
+        trackViewerRenderCrash('mermaid', this.isDisplayMode, error);
         if (this.renderId) {
           const tempElement = document.getElementById(`d${this.renderId}`);
           tempElement?.remove();

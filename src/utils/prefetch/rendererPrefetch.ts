@@ -22,6 +22,14 @@
  *
  * Never throws. Fires analytics only on an actual attempt (≤1 per deploy per
  * browser profile — see throttle.ts), never on the skip path.
+ *
+ * No feature flag: this ran at 100% on lite and diagramly from June 2026 and
+ * the `renderer-prefetch` / `renderer-prefetch-banner` Forge flags were retired
+ * 2026-07-25. Consequence — there is no longer a no-release kill switch, and
+ * full/asyncapi (which never had the flags, so never prefetched) now do. The
+ * remaining runtime brakes are the guards in readGuards (saveData, 2g,
+ * hidden tab, deviceMemory for the import-warm) and the once-per-deploy
+ * throttle.
  */
 
 import { DRAWIO_PREFETCH_ASSETS } from '@/utils/drawio/loadDrawioViewer';
@@ -31,7 +39,6 @@ import type { PrefetchHost, PrefetchOutcome } from '@/utils/analytics/catalog';
 import { getBuildKey, isPrefetchDone, isPrefetchDue, markPrefetchDone, tryClaimLock, releaseLock, type KvStore } from './throttle';
 
 export { isPrefetchDue };
-import { getPrefetchFlags, type PrefetchFlags } from './flags';
 import { prefetchUrls, fetchPrefetchManifest, type PrefetchResult, type PrefetchManifest } from './prefetchAssets';
 
 export type PrefetchRenderer = 'graph' | 'mermaid' | 'sequence' | 'openapi';
@@ -50,7 +57,6 @@ export interface RunOptions {
   nav?: Partial<Navigator> & { connection?: { saveData?: boolean; effectiveType?: string }; deviceMemory?: number };
   doc?: Document;
   now?: () => number;
-  getFlags?: (host: PrefetchHost) => Promise<boolean>;
   getManifest?: () => Promise<PrefetchManifest>;
   prefetch?: typeof prefetchUrls;
   warmMermaid?: () => Promise<unknown>;
@@ -104,18 +110,6 @@ async function run(opts: RunOptions): Promise<void> {
   const deadlineMs = opts.deadlineMs ?? 30_000;
   let attempted = false;
   try {
-    // The flag check shares the deadline budget: the Forge feature-flags
-    // client downloads config over the bridge (no client timeout of its own),
-    // and the banner host is holding view.close() while we wait. Timing out
-    // resolves false (fail-closed); attempted stays false so the throttle
-    // doesn't mark done and a later attempt can still warm.
-    const flagPromise = opts.getFlags ? opts.getFlags(opts.host) : defaultFlagCheck(opts.host);
-    const flagEnabled = await Promise.race([
-      flagPromise.catch(() => false),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), deadlineMs)),
-    ]);
-    if (!flagEnabled) return;
-
     attempted = true;
     const startedAt = now();
     const exclude = new Set(opts.excludeRenderers ?? []);
@@ -152,11 +146,6 @@ async function run(opts: RunOptions): Promise<void> {
     if (attempted) markPrefetchDone(buildKey, store);
     releaseLock(store);
   }
-}
-
-async function defaultFlagCheck(host: PrefetchHost): Promise<boolean> {
-  const flags: PrefetchFlags = await getPrefetchFlags();
-  return host === 'banner' ? flags.bannerHost : flags.macroHost;
 }
 
 interface ExecOutcome {

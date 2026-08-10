@@ -14,6 +14,7 @@ export async function modifyDiagram(context, diagramCode, errorMessage, diagramT
   const diagramData = {
     diagramCode,
     diagramType: typeInfo.diagramType,
+    languageKey: typeInfo.languageKey,
     command,
     errorMessage,
     subTypeKey: typeInfo.subTypeKey,

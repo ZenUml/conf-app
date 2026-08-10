@@ -5,7 +5,8 @@ const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCal
   const mockTrackEvent = vi.fn();
   const mockApWrapper = {
     _getCurrentPageId: vi.fn(),
-    getAttachmentsV2: vi.fn()
+    getAttachmentsV2: vi.fn(),
+    request: vi.fn()
   };
   const mockGetContext = vi.fn();
   const mockForgeRequest = vi.fn();
@@ -90,6 +91,9 @@ describe('Attachment', () => {
     };
     mockApWrapper._getCurrentPageId.mockResolvedValue('page-123');
     mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+    // resolvePageStatus (#392) reads the page's real status on the 404-skip
+    // path — the extension context never carries it in production.
+    mockApWrapper.request.mockResolvedValue({ status: 'draft' });
     // Setup DOM
     document.body.innerHTML = '';
   });
@@ -523,6 +527,209 @@ describe('Attachment', () => {
         }),
       );
       consoleErrorSpy.mockRestore();
+    });
+
+    // #392 — failure attribution. Before these, a failure recorded after the
+    // app fallback ran was indistinguishable from a plain user-side one, and a
+    // post-fallback 404 (the app cannot see the page — 59% of fallback
+    // failures per #211) was swallowed by the benign 404-skip branch.
+    describe('app-fallback failure attribution (#392)', () => {
+      const setUpFallbackFailure = (backendStatus: number, backendBody: string) => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        // User-side write is denied -> the app fallback runs...
+        mockRequestConfluence.mockResolvedValue({
+          ok: false,
+          status: 403,
+          text: vi.fn().mockResolvedValue('Forbidden'),
+        });
+        // ...and the app's own write fails too.
+        mockCallRemote.mockResolvedValue({ ok: false, status: backendStatus, body: backendBody });
+      };
+
+      it('records a post-fallback 404 as app_no_access, NOT a benign skip', async () => {
+        setUpFallbackFailure(
+          404,
+          JSON.stringify({
+            statusCode: 404,
+            data: { authorized: true, valid: true, errors: [], successful: true },
+            message: 'com.atlassian.confluence.api.service.exceptions.api.NotFoundException: No content found',
+          }),
+        );
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(/404/);
+
+        // The whole point: this must NOT land in the unpublished-parent bucket.
+        const skipped = mockTrackEvent.mock.calls.filter(
+          (c: unknown[]) => c[1] === 'attachment_upload_skipped',
+        );
+        expect(skipped).toHaveLength(0);
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'app_no_access',
+          'attachment_upload_failed',
+          'export',
+          expect.objectContaining({
+            http_status: 404,
+            via_app_fallback: true,
+            fallback_from_status: 403,
+            confluence_error_class: 'NotFoundException',
+          }),
+        );
+      });
+
+      it('stamps via_app_fallback on a post-fallback 403 too', async () => {
+        setUpFallbackFailure(
+          403,
+          JSON.stringify({
+            statusCode: 403,
+            message: 'com.atlassian.confluence.api.service.exceptions.api.PermissionException: denied',
+          }),
+        );
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(/403/);
+
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_403',
+          'attachment_upload_failed',
+          'export',
+          expect.objectContaining({
+            via_app_fallback: true,
+            fallback_from_status: 403,
+            confluence_error_class: 'PermissionException',
+          }),
+        );
+      });
+
+      it('marks a plain user-side failure as via_app_fallback: false', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        // 5xx never routes to the fallback.
+        mockRequestConfluence.mockResolvedValue({
+          ok: false,
+          status: 503,
+          text: vi.fn().mockResolvedValue('unavailable'),
+        });
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(/503/);
+
+        expect(mockCallRemote).not.toHaveBeenCalled();
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_503',
+          'attachment_upload_failed',
+          'export',
+          expect.objectContaining({ via_app_fallback: false }),
+        );
+      });
+    });
+
+    // #392 — the 200-char error_message budget was entirely consumed by the
+    // Confluence error envelope, truncating the reason mid-class-name.
+    it('records the Confluence message, not the envelope, in error_message', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: vi.fn().mockResolvedValue(
+          JSON.stringify({
+            statusCode: 400,
+            data: { authorized: true, valid: true, errors: [], successful: true },
+            message:
+              'com.atlassian.confluence.api.service.exceptions.api.BadRequestException: Cannot add a new attachment with same file name as an existing attachment',
+          }),
+        ),
+      });
+
+      await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow();
+
+      const failed = mockTrackEvent.mock.calls.find(
+        (c: unknown[]) => c[1] === 'attachment_upload_failed',
+      );
+      const props = failed?.[3] as Record<string, unknown>;
+      expect(props.confluence_error_class).toBe('BadRequestException');
+      // The actionable tail survives the 200-char cap now that the ~180-char
+      // envelope is gone.
+      expect(String(props.error_message)).toContain('same file name as an existing attachment');
+      expect(String(props.error_message)).not.toContain('"authorized"');
+    });
+
+    it('salvages the message from a truncated envelope (backend relays 500 chars)', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: false,
+        status: 403,
+        text: vi.fn().mockResolvedValue('Forbidden'),
+      });
+      // Unparseable JSON — cut mid-string, exactly as the backend's 500-char
+      // body cap produces.
+      mockCallRemote.mockResolvedValue({
+        ok: false,
+        status: 403,
+        body: '{"statusCode":403,"data":{"authorized":true},"message":"com.atlassian.confluence.api.service.exceptions.api.PermissionException: user not permitted to cre',
+      });
+
+      await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow();
+
+      const failed = mockTrackEvent.mock.calls.find(
+        (c: unknown[]) => c[1] === 'attachment_upload_failed',
+      );
+      const props = failed?.[3] as Record<string, unknown>;
+      expect(props.confluence_error_class).toBe('PermissionException');
+      expect(String(props.error_message)).toContain('user not permitted');
+    });
+
+    // #392 — content_status was undefined on 100% of skipped events because it
+    // came from an extension context that never carries it, so the "a 404 on a
+    // published page is a real regression" guard rail could never fire.
+    it('resolves content_status from the API on the 404 skip path', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockApWrapper.request.mockResolvedValue({ status: 'current' });
+      mockRequestConfluence.mockResolvedValue({
+        ok: false,
+        status: 404,
+        text: vi.fn().mockResolvedValue('not found'),
+      });
+
+      await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+
+      expect(mockApWrapper.request).toHaveBeenCalledWith('/api/v2/pages/page-123');
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'unpublished_parent',
+        'attachment_upload_skipped',
+        'export',
+        // 'current' here is the regression signal: the parent IS published, so
+        // "unpublished parent" is the wrong explanation for this 404.
+        expect.objectContaining({ http_status: 404, content_status: 'current' }),
+      );
+    });
+
+    it('degrades to unknown when the page-status read fails', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockApWrapper.request.mockRejectedValue(new Error('network down'));
+      mockRequestConfluence.mockResolvedValue({
+        ok: false,
+        status: 404,
+        text: vi.fn().mockResolvedValue('not found'),
+      });
+
+      // Diagnostic only — must never turn a skip into a failure.
+      await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'unpublished_parent',
+        'attachment_upload_skipped',
+        'export',
+        expect.objectContaining({ content_status: 'unknown' }),
+      );
     });
 
     it('should skip upload when page is a draft (Option A — context status check)', async () => {

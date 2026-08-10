@@ -68,6 +68,10 @@ describe('forge-upload-attachment', () => {
   }) {
     fetchMock.mockImplementation((url: string, init: any) => {
       const method = init?.method ?? 'GET';
+      // Analytics (#392) rides the same global fetch — always ack it, or a test
+      // routing a 4xx to the upload leg would also fail the Mixpanel POST and
+      // swallow the very event it is asserting on.
+      if (String(url).includes('api.mixpanel.com')) return Promise.resolve(fetchResponse(200, '{}'));
       if (method === 'GET') return Promise.resolve(handlers.read ?? fetchResponse(200, '{}'));
       if (method === 'PUT') return Promise.resolve(handlers.put ?? fetchResponse(200, '{}'));
       // POST upload
@@ -222,6 +226,211 @@ describe('forge-upload-attachment', () => {
 
       expect(await readJson(res)).toEqual({ ok: true, queued: true });
       expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    // #392 — the async write is invisible to the browser tracker (its iframe is
+    // gone by then), so this handler is the only place its outcome can be
+    // recorded. Before this, failures were a console.warn and nothing else.
+    describe('outcome reporting', () => {
+      const ENV = { MIXPANEL_TOKEN: 'tok-1' };
+
+      async function runAsync(handlers: Parameters<typeof routeFetch>[0], env: any = ENV) {
+        routeFetch(handlers);
+        const scheduled: Promise<unknown>[] = [];
+        await onRequest({
+          request: makeRequest({ ...basePayload, async: true }),
+          data: { forgeContext: { ...FORGE_CONTEXT, accountId: 'acct-9' } },
+          env,
+          waitUntil: (p: Promise<unknown>) => scheduled.push(p),
+        } as any);
+        await Promise.all(scheduled);
+        // The Mixpanel import POST is the last call; identify() precedes it.
+        return fetchMock.mock.calls.filter((c: any[]) =>
+          String(c[0]).includes('api.mixpanel.com/import'),
+        );
+      }
+
+      function trackedEvent(calls: any[]) {
+        return JSON.parse(calls[0][1].body)[0];
+      }
+
+      it('reports attachment_upload_async_succeeded when the write lands', async () => {
+        const calls = await runAsync({
+          read: fetchResponse(200, '{}'),
+          upload: fetchResponse(200, JSON.stringify({ results: [{ id: 'att-async-3' }] })),
+          put: fetchResponse(200, '{}'),
+        });
+
+        const event = trackedEvent(calls);
+        expect(event.event).toBe('attachment_upload_async_succeeded');
+        expect(event.properties).toMatchObject({
+          surface: 'backend',
+          from_save: true,
+          page_id: '12345',
+          attachment_name: 'zenuml-abc-uuid.png',
+          attachment_id: 'att-async-3',
+          distinct_id: 'acct-9',
+        });
+      });
+
+      it('reports the failing stage when the app-side upload is rejected', async () => {
+        const calls = await runAsync({
+          read: fetchResponse(200, '{}'),
+          upload: fetchResponse(403, 'PermissionException'),
+        });
+
+        const event = trackedEvent(calls);
+        expect(event.event).toBe('attachment_upload_async_failed');
+        expect(event.properties).toMatchObject({
+          event_label: 'http_403',
+          http_status: 403,
+          failure_stage: 'upload',
+        });
+      });
+
+      it('distinguishes a read-check denial from an upload rejection', async () => {
+        const calls = await runAsync({ read: fetchResponse(404, 'no such page') });
+
+        expect(trackedEvent(calls).properties).toMatchObject({
+          failure_stage: 'read_check',
+          http_status: 403,
+        });
+      });
+
+      it('distinguishes a properties-PUT failure', async () => {
+        const calls = await runAsync({
+          read: fetchResponse(200, '{}'),
+          upload: fetchResponse(200, JSON.stringify({ results: [{ id: 'att-async-4' }] })),
+          put: fetchResponse(500, 'boom'),
+        });
+
+        expect(trackedEvent(calls).properties).toMatchObject({
+          failure_stage: 'properties_put',
+          http_status: 500,
+        });
+      });
+
+      it('reports a thrown handler error rather than losing it', async () => {
+        // A network-level throw is exactly the blind spot this closes — it
+        // never produces an { ok:false } result to inspect.
+        fetchMock.mockImplementation((url: string) =>
+          String(url).includes('api.mixpanel.com')
+            ? Promise.resolve(fetchResponse(200, '{}'))
+            : Promise.reject(new Error('socket hang up')),
+        );
+        const scheduled: Promise<unknown>[] = [];
+        await onRequest({
+          request: makeRequest({ ...basePayload, async: true }),
+          data: FORGE_DATA,
+          env: ENV,
+          waitUntil: (p: Promise<unknown>) => scheduled.push(p),
+        } as any);
+        await Promise.all(scheduled);
+
+        const calls = fetchMock.mock.calls.filter((c: any[]) =>
+          String(c[0]).includes('api.mixpanel.com/import'),
+        );
+        expect(trackedEvent(calls).properties).toMatchObject({
+          failure_stage: 'handler_error',
+          failure_reason: 'socket hang up',
+        });
+      });
+
+      // Follow-ups from the lite-stg spot check on #392: every async event was
+      // a _failed/http_404 whose reason was the envelope, truncated at 200
+      // chars — i.e. an all-benign bucket reported as a 100% failure rate,
+      // undiagnosable.
+      it('reports a 404 on an unpublished page as a skip, not a failure', async () => {
+        const calls = await runAsync({
+          read: fetchResponse(200, JSON.stringify({ id: '12345', status: 'draft' })),
+          upload: fetchResponse(
+            404,
+            JSON.stringify({
+              statusCode: 404,
+              data: { authorized: true, valid: true, errors: [], successful: true },
+              message:
+                'com.atlassian.confluence.api.service.exceptions.api.NotFoundException: No content found with id : ContentId{id=12345}',
+            }),
+          ),
+        });
+
+        const event = trackedEvent(calls);
+        expect(event.event).toBe('attachment_upload_async_skipped');
+        expect(event.properties).toMatchObject({
+          event_label: 'page_not_published',
+          content_status: 'draft',
+        });
+      });
+
+      it('keeps a 404 on a PUBLISHED page as a failure (app cannot see it)', async () => {
+        const calls = await runAsync({
+          read: fetchResponse(200, JSON.stringify({ id: '12345', status: 'current' })),
+          upload: fetchResponse(404, JSON.stringify({ statusCode: 404, message: 'NotFoundException: nope' })),
+        });
+
+        const event = trackedEvent(calls);
+        expect(event.event).toBe('attachment_upload_async_failed');
+        expect(event.properties).toMatchObject({
+          event_label: 'app_no_access',
+          content_status: 'current',
+        });
+      });
+
+      it('does not assume benign when the page status is unknown', async () => {
+        const calls = await runAsync({
+          read: fetchResponse(200, 'not json'),
+          upload: fetchResponse(404, JSON.stringify({ statusCode: 404, message: 'NotFoundException: nope' })),
+        });
+
+        const event = trackedEvent(calls);
+        expect(event.event).toBe('attachment_upload_async_failed');
+        expect(event.properties).toMatchObject({ event_label: 'http_404', content_status: 'unknown' });
+      });
+
+      it('keeps a 403 a failure even on an unpublished page', async () => {
+        // The caller is the page editor at save time, so an app-auth denial is
+        // a real anomaly — only 404 is reclassified (#387's rule).
+        const calls = await runAsync({
+          read: fetchResponse(200, JSON.stringify({ status: 'draft' })),
+          upload: fetchResponse(403, JSON.stringify({ statusCode: 403, message: 'PermissionException: denied' })),
+        });
+
+        expect(trackedEvent(calls).event).toBe('attachment_upload_async_failed');
+      });
+
+      it('records the Confluence message, not the envelope, in failure_reason', async () => {
+        const calls = await runAsync({
+          read: fetchResponse(200, JSON.stringify({ status: 'current' })),
+          upload: fetchResponse(
+            400,
+            JSON.stringify({
+              statusCode: 400,
+              data: { authorized: true, valid: true, errors: [], successful: true },
+              message:
+                'com.atlassian.confluence.api.service.exceptions.api.BadRequestException: Cannot add a new attachment with same file name as an existing attachment',
+            }),
+          ),
+        });
+
+        const reason = String(trackedEvent(calls).properties.failure_reason);
+        expect(reason).toContain('same file name as an existing attachment');
+        expect(reason).not.toContain('"authorized"');
+      });
+
+      it('completes the write even when no Mixpanel token is configured', async () => {
+        const calls = await runAsync(
+          {
+            read: fetchResponse(200, '{}'),
+            upload: fetchResponse(200, JSON.stringify({ results: [{ id: 'att-async-5' }] })),
+            put: fetchResponse(200, '{}'),
+          },
+          {},
+        );
+
+        expect(calls).toHaveLength(0);
+        // read + upload + PUT still happened; only the reporting is skipped.
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+      });
     });
 
     it('rejects invalid input BEFORE acking (validation is not bypassed by async)', async () => {

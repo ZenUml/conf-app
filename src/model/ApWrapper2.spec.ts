@@ -30,6 +30,9 @@ vi.mock('@/model/page/AtlasPage', () => ({
   AtlasPage: vi.fn().mockImplementation(() => ({
     getPageId: vi.fn().mockResolvedValue('456'),
     countMacros: vi.fn().mockResolvedValue(1),
+    // Failure-aware variant behind countMacrosReferencing: `undefined` = the
+    // page ADF could not be read (see AtlasPage.macrosOrNull).
+    countMacrosOrUnknown: vi.fn().mockResolvedValue(1),
   })),
 }));
 
@@ -640,7 +643,7 @@ describe('ApWrapper2', () => {
 
     it('flags a cross-page copy via the free check without fetching the page ADF', async () => {
       vi.mocked(forgeRequest).mockResolvedValueOnce(happyDirectFetch('cc-1', '456'));
-      const countSpy = vi.spyOn(wrapper._page, 'countMacros');
+      const countSpy = vi.spyOn(wrapper._page, 'countMacrosOrUnknown');
       vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-1');
 
       const result = await wrapper.loadCustomContentWithOrphanRecovery(
@@ -655,7 +658,7 @@ describe('ApWrapper2', () => {
     it('does not flag a same-page duplicate in cross-page-only mode (no ADF consulted)', async () => {
       vi.mocked(forgeRequest).mockResolvedValueOnce(happyDirectFetch('cc-1', '456'));
       // Would report a duplicate if the scan ran — proves the mode never asks.
-      const countSpy = vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(2);
+      const countSpy = vi.spyOn(wrapper._page, 'countMacrosOrUnknown').mockResolvedValue(2);
       vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('456');
 
       const result = await wrapper.loadCustomContentWithOrphanRecovery(
@@ -675,7 +678,7 @@ describe('ApWrapper2', () => {
     });
 
     it('detectCopy reports same-page-duplicate when count > 1', async () => {
-      vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(2);
+      vi.spyOn(wrapper._page, 'countMacrosOrUnknown').mockResolvedValue(2);
       vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-1');
 
       const verdict = await wrapper.detectCopy('cc-1', 'page-1');
@@ -686,7 +689,7 @@ describe('ApWrapper2', () => {
     });
 
     it('detectCopy matches the string customContentId used by current Forge ADF', async () => {
-      vi.spyOn(wrapper._page, 'countMacros').mockImplementation(async matcher => {
+      vi.spyOn(wrapper._page, 'countMacrosOrUnknown').mockImplementation(async matcher => {
         const liveForgeMacroParams = [
           { customContentId: 'cc-1' },
           { customContentId: 'cc-1' },
@@ -701,7 +704,7 @@ describe('ApWrapper2', () => {
     });
 
     it('detectCopy reports cross-page when CC pageId differs', async () => {
-      vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(1);
+      vi.spyOn(wrapper._page, 'countMacrosOrUnknown').mockResolvedValue(1);
       vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-2');
 
       const verdict = await wrapper.detectCopy('cc-1', 'page-1');
@@ -717,7 +720,7 @@ describe('ApWrapper2', () => {
     // wins the reported copyReason — while still firing BOTH telemetry events
     // (the original code's two `if`s are independent, not if/else-if).
     it('detectCopy prefers cross-page as the reported reason when both conditions hold simultaneously', async () => {
-      vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(2);
+      vi.spyOn(wrapper._page, 'countMacrosOrUnknown').mockResolvedValue(2);
       vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-2');
 
       const verdict = await wrapper.detectCopy('cc-1', 'page-1');
@@ -728,7 +731,7 @@ describe('ApWrapper2', () => {
     });
 
     it('detectCopy reports no copy and fires neither telemetry event when same page and count <= 1', async () => {
-      vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(1);
+      vi.spyOn(wrapper._page, 'countMacrosOrUnknown').mockResolvedValue(1);
       vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-1');
 
       const verdict = await wrapper.detectCopy('cc-1', 'page-1');

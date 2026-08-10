@@ -13,10 +13,22 @@
 
 import EventBus from '@/EventBus';
 import { clearDraft } from '@/utils/draftStore';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 
 interface DraftPayload {
   scope: string;
   draft: { code: string; title: string; savedAt: number };
+}
+
+// Scope is `edit:<custom-content-id>` or `new:<diagram-type>` (Header.vue /
+// ForgeGraphEditor.vue / DocumentList.vue) — only the kind is sent, never the id.
+function draftProps(payload: DraftPayload) {
+  return {
+    feature_area: 'system',
+    surface: 'editor',
+    draft_scope_kind: payload.scope.startsWith('edit:') ? 'edit' : 'new',
+    draft_age_ms: Date.now() - payload.draft.savedAt,
+  } as const;
 }
 
 let installed = false;
@@ -70,6 +82,7 @@ function show(payload: DraftPayload) {
   restoreBtn.textContent = 'Restore';
   restoreBtn.style.cssText = btnBase + ';background:#57460a;color:#fff8c5;border-color:#57460a';
   restoreBtn.addEventListener('click', () => {
+    trackAnalyticsEvent('draft_restored', draftProps(payload));
     EventBus.$emit('draft-restore', payload);
     dismiss();
   });
@@ -80,6 +93,7 @@ function show(payload: DraftPayload) {
   discardBtn.textContent = 'Discard';
   discardBtn.style.cssText = btnBase;
   discardBtn.addEventListener('click', async () => {
+    trackAnalyticsEvent('draft_discarded', draftProps(payload));
     try { await clearDraft(payload.scope); } catch { /* noop */ }
     EventBus.$emit('draft-discard', payload);
     dismiss();
@@ -91,11 +105,15 @@ function show(payload: DraftPayload) {
   closeBtn.setAttribute('aria-label', 'Dismiss');
   closeBtn.textContent = '✕';
   closeBtn.style.cssText = 'background:none;border:none;color:#57460a;cursor:pointer;font-size:14px;padding:4px 8px;line-height:1';
-  closeBtn.addEventListener('click', dismiss);
+  closeBtn.addEventListener('click', () => {
+    trackAnalyticsEvent('draft_banner_dismissed', draftProps(payload));
+    dismiss();
+  });
   root.appendChild(closeBtn);
 
   document.body.appendChild(root);
   currentRoot = root;
+  trackAnalyticsEvent('draft_banner_shown', draftProps(payload));
 }
 
 // Idempotent — call from each editor entry. The first call installs the

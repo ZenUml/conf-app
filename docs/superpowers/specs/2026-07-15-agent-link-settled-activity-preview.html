@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Link activity — spinner recommendation</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #eff4ff;
+      --muted: #a9b5cb;
+      --line: #27344d;
+      --panel: #111a2c;
+      --panel-2: #16223a;
+      --canvas: #09111f;
+      --violet: #a78bfa;
+      --violet-soft: rgba(167, 139, 250, .14);
+      --green: #50d3a7;
+      --green-soft: rgba(80, 211, 167, .14);
+      --amber: #ffbd5b;
+      --red: #ff7b8c;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      padding: clamp(24px, 5vw, 72px);
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 0%, rgba(74, 222, 128, .12), transparent 27rem),
+        radial-gradient(circle at 89% 12%, rgba(167, 139, 250, .15), transparent 30rem),
+        var(--canvas);
+    }
+
+    main { max-width: 1160px; margin: auto; }
+    .eyebrow { color: var(--violet); font-size: .75rem; font-weight: 760; letter-spacing: .13em; text-transform: uppercase; }
+    h1 { max-width: 750px; margin: 12px 0; font-size: clamp(2.1rem, 5vw, 4.4rem); letter-spacing: -.06em; line-height: .98; }
+    .intro { max-width: 680px; margin: 0; color: var(--muted); font-size: 1.07rem; line-height: 1.6; }
+
+    .state-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin: 40px 0 24px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(17, 26, 44, .7);
+    }
+    .state-bar span { color: var(--muted); font-size: .9rem; margin-right: 4px; }
+    button {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 13px;
+      color: var(--muted);
+      background: #0c1526;
+      font: inherit;
+      font-size: .88rem;
+      cursor: pointer;
+    }
+    button[aria-pressed="true"] { color: #fff; background: var(--violet); border-color: var(--violet); }
+
+    .compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    .card { overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); box-shadow: 0 18px 44px rgba(0, 0, 0, .21); }
+    .card--recommended { border-color: rgba(80, 211, 167, .62); }
+    .card__head { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 75px; padding: 19px 20px; border-bottom: 1px solid var(--line); }
+    .card__head h2 { margin: 0; font-size: 1.05rem; letter-spacing: -.02em; }
+    .tag { flex: 0 0 auto; padding: 4px 9px; border-radius: 999px; color: var(--amber); background: rgba(255, 189, 91, .13); font-size: .71rem; font-weight: 760; letter-spacing: .08em; text-transform: uppercase; }
+    .tag--best { color: #07271e; background: var(--green); }
+    .rail { padding: 20px; min-height: 395px; }
+    .rail-top { display: flex; align-items: center; gap: 10px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+    .avatar { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 10px; background: var(--violet-soft); color: var(--violet); font-size: .8rem; font-weight: 800; }
+    .connection { display: grid; gap: 2px; min-width: 0; }
+    .connection strong { font-size: .86rem; }
+    .connection small { color: var(--muted); font-size: .75rem; }
+    .dot { width: 8px; height: 8px; margin-left: auto; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px var(--green-soft); }
+    .activity-label { margin: 20px 0 7px; color: var(--muted); font-size: .7rem; font-weight: 760; letter-spacing: .1em; text-transform: uppercase; }
+    .row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 9px; align-items: center; min-height: 51px; padding: 9px 0; border-bottom: 1px solid rgba(39, 52, 77, .72); }
+    .row:last-child { border-bottom: 0; }
+    .row p { margin: 0; font-size: .84rem; line-height: 1.25; }
+    .row time { color: var(--muted); font-size: .72rem; }
+    .icon { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: var(--green); background: var(--green-soft); font-size: .82rem; font-weight: 800; }
+    .icon--work { color: var(--violet); background: var(--violet-soft); }
+    .spinner { width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; }
+    .stuck .spinner { animation: spin 1s linear infinite; }
+    .is-completed .recommended .row--live .spinner { display: none; }
+    .is-completed .recommended .row--live .icon::after { content: "✓"; }
+    .is-completed .recommended .row--live .icon { color: var(--green); background: var(--green-soft); }
+    .is-completed .recommended .row--live p::after { content: " · completed"; color: var(--muted); font-size: .77rem; }
+    .status-note { min-height: 44px; margin-top: 18px; padding: 10px 12px; border-radius: 9px; color: var(--muted); background: #0c1526; font-size: .77rem; line-height: 1.4; }
+    .status-note b { color: var(--ink); }
+    .is-completed .stuck .status-note b { color: var(--red); }
+    .is-active .recommended .status-note b { color: var(--violet); }
+    .is-completed .recommended .status-note b { color: var(--green); }
+
+    .principle { display: grid; grid-template-columns: auto 1fr; gap: 15px; align-items: start; margin-top: 20px; padding: 18px 20px; border: 1px solid rgba(80, 211, 167, .4); border-radius: 15px; background: linear-gradient(105deg, var(--green-soft), transparent 48%); }
+    .principle__number { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; color: #06261d; background: var(--green); font-weight: 850; }
+    .principle h3 { margin: 1px 0 6px; font-size: .95rem; }
+    .principle p { margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.5; }
+    code { color: #e3d8ff; font-family: "SFMono-Regular", Consolas, monospace; font-size: .86em; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (max-width: 720px) { .compare { grid-template-columns: 1fr; } body { padding: 25px 18px; } }
+  </style>
+</head>
+<body class="is-completed">
+  <main>
+    <div class="eyebrow">Agent Link · activity rail</div>
+    <h1>Animate the present, not the history.</h1>
+    <p class="intro">A spinner should say “the agent is working right now.” Once a task completes, its entry stays in the timeline as useful context—but it becomes still.</p>
+
+    <div class="state-bar" role="group" aria-label="Preview task state">
+      <span>Preview the task as</span>
+      <button type="button" data-state="active" aria-pressed="false">Active</button>
+      <button type="button" data-state="completed" aria-pressed="true">Completed</button>
+    </div>
+
+    <section class="compare" aria-label="Spinner behavior comparison">
+      <article class="card stuck">
+        <header class="card__head"><h2>Current behavior</h2><span class="tag">Problem</span></header>
+        <div class="rail">
+          <div class="rail-top"><span class="avatar">AI</span><span class="connection"><strong>Connected agent</strong><small>Linked to Checkout flow</small></span><span class="dot"></span></div>
+          <div class="activity-label">Activity</div>
+          <div class="row"><span class="icon">✓</span><p>Read “Checkout flow”</p><time>11:21</time></div>
+          <div class="row"><span class="icon icon--work"><i class="spinner" aria-label="Spinning"></i></span><p>Agent is updating the diagram…</p><time>11:22</time></div>
+          <div class="row"><span class="icon">✓</span><p>Update applied</p><time>11:22</time></div>
+          <div class="status-note"><b>Completed:</b> the prior task still spins, so the rail falsely implies work is continuing.</div>
+        </div>
+      </article>
+
+      <article class="card card--recommended recommended">
+        <header class="card__head"><h2>Recommended behavior</h2><span class="tag tag--best">Best UX</span></header>
+        <div class="rail">
+          <div class="rail-top"><span class="avatar">AI</span><span class="connection"><strong>Connected agent</strong><small>Linked to Checkout flow</small></span><span class="dot"></span></div>
+          <div class="activity-label">Activity</div>
+          <div class="row"><span class="icon">✓</span><p>Read “Checkout flow”</p><time>11:21</time></div>
+          <div class="row row--live"><span class="icon icon--work"><i class="spinner" aria-label="Spinning"></i></span><p>Agent is updating the diagram…</p><time>11:22</time></div>
+          <div class="row"><span class="icon">✓</span><p>Update applied</p><time>11:22</time></div>
+          <div class="status-note"><b>Completed:</b> completed work is a quiet, static record. Only a currently active task spins.</div>
+        </div>
+      </article>
+    </section>
+
+    <section class="principle">
+      <div class="principle__number">✓</div>
+      <div><h3>The implementation rule</h3><p>Render the working spinner only when <code>thinking === 'thinking'</code> and the entry is the newest row. Existing lifecycle telemetry already records task start and finish; this is a presentation-only correction.</p></div>
+    </section>
+  </main>
+  <script>
+    document.querySelectorAll('[data-state]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const state = button.dataset.state;
+        document.body.classList.toggle('is-active', state === 'active');
+        document.body.classList.toggle('is-completed', state === 'completed');
+        document.querySelectorAll('[data-state]').forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
+      });
+    });
+  </script>
+</body>
+</html>

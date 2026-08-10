@@ -1,6 +1,7 @@
 {
   "name": "confluence-plugin",
   "version": "1.1.0",
+  "packageManager": "pnpm@10.34.5",
   "private": true,
   "scripts": {
     "test:unit": "vitest --run",
@@ -63,7 +64,7 @@
     "forge:deploy:asyncapi:prod": "APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 CONNECT_KEY=my-api SEQUENCE_MACRO_KEY=zenuml-asyncapi-macro CUSTOM_CONTENT_KEY=async-api-doc LITE_KEY_SUFFIX= LITE_TITLE_SUFFIX= APP_LABEL='AsyncAPI for Confluence' BACKEND_API_BASE_URL=https://zenapi.zenuml.com DIAGRAMLY_BASE_URL=https://diagramly.ai forge deploy -e production --non-interactive",
     "forge:use": "f() { ln -sf .env.forge.$1 .env.forge && echo \"Switched to $1\"; }; f",
     "forge-wizard": "node scripts/forge-wizard.mjs",
-    "forge:all:ruixiang": "pnpm build:full && rm -fr dist/drawio && forge deploy -e env_ruixiang && forge install -p Confluence -s danshuitaihejie.atlassian.net --confirm-scopes --upgrade"
+    "forge:upgrade:diagramly:dev": "pnpm forge:use dia && pnpm build:diagramly && rm -fr dist/drawio && pnpm forge:deploy:dev && pnpm forge:upgrade:dev"
   },
   "dependencies": {
     "@asyncapi/react-component": "^1.4.10",

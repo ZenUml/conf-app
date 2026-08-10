@@ -43,6 +43,99 @@ const mockGlobals = {
   },
 };
 
+// Identity resolution (2026-07-26). Measured: 4 event names lose 17-100% of
+// their user attribution because they fire before the Forge context resolves
+// (ai_aide_route_accessed 100%, renderer_prefetch_* 35-37%,
+// legacy_content_property_load_failed 30%). The old code called
+// mixpanel.identify("unknown_user_account_id") — a constant SHARED BY EVERY
+// USER — which permanently pins those events to one bogus profile. Staying on
+// Mixpanel's own per-device anonymous id instead lets the later identify()
+// merge them into the right user, with no delay and no dropped events.
+describe("trackAnalyticsEvent — identity resolution", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    _resetForTesting();
+    // @ts-ignore
+    window.globals = mockGlobals;
+    vi.mocked(forgeGlobal).isForge = true;
+    vi.mocked(forgeGlobal).forgeContext = { localId: "macro-abc" } as any;
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    } as any);
+  });
+
+  it("does NOT identify with the shared placeholder when the account id is unresolved", async () => {
+    // @ts-ignore — the context has not resolved yet
+    window.globals = { apWrapper: { getMacroData: vi.fn().mockResolvedValue({}) } };
+
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
+
+    expect(mixpanel.identify).not.toHaveBeenCalled();
+    // ...and the event is still sent — never delayed, never dropped.
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "viewer_source_opened",
+      expect.any(Object)
+    );
+  });
+
+  it("identifies once the account id resolves on a later event", async () => {
+    // @ts-ignore
+    window.globals = { apWrapper: { getMacroData: vi.fn().mockResolvedValue({}) } };
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
+    expect(mixpanel.identify).not.toHaveBeenCalled();
+
+    // @ts-ignore — context resolves between events
+    window.globals = mockGlobals;
+    await _awaitableTrackAnalyticsEvent("viewer_source_copied", {});
+
+    expect(mixpanel.identify).toHaveBeenCalledTimes(1);
+    expect(mixpanel.identify).toHaveBeenCalledWith("user-123");
+  });
+
+  it("SWR: reuses the cached account id so the FIRST event of a later iframe is attributed", async () => {
+    // Iframe 1: context resolves, so the id is cached for this domain.
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
+    expect(mixpanel.identify).toHaveBeenCalledWith("user-123");
+
+    // Iframe 2 (fresh module state, context not resolved yet) — the cache
+    // makes its very first event correctly attributed instead of anonymous.
+    _resetForTesting();
+    vi.clearAllMocks();
+    // @ts-ignore
+    window.globals = { apWrapper: { getMacroData: vi.fn().mockResolvedValue({}) } };
+
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
+
+    expect(mixpanel.identify).toHaveBeenCalledWith("user-123");
+  });
+
+  it("SWR cache is domain-scoped — another tenant does not inherit the id", async () => {
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
+    expect(mixpanel.identify).toHaveBeenCalledWith("user-123");
+
+    _resetForTesting();
+    vi.clearAllMocks();
+    vi.mocked(getClientDomain).mockReturnValue("other.atlassian.net");
+    // @ts-ignore
+    window.globals = { apWrapper: { getMacroData: vi.fn().mockResolvedValue({}) } };
+
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
+
+    expect(mixpanel.identify).not.toHaveBeenCalled();
+  });
+
+  it("identifies exactly once across many events", async () => {
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
+    await _awaitableTrackAnalyticsEvent("viewer_source_copied", {});
+    await _awaitableTrackAnalyticsEvent("fullscreen_opened", {});
+
+    expect(mixpanel.identify).toHaveBeenCalledTimes(1);
+    expect(mixpanel.identify).toHaveBeenCalledWith("user-123");
+  });
+});
+
 describe("trackAnalyticsEvent", () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -125,6 +125,34 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 
 **Trigger:** Backend events fired by the attachment/export service when a PNG export is requested. The frontend references these event names in comments (`Attachment.ts:569`, `forge-upload-attachment.ts:13`) but the events are emitted server-side, not by the client tracker.
 
+### `attachment_upload_async_succeeded` / `_failed` / `_skipped`
+
+**Trigger:** Terminal outcome of the **save-time (async) PNG backup write**, emitted server-side by `functions/forge-upload-attachment.ts` from inside `waitUntil` — after the editor iframe (and with it the browser tracker) is gone. Registered for #392.
+
+The frontend's `attachment_upload_queued` is the denominator: every queued upload should produce exactly one of these three. Before them, the async path — ~34% of all upload attempts as of Jul 2026 — reported no outcome at all, so `attachment_upload_failed` measured only the synchronous path.
+
+**Which of the three fires** mirrors the sync path's split, and hinges on `content_status` (read from the page GET the upload already performs):
+
+| Outcome | Condition |
+|---|---|
+| `_succeeded` | write landed |
+| `_skipped` (`page_not_published`) | 404 on the upload leg **and** the page is not `current` — benign, the async twin of `attachment_upload_skipped`; v1 has no published content to attach to yet and the view-time backfill is the net |
+| `_failed` (`app_no_access`) | 404 **and** the page IS `current` — the app cannot see the page at all (#211) |
+| `_failed` (`http_<status>`) | everything else, including a 404 with unknown page status (never assume benign without evidence) and any 401/403, which stays a failure because the caller is the page editor at save time |
+
+| Property | Notes |
+|---|---|
+| `failure_stage` | non-success only: `read_check` \| `upload` \| `properties_put` \| `handler_error` |
+| `http_status` | non-success only: status from the stage that failed |
+| `failure_reason` | non-success only: the Confluence `message`, extracted from the error envelope (the raw envelope is ~180 chars and would consume the whole 200-char cap) |
+| `content_status` | non-success only: `current` \| `draft` \| … \| `unknown` — the skip-vs-failure discriminator |
+| `attachment_name` | `zenuml-{customContentId}.{png,json}` |
+| `page_id`, `cloud_id`, `client_domain` | tenant/page attribution (`client_domain` resolved from D1 when available) |
+| `content_type` | `image/png` (backup) or `application/json` (diagram-source snapshot) |
+| `surface` | always `backend` |
+
+**Sampling:** unsampled. Volume tracks saves, not views.
+
 ---
 
 ## AI title generation
@@ -481,14 +509,16 @@ Backend-declared event. Not currently emitted by client code.
 
 ### `swagger_editor_config_empty_with_modal`
 
-**Trigger:** The OpenAPI editor opened and its config (YAML/JSON) was empty, causing the "paste your spec" onboarding modal to appear. Fired in `forge-swagger-editor.ts`.
+**Trigger:** The OpenAPI editor opened in dashboard-Edit mode — `extension.config` carries no `customContentId` but `extension.modal.customContentId` supplies one (`isDashboardEdit`). Fired in `forge-swagger-editor.ts::initializeMacro`.
+
+**Semantics changed 2026-07-05 (PR #298, dual-format dashboard):** originally added 2026-05-23 (ZEN-1170) as a safety-net regression detector when the `extension.modal.customContentId` fallback was removed — any firing meant a bug, and the Mixpanel board "OpenAPI Modal Fallback Regression Monitor" (11218509) watched for it staying at 0. The dual-format dashboard deliberately reintroduced that path (dashboard Edit opens this editor as a standalone modal carrying the id), so the event now measures the **intended** dashboard-Edit route. Non-zero volume is feature usage, not a regression.
 
 | Property | Notes |
 |---|---|
 | `feature_area` | `"macro"` |
 | `surface` | `"editor"` |
 | `macro_type` | `"openapi"` |
-| `content_id` | Custom content ID (may be `undefined` for a brand-new macro) |
+| `content_id` | Custom content ID passed via `extension.modal.customContentId` |
 
 ---
 

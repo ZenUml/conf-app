@@ -1,5 +1,8 @@
 import { OkResponse } from "./OkResponse";
 import type { ForgeRequestData } from "./utils/authenticate";
+import { mixpanelTrack } from "./service/mixpanelService";
+import { getAtlassianInstanceClientDomain } from "./utils/dbUtils";
+import type { D1Database } from "@cloudflare/workers-types";
 
 // ---------------------------------------------------------------------------
 // Attachment-upload fallback (issue #166)
@@ -78,8 +81,14 @@ import type { ForgeRequestData } from "./utils/authenticate";
 // `async: true` we do the cheap synchronous validation, ACK immediately with
 // `{ ok:true, queued:true }`, and finish the read-check + upload + PUT inside
 // `waitUntil` — which keeps THIS worker alive past the response, so the write
-// survives the client teardown. Failures are logged, not surfaced: the caller
-// has already closed the editor and the view-time backfill remains the net.
+// survives the client teardown. Failures are not surfaced to the caller: it has
+// already closed the editor and the view-time backfill remains the net.
+//
+// They ARE reported to Mixpanel from here, though — `attachment_upload_async_
+// succeeded` / `_failed`, see reportAsyncOutcome (#392). The browser tracker
+// cannot observe this write (its iframe is gone), so before that the outcome
+// existed only as a console.warn and ~34% of all upload attempts had no
+// success/failure signal at all.
 // ---------------------------------------------------------------------------
 
 // Only our own derived artifacts — `zenuml-<customContentId>.png` (backup
@@ -102,9 +111,169 @@ function fail(status: number, body: string) {
   return OkResponse({ ok: false, status, body });
 }
 
+// Which leg of the write died. Async mode reports this as `failure_stage` —
+// without it a server-side failure is a single opaque bucket, and the async
+// path carries ~34% of all upload attempts (#392).
+type UploadStage = 'read_check' | 'upload' | 'properties_put' | 'handler_error';
+
 type UploadResult =
   | { ok: true; attachmentId: string; versionNumber: number }
-  | { ok: false; status: number; body: string };
+  | { ok: false; status: number; body: string; stage: UploadStage; pageStatus?: string };
+
+interface Env {
+  MIXPANEL_TOKEN?: string;
+  DB?: D1Database;
+}
+
+/**
+ * Mixpanel's `client_domain` is the bare subdomain (`example-tenant`), while
+ * D1 stores the full hostname (`example-tenant.atlassian.net`). Convert, so a
+ * backend-emitted event lands in the same bucket as the frontend ones instead
+ * of forking every tenant into two spellings.
+ */
+function toBareClientDomain(hostname: string | null): string | undefined {
+  if (!hostname) return undefined;
+  return hostname.split('.')[0] || undefined;
+}
+
+/**
+ * Pull the diagnostic part out of a Confluence v1 error body.
+ *
+ * Mirrors `extractConfluenceMessage` in src/model/Attachment.ts — duplicated
+ * rather than imported because functions/ and src/ are separate builds (the
+ * same reason analyticsTypes.ts duplicates the event catalog). Keep the two in
+ * sync.
+ *
+ * Every v1 error is wrapped in a ~180-char envelope
+ * ({"statusCode":404,"data":{…},"message":"com.atlassian…"}) and this event
+ * caps `failure_reason` at 200 chars, so the envelope alone consumed the whole
+ * budget: verified on lite-stg, every stored reason was exactly 200 chars and
+ * cut mid-sentence at "…No content found with id : Con". The frontend fixed
+ * this for its own events; the backend reporter shipped without it (#392).
+ */
+function extractConfluenceMessage(body: string): string {
+  try {
+    const parsed = JSON.parse(body);
+    if (typeof parsed?.message === 'string' && parsed.message) return parsed.message;
+  } catch {
+    // Possibly a truncated envelope (bodies are capped at 500 chars upstream),
+    // so JSON.parse fails on a well-formed prefix — salvage it textually.
+    const salvaged = /"message"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(body);
+    if (salvaged?.[1]) return salvaged[1];
+  }
+  return body;
+}
+
+/**
+ * Pick the event name and label for an async outcome.
+ *
+ * The interesting case is a 404 from the upload leg. The sync path already
+ * treats that as a benign skip (`attachment_upload_skipped`) because the host
+ * page usually isn't published yet, so v1 has no `current` content to attach
+ * to — and #392's whole thesis is that recording that as an error destroys the
+ * error signal. Shipping the async reporter without the same rule recreated
+ * exactly that: on lite-stg every one of the 14 async events was a `_failed`
+ * with http 404, i.e. an all-benign bucket masquerading as a 100% failure rate.
+ *
+ * A 404 is only benign when the page really is unpublished, so `pageStatus`
+ * (from the read-check the upload already performs) decides:
+ *   - not `current`  -> benign skip, the async twin of the sync 404 skip
+ *   - `current`      -> the app genuinely cannot see the page (#211) ->
+ *                       a real failure, labelled `app_no_access` to match the
+ *                       frontend's vocabulary
+ *   - unknown        -> stays a failure. Never assume benign without evidence;
+ *                       `content_status: 'unknown'` makes the gap visible.
+ * A 401/403 on this path stays a failure regardless — the caller is the page
+ * editor, so an app-auth denial at save time is a real anomaly (the same rule
+ * the snapshot path settled on in #387).
+ */
+function classifyAsyncOutcome(
+  result: UploadResult,
+): { event: 'attachment_upload_async_succeeded' | 'attachment_upload_async_failed' | 'attachment_upload_async_skipped'; label: string } {
+  if (result.ok) return { event: 'attachment_upload_async_succeeded', label: 'succeeded' };
+  if (result.status === 404 && result.stage === 'upload') {
+    if (result.pageStatus && result.pageStatus !== 'current') {
+      return { event: 'attachment_upload_async_skipped', label: 'page_not_published' };
+    }
+    if (result.pageStatus === 'current') {
+      return { event: 'attachment_upload_async_failed', label: 'app_no_access' };
+    }
+  }
+  return { event: 'attachment_upload_async_failed', label: `http_${result.status}` };
+}
+
+/**
+ * Report the terminal outcome of an async (save-time) write.
+ *
+ * The whole point of async mode is that we ack before the write finishes and
+ * the caller's iframe is torn down — so the browser tracker cannot report this
+ * outcome, and until now nothing did: the failure path was a `console.warn`
+ * inside `waitUntil`. That left ~34% of all upload attempts (1,821 of ~5,350
+ * in a 5-day sample) with no success/failure signal at all, on the SAVE path
+ * specifically, which is the one that matters most (#392).
+ *
+ * `attachment_upload_queued` (frontend, unsampled) is the denominator: every
+ * queued upload should produce exactly one event here. Never throws — telemetry
+ * must not be able to break a write that has already been acked.
+ */
+async function reportAsyncOutcome(
+  env: Env | undefined,
+  forgeContext: ForgeRequestData['forgeContext'],
+  params: { pageId: string; attachmentName: string; contentType: string },
+  result: UploadResult,
+): Promise<void> {
+  const token = env?.MIXPANEL_TOKEN;
+  if (!token) return; // not configured (local dev / tests) — nothing to report to
+
+  try {
+    let clientDomain: string | undefined;
+    if (env?.DB) {
+      try {
+        clientDomain = toBareClientDomain(
+          await getAtlassianInstanceClientDomain(env.DB, forgeContext?.cloudId),
+        );
+      } catch {
+        // Attribution is a nice-to-have; never lose the event over it.
+      }
+    }
+
+    const outcome = classifyAsyncOutcome(result);
+
+    await mixpanelTrack(
+      {
+        event: outcome.event,
+        user_account_id: forgeContext?.accountId,
+        feature_area: 'macro',
+        surface: 'backend',
+        event_category: 'export',
+        // Mirrors the frontend's `event_label` grouping so the two sides of the
+        // funnel break down the same way.
+        event_label: outcome.label,
+        page_id: params.pageId,
+        attachment_name: params.attachmentName,
+        content_type: params.contentType,
+        cloud_id: forgeContext?.cloudId,
+        client_domain: clientDomain,
+        from_save: true,
+        ...(result.ok
+          ? { attachment_id: result.attachmentId, version_number: result.versionNumber }
+          : {
+              http_status: result.status,
+              failure_stage: result.stage,
+              // The Confluence `message`, not the envelope that used to eat the
+              // entire 200-char budget.
+              failure_reason: extractConfluenceMessage(result.body).slice(0, 200),
+              // What made this a skip rather than a failure (or vice versa) —
+              // the same guard rail the sync path carries.
+              content_status: result.pageStatus ?? 'unknown',
+            }),
+      },
+      token,
+    );
+  } catch (e: any) {
+    console.warn('forge-upload-attachment: async outcome report failed', e?.message ?? e);
+  }
+}
 
 // The read-check → attachment-data POST → properties PUT, shared by the
 // synchronous (401/403 fallback) and the async (save-time) modes. Returns a
@@ -140,7 +309,21 @@ async function doUpload(
   });
   if (!readResp.ok) {
     console.warn(`forge-upload-attachment: user read check failed (${readResp.status}) for page ${p.pageId}`);
-    return { ok: false, status: 403, body: `caller cannot access page ${p.pageId} (read check ${readResp.status})` };
+    return { ok: false, status: 403, body: `caller cannot access page ${p.pageId} (read check ${readResp.status})`, stage: 'read_check' };
+  }
+
+  // The read-check response already carries the page's status — keep it. It is
+  // the only thing that tells a benign upload 404 ("page isn't published yet",
+  // so v1 has no `current` content to attach to) apart from a real one ("the
+  // app cannot see this page at all", #211). Without it both are just `404`
+  // and the async path cannot classify its own dominant outcome (#392).
+  // Never fatal: an unreadable body leaves the status unknown, which the
+  // reporter treats as a failure rather than silently assuming benign.
+  let pageStatus: string | undefined;
+  try {
+    pageStatus = (JSON.parse(await readResp.text()) as { status?: string })?.status;
+  } catch {
+    pageStatus = undefined;
   }
 
   // ---- upload the attachment data as the app -----------------------------
@@ -168,7 +351,7 @@ async function doUpload(
   const uploadText = await uploadResp.text();
   if (!uploadResp.ok) {
     console.warn(`forge-upload-attachment: upload ${uploadResp.status} page=${p.pageId} name=${p.attachmentName}: ${uploadText.slice(0, 200)}`);
-    return { ok: false, status: uploadResp.status, body: uploadText.slice(0, 500) };
+    return { ok: false, status: uploadResp.status, body: uploadText.slice(0, 500), stage: 'upload', pageStatus };
   }
 
   // New-attachment path: pull the id out of the v1 results envelope. For a
@@ -181,7 +364,7 @@ async function doUpload(
     // Non-JSON body — keep whatever id we already have.
   }
   if (!resolvedAttachmentId) {
-    return { ok: false, status: 502, body: `upload succeeded but response had no attachment id: ${uploadText.slice(0, 200)}` };
+    return { ok: false, status: 502, body: `upload succeeded but response had no attachment id: ${uploadText.slice(0, 200)}`, stage: 'upload' };
   }
 
   // ---- mirror updateAttachmentProperties: stamp the comment as the app ----
@@ -207,7 +390,7 @@ async function doUpload(
   if (!putResp.ok) {
     const putText = await putResp.text();
     console.warn(`forge-upload-attachment: properties PUT ${putResp.status} attachment=${resolvedAttachmentId}: ${putText.slice(0, 200)}`);
-    return { ok: false, status: putResp.status, body: putText.slice(0, 500) };
+    return { ok: false, status: putResp.status, body: putText.slice(0, 500), stage: 'properties_put' };
   }
 
   return { ok: true, attachmentId: String(resolvedAttachmentId), versionNumber: finalVersion };
@@ -216,10 +399,12 @@ async function doUpload(
 export const onRequest = async ({
   request,
   data,
+  env,
   waitUntil,
 }: {
   request: Request;
   data: ForgeRequestData;
+  env?: Env;
   waitUntil?: (promise: Promise<any>) => void;
 }) => {
   try {
@@ -311,11 +496,30 @@ export const onRequest = async ({
     // path. Failures are logged only (the editor has already closed; the
     // view-time backfill is the safety net). See the header comment.
     if (asyncMode) {
+      const reportParams = {
+        pageId: params.pageId,
+        attachmentName: params.attachmentName,
+        contentType,
+      };
       const work = doUpload(apiBaseUrl, systemToken, userToken, params)
-        .then((r) => {
+        .then(async (r) => {
           if (!r.ok) console.warn(`forge-upload-attachment[async]: ${r.status} page=${pageId} name=${attachmentName}: ${r.body.slice(0, 200)}`);
+          // The client is gone by now, so this is the ONLY place the outcome
+          // can be recorded (#392).
+          await reportAsyncOutcome(env, data.forgeContext, reportParams, r);
         })
-        .catch((e) => console.error('forge-upload-attachment[async]: handler error', e));
+        .catch(async (e) => {
+          console.error('forge-upload-attachment[async]: handler error', e);
+          // A thrown handler is still an outcome — reporting only the returned
+          // `{ok:false}` results would leave network/runtime errors invisible,
+          // which is the exact blind spot this reporting exists to close.
+          await reportAsyncOutcome(env, data.forgeContext, reportParams, {
+            ok: false,
+            status: 0,
+            body: String(e?.message ?? e).slice(0, 200),
+            stage: 'handler_error',
+          });
+        });
       if (typeof waitUntil === 'function') {
         waitUntil(work);
       } else {

@@ -246,6 +246,9 @@ modules:
       icon: resource:main;image/diagram_macro_icon.png
       unlicensedAccess:
         - unlicensed
+      autoConvert:
+        matchers:
+          - pattern: https://conf-lite.zenuml.com/d/*/*
     # AsyncAPI macro: ships only with the asyncapi variant; lite/full/diagramly
     # strip this entry via manifestEdits in scripts/forge-wizard.mjs.
     - key: zenuml-asyncapi-macro
@@ -362,6 +365,13 @@ modules:
   confluence:pageBanner:
     - key: zenuml-page-banner
       resource: main
+      # M1 first-seen ping: invokeRemote REQUIRES the calling module to carry a
+      # resolver/endpoint binding — without this line the banner iframe's call
+      # fails with: Entry point "resolver" for extension "zenuml-page-banner"
+      # could not be invoked (observed on lite-stg, 2026-08-09). Macros work
+      # because every macro module already declares this same binding.
+      resolver:
+        endpoint: remote-connect
   confluence:spacePage: #Note: AsyncAPI variant only — appears in each Confluence space's sidebar. Mirrors AsyncAPI-Conf-V2's spacePage. Other variants strip this via manifestEdits in scripts/forge-wizard.mjs.
     - key: zenuml-asyncapi-dashboard-page
       resource: main

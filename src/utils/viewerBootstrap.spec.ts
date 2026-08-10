@@ -37,7 +37,12 @@ vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
 // Forge bridge context resolve — resolveContentId's argument. The actual
 // shape doesn't matter for these tests (resolveContentId is test-controlled
 // below); this only needs to resolve so `await initForgeContext()` doesn't hang.
+// `default` mirrors the real module's default export — getForgeCustomContentId
+// (viewerLoadOutcome.ts) reads forgeContext off it; individual tests below
+// mutate mockForgeGlobal.forgeContext rather than window.forgeGlobal.
+const mockForgeGlobal = vi.hoisted(() => ({ forgeContext: undefined as any }));
 vi.mock('@/model/globals/forgeGlobal', () => ({
+  default: mockForgeGlobal,
   getContext: vi.fn(() => Promise.resolve({ extension: {} })),
 }));
 
@@ -131,11 +136,9 @@ describe('viewerBootstrap', () => {
   });
 
   it('marks rejected loadDiagram as failed_with_source when a custom content id exists', async () => {
-    window.forgeGlobal = {
-      forgeContext: {
-        extension: { config: { customContentId: 'cc-missing' } },
-      },
-    } as any;
+    mockForgeGlobal.forgeContext = {
+      extension: { config: { customContentId: 'cc-missing' } },
+    };
     const onError = vi.fn();
 
     await bootstrapForgeViewer({
@@ -157,11 +160,9 @@ describe('viewerBootstrap', () => {
   });
 
   it('marks rejected loadDiagram as failed_without_source when no custom content id exists', async () => {
-    window.forgeGlobal = {
-      forgeContext: {
-        extension: { config: {} },
-      },
-    } as any;
+    mockForgeGlobal.forgeContext = {
+      extension: { config: {} },
+    };
 
     await bootstrapForgeViewer({
       macroKind: 'embed',
@@ -177,18 +178,16 @@ describe('viewerBootstrap', () => {
   });
 
   it('marks failed loads with a source id as failed_with_source', async () => {
-    window.forgeGlobal = {
-      forgeContext: {
-        extension: { config: { customContentId: 'cc-missing' } },
-      },
-    } as any;
+    mockForgeGlobal.forgeContext = {
+      extension: { config: { customContentId: 'cc-missing' } },
+    };
 
     await bootstrapForgeViewer({
       macroKind: 'openapi',
       content: Component,
       loadDiagram: vi.fn(async () => ({
         doc: undefined,
-        loadError: { httpStatus: 404, directFetchStatus: 'not_found' },
+        loadError: { httpStatus: 404, directFetchStatus: 'not_found' as const },
       })),
     });
 

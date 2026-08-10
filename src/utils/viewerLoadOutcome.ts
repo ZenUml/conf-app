@@ -1,4 +1,5 @@
 import globals from '@/model/globals';
+import forgeGlobal from '@/model/globals/forgeGlobal';
 import { Diagram, DiagramType, NULL_DIAGRAM, getDiagramData } from '@/model/Diagram/Diagram';
 import store from '@/model/store2';
 import type { DiagramLoadError, ViewerLoadState } from '@/model/store2/types';
@@ -55,7 +56,7 @@ export interface ViewerLoadOutcome {
 }
 
 export function getForgeCustomContentId(): string | undefined {
-  const extension = window.forgeGlobal?.forgeContext?.extension;
+  const extension = forgeGlobal.forgeContext?.extension;
   return extension?.config?.customContentId ?? extension?.modal?.customContentId;
 }
 

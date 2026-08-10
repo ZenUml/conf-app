@@ -19,7 +19,7 @@ const AUTOCONVERT_ANALYTICS_PROPS = {
   source: 'autoconvert_link',
 } as const satisfies AnalyticsProperties;
 
-async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
+export async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;

@@ -12,6 +12,7 @@ import { persistSession } from '@/composables/agentLink/sessionHandoff'
 import ThinkingOverlay from '@/components/AgentLink/ThinkingOverlay.vue'
 import { toast } from '@/utils/toast'
 import { parseEmbedDeeplink } from '@/utils/embedDeeplink'
+import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
 
@@ -89,6 +90,19 @@ vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
   getSpaceKey: vi.fn(() => 'TEST'),
 }))
 
+// Isolated from forgeRuntime/getContext() on purpose: those back the
+// copyDeeplink tests' @forge/bridge-mocked cloudId resolution below, which
+// requires forgeContext to stay falsy until getContext()'s own lazy
+// getView() call resolves it. Mutating the real forgeGlobal singleton here
+// would short-circuit that for every test in the file, not just these ones.
+vi.mock('@/utils/viewerLoadOutcome', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/viewerLoadOutcome')>()
+  return {
+    ...actual,
+    getForgeCustomContentId: vi.fn(() => 'content-123'),
+  }
+})
+
 const mountViewer = () => mount(GenericViewer, { global: { plugins: [store] } })
 
 describe('GenericViewer (chrome-less)', () => {
@@ -106,6 +120,8 @@ describe('GenericViewer (chrome-less)', () => {
     store.state.diagram.recoveredFromOrphan = false
     store.state.viewerLoadState = 'ready'
     store.state.loadError = null
+    // @ts-ignore — matches the production `// @ts-ignore\nwindow.forgeGlobal = global`
+    // assignment in forgeGlobal.ts; isFullscreenMode() reads this directly.
     window.forgeGlobal = {
       forgeContext: {
         extension: { config: { customContentId: 'content-123' } },
@@ -1224,7 +1240,7 @@ describe('GenericViewer (chrome-less)', () => {
 
     it('renders only Contact support for failed_without_source', () => {
       store.state.viewerLoadState = 'failed_without_source'
-      window.forgeGlobal = { forgeContext: { extension: { config: {} } } } as any
+      vi.mocked(getForgeCustomContentId).mockReturnValueOnce(undefined)
       const wrapper = mountViewer()
       expect(wrapper.text()).toContain('The diagram data is no longer available')
       expect(wrapper.text()).not.toContain('Try again')

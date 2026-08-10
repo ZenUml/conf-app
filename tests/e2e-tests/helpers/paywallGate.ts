@@ -34,6 +34,23 @@ export async function dismissPaywallGate(
     .catch(() => false);
   if (!appeared) return false;
 
+  // Reset the metered continue counter before dismissing. The allowance is 3
+  // per (domain, space, account) — a spec driving 4+ editor mounts in one
+  // browser context would exhaust it mid-test, the Continue button would be
+  // replaced by non-clickable "request an extension" copy, and the test would
+  // flake on product policy rather than product behavior. Test-env insulation
+  // only; the counter still decrements normally between resets.
+  await frame
+    .locator('body')
+    .evaluate(() => {
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith('paywallContinueAttempts:'))
+        .forEach((k) => localStorage.removeItem(k));
+    })
+    .catch(() => {
+      // best-effort: a cross-origin or storage failure must not fail the dismiss
+    });
+
   for (let i = 0; i < attempts; i++) {
     if (!(await continueBtn.isVisible().catch(() => false))) return true; // gate gone
     console.log(`Paywall gate detected; clicking Continue editing (attempt ${i + 1}/${attempts})`);

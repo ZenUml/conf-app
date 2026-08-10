@@ -67,9 +67,9 @@ describe('PaywallGate', () => {
       },
     });
 
-    expect(wrapper.get('[data-testid="remaining"]').text()).toBe('15');
+    expect(wrapper.get('[data-testid="remaining"]').text()).toBe('3');
     expect(JSON.parse(localStorage.getItem(continueAttemptsKey(identity)) || '{}')).toMatchObject({
-      remainingAttempts: 15,
+      remainingAttempts: 3,
       lastUsedAt: null,
       exhaustedAt: null,
     });
@@ -104,7 +104,7 @@ describe('PaywallGate', () => {
     await wrapper.get('[data-testid="continue"]').trigger('click');
 
     expect(JSON.parse(localStorage.getItem(continueAttemptsKey(identity)) || '{}')).toMatchObject({
-      remainingAttempts: 14,
+      remainingAttempts: 2,
     });
     expect(wrapper.emitted('continue-editing')).toBeTruthy();
   });

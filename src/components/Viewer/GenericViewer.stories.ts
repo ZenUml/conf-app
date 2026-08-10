@@ -602,3 +602,47 @@ export const SourcePanelFullscreen: Story = {
     })
   },
 }
+
+// ---------------------------------------------------------------------------
+// 9. Load-failed recovery panel — retryable vs terminal
+// ---------------------------------------------------------------------------
+// store.state.viewerLoadState isn't part of the `diagram` object setupStore()
+// configures, so it's set directly here after configureStory() runs.
+
+export const LoadFailedWithSource: Story = {
+  name: 'Load failed — retryable (has a source id)',
+  decorators: [
+    () => {
+      configureStory({ diagramType: DiagramType.Mermaid, title: 'Login flow' })
+      store.state.viewerLoadState = 'failed_with_source'
+      store.state.loadError = { httpStatus: 404, directFetchStatus: 'not_found' }
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByText("This diagram isn't available")).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Try again' })).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Contact support' })).toBeVisible()
+  },
+}
+
+export const LoadFailedWithoutSource: Story = {
+  name: 'Load failed — terminal (no source id)',
+  decorators: [
+    () => {
+      configureStory({ diagramType: DiagramType.Mermaid, title: 'Login flow' })
+      store.state.viewerLoadState = 'failed_without_source'
+      store.state.loadError = null
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByText('The diagram data is no longer available')).toBeVisible()
+    await expect(canvas.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument()
+    await expect(canvas.getByRole('button', { name: 'Contact support' })).toBeVisible()
+  },
+}

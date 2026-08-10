@@ -29,6 +29,12 @@
           </p>
         </div>
 
+        <!-- At the last continue the modal collapses to the commitment
+             question: every mid-section surface (hero, purchase card, draft,
+             advocacy, extension) yields, because the three commitment options
+             ARE those rails — showing both duplicates every CTA and buries
+             the question ("crazily busy", review 2026-08-10). -->
+        <template v-if="!isLastContinueAttempt">
         <!-- Hero: illustration + title + body -->
         <PaywallHero />
 
@@ -114,6 +120,7 @@
             >{{ extensionRequestStatus }}</p>
           </div>
         </div>
+        </template>
 
         <!-- Last-continue commitment beat (paywall-rhythm W1). Only degrees of
              yes: unlock now, route the request to an admin, or spend the final
@@ -122,30 +129,31 @@
         <div
           v-if="isLastContinueAttempt"
           data-testid="commitment-prompt"
-          class="px-4 pb-2"
+          class="px-6 py-8"
         >
-          <div class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
-            <p class="text-xs font-medium text-amber-900">
-              This is your last continue. Keep this space's diagram work uninterrupted?
-            </p>
-            <div class="mt-1.5 flex flex-wrap items-center gap-2">
-              <button
-                data-testid="commitment-unlock-btn"
-                class="rounded bg-emerald-700 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-800"
-                @click="onCommitmentAnswer('unlock')"
-              >Unlock now — {{ ENTERPRISE_BUNDLE_PRICE }}</button>
-              <button
-                data-testid="commitment-ask-admin-btn"
-                class="rounded border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100"
-                @click="onCommitmentAnswer('ask_admin')"
-              >Ask your admin — copy the request</button>
-            </div>
-            <p
-              v-if="commitmentStatus"
-              class="mt-1 text-[11px] text-amber-800"
-              data-testid="commitment-status"
-            >{{ commitmentStatus }}</p>
+          <p class="text-sm font-semibold text-gray-900">
+            This is your last continue.
+          </p>
+          <p class="mt-1 text-sm text-gray-700">
+            Keep this space's diagram work uninterrupted?
+          </p>
+          <div class="mt-4 flex flex-col gap-2">
+            <button
+              data-testid="commitment-unlock-btn"
+              class="w-full rounded bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+              @click="onCommitmentAnswer('unlock')"
+            >Unlock now — {{ ENTERPRISE_BUNDLE_PRICE }} · editing resumes instantly</button>
+            <button
+              data-testid="commitment-ask-admin-btn"
+              class="w-full rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
+              @click="onCommitmentAnswer('ask_admin')"
+            >Ask your admin — copy the request (includes numbers and price)</button>
           </div>
+          <p
+            v-if="commitmentStatus"
+            class="mt-2 text-xs text-gray-600"
+            data-testid="commitment-status"
+          >{{ commitmentStatus }}</p>
         </div>
 
         <!-- Footer - Continue editing + Learn more -->

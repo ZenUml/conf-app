@@ -131,6 +131,10 @@ export const LastAttempt: Story = {
     await expect(await body.findByTestId('commitment-prompt')).toBeVisible()
     await expect(await body.findByTestId('commitment-unlock-btn')).toBeVisible()
     await expect(await body.findByTestId('commitment-ask-admin-btn')).toBeVisible()
+    // Collapsed state: the mid-section rails yield to the commitment question
+    await expect(body.queryByTestId('unlock-space-btn')).toBeNull()
+    await expect(body.queryByTestId('advocacy-copy-btn')).toBeNull()
+    await expect(body.queryByTestId('request-extension-btn')).toBeNull()
   },
 }
 

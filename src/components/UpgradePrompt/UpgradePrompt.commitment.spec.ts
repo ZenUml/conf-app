@@ -79,6 +79,10 @@ describe('UpgradePrompt — last-continue commitment beat', () => {
   it('renders the commitment prompt only when exactly one attempt remains', () => {
     mountModal({ remainingContinueAttempts: 1 })
     expect(q('commitment-prompt')).toBeTruthy()
+    // Collapsed: mid-section rails yield to the question (busy-modal review)
+    expect(q('unlock-space-btn')).toBeNull()
+    expect(q('advocacy-copy-btn')).toBeNull()
+    expect(q('request-extension-btn')).toBeNull()
     wrapper!.unmount()
 
     mountModal({ remainingContinueAttempts: 2 })

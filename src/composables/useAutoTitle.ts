@@ -57,6 +57,19 @@ function titleTypeParam(diagramType: DiagramType, code: string): string {
   return DiagramType.Sequence
 }
 
+// The AI-title endpoint is expected to return a short title, not a chat
+// reply. Occasionally (e.g. when the extracted diagram signal is thin or
+// ambiguous) the model answers with a clarifying question instead of a
+// title — reject anything that isn't title-shaped rather than trust any
+// non-empty response. Conservative on purpose: legitimate short titles must
+// never trip these checks.
+function looksLikeTitle(s: string): boolean {
+  if (s.length > 100) return false
+  if (s.includes('\n')) return false
+  if (s.trimEnd().endsWith('?')) return false
+  return true
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -149,6 +162,12 @@ export function useAutoTitle() {
       const title = (await res.text()).trim()
       if (token !== genToken) return
       if (!title) {
+        resetGenerating()
+        return
+      }
+      if (!looksLikeTitle(title)) {
+        trackAnalyticsEvent('ai_generation_failed', { ...trackProps, failure_reason: 'not_title_like' })
+        if (trigger === 'user') toast({ message: "Couldn't generate a title — please try again later.", duration: 3000 })
         resetGenerating()
         return
       }

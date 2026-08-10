@@ -88,6 +88,17 @@ export class Diagram {
   snapshotFallback?: boolean = undefined;
   // ISO timestamp of the snapshot attachment used for snapshotFallback.
   snapshotAt?: string = undefined;
+  // Slice 1 of the content-opening unification: set when openDocument's
+  // resolution totally failed (an id existed but every direct fetch, orphan
+  // recovery, and legacy fallback missed). OpenApiViewer.vue (and later
+  // families as they migrate) render a terminal message instead of silently
+  // falling back to an example/blank document.
+  //
+  // Shape MUST stay in sync with `OpenError` in
+  // src/utils/documentOpening/types.ts. It's not imported directly — this is
+  // a low-level model file and types.ts imports Diagram from it, so a direct
+  // import would be a cycle — so the literal is duplicated here instead.
+  loadError?: { kind: 'not_found'; customContentId?: string; indeterminate: boolean } = undefined;
 
   public getCoreData?(): string {
     return getDiagramData(this);

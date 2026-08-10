@@ -254,6 +254,21 @@ export type AnalyticsProperties = {
   // the macro lives on a page tagged with the `diagramly-demo-page` page
   // property. See utils/analytics/demoPageStatus.ts.
   is_demo_page?: boolean;
+  // Export PNG dialog (export_png_succeeded / export_png_failed —
+  // ExportModal.vue). `method` = delivery path the PNG went out through;
+  // `background` mirrors the ExportState background option value
+  // ('transparent' | 'white' | 'warm' | 'cool' | 'custom'). has_note/
+  // has_arrow/has_callout/has_watermark record which overlay types were
+  // present in the exported image (ExportState's computed flags of the same
+  // names). `failure_reason` (declared above) carries export_png_failed's
+  // reason, e.g. 'no_capture_node' | 'blob_null' | 'exception' |
+  // 'clipboard_denied'.
+  method?: 'download' | 'clipboard';
+  background?: string;
+  has_note?: boolean;
+  has_arrow?: boolean;
+  has_callout?: boolean;
+  has_watermark?: boolean;
   // Performance
   render_mode?: RenderMode;
   // Where a cached_svg render sourced its SVG (Phase 2: 'cc_body'). Absent/'none' for live_render.
@@ -406,6 +421,16 @@ export type AnalyticsProperties = {
   query_len?: number;
   hits?: number;
   list_scope?: AgentLinkListScope;
+  // Starter-template gallery (#334). `template_id` identifies which curated
+  // template was applied (editor_template_applied only) — flat across the
+  // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is
+  // a stable Mixpanel dimension regardless of macro_type. `is_new_macro` is
+  // the same create-vs-edit discriminator Header.vue already uses for its
+  // macro_create_started/macro_edit_opened split (`!diagram.id`) — reused
+  // here so the gallery's funnel joins against that axis rather than
+  // inventing a second one.
+  template_id?: string;
+  is_new_macro?: boolean;
   // Error
   error_code?: string;
   error_name?: string;

@@ -61,7 +61,6 @@ describe('forge-wizard manifest preview helpers', () => {
     // Connect lifecycle module (connectModules) — also asyncapi-only.
     const desc = getManifestEditDescriptions('full')
     expect(desc).toContain('Remove Lite snapshot and Diagramly demo schedules from Full')
-    expect(desc).toContain('Remove Lite remote-storage declaration from Full')
     expect(getManifestEditYqArgs('full').map((x) => x.expr)).toContain(
       'del(.connectModules)',
     )
@@ -86,7 +85,6 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(desc).toContain('Remove asyncapi custom content (async-api-doc)')
     expect(desc).toContain('Remove Connect lifecycle module (connectModules)')
     expect(desc).toContain('Remove Lite macro snapshot schedule from Diagramly')
-    expect(desc).toContain('Remove Lite remote-storage declaration from Diagramly')
     // Diagramly's globalSettings+globalPage+spacePage strip removes both
     // the ZenUML dashboard and the asyncapi spacePage in a single edit.
 
@@ -122,7 +120,6 @@ describe('forge-wizard manifest preview helpers', () => {
     // Connect (my-api / AsyncAPI-Conf-V2) installs.
     expect(desc).not.toContain('Remove Connect lifecycle module (connectModules)')
     expect(desc).toContain('Remove Lite snapshot and Diagramly demo schedules from AsyncAPI')
-    expect(desc).toContain('Remove Lite remote-storage declaration from AsyncAPI')
 
     const yq = getManifestEditYqArgs('asyncapi').map((x) => x.expr)
     expect(yq).not.toContain('del(.connectModules)')

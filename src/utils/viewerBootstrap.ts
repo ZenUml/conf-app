@@ -9,12 +9,15 @@ import * as renderPerf from '@/utils/analytics/renderPerf';
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage';
 import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
+import type { OpenError } from '@/utils/documentOpening/types';
+
+export type ViewerLoadDiagramResult = Diagram | undefined | { doc?: Diagram; loadError?: OpenError | null };
 
 export interface ViewerBootstrapOptions {
   macroKind: MacroKind;
   content: Component;
   contentProps?: Record<string, unknown>;
-  loadDiagram: () => Promise<Diagram | undefined>;
+  loadDiagram: () => Promise<ViewerLoadDiagramResult>;
   afterLoad?: (doc: Diagram | undefined) => void | Promise<void>;
   onError?: (error: unknown) => void;
   /**
@@ -54,8 +57,26 @@ function normalizeCompressedGraphDoc(doc: Diagram | undefined): Diagram | undefi
   return doc;
 }
 
-export function publishLoadedDiagram(doc: Diagram | undefined): Diagram {
-  const diagram = normalizeCompressedGraphDoc(doc) ?? NULL_DIAGRAM;
+/**
+ * Slice 1 of the content-opening unification: `loadDiagram` implementations
+ * are migrating from returning a plain `Diagram | undefined` to the wrapped
+ * `{ doc, loadError }` shape that `openDocument`/`TargetSpec` callers use, so
+ * a failed load can carry WHY it failed (see Diagram.loadError). Distinguish
+ * by shape rather than a discriminant field, since existing callers (graph,
+ * embed) still return a plain `Diagram` and must be read back unchanged.
+ */
+function normalizeViewerLoadResult(
+  result: ViewerLoadDiagramResult,
+): { doc: Diagram | undefined; loadError: OpenError | null } {
+  if (result && typeof result === 'object' && 'doc' in result) {
+    return { doc: result.doc, loadError: result.loadError ?? null };
+  }
+  return { doc: result as Diagram | undefined, loadError: null };
+}
+
+export function publishLoadedDiagram(doc: Diagram | undefined, loadError?: OpenError | null): Diagram {
+  const normalized = normalizeCompressedGraphDoc(doc) ?? NULL_DIAGRAM;
+  const diagram = loadError ? { ...normalized, loadError } : normalized;
   store.state.diagram = diagram;
   // Signal load completion (success OR failure — `doc` is undefined when the
   // referenced content 404s/failed to load). The embed viewer uses this to show
@@ -132,8 +153,9 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
     // Scope is content resolution only: the deferred PNG/attachment work runs
     // in `afterLoad`, outside the timer. `renderPerf.time` is first-wins, so
     // the sequence family — which never bootstraps through here — is untouched.
-    const doc = await renderPerf.time('fetch', () => options.loadDiagram());
-    publishLoadedDiagram(doc);
+    const result = normalizeViewerLoadResult(await renderPerf.time('fetch', () => options.loadDiagram()));
+    publishLoadedDiagram(result.doc, result.loadError);
+    const doc = result.doc;
     if (customContentId && doc) {
       // Prime the id-keyed SWR cache so a later viewer revisit can render
       // before the fetch. Cache the RAW fetched value (pre-normalization —
@@ -168,8 +190,9 @@ async function revalidateViewer(
   options: ViewerBootstrapOptions,
 ): Promise<void> {
   try {
-    const fresh = await renderPerf.time('fetch', () => options.loadDiagram());
-    if (!fresh) return; // content unreadable now — keep the last-known-good cached render
+    const result = normalizeViewerLoadResult(await renderPerf.time('fetch', () => options.loadDiagram()));
+    if (!result.doc) return; // content unreadable now — keep the last-known-good cached render
+    const fresh = result.doc;
     const serialized = JSON.stringify(fresh);
     putCachedContent(customContentId, serialized);
     if (hashContent(serialized) !== cachedHash) {

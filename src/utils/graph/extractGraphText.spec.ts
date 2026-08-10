@@ -51,6 +51,21 @@ describe('extractGraphText', () => {
     expect(extractGraphText(xml)).toBe('Lane\nTask')
   })
 
+  it("ignores the DrawIO default placeholder label 'Text'", () => {
+    const xml = `<mxGraphModel><root>
+      <mxCell id="2" value="Text" vertex="1" />
+    </root></mxGraphModel>`
+    expect(extractGraphText(xml)).toBe('')
+  })
+
+  it("keeps a real label and drops a co-present 'Text' placeholder", () => {
+    const xml = `<mxGraphModel><root>
+      <mxCell id="2" value="Text" vertex="1" />
+      <mxCell id="3" value="Order Service" vertex="1" />
+    </root></mxGraphModel>`
+    expect(extractGraphText(xml)).toBe('Order Service')
+  })
+
   it('reads object/UserObject label attributes', () => {
     const xml = `<mxGraphModel><root>
       <object label="Customer" id="2"><mxCell vertex="1" /></object>

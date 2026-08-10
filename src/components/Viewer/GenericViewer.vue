@@ -10,7 +10,7 @@
          "Submit a ticket" error panel here. -->
     <!-- Embed/portal hosts request a chrome-less surface — render the diagram only. -->
     <template v-if="!isDisplayMode || hideHeader">
-      <div class="screen-capture-content" :class="{'w-full': isWide}">
+      <div class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide}">
         <slot></slot>
       </div>
     </template>
@@ -206,7 +206,7 @@
 
           <!-- Canvas + bottom-edge pill -->
           <div class="viewer-canvas">
-            <div class="screen-capture-content" :class="{'w-full': isWide}">
+            <div class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide}">
               <slot></slot>
             </div>
 
@@ -307,7 +307,13 @@
       </div>
     </template>
 
-  <ExportModal :visible="showExportModal" @close="showExportModal = false" />
+  <ExportModal
+    :visible="showExportModal"
+    :macro-type="diagramType"
+    :capture-node-getter="getCaptureNode"
+    :diagram-title="title"
+    @close="showExportModal = false"
+  />
 </div>
 </template>
 
@@ -742,6 +748,14 @@ export default {
     }
   },
   methods: {
+    // Export PNG (code review): give ExportModal the actual DOM node instead
+    // of a global document.querySelector('.screen-capture-content'), which
+    // only worked by the accident of exactly one copy ever being mounted at
+    // once (v-if/v-else above). Same ref name on both mutually exclusive
+    // branches resolves to whichever one is actually rendered.
+    getCaptureNode() {
+      return this.$refs.captureNode ?? null;
+    },
     edit() {
       trackEvent('edit', 'click', 'editing');
       EventBus.$emit('edit');

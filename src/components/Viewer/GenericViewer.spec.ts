@@ -10,6 +10,7 @@ import globals from '@/model/globals'
 import forgeRuntime from '@/model/globals/forgeGlobal'
 import { persistSession } from '@/composables/agentLink/sessionHandoff'
 import ThinkingOverlay from '@/components/AgentLink/ThinkingOverlay.vue'
+import ExportModal from '@/components/ExportModal/ExportModal.vue'
 import { toast } from '@/utils/toast'
 import { parseEmbedDeeplink } from '@/utils/embedDeeplink'
 
@@ -1173,6 +1174,18 @@ describe('GenericViewer (chrome-less)', () => {
       expect(vm.showExportModal).toBe(false)
       await wrapper.find('button[aria-label="Export PNG"]').trigger('click')
       expect(vm.showExportModal).toBe(true)
+    })
+
+    // Export PNG (code review): ExportModal must receive the capture element
+    // via a getter, not rediscover it with a global querySelector, and must
+    // know the diagram title for the export filename.
+    it('passes a capture-node getter resolving to .screen-capture-content, and the diagram title, to ExportModal', () => {
+      const wrapper = mountViewer()
+      const exportModal = wrapper.findComponent(ExportModal)
+      expect(exportModal.props('diagramTitle')).toBe('Login flow')
+      const getter = exportModal.props('captureNodeGetter') as () => HTMLElement | null
+      expect(typeof getter).toBe('function')
+      expect(getter()).toBe(wrapper.find('.screen-capture-content').element)
     })
   })
 

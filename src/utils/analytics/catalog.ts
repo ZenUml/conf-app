@@ -183,6 +183,18 @@ export type AnalyticsEventName =
   | "macro_export_requested"
   | "macro_export_succeeded"
   | "macro_export_failed"
+  // Export PNG dialog (ExportModal.vue): richer overlay-annotated PNG export
+  // (background + note/arrow/callout/watermark overlays), tracked separately
+  // from the generic macro_export_* triple above (unused by any call site as
+  // of this registration). opened = modal shown; succeeded = PNG delivered
+  // via download or clipboard (`method`), with the `background` value and
+  // has_note/has_arrow/has_callout/has_watermark overlay flags; failed = an
+  // export attempt failed before delivery (`failure_reason`); dismissed =
+  // modal closed with no successful export in that open session.
+  | "export_png_opened"
+  | "export_png_succeeded"
+  | "export_png_failed"
+  | "export_png_dismissed"
   | "ai_generation_requested"
   | "ai_generation_succeeded"
   | "ai_generation_failed"
@@ -502,7 +514,21 @@ export type AnalyticsEventName =
   | "activation_nudge_dismissed"
   // mode='has-content' branch: the page's existing diagrams listed, and one opened.
   | "byline_diagram_list_shown"
-  | "byline_diagram_opened";
+  | "byline_diagram_opened"
+  // Starter-template gallery (#334, JTBD: author job). The real "hire moment"
+  // for diagram creation is at the macro editor, before the user has typed
+  // anything — the gallery replaces the old external "Examples" link
+  // (Header.vue templateClick, which sent the user away to zenuml.com/
+  // mermaid.js.org/plantuml.com docs) with 6-10 curated, one-click,
+  // in-product templates per text-DSL macro type (sequence/mermaid/plantuml).
+  // `editor_template_gallery_opened` is the denominator; `editor_template_applied`
+  // (keyed by `template_id`) is the per-template pull signal the JTBD's
+  // success metric needs ("editor_template_applied share of new creates").
+  // AI text->diagram entry from the same issue is explicitly OUT OF SCOPE
+  // here (deferred 2026-08-03) — its ai_generation_* events already exist
+  // above and are reused, not redefined, when that lands.
+  | "editor_template_gallery_opened"
+  | "editor_template_applied";
 
 // Which journey the merged byline dialog took, from the `zenuml-prepared-diagram`
 // property value. 'has-content' = list the diagrams already on this page;

@@ -51,3 +51,43 @@ describe('resolveZenumlRemoteBaseUrl', () => {
     })
   })
 })
+
+// DEVELOPMENT used to resolve https://confluence-plugin.pages.dev, a Pages
+// project no workflow deploys. It drifted out of date and stopped routing
+// newer backend paths (/forge-upload-attachment answered 405 from the static
+// handler), so every dev Forge environment silently lost them. These pin the
+// two properties that matter: dev points somewhere CI actually deploys, and it
+// agrees with the backend the whimet4 workflow declares in the manifest.
+describe('resolveZenumlRemoteBaseUrl — DEVELOPMENT targets a maintained backend', () => {
+  const DEPLOYED_BY_CI = [
+    'https://conf-stg-lite.zenuml.com',
+    'https://conf-stg-full.zenuml.com',
+    'https://conf-lite.zenuml.com',
+    'https://conf-full.zenuml.com',
+    'https://zenapi.zenuml.com',
+  ]
+
+  it.each([
+    ['lite', { isLite: true }],
+    ['diagramly', { isDiagramly: true }],
+    ['full', {}],
+    ['asyncapi', { isAsyncApi: true }],
+  ])('never sends %s dev traffic to an undeployed project', (_label, flags) => {
+    const url = resolveZenumlRemoteBaseUrl('DEVELOPMENT', flags)
+    expect(url).toBeDefined()
+    expect(url).not.toContain('confluence-plugin.pages.dev')
+    expect(DEPLOYED_BY_CI).toContain(url)
+  })
+
+  it('dev lite matches what the whimet4 workflow sets as BACKEND_API_BASE_URL', () => {
+    // .github/workflows/deploy-whimet4.yml sets conf-stg-lite. A mismatch here
+    // means invokeRemote cannot resolve a declared remote — the failure this
+    // mapping caused in the first place.
+    expect(resolveZenumlRemoteBaseUrl('DEVELOPMENT', { isLite: true }))
+      .toBe('https://conf-stg-lite.zenuml.com')
+  })
+
+  it('keeps asyncapi off the full backend in dev, as in staging and prod', () => {
+    expect(resolveZenumlRemoteBaseUrl('DEVELOPMENT', { isAsyncApi: true })).not.toContain('full')
+  })
+})

@@ -15,6 +15,7 @@ import {
   recordBannerShown,
   recordBannerDismissed,
   isWarningBannerVisible,
+  bannerAudience,
   shouldShowPaywallBanner,
   toMarkerSeverity,
   type WarningBannerIdentity,
@@ -141,6 +142,70 @@ describe('visibility gate', () => {
   it('returns after the snooze window elapses (problem still unsolved)', () => {
     const dismissedAt = new Date(now - (WARNING_BANNER_SUPPRESSION_MS + 1000)).toISOString()
     expect(isWarningBannerVisible(warning, { dismissedAt, lastShownAt: null, showCount: 1 }, recentActivity, now)).toBe(true)
+  })
+})
+
+// Phase 5b. The legacy gate requires the viewer to have authored a macro in the
+// last 30 days, which structurally excludes space admins who don't draw
+// diagrams — i.e. the only people on the page who can actually resolve the
+// limit. A space admin of an over-limit space is a first-class audience.
+describe('visibility gate — space-admin audience (Phase 5b)', () => {
+  const now = Date.parse('2026-06-10T00:00:00.000Z')
+
+  it('shows to a space admin with NO macro activity at all', () => {
+    expect(isWarningBannerVisible(warning, null, null, now, true)).toBe(true)
+  })
+
+  it('shows to a space admin whose activity is older than the 30-day window', () => {
+    const stale = {
+      ...recentActivity,
+      lastActivityAt: new Date(now - (RECENT_MACRO_ACTIVITY_WINDOW_MS + 1000)).toISOString(),
+    }
+    expect(isWarningBannerVisible(warning, null, stale, now, true)).toBe(true)
+  })
+
+  it('still hides from a NON-admin with no activity (legacy gate unchanged)', () => {
+    expect(isWarningBannerVisible(warning, null, null, now, false)).toBe(false)
+  })
+
+  it('defaults to the non-admin gate when the flag is omitted', () => {
+    expect(isWarningBannerVisible(warning, null, null, now)).toBe(false)
+  })
+
+  // Admin status relaxes ONLY the authorship requirement. Every other gate is
+  // about whether there is a real problem to report, and still applies.
+  it('hides from an admin when CUSTOMER_SUCCESS_SERVICE is disabled', () => {
+    expect(
+      isWarningBannerVisible({ ...warning, customerSuccessServiceEnabled: false }, null, null, now, true)
+    ).toBe(false)
+  })
+
+  it('hides from an admin when the space is already paid', () => {
+    expect(isWarningBannerVisible({ ...warning, spacePaid: true }, null, null, now, true)).toBe(false)
+  })
+
+  it('hides from an admin when the space is not over the limit', () => {
+    expect(isWarningBannerVisible({ ...warning, macroCount: 100 }, null, null, now, true)).toBe(false)
+  })
+
+  it('hides from an admin inside the 7-day snooze window', () => {
+    const dismissedAt = new Date(now - (WARNING_BANNER_SUPPRESSION_MS - 1000)).toISOString()
+    expect(
+      isWarningBannerVisible(warning, { dismissedAt, lastShownAt: null, showCount: 1 }, null, now, true)
+    ).toBe(false)
+  })
+
+  it('hides from an admin with no targeting marker', () => {
+    expect(isWarningBannerVisible(null, null, null, now, true)).toBe(false)
+  })
+})
+
+describe('bannerAudience', () => {
+  it('reports space_admin for an admin — the stronger audience wins over editor', () => {
+    expect(bannerAudience(true)).toBe('space_admin')
+  })
+  it('reports editor otherwise', () => {
+    expect(bannerAudience(false)).toBe('editor')
   })
 })
 

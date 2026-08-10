@@ -45,6 +45,7 @@
 <script>
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
 export default {
   name: "ForgeGraphViewer",
   components: {
@@ -96,6 +97,12 @@ export default {
         trackRenderTime('graph', this.$store.getters.isDisplayMode);
       } catch (e) {
         console.error('ForgeGraphViewer: GraphViewer init failed:', e);
+        // reliability-audit-2026-08-06 §4/§12.2 (conf-app#149/#150): trackRenderTime
+        // above sits inside this same try block, so a crash here previously
+        // fired NEITHER a success nor a failure event — a broken graph macro
+        // was invisible on both sides of any Mixpanel ratio. This is the
+        // failure side; it must fire even though macro_viewed above did not.
+        trackViewerRenderCrash('graph', this.$store.getters.isDisplayMode, e);
       }
     },
     goToPage(index) {

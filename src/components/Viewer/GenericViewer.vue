@@ -1,7 +1,11 @@
 <template>
 <!-- screen-capture-content class is used in Attachment.ts to select the node. -->
-<div class="generic viewer">
-  <Debug />
+<div class="generic viewer" :class="{'generic--source-panel-open': isFullscreenMode && showSourcePanel}">
+  <!-- The debug strip is a dev affordance for the inline macro. In the
+       fullscreen modal it stacks above .viewer-frame, which is min-height:100vh,
+       so the page ends up taller than the viewport and scrolls; it also eats the
+       top of a surface whose whole point is showing the diagram large. -->
+  <Debug v-if="!isFullscreenMode" />
     <!-- Syntax errors are surfaced by the SyntaxErrorBox (with AI Repair); no
          "Submit a ticket" error panel here. -->
     <!-- Embed/portal hosts request a chrome-less surface — render the diagram only. -->
@@ -12,7 +16,7 @@
     </template>
 
     <template v-else>
-      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide}">
+      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode}">
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
              two-column flex row — see .viewer-body--with-agent-rail below. -->
@@ -216,9 +220,18 @@
             <div class="viewer-edge-bottom-pill" role="toolbar" aria-label="Diagram actions">
               <!-- Graph viewer slots in multi-page nav (prev / X of Y / next) here. -->
               <slot name="pill-prefix"></slot>
-              <button @click="copyCode" title="Copy code" aria-label="Copy code" class="viewer-pill-btn">
+              <!-- Diagram deeplink (task 6, docs/superpowers/sdd/
+                   2026-07-26-embed-deeplink-productization): the supply side
+                   of the autoConvert paste->embed flow. Only rendered when
+                   both a custom content id exists (same isCustomContent gate
+                   as Versions below) AND the variant has a mapped host
+                   (deeplinkHostForProductType — asyncapi has none yet).
+                   Reuses the slot freed by deleting the "Copy code" button
+                   (same payload as the Source panel's Copy, at ~1/8th the
+                   usage — see the task brief's Step 1 measurement). -->
+              <button v-if="isCustomContent && deeplinkHost" @click="copyDeeplink" title="Copy diagram link" aria-label="Copy diagram link" class="viewer-pill-btn">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.933 2.185 2.25 2.25 0 0 0-3.933-2.185Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
                 </svg>
               </button>
               <button @click="showExportModal = true" title="Export PNG" aria-label="Export PNG" class="viewer-pill-btn">
@@ -231,7 +244,10 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                 </svg>
               </button>
-              <button @click="copyLink" title="Copy link" aria-label="Copy link" class="viewer-pill-btn">
+              <!-- Renamed from "Copy link" (was ambiguous once "Copy diagram
+                   link" landed above) — same page-URL behavior and legacy
+                   copy_link tracking, unchanged. -->
+              <button @click="copyLink" title="Copy page link" aria-label="Copy page link" class="viewer-pill-btn">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
                 </svg>
@@ -284,6 +300,7 @@
           :visible="showSourcePanel"
           :source="viewSourceCode"
           :dsl-label="viewSourceDslLabel"
+          :fullscreen="isFullscreenMode"
           @close="showSourcePanel = false"
           @copy="onViewSourceCopied"
         />
@@ -325,6 +342,7 @@ import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
 import { readSession, readAnySession } from '@/composables/agentLink/sessionHandoff'
 import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
 import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
+import { deeplinkHostForProductType, buildEmbedDeeplink } from '@/utils/embedDeeplink'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 
@@ -390,6 +408,12 @@ export default {
     },
     isCustomContent() {
       return this.diagram.source === DataSource.CustomContent;
+    },
+    // Deeplink mint host for this build's variant (task 6) — static per
+    // PRODUCT_TYPE, so no need to re-derive per click. undefined for asyncapi
+    // (deferred) hides the pill button entirely; see embedDeeplink.ts.
+    deeplinkHost() {
+      return deeplinkHostForProductType(import.meta.env.PRODUCT_TYPE);
     },
     title() {
       const t = this.diagram?.title?.trim?.()
@@ -811,6 +835,26 @@ export default {
         .catch(error => console.error('Error retrieving content versions:', error));
       toast({ message: 'Version history printed to developer console (F12)', duration: 2200 });
     },
+    // #442: Safari-safe clipboard write. MUST be called before any await in
+    // the click task: the ClipboardItem is constructed synchronously with a
+    // still-pending payload promise — the pattern WebKit supports for async
+    // clipboard content, keeping the write tied to the user gesture.
+    // Resolves false when the modern API is unavailable or the write is
+    // rejected; the caller then retries via copyToClipboard's legacy order.
+    writeClipboardKeepingActivation(resultPromise) {
+      const supported = navigator.clipboard
+        && typeof navigator.clipboard.write === 'function'
+        && typeof window.ClipboardItem === 'function'
+        && window.isSecureContext;
+      if (!supported) return Promise.resolve(false);
+      const item = new window.ClipboardItem({
+        'text/plain': resultPromise.then(r => new Blob([r.text], { type: 'text/plain' })),
+      });
+      return navigator.clipboard.write([item]).then(() => true, (error) => {
+        console.warn('copyForAi: ClipboardItem write rejected, falling back to legacy copy', error);
+        return false;
+      });
+    },
     async copyToClipboard(text) {
       if (navigator.clipboard && window.isSecureContext) {
         try { await navigator.clipboard.writeText(text); return true; }
@@ -834,16 +878,51 @@ export default {
         document.body.removeChild(textarea);
       }
     },
-    async copyCode() {
-      trackEvent("copy_code", "click", this.diagramType);
+    // Mints and copies the bare embed deeplink (task 6). Fires
+    // deeplink_copied ONCE per click, in a finally block, after the terminal
+    // outcome is known — same outcome convention as copy_for_ai_clicked
+    // (see that method below): 'copied' = clipboard write succeeded,
+    // 'clipboard_failed' = the write itself returned false or threw,
+    // 'unavailable' = the link couldn't even be minted (no host/contentId,
+    // or cloudId unresolved) — three silent-failure paths that used to fire
+    // the exact same event as success. cloudId comes from the Forge context
+    // (getContext() memoizes and degrades to an unresolvable standalone
+    // context outside Forge — see forgeGlobal.ts); contentId is the
+    // diagram's custom content id, already gated present by the template's
+    // isCustomContent check.
+    async copyDeeplink() {
+      let outcome;
       try {
-        const code = getCodeFromDiagram(this.diagram, this.diagramType);
-        if (!code) { toast({ message: 'No code to copy', duration: 2000 }); return; }
-        const ok = await this.copyToClipboard(code);
-        toast({ message: ok ? 'Code copied to clipboard' : 'Failed to copy code', duration: 2000 });
+        const host = this.deeplinkHost;
+        const contentId = this.diagram.id;
+        if (!host || !contentId) {
+          outcome = 'unavailable';
+          toast({ message: 'Diagram link not available', duration: 2000 });
+          return;
+        }
+        const ctx = await getContext();
+        const cloudId = ctx?.cloudId;
+        if (!cloudId) {
+          outcome = 'unavailable';
+          toast({ message: 'Diagram link not available', duration: 2000 });
+          return;
+        }
+        const url = buildEmbedDeeplink(host, cloudId, String(contentId));
+        const ok = await this.copyToClipboard(url);
+        outcome = ok ? 'copied' : 'clipboard_failed';
+        toast({ message: ok ? 'Diagram link copied to clipboard' : 'Failed to copy diagram link', duration: 2000 });
       } catch (error) {
-        console.error('copyCode failed', error);
-        toast({ message: 'Failed to copy code', duration: 2000 });
+        console.error('copyDeeplink failed', error);
+        outcome = 'clipboard_failed';
+        toast({ message: 'Failed to copy diagram link', duration: 2000 });
+      } finally {
+        trackAnalyticsEvent('deeplink_copied', {
+          feature_area: 'macro',
+          surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+          macro_type: this.diagramType ?? 'none',
+          link_source: 'viewer_pill',
+          outcome,
+        });
       }
     },
     async onDownloadDebugInfo(closeMenu) {
@@ -969,38 +1048,58 @@ export default {
     // tracked `job` property vary. Page context is optional —
     // buildCopyForAiPrompt/resolveCopyForAiPage decide the fallback; this
     // method only decides the clipboard/analytics outcome.
-    // Empty-DSL guard mirrors copyCode's early-return shape: no clipboard
-    // write and — unlike copyCode — no analytics event, since an empty copy
-    // carries no demand signal; the button surfaces "Nothing to copy" instead
-    // of a toast. Overlapping-click guard: 'copying' disables the button in
-    // the template, but also short-circuit here for non-pointer activation
-    // paths (e.g. a held Enter key repeating faster than Vue re-renders).
+    // Empty-DSL guard: no clipboard write and no analytics event, since an
+    // empty copy carries no demand signal; the button surfaces "Nothing to
+    // copy" instead of a toast. Overlapping-click guard: 'copying' disables
+    // the button in the template, but also short-circuit here for
+    // non-pointer activation paths (e.g. a held Enter key repeating faster
+    // than Vue re-renders).
     async copyForAi(job = 'generic') {
       if (this.copyForAiState === 'copying') return;
       if (!this.viewSourceCode) { this.setCopyForAiState('failed', 'Nothing to copy'); return; }
       this.setCopyForAiState('copying', 'Copying…');
-      const page = await this.resolveCopyForAiPage();
-      const result = buildCopyForAiPrompt({
+      // #442: the clipboard call must be issued in the click's own task.
+      // Safari drops the transient user activation across an awaited fetch,
+      // so the previous order (await page fetch, then write) threw
+      // NotAllowedError on every Safari click. The payload is therefore
+      // built as a promise and handed to the clipboard API synchronously via
+      // writeClipboardKeepingActivation; no await may precede that call.
+      const resultPromise = this.resolveCopyForAiPage().then(page => buildCopyForAiPrompt({
         dslLabel: this.viewSourceDslLabel,
         fenceLang: this.copyForAiFenceLang,
         diagramTitle: this.title,
         dsl: this.viewSourceCode,
         page,
         job,
-      });
+      }));
 
-      let outcome;
+      let ok = false;
       try {
-        const ok = await this.copyToClipboard(result.text);
-        if (ok) {
-          outcome = result.pageBytes > 0 ? 'copied' : 'copied_diagram_only';
-          this.setCopyForAiState('copied', 'Copied');
-        } else {
-          outcome = 'clipboard_failed';
-          this.setCopyForAiState('failed', 'Copy failed');
-        }
+        ok = await this.writeClipboardKeepingActivation(resultPromise);
       } catch (error) {
-        console.error('copyForAi: clipboard write failed', error);
+        console.error('copyForAi: activation-preserving clipboard write failed', error);
+      }
+      if (!ok) {
+        // Legacy order (resolve payload first, then writeText/execCommand):
+        // the only path for browsers without ClipboardItem, and the retry
+        // when the modern write is rejected. On Safari a rejection here is
+        // expected — the activation is already gone — and surfaces as
+        // outcome=clipboard_failed, same as before this fix.
+        try {
+          const built = await resultPromise;
+          ok = await this.copyToClipboard(built.text);
+        } catch (error) {
+          console.error('copyForAi: clipboard write failed', error);
+          ok = false;
+        }
+      }
+
+      const result = await resultPromise;
+      let outcome;
+      if (ok) {
+        outcome = result.pageBytes > 0 ? 'copied' : 'copied_diagram_only';
+        this.setCopyForAiState('copied', 'Copied');
+      } else {
         outcome = 'clipboard_failed';
         this.setCopyForAiState('failed', 'Copy failed');
       }
@@ -1032,6 +1131,48 @@ export default {
 }
 .viewer-frame--auto { width: fit-content; margin-left: auto; margin-right: auto; }
 .viewer-frame--wide { width: 100%; }
+
+/* Fullscreen modal gets the whole browser viewport (Forge's autoResize is
+   disabled there — see forgeIndex.ts), but .viewer-frame itself has no height
+   rule, so a diagram shorter than the window left most of the screen a bare
+   void beneath it (spotted once the View Source panel was fixed to actually
+   fill that same viewport — the mismatch between a full-height panel and a
+   content-height diagram card became visible). min-height ties the frame to
+   the viewport; the flex chain lets .viewer-canvas absorb the extra space and
+   center its (possibly short) diagram in it, without touching isWide's own
+   width math above. */
+.viewer-frame--fullscreen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+/* height:100% here would need a DEFINITE height on .viewer-body, but
+   min-height alone never makes a flex container's resolved size definite for
+   percentage-resolution purposes — .viewer-surface's height would compute to
+   auto and the centering below would never engage. Flex the whole chain
+   instead so each level's size comes from layout, not a percentage. */
+.viewer-frame--fullscreen .viewer-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.viewer-frame--fullscreen .viewer-surface { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.viewer-frame--fullscreen .viewer-canvas { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+/* .viewer-frame--fullscreen .viewer-body (0,2,0) would otherwise outrank
+   .viewer-body--with-agent-rail (0,1,0) below and force its Connect-rail row
+   back into a column. */
+.viewer-frame--fullscreen .viewer-body--with-agent-rail { flex-direction: row; }
+
+/* The Source panel is position:fixed in fullscreen (ViewSourcePanel.vue) —
+   out of layout flow — so neither .viewer-frame--auto's fit-content+auto-
+   margin centering nor .viewer-frame--wide's width:100% has any way to know
+   the panel now covers part of the screen; both centered on the FULL width,
+   landing the diagram visibly right of the actually-visible left pane.
+   Reserving that same width as padding on the root shrinks the space both
+   centering paths compute against, for either case, with one rule. Width
+   must match ViewSourcePanel.vue's --fullscreen panel width (min(560px,
+   45vw)) — kept as a literal in both files: Vue's scoped-style :root
+   rewriting (:root becomes :root[data-v-xxx], which never matches the real
+   root element) rules out sharing it via a CSS custom property. */
+.generic--source-panel-open .viewer-frame--fullscreen {
+  padding-right: min(560px, 45vw);
+}
 
 .viewer-surface { position: relative; }
 

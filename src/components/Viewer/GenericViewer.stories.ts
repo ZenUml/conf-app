@@ -204,8 +204,14 @@ function configureStory(options: {
   moduleKey?: string
   clipboardWrites?: boolean
   pageFetchDelayMs?: number
+  fullscreenMode?: boolean
 } = {}) {
   stubForge(options.moduleKey)
+  if (options.fullscreenMode) {
+    // isFullscreenMode reads window.forgeGlobal.forgeContext.extension.modal
+    // (same object as the imported forgeGlobal — forgeGlobal.ts:229).
+    ;(forgeGlobal.forgeContext as any).extension.modal = { macroMode: 'fullscreen' }
+  }
   stubApWrapper({ delayMs: options.pageFetchDelayMs })
   stubMixpanel()
   installClipboardMock(options.clipboardWrites ?? true)
@@ -538,5 +544,61 @@ export const Embedded: Story = {
     await revealHeader()
     const canvas = within(document.body)
     await expect(canvas.getByText('EMBED')).toBeVisible()
+  },
+}
+
+// ---------------------------------------------------------------------------
+// 7. View Source panel — inline vs fullscreen (fix/viewsource-fullscreen-fit)
+// ---------------------------------------------------------------------------
+
+/** Inline surface: panel keeps the original 300px right-sheet layout. */
+export const SourcePanelInline: Story = {
+  name: 'Source panel — inline',
+  decorators: [
+    () => {
+      configureStory({ diagramType: DiagramType.Mermaid, title: 'Login flow', mermaidCode: SAMPLE_MERMAID })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderViewer(args, 'Mermaid diagram preview'),
+  play: async () => {
+    await revealHeader()
+    const canvas = within(document.body)
+    await userEvent.click(await canvas.findByTestId('view-source-btn'))
+    await waitFor(() => {
+      const panel = document.querySelector('.view-source-panel')
+      if (!panel) throw new Error('panel not open')
+      if (panel.classList.contains('view-source-panel--fullscreen')) {
+        throw new Error('inline surface must not get the fullscreen class')
+      }
+    })
+  },
+}
+
+/** Fullscreen surface: panel is viewport-anchored and widened (the fix). */
+export const SourcePanelFullscreen: Story = {
+  name: 'Source panel — fullscreen',
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Login flow',
+        mermaidCode: SAMPLE_MERMAID,
+        fullscreenMode: true,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderViewer(args, 'Mermaid diagram preview'),
+  play: async () => {
+    await revealHeader()
+    const canvas = within(document.body)
+    await userEvent.click(await canvas.findByTestId('view-source-btn'))
+    await waitFor(() => {
+      const panel = document.querySelector('.view-source-panel')
+      if (!panel || !panel.classList.contains('view-source-panel--fullscreen')) {
+        throw new Error('fullscreen surface must get the fullscreen class')
+      }
+    })
   },
 }

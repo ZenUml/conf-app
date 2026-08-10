@@ -8,7 +8,12 @@ import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextP
  *
  *   - TARGETING marker (`paywallWarning:<domain>:<space>`) — written ONLY by the
  *     macro iframe (useCustomerSuccessService) when a macro renders. Records the
- *     space's computed severity / macro count / paid status / CSS flag state.
+ *     space's computed severity / macro count / paid status / effective paywall
+ *     state (legacy field name `customerSuccessServiceEnabled` — since the
+ *     lite-paywall-default-on change this is the EFFECTIVE decision, `true`
+ *     only when `paywallPolicySource` is 'default_on'; a domain/wildcard
+ *     exemption or a fail-open lookup both write `false`, same as the old
+ *     "not CSS-enrolled" case).
  *   - DISMISSAL marker (`paywallBanner:<domain>:<space>`) — written ONLY by the
  *     page-banner iframe. Records show count + the last dismissal timestamp.
  *   - ACTIVITY marker (`paywallActivity:<domain>:<space>`) — written by editor
@@ -50,6 +55,8 @@ export interface TargetingMarker {
   severity: WarningSeverity
   macroCount: number
   spacePaid: boolean
+  /** Legacy field name; holds the EFFECTIVE Lite paywall-enabled boolean
+   * (see the module doc comment above), not a raw CSS flag read. */
   customerSuccessServiceEnabled: boolean
   updatedAt: string
 }
@@ -212,25 +219,49 @@ function writeDismissalMarker(marker: DismissalMarker, identity: WarningBannerId
   }
 }
 
+/** Which gate admitted the banner, and therefore which copy the user sees. */
+export type BannerAudience = 'editor' | 'space_admin'
+
+/** A user who is both an author and a space admin is the stronger audience:
+ * they can resolve the limit themselves, so they get the purchase copy rather
+ * than the "ask an admin" copy. */
+export function bannerAudience(isSpaceAdmin: boolean): BannerAudience {
+  return isSpaceAdmin ? 'space_admin' : 'editor'
+}
+
 /**
  * Pure visibility gate. Show iff: a targeting marker exists, the CSS feature is
- * enabled for the client, the space is unpaid and over the hard limit, the user
- * created/edited a macro recently, and the banner is not inside its snooze
- * window.
+ * enabled for the client, the space is unpaid and over the hard limit, the
+ * banner is not inside its snooze window, AND the user is a valid audience —
+ * either they created/edited a macro recently, or (Phase 5b) they are a space
+ * admin of this over-limit space.
+ *
+ * The recent-authorship requirement exists to avoid nagging passers-by. It has
+ * the side effect of excluding space admins who don't draw diagrams — the people
+ * on the page most able to resolve the limit. Measured 2026-07-28 over 60d across
+ * the 19 CSS tenants: the authorship gate reached 358 unique users (exact, that
+ * event is unsampled), while `space_admin_active` observed 5,021 unique admins
+ * already loading this very iframe and being told nothing — a 10%-sampled FLOOR,
+ * and one that also counts personal spaces, so treat it as evidence of a large
+ * gap rather than as a population estimate. `isSpaceAdmin` waives authorship, and
+ * nothing else; the over-limit/unpaid/CSS gates below keep the targeting narrow.
  */
 export function isWarningBannerVisible(
   targeting: TargetingMarker | null,
   dismissal: DismissalMarker | null,
   activity: MacroActivityMarker | null,
-  now: number = Date.now()
+  now: number = Date.now(),
+  isSpaceAdmin = false
 ): boolean {
   if (!targeting) return false
   if (!targeting.customerSuccessServiceEnabled) return false
   if (targeting.spacePaid) return false
   if (targeting.macroCount <= PAYWALL_BANNER_MIN_MACRO_COUNT) return false
-  if (!activity?.lastActivityAt) return false
-  const activityMs = Date.parse(activity.lastActivityAt)
-  if (!Number.isFinite(activityMs) || now - activityMs > RECENT_MACRO_ACTIVITY_WINDOW_MS) return false
+  if (!isSpaceAdmin) {
+    if (!activity?.lastActivityAt) return false
+    const activityMs = Date.parse(activity.lastActivityAt)
+    if (!Number.isFinite(activityMs) || now - activityMs > RECENT_MACRO_ACTIVITY_WINDOW_MS) return false
+  }
   if (dismissal?.dismissedAt) {
     const dismissedMs = Date.parse(dismissal.dismissedAt)
     if (Number.isFinite(dismissedMs) && now - dismissedMs <= WARNING_BANNER_SUPPRESSION_MS) {
@@ -241,13 +272,24 @@ export function isWarningBannerVisible(
 }
 
 /** localStorage-backed gate used by the forgeIndex fast-exit and the CSAT defer
- * check. Fail closed (no banner) on any storage error. */
+ * check. Fail closed (no banner) on any storage error.
+ *
+ * `isSpaceAdmin` is a parameter rather than a lookup so this module stays free
+ * of any dependency on spaceAdminProbe, which imports from here — the caller
+ * resolves it with `isCurrentUserSpaceAdmin()`. */
 export function shouldShowPaywallBanner(
   now: number = Date.now(),
-  identity: WarningBannerIdentity = deriveWarningBannerIdentity()
+  identity: WarningBannerIdentity = deriveWarningBannerIdentity(),
+  isSpaceAdmin = false
 ): boolean {
   try {
-    return isWarningBannerVisible(readTargetingMarker(identity), readDismissalMarker(identity), readMacroActivityMarker(identity), now)
+    return isWarningBannerVisible(
+      readTargetingMarker(identity),
+      readDismissalMarker(identity),
+      readMacroActivityMarker(identity),
+      now,
+      isSpaceAdmin
+    )
   } catch {
     return false
   }

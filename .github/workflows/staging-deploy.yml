@@ -89,7 +89,21 @@ jobs:
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.app.licensing)' -i manifest.yml
-      # Diagramly: remove ZenUML-only dashboard/get-started entries (keep diagramly admin entry) and the embed macro
+
+      # Full: the source manifest carries Lite's canonical matcher. CI edits
+      # manifests independently of scripts/forge-wizard.mjs, so keep this
+      # variant override here as well.
+      - name: Point Full embed deeplink matcher at conf-full
+        if: inputs.variant == 'full'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval '(.modules.macro[] | select(.key | test("zenuml-embed-macro")) | .autoConvert.matchers[0].pattern) = "https://conf-full.zenuml.com/d/*/*"' -i manifest.yml
+
+      # Diagramly: remove ZenUML-only dashboard/get-started entries (keep
+      # diagramly admin entry). The embed macro ships in Diagramly now (task 6
+      # deeplink productization) — do NOT reintroduce a "remove embed macro"
+      # step here; see the comment on diagramly's manifestEdits array in
+      # scripts/forge-wizard.mjs.
       - name: Remove ZenUML-only globalSettings/globalPage entries from Diagramly manifest
         if: inputs.variant == 'diagramly'
         uses: mikefarah/yq@master
@@ -99,12 +113,6 @@ jobs:
               del(.modules."confluence:globalSettings"[] | select(.key == "zenuml-get-started-settings"))
               | del(.modules."confluence:globalPage")
             ' -i manifest.yml
-      - name: Remove embed macro from manifest
-        if: inputs.variant == 'diagramly'
-        uses: mikefarah/yq@master
-        with:
-          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))' -i manifest.yml
-
       # AsyncAPI: keep only the asyncapi macros, drop the dashboard /
       # get-started / byline modules, and grant `unsafe-eval` in CSP so
       # Studio's runtime schema compilation works inside Forge's iframe.

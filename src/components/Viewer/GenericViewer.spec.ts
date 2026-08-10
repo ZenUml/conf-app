@@ -11,6 +11,7 @@ import forgeRuntime from '@/model/globals/forgeGlobal'
 import { persistSession } from '@/composables/agentLink/sessionHandoff'
 import ThinkingOverlay from '@/components/AgentLink/ThinkingOverlay.vue'
 import { toast } from '@/utils/toast'
+import { parseEmbedDeeplink } from '@/utils/embedDeeplink'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
 
@@ -48,7 +49,10 @@ vi.mock('@/model/globals', () => ({
 vi.mock('@forge/bridge', () => ({
   view: {
     getContext: vi.fn(() => Promise.resolve({
-      cloudId: 'cloud-1',
+      // A realistic UUID (parseEmbedDeeplink requires 32-36 hex/dash chars) —
+      // NOT the plain 'cloud-1' this used to be, which silently produced an
+      // unparseable minted URL that no test ever actually parsed back.
+      cloudId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
       environmentType: 'DEVELOPMENT',
       extension: {
         content: { id: 'page-123' },
@@ -81,7 +85,9 @@ describe('GenericViewer (chrome-less)', () => {
     store.state.diagram.source = DataSource.CustomContent
     store.state.diagram.isCopy = false
     store.state.diagram.title = 'Login flow'
-    store.state.diagram.id = 'content-123'
+    // Numeric (parseEmbedDeeplink requires \d+) — NOT the plain 'content-123'
+    // this used to be, for the same reason as the cloudId fixture above.
+    store.state.diagram.id = '987654321'
     store.state.diagram.snapshotFallback = false
     store.state.diagram.snapshotAt = undefined
     store.state.diagram.recoveredFromOrphan = false
@@ -182,6 +188,68 @@ describe('GenericViewer (chrome-less)', () => {
       const frame = wrapper.find('.viewer-frame')
       expect(frame.classes()).toContain('viewer-frame--auto')
       expect(frame.classes()).not.toContain('viewer-frame--wide')
+    })
+  })
+
+  // ZEN fullscreen-fit follow-up: .viewer-frame had no height rule, so a
+  // diagram shorter than the fullscreen viewport left most of the screen a
+  // bare void beneath it. viewer-frame--fullscreen ties the frame to the
+  // viewport height regardless of diagram type/width (isWide is orthogonal).
+  describe('fullscreen height (all diagram types)', () => {
+    const setFullscreen = (on: boolean) => {
+      ;(window as any).forgeGlobal = on
+        ? { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+        : undefined
+    }
+    afterEach(() => { delete (window as any).forgeGlobal })
+
+    it('applies viewer-frame--fullscreen in fullscreen mode', () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('.viewer-frame').classes()).toContain('viewer-frame--fullscreen')
+    })
+
+    // The debug strip stacks above .viewer-frame. With the frame at
+    // min-height:100vh the page would exceed the viewport and scroll, and the
+    // strip covers the top of a surface meant to show the diagram large.
+    // jsdom has window.self === window.top, so Debug's own gate is open here
+    // and these assertions exercise the isFullscreenMode gate specifically.
+    it('hides the debug strip in fullscreen', () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('[aria-label="Debug information"]').exists()).toBe(false)
+    })
+
+    it('keeps the debug strip on the inline page', () => {
+      setFullscreen(false)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('[aria-label="Debug information"]').exists()).toBe(true)
+    })
+
+    it('does not apply viewer-frame--fullscreen on the inline (non-fullscreen) page', () => {
+      setFullscreen(false)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('.viewer-frame').classes()).not.toContain('viewer-frame--fullscreen')
     })
   })
 
@@ -350,6 +418,69 @@ describe('GenericViewer (chrome-less)', () => {
       await wrapper.vm.$nextTick()
       expect(wrapper.find('[data-testid="view-source-panel"]').exists()).toBe(false)
     })
+
+    // ZEN fullscreen-fit: .viewer-frame is fit-content-sized to the diagram
+    // in the fullscreen modal (see isWide comment), so the panel must anchor
+    // to the actual viewport (fixed) instead of that short box (absolute).
+    it('sizes the panel for the fullscreen viewport when opened from the fullscreen modal', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-testid="view-source-panel"]').classes()).toContain('view-source-panel--fullscreen')
+
+      delete (window as any).forgeGlobal
+    })
+
+    it('does not use fullscreen sizing for the inline (non-fullscreen) viewer', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-testid="view-source-panel"]').classes()).not.toContain('view-source-panel--fullscreen')
+    })
+
+    // ZEN fullscreen-fit follow-up: the panel is position:fixed (out of
+    // layout flow) once open, so .viewer-frame's own centering can't see it —
+    // the diagram centered on the FULL width, landing right of the actually-
+    // visible left pane. generic--source-panel-open reserves the panel's
+    // width so the frame centers against the space that's actually visible.
+    it('reserves space for the open fullscreen panel so the frame centers on the visible pane', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('.generic').classes()).not.toContain('generic--source-panel-open')
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.generic').classes()).toContain('generic--source-panel-open')
+
+      await wrapper.find('[data-testid="view-source-close"]').trigger('click')
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.generic').classes()).not.toContain('generic--source-panel-open')
+
+      delete (window as any).forgeGlobal
+    })
+
+    it('does not reserve panel space on the inline (non-fullscreen) viewer', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('.generic').classes()).not.toContain('generic--source-panel-open')
+    })
   })
 
   // One-click "Copy for AI" clipboard payload (copy_for_ai_clicked, catalog.ts).
@@ -477,7 +608,9 @@ describe('GenericViewer (chrome-less)', () => {
       expect(btn.attributes('disabled')).toBeDefined()
       expect(btn.attributes('aria-busy')).toBe('true')
       expect(activeCopyLabel(wrapper)).toBe('Copying…')
-      // No clipboard write yet — still waiting on the page fetch.
+      // No writeText yet — this environment has no ClipboardItem, so the
+      // legacy fallback runs and resolves the page fetch before writing.
+      // The activation-preserving path is covered by the #442 block below.
       expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
 
       // A second click while copying must not start an overlapping copy.
@@ -498,6 +631,117 @@ describe('GenericViewer (chrome-less)', () => {
       expect(btn.attributes('aria-busy')).toBe('false')
       expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1)
       expect(toast).not.toHaveBeenCalled()
+    })
+
+    // #442: Safari revokes the transient user activation across the awaited
+    // page fetch, so a clipboard call made after that await always throws
+    // NotAllowedError there. The fix hands the STILL-PENDING payload to a
+    // ClipboardItem constructed synchronously in the click task and calls
+    // navigator.clipboard.write() before any await. jsdom has no
+    // ClipboardItem, so this block stubs it; every other test in this file
+    // (no ClipboardItem stub) exercises the legacy writeText fallback.
+    describe('activation-preserving clipboard write (#442)', () => {
+      class FakeClipboardItem {
+        static instances: FakeClipboardItem[] = []
+        data: Record<string, Promise<Blob> | Blob | string>
+        constructor(data: Record<string, Promise<Blob> | Blob | string>) {
+          this.data = data
+          FakeClipboardItem.instances.push(this)
+        }
+      }
+      let write: ReturnType<typeof vi.fn>
+
+      beforeEach(() => {
+        FakeClipboardItem.instances = []
+        write = vi.fn(() => Promise.resolve())
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: { write, writeText: vi.fn(() => Promise.resolve()) },
+        })
+        ;(window as any).ClipboardItem = FakeClipboardItem
+      })
+
+      afterEach(() => {
+        delete (window as any).ClipboardItem
+      })
+
+      it('calls clipboard.write with a synchronously constructed ClipboardItem while the page fetch is still pending', async () => {
+        let resolveGetCurrentPage!: (value: unknown) => void
+        const pending = new Promise((resolve) => { resolveGetCurrentPage = resolve })
+        vi.mocked(globals.apWrapper.getCurrentPage).mockReturnValueOnce(pending as any)
+
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+
+        // The write must already be in flight BEFORE the page fetch resolves —
+        // this is the property Safari enforces.
+        expect(write).toHaveBeenCalledTimes(1)
+        expect(FakeClipboardItem.instances).toHaveLength(1)
+
+        resolveGetCurrentPage({
+          title: 'Login flow page',
+          body: { export_view: { value: '<p>Some page context.</p>' } },
+          _links: { base: 'https://example.atlassian.net/wiki', webui: '/spaces/TEST/pages/123' },
+        })
+        await flushPromises()
+
+        // The payload handed to the ClipboardItem resolves to the full text.
+        // (FileReader instead of Blob.text() — jsdom's Blob has no .text().)
+        const blob = await FakeClipboardItem.instances[0].data['text/plain']
+        const text = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.onerror = () => reject(reader.error)
+          reader.readAsText(blob as Blob)
+        })
+        expect(text).toContain(SOURCE_DSL)
+        expect(text).toContain('Login flow page')
+
+        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('copied')
+        expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
+        const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+        expect(call).toBeTruthy()
+        expect(call![1]).toMatchObject({ outcome: 'copied', job: 'generic' })
+      })
+
+      it('falls back to the legacy writeText path when clipboard.write rejects', async () => {
+        write.mockRejectedValueOnce(new Error('promise payloads unsupported'))
+
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+        await flushPromises()
+
+        expect(write).toHaveBeenCalledTimes(1)
+        expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1)
+        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('copied')
+        const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+        expect(call![1]).toMatchObject({ outcome: 'copied' })
+      })
+
+      it('reports clipboard_failed when both the modern write and the fallback fail', async () => {
+        write.mockRejectedValueOnce(new Error('denied'))
+        vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'))
+        ;(document as any).execCommand = vi.fn(() => false)
+
+        store.commit('updateDiagramType', DiagramType.Sequence)
+        const wrapper = mountViewer()
+        await flushPromises()
+
+        await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
+        await flushPromises()
+
+        expect(write).toHaveBeenCalledTimes(1)
+        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('failed')
+        expect(activeCopyLabel(wrapper)).toBe('Copy failed')
+        const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
+        expect(call![1]).toMatchObject({ outcome: 'clipboard_failed' })
+      })
     })
 
     it('reverts from "Copied" to idle ~2s after a successful copy', async () => {
@@ -893,19 +1137,34 @@ describe('GenericViewer (chrome-less)', () => {
   })
 
   describe('bottom-edge pill actions', () => {
-    it('shows the five expected actions for a custom-content diagram', () => {
+    afterEach(() => { vi.unstubAllEnvs() })
+
+    it('shows the five expected actions for a custom-content diagram (Copy code removed, Copy diagram link in its slot)', () => {
+      vi.stubEnv('PRODUCT_TYPE', 'lite')
       const wrapper = mountViewer()
       const labels = wrapper.findAll('[role="toolbar"][aria-label="Diagram actions"] button')
         .map(b => b.attributes('aria-label'))
-      expect(labels).toEqual(['Copy code', 'Export PNG', 'Versions', 'Copy link', 'More'])
+      expect(labels).toEqual(['Copy diagram link', 'Export PNG', 'Versions', 'Copy page link', 'More'])
     })
 
-    it('hides the Versions button when the diagram is not custom content', () => {
+    it('hides Versions AND Copy diagram link when the diagram is not custom content (no custom content id)', () => {
+      vi.stubEnv('PRODUCT_TYPE', 'lite')
       store.state.diagram.source = DataSource.MacroBody
       const wrapper = mountViewer()
       const labels = wrapper.findAll('[role="toolbar"][aria-label="Diagram actions"] button')
         .map(b => b.attributes('aria-label'))
-      expect(labels).toEqual(['Copy code', 'Export PNG', 'Copy link', 'More'])
+      expect(labels).toEqual(['Export PNG', 'Copy page link', 'More'])
+    })
+
+    // asyncapi has no deeplinkHost mapping (embedDeeplink.ts) — deferred, its
+    // viewer doesn't route through GenericViewer anyway — so the button must
+    // stay hidden even though isCustomContent is true (Versions still shows).
+    it('hides Copy diagram link for asyncapi even with a custom content id (no mapped host)', () => {
+      vi.stubEnv('PRODUCT_TYPE', 'asyncapi')
+      const wrapper = mountViewer()
+      const labels = wrapper.findAll('[role="toolbar"][aria-label="Diagram actions"] button')
+        .map(b => b.attributes('aria-label'))
+      expect(labels).toEqual(['Export PNG', 'Versions', 'Copy page link', 'More'])
     })
 
     it('opens the export modal when Export PNG is clicked', async () => {
@@ -914,6 +1173,124 @@ describe('GenericViewer (chrome-less)', () => {
       expect(vm.showExportModal).toBe(false)
       await wrapper.find('button[aria-label="Export PNG"]').trigger('click')
       expect(vm.showExportModal).toBe(true)
+    })
+  })
+
+  // Task 6 (docs/superpowers/sdd/2026-07-26-embed-deeplink-productization):
+  // mints https://<host>/d/<cloudId>/<contentId> — the bare deeplink, never
+  // the ticketed /deeplink-ticket share-preview URL — and copies it via the
+  // same copyToClipboard/toast pattern as Copy page link.
+  describe('Copy diagram link (task 6)', () => {
+    let originalClipboard: PropertyDescriptor | undefined
+    let originalIsSecureContext: PropertyDescriptor | undefined
+    let writeText: ReturnType<typeof vi.fn>
+
+    beforeEach(() => {
+      originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+      originalIsSecureContext = Object.getOwnPropertyDescriptor(window, 'isSecureContext')
+      writeText = vi.fn(() => Promise.resolve())
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+      Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+    })
+
+    afterEach(() => {
+      vi.unstubAllEnvs()
+      if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard)
+      else delete (navigator as any).clipboard
+      if (originalIsSecureContext) Object.defineProperty(window, 'isSecureContext', originalIsSecureContext)
+      else delete (window as any).isSecureContext
+      delete (document as any).execCommand
+    })
+
+    it.each([
+      ['lite', 'conf-lite.zenuml.com'],
+      ['diagramly', 'conf-lite.zenuml.com'],
+      ['full', 'conf-full.zenuml.com'],
+    ])('mints the %s-variant host, copies it, and fires deeplink_copied with link_source viewer_pill', async (productType, expectedHost) => {
+      vi.stubEnv('PRODUCT_TYPE', productType)
+      store.commit('updateDiagramType', DiagramType.Mermaid)
+      const wrapper = mountViewer()
+      await flushPromises()
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      await wrapper.find('button[aria-label="Copy diagram link"]').trigger('click')
+      await flushPromises()
+
+      const expectedUrl = `https://${expectedHost}/d/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/987654321`
+      expect(writeText).toHaveBeenCalledWith(expectedUrl)
+      // The minted URL must round-trip through the SAME parser the paste-side
+      // autoConvert handler uses (finding: the old 'cloud-1'/'content-123'
+      // fixtures minted a URL parseEmbedDeeplink could never actually parse).
+      expect(parseEmbedDeeplink(expectedUrl)).toEqual({
+        cloudId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+        contentId: '987654321',
+      })
+      expect(toast).toHaveBeenCalledWith({ message: 'Diagram link copied to clipboard', duration: 2000 })
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('deeplink_copied', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: DiagramType.Mermaid,
+        link_source: 'viewer_pill',
+        outcome: 'copied',
+      })
+    })
+
+    it('surfaces a toast on clipboard failure — never silently swallows — and fires deeplink_copied with outcome clipboard_failed', async () => {
+      vi.stubEnv('PRODUCT_TYPE', 'lite')
+      writeText.mockRejectedValueOnce(new Error('denied'))
+      ;(document as any).execCommand = () => { throw new Error('execCommand unavailable') }
+      const wrapper = mountViewer()
+      await flushPromises()
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      await expect(
+        wrapper.find('button[aria-label="Copy diagram link"]').trigger('click'),
+      ).resolves.not.toThrow()
+      await flushPromises()
+
+      expect(toast).toHaveBeenCalledWith({ message: 'Failed to copy diagram link', duration: 2000 })
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('deeplink_copied', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: DiagramType.Sequence,
+        link_source: 'viewer_pill',
+        outcome: 'clipboard_failed',
+      })
+    })
+
+    // getContext() memoizes on forgeRuntime.forgeContext (see forgeGlobal.ts)
+    // and by this point in the file it's already cached from the tests
+    // above, so mutating it directly (rather than re-mocking '@forge/bridge')
+    // is the only way to exercise an unresolvable cloudId without disturbing
+    // every other test's fixture.
+    it('surfaces a toast (never a thrown error) when cloudId cannot be resolved, and fires deeplink_copied with outcome unavailable', async () => {
+      vi.stubEnv('PRODUCT_TYPE', 'lite')
+      const originalCloudId = (forgeRuntime as any).forgeContext?.cloudId
+      ;(forgeRuntime as any).forgeContext = { ...(forgeRuntime as any).forgeContext, cloudId: undefined }
+      try {
+        const wrapper = mountViewer()
+        await flushPromises()
+        vi.mocked(trackAnalyticsEvent).mockClear()
+
+        await expect(
+          wrapper.find('button[aria-label="Copy diagram link"]').trigger('click'),
+        ).resolves.not.toThrow()
+        await flushPromises()
+
+        expect(writeText).not.toHaveBeenCalled()
+        expect(toast).toHaveBeenCalledWith({ message: 'Diagram link not available', duration: 2000 })
+        expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledTimes(1)
+        expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('deeplink_copied', {
+          feature_area: 'macro',
+          surface: 'viewer',
+          macro_type: DiagramType.Sequence,
+          link_source: 'viewer_pill',
+          outcome: 'unavailable',
+        })
+      } finally {
+        (forgeRuntime as any).forgeContext = { ...(forgeRuntime as any).forgeContext, cloudId: originalCloudId }
+      }
     })
   })
 

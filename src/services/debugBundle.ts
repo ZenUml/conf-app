@@ -154,8 +154,8 @@ export async function collectEditorContent(
 /**
  * V2 customContent bodies wrap the diagram payload as a JSON string at
  * body.raw.value. Parse it and extract the active code field per diagramType
- * via the same helper the viewer uses for "Copy code", so the bundle's
- * saved.active is byte-identical to what we'd otherwise have shown.
+ * via the same helper the viewer uses for the Source panel's Copy, so the
+ * bundle's saved.active is byte-identical to what we'd otherwise have shown.
  */
 export function extractActiveField(body: any, diagramType: DiagramType | string): string | null {
   try {

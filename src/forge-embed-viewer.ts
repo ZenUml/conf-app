@@ -37,7 +37,7 @@ export async function loadDiagram(): Promise<Diagram | undefined> {
       trackAnalyticsEvent('embed_autoconvert_detected', AUTOCONVERT_ANALYTICS_PROPS);
       trackAnalyticsEvent('embed_autoconvert_failed', {
         ...AUTOCONVERT_ANALYTICS_PROPS,
-        failure_reason: 'invalid_link',
+        failure_reason: 'invalid_url',
       });
     } else {
       const isSameSite = context.cloudId
@@ -73,13 +73,15 @@ export async function loadDiagram(): Promise<Diagram | undefined> {
     console.log('loadDiagram - customContent', customContent);
     doc = customContent?.value;
     if (doc && autoconvertProps) {
-      trackAnalyticsEvent('embed_autoconvert_succeeded', autoconvertProps);
+      // Resolution proves the referenced document loaded, not that pixels
+      // painted. `macro_viewed` remains the rendered-view signal.
+      trackAnalyticsEvent('embed_autoconvert_target_resolved', autoconvertProps);
     }
     if (!doc) {
       if (autoconvertProps) {
         trackAnalyticsEvent('embed_autoconvert_failed', {
           ...autoconvertProps,
-          failure_reason: 'content_not_found',
+          failure_reason: 'target_missing',
         });
       }
       // ZEN-1170 telemetry. #147: the original call passed the arguments in the

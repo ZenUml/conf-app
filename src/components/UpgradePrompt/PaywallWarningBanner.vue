@@ -10,17 +10,36 @@
       <path d="M12 9v4M12 17h.01" />
       <path d="M10.3 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
     </svg>
-    <span class="paywall-banner__text">
+    <span v-if="audience === 'space_admin'" class="paywall-banner__text">
+      You administer this space, and it is over the ZenUML Lite diagram limit
+      ({{ macroCount }} of {{ macrosLimit }}). Existing diagrams still render, but your team
+      may be blocked from creating or editing them.
+    </span>
+    <span v-else class="paywall-banner__text">
       This space is over the ZenUML Lite diagram limit ({{ macroCount }} of {{ macrosLimit }}).
       Existing diagrams still render, but creating or editing diagrams may be blocked.
     </span>
+    <!-- Space admins get a purchase path they can execute alone: the Enterprise
+         Bundle is per-space and paid by card, so unlike the Marketplace upgrade
+         it needs no Confluence SITE admin. Everyone else gets the advocacy copy,
+         because for them the next step really is to ask someone. -->
     <div class="paywall-banner__actions">
       <button
+        v-if="audience === 'space_admin'"
         class="paywall-banner__btn paywall-banner__btn--primary"
+        data-testid="paywall-banner-unlock-space"
+        @click="onUnlockSpace"
+      >Unlock this space — {{ ENTERPRISE_BUNDLE_PRICE }}</button>
+      <button
+        :class="[
+          'paywall-banner__btn',
+          audience === 'space_admin' ? 'paywall-banner__btn--secondary' : 'paywall-banner__btn--primary',
+        ]"
         data-testid="paywall-banner-request-extension"
         @click="onRequestExtension"
       >Request extension</button>
       <button
+        v-if="audience !== 'space_admin'"
         class="paywall-banner__btn paywall-banner__btn--secondary"
         :data-testid="copyState === 'copied' ? 'paywall-banner-copied' : 'paywall-banner-copy-admin'"
         @click="onCopyAdminMessage"
@@ -48,6 +67,7 @@ import { useCustomerSuccessService, MACROS_LIMIT } from '@/composables/useCustom
 import {
   trackUpgradeEvent,
   UpgradeEventName,
+  bundleClientReferenceId,
 } from '@/utils/upgradeTracking'
 import {
   buildAdvocacyMessage,
@@ -67,9 +87,20 @@ import {
   recordBannerShown,
   recordBannerDismissed,
   isWarningBannerVisible,
+  bannerAudience,
   readDismissalMarker,
   type WarningBannerIdentity,
+  type BannerAudience,
 } from '@/utils/paywall/warningBanner'
+import { readProbeMarker } from '@/utils/paywall/spaceAdminProbe'
+
+/**
+ * `isSpaceAdmin` is supplied by the page-banner host (routes/pageBanner.ts)
+ * rather than re-derived here, because the host is where the Phase 5b flag is
+ * resolved. Deriving it locally would show admin copy to a flagged-off admin who
+ * happens to also qualify as a recent author.
+ */
+const props = withDefaults(defineProps<{ isSpaceAdmin?: boolean }>(), { isSpaceAdmin: false })
 
 // The page-banner iframe has NO live macro context — `macrosCreated` in the
 // composable is 0 here. Everything that describes the space (count, severity,
@@ -92,10 +123,21 @@ let identity: WarningBannerIdentity = { clientDomain: 'unknown', spaceKey: 'unkn
 let severity: 'none' | 'warning' | 'critical' = 'warning'
 let passesGate = false
 let macroCountValue = 0
+const isSpaceAdmin = props.isSpaceAdmin
+let spaceAdminCount: number | undefined
 try {
   identity = deriveWarningBannerIdentity()
   const targeting = readTargetingMarker(identity)
-  passesGate = !!targeting && isWarningBannerVisible(targeting, readDismissalMarker(identity), readMacroActivityMarker(identity))
+  spaceAdminCount = readProbeMarker(identity)?.adminCount
+  passesGate =
+    !!targeting &&
+    isWarningBannerVisible(
+      targeting,
+      readDismissalMarker(identity),
+      readMacroActivityMarker(identity),
+      Date.now(),
+      isSpaceAdmin
+    )
   if (passesGate && targeting) {
     macroCountValue = targeting.macroCount
     severity = targeting.severity
@@ -104,6 +146,8 @@ try {
   console.warn('[paywall-banner] gate evaluation failed; closing', e)
   passesGate = false
 }
+
+const audience: BannerAudience = bannerAudience(isSpaceAdmin)
 
 const visible = ref(passesGate)
 const macroCount = ref(macroCountValue)
@@ -142,6 +186,12 @@ function bannerContext() {
     macro_limit: macrosLimit,
     space_key: identity.spaceKey,
     macro_usage_pct: Math.round((macroCount.value / macrosLimit) * 100),
+    // Phase 5b: every banner event carries the audience so the funnel splits by
+    // who was actually addressed. Without this the two populations are pooled
+    // and the whole experiment is unreadable.
+    is_space_admin: isSpaceAdmin,
+    banner_audience: audience,
+    ...(spaceAdminCount === undefined ? {} : { space_admin_count: spaceAdminCount }),
   }
 }
 
@@ -211,6 +261,26 @@ async function onCopyAdminMessage() {
       copyRevertTimer = null
     }, 2000)
   }
+}
+
+/**
+ * Space-admin-only CTA. Goes straight to the Enterprise Bundle checkout because
+ * that is the one purchase a space admin can complete without escalating: it is
+ * scoped to the space they already administer and paid by card. The Marketplace
+ * upgrade — the only other rail — requires a Confluence SITE admin, which a
+ * space admin is not, and which we cannot detect at all.
+ */
+async function onUnlockSpace() {
+  const bundleUrl = customerSuccess.enterpriseBundleUrl.value
+  const reference = bundleClientReferenceId(bundleUrl)
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_BUNDLE_CTA_CLICKED, {
+    surface: 'page_banner',
+    severity,
+    bundle_price_usd: ENTERPRISE_BUNDLE_ANNUAL_COST,
+    ...(reference !== undefined ? { client_reference_id: reference } : {}),
+    ...bannerContext(),
+  })
+  await openUrl(bundleUrl)
 }
 
 async function onRequestExtension() {

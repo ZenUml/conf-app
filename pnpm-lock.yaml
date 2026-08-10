@@ -131,13 +131,10 @@ importers:
         version: 3.5.26
       '@zenuml/codemirror-extensions':
         specifier: ^0.3.1
-        version: 0.3.1(@codemirror/autocomplete@6.20.0)(@codemirror/commands@6.10.1)(@codemirror/language@6.12.1)(@codemirror/lint@6.9.2)(@codemirror/search@6.5.11)(@codemirror/state@6.5.3)(@codemirror/view@6.39.8)(@zenuml/core@3.47.5(@babel/core@7.28.5)(@babel/template@7.28.6)(@types/react@17.0.2)(tsx@4.21.0)(yaml@2.8.4))(codemirror@6.0.2)
+        version: 0.3.1(@codemirror/autocomplete@6.20.0)(@codemirror/commands@6.10.1)(@codemirror/language@6.12.1)(@codemirror/lint@6.9.2)(@codemirror/search@6.5.11)(@codemirror/state@6.5.3)(@codemirror/view@6.39.8)(@zenuml/core@4.2.0(@babel/core@7.28.5)(@babel/template@7.28.6)(@types/react@17.0.2)(tailwindcss@3.4.19(tsx@4.21.0)(yaml@2.8.4)))(codemirror@6.0.2)
       '@zenuml/core':
-        specifier: ^3.47.5
-        version: 3.47.5(@babel/core@7.28.5)(@babel/template@7.28.6)(@types/react@17.0.2)(tsx@4.21.0)(yaml@2.8.4)
-      '@zenuml/core-parser':
-        specifier: npm:@zenuml/core@^4.1.0
-        version: '@zenuml/core@4.1.0(@babel/core@7.28.5)(@babel/template@7.28.6)(@types/react@17.0.2)(tailwindcss@3.4.19(tsx@4.21.0)(yaml@2.8.4))'
+        specifier: ^4.2.0
+        version: 4.2.0(@babel/core@7.28.5)(@babel/template@7.28.6)(@types/react@17.0.2)(tailwindcss@3.4.19(tsx@4.21.0)(yaml@2.8.4))
       autoprefixer:
         specifier: ^10.4.13
         version: 10.4.23(postcss@8.4.31)
@@ -5971,12 +5968,8 @@ packages:
       '@zenuml/core': ^3.43.3
       codemirror: ^6.0.1
 
-  '@zenuml/core@3.47.5':
-    resolution: {integrity: sha512-eZK8Qt5AJmpwAnmwwRSJncO9Ry2NKnT/Nq+XI8n+5JpY2sGoAO/4RhQW7I9HjplKywS/u9Ga3UBNTRQpZdUprQ==}
-    engines: {node: '>=20'}
-
-  '@zenuml/core@4.1.0':
-    resolution: {integrity: sha512-0xyl24yCD+HWrAOymZWS2ra6U1dNt1fLO2nUN3WwR7w4W2BotEi3tyhMOU4nwgC+S7oH6p0rM2zO+hSZwXQmmQ==}
+  '@zenuml/core@4.2.0':
+    resolution: {integrity: sha512-tat/UfF++eKrlT0MiJCN1fd9I0aOnX8bAPSzQJFNutx2bJ1Mqe5WfIeV65umfq+71+B+9qLnVWRpiKWEVTmJPQ==}
     engines: {node: '>=20'}
     hasBin: true
     peerDependencies:
@@ -7845,10 +7838,6 @@ packages:
   fast-querystring@1.1.2:
     resolution: {integrity: sha512-g6KuKWmFXc0fID8WWH0jit4g0AGBoJhCkJMb1RmbsSEUNvQ+ZC8D6CUZ+GtF8nMzSPXnhiePyyqqipzNNEnHjg==}
 
-  fast-redact@3.5.0:
-    resolution: {integrity: sha512-dwsoQlS7h9hMeYUq1W++23NDcBLV4KqONnITDV9DjfS3q1SgDGVrBdvvTLUotWtPSD7asWDV9/CmsZPy8Hf70A==}
-    engines: {node: '>=6'}
-
   fast-safe-stringify@2.1.1:
     resolution: {integrity: sha512-W+KJc2dmILlPplD/H4K9l9LcAHAfPtP6BY84uVLXQ6Evcz9Lcg33Y2z1IVblT6xdY54PXYVHEv+0Wpq8Io6zkA==}
 
@@ -8454,9 +8443,6 @@ packages:
 
   immediate@3.0.6:
     resolution: {integrity: sha512-XXOFtyqDjNDAQxVfYxuF7g9Il/IbWmmlQg2MYKOH8ExIT1qg6xc4zyS3HaEEATgs1btfzxq15ciUiY7gjSXRGQ==}
-
-  immer@10.2.0:
-    resolution: {integrity: sha512-d/+XTN3zfODyjr89gM3mPq1WNX2B8pYsu7eORitdwyA2sBubnTl3laYlBk4sXY5FUa5qTZGBDPJICVbvqzjlbw==}
 
   immer@9.0.21:
     resolution: {integrity: sha512-bc4NBHqOqSfRW7POMkHd51LvClaeMXpm8dx0e8oE2GORbq5aRK7Bxl4FyzVLdGtLmvLKL7BTDBG5ACQm4HWjTA==}
@@ -10120,24 +10106,14 @@ packages:
     resolution: {integrity: sha512-MnUuEycAemtSaeFSjXKW/aroV7akBbY+Sv+RkyqFjgAe73F+MR0TBWKBRDkmfWq/HiFmdavfZ1G7h4SPZXaCSg==}
     engines: {node: '>=0.10.0'}
 
-  pino-abstract-transport@1.2.0:
-    resolution: {integrity: sha512-Guhh8EZfPCfH+PMXAb6rKOjGQEoy0xlAIn+irODG5kgfYV+BQ0rGYYWTIel3P5mmyXqkYkPmdIkywsn6QKUR1Q==}
-
   pino-abstract-transport@3.0.0:
     resolution: {integrity: sha512-wlfUczU+n7Hy/Ha5j9a/gZNy7We5+cXp8YL+X+PG8S0KXxw7n/JXA3c46Y0zQznIJ83URJiwy7Lh56WLokNuxg==}
-
-  pino-std-serializers@6.2.2:
-    resolution: {integrity: sha512-cHjPPsE+vhj/tnhCy/wiMh3M3z3h/j15zHQX+S9GkTBgqJuTuJzYJ4gUyACLhDaJ7kk9ba9iRDmbH2tJU03OiA==}
 
   pino-std-serializers@7.1.0:
     resolution: {integrity: sha512-BndPH67/JxGExRgiX1dX0w1FvZck5Wa4aal9198SrRhZjH3GxKQUKIBnYJTdj2HDN3UQAS06HlfcSbQj2OHmaw==}
 
   pino@10.3.0:
     resolution: {integrity: sha512-0GNPNzHXBKw6U/InGe79A3Crzyk9bcSyObF9/Gfo9DLEf5qj5RF50RSjsu0W1rZ6ZqRGdzDFCRBQvi9/rSGPtA==}
-    hasBin: true
-
-  pino@8.21.0:
-    resolution: {integrity: sha512-ip4qdzjkAyDDZklUaZkcRFb2iA118H9SgRh8yzTkSQK8HilsOJF7rSY8HoW5+I0M46AZgX/pxbprf2vvzQCE0Q==}
     hasBin: true
 
   pirates@4.0.7:
@@ -10312,9 +10288,6 @@ packages:
 
   process-nextick-args@2.0.1:
     resolution: {integrity: sha512-3ouUOpQhtgrbOa17J7+uxOTpITYWaGP7/AhoR3+A+/1e9skrzelGi/dXzEYyvbxubEF6Wn2ypscTKiKJFFn1ag==}
-
-  process-warning@3.0.0:
-    resolution: {integrity: sha512-mqn0kFRl0EoqhnL0GQ0veqFHyIN1yig9RHh/InzORTUiZHFRAur+aMtRkELNwGs9aNwKS6tg/An4NYBPGwvtzQ==}
 
   process-warning@4.0.1:
     resolution: {integrity: sha512-3c2LzQ3rY9d0hc1emcsHhfT9Jwz0cChib/QN89oME2R451w5fy3f0afAhERFZAwrbDU43wk12d0ORBpDVME50Q==}
@@ -11252,9 +11225,6 @@ packages:
   sockjs@0.3.24:
     resolution: {integrity: sha512-GJgLTZ7vYb/JtPSSZ10hsOYIvEYsjbNU+zPdIHcUaWVNUEPivzxku31865sSSud0Da0W4lEeOPlmw93zLQchuQ==}
 
-  sonic-boom@3.8.1:
-    resolution: {integrity: sha512-y4Z8LCDBuum+PBP3lSV7RHrXscqksve/bi0as7mhwVnBW+/wUqKT/2Kb7um8yqcFy0duYbbPxzt89Zy2nOCaxg==}
-
   sonic-boom@4.2.0:
     resolution: {integrity: sha512-INb7TM37/mAcsGmc9hyyI6+QR3rR1zVRu36B0NeGXKnOOLiZOfER5SA+N7X7k3yUYRzLWafduTDvJAfDswwEww==}
 
@@ -11597,9 +11567,6 @@ packages:
     engines: {node: '>=10.18'}
     peerDependencies:
       tslib: ^2
-
-  thread-stream@2.7.0:
-    resolution: {integrity: sha512-qQiRWsU/wvNolI6tbbCKd9iKaTnCXsTwVxhhKM6nctPdujTyztjlbUkUTUymidWcMnZ5pWR0ej4a0tjsW021vw==}
 
   thread-stream@4.0.0:
     resolution: {integrity: sha512-4iMVL6HAINXWf1ZKZjIPcz5wYaOdPhtO8ATvZ+Xqp3BTdaqtAwQkNmKORqcIo5YkQqGXq5cwfswDwMqqQNrpJA==}
@@ -22110,7 +22077,7 @@ snapshots:
 
   '@yarnpkg/lockfile@1.1.0': {}
 
-  '@zenuml/codemirror-extensions@0.3.1(@codemirror/autocomplete@6.20.0)(@codemirror/commands@6.10.1)(@codemirror/language@6.12.1)(@codemirror/lint@6.9.2)(@codemirror/search@6.5.11)(@codemirror/state@6.5.3)(@codemirror/view@6.39.8)(@zenuml/core@3.47.5(@babel/core@7.28.5)(@babel/template@7.28.6)(@types/react@17.0.2)(tsx@4.21.0)(yaml@2.8.4))(codemirror@6.0.2)':
+  '@zenuml/codemirror-extensions@0.3.1(@codemirror/autocomplete@6.20.0)(@codemirror/commands@6.10.1)(@codemirror/language@6.12.1)(@codemirror/lint@6.9.2)(@codemirror/search@6.5.11)(@codemirror/state@6.5.3)(@codemirror/view@6.39.8)(@zenuml/core@4.2.0(@babel/core@7.28.5)(@babel/template@7.28.6)(@types/react@17.0.2)(tailwindcss@3.4.19(tsx@4.21.0)(yaml@2.8.4)))(codemirror@6.0.2)':
     dependencies:
       '@codemirror/autocomplete': 6.20.0
       '@codemirror/commands': 6.10.1
@@ -22122,40 +22089,11 @@ snapshots:
       '@lezer/common': 1.5.0
       '@lezer/highlight': 1.2.3
       '@lezer/lr': 1.4.6
-      '@zenuml/core': 3.47.5(@babel/core@7.28.5)(@babel/template@7.28.6)(@types/react@17.0.2)(tsx@4.21.0)(yaml@2.8.4)
+      '@zenuml/core': 4.2.0(@babel/core@7.28.5)(@babel/template@7.28.6)(@types/react@17.0.2)(tailwindcss@3.4.19(tsx@4.21.0)(yaml@2.8.4))
       codemirror: 6.0.2
       thememirror: 2.0.1(@codemirror/language@6.12.1)(@codemirror/state@6.5.3)(@codemirror/view@6.39.8)
 
-  '@zenuml/core@3.47.5(@babel/core@7.28.5)(@babel/template@7.28.6)(@types/react@17.0.2)(tsx@4.21.0)(yaml@2.8.4)':
-    dependencies:
-      '@floating-ui/react': 0.27.16(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
-      '@headlessui/react': 2.2.9(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
-      '@headlessui/tailwindcss': 0.2.2(tailwindcss@3.4.19(tsx@4.21.0)(yaml@2.8.4))
-      antlr4: 4.11.0
-      class-variance-authority: 0.7.1
-      clsx: 2.1.1
-      color-string: 2.1.4
-      dompurify: 3.3.1
-      highlight.js: 10.7.3
-      html-to-image: 1.11.13
-      immer: 10.2.0
-      jotai: 2.16.1(@babel/core@7.28.5)(@babel/template@7.28.6)(@types/react@17.0.2)(react@17.0.2)
-      lodash: 4.18.1
-      marked: 4.3.0
-      pako: 2.1.0
-      pino: 8.21.0
-      react: 17.0.2
-      react-dom: 17.0.2(react@17.0.2)
-      tailwind-merge: 3.4.0
-      tailwindcss: 3.4.19(tsx@4.21.0)(yaml@2.8.4)
-    transitivePeerDependencies:
-      - '@babel/core'
-      - '@babel/template'
-      - '@types/react'
-      - tsx
-      - yaml
-
-  '@zenuml/core@4.1.0(@babel/core@7.28.5)(@babel/template@7.28.6)(@types/react@17.0.2)(tailwindcss@3.4.19(tsx@4.21.0)(yaml@2.8.4))':
+  '@zenuml/core@4.2.0(@babel/core@7.28.5)(@babel/template@7.28.6)(@types/react@17.0.2)(tailwindcss@3.4.19(tsx@4.21.0)(yaml@2.8.4))':
     dependencies:
       '@floating-ui/react': 0.27.16(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@headlessui/react': 2.2.9(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
@@ -24314,8 +24252,6 @@ snapshots:
     dependencies:
       fast-decode-uri-component: 1.0.1
 
-  fast-redact@3.5.0: {}
-
   fast-safe-stringify@2.1.1: {}
 
   fast-string-truncated-width@3.0.3: {}
@@ -25017,8 +24953,6 @@ snapshots:
   ignore@7.0.5: {}
 
   immediate@3.0.6: {}
-
-  immer@10.2.0: {}
 
   immer@9.0.21: {}
 
@@ -26990,16 +26924,9 @@ snapshots:
 
   pinkie@2.0.4: {}
 
-  pino-abstract-transport@1.2.0:
-    dependencies:
-      readable-stream: 4.7.0
-      split2: 4.2.0
-
   pino-abstract-transport@3.0.0:
     dependencies:
       split2: 4.2.0
-
-  pino-std-serializers@6.2.2: {}
 
   pino-std-serializers@7.1.0: {}
 
@@ -27016,20 +26943,6 @@ snapshots:
       safe-stable-stringify: 2.5.0
       sonic-boom: 4.2.0
       thread-stream: 4.0.0
-
-  pino@8.21.0:
-    dependencies:
-      atomic-sleep: 1.0.0
-      fast-redact: 3.5.0
-      on-exit-leak-free: 2.1.2
-      pino-abstract-transport: 1.2.0
-      pino-std-serializers: 6.2.2
-      process-warning: 3.0.0
-      quick-format-unescaped: 4.0.4
-      real-require: 0.2.0
-      safe-stable-stringify: 2.5.0
-      sonic-boom: 3.8.1
-      thread-stream: 2.7.0
 
   pirates@4.0.7: {}
 
@@ -27207,8 +27120,6 @@ snapshots:
   prismjs@1.30.0: {}
 
   process-nextick-args@2.0.1: {}
-
-  process-warning@3.0.0: {}
 
   process-warning@4.0.1: {}
 
@@ -28370,10 +28281,6 @@ snapshots:
       uuid: 8.3.2
       websocket-driver: 0.7.4
 
-  sonic-boom@3.8.1:
-    dependencies:
-      atomic-sleep: 1.0.0
-
   sonic-boom@4.2.0:
     dependencies:
       atomic-sleep: 1.0.0
@@ -28909,10 +28816,6 @@ snapshots:
   thingies@2.5.0(tslib@2.8.1):
     dependencies:
       tslib: 2.8.1
-
-  thread-stream@2.7.0:
-    dependencies:
-      real-require: 0.2.0
 
   thread-stream@4.0.0:
     dependencies:

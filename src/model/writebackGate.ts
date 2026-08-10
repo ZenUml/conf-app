@@ -5,6 +5,8 @@
 //
 // See ZenUml/conf-app#170.
 
+import { DataSource } from './Diagram/Diagram';
+
 export interface WritebackSignals {
   /** context.extension.macro.isInserting — page-editor slash-menu insert. */
   inserting: boolean;
@@ -45,4 +47,44 @@ export function decideWriteback(s: WritebackSignals): WritebackDecision {
   const needsWriteback =
     repairWillPersist && (s.inserting || s.idChanged || attemptRepair || attemptLegacyMigration);
   return { repairWillPersist, attemptRepair, attemptLegacyMigration, needsWriteback };
+}
+
+// Signal derivation shared by the three macro editors (slice 0 of the
+// content-opening unification). Callers pass their own doc handle's fields
+// (forgeIndex: store.state.diagram; graph/swagger: window.diagram) captured
+// BEFORE any deferred writeback runs.
+export interface WritebackDerivationInput {
+  inserting: boolean | undefined;
+  configuring: boolean | undefined;
+  /** custom-content id loaded into the editor ('' when none). */
+  sourceId: string;
+  /** id returned by saveToPlatform ('' when save produced none). */
+  newId: string;
+  /** original macro-config id when orphan recovery loaded a sibling. */
+  originalCustomContentId?: string;
+  /** DataSource of the doc the editor mounted. */
+  docSource?: DataSource | string;
+  /** the mounted doc came through the uuid/orphan recovery chain. */
+  recoveredFromOrphan?: boolean;
+}
+
+export function deriveWritebackSignals(i: WritebackDerivationInput): WritebackSignals {
+  return {
+    inserting: !!i.inserting,
+    configuring: !!i.configuring,
+    idChanged: !!i.sourceId && !!i.newId && i.newId !== i.sourceId,
+    // ZEN-1170 Defect 2b: saved against a recovered sibling id.
+    macroNeedsRepair: !!(i.originalCustomContentId && i.newId && i.newId !== i.originalCustomContentId),
+    // ZEN-1170 Defect 1 + PR #139 same-page recovery: uuid-only macro whose
+    // doc came from a legacy source — stamp customContentId on first save.
+    // Cross-page recovery needs no term here: it forks a new CC, so the
+    // idChanged path already writes back; this only covers same-page hits
+    // where save updates in place.
+    legacyMacroNeedsRepair:
+      !i.originalCustomContentId &&
+      (i.docSource === DataSource.ContentProperty ||
+        i.docSource === DataSource.ContentPropertyOld ||
+        (i.docSource === DataSource.CustomContent && !!i.recoveredFromOrphan)),
+    hasId: !!i.newId,
+  };
 }

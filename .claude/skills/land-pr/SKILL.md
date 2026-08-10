@@ -66,6 +66,17 @@ gh pr merge <PR_NUMBER> --auto --delete-branch $MERGE_FLAG
 
 Logic: use `--squash` if only squash is enabled, `--rebase` if only rebase is enabled, otherwise `--merge` (GitHub's default when multiple strategies are on). Do not override with `--squash` or `--rebase` unless the user explicitly requests it.
 
+**NEVER pass `--delete-branch` while another open PR uses this branch as its base.** Deleting the base branch makes GitHub **close** the stacked child PR, and a closed PR can be neither reopened (`reopenPullRequest` fails) nor retargeted (`Cannot change the base branch of a closed pull request`) — the only recovery is recreating it, losing its number, review history, and comments. Check first, and drop the flag if anything comes back:
+
+```bash
+HEAD_REF=$(gh pr view <PR_NUMBER> --repo ZenUml/conf-app --json headRefName -q .headRefName)
+gh pr list --repo ZenUml/conf-app --state open --base "$HEAD_REF" --json number,title
+```
+
+Correct order for a stack: merge the parent **without** `--delete-branch` → retarget each child (`gh api -X PATCH repos/ZenUml/conf-app/pulls/<child> -f base=main`; the `gh pr edit --base` path can silently no-op) → then `git push origin --delete "$HEAD_REF"`.
+
+_(2026-07-29: merging #409 with `--delete-branch` closed stacked #410; it had to be recreated as #412.)_
+
 Using `--auto` arms auto-merge so GitHub merges when all checks pass.
 
 ### 4. Wait for merge

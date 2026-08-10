@@ -30,6 +30,9 @@ vi.mock('@/model/page/AtlasPage', () => ({
   AtlasPage: vi.fn().mockImplementation(() => ({
     getPageId: vi.fn().mockResolvedValue('456'),
     countMacros: vi.fn().mockResolvedValue(1),
+    // Failure-aware variant behind countMacrosReferencing: `undefined` = the
+    // page ADF could not be read (see AtlasPage.macrosOrNull).
+    countMacrosOrUnknown: vi.fn().mockResolvedValue(1),
   })),
 }));
 
@@ -672,13 +675,12 @@ describe('ApWrapper2', () => {
     });
   });
 
-  // P1.1 (viewer-load perf): the ADF copy-scan (countMacros + getPageId) is a
-  // full-page ADF GET that today blocks the viewer's critical path. This lets
-  // loadCustomContentWithOrphanRecovery skip it when the caller (viewer)
-  // decides to run it later, and extracts the scan itself into a standalone
-  // detectCopy() so both the blocking and deferred paths share one
-  // implementation.
-  describe('deferred ADF copy-scan (P1.1)', () => {
+  // Viewer surfaces pass copyCheckMode 'cross-page-only': the verdict comes
+  // from the zero-network pageId comparison (detectCrossPageCopy) and the
+  // full-page ADF GET (countMacros) is never issued. Same-page duplicates are
+  // invisible to that mode by construction — edit/config surfaces keep the
+  // full blocking detectCopy, which guards the save-fork path.
+  describe('viewer copy check (cross-page-only mode)', () => {
     function happyDirectFetch(id: string, pageId = '456') {
       return {
         id,
@@ -687,16 +689,32 @@ describe('ApWrapper2', () => {
       };
     }
 
-    it('skips countMacros and marks copyCheckPending when shouldDeferAdfScan resolves true', async () => {
-      vi.mocked(forgeRequest).mockResolvedValueOnce(happyDirectFetch('cc-1'));
-      const countSpy = vi.spyOn(wrapper._page, 'countMacros');
+    it('flags a cross-page copy via the free check without fetching the page ADF', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce(happyDirectFetch('cc-1', '456'));
+      const countSpy = vi.spyOn(wrapper._page, 'countMacrosOrUnknown');
+      vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-1');
 
       const result = await wrapper.loadCustomContentWithOrphanRecovery(
-        'page-1', 'cc-1', { shouldDeferAdfScan: async () => true });
+        'page-1', 'cc-1', { copyCheckMode: 'cross-page-only' });
 
       expect(countSpy).not.toHaveBeenCalled();
-      expect(result.customContent?.value.copyCheckPending).toBe(true);
-      expect(result.customContent?.value.isCopy).toBeUndefined();
+      expect(result.customContent?.value.isCopy).toBe(true);
+      expect(result.customContent?.value.copyReason).toBe('cross-page');
+      expect(trackEvent).toHaveBeenCalledWith('cross_page', 'duplication_detect', 'warning');
+    });
+
+    it('does not flag a same-page duplicate in cross-page-only mode (no ADF consulted)', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce(happyDirectFetch('cc-1', '456'));
+      // Would report a duplicate if the scan ran — proves the mode never asks.
+      const countSpy = vi.spyOn(wrapper._page, 'countMacrosOrUnknown').mockResolvedValue(2);
+      vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('456');
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(
+        'page-1', 'cc-1', { copyCheckMode: 'cross-page-only' });
+
+      expect(countSpy).not.toHaveBeenCalled();
+      expect(result.customContent?.value.isCopy).toBe(false);
+      expect(result.customContent?.value.copyReason).toBeUndefined();
     });
 
     it('keeps blocking copy detection when option is absent', async () => {
@@ -704,12 +722,11 @@ describe('ApWrapper2', () => {
 
       const result = await wrapper.loadCustomContentWithOrphanRecovery('page-1', 'cc-1');
 
-      expect(result.customContent?.value.copyCheckPending).toBeUndefined();
       expect(typeof result.customContent?.value.isCopy).toBe('boolean');
     });
 
     it('detectCopy reports same-page-duplicate when count > 1', async () => {
-      vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(2);
+      vi.spyOn(wrapper._page, 'countMacrosOrUnknown').mockResolvedValue(2);
       vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-1');
 
       const verdict = await wrapper.detectCopy('cc-1', 'page-1');
@@ -720,7 +737,7 @@ describe('ApWrapper2', () => {
     });
 
     it('detectCopy matches the string customContentId used by current Forge ADF', async () => {
-      vi.spyOn(wrapper._page, 'countMacros').mockImplementation(async matcher => {
+      vi.spyOn(wrapper._page, 'countMacrosOrUnknown').mockImplementation(async matcher => {
         const liveForgeMacroParams = [
           { customContentId: 'cc-1' },
           { customContentId: 'cc-1' },
@@ -735,7 +752,7 @@ describe('ApWrapper2', () => {
     });
 
     it('detectCopy reports cross-page when CC pageId differs', async () => {
-      vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(1);
+      vi.spyOn(wrapper._page, 'countMacrosOrUnknown').mockResolvedValue(1);
       vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-2');
 
       const verdict = await wrapper.detectCopy('cc-1', 'page-1');
@@ -751,7 +768,7 @@ describe('ApWrapper2', () => {
     // wins the reported copyReason — while still firing BOTH telemetry events
     // (the original code's two `if`s are independent, not if/else-if).
     it('detectCopy prefers cross-page as the reported reason when both conditions hold simultaneously', async () => {
-      vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(2);
+      vi.spyOn(wrapper._page, 'countMacrosOrUnknown').mockResolvedValue(2);
       vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-2');
 
       const verdict = await wrapper.detectCopy('cc-1', 'page-1');
@@ -762,7 +779,7 @@ describe('ApWrapper2', () => {
     });
 
     it('detectCopy reports no copy and fires neither telemetry event when same page and count <= 1', async () => {
-      vi.spyOn(wrapper._page, 'countMacros').mockResolvedValue(1);
+      vi.spyOn(wrapper._page, 'countMacrosOrUnknown').mockResolvedValue(1);
       vi.spyOn(wrapper._page, 'getPageId').mockResolvedValue('page-1');
 
       const verdict = await wrapper.detectCopy('cc-1', 'page-1');
@@ -1542,6 +1559,78 @@ describe('ApWrapper2', () => {
 
       expect(hits).toHaveLength(1);
       expect(hits[0].spaceKey).toBe('MKT');
+    });
+  });
+
+  // conf-app#368: the native macro-config surface (Confluence's own insert /
+  // edit-params dialog) has NO extension.modal but sets
+  // extension.macro.isConfiguring / isInserting. Classifying it as display
+  // mode stamped every authoring preview render as surface:'viewer' with no
+  // custom_content_id — ~3% of all Lite "viewer" macro_viewed events were
+  // authoring sessions, which is what #368 misread as ids intermittently
+  // going missing at view time.
+  describe('isDisplayMode', () => {
+    async function withContext(extension: any, fn: () => void) {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).forgeContext = extension === null ? null : { extension };
+      try {
+        fn();
+      } finally {
+        (forgeGlobalMod.default as any).forgeContext = null;
+      }
+    }
+
+    it('plain page view (no modal, no macro flags) is display mode', async () => {
+      await withContext({ type: 'macro', content: { id: '1' } }, () => {
+        expect(wrapper.isDisplayMode()).toBe(true);
+      });
+    });
+
+    it('macro flags present but false is still display mode', async () => {
+      await withContext(
+        { type: 'macro', macro: { isConfiguring: false, isInserting: false } },
+        () => {
+          expect(wrapper.isDisplayMode()).toBe(true);
+        },
+      );
+    });
+
+    it('native config surface (isConfiguring, no modal) is NOT display mode', async () => {
+      await withContext(
+        { type: 'macro', macro: { isConfiguring: true, isInserting: false } },
+        () => {
+          expect(wrapper.isDisplayMode()).toBe(false);
+        },
+      );
+    });
+
+    it('native insert surface (isInserting, no modal) is NOT display mode', async () => {
+      await withContext(
+        { type: 'macro', macro: { isConfiguring: false, isInserting: true } },
+        () => {
+          expect(wrapper.isDisplayMode()).toBe(false);
+        },
+      );
+    });
+
+    it('bridge editor modal is NOT display mode', async () => {
+      await withContext(
+        { type: 'macro', modal: { macroMode: 'editor' } },
+        () => {
+          expect(wrapper.isDisplayMode()).toBe(false);
+        },
+      );
+    });
+
+    it('fullscreen viewer modal is display mode, even with inherited macro flags', async () => {
+      // Bridge modals inherit the parent extension; an explicit modal
+      // macroMode must win over any inherited macro flags.
+      await withContext(
+        { type: 'macro', modal: { macroMode: 'fullscreen' }, macro: { isConfiguring: true } },
+        () => {
+          expect(wrapper.isDisplayMode()).toBe(true);
+        },
+      );
     });
   });
 });

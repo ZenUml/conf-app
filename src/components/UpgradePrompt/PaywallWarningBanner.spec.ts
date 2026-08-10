@@ -11,7 +11,8 @@ const warningMarker = {
 }
 
 // Mutable gate result the marker-module mock returns; flipped per test.
-const gate = { visible: true, targeting: warningMarker as any }
+// `isAdmin` drives the Phase 5b audience split.
+const gate = { visible: true, targeting: warningMarker as any, isAdmin: false }
 
 vi.mock('@/utils/paywall/warningBanner', () => ({
   deriveWarningBannerIdentity: () => ({ clientDomain: 'example-tenant', spaceKey: 'ENG' }),
@@ -19,28 +20,32 @@ vi.mock('@/utils/paywall/warningBanner', () => ({
   readMacroActivityMarker: () => ({ lastActivityAt: '2026-06-03T00:00:00.000Z', activityType: 'edit' }),
   readDismissalMarker: () => null,
   isWarningBannerVisible: () => gate.visible,
+  bannerAudience: (isAdmin: boolean) => (isAdmin ? 'space_admin' : 'editor'),
   recordBannerShown: vi.fn(),
   recordBannerDismissed: vi.fn(),
 }))
 
+vi.mock('@/utils/paywall/spaceAdminProbe', () => ({
+  isCurrentUserSpaceAdmin: () => gate.isAdmin,
+  readProbeMarker: () => ({ lastProbedAt: 'x', isAdmin: gate.isAdmin, adminCount: 3 }),
+}))
+
 const closeView = vi.fn()
 
-vi.mock('@/utils/upgradeTracking', () => ({
-  trackUpgradeEvent: vi.fn(),
-  UpgradeEventName: {
-    PAYWALL_BANNER_SHOWN: 'paywall_banner_shown',
-    PAYWALL_BANNER_DISMISSED: 'paywall_banner_dismissed',
-    ADVOCACY_MESSAGE_COPIED: 'advocacy_message_copied',
-    EXTENSION_REQUEST_CLICKED: 'extension_request_clicked',
-  },
-}))
+// Keep the real module (enum + bundleClientReferenceId) and stub only the
+// tracker — the component parses client_reference_id off the bundle URL via
+// the real helper at click time.
+vi.mock('@/utils/upgradeTracking', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/upgradeTracking')>()
+  return { ...actual, trackUpgradeEvent: vi.fn() }
+})
 
 vi.mock('@/composables/useCustomerSuccessService', () => ({
   // The component only reads `.value` on these (pure URL refs), so plain
   // { value } stand-ins suffice — no need to import vue's ref into the factory.
   useCustomerSuccessService: () => ({
     upgradeUrl: { value: 'https://upgrade.example.com' },
-    enterpriseBundleUrl: { value: 'https://bundle.example.com' },
+    enterpriseBundleUrl: { value: 'https://bundle.example.com/pay?client_reference_id=acme__ENG' },
   }),
   MACROS_LIMIT: 100,
 }))
@@ -56,6 +61,7 @@ describe('PaywallWarningBanner (page banner)', () => {
     vi.clearAllMocks()
     gate.visible = true
     gate.targeting = warningMarker
+    gate.isAdmin = false
   })
 
   it('renders and records an impression when the gate passes', async () => {
@@ -96,5 +102,77 @@ describe('PaywallWarningBanner (page banner)', () => {
     )
     await vi.waitFor(() => expect(closeView).toHaveBeenCalled())
     expect(wrapper.find('[data-testid="paywall-warning-banner"]').exists()).toBe(false)
+  })
+
+  it('tags every banner event with the audience so the funnel can be split', async () => {
+    const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
+    mount(PaywallWarningBanner)
+    expect(trackUpgradeEvent).toHaveBeenCalledWith(
+      'paywall_banner_shown',
+      expect.objectContaining({ is_space_admin: false, banner_audience: 'editor', space_admin_count: 3 })
+    )
+  })
+
+  // Phase 5b. Telling a space admin to "copy a message to your admin" is
+  // circular, and that relay has produced zero conversions in 15 months. An
+  // admin instead gets the one purchase they can complete unaided.
+  describe('space-admin audience', () => {
+    // The audience arrives as a prop from the page-banner host, which is where
+    // the Phase 5b flag is resolved — the component never re-derives it.
+    const asAdmin = { props: { isSpaceAdmin: true } }
+
+    beforeEach(() => {
+      gate.isAdmin = true
+    })
+
+    it('renders the author copy when the host does not mark the user as an admin', () => {
+      const wrapper = mount(PaywallWarningBanner)
+      expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="paywall-banner-copy-admin"]').exists()).toBe(true)
+    })
+
+    it('swaps the advocacy relay for a direct purchase CTA', () => {
+      const wrapper = mount(PaywallWarningBanner, asAdmin)
+      expect(wrapper.text()).toContain('You administer this space')
+      expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="paywall-banner-copy-admin"]').exists()).toBe(false)
+      // Asking us for more free time stays available — it is how a tenant that
+      // genuinely can't buy today still reaches us.
+      expect(wrapper.find('[data-testid="paywall-banner-request-extension"]').exists()).toBe(true)
+    })
+
+    it('quotes the bundle price on the CTA', () => {
+      const wrapper = mount(PaywallWarningBanner, asAdmin)
+      expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]').text()).toContain('$299')
+    })
+
+    it('opens the bundle checkout and tracks the click with the price', async () => {
+      const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
+      const { openUrl } = await import('@/model/globals/forgeGlobal')
+      const wrapper = mount(PaywallWarningBanner, asAdmin)
+
+      await wrapper.find('[data-testid="paywall-banner-unlock-space"]').trigger('click')
+
+      expect(trackUpgradeEvent).toHaveBeenCalledWith(
+        'paywall_bundle_cta_clicked',
+        expect.objectContaining({
+          surface: 'page_banner',
+          bundle_price_usd: 299,
+          is_space_admin: true,
+          banner_audience: 'space_admin',
+          client_reference_id: 'acme__ENG',
+        })
+      )
+      expect(openUrl).toHaveBeenCalledWith('https://bundle.example.com/pay?client_reference_id=acme__ENG')
+    })
+
+    it('tags the impression as the space_admin audience', async () => {
+      const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
+      mount(PaywallWarningBanner, asAdmin)
+      expect(trackUpgradeEvent).toHaveBeenCalledWith(
+        'paywall_banner_shown',
+        expect.objectContaining({ is_space_admin: true, banner_audience: 'space_admin' })
+      )
+    })
   })
 })

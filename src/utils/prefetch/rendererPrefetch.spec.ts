@@ -22,7 +22,6 @@ function makeOpts(overrides: Partial<RunOptions> = {}): RunOptions & {
     store: memoryStore(),
     nav: {},
     now: () => 1000,
-    getFlags: vi.fn(async () => true),
     getManifest: vi.fn(async () => ({ version: 1, renderers: { sequence: ['assets/zenuml.esm-x.js'], openapi: ['assets/OpenApiViewer-y.js'] } })),
     prefetch: vi.fn(async (paths: readonly string[]) => ({ requested: paths.length, failed: 0, timedOut: false })),
     warmMermaid: vi.fn(async () => undefined),
@@ -91,15 +90,6 @@ describe('runRendererPrefetchIfDue', () => {
     expect(isPrefetchDue(opts.store)).toBe(true)
   })
 
-  it('flag off: no events, not marked done (a later flag flip can still warm)', async () => {
-    const opts = makeOpts({ getFlags: vi.fn(async () => false) })
-    await runRendererPrefetchIfDue(opts)
-    expect(opts.track).not.toHaveBeenCalled()
-    expect(isPrefetchDue(opts.store)).toBe(true)
-    // lock released → a later attempt is possible
-    expect(tryClaimLock(2000, opts.store)).toBe(true)
-  })
-
   it('excludes the calling renderer family', async () => {
     const opts = makeOpts({ excludeRenderers: ['graph', 'mermaid'] })
     await runRendererPrefetchIfDue(opts)
@@ -144,30 +134,20 @@ describe('runRendererPrefetchIfDue', () => {
   })
 
   it('never throws even when everything explodes', async () => {
+    // Blow up in the very first step (the throttle read) so the failure lands
+    // outside the inner try/finally — the outer guarantee is what matters:
+    // this runs on a render and on the banner's view.close path.
     const opts = makeOpts({
-      getFlags: vi.fn(async () => {
-        throw new Error('boom')
-      }),
+      store: {
+        getItem: () => {
+          throw new Error('boom')
+        },
+        setItem: () => undefined,
+        removeItem: () => undefined,
+      },
     })
     await expect(runRendererPrefetchIfDue(opts)).resolves.toBeUndefined()
-  })
-
-  it('bounds a hung flag fetch by the deadline: no events, not marked done', async () => {
-    vi.useFakeTimers()
-    try {
-      const opts = makeOpts({
-        deadlineMs: 1_000,
-        getFlags: vi.fn(() => new Promise<boolean>(() => undefined)), // never resolves
-      })
-      const pending = runRendererPrefetchIfDue(opts)
-      await vi.advanceTimersByTimeAsync(1_001)
-      await pending
-      expect(opts.track).not.toHaveBeenCalled()
-      expect(isPrefetchDue(opts.store)).toBe(true)
-      expect(tryClaimLock(Date.now(), opts.store)).toBe(true) // lock released
-    } finally {
-      vi.useRealTimers()
-    }
+    expect(opts.track).not.toHaveBeenCalled()
   })
 
   it('reports timed_out when the manifest fetch hangs past deadline + grace', async () => {
@@ -207,10 +187,9 @@ describe('runRendererPrefetchIfDue', () => {
     }
   })
 
-  it('uses page_banner surface and banner host flag for the banner host', async () => {
+  it('uses page_banner surface for the banner host', async () => {
     const opts = makeOpts({ host: 'banner', deadlineMs: 5000 })
     await runRendererPrefetchIfDue(opts)
-    expect(opts.getFlags).toHaveBeenCalledWith('banner')
     expect(opts.track.mock.calls[0][1].surface).toBe('page_banner')
     expect(opts.track.mock.calls[0][1].prefetch_host).toBe('banner')
   })

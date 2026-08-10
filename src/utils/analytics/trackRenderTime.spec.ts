@@ -33,6 +33,11 @@ vi.mock("@/utils/prefetch/rendererPrefetch", () => ({
 
 import { isPrefetchDue } from "@/utils/prefetch/throttle";
 import { runRendererPrefetchIfDue } from "@/utils/prefetch/rendererPrefetch";
+import {
+  maybeGateViewerRender,
+  awaitGateBlocking,
+  _resetForTesting as _resetGateForTesting,
+} from "@/utils/renderGate/maybeGateViewerRender";
 
 const ORIGIN = location.origin;
 
@@ -207,6 +212,39 @@ describe("trackRenderTime", () => {
 
     const [a, b] = vi.mocked(trackAnalyticsEvent).mock.calls.slice(-2).map((c) => c[1]);
     expect(a.instance_nonce).toBe(b.instance_nonce);
+  });
+
+  it("merges viewport-gate telemetry into macro_viewed when the gate ran (#382)", async () => {
+    await maybeGateViewerRender({
+      getFlag: async () => true,
+      awaitTurn: async () => ({
+        outcome: "background",
+        deferredMs: 4321,
+        visibleAtBoot: false,
+      }),
+    });
+    // blocking is measured at the mount-site await, not from the gate's age
+    await awaitGateBlocking(Promise.resolve());
+    trackRenderTime("sequence", true);
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({
+        render_gate: "background",
+        render_deferred_ms: expect.any(Number),
+        visible_at_boot: false,
+      }),
+    );
+    _resetGateForTesting();
+  });
+
+  it("adds no gate properties when the gate never ran", () => {
+    trackRenderTime("sequence", true);
+
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)!;
+    expect(props).not.toHaveProperty("render_gate");
+    expect(props).not.toHaveProperty("render_deferred_ms");
+    expect(props).not.toHaveProperty("visible_at_boot");
   });
 });
 

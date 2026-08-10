@@ -97,13 +97,16 @@ export type ContentPropertyV2Result =
   | { status: 'forbidden' }
   | { status: 'error'; reason: 'http' | 'parse' | 'thrown'; httpStatus?: number };
 
-// P1.1 (viewer-load perf): threaded through loadCustomContentWithOrphanRecovery
-// -> fetchCustomContentByIdV2WithStatus -> parseCustomContentByIdV2Response so
-// the viewer can defer the ADF copy-scan (detectCopy) until after first paint.
+// Threaded through loadCustomContentWithOrphanRecovery
+// -> fetchCustomContentByIdV2WithStatus -> parseCustomContentByIdV2Response.
 export interface LoadCustomContentOpts {
-  // Resolves true ⇒ skip the blocking ADF copy-scan (viewer defers it).
-  // A callback (not a boolean) so the flag read overlaps the CC GET.
-  shouldDeferAdfScan?: () => Promise<boolean>;
+  // 'cross-page-only' (viewer surfaces): skip the full-page ADF scan and
+  // derive the verdict from the zero-network pageId comparison alone.
+  // Same-page duplicates are invisible to that check by construction — they
+  // are detected on edit/config surfaces only, whose blocking detectCopy
+  // guards the save-fork path. Omitted/'full' preserves the blocking scan
+  // for every other caller.
+  copyCheckMode?: 'full' | 'cross-page-only';
 }
 
 export default class ApWrapper2 implements IApWrapper {
@@ -498,9 +501,9 @@ export default class ApWrapper2 implements IApWrapper {
     return <ICustomContent>assign;
   }
 
-  async getCustomContentByIdV2(id: string): Promise<ICustomContentV2 | undefined> {
+  async getCustomContentByIdV2(id: string, opts?: LoadCustomContentOpts): Promise<ICustomContentV2 | undefined> {
     const customContent = await this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`);
-    return this.parseCustomContentByIdV2Response(id, customContent);
+    return this.parseCustomContentByIdV2Response(id, customContent, opts);
   }
 
   /**
@@ -610,17 +613,13 @@ export default class ApWrapper2 implements IApWrapper {
     let diagram = JSON.parse(rawValue);
     diagram.source = DataSource.CustomContent;
 
-    if (opts?.shouldDeferAdfScan && await opts.shouldDeferAdfScan()) {
-      // P1.1: viewer chose to run the ADF copy-scan after first paint.
-      // deferredCopyCheck.ts owns completing this and clearing the flag.
-      diagram.copyCheckPending = true;
-    } else {
-      const verdict = await this.detectCopy(id, customContent?.pageId);
-      diagram.isCopy = verdict.isCopy;
-      diagram.copyReason = verdict.copyReason;
-      if (verdict.isCopy) {
-        console.warn(`Detected copied macro - ID: ${id}, reason: ${verdict.copyReason}, Source page: ${customContent?.pageId}`);
-      }
+    const verdict = opts?.copyCheckMode === 'cross-page-only'
+      ? await this.detectCrossPageCopy(customContent?.pageId)
+      : await this.detectCopy(id, customContent?.pageId);
+    diagram.isCopy = verdict.isCopy;
+    diagram.copyReason = verdict.copyReason;
+    if (verdict.isCopy) {
+      console.warn(`Detected copied macro - ID: ${id}, reason: ${verdict.copyReason}, Source page: ${customContent?.pageId}`);
     }
     diagram.id = id;
     let assign = <unknown>Object.assign({}, customContent, {value: diagram});
@@ -628,23 +627,60 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   /**
-   * P1.1: the ADF copy-scan, extracted so viewers can run it off the
-   * critical path. One full-page ADF GET via _page.countMacros. Synchronous
-   * scans report the `adf_scan` timing on macro_viewed; deferred scans report
-   * their elapsed time on viewer_adf_scan_completed after the first render.
+   * Zero-network half of the copy check: cross-page detection needs only the
+   * hosting page id (already in the Forge context) and the custom content's
+   * own pageId — no ADF fetch. Comparison semantics mirror detectCopy
+   * verbatim (both-present guard from issue #80, String coercion).
+   */
+  async detectCrossPageCopy(
+    ccPageId: string | number | undefined,
+  ): Promise<{ isCopy: boolean; copyReason?: 'cross-page' }> {
+    const pageId = await this._page.getPageId();
+    if (pageId && ccPageId && pageId !== String(ccPageId)) {
+      trackEvent('cross_page', 'duplication_detect', 'warning');
+      return { isCopy: true, copyReason: 'cross-page' };
+    }
+    return { isCopy: false };
+  }
+
+  /**
+   * Count macros on the current page whose config references `id`. Matches
+   * both param shapes: Forge bare-string customContentId and Connect-era
+   * {value} objects. One full-page ADF GET.
+   *
+   * Returns `undefined` when that GET failed — the page ADF is unreadable, so
+   * the answer is UNKNOWN, not zero. The Edit dup gate (model/editDupGate.ts)
+   * depends on that distinction: AtlasPage historically swallowed every fetch
+   * error into an empty macro list, which the gate would read as "no
+   * duplicates on this page" and wave a shared-id macro straight into the
+   * editor — the exact silent fork it exists to stop.
+   */
+  async countMacrosReferencing(id: string): Promise<number | undefined> {
+    return this._page.countMacrosOrUnknown((m) => {
+      //TODO: filter by macro type
+      const macroCustomContentId = m?.customContentId;
+      return (typeof macroCustomContentId === 'string'
+        ? macroCustomContentId
+        : macroCustomContentId?.value) === id;
+    });
+  }
+
+  /**
+   * The full ADF copy-scan: one full-page ADF GET via _page.countMacros plus
+   * the cross-page comparison. Runs blocking for edit/config surfaces (its
+   * verdict guards the save-fork path) and for callers that pass no
+   * copyCheckMode. Reports the `adf_scan` timing on macro_viewed.
    */
   async detectCopy(
     id: string,
     ccPageId: string | number | undefined,
   ): Promise<{ isCopy: boolean; copyReason?: 'cross-page' | 'same-page-duplicate' }> {
     return renderPerf.time('adf_scan', async () => {
-      const count = await this._page.countMacros((m) => {
-        //TODO: filter by macro type
-        const macroCustomContentId = m?.customContentId;
-        return (typeof macroCustomContentId === 'string'
-          ? macroCustomContentId
-          : macroCustomContentId?.value) === id;
-      });
+      // An unreadable page ADF keeps this path's historical behaviour —
+      // assume no same-page duplicate (cross-page detection below is
+      // unaffected, it needs no ADF). Only the Edit gate acts on the
+      // unknown, because only it is making a data-loss decision.
+      const count = (await this.countMacrosReferencing(id)) ?? 0;
       console.debug(`Found ${count} macros on page`);
       const pageId = await this._page.getPageId();
       // Require both sides present — undefined pageId on the custom content
@@ -781,9 +817,9 @@ export default class ApWrapper2 implements IApWrapper {
     if (!isValidCustomContentId(customContentId)) {
       return { customContent: undefined, directFetchStatus: 'not_found' };
     }
-    // opts (shouldDeferAdfScan) is only threaded to the DIRECT fetch — the
-    // orphan-recovery re-fetch below (getCustomContentByIdV2) stays blocking
-    // since recovery is rare and its copy semantics must stay exact.
+    // opts (copyCheckMode) is only threaded to the DIRECT fetch — the
+    // orphan-recovery re-fetch below (getCustomContentByIdV2) keeps the full
+    // check since recovery is rare and its copy semantics must stay exact.
     const direct = await this.fetchCustomContentByIdV2WithStatus(customContentId, opts);
     if (direct.status === 'ok' && direct.customContent) {
       return { customContent: direct.customContent, directFetchStatus: 'ok' };
@@ -1580,10 +1616,19 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   isDisplayMode() {
-    const modal = forgeGlobal.forgeContext?.extension?.modal;
-    if (!modal) return true;
-    // fullscreen is a viewer context, not an editor — still display mode
-    return modal.macroMode === 'fullscreen';
+    const ext = forgeGlobal.forgeContext?.extension;
+    const modal = ext?.modal;
+    // Bridge-opened modal: its explicit macroMode wins (modals inherit the
+    // parent extension, so macro flags below may be stale copies).
+    // fullscreen is a viewer context, not an editor — still display mode.
+    if (modal) return modal.macroMode === 'fullscreen';
+    // conf-app#368: the native macro-config surface (Confluence's own insert /
+    // edit-params dialog) has no extension.modal — only
+    // extension.macro.isConfiguring / isInserting. It is an authoring surface,
+    // not display: classifying it as display stamped authoring preview renders
+    // as surface:'viewer' (with no custom_content_id for new macros) and let
+    // view-time attachment writes fire mid-authoring.
+    return !ext?.macro?.isConfiguring && !ext?.macro?.isInserting;
   }
 
   async getCustomContent(): Promise<ICustomContent | undefined> {
@@ -1720,7 +1765,12 @@ export default class ApWrapper2 implements IApWrapper {
     return '';
   }
 
-  async getCurrentPage(): Promise<{title: string, body: {export_view: {value: string}}} | undefined> {
+  // _links (base/webui) is part of the standard v2 "get page by id" envelope
+  // regardless of body-format — confirmed live against lite-dev on 2026-07-30
+  // (identical _links shape with and without ?body-format=export_view) — so
+  // callers can derive the page URL from this single response instead of a
+  // second /pages/{id} round trip (see GenericViewer.vue's copyForAi path).
+  async getCurrentPage(): Promise<{title: string, body: {export_view: {value: string}}, _links?: {base?: string, webui?: string}} | undefined> {
     const pageId = await this._getCurrentPageId();
     return await this.request(`/api/v2/pages/${pageId}?body-format=export_view`);
   }

@@ -8,9 +8,13 @@ import type {
   OperationMode,
   FeedbackValue,
   RenderMode,
+  RenderGateMode,
+  RenderGateOutcome,
   CacheState,
   CacheSource,
+  ContentSource,
   MacroCountSource,
+  PaywallPolicySource,
   PrefetchHost,
   PrefetchOutcome,
   DashboardFormatFilter,
@@ -52,18 +56,31 @@ export type AnalyticsProperties = {
   // (the #302 fail-open signal). `css_enabled` / `space_paid` / `is_lite` are
   // the other gate inputs, captured so a not-fired decision is fully explained.
   // `space_paid_scope` = which grant satisfied `space_paid` — 'user_license'
-  // (per-requester extension) vs 'space_license' (whole-space extension or a
-  // paid plan). Lets user-level vs space-level unlocks be measured separately.
+  // (per-requester extension), 'space_license' (whole-space extension or a
+  // paid plan), or 'paid_rail' (D1 ForgeInstallation trial-window
+  // suppression — a recent Full/Diagramly install on the same tenant, NOT a
+  // real license; see functions/api/space-status.ts checkPaidRail). Lets
+  // user-level, space-level, and paid-rail unlocks be measured separately.
   gate_fired?: boolean;
   macro_count?: number;
   macro_count_source?: MacroCountSource;
   css_enabled?: boolean;
+  // Which policy produced the effective Lite paywall decision on this
+  // evaluation (lite-paywall-default-on): `default_on` when the backend
+  // explicitly returned `PAYWALL_EXEMPT: false`, `exemption` when it returned
+  // `true`, `fail_open` when the property was absent or unusable. See
+  // PaywallPolicySource in catalog.ts for the full contract.
+  paywall_policy_source?: PaywallPolicySource;
   space_paid?: boolean;
-  space_paid_scope?: 'user_license' | 'space_license';
+  space_paid_scope?: 'user_license' | 'space_license' | 'paid_rail';
   is_lite?: boolean;
   cta_position?: "primary" | "secondary";
   feature_name?: string;
   source?: string;
+  // Embed AutoConvert lifecycle. Absent when the Forge context has no cloudId
+  // or the link cannot be parsed; false is reserved for the rejected
+  // cross-tenant path. The raw deeplink/cloudId must never be tracked.
+  is_same_site?: boolean;
   // Daily macro-count inventory snapshots. These events are emitted by the
   // Cloudflare backend, but their scalar property vocabulary lives here as the
   // cross-runtime analytics contract. Snapshot payloads must never include
@@ -122,17 +139,57 @@ export type AnalyticsProperties = {
   // Snapshot attachments: which flow wrote it, and fallback freshness.
   snapshot_trigger?: 'save' | 'editor_backfill' | 'viewer_backfill';
   snapshot_age_days?: number;
+  // Why a best-effort snapshot write was skipped rather than failed
+  // (snapshot_backfill_skipped). `no_write_permission`: the app-auth upload was
+  // denied (401/403) — typically a read-only viewer with no attachment-write
+  // permission. `page_not_published`: the host page is an unpublished draft
+  // (404) so there is nothing to attach to yet; the save-path/backfill
+  // self-heals once the page is published.
+  snapshot_skip_reason?: 'no_write_permission' | 'page_not_published';
   space_admin_count?: number;
+  // M1 `app_first_seen` census props. Explicit, not ambient: the P3 denominator
+  // is COUNT(DISTINCT account_id) per cloud_id, so both ride on the event
+  // itself rather than relying on Mixpanel identity resolution (which is
+  // placeholder-prone on first iframe events — see the ai_aide lesson).
+  cloud_id?: string;
+  account_id?: string;
   // True when the current user is resolved to be a space admin of the current
-  // space. Set on `space_admin_active` (Phase 5a admin-activity probe). Only
-  // emitted as `true` today; kept optional for a future "always, with flag"
-  // rate variant. See utils/paywall/spaceAdminProbe.ts.
+  // space. Set on `space_admin_active` (Phase 5a admin-activity probe) and, from
+  // Phase 5b, on every page-banner event so the funnel can be split by audience.
+  // See utils/paywall/spaceAdminProbe.ts.
   is_space_admin?: boolean;
+  // Phase 5b: WHICH gate admitted the paywall page banner, and therefore which
+  // copy/CTA set the user saw.
+  //   'editor'      — legacy gate: this user created/edited a macro in the last
+  //                   30 days. Sees "ask an admin" advocacy copy.
+  //   'space_admin' — new gate: this user is a space admin of an over-limit
+  //                   space, regardless of whether they author diagrams. Sees
+  //                   the direct-purchase copy (Enterprise Bundle) instead.
+  // A user who is BOTH is reported as 'space_admin' — the stronger audience.
+  // This is the primary split for judging Phase 5b: 60d baseline was 358 unique
+  // users reached on the 'editor' gate across 19 CSS tenants, against 5,021
+  // unique space admins already loading the banner iframe unreached.
+  banner_audience?: 'editor' | 'space_admin';
+  // Advertised annual price on the bundle CTA at click time (USD, per space).
+  // Recorded on the event so a later price change stays comparable.
+  bundle_price_usd?: number;
+  // Attribution token embedded in the Stripe Payment Link URL
+  // (`<clientDomain>__<spaceKey>`, sanitised to Stripe's [A-Za-z0-9_-]).
+  // Stripe returns it verbatim on the Checkout Session, so a $299 payment
+  // joins back to the exact bundle CTA click without manual reconciliation.
+  client_reference_id?: string;
   // Cohort targeting (cohorts_refreshed). `cohorts` = comma-joined cohort list
   // the refresh resolved; empty string = user in no cohort (still a successful
   // refresh). `cohort_count` = same list's length, for numeric filtering.
   cohorts?: string;
   cohort_count?: number;
+  // Draft-restore banner (draft_banner_* / draft_restored / draft_discarded).
+  // `draft_scope_kind` = which draft namespace the banner is for: 'edit' (a
+  // specific custom-content id) or 'new' (an unsaved diagram of some type).
+  // `draft_age_ms` = Date.now() − draft.savedAt at event time — how stale the
+  // recovered work was when the user chose what to do with it.
+  draft_scope_kind?: 'new' | 'edit';
+  draft_age_ms?: number;
   // Staleness hint (staleness_hint_*). `drift_count` = page versions newer
   // than the diagram's last update at decision time; `is_diagram_author` =
   // current accountId equals the diagram custom content's last-version
@@ -143,6 +200,42 @@ export type AnalyticsProperties = {
   // `viewer_source_opened` / `viewer_source_copied` so read-only vs editor
   // audience for the View Source panel (#333) can be split.
   has_edit_permission?: boolean;
+  // "Copy for AI" viewer action (copy_for_ai_clicked — catalog.ts) AND the
+  // "Copy diagram link" pill action (deeplink_copied — catalog.ts) share this
+  // one `outcome` axis. For copy_for_ai_clicked: 'copied' = full page+diagram
+  // copy, 'copied_diagram_only' = fell back to diagram-only content (page
+  // context unavailable), 'clipboard_failed' = the clipboard write itself
+  // threw. For deeplink_copied: 'copied' = clipboard write succeeded,
+  // 'clipboard_failed' = the write returned false or threw, 'unavailable' =
+  // the link couldn't be minted at all (no host/contentId, or cloudId
+  // unresolved) — 'copied_diagram_only' does not apply to deeplink_copied.
+  // `dsl_bytes` / `page_bytes` are the byte sizes of the diagram DSL and the
+  // surrounding page context that were attempted, regardless of outcome
+  // (copy_for_ai_clicked only).
+  // `job` identifies which entry point fired the click: 'generic' = the
+  // one-click primary segment (today's generic prompt, unchanged); the other
+  // five are the split-button menu's job-framed entry points — explain /
+  // update / implement / audit / tests — which only swap the preamble
+  // buildCopyForAiPrompt.ts builds (same DSL + page payload, same fallback
+  // rules). Absent on events emitted before this axis existed.
+  outcome?: 'copied' | 'copied_diagram_only' | 'clipboard_failed' | 'unavailable';
+  dsl_bytes?: number;
+  page_bytes?: number;
+  job?: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
+  // Bottom-pill "Copy diagram link" (deeplink_copied — catalog.ts). Which
+  // affordance minted the deeplink; only the viewer pill exists today. Not
+  // the same surface as the `/deeplink-ticket` share-preview endpoint, which
+  // is owned by other PRs. See `outcome` above for this event's values.
+  link_source?: 'viewer_pill';
+  // In-viewer Edit dup gate (edit_dup_gate_evaluated): outcome of the
+  // click-time same-page shared-id check. `same_page_macro_count` = how many
+  // macros on the page reference the clicked macro's customContentId (absent
+  // when the scan failed). `copy_reason` rides on
+  // editor_publish_blocked_fork_unlinkable to say which copy flavor tripped
+  // the editor-side backstop.
+  edit_dup_gate_outcome?: 'blocked' | 'passed' | 'scan_failed';
+  same_page_macro_count?: number;
+  copy_reason?: 'same-page-duplicate' | 'cross-page';
   // Diagramly demo-page engagement: set automatically for macro_* events when
   // the macro lives on a page tagged with the `diagramly-demo-page` page
   // property. See utils/analytics/demoPageStatus.ts.
@@ -151,6 +244,10 @@ export type AnalyticsProperties = {
   render_mode?: RenderMode;
   // Where a cached_svg render sourced its SVG (Phase 2: 'cc_body'). Absent/'none' for live_render.
   cache_source?: CacheSource;
+  // Where the macro's CONTENT (doc) came from this render — 'fetch' (network) or
+  // 'swr_cache' (id-keyed content cache, the revisit fast path). Distinct from
+  // cache_source (rendered-SVG cache). Absent when no content fetch was involved.
+  content_source?: ContentSource;
   duration_ms?: number;
   // Browser cache state at render time, measured via Resource Timing transferSize
   // of same-origin JS bundles, plus the raw summed wire bytes. Lets cold/warm
@@ -162,7 +259,7 @@ export type AnalyticsProperties = {
   // can pick the right optimization lever. Absent phases are omitted, not 0.
   bootstrap_ms?: number;   // __macroLoadStart → first app code (head scripts incl. DrawIO + bundle eval)
   context_ms?: number;     // Forge getContext() resolution
-  fetch_ms?: number;       // custom-content REST round trip
+  fetch_ms?: number;       // custom-content REST round trip. Recorded by whoever owns the load: forgeIndex for the sequence family, viewerBootstrap for graph/openapi/embed (#413).
   render_ms?: number;      // viewer render (lib load + diagram render)
   measured_sum_ms?: number; // bootstrap+context+fetch+render; duration_ms − this = unattributed remainder
   tab_hidden?: boolean;    // tab was backgrounded during load → exclude from percentiles (artifact)
@@ -186,20 +283,35 @@ export type AnalyticsProperties = {
   // custom-content GET vs full-page-ADF copy-scan. See renderPerf.ts.
   custom_content_fetch_ms?: number;
   page_adf_fetch_ms?: number;
-  // True when the viewer deferred the ADF copy-scan off the critical path
-  // (flag `viewer-adf-scan-deferred`). Absent on editor/config surfaces.
-  adf_deferred?: boolean;
-  // Deferred ADF completion (viewer_adf_scan_completed). `result` is bounded
-  // at the call site to 'succeeded' | 'failed'; failures use only the safe
-  // `failure_reason` value 'detect_copy_failed'.
-  copy_detected?: boolean;
-  copy_reason?: 'cross-page' | 'same-page-duplicate';
-  writeback_target?: 'store' | 'raw';
   // Random per-iframe id + performance.timeOrigin. Makes concurrent
   // duplicate mounts of one macro (remount storms) directly countable
   // without burst reconstruction. See renderIdentity.ts.
   instance_nonce?: string;
   time_origin?: number;
+  // Viewport render gate (#382): how this viewer render was released.
+  // Absent on ungated renders (flag off / editor / fullscreen / non-sequence).
+  // 'immediate'   — in or near (rootMargin) the top-level viewport at boot
+  // 'scrolled_in' — released by scrolling into the prefetch margin
+  // 'background'  — released by the jittered background-fill timer
+  // 'failopen'    — gate errored or IntersectionObserver unavailable; rendered at once
+  // See utils/renderGate/viewportGate.ts.
+  render_gate?: RenderGateOutcome;
+  // Wall time (ms) the mount ACTUALLY waited on the viewport gate, measured
+  // at the mount-site await (renderGate/maybeGateViewerRender). NOT the
+  // gate's age: the gate runs concurrently with the content fetch, so when
+  // the fetch is the slower leg this is ~0 even for a 'background' release.
+  // duration_ms includes exactly this much gate-induced delay — subtracting
+  // it (or splitting by render_gate) is legitimate.
+  render_deferred_ms?: number;
+  // Strict (no-margin) top-level-viewport intersection at first observation.
+  // The direct client-side measure of "was this macro on screen at boot".
+  visible_at_boot?: boolean;
+  // Gate depth for this render (#382 spike): 'render' = paint-only gating
+  // (fetch ran immediately), 'load' = the content fetch also waited for the
+  // viewport turn. Absent when render_gate is absent. With gate_mode='load',
+  // fetch_ms starts at gate release, so render_deferred_ms still bounds the
+  // total gate-induced delay inside duration_ms.
+  gate_mode?: RenderGateMode;
   // Renderer-bundle prefetch (renderer_prefetch_started / _completed). Fired
   // only on an actual attempt (throttled to ≤1 per deploy per browser), never
   // on the skip path — volume stays far below page-view scale. See
@@ -284,6 +396,24 @@ export type AnalyticsProperties = {
   error_code?: string;
   error_name?: string;
   error_source?: string;
+  // Attachment upload failures (#392). `via_app_fallback` is true when the
+  // user-side write 401/403'd and the app-authenticated fallback
+  // (/forge-upload-attachment) was attempted before this failure — so the
+  // recorded status/message describe the APP's write, not the user's.
+  // Without it, a post-fallback failure is indistinguishable from a plain
+  // user-side one and the #211 population can only be recovered by
+  // count-matching against attachment_upload_app_fallback_started at 10%
+  // sampling. `fallback_from_status` carries the original user-side status
+  // (401/403) that triggered the fallback.
+  via_app_fallback?: boolean;
+  fallback_from_status?: number;
+  // Low-cardinality Confluence exception class parsed out of the error
+  // envelope — PermissionException / NotFoundException / BadRequestException.
+  // The raw `error_message` is capped at 200 chars and the envelope prefix
+  // ({"statusCode":…,"data":{…},"message":"com.atlassian…) eats ~180 of them,
+  // so before this the class name itself was truncated mid-word and could not
+  // even be substring-matched in JQL.
+  confluence_error_class?: string;
   // Build info — auto-enriched from VITE_APP_VERSION / VITE_APP_COMMIT
   app_version?: string;
   app_commit?: string;

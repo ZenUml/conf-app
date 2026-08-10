@@ -35,6 +35,16 @@ export const SPACE_ADMIN_PROBE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 
 export interface SpaceAdminProbeMarker {
   lastProbedAt: string
+  /**
+   * Phase 5b: the admin verdict, persisted so the page banner's SYNCHRONOUS
+   * visibility gate can read it. Firing `space_admin_active` is not enough —
+   * that event leaves the browser and never comes back. Absent on Phase-5a-era
+   * markers, which is why {@link isProbeDue} treats a verdict-less marker as
+   * due (see there).
+   */
+  isAdmin?: boolean
+  /** Size of the resolved admin list, for the same reason. */
+  adminCount?: number
 }
 
 function probeMarkerKeyPart(value: string): string {
@@ -54,7 +64,15 @@ export function parseProbeMarker(raw: string | null): SpaceAdminProbeMarker | nu
   try {
     const p = JSON.parse(raw) as Partial<SpaceAdminProbeMarker>
     if (typeof p.lastProbedAt !== 'string') return null
-    return { lastProbedAt: p.lastProbedAt }
+    const marker: SpaceAdminProbeMarker = { lastProbedAt: p.lastProbedAt }
+    // A malformed verdict is dropped rather than rejecting the whole marker: the
+    // result is a verdict-less marker, which is already the legacy shape and is
+    // handled (re-probe, banner stays editor-only until then).
+    if (typeof p.isAdmin === 'boolean') marker.isAdmin = p.isAdmin
+    if (typeof p.adminCount === 'number' && Number.isFinite(p.adminCount)) {
+      marker.adminCount = Math.floor(p.adminCount)
+    }
+    return marker
   } catch {
     return null
   }
@@ -70,19 +88,51 @@ export function readProbeMarker(
   }
 }
 
-/** True when no marker exists, the marker is unparseable, or it is older than the
- * 30-day window. Pure — the throttle gate the hot path checks before any init. */
+/** True when no marker exists, the marker is unparseable, it carries no admin
+ * verdict, or it is older than the 30-day window. Pure — the throttle gate the
+ * hot path checks before any init. */
 export function isProbeDue(marker: SpaceAdminProbeMarker | null, now: number = Date.now()): boolean {
   if (!marker) return true
+  // Phase 5b schema upgrade: a Phase-5a marker records only that we probed, not
+  // what we found. Honouring its throttle would keep every already-probed admin
+  // invisible to the banner for up to 30 days after release, so re-probe once.
+  if (typeof marker.isAdmin !== 'boolean') return true
   const last = Date.parse(marker.lastProbedAt)
   if (!Number.isFinite(last)) return true
   return now - last > SPACE_ADMIN_PROBE_WINDOW_MS
 }
 
+/**
+ * Is the current user a space admin of the current space, per the last probe?
+ *
+ * Synchronous by design: the page banner decides visibility in `setup()`, before
+ * any await, so this reads the persisted verdict rather than resolving admins.
+ * Fails closed (false) on a missing, legacy, or unreadable marker — the banner
+ * then behaves exactly as it did before Phase 5b.
+ *
+ * A verdict past the 30-day window is still returned. It is corrected by the
+ * probe running on this same page load; suppressing the banner for a known admin
+ * in the meantime is the worse error.
+ */
+export function isCurrentUserSpaceAdmin(
+  identity: WarningBannerIdentity = deriveWarningBannerIdentity()
+): boolean {
+  return readProbeMarker(identity)?.isAdmin === true
+}
+
 /** Best-effort write; never throws into the banner path. */
-function writeProbeMarker(identity: WarningBannerIdentity, now: number): void {
+function writeProbeMarker(
+  identity: WarningBannerIdentity,
+  now: number,
+  isAdmin: boolean,
+  adminCount: number
+): void {
   try {
-    const marker: SpaceAdminProbeMarker = { lastProbedAt: new Date(now).toISOString() }
+    const marker: SpaceAdminProbeMarker = {
+      lastProbedAt: new Date(now).toISOString(),
+      isAdmin,
+      adminCount,
+    }
     localStorage.setItem(spaceAdminProbeKey(identity), JSON.stringify(marker))
   } catch (e) {
     console.warn('[space-admin-probe] marker write failed', e)
@@ -121,10 +171,12 @@ export async function maybeProbeSpaceAdmin(now: number = Date.now()): Promise<vo
     const admins = (await globals.apWrapper.getCurrentSpaceAdmins()) as SpaceAdmin[] | undefined
     if (!admins) return // resolver failed; no marker → retry next load
 
-    // Success → throttle for the window regardless of admin/non-admin outcome.
-    writeProbeMarker(identity, now)
-
     const isAdmin = admins.some((a) => a.id === accountId)
+
+    // Success → throttle for the window regardless of admin/non-admin outcome,
+    // and persist the verdict for the banner's synchronous gate (Phase 5b).
+    writeProbeMarker(identity, now, isAdmin, admins.length)
+
     if (isAdmin) {
       trackAnalyticsEvent('space_admin_active', {
         feature_area: 'upgrade',

@@ -31,6 +31,9 @@ const ExtendedStore: StoreOptions<RootState> = {
     updateError(state: any, payload: any) {
       state.error = payload
     },
+    setPublishBlock(state: any, payload: any) {
+      state.publishBlock = payload
+    },
   },
   actions: {
     updateCode2({commit}: any, payload: any) {
@@ -68,6 +71,7 @@ const ExtendedStore: StoreOptions<RootState> = {
     diagramLoadComplete: false,
     viewerLoadState: null,
     loadError: null,
+    publishBlock: null,
     error: null,
     onElementClick: (codeRange: any) => {
       EventBus.$emit('highlight', codeRange)

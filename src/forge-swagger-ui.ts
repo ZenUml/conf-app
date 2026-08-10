@@ -11,6 +11,7 @@ import { Diagram } from "@/model/Diagram/Diagram";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/viewerBootstrap';
 import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
+import { guardEditClick } from '@/utils/guardEditClick';
 
 async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const context = await initForgeContext();
@@ -27,7 +28,12 @@ async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const pageId = context.extension?.content?.id;
   if(!customContentId) {
   } else {
-    const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(pageId, customContentId);
+    // Zero-network viewer copy check — see forge-graph-viewer.ts for the
+    // rationale. Measured cost of the scan this drops: 319ms of a 1429ms
+    // openapi render p50 (~22%, 7d external).
+    const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(
+      pageId, customContentId, { copyCheckMode: 'cross-page-only' },
+    );
     console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
     if (loaded.recoveredFromOrphanId && doc) {
@@ -92,6 +98,10 @@ async function initializeMacro() {
     content: OpenApiViewer,
     loadDiagram,
     afterLoad,
+    // Same id `loadDiagram` reads (config, falling back to the dashboard
+    // modal's carried id) above.
+    resolveContentId: (context) =>
+      context.extension?.config?.customContentId || context.extension?.modal?.customContentId,
     onError: (error) => {
       console.error('Error loading OpenAPI viewer', error);
     },
@@ -108,6 +118,10 @@ EventBus.$on('edit', async () => {
   // edits arrive at forge-swagger-editor.ts with no customContentId and are
   // mistakenly treated as new-macro sessions.
   const customContentId = ctx.extension?.config?.customContentId;
+  // Same-page duplicate gate — see forge-graph-viewer.ts. Memoized, so the
+  // shared forgeIndex listener firing on this same click costs no extra GET.
+  if (!(await guardEditClick({ customContentId, macroType: 'openapi' }))) return;
+
   await openModal({
     resource: 'main',
     onClose: (payload: any) => {

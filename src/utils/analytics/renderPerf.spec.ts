@@ -1,7 +1,7 @@
 // src/utils/analytics/renderPerf.spec.ts
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { markAppEntry, time, getTimings, markAdfDeferred, _resetForTesting } from "./renderPerf";
+import { markAppEntry, markContentSource, time, getTimings, _resetForTesting } from "./renderPerf";
 
 describe("renderPerf", () => {
   let nowSpy: ReturnType<typeof vi.spyOn>;
@@ -72,6 +72,23 @@ describe("renderPerf", () => {
   it("tab_hidden defaults to the document's current hidden state", () => {
     expect(typeof getTimings().tab_hidden).toBe("boolean");
   });
+
+  it("content_source is undefined until marked, then flows through getTimings", () => {
+    expect(getTimings().content_source).toBeUndefined(); // no fetch involved → omitted, never a default
+
+    markContentSource("swr_cache");
+    expect(getTimings().content_source).toBe("swr_cache");
+
+    // Last-wins: a background revalidate that re-renders fresh overrides the cached label.
+    markContentSource("fetch");
+    expect(getTimings().content_source).toBe("fetch");
+  });
+
+  it("_resetForTesting clears a marked content_source", () => {
+    markContentSource("swr_cache");
+    _resetForTesting();
+    expect(getTimings().content_source).toBeUndefined();
+  });
 });
 
 describe('P1.3 fetch split', () => {
@@ -93,9 +110,4 @@ describe('P1.3 fetch split', () => {
     expect(t.measured_sum_ms).toBe(t.fetch_ms);
   });
 
-  it('emits adf_deferred only when marked', async () => {
-    expect(getTimings().adf_deferred).toBeUndefined();
-    markAdfDeferred(true);
-    expect(getTimings().adf_deferred).toBe(true);
-  });
 });

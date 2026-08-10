@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 // is later made fail-closed, flip the `shouldBlockActions` expectations.
 
 vi.mock('@/apis/featureFlags', () => ({
-  default: vi.fn().mockResolvedValue({ CUSTOMER_SUCCESS_SERVICE: true }),
+  default: vi.fn().mockResolvedValue({ PAYWALL_EXEMPT: false }),
 }))
 
 // Unpaid space so spacePaid can't independently disable the gate.

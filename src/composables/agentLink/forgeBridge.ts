@@ -27,6 +27,7 @@ import type ApWrapper2 from '@/model/ApWrapper2'
 import type { DiagramSearchHit } from '@/model/ApWrapper2'
 import { DiagramType, type Diagram } from '@/model/Diagram/Diagram'
 import { getDiagramConfig } from '@/model/Diagram/DiagramTypeConfig'
+import { htmlToPlainText } from '@/utils/htmlToPlainText'
 import type {
   AgentLinkBridge,
   AgentLinkDiagramRow,
@@ -68,25 +69,6 @@ function filterByTypes(hits: DiagramSearchHit[], types?: string[]): DiagramSearc
   if (!types || types.length === 0) return hits
   const wanted = new Set(types.map((t) => String(t).toLowerCase()))
   return hits.filter((h) => wanted.has(String(h.diagramType).toLowerCase()))
-}
-
-// Minimal HTML -> plain text for read_page (design §4.4): strip tags/scripts/
-// styles, decode the handful of entities Confluence's export_view HTML
-// actually emits, collapse whitespace. This is context for the agent, not a
-// faithful re-render — a full HTML/ADF parser is overkill for MVP scope
-// (design §12 explicitly defers ADF authoring).
-function htmlToPlainText(html: string): string {
-  return html
-    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim()
 }
 
 export function createForgeAgentLinkBridge(ctx: AgentLinkBridgeContext): AgentLinkBridge {

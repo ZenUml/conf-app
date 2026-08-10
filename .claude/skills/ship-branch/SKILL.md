@@ -97,6 +97,11 @@ For Markdown-only changes, do not invoke `/land-pr`; its E2E precondition cannot
 
    gh pr merge <PR_NUMBER> --delete-branch $MERGE_FLAG
    ```
+
+   **Drop `--delete-branch` if any open PR is stacked on this branch** — deleting the base
+   closes the child PR permanently (it can't be reopened or retargeted; #410 → #412, 2026-07-29).
+   Check with `gh pr list --state open --base "$(gh pr view <PR_NUMBER> --json headRefName -q .headRefName)"`.
+   Full recovery order: see the **land-pr** skill.
 3. Verify the PR state is `MERGED`.
 4. Report `Staging` and `Draft releases` as `SKIPPED — markdown-only path filters`.
 

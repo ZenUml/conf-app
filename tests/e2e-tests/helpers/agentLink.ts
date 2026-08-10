@@ -49,7 +49,18 @@ export async function agentLinkMcp(
   } catch {
     /* non-JSON (e.g. a 405 static-handler fallback) */
   }
-  return { status: res.status, result: body?.result ?? null, error: body?.error ?? null };
+  // MCP tools/call wraps the tool payload: result = { content:[{text:JSON}],
+  // structuredContent: <payload> } (mcp.ts). Unwrap to the payload so callers
+  // can read result.title / result.dsl / result.ok directly.
+  const raw = body?.result ?? null;
+  let payload: any = raw;
+  if (raw && typeof raw === 'object') {
+    if (raw.structuredContent) payload = raw.structuredContent;
+    else if (Array.isArray(raw.content) && typeof raw.content[0]?.text === 'string') {
+      try { payload = JSON.parse(raw.content[0].text); } catch { /* keep raw */ }
+    }
+  }
+  return { status: res.status, result: payload, error: body?.error ?? null };
 }
 
 /**

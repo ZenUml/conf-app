@@ -76,8 +76,21 @@ scripts/confluence_domain_migration/
 /paywall-snap-*.yml
 /spotcheck-*.yml
 
+# One-off E2E spike specs — throwaway investigation scripts, not a maintained
+# suite. Anything worth keeping gets promoted into tests/e2e-tests/tests/.
+tests/e2e-tests/tests/spike/
+tests/e2e-tests/playwright.spike.config.ts
+
 # AsyncAPI Studio build output — rebuilt from vendor/asyncapi-studio submodule
 # by scripts/build-studio.sh (called from pnpm build:asyncapi). Mirrors
 # AsyncAPI-Conf-V2's setup: build fresh, do not commit.
 static/asyncapi-studio/
 
+
+# scratch (deeplink staging validation: secret, mint scripts, PNG)
+tmp/
+
+# pnpm store
+.pnpm-store
+
+output/playwright

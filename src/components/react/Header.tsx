@@ -6,6 +6,7 @@ import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCached
 import EventBus from "@/EventBus";
 import yaml from "js-yaml";
 import { openUrl } from "@/model/globals/forgeGlobal";
+import { getOpenApiTitleField } from '@/model/OpenApi/OpenApiEditorState';
 
 // Docs link for the OpenAPI editor's Help button — mirrors the URL the Vue
 // header uses (components/Header/Header.vue). Opened via openUrl() because a
@@ -202,7 +203,10 @@ const Component = ({ saveAndExit, exit }: Props) => {
         yaml.loadAll(spec, function (data) {
           if (!data) return;
           const doc: Record<string, any> = data as any;
-          setTitleWithSideEffect(doc?.info?.title || '');
+          const nextTitle = getOpenApiTitleField(doc);
+          if (nextTitle !== undefined) {
+            setTitleWithSideEffect(nextTitle);
+          }
         });
         setParseError(null);
       } catch (error) {

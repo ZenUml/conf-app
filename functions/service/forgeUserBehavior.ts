@@ -33,7 +33,9 @@ export interface ForgeUserBehaviorEventBody {
   eventCreatedDate?: string;
   suppressNotifications?: boolean;
   updateTrigger?: string;
-  content: ForgeConfluenceContent;
+  // Absent on frontend-originated events (M1 `app_first_seen`) — those carry no
+  // Confluence content payload. Every `content` access below must be guarded.
+  content?: ForgeConfluenceContent;
 }
 
 interface ForgeInvocationTokenPayload {
@@ -102,7 +104,40 @@ export function mapForgeUserBehaviorEvent(
   forgeContext: ForgeInvocationTokenPayload,
   options: ForgeUserBehaviorOptions = {},
 ): MixpanelTrackPayload | null {
-  if (event.content.type !== "page") {
+  // M1 `app_first_seen`: frontend-originated (page-banner host), no `content`
+  // payload. MUST branch before any `content` access — the webhook path below
+  // dereferences `event.content.type` unguarded, and a throw here would turn
+  // every ping into a 500 + a client retry loop (the domain upsert survives
+  // only because the endpoint queues it via waitUntil before mapping).
+  if (event.eventType === "app_first_seen") {
+    const payload = forgeContext.payload;
+    const tokenContext = payload?.context;
+    const app = payload?.app;
+    const cloudId = tokenContext?.cloudId || extractCloudId(app?.apiBaseUrl) || "unknown_cloud_id";
+    const distinctId = event.atlassianId || payload?.principal || "unknown_user_account_id";
+    return {
+      action: "app_first_seen",
+      // NOT "forge_trigger": analysts discriminate on event_source (the
+      // page_viewed-vs-macro-view lesson), and this is a frontend call.
+      event_source: "forge_frontend",
+      event_category: "system",
+      event_type: event.eventType,
+      event_created_date: event.eventCreatedDate,
+      user_account_id: distinctId,
+      atlassian_user_id: distinctId,
+      client_domain: getClientDomain(tokenContext?.siteUrl, options.clientDomain),
+      isForge: true,
+      forge_app_id: app?.id,
+      forge_app_version: app?.appVersion || app?.version,
+      forge_environment_id: app?.environment?.id || tokenContext?.environmentId,
+      forge_environment_type: app?.environment?.type || tokenContext?.environmentType,
+      forge_installation_id: app?.installationId || app?.installation?.id,
+      forge_module_key: tokenContext?.moduleKey || app?.module?.key,
+      cloud_id: cloudId,
+    };
+  }
+
+  if (!event.content || event.content.type !== "page") {
     return null;
   }
 

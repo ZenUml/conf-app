@@ -69,6 +69,49 @@ const routes = {
   const second = await attempt('e-second');
   window.__result = { ok: first.ok === false && second.ok === true, first, second };
 </script></body></html>`, 'text/html'],
+  // F: the two DOM assumptions the recovery in
+  // src/utils/renderGate/documentLayout.ts rides on, measured rather than
+  // assumed, inside a real display:none iframe:
+  //   1. body.getClientRects() is empty while the frame is hidden  (hasLayout)
+  //   2. a ResizeObserver on body fires when the frame is shown    (awaitLayout)
+  // If 2 does not hold, recovery silently degrades to the 10s timeout.
+  '/f-inner.html': async () => [`<!doctype html><html><head><meta charset="utf-8"></head><body>
+<script type="module">
+  import mermaid from '/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
+  const hasLayout = () => document.body.getClientRects().length > 0;
+  const attempt = async (id) => {
+    try { return { ok: true, svgLength: (await mermaid.render(id, ${JSON.stringify(CODE)})).svg.length }; }
+    catch (e) { return { ok: false, message: e && e.message ? e.message : String(e) }; }
+  };
+  const first = await attempt('f-first');
+  const hiddenHasLayout = hasLayout();
+  const t0 = performance.now();
+  const observerFired = await new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), 10000);
+    const ro = new ResizeObserver(() => {
+      if (!hasLayout()) return;
+      clearTimeout(timer); ro.disconnect(); resolve(true);
+    });
+    ro.observe(document.body);
+    parent.postMessage('ready-to-show', '*');
+  });
+  const waitedMs = Math.round(performance.now() - t0);
+  const second = await attempt('f-second');
+  parent.postMessage({
+    first, second, hiddenHasLayout, observerFired, waitedMs,
+    ok: first.ok === false && hiddenHasLayout === false && observerFired === true && second.ok === true,
+  }, '*');
+</script></body></html>`, 'text/html'],
+  '/f.html': async () => [`<!doctype html><html><body style="margin:0">
+<iframe id="f" src="/f-inner.html" style="display:none" width="800" height="600"></iframe>
+<script>
+  window.__result = null;
+  addEventListener('message', (e) => {
+    if (e.data === 'ready-to-show') { document.getElementById('f').style.display = 'block'; return; }
+    window.__result = e.data;
+  });
+</script></body></html>`, 'text/html'],
 };
 
 // mermaid's ESM entry pulls diagram code from ./chunks/*, so the whole dist
@@ -101,6 +144,7 @@ const cases = [
   ['C  iframe 20000px offscreen   ', '/c.html'],
   ['D  control (laid out)         ', '/d.html'],
   ['E  hidden -> shown -> retry   ', '/e.html'],
+  ['F  hidden iframe, real signals', '/f.html'],
 ];
 for (const [label, path] of cases) {
   const page = await browser.newPage();
@@ -114,7 +158,9 @@ for (const [label, path] of cases) {
   } catch {
     result = { ok: null, message: 'TIMEOUT — no result within 15s' };
   }
-  const detail = result.first
+  const detail = result.observerFired !== undefined
+    ? `hasLayout(hidden)=${result.hiddenHasLayout}; ResizeObserver fired=${result.observerFired} after ${result.waitedMs}ms; first ${result.first.ok ? 'ok' : 'THREW: ' + result.first.message}; retry ${result.second.ok ? 'ok' : 'THREW: ' + result.second.message}`
+    : result.first
     ? `first ${result.first.ok ? 'ok' : 'THREW: ' + result.first.message}; retry ${result.second.ok ? 'ok, svg ' + result.second.svgLength + ' chars' : 'THREW: ' + result.second.message}`
     : result.ok ? `ok, svg ${result.svgLength} chars` : `THREW: ${result.message}`;
   console.log(`${label} ${detail}`);

@@ -88,6 +88,56 @@ describe('OpenApiViewer', () => {
     expect(swaggerMock.updateSpec).toHaveBeenCalledWith(store.state.diagram.code);
   });
 
+  describe('loadError terminal state (Diagram.loadError, slice 1)', () => {
+    it('shows a terminal message instead of the example spec when loadError is already set at mount', () => {
+      store.state.diagram = { ...NULL_DIAGRAM, loadError: { kind: 'not_found', indeterminate: false } };
+
+      const wrapper = mount(OpenApiViewer, {
+        global: { plugins: [store] },
+      });
+
+      expect(wrapper.text()).toContain("This diagram isn't available");
+      expect(wrapper.find('#swagger-ui').exists()).toBe(false);
+      // Nothing SwaggerUI-related should run when there's nothing to mount.
+      expect(swaggerMock.swaggerFactory).not.toHaveBeenCalled();
+      expect(window.ui).toBeUndefined();
+    });
+
+    it('switches to a terminal message when loadError arrives later via the store watcher', async () => {
+      const wrapper = mount(OpenApiViewer, {
+        global: { plugins: [store] },
+      });
+      swaggerMock.updateSpec.mockClear();
+
+      store.state.diagram = { ...NULL_DIAGRAM, loadError: { kind: 'not_found', indeterminate: false } };
+      await wrapper.vm.$nextTick();
+
+      expect(wrapper.text()).toContain("This diagram isn't available");
+      expect(wrapper.find('#swagger-ui').exists()).toBe(false);
+      expect(swaggerMock.updateSpec).not.toHaveBeenCalled();
+    });
+
+    it('renders the swagger UI normally when loadError is absent (happy path unaffected)', () => {
+      const wrapper = mount(OpenApiViewer, {
+        global: { plugins: [store] },
+      });
+
+      expect(wrapper.find('#swagger-ui').exists()).toBe(true);
+      expect(wrapper.find('.openapi-load-error').exists()).toBe(false);
+      expect(swaggerMock.swaggerFactory).toHaveBeenCalled();
+    });
+
+    it('still reports macro_viewed on a failed load — readership metric, not success-only', async () => {
+      const wrapper = mount(OpenApiViewer, { global: { plugins: [store] } });
+
+      store.state.diagram = { ...NULL_DIAGRAM, loadError: { kind: 'not_found', indeterminate: false } };
+      store.state.diagramLoadComplete = true;
+      await wrapper.vm.$nextTick();
+
+      expect(macroViewedCalls()).toHaveLength(1);
+    });
+  });
+
   // #413. The OpenAPI entry mounts this component before its content load
   // resolves, so reporting from mounted() both timed an empty skeleton and
   // snapshotted renderPerf before any fetch phase existed — openapi shipped

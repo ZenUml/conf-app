@@ -174,6 +174,26 @@ describe('viewerBootstrap', () => {
     expect(store.state.diagram).toStrictEqual(NULL_DIAGRAM);
     expect(window.diagram).toStrictEqual(NULL_DIAGRAM);
   });
+
+  it('accepts a { doc, loadError } loadDiagram result and publishes the doc with loadError attached', async () => {
+    const loaded = { ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi };
+    await bootstrapForgeViewer({
+      macroKind: 'openapi',
+      content: Component,
+      loadDiagram: vi.fn(async () => ({ doc: loaded, loadError: null })),
+    });
+    expect(store.state.diagram).toStrictEqual(loaded);
+  });
+
+  it('a failed load ({ doc: undefined, loadError }) publishes NULL_DIAGRAM with loadError attached', async () => {
+    await bootstrapForgeViewer({
+      macroKind: 'openapi',
+      content: Component,
+      loadDiagram: vi.fn(async () => ({ doc: undefined, loadError: { kind: 'not_found' as const, indeterminate: false } })),
+    });
+    expect(store.state.diagram).toEqual({ ...NULL_DIAGRAM, loadError: { kind: 'not_found', indeterminate: false } });
+    expect(store.state.diagramLoadComplete).toBe(true);
+  });
 });
 
 // Mirrors the content-SWR behavior forgeIndex.ts wires into the sequence

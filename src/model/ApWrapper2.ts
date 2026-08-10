@@ -401,6 +401,7 @@ export default class ApWrapper2 implements IApWrapper {
     delete body.recoveredFromOrphan;
     delete body.recoveredFromOrphanId;
     delete body.legacyLoadBlocked;
+    delete body.loadError;
 
     // Legacy graph records used `compressed: true` with an LZUTF8 graphXml
     // body. DrawIO saves now emit plain XML, so persisting a stale true flag

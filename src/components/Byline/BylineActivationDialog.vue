@@ -81,6 +81,7 @@ import {
 } from '@/services/ActivationPrepared';
 import { capturePng, blobToBase64 } from '@/model/Attachment';
 import { callRemote } from '@/utils/requestUtil';
+import { deeplinkHostForProductType, buildEmbedDeeplink } from '@/utils/embedDeeplink';
 
 const LOADING_MIN_MS = 1800; // theatre floor even on a fast cache hit
 const PROPERTY_KEY = 'zenuml-prepared-diagram';
@@ -303,8 +304,9 @@ export default {
     async mintDeeplink() {
       if (!this.savedContentId) return;
       const cloudId = forgeGlobal.forgeContext?.cloudId;
-      const plainUrl = cloudId
-        ? `https://confluence.zenuml.com/d/${cloudId}/${this.savedContentId}`
+      const host = deeplinkHostForProductType(import.meta.env.PRODUCT_TYPE);
+      const plainUrl = cloudId && host
+        ? buildEmbedDeeplink(host, cloudId, this.savedContentId)
         : '';
       if (!this.pngBase64) { this.deeplinkUrl = plainUrl; return; }
       try {
@@ -329,8 +331,9 @@ export default {
 
     async copyDiagramLink(d) {
       const cloudId = forgeGlobal.forgeContext?.cloudId;
-      if (!cloudId) return;
-      const url = `https://confluence.zenuml.com/d/${cloudId}/${d.id}`;
+      const host = deeplinkHostForProductType(import.meta.env.PRODUCT_TYPE);
+      if (!cloudId || !host) return;
+      const url = buildEmbedDeeplink(host, cloudId, d.id);
       const ok = await this.copyText(url);
       if (ok) this.copiedId = d.id;
       trackAnalyticsEvent('byline_diagram_opened', baseProps({ byline_mode: 'has-content' }));

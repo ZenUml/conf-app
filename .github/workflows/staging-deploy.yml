@@ -36,7 +36,12 @@ jobs:
       - name: Init asyncapi-studio submodule
         if: inputs.variant == 'asyncapi'
         run: git submodule update --init --depth 1 vendor/asyncapi-studio
-      - name: Build and publish
+      # Cloudflare Pages backend deploy (conf-stg-{project}) — runs before the
+      # Forge-specific steps below in this same job. Named to match
+      # release.yml's equivalent step so `gh run view --json jobs` step lists
+      # (which collapse composite-action internals to this one line) can't be
+      # misread as part of the Forge deploy that follows.
+      - name: Build and publish to Cloudflare
         uses: ./.github/actions/wrangler-publish
         with:
           node-version: '24.x'
@@ -73,12 +78,16 @@ jobs:
         with:
           cmd: yq eval 'del(.connectModules)' -i manifest.yml
 
-      # Lite: remove contentBylineItem and licensing
-      - name: Remove contentBylineItem from manifest
-        if: inputs.variant == 'lite'
+      # Lite + Full: keep zenuml-byline-newuser (the activation nudge, gated
+      # by displayConditions.entityPropertyExists), drop only
+      # zenuml-byline-aiaide. A whole-module delete here would also remove
+      # newuser — don't reintroduce that. Diagramly keeps the whole module
+      # (incl. aiaide); asyncapi strips the whole module further below.
+      - name: Remove zenuml-byline-aiaide from manifest (keep zenuml-byline-newuser)
+        if: inputs.variant == 'lite' || inputs.variant == 'full'
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules["confluence:contentBylineItem"])' -i manifest.yml
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))' -i manifest.yml
       - name: Remove licensing (Lite is free)
         if: inputs.variant == 'lite'
         uses: mikefarah/yq@master

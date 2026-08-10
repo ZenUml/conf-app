@@ -18,6 +18,13 @@ import type { DiagramLoadError } from '@/model/store2/types';
 import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
 
+// Slice 1 of the content-opening unification: `loadDiagram` implementations
+// are migrating from returning a plain `Diagram | undefined` to the wrapped
+// `{ doc, loadError }` shape, so a failed load can carry WHY it failed.
+// openDocument callers (forge-swagger-ui.ts) convert their pipeline-level
+// OpenError into this store-level DiagramLoadError at their own return
+// (mapOpenErrorToLoadError in viewerLoadOutcome.ts) — ONE error vocabulary
+// reaches the store and the recovery panel, whichever loader produced it.
 export type ViewerLoadDiagramResult =
   | Diagram
   | undefined

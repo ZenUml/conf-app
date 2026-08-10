@@ -10,7 +10,7 @@
          "Submit a ticket" error panel here. -->
     <!-- Embed/portal hosts request a chrome-less surface — render the diagram only. -->
     <template v-if="!isDisplayMode || hideHeader">
-      <div class="screen-capture-content" :class="{'w-full': isWide}">
+      <div class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide}">
         <slot></slot>
       </div>
     </template>
@@ -256,7 +256,7 @@
                 </button>
               </div>
             </div>
-            <div v-else class="screen-capture-content" :class="{'w-full': isWide}">
+            <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide}">
               <slot></slot>
             </div>
 
@@ -357,7 +357,13 @@
       </div>
     </template>
 
-  <ExportModal :visible="showExportModal" @close="showExportModal = false" />
+  <ExportModal
+    :visible="showExportModal"
+    :macro-type="diagramType"
+    :capture-node-getter="getCaptureNode"
+    :diagram-title="title"
+    @close="showExportModal = false"
+  />
 </div>
 </template>
 
@@ -831,6 +837,15 @@ export default {
     }
   },
   methods: {
+    // Export PNG (code review): give ExportModal the actual DOM node instead
+    // of a global document.querySelector('.screen-capture-content'), which
+    // only worked by the accident of exactly one copy ever being mounted at
+    // once. Same ref name on mutually exclusive branches resolves to
+    // whichever one is actually rendered; null while the load-failed panel
+    // has replaced the capture branch.
+    getCaptureNode() {
+      return this.$refs.captureNode ?? null;
+    },
     retry() {
       location.reload();
     },

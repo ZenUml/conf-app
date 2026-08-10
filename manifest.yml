@@ -39,9 +39,18 @@ remotes:
     operations:
       - compute
       - fetch
-      # Lite daily macro snapshots persist in-scope Confluence-derived rows
-      # in the Cloudflare Remote. Non-Lite variant builds strip this operation
-      # and the storage declaration below.
+      # ALL variants persist in-scope end-user data in the Cloudflare Remote:
+      # every save mirrors the diagram body + title into D1 via
+      # /forge-custom-content (functions/forge-custom-content.ts), and the
+      # frontend call site (services/CustomContent.ts -> syncCustomContent) is
+      # shared code with no variant switch. Lite additionally persists daily
+      # macro-count snapshot rows.
+      #
+      # Previously full/diagramly/asyncapi stripped this operation and the
+      # storage declaration below, which under-declared what those apps
+      # actually store. Do NOT re-add that strip: per the Forge remotes
+      # reference, going inScopeEUD false -> true is a MAJOR version, so the
+      # declaration must stay accurate for every variant once shipped.
       - storage
     storage:
       inScopeEUD: true
@@ -389,6 +398,19 @@ modules:
       viewportContainer: modal
       resolver:
         endpoint: remote-connect
+    - key: zenuml-byline-newuser
+      resource: main
+      title: View as diagram
+      icon: resource:main;image/byline-view-as-diagram.png
+      tooltip: See a diagram drawn from this page
+      viewportSize: fullscreen
+      viewportContainer: modal
+      resolver:
+        endpoint: remote-connect
+      displayConditions:
+        entityPropertyExists:
+          entity: content
+          propertyKey: zenuml-prepared-diagram
   confluence:customContent:
     - key: ${CUSTOM_CONTENT_KEY}
       supportedContainerTypes:

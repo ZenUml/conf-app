@@ -24,6 +24,8 @@ import type {
   AgentLinkGuardrailRejectReason,
   AgentLinkSessionSuspendReason,
   AgentLinkListScope,
+  BylineMode,
+  ActivationPath,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -236,10 +238,37 @@ export type AnalyticsProperties = {
   edit_dup_gate_outcome?: 'blocked' | 'passed' | 'scan_failed';
   same_page_macro_count?: number;
   copy_reason?: 'same-page-duplicate' | 'cross-page';
+  // Byline activation nudge. `byline_mode` rides EVERY activation_*/byline_* event
+  // so the list journey and the activation journey never pool. `prepared_age_days`
+  // is how stale the curated diagram was when served — it decides how often the
+  // offline pipeline must refresh. `activation_path` is named for its feature
+  // rather than the design doc's bare `path`, which is too generic to reserve.
+  // Diagram type reuses the existing `macro_type` above rather than the design's
+  // `diagram_type` synonym — one name per concept.
+  byline_mode?: BylineMode;
+  prepared_age_days?: number;
+  activation_path?: ActivationPath;
+  // byline_diagram_list_shown: how many diagrams the page already had.
+  diagram_count?: number;
   // Diagramly demo-page engagement: set automatically for macro_* events when
   // the macro lives on a page tagged with the `diagramly-demo-page` page
   // property. See utils/analytics/demoPageStatus.ts.
   is_demo_page?: boolean;
+  // Export PNG dialog (export_png_succeeded / export_png_failed —
+  // ExportModal.vue). `method` = delivery path the PNG went out through;
+  // `background` mirrors the ExportState background option value
+  // ('transparent' | 'white' | 'warm' | 'cool' | 'custom'). has_note/
+  // has_arrow/has_callout/has_watermark record which overlay types were
+  // present in the exported image (ExportState's computed flags of the same
+  // names). `failure_reason` (declared above) carries export_png_failed's
+  // reason, e.g. 'no_capture_node' | 'blob_null' | 'exception' |
+  // 'clipboard_denied'.
+  method?: 'download' | 'clipboard';
+  background?: string;
+  has_note?: boolean;
+  has_arrow?: boolean;
+  has_callout?: boolean;
+  has_watermark?: boolean;
   // Performance
   render_mode?: RenderMode;
   // Where a cached_svg render sourced its SVG (Phase 2: 'cc_body'). Absent/'none' for live_render.
@@ -392,6 +421,16 @@ export type AnalyticsProperties = {
   query_len?: number;
   hits?: number;
   list_scope?: AgentLinkListScope;
+  // Starter-template gallery (#334). `template_id` identifies which curated
+  // template was applied (editor_template_applied only) — flat across the
+  // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is
+  // a stable Mixpanel dimension regardless of macro_type. `is_new_macro` is
+  // the same create-vs-edit discriminator Header.vue already uses for its
+  // macro_create_started/macro_edit_opened split (`!diagram.id`) — reused
+  // here so the gallery's funnel joins against that axis rather than
+  // inventing a second one.
+  template_id?: string;
+  is_new_macro?: boolean;
   // Error
   error_code?: string;
   error_name?: string;

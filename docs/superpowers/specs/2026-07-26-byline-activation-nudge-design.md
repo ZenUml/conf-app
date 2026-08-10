@@ -323,25 +323,45 @@ fail-softs (verified) and the instruction page explains the rest.
 
 ## 8. Open items (the actual remaining work)
 
-1. ~~`entity: content` display condition~~ — **VERIFIED 2026-07-26** (§4), both directions,
-   via ordinary v2 REST property writes. The v5 gating model is buildable as designed.
-2. **Preparation pipeline.** Page selection scorer, generation backend (own infra —
-   `/ai-generate-title` and Diagramly AI are precedents; prompt + output schema
-   `diagramType`/`diagramSource`/`title` owned by us), cache store, content-property stamping.
-3. **Curation workflow.** Manual review first — pilot scale is dozens of pages, a simple
-   queue is enough. Track approval rate; it decides if/when review can be automated.
-4. **Aide co-display.** `zenuml-byline-aiaide` is unconditional today — a user on a prepared
-   page would see both chips. Gate Aide on the inverse condition or accept two entries.
-5. **Icon asset.** AI visual language: four-point sparkle, blue→purple gradient
-   (Atlassian-Intelligence-adjacent), ~19×14, play-once, calm final frame. A gradient cannot
-   fit the 255-char two-colour data-URI budget — this icon almost certainly requires a
-   `permissions.external.images` entry (minor version); `resource:` icons are reported broken
-   for byline.
-6. **Dialog build.** `GetStarted.vue` (15 KB + stories) is the starting shell; §6b is the
-   spec. Loading skeleton + theatre timing, cache-miss/error state (should be near-impossible
-   by construction — still needs a graceful fallback), focus management, keyboard path.
-7. **Rollout**: #360 first (with its two added scope items, §6b) → verify item 1 on lite-dev
-   → hand-curate a pilot batch in a few high-density tenants → measure → scale curation.
+**RUNTIME SLICE BUILT 2026-07-26** — branch `feat/byline-activation-nudge` (commits
+7801b39b / e104da21 / 3758dd7e; ultracode: recon → parallel impl → 10-finding adversarial
+review, all fixed; 1958 unit tests green, vue-tsc clean). Built: manifest byline module +
+displayConditions gate + per-variant strip (yq-verified ship-matrix: lite/full ship only
+`newuser`, asyncapi neither, diagramly both); backend `functions/activation-prepared.ts` +
+D1 `PreparedDiagram` + routes/middleware; `BylineActivationDialog.vue` (prepared + has-content
+modes) + moduleKey routing + the `Sequence.vue` `readOnly` seam that stops the silent-save
+defect; `ActivationPrepared` service; gated e2e + reusable property seed/remove helpers.
+
+Remaining:
+
+1. ~~`entity: content` display condition~~ — **VERIFIED 2026-07-26** (§4). ~~Dialog build~~ /
+   ~~icon~~ — **BUILT** (item 6 below; a static `resource:` PNG works — the "resource icons
+   broken for byline" claim was wrong, the sibling Aide uses one; animated play-once GIF is
+   polish, not a blocker).
+2. **Preparation pipeline (the main remaining backend).** Page selection scorer, generation
+   backend, cache store, content-property stamping. The runtime READ side is done — this is
+   the WRITE side. `POST /activation-prepared` and the property-stamp REST call are the
+   interfaces it must hit; the pilot hand-seeds both (helper shipped).
+3. **Curation workflow.** Manual review first; track approval rate.
+4. **Aide co-display — RESOLVED in code:** the strip drops `zenuml-byline-aiaide` from
+   lite/full entirely, so only `newuser` ships there — no double chip. Diagramly keeps both
+   (Aide is its feature); `newuser` there is property-gated and harmless.
+5. **Draft-page secondary — DEFERRED (needs a live spike).** Recon: autoConvert on
+   API-created page content is unverified, and hand-authoring the ADF extension node has no
+   in-repo precedent. v1 completion ships copy-link only; the "Create a page" secondary waits
+   on a spike.
+6. ~~**Dialog build.**~~ **BUILT** as `BylineActivationDialog.vue` (not from GetStarted — its
+   own state machine: loading theatre → preview/list → completion; error/cache-miss/
+   capture-miss/mint-fail all degrade gracefully).
+   - **"Edit diagram" nested-modal — needs a live probe.** `openModal` from inside a
+     `viewportContainer:modal` byline is untested (recon open question); the code path exists
+     and is flagged inline. Probe on lite-dev before relying on it.
+   - **Graph/OpenAPI preview — guarded off for v1.** DiagramPortal renders only sequence/
+     mermaid/plantuml; a curated graph payload routes to a graceful miss. Pipeline must target
+     the renderable types until a graph viewer is added to the preview.
+7. **Rollout**: #360 first (draft-gated on the deeplink Worker, already live) → verify the
+   byline on lite-dev (deploy this branch + seed a property; e2e ready) → hand-curate a pilot
+   batch → measure vs the 12.9% baseline → scale curation.
 
 ## 9. Analytics (events precede code — project rule)
 

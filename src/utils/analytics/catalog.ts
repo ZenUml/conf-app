@@ -34,6 +34,12 @@ export type Surface =
   | "page_banner"
   | "dashboard"
   | "route"
+  // Byline activation nudge. MUST be passed explicitly on every activation_*/
+  // byline_* event: the dialog runs in a contentBylineItem iframe where
+  // ApWrapper2.isDisplayMode() returns true (no extension.modal/.macro), so an
+  // inferred surface would mislabel byline activity as `viewer` — the exact
+  // #368 misclassification (see MEMORY project_368_surface_misclassification).
+  | "byline"
   | "forge_trigger"
   | "scheduled_job"
   // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
@@ -177,6 +183,18 @@ export type AnalyticsEventName =
   | "macro_export_requested"
   | "macro_export_succeeded"
   | "macro_export_failed"
+  // Export PNG dialog (ExportModal.vue): richer overlay-annotated PNG export
+  // (background + note/arrow/callout/watermark overlays), tracked separately
+  // from the generic macro_export_* triple above (unused by any call site as
+  // of this registration). opened = modal shown; succeeded = PNG delivered
+  // via download or clipboard (`method`), with the `background` value and
+  // has_note/has_arrow/has_callout/has_watermark overlay flags; failed = an
+  // export attempt failed before delivery (`failure_reason`); dismissed =
+  // modal closed with no successful export in that open session.
+  | "export_png_opened"
+  | "export_png_succeeded"
+  | "export_png_failed"
+  | "export_png_dismissed"
   | "ai_generation_requested"
   | "ai_generation_succeeded"
   | "ai_generation_failed"
@@ -467,7 +485,60 @@ export type AnalyticsEventName =
   // never sent — only `query_len` (privacy).
   | "agent_link_diagram_read"
   | "agent_link_search_performed"
-  | "agent_link_list_performed";
+  | "agent_link_list_performed"
+  // Byline activation nudge (docs/superpowers/specs/2026-07-26-byline-activation-nudge-design.md).
+  // ONE merged contentBylineItem (decision 2026-07-26, supersedes the design's
+  // two-item shape and closes its §8.4 Aide co-display open item). Visibility is a
+  // single server-side `entityPropertyExists` gate on `zenuml-prepared-diagram`,
+  // whose VALUE selects the dialog mode — `has-content` (the page already has
+  // diagrams / API specs → list them) or `prepared` (no diagrams, a curated one is
+  // ready → the activation flow). Pages with neither get no property and no chip.
+  // The mode branch happens INSIDE the dialog, never in the byline: a per-view
+  // decision would need `dynamicProperties`, i.e. one Forge invocation per content
+  // view — the §5 cost wall (4.15M views/month, 2.1x the free tier at 100ms) and the
+  // exact shape of the PR #234 incident. `mode` rides every event so the two
+  // journeys stay separable.
+  // NOTE: activation_nudge_shown is NOT emitted — the byline chip is
+  // server-rendered Confluence chrome, not our Custom UI, so we get no
+  // client hook when it renders. `activation_nudge_clicked` IS the funnel
+  // entry; do not build a shown-based CTR against activation_nudge_shown.
+  // (Reserved in case a future Custom UI surface can fire it.)
+  | "activation_nudge_shown"
+  | "activation_nudge_clicked"
+  | "activation_served"
+  // Should be ~impossible by construction (the pipeline stamps the property only
+  // after caching the result). Any volume here is a preparation-pipeline bug.
+  | "activation_cache_miss"
+  | "activation_diagram_edited"
+  | "activation_completed"
+  | "activation_nudge_dismissed"
+  // mode='has-content' branch: the page's existing diagrams listed, and one opened.
+  | "byline_diagram_list_shown"
+  | "byline_diagram_opened"
+  // Starter-template gallery (#334, JTBD: author job). The real "hire moment"
+  // for diagram creation is at the macro editor, before the user has typed
+  // anything — the gallery replaces the old external "Examples" link
+  // (Header.vue templateClick, which sent the user away to zenuml.com/
+  // mermaid.js.org/plantuml.com docs) with 6-10 curated, one-click,
+  // in-product templates per text-DSL macro type (sequence/mermaid/plantuml).
+  // `editor_template_gallery_opened` is the denominator; `editor_template_applied`
+  // (keyed by `template_id`) is the per-template pull signal the JTBD's
+  // success metric needs ("editor_template_applied share of new creates").
+  // AI text->diagram entry from the same issue is explicitly OUT OF SCOPE
+  // here (deferred 2026-08-03) — its ai_generation_* events already exist
+  // above and are reused, not redefined, when that lands.
+  | "editor_template_gallery_opened"
+  | "editor_template_applied";
+
+// Which journey the merged byline dialog took, from the `zenuml-prepared-diagram`
+// property value. 'has-content' = list the diagrams already on this page;
+// 'prepared' = the activation flow over a pre-generated, human-curated diagram.
+export type BylineMode = "has-content" | "prepared";
+
+// How an activation run completed. 'copy_link' = the primary path (mint a deeplink
+// and paste it into any page, #360's missing producer); 'draft_page' = the
+// stall-breaker secondary that creates a page carrying the diagram.
+export type ActivationPath = "copy_link" | "draft_page";
 
 // Where an idle renderer-bundle prefetch ran: an alive macro iframe after its
 // own render settled, or the page-banner iframe on its no-banner fast-path.

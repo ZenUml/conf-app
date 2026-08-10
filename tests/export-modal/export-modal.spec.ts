@@ -2,6 +2,12 @@ import { test, expect, type Page } from '@playwright/test';
 
 const TEST_URL = '/test-viewer.html';
 
+// The seq-view sandbox preset's fixture (custom-content-by-id-v1-diagram-sequence.json)
+// embeds title "20241006 Order Service (Demonstration only)" in its body.raw.value —
+// that's what GenericViewer's `title` computed reads, and what ExportModal's
+// `diagramTitle` prop (and therefore slugifyFilename()) actually receives.
+const EXPECTED_EXPORT_FILENAME = '20241006-order-service-demonstration-only.png';
+
 // ─── Shared Helpers ───
 
 async function waitForViewerReady(page: Page) {
@@ -11,7 +17,14 @@ async function waitForViewerReady(page: Page) {
 }
 
 async function openExportModal(page: Page) {
-  const exportBtn = page.locator('button[aria-label="Download PNG"]');
+  // The bottom-edge action pill (Copy code / Export PNG / Versions / Copy
+  // link / More) is opacity:0 + pointer-events:none until GenericViewer's
+  // .viewer-surface reports a real mouseenter (isHovering, a JS-bound class,
+  // not a plain CSS :hover) — hover the surface first or the click's
+  // actionability pre-check sees pointer-events:none and times out against
+  // whatever's underneath.
+  await page.locator('.viewer-surface').hover();
+  const exportBtn = page.locator('button[aria-label="Export PNG"]');
   await expect(exportBtn).toBeVisible({ timeout: 5000 });
   await exportBtn.click();
   await page.waitForSelector('.export-modal-backdrop', { timeout: 5000 });
@@ -130,6 +143,26 @@ test.describe('Modal Structure', () => {
   test('cancel button dismisses modal', async ({ page }) => {
     await openExportModal(page);
     await page.locator('.btn-cancel').click();
+    await expect(page.locator('.export-modal-backdrop')).not.toBeVisible();
+  });
+});
+
+// ─── Dialog Accessibility ───
+
+test.describe('Dialog Accessibility', () => {
+  test.beforeEach(async ({ page }) => {
+    await waitForViewerReady(page);
+    await openExportModal(page);
+  });
+
+  test('dialog has role="dialog" and aria-modal="true"', async ({ page }) => {
+    const dialog = page.locator('.export-modal');
+    await expect(dialog).toHaveAttribute('role', 'dialog');
+    await expect(dialog).toHaveAttribute('aria-modal', 'true');
+  });
+
+  test('Escape closes the dialog when no tool or annotation is active', async ({ page }) => {
+    await page.keyboard.press('Escape');
     await expect(page.locator('.export-modal-backdrop')).not.toBeVisible();
   });
 });
@@ -865,6 +898,15 @@ test.describe('Sidebar Property Variants', () => {
     await expect(paths).toHaveCount(1);
   });
 
+  test('arrow type select has no Curved option', async ({ page }) => {
+    await drawArrow(page);
+    await selectAnnotation(page, 'arrow-overlay');
+
+    const typeSelect = page.locator('.annotation-props .field-select');
+    const optionTexts = await typeSelect.locator('option').allTextContents();
+    expect(optionTexts.some(t => t.includes('Curved') || t.includes('⤷'))).toBe(false);
+  });
+
   test('callout background color change updates SVG fill', async ({ page }) => {
     await placeCallout(page);
     await selectAnnotation(page, 'callout-overlay');
@@ -987,7 +1029,19 @@ test.describe('Export Pipeline', () => {
     await page.locator('.btn-export').click();
 
     const download = await downloadPromise;
-    expect(download.suggestedFilename()).toBe('zenuml-diagram-export.png');
+    expect(download.suggestedFilename()).toBe(EXPECTED_EXPORT_FILENAME);
+  });
+
+  test('copy image button is visible and does not crash on click', async ({ page }) => {
+    // Clipboard-write may be denied by the test sandbox's permission model
+    // (exportDiagramToClipboard catches that as 'clipboard_denied'); the
+    // point of this assertion is that clicking never throws and the modal
+    // stays open — Copy, unlike Download, does not close on success.
+    const copyBtn = page.locator('.btn-copy');
+    await expect(copyBtn).toBeVisible();
+    await copyBtn.click();
+    await expect(page.locator('.export-modal-backdrop')).toBeVisible();
+    await expect(copyBtn).toBeVisible();
   });
 
   test('export button shows loading state during export', async ({ page }) => {
@@ -1007,7 +1061,7 @@ test.describe('Export Pipeline', () => {
     await page.locator('.btn-export').click();
 
     const download = await downloadPromise;
-    expect(download.suggestedFilename()).toBe('zenuml-diagram-export.png');
+    expect(download.suggestedFilename()).toBe(EXPECTED_EXPORT_FILENAME);
     const path = await download.path();
     expect(path).toBeTruthy();
   });

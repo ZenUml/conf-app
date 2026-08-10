@@ -28,8 +28,14 @@ function normalizeCompressedGraphDoc(doc: Diagram | undefined): Diagram | undefi
   return doc;
 }
 
-export function publishLoadedDiagram(doc: Diagram | undefined): Diagram {
-  const diagram = normalizeCompressedGraphDoc(doc) ?? NULL_DIAGRAM;
+export function publishLoadedDiagram(doc: Diagram | undefined, loadError?: DiagramLoadError | null): Diagram {
+  const normalized = normalizeCompressedGraphDoc(doc) ?? NULL_DIAGRAM;
+  // Attach the load error to the published diagram as well as the store slots
+  // below: components that receive the diagram as a `doc` PROP rather than
+  // reading the store (OpenApiViewer in the embed host / editor preview)
+  // key their own terminal state off `diagram.loadError`. Persistence strips
+  // it (sanitizeCustomContentBody) so it can never round-trip into storage.
+  const diagram = loadError ? { ...normalized, loadError } : normalized;
   store.state.diagram = diagram;
   // Signal load completion (success OR failure — `doc` is undefined when the
   // referenced content 404s/failed to load). The embed viewer uses this to show
@@ -143,7 +149,25 @@ export function applyViewerLoadOutcome(input: ViewerLoadOutcomeInput): Diagram {
 
   const outcome = classifyViewerLoadOutcome(input);
   setViewerLoadState(outcome.state, outcome.loadError);
-  return publishLoadedDiagram(outcome.diagram);
+  return publishLoadedDiagram(outcome.diagram, outcome.loadError);
+}
+
+// Boundary adapter: the openDocument pipeline's OpenError (documentOpening/
+// types.ts — {kind, customContentId?, indeterminate}) → the store-level
+// DiagramLoadError this module classifies on. openDocument compresses HTTP
+// detail away, so httpStatus/errorCode stay undefined here; `indeterminate`
+// (forbidden/5xx/malformed — content may still exist) maps to 'other_error',
+// a confirmed clean 404 to 'not_found'. Keeps ONE error vocabulary in the
+// store/panel layer while the pipeline keeps its own contract.
+export function mapOpenErrorToLoadError(error: {
+  kind: 'not_found';
+  customContentId?: string;
+  indeterminate: boolean;
+}): DiagramLoadError {
+  return {
+    directFetchStatus: error.indeterminate ? 'other_error' : 'not_found',
+    errorClass: 'structured',
+  };
 }
 
 export function mapThrownViewerLoadError(error: unknown): DiagramLoadError {

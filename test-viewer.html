@@ -7,12 +7,19 @@
   <script type="text/javascript" src="js/dom-to-image.min.js?version=2022.02"></script>
   <script type="text/javascript" src="js/md5.js"></script>
   <!-- No Atlassian Connect script needed — MockAp is used automatically in local dev -->
-  <!-- Force display mode so the Viewer header (Fullscreen/Edit buttons) is visible -->
+  <!-- Force display mode so the Viewer header (Fullscreen/Edit buttons) is visible.
+       Default sandbox=seq-view so the standalone context (src/sandbox/presets.ts)
+       resolves a real customContentId instead of leaving forgeContext empty. -->
   <script>
-    if (!window.location.search.includes('outputType=display')) {
-      var sep = window.location.search ? '&' : '?';
-      window.location.replace(window.location.pathname + window.location.search + sep + 'outputType=display');
-    }
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var changed = false;
+      if (!params.has('outputType')) { params.set('outputType', 'display'); changed = true; }
+      if (!params.has('sandbox')) { params.set('sandbox', 'seq-view'); changed = true; }
+      if (changed) {
+        window.location.replace(window.location.pathname + '?' + params.toString());
+      }
+    })();
   </script>
   <style>
     *::-webkit-scrollbar { width: 6px; height: 6px; }

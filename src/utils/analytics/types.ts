@@ -240,6 +240,21 @@ export type AnalyticsProperties = {
   // the macro lives on a page tagged with the `diagramly-demo-page` page
   // property. See utils/analytics/demoPageStatus.ts.
   is_demo_page?: boolean;
+  // Export PNG dialog (export_png_succeeded / export_png_failed —
+  // ExportModal.vue). `method` = delivery path the PNG went out through;
+  // `background` mirrors the ExportState background option value
+  // ('transparent' | 'white' | 'warm' | 'cool' | 'custom'). has_note/
+  // has_arrow/has_callout/has_watermark record which overlay types were
+  // present in the exported image (ExportState's computed flags of the same
+  // names). `failure_reason` (declared above) carries export_png_failed's
+  // reason, e.g. 'no_capture_node' | 'blob_null' | 'exception' |
+  // 'clipboard_denied'.
+  method?: 'download' | 'clipboard';
+  background?: string;
+  has_note?: boolean;
+  has_arrow?: boolean;
+  has_callout?: boolean;
+  has_watermark?: boolean;
   // Performance
   render_mode?: RenderMode;
   // Where a cached_svg render sourced its SVG (Phase 2: 'cc_body'). Absent/'none' for live_render.

@@ -12,6 +12,8 @@ vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
 
 const macroViewedCalls = () =>
   vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'macro_viewed');
+const viewerLoadFailedCalls = () =>
+  vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'viewer_load_failed');
 
 const swaggerMock = vi.hoisted(() => {
   const updateSpec = vi.fn();
@@ -196,6 +198,56 @@ describe('OpenApiViewer', () => {
       });
 
       expect(macroViewedCalls()).toHaveLength(1);
+    });
+  });
+
+  // reliability-audit-2026-08-06 §4/§12.2 (conf-app#149/#150): this file had
+  // zero error handling of any kind — `grep -n "error|Error|catch|failed"`
+  // returned no matches. 12.4% of view volume (graph+openapi+embed) had no
+  // failure telemetry at all.
+  describe('render-failure telemetry', () => {
+    it('fires viewer_load_failed when SwaggerUIBundle construction throws', () => {
+      swaggerMock.swaggerFactory.mockImplementationOnce(() => {
+        throw new Error('swagger-ui init boom');
+      });
+
+      mount(OpenApiViewer, { global: { plugins: [store] } });
+
+      expect(viewerLoadFailedCalls()).toHaveLength(1);
+      expect(viewerLoadFailedCalls()[0][1]).toMatchObject({
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: 'openapi',
+        failure_stage: 'render_crash',
+        failure_reason: 'swagger-ui init boom',
+      });
+    });
+
+    it('fires viewer_load_failed when specActions.updateSpec throws, and still reports macro_viewed once the load settles — macro_viewed is readership, not success', async () => {
+      swaggerMock.updateSpec.mockImplementationOnce(() => {
+        throw new Error('bad spec boom');
+      });
+
+      const wrapper = mount(OpenApiViewer, { global: { plugins: [store] } });
+
+      expect(viewerLoadFailedCalls()).toHaveLength(1);
+      expect(viewerLoadFailedCalls()[0][1]).toMatchObject({
+        macro_type: 'openapi',
+        failure_stage: 'render_crash',
+        failure_reason: 'bad spec boom',
+      });
+
+      // A construction/updateSpec crash must not break the mounted() lifecycle
+      // that follows it — reportRenderOnce() still needs to run.
+      store.state.diagramLoadComplete = true;
+      await wrapper.vm.$nextTick();
+      expect(macroViewedCalls()).toHaveLength(1);
+    });
+
+    it('does not fire viewer_load_failed on a clean render', () => {
+      mount(OpenApiViewer, { global: { plugins: [store] } });
+
+      expect(viewerLoadFailedCalls()).toHaveLength(0);
     });
   });
 });

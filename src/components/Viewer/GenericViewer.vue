@@ -1,7 +1,11 @@
 <template>
 <!-- screen-capture-content class is used in Attachment.ts to select the node. -->
-<div class="generic viewer">
-  <Debug />
+<div class="generic viewer" :class="{'generic--source-panel-open': isFullscreenMode && showSourcePanel}">
+  <!-- The debug strip is a dev affordance for the inline macro. In the
+       fullscreen modal it stacks above .viewer-frame, which is min-height:100vh,
+       so the page ends up taller than the viewport and scrolls; it also eats the
+       top of a surface whose whole point is showing the diagram large. -->
+  <Debug v-if="!isFullscreenMode" />
     <!-- Syntax errors are surfaced by the SyntaxErrorBox (with AI Repair); no
          "Submit a ticket" error panel here. -->
     <!-- Embed/portal hosts request a chrome-less surface — render the diagram only. -->
@@ -12,7 +16,7 @@
     </template>
 
     <template v-else>
-      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide}">
+      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode}">
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
              two-column flex row — see .viewer-body--with-agent-rail below. -->
@@ -296,6 +300,7 @@
           :visible="showSourcePanel"
           :source="viewSourceCode"
           :dsl-label="viewSourceDslLabel"
+          :fullscreen="isFullscreenMode"
           @close="showSourcePanel = false"
           @copy="onViewSourceCopied"
         />
@@ -830,6 +835,26 @@ export default {
         .catch(error => console.error('Error retrieving content versions:', error));
       toast({ message: 'Version history printed to developer console (F12)', duration: 2200 });
     },
+    // #442: Safari-safe clipboard write. MUST be called before any await in
+    // the click task: the ClipboardItem is constructed synchronously with a
+    // still-pending payload promise — the pattern WebKit supports for async
+    // clipboard content, keeping the write tied to the user gesture.
+    // Resolves false when the modern API is unavailable or the write is
+    // rejected; the caller then retries via copyToClipboard's legacy order.
+    writeClipboardKeepingActivation(resultPromise) {
+      const supported = navigator.clipboard
+        && typeof navigator.clipboard.write === 'function'
+        && typeof window.ClipboardItem === 'function'
+        && window.isSecureContext;
+      if (!supported) return Promise.resolve(false);
+      const item = new window.ClipboardItem({
+        'text/plain': resultPromise.then(r => new Blob([r.text], { type: 'text/plain' })),
+      });
+      return navigator.clipboard.write([item]).then(() => true, (error) => {
+        console.warn('copyForAi: ClipboardItem write rejected, falling back to legacy copy', error);
+        return false;
+      });
+    },
     async copyToClipboard(text) {
       if (navigator.clipboard && window.isSecureContext) {
         try { await navigator.clipboard.writeText(text); return true; }
@@ -1033,28 +1058,48 @@ export default {
       if (this.copyForAiState === 'copying') return;
       if (!this.viewSourceCode) { this.setCopyForAiState('failed', 'Nothing to copy'); return; }
       this.setCopyForAiState('copying', 'Copying…');
-      const page = await this.resolveCopyForAiPage();
-      const result = buildCopyForAiPrompt({
+      // #442: the clipboard call must be issued in the click's own task.
+      // Safari drops the transient user activation across an awaited fetch,
+      // so the previous order (await page fetch, then write) threw
+      // NotAllowedError on every Safari click. The payload is therefore
+      // built as a promise and handed to the clipboard API synchronously via
+      // writeClipboardKeepingActivation; no await may precede that call.
+      const resultPromise = this.resolveCopyForAiPage().then(page => buildCopyForAiPrompt({
         dslLabel: this.viewSourceDslLabel,
         fenceLang: this.copyForAiFenceLang,
         diagramTitle: this.title,
         dsl: this.viewSourceCode,
         page,
         job,
-      });
+      }));
 
-      let outcome;
+      let ok = false;
       try {
-        const ok = await this.copyToClipboard(result.text);
-        if (ok) {
-          outcome = result.pageBytes > 0 ? 'copied' : 'copied_diagram_only';
-          this.setCopyForAiState('copied', 'Copied');
-        } else {
-          outcome = 'clipboard_failed';
-          this.setCopyForAiState('failed', 'Copy failed');
-        }
+        ok = await this.writeClipboardKeepingActivation(resultPromise);
       } catch (error) {
-        console.error('copyForAi: clipboard write failed', error);
+        console.error('copyForAi: activation-preserving clipboard write failed', error);
+      }
+      if (!ok) {
+        // Legacy order (resolve payload first, then writeText/execCommand):
+        // the only path for browsers without ClipboardItem, and the retry
+        // when the modern write is rejected. On Safari a rejection here is
+        // expected — the activation is already gone — and surfaces as
+        // outcome=clipboard_failed, same as before this fix.
+        try {
+          const built = await resultPromise;
+          ok = await this.copyToClipboard(built.text);
+        } catch (error) {
+          console.error('copyForAi: clipboard write failed', error);
+          ok = false;
+        }
+      }
+
+      const result = await resultPromise;
+      let outcome;
+      if (ok) {
+        outcome = result.pageBytes > 0 ? 'copied' : 'copied_diagram_only';
+        this.setCopyForAiState('copied', 'Copied');
+      } else {
         outcome = 'clipboard_failed';
         this.setCopyForAiState('failed', 'Copy failed');
       }
@@ -1086,6 +1131,48 @@ export default {
 }
 .viewer-frame--auto { width: fit-content; margin-left: auto; margin-right: auto; }
 .viewer-frame--wide { width: 100%; }
+
+/* Fullscreen modal gets the whole browser viewport (Forge's autoResize is
+   disabled there — see forgeIndex.ts), but .viewer-frame itself has no height
+   rule, so a diagram shorter than the window left most of the screen a bare
+   void beneath it (spotted once the View Source panel was fixed to actually
+   fill that same viewport — the mismatch between a full-height panel and a
+   content-height diagram card became visible). min-height ties the frame to
+   the viewport; the flex chain lets .viewer-canvas absorb the extra space and
+   center its (possibly short) diagram in it, without touching isWide's own
+   width math above. */
+.viewer-frame--fullscreen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+/* height:100% here would need a DEFINITE height on .viewer-body, but
+   min-height alone never makes a flex container's resolved size definite for
+   percentage-resolution purposes — .viewer-surface's height would compute to
+   auto and the centering below would never engage. Flex the whole chain
+   instead so each level's size comes from layout, not a percentage. */
+.viewer-frame--fullscreen .viewer-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.viewer-frame--fullscreen .viewer-surface { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.viewer-frame--fullscreen .viewer-canvas { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+/* .viewer-frame--fullscreen .viewer-body (0,2,0) would otherwise outrank
+   .viewer-body--with-agent-rail (0,1,0) below and force its Connect-rail row
+   back into a column. */
+.viewer-frame--fullscreen .viewer-body--with-agent-rail { flex-direction: row; }
+
+/* The Source panel is position:fixed in fullscreen (ViewSourcePanel.vue) —
+   out of layout flow — so neither .viewer-frame--auto's fit-content+auto-
+   margin centering nor .viewer-frame--wide's width:100% has any way to know
+   the panel now covers part of the screen; both centered on the FULL width,
+   landing the diagram visibly right of the actually-visible left pane.
+   Reserving that same width as padding on the root shrinks the space both
+   centering paths compute against, for either case, with one rule. Width
+   must match ViewSourcePanel.vue's --fullscreen panel width (min(560px,
+   45vw)) — kept as a literal in both files: Vue's scoped-style :root
+   rewriting (:root becomes :root[data-v-xxx], which never matches the real
+   root element) rules out sharing it via a CSS custom property. */
+.generic--source-panel-open .viewer-frame--fullscreen {
+  padding-right: min(560px, 45vw);
+}
 
 .viewer-surface { position: relative; }
 

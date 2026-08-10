@@ -14,6 +14,7 @@ import type {
   CacheSource,
   ContentSource,
   MacroCountSource,
+  PaywallPolicySource,
   PrefetchHost,
   PrefetchOutcome,
   DashboardFormatFilter,
@@ -55,14 +56,23 @@ export type AnalyticsProperties = {
   // (the #302 fail-open signal). `css_enabled` / `space_paid` / `is_lite` are
   // the other gate inputs, captured so a not-fired decision is fully explained.
   // `space_paid_scope` = which grant satisfied `space_paid` — 'user_license'
-  // (per-requester extension) vs 'space_license' (whole-space extension or a
-  // paid plan). Lets user-level vs space-level unlocks be measured separately.
+  // (per-requester extension), 'space_license' (whole-space extension or a
+  // paid plan), or 'paid_rail' (D1 ForgeInstallation trial-window
+  // suppression — a recent Full/Diagramly install on the same tenant, NOT a
+  // real license; see functions/api/space-status.ts checkPaidRail). Lets
+  // user-level, space-level, and paid-rail unlocks be measured separately.
   gate_fired?: boolean;
   macro_count?: number;
   macro_count_source?: MacroCountSource;
   css_enabled?: boolean;
+  // Which policy produced the effective Lite paywall decision on this
+  // evaluation (lite-paywall-default-on): `default_on` when the backend
+  // explicitly returned `PAYWALL_EXEMPT: false`, `exemption` when it returned
+  // `true`, `fail_open` when the property was absent or unusable. See
+  // PaywallPolicySource in catalog.ts for the full contract.
+  paywall_policy_source?: PaywallPolicySource;
   space_paid?: boolean;
-  space_paid_scope?: 'user_license' | 'space_license';
+  space_paid_scope?: 'user_license' | 'space_license' | 'paid_rail';
   is_lite?: boolean;
   cta_position?: "primary" | "secondary";
   feature_name?: string;
@@ -137,11 +147,37 @@ export type AnalyticsProperties = {
   // self-heals once the page is published.
   snapshot_skip_reason?: 'no_write_permission' | 'page_not_published';
   space_admin_count?: number;
+  // M1 `app_first_seen` census props. Explicit, not ambient: the P3 denominator
+  // is COUNT(DISTINCT account_id) per cloud_id, so both ride on the event
+  // itself rather than relying on Mixpanel identity resolution (which is
+  // placeholder-prone on first iframe events — see the ai_aide lesson).
+  cloud_id?: string;
+  account_id?: string;
   // True when the current user is resolved to be a space admin of the current
-  // space. Set on `space_admin_active` (Phase 5a admin-activity probe). Only
-  // emitted as `true` today; kept optional for a future "always, with flag"
-  // rate variant. See utils/paywall/spaceAdminProbe.ts.
+  // space. Set on `space_admin_active` (Phase 5a admin-activity probe) and, from
+  // Phase 5b, on every page-banner event so the funnel can be split by audience.
+  // See utils/paywall/spaceAdminProbe.ts.
   is_space_admin?: boolean;
+  // Phase 5b: WHICH gate admitted the paywall page banner, and therefore which
+  // copy/CTA set the user saw.
+  //   'editor'      — legacy gate: this user created/edited a macro in the last
+  //                   30 days. Sees "ask an admin" advocacy copy.
+  //   'space_admin' — new gate: this user is a space admin of an over-limit
+  //                   space, regardless of whether they author diagrams. Sees
+  //                   the direct-purchase copy (Enterprise Bundle) instead.
+  // A user who is BOTH is reported as 'space_admin' — the stronger audience.
+  // This is the primary split for judging Phase 5b: 60d baseline was 358 unique
+  // users reached on the 'editor' gate across 19 CSS tenants, against 5,021
+  // unique space admins already loading the banner iframe unreached.
+  banner_audience?: 'editor' | 'space_admin';
+  // Advertised annual price on the bundle CTA at click time (USD, per space).
+  // Recorded on the event so a later price change stays comparable.
+  bundle_price_usd?: number;
+  // Attribution token embedded in the Stripe Payment Link URL
+  // (`<clientDomain>__<spaceKey>`, sanitised to Stripe's [A-Za-z0-9_-]).
+  // Stripe returns it verbatim on the Checkout Session, so a $299 payment
+  // joins back to the exact bundle CTA click without manual reconciliation.
+  client_reference_id?: string;
   // Cohort targeting (cohorts_refreshed). `cohorts` = comma-joined cohort list
   // the refresh resolved; empty string = user in no cohort (still a successful
   // refresh). `cohort_count` = same list's length, for numeric filtering.

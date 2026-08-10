@@ -88,4 +88,105 @@ describe('feature-flags onRequestGet', () => {
       expect(body).toEqual({});
     });
   });
+
+  describe('PAYWALL_EXEMPT', () => {
+    function ctxWith(exemptionsValue: string, client = 'example-tenant') {
+      return makeContext(
+        { client, features: 'PAYWALL_EXEMPT' },
+        { PAYWALL_EXEMPTIONS: exemptionsValue },
+      );
+    }
+
+    it('valid map + unlisted domain returns PAYWALL_EXEMPT: false', async () => {
+      const response = await onRequestGet(ctxWith(JSON.stringify({ 'other-tenant': true })));
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.PAYWALL_EXEMPT).toBe(false);
+    });
+
+    it('exact domain set to true returns PAYWALL_EXEMPT: true', async () => {
+      const response = await onRequestGet(ctxWith(JSON.stringify({ 'example-tenant': true })));
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.PAYWALL_EXEMPT).toBe(true);
+    });
+
+    it('wildcard "*": true returns PAYWALL_EXEMPT: true', async () => {
+      const response = await onRequestGet(ctxWith(JSON.stringify({ '*': true })));
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.PAYWALL_EXEMPT).toBe(true);
+    });
+
+    it('exact domain set to false does not exempt', async () => {
+      const response = await onRequestGet(ctxWith(JSON.stringify({ 'example-tenant': false })));
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.PAYWALL_EXEMPT).toBe(false);
+    });
+
+    it('wildcard set to false does not exempt', async () => {
+      const response = await onRequestGet(ctxWith(JSON.stringify({ '*': false, 'example-tenant': false })));
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.PAYWALL_EXEMPT).toBe(false);
+    });
+
+    it('missing KV key omits the property', async () => {
+      const ctx = makeContext({ client: 'example-tenant', features: 'PAYWALL_EXEMPT' });
+      const response = await onRequestGet(ctx);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.PAYWALL_EXEMPT).toBeUndefined();
+      expect('PAYWALL_EXEMPT' in body).toBe(false);
+    });
+
+    it('malformed JSON omits the property', async () => {
+      const response = await onRequestGet(ctxWith('{not valid json'));
+      const body = await response.json() as Record<string, unknown>;
+      expect('PAYWALL_EXEMPT' in body).toBe(false);
+    });
+
+    it('a JSON array omits the property', async () => {
+      const response = await onRequestGet(ctxWith(JSON.stringify(['example-tenant'])));
+      const body = await response.json() as Record<string, unknown>;
+      expect('PAYWALL_EXEMPT' in body).toBe(false);
+    });
+
+    it('a JSON null omits the property', async () => {
+      const response = await onRequestGet(ctxWith(JSON.stringify(null)));
+      const body = await response.json() as Record<string, unknown>;
+      expect('PAYWALL_EXEMPT' in body).toBe(false);
+    });
+
+    it('a non-object JSON scalar omits the property', async () => {
+      const response = await onRequestGet(ctxWith(JSON.stringify('true')));
+      const body = await response.json() as Record<string, unknown>;
+      expect('PAYWALL_EXEMPT' in body).toBe(false);
+    });
+
+    it('a non-boolean map value makes the whole map invalid and omits the property', async () => {
+      const response = await onRequestGet(ctxWith(JSON.stringify({ 'example-tenant': 'true' })));
+      const body = await response.json() as Record<string, unknown>;
+      expect('PAYWALL_EXEMPT' in body).toBe(false);
+    });
+
+    it('a rejected KV read omits the property', async () => {
+      const ctx = makeContext({ client: 'example-tenant', features: 'PAYWALL_EXEMPT' });
+      const kv = ctx.env.KV_FEATURE_FLAGS as unknown as { get: () => Promise<string | null> };
+      kv.get = () => Promise.reject(new Error('KV unavailable'));
+      const response = await onRequestGet(ctx);
+      const body = await response.json() as Record<string, unknown>;
+      expect('PAYWALL_EXEMPT' in body).toBe(false);
+    });
+
+    it('leaves the existing CSS response untouched when both features are requested', async () => {
+      const cssValue = { 'example-tenant': { plan: 'enterprise' } };
+      const ctx = makeContext(
+        { client: 'example-tenant', features: 'CUSTOMER_SUCCESS_SERVICE,PAYWALL_EXEMPT' },
+        {
+          CUSTOMER_SUCCESS_SERVICE: JSON.stringify(cssValue),
+          PAYWALL_EXEMPTIONS: JSON.stringify({ 'example-tenant': true }),
+        },
+      );
+      const response = await onRequestGet(ctx);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.CUSTOMER_SUCCESS_SERVICE).toEqual({ plan: 'enterprise' });
+      expect(body.PAYWALL_EXEMPT).toBe(true);
+    });
+  });
 });

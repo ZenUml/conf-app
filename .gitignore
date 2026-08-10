@@ -89,3 +89,8 @@ static/asyncapi-studio/
 
 # scratch (deeplink staging validation: secret, mint scripts, PNG)
 tmp/
+
+# pnpm store
+.pnpm-store
+
+output/playwright

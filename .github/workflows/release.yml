@@ -258,8 +258,6 @@ jobs:
         with:
           ref: ${{ github.event.release.tag_name }}
       - uses: pnpm/action-setup@v5
-        with:
-          version: 10.x
       - uses: actions/setup-node@v5
         with:
           node-version: "24"

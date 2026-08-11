@@ -391,6 +391,20 @@ export type AnalyticsEventName =
   | "macro_count_snapshot_completed"
   | "macro_count_space_changed"
   | "macro_count_snapshot_failed"
+  // Lite->Full macro conversion (vendor-operated queue, phase 1). Emitted by
+  // the Cloudflare conversion service, not the browser tracker — same
+  // contract as the macro-count snapshot events above. Lifecycle: a job is
+  // enqueued by the vendor admin script, claimed by the Full app's scheduled
+  // function, then each page either converts or fails; `completed` closes the
+  // job with totals. `macro_skipped` is per-macro (embed macros and unknown
+  // keys are skipped by design in v1, and the skip is the signal that tells
+  // us when phase-2 embed support becomes worth building).
+  | "macro_convert_job_enqueued"
+  | "macro_convert_job_claimed"
+  | "macro_convert_page_succeeded"
+  | "macro_convert_page_failed"
+  | "macro_convert_macro_skipped"
+  | "macro_convert_job_completed"
   | "close_guard_rejected"
   // Close-guard draft-restore banner (utils/restoreDraftBanner.ts). Shipped
   // 2026-05-10 without instrumentation, so 2.5 months of usage are dark —

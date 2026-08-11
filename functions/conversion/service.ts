@@ -241,7 +241,8 @@ export async function handleBodies(
     const placeholders = ids.map((_, i) => `?${i + 2}`).join(',');
     const rows = await env.DB.prepare(
       `SELECT v.contentId AS contentId, v.body AS body, v.title AS title,
-              c.diagramType AS diagramType, v.versionNumber AS versionNumber
+              c.diagramType AS diagramType, c.type AS contentType,
+              v.versionNumber AS versionNumber
          FROM CustomContentVersion v
          JOIN CustomContent c ON c.contentId = v.contentId AND c.appId = v.appId
         WHERE v.appId = ?1 AND v.contentId IN (${placeholders})
@@ -250,13 +251,33 @@ export async function handleBodies(
              WHERE v2.contentId = v.contentId AND v2.appId = v.appId)`,
     )
       .bind(LITE_APP_ID, ...ids)
-      .all<{ contentId: string; body: string; title: string | null; diagramType: string | null; versionNumber: number }>();
+      .all<{
+        contentId: string;
+        body: string;
+        title: string | null;
+        diagramType: string | null;
+        contentType: string | null;
+        versionNumber: number;
+      }>();
 
-    const found: Record<string, { body: string; title: string | null; diagramType: string | null }> = {};
+    const found: Record<
+      string,
+      { body: string; title: string | null; diagramType: string | null; contentType: string | null }
+    > = {};
     for (const r of rows.results ?? []) {
       const body = unwrapMirrorBody(r.body);
       if (body === null) continue; // falls through to `missing` — see unwrapMirrorBody
-      found[r.contentId] = { body, title: r.title, diagramType: r.diagramType };
+      // contentType travels so the converted content lands under the SAME
+      // custom-content key Lite used. The app writes every diagram type under
+      // `zenuml-content-sequence` (ApWrapper2.getContentKey) — 2103 of 2104
+      // mirrored graph bodies included — so deriving the type from the macro
+      // key would produce content the app itself never creates.
+      found[r.contentId] = {
+        body,
+        title: r.title,
+        diagramType: r.diagramType,
+        contentType: r.contentType,
+      };
     }
     const missing = ids.filter((id) => !(id in found));
     return jsonResponse({ contents: found, missing });

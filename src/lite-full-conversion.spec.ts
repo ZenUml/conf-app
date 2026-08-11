@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseExtensionKey,
   mapLiteMacroKey,
-  fullContentTypeForMacroKey,
+  fullContentTypeForLiteType,
   collectLiteExtensions,
   rewriteExtensionNode,
   normalizeEnvironmentId,
@@ -73,17 +73,25 @@ describe('mapLiteMacroKey', () => {
   });
 });
 
-describe('fullContentTypeForMacroKey', () => {
-  it('routes graph to the graph content type, everything else to sequence', () => {
-    expect(fullContentTypeForMacroKey('zenuml-graph-macro')).toBe(
-      'ac:com.zenuml.confluence-addon:zenuml-content-graph',
-    );
-    expect(fullContentTypeForMacroKey('zenuml-sequence-macro')).toBe(
-      'ac:com.zenuml.confluence-addon:zenuml-content-sequence',
-    );
-    expect(fullContentTypeForMacroKey('zenuml-openapi-macro')).toBe(
-      'ac:com.zenuml.confluence-addon:zenuml-content-sequence',
-    );
+describe('fullContentTypeForLiteType', () => {
+  // The app writes EVERY diagram type under zenuml-content-sequence
+  // (ApWrapper2.getContentKey) — measured: 2103 of 2104 mirrored graph bodies.
+  // Converted content must land under the same key its source used, so it is
+  // indistinguishable from natively-saved content.
+  it('swaps only the app prefix, keeping the source key', () => {
+    expect(
+      fullContentTypeForLiteType('ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence'),
+    ).toBe('ac:com.zenuml.confluence-addon:zenuml-content-sequence');
+    expect(
+      fullContentTypeForLiteType('ac:com.zenuml.confluence-addon-lite:zenuml-content-graph'),
+    ).toBe('ac:com.zenuml.confluence-addon:zenuml-content-graph');
+  });
+
+  it('returns null for a type that is not Lite, so the macro is skipped', () => {
+    expect(fullContentTypeForLiteType('ac:com.zenuml.confluence-addon:zenuml-content-sequence')).toBeNull();
+    expect(fullContentTypeForLiteType('ac:gptdock-confluence:gpt-custom-content-key')).toBeNull();
+    expect(fullContentTypeForLiteType(null)).toBeNull();
+    expect(fullContentTypeForLiteType('')).toBeNull();
   });
 });
 

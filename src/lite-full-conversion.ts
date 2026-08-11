@@ -71,11 +71,20 @@ export function mapLiteMacroKey(liteKey: string): string | null {
   return fullKey;
 }
 
-/** Which Full custom-content type the converted body lives under. */
-export function fullContentTypeForMacroKey(fullMacroKey: string): string {
-  return fullMacroKey === 'zenuml-graph-macro'
-    ? `${FULL_CONTENT_TYPE_PREFIX}zenuml-content-graph`
-    : `${FULL_CONTENT_TYPE_PREFIX}zenuml-content-sequence`;
+export const LITE_CONTENT_TYPE_PREFIX = 'ac:com.zenuml.confluence-addon-lite:';
+
+/**
+ * Converted content keeps the SAME custom-content key Lite stored it under —
+ * only the app prefix changes. Deriving the key from the macro type looked
+ * right and was wrong: `ApWrapper2.getContentKey()` writes every diagram type
+ * under `zenuml-content-sequence`, so 2103 of 2104 mirrored graph bodies live
+ * there, and a converted graph filed under `zenuml-content-graph` would be
+ * content the app itself never creates. Returns null for anything that is not
+ * a Lite type — an unrecognised source type skips the macro.
+ */
+export function fullContentTypeForLiteType(liteType: string | null | undefined): string | null {
+  if (!liteType || !liteType.startsWith(LITE_CONTENT_TYPE_PREFIX)) return null;
+  return FULL_CONTENT_TYPE_PREFIX + liteType.slice(LITE_CONTENT_TYPE_PREFIX.length);
 }
 
 /** Depth-first walk yielding every ecosystem extension node owned by the Lite app. */
@@ -368,8 +377,13 @@ async function convertPage(
       rewrote += 1;
       continue;
     }
+    const fullType = fullContentTypeForLiteType(content.contentType);
+    if (!fullType) {
+      stats.macrosSkippedUnknownKey += 1;
+      continue;
+    }
     const newId = await createFullCustomContent(
-      fullContentTypeForMacroKey(plan.fullKey),
+      fullType,
       content.title ?? null,
       content.body,
       page.id,

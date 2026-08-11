@@ -26,6 +26,23 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(connect.storage).toEqual({ inScopeEUD: true })
   })
 
+  it('all manifest-generation paths retain the shared remote EUD declaration', () => {
+    for (const variant of ['lite', 'full', 'diagramly', 'asyncapi'] as const) {
+      const yq = getManifestEditYqArgs(variant).map((edit) => edit.expr).join('\n')
+      expect(yq).not.toContain('select(. == "storage")')
+      expect(yq).not.toContain('select(.key == "connect").storage')
+    }
+
+    for (const workflow of [
+      '.github/workflows/staging-deploy.yml',
+      '.github/workflows/release.yml',
+    ]) {
+      const source = fs.readFileSync(workflow, 'utf8')
+      expect(source).not.toContain('select(. == "storage")')
+      expect(source).not.toContain('select(.key == "connect").storage')
+    }
+  })
+
   it('lite strips licensing, contentBylineItem, and asyncapi bits', () => {
     const desc = getManifestEditDescriptions('lite')
     expect(desc).toContain('Remove licensing (lite is free)')

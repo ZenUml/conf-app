@@ -298,6 +298,7 @@ async function publishPage(page: PageDoc, adf: unknown): Promise<void> {
 async function convertPage(
   pageId: string,
   identity: RewriteIdentity,
+  jobId: string,
   dryRun: boolean,
   stats: JobStats,
 ): Promise<void> {
@@ -331,6 +332,8 @@ async function convertPage(
   }
 
   const bodies = await remoteJson('/conversion/bodies', {
+    // jobId is the backend's tenant scope for this read — see handleBodies.
+    jobId,
     contentIds: plans.map((p) => p.liteContentId),
   });
 
@@ -413,7 +416,7 @@ export async function runConversionTick(): Promise<void> {
     stats.pagesTotal = pageIds.length;
     for (const pageId of pageIds) {
       try {
-        await convertPage(pageId, identity, job.dryRun, stats);
+        await convertPage(pageId, identity, job.id, job.dryRun, stats);
       } catch (e) {
         stats.pagesFailed += 1;
         console.error('[lite2full] page failed', { pageId, reason: (e as Error).message });

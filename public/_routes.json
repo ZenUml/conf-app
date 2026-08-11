@@ -30,7 +30,8 @@
     "/d/*",
     "/i/*",
     "/deeplink-ticket",
-    "/activation-prepared"
+    "/activation-prepared",
+    "/conversion/*"
   ],
   "exclude": []
 }

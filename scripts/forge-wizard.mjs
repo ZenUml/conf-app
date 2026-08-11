@@ -64,7 +64,7 @@ export const APPS = {
       {
         description: 'Remove Diagramly demo-page modules (Lite keeps only macro snapshot schedule)',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled")) | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline"))',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "liteFullConversionFn")) | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline" or .key == "full-lite2full-hourly"))',
       },
     ],
     sites: {
@@ -122,7 +122,7 @@ export const APPS = {
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from Full',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger)',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "diagramly-demo-page-pipeline"))',
       },
       {
         description: 'Point embed deeplink autoConvert matcher at conf-full.zenuml.com',
@@ -186,7 +186,7 @@ export const APPS = {
       {
         description: 'Remove Lite macro snapshot schedule from Diagramly',
         yqEvalExpr:
-          'del(.modules.function[] | select(.key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily"))',
+          'del(.modules.function[] | select(.key == "macroCountSnapshotFn" or .key == "liteFullConversionFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "full-lite2full-hourly"))',
       },
     ],
     sites: {
@@ -278,7 +278,7 @@ export const APPS = {
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from AsyncAPI',
         yqEvalExpr:
-          'del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger)',
+          'del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn" or .key == "liteFullConversionFn")) | del(.modules.scheduledTrigger)',
       },
     ],
     sites: {

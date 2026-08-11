@@ -333,6 +333,15 @@ modules:
     - key: diagramly-demo-page-pipeline
       function: createDemoPageScheduled
       interval: hour
+    # Full-only. Variant builds strip this from Lite, Diagramly, and AsyncAPI
+    # (scripts/forge-wizard.mjs). Lite->Full conversion executor: claims at
+    # most one vendor-enqueued ConversionJob per tick from the connect Remote
+    # and exits immediately when the queue is empty, so idle installations pay
+    # one claim round-trip per hour.
+    # docs/superpowers/specs/2026-08-11-lite-to-full-conversion.md
+    - key: full-lite2full-hourly
+      function: liteFullConversionFn
+      interval: hour
   endpoint:
     - key: remote-connect
       remote: connect
@@ -483,6 +492,9 @@ modules:
       handler: createDemoPage.scheduledHandler
     - key: macroCountSnapshotFn
       handler: macro-count-snapshot.scheduledHandler
+      timeoutSeconds: 900
+    - key: liteFullConversionFn
+      handler: lite-full-conversion.scheduledHandler
       timeoutSeconds: 900
 
 resources:

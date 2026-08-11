@@ -123,6 +123,28 @@ export type AnalyticsProperties = {
   last_completed_type?: string;
   processed_contents?: number;
   processed_spaces?: number;
+  // Lite->Full macro conversion (vendor-operated queue). Same backend-emitted
+  // contract as the snapshot block above: never include page/content bodies,
+  // titles, or raw errors. `convert_job_id` is our own D1 row id, not an
+  // Atlassian identifier. `convert_skip_reason` is a closed vocabulary so the
+  // phase-2 decision ("is embed demand real?") is a groupBy, not a text mine.
+  convert_job_id?: string;
+  convert_dry_run?: boolean;
+  convert_request_source?: string;
+  convert_pages_total?: number;
+  convert_pages_succeeded?: number;
+  convert_pages_failed?: number;
+  convert_macros_converted?: number;
+  convert_macros_skipped?: number;
+  convert_skip_reason?: "embed_macro" | "unknown_macro_key" | "body_missing";
+  convert_failure_stage?:
+    | "claim"
+    | "page_read"
+    | "bodies_fetch"
+    | "content_create"
+    | "adf_rewrite"
+    | "page_update"
+    | "report";
   // AI
   prompt_length?: number;
   generation_source?: string;

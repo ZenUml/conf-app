@@ -66,6 +66,12 @@ interface ConversionJobRow {
  * derived from (jobId, event) so a retried claim or report deduplicates.
  * Delivery failures are logged, never surfaced: telemetry must not fail a
  * conversion.
+ *
+ * `waitUntil` is required in practice, not decorative: without it the Worker
+ * returns its response and the in-flight Import fetch is cancelled. Measured
+ * 2026-08-12 on full-stg — the claim event arrived, the completion event never
+ * did, because the report handler had one fetch to lose and the claim path had
+ * three chances to win the race.
  */
 function emitConversionEvent(
   env: ConversionEnv,
@@ -73,9 +79,10 @@ function emitConversionEvent(
   jobId: string,
   cloudId: string,
   properties: Record<string, string | number | boolean | null>,
+  waitUntil?: (promise: Promise<unknown>) => void,
 ): void {
   if (!env.MIXPANEL_TOKEN) return;
-  void mixpanelImportServiceEvents(
+  const delivery = mixpanelImportServiceEvents(
     [
       {
         event,
@@ -92,6 +99,8 @@ function emitConversionEvent(
       reason: error instanceof Error ? error.name : 'unknown_error',
     });
   });
+  if (waitUntil) waitUntil(delivery);
+  else void delivery;
 }
 
 async function requireFullAppContext(
@@ -119,6 +128,7 @@ export async function handleClaim(
   request: Request,
   env: ConversionEnv,
   data: ForgeRequestData,
+  waitUntil?: (promise: Promise<unknown>) => void,
 ): Promise<Response> {
   try {
     const context = await requireFullAppContext(request, env, data);
@@ -156,7 +166,7 @@ export async function handleClaim(
       convert_page_count: row.pageIds ? (JSON.parse(row.pageIds) as string[]).length : 0,
       convert_dry_run: row.dryRun === 1,
       convert_request_source: row.requestSource,
-    });
+    }, waitUntil);
 
     return jsonResponse({
       job: {
@@ -290,6 +300,7 @@ export async function handleReport(
   request: Request,
   env: ConversionEnv,
   data: ForgeRequestData,
+  waitUntil?: (promise: Promise<unknown>) => void,
 ): Promise<Response> {
   try {
     const context = await requireFullAppContext(request, env, data);
@@ -358,7 +369,7 @@ export async function handleReport(
         convert_status: status,
         convert_failure_stage: failureStage,
         ...merged,
-      });
+      }, waitUntil);
     }
 
     return jsonResponse({ ok: true, status: requeue ? 'queued' : status });

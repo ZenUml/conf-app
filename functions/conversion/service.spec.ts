@@ -150,6 +150,23 @@ describe('handleBodies tenant scope', () => {
     });
   });
 
+  it('hands the delivery to waitUntil so the response cannot cancel it', async () => {
+    vi.mocked(mixpanelImportServiceEvents).mockClear();
+    const held: Promise<unknown>[] = [];
+    await handleReport(
+      new Request('https://x/conversion/report', {
+        method: 'POST',
+        body: JSON.stringify({ jobId: 'job-1', status: 'done' }),
+      }),
+      { DB: reportDb(), MIXPANEL_TOKEN: 'tok' } as never,
+      {} as never,
+      (p) => held.push(p),
+    );
+    // Without this the Worker returns and the in-flight Import fetch is
+    // cancelled — observed on full-stg: claim event arrived, completion did not.
+    expect(held).toHaveLength(1);
+  });
+
   it('stays silent when no Mixpanel token is configured', async () => {
     vi.mocked(mixpanelImportServiceEvents).mockClear();
     const db = reportDb();

@@ -500,18 +500,11 @@ export type AnalyticsEventName =
   | "agent_link_diagram_read"
   | "agent_link_search_performed"
   | "agent_link_list_performed"
-  // Byline activation nudge (docs/superpowers/specs/2026-07-26-byline-activation-nudge-design.md).
-  // ONE merged contentBylineItem (decision 2026-07-26, supersedes the design's
-  // two-item shape and closes its §8.4 Aide co-display open item). Visibility is a
-  // single server-side `entityPropertyExists` gate on `zenuml-prepared-diagram`,
-  // whose VALUE selects the dialog mode — `has-content` (the page already has
-  // diagrams / API specs → list them) or `prepared` (no diagrams, a curated one is
-  // ready → the activation flow). Pages with neither get no property and no chip.
-  // The mode branch happens INSIDE the dialog, never in the byline: a per-view
-  // decision would need `dynamicProperties`, i.e. one Forge invocation per content
-  // view — the §5 cost wall (4.15M views/month, 2.1x the free tier at 100ms) and the
-  // exact shape of the PR #234 incident. `mode` rides every event so the two
-  // journeys stay separable.
+  // AI-prepared byline activation nudge
+  // (docs/superpowers/specs/2026-07-26-byline-activation-nudge-design.md).
+  // Visibility is a server-side `entityPropertyExists` gate on
+  // `zenuml-prepared-diagram`: the property means a curated diagram is ready.
+  // Listing diagrams already on the page belongs to the separate Diagrams byline.
   // NOTE: activation_nudge_shown is NOT emitted — the byline chip is
   // server-rendered Confluence chrome, not our Custom UI, so we get no
   // client hook when it renders. `activation_nudge_clicked` IS the funnel
@@ -526,9 +519,6 @@ export type AnalyticsEventName =
   | "activation_diagram_edited"
   | "activation_completed"
   | "activation_nudge_dismissed"
-  // mode='has-content' branch: the page's existing diagrams listed, and one opened.
-  | "byline_diagram_list_shown"
-  | "byline_diagram_opened"
   // Starter-template gallery (#334, JTBD: author job). The real "hire moment"
   // for diagram creation is at the macro editor, before the user has typed
   // anything — the gallery replaces the old external "Examples" link
@@ -543,11 +533,6 @@ export type AnalyticsEventName =
   // above and are reused, not redefined, when that lands.
   | "editor_template_gallery_opened"
   | "editor_template_applied";
-
-// Which journey the merged byline dialog took, from the `zenuml-prepared-diagram`
-// property value. 'has-content' = list the diagrams already on this page;
-// 'prepared' = the activation flow over a pre-generated, human-curated diagram.
-export type BylineMode = "has-content" | "prepared";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the

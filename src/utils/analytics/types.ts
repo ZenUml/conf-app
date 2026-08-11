@@ -24,7 +24,6 @@ import type {
   AgentLinkGuardrailRejectReason,
   AgentLinkSessionSuspendReason,
   AgentLinkListScope,
-  BylineMode,
   ActivationPath,
 } from "./catalog";
 
@@ -260,18 +259,13 @@ export type AnalyticsProperties = {
   edit_dup_gate_outcome?: 'blocked' | 'passed' | 'scan_failed';
   same_page_macro_count?: number;
   copy_reason?: 'same-page-duplicate' | 'cross-page';
-  // Byline activation nudge. `byline_mode` rides EVERY activation_*/byline_* event
-  // so the list journey and the activation journey never pool. `prepared_age_days`
-  // is how stale the curated diagram was when served — it decides how often the
-  // offline pipeline must refresh. `activation_path` is named for its feature
-  // rather than the design doc's bare `path`, which is too generic to reserve.
+  // AI-prepared byline activation nudge. `prepared_age_days` is how stale the
+  // curated diagram was when served; `activation_path` describes how the user
+  // completed the flow.
   // Diagram type reuses the existing `macro_type` above rather than the design's
   // `diagram_type` synonym — one name per concept.
-  byline_mode?: BylineMode;
   prepared_age_days?: number;
   activation_path?: ActivationPath;
-  // byline_diagram_list_shown: how many diagrams the page already had.
-  diagram_count?: number;
   // Diagramly demo-page engagement: set automatically for macro_* events when
   // the macro lives on a page tagged with the `diagramly-demo-page` page
   // property. See utils/analytics/demoPageStatus.ts.

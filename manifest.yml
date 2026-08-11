@@ -48,9 +48,11 @@ remotes:
       #
       # Previously full/diagramly/asyncapi stripped this operation and the
       # storage declaration below, which under-declared what those apps
-      # actually store. Do NOT re-add that strip: per the Forge remotes
-      # reference, going inScopeEUD false -> true is a MAJOR version, so the
-      # declaration must stay accurate for every variant once shipped.
+      # actually store. Do NOT re-add that strip. PR #383 corrected the
+      # omission; Forge classified all three resulting staging deployments as
+      # minor versions (Full 3.448.0, Diagramly 2.637.0, AsyncAPI 5.127.0), so
+      # this correction did not create an admin re-consent boundary. The
+      # remotes reference's major-version rule is specifically false -> true.
       - storage
     storage:
       inScopeEUD: true

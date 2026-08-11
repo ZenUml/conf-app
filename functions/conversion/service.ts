@@ -26,6 +26,8 @@ import {
   type SnapshotEnv,
 } from '../metrics-cache/snapshot/common';
 import type { ForgeRequestData } from '../utils/authenticate';
+import { mixpanelImportServiceEvents } from '../service/mixpanelService';
+import type { AnalyticsEventName } from '../service/analyticsTypes';
 
 export type ConversionEnv = SnapshotEnv;
 
@@ -43,6 +45,44 @@ interface ConversionJobRow {
   requestSource: string;
   status: string;
   claimedAt: string | null;
+}
+
+/**
+ * Conversion telemetry is emitted HERE, not from the Forge executor: the
+ * scheduled function has no Mixpanel token and no browser tracker, while this
+ * endpoint already holds the verified tenant identity and the job row.
+ *
+ * `distinctId` is the job id — a conversion run is the subject, and a
+ * scheduled job must never masquerade as an Atlassian user. `insertId` is
+ * derived from (jobId, event) so a retried claim or report deduplicates.
+ * Delivery failures are logged, never surfaced: telemetry must not fail a
+ * conversion.
+ */
+function emitConversionEvent(
+  env: ConversionEnv,
+  event: AnalyticsEventName,
+  jobId: string,
+  cloudId: string,
+  properties: Record<string, string | number | boolean | null>,
+): void {
+  if (!env.MIXPANEL_TOKEN) return;
+  void mixpanelImportServiceEvents(
+    [
+      {
+        event,
+        distinctId: jobId,
+        insertId: `${jobId}:${event}`,
+        time: Math.floor(Date.now() / 1000),
+        properties: { ...properties, cloud_id: cloudId, product_type: 'full' },
+      },
+    ],
+    env.MIXPANEL_TOKEN,
+  ).catch((error) => {
+    console.warn('[lite2full] Mixpanel delivery failed', {
+      event,
+      reason: error instanceof Error ? error.name : 'unknown_error',
+    });
+  });
 }
 
 async function requireFullAppContext(
@@ -100,6 +140,13 @@ export async function handleClaim(
       // Lost the race to a concurrent invocation — behave as an empty queue.
       return jsonResponse({ job: null });
     }
+
+    emitConversionEvent(env, 'macro_convert_job_claimed', row.id, context.cloudId, {
+      convert_scope: row.spaceKey ? 'space' : 'pages',
+      convert_page_count: row.pageIds ? (JSON.parse(row.pageIds) as string[]).length : 0,
+      convert_dry_run: row.dryRun === 1,
+      convert_request_source: row.requestSource,
+    });
 
     return jsonResponse({
       job: {
@@ -241,6 +288,13 @@ export async function handleReport(
     if (!updated.meta || updated.meta.changes === 0) {
       throw new HttpError(409, 'Job is not claimed for this installation');
     }
+
+    emitConversionEvent(env, 'macro_convert_job_completed', jobId, context.cloudId, {
+      convert_status: status,
+      convert_failure_stage: failureStage,
+      ...stats,
+    });
+
     return jsonResponse({ ok: true });
   } catch (e) {
     return errorResponse(e);

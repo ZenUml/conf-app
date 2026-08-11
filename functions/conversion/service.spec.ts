@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { unwrapMirrorBody, handleBodies } from './service';
+import { unwrapMirrorBody, handleBodies, handleReport } from './service';
+import { mixpanelImportServiceEvents } from '../service/mixpanelService';
+
+vi.mock('../service/mixpanelService', () => ({
+  mixpanelImportServiceEvents: vi.fn(async () => undefined),
+}));
 
 vi.mock('../metrics-cache/snapshot/common', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../metrics-cache/snapshot/common')>();
@@ -100,6 +105,61 @@ describe('handleBodies tenant scope', () => {
       {} as never,
     );
     expect(res.status).toBe(403);
+  });
+
+  it('emits one deduplicated completion event carrying the job counts', async () => {
+    vi.mocked(mixpanelImportServiceEvents).mockClear();
+    const db = {
+      prepare: vi.fn(() => ({
+        bind: vi.fn(() => ({ run: vi.fn(async () => ({ meta: { changes: 1 } })) })),
+      })),
+    };
+    const res = await handleReport(
+      new Request('https://x/conversion/report', {
+        method: 'POST',
+        body: JSON.stringify({
+          jobId: 'job-1',
+          status: 'done',
+          stats: { pagesTotal: 1, macrosConverted: 2, dryRun: false },
+        }),
+      }),
+      { DB: db, MIXPANEL_TOKEN: 'tok' } as never,
+      {} as never,
+    );
+    expect(res.status).toBe(200);
+    const [events, token] = vi.mocked(mixpanelImportServiceEvents).mock.calls[0];
+    expect(token).toBe('tok');
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      event: 'macro_convert_job_completed',
+      distinctId: 'job-1',
+      insertId: 'job-1:macro_convert_job_completed',
+    });
+    // Counts ride along so a completion answers "how much converted" alone.
+    expect(events[0].properties).toMatchObject({
+      convert_status: 'done',
+      cloud_id: 'cloud-a',
+      pagesTotal: 1,
+      macrosConverted: 2,
+    });
+  });
+
+  it('stays silent when no Mixpanel token is configured', async () => {
+    vi.mocked(mixpanelImportServiceEvents).mockClear();
+    const db = {
+      prepare: vi.fn(() => ({
+        bind: vi.fn(() => ({ run: vi.fn(async () => ({ meta: { changes: 1 } })) })),
+      })),
+    };
+    await handleReport(
+      new Request('https://x/conversion/report', {
+        method: 'POST',
+        body: JSON.stringify({ jobId: 'job-1', status: 'done' }),
+      }),
+      { DB: db } as never,
+      {} as never,
+    );
+    expect(mixpanelImportServiceEvents).not.toHaveBeenCalled();
   });
 
   it('returns unwrapped bodies for a claimed job', async () => {

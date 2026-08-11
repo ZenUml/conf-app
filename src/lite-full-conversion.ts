@@ -109,6 +109,19 @@ export interface RewriteIdentity {
 }
 
 /**
+ * The FIT carries `environmentId` as a full ARI
+ * (`ari:cloud:ecosystem::environment/<appId>/<envUuid>`), while an
+ * `extensionKey` needs only the trailing UUID. Concatenating the ARI
+ * produced a malformed key on the first live staging conversion
+ * (2026-08-11, job c5a6d954) — the macro rendered as an unknown extension.
+ * Both shapes are accepted so this survives a future FIT change.
+ */
+export function normalizeEnvironmentId(value: string): string {
+  const last = value.split('/').pop() ?? '';
+  return /^[0-9a-f-]{36}$/.test(last) ? last : '';
+}
+
+/**
  * Rewrite one Lite extension node to Full, in place. Only the app-identity
  * fields, the content pointer, and the visible title change; localId (macro
  * identity — survives page copy) and everything else are preserved.
@@ -355,8 +368,8 @@ export async function runConversionTick(): Promise<void> {
 
   const job: ClaimedJob = claim.job;
   const identity: RewriteIdentity = {
-    appId: claim.app?.appId ?? '',
-    environmentId: claim.app?.environmentId ?? '',
+    appId: normalizeEnvironmentId(claim.app?.appId ?? '') || (claim.app?.appId ?? ''),
+    environmentId: normalizeEnvironmentId(claim.app?.environmentId ?? ''),
     environmentType: claim.app?.environmentType ?? null,
   };
   if (!identity.appId || !identity.environmentId) {

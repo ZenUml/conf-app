@@ -5,6 +5,7 @@ import {
   fullContentTypeForMacroKey,
   collectLiteExtensions,
   rewriteExtensionNode,
+  normalizeEnvironmentId,
   LITE_APP_ID,
   type AdfExtensionNode,
 } from './lite-full-conversion';
@@ -104,6 +105,42 @@ describe('collectLiteExtensions', () => {
     const found = collectLiteExtensions(doc);
     expect(found).toHaveLength(1);
     expect(found[0].attrs.extensionKey).toContain('zenuml-sequence-macro-lite');
+  });
+});
+
+describe('normalizeEnvironmentId', () => {
+  // The FIT hands out the ARI form; the extensionKey needs the bare uuid.
+  // Concatenating the ARI is what broke staging job c5a6d954 (2026-08-11).
+  it('takes the trailing uuid out of an environment ARI', () => {
+    expect(
+      normalizeEnvironmentId(
+        'ari:cloud:ecosystem::environment/d9e4002b-120b-426b-834b-402a4a5adce7/095a5f48-0aa4-48b6-b546-0535bcee7c8e',
+      ),
+    ).toBe('095a5f48-0aa4-48b6-b546-0535bcee7c8e');
+  });
+
+  it('passes a bare uuid through unchanged', () => {
+    expect(normalizeEnvironmentId('095a5f48-0aa4-48b6-b546-0535bcee7c8e')).toBe(
+      '095a5f48-0aa4-48b6-b546-0535bcee7c8e',
+    );
+  });
+
+  it('returns empty for anything that is not uuid-shaped, so the job fails loudly', () => {
+    expect(normalizeEnvironmentId('')).toBe('');
+    expect(normalizeEnvironmentId('ari:cloud:ecosystem::environment/nope')).toBe('');
+  });
+
+  it('produces an extensionKey that parseExtensionKey accepts (round trip)', () => {
+    const env = normalizeEnvironmentId(
+      'ari:cloud:ecosystem::environment/d9e4002b-120b-426b-834b-402a4a5adce7/095a5f48-0aa4-48b6-b546-0535bcee7c8e',
+    );
+    const node = capturedNode();
+    rewriteExtensionNode(node, { ...FULL_APP, environmentId: env }, 'zenuml-sequence-macro', '1');
+    expect(parseExtensionKey(node.attrs.extensionKey)).toEqual({
+      appId: FULL_APP.appId,
+      environmentId: '095a5f48-0aa4-48b6-b546-0535bcee7c8e',
+      macroKey: 'zenuml-sequence-macro',
+    });
   });
 });
 

@@ -142,6 +142,18 @@ jobs:
               | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily"))
               | del(.modules.scheduledTrigger | select(length == 0))
             ' -i manifest.yml
+      # The Lite->Full conversion executor ships only in Full
+      # (docs/superpowers/specs/2026-08-11-lite-to-full-conversion.md).
+      - name: Remove Full conversion modules from non-Full variants
+        if: ${{ steps.properties.outputs.license != 'full' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval '
+              del(.modules.function[] | select(.key == "liteFullConversionFn"))
+              | del(.modules.scheduledTrigger[] | select(.key == "full-lite2full-hourly"))
+              | del(.modules.scheduledTrigger | select(length == 0))
+            ' -i manifest.yml
       # AsyncAPI: keep only the asyncapi macros, drop the dashboard /
       # get-started / byline modules, and grant `unsafe-eval` in CSP so
       # Studio's runtime schema compilation works inside Forge's iframe.

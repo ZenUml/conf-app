@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { unwrapMirrorBody, handleBodies, handleReport } from './service';
+import { unwrapMirrorBody, handleBodies, handleReport, mergeStats } from './service';
 import { mixpanelImportServiceEvents } from '../service/mixpanelService';
 
 vi.mock('../service/mixpanelService', () => ({
@@ -88,6 +88,16 @@ describe('handleBodies tenant scope', () => {
     };
   }
 
+  /** report path: `first()` reads the prior row, `run()` applies the update. */
+  const reportDb = (statsJson: string | null = null, pageOffset = 0) => ({
+    prepare: vi.fn(() => ({
+      bind: vi.fn(() => ({
+        first: vi.fn(async () => ({ statsJson, pageOffset })),
+        run: vi.fn(async () => ({ meta: { changes: 1 } })),
+      })),
+    })),
+  });
+
   const post = (body: unknown) =>
     new Request('https://x/conversion/bodies', { method: 'POST', body: JSON.stringify(body) });
 
@@ -109,11 +119,7 @@ describe('handleBodies tenant scope', () => {
 
   it('emits one deduplicated completion event carrying the job counts', async () => {
     vi.mocked(mixpanelImportServiceEvents).mockClear();
-    const db = {
-      prepare: vi.fn(() => ({
-        bind: vi.fn(() => ({ run: vi.fn(async () => ({ meta: { changes: 1 } })) })),
-      })),
-    };
+    const db = reportDb();
     const res = await handleReport(
       new Request('https://x/conversion/report', {
         method: 'POST',
@@ -146,11 +152,7 @@ describe('handleBodies tenant scope', () => {
 
   it('stays silent when no Mixpanel token is configured', async () => {
     vi.mocked(mixpanelImportServiceEvents).mockClear();
-    const db = {
-      prepare: vi.fn(() => ({
-        bind: vi.fn(() => ({ run: vi.fn(async () => ({ meta: { changes: 1 } })) })),
-      })),
-    };
+    const db = reportDb();
     await handleReport(
       new Request('https://x/conversion/report', {
         method: 'POST',
@@ -171,5 +173,68 @@ describe('handleBodies tenant scope', () => {
     expect(res.status).toBe(200);
     const payload = (await res.json()) as { contents: Record<string, { body: string }> };
     expect(JSON.parse(payload.contents['111'].body)).toEqual({ diagramType: 'sequence', code: 'A.b()' });
+  });
+});
+
+describe('mergeStats', () => {
+  it('sums counts across batches so the final stats describe the whole job', () => {
+    const prior = JSON.stringify({ pagesTotal: 25, macrosConverted: 40, dryRun: false });
+    expect(mergeStats(prior, { pagesTotal: 7, macrosConverted: 9, dryRun: false })).toEqual({
+      pagesTotal: 32,
+      macrosConverted: 49,
+      dryRun: false,
+    });
+  });
+
+  it('keeps counts an earlier batch reported and this one omitted', () => {
+    const prior = JSON.stringify({ pagesTotal: 2, macrosSkippedEmbed: 3 });
+    expect(mergeStats(prior, { pagesTotal: 1 })).toEqual({ pagesTotal: 3, macrosSkippedEmbed: 3 });
+  });
+
+  it('treats an absent or unreadable prior as zero', () => {
+    expect(mergeStats(null, { pagesTotal: 4 })).toEqual({ pagesTotal: 4 });
+    expect(mergeStats('{not json', { pagesTotal: 4 })).toEqual({ pagesTotal: 4 });
+  });
+});
+
+describe('handleReport requeue', () => {
+  const reportRequest = (body: unknown) =>
+    new Request('https://x/conversion/report', { method: 'POST', body: JSON.stringify(body) });
+
+  it('puts a requeued job back in the queue and emits no completion', async () => {
+    vi.mocked(mixpanelImportServiceEvents).mockClear();
+    const bind = vi.fn(() => ({
+      first: vi.fn(async () => ({ statsJson: '{"pagesTotal":25,"macrosConverted":40}', pageOffset: 0 })),
+      run: vi.fn(async () => ({ meta: { changes: 1 } })),
+    }));
+    const db = { prepare: vi.fn(() => ({ bind })) };
+    const res = await handleReport(
+      reportRequest({
+        jobId: 'job-1',
+        status: 'requeue',
+        pagesProcessed: 25,
+        stats: { pagesTotal: 25, macrosConverted: 40 },
+      }),
+      { DB: db, MIXPANEL_TOKEN: 'tok' } as never,
+      {} as never,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, status: 'queued' });
+    // status='queued', claimedAt=null, cursor advanced by the pages processed.
+    const args = bind.mock.calls[1];
+    expect(args[1]).toBe('queued');
+    expect(args[6]).toBeNull();
+    expect(args[7]).toBe(25);
+    // A mid-flight batch is not a completion.
+    expect(mixpanelImportServiceEvents).not.toHaveBeenCalled();
+  });
+
+  it('rejects a status that is neither terminal nor requeue', async () => {
+    const res = await handleReport(
+      reportRequest({ jobId: 'job-1', status: 'running' }),
+      { DB: { prepare: vi.fn() } } as never,
+      {} as never,
+    );
+    expect(res.status).toBe(400);
   });
 });

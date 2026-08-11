@@ -161,6 +161,10 @@ interface ClaimedJob {
   pageIds: string[] | null;
   dryRun: boolean;
   requestSource: string;
+  /** How many pages of an explicit list earlier ticks already processed. */
+  pageOffset?: number;
+  /** Per-job override of PAGE_BATCH_LIMIT (staging uses it to exercise multi-batch). */
+  pageBatchLimit?: number | null;
 }
 
 interface JobStats {
@@ -207,9 +211,25 @@ async function confluenceJson(path: ReturnType<typeof route>, init?: ConfluenceI
   return response.json();
 }
 
-/** Resolve the page ids in scope: explicit list, or a CQL sweep of the space. */
+/** Effective batch size for this job. */
+export function batchLimitFor(job: { pageBatchLimit?: number | null }): number {
+  const override = job.pageBatchLimit;
+  return typeof override === 'number' && override > 0 && override <= PAGE_BATCH_LIMIT
+    ? override
+    : PAGE_BATCH_LIMIT;
+}
+
+/**
+ * Resolve THIS TICK's pages: the next slice of an explicit list, or a CQL
+ * sweep of the space. A space sweep needs no cursor — a converted page holds
+ * no Lite macro and drops out of the query on the next tick.
+ */
 async function resolvePageIds(job: ClaimedJob): Promise<string[]> {
-  if (job.pageIds && job.pageIds.length > 0) return job.pageIds.slice(0, PAGE_BATCH_LIMIT);
+  const limit = batchLimitFor(job);
+  if (job.pageIds && job.pageIds.length > 0) {
+    const offset = job.pageOffset ?? 0;
+    return job.pageIds.slice(offset, offset + limit);
+  }
   if (!job.spaceKey) return [];
   const liteMacroKeys = [
     'zenuml-sequence-macro-lite',
@@ -229,8 +249,8 @@ async function resolvePageIds(job: ClaimedJob): Promise<string[]> {
       if (result?.id) ids.push(String(result.id));
     }
     next = page._links?.next ? new URL(`https://x${page._links.next}`).searchParams.get('cursor') ?? undefined : undefined;
-  } while (next && ids.length < PAGE_BATCH_LIMIT);
-  return ids.slice(0, PAGE_BATCH_LIMIT);
+  } while (next && ids.length < limit);
+  return ids.slice(0, limit);
 }
 
 interface PageDoc {
@@ -365,6 +385,14 @@ async function convertPage(
   stats.pagesSucceeded += 1;
 }
 
+/** A tick that filled its batch AND converted something may have more to do. */
+export function shouldRequeue(
+  stats: { pagesTotal: number; macrosConverted: number },
+  batchLimit: number,
+): boolean {
+  return stats.pagesTotal >= batchLimit && stats.macrosConverted > 0;
+}
+
 export async function runConversionTick(): Promise<void> {
   const claim = await remoteJson('/conversion/claim', {});
   if (!claim.job) return;
@@ -428,10 +456,17 @@ export async function runConversionTick(): Promise<void> {
   }
 
   const everyPageFailed = stats.pagesTotal > 0 && stats.pagesFailed === stats.pagesTotal;
+  const failed = Boolean(failureStage) || everyPageFailed;
+  // A full batch means there may be more pages. Ask for another tick rather
+  // than reporting a complete migration after 25 pages — but only when this
+  // tick actually converted something, so a batch that can make no further
+  // progress terminates instead of looping.
+  const more = !failed && shouldRequeue(stats, batchLimitFor(job));
   await remoteJson('/conversion/report', {
     jobId: job.id,
-    status: failureStage || everyPageFailed ? 'failed' : 'done',
+    status: failed ? 'failed' : more ? 'requeue' : 'done',
     failureStage: failureStage ?? undefined,
+    pagesProcessed: stats.pagesTotal,
     stats,
   });
 }

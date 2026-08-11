@@ -6,6 +6,8 @@ import {
   collectLiteExtensions,
   rewriteExtensionNode,
   normalizeEnvironmentId,
+  batchLimitFor,
+  shouldRequeue,
   LITE_APP_ID,
   type AdfExtensionNode,
 } from './lite-full-conversion';
@@ -162,5 +164,35 @@ describe('rewriteExtensionNode', () => {
     expect(node.attrs.localId).toBe('fb3d4d63-76fb-460c-9e9a-9fd8cbcbe1e6');
     expect(node.attrs.parameters!.localId).toBe('fb3d4d63-76fb-460c-9e9a-9fd8cbcbe1e6');
     expect(node.attrs.parameters!.embeddedMacroContext).toEqual({ accountId: 'x', cloudId: 'y' });
+  });
+});
+
+/**
+ * A job larger than one batch used to report `done` after its first 25 pages
+ * and never be claimed again — the rest of the tenant's macros stayed Lite
+ * with nothing in the record saying so.
+ */
+describe('multi-batch jobs', () => {
+  it('uses the per-job limit when set, the default otherwise', () => {
+    expect(batchLimitFor({})).toBe(25);
+    expect(batchLimitFor({ pageBatchLimit: null })).toBe(25);
+    expect(batchLimitFor({ pageBatchLimit: 1 })).toBe(1);
+    // Out-of-range overrides fall back rather than widen the batch.
+    expect(batchLimitFor({ pageBatchLimit: 0 })).toBe(25);
+    expect(batchLimitFor({ pageBatchLimit: 99 })).toBe(25);
+  });
+
+  it('asks for another tick when the batch filled and work was done', () => {
+    expect(shouldRequeue({ pagesTotal: 25, macrosConverted: 40 }, 25)).toBe(true);
+    expect(shouldRequeue({ pagesTotal: 1, macrosConverted: 2 }, 1)).toBe(true);
+  });
+
+  it('stops when the batch was short — nothing left to sweep', () => {
+    expect(shouldRequeue({ pagesTotal: 24, macrosConverted: 40 }, 25)).toBe(false);
+    expect(shouldRequeue({ pagesTotal: 0, macrosConverted: 0 }, 25)).toBe(false);
+  });
+
+  it('stops a full batch that converted nothing, so it cannot loop', () => {
+    expect(shouldRequeue({ pagesTotal: 25, macrosConverted: 0 }, 25)).toBe(false);
   });
 });

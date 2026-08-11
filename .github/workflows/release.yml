@@ -129,7 +129,10 @@ jobs:
               | del(.modules.function[] | select(.key == "createDemoPageScheduled"))
               | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline"))
             ' -i manifest.yml
-      - name: Remove Lite macro snapshot modules and remote storage from non-Lite variants
+      # The snapshot schedule ships only in Lite. The connect remote's storage
+      # declaration applies to every variant because all variants mirror saved
+      # diagram content to D1.
+      - name: Remove Lite macro snapshot modules from non-Lite variants
         if: ${{ steps.properties.outputs.license != 'lite' }}
         uses: mikefarah/yq@master
         with:
@@ -138,8 +141,6 @@ jobs:
               del(.modules.function[] | select(.key == "macroCountSnapshotFn"))
               | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily"))
               | del(.modules.scheduledTrigger | select(length == 0))
-              | del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage"))
-              | del(.remotes[] | select(.key == "connect").storage)
             ' -i manifest.yml
       # AsyncAPI: keep only the asyncapi macros, drop the dashboard /
       # get-started / byline modules, and grant `unsafe-eval` in CSP so

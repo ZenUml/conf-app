@@ -48,9 +48,11 @@ remotes:
       #
       # Previously full/diagramly/asyncapi stripped this operation and the
       # storage declaration below, which under-declared what those apps
-      # actually store. Do NOT re-add that strip: per the Forge remotes
-      # reference, going inScopeEUD false -> true is a MAJOR version, so the
-      # declaration must stay accurate for every variant once shipped.
+      # actually store. Do NOT re-add that strip in any manifest-generation
+      # path. PR #383 removed it from forge-wizard.mjs but missed the staging
+      # and production workflows; PR #460 removes those duplicate strips.
+      # Check the first resulting main-branch Forge deploy before classifying
+      # the version impact: earlier minor deploys still used stripped manifests.
       - storage
     storage:
       inScopeEUD: true

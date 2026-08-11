@@ -372,6 +372,20 @@ export async function runConversionTick(): Promise<void> {
     environmentId: normalizeEnvironmentId(claim.app?.environmentId ?? ''),
     environmentType: claim.app?.environmentType ?? null,
   };
+  // Deliberate: one line per claimed job. The first staging conversions
+  // produced a malformed extensionKey and nothing in the logs distinguished
+  // "old bundle still deployed" from "normalisation not applied", because the
+  // happy path was silent. Identity is app/environment metadata, not tenant
+  // content, so it is safe to log.
+  console.log('[lite2full] claimed', {
+    jobId: job.id,
+    rawAppId: claim.app?.appId,
+    rawEnvironmentId: claim.app?.environmentId,
+    derivedAppId: identity.appId,
+    derivedEnvironmentId: identity.environmentId,
+    dryRun: job.dryRun,
+  });
+
   if (!identity.appId || !identity.environmentId) {
     await remoteJson('/conversion/report', {
       jobId: job.id,

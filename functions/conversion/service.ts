@@ -124,6 +124,24 @@ export async function handleClaim(
   }
 }
 
+/**
+ * The mirror's `body` column is `JSON.stringify(customContent.body)` — the
+ * Confluence body OBJECT (`{raw: {representation, value}}`), not the diagram
+ * JSON the viewer parses. Return the inner `raw.value`, or null when the
+ * column is any other shape: an unrecognised body must skip the macro, never
+ * be written into new custom content.
+ */
+export function unwrapMirrorBody(stored: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stored);
+  } catch {
+    return null;
+  }
+  const value = (parsed as { raw?: { value?: unknown } } | null)?.raw?.value;
+  return typeof value === 'string' ? value : null;
+}
+
 export async function handleBodies(
   request: Request,
   env: ConversionEnv,
@@ -162,7 +180,9 @@ export async function handleBodies(
 
     const found: Record<string, { body: string; title: string | null; diagramType: string | null }> = {};
     for (const r of rows.results ?? []) {
-      found[r.contentId] = { body: r.body, title: r.title, diagramType: r.diagramType };
+      const body = unwrapMirrorBody(r.body);
+      if (body === null) continue; // falls through to `missing` — see unwrapMirrorBody
+      found[r.contentId] = { body, title: r.title, diagramType: r.diagramType };
     }
     const missing = ids.filter((id) => !(id in found));
     return jsonResponse({ contents: found, missing });

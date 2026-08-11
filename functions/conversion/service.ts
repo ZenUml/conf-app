@@ -26,10 +26,19 @@ import {
   type SnapshotEnv,
 } from '../metrics-cache/snapshot/common';
 import type { ForgeRequestData } from '../utils/authenticate';
+import { mixpanelImportServiceEvents } from '../service/mixpanelService';
+import type { AnalyticsEventName } from '../service/analyticsTypes';
 
 export type ConversionEnv = SnapshotEnv;
 
 const TERMINAL_STATUSES = new Set(['done', 'failed']);
+/**
+ * Not terminal: the executor converted a full batch and there may be more.
+ * The job goes back to `queued` with its cursor advanced and its counts
+ * accumulated, so the next tick continues instead of the job stopping
+ * half-migrated. Silent truncation was the alternative and is not acceptable.
+ */
+const REQUEUE_STATUS = 'requeue';
 /** A claim older than this is considered abandoned and re-claimable. */
 export const CLAIM_STALE_MS = 60 * 60 * 1000;
 const MAX_BODY_IDS = 100;
@@ -43,6 +52,46 @@ interface ConversionJobRow {
   requestSource: string;
   status: string;
   claimedAt: string | null;
+  pageOffset: number;
+  pageBatchLimit: number | null;
+}
+
+/**
+ * Conversion telemetry is emitted HERE, not from the Forge executor: the
+ * scheduled function has no Mixpanel token and no browser tracker, while this
+ * endpoint already holds the verified tenant identity and the job row.
+ *
+ * `distinctId` is the job id — a conversion run is the subject, and a
+ * scheduled job must never masquerade as an Atlassian user. `insertId` is
+ * derived from (jobId, event) so a retried claim or report deduplicates.
+ * Delivery failures are logged, never surfaced: telemetry must not fail a
+ * conversion.
+ */
+function emitConversionEvent(
+  env: ConversionEnv,
+  event: AnalyticsEventName,
+  jobId: string,
+  cloudId: string,
+  properties: Record<string, string | number | boolean | null>,
+): void {
+  if (!env.MIXPANEL_TOKEN) return;
+  void mixpanelImportServiceEvents(
+    [
+      {
+        event,
+        distinctId: jobId,
+        insertId: `${jobId}:${event}`,
+        time: Math.floor(Date.now() / 1000),
+        properties: { ...properties, cloud_id: cloudId, product_type: 'full' },
+      },
+    ],
+    env.MIXPANEL_TOKEN,
+  ).catch((error) => {
+    console.warn('[lite2full] Mixpanel delivery failed', {
+      event,
+      reason: error instanceof Error ? error.name : 'unknown_error',
+    });
+  });
 }
 
 async function requireFullAppContext(
@@ -78,7 +127,8 @@ export async function handleClaim(
 
     // Oldest queued job, or a stale claim left behind by a dead invocation.
     const row = await env.DB.prepare(
-      `SELECT id, cloudId, spaceKey, pageIds, dryRun, requestSource, status, claimedAt
+      `SELECT id, cloudId, spaceKey, pageIds, dryRun, requestSource, status, claimedAt,
+              pageOffset, pageBatchLimit
          FROM ConversionJob
         WHERE cloudId = ?1
           AND (status = 'queued' OR (status = 'claimed' AND claimedAt < ?2))
@@ -101,6 +151,13 @@ export async function handleClaim(
       return jsonResponse({ job: null });
     }
 
+    emitConversionEvent(env, 'macro_convert_job_claimed', row.id, context.cloudId, {
+      convert_scope: row.spaceKey ? 'space' : 'pages',
+      convert_page_count: row.pageIds ? (JSON.parse(row.pageIds) as string[]).length : 0,
+      convert_dry_run: row.dryRun === 1,
+      convert_request_source: row.requestSource,
+    });
+
     return jsonResponse({
       job: {
         id: row.id,
@@ -108,6 +165,8 @@ export async function handleClaim(
         pageIds: row.pageIds ? (JSON.parse(row.pageIds) as string[]) : null,
         dryRun: row.dryRun === 1,
         requestSource: row.requestSource,
+        pageOffset: row.pageOffset ?? 0,
+        pageBatchLimit: row.pageBatchLimit ?? null,
       },
       // The executor's own identity, echoed from the VERIFIED FIT rather than
       // re-derived in the Forge runtime — the ADF rewrite builds the new
@@ -182,7 +241,8 @@ export async function handleBodies(
     const placeholders = ids.map((_, i) => `?${i + 2}`).join(',');
     const rows = await env.DB.prepare(
       `SELECT v.contentId AS contentId, v.body AS body, v.title AS title,
-              c.diagramType AS diagramType, v.versionNumber AS versionNumber
+              c.diagramType AS diagramType, c.type AS contentType,
+              v.versionNumber AS versionNumber
          FROM CustomContentVersion v
          JOIN CustomContent c ON c.contentId = v.contentId AND c.appId = v.appId
         WHERE v.appId = ?1 AND v.contentId IN (${placeholders})
@@ -191,13 +251,33 @@ export async function handleBodies(
              WHERE v2.contentId = v.contentId AND v2.appId = v.appId)`,
     )
       .bind(LITE_APP_ID, ...ids)
-      .all<{ contentId: string; body: string; title: string | null; diagramType: string | null; versionNumber: number }>();
+      .all<{
+        contentId: string;
+        body: string;
+        title: string | null;
+        diagramType: string | null;
+        contentType: string | null;
+        versionNumber: number;
+      }>();
 
-    const found: Record<string, { body: string; title: string | null; diagramType: string | null }> = {};
+    const found: Record<
+      string,
+      { body: string; title: string | null; diagramType: string | null; contentType: string | null }
+    > = {};
     for (const r of rows.results ?? []) {
       const body = unwrapMirrorBody(r.body);
       if (body === null) continue; // falls through to `missing` — see unwrapMirrorBody
-      found[r.contentId] = { body, title: r.title, diagramType: r.diagramType };
+      // contentType travels so the converted content lands under the SAME
+      // custom-content key Lite used. The app writes every diagram type under
+      // `zenuml-content-sequence` (ApWrapper2.getContentKey) — 2103 of 2104
+      // mirrored graph bodies included — so deriving the type from the macro
+      // key would produce content the app itself never creates.
+      found[r.contentId] = {
+        body,
+        title: r.title,
+        diagramType: r.diagramType,
+        contentType: r.contentType,
+      };
     }
     const missing = ids.filter((id) => !(id in found));
     return jsonResponse({ contents: found, missing });
@@ -221,9 +301,13 @@ export async function handleReport(
     } | null;
     const jobId = typeof body?.jobId === 'string' ? body.jobId : '';
     const status = typeof body?.status === 'string' ? body.status : '';
-    if (!jobId || !TERMINAL_STATUSES.has(status)) {
+    if (!jobId || !(TERMINAL_STATUSES.has(status) || status === REQUEUE_STATUS)) {
       throw new HttpError(400, 'jobId and terminal status required');
     }
+    const pagesProcessed =
+      typeof (body as { pagesProcessed?: unknown })?.pagesProcessed === 'number'
+        ? Math.max(0, Math.trunc((body as { pagesProcessed: number }).pagesProcessed))
+        : 0;
     const stats =
       body?.stats && typeof body.stats === 'object' && !Array.isArray(body.stats)
         ? sanitizeStats(body.stats as Record<string, unknown>)
@@ -231,20 +315,88 @@ export async function handleReport(
     const failureStage =
       typeof body?.failureStage === 'string' ? body.failureStage.slice(0, 40) : null;
 
+    // Counts accumulate across batches: a job's final statsJson must describe
+    // the whole migration, not just its last tick.
+    const prior = await env.DB.prepare(
+      `SELECT statsJson, pageOffset FROM ConversionJob
+        WHERE id = ?1 AND cloudId = ?2 AND status = 'claimed'`,
+    )
+      .bind(jobId, context.cloudId)
+      .first<{ statsJson: string | null; pageOffset: number }>();
+    if (!prior) throw new HttpError(409, 'Job is not claimed for this installation');
+    const merged = mergeStats(prior.statsJson, stats);
+
+    const requeue = status === REQUEUE_STATUS;
     const updated = await env.DB.prepare(
       `UPDATE ConversionJob
-          SET status = ?2, completedAt = ?3, statsJson = ?4, failureStage = ?5
+          SET status = ?2,
+              completedAt = ?3,
+              statsJson = ?4,
+              failureStage = ?5,
+              claimedAt = ?7,
+              pageOffset = ?8
         WHERE id = ?1 AND cloudId = ?6 AND status = 'claimed'`,
     )
-      .bind(jobId, status, new Date().toISOString(), JSON.stringify(stats), failureStage, context.cloudId)
+      .bind(
+        jobId,
+        requeue ? 'queued' : status,
+        requeue ? null : new Date().toISOString(),
+        JSON.stringify(merged),
+        failureStage,
+        context.cloudId,
+        requeue ? null : new Date().toISOString(),
+        (prior.pageOffset ?? 0) + pagesProcessed,
+      )
       .run();
     if (!updated.meta || updated.meta.changes === 0) {
       throw new HttpError(409, 'Job is not claimed for this installation');
     }
-    return jsonResponse({ ok: true });
+
+    // A requeue is mid-flight; only a terminal report is a completion.
+    if (!requeue) {
+      emitConversionEvent(env, 'macro_convert_job_completed', jobId, context.cloudId, {
+        convert_status: status,
+        convert_failure_stage: failureStage,
+        ...merged,
+      });
+    }
+
+    return jsonResponse({ ok: true, status: requeue ? 'queued' : status });
   } catch (e) {
     return errorResponse(e);
   }
+}
+
+/**
+ * Add this batch's counts to whatever earlier batches recorded. `dryRun` is a
+ * property of the job, not a count, so it is carried rather than summed.
+ */
+export function mergeStats(
+  priorJson: string | null,
+  batch: Record<string, number | boolean>,
+): Record<string, number | boolean> {
+  let prior: Record<string, unknown> = {};
+  try {
+    if (priorJson) prior = JSON.parse(priorJson) as Record<string, unknown>;
+  } catch {
+    prior = {};
+  }
+  const out: Record<string, number | boolean> = {};
+  for (const [key, value] of Object.entries(batch)) {
+    if (typeof value === 'boolean') {
+      out[key] = value;
+      continue;
+    }
+    const before = prior[key];
+    out[key] = (typeof before === 'number' ? before : 0) + value;
+  }
+  // Keys an earlier batch reported that this one omitted stay visible.
+  for (const [key, value] of Object.entries(prior)) {
+    if (!(key in out) && (typeof value === 'number' || typeof value === 'boolean')) {
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 /** Counts only — the report path must never persist content, titles, or raw errors. */

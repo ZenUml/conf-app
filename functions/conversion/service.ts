@@ -124,21 +124,54 @@ export async function handleClaim(
   }
 }
 
+/**
+ * The mirror's `body` column is `JSON.stringify(customContent.body)` — the
+ * Confluence body OBJECT (`{raw: {representation, value}}`), not the diagram
+ * JSON the viewer parses. Return the inner `raw.value`, or null when the
+ * column is any other shape: an unrecognised body must skip the macro, never
+ * be written into new custom content.
+ */
+export function unwrapMirrorBody(stored: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stored);
+  } catch {
+    return null;
+  }
+  const value = (parsed as { raw?: { value?: unknown } } | null)?.raw?.value;
+  return typeof value === 'string' ? value : null;
+}
+
 export async function handleBodies(
   request: Request,
   env: ConversionEnv,
   data: ForgeRequestData,
 ): Promise<Response> {
   try {
-    await requireFullAppContext(request, env, data);
+    const context = await requireFullAppContext(request, env, data);
     const body = (await request.json().catch(() => null)) as {
       contentIds?: unknown;
+      jobId?: unknown;
     } | null;
     const ids = Array.isArray(body?.contentIds)
       ? body!.contentIds.filter((v): v is string => typeof v === 'string' && /^\d+$/.test(v))
       : [];
     if (ids.length === 0) throw new HttpError(400, 'contentIds required');
     if (ids.length > MAX_BODY_IDS) throw new HttpError(400, `contentIds > ${MAX_BODY_IDS}`);
+
+    // The mirror carries no tenant column — CustomContent is keyed by
+    // (contentId, appId) and spaceId is per-site, so a contentId alone proves
+    // nothing about who owns it. Bind the read to a job WE created for this
+    // cloudId and that this caller currently holds: without an active claim,
+    // a tenant's Full app cannot read Lite bodies at all.
+    const jobId = typeof body?.jobId === 'string' ? body.jobId : '';
+    if (!jobId) throw new HttpError(400, 'jobId required');
+    const job = await env.DB.prepare(
+      `SELECT id FROM ConversionJob WHERE id = ?1 AND cloudId = ?2 AND status = 'claimed'`,
+    )
+      .bind(jobId, context.cloudId)
+      .first<{ id: string }>();
+    if (!job) throw new HttpError(403, 'no claimed conversion job for this tenant');
 
     // Latest version per Lite custom content id, from the D1 mirror. appId is
     // pinned to the Lite Forge app so this endpoint can never leak another
@@ -162,7 +195,9 @@ export async function handleBodies(
 
     const found: Record<string, { body: string; title: string | null; diagramType: string | null }> = {};
     for (const r of rows.results ?? []) {
-      found[r.contentId] = { body: r.body, title: r.title, diagramType: r.diagramType };
+      const body = unwrapMirrorBody(r.body);
+      if (body === null) continue; // falls through to `missing` — see unwrapMirrorBody
+      found[r.contentId] = { body, title: r.title, diagramType: r.diagramType };
     }
     const missing = ids.filter((id) => !(id in found));
     return jsonResponse({ contents: found, missing });

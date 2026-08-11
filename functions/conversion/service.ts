@@ -81,13 +81,6 @@ function emitConversionEvent(
   properties: Record<string, string | number | boolean | null>,
   waitUntil?: (promise: Promise<unknown>) => void,
 ): void {
-  console.log('[lite2full] emit start', {
-    event,
-    jobId,
-    hasToken: Boolean(env.MIXPANEL_TOKEN),
-    hasWaitUntil: Boolean(waitUntil),
-    propertyCount: Object.keys(properties).length,
-  });
   if (!env.MIXPANEL_TOKEN) return;
   const delivery = mixpanelImportServiceEvents(
     [
@@ -100,18 +93,12 @@ function emitConversionEvent(
       },
     ],
     env.MIXPANEL_TOKEN,
-  )
-    .then(() => {
-      console.log('[lite2full] emit delivered', { event, jobId });
-    })
-    .catch((error) => {
-      console.warn('[lite2full] Mixpanel delivery failed', {
-        event,
-        jobId,
-        reason: error instanceof Error ? error.name : 'unknown_error',
-        detail: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
-      });
+  ).catch((error) => {
+    console.warn('[lite2full] Mixpanel delivery failed', {
+      event,
+      reason: error instanceof Error ? error.name : 'unknown_error',
     });
+  });
   if (waitUntil) waitUntil(delivery);
   else void delivery;
 }

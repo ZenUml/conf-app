@@ -25,6 +25,9 @@ const DOMAIN = process.env.CONVERT_DOMAIN ?? 'full-stg.atlassian.net';
 const LABEL = process.env.CONVERT_LABEL ?? 'converted';
 const SHOT_DIR = process.env.CONVERT_SHOT_DIR ?? path.join(process.cwd(), '..', '..', 'shots');
 
+/** Macro chrome that renders whether or not the body loaded. */
+const CHROME = /(Untitled diagram|Test Diagram Sequence|Edit|Source|Copy for AI|Fullscreen|ZenUML\.com|\d+%)/g;
+
 test.describe('Lite->Full converted macro renders', () => {
   test.use({ viewport: { width: 1400, height: 1000 } });
 
@@ -63,9 +66,15 @@ test.describe('Lite->Full converted macro renders', () => {
     console.log(`[render] ${JSON.stringify(results)}`);
 
     for (const r of results) {
-      // A macro that fails to load its body still paints chrome and small
-      // icons; a real diagram canvas is orders of magnitude larger.
-      expect(r.svgArea, `macro ${r.index} rendered no diagram canvas (text: ${r.text.slice(0, 120)})`).toBeGreaterThan(10_000);
+      // Two renderer families, two signals. Graph (DrawIO) paints one large
+      // SVG canvas; ZenUML sequence paints DOM with only small arrow SVGs
+      // (measured: 212998 vs 576 on the same page), so its evidence is the
+      // diagram text. A macro whose body failed to load still paints the
+      // toolbar and the "Untitled diagram" heading — strip those before
+      // deciding there is content.
+      const content = r.text.replace(CHROME, '').replace(/\s+/g, ' ').trim();
+      const rendered = r.svgArea > 10_000 || content.length >= 20;
+      expect(rendered, `macro ${r.index} rendered nothing (svgArea=${r.svgArea}, content="${content.slice(0, 80)}")`).toBe(true);
     }
 
     if (process.env.CONVERT_EXPECT_TEXT) {

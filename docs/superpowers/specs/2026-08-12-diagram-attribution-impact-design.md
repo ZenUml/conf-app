@@ -1,23 +1,23 @@
 # Diagram attribution and creator impact
 
-**Status:** Approved in product design review on 2026-08-12  
-**Scope:** Phase 1 public attribution, audience count, and Kudos; Phase 2 private contributor impact  
+**Status:** Approved in product design review on 2026-08-12
+**Scope:** Phase 1 public attribution and audience count; Phase 2 private contributor impact
 **Storage decision:** Existing Cloudflare D1 database and existing `DB` binding
 
 ## 1. Summary
 
 Add a quiet metadata footer below every standard Confluence diagram viewer:
 
-> Created by Peng · Last updated by Alice · 23 colleagues viewed · ♡ Give kudos
+> Created by Peng · Last updated by Alice · 23 colleagues viewed
 
 The feature has two product goals:
 
 1. Give creators a meaningful sense that their work reached people.
 2. Make the creator's contribution visible to colleagues and leaders on the page where the work is consumed.
 
-The design borrows a game mechanic, not game aesthetics. It turns a diagram into something that accumulates visible progress and recognition. It deliberately avoids streaks, leaderboards, noisy badges, and passive viewer identities.
+The design borrows a game mechanic, not game aesthetics. It turns a diagram into something that accumulates visible progress. It deliberately avoids streaks, leaderboards, noisy badges, passive viewer identities, and another Like-style action.
 
-Confluence remains the system of record for diagram content and attribution. D1 stores only audience and Kudos metadata. D1 and the impact APIs must never become dependencies for rendering, editing, exporting, or recovering a diagram.
+Confluence remains the system of record for diagram content and attribution. D1 stores only anonymous audience metadata. D1 and the impact APIs must never become dependencies for rendering, editing, exporting, or recovering a diagram.
 
 ## 2. Product principles
 
@@ -32,20 +32,21 @@ The public attribution vocabulary is therefore limited to:
 
 If both are the same user, only `Created by` is shown.
 
-### 2.2 Passive attention is aggregate; active recognition is named
+### 2.2 Passive attention is aggregate
 
 - A qualifying view contributes only to a lifetime unique-colleague count.
 - Raw passive viewer account IDs are never stored in the audience table.
 - Passive viewer names are never returned or displayed, including to contributors.
-- Kudos is an explicit public action, so the giver's name and avatar may be displayed.
 
-### 2.3 Kudos belongs to the diagram
+### 2.3 Do not recreate Like as Kudos
 
-Kudos is not an award to an owner. Any authenticated user, including a creator or historical editor, may give one Kudos to a diagram and may later withdraw it. The composite database key enforces at most one active Kudos per user per diagram.
+The retired Like feature already provided a visible one-click button, count, active state, and unlike action in the viewer. A read-only production D1 check on 2026-08-12 found only 108 remaining active Likes across 89 users and 100 diagrams, spanning 2025-04-06 through 2026-05-06. Because unlike deletes a row, this is not a count of every historical click, but it is direct evidence of weak retained adoption over more than a year.
+
+Renaming Like to Kudos, placing it beside attribution, or making it public does not remove the core friction: a reader must perform an extra workplace-social action with no direct benefit. Public identity may add friction. The new mechanic must therefore be the zero-effort audience count, not a repackaged Like interaction.
 
 ### 2.4 Failure must be quiet
 
-Attribution comes from the Confluence custom-content response and does not depend on D1. If audience or Kudos data cannot be loaded, those elements disappear without an error panel. The diagram continues to work.
+Attribution comes from the Confluence custom-content response and does not depend on D1. If audience data cannot be loaded, the number disappears without an error panel. The diagram continues to work.
 
 ## 3. Delivery phases
 
@@ -55,7 +56,6 @@ Phase 1 ships:
 
 - `Created by` and, when different, `Last updated by`.
 - Lifetime unique `colleagues viewed` count.
-- Public, named Kudos with add and withdraw actions.
 - Qualifying-view collection and required analytics.
 
 ### Phase 2: private contributor impact
@@ -65,7 +65,6 @@ Phase 2 is a separate implementation and release after Phase 1 produces a trustw
 - A private impact panel available to any contributor represented in the diagram's stored version history.
 - Lifetime unique colleagues reached.
 - New colleagues reached in the last 7 and 30 days.
-- Kudos count and the already-public Kudos givers.
 - One-time milestones at 10, 25, 50, and 100 unique colleagues.
 
 Phase 2 still does not show passive viewer identities.
@@ -92,9 +91,9 @@ The footer should be a focused child component rather than adding networking, ti
 Examples:
 
 ```text
-Created by Peng · Last updated by Alice · 23 colleagues viewed · ♡ Give kudos
-Created by Peng · 23 colleagues viewed · ♥ 4 Kudos
-Created by Peng · ♡ Give kudos
+Created by Peng · Last updated by Alice · 23 colleagues viewed
+Created by Peng · 23 colleagues viewed
+Created by Peng
 ```
 
 Rules:
@@ -102,9 +101,6 @@ Rules:
 - Hide `Last updated by` when it resolves to the same account as `Created by`.
 - Hide an attribution field whose Confluence user cannot be resolved.
 - Hide the audience item when the count is zero or cannot be loaded.
-- Show `Give kudos` instead of `0 Kudos` so the action remains discoverable.
-- After the current user gives Kudos, show the active state and updated count.
-- Clicking a positive Kudos count opens a paginated popover of public giver names and avatars.
 - The footer must remain usable with keyboard navigation and screen readers.
 
 ### 4.3 Impact panel
@@ -154,7 +150,7 @@ If the tab becomes hidden or the diagram leaves the viewport before three second
 
 The browser can avoid an obviously ineligible **registration** call for the created-by and last-updated-by users, but it still loads the summary so they can see the diagram's public impact. The server remains authoritative: it checks the verified current user against the created/current authors and the existing `CustomContentVersion` author history. The operational contributor set is therefore Confluence's created/current authors plus all authors present in the D1 version mirror; no historical analytics backfill is performed.
 
-The public number is lifetime unique colleagues, not iframe loads, visits, or view days. Contributor views do not increment it, but contributors may still give Kudos.
+The public number is lifetime unique colleagues, not iframe loads, visits, or view days. Contributor views do not increment it.
 
 ## 7. Data flow
 
@@ -162,13 +158,11 @@ The public number is lifetime unique colleagues, not iframe loads, visits, or vi
 2. The footer derives attribution from the already-loaded custom-content response.
 3. Once the standard viewer enters the viewport, it requests the public impact summary asynchronously.
 4. The backend verifies the Forge invocation token, derives `cloudId`, `forgeAppId`, and `accountId`, and verifies that the caller can read the referenced Confluence custom content using the injected Forge user token.
-5. The footer displays any available audience and Kudos values. A summary failure leaves attribution visible and hides only the dynamic items.
+5. The footer displays the audience value when available. A summary failure leaves attribution visible and hides only the number.
 6. The client starts the three-second continuous-visibility timer after successful diagram rendering.
 7. On qualification, it calls the view-registration endpoint.
 8. The backend repeats authentication and content-access checks, evaluates contributor exclusion, derives the passive viewer key, and performs an idempotent D1 upsert.
 9. The registration response returns `new_unique`, `repeat`, or `excluded_contributor` plus the latest count. The footer can update, for example, from 22 to 23 without another request.
-
-Kudos follows a separate path because it is an explicit action. The server derives the giver identity from the verified token, never from a request-body identity field.
 
 ## 8. D1 design
 
@@ -223,27 +217,7 @@ Upsert behavior:
 
 Phase 1 does not add a summary table. Phase 2 may add an index ending in `firstViewedAt` if query-plan evidence shows it is needed for 7/30-day new-audience queries; it must not add a precomputed counter without measured need.
 
-### 8.3 `DiagramKudos`
-
-```sql
-CREATE TABLE DiagramKudos (
-  cloudId TEXT NOT NULL,
-  forgeAppId TEXT NOT NULL,
-  customContentId TEXT NOT NULL,
-  giverAccountId TEXT NOT NULL,
-  createdAt TEXT NOT NULL,
-  PRIMARY KEY (cloudId, forgeAppId, customContentId, giverAccountId)
-) WITHOUT ROWID;
-
-CREATE INDEX idx_diagram_kudos_giver
-  ON DiagramKudos (cloudId, giverAccountId);
-```
-
-The raw account ID is retained here because the user explicitly chose a named public action and the UI must resolve the current Confluence profile. The UI never stores display names or avatars in D1; those are resolved at read time so profile changes are reflected.
-
-The legacy `DiagramLikes` endpoints trust client-supplied identity and query parameters. Their rows are not trustworthy enough to become public professional recognition. Phase 1 does not migrate or reuse them. The implementation should leave unrelated legacy removal to a separate cleanup change.
-
-### 8.4 Capacity evidence
+### 8.3 Capacity evidence
 
 Read-only production inspection on 2026-08-11 found:
 
@@ -283,15 +257,9 @@ Successful response:
 ```json
 {
   "audienceCount": 23,
-  "kudosCount": 4,
-  "currentUserHasKudos": true,
-  "kudosGiverAccountIds": ["..."],
-  "nextKudosCursor": null,
   "viewerRelation": "contributor"
 }
 ```
-
-The initial giver list is bounded. A cursor on the same authenticated endpoint retrieves additional public giver IDs for the popover. The client resolves profiles through Confluence.
 
 ### 9.2 Register a qualifying view
 
@@ -313,19 +281,7 @@ Successful response:
 
 Valid results are `new_unique`, `repeat`, and `excluded_contributor`. A request with no verified principal is not counted.
 
-### 9.3 Toggle Kudos
-
-```http
-PUT /api/diagram-impact/kudos
-DELETE /api/diagram-impact/kudos
-Content-Type: application/json
-
-{ "customContentId": "..." }
-```
-
-Both operations are idempotent. The response returns the current user's state and the latest total. Any authenticated user with read access to the content may use them, including contributors.
-
-### 9.4 Private insights
+### 9.3 Private insights
 
 Phase 2 adds:
 
@@ -335,7 +291,7 @@ GET /api/diagram-impact/insights?customContentId=<id>
 
 The backend returns aggregate insights only after confirming the current account is represented in the contributor history. It never returns passive viewer keys or identities.
 
-### 9.5 Trust boundaries
+### 9.4 Trust boundaries
 
 The client supplies only the custom-content ID and requested operation. The backend derives these values from the verified Forge invocation:
 
@@ -354,23 +310,20 @@ The analytics contract is the first implementation commit, before schema, backen
 
 | Event | Trigger | Key properties |
 |---|---|---|
-| `diagram_attribution_shown` | Footer renders with at least one attribution field | `feature_area`, `surface`, `macro_type`, `custom_content_id`, `viewer_relation`, `has_last_updated_by`, `has_audience_count`, `has_kudos` |
+| `diagram_attribution_shown` | Footer renders with at least one attribution field | `feature_area`, `surface`, `macro_type`, `custom_content_id`, `viewer_relation`, `has_last_updated_by`, `has_audience_count` |
 | `diagram_audience_view_qualified` | Diagram completes three continuous visible seconds | `feature_area`, `surface`, `macro_type`, `custom_content_id`, `viewer_relation`, `visibility_duration_ms` |
 | `diagram_audience_registration_succeeded` | View API returns a valid result | Above context plus `result`, `audience_count` |
 | `diagram_audience_registration_failed` | View API or response validation fails | Above context plus `failure_reason` |
-| `diagram_kudos_clicked` | User requests add or withdraw | Above context plus `kudos_action` |
-| `diagram_kudos_succeeded` | Kudos mutation succeeds | Above context plus `kudos_action`, `kudos_count` |
-| `diagram_kudos_failed` | Kudos mutation fails | Above context plus `kudos_action`, `failure_reason` |
 
 `viewer_relation` uses deterministic precedence: `creator`, then `updater`, then `contributor`, then `viewer`.
 
-Analytics never receives a viewer key, attribution name, Kudos giver ID/list, or other user's account ID. The tracker may continue its existing automatic enrichment for the current user.
+Analytics never receives a viewer key, attribution name, or other user's account ID. The tracker may continue its existing automatic enrichment for the current user.
 
 ### 10.2 Phase 2 events
 
 The first Phase 2 implementation commit registers:
 
-- `diagram_impact_panel_opened`: current relation, audience count, 7/30-day new-audience counts, and Kudos count.
+- `diagram_impact_panel_opened`: current relation, audience count, and 7/30-day new-audience counts.
 - `diagram_impact_milestone_shown`: current relation and numeric milestone threshold.
 
 ## 11. Error handling and performance
@@ -380,9 +333,8 @@ The feature is best-effort and off the critical path:
 - Attribution is derived from the already-loaded Confluence object.
 - Impact requests begin only after the diagram has rendered and entered the viewport.
 - No impact network request blocks rendering, editing, fullscreen, or export.
-- A summary read failure hides audience and Kudos values.
+- A summary read failure hides the audience value.
 - A registration failure leaves the visible count unchanged.
-- A Kudos failure restores the prior button state and may show a brief action-scoped toast; it does not show a diagram error.
 - A missing HMAC secret causes the view endpoint to fail closed without storing a raw account ID.
 - Malformed responses are treated as failures, never as zero.
 
@@ -410,8 +362,6 @@ The same shared implementation applies to lite, full, diagramly, and asyncapi. `
 - Same creator/updater renders only `Created by`.
 - Missing user profiles hide only their own fields.
 - Zero or failed audience count is hidden.
-- `Give kudos`, active Kudos, withdraw, success, and rollback-on-failure states work.
-- Contributors may give and withdraw Kudos.
 - Dynamic API failures do not affect the diagram slot.
 
 ### 13.2 Backend tests
@@ -425,7 +375,6 @@ The same shared implementation applies to lite, full, diagramly, and asyncapi. `
 - Concurrent registrations preserve one unique row.
 - Contributor registration returns `excluded_contributor`.
 - Count queries use the primary-key prefix.
-- Kudos add/delete is idempotent and permits contributors.
 - Cross-tenant and cross-app records cannot be read or modified.
 - Missing D1 or HMAC configuration fails without substituting raw identity.
 
@@ -436,7 +385,6 @@ The same shared implementation applies to lite, full, diagramly, and asyncapi. `
 - Version 1 and latest author mapping works against representative V2 custom-content responses.
 - Playwright observes the real footer inside the Forge iframe.
 - Playwright or a network intercept proves that a three-second qualifying view updates the count.
-- Playwright observes add and withdraw Kudos state transitions.
 - A forced backend failure proves the diagram remains rendered while dynamic metadata disappears.
 
 Any assertion about visible footer behavior requires actual UI evidence. Unit tests alone cannot mark those assertions passed.
@@ -447,8 +395,6 @@ Phase 1 establishes the baseline. Monitor:
 
 - qualifying-view registration success and failure reasons;
 - new-unique versus repeat-view distribution;
-- Kudos conversion among eligible non-contributor and contributor viewers;
-- number of diagrams receiving their first Kudos;
 - `viewer_load_failed` and render-duration trends before and after release;
 - D1 query, row-write, storage, and overload trends.
 
@@ -462,7 +408,8 @@ Phase 2 additionally measures contributor impact-panel opens and milestone displ
 - Space or company leaderboards.
 - Streaks and daily-open rewards.
 - Notifications, digests, or activity feeds.
+- Likes, Kudos, reactions, or named recognition actions.
 - Historical audience backfill from Mixpanel.
-- Migrating legacy `DiagramLikes` rows.
-- Exporting the social footer into PNG, PDF, or Word output.
+- Migrating or reviving legacy `DiagramLikes` rows.
+- Exporting the attribution footer into PNG, PDF, or Word output.
 - A new database, third-party data processor, or runtime feature flag.

@@ -13,7 +13,13 @@ export const AUTHENTICATED_PATHS = [
   '/forge-custom-content',
   '/forge-upload-attachment',
   '/deeplink-ticket',
-  '/activation-prepared'
+  '/activation-prepared',
+  // Conversion queue endpoints re-verify the FIT themselves, but the claim
+  // response's app identity (environmentId for the ADF extensionKey rewrite)
+  // is read from the middleware-populated forgeContext — without this entry
+  // the first staging job failed at stage 'claim' with an empty identity
+  // (2026-08-11, job b275a201).
+  '/conversion'
 ];
 
 const DEEPLINK_TICKET_CORS_HEADERS: Record<string, string> = {

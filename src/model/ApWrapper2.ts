@@ -265,6 +265,9 @@ export default class ApWrapper2 implements IApWrapper {
   // Fully-qualified custom-content types for the diagram macros, used to
   // enumerate/count a space's macros via the V2 space custom-content endpoint.
   getMacroContentTypes(): string[] {
+    if (forgeGlobal.isDiagramly) {
+      return [this.customContentType('gpt-custom-content-key')];
+    }
     return CUSTOM_CONTENT_TYPES.map((type) => this.customContentType(type));
   }
 

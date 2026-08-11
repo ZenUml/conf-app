@@ -75,6 +75,18 @@ describe('ApWrapper2', () => {
       expect(types[0].endsWith(':zenuml-content-sequence')).toBe(true);
       expect(types[1].endsWith(':zenuml-content-graph')).toBe(true);
     });
+
+    it('returns the actual Diagramly storage type', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isDiagramly = true;
+      try {
+        expect(wrapper.getMacroContentTypes()).toEqual([
+          'ac:gptdock-confluence:gpt-custom-content-key',
+        ]);
+      } finally {
+        (forgeGlobalMod.default as any).isDiagramly = false;
+      }
+    });
   });
 
   describe('updateCustomContentV2', () => {

@@ -234,9 +234,12 @@ top-level block sequence (`P,P,…,OL,P,…`), 4 `li` items, and that every `a[h
 one of the two intended URLs. An element screenshot of the editor is unreliable
 (the bounding box captures the wrong region).
 
-Afterwards the ZEN workflow offers **no "Waiting for customer" transition** (only
-Respond to support / Canceled / Resolved) — leaving it *Waiting for support* is
-correct when a feedback answer is expected, since we owe the follow-through grant.
+Saving a **public** reply transitions the ticket to **Waiting for customer**
+automatically — no manual transition, and none is offered in the action menu
+(only Respond to support / Canceled / Resolved). Observed on ZEN-1199 and
+ZEN-1200, 2026-08-12. That status is correct while a feedback answer is
+outstanding; the ticket is still open work for us, because we owe the
+follow-through grant when the answers land.
 
 ## After granting
 

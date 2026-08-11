@@ -84,15 +84,16 @@ Before publishing the content property:
 
 Existing `{ v: 1 }` properties have no dynamic copy. Do not assume how Forge renders a `contentPropertyKey` object with missing display fields: rewrite all pilot properties to the new shape before enabling the manifest field, and keep one legacy property as a staging control. The staging spot check must establish whether missing fields fall back to the manifest defaults or require explicit migration handling.
 
-## Analytics and privacy
+## Analytics
 
-Do not send topic text, generated titles, tooltips, page titles, or diagram source to Mixpanel. They may contain customer-sensitive content.
+Send the real full-topic text to Mixpanel on `activation_served` as `byline_topic`. This is a deliberate product decision: the topic may derive from customer page content, and the value is needed to understand which subjects attract engagement. Do not send the page title, page body, diagram source, generated tooltip, or tenant hostname.
 
 Do not add a rendered/impression event: the byline is Confluence-rendered chrome and the app has no trustworthy render hook. Attach the copy result to the existing `activation_served` event after a click successfully loads the prepared payload. Add only non-content properties needed to evaluate the copy behavior:
 
 - `byline_label_variant`: `topic_diagram` or `explore_visually`.
 - `byline_label_fallback_reason`: `missing_short_topic`, `too_long`, or `invalid`; absent for `topic_diagram`.
 - `label_length_bucket`: `1_15`, `16_23`, `24_30`, or `fallback`, rather than the literal title.
+- `byline_topic`: the real, unredacted full topic used by the tooltip.
 
 Register these properties in `src/utils/analytics/types.ts` before implementation. The existing `activation_nudge_clicked` → `activation_served` → completion funnel remains unchanged; the label signal must not be presented as proof that the user understood the diagram.
 
@@ -104,4 +105,4 @@ Register these properties in `src/utils/analytics/types.ts` before implementatio
 - The existing sparkle-and-diagram icon remains visible.
 - Pages without the prepared-diagram content property show no activation byline.
 - All pilot properties are rewritten before rollout; a staging control establishes and documents Forge's behavior for legacy property values.
-- Analytics contain no raw topic or page content.
+- `activation_served` sends the real full topic as `byline_topic`, but no page title, page body, diagram source, generated tooltip, or tenant hostname.

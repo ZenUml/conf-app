@@ -109,6 +109,19 @@ export interface RewriteIdentity {
 }
 
 /**
+ * The FIT carries `environmentId` as a full ARI
+ * (`ari:cloud:ecosystem::environment/<appId>/<envUuid>`), while an
+ * `extensionKey` needs only the trailing UUID. Concatenating the ARI
+ * produced a malformed key on the first live staging conversion
+ * (2026-08-11, job c5a6d954) — the macro rendered as an unknown extension.
+ * Both shapes are accepted so this survives a future FIT change.
+ */
+export function normalizeEnvironmentId(value: string): string {
+  const last = value.split('/').pop() ?? '';
+  return /^[0-9a-f-]{36}$/.test(last) ? last : '';
+}
+
+/**
  * Rewrite one Lite extension node to Full, in place. Only the app-identity
  * fields, the content pointer, and the visible title change; localId (macro
  * identity — survives page copy) and everything else are preserved.
@@ -355,10 +368,24 @@ export async function runConversionTick(): Promise<void> {
 
   const job: ClaimedJob = claim.job;
   const identity: RewriteIdentity = {
-    appId: claim.app?.appId ?? '',
-    environmentId: claim.app?.environmentId ?? '',
+    appId: normalizeEnvironmentId(claim.app?.appId ?? '') || (claim.app?.appId ?? ''),
+    environmentId: normalizeEnvironmentId(claim.app?.environmentId ?? ''),
     environmentType: claim.app?.environmentType ?? null,
   };
+  // Deliberate: one line per claimed job. The first staging conversions
+  // produced a malformed extensionKey and nothing in the logs distinguished
+  // "old bundle still deployed" from "normalisation not applied", because the
+  // happy path was silent. Identity is app/environment metadata, not tenant
+  // content, so it is safe to log.
+  console.log('[lite2full] claimed', {
+    jobId: job.id,
+    rawAppId: claim.app?.appId,
+    rawEnvironmentId: claim.app?.environmentId,
+    derivedAppId: identity.appId,
+    derivedEnvironmentId: identity.environmentId,
+    dryRun: job.dryRun,
+  });
+
   if (!identity.appId || !identity.environmentId) {
     await remoteJson('/conversion/report', {
       jobId: job.id,

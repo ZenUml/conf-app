@@ -16,6 +16,7 @@ import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/view
 import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
 import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
 import { guardEditClick } from '@/utils/guardEditClick';
+import { attributionFromCustomContent } from '@/model/DiagramAttribution';
 
 async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const context = await initForgeContext();
@@ -119,7 +120,7 @@ async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
     }
   }
 
-  return { doc, loadError };
+  return { doc, loadError, attribution: attributionFromCustomContent(loaded?.customContent) };
 }
 
 function afterLoad(doc: Diagram | undefined) {

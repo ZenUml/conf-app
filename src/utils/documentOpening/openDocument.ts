@@ -1,5 +1,6 @@
 // src/utils/documentOpening/openDocument.ts
 import { Diagram } from '@/model/Diagram/Diagram';
+import { attributionFromCustomContent } from '@/model/DiagramAttribution';
 import globals from '@/model/globals';
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import type { OpenDocumentOptions, OpenOutcome } from './types';
@@ -11,6 +12,7 @@ export async function openDocument(opts: OpenDocumentOptions): Promise<OpenOutco
   let doc: Diagram | undefined;
   let recoveredFromOrphan = false;
   let directFetchStatus: 'ok' | 'not_found' | 'other_error' | undefined;
+  let attribution = null;
 
   if (resolved?.contentId) {
     const { contentId } = resolved;
@@ -19,6 +21,7 @@ export async function openDocument(opts: OpenDocumentOptions): Promise<OpenOutco
       pageId, contentId, { copyCheckMode },
     );
     doc = loaded.customContent?.value;
+    attribution = attributionFromCustomContent(loaded.customContent);
     directFetchStatus = loaded.directFetchStatus;
 
     if (loaded.recoveredFromOrphanId && doc) {
@@ -79,6 +82,7 @@ export async function openDocument(opts: OpenDocumentOptions): Promise<OpenOutco
         originalCustomContentId: resolved?.contentId,
         recoveryPageId: pageId,
       },
+      ...(attribution ? { attribution } : {}),
     },
   };
 }

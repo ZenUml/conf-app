@@ -259,6 +259,12 @@
             <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide}">
               <slot></slot>
             </div>
+            <DiagramAttributionFooter
+              v-if="!isLoadFailed && diagramAttribution"
+              :attribution="diagramAttribution"
+              :macro-type="diagramType"
+              :ready="viewerLoadState === 'ready'"
+            />
 
             <!-- Live Agent Link perceived-latency overlay (charter §6 Track F).
                  Flag-gated exactly like the Connect affordance so the flag-off
@@ -401,6 +407,7 @@ import forgeGlobal, { getContext, openUrl } from '@/model/globals/forgeGlobal'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
 import { deeplinkHostForProductType, buildEmbedDeeplink } from '@/utils/embedDeeplink'
+import DiagramAttributionFooter from '@/components/Viewer/DiagramAttributionFooter.vue'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 const SUPPORT_PORTAL_URL = 'https://zenuml.atlassian.net/servicedesk'
@@ -445,6 +452,7 @@ export default {
     LinkStatusChip,
     LiveBadge,
     ThinkingOverlay,
+    DiagramAttributionFooter,
   },
   computed: {
     ...mapState({
@@ -452,6 +460,7 @@ export default {
       diagram: state => state.diagram,
       viewerLoadState: state => state.viewerLoadState,
       loadError: state => state.loadError,
+      diagramAttribution: state => state.diagramAttribution,
     }),
     ...mapGetters({isDisplayMode: 'isDisplayMode'}),
     isLoadFailed() {

@@ -11,6 +11,7 @@ import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
 import { parseEmbedDeeplink } from '@/utils/embedDeeplink';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { AnalyticsProperties } from '@/utils/analytics/types';
+import { attributionFromCustomContent } from '@/model/DiagramAttribution';
 
 const AUTOCONVERT_ANALYTICS_PROPS = {
   feature_area: 'macro',
@@ -121,7 +122,7 @@ export async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
     }
   }
 
-  return { doc, loadError };
+  return { doc, loadError, attribution: attributionFromCustomContent(loaded?.customContent) };
 }
 
 function afterLoad(doc: Diagram | undefined) {

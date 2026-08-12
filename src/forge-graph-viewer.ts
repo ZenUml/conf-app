@@ -16,12 +16,14 @@ import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/view
 import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
 import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
 import { guardEditClick } from '@/utils/guardEditClick';
+import { attributionFromCustomContent } from '@/model/DiagramAttribution';
 
 async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
   let loadError = null;
+  let attribution = null;
   const customContentId = context.extension?.config?.customContentId;
   const pageId = context.extension?.content?.id;
   if(!customContentId) {
@@ -37,6 +39,7 @@ async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
     );
     console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
+    attribution = attributionFromCustomContent(loaded.customContent);
     if (loaded.recoveredFromOrphanId && doc) {
       doc.recoveredFromOrphan = true;
       doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
@@ -119,7 +122,7 @@ async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
     }
   }
 
-  return { doc, loadError };
+  return { doc, loadError, ...(attribution ? { attribution } : {}) };
 }
 
 function afterLoad(doc: Diagram | undefined) {

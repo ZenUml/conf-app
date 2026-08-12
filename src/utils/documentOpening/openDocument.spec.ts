@@ -63,6 +63,7 @@ describe('openDocument (Slice 1 core pipeline)', () => {
       kind: 'opened',
       document: {
         doc,
+        attribution: { customContentId: 'cc-1' },
         origin: {
           contentId: 'cc-1',
           source: 'config',

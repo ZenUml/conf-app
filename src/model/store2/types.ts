@@ -1,5 +1,6 @@
 import { Diagram } from '@/model/Diagram/Diagram';
 import { PublishBlockReason } from '@/model/editDupGate';
+import type { DiagramAttribution } from '@/model/DiagramAttribution';
 
 export interface DiagramLoadError {
   directFetchStatus?: 'ok' | 'not_found' | 'other_error';
@@ -23,6 +24,9 @@ export interface RootState {
   diagramLoadComplete?: boolean
   viewerLoadState: ViewerLoadState;
   loadError: DiagramLoadError | null;
+  // Ephemeral attribution from Confluence's custom-content envelope. Keep it
+  // outside Diagram so it can never round-trip into stored diagram bodies.
+  diagramAttribution: DiagramAttribution | null;
   // Editor-side backstop (model/editDupGate.ts): non-null when the mounted
   // doc is a copy in a surface that cannot write a forked id back into the
   // macro config — Header.vue disables Publish and the save handler refuses.

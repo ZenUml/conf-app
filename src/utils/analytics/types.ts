@@ -26,6 +26,7 @@ import type {
   AgentLinkSessionSuspendReason,
   AgentLinkListScope,
   ActivationPath,
+  ViewerRelation,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -170,6 +171,13 @@ export type AnalyticsProperties = {
   // (404) so there is nothing to attach to yet; the save-path/backfill
   // self-heals once the page is published.
   snapshot_skip_reason?: 'no_write_permission' | 'page_not_published';
+  // Diagram attribution and impact (Phase 1). These values intentionally
+  // exclude viewer keys, attribution names, and other users' account IDs.
+  viewer_relation?: ViewerRelation;
+  has_last_updated_by?: boolean;
+  has_audience_count?: boolean;
+  visibility_duration_ms?: number;
+  audience_count?: number;
   space_admin_count?: number;
   // M1 `app_first_seen` census props. Explicit, not ambient: the P3 denominator
   // is COUNT(DISTINCT account_id) per cloud_id, so both ride on the event

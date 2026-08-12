@@ -11,6 +11,7 @@ import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
 import { parseEmbedDeeplink } from '@/utils/embedDeeplink';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { AnalyticsProperties } from '@/utils/analytics/types';
+import { attributionFromCustomContent } from '@/model/DiagramAttribution';
 
 const AUTOCONVERT_ANALYTICS_PROPS = {
   feature_area: 'macro',
@@ -24,6 +25,7 @@ export async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
 
   let doc: Diagram | undefined;
   let loadError = null;
+  let attribution = null;
   let customContentId = context.extension?.config?.customContentId;
   let autoconvertProps: AnalyticsProperties | undefined;
   const pageId = context.extension?.content?.id;
@@ -73,6 +75,7 @@ export async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
     const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(pageId, customContentId);
     console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
+    attribution = attributionFromCustomContent(loaded.customContent);
     if (loaded.recoveredFromOrphanId && doc) {
       doc.recoveredFromOrphan = true;
       doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
@@ -121,7 +124,7 @@ export async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
     }
   }
 
-  return { doc, loadError };
+  return { doc, loadError, ...(attribution ? { attribution } : {}) };
 }
 
 function afterLoad(doc: Diagram | undefined) {

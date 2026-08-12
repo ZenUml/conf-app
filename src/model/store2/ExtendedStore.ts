@@ -3,12 +3,16 @@ import { RootState} from "@/model/store2/types";
 import {DiagramType, NULL_DIAGRAM} from "@/model/Diagram/Diagram";
 import globals from "@/model/globals";
 import EventBus from "@/EventBus";
+import type { DiagramAttribution } from '@/model/DiagramAttribution';
 
 const ExtendedStore: StoreOptions<RootState> = {
   mutations: {
     setViewerLoadState(state: RootState, payload: { viewerLoadState: RootState['viewerLoadState']; loadError?: RootState['loadError'] }) {
       state.viewerLoadState = payload.viewerLoadState;
       state.loadError = payload.loadError ?? null;
+    },
+    setDiagramAttribution(state: RootState, attribution: DiagramAttribution | null) {
+      state.diagramAttribution = attribution;
     },
     updateCode2(state: any, payload: any) {
       state.diagram.code = payload
@@ -71,6 +75,7 @@ const ExtendedStore: StoreOptions<RootState> = {
     diagramLoadComplete: false,
     viewerLoadState: null,
     loadError: null,
+    diagramAttribution: null,
     publishBlock: null,
     error: null,
     onElementClick: (codeRange: any) => {

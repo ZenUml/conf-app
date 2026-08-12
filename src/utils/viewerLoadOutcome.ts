@@ -6,6 +6,7 @@ import type { DiagramLoadError, ViewerLoadState } from '@/model/store2/types';
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage';
 import { serializeError } from '@/utils/window';
 import { decompress } from '@/utils/compress';
+import type { DiagramAttribution } from '@/model/DiagramAttribution';
 
 /**
  * Legacy Connect-era graph/DrawIO macros persisted graphXml as LZUTF8-Base64
@@ -44,6 +45,11 @@ export function publishLoadedDiagram(doc: Diagram | undefined, loadError?: Diagr
   window.diagram = diagram;
   console.log('loadDiagram - window.diagram', window.diagram);
   return diagram;
+}
+
+/** Viewer-only metadata; Diagram itself is persisted custom-content data. */
+export function publishDiagramAttribution(attribution: DiagramAttribution | null | undefined): void {
+  store.state.diagramAttribution = attribution ?? null;
 }
 
 export type { DiagramLoadError, ViewerLoadState };

@@ -29,7 +29,7 @@ async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
     // openDocument pipeline keep their own vocabularies without a third one.
     return { doc: undefined, loadError: mapOpenErrorToLoadError(outcome.error) };
   }
-  return { doc: outcome.document.doc, loadError: null };
+  return { doc: outcome.document.doc, loadError: null, attribution: outcome.document.attribution };
 }
 
 function afterLoad(doc: Diagram | undefined) {

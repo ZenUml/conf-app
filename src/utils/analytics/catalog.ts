@@ -9,7 +9,11 @@ export type FeatureArea =
   | "confluence"
   | "feedback"
   | "system"
-  | "agent_link";
+  | "agent_link"
+  | "diagram_impact";
+
+/** Current user's relationship to the diagram being measured. */
+export type ViewerRelation = "creator" | "updater" | "contributor" | "viewer";
 
 export type MacroTypeValue =
   | "sequence"
@@ -357,6 +361,12 @@ export type AnalyticsEventName =
   // snapshot_create_failed.
   | "snapshot_backfill_skipped"
   | "snapshot_fallback_rendered"
+  // Diagram attribution and audience impact (Phase 1): the read-only footer
+  // and its three-second continuous-visibility registration flow.
+  | "diagram_attribution_shown"
+  | "diagram_audience_view_qualified"
+  | "diagram_audience_registration_succeeded"
+  | "diagram_audience_registration_failed"
   // Save-time PNG backup upload, async mode (#392). The frontend hands the PNG
   // to /forge-upload-attachment with `async: true`, gets an ack after
   // validation, emits `attachment_upload_queued` and returns — the real

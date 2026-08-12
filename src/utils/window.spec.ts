@@ -3,6 +3,7 @@ import mixpanel from 'mixpanel-browser'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 import { _awaitableTrackEvent, addonKey, addonKeyForProductType, getUrlParam, getLocalStorageKey, getLocalState, setLocalState } from './window';
 import forgeGlobal from '@/model/globals/forgeGlobal';
+import { normalizeProductType } from '@/utils/analytics/productType';
 
 // Mock dependencies
 vi.mock('mixpanel-browser', () => ({
@@ -173,7 +174,10 @@ describe('window utils', async () => {
         user_account_id: 'test-user-123',
         client_domain: 'test-domain',
         confluence_space: 'TEST',
-        product_type: 'full'
+        // Derived, not hard-coded: this binds the legacy trackEvent path to the
+        // shared resolver, so an asyncapi build (PRODUCT_TYPE=asyncapi) is
+        // asserted to report 'asyncapi' rather than falling back to 'full'.
+        product_type: normalizeProductType(import.meta.env.PRODUCT_TYPE)
       }))
     })
 
@@ -206,7 +210,7 @@ describe('window utils', async () => {
         client_domain: 'test-domain',
         confluence_space: 'TEST',
         macro_uuid: 'forge-local-id-123',
-        product_type: 'full'
+        product_type: normalizeProductType(import.meta.env.PRODUCT_TYPE)
       }))
     })
 

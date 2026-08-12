@@ -2,7 +2,14 @@ import { Page } from '@playwright/test';
 
 // Embed-deeplink autoConvert automation. A real paste event is required:
 // typing only linkifies the URL and never runs Forge macro autoConvert.
-const PM = '.ProseMirror';
+// Scope every operation to Confluence's page body. The editor now also renders
+// a Rovo prompt backed by ProseMirror; a generic `.ProseMirror` selector can
+// paste the deeplink there while leaving the actual page body empty.
+const EDITOR_BODY = '[role="textbox"][aria-label*="Main content area"], [role="textbox"][aria-label*="Page editing area"]';
+
+function editorBody(page: Page) {
+  return page.locator(EDITOR_BODY).first();
+}
 
 /** The canonical embed deeplink for a diagram (matches the active variant). */
 export function embedDeeplinkUrl(host: string, cloudId: string, contentId: string): string {
@@ -10,18 +17,18 @@ export function embedDeeplinkUrl(host: string, cloudId: string, contentId: strin
 }
 
 export async function pasteDeeplink(page: Page, url: string): Promise<void> {
-  await page.locator(PM).first().click();
+  await editorBody(page).click();
   await page.waitForTimeout(200);
-  await page.evaluate((u) => {
-    const pm = document.querySelector('.ProseMirror') as HTMLElement | null;
-    if (!pm) throw new Error('pasteDeeplink: .ProseMirror editor not found');
+  await page.evaluate(({ selector, url: u }) => {
+    const pm = document.querySelector(selector) as HTMLElement | null;
+    if (!pm) throw new Error('pasteDeeplink: Confluence page editor not found');
     pm.focus();
     const dt = new DataTransfer();
     dt.setData('text/plain', u);
     pm.dispatchEvent(
       new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }),
     );
-  }, url);
+  }, { selector: EDITOR_BODY, url });
 }
 
 export interface EditorConversion {
@@ -34,18 +41,20 @@ export async function readConversion(page: Page, timeoutMs = 8000): Promise<Edit
   const deadline = Date.now() + timeoutMs;
   let out: EditorConversion = { extensionKeys: [], cardCount: 0, anchorHrefs: [] };
   while (true) {
-    out = await page.evaluate(() => {
-      const q = (s: string) => Array.from(document.querySelectorAll(s));
+    out = await page.evaluate((selector) => {
+      const pm = document.querySelector(selector);
+      if (!pm) throw new Error('readConversion: Confluence page editor not found');
+      const q = (s: string) => Array.from(pm.querySelectorAll(s));
       return {
-        extensionKeys: q('.ProseMirror [extensionkey]').map(
+        extensionKeys: q('[extensionkey]').map(
           (e) => e.getAttribute('extensionkey') || '',
         ),
         cardCount: q(
-          '.ProseMirror [data-node-type="inlineCard"], .ProseMirror [data-node-type="blockCard"]',
+          '[data-node-type="inlineCard"], [data-node-type="blockCard"]',
         ).length,
-        anchorHrefs: q('.ProseMirror a[href]').map((a) => a.getAttribute('href') || ''),
+        anchorHrefs: q('a[href]').map((a) => a.getAttribute('href') || ''),
       };
-    });
+    }, EDITOR_BODY);
     if (out.extensionKeys.length || out.cardCount || out.anchorHrefs.length) break;
     if (Date.now() >= deadline) break;
     await page.waitForTimeout(400);
@@ -58,7 +67,7 @@ export function isEmbedMacro(conv: EditorConversion): boolean {
 }
 
 async function clearEditor(page: Page): Promise<void> {
-  await page.locator(PM).first().click();
+  await editorBody(page).click();
   await page.keyboard.press('ControlOrMeta+a');
   await page.keyboard.press('Delete');
   await page.waitForTimeout(150);

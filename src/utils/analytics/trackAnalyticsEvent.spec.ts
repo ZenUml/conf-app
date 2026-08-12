@@ -6,6 +6,7 @@ import { getClientDomain, getSpaceKey } from "@/utils/ContextParameters/ContextP
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import { _awaitableTrackAnalyticsEvent, _resetForTesting } from "./trackAnalyticsEvent";
 import { getSessionReplayConfig } from "./sessionReplayFlags";
+import { normalizeProductType } from "./productType";
 
 vi.mock("mixpanel-browser", () => ({
   default: {
@@ -77,6 +78,26 @@ describe("trackAnalyticsEvent — identity resolution", () => {
     expect(mixpanel.track).toHaveBeenCalledWith(
       "viewer_source_opened",
       expect.any(Object)
+    );
+  });
+
+  it("labels the event with this build's product type, not a hard-coded default", async () => {
+    // @ts-ignore
+    window.globals = mockGlobals;
+
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    // Derived from the shared resolver rather than asserted as a literal, so an
+    // asyncapi build (PRODUCT_TYPE=asyncapi) is required to report 'asyncapi'
+    // instead of falling through to the 'full' default — issues #367, #416.
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "viewer_source_opened",
+      expect.objectContaining({
+        product_type: normalizeProductType(import.meta.env.PRODUCT_TYPE),
+      })
     );
   });
 

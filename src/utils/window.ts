@@ -6,6 +6,7 @@ import mixpanel from "mixpanel-browser";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import { decideSample } from "@/utils/analytics/eventSampling";
+import { normalizeProductType, type ProductType } from "@/utils/analytics/productType";
 
 let initialized = false;
 let identified = false;
@@ -174,10 +175,8 @@ async function getMacroUuid(): Promise<string> {
   return macroData?.uuid || "unknown_macro_uuid";
 }
 
-function _getProductType(): "lite" | "full" | "diagramly" {
-  const t = import.meta.env.PRODUCT_TYPE;
-  if (t === "lite" || t === "full" || t === "diagramly") return t;
-  return "full";
+function _getProductType(): ProductType {
+  return normalizeProductType(import.meta.env.PRODUCT_TYPE);
 }
 
 export function addonKeyForProductType(productType: string | undefined): string {

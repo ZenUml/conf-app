@@ -1,5 +1,6 @@
 // src/utils/analytics/types.ts
 
+import type { ProductType } from "./productType";
 import type {
   FeatureArea,
   MacroTypeValue,
@@ -34,7 +35,7 @@ export type AnalyticsProperties = {
   // Auto-enriched by tracker (optional for callers)
   client_domain?: string;
   user_account_id?: string;
-  product_type?: "lite" | "full" | "diagramly";
+  product_type?: ProductType;
   environment_type?: string;
   // Contextual — required when scope implies them
   macro_type?: MacroTypeValue;

@@ -80,11 +80,13 @@ def cmd_enqueue(args):
     print(f'request source: {args.request_source}')
 
     d1(
-        'INSERT INTO ConversionJob (id, cloudId, spaceKey, pageIds, dryRun, requestSource, status) '
+        'INSERT INTO ConversionJob (id, cloudId, spaceKey, pageIds, dryRun, requestSource, '
+        'status, pageBatchLimit) '
         f"VALUES ({q(job_id)}, {q(cloud)}, "
         f"{q(args.space) if args.space else 'NULL'}, "
         f"{q(json.dumps(pages)) if pages else 'NULL'}, "
-        f"{1 if args.dry_run else 0}, {q(args.request_source)}, 'queued')"
+        f"{1 if args.dry_run else 0}, {q(args.request_source)}, 'queued', "
+        f"{args.page_batch_limit if args.page_batch_limit else 'NULL'})"
     )
     print('queued. The tenant\'s Full app picks it up on its next hourly tick.')
     print(f'watch: python3 {os.path.relpath(__file__, os.getcwd())} status --domain {args.domain}')
@@ -97,7 +99,7 @@ def cmd_status(args):
         where = f' WHERE cloudId = {q(cloud)}'
     rows = d1(
         'SELECT id, cloudId, spaceKey, pageIds, dryRun, status, requestSource, '
-        'claimedAt, completedAt, statsJson, failureStage, createdAt '
+        'claimedAt, completedAt, statsJson, failureStage, createdAt, pageOffset '
         f'FROM ConversionJob{where} ORDER BY createdAt DESC LIMIT 20'
     )
     if not rows:
@@ -105,7 +107,7 @@ def cmd_status(args):
         return
     for r in rows:
         scope = r['spaceKey'] or (r['pageIds'] and f"{len(json.loads(r['pageIds']))} pages") or '?'
-        line = (f"{r['createdAt']}  {r['status']:<8} {scope:<14} dry={r['dryRun']} "
+        line = (f"{r['createdAt']}  {r['status']:<8} {scope:<14} @{r.get('pageOffset', 0)} dry={r['dryRun']} "
                 f"src={r['requestSource']}  {r['id']}")
         print(line)
         if r['statsJson']:
@@ -133,6 +135,9 @@ def main():
                    help='customer request provenance, e.g. "jsm:ZEN-1234" or "email:<who> <date>"')
     p.add_argument('--dry-run', action='store_true',
                    help='walk and report without creating content or editing pages')
+    p.add_argument('--page-batch-limit', type=int,
+                   help='pages per tick (default 25). A job larger than one batch '
+                        'requeues itself until the sweep comes up short.')
     p.set_defaults(fn=cmd_enqueue)
 
     p = sub.add_parser('status')

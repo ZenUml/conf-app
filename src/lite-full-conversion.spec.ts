@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
   parseExtensionKey,
   mapLiteMacroKey,
-  fullContentTypeForMacroKey,
+  fullContentTypeForLiteType,
   collectLiteExtensions,
   rewriteExtensionNode,
   normalizeEnvironmentId,
+  batchLimitFor,
+  shouldRequeue,
   LITE_APP_ID,
   type AdfExtensionNode,
 } from './lite-full-conversion';
@@ -71,17 +73,25 @@ describe('mapLiteMacroKey', () => {
   });
 });
 
-describe('fullContentTypeForMacroKey', () => {
-  it('routes graph to the graph content type, everything else to sequence', () => {
-    expect(fullContentTypeForMacroKey('zenuml-graph-macro')).toBe(
-      'ac:com.zenuml.confluence-addon:zenuml-content-graph',
-    );
-    expect(fullContentTypeForMacroKey('zenuml-sequence-macro')).toBe(
-      'ac:com.zenuml.confluence-addon:zenuml-content-sequence',
-    );
-    expect(fullContentTypeForMacroKey('zenuml-openapi-macro')).toBe(
-      'ac:com.zenuml.confluence-addon:zenuml-content-sequence',
-    );
+describe('fullContentTypeForLiteType', () => {
+  // The app writes EVERY diagram type under zenuml-content-sequence
+  // (ApWrapper2.getContentKey) — measured: 2103 of 2104 mirrored graph bodies.
+  // Converted content must land under the same key its source used, so it is
+  // indistinguishable from natively-saved content.
+  it('swaps only the app prefix, keeping the source key', () => {
+    expect(
+      fullContentTypeForLiteType('ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence'),
+    ).toBe('ac:com.zenuml.confluence-addon:zenuml-content-sequence');
+    expect(
+      fullContentTypeForLiteType('ac:com.zenuml.confluence-addon-lite:zenuml-content-graph'),
+    ).toBe('ac:com.zenuml.confluence-addon:zenuml-content-graph');
+  });
+
+  it('returns null for a type that is not Lite, so the macro is skipped', () => {
+    expect(fullContentTypeForLiteType('ac:com.zenuml.confluence-addon:zenuml-content-sequence')).toBeNull();
+    expect(fullContentTypeForLiteType('ac:gptdock-confluence:gpt-custom-content-key')).toBeNull();
+    expect(fullContentTypeForLiteType(null)).toBeNull();
+    expect(fullContentTypeForLiteType('')).toBeNull();
   });
 });
 
@@ -162,5 +172,35 @@ describe('rewriteExtensionNode', () => {
     expect(node.attrs.localId).toBe('fb3d4d63-76fb-460c-9e9a-9fd8cbcbe1e6');
     expect(node.attrs.parameters!.localId).toBe('fb3d4d63-76fb-460c-9e9a-9fd8cbcbe1e6');
     expect(node.attrs.parameters!.embeddedMacroContext).toEqual({ accountId: 'x', cloudId: 'y' });
+  });
+});
+
+/**
+ * A job larger than one batch used to report `done` after its first 25 pages
+ * and never be claimed again — the rest of the tenant's macros stayed Lite
+ * with nothing in the record saying so.
+ */
+describe('multi-batch jobs', () => {
+  it('uses the per-job limit when set, the default otherwise', () => {
+    expect(batchLimitFor({})).toBe(25);
+    expect(batchLimitFor({ pageBatchLimit: null })).toBe(25);
+    expect(batchLimitFor({ pageBatchLimit: 1 })).toBe(1);
+    // Out-of-range overrides fall back rather than widen the batch.
+    expect(batchLimitFor({ pageBatchLimit: 0 })).toBe(25);
+    expect(batchLimitFor({ pageBatchLimit: 99 })).toBe(25);
+  });
+
+  it('asks for another tick when the batch filled and work was done', () => {
+    expect(shouldRequeue({ pagesTotal: 25, macrosConverted: 40 }, 25)).toBe(true);
+    expect(shouldRequeue({ pagesTotal: 1, macrosConverted: 2 }, 1)).toBe(true);
+  });
+
+  it('stops when the batch was short — nothing left to sweep', () => {
+    expect(shouldRequeue({ pagesTotal: 24, macrosConverted: 40 }, 25)).toBe(false);
+    expect(shouldRequeue({ pagesTotal: 0, macrosConverted: 0 }, 25)).toBe(false);
+  });
+
+  it('stops a full batch that converted nothing, so it cannot loop', () => {
+    expect(shouldRequeue({ pagesTotal: 25, macrosConverted: 0 }, 25)).toBe(false);
   });
 });

@@ -31,7 +31,7 @@ describe('POST /api/diagram-impact/view', () => {
         headers: { 'Content-Type': 'application/json', 'x-forge-oauth-user': 'token' },
         body: JSON.stringify({ customContentId: 'content-a' }),
       }),
-      env: { DB: db(), DIAGRAM_IMPACT_HMAC_SECRET: 'secret' }, data,
+      env: { DB: db() }, data,
     } as any);
 
     expect(result.status).toBe(200);

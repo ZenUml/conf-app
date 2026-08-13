@@ -1,5 +1,9 @@
 # Diagram attribution and creator impact
 
+> **Superseded:** The audience identity portions of this design were replaced by
+> [2026-08-13-remove-diagram-audience-hmac-design.md](2026-08-13-remove-diagram-audience-hmac-design.md).
+> The original HMAC schema and secret requirements below are retained as historical context only.
+
 **Status:** Approved in product design review on 2026-08-12
 **Scope:** Phase 1 public attribution and audience count; Phase 2 private contributor impact
 **Storage decision:** Existing Cloudflare D1 database and existing `DB` binding

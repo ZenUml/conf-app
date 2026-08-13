@@ -1,5 +1,9 @@
 # Diagram attribution and audience impact — Phase 1 implementation plan
 
+> **Historical plan:** The audience identity implementation in this plan was
+> superseded by [2026-08-13-remove-diagram-audience-hmac-design.md](../specs/2026-08-13-remove-diagram-audience-hmac-design.md),
+> which stores the trusted account ID directly and removes the HMAC secret.
+
 > **Scope:** Implement only the approved Phase 1 public footer and lifetime unique-colleague count. Phase 2 private insights, trends, milestones, and every reaction/Like/Kudos mechanic remain out of scope.
 
 **Goal:** Add a quiet footer to every standard diagram viewer:

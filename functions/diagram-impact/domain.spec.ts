@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyViewerRelation,
-  deriveViewerKey,
   utcDayStart,
 } from './domain';
 
@@ -40,18 +39,6 @@ describe('diagram impact domain', () => {
       updatedByAccountId: 'person-2',
       isHistoricalContributor: false,
     })).toBe('viewer');
-  });
-
-  it('derives a stable, tenant-scoped opaque viewer key', async () => {
-    const same = await deriveViewerKey({ secret: 'test-secret', cloudId: 'cloud-a', accountId: 'person-1' });
-    const otherTenant = await deriveViewerKey({ secret: 'test-secret', cloudId: 'cloud-b', accountId: 'person-1' });
-    const otherPerson = await deriveViewerKey({ secret: 'test-secret', cloudId: 'cloud-a', accountId: 'person-2' });
-
-    expect(same).toMatch(/^[a-f0-9]{64}$/);
-    await expect(deriveViewerKey({ secret: 'test-secret', cloudId: 'cloud-a', accountId: 'person-1' })).resolves.toBe(same);
-    expect(otherTenant).not.toBe(same);
-    expect(otherPerson).not.toBe(same);
-    expect(same).not.toContain('person-1');
   });
 
   it('normalizes times to their UTC day start', () => {

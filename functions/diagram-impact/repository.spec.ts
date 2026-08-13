@@ -79,14 +79,14 @@ describe('diagram audience repository', () => {
 
     await expect(registerAudienceView(db, {
       ...scope,
-      viewerKey: 'opaque-key',
+      accountId: 'person-a',
       now: new Date('2026-08-12T12:00:00.000Z'),
     })).resolves.toBe('new_unique');
 
     expect(calls.map((call) => call.operation)).toEqual(['first', 'run']);
     expect(calls[1]).toMatchObject({
-      sql: expect.stringContaining('INSERT OR IGNORE INTO DiagramAudience'),
-      binds: ['cloud-a', 'app-a', 'content-a', 'opaque-key', '2026-08-12T12:00:00.000Z', '2026-08-12T12:00:00.000Z'],
+      sql: expect.stringContaining('accountId, firstViewedAt, lastViewedAt, viewDays'),
+      binds: ['cloud-a', 'app-a', 'content-a', 'person-a', '2026-08-12T12:00:00.000Z', '2026-08-12T12:00:00.000Z'],
     });
   });
 
@@ -95,7 +95,7 @@ describe('diagram audience repository', () => {
 
     await expect(registerAudienceView(db, {
       ...scope,
-      viewerKey: 'opaque-key',
+      accountId: 'person-a',
       now: new Date('2026-08-12T12:00:00.000Z'),
     })).resolves.toBe('repeat');
   });
@@ -105,7 +105,7 @@ describe('diagram audience repository', () => {
 
     await expect(registerAudienceView(db, {
       ...scope,
-      viewerKey: 'opaque-key',
+      accountId: 'person-a',
       now: new Date('2026-08-12T23:59:59.000Z'),
     })).resolves.toBe('repeat');
 
@@ -117,7 +117,7 @@ describe('diagram audience repository', () => {
 
     await expect(registerAudienceView(db, {
       ...scope,
-      viewerKey: 'opaque-key',
+      accountId: 'person-a',
       now: new Date('2026-08-13T00:00:00.000Z'),
     })).resolves.toBe('repeat');
 
@@ -126,7 +126,7 @@ describe('diagram audience repository', () => {
       sql: expect.stringContaining('lastViewedAt < ?6'),
       binds: [
         '2026-08-13T00:00:00.000Z',
-        'cloud-a', 'app-a', 'content-a', 'opaque-key', '2026-08-13T00:00:00.000Z',
+        'cloud-a', 'app-a', 'content-a', 'person-a', '2026-08-13T00:00:00.000Z',
       ],
     });
   });

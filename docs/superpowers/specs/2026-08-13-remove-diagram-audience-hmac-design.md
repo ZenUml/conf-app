@@ -47,9 +47,9 @@ CREATE INDEX idx_diagram_audience_account
   ON DiagramAudience (cloudId, accountId);
 ```
 
-Existing `viewerKey` values cannot be converted back to account IDs. The migration therefore rebuilds the table without copying existing rows. Existing colleague-viewed counts reset to zero once the migration is applied. It must not preserve HMAC strings in the `accountId` column or introduce a mixed-format compatibility layer.
+Existing `viewerKey` values cannot be converted back to verified account IDs. The migration therefore copies them unchanged into the new `accountId` column as legacy opaque identities. This preserves existing aggregate counts without claiming to know those viewers' real identities. New rows contain verified Forge account IDs; old rows remain stable opaque values and are not exposed by the API or UI.
 
-This migration changes only the derived audience counter. It does not modify Confluence custom content or diagram bodies.
+This migration changes only the derived audience identity representation. It does not modify Confluence custom content or diagram bodies.
 
 ## Backend flow
 

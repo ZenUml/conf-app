@@ -1,6 +1,7 @@
 -- Migration number: 0019
 -- Replace HMAC-derived viewer keys with trusted Atlassian account IDs.
--- Existing rows intentionally are not copied: viewerKey cannot be reversed.
+-- Existing viewer keys are retained as opaque legacy account IDs so aggregate
+-- counts do not reset. They are not treated as verified Atlassian identities.
 
 ALTER TABLE DiagramAudience RENAME TO DiagramAudience_hmac;
 
@@ -17,5 +18,12 @@ CREATE TABLE DiagramAudience (
 
 CREATE INDEX idx_diagram_audience_account
   ON DiagramAudience (cloudId, accountId);
+
+INSERT INTO DiagramAudience (
+  cloudId, forgeAppId, customContentId, accountId, firstViewedAt, lastViewedAt, viewDays
+)
+SELECT
+  cloudId, forgeAppId, customContentId, viewerKey, firstViewedAt, lastViewedAt, viewDays
+FROM DiagramAudience_hmac;
 
 DROP TABLE DiagramAudience_hmac;

@@ -121,25 +121,39 @@ export async function openBylineModal(page: Page): Promise<Frame> {
 }
 
 /**
- * The Forge frame matching `selector`, excluding frames already known.
+ * The Forge frame matching `selector`, excluding the byline frame itself.
  *
  * The byline's editor opens as a SECOND top-level Forge modal while the byline
  * frame is still mounted, and both are `custom-ui-fullscreen-modal-dialog`s
  * hosting a `hosted-resources-iframe` — so the page-object's
  * `getByTestId('custom-ui-fullscreen-modal-dialog')` matches two things here and
- * cannot be reused. Excluding the frames that existed before the click is what
- * makes "the editor" unambiguous.
+ * cannot be reused.
+ *
+ * Excluding by frame IDENTITY, not by URL. The first version of this diffed the
+ * set of frame URLs across the click, and that can never work: both modals are
+ * `resource: main` of the same app, so Forge serves them from the SAME CDN URL
+ * and passes the context over the bridge rather than in the query string. The
+ * editor frame was therefore filtered out as "already known" and every run
+ * failed with `New app frames seen: []` while the editor was in fact open —
+ * confirmed on the 2026-08-14 run, where `paywall_gate_evaluated`
+ * (action_type `byline_create`, surface `byline`) fired ~1s after each
+ * `byline_create_clicked`, which only happens once the editor modal has mounted.
+ *
+ * A new iframe element is a new Playwright `Frame` object even at an identical
+ * URL, so identity is the discriminator that actually holds. The selector then
+ * does the rest: the byline panel has no Publish button, and the host page's
+ * Publish is not in an app frame.
  */
-async function newFrameWithSelector(
+async function appFrameWithSelector(
   page: Page,
   selector: string,
-  known: Set<string>,
+  exclude: Frame,
   timeoutMs = 30000,
 ): Promise<Frame> {
   const deadline = Date.now() + timeoutMs;
   let lastSeen: string[] = [];
   while (Date.now() < deadline) {
-    const candidates = page.frames().filter(f => isAppFrame(f) && !known.has(f.url()));
+    const candidates = page.frames().filter(f => isAppFrame(f) && f !== exclude);
     lastSeen = candidates.map(f => f.url());
     for (const f of candidates) {
       const hit = await f.locator(selector).count().catch(() => 0);
@@ -148,8 +162,8 @@ async function newFrameWithSelector(
     await page.waitForTimeout(500);
   }
   throw new Error(
-    `No NEW Forge frame matched ${selector} within ${timeoutMs}ms. ` +
-      `New app frames seen: ${JSON.stringify(lastSeen)}`,
+    `No Forge frame other than the byline matched ${selector} within ${timeoutMs}ms. ` +
+      `Candidate app frames seen: ${JSON.stringify(lastSeen)}`,
   );
 }
 
@@ -167,10 +181,9 @@ export async function createDiagramFromByline(
   typeKey: string,
   title: string,
 ): Promise<void> {
-  const known = new Set(page.frames().map(f => f.url()));
   await bylineFrame.locator(`[data-testid="byline-type-${typeKey}"]`).first().click();
 
-  const editor = await newFrameWithSelector(page, 'button:has-text("Publish")', known);
+  const editor = await appFrameWithSelector(page, 'button:has-text("Publish")', bylineFrame);
   // Same shape as EditorPage.interactWithForgeDiagramMacro: the title input is
   // the first text field, and Publish only enables once it has a value.
   await editor.locator('input[type="text"]').first().fill(title);

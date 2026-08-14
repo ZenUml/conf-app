@@ -376,6 +376,10 @@ export default defineConfig(({ command }) => ({
       // Scratch dir — sessions park ad-hoc Playwright specs here; a stray
       // *.spec.ts under tmp/ otherwise fails the whole run at collection.
       '**/tmp/**',
+      // Private customer-investigation contains ephemeral Playwright spot
+      // checks. They are run with tests/e2e-tests' Playwright config, never
+      // as root Vitest unit suites.
+      '**/private/customer-investigation/**/*.spec.ts',
       // Skip the asyncapi-studio submodule's own tests — they import
       // upstream `@/*` aliases that aren't resolvable in our root tsconfig
       // and aren't relevant to this repo's test suite.

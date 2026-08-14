@@ -10,49 +10,54 @@
  * symptom is silence: an `appFirstSeenAttempt:` stamp appears but the
  * `appFirstSeen:` marker never does, and no `app_first_seen` facts reach D1.
  *
- * Assertion strategy: a fresh Playwright context has no marker, so the ping is
- * due on the first page load. Success (or an explicit backend-disabled answer)
- * is the ONLY path that writes the `appFirstSeen:` marker — so "marker appears"
- * is equivalent to "the POST completed", with no network interception needed
- * (invokeRemote tunnels through the Forge bridge, not a directly-observable
- * HTTP request from the iframe).
+ * Assertion strategy: inspect the Forge bridge's GraphQL relay. Production
+ * hosts Lite, Full, and Diagramly page banners together, so localStorage from
+ * any Forge iframe cannot prove which app made (or completed) the request.
+ * The relay request carries the source app's extension ID, and its response
+ * carries the inner remote HTTP status.
  */
 import { test, expect } from '@playwright/test';
 import { testConfig } from '../../config/test-config.js';
+import { isSuccessfulForgeRelay, isTargetFirstSeenRelay } from '../../helpers/forgeRelay.js';
 
-const BANNER_FRAME_URL = /atlassian-dev\.net|localhost:8000/;
+const FORGE_APP_ID_BY_PRODUCT = {
+  lite: '8ad26115-211f-4216-971b-0540f606303d',
+  full: 'd9e4002b-120b-426b-834b-402a4a5adce7',
+  diagramly: '01ede8b1-4e88-451a-b9ef-89eeef93afaf',
+  asyncapi: '49017727-af19-4ab6-8d5a-7d28108936b6',
+} as const;
 
-test('first-seen ping completes from the banner host (marker written, no failure warn)', async ({ page }) => {
+const DIAGRAMLY_FORGE_APP_ID = FORGE_APP_ID_BY_PRODUCT.diagramly;
+
+test('identifies only the target app page-banner first-seen relay', () => {
+  expect(isTargetFirstSeenRelay({
+    variables: {
+      input: {
+        extensionId: `ari:cloud:ecosystem::extension/${DIAGRAMLY_FORGE_APP_ID}/environment/static/zenuml-page-banner`,
+        payload: {
+          call: { path: 'https://conf-lite.zenuml.com/forge-user-behavior' },
+          context: { moduleKey: 'zenuml-page-banner' },
+        },
+      },
+    },
+  }, DIAGRAMLY_FORGE_APP_ID)).toBe(true);
+});
+
+test('first-seen ping completes from the target app page-banner', async ({ page }) => {
   test.setTimeout(120_000);
 
-  const failures: string[] = [];
-  page.on('console', (m) => {
-    if (/\[first-seen\] ping failed/i.test(m.text())) failures.push(m.text().slice(0, 300));
-  });
+  const targetAppId = FORGE_APP_ID_BY_PRODUCT[testConfig.productType];
+  const relayResponse = page.waitForResponse((response) => {
+    if (!response.url().includes('useInvokeExtensionRelayMutation')) return false;
+    try {
+      return isTargetFirstSeenRelay(response.request().postDataJSON(), targetAppId);
+    } catch {
+      return false;
+    }
+  }, { timeout: 60_000 });
 
   await page.goto(testConfig.pageUrl(testConfig.parentPageId));
 
-  // Poll the banner iframe's localStorage for the success marker. The banner
-  // host resolves the Forge context, sends the awaited POST, then writes
-  // `appFirstSeen:<domain>` — typically well under 30s on staging.
-  await expect
-    .poll(
-      async () => {
-        for (const f of page.frames()) {
-          if (!BANNER_FRAME_URL.test(f.url())) continue;
-          try {
-            const keys = await f.evaluate(() => Object.keys(localStorage));
-            if (keys.some((k) => k.startsWith('appFirstSeen:'))) return 'marker';
-            if (keys.some((k) => k.startsWith('appFirstSeenAttempt:'))) return 'attempt-only';
-          } catch {
-            // OOPIF may detach mid-poll (view.close()); keep polling others.
-          }
-        }
-        return 'none';
-      },
-      { timeout: 60_000, intervals: [2_000] }
-    )
-    .toBe('marker');
-
-  expect(failures, `ping failed in-console: ${failures.join(' | ')}`).toHaveLength(0);
+  const relayPayload = await (await relayResponse).json();
+  expect(isSuccessfulForgeRelay(relayPayload)).toBe(true);
 });

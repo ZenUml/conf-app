@@ -23,7 +23,7 @@ python3 $S props space                     # declared properties matching a patt
 
 Sources it parses: `catalog.ts` (`AnalyticsEventName` union) for event names, `types.ts` (`AnalyticsProperties`) for the property vocabulary, the `enriched` literal in `trackAnalyticsEvent.ts` for what rides every event, and the tracker call sites for what rides a specific event. Add `--ref origin/main` when the working tree is behind — `doctor` tells you.
 
-**Two traps it exists to stop** (both hit on 2026-08-11, building the `olix — Usage` board):
+**Two traps it exists to stop** (both hit on 2026-08-11, building a per-tenant Usage board):
 
 1. **A declared property is not a property of every event.** `space_key` is declared in `types.ts`, but it belongs to the Cloudflare backend's macro-count snapshot events. On `macro_viewed` it is 100% undefined — 81,878 of 81,878 events in a 7-day fleet-wide check. The space dimension on frontend events is **`confluence_space`**, which the tracker auto-injects (`trackAnalyticsEvent.ts`: `callerProps.confluence_space ?? getSpaceKey() ?? "unknown_space"`).
 2. **Never validate a property against one tenant.** A single-tenant distinct count returns `1` for a completely absent property (counting the one value `undefined`) and also `1` for a real property at a one-space tenant. The two are indistinguishable. Fleet-wide they differ by three orders of magnitude. `verify` is fleet-wide by construction and reports the undefined-only case as `VERDICT: UNUSABLE`.

@@ -9,7 +9,7 @@ Lite and Full are separate Forge apps with distinct macro keys (`zenuml-*-macro-
 nothing: every existing page keeps rendering through Lite, so a Full evaluation on a Lite-heavy
 site runs to expiry without the customer ever seeing Full render their content. First observed
 live on a 152-seat tenant whose Full evaluation had zero renders 20h after install while their
-191 Lite macros stayed Lite (2026-08-11 investigation; see `olix — Usage` Mixpanel board 11447488).
+191 Lite macros stayed Lite (2026-08-11 investigation; see the per-tenant Usage Mixpanel board 11447488).
 
 Eleven active tenants hold Full + Lite on the same site today; every future Lite→Full conversion
 walks through this same gap.

@@ -434,16 +434,25 @@ modules:
     #
     # The label is deliberately a noun, not a call to action: this item renders
     # on EVERY page, and a page with three diagrams already on it makes "Diagram
-    # this page" read wrong. It also carries no ${LITE_TITLE_SUFFIX} — the entry
-    # ships in exactly one variant, so there is no sibling app to disambiguate
-    # from, and "Diagrams Lite" under a page title reads like a product upsell.
+    # this page" read wrong.
+    #
+    # It DOES carry ${LITE_TITLE_SUFFIX}, which earlier revisions of this entry
+    # deliberately omitted on the grounds that the entry "ships in exactly one
+    # variant, so there is no sibling app to disambiguate from". That premise
+    # expires the moment Full ships a byline of its own: a site with both apps
+    # installed would show two identically-labelled "Diagrams" items under the
+    # page title, with nothing to say which app owns which. 7 production sites
+    # currently have both Lite and Full (D1 ForgeInstallation joined on
+    # clientDomain, checked 2026-08-14), so the collision is real rather than
+    # hypothetical. Lite renders "Diagrams Lite"; every variant that sets the
+    # suffix empty renders plain "Diagrams".
     #
     # A count in the label ("3 diagrams") would be the strongest signal but
     # needs `dynamicProperties`, which costs a function invocation on every page
     # RENDER — deferred to Phase 3 behind a measured cost estimate.
     - key: zenuml-byline-diagrams
       resource: main
-      title: Diagrams
+      title: Diagrams${LITE_TITLE_SUFFIX}
       icon: resource:main;image/zenuml_logo.png
       tooltip: See the diagrams on this page, or add one
       # contentBylineItem accepts only small | medium | large | fullscreen —

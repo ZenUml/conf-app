@@ -2,6 +2,7 @@ import {AtlasDocFormat, AtlasDocElement, MacroParams, AtlasDocExtensionType, For
 import {trackEvent} from "@/utils/window";
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import { forgeRequest } from "@/utils/requestUtil";
+import { resolveLocalContentId, resolveLocalTypedContentId } from "@/utils/embedDeeplink";
 import {LocationTarget} from "@/model/ILocationContext";
 
 export class AtlasPage {
@@ -132,17 +133,47 @@ export class AtlasPage {
   async referencedCustomContentIds(): Promise<string[] | undefined> {
     const elements = await this.macrosOrNull();
     if (elements === null) return undefined;
+    const cloudId = forgeGlobal.forgeContext?.cloudId;
     const ids: string[] = [];
     for (const el of elements) {
-      const params = el.attrs.extensionType === AtlasDocExtensionType.ForgeMacro
-        ? el.attrs.parameters.guestParams
-        : el.attrs.parameters.macroParams;
-      const raw = params?.customContentId;
-      // Connect macros nest it as `{ value }`, Forge guest params store a bare
-      // string — the same split countMacrosReferencing handles.
-      const id = typeof raw === 'string' ? raw : raw?.value;
-      if (id) ids.push(String(id));
+      const id = AtlasPage.referencedId(el, cloudId);
+      if (id) ids.push(id);
     }
     return ids;
+  }
+
+  /**
+   * Which custom content this macro puts on the page, by either of the two ways
+   * a macro can name one.
+   *
+   * A macro that has been SAVED carries `customContentId`. A macro created by
+   * PASTING a deeplink carries `autoConvertLink` and nothing else until its
+   * first save writes the binding — measured on a real page 2026-08-14, where a
+   * just-published pasted macro's parameters were exactly
+   * `{layout, forgeEnvironment, autoConvertLink, embeddedMacroContext,
+   * extensionId, extensionTitle, hasBeenAutoConverted, render, localId}`. Reading
+   * only `customContentId` therefore missed precisely the macros the byline
+   * itself creates, and reported a diagram visibly on the page as not on it.
+   *
+   * The link is resolved through the cloudId-guarded helpers for the reason
+   * those exist: content ids are per-site integers, so a link pasted from
+   * another tenant would otherwise mark an unrelated local diagram as placed.
+   */
+  private static referencedId(el: AtlasDocElement, cloudId: string | undefined): string | undefined {
+    const p: any = el.attrs.parameters || {};
+    // Forge nests saved params under guestParams, Connect under macroParams —
+    // but an autoConverted Forge macro has neither and puts everything at the
+    // top level, so all three are candidates.
+    for (const params of [p.guestParams, p.macroParams, p]) {
+      if (!params) continue;
+      const raw = params.customContentId;
+      const id = typeof raw === 'string' ? raw : raw?.value;
+      if (id) return String(id);
+      const link = params.autoConvertLink;
+      const fromLink =
+        resolveLocalTypedContentId(link, cloudId) || resolveLocalContentId(link, cloudId);
+      if (fromLink) return String(fromLink);
+    }
+    return undefined;
   }
 }

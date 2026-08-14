@@ -13,10 +13,20 @@ import { Frame, Page, expect } from '@playwright/test';
 /**
  * Manifest title of the Lite byline entry, as a PREFIX.
  *
- * Not an exact match: staging appends an environment suffix, so the button reads
- * "Diagrams (Staging)" on lite-stg and "Diagrams" in production (confirmed from
- * the CI DOM dump on 2026-08-05). Matching exactly works in prod and silently
- * never matches on staging — where this test actually runs.
+ * Not an exact match, for two reasons. Staging appends an environment suffix,
+ * so the button read "Diagrams (Staging)" on lite-stg against plain "Diagrams"
+ * in production (confirmed from the CI DOM dump on 2026-08-05); matching
+ * exactly works in prod and silently never matches on staging — where this test
+ * actually runs. And the manifest title now carries ${LITE_TITLE_SUFFIX}, so
+ * Lite reads "Diagrams Lite" and the staging button "Diagrams Lite (Staging)".
+ *
+ * Kept as a bare `Diagrams` prefix rather than tightened to `Diagrams Lite`, so
+ * the helper still finds the entry in a variant that sets the suffix empty.
+ * Hazard for later: once Full ships its own byline titled "Diagrams", this
+ * pattern matches BOTH entries on a site with both apps installed, and the
+ * locator's `.first()` would pick arbitrarily. That is not reachable today —
+ * e2e runs on lite-stg, which has only Lite — but tighten this to require the
+ * suffix before pointing these tests at a site carrying both.
  */
 const BYLINE_TITLE = /^Diagrams\b/;
 

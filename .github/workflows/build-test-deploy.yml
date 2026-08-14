@@ -80,8 +80,6 @@ jobs:
             studio-
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
-        with:
-          version: 10.x
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
@@ -382,8 +380,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v5
-        with:
-          version: 10.x
       - uses: actions/setup-node@v5
         with:
           node-version: "24"

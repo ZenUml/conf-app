@@ -12,6 +12,7 @@ import type { SpaceAdmin } from "@/model/SpaceAdmin";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
 import { getSessionReplayConfig } from "./sessionReplayFlags";
 import { decideSample } from "./eventSampling";
+import { normalizeProductType, type ProductType } from "./productType";
 
 // Singleton init promise: the first tracked event per iframe resolves the
 // session-replay flag (one Forge bridge round-trip) and inits Mixpanel;
@@ -122,10 +123,8 @@ async function _getMacroUuid(): Promise<string> {
   }
 }
 
-function _getProductType(): "lite" | "full" | "diagramly" {
-  const t = import.meta.env.PRODUCT_TYPE;
-  if (t === "lite" || t === "full" || t === "diagramly") return t;
-  return "full";
+function _getProductType(): ProductType {
+  return normalizeProductType(import.meta.env.PRODUCT_TYPE);
 }
 
 function _identify() {

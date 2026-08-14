@@ -6,22 +6,22 @@ description: >-
   missed a payment in the past few days (renewal lapsed / in grace / dead payment method).
   Use when the user asks "what income am I expecting", "what's landing this week", "any
   renewals coming up", "did anyone miss a payment", "who's late", "income projection for
-  the next few days", or wants a daily payments radar. Built on the marketplace-audit engine
+  the next few days", or wants a daily payments radar. Built on the marketplace engine
   (licenses + transactions joined on cloudId), payers only, all revenue apps. For lifetime
-  revenue / top payers / a full renewals-in-a-window audit use `marketplace-audit`; for a
+  revenue / top payers / a full renewals-in-a-window audit use `marketplace`; for a
   single tenant's paid status use `tenant`.
 ---
 
 # Income Radar
 
-A daily near-term cash view built on top of the `marketplace-audit` engine: what's about to
+A daily near-term cash view built on top of the `marketplace` engine: what's about to
 land, and what already slipped.
 
 ## Quick start
 
 ```bash
 # from the conf-app repo root (creds auto-load from .env.forge.local)
-S=.claude/skills/marketplace-audit/scripts/mp_report.py
+S=.claude/skills/marketplace/scripts/mp_report.py
 
 python3 $S radar                 # default: +/-7 days around today
 python3 $S radar --days 14       # wider window
@@ -29,7 +29,7 @@ python3 $S radar --asof 2026-07-01 --json
 python3 $S radar --local         # offline, from the last `sync` snapshot (fast, no creds)
 ```
 
-`--local` needs a snapshot first (`python3 $S sync`, ~14s, run from `marketplace-audit`).
+`--local` needs a snapshot first (`python3 $S sync`, ~14s, run from `marketplace`).
 
 ## What it reports
 
@@ -114,7 +114,7 @@ grace / no-payment-method flags before treating a fresh MISSED row as lost reven
 
 ## Fast path (`--local`)
 
-`--local` reads the shared `marketplace-audit` SQLite snapshot instead of hitting the live
+`--local` reads the shared `marketplace` SQLite snapshot instead of hitting the live
 API. Run `python3 $S sync` first to build/refresh it. The command prints the snapshot age on
 stderr and warns past 24h — for a "what does today actually look like" answer, run live
 instead (radar is billing-sensitive, unlike the cloudId↔domain identity that snapshot lookups
@@ -122,7 +122,7 @@ elsewhere rely on).
 
 ## Related
 
-- `marketplace-audit` — the shared engine (`mp_report.py`, `sync`), lifetime revenue, top
+- `marketplace` — the shared engine (`mp_report.py`, `sync`), lifetime revenue, top
   payers, and a full renewals-in-a-window audit (`renewals --from --to`).
 - `tenant` — single-tenant lookup ("is `<domain>` paying, how big, what state").
 - `extend-space-license` / `paywall` — the Lite Stripe/KV layer; Lite paid access isn't in

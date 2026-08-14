@@ -11,6 +11,7 @@ const fakeCS = {
   macrosCreated: { value: 0 },
   macroCountSource: { value: 'undefined' as string },
   cssEnabled: { value: true },
+  paywallPolicySource: { value: 'default_on' as 'default_on' | 'exemption' | 'fail_open' },
   spacePaid: { value: false },
   spacePaidSource: { value: undefined as 'user_license' | 'space_license' | undefined },
   spaceKey: { value: 'OVERLIMIT' },
@@ -81,6 +82,7 @@ describe('paywall_gate_evaluated (#302 instrumentation)', () => {
     fakeCS.shouldBlockActions.value = false
     fakeCS.macrosCreated.value = 0
     fakeCS.macroCountSource.value = 'undefined'
+    fakeCS.paywallPolicySource.value = 'default_on'
     fakeCS.spacePaid.value = false
     fakeCS.spacePaidSource.value = undefined
   })
@@ -145,6 +147,55 @@ describe('paywall_gate_evaluated (#302 instrumentation)', () => {
     })
     const call = gateEvalCall(trackUpgradeEvent, UpgradeEventName.PAYWALL_GATE_EVALUATED)
     expect(call![1]).toMatchObject({ space_paid_scope: 'space_license' })
+  })
+
+  it('reports paywall_policy_source: default_on on a blocking default-on decision', async () => {
+    fakeCS.shouldBlockActions.value = true
+    fakeCS.macrosCreated.value = 150
+    fakeCS.macroCountSource.value = 'kv'
+    fakeCS.paywallPolicySource.value = 'default_on'
+    const { gate, trackUpgradeEvent, UpgradeEventName } = await imports()
+    await gate.tryPageEditorPaywall({
+      doc: NULL_DIAGRAM, content: StubContent, macroKind: 'sequence', customContentId: undefined,
+    })
+    const call = gateEvalCall(trackUpgradeEvent, UpgradeEventName.PAYWALL_GATE_EVALUATED)
+    expect(call![1]).toMatchObject({ paywall_policy_source: 'default_on', gate_fired: true })
+  })
+
+  it('reports paywall_policy_source: exemption on a non-blocking explicit exemption', async () => {
+    fakeCS.shouldBlockActions.value = false
+    fakeCS.macrosCreated.value = 150
+    fakeCS.macroCountSource.value = 'kv'
+    fakeCS.paywallPolicySource.value = 'exemption'
+    const { gate, trackUpgradeEvent, UpgradeEventName } = await imports()
+    await gate.tryPageEditorPaywall({
+      doc: NULL_DIAGRAM, content: StubContent, macroKind: 'sequence', customContentId: undefined,
+    })
+    const call = gateEvalCall(trackUpgradeEvent, UpgradeEventName.PAYWALL_GATE_EVALUATED)
+    expect(call![1]).toMatchObject({ paywall_policy_source: 'exemption', gate_fired: false })
+  })
+
+  it('reports paywall_policy_source: fail_open on a non-blocking unavailable decision', async () => {
+    fakeCS.shouldBlockActions.value = false
+    fakeCS.macrosCreated.value = 0
+    fakeCS.macroCountSource.value = 'undefined'
+    fakeCS.paywallPolicySource.value = 'fail_open'
+    const { gate, trackUpgradeEvent, UpgradeEventName } = await imports()
+    await gate.tryPageEditorPaywall({
+      doc: NULL_DIAGRAM, content: StubContent, macroKind: 'sequence', customContentId: undefined,
+    })
+    const call = gateEvalCall(trackUpgradeEvent, UpgradeEventName.PAYWALL_GATE_EVALUATED)
+    expect(call![1]).toMatchObject({ paywall_policy_source: 'fail_open', gate_fired: false })
+  })
+
+  it('still carries css_enabled alongside the new policy source', async () => {
+    fakeCS.cssEnabled.value = true
+    const { gate, trackUpgradeEvent, UpgradeEventName } = await imports()
+    await gate.tryPageEditorPaywall({
+      doc: NULL_DIAGRAM, content: StubContent, macroKind: 'sequence', customContentId: undefined,
+    })
+    const call = gateEvalCall(trackUpgradeEvent, UpgradeEventName.PAYWALL_GATE_EVALUATED)
+    expect(call![1]).toMatchObject({ css_enabled: true, paywall_policy_source: 'default_on' })
   })
 
   it('does NOT fire on a non-Lite variant', async () => {

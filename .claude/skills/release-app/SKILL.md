@@ -92,7 +92,7 @@ gh release list --repo ZenUml/conf-app --limit 20 \
   | awk '$2=="Draft" && $1 ~ /-{variant}$/ {print $1; exit}'
 ```
 
-If a draft tag is returned, confirm it's recent (within the last hour or two) and that its source workflow run succeeded:
+If a draft tag is returned, confirm it's recent (within the last 24 hours) and that its source workflow run succeeded:
 
 ```bash
 # Get the run that produced the draft (drafts are created at the end of build-test-deploy.yml)
@@ -309,7 +309,7 @@ Summarize each released variant:
 
 - **Never release by default.** If no variant is named, ASK. Release only the variant(s) the user explicitly names; an explicit variant does NOT authorize any other tier (releasing lite does not license releasing full afterward).
 - **Never publish the placeholder body (2.3).** Always replace the auto-draft `"This is a draft release…"` body with delta-derived notes before `--draft=false`. Notes and spot check share the one delta from 2.2.
-- **Always check for a fresh draft first (1.1).** A merge to main that completed in the last hour or so already produced the drafts you need — reuse them. Pushing a `chore: trigger release pipeline` commit when fresh drafts exist wastes ~15 min of CI, pollutes main history, and gains nothing.
+- **Always check for a fresh draft first (1.1).** A merge to main that completed in the last 24 hours may already have produced the drafts you need — reuse them. Pushing a `chore: trigger release pipeline` commit when fresh drafts exist wastes ~15 min of CI, pollutes main history, and gains nothing.
 - The build workflow has no `workflow_dispatch` — a push to main (1.2) is the only fallback if no fresh draft exists.
 - Draft releases are only created on `main` (not on PRs or other branches).
 - lite/full/diagramly are Forge apps on the same production site (`zenuml.atlassian.net`); asyncapi is a separate app whose prod tenant is `async-prd.atlassian.net` (workflow prod-smoke still skipped; manual PVT per 2.5, gated on e2e account access).

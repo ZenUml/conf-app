@@ -1,20 +1,46 @@
 import { Component } from 'vue';
 import globals from '@/model/globals';
 import { mountRoot } from '@/mount-root';
-import store from '@/model/store2';
 import { Diagram, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
-import { decompress } from '@/utils/compress';
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage';
+import {
+  applyViewerLoadOutcome,
+  getForgeCustomContentId,
+  mapThrownViewerLoadError,
+  publishDiagramAttribution,
+  publishLoadedDiagram,
+  setViewerLoadState,
+} from '@/utils/viewerLoadOutcome';
+
+export { publishLoadedDiagram };
+import type { DiagramLoadError } from '@/model/store2/types';
+import type { DiagramAttribution } from '@/model/DiagramAttribution';
 import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
+
+// Slice 1 of the content-opening unification: `loadDiagram` implementations
+// are migrating from returning a plain `Diagram | undefined` to the wrapped
+// `{ doc, loadError }` shape, so a failed load can carry WHY it failed.
+// openDocument callers (forge-swagger-ui.ts) convert their pipeline-level
+// OpenError into this store-level DiagramLoadError at their own return
+// (mapOpenErrorToLoadError in viewerLoadOutcome.ts) — ONE error vocabulary
+// reaches the store and the recovery panel, whichever loader produced it.
+export type ViewerLoadDiagramResult =
+  | Diagram
+  | undefined
+  | {
+      doc?: Diagram;
+      loadError?: DiagramLoadError | null;
+      attribution?: DiagramAttribution | null;
+    };
 
 export interface ViewerBootstrapOptions {
   macroKind: MacroKind;
   content: Component;
   contentProps?: Record<string, unknown>;
-  loadDiagram: () => Promise<Diagram | undefined>;
+  loadDiagram: () => Promise<ViewerLoadDiagramResult>;
   afterLoad?: (doc: Diagram | undefined) => void | Promise<void>;
   onError?: (error: unknown) => void;
   /**
@@ -33,42 +59,25 @@ export interface ViewerBootstrapOptions {
   resolveContentId?: (context: any) => string | undefined;
 }
 
-/**
- * Legacy Connect-era graph/DrawIO macros persisted graphXml as LZUTF8-Base64
- * with `compressed: true`. The customContentId load path (ApWrapper2's
- * JSON.parse) preserved that flag without decompressing, so the still-
- * compressed string reached the store and ForgeGraphViewer's
- * `mxUtils.parseXml(<base64>)` threw → blank canvas (the error is swallowed).
- * The content-property recovery path already decompresses inline; this
- * normalizes the customContentId path too, at the single store-write boundary,
- * so the store always holds plain <mxGraphModel> XML regardless of load path.
- *
- * Returns a NEW object when it decompresses, leaving the caller's `doc`
- * reference compressed so afterLoad's compressed_* telemetry still fires on it.
- * No-op for plain XML and for non-graph docs (`compressed` is undefined).
- */
-function normalizeCompressedGraphDoc(doc: Diagram | undefined): Diagram | undefined {
-  if (doc?.compressed && doc.graphXml && !doc.graphXml.startsWith('<mxGraphModel')) {
-    return { ...doc, graphXml: decompress(doc.graphXml), compressed: false };
+function normalizeViewerLoadResult(
+  result: ViewerLoadDiagramResult,
+): { doc?: Diagram; loadError?: DiagramLoadError | null; attribution?: DiagramAttribution | null } {
+  if (result && typeof result === 'object' && 'doc' in result) {
+    return {
+      doc: result.doc,
+      loadError: result.loadError ?? null,
+      attribution: result.attribution ?? null,
+    };
   }
-  return doc;
-}
-
-export function publishLoadedDiagram(doc: Diagram | undefined): Diagram {
-  const diagram = normalizeCompressedGraphDoc(doc) ?? NULL_DIAGRAM;
-  store.state.diagram = diagram;
-  // Signal load completion (success OR failure — `doc` is undefined when the
-  // referenced content 404s/failed to load). The embed viewer uses this to show
-  // a terminal error rather than an endless "Loading embedded diagram…".
-  store.state.diagramLoadComplete = true;
-  window.diagram = diagram;
-  console.log('loadDiagram - window.diagram', window.diagram);
-  return diagram;
+  return { doc: result as Diagram | undefined, loadError: null, attribution: null };
 }
 
 export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Promise<void> {
   try {
     await globals.apWrapper.initializeContext();
+    if (globals.apWrapper.isDisplayMode()) {
+      setViewerLoadState('loading', null);
+    }
     const paywalled = await tryFullscreenViewerPaywall({
       doc: NULL_DIAGRAM,
       content: options.content,
@@ -132,19 +141,35 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
     // Scope is content resolution only: the deferred PNG/attachment work runs
     // in `afterLoad`, outside the timer. `renderPerf.time` is first-wins, so
     // the sequence family — which never bootstraps through here — is untouched.
-    const doc = await renderPerf.time('fetch', () => options.loadDiagram());
-    publishLoadedDiagram(doc);
-    if (customContentId && doc) {
+    const loadResult = normalizeViewerLoadResult(
+      await renderPerf.time('fetch', () => options.loadDiagram()),
+    );
+    const doc = applyViewerLoadOutcome({
+      doc: loadResult.doc,
+      loadError: loadResult.loadError,
+      customContentId: getForgeCustomContentId(),
+      macroKind: options.macroKind,
+    });
+    publishDiagramAttribution(loadResult.attribution);
+    if (customContentId && loadResult.doc) {
       // Prime the id-keyed SWR cache so a later viewer revisit can render
       // before the fetch. Cache the RAW fetched value (pre-normalization —
       // publishLoadedDiagram's normalizeCompressedGraphDoc runs on every
       // publish, cache hit included above) so its hash matches a future
       // fetch's raw value for change detection.
-      putCachedContent(customContentId, JSON.stringify(doc));
+      putCachedContent(customContentId, JSON.stringify(loadResult.doc));
       renderPerf.markContentSource('fetch');
     }
     await options.afterLoad?.(doc);
   } catch (error) {
+    if (globals.apWrapper.isDisplayMode()) {
+      applyViewerLoadOutcome({
+        doc: undefined,
+        loadError: mapThrownViewerLoadError(error),
+        customContentId: getForgeCustomContentId(),
+        macroKind: options.macroKind,
+      });
+    }
     if (options.onError) {
       options.onError(error);
       return;
@@ -168,15 +193,20 @@ async function revalidateViewer(
   options: ViewerBootstrapOptions,
 ): Promise<void> {
   try {
-    const fresh = await renderPerf.time('fetch', () => options.loadDiagram());
-    if (!fresh) return; // content unreadable now — keep the last-known-good cached render
-    const serialized = JSON.stringify(fresh);
+    const loadResult = normalizeViewerLoadResult(
+      await renderPerf.time('fetch', () => options.loadDiagram()),
+    );
+    publishDiagramAttribution(loadResult.attribution);
+    // content unreadable now (undefined doc, or a structured loadError with no
+    // doc) — keep the last-known-good cached render rather than publish a miss.
+    if (!loadResult.doc) return;
+    const serialized = JSON.stringify(loadResult.doc);
     putCachedContent(customContentId, serialized);
     if (hashContent(serialized) !== cachedHash) {
       renderPerf.markContentSource('fetch');
-      publishLoadedDiagram(fresh);
+      publishLoadedDiagram(loadResult.doc);
     }
-    await options.afterLoad?.(fresh);
+    await options.afterLoad?.(loadResult.doc);
   } catch (e) {
     console.warn('[content-swr] background revalidate failed; cached render stands', e);
   }

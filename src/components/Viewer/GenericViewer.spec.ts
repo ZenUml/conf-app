@@ -10,8 +10,10 @@ import globals from '@/model/globals'
 import forgeRuntime from '@/model/globals/forgeGlobal'
 import { persistSession } from '@/composables/agentLink/sessionHandoff'
 import ThinkingOverlay from '@/components/AgentLink/ThinkingOverlay.vue'
+import ExportModal from '@/components/ExportModal/ExportModal.vue'
 import { toast } from '@/utils/toast'
 import { parseEmbedDeeplink } from '@/utils/embedDeeplink'
+import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
 
@@ -76,6 +78,32 @@ vi.mock('@/utils/toast', () => ({
   toast: vi.fn(),
 }))
 
+vi.mock('@/model/globals/forgeGlobal', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/model/globals/forgeGlobal')>()
+  return {
+    ...actual,
+    openUrl: vi.fn(() => Promise.resolve()),
+  }
+})
+
+vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
+  getClientDomain: vi.fn(() => 'example.atlassian.net'),
+  getSpaceKey: vi.fn(() => 'TEST'),
+}))
+
+// Isolated from forgeRuntime/getContext() on purpose: those back the
+// copyDeeplink tests' @forge/bridge-mocked cloudId resolution below, which
+// requires forgeContext to stay falsy until getContext()'s own lazy
+// getView() call resolves it. Mutating the real forgeGlobal singleton here
+// would short-circuit that for every test in the file, not just these ones.
+vi.mock('@/utils/viewerLoadOutcome', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/viewerLoadOutcome')>()
+  return {
+    ...actual,
+    getForgeCustomContentId: vi.fn(() => 'content-123'),
+  }
+})
+
 const mountViewer = () => mount(GenericViewer, { global: { plugins: [store] } })
 
 describe('GenericViewer (chrome-less)', () => {
@@ -91,6 +119,15 @@ describe('GenericViewer (chrome-less)', () => {
     store.state.diagram.snapshotFallback = false
     store.state.diagram.snapshotAt = undefined
     store.state.diagram.recoveredFromOrphan = false
+    store.state.viewerLoadState = 'ready'
+    store.state.loadError = null
+    // @ts-ignore — matches the production `// @ts-ignore\nwindow.forgeGlobal = global`
+    // assignment in forgeGlobal.ts; isFullscreenMode() reads this directly.
+    window.forgeGlobal = {
+      forgeContext: {
+        extension: { config: { customContentId: 'content-123' } },
+      },
+    } as any
   })
 
   describe('layout', () => {
@@ -188,6 +225,68 @@ describe('GenericViewer (chrome-less)', () => {
       const frame = wrapper.find('.viewer-frame')
       expect(frame.classes()).toContain('viewer-frame--auto')
       expect(frame.classes()).not.toContain('viewer-frame--wide')
+    })
+  })
+
+  // ZEN fullscreen-fit follow-up: .viewer-frame had no height rule, so a
+  // diagram shorter than the fullscreen viewport left most of the screen a
+  // bare void beneath it. viewer-frame--fullscreen ties the frame to the
+  // viewport height regardless of diagram type/width (isWide is orthogonal).
+  describe('fullscreen height (all diagram types)', () => {
+    const setFullscreen = (on: boolean) => {
+      ;(window as any).forgeGlobal = on
+        ? { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+        : undefined
+    }
+    afterEach(() => { delete (window as any).forgeGlobal })
+
+    it('applies viewer-frame--fullscreen in fullscreen mode', () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('.viewer-frame').classes()).toContain('viewer-frame--fullscreen')
+    })
+
+    // The debug strip stacks above .viewer-frame. With the frame at
+    // min-height:100vh the page would exceed the viewport and scroll, and the
+    // strip covers the top of a surface meant to show the diagram large.
+    // jsdom has window.self === window.top, so Debug's own gate is open here
+    // and these assertions exercise the isFullscreenMode gate specifically.
+    it('hides the debug strip in fullscreen', () => {
+      setFullscreen(true)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('[aria-label="Debug information"]').exists()).toBe(false)
+    })
+
+    it('keeps the debug strip on the inline page', () => {
+      setFullscreen(false)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('[aria-label="Debug information"]').exists()).toBe(true)
+    })
+
+    it('does not apply viewer-frame--fullscreen on the inline (non-fullscreen) page', () => {
+      setFullscreen(false)
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        props: { wide: false },
+        slots: { default: '<div class="diagram-stub" />' },
+      })
+      expect(wrapper.find('.viewer-frame').classes()).not.toContain('viewer-frame--fullscreen')
     })
   })
 
@@ -355,6 +454,69 @@ describe('GenericViewer (chrome-less)', () => {
       await wrapper.find('[data-testid="view-source-close"]').trigger('click')
       await wrapper.vm.$nextTick()
       expect(wrapper.find('[data-testid="view-source-panel"]').exists()).toBe(false)
+    })
+
+    // ZEN fullscreen-fit: .viewer-frame is fit-content-sized to the diagram
+    // in the fullscreen modal (see isWide comment), so the panel must anchor
+    // to the actual viewport (fixed) instead of that short box (absolute).
+    it('sizes the panel for the fullscreen viewport when opened from the fullscreen modal', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-testid="view-source-panel"]').classes()).toContain('view-source-panel--fullscreen')
+
+      delete (window as any).forgeGlobal
+    })
+
+    it('does not use fullscreen sizing for the inline (non-fullscreen) viewer', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-testid="view-source-panel"]').classes()).not.toContain('view-source-panel--fullscreen')
+    })
+
+    // ZEN fullscreen-fit follow-up: the panel is position:fixed (out of
+    // layout flow) once open, so .viewer-frame's own centering can't see it —
+    // the diagram centered on the FULL width, landing right of the actually-
+    // visible left pane. generic--source-panel-open reserves the panel's
+    // width so the frame centers against the space that's actually visible.
+    it('reserves space for the open fullscreen panel so the frame centers on the visible pane', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      expect(wrapper.find('.generic').classes()).not.toContain('generic--source-panel-open')
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.generic').classes()).toContain('generic--source-panel-open')
+
+      await wrapper.find('[data-testid="view-source-close"]').trigger('click')
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.generic').classes()).not.toContain('generic--source-panel-open')
+
+      delete (window as any).forgeGlobal
+    })
+
+    it('does not reserve panel space on the inline (non-fullscreen) viewer', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('.generic').classes()).not.toContain('generic--source-panel-open')
     })
   })
 
@@ -1048,6 +1210,109 @@ describe('GenericViewer (chrome-less)', () => {
       expect(vm.showExportModal).toBe(false)
       await wrapper.find('button[aria-label="Export PNG"]').trigger('click')
       expect(vm.showExportModal).toBe(true)
+    })
+
+    // Export PNG (code review): ExportModal must receive the capture element
+    // via a getter, not rediscover it with a global querySelector, and must
+    // know the diagram title for the export filename.
+    it('passes a capture-node getter resolving to .screen-capture-content, and the diagram title, to ExportModal', () => {
+      const wrapper = mountViewer()
+      const exportModal = wrapper.findComponent(ExportModal)
+      expect(exportModal.props('diagramTitle')).toBe('Login flow')
+      const getter = exportModal.props('captureNodeGetter') as () => HTMLElement | null
+      expect(typeof getter).toBe('function')
+      expect(getter()).toBe(wrapper.find('.screen-capture-content').element)
+    })
+
+    it('does not render the bottom-edge pill in the load-failed state', () => {
+      store.state.viewerLoadState = 'failed_with_source'
+      const wrapper = mountViewer()
+      expect(wrapper.find('[role="toolbar"][aria-label="Diagram actions"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="load-failed-generic"] .viewer-lf-btn-primary').exists()).toBe(true)
+    })
+  })
+
+  describe('load-failed recovery panel', () => {
+    it('does not render the diagram slot while load-failed', () => {
+      store.state.viewerLoadState = 'failed_with_source'
+      const wrapper = mount(GenericViewer, {
+        global: { plugins: [store] },
+        slots: { default: '<div class="diagram-stub">slot</div>' },
+      })
+      expect(wrapper.find('.diagram-stub').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="load-failed-generic"]').exists()).toBe(true)
+    })
+
+    it('renders retry and support actions for failed_with_source', () => {
+      store.state.viewerLoadState = 'failed_with_source'
+      const wrapper = mountViewer()
+      expect(wrapper.text()).toContain("This diagram isn't available")
+      expect(wrapper.text()).toContain('Try again')
+      expect(wrapper.text()).toContain('Contact support')
+    })
+
+    it('renders only Contact support for failed_without_source', () => {
+      store.state.viewerLoadState = 'failed_without_source'
+      vi.mocked(getForgeCustomContentId).mockReturnValueOnce(undefined)
+      const wrapper = mountViewer()
+      expect(wrapper.text()).toContain('The diagram data is no longer available')
+      expect(wrapper.text()).not.toContain('Try again')
+      expect(wrapper.find('[data-testid="load-failed-support-link"]').exists()).toBe(true)
+    })
+
+    it('fires load_failed_shown once when the failed state appears', async () => {
+      const windowMod = await import('@/utils/window')
+      const trackSpy = vi.spyOn(windowMod, 'trackEvent')
+      store.state.viewerLoadState = 'failed_with_source'
+      mountViewer()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(trackSpy).toHaveBeenCalledWith(
+        'load_failed_shown',
+        'view',
+        'load_failed_generic',
+        expect.objectContaining({ state: 'with_id', content_id: 'content-123' }),
+      )
+    })
+
+    it('copies diagnostics, tracks support click, then opens the support portal after a delay', async () => {
+      const openUrlMod = await import('@/model/globals/forgeGlobal')
+      const windowMod = await import('@/utils/window')
+      const openUrlSpy = vi.spyOn(openUrlMod, 'openUrl').mockImplementation(() => Promise.resolve())
+      const trackSpy = vi.spyOn(windowMod, 'trackEvent')
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+      Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true })
+
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      try {
+        store.state.viewerLoadState = 'failed_without_source'
+        store.state.loadError = { httpStatus: 403 }
+        const wrapper = mountViewer()
+        await wrapper.find('[data-testid="load-failed-support-link"]').trigger('click')
+        await vi.advanceTimersByTimeAsync(0)
+        expect(writeText).toHaveBeenCalledOnce()
+        const payload = writeText.mock.calls[0][0] as string
+        expect(payload).toContain("ZenUML couldn't display a diagram")
+        expect(payload).toContain('Custom content ID:')
+        expect(payload).toContain('Page ID:')
+        expect(payload).toContain('Macro UUID:')
+        expect(payload).toContain('Space key:')
+        expect(payload).toContain('Client domain:')
+        expect(payload).toContain('Module key:')
+        expect(payload).toContain('Direct fetch status:')
+        expect(payload).toContain('Load error HTTP status: 403')
+        expect(trackSpy).toHaveBeenCalledWith(
+          'support_link_clicked',
+          'click',
+          'load_failed_generic',
+          expect.objectContaining({ content_id: expect.any(String) }),
+        )
+        expect(openUrlSpy).not.toHaveBeenCalled()
+        await vi.advanceTimersByTimeAsync(1500)
+        expect(openUrlSpy).toHaveBeenCalledWith('https://zenuml.atlassian.net/servicedesk')
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 

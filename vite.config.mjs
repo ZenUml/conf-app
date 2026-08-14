@@ -137,6 +137,23 @@ export default defineConfig(({ command }) => ({
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
+      // Dev-server-only (command === 'serve', e.g. `pnpm start:local`):
+      // @forge/bridge's own module-evaluation code (bridge.js's
+      // getCallBridge()) throws synchronously outside a real Forge iframe —
+      // not just when a bridge call is made, but the instant ANY static
+      // `import {...} from '@forge/bridge'` is evaluated (aiTitleFeatureFlag.ts,
+      // draftStore.ts, closeGuard.ts, CsatBanner.vue, CreateDemoPage.vue all
+      // have one). That crashes the whole standalone/local-dev harness
+      // (test-viewer.html, sandbox.html) before forgeGlobal's own try/catch
+      // ever gets a chance to run. Storybook hit the identical problem and
+      // fixed it with this exact alias (see .storybook/main.ts) — reuse it
+      // here. `forge tunnel` (pnpm forge:tunnel) is a separate Forge-CLI
+      // process that never invokes this Vite config, and `vite build`
+      // (command === 'build', every `pnpm build:*` / production bundle)
+      // is untouched, so real Forge deployments still ship the real package.
+      ...(command === 'serve'
+        ? { '@forge/bridge': resolve(__dirname, './src/stubs/forge-bridge.ts') }
+        : {}),
       // AsyncAPI variant: @asyncapi/parser pulls in Node's `fs` for its
       // fromURL/fromFile helpers (which we never call — we always pass a
       // pre-parsed schema). Earlier attempts aliased fs -> memfs but
@@ -356,6 +373,13 @@ export default defineConfig(({ command }) => ({
       '**/tests/e2e-tests/**',
       '**/tests/export-modal/**',
       '**/packages/**',
+      // Scratch dir — sessions park ad-hoc Playwright specs here; a stray
+      // *.spec.ts under tmp/ otherwise fails the whole run at collection.
+      '**/tmp/**',
+      // Private customer-investigation contains ephemeral Playwright spot
+      // checks. They are run with tests/e2e-tests' Playwright config, never
+      // as root Vitest unit suites.
+      '**/private/customer-investigation/**/*.spec.ts',
       // Skip the asyncapi-studio submodule's own tests — they import
       // upstream `@/*` aliases that aren't resolvable in our root tsconfig
       // and aren't relevant to this repo's test suite.

@@ -7,6 +7,7 @@ let currentApp: any = null; // Keep track of mounted app
 export function mountRoot(doc: Diagram, component: Component, props: Record<string, any> = {}) {
   console.debug('Mounting root', doc);
   store.state.diagram = doc;
+  store.state.diagramAttribution = null;
   // A fresh mount starts before the real doc is loaded; publishLoadedDiagram
   // flips this true once loadDiagram() resolves. See ExtendedStore state.
   store.state.diagramLoadComplete = false;

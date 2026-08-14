@@ -33,12 +33,19 @@ export function extractGraphText(xml: string | null | undefined): string {
   return describeShapes(doc).slice(0, 2000);
 }
 
+// DrawIO's literal default value for a freshly-created text/shape cell. A
+// debounced mid-edit snapshot can capture a shape before the user's own label
+// commits, so a lone "Text" cell is placeholder noise, not user signal — treat
+// it the same as an empty label rather than feeding it to the AI-title model.
+const PLACEHOLDER_LABELS = new Set(['Text']);
+
 function collectLabels(doc: Document): string[] {
   const labels: string[] = [];
   const seen = new Set<string>();
   const push = (raw: string | null) => {
     if (!raw) return;
     const text = stripHtml(raw).replace(/\s+/g, ' ').trim();
+    if (PLACEHOLDER_LABELS.has(text)) return;
     // De-dup identical labels (a swimlane title repeated on many cells, etc.)
     // so the model sees distinct signal, not the same word 50 times.
     if (text && !seen.has(text)) {

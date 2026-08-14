@@ -159,6 +159,31 @@ describe('useAutoTitle', () => {
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ message: "Couldn't generate a title — please try again later." }))
   })
 
+  it('rejects a non-title response (a question) and does not set the title', async () => {
+    const badReply = "I'm ready to help. What is the DSL that describes the flowchart diagram?"
+    vi.mocked(aiGenerateTitle).mockResolvedValue(okRes(badReply))
+    const { initFlag, generate } = useAutoTitle()
+    await initFlag()
+    const p = generate('user', { code: 'Order Service', diagramType: DiagramType.Graph, currentTitle: '' })
+    await runAnimation(badReply)
+    await p
+    expect(fakeStore.state.diagram.title).toBe('')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_generation_failed',
+      expect.objectContaining({ failure_reason: 'not_title_like' }),
+    )
+  })
+
+  it('accepts a normal short title (positive guard against over-rejecting)', async () => {
+    vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Order Processing Flow'))
+    const { initFlag, generate } = useAutoTitle()
+    await initFlag()
+    const p = generate('user', { code: 'Order Service', diagramType: DiagramType.Graph, currentTitle: '' })
+    await runAnimation('Order Processing Flow')
+    await p
+    expect(fakeStore.dispatch).toHaveBeenCalledWith('updateTitle', 'Order Processing Flow')
+  })
+
   it('maps Mermaid + PlantUML to the right type param', async () => {
     vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('T'))
     const { initFlag, generate } = useAutoTitle()

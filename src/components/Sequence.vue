@@ -38,6 +38,16 @@ export default {
     autoResize: {
       type: Boolean,
       default: false
+    },
+    // Byline activation preview: when true, the render omits the ZenUML
+    // onContentChange hook. Without this, clicking a participant name fires
+    // updateCode → EventBus 'updateContent' → forgeIndex saveToPlatform
+    // (canUserEdit() is a hardcoded `true`), so a "nothing has been saved"
+    // preview would silently create custom content. Mermaid/PlantUml have no
+    // such write-back seam and need no equivalent flag.
+    readOnly: {
+      type: Boolean,
+      default: false
     }
   },
   computed: {
@@ -99,7 +109,8 @@ export default {
         theme: scopeTheme || globalTheme || "theme-default",
         enableScopedTheming: Boolean(scopeTheme),
         stickyOffset: false,  // disable sticky offset, the effect is not optimal
-        onContentChange: this.updateCode,
+        // readOnly preview (byline activation) must not write back — see the prop doc.
+        ...(this.readOnly ? {} : { onContentChange: this.updateCode }),
         onThemeChange: ({ theme, scoped }) => {
           if (!scoped) {
             trackEvent("set_theme_global", "click", DiagramType.Sequence);

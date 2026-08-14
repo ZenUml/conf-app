@@ -28,9 +28,12 @@ export const APPS = {
         yqEvalExpr: 'del(.app.licensing)',
       },
       {
-        // Lite keeps the byline module, but only its own entry: the "Aide"
-        // item is Diagramly-branded and opens the diagramly chat backend.
-        description: 'Remove the Aide byline entry (Lite ships zenuml-byline-diagrams)',
+        // Key-scoped: Lite ships TWO byline entries — zenuml-byline-newuser
+        // (the activation nudge) and zenuml-byline-diagrams (the diagram
+        // index). Only zenuml-byline-aiaide is Diagramly-branded and opens the
+        // diagramly chat backend, so only it goes. A whole-module delete here
+        // would take both of the others with it — don't reintroduce that.
+        description: 'Remove zenuml-byline-aiaide from confluence:contentBylineItem (keep zenuml-byline-newuser)',
         yqEvalExpr:
           'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))',
       },
@@ -63,7 +66,7 @@ export const APPS = {
       {
         description: 'Remove Diagramly demo-page modules (Lite keeps only macro snapshot schedule)',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled")) | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline"))',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "liteFullConversionFn")) | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline" or .key == "full-lite2full-hourly"))',
       },
     ],
     sites: {
@@ -112,19 +115,19 @@ export const APPS = {
         yqEvalExpr: 'del(.connectModules)',
       },
       {
-        description: 'Remove the Lite diagrams byline entry (Full keeps Aide)',
+        // Key-scoped, and TWO keys here where lite drops one: Full keeps only
+        // zenuml-byline-newuser. zenuml-byline-aiaide is Diagramly-branded,
+        // and zenuml-byline-diagrams is the Lite diagram index — Full has no
+        // byline surface of its own.
+        description:
+          'Remove zenuml-byline-aiaide and zenuml-byline-diagrams from confluence:contentBylineItem (keep zenuml-byline-newuser)',
         yqEvalExpr:
-          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams"))',
+          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))',
       },
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from Full',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger)',
-      },
-      {
-        description: 'Remove Lite remote-storage declaration from Full',
-        yqEvalExpr:
-          'del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage")) | del(.remotes[] | select(.key == "connect").storage)',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "diagramly-demo-page-pipeline"))',
       },
       {
         description: 'Point embed deeplink autoConvert matcher at conf-full.zenuml.com',
@@ -193,12 +196,7 @@ export const APPS = {
       {
         description: 'Remove Lite macro snapshot schedule from Diagramly',
         yqEvalExpr:
-          'del(.modules.function[] | select(.key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily"))',
-      },
-      {
-        description: 'Remove Lite remote-storage declaration from Diagramly',
-        yqEvalExpr:
-          'del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage")) | del(.remotes[] | select(.key == "connect").storage)',
+          'del(.modules.function[] | select(.key == "macroCountSnapshotFn" or .key == "liteFullConversionFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "full-lite2full-hourly"))',
       },
     ],
     sites: {
@@ -290,12 +288,7 @@ export const APPS = {
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from AsyncAPI',
         yqEvalExpr:
-          'del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger)',
-      },
-      {
-        description: 'Remove Lite remote-storage declaration from AsyncAPI',
-        yqEvalExpr:
-          'del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage")) | del(.remotes[] | select(.key == "connect").storage)',
+          'del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn" or .key == "liteFullConversionFn")) | del(.modules.scheduledTrigger)',
       },
     ],
     sites: {

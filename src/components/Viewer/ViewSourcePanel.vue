@@ -2,6 +2,7 @@
   <div
     v-if="visible"
     class="view-source-panel"
+    :class="{ 'view-source-panel--fullscreen': fullscreen }"
     role="dialog"
     aria-modal="true"
     aria-labelledby="view-source-panel-title"
@@ -51,6 +52,11 @@ export default {
     source: { type: String, default: '' },
     // Display label in the header: "ZenUML" | "Mermaid" | "PlantUML"
     dslLabel: { type: String, default: 'ZenUML' },
+    // Fullscreen modal has the whole browser viewport, not the small
+    // fit-content .viewer-frame box the inline macro sizes to — so the
+    // panel needs viewport-relative (fixed) positioning and more width,
+    // not the ancestor-bound absolute sheet the inline layout uses.
+    fullscreen: { type: Boolean, default: false },
   },
   emits: ['close', 'copy'],
   data() {
@@ -138,6 +144,21 @@ export default {
   box-shadow: -4px 0 16px rgba(0, 0, 0, 0.06);
   z-index: 5;
   font-family: inherit;
+}
+
+/* Fullscreen modal: .viewer-frame is fit-content-sized to the diagram, not
+   the viewport (see GenericViewer.vue's isWide comment) — position:absolute
+   would bind the panel to that short box instead of the actual fullscreen
+   surface. position:fixed anchors to the Forge fullscreen iframe's own
+   viewport instead, and the wider column uses the extra screen space. */
+.view-source-panel--fullscreen {
+  position: fixed;
+  width: min(560px, 45vw);
+}
+
+.view-source-panel--fullscreen .view-source-code {
+  font-size: 13px;
+  padding: 16px;
 }
 
 .view-source-header {

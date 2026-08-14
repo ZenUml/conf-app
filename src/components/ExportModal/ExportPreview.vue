@@ -4,42 +4,52 @@
       <span class="preview-label">Preview</span>
       <div class="annotation-toolbar">
         <button
+          type="button"
           class="tool-btn"
           :class="{ active: state.activeTool.value === 'arrow' }"
           @click="toggleTool('arrow')"
           title="Arrow (drag to draw)"
+          aria-label="Arrow (drag to draw)"
+          :aria-pressed="state.activeTool.value === 'arrow'"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 13L13 3M13 3H6M13 3V10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <AdsIcon glyph="arrow" />
         </button>
         <button
+          type="button"
           class="tool-btn"
           :class="{ active: state.activeTool.value === 'callout' }"
           @click="toggleTool('callout')"
           title="Callout (click to place)"
+          aria-label="Callout (click to place)"
+          :aria-pressed="state.activeTool.value === 'callout'"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 11L3 15L8 11" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          <AdsIcon glyph="comment" />
         </button>
         <button
+          type="button"
           class="tool-btn"
           :class="{ active: state.activeTool.value === 'note' }"
           @click="toggleTool('note')"
           title="Note (click to place)"
+          aria-label="Note (click to place)"
+          :aria-pressed="state.activeTool.value === 'note'"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h8M2 11h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <AdsIcon glyph="text" />
         </button>
         <button
+          type="button"
           class="tool-btn"
-          :class="{ active: state.activeTool.value === 'watermark' }"
+          :class="{ active: state.hasWatermark.value }"
           @click="toggleWatermark"
           title="Watermark (toggle)"
+          aria-label="Watermark (toggle)"
+          :aria-pressed="state.hasWatermark.value"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 10h8M3 12h10M6 10V7a2 2 0 114 0v3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <AdsIcon glyph="lock" />
         </button>
       </div>
       <button class="preview-refresh" @click="$emit('refresh')" :disabled="state.isCapturing.value" title="Refresh preview">
-        <svg :class="{ 'spin': state.isCapturing.value }" width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path d="M12.5 7A5.5 5.5 0 1 1 7 1.5M12.5 1.5v4h-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+        <AdsIcon :class="{ 'spin': state.isCapturing.value }" glyph="refresh" :size="14" />
         <span>{{ state.isCapturing.value ? 'Capturing…' : 'Refresh' }}</span>
       </button>
     </div>
@@ -68,7 +78,7 @@
             @input="onNoteEditInput"
             @blur="state.noteEditing.value = false"
             @keydown.enter="state.noteEditing.value = false"
-            @keydown.escape="state.noteEditing.value = false"
+            @keydown.escape.stop="state.noteEditing.value = false"
             ref="noteEditInput"
           />
         </div>
@@ -81,10 +91,11 @@
 import { defineComponent, nextTick } from 'vue';
 import { exportStateKey, type ActiveTool } from './useExportState';
 import OverlayLayer from './OverlayLayer.vue';
+import AdsIcon from './AdsIcon.vue';
 
 export default defineComponent({
   name: 'ExportPreview',
-  components: { OverlayLayer },
+  components: { OverlayLayer, AdsIcon },
 
   inject: {
     state: {
@@ -195,7 +206,7 @@ export default defineComponent({
   border: 2px solid #3b82f6;
   border-radius: 4px;
   padding: 4px 8px;
-  font-family: 'Outfit', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-weight: 500;
   outline: none;
   min-width: 100px;

@@ -75,6 +75,18 @@ describe('ApWrapper2', () => {
       expect(types[0].endsWith(':zenuml-content-sequence')).toBe(true);
       expect(types[1].endsWith(':zenuml-content-graph')).toBe(true);
     });
+
+    it('returns the actual Diagramly storage type', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isDiagramly = true;
+      try {
+        expect(wrapper.getMacroContentTypes()).toEqual([
+          'ac:gptdock-confluence:gpt-custom-content-key',
+        ]);
+      } finally {
+        (forgeGlobalMod.default as any).isDiagramly = false;
+      }
+    });
   });
 
   describe('updateCustomContentV2', () => {
@@ -610,6 +622,54 @@ describe('ApWrapper2', () => {
 
       expect(result.directFetchStatus).toBe('other_error');
       expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
+    });
+
+    // Diagnostics surfaced for the load-failed support payload. These fields
+    // feed viewerLoadOutcome.mapCustomContentLoadError → the Contact-support
+    // bundle; before, only directFetchStatus was carried and HTTP status /
+    // code / class always rendered "(unknown)".
+    it('surfaces httpStatus/errorCode/errorClass for a 404 NOT_FOUND', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ errors: [{ status: 404, code: 'NOT_FOUND' }] })
+        .mockResolvedValueOnce({ results: [], _links: {} })
+        .mockResolvedValueOnce({ results: [], _links: {} });
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.directFetchStatus).toBe('not_found');
+      expect(result.directFetchHttpStatus).toBe(404);
+      expect(result.directFetchErrorCode).toBe('NOT_FOUND');
+      expect(result.directFetchErrorClass).toBe('structured');
+    });
+
+    it('surfaces httpStatus/errorCode/errorClass for a 403 FORBIDDEN', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ errors: [{ status: 403, code: 'FORBIDDEN' }] });
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.directFetchStatus).toBe('other_error');
+      expect(result.directFetchHttpStatus).toBe(403);
+      expect(result.directFetchErrorCode).toBe('FORBIDDEN');
+      expect(result.directFetchErrorClass).toBe('structured');
+    });
+
+    it('classifies a thrown direct fetch as errorClass "thrown"', async () => {
+      vi.mocked(forgeRequest).mockRejectedValueOnce(Object.assign(new Error('network down'), { status: 503 }));
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.directFetchStatus).toBe('other_error');
+      expect(result.directFetchErrorClass).toBe('thrown');
+      expect(result.directFetchHttpStatus).toBe(503);
+    });
+
+    it('classifies a malformed direct fetch body as errorClass "malformed"', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: 'whatever', someUnexpected: 'shape' });
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.directFetchStatus).toBe('other_error');
+      expect(result.directFetchErrorClass).toBe('malformed');
     });
 
     it('treats a mixed errors array (one strict 404 + one transient) as other_error', async () => {

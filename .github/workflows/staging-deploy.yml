@@ -1,6 +1,17 @@
 name: Staging Deploy
 
 on:
+  # Manual entry point so a feature branch can deploy a non-Lite variant to
+  # staging without merging first. build-test-deploy.yml gates full/diagramly/
+  # asyncapi staging deploys on the default branch, which left Full-only code
+  # (e.g. the Lite->Full conversion executor) unverifiable pre-merge.
+  workflow_dispatch:
+    inputs:
+      variant:
+        required: true
+        type: choice
+        options: [lite, full, diagramly, asyncapi]
+        description: 'Variant to deploy to staging from this branch'
   workflow_call:
     inputs:
       variant:
@@ -21,10 +32,44 @@ on:
         description: 'GitHub environment name'
 
 jobs:
+  # workflow_dispatch supplies only `variant`; workflow_call supplies all four.
+  # This job normalises both into one set of values the deploy job consumes,
+  # keeping the variant -> project/environment mapping in a single place.
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      variant: ${{ steps.map.outputs.variant }}
+      license: ${{ steps.map.outputs.license }}
+      project: ${{ steps.map.outputs.project }}
+      environment: ${{ steps.map.outputs.environment }}
+    steps:
+      - id: map
+        env:
+          VARIANT: ${{ inputs.variant }}
+          IN_LICENSE: ${{ inputs.license }}
+          IN_PROJECT: ${{ inputs.project }}
+          IN_ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          case "$VARIANT" in
+            lite)      DEF_PROJECT=conf-stg-lite ;;
+            full)      DEF_PROJECT=conf-stg-full ;;
+            diagramly) DEF_PROJECT=conf-stg-lite ;;
+            asyncapi)  DEF_PROJECT=conf-stg-lite ;;
+            *) echo "unknown variant: $VARIANT" >&2; exit 1 ;;
+          esac
+          {
+            echo "variant=$VARIANT"
+            echo "license=${IN_LICENSE:-$VARIANT}"
+            echo "project=${IN_PROJECT:-$DEF_PROJECT}"
+            echo "environment=${IN_ENVIRONMENT:-staging-$VARIANT}"
+          } >> "$GITHUB_OUTPUT"
+
   deploy:
+    needs: resolve
     runs-on: ubuntu-latest
     environment:
-      name: ${{ inputs.environment }}
+      name: ${{ needs.resolve.outputs.environment }}
     env:
       FORGE_EMAIL: "${{ vars.FORGE_EMAIL }}"
       FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN }}"
@@ -34,16 +79,21 @@ jobs:
       # checked out before scripts/build-studio.sh runs. Init explicitly so
       # `actions/checkout@v5` doesn't try to clone the private submodule.
       - name: Init asyncapi-studio submodule
-        if: inputs.variant == 'asyncapi'
+        if: needs.resolve.outputs.variant == 'asyncapi'
         run: git submodule update --init --depth 1 vendor/asyncapi-studio
-      - name: Build and publish
+      # Cloudflare Pages backend deploy (conf-stg-{project}) — runs before the
+      # Forge-specific steps below in this same job. Named to match
+      # release.yml's equivalent step so `gh run view --json jobs` step lists
+      # (which collapse composite-action internals to this one line) can't be
+      # misread as part of the Forge deploy that follows.
+      - name: Build and publish to Cloudflare
         uses: ./.github/actions/wrangler-publish
         with:
           node-version: '24.x'
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          license: ${{ inputs.license }}
-          project: ${{ inputs.project }}
+          license: ${{ needs.resolve.outputs.license }}
+          project: ${{ needs.resolve.outputs.project }}
           environment: stg
           vite-mixpanel-token: ${{ vars.VITE_MIXPANEL_TOKEN }}
           sentry-dsn: ${{ vars.SENTRY_DSN }}
@@ -56,7 +106,7 @@ jobs:
       # in scripts/forge-wizard.mjs (macros zenuml-asyncapi-*, the async-api-doc
       # custom content, and the asyncapi-only confluence:spacePage dashboard).
       - name: Remove asyncapi modules from manifest
-        if: inputs.variant != 'asyncapi'
+        if: needs.resolve.outputs.variant != 'asyncapi'
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi"))) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"])' -i manifest.yml
@@ -68,32 +118,40 @@ jobs:
       # remote-installed-trigger covers install/upgrade lifecycle. Mirrors
       # scripts/forge-wizard.mjs.
       - name: Remove Connect lifecycle module (connectModules) from manifest
-        if: inputs.variant != 'asyncapi'
+        if: needs.resolve.outputs.variant != 'asyncapi'
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.connectModules)' -i manifest.yml
 
-      # Lite: keep only its own byline entry, and remove licensing.
-      # The Aide entry is Diagramly-branded and calls the diagramly chat
-      # backend, so Lite must not inherit it — but a blanket module delete here
-      # would take zenuml-byline-diagrams with it and the feature would never
-      # reach staging.
-      - name: Keep only the Lite byline entry in manifest
-        if: inputs.variant == 'lite'
+      # confluence:contentBylineItem carries three entries and every variant
+      # ships a different subset, so each strip is key-scoped — a blanket module
+      # delete would take the activation nudge (gated by
+      # displayConditions.entityPropertyExists) with it. Mirrors
+      # scripts/forge-wizard.mjs and release.yml:
+      #
+      #   lite      → newuser + diagrams   (drops aiaide)
+      #   full      → newuser              (drops aiaide + diagrams)
+      #   diagramly → newuser + aiaide     (drops diagrams)
+      #   asyncapi  → none                 (whole module, stripped further below)
+      - name: Remove zenuml-byline-aiaide from manifest (Lite keeps newuser + diagrams)
+        if: needs.resolve.outputs.variant == 'lite'
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key != "zenuml-byline-diagrams"))' -i manifest.yml
-      # Full and Diagramly keep Aide on staging (their existing behaviour) but
-      # must not pick up Lite's entry. NOTE: production Full ships no byline at
-      # all (release.yml) — a pre-existing staging/prod divergence for Full,
-      # left as-is here rather than changed under an unrelated feature.
-      - name: Remove the Lite byline entry from non-Lite manifests
-        if: inputs.variant != 'lite' && inputs.variant != 'asyncapi'
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))' -i manifest.yml
+      # aiaide is Diagramly-branded; diagrams is the Lite index. Full has no
+      # byline surface of its own, so only the nudge survives.
+      - name: Remove zenuml-byline-aiaide and zenuml-byline-diagrams from manifest (Full keeps newuser)
+        if: needs.resolve.outputs.variant == 'full'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))' -i manifest.yml
+      - name: Remove the Lite diagrams byline entry from manifest (Diagramly keeps newuser + aiaide)
+        if: needs.resolve.outputs.variant == 'diagramly'
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams"))' -i manifest.yml
       - name: Remove licensing (Lite is free)
-        if: inputs.variant == 'lite'
+        if: needs.resolve.outputs.variant == 'lite'
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.app.licensing)' -i manifest.yml
@@ -102,7 +160,7 @@ jobs:
       # manifests independently of scripts/forge-wizard.mjs, so keep this
       # variant override here as well.
       - name: Point Full embed deeplink matcher at conf-full
-        if: inputs.variant == 'full'
+        if: needs.resolve.outputs.variant == 'full'
         uses: mikefarah/yq@master
         with:
           cmd: yq eval '(.modules.macro[] | select(.key | test("zenuml-embed-macro")) | .autoConvert.matchers[0].pattern) = "https://conf-full.zenuml.com/d/*/*"' -i manifest.yml
@@ -113,7 +171,7 @@ jobs:
       # step here; see the comment on diagramly's manifestEdits array in
       # scripts/forge-wizard.mjs.
       - name: Remove ZenUML-only globalSettings/globalPage entries from Diagramly manifest
-        if: inputs.variant == 'diagramly'
+        if: needs.resolve.outputs.variant == 'diagramly'
         uses: mikefarah/yq@master
         with:
           cmd: |
@@ -126,23 +184,23 @@ jobs:
       # Studio's runtime schema compilation works inside Forge's iframe.
       # Mirrors the asyncapi block in scripts/forge-wizard.mjs.
       - name: Remove non-asyncapi macros from manifest (AsyncAPI; keep asyncapi + openapi)
-        if: inputs.variant == 'asyncapi'
+        if: needs.resolve.outputs.variant == 'asyncapi'
         uses: mikefarah/yq@master
         with:
           # Keep the asyncapi macros AND the OpenAPI macro — see scripts/forge-wizard.mjs.
           cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi|zenuml-openapi-macro") | not))' -i manifest.yml
       - name: Remove globalSettings + globalPage + contentBylineItem (AsyncAPI uses spacePage only)
-        if: inputs.variant == 'asyncapi'
+        if: needs.resolve.outputs.variant == 'asyncapi'
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"])' -i manifest.yml
       - name: Remove non-asyncapi custom content types (AsyncAPI)
-        if: inputs.variant == 'asyncapi'
+        if: needs.resolve.outputs.variant == 'asyncapi'
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc") | not))' -i manifest.yml
       - name: Allow 'unsafe-eval' in CSP (AsyncAPI Studio runtime schema compilation)
-        if: inputs.variant == 'asyncapi'
+        if: needs.resolve.outputs.variant == 'asyncapi'
         uses: mikefarah/yq@master
         with:
           cmd: yq eval '.permissions.content.scripts = ["unsafe-eval"]' -i manifest.yml
@@ -151,7 +209,7 @@ jobs:
       # the whole scheduledTrigger block: Lite also owns the daily macro count
       # snapshot trigger.
       - name: Remove diagramly admin module from Lite/Full manifest
-        if: inputs.variant != 'diagramly'
+        if: needs.resolve.outputs.variant != 'diagramly'
         uses: mikefarah/yq@master
         with:
           cmd: |
@@ -162,9 +220,11 @@ jobs:
               | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline"))
             ' -i manifest.yml
 
-      # The snapshot schedule and remote-storage disclosure ship only in Lite.
-      - name: Remove Lite macro snapshot modules and remote storage from non-Lite variants
-        if: inputs.variant != 'lite'
+      # The snapshot schedule ships only in Lite. The connect remote's storage
+      # declaration applies to every variant because all variants mirror saved
+      # diagram content to D1.
+      - name: Remove Lite macro snapshot modules from non-Lite variants
+        if: needs.resolve.outputs.variant != 'lite'
         uses: mikefarah/yq@master
         with:
           cmd: |
@@ -172,12 +232,37 @@ jobs:
               del(.modules.function[] | select(.key == "macroCountSnapshotFn"))
               | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily"))
               | del(.modules.scheduledTrigger | select(length == 0))
-              | del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage"))
-              | del(.remotes[] | select(.key == "connect").storage)
+            ' -i manifest.yml
+
+      # The Lite->Full conversion executor ships only in Full
+      # (docs/superpowers/specs/2026-08-11-lite-to-full-conversion.md).
+      - name: Remove Full conversion modules from non-Full variants
+        if: needs.resolve.outputs.variant != 'full'
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval '
+              del(.modules.function[] | select(.key == "liteFullConversionFn"))
+              | del(.modules.scheduledTrigger[] | select(.key == "full-lite2full-hourly"))
+              | del(.modules.scheduledTrigger | select(length == 0))
+            ' -i manifest.yml
+
+      # Staging only: tighten the conversion trigger from hourly to 5-minute so
+      # a validation job does not wait up to an hour to be claimed. Production
+      # keeps `hour` (manifest default) — fiveMinute is 8,640 ticks/month per
+      # install, the cadence that drove the Forge KV read overage alert on the
+      # Diagramly demo pipeline.
+      - name: Speed up the conversion trigger on staging
+        if: needs.resolve.outputs.variant == 'full'
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval '
+              (.modules.scheduledTrigger[] | select(.key == "full-lite2full-hourly") | .interval) = "fiveMinute"
             ' -i manifest.yml
 
       - name: Upload final manifest
-        if: inputs.variant == 'lite'
+        if: needs.resolve.outputs.variant == 'lite'
         uses: actions/upload-artifact@v6
         with:
           name: manifest-lite-staging
@@ -200,7 +285,7 @@ jobs:
           MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}
         run: |
           pnpm forge:deploy:disable-analytics
-          case "${{ inputs.variant }}" in
+          case "${{ needs.resolve.outputs.variant }}" in
             full)
               APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
               APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-full.zenuml.com" -e staging
@@ -221,11 +306,11 @@ jobs:
               pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
               ;;
           esac
-          pnpm forge:deploy:${{ inputs.variant }}:staging
+          pnpm forge:deploy:${{ needs.resolve.outputs.variant }}:staging
       - name: Set PAGE_CAPTURE_SECRET in Forge Staging
         if: ${{ vars.PAGE_CAPTURE_SECRET != '' }}
         run: |
-          case "${{ inputs.variant }}" in
+          case "${{ needs.resolve.outputs.variant }}" in
             lite)
               pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e staging
               ;;
@@ -242,26 +327,26 @@ jobs:
         env:
           PAGE_CAPTURE_SECRET: ${{ vars.PAGE_CAPTURE_SECRET }}
       - name: Install Lite to lite-stg.atlassian.net
-        if: inputs.variant == 'lite'
+        if: needs.resolve.outputs.variant == 'lite'
         run: pnpm forge:install:lite:staging || pnpm forge:upgrade:lite:staging
         continue-on-error: true
       - name: Install Full to full-stg.atlassian.net
-        if: inputs.variant == 'full'
+        if: needs.resolve.outputs.variant == 'full'
         run: pnpm forge:install:full:staging || pnpm forge:upgrade:full:staging
         continue-on-error: true
       - name: Install Diagramly to dia-stg.atlassian.net
-        if: inputs.variant == 'diagramly'
+        if: needs.resolve.outputs.variant == 'diagramly'
         run: pnpm forge:install:diagramly:staging || pnpm forge:upgrade:diagramly:staging
         continue-on-error: true
       - name: Install AsyncAPI to asyncapi-stg.atlassian.net
-        if: inputs.variant == 'asyncapi'
+        if: needs.resolve.outputs.variant == 'asyncapi'
         run: pnpm forge:install:asyncapi:staging || pnpm forge:upgrade:asyncapi:staging
         continue-on-error: true
 
       - name: Write deployment summary
         if: always()
         run: |
-          case "${{ inputs.variant }}" in
+          case "${{ needs.resolve.outputs.variant }}" in
             lite)      SITE="zenuml-stg.atlassian.net";  TYPE="Forge" ;;
             full)      SITE="full-stg.atlassian.net";    TYPE="Forge" ;;
             diagramly) SITE="dia-stg.atlassian.net";     TYPE="Forge" ;;
@@ -270,6 +355,6 @@ jobs:
           echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Variant  | ${{ inputs.variant }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Variant  | ${{ needs.resolve.outputs.variant }} |" >> $GITHUB_STEP_SUMMARY
           echo "| App type | ${TYPE} |" >> $GITHUB_STEP_SUMMARY
           echo "| Confluence site | ${SITE} |" >> $GITHUB_STEP_SUMMARY

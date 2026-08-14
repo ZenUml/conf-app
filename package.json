@@ -1,9 +1,11 @@
 {
   "name": "confluence-plugin",
   "version": "1.1.0",
+  "packageManager": "pnpm@10.34.5",
   "private": true,
   "scripts": {
     "test:unit": "vitest --run",
+    "test:export-modal": "playwright test -c tests/export-modal/playwright.config.ts",
     "test:e2e": "cd tests/e2e-tests && pnpm test",
     "test:e2e:lite:stg": "cd tests/e2e-tests && pnpm test:lite:stg",
     "test:e2e:lite:prod": "cd tests/e2e-tests && pnpm test:lite:prod",

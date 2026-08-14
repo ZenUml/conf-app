@@ -26,6 +26,8 @@ import { mountRoot } from '@/mount-root'
 import { guardEditClick } from '@/utils/guardEditClick'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import EventBus from './EventBus'
+import { attributionFromCustomContent } from '@/model/DiagramAttribution'
+import { publishDiagramAttribution } from '@/utils/viewerLoadOutcome'
 
 // Captured at mount so the module-level EventBus 'edit' handler can forward the
 // macro's document id into the edit modal. Without it the editor opens on the
@@ -46,6 +48,7 @@ async function initializeMacro() {
   let spec: string | undefined
   let existing: Diagram | undefined
   let loadError: string | undefined
+  let attribution = null
   if (customContentId) {
     try {
       // Zero-network viewer copy check — see forge-graph-viewer.ts. Same-page
@@ -54,6 +57,7 @@ async function initializeMacro() {
         customContentId, { copyCheckMode: 'cross-page-only' },
       )
       existing = customContent?.value as Diagram | undefined
+      attribution = attributionFromCustomContent(customContent)
       const stored = existing?.code
       if (typeof stored === 'string') spec = stored
     } catch (err) {
@@ -165,6 +169,7 @@ async function initializeMacro() {
     // getCustomContentByIdV2 failure above so the viewer can render a
     // real error instead of the "no saved spec yet" placeholder.
     mountRoot(doc, AsyncApiMacroViewer, { doc, loadError, hideEdit: isEmbedMacro })
+    publishDiagramAttribution(attribution)
   }
 
   // Match the metrics-reporting cadence of the other viewers so AsyncAPI

@@ -1,5 +1,6 @@
 // src/utils/analytics/types.ts
 
+import type { ProductType } from "./productType";
 import type {
   FeatureArea,
   MacroTypeValue,
@@ -14,6 +15,7 @@ import type {
   CacheSource,
   ContentSource,
   MacroCountSource,
+  PaywallPolicySource,
   PrefetchHost,
   PrefetchOutcome,
   DashboardFormatFilter,
@@ -23,6 +25,8 @@ import type {
   AgentLinkGuardrailRejectReason,
   AgentLinkSessionSuspendReason,
   AgentLinkListScope,
+  ActivationPath,
+  ViewerRelation,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -32,7 +36,7 @@ export type AnalyticsProperties = {
   // Auto-enriched by tracker (optional for callers)
   client_domain?: string;
   user_account_id?: string;
-  product_type?: "lite" | "full" | "diagramly";
+  product_type?: ProductType;
   environment_type?: string;
   // Contextual — required when scope implies them
   macro_type?: MacroTypeValue;
@@ -55,14 +59,23 @@ export type AnalyticsProperties = {
   // (the #302 fail-open signal). `css_enabled` / `space_paid` / `is_lite` are
   // the other gate inputs, captured so a not-fired decision is fully explained.
   // `space_paid_scope` = which grant satisfied `space_paid` — 'user_license'
-  // (per-requester extension) vs 'space_license' (whole-space extension or a
-  // paid plan). Lets user-level vs space-level unlocks be measured separately.
+  // (per-requester extension), 'space_license' (whole-space extension or a
+  // paid plan), or 'paid_rail' (D1 ForgeInstallation trial-window
+  // suppression — a recent Full/Diagramly install on the same tenant, NOT a
+  // real license; see functions/api/space-status.ts checkPaidRail). Lets
+  // user-level, space-level, and paid-rail unlocks be measured separately.
   gate_fired?: boolean;
   macro_count?: number;
   macro_count_source?: MacroCountSource;
   css_enabled?: boolean;
+  // Which policy produced the effective Lite paywall decision on this
+  // evaluation (lite-paywall-default-on): `default_on` when the backend
+  // explicitly returned `PAYWALL_EXEMPT: false`, `exemption` when it returned
+  // `true`, `fail_open` when the property was absent or unusable. See
+  // PaywallPolicySource in catalog.ts for the full contract.
+  paywall_policy_source?: PaywallPolicySource;
   space_paid?: boolean;
-  space_paid_scope?: 'user_license' | 'space_license';
+  space_paid_scope?: 'user_license' | 'space_license' | 'paid_rail';
   is_lite?: boolean;
   cta_position?: "primary" | "secondary";
   feature_name?: string;
@@ -111,6 +124,28 @@ export type AnalyticsProperties = {
   last_completed_type?: string;
   processed_contents?: number;
   processed_spaces?: number;
+  // Lite->Full macro conversion (vendor-operated queue). Same backend-emitted
+  // contract as the snapshot block above: never include page/content bodies,
+  // titles, or raw errors. `convert_job_id` is our own D1 row id, not an
+  // Atlassian identifier. `convert_skip_reason` is a closed vocabulary so the
+  // phase-2 decision ("is embed demand real?") is a groupBy, not a text mine.
+  convert_job_id?: string;
+  convert_dry_run?: boolean;
+  convert_request_source?: string;
+  convert_pages_total?: number;
+  convert_pages_succeeded?: number;
+  convert_pages_failed?: number;
+  convert_macros_converted?: number;
+  convert_macros_skipped?: number;
+  convert_skip_reason?: "embed_macro" | "unknown_macro_key" | "body_missing";
+  convert_failure_stage?:
+    | "claim"
+    | "page_read"
+    | "bodies_fetch"
+    | "content_create"
+    | "adf_rewrite"
+    | "page_update"
+    | "report";
   // AI
   prompt_length?: number;
   generation_source?: string;
@@ -136,12 +171,45 @@ export type AnalyticsProperties = {
   // (404) so there is nothing to attach to yet; the save-path/backfill
   // self-heals once the page is published.
   snapshot_skip_reason?: 'no_write_permission' | 'page_not_published';
+  // Diagram attribution and impact (Phase 1). These values intentionally
+  // exclude viewer keys, attribution names, and other users' account IDs.
+  viewer_relation?: ViewerRelation;
+  has_last_updated_by?: boolean;
+  has_audience_count?: boolean;
+  visibility_duration_ms?: number;
+  audience_count?: number;
   space_admin_count?: number;
+  // M1 `app_first_seen` census props. Explicit, not ambient: the P3 denominator
+  // is COUNT(DISTINCT account_id) per cloud_id, so both ride on the event
+  // itself rather than relying on Mixpanel identity resolution (which is
+  // placeholder-prone on first iframe events — see the ai_aide lesson).
+  cloud_id?: string;
+  account_id?: string;
   // True when the current user is resolved to be a space admin of the current
-  // space. Set on `space_admin_active` (Phase 5a admin-activity probe). Only
-  // emitted as `true` today; kept optional for a future "always, with flag"
-  // rate variant. See utils/paywall/spaceAdminProbe.ts.
+  // space. Set on `space_admin_active` (Phase 5a admin-activity probe) and, from
+  // Phase 5b, on every page-banner event so the funnel can be split by audience.
+  // See utils/paywall/spaceAdminProbe.ts.
   is_space_admin?: boolean;
+  // Phase 5b: WHICH gate admitted the paywall page banner, and therefore which
+  // copy/CTA set the user saw.
+  //   'editor'      — legacy gate: this user created/edited a macro in the last
+  //                   30 days. Sees "ask an admin" advocacy copy.
+  //   'space_admin' — new gate: this user is a space admin of an over-limit
+  //                   space, regardless of whether they author diagrams. Sees
+  //                   the direct-purchase copy (Enterprise Bundle) instead.
+  // A user who is BOTH is reported as 'space_admin' — the stronger audience.
+  // This is the primary split for judging Phase 5b: 60d baseline was 358 unique
+  // users reached on the 'editor' gate across 19 CSS tenants, against 5,021
+  // unique space admins already loading the banner iframe unreached.
+  banner_audience?: 'editor' | 'space_admin';
+  // Advertised annual price on the bundle CTA at click time (USD, per space).
+  // Recorded on the event so a later price change stays comparable.
+  bundle_price_usd?: number;
+  // Attribution token embedded in the Stripe Payment Link URL
+  // (`<clientDomain>__<spaceKey>`, sanitised to Stripe's [A-Za-z0-9_-]).
+  // Stripe returns it verbatim on the Checkout Session, so a $299 payment
+  // joins back to the exact bundle CTA click without manual reconciliation.
+  client_reference_id?: string;
   // Cohort targeting (cohorts_refreshed). `cohorts` = comma-joined cohort list
   // the refresh resolved; empty string = user in no cohort (still a successful
   // refresh). `cohort_count` = same list's length, for numeric filtering.
@@ -245,10 +313,32 @@ export type AnalyticsProperties = {
   edit_dup_gate_outcome?: 'blocked' | 'passed' | 'scan_failed';
   same_page_macro_count?: number;
   copy_reason?: 'same-page-duplicate' | 'cross-page';
+  // AI-prepared byline activation nudge. `prepared_age_days` is how stale the
+  // curated diagram was when served; `activation_path` describes how the user
+  // completed the flow.
+  // Diagram type reuses the existing `macro_type` above rather than the design's
+  // `diagram_type` synonym — one name per concept.
+  prepared_age_days?: number;
+  activation_path?: ActivationPath;
   // Diagramly demo-page engagement: set automatically for macro_* events when
   // the macro lives on a page tagged with the `diagramly-demo-page` page
   // property. See utils/analytics/demoPageStatus.ts.
   is_demo_page?: boolean;
+  // Export PNG dialog (export_png_succeeded / export_png_failed —
+  // ExportModal.vue). `method` = delivery path the PNG went out through;
+  // `background` mirrors the ExportState background option value
+  // ('transparent' | 'white' | 'warm' | 'cool' | 'custom'). has_note/
+  // has_arrow/has_callout/has_watermark record which overlay types were
+  // present in the exported image (ExportState's computed flags of the same
+  // names). `failure_reason` (declared above) carries export_png_failed's
+  // reason, e.g. 'no_capture_node' | 'blob_null' | 'exception' |
+  // 'clipboard_denied'.
+  method?: 'download' | 'clipboard';
+  background?: string;
+  has_note?: boolean;
+  has_arrow?: boolean;
+  has_callout?: boolean;
+  has_watermark?: boolean;
   // Performance
   render_mode?: RenderMode;
   // Where a cached_svg render sourced its SVG (Phase 2: 'cc_body'). Absent/'none' for live_render.
@@ -401,6 +491,16 @@ export type AnalyticsProperties = {
   query_len?: number;
   hits?: number;
   list_scope?: AgentLinkListScope;
+  // Starter-template gallery (#334). `template_id` identifies which curated
+  // template was applied (editor_template_applied only) — flat across the
+  // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is
+  // a stable Mixpanel dimension regardless of macro_type. `is_new_macro` is
+  // the same create-vs-edit discriminator Header.vue already uses for its
+  // macro_create_started/macro_edit_opened split (`!diagram.id`) — reused
+  // here so the gallery's funnel joins against that axis rather than
+  // inventing a second one.
+  template_id?: string;
+  is_new_macro?: boolean;
   // Error
   error_code?: string;
   error_name?: string;

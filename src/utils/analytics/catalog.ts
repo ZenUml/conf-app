@@ -13,7 +13,11 @@ export type FeatureArea =
   // The confluence:contentBylineItem entry point under the page title. Its own
   // area because it is an activation surface, not part of a macro's lifecycle:
   // it renders on every page, including pages with no diagram at all.
-  | "byline";
+  | "byline"
+  | "diagram_impact";
+
+/** Current user's relationship to the diagram being measured. */
+export type ViewerRelation = "creator" | "updater" | "contributor" | "viewer";
 
 export type MacroTypeValue =
   | "sequence"
@@ -38,6 +42,12 @@ export type Surface =
   | "page_banner"
   | "dashboard"
   | "route"
+  // Byline activation nudge. MUST be passed explicitly on every activation_*/
+  // byline_* event: the dialog runs in a contentBylineItem iframe where
+  // ApWrapper2.isDisplayMode() returns true (no extension.modal/.macro), so an
+  // inferred surface would mislabel byline activity as `viewer` — the exact
+  // #368 misclassification (see MEMORY project_368_surface_misclassification).
+  | "byline"
   | "forge_trigger"
   | "scheduled_job"
   // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
@@ -120,6 +130,17 @@ export type ContentSource = "fetch" | "swr_cache";
 // stale-low); `collect` = fresh space enumeration; `mock` = localStorage override.
 export type MacroCountSource = "kv" | "collect" | "undefined" | "zero" | "mock";
 
+// Which policy produced the Lite paywall's effective enabled/disabled state
+// for this `paywall_gate_evaluated` decision (lite-paywall-default-on):
+//   default_on — the backend explicitly returned `PAYWALL_EXEMPT: false`;
+//                 Lite's paywall is on, per the fixed default policy.
+//   exemption  — the backend explicitly returned `PAYWALL_EXEMPT: true`
+//                 (a domain or the wildcard `"*"` entry in PAYWALL_EXEMPTIONS).
+//   fail_open  — the `PAYWALL_EXEMPT` property was absent (missing/unreadable/
+//                 malformed KV, or the lookup was never made) — an unavailable
+//                 decision, not evidence the tenant is safe to restrict.
+export type PaywallPolicySource = "default_on" | "exemption" | "fail_open";
+
 export type FeedbackValue = "good" | "partial" | "bad";
 
 export type AnalyticsEventName =
@@ -176,6 +197,18 @@ export type AnalyticsEventName =
   | "macro_export_requested"
   | "macro_export_succeeded"
   | "macro_export_failed"
+  // Export PNG dialog (ExportModal.vue): richer overlay-annotated PNG export
+  // (background + note/arrow/callout/watermark overlays), tracked separately
+  // from the generic macro_export_* triple above (unused by any call site as
+  // of this registration). opened = modal shown; succeeded = PNG delivered
+  // via download or clipboard (`method`), with the `background` value and
+  // has_note/has_arrow/has_callout/has_watermark overlay flags; failed = an
+  // export attempt failed before delivery (`failure_reason`); dismissed =
+  // modal closed with no successful export in that open session.
+  | "export_png_opened"
+  | "export_png_succeeded"
+  | "export_png_failed"
+  | "export_png_dismissed"
   | "ai_generation_requested"
   | "ai_generation_succeeded"
   | "ai_generation_failed"
@@ -206,7 +239,43 @@ export type AnalyticsEventName =
   | "paywall_gate_evaluated"
   | "paywall_banner_shown"
   | "paywall_banner_dismissed"
+  // Phase 5b: the space-admin-only purchase CTA on the page banner. A space
+  // admin can buy an Enterprise Bundle ($299/space/yr, Stripe) WITHOUT a
+  // Confluence site admin — the Marketplace upgrade path needs a site admin,
+  // which a space admin is not. This is the only event that measures whether
+  // admin-targeted copy produces a purchase intent rather than another relay
+  // hop. Distinct from `extension_request_clicked` (asks US for more free
+  // time) and `advocacy_message_copied` (asks SOMEONE ELSE to act).
+  | "paywall_bundle_cta_clicked"
+  // The Marketplace (Full plan) rail. Separate event from the bundle rail
+  // because they need different people: Marketplace requires a Confluence SITE
+  // admin, the bundle requires nobody. Splitting them is how we find out which
+  // wall a tenant is actually stuck behind.
+  //
+  // Restores measurement deleted in 05b5287f (2026-05-12), which removed the
+  // pricing UI *and* its `upgrade_cta_clicked` emitter together. Any analysis
+  // reading that event's 0 as "nobody wants to buy" is reading an absent
+  // emitter — buy-intent has been unmeasurable since, not measured as zero.
+  | "paywall_marketplace_cta_clicked"
+  // Footer "Why do I need to upgrade?" link in the paywall modal. Until
+  // 2026-08-10 this was a bare target="_blank" anchor, silently dropped by the
+  // Forge iframe sandbox (no allow-popups) — zero effect on click AND zero
+  // telemetry, so the four months of no clicks are an absent emitter, not
+  // absent interest. Low-intent signal vs the two purchase rails: it measures
+  // "wants to understand the pricing story", not "ready to pay".
+  | "paywall_learn_more_clicked"
   | "space_admin_active"
+  // M1 first-seen ping (onboarding spec Phase 1). Fired from the page-banner
+  // host — the only surface that mounts on EVERY Confluence page in every
+  // variant — at most once per browser per tenant per 30 days, AFTER the
+  // authenticated backend POST succeeded. Two jobs: (a) the POST's invocation
+  // token carries context.siteUrl, so the backend resolves the tenant domain
+  // for installs where nobody ever opened a macro (85.7% of post-June
+  // Diagramly installs are domain-less); (b) counted per account_id it is the
+  // first census of Confluence-ACTIVE users per tenant — the P3 denominator.
+  // Census semantics: "active browsers with a resolved account", not "users"
+  // (localStorage throttle; cleared storage / second browsers inflate).
+  | "app_first_seen"
   | "advocacy_message_copied"
   | "advocacy_draft_preview_clicked"
   | "extension_request_clicked"
@@ -365,6 +434,12 @@ export type AnalyticsEventName =
   // snapshot_create_failed.
   | "snapshot_backfill_skipped"
   | "snapshot_fallback_rendered"
+  // Diagram attribution and audience impact (Phase 1): the read-only footer
+  // and its three-second continuous-visibility registration flow.
+  | "diagram_attribution_shown"
+  | "diagram_audience_view_qualified"
+  | "diagram_audience_registration_succeeded"
+  | "diagram_audience_registration_failed"
   // Save-time PNG backup upload, async mode (#392). The frontend hands the PNG
   // to /forge-upload-attachment with `async: true`, gets an ack after
   // validation, emits `attachment_upload_queued` and returns — the real
@@ -399,6 +474,20 @@ export type AnalyticsEventName =
   | "macro_count_snapshot_completed"
   | "macro_count_space_changed"
   | "macro_count_snapshot_failed"
+  // Lite->Full macro conversion (vendor-operated queue, phase 1). Emitted by
+  // the Cloudflare conversion service, not the browser tracker — same
+  // contract as the macro-count snapshot events above. Lifecycle: a job is
+  // enqueued by the vendor admin script, claimed by the Full app's scheduled
+  // function, then each page either converts or fails; `completed` closes the
+  // job with totals. `macro_skipped` is per-macro (embed macros and unknown
+  // keys are skipped by design in v1, and the skip is the signal that tells
+  // us when phase-2 embed support becomes worth building).
+  | "macro_convert_job_enqueued"
+  | "macro_convert_job_claimed"
+  | "macro_convert_page_succeeded"
+  | "macro_convert_page_failed"
+  | "macro_convert_macro_skipped"
+  | "macro_convert_job_completed"
   | "close_guard_rejected"
   // Close-guard draft-restore banner (utils/restoreDraftBanner.ts). Shipped
   // 2026-05-10 without instrumentation, so 2.5 months of usage are dark —
@@ -493,7 +582,45 @@ export type AnalyticsEventName =
   // never sent — only `query_len` (privacy).
   | "agent_link_diagram_read"
   | "agent_link_search_performed"
-  | "agent_link_list_performed";
+  | "agent_link_list_performed"
+  // AI-prepared byline activation nudge
+  // (docs/superpowers/specs/2026-07-26-byline-activation-nudge-design.md).
+  // Visibility is a server-side `entityPropertyExists` gate on
+  // `zenuml-prepared-diagram`: the property means a curated diagram is ready.
+  // Listing diagrams already on the page belongs to the separate Diagrams byline.
+  // NOTE: activation_nudge_shown is NOT emitted — the byline chip is
+  // server-rendered Confluence chrome, not our Custom UI, so we get no
+  // client hook when it renders. `activation_nudge_clicked` IS the funnel
+  // entry; do not build a shown-based CTR against activation_nudge_shown.
+  // (Reserved in case a future Custom UI surface can fire it.)
+  | "activation_nudge_shown"
+  | "activation_nudge_clicked"
+  | "activation_served"
+  // Should be ~impossible by construction (the pipeline stamps the property only
+  // after caching the result). Any volume here is a preparation-pipeline bug.
+  | "activation_cache_miss"
+  | "activation_diagram_edited"
+  | "activation_completed"
+  | "activation_nudge_dismissed"
+  // Starter-template gallery (#334, JTBD: author job). The real "hire moment"
+  // for diagram creation is at the macro editor, before the user has typed
+  // anything — the gallery replaces the old external "Examples" link
+  // (Header.vue templateClick, which sent the user away to zenuml.com/
+  // mermaid.js.org/plantuml.com docs) with 6-10 curated, one-click,
+  // in-product templates per text-DSL macro type (sequence/mermaid/plantuml).
+  // `editor_template_gallery_opened` is the denominator; `editor_template_applied`
+  // (keyed by `template_id`) is the per-template pull signal the JTBD's
+  // success metric needs ("editor_template_applied share of new creates").
+  // AI text->diagram entry from the same issue is explicitly OUT OF SCOPE
+  // here (deferred 2026-08-03) — its ai_generation_* events already exist
+  // above and are reused, not redefined, when that lands.
+  | "editor_template_gallery_opened"
+  | "editor_template_applied";
+
+// How an activation run completed. 'copy_link' = the primary path (mint a deeplink
+// and paste it into any page, #360's missing producer); 'draft_page' = the
+// stall-breaker secondary that creates a page carrying the diagram.
+export type ActivationPath = "copy_link" | "draft_page";
 
 // Where an idle renderer-bundle prefetch ran: an alive macro iframe after its
 // own render settled, or the page-banner iframe on its no-banner fast-path.

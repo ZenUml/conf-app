@@ -11,6 +11,8 @@
     "/diagram-likes/toggle",
     "/diagram-likes/user-likes",
     "/forge-custom-content",
+    "/api/diagram-impact",
+    "/api/diagram-impact/*",
     "/api/space-status",
     "/api/space-license",
     "/api/user-cohorts",
@@ -29,7 +31,9 @@
     "/agent-link/*",
     "/d/*",
     "/i/*",
-    "/deeplink-ticket"
+    "/deeplink-ticket",
+    "/activation-prepared",
+    "/conversion/*"
   ],
   "exclude": []
 }

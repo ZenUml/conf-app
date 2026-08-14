@@ -23,6 +23,7 @@ import { handleAiAideRoute } from './routes/aiAide';
 import { decidePageBanner, handlePageBannerRoute } from './routes/pageBanner';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { maybeProbeSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
+import { maybeSendFirstSeenPing } from '@/utils/firstSeen/firstSeenPing';
 import { refreshUserCohortsIfStale } from '@/utils/cohorts/userCohorts';
 import { isPrefetchDue } from '@/utils/prefetch/throttle';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
@@ -31,6 +32,9 @@ import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
+import { applyViewerLoadOutcome, mapCustomContentLoadError, publishDiagramAttribution } from '@/utils/viewerLoadOutcome';
+import { attributionFromCustomContent } from '@/model/DiagramAttribution';
+import type { DiagramLoadError } from '@/model/store2/types';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import { isSequenceFamilyEntry } from '@/utils/macroEntryRouting';
@@ -121,14 +125,21 @@ async function initializeCriticalPath() {
       return { macroData: null };
     }
 
-    // Content byline item. Two entries share this extension type and the
-    // manifest guarantees a variant ships exactly one of them (see
-    // scripts/forge-wizard.mjs): `zenuml-byline-diagrams` on Lite,
-    // `zenuml-byline-aiaide` on Full/Diagramly. Branch on moduleKey rather than
-    // PRODUCT_TYPE so a manifest/route mismatch fails visibly here instead of
-    // silently rendering the other variant's UI.
+    // Content byline items. THREE entries now share this extension type and
+    // every variant ships a different subset (see scripts/forge-wizard.mjs), so
+    // discriminate by moduleKey — same pattern as the pageBanner route below.
+    // Branching on moduleKey rather than PRODUCT_TYPE means a manifest/route
+    // mismatch fails visibly here instead of silently rendering another
+    // entry's UI.
+    //
+    //   zenuml-byline-newuser  → the activation nudge ("View as diagram")
+    //   zenuml-byline-diagrams → the Lite diagram index
+    //   zenuml-byline-aiaide   → the Aide chat (the fallback)
     if (!isOpenedModal && context.extension?.type === 'confluence:contentBylineItem') {
-      if (context.moduleKey === 'zenuml-byline-diagrams') {
+      if (context.moduleKey === 'zenuml-byline-newuser') {
+        const { handleBylineActivationRoute } = await import('./routes/bylineActivation');
+        await handleBylineActivationRoute();
+      } else if (context.moduleKey === 'zenuml-byline-diagrams') {
         const { handleBylineRoute } = await import('./routes/byline');
         await handleBylineRoute();
       } else {
@@ -159,6 +170,17 @@ async function initializeCriticalPath() {
       // before any init/REST. Awaited before view.close() — closing the iframe
       // would abort the in-flight REST call — and never throws.
       await maybeProbeSpaceAdmin();
+
+      // M1 first-seen ping (onboarding Phase 1): one authenticated POST per
+      // browser per tenant per 30 days, resolving the tenant domain for
+      // installs where nobody ever opens a macro, and producing the per-account
+      // census (P3 denominator). All variants — this is deliberately NOT
+      // Lite-gated like the admin probe. Placed before decidePageBanner() so a
+      // load that SHOWS a banner still counts toward the census (deviation
+      // from the spec's literal "none path" — recorded in deviation-log.md).
+      // Awaited for the same reason as the probe: view.close() aborts
+      // in-flight requests. Never throws.
+      await maybeSendFirstSeenPing();
 
       const choice = decidePageBanner();
       if (choice === 'none') {
@@ -296,6 +318,8 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const isAsyncApi = context.moduleKey.startsWith('zenuml-asyncapi-macro') || isAsyncApiEmbed || context.extension.modal?.diagramType === 'asyncapi';
 
     let doc: Diagram | undefined;
+    let diagramAttribution = null;
+    let ccLoadError: DiagramLoadError | null = null;
     let legacyLoadBlocked = false;
     // A macro created by pasting a typed diagram deeplink
     // (.../d/<type>/<cloudId>/<contentId>) has no config yet — the id is in the
@@ -370,7 +394,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     // moments later, so nothing is silently dropped — it's deferred off the
     // critical path, same as the fetch itself.
     // See utils/renderCache/contentCacheStore.ts.
-    const mountSequenceViewer = async (viewerDoc: Diagram) => {
+    const mountSequenceViewer = async (viewerDoc: Diagram, attribution = null) => {
       // #382: hold the mount until the viewport gate releases (the gate shows
       // its own shimmer placeholder while holding — index.html has no real
       // skeleton element). awaitGateBlocking also records the ACTUAL wait at
@@ -383,6 +407,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       const DiagramPortal = (await import('@/components/DiagramPortal.vue')).default;
       // @ts-ignore - viewerDoc may be a partial spread type; matches the happy-path mount below
       mountRoot(viewerDoc, DiagramPortal, { autoResize: true });
+      publishDiagramAttribution(attribution);
     };
 
     const revalidateSequenceViewer = async (
@@ -404,6 +429,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         }
         const fresh = loaded.customContent?.value;
         if (!fresh) return; // content unreadable now — keep the last-known-good cached render
+        const freshAttribution = attributionFromCustomContent(loaded.customContent);
         if (loaded.customContent) {
           import('@/model/SnapshotAttachment').then(({ maybeBackfillSnapshot }) =>
             maybeBackfillSnapshot({
@@ -422,7 +448,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
           renderPerf.markContentSource('fetch');
           // @ts-ignore - fresh may be a partial spread type; matches the happy-path mount below
           const freshDoc: Diagram = fresh.plantUmlCode ? fresh : { ...fresh, plantUmlCode: Example.PlantUml };
-          await mountSequenceViewer(freshDoc);
+          await mountSequenceViewer(freshDoc, freshAttribution);
         }
       } catch (e) {
         console.warn('[content-swr] background revalidate failed; cached render stands', e);
@@ -479,6 +505,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId, { copyCheckMode }));
       console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
       doc = loaded.customContent?.value;
+      diagramAttribution = attributionFromCustomContent(loaded.customContent);
       if (isSequence && loaded.customContent?.value) {
         // Prime the id-keyed SWR cache so a later viewer revisit can render
         // before the fetch (see the content-SWR block above). Cache the RAW
@@ -503,6 +530,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         // content-property fallback below try storageUuid before we mount an
         // empty/example doc and risk a destructive save.
         reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, { recoveryUsed: false });
+        ccLoadError = mapCustomContentLoadError(loaded);
       }
 
       // Diagram source snapshot attachments (docs/superpowers/plans/
@@ -917,8 +945,18 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       ? (await import("@/components/Workspace.vue")).default
       : (await import("@/components/DiagramPortal.vue")).default;
 
+      const mountDoc = editable
+        ? doc
+        : applyViewerLoadOutcome({
+            doc,
+            customContentId,
+            loadError: ccLoadError,
+            macroKind,
+          });
+
       //@ts-ignore
-      mountRoot(doc, component, { autoResize: !editable && !fullscreenMode });
+      mountRoot(mountDoc, component, { autoResize: !editable && !fullscreenMode });
+      if (!editable) publishDiagramAttribution(diagramAttribution);
 
       if (editable) {
         const isNew = !customContentId;

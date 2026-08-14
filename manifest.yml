@@ -39,9 +39,20 @@ remotes:
     operations:
       - compute
       - fetch
-      # Lite daily macro snapshots persist in-scope Confluence-derived rows
-      # in the Cloudflare Remote. Non-Lite variant builds strip this operation
-      # and the storage declaration below.
+      # ALL variants persist in-scope end-user data in the Cloudflare Remote:
+      # every save mirrors the diagram body + title into D1 via
+      # /forge-custom-content (functions/forge-custom-content.ts), and the
+      # frontend call site (services/CustomContent.ts -> syncCustomContent) is
+      # shared code with no variant switch. Lite additionally persists daily
+      # macro-count snapshot rows.
+      #
+      # Previously full/diagramly/asyncapi stripped this operation and the
+      # storage declaration below, which under-declared what those apps
+      # actually store. Do NOT re-add that strip in any manifest-generation
+      # path. PR #383 removed it from forge-wizard.mjs but missed the staging
+      # and production workflows; PR #460 removes those duplicate strips.
+      # Check the first resulting main-branch Forge deploy before classifying
+      # the version impact: earlier minor deploys still used stripped manifests.
       - storage
     storage:
       inScopeEUD: true
@@ -364,6 +375,15 @@ modules:
     - key: diagramly-demo-page-pipeline
       function: createDemoPageScheduled
       interval: hour
+    # Full-only. Variant builds strip this from Lite, Diagramly, and AsyncAPI
+    # (scripts/forge-wizard.mjs). Lite->Full conversion executor: claims at
+    # most one vendor-enqueued ConversionJob per tick from the connect Remote
+    # and exits immediately when the queue is empty, so idle installations pay
+    # one claim round-trip per hour.
+    # docs/superpowers/specs/2026-08-11-lite-to-full-conversion.md
+    - key: full-lite2full-hourly
+      function: liteFullConversionFn
+      interval: hour
   endpoint:
     - key: remote-connect
       remote: connect
@@ -407,6 +427,13 @@ modules:
   confluence:pageBanner:
     - key: zenuml-page-banner
       resource: main
+      # M1 first-seen ping: invokeRemote REQUIRES the calling module to carry a
+      # resolver/endpoint binding — without this line the banner iframe's call
+      # fails with: Entry point "resolver" for extension "zenuml-page-banner"
+      # could not be invoked (observed on lite-stg, 2026-08-09). Macros work
+      # because every macro module already declares this same binding.
+      resolver:
+        endpoint: remote-connect
   confluence:spacePage: #Note: AsyncAPI variant only — appears in each Confluence space's sidebar. Mirrors AsyncAPI-Conf-V2's spacePage. Other variants strip this via manifestEdits in scripts/forge-wizard.mjs.
     - key: zenuml-asyncapi-dashboard-page
       resource: main
@@ -465,6 +492,23 @@ modules:
       viewportContainer: modal
       resolver:
         endpoint: remote-connect
+    # From main: the activation nudge, shown only when the page carries a
+    # prepared diagram. Independent of the diagram index above — a page can
+    # legitimately offer both, and every variant ships a different subset (see
+    # scripts/forge-wizard.mjs).
+    - key: zenuml-byline-newuser
+      resource: main
+      title: View as diagram
+      icon: resource:main;image/byline-view-as-diagram.png
+      tooltip: See a diagram drawn from this page
+      viewportSize: fullscreen
+      viewportContainer: modal
+      resolver:
+        endpoint: remote-connect
+      displayConditions:
+        entityPropertyExists:
+          entity: content
+          propertyKey: zenuml-prepared-diagram
   confluence:customContent:
     - key: ${CUSTOM_CONTENT_KEY}
       supportedContainerTypes:
@@ -535,6 +579,9 @@ modules:
       handler: createDemoPage.scheduledHandler
     - key: macroCountSnapshotFn
       handler: macro-count-snapshot.scheduledHandler
+      timeoutSeconds: 900
+    - key: liteFullConversionFn
+      handler: lite-full-conversion.scheduledHandler
       timeoutSeconds: 900
 
 resources:

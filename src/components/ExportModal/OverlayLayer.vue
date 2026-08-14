@@ -6,12 +6,14 @@
     preserveAspectRatio="xMidYMid meet"
     xmlns="http://www.w3.org/2000/svg"
     ref="overlayEl"
+    role="application"
+    :aria-label="overlayAriaLabel"
     :style="isInteractive ? 'pointer-events: auto; cursor: crosshair' : ''"
     @pointerdown="onSvgPointerDown"
     @pointermove="onSvgPointerMove"
     @pointerup="onSvgPointerUp"
     @keydown="onKeyDown"
-    tabindex="0"
+    :tabindex="isInteractive ? 0 : -1"
   >
     <defs>
       <filter id="drop-shadow-note" x="-20%" y="-20%" width="140%" height="140%">
@@ -27,7 +29,7 @@
         :y="noteY"
         :font-size="state.note.fontSize"
         :fill="state.note.color"
-        font-family="'Outfit', sans-serif"
+        :font-family="sansFontFamily"
         font-weight="500"
         :text-anchor="noteAnchor"
         dominant-baseline="central"
@@ -94,7 +96,7 @@
         :y="arrowLabelPos.y"
         :font-size="12 + state.arrow.thickness"
         :fill="state.arrow.color"
-        font-family="'Outfit', sans-serif"
+        :font-family="sansFontFamily"
         text-anchor="middle"
         dominant-baseline="central"
       >{{ state.arrow.label }}</text>
@@ -120,7 +122,7 @@
         :font-size="state.watermark.fontSize"
         :fill="state.watermark.color"
         :opacity="state.watermark.opacity / 100"
-        font-family="'JetBrains Mono', monospace"
+        :font-family="monoFontFamily"
         font-weight="500"
         text-anchor="middle"
         dominant-baseline="central"
@@ -133,7 +135,7 @@
         :font-size="state.watermark.fontSize"
         :fill="state.watermark.color"
         :opacity="state.watermark.opacity / 100"
-        font-family="'JetBrains Mono', monospace"
+        :font-family="monoFontFamily"
         font-weight="500"
         text-anchor="end"
         dominant-baseline="auto"
@@ -157,7 +159,7 @@
         :y="calloutTextY"
         :font-size="state.callout.fontSize"
         :fill="state.callout.color"
-        font-family="'Outfit', sans-serif"
+        :font-family="sansFontFamily"
         text-anchor="middle"
         dominant-baseline="central"
       >{{ state.callout.text }}</text>
@@ -186,27 +188,17 @@
 <script lang="ts">
 import { defineComponent } from 'vue';
 import { exportStateKey, type Point } from './useExportState';
+import {
+  VIEWBOX_REF_W,
+  SANS_FONT_FAMILY,
+  MONO_FONT_FAMILY,
+  computeArrowheadPath,
+  computeNotePosition,
+  computeCalloutPath,
+  type NotePositionResult,
+} from './overlayGeometry';
 
-const VIEWBOX_REF_W = 600;
 const VIEWBOX_DEFAULT_H = 400;
-
-function computeArrowheadPath(
-  tipX: number, tipY: number,
-  angle: number, thickness: number,
-): string {
-  const arrowHeight = 10 + thickness * 2;
-  const arrowWidth = Math.min(Math.max(5, thickness * 2), thickness + 5);
-  const dipFactor = 0.7;
-  const baseX = tipX - arrowHeight * dipFactor * Math.cos(angle);
-  const baseY = tipY - arrowHeight * dipFactor * Math.sin(angle);
-  const tipBaseX = tipX - arrowHeight * Math.cos(angle);
-  const tipBaseY = tipY - arrowHeight * Math.sin(angle);
-  const s1X = tipBaseX + arrowWidth * Math.sin(angle);
-  const s1Y = tipBaseY - arrowWidth * Math.cos(angle);
-  const s2X = tipBaseX - arrowWidth * Math.sin(angle);
-  const s2Y = tipBaseY + arrowWidth * Math.cos(angle);
-  return `M ${baseX} ${baseY} L ${s1X} ${s1Y} L ${tipX} ${tipY} L ${s2X} ${s2Y} Z`;
-}
 
 export default defineComponent({
   name: 'OverlayLayer',
@@ -258,25 +250,37 @@ export default defineComponent({
         this.state.activeTool.value === 'callout';
     },
 
+    overlayAriaLabel(): string {
+      const tool = this.state.activeTool.value;
+      if (tool === 'arrow') {
+        return 'Arrow annotation layer. Press Enter to place an arrow across the centre of the diagram, or Escape to cancel.';
+      }
+      if (tool === 'note') {
+        return 'Note annotation layer. Press Enter to place a note at the centre of the diagram, or Escape to cancel.';
+      }
+      if (tool === 'callout') {
+        return 'Callout annotation layer. Press Enter to place a callout at the centre of the diagram, or Escape to cancel.';
+      }
+      return 'Diagram annotation layer';
+    },
+
+    notePresetPosition(): NotePositionResult {
+      return computeNotePosition(this.state.note.position, this.viewBoxW, this.viewBoxH, this.state.note.fontSize);
+    },
+
     noteX(): number {
       if (this.state.notePoint.value) return this.state.notePoint.value.x * this.viewBoxW;
-      const pos = this.state.note.position;
-      if (pos.endsWith('left')) return 12;
-      if (pos.endsWith('right')) return this.viewBoxW - 12;
-      return this.viewBoxW / 2;
+      return this.notePresetPosition.x;
     },
 
     noteY(): number {
       if (this.state.notePoint.value) return this.state.notePoint.value.y * this.viewBoxH;
-      return this.state.note.position.startsWith('top') ? 12 + this.state.note.fontSize : this.viewBoxH - 12;
+      return this.notePresetPosition.y;
     },
 
     noteAnchor(): string {
       if (this.state.notePoint.value) return 'middle';
-      const pos = this.state.note.position;
-      if (pos.endsWith('left')) return 'start';
-      if (pos.endsWith('right')) return 'end';
-      return 'middle';
+      return this.notePresetPosition.anchor;
     },
 
     arrowStartPx(): Point {
@@ -297,7 +301,7 @@ export default defineComponent({
 
     endHeadPath(): string {
       const t = this.state.arrow.type;
-      if (t === '→' || t === '←→' || t === '⤷') {
+      if (t === '→' || t === '←→') {
         return computeArrowheadPath(this.arrowEndPx.x, this.arrowEndPx.y, this.arrowAngle, this.state.arrow.thickness);
       }
       return '';
@@ -319,9 +323,6 @@ export default defineComponent({
       return { x: midX + perpX, y: midY + perpY };
     },
 
-    calloutBoxW(): number { return 120; },
-    calloutBoxH(): number { return 40; },
-
     calloutTextX(): number {
       if (!this.state.callout.position) return 0;
       return this.state.callout.position.x * this.viewBoxW;
@@ -336,26 +337,17 @@ export default defineComponent({
       if (!this.state.callout.position) return '';
       const cx = this.state.callout.position.x * this.viewBoxW;
       const cy = this.state.callout.position.y * this.viewBoxH;
-      const w = this.calloutBoxW;
-      const h = this.calloutBoxH;
-      const r = 5;
-      const left = cx - w / 2;
-      const top = cy - h / 2;
-      const right = cx + w / 2;
-      const bottom = cy + h / 2;
+      const tip = this.state.callout.tipPosition;
+      const tipPx = tip ? { x: tip.x * this.viewBoxW, y: tip.y * this.viewBoxH } : null;
+      return computeCalloutPath(cx, cy, 1, tipPx);
+    },
 
-      let path = `M ${left + r} ${top} L ${right - r} ${top} Q ${right} ${top} ${right} ${top + r} L ${right} ${bottom - r} Q ${right} ${bottom} ${right - r} ${bottom}`;
+    sansFontFamily(): string {
+      return SANS_FONT_FAMILY;
+    },
 
-      if (this.state.callout.tipPosition) {
-        const tipX = this.state.callout.tipPosition.x * this.viewBoxW;
-        const tipY = this.state.callout.tipPosition.y * this.viewBoxH;
-        const baseLeft = cx - 8;
-        const baseRight = cx + 8;
-        path += ` L ${baseRight} ${bottom} L ${tipX} ${tipY} L ${baseLeft} ${bottom}`;
-      }
-
-      path += ` L ${left + r} ${bottom} Q ${left} ${bottom} ${left} ${bottom - r} L ${left} ${top + r} Q ${left} ${top} ${left + r} ${top} Z`;
-      return path;
+    monoFontFamily(): string {
+      return MONO_FONT_FAMILY;
     },
   },
 
@@ -417,7 +409,6 @@ export default defineComponent({
         const coords = this.getSvgCoords(event);
         this.state.arrowPoints.value = { start: coords, end: coords };
         this.state.arrowInteraction.value = 'creating';
-        this.state.arrowClickCount.value = 1;
         this.state.selectedAnnotation.value = 'arrow';
         const svg = this.$refs.overlayEl as SVGSVGElement;
         svg.setPointerCapture(event.pointerId);
@@ -502,7 +493,6 @@ export default defineComponent({
         } else {
           this.state.arrowPoints.value = { start, end: coords };
           this.state.arrowInteraction.value = 'placed';
-          this.state.arrowClickCount.value = 2;
           this.state.activeTool.value = null;
         }
         return;
@@ -537,11 +527,24 @@ export default defineComponent({
 
     onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
+        // Only consume Escape (and stop it from reaching the modal's own
+        // handler) when there is actually a tool or selection to clear;
+        // otherwise let it bubble so the modal can close.
         if (this.state.activeTool.value) {
           this.state.activeTool.value = null;
-        } else {
+          event.stopPropagation();
+        } else if (this.state.selectedAnnotation.value) {
           this.state.selectedAnnotation.value = null;
+          event.stopPropagation();
         }
+        return;
+      }
+      if ((event.key === 'Enter' || event.key === ' ') && this.state.activeTool.value) {
+        // Keyboard equivalent of the pointer placement handlers: pointer users
+        // click/drag on the surface, keyboard users press Enter/Space to drop
+        // the active annotation at the centre of the diagram.
+        event.preventDefault();
+        this.placeActiveToolAtCentre();
         return;
       }
       if (event.key === 'Delete' || event.key === 'Backspace') {
@@ -549,6 +552,39 @@ export default defineComponent({
         if (sel) {
           this.state.removeAnnotation(sel);
         }
+      }
+    },
+
+    placeActiveToolAtCentre() {
+      const tool = this.state.activeTool.value;
+      const centre: Point = { x: 0.5, y: 0.5 };
+      if (tool === 'note') {
+        this.state.notePoint.value = centre;
+        if (!this.state.note.text) {
+          this.state.note.text = 'Note';
+        }
+        this.state.selectedAnnotation.value = 'note';
+        this.state.activeTool.value = null;
+        this.state.noteEditing.value = true;
+      } else if (tool === 'callout') {
+        this.state.callout.position = centre;
+        this.state.callout.tipPosition = {
+          x: Math.min(1, centre.x + 0.1),
+          y: Math.min(1, centre.y + 0.15),
+        };
+        if (!this.state.callout.text) {
+          this.state.callout.text = 'Callout';
+        }
+        this.state.selectedAnnotation.value = 'callout';
+        this.state.activeTool.value = null;
+      } else if (tool === 'arrow') {
+        this.state.arrowPoints.value = {
+          start: { x: 0.35, y: 0.5 },
+          end: { x: 0.65, y: 0.5 },
+        };
+        this.state.arrowInteraction.value = 'placed';
+        this.state.selectedAnnotation.value = 'arrow';
+        this.state.activeTool.value = null;
       }
     },
 
@@ -634,7 +670,7 @@ export default defineComponent({
   color: white;
   font-size: 11px;
   font-weight: 500;
-  font-family: 'Outfit', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   padding: 5px 12px;
   border-radius: 20px;
   pointer-events: none;

@@ -1,32 +1,92 @@
 ---
-name: marketplace-audit
+name: marketplace
 description: >-
-  Audit Atlassian Marketplace vendor reporting (licenses + sales transactions) for the ZenUML apps
-  at the PORTFOLIO / cohort level — lifetime vendor revenue, renewals due in a date window, annual
-  vs monthly billing, overdue / lapsing payers, top payers, churned payers. Use whenever the user
-  asks about revenue, renewals, "who's overdue", "which annual customers renew this month", biggest
-  paying customers, or any rollup across the customer base — even if they don't say "Marketplace".
+  Authoritative source for Atlassian Marketplace PRICING, licenses, and vendor revenue for the
+  ZenUML apps. Two things it answers that nothing else does: (1) what a tenant pays — the Full
+  plan's cumulative per-user band table, the $299/space/year Enterprise Bundle, monthly vs annual
+  (annual = 10x monthly), and how much we actually NET after Atlassian's cut, which moved 15% ->
+  20% -> 0% inside 19 months and must always be derived from transactions rather than quoted from
+  memory; (2) portfolio / cohort reporting — lifetime vendor revenue, renewals due in a date
+  window, overdue / lapsing payers, top payers, churned payers. Use whenever the user asks "how
+  much will <tenant> pay", "what's our price for N users", "what do we net", "how much does
+  Atlassian take", about revenue, renewals, "who's overdue", "which annual customers renew this
+  month", biggest paying customers, or any rollup across the customer base — even if they don't
+  say "Marketplace". Never state a price or a take rate without running `scripts/mp_pricing.py`.
   For a SINGLE tenant's paid status / size / profile ("is <domain> a paying customer", "look up
   <domain>", trial expiry), use the `tenant` skill instead. Discriminator: a cohort / time-window /
-  ranking -> this skill; one domain in the question -> `tenant`. Prefer this over ad-hoc curl: it
-  uses the fast bulk export endpoint and joins licenses to transactions correctly on cloudId (naive
-  approaches truncate at a 50-row page cap and undercount revenue). Also hosts the shared engine
-  (`scripts/mp_report.py`) + `sync` snapshot that the `tenant` skill's per-tenant lookups run on.
+  ranking -> this skill; one domain's paid STATUS -> `tenant` (but one domain's PRICE -> here).
+  Prefer this over ad-hoc curl: it uses the fast bulk export endpoint and joins licenses to
+  transactions correctly on cloudId (naive approaches truncate at a 50-row page cap and undercount
+  revenue). Also hosts the shared engine (`scripts/mp_report.py`) + `sync` snapshot that the
+  `tenant` skill's per-tenant lookups run on.
 ---
 
-# Marketplace Audit
+# Marketplace
 
-Answers revenue / renewal / overdue / tier questions for the ZenUML Marketplace apps by pulling
-the vendor's **licenses** and **sales transactions** and joining them locally.
+Answers revenue / renewal / overdue / tier / **pricing** questions for the ZenUML Marketplace apps
+by pulling the vendor's **licenses** and **sales transactions** and joining them locally.
 
-Run everything through `scripts/mp_report.py` — it already encodes the three things that are easy
-to get wrong (see "Why the script exists"). Don't hand-roll `curl` pagination.
+Two scripts: `scripts/mp_report.py` for licenses and revenue, `scripts/mp_pricing.py` for what a
+tenant pays and what we net. Both encode things that are easy to get wrong (see "Why the script
+exists"). Don't hand-roll `curl` pagination, and don't quote a price from memory.
+
+## What does this tenant pay? — `mp_pricing.py`
+
+```bash
+S=.claude/skills/marketplace/scripts/mp_pricing.py
+
+python3 $S quote 152        # list price for a 152-user site + what we actually net
+python3 $S takerate         # Atlassian's cut, month by month, derived from transactions
+python3 $S validate         # does the band table still match real renewals?
+python3 $S tiers            # the band table
+```
+
+**The Full plan is cumulative per-user bands, priced per MONTH.** Annual list = 10 × monthly
+(two months free). A 152-user site pays `100 × $0.44 + 52 × $0.33 = $61.16/month`.
+
+| band | USD per user per month |
+|---|---|
+| 1–100 | $0.44 |
+| 101–250 | $0.33 |
+| 251–1000 | $0.11 |
+| 1001+ | $0.05 |
+| 1–10 users | flat $40/year |
+
+Enterprise Bundle is a separate SKU: **$299 per space per year**, flat, billed by us through
+Stripe, so no Atlassian cut applies. Below ~68 users the Full plan is cheaper than one Bundle.
+
+**Never write Atlassian's take rate down — derive it.** It moved three times in 19 months:
+
+| period | vendor keeps | cut |
+|---|---|---|
+| ≤ 2026-03 | 85% | 15% |
+| 2026-04 → 2026-07-19 | 80% | 20% |
+| 2026-07-20 onward | 100% | **0** |
+
+The zero-cut period is described as temporary. `mp_pricing.py quote` reads the current rate from
+the last 30 days of transactions on every run, so it cannot go stale the way this table will.
+It takes the **most common per-transaction ratio**, not an average: during a cutover both rates
+coexist for weeks, and averaging them invents a rate no transaction ever settled at (2026-08 blends
+18 zero-cut and 2 residual 80% transactions into a fictional 98.6%).
+
+**Two traps this exists to stop** (both hit 2026-08-11):
+
+1. A reply quoted "Atlassian takes 25%, so ~$45.87/month net". No transaction has ever settled at
+   75%. The number came from nowhere.
+2. The band table lived only inside `extend-space-license/scripts/grant_extension.py` as a private
+   `full_plan_arr()` returning annual figures, so a monthly question had to reverse-engineer it.
+   `docs/pricing-model.yml` covers Lite only and explicitly declares Full pricing out of scope.
+
+`validate` is the guard against the bands themselves drifting: it re-checks them against real Full
+monthly renewals and prints a match rate. Verified 2026-08-11 at 82/102 exact; the mismatches were
+1–3 user sites settling a mid-cycle tier change pro rata. If that rate drops, Atlassian changed the
+price list and `BANDS` is stale.
 
 ## Quick start
 
 ```bash
 # from the conf-app repo root (creds auto-load from .env.forge.local)
-S=.claude/skills/marketplace-audit/scripts/mp_report.py
+S=.claude/skills/marketplace/scripts/mp_report.py
 
 python3 $S --app full renewals --from 2026-07-01 --to 2026-07-31   # renewals due this month
 python3 $S --app full renewals --from 2026-07-01 --to 2026-07-15 --billing annual --paid-only

@@ -226,7 +226,6 @@
             <span class="typerow__name">{{ t.name }}</span>
             <span class="typerow__desc">{{ t.desc }}</span>
           </span>
-          <span v-if="t.recommended" class="typerow__badge">Most used</span>
         </button>
       </div>
     </div>
@@ -485,7 +484,8 @@ interface TypeTile {
   /** Storage `diagramType`, used to build the paste-to-create link. Distinct
    *  from `macroType`, which is the analytics vocabulary. */
   diagramType: string
-  /** Surfaced as a "Most used" badge, and ordered first. */
+  /** Highlighted border, and ordered first. (The "Most used" text badge this
+   *  also used to render was removed by request, 2026-08-15.) */
   recommended?: boolean
 }
 
@@ -503,7 +503,7 @@ interface TypeTile {
  *  UI's method colours respectively; swap in real product screenshots when
  *  convenient, the composition is the point.
  *
- *  Flowchart leads and is badged from measured Lite usage, not intuition: over
+ *  Flowchart leads and is highlighted from measured Lite usage, not intuition: over
  *  the 90 days to 2026-08-07, `macro_create_succeeded` on `product_type: lite`
  *  counted 15,577 flowchart creates (mermaid 13,698 + plantuml 1,879) against
  *  1,885 sequence, 2,852 graph and 1,481 openapi. */
@@ -1310,18 +1310,6 @@ async function onLearnMore() {
   font-size: 12px;
   color: #5e6c84;
 }
-.typerow__badge {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #0052cc;
-  background: #deebff;
-  border-radius: 3px;
-  padding: 3px 8px;
-  flex: none;
-}
-
 /* Diagram list ------------------------------------------------------------ */
 .row {
   display: flex;

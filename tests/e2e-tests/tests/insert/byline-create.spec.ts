@@ -156,6 +156,10 @@ test.describe.serial(`Byline create path - ${testConfig.productType}`, () => {
 
     // testConfig.baseUrl is already https://<domain>/wiki/spaces/<KEY>.
     await page.goto(`${testConfig.baseUrl}/pages/edit-v2/${pageId}`);
+    // Wait for the editor to exist before looking for anything in its chrome.
+    // Without this the byline probe raced the SPA mount: `page.goto` resolves on
+    // load, and the byline row is rendered well after that.
+    await expect(page.locator('[data-test-id="editor-title"]')).toBeVisible({ timeout: 60000 });
     // Reaching the byline at all in the editor is itself part of what this pins:
     // the whole hostInEditor branch is dead code if Confluence does not render a
     // contentBylineItem there.

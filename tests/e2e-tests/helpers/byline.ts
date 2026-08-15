@@ -82,8 +82,18 @@ export async function frameWithTestId(
  * diagnostic throw are kept because that chrome can change under us without any
  * change on our side, and a bare "element not found" would send the next person
  * hunting instead of handing them the answer.
+ *
+ * POLLED, not probed once. The byline row is mounted by Confluence's SPA well
+ * after `page.goto` resolves, and a single pass over the candidates asks
+ * whether the button exists at one arbitrary instant. The 2026-08-15 run
+ * (31853347570, shard 1/4) failed all three attempts in the editor with a dump
+ * listing only Confluence's own `byline-listen` — which is itself evidence the
+ * probe can land mid-mount, since that native item had appeared by the time the
+ * dump ran a moment later. Callers that happen to await something slow first
+ * (the view test waits for a macro iframe) were getting the settle time by
+ * accident; this makes it deliberate and equal for every caller.
  */
-export async function openBylineModal(page: Page): Promise<Frame> {
+export async function openBylineModal(page: Page, timeoutMs = 30000): Promise<Frame> {
   const candidates = [
     page.locator(BYLINE_BUTTON).filter({ hasText: BYLINE_TITLE }),
     page.locator(BYLINE_BUTTON),
@@ -91,16 +101,22 @@ export async function openBylineModal(page: Page): Promise<Frame> {
     page.getByRole('link', { name: BYLINE_TITLE }),
   ];
 
-  for (const c of candidates) {
-    const n = await c.count().catch(() => 0);
-    if (n === 0) continue;
-    await c.first().click({ timeout: 10000 }).catch(() => undefined);
-    const frame = await frameWithTestId(page, 'byline-diagrams', 15000).catch(() => undefined);
-    if (frame) return frame;
-  }
+  const deadline = Date.now() + timeoutMs;
+  do {
+    for (const c of candidates) {
+      const n = await c.count().catch(() => 0);
+      if (n === 0) continue;
+      await c.first().click({ timeout: 10000 }).catch(() => undefined);
+      const frame = await frameWithTestId(page, 'byline-diagrams', 15000).catch(() => undefined);
+      if (frame) return frame;
+    }
+    await page.waitForTimeout(1000);
+  } while (Date.now() < deadline);
 
   // Nothing worked — dump what IS in the byline region so the next run is a fix,
-  // not another guess.
+  // not another guess. The URL and the editor-title probe are in the message
+  // because the interesting failure is mode-specific: "our item is missing" and
+  // "we are not on the page we think we are" produce the same empty dump.
   const dump = await page.evaluate(() => {
     const out: string[] = [];
     document.querySelectorAll('button, a, [role="button"]').forEach(el => {
@@ -114,8 +130,15 @@ export async function openBylineModal(page: Page): Promise<Frame> {
     });
     return out.slice(0, 40);
   });
+  const inEditor = await page
+    .locator('[data-test-id="editor-title"]')
+    .count()
+    .catch(() => 0);
   throw new Error(
-    `Could not open the byline modal by any candidate locator for ${BYLINE_TITLE}.\n` +
+    `Could not open the byline modal by any candidate locator for ${BYLINE_TITLE} ` +
+      `within ${timeoutMs}ms.\n` +
+      `URL: ${page.url()}\n` +
+      `Confluence editor title present: ${inEditor > 0}\n` +
       `Byline-ish candidates on the page:\n${dump.join('\n') || '(none found)'}`,
   );
 }

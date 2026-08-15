@@ -358,6 +358,11 @@ modules:
       events:
         - avi:confluence:updated:page
   scheduledTrigger:
+    # THROWAWAY SPIKE — do not merge. fiveMinute purely for turnaround; see
+    # src/byline-visibility-spike.ts and the plan doc.
+    - key: byline-visibility-spike
+      function: bylineVisibilitySpikeFn
+      interval: fiveMinute
     # Lite-only. Variant builds strip this from Full, Diagramly, and AsyncAPI.
     # The function exits after one lightweight Remote claim for unenrolled
     # installations; enrolled tenants perform one complete inventory daily.
@@ -480,6 +485,17 @@ modules:
     - key: zenuml-byline-diagrams
       resource: main
       title: Diagrams${LITE_TITLE_SUFFIX}
+      # THROWAWAY SPIKE — do not merge. This is the thing under test: whether an
+      # `entity: app` property gates a contentBylineItem at all, and whether a
+      # MISSING property hides it (the fail-closed premise the whole positive-
+      # polarity plan rests on). Expect the item to be ABSENT immediately after
+      # deploy and to appear within ~5 minutes, once the spike trigger has
+      # written the property.
+      displayConditions:
+        entityPropertyEqualTo:
+          entity: app
+          propertyKey: byline-enabled
+          value: "true"
       # zenuml.com's own favicon, matching the panel's header. It is a square
       # mark drawn to be read at favicon size, so it survives the ~16px
       # Confluence gives a byline icon — unlike the stacked wordmark tried
@@ -586,6 +602,9 @@ modules:
       handler: createDemoPage.handler
     - key: createDemoPageScheduled
       handler: createDemoPage.scheduledHandler
+    # THROWAWAY SPIKE — do not merge.
+    - key: bylineVisibilitySpikeFn
+      handler: byline-visibility-spike.scheduledHandler
     - key: macroCountSnapshotFn
       handler: macro-count-snapshot.scheduledHandler
       timeoutSeconds: 900

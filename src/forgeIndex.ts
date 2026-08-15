@@ -899,7 +899,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       doc = fromModal.doc;
       const seededType = seeded.seededType || fromModal.seededType;
       if (seededType) {
-        trackEvent('', 'new_diagram_link_seeded', 'macro', { macro_type: seededType });
+        // Normalised, not the raw enum: DiagramType.OpenApi is 'OpenAPI', and
+        // emitting it verbatim splits Mixpanel's macro_type into two buckets
+        // ('OpenAPI' here, 'openapi' from every other surface) — the exact join
+        // breakage toMacroType exists to prevent.
+        const { toMacroType } = await import('@/utils/byline/pageDiagrams');
+        trackEvent('', 'new_diagram_link_seeded', 'macro', { macro_type: toMacroType(seededType) });
       }
     }
 
@@ -1296,7 +1301,16 @@ EventBus.$on('save', async () => {
     // paste-to-create hit on lite-stg. Record the surface signals so the cause
     // is visible without a browser: `firstBind` is now handled, so anything
     // reaching here is a non-submittable surface.
-    if (!!id && !sourceId && !originalCustomContentId && !needsWriteback) {
+    //
+    // The byline editor is EXCLUDED: it is a designed unbound-save surface —
+    // the saved diagram is handed back as a paste link, there is no macro to
+    // bind — so every byline create would otherwise fire this warn and, once
+    // the byline rolls out, drown the defect signal the event instruments in
+    // designed-behaviour noise. The editor modal the byline opens carries the
+    // byline's own moduleKey (see the isSequenceFamilyEntry note above).
+    const fromByline =
+      (forgeGlobal.forgeContext as any)?.moduleKey === 'zenuml-byline-diagrams';
+    if (!!id && !sourceId && !originalCustomContentId && !needsWriteback && !fromByline) {
       trackEvent('', 'writeback_unbound_first_save', 'warn', {
         inserting: !!inserting,
         configuring: !!configuring,

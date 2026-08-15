@@ -635,7 +635,16 @@ async function loadDiagrams() {
     // the listing resolves with error bodies rather than rejecting, so reading
     // `failed` off a thrown exception alone left the banner unreachable and
     // showed a user with restricted content the "nothing here yet" state.
-    failed.value = health.listing_failed
+    //
+    // The second clause is the PARTIAL failure: some types listed, none of the
+    // survivors held anything, and at least one type errored. Whether the page
+    // is empty is then unknown — the failed type may hold ALL of its diagrams
+    // (e.g. a graphs-only page whose graph listing 403s) — so claiming
+    // "Nothing diagrammed here yet" would be the same clean-empty-wrong answer
+    // in partial form. With any survivor row the list renders (incomplete
+    // beats a false error), and the count keeps page_has_diagram honest.
+    failed.value =
+      health.listing_failed || (diagrams.value.length === 0 && health.failed_type_count > 0)
   } catch (e) {
     console.error('[byline] failed to list page diagrams', e)
     diagrams.value = []
@@ -666,15 +675,39 @@ async function loadDiagrams() {
 
 onMounted(loadDiagrams)
 
-onBeforeUnmount(() => {
-  // Object URLs are never created (thumbnails are inlined as data: URLs), so
-  // there is nothing to revoke here.
-  if (copyFlashTimer) clearTimeout(copyFlashTimer)
-  if (acted) return
+// Guard shared by the two dismissal paths below, because both can fire for one
+// close (pagehide, then unmount if anything does tear the app down).
+let dismissTracked = false
+
+function trackDismissed() {
+  if (acted || dismissTracked) return
+  dismissTracked = true
   trackAnalyticsEvent('byline_dismissed', {
     ...baseProps(),
     dwell_ms: Date.now() - openedAt,
   })
+}
+
+/**
+ * The dismissal signal that actually fires in production. Closing the Forge
+ * modal destroys this iframe without ever unmounting the Vue app, so
+ * onBeforeUnmount alone NEVER runs outside unit tests (which call unmount()
+ * explicitly) — with only that hook, the "looked and left" arm of the Phase-1
+ * readout records zero and every open looks productive.
+ *
+ * pagehide fires in Chromium when the iframe is removed. Delivery is
+ * best-effort but not wishful: mixpanel-browser batches through localStorage
+ * on the app's CDN origin, so an event enqueued during teardown that misses
+ * its network flush is sent by the next iframe boot from this origin.
+ */
+window.addEventListener('pagehide', trackDismissed)
+
+onBeforeUnmount(() => {
+  // Object URLs are never created (thumbnails are inlined as data: URLs), so
+  // there is nothing to revoke here.
+  if (copyFlashTimer) clearTimeout(copyFlashTimer)
+  window.removeEventListener('pagehide', trackDismissed)
+  trackDismissed()
 })
 
 /**
@@ -921,11 +954,28 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
       })
       return
     }
+    const after = parsePageDiagrams(responses)
+    const newId = newlyCreatedId(before, after.map(d => d.id))
+    // PARTIAL failure with no new id found is the same unknown in miniature:
+    // the save may have landed in exactly the type that errored, and calling
+    // it cancelled would fire byline_create_cancelled for a saved diagram —
+    // the same funnel inversion as the total-failure case above. A found id
+    // proves the save regardless of other types failing, so only the
+    // no-id-and-something-failed combination stays unresolved.
+    if (!newId && health.failed_type_count > 0) {
+      pendingCreate = { before, macroType }
+      createUnresolved.value = true
+      trackAnalyticsEvent('byline_diagram_created', {
+        ...baseProps(),
+        macro_type: macroType,
+        ...health,
+        result: 'listing_partial',
+      })
+      return
+    }
     createUnresolved.value = false
     pendingCreate = null
-    const after = parsePageDiagrams(responses)
     diagrams.value = after
-    const newId = newlyCreatedId(before, after.map(d => d.id))
     if (!newId) {
       trackAnalyticsEvent('byline_create_cancelled', { ...baseProps(), macro_type: macroType })
       return

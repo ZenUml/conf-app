@@ -365,16 +365,18 @@ modules:
       function: macroCountSnapshotFn
       interval: day
     # Lite-only. Variant builds strip this from Full, Diagramly, and AsyncAPI.
-    # Writes the `byline-enabled` app property that the fail-closed
+    # Sweeps the per-space enrolment property that the fail-closed
     # displayConditions on zenuml-byline-diagrams reads, so this trigger is the
-    # only thing that can turn that entry on. See src/byline-visibility.ts for
-    # why it must be a Forge function (the property API rejects every other
-    # caller with 401 not_forge_request) and why it cannot be the byline itself.
+    # only thing that can turn that entry on — the byline cannot repair its own
+    # gate, because a hidden byline is never opened (src/byline-visibility.ts).
     #
-    # 'hour' is about the first write, not the steady state: the handler is
-    # idempotent, so a settled installation costs one GET per tick, and the
-    # interval only bounds how long a new or newly allowlisted site sits with
-    # the wrong visibility.
+    # Steady-state cost per hourly tick: a SUPPRESSED installation pays one
+    # Forge-storage read and zero Confluence calls; an ENROLLED one pays the
+    # spaces listing plus one property GET per space (writes only on drift).
+    # The enrolled sweep cannot be short-circuited by the settled marker —
+    # it is also what enrols spaces CREATED after enrolment. Cheapening it
+    # (e.g. daily full pass + hourly new-space check) becomes worth doing when
+    # ALLOWLIST grows beyond our two sites.
     - key: byline-visibility-hourly
       function: bylineVisibilityFn
       interval: hour
@@ -502,20 +504,10 @@ modules:
     - key: zenuml-byline-diagrams
       resource: main
       title: Diagrams${LITE_TITLE_SUFFIX}
-      # Fail-CLOSED gate: an installation with no `byline-enabled` property
-      # renders no byline. src/byline-visibility.ts is the writer that keeps the
-      # property present, driven by the `byline-visibility-hourly`
-      # scheduledTrigger above — nothing else can satisfy this condition.
-      #
-      # The writer enrols an explicit cloudId ALLOWLIST and writes every other
-      # installation HIDDEN, so this entry is deliberately off in production
-      # while the allowlist holds only our own sites. Widening the rollout is a
-      # change to ALLOWLIST in that file, not to this condition.
-      #
-      # `value` MUST be the string "true". `forge lint` rejects a boolean with
-      # '"value" property must be string', so the stored property value has to
-      # be the string too or the comparison can never match.
-      # Fail-CLOSED gate on SPACE properties, two legs ANDed:
+      # Fail-CLOSED gate on SPACE properties, two legs ANDed. This entry is
+      # deliberately dark in production: the writer enrols an explicit cloudId
+      # ALLOWLIST (src/byline-visibility.ts) and only our own sites are on it.
+      # Widening the rollout is a change to ALLOWLIST, not to this condition.
       #
       # 1. The variant's OWN enrolment property must say enabled. The key is
       #    templated like every other per-variant key in this manifest:

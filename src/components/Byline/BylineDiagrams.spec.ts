@@ -127,6 +127,70 @@ describe('BylineDiagrams', () => {
       expect(wrapper.find('[data-testid="byline-empty"]').exists()).toBe(true);
       expect(events('byline_opened')[0][1]).toMatchObject({ listing_failed: false });
     });
+
+    it('treats empty survivors plus a failed type as unknown, not empty', async () => {
+      // A graphs-only page whose graph listing 403s while the sequence listing
+      // succeeds with nothing: whether the page is empty is unknown — the
+      // failed type may hold ALL of its diagrams. "Nothing diagrammed here
+      // yet" would be the clean-empty-wrong answer in partial form.
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok(), forbidden]);
+      const wrapper = await mountByline();
+
+      expect(wrapper.find('[data-testid="byline-failed"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="byline-empty"]').exists()).toBe(false);
+      expect(events('byline_opened')[0][1]).toMatchObject({
+        listing_failed: false,
+        failed_type_count: 1,
+        diagram_count: 0,
+      });
+    });
+
+    it('renders the survivors when a type fails but another has rows', async () => {
+      // An incomplete list beats a false error: with any survivor row the list
+      // shows, and diagram_count keeps the readout honest.
+      apWrapper.listPageDiagramContents.mockResolvedValue([
+        ok(child('1', 'Login', DiagramType.Sequence)),
+        forbidden,
+      ]);
+      const wrapper = await mountByline();
+
+      expect(wrapper.find('[data-testid="byline-failed"]').exists()).toBe(false);
+      expect(wrapper.findAll('[data-testid="byline-item"]')).toHaveLength(1);
+    });
+  });
+
+  describe('dismissal tracking', () => {
+    it('fires byline_dismissed on pagehide — the only signal that exists in production', async () => {
+      // Closing the Forge modal destroys the iframe without unmounting Vue, so
+      // onBeforeUnmount alone never runs outside tests; pagehide is the real
+      // dismissal path.
+      await mountByline();
+
+      window.dispatchEvent(new Event('pagehide'));
+
+      expect(events('byline_dismissed')).toHaveLength(1);
+    });
+
+    it('does not double-fire when unmount follows pagehide', async () => {
+      const wrapper = await mountByline();
+
+      window.dispatchEvent(new Event('pagehide'));
+      wrapper.unmount();
+
+      expect(events('byline_dismissed')).toHaveLength(1);
+    });
+
+    it('stays silent on a productive open', async () => {
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      const wrapper = await mountByline();
+      await wrapper.find('[data-testid="byline-type-sequence"]').trigger('click');
+      await flushPromises();
+
+      window.dispatchEvent(new Event('pagehide'));
+      wrapper.unmount();
+
+      expect(events('byline_dismissed')).toHaveLength(0);
+    });
   });
 
   describe('copying a diagram\'s source', () => {
@@ -200,6 +264,44 @@ describe('BylineDiagrams', () => {
       expect(events('byline_create_cancelled')).toHaveLength(0);
       expect(events('byline_diagram_created')[0][1]).toMatchObject({ result: 'listing_failed' });
       expect(wrapper.find('[data-testid="byline-create-unresolved"]').exists()).toBe(true);
+    });
+
+    it('holds an unresolved create when the re-read is partial and finds no new id', async () => {
+      // The save may have landed in exactly the type that errored; calling it
+      // cancelled would fire byline_create_cancelled for a saved diagram —
+      // the total-failure inversion, in partial form.
+      apWrapper.listPageDiagramContents.mockResolvedValue([
+        ok(child('1', 'Existing', DiagramType.Sequence)),
+      ]);
+      const wrapper = await mountByline();
+      await openEditorFrom(wrapper);
+
+      apWrapper.listPageDiagramContents.mockResolvedValue([
+        ok(child('1', 'Existing', DiagramType.Sequence)),
+        forbidden,
+      ]);
+      await closeEditor();
+
+      expect(events('byline_create_cancelled')).toHaveLength(0);
+      expect(events('byline_diagram_created')[0][1]).toMatchObject({ result: 'listing_partial' });
+      expect(wrapper.find('[data-testid="byline-create-unresolved"]').exists()).toBe(true);
+    });
+
+    it('a found id proves the save even when another type failed', async () => {
+      apWrapper.listPageDiagramContents.mockResolvedValue([
+        ok(child('1', 'Existing', DiagramType.Sequence)),
+      ]);
+      const wrapper = await mountByline();
+      await openEditorFrom(wrapper);
+
+      apWrapper.listPageDiagramContents.mockResolvedValue([
+        ok(child('1', 'Existing', DiagramType.Sequence), child('99', 'New', DiagramType.Sequence)),
+        forbidden,
+      ]);
+      await closeEditor();
+
+      expect(wrapper.find('[data-testid="byline-created"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="byline-create-unresolved"]').exists()).toBe(false);
     });
 
     it('re-runs the diff against the original snapshot on retry', async () => {

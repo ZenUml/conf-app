@@ -40,6 +40,36 @@ arrives in Mixpanel with `page_has_diagram` populated. Treat the deep-link route
 **No dark launch exists.** Shipping this puts the item under every page title in every Lite tenant
 at once; the rollback is removing the entry, itself a minor auto-upgrading release.
 
+### Phase 1 revision (2026-08-15, PR #477) — supersedes parts of the section above
+
+The build above was reworked against a Claude Design review ("Byline Review") plus a day of
+user-directed iteration; three claims above are no longer true:
+
+- **There IS a dark launch now.** `zenuml-byline-diagrams` carries a fail-closed
+  `displayConditions` gate on space properties — enrolment property
+  `zenuml-byline${LITE_KEY_SUFFIX}` present AND the Full app's `zenuml-full-active` presence
+  marker absent. Rollout is a cloudId allowlist in `src/byline-visibility.ts` (hourly space
+  sweep; currently lite-stg + whimet4 only), so shipping to production shows the item to
+  **no one** until a tenant is allowlisted. The as-designed status and rollback story above
+  predate this. See `docs/superpowers/plans/2026-08-15-byline-visibility-app-property.md`
+  (status block) for the mechanism and its two failed predecessors.
+- **"Add a diagram → router.navigate to the page editor" is gone.** The panel is a create
+  picker: four type tiles (Flowchart first and highlighted, from measured create counts —
+  its "Most used" text badge was added and later removed by request), each opening the real
+  diagram editor as a second Forge modal in place. Saving hands back a typed
+  `/d/<type>/<cloudId>/<id>` paste link with auto/manual copy; an in-editor open drops the
+  redundant "Open editor" prompt (`src/utils/byline/hostEditor.ts`). Listed diagrams are
+  ordered by macro position on the page, then creation time; unplaced diagrams get "Copy URL".
+- **UI evidence exists now.** Both byline E2E specs (`tests/e2e-tests/tests/insert/
+  byline-create.spec.ts`) run green on lite-stg in CI — list, create, paste-link, and the
+  in-editor branch — plus `byline-paywall.spec.ts` for the gate. The spot-check items above
+  are covered there; what remains unverified by UI is only whatever the allowlist hides.
+
+Events registered since the list above: `byline_diagram_created`, `byline_create_cancelled`,
+`advocacy_message_copied` (byline surface), `byline_visibility_evaluated`,
+`byline_visibility_write`, `full_presence_write` (the last three currently log-only — Forge
+functions have no Mixpanel transport).
+
 See "Phase 0 results" immediately below for the evidence this is being tested against.
 
 ## Phase 0 results (2026-08-01) — the thesis does not survive contact with the data

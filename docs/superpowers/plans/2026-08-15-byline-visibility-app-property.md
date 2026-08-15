@@ -1,5 +1,44 @@
 # Byline visibility by app property — Implementation Plan
 
+> **STATUS 2026-08-15: SUPERSEDED IN PART — read this block before executing anything below.**
+> The gate SHIPPED the same day on branch `claude/byline-review-design-famy9p` (PR #477), but on
+> **space properties**, not the app property this plan prescribes. What actually exists:
+>
+> - **Condition** (`zenuml-byline-diagrams`, manifest.yml): `and:` of
+>   `entityPropertyEqualTo` on space property `zenuml-byline${LITE_KEY_SUFFIX}`
+>   (`objectName: enabled`, value `"true"`) and `not: entityPropertyExists` on space property
+>   `zenuml-full-active`. The "hide beside Full" clause moved from the writer's decision (this
+>   plan's design) into the manifest, at the user's direction. The Full builds normalize the
+>   condition (drop the `not` leg) before stripping the module, so a future Full un-strip is safe
+>   by construction — see the byline strip in `scripts/forge-wizard.mjs`.
+> - **Leg-1 writer**: `src/byline-visibility.ts`, hourly (`byline-visibility-hourly`), sweeps
+>   EVERY space via `src/space-properties.ts`. Rollout is a hardcoded **cloudId allowlist**
+>   (lite-stg, whimet4) — not the paywall-enrollment Remote endpoint of Phase 2; that seam
+>   remains `decide()`. The app property `byline-enabled` survives only as the writer's
+>   last-state marker (bounds un-enrolment cleanup to one sweep).
+> - **Leg-2 writer**: `src/full-presence.ts`, daily, Full variant only — Full **self-reports**
+>   presence per space. The D1 `ForgeInstallation` + TTL inference this plan proposed was
+>   dropped for the reasons this plan itself documents (defects 1 and 2 below); no cloudId
+>   backfill happened (Phase 1 moot).
+> - **Spike answers** (the "required before Phase 4" section), settled in production staging
+>   rather than as a spike, at the cost of two broken deploys:
+>   - A missing property does hide the item — fail-closed confirmed (byline E2E timed out
+>     exactly while no property existed; green after the 08:50Z sweep wrote them).
+>   - App-properties PUT: **no** `version.number`, and the endpoint stores the ENTIRE request
+>     body as the value — `{key, value}` envelopes double-wrap, and a bare JSON scalar answers
+>     **400 on create** (only updates accept scalars, which is why the whimet4 spike missed it).
+>   - Space-properties PUT: `version.number` required, next-in-sequence, per docs — enforced in
+>     `src/space-properties.fixtures.ts` so specs fail on contract drift.
+> - **Analytics**: `byline_visibility_evaluated` / `byline_visibility_write` /
+>   `full_presence_write` registered (Phase 0 done, vocabulary adjusted: reason `enrolled`
+>   added). Still `console.log`-only — no Forge-function → Mixpanel transport exists yet.
+> - **Still live from this plan**: Phase 5 (nudge condition composition — compose with the
+>   SPACE property now), Phase 6 (the whimet4 keep-only byline strip still deletes `newuser`),
+>   the Phase 3 coverage audit before any production-allowlist widening, and the uninstall-TTL
+>   question — which returns as "nothing clears `zenuml-full-active` after a Full uninstall".
+>
+> The phases below are kept for their evidence tables and constraints, which remain accurate.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Control whether the Lite byline entry (`zenuml-byline-diagrams`) renders, per Confluence site, from a Forge **app property** read by a manifest `displayConditions` block. Two outcomes in one mechanism: a per-`cloudId` rollout toggle, and automatic suppression of the Lite byline on sites that also have the Full app installed.

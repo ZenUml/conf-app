@@ -139,6 +139,21 @@ export const APPS = {
           '(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions) |= {"entityPropertyEqualTo": .and.entityPropertyEqualTo} | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))',
       },
       {
+        // The /new/<type> and /d/<type>/*/* matchers are the byline's
+        // paste-to-create and paste-to-place links, and ONLY Lite ships the
+        // byline that mints them. Left in place they collide on both-installed
+        // sites: identical patterns in two apps, one pasted URL, and if the
+        // other app's macro wins the conversion the (app-scoped) custom
+        // content behind a /d/ link is unreadable — a permanently broken
+        // macro. The embed macro's 3-segment /d/*/* matchers are untouched:
+        // that form predates the byline and resolves as a read-only embed.
+        // Revisit (per-variant hosts or app-scoped paths) if another variant
+        // ever ships a byline that mints these links.
+        description: 'Remove byline paste-to-create matchers (Lite-only byline mints those links)',
+        yqEvalExpr:
+          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
+      },
+      {
         description: 'Remove Lite snapshot and Diagramly demo schedules from Full',
         yqEvalExpr:
           'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn" or .key == "bylineVisibilityFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "diagramly-demo-page-pipeline" or .key == "byline-visibility-hourly"))',
@@ -206,6 +221,21 @@ export const APPS = {
         description: 'Remove the Lite diagrams byline entry (Diagramly keeps Aide)',
         yqEvalExpr:
           'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams"))',
+      },
+      {
+        // The /new/<type> and /d/<type>/*/* matchers are the byline's
+        // paste-to-create and paste-to-place links, and ONLY Lite ships the
+        // byline that mints them. Left in place they collide on both-installed
+        // sites: identical patterns in two apps, one pasted URL, and if the
+        // other app's macro wins the conversion the (app-scoped) custom
+        // content behind a /d/ link is unreadable — a permanently broken
+        // macro. The embed macro's 3-segment /d/*/* matchers are untouched:
+        // that form predates the byline and resolves as a read-only embed.
+        // Revisit (per-variant hosts or app-scoped paths) if another variant
+        // ever ships a byline that mints these links.
+        description: 'Remove byline paste-to-create matchers (Lite-only byline mints those links)',
+        yqEvalExpr:
+          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
       },
       {
         description: 'Remove Lite macro snapshot schedule from Diagramly',
@@ -298,6 +328,15 @@ export const APPS = {
         // single app's sandboxed iframe — not the Confluence top-level page.
         description: "Allow 'unsafe-eval' in CSP (required by AsyncAPI Studio runtime schema compilation)",
         yqEvalExpr: '.permissions.content.scripts = ["unsafe-eval"]',
+      },
+      {
+        // Same reason as the full/diagramly copies: the asyncapi app keeps
+        // zenuml-openapi-macro, whose /new/openapi and /d/openapi/*/* matchers
+        // would otherwise race Lite's on a both-installed site for links only
+        // Lite's byline mints.
+        description: 'Remove byline paste-to-create matchers (Lite-only byline mints those links)',
+        yqEvalExpr:
+          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
       },
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from AsyncAPI',

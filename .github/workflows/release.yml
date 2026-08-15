@@ -162,6 +162,19 @@ jobs:
               | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "byline-visibility-hourly"))
               | del(.modules.scheduledTrigger | select(length == 0))
             ' -i manifest.yml
+      # The /new/<type> and /d/<type>/*/* matchers are the byline's
+      # paste-to-create links, and only Lite ships the byline that mints them.
+      # In any other variant they collide with Lite's identical patterns on a
+      # both-installed site, and the app-scoped custom content behind a /d/
+      # link makes the wrong winner a permanently broken macro. The embed
+      # macro's 3-segment matchers are untouched. Mirrors forge-wizard.mjs.
+      - name: Remove byline paste-to-create matchers from non-Lite variants
+        if: ${{ steps.properties.outputs.license != 'lite' }}
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval 'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)' -i manifest.yml
+
       # The Lite->Full conversion executor ships only in Full
       # (docs/superpowers/specs/2026-08-11-lite-to-full-conversion.md).
       - name: Remove Full conversion modules from non-Full variants

@@ -74,6 +74,28 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(yq.join(' ')).not.toContain('macroCountSnapshotFn')
   })
 
+  it('only Lite keeps the byline paste-to-create matchers', () => {
+    // The /new/<type> and /d/<type>/*/* patterns are minted only by the Lite
+    // byline. Any other variant carrying them races Lite for the same pasted
+    // URL on a both-installed site, and app-scoped custom content makes the
+    // wrong winner a permanently broken macro — so every non-Lite variant
+    // must strip them, and Lite must not.
+    const STRIP = 'Remove byline paste-to-create matchers (Lite-only byline mints those links)'
+    expect(getManifestEditDescriptions('lite')).not.toContain(STRIP)
+    for (const variant of ['full', 'diagramly', 'asyncapi'] as const) {
+      expect(getManifestEditDescriptions(variant), variant).toContain(STRIP)
+      const expr = getManifestEditYqArgs(variant)
+        .map((x: { expr: string }) => x.expr)
+        .find((e: string) => e.includes('autoConvert.matchers'))
+      // `[.]` not `\.`: a backslash escape would be eaten by the JS string
+      // literal and silently widen the regex.
+      expect(expr, variant).toContain('test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph)")')
+      // The follow-up clause must drop only EMPTIED autoConvert blocks — the
+      // embed macro's 3-segment matchers survive the first del and keep theirs.
+      expect(expr, variant).toContain('length == 0) | .autoConvert)')
+    }
+  })
+
   it('full strips asyncapi bits and the Connect lifecycle module', () => {
     // Full is the "base" variant — it shares all the ZenUML/Mermaid/Graph/
     // OpenAPI/Embed macros with the base manifest, and only needs to strip

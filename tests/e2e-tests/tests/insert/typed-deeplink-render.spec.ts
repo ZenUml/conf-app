@@ -73,6 +73,9 @@ async function fetchPageCustomContentId(
 }
 
 test.describe(`Typed deeplink renders its target - ${testConfig.productType}`, () => {
+  // Lite-only for the same reason as typed-deeplink-autoconvert.spec.ts: the
+  // matchers this paste depends on ship only in the Lite manifest.
+  test.skip(!testConfig.isLite, 'typed-deeplink matchers ship in the Lite manifest only');
   test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
 
   test('a pasted graph deeplink renders the diagram, not an empty canvas', async ({

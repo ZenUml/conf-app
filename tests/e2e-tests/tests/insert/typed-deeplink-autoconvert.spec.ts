@@ -68,6 +68,15 @@ function describeConversion(conv: EditorConversion): string {
 // before every attempt, so a second paste starts from an empty document — and
 // page creation is the expensive part of this suite, not the paste.
 test.describe(`Typed diagram deeplink autoConvert - ${testConfig.productType}`, () => {
+  // Lite-only BY PRODUCT DECISION, not by capability: the /new and typed /d
+  // autoConvert matchers ship only in the Lite manifest (PR #477 — every other
+  // variant strips them so two installed apps cannot claim the same pasted
+  // link, which app-scoped custom content turns into a permanently broken
+  // macro). On any other variant the paste is DESIGNED not to convert, and
+  // asserting conversion produced exactly the failure this gate prevents:
+  // pasteUntil polled forever, retries re-ran the whole page setup, and the
+  // Diagramly shard hit the 8-minute job timeout (main run 31879904090).
+  test.skip(!testConfig.isLite, 'typed-deeplink matchers ship in the Lite manifest only');
   for (const c of CASES) {
     const applies = testConfig.macros.includes(c.requires);
 

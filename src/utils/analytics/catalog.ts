@@ -457,6 +457,7 @@ export type AnalyticsEventName =
   | "agent_link_edit_applied"
   | "agent_link_edit_failed"
   | "agent_link_disconnected"
+  | "agent_link_stage_reached"
   // Planned ahead of implementation (2026-07-09 charter §6/§7/§4-C — project
   // rule: events before features). Not fired by any code yet; registered so
   // Tracks F (thinking-state UX), G (session lifecycle), and C (update_diagram

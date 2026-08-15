@@ -446,6 +446,9 @@ export type AnalyticsProperties = {
   query_len?: number;
   hits?: number;
   list_scope?: AgentLinkListScope;
+  stage?: string;
+  ms_since_connect_clicked?: number;
+  client_name?: string;
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is

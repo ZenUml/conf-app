@@ -255,10 +255,16 @@ export type AnalyticsProperties = {
   // key on, so staleness is the only available proxy and it must be readable
   // apart from a confident absence.
   byline_visibility_decision?: "visible" | "suppressed";
+  // `enrolled` is the allowlist hit: this cloudId is named in
+  // src/byline-visibility.ts ALLOWLIST. `not_enrolled` is a confident miss,
+  // and `no_signal` is the distinct case where the runtime gave us no cloudId
+  // to match at all — both suppress, but only one of them means the gate is
+  // working as intended, so they must not collapse into one value.
   byline_visibility_reason?:
     | "full_present"
     | "full_absent"
     | "full_stale"
+    | "enrolled"
     | "not_enrolled"
     | "no_signal";
   // Days since the newest Full ForgeInstallation row for this cloudId. Absent

@@ -158,7 +158,7 @@ jobs:
           cmd: |
             yq eval '
               del(.modules.function[] | select(.key == "macroCountSnapshotFn" or .key == "bylineVisibilityFn"))
-              | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily"))
+              | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "byline-visibility-hourly"))
               | del(.modules.scheduledTrigger | select(length == 0))
             ' -i manifest.yml
       # The Lite->Full conversion executor ships only in Full

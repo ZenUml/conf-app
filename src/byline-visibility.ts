@@ -1,4 +1,4 @@
-import api, { route } from '@forge/api';
+import api, { getAppContext, route } from '@forge/api';
 
 /**
  * Keeps the `byline-enabled` app property in sync with whether this
@@ -24,25 +24,29 @@ import api, { route } from '@forge/api';
  *   therefore does NOT sweep existing installs, and a scheduled pass is the
  *   only mechanism proven to reach them.
  *
- * !! NOTHING CALLS THIS YET. !!
+ * CALLER: `byline-visibility-hourly` (manifest.yml `scheduledTrigger`).
  *
- * The hourly scheduledTrigger that drove it was removed deliberately, and no
- * replacement caller has been chosen. Until one exists the display condition on
- * `zenuml-byline-diagrams` can never be satisfied, so the Lite byline is hidden
- * on every installation — which is the fail-closed gate behaving correctly, not
- * a bug, but it does mean the feature is off until a caller lands.
- *
- * Whatever calls it must satisfy two constraints that are not negotiable:
+ * That trigger existed, was removed while no rollout policy had been decided,
+ * and is restored here now that one has. It satisfies the two constraints that
+ * are not negotiable for any caller:
  *
  * - It has to be a Forge function, because `asApp()` is the only accepted
  *   caller of this API (see the 401 above).
  * - It cannot be the byline itself. A hidden byline is never opened, so the
  *   surface that needs the property can never be the one that writes it.
  *
- * SCOPE, this change: the decision is unconditionally "visible". The
- * both-apps-installed suppression and the per-cloudId rollout gate are Phase 2
- * of docs/superpowers/plans/2026-08-15-byline-visibility-app-property.md, and
- * land here as a Remote call that replaces `decide()` below.
+ * Hourly rather than daily is about the FIRST write, not the steady state.
+ * `scheduledHandler` is idempotent — once an installation's property matches
+ * its decision every later tick is a single GET — so the interval only sets how
+ * long a newly installed or newly allowlisted site waits with the wrong
+ * visibility. A day of that would mean a day of red byline E2E after any deploy
+ * to a fresh install.
+ *
+ * SCOPE, this change: visibility is an explicit cloudId ALLOWLIST (below).
+ * Every other installation is written HIDDEN. The both-apps-installed
+ * suppression remains Phase 2 of
+ * docs/superpowers/plans/2026-08-15-byline-visibility-app-property.md and lands
+ * as a Remote call inside `decide()`.
  */
 
 const PROPERTY_KEY = 'byline-enabled';
@@ -67,14 +71,90 @@ export const HIDDEN = 'false';
 
 const L = '[byline-visibility]';
 
-export type Decision = { value: string; decision: 'visible' | 'suppressed'; reason: string };
+/**
+ * Reasons are drawn from the `byline_visibility_reason` union already
+ * registered in src/utils/analytics/types.ts, rather than invented here. Two
+ * consequences worth stating: the values stay low-cardinality (a per-site
+ * reason string would make the property useless to group by), and the moment
+ * these decisions are wired to trackAnalyticsEvent they type-check without a
+ * translation layer.
+ */
+export type VisibilityReason = 'enrolled' | 'not_enrolled' | 'no_signal';
+
+export type Decision = {
+  value: string;
+  decision: 'visible' | 'suppressed';
+  reason: VisibilityReason;
+  /** Allowlist entry that matched, for logs only — never an analytics property. */
+  site?: string;
+};
 
 /**
- * Phase 1: everyone visible. Kept as a named seam so Phase 2 swaps one function
- * rather than restructuring the handler around it.
+ * Sites that render the Lite byline, by cloudId.
+ *
+ * Both are our own — the Lite E2E target and a developer site — not customer
+ * tenants, which is what makes naming them here compatible with
+ * docs/policies/client-privacy.md. `lite-stg.atlassian.net` is already named in
+ * tests/e2e-tests/config/apps.ts for the same reason.
+ *
+ * cloudIds read from each site's /_edge/tenant_info on 2026-08-15. Matching on
+ * cloudId rather than hostname because that is what the runtime actually hands
+ * us (`installation.contexts[].cloudId`); a hostname would have to be resolved
+ * by a further request that could fail, on the fail-closed side of the gate.
  */
-function decide(): Decision {
-  return { value: VISIBLE, decision: 'visible', reason: 'not_enrolled' };
+export const ALLOWLIST: ReadonlyMap<string, string> = new Map([
+  ['c78e721e-957f-402c-9b70-1df2227c2739', 'lite-stg.atlassian.net'],
+  ['866c3a03-ec62-4717-91c4-1ad078bfcc60', 'whimet4.atlassian.net'],
+]);
+
+/**
+ * The cloudId of the installation this invocation is running for.
+ *
+ * `contexts` is an array and every entry's `cloudId` is optional in the SDK
+ * types, so this takes the first one that is present rather than indexing [0]
+ * and trusting it. A Confluence installation has exactly one, but the type
+ * permits neither assumption, and guessing wrong here silently allowlists or
+ * silently hides.
+ */
+export function currentCloudId(context: {
+  installation?: { contexts?: ReadonlyArray<{ cloudId?: string }> };
+}): string | undefined {
+  for (const c of context.installation?.contexts ?? []) {
+    if (c.cloudId) return c.cloudId;
+  }
+  return undefined;
+}
+
+/**
+ * Allowlist rollout. Kept as a named seam so Phase 2 swaps one function rather
+ * than restructuring the handler around it.
+ *
+ * An unresolvable cloudId is SUPPRESSED, not visible. "We could not tell which
+ * site this is" has to fall on the same side as "this site is not enrolled",
+ * because the whole point of a fail-closed gate is that uncertainty hides the
+ * surface rather than exposing it.
+ */
+export function decide(cloudId: string | undefined): Decision {
+  if (!cloudId) {
+    return { value: HIDDEN, decision: 'suppressed', reason: 'no_signal' };
+  }
+  const site = ALLOWLIST.get(cloudId);
+  if (!site) {
+    return { value: HIDDEN, decision: 'suppressed', reason: 'not_enrolled' };
+  }
+  return { value: VISIBLE, decision: 'visible', reason: 'enrolled', site };
+}
+
+/**
+ * `getAppContext()` throws outside an invocation context. Catching keeps that
+ * failure on the fail-closed path instead of killing the tick.
+ */
+function readCloudId(): string | undefined {
+  try {
+    return currentCloudId(getAppContext());
+  } catch {
+    return undefined;
+  }
 }
 
 async function readCurrent(): Promise<{ value?: string; status: number }> {
@@ -128,8 +208,12 @@ async function write(value: string): Promise<{ ok: boolean; status: number }> {
 }
 
 export async function scheduledHandler() {
-  const { value: target, decision, reason } = decide();
-  console.log(`${L} evaluated decision=${decision} reason=${reason} target=${target}`);
+  const cloudId = readCloudId();
+  const { value: target, decision, reason, site } = decide(cloudId);
+  console.log(
+    `${L} evaluated cloudId=${cloudId ?? 'unknown'} site=${site ?? '-'} ` +
+      `decision=${decision} reason=${reason} target=${target}`,
+  );
 
   const current = await readCurrent();
   console.log(`${L} current status=${current.status} value=${String(current.value)}`);

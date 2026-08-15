@@ -490,7 +490,7 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
 
       await postWithEnv(rpc('tools/call', { name: 'read_diagram', arguments: {} }), env);
 
-      expect(fetchedUrls.some((u) => u.endsWith('/session?bump=1'))).toBe(true);
+      expect(fetchedUrls.some((u) => u.includes('bump=1'))).toBe(true);
     });
 
     it('resources/read auths WITH bump', async () => {
@@ -498,7 +498,7 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
 
       await postWithEnv(rpc('resources/read', { uri: 'zenuml://dsl-guide' }), env);
 
-      expect(fetchedUrls.some((u) => u.endsWith('/session?bump=1'))).toBe(true);
+      expect(fetchedUrls.some((u) => u.includes('bump=1'))).toBe(true);
     });
 
     it('get_status and tools/list auth WITHOUT bump', async () => {
@@ -516,7 +516,7 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
 
       expect(fetchedUrls.every((u) => !u.includes('bump=1'))).toBe(true);
       // sanity: auth still happened (path matched despite no bump)
-      expect(fetchedUrls.some((u) => u.endsWith('/session'))).toBe(true);
+      expect(fetchedUrls.some((u) => u.split('?')[0].endsWith('/session'))).toBe(true);
     });
 
     it('a guardrail rejection reports POST /activity {type:guardrail_rejected} without masking the RPC error', async () => {
@@ -634,6 +634,78 @@ describe('POST /agent-link/mcp with an AGENT_LINK Durable Object binding', () =>
       expect(props).not.toContain('cloudId');
       expect(props.sort()).toEqual(['dsl', 'summary'].sort());
     });
+  });
+});
+
+// --- presence stage rides the DO auth GET (spec 2026-08-15) ----------------
+//
+// derivePresence()/deriveClientName() are pure functions of the request body
+// (+ bumpWorthy); this block only proves mcp.ts's OBSERVABLE contract — the
+// exact query string it fetches the DO's `GET /session` with — not the DO's
+// behavior (Task 3, not yet built; the DO currently ignores unknown query
+// params, which is exactly the backward-tolerance this relies on).
+describe('POST /agent-link/mcp — presence stage on the DO auth GET', () => {
+  // Reset per test so `lastDoUrl()` always reflects the single postMcp() call
+  // that test made, matching the brief's one-call-then-assert shape.
+  let fetchedUrls: string[];
+
+  function postMcp(body: unknown, opts: { token?: string } = {}) {
+    const recorded = makeRecordingDoEnv({
+      session: () => sessionInfoResponse(),
+      agentOp: () =>
+        new Response(JSON.stringify({ ok: true, payload: {} }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    });
+    fetchedUrls = recorded.fetchedUrls;
+    // Not postWithEnv(): `notifications/initialized` replies 202 with an
+    // empty body, which postWithEnv's res.json() would choke on — this block
+    // only asserts the DO fetch URL, so skip response parsing entirely.
+    return onRequestPost({
+      request: makeRequest(body, { token: 'CL-TEST-TOKN', ...opts }),
+      env: recorded.env,
+    } as any);
+  }
+
+  function lastDoUrl(): string {
+    const sessionUrls = fetchedUrls.filter((u) => u.split('?')[0].endsWith('/session'));
+    return sessionUrls[sessionUrls.length - 1] ?? '';
+  }
+
+  it.each([
+    ['initialize', 'initialized'],
+    ['notifications/initialized', 'initialized'],
+    ['tools/list', 'discovered'],
+    ['resources/list', 'discovered'],
+  ])('method %s reports presence=%s on the DO auth GET', async (method, stage) => {
+    await postMcp(rpc(method), { token: 'CL-X' });
+    expect(lastDoUrl()).toContain(`presence=${stage}`);
+  });
+
+  it('tools/call get_status reports presence=verified without bump', async () => {
+    await postMcp(rpc('tools/call', { name: 'get_status' }), { token: 'CL-X' });
+    expect(lastDoUrl()).toContain('presence=verified');
+    expect(lastDoUrl()).not.toContain('bump=1');
+  });
+
+  it('bump-worthy tools/call reports presence=working AND bump=1', async () => {
+    await postMcp(rpc('tools/call', { name: 'read_page' }), { token: 'CL-X' });
+    expect(lastDoUrl()).toContain('presence=working');
+    expect(lastDoUrl()).toContain('bump=1');
+  });
+
+  it('initialize forwards the client name', async () => {
+    await postMcp(
+      rpc('initialize', { clientInfo: { name: 'claude-code', version: '2.0' } }),
+      { token: 'CL-X' },
+    );
+    expect(lastDoUrl()).toContain('client=claude-code');
+  });
+
+  it('a non-initialize method never forwards a client param', async () => {
+    await postMcp(rpc('tools/list'), { token: 'CL-X' });
+    expect(lastDoUrl()).not.toContain('client=');
   });
 });
 

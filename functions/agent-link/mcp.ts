@@ -164,6 +164,27 @@ export class MacroForwardError extends Error {
   }
 }
 
+// Presence stage, spec 2026-08-15: "how far has a real client got" through
+// the MCP handshake/tool surface, derived per request from the method — NOT
+// from bump-worthiness (presence never slides the idle TTL; Task 3 enforces
+// that DO-side, and `bump` below keeps the byte-identical 2026-07-13
+// definition). Task 3's DO endpoint reads this off the auth GET's query
+// string and pushes it to the paired macro's status bus.
+export type PresenceStage = 'initialized' | 'discovered' | 'verified' | 'working';
+
+function derivePresence(body: JsonRpcRequestBody, bumpWorthy: boolean): PresenceStage {
+  if (bumpWorthy) return 'working';
+  const m = body.method ?? '';
+  if (m === 'initialize' || m.startsWith('notifications/')) return 'initialized';
+  if (m === 'tools/call') return 'verified'; // only get_status reaches here non-bump
+  return 'discovered'; // tools/list, resources/list
+}
+
+function deriveClientName(body: JsonRpcRequestBody): string | undefined {
+  const info = (body.params as { clientInfo?: { name?: unknown } } | undefined)?.clientInfo;
+  return typeof info?.name === 'string' ? info.name.slice(0, 64) : undefined;
+}
+
 /**
  * Authenticates `token` against the AgentLinkSession DO for this exact
  * token (`idFromName(token)` — the same DO instance the macro's `GET
@@ -177,12 +198,21 @@ async function authenticateViaDo(
   agentLink: DurableObjectNamespace,
   token: string,
   bump: boolean,
+  presence: PresenceStage,
+  clientName?: string,
 ): Promise<{ auth: AuthResult; diagram?: DiagramSnapshot }> {
   const stub = agentLink.get(agentLink.idFromName(token));
   // `?bump=1` iff this request is bump-worthy (real agent work): the DO slides
   // the idle window and pushes a fresh status on the same auth round-trip that
   // already happens on every request, so no extra network hop (spec §3/§4.2).
-  const res = await stub.fetch('https://agent-link-do/session' + (bump ? '?bump=1' : ''), {
+  // `presence` always rides along (Task 3's DO endpoint currently ignores
+  // unknown query params, so this is backward-tolerant); `client` only on
+  // `initialize`, when the MCP client first announces itself.
+  const qs = new URLSearchParams();
+  if (bump) qs.set('bump', '1');
+  qs.set('presence', presence);
+  if (clientName !== undefined) qs.set('client', clientName);
+  const res = await stub.fetch(`https://agent-link-do/session?${qs.toString()}`, {
     method: 'GET',
   });
 
@@ -372,7 +402,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   let auth: AuthResult;
   let diagramSnapshot: DiagramSnapshot | undefined;
   if (env?.AGENT_LINK) {
-    const doResult = await authenticateViaDo(env.AGENT_LINK, token, bumpWorthy);
+    const doResult = await authenticateViaDo(
+      env.AGENT_LINK,
+      token,
+      bumpWorthy,
+      derivePresence(body, bumpWorthy),
+      deriveClientName(body),
+    );
     auth = doResult.auth;
     diagramSnapshot = doResult.diagram;
   } else {

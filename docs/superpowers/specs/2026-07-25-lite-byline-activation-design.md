@@ -51,8 +51,8 @@ user-directed iteration; three claims above are no longer true:
   marker absent. Rollout is a cloudId allowlist in `src/byline-visibility.ts` (hourly space
   sweep; currently lite-stg + whimet4 only), so shipping to production shows the item to
   **no one** until a tenant is allowlisted. The as-designed status and rollback story above
-  predate this. See `docs/superpowers/plans/2026-08-15-byline-visibility-app-property.md`
-  (status block) for the mechanism and its two failed predecessors.
+  predate this. See `docs/superpowers/plans/2026-08-15-byline-visibility-space-properties.md`
+  for the mechanism and its two failed predecessors.
 - **"Add a diagram → router.navigate to the page editor" is gone.** The panel is a create
   picker: four type tiles (Flowchart first and highlighted, from measured create counts —
   its "Most used" text badge was added and later removed by request), each opening the real

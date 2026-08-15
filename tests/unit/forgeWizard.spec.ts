@@ -88,9 +88,13 @@ describe('forge-wizard manifest preview helpers', () => {
     // Full is the only variant that drops TWO byline entries: aiaide is
     // Diagramly-branded and diagrams is the Lite index, leaving just the
     // activation nudge. The module itself must survive, or newuser goes too.
+    // The strip normalizes byline-diagrams' displayConditions (dropping the
+    // Lite-only `not: zenuml-full-active` leg) in the same expression before
+    // deleting it — a no-op today that makes a future un-strip safe.
     const fullYq = getManifestEditYqArgs('full').map((x: { expr: string }) => x.expr)
     expect(fullYq).toContain(
-      'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))',
+      '(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions) |= {"entityPropertyEqualTo": .and.entityPropertyEqualTo} | ' +
+        'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))',
     )
     expect(fullYq).not.toContain('del(.modules["confluence:contentBylineItem"])')
     expect(getManifestEditYqArgs('full').map((x) => x.expr)).toContain(

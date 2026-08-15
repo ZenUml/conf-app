@@ -517,14 +517,25 @@ modules:
       # be the string too or the comparison can never match.
       # Fail-CLOSED gate on SPACE properties, two legs ANDed:
       #
-      # 1. `zenuml-byline-lite` must say enabled — written to every space by
-      #    the Lite `byline-visibility-hourly` sweep (src/byline-visibility.ts,
-      #    cloudId-allowlist rollout). Absent property = no byline.
+      # 1. The variant's OWN enrolment property must say enabled. The key is
+      #    templated like every other per-variant key in this manifest:
+      #    `zenuml-byline${LITE_KEY_SUFFIX}` resolves to `zenuml-byline-lite`
+      #    on Lite (the key src/byline-visibility.ts writes — keep them in
+      #    lockstep) and `zenuml-byline` on Full/Diagramly/AsyncAPI. It is
+      #    written to every space by the Lite `byline-visibility-hourly` sweep
+      #    (cloudId-allowlist rollout). Absent property = no byline.
       # 2. `zenuml-full-active` must NOT exist — the FULL app's daily sweep
       #    (src/full-presence.ts, Full variant only) marks its presence per
       #    space, and the Lite byline hides itself where Full already provides
       #    its own surfaces. Space properties are site-global across apps,
       #    which is what makes a marker written by Full readable here.
+      #
+      # Leg 2 is LITE-ONLY SEMANTICS that env substitution cannot remove: a
+      # Full deployment of this module would subtract Full's own presence
+      # marker and hide itself on every space. Full strips this whole module
+      # today; whichever change un-strips it MUST also delete the `not` leg in
+      # the same per-variant edit (see the byline strip in
+      # scripts/forge-wizard.mjs) and ship a writer for `zenuml-byline`.
       #
       # `objectName` + object value is the encoding PROVEN on this surface —
       # a bare value's string-conversion semantics is where this gate failed
@@ -536,7 +547,7 @@ modules:
         and:
           entityPropertyEqualTo:
             entity: space
-            propertyKey: zenuml-byline-lite
+            propertyKey: zenuml-byline${LITE_KEY_SUFFIX}
             objectName: enabled
             value: "true"
           not:

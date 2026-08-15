@@ -119,6 +119,20 @@ export const APPS = {
         // zenuml-byline-newuser. zenuml-byline-aiaide is Diagramly-branded,
         // and zenuml-byline-diagrams is the Lite diagram index — Full has no
         // byline surface of its own.
+        //
+        // If Full ever KEEPS zenuml-byline-diagrams, deleting it from this
+        // strip is not enough. The module's displayConditions template two
+        // per-variant facts: the enrolment property key resolves via
+        // ${LITE_KEY_SUFFIX} (Full -> `zenuml-byline`, which nothing writes
+        // yet — a Full enrolment writer must ship first), and the
+        // `not: zenuml-full-active` leg is Lite-only semantics that would
+        // make Full's byline subtract Full's OWN presence marker and hide
+        // itself on every space. The un-strip edit must delete that leg,
+        // keeping the entityPropertyEqualTo wrapper:
+        //   (.modules["confluence:contentBylineItem"][]
+        //     | select(.key == "zenuml-byline-diagrams")
+        //     | .displayConditions)
+        //   |= {"entityPropertyEqualTo": .and.entityPropertyEqualTo}
         description:
           'Remove zenuml-byline-aiaide and zenuml-byline-diagrams from confluence:contentBylineItem (keep zenuml-byline-newuser)',
         yqEvalExpr:

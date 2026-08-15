@@ -85,6 +85,13 @@ const PROPERTY_FIELD = 'enabled';
  * one encoding that has been PROVEN to satisfy entityPropertyEqualTo on this
  * surface (staging, 2026-08-15), and the string-vs-object conversion semantics
  * of a bare value is exactly where this feature failed twice before.
+ *
+ * The manifest condition templates this key as `zenuml-byline${LITE_KEY_SUFFIX}`
+ * so the module block stays variant-portable; this constant is the LITE
+ * resolution of that template, and Lite is the only variant that ships this
+ * writer (fn stripped elsewhere). A Full enrolment writer cannot reuse this
+ * constant — Full resolves to `zenuml-byline` — and must derive its key from
+ * the app it runs in, not import this one.
  */
 export const SPACE_PROP_KEY = 'zenuml-byline-lite';
 const SPACE_PROP_VALUE = { [PROPERTY_FIELD]: 'true' };

@@ -120,23 +120,23 @@ export const APPS = {
         // and zenuml-byline-diagrams is the Lite diagram index — Full has no
         // byline surface of its own.
         //
-        // If Full ever KEEPS zenuml-byline-diagrams, deleting it from this
-        // strip is not enough. The module's displayConditions template two
-        // per-variant facts: the enrolment property key resolves via
-        // ${LITE_KEY_SUFFIX} (Full -> `zenuml-byline`, which nothing writes
-        // yet — a Full enrolment writer must ship first), and the
-        // `not: zenuml-full-active` leg is Lite-only semantics that would
-        // make Full's byline subtract Full's OWN presence marker and hide
-        // itself on every space. The un-strip edit must delete that leg,
-        // keeping the entityPropertyEqualTo wrapper:
-        //   (.modules["confluence:contentBylineItem"][]
-        //     | select(.key == "zenuml-byline-diagrams")
-        //     | .displayConditions)
-        //   |= {"entityPropertyEqualTo": .and.entityPropertyEqualTo}
+        // The expression below normalizes byline-diagrams' displayConditions
+        // BEFORE deleting the module — dropping the `not: zenuml-full-active`
+        // leg while keeping the entityPropertyEqualTo wrapper. A no-op today
+        // (the del in the same expression removes the whole module), it exists
+        // so that un-stripping is safe by construction: that leg is Lite-only
+        // semantics, and a Full byline that kept it would subtract Full's OWN
+        // presence marker and hide itself on every space. If Full ever keeps
+        // the module, remove only its key from the del — the normalization is
+        // already done — and ship an enrolment writer first: the templated
+        // property key resolves to `zenuml-byline` on Full (${LITE_KEY_SUFFIX}
+        // is empty), and nothing writes that key yet, so the un-stripped
+        // byline would be fail-closed hidden until a writer exists.
+        // Mirrored in release.yml and staging-deploy.yml.
         description:
           'Remove zenuml-byline-aiaide and zenuml-byline-diagrams from confluence:contentBylineItem (keep zenuml-byline-newuser)',
         yqEvalExpr:
-          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))',
+          '(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions) |= {"entityPropertyEqualTo": .and.entityPropertyEqualTo} | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))',
       },
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from Full',

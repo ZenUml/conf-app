@@ -144,7 +144,8 @@ jobs:
         if: needs.resolve.outputs.variant == 'full'
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))' -i manifest.yml
+          cmd: |
+            yq eval '(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions) |= {"entityPropertyEqualTo": .and.entityPropertyEqualTo} | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))' -i manifest.yml
       - name: Remove the Lite diagrams byline entry from manifest (Diagramly keeps newuser + aiaide)
         if: needs.resolve.outputs.variant == 'diagramly'
         uses: mikefarah/yq@master

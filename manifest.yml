@@ -507,10 +507,21 @@ modules:
       # `value` MUST be the string "true". `forge lint` rejects a boolean with
       # '"value" property must be string', so the stored property value has to
       # be the string too or the comparison can never match.
+      # `objectName` is required, not decorative: the app-properties endpoint
+      # types its request body as an object and answers 400 to a bare JSON
+      # scalar on create, so the stored value is `{"enabled":"true"}` and the
+      # condition has to address the field inside it. Without objectName this
+      # compares "true" against the whole object and can never match.
+      # PROPERTY_FIELD in src/byline-visibility.ts is the other half of this
+      # pair — renaming one alone hides the byline everywhere, silently.
+      #
+      # `value` MUST stay the string "true": forge lint rejects a boolean with
+      # '"value" property must be string'.
       displayConditions:
         entityPropertyEqualTo:
           entity: app
           propertyKey: byline-enabled
+          objectName: enabled
           value: "true"
       # zenuml.com's own favicon, matching the panel's header. It is a square
       # mark drawn to be read at favicon size, so it survives the ~16px

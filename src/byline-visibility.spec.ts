@@ -9,7 +9,7 @@
  * tenants that were never enrolled. Neither shows up anywhere else in the
  * suite, so the mapping is asserted here directly.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const forgeMocks = vi.hoisted(() => ({
   requestConfluence: vi.fn(),
@@ -29,7 +29,26 @@ vi.mock('@forge/api', () => ({
     ),
 }));
 
-import { ALLOWLIST, currentCloudId, decide, HIDDEN, VISIBLE } from './byline-visibility';
+import {
+  ALLOWLIST,
+  currentCloudId,
+  decide,
+  HIDDEN,
+  scheduledHandler,
+  VISIBLE,
+} from './byline-visibility';
+
+/** Minimal stand-in for the Response `requestConfluence` resolves to. */
+function res(status: number, body: unknown = '') {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
+  };
+}
+
+/** The GET envelope: the stored value sits under `value`. */
+const stored = (value: unknown) => res(200, { key: 'byline-enabled', value });
 
 const LITE_STG = 'c78e721e-957f-402c-9b70-1df2227c2739';
 const WHIMET4 = '866c3a03-ec62-4717-91c4-1ad078bfcc60';
@@ -96,5 +115,97 @@ describe('currentCloudId', () => {
     expect(currentCloudId({})).toBeUndefined();
     expect(currentCloudId({ installation: {} })).toBeUndefined();
     expect(currentCloudId({ installation: { contexts: [] } })).toBeUndefined();
+  });
+});
+
+/**
+ * The stored SHAPE, which is where this feature has failed twice.
+ *
+ * Both failures answered a 2xx and left the byline hidden, so neither showed up
+ * as an error anywhere — the only symptom was a display condition that silently
+ * never matched. First the writer PUT `{key, value}` and the endpoint stored
+ * that envelope AS the value, nesting it. Then it PUT the bare string "true",
+ * which the endpoint rejects with 400 on create because it types the body as an
+ * object — invisible in a spike against a site whose property already existed,
+ * since that only ever exercised an update.
+ *
+ * So the body must be an object and the condition must address a field inside
+ * it via `objectName`. These tests pin the exact bytes, because "it wrote
+ * something and got a 200" is precisely the assertion that passed twice while
+ * the feature was broken.
+ */
+describe('scheduledHandler', () => {
+  beforeEach(() => {
+    forgeMocks.requestConfluence.mockReset();
+    forgeMocks.getAppContext.mockReset();
+    forgeMocks.getAppContext.mockReturnValue({
+      installation: { contexts: [{ cloudId: LITE_STG }] },
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  });
+
+  it('creates the property as an OBJECT when none exists', async () => {
+    forgeMocks.requestConfluence
+      .mockResolvedValueOnce(res(404))
+      .mockResolvedValueOnce(res(200))
+      .mockResolvedValueOnce(stored({ enabled: 'true' }));
+
+    await scheduledHandler();
+
+    const [, options] = forgeMocks.requestConfluence.mock.calls[1];
+    expect(options.method).toBe('PUT');
+    // Not `"true"` (400 on create) and not `{"key":…,"value":…}` (stored
+    // verbatim and nested). The object carrying the flag, and nothing else.
+    expect(options.body).toBe(JSON.stringify({ enabled: 'true' }));
+    expect(JSON.parse(options.body)).toEqual({ enabled: 'true' });
+  });
+
+  it('writes HIDDEN for an installation that is not allowlisted', async () => {
+    forgeMocks.getAppContext.mockReturnValue({
+      installation: { contexts: [{ cloudId: '00000000-0000-0000-0000-000000000000' }] },
+    });
+    forgeMocks.requestConfluence
+      .mockResolvedValueOnce(res(404))
+      .mockResolvedValueOnce(res(200))
+      .mockResolvedValueOnce(stored({ enabled: 'false' }));
+
+    await scheduledHandler();
+
+    expect(JSON.parse(forgeMocks.requestConfluence.mock.calls[1][1].body)).toEqual({
+      enabled: HIDDEN,
+    });
+  });
+
+  it('rewrites over the legacy double-wrapped value instead of reading it as settled', async () => {
+    forgeMocks.requestConfluence
+      .mockResolvedValueOnce(stored({ key: 'byline-enabled', value: 'true' }))
+      .mockResolvedValueOnce(res(200))
+      .mockResolvedValueOnce(stored({ enabled: 'true' }));
+
+    await scheduledHandler();
+
+    expect(forgeMocks.requestConfluence).toHaveBeenCalledTimes(3);
+    expect(forgeMocks.requestConfluence.mock.calls[1][1].method).toBe('PUT');
+  });
+
+  it('rewrites over a legacy bare-string value', async () => {
+    forgeMocks.requestConfluence
+      .mockResolvedValueOnce(stored('true'))
+      .mockResolvedValueOnce(res(200))
+      .mockResolvedValueOnce(stored({ enabled: 'true' }));
+
+    await scheduledHandler();
+
+    expect(forgeMocks.requestConfluence.mock.calls[1][1].method).toBe('PUT');
+  });
+
+  // Idempotence: the steady state must cost one GET, or every install pays a
+  // write every hour and 'unchanged' stops being observable.
+  it('does not write when the stored field already matches', async () => {
+    forgeMocks.requestConfluence.mockResolvedValueOnce(stored({ enabled: 'true' }));
+
+    await scheduledHandler();
+
+    expect(forgeMocks.requestConfluence).toHaveBeenCalledTimes(1);
   });
 });

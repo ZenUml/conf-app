@@ -52,6 +52,14 @@ import api, { getAppContext, route } from '@forge/api';
 const PROPERTY_KEY = 'byline-enabled';
 
 /**
+ * Field inside the property object that holds the flag. Must stay in lockstep
+ * with `objectName` on the zenuml-byline-diagrams display condition — the
+ * condition evaluates false when the path is absent, so a rename on one side
+ * alone hides the byline everywhere and says nothing about why.
+ */
+const PROPERTY_FIELD = 'enabled';
+
+/**
  * Built as a literal template. NOT `route`${path}`` — `route` percent-encodes
  * its interpolations, so passing a whole path escapes the slashes into one
  * nonsense segment.
@@ -165,46 +173,56 @@ async function readCurrent(): Promise<{ value?: string; status: number }> {
   const body = await res.text().catch(() => '');
   try {
     const parsed = JSON.parse(body);
-    // The GET envelope is `{key, value}`, so `parsed.value` IS the stored
-    // value. Compared as a string only when it actually is one: a legacy
-    // double-wrapped property (see `write`) parses to an OBJECT here, and
-    // `String()`-ing it produced "[object Object]" — which never equals the
-    // target, so the writer rewrote on every single run and `unchanged` was
-    // unreachable. Anything non-string is reported as undefined instead, which
-    // reads as "no usable value" and correctly triggers a corrective write.
-    const value = typeof parsed?.value === 'string' ? parsed.value : undefined;
-    return { value, status: res.status };
+    // The GET envelope is `{key, value}`, so `parsed.value` is the stored
+    // value — an OBJECT, and the flag lives at PROPERTY_FIELD inside it (see
+    // `write`). Read as a string only when it actually is one, so that every
+    // shape this key has ever held — absent, a bare string, or the
+    // double-wrapped `{key, value}` from the original writer — reads as
+    // undefined and triggers a corrective write rather than comparing equal to
+    // nothing forever.
+    const field = parsed?.value?.[PROPERTY_FIELD];
+    return { value: typeof field === 'string' ? field : undefined, status: res.status };
   } catch {
     return { status: res.status };
   }
 }
 
 /**
- * Write the property, tolerating either versioning contract.
+ * Write the property as a JSON OBJECT carrying the flag at `PROPERTY_FIELD`.
  *
- * The v2 app-properties docs describe the PUT body as "an object containing the
- * property value" and say nothing about versions, but sibling Confluence
- * property APIs require `version.number` on update and answer 409 without it.
- * Rather than guess, try the bare body and escalate only on rejection — so the
- * first real deployment settles the question in its logs instead of failing
- * every update after a create that looked healthy.
+ * Two constraints meet here, and only this shape satisfies both.
+ *
+ * The endpoint takes the ENTIRE request body as the property value, so an
+ * envelope gets stored verbatim and nests — observed on whimet4 2026-08-15, a
+ * PUT of `{"key":"byline-enabled","value":"true"}` read back as
+ *   {"key":"byline-enabled","value":{"key":"byline-enabled","value":"true"}}
+ * which answered 200 while leaving a value no condition could match.
+ *
+ * The obvious correction — PUT the bare string `"true"` — is rejected. The v2
+ * app-properties reference types the request body as `object` (its example is
+ * `{ "name": "Forge app", "darkMode": true, ... }`), and a bare JSON scalar
+ * answers 400 on CREATE. That failure was invisible in the whimet4 spike
+ * because the property already existed there, so the spike only ever exercised
+ * an UPDATE. Confirmed against a fresh installation in the staging logs
+ * 2026-08-15T04:34Z — full-stg, `current status=404` then
+ * `write result=failed status=400`.
+ *
+ * So the value is an object, and the display condition reaches into it with
+ * `objectName: enabled` (manifest.yml). PUT is correct for both create and
+ * update — the reference documents one endpoint answering 201 Created or
+ * 200 OK — and no `version.number` is needed for either.
  */
-async function write(value: string): Promise<{ ok: boolean; status: number }> {
+async function write(value: string): Promise<{ ok: boolean; status: number; body: string }> {
   const res = await api.asApp().requestConfluence(PROP_ROUTE, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    // The BARE value, not `{key, value}`. This endpoint takes the entire
-    // request body AS the property value, so an envelope gets stored verbatim
-    // and nests: observed on whimet4 2026-08-15, a PUT of
-    // `{"key":"byline-enabled","value":"true"}` read back as
-    //   {"key":"byline-enabled","value":{"key":"byline-enabled","value":"true"}}
-    // The write answered 200 and the property existed, but its value was an
-    // OBJECT — so `entityPropertyEqualTo: value: "true"` could never match and
-    // the byline stayed hidden. A successful status here does not mean the gate
-    // will open; only the read-back shape proves that.
-    body: JSON.stringify(value),
+    body: JSON.stringify({ [PROPERTY_FIELD]: value }),
   });
-  return { ok: res.ok, status: res.status };
+  // The response body is read on failure because the status alone is what made
+  // the 400 above take a deployment to understand: 'failed status=400' does not
+  // say whether the body shape, the route, or the scope was wrong.
+  const body = res.ok ? '' : await res.text().catch(() => '');
+  return { ok: res.ok, status: res.status, body };
 }
 
 export async function scheduledHandler() {
@@ -235,6 +253,7 @@ export async function scheduledHandler() {
   const settled = after.value === target;
   console.log(
     `${L} write result=${!res.ok ? 'failed' : settled ? (target === VISIBLE ? 'written' : 'cleared') : 'failed'} ` +
-      `status=${res.status} readback=${String(after.value)} settled=${settled}`,
+      `status=${res.status} readback=${String(after.value)} settled=${settled}` +
+      `${res.body ? ` body=${res.body.slice(0, 300)}` : ''}`,
   );
 }

@@ -21,6 +21,8 @@ function mountPanel(props: {
   activityFeed?: AgentLinkActivityEntry[]
   lastActivityAt?: number | null
   thinking?: 'idle' | 'thinking' | 'error'
+  progressStage?: 'initialized' | 'discovered' | 'verified' | 'working' | null
+  clientName?: string
 }) {
   return mount(ConnectPanel, {
     props: {
@@ -151,6 +153,24 @@ describe('ConnectPanel', () => {
     expect(wrapper.find('.agent-link-panel__live-dot').exists()).toBe(true)
     expect(connectPanelSource).toContain('.agent-link-panel--connected')
     expect(connectPanelSource).toContain('border-color: var(--agent-link-green)')
+  })
+
+  it('waiting state shows the stage ladder once the agent is seen', () => {
+    const w = mountPanel({ state: 'waiting', token: 'CL-T', progressStage: 'initialized', clientName: 'claude-code' })
+    const ladder = w.find('[data-testid="agent-link-progress"]')
+    expect(ladder.text()).toContain('claude-code 已连接')
+    expect(w.find('[data-testid="agent-link-setup"]').exists()).toBe(false) // setup hidden after handshake
+  })
+
+  it("waiting state with no presence keeps today's pulse + collapsed setup", () => {
+    const w = mountPanel({ state: 'waiting', token: 'CL-T', progressStage: null })
+    expect(w.find('[data-testid="agent-link-waiting-status"]').text()).toContain('Waiting for your agent')
+    expect(w.find('[data-testid="agent-link-setup"]').exists()).toBe(true)
+  })
+
+  it('timeout copy names a wrong/stale paste as a possible cause', () => {
+    const w = mountPanel({ state: 'timeout', token: 'CL-T', progressStage: null })
+    expect(w.text()).toContain('/mcp') // "restart the session or run /mcp" hint
   })
 
   it('timeout: shows the setup command', () => {

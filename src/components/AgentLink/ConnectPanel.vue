@@ -1,7 +1,12 @@
 <template>
   <div class="agent-link-panel" :class="`agent-link-panel--${state}`" data-testid="agent-link-panel">
     <div class="agent-link-panel__scroll">
-      <!-- waiting: paste prompt + copy + pulsing status + collapsed setup -->
+      <!-- waiting: paste prompt + copy + pulsing status + collapsed setup.
+           Once the relay reports presence (progressStage != null — Task 5's
+           useAgentLinkSession), the setup block is replaced by a staged
+           ladder: the agent has already found the token, so re-showing the
+           setup command would be confusing/redundant. Copy is honest about
+           what each stage actually proves — see the `verified` row below. -->
       <template v-if="state === 'waiting'">
         <div data-testid="agent-link-waiting">
           <h3 class="agent-link-panel__heading">Edit with your agent</h3>
@@ -20,7 +25,16 @@
             Waiting for your agent to connect…
           </p>
 
-          <details class="agent-link-panel__disclosure" data-testid="agent-link-setup-disclosure">
+          <ol v-if="progressStage != null" class="agent-link-panel__progress" data-testid="agent-link-progress">
+            <li
+              v-for="row in progressRows"
+              :key="row.stage"
+              class="agent-link-panel__progress-row"
+              :class="{ 'agent-link-panel__progress-row--dim': row.rank > progressRank }"
+            >{{ row.text }}</li>
+          </ol>
+
+          <details v-if="progressStage === null" class="agent-link-panel__disclosure" data-testid="agent-link-setup-disclosure">
             <summary>Connect your agent (each session uses a fresh command)</summary>
             <SetupInstructions />
           </details>
@@ -181,6 +195,9 @@
           <SetupInstructions />
 
           <p class="agent-link-panel__hint" data-testid="agent-link-retry-hint">Then paste the prompt again.</p>
+          <p class="agent-link-panel__hint" data-testid="agent-link-timeout-hint">
+            如果命令粘贴进了一个已在运行的会话，请重启它或执行 /mcp；token 粘贴错误服务端无法检测。
+          </p>
         </div>
       </template>
     </div>
@@ -217,9 +234,12 @@ const props = withDefaults(
     //  - clientName: connected agent identity (falls back to "Connected agent")
     //  - expiresAt: absolute ms token expiry → TTL meter + resume countdown
     //  - lastActivityAt: newest agent signal → header/badge activity pulse
+    //  - progressStage: Task 5's display-only handshake presence (null while
+    //    unpaired) — drives the waiting-state ladder, see progressRows below.
     thinking?: AgentLinkThinkingState
     diagramTitle?: string
     clientName?: string
+    progressStage?: 'initialized' | 'discovered' | 'verified' | 'working' | null
     expiresAt?: number | null
     lastActivityAt?: number | null
     // Amendment D: absolute ms epoch when the existing lock on an
@@ -231,7 +251,7 @@ const props = withDefaults(
     // hint once bumps no longer move the meter.
     atCap?: boolean
   }>(),
-  { thinking: 'idle', diagramTitle: '', clientName: '', expiresAt: null, lastActivityAt: null, lockExpiresAt: null, atCap: false }
+  { thinking: 'idle', diagramTitle: '', clientName: '', progressStage: null, expiresAt: null, lastActivityAt: null, lockExpiresAt: null, atCap: false }
 )
 
 const emit = defineEmits<{
@@ -279,6 +299,30 @@ const SetupInstructions = defineComponent({
       ])
   },
 })
+
+// --- Waiting-state presence ladder --------------------------------------------
+// Ranks mirror the relay's presence stages (agentLinkState.ts's progressStage
+// on useAgentLinkSession). 'working' has no row of its own — the FSM flips the
+// whole panel to the `connected` state once real work starts, so by the time
+// 'working' could render here the ladder is already gone.
+const PROGRESS_RANK: Record<'initialized' | 'discovered' | 'verified' | 'working', number> = {
+  initialized: 1,
+  discovered: 2,
+  verified: 3,
+  working: 4,
+}
+
+const progressRank = computed(() => (props.progressStage ? PROGRESS_RANK[props.progressStage] : 0))
+
+// Copy is deliberately conservative: a `claude -p` one-shot handshake proves
+// the relay + token round-trip, NOT that the interactive session is bound —
+// so 'verified' says "链路已验证" (the link is verified), never anything that
+// reads as "connected to your session".
+const progressRows = computed(() => [
+  { stage: 'initialized' as const, rank: PROGRESS_RANK.initialized, text: `✓ ${props.clientName || 'Agent'} 已连接` },
+  { stage: 'discovered' as const, rank: PROGRESS_RANK.discovered, text: '✓ 图表工具已加载' },
+  { stage: 'verified' as const, rank: PROGRESS_RANK.verified, text: '✓ 链路已验证' },
+])
 
 const promptText = computed(() => {
   const sessionToken = props.token ?? ''
@@ -596,6 +640,24 @@ const resumeText = computed(() => {
   .agent-link-panel__feed-ic :deep(.agent-link-panel__feed-spin) {
     animation: none !important;
   }
+}
+
+.agent-link-panel__progress {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agent-link-panel__progress-row {
+  font-size: 12px;
+  color: var(--agent-link-ink);
+}
+
+.agent-link-panel__progress-row--dim {
+  color: var(--agent-link-faint);
 }
 
 .agent-link-panel__disclosure {

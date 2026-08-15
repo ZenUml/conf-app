@@ -342,6 +342,8 @@
             :activity-feed="agentLinkActivityFeed"
             :thinking="agentLinkThinking"
             :diagram-title="title"
+            :progress-stage="agentLinkProgressStage"
+            :client-name="agentLinkClientName"
             :expires-at="agentLinkExpiresAt"
             :last-activity-at="agentLinkLastActivityAt"
             :lock-expires-at="agentLinkLockExpiresAt"
@@ -661,6 +663,15 @@ export default {
     },
     agentLinkActivityFeed() {
       return this.agentLinkSession?.activityFeed.value ?? [];
+    },
+    // Task 6: display-only handshake presence (Task 5) — drives ConnectPanel's
+    // waiting-state ladder. Both stay null/'' pre-handshake, which keeps the
+    // ladder hidden and the existing pulse + setup disclosure unchanged.
+    agentLinkProgressStage() {
+      return this.agentLinkSession?.progressStage.value ?? null;
+    },
+    agentLinkClientName() {
+      return this.agentLinkSession?.agentClientName.value ?? '';
     },
   },
   watch: {

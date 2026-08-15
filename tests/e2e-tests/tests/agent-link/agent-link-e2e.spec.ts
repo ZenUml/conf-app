@@ -152,7 +152,7 @@ test.describe('Live Agent Link — end to end', () => {
       try {
         await expect
           .poll(() => readProgressStage(page), { timeout: 5000, message: 'presence reaches the panel before any op' })
-          .toContain('已连接');
+          .toContain('connected');
       } catch {
         console.warn('presence ladder not observed — relay may predate the presence push');
         test.info().annotations.push({

@@ -225,7 +225,8 @@
 
           <p class="agent-link-panel__hint" data-testid="agent-link-retry-hint">Then paste the prompt again.</p>
           <p class="agent-link-panel__hint" data-testid="agent-link-timeout-hint">
-            如果命令粘贴进了一个已在运行的会话，请重启它或执行 /mcp；token 粘贴错误服务端无法检测。
+            If you pasted the command into a session that is already running, restart it or run /mcp.
+            A mistyped token cannot be detected server-side.
           </p>
         </div>
       </template>
@@ -351,12 +352,13 @@ const progressRank = computed(() => (props.progressStage ? PROGRESS_RANK[props.p
 
 // Copy is deliberately conservative: a `claude -p` one-shot handshake proves
 // the relay + token round-trip, NOT that the interactive session is bound —
-// so 'verified' says "链路已验证" (the link is verified), never anything that
-// reads as "connected to your session".
+// so 'verified' says "Link verified", never anything that reads as "connected
+// to your session". English throughout, matching every other string in this
+// panel (final-review ruling, 2026-08-15).
 const progressRows = computed(() => [
-  { stage: 'initialized' as const, rank: PROGRESS_RANK.initialized, text: `✓ ${props.clientName || 'Agent'} 已连接` },
-  { stage: 'discovered' as const, rank: PROGRESS_RANK.discovered, text: '✓ 图表工具已加载' },
-  { stage: 'verified' as const, rank: PROGRESS_RANK.verified, text: '✓ 链路已验证' },
+  { stage: 'initialized' as const, rank: PROGRESS_RANK.initialized, text: `✓ ${props.clientName || 'Agent'} connected` },
+  { stage: 'discovered' as const, rank: PROGRESS_RANK.discovered, text: '✓ Diagram tools loaded' },
+  { stage: 'verified' as const, rank: PROGRESS_RANK.verified, text: '✓ Link verified' },
 ])
 
 const promptText = computed(() => {

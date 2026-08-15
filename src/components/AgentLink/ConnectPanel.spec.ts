@@ -159,7 +159,9 @@ describe('ConnectPanel', () => {
   it('waiting state shows the stage ladder once the agent is seen', () => {
     const w = mountPanel({ state: 'waiting', token: 'CL-T', progressStage: 'initialized', clientName: 'claude-code' })
     const ladder = w.find('[data-testid="agent-link-progress"]')
-    expect(ladder.text()).toContain('claude-code 已连接')
+    expect(ladder.text()).toContain('claude-code connected')
+    expect(ladder.text()).toContain('Diagram tools loaded')
+    expect(ladder.text()).toContain('Link verified')
     expect(w.find('[data-testid="agent-link-setup"]').exists()).toBe(false) // setup hidden after handshake
   })
 
@@ -169,9 +171,17 @@ describe('ConnectPanel', () => {
     expect(w.find('[data-testid="agent-link-setup"]').exists()).toBe(true)
   })
 
+  // Anchored on the hint ELEMENT and on wording unique to it. The earlier
+  // version asserted only that the panel text contained '/mcp', which the
+  // setup command's own URL (…/agent-link/mcp) already satisfies — deleting
+  // the whole hint paragraph left that assertion green (final-review fix 4).
   it('timeout copy names a wrong/stale paste as a possible cause', () => {
     const w = mountPanel({ state: 'timeout', token: 'CL-T', progressStage: null })
-    expect(w.text()).toContain('/mcp') // "restart the session or run /mcp" hint
+    const hint = w.find('[data-testid="agent-link-timeout-hint"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('already running')
+    expect(hint.text()).toContain('run /mcp')
+    expect(hint.text()).toContain('mistyped token')
   })
 
   it('timeout: shows the setup command', () => {

@@ -1,5 +1,6 @@
 /**
- * The allowlist that decides whether the Lite byline exists at all.
+ * The allowlist that decides whether the Lite byline exists at all, and the
+ * space sweep that materialises it.
  *
  * Worth pinning at this level because the gate it feeds is fail-CLOSED and
  * therefore silent in both directions. A decision that wrongly returns HIDDEN
@@ -8,6 +9,11 @@
  * a button. A decision that wrongly returns VISIBLE exposes the surface on
  * tenants that were never enrolled. Neither shows up anywhere else in the
  * suite, so the mapping is asserted here directly.
+ *
+ * The sweep tests run against src/space-properties.fixtures.ts, which models
+ * the API contracts rather than replaying canned responses — the PUT version
+ * sequence and the app-property body-is-value trap are enforced there, so a
+ * regression in either fails these tests instead of the next deployment.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -35,23 +41,14 @@ import {
   decide,
   HIDDEN,
   scheduledHandler,
+  SPACE_PROP_KEY,
   VISIBLE,
 } from './byline-visibility';
-
-/** Minimal stand-in for the Response `requestConfluence` resolves to. */
-function res(status: number, body: unknown = '') {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
-  };
-}
-
-/** The GET envelope: the stored value sits under `value`. */
-const stored = (value: unknown) => res(200, { key: 'byline-enabled', value });
+import { fakeConfluence, makeSite, propOn, setProp, type FakeSite } from './space-properties.fixtures';
 
 const LITE_STG = 'c78e721e-957f-402c-9b70-1df2227c2739';
 const WHIMET4 = '866c3a03-ec62-4717-91c4-1ad078bfcc60';
+const NOBODY = '00000000-0000-0000-0000-000000000000';
 
 describe('decide', () => {
   it('enrols the Lite E2E site', () => {
@@ -67,7 +64,7 @@ describe('decide', () => {
   });
 
   it('suppresses an installation that is not on the allowlist', () => {
-    const d = decide('00000000-0000-0000-0000-000000000000');
+    const d = decide(NOBODY);
     expect(d.value).toBe(HIDDEN);
     expect(d.decision).toBe('suppressed');
     expect(d.reason).toBe('not_enrolled');
@@ -118,94 +115,117 @@ describe('currentCloudId', () => {
   });
 });
 
-/**
- * The stored SHAPE, which is where this feature has failed twice.
- *
- * Both failures answered a 2xx and left the byline hidden, so neither showed up
- * as an error anywhere — the only symptom was a display condition that silently
- * never matched. First the writer PUT `{key, value}` and the endpoint stored
- * that envelope AS the value, nesting it. Then it PUT the bare string "true",
- * which the endpoint rejects with 400 on create because it types the body as an
- * object — invisible in a spike against a site whose property already existed,
- * since that only ever exercised an update.
- *
- * So the body must be an object and the condition must address a field inside
- * it via `objectName`. These tests pin the exact bytes, because "it wrote
- * something and got a 200" is precisely the assertion that passed twice while
- * the feature was broken.
- */
 describe('scheduledHandler', () => {
+  let site: FakeSite;
+
+  function arrange(cloudId: string, spaces: string[] = ['11', '22', '33']) {
+    site = makeSite(spaces);
+    forgeMocks.requestConfluence.mockImplementation(fakeConfluence(site));
+    forgeMocks.getAppContext.mockReturnValue({ installation: { contexts: [{ cloudId }] } });
+  }
+
   beforeEach(() => {
     forgeMocks.requestConfluence.mockReset();
     forgeMocks.getAppContext.mockReset();
-    forgeMocks.getAppContext.mockReturnValue({
-      installation: { contexts: [{ cloudId: LITE_STG }] },
-    });
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
   });
 
-  it('creates the property as an OBJECT when none exists', async () => {
-    forgeMocks.requestConfluence
-      .mockResolvedValueOnce(res(404))
-      .mockResolvedValueOnce(res(200))
-      .mockResolvedValueOnce(stored({ enabled: 'true' }));
+  it('enrolment writes the space property to EVERY space, then the marker', async () => {
+    arrange(LITE_STG);
 
     await scheduledHandler();
 
-    const [, options] = forgeMocks.requestConfluence.mock.calls[1];
-    expect(options.method).toBe('PUT');
-    // Not `"true"` (400 on create) and not `{"key":…,"value":…}` (stored
-    // verbatim and nested). The object carrying the flag, and nothing else.
-    expect(options.body).toBe(JSON.stringify({ enabled: 'true' }));
-    expect(JSON.parse(options.body)).toEqual({ enabled: 'true' });
+    for (const spaceId of site.spaces) {
+      expect(propOn(site, spaceId, SPACE_PROP_KEY)?.value, `space ${spaceId}`).toEqual({
+        enabled: 'true',
+      });
+    }
+    expect(site.appProps.get('byline-enabled')).toEqual({ enabled: 'true' });
   });
 
-  it('writes HIDDEN for an installation that is not allowlisted', async () => {
-    forgeMocks.getAppContext.mockReturnValue({
-      installation: { contexts: [{ cloudId: '00000000-0000-0000-0000-000000000000' }] },
+  it('a settled enrolled site does not write on later ticks', async () => {
+    arrange(LITE_STG);
+    await scheduledHandler();
+    site.calls.length = 0;
+
+    await scheduledHandler();
+
+    const writes = site.calls.filter((c) => c.method !== 'GET');
+    expect(writes).toEqual([]);
+  });
+
+  // The update path must follow the documented version sequence — the fixture
+  // answers 409 to anything but current+1, so a wrong bump shows up here as a
+  // failed sweep rather than on staging.
+  it('corrects a wrong stored value via a versioned update', async () => {
+    arrange(LITE_STG, ['11']);
+    setProp(site, '11', SPACE_PROP_KEY, { enabled: 'false' }, 3);
+
+    await scheduledHandler();
+
+    const prop = propOn(site, '11', SPACE_PROP_KEY);
+    expect(prop?.value).toEqual({ enabled: 'true' });
+    expect(prop?.version).toBe(4);
+  });
+
+  // Absence is the hidden state: a suppressed installation that never enrolled
+  // must not pay a space sweep every hour to prove there is nothing to clear.
+  it('a suppressed site with no marker never lists spaces', async () => {
+    arrange(NOBODY);
+
+    await scheduledHandler();
+
+    expect(site.calls.some((c) => c.url.startsWith('/wiki/api/v2/spaces?'))).toBe(false);
+    for (const spaceId of site.spaces) {
+      expect(propOn(site, spaceId, SPACE_PROP_KEY)).toBeUndefined();
+    }
+  });
+
+  it('un-enrolment sweeps the properties away and clears the marker', async () => {
+    arrange(NOBODY);
+    for (const spaceId of site.spaces) setProp(site, spaceId, SPACE_PROP_KEY, { enabled: 'true' });
+    site.appProps.set('byline-enabled', { enabled: 'true' });
+
+    await scheduledHandler();
+
+    for (const spaceId of site.spaces) {
+      expect(propOn(site, spaceId, SPACE_PROP_KEY)).toBeUndefined();
+    }
+    expect(site.appProps.get('byline-enabled')).toEqual({ enabled: 'false' });
+  });
+
+  // The marker asserts "the spaces are settled", so it must survive a tick
+  // that could not finish — otherwise a partial clear never retries and stale
+  // `enabled:"true"` properties strand on the skipped spaces forever.
+  it('keeps the marker when the un-enrolment sweep cannot complete', async () => {
+    arrange(NOBODY, ['11', '22']);
+    for (const spaceId of site.spaces) setProp(site, spaceId, SPACE_PROP_KEY, { enabled: 'true' });
+    site.appProps.set('byline-enabled', { enabled: 'true' });
+    const inner = fakeConfluence(site);
+    forgeMocks.requestConfluence.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (init?.method === 'DELETE' && url.includes('/spaces/22/')) {
+        return { ok: false, status: 500, text: async () => '' };
+      }
+      return inner(url, init);
     });
-    forgeMocks.requestConfluence
-      .mockResolvedValueOnce(res(404))
-      .mockResolvedValueOnce(res(200))
-      .mockResolvedValueOnce(stored({ enabled: 'false' }));
 
     await scheduledHandler();
 
-    expect(JSON.parse(forgeMocks.requestConfluence.mock.calls[1][1].body)).toEqual({
-      enabled: HIDDEN,
+    expect(site.appProps.get('byline-enabled')).toEqual({ enabled: 'true' });
+    expect(propOn(site, '22', SPACE_PROP_KEY)).toBeDefined();
+  });
+
+  it('does not claim enrolment when the space listing itself fails', async () => {
+    arrange(LITE_STG);
+    forgeMocks.requestConfluence.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (url.startsWith('/wiki/api/v2/spaces?')) {
+        return { ok: false, status: 500, text: async () => '' };
+      }
+      return fakeConfluence(site)(url, init);
     });
-  });
-
-  it('rewrites over the legacy double-wrapped value instead of reading it as settled', async () => {
-    forgeMocks.requestConfluence
-      .mockResolvedValueOnce(stored({ key: 'byline-enabled', value: 'true' }))
-      .mockResolvedValueOnce(res(200))
-      .mockResolvedValueOnce(stored({ enabled: 'true' }));
 
     await scheduledHandler();
 
-    expect(forgeMocks.requestConfluence).toHaveBeenCalledTimes(3);
-    expect(forgeMocks.requestConfluence.mock.calls[1][1].method).toBe('PUT');
-  });
-
-  it('rewrites over a legacy bare-string value', async () => {
-    forgeMocks.requestConfluence
-      .mockResolvedValueOnce(stored('true'))
-      .mockResolvedValueOnce(res(200))
-      .mockResolvedValueOnce(stored({ enabled: 'true' }));
-
-    await scheduledHandler();
-
-    expect(forgeMocks.requestConfluence.mock.calls[1][1].method).toBe('PUT');
-  });
-
-  // Idempotence: the steady state must cost one GET, or every install pays a
-  // write every hour and 'unchanged' stops being observable.
-  it('does not write when the stored field already matches', async () => {
-    forgeMocks.requestConfluence.mockResolvedValueOnce(stored({ enabled: 'true' }));
-
-    await scheduledHandler();
-
-    expect(forgeMocks.requestConfluence).toHaveBeenCalledTimes(1);
+    expect(site.appProps.has('byline-enabled')).toBe(false);
   });
 });

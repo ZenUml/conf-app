@@ -1,4 +1,12 @@
 import api, { getAppContext, route } from '@forge/api';
+import {
+  emptyTally,
+  ensureSpaceProperty,
+  formatTally,
+  listSpaceIds,
+  removeSpaceProperty,
+  type SweepTally,
+} from './space-properties';
 
 /**
  * Keeps the `byline-enabled` app property in sync with whether this
@@ -42,22 +50,44 @@ import api, { getAppContext, route } from '@forge/api';
  * visibility. A day of that would mean a day of red byline E2E after any deploy
  * to a fresh install.
  *
- * SCOPE, this change: visibility is an explicit cloudId ALLOWLIST (below).
- * Every other installation is written HIDDEN. The both-apps-installed
- * suppression remains Phase 2 of
- * docs/superpowers/plans/2026-08-15-byline-visibility-app-property.md and lands
- * as a Remote call inside `decide()`.
+ * SCOPE: visibility is an explicit cloudId ALLOWLIST (below), materialised as
+ * the `zenuml-byline-lite` SPACE property on every space of an enrolled
+ * installation — the display condition on zenuml-byline-diagrams reads that
+ * space property, not the app property. The both-apps-installed suppression is
+ * NOT decided here: the Full app marks its own presence per space
+ * (`zenuml-full-active`, src/full-presence.ts) and the manifest condition
+ * subtracts it with a `not entityPropertyExists` leg. That replaces the plan
+ * doc's D1-with-TTL presence inference, whose input data the doc itself
+ * documents as defective (cloudId NULL on most Lite rows, no uninstall event).
+ *
+ * The `byline-enabled` APP property survives with a demoted job: it is the
+ * writer's own last-state marker. A suppressed installation must not pay a
+ * full space sweep every hour just to prove there is nothing to clear — the
+ * marker says whether a previous tick enrolled this site, so un-enrolment
+ * sweeps exactly once and steady-state suppression stays one GET per tick.
  */
 
 const PROPERTY_KEY = 'byline-enabled';
 
 /**
- * Field inside the property object that holds the flag. Must stay in lockstep
- * with `objectName` on the zenuml-byline-diagrams display condition — the
- * condition evaluates false when the path is absent, so a rename on one side
- * alone hides the byline everywhere and says nothing about why.
+ * Field inside the property object that holds the flag. The app property is
+ * now only the writer's marker, but the SPACE property below reuses the same
+ * `{enabled: "..."}` shape, and there `objectName: enabled` on the
+ * zenuml-byline-diagrams display condition depends on it — the condition
+ * evaluates false when the path is absent, so a rename on one side alone hides
+ * the byline everywhere and says nothing about why.
  */
 const PROPERTY_FIELD = 'enabled';
+
+/**
+ * The space property the display condition actually reads. Same object shape
+ * as the app property deliberately: `{enabled:"true"}` + `objectName` is the
+ * one encoding that has been PROVEN to satisfy entityPropertyEqualTo on this
+ * surface (staging, 2026-08-15), and the string-vs-object conversion semantics
+ * of a bare value is exactly where this feature failed twice before.
+ */
+export const SPACE_PROP_KEY = 'zenuml-byline-lite';
+const SPACE_PROP_VALUE = { [PROPERTY_FIELD]: 'true' };
 
 /**
  * Built as a literal template. NOT `route`${path}`` — `route` percent-encodes
@@ -225,6 +255,22 @@ async function write(value: string): Promise<{ ok: boolean; status: number; body
   return { ok: res.ok, status: res.status, body };
 }
 
+/** Ensure the marker app property reads `target`, read-back verified. */
+async function settleMarker(target: string): Promise<boolean> {
+  const current = await readCurrent();
+  if (current.value === target) return true;
+  const res = await write(target);
+  const after = await readCurrent();
+  const settled = after.value === target;
+  if (!res.ok || !settled) {
+    console.log(
+      `${L} marker write failed status=${res.status} readback=${String(after.value)}` +
+        `${res.body ? ` body=${res.body.slice(0, 300)}` : ''}`,
+    );
+  }
+  return settled;
+}
+
 export async function scheduledHandler() {
   const cloudId = readCloudId();
   const { value: target, decision, reason, site } = decide(cloudId);
@@ -233,27 +279,53 @@ export async function scheduledHandler() {
       `decision=${decision} reason=${reason} target=${target}`,
   );
 
-  const current = await readCurrent();
-  console.log(`${L} current status=${current.status} value=${String(current.value)}`);
-
-  // Idempotence is not a micro-optimisation here: without it every tick writes,
-  // which burns a request per install per hour and makes 'unchanged' — the
-  // expected steady state — unobservable.
-  if (current.value === target) {
-    console.log(`${L} write result=unchanged`);
+  if (target === VISIBLE) {
+    // Enrolled: every space carries the property the display condition reads.
+    // Sweep first, marker second — the marker asserts "spaces are enrolled",
+    // so it must never be set by a tick that died mid-sweep.
+    const tally = await sweep((spaceId) => ensureSpaceProperty(spaceId, SPACE_PROP_KEY, SPACE_PROP_VALUE));
+    const markerSettled = tally.failed === 0 ? await settleMarker(VISIBLE) : false;
+    console.log(
+      `${L} write result=${tally.failed > 0 || !markerSettled ? 'failed' : tally.created + tally.updated > 0 ? 'written' : 'unchanged'} ${formatTally(tally)} marker=${markerSettled}`,
+    );
     return;
   }
 
-  const res = await write(target);
-  // Read back rather than trusting the status. A 200 here only says the request
-  // was accepted; it does NOT say the stored value has the shape the display
-  // condition compares against — which is exactly how the double-wrapped write
-  // reported success while the byline stayed hidden.
-  const after = await readCurrent();
-  const settled = after.value === target;
+  // Suppressed: absence is the hidden state, so there is nothing to write —
+  // UNLESS a previous tick enrolled this site, which is what the marker
+  // remembers. Then the space properties must be swept away exactly once.
+  const current = await readCurrent();
+  console.log(`${L} current status=${current.status} marker=${String(current.value)}`);
+  if (current.value !== VISIBLE) {
+    console.log(`${L} write result=unchanged`);
+    return;
+  }
+  const tally = await sweep((spaceId) => removeSpaceProperty(spaceId, SPACE_PROP_KEY));
+  // Marker clears only after a clean sweep, so a partial clear retries next
+  // tick instead of stranding stale `enabled:"true"` properties forever.
+  const markerSettled = tally.failed === 0 ? await settleMarker(HIDDEN) : false;
   console.log(
-    `${L} write result=${!res.ok ? 'failed' : settled ? (target === VISIBLE ? 'written' : 'cleared') : 'failed'} ` +
-      `status=${res.status} readback=${String(after.value)} settled=${settled}` +
-      `${res.body ? ` body=${res.body.slice(0, 300)}` : ''}`,
+    `${L} write result=${tally.failed > 0 || !markerSettled ? 'failed' : 'cleared'} ${formatTally(tally)} marker=${markerSettled}`,
   );
+}
+
+/** Run `perSpace` over every space on the site, tallying outcomes. */
+async function sweep(
+  perSpace: (spaceId: string) => Promise<'created' | 'updated' | 'unchanged' | 'deleted' | 'absent' | 'failed'>,
+): Promise<SweepTally> {
+  const tally = emptyTally();
+  let spaceIds: string[];
+  try {
+    spaceIds = await listSpaceIds();
+  } catch (e) {
+    console.log(`${L} sweep aborted: ${e instanceof Error ? e.message : String(e)}`);
+    tally.failed += 1;
+    return tally;
+  }
+  tally.spaces = spaceIds.length;
+  for (const spaceId of spaceIds) {
+    const outcome = await perSpace(spaceId).catch(() => 'failed' as const);
+    tally[outcome] += 1;
+  }
+  return tally;
 }

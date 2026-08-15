@@ -169,8 +169,8 @@ jobs:
         with:
           cmd: |
             yq eval '
-              del(.modules.function[] | select(.key == "liteFullConversionFn"))
-              | del(.modules.scheduledTrigger[] | select(.key == "full-lite2full-hourly"))
+              del(.modules.function[] | select(.key == "liteFullConversionFn" or .key == "fullPresenceFn"))
+              | del(.modules.scheduledTrigger[] | select(.key == "full-lite2full-hourly" or .key == "full-presence-daily"))
               | del(.modules.scheduledTrigger | select(length == 0))
             ' -i manifest.yml
       # AsyncAPI: keep only the asyncapi macros, drop the dashboard /

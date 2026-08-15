@@ -398,6 +398,14 @@ modules:
     - key: full-lite2full-hourly
       function: liteFullConversionFn
       interval: hour
+    # Full-only. Variant builds strip this from Lite, Diagramly, and AsyncAPI.
+    # Marks Full's presence on every space (`zenuml-full-active`) so the Lite
+    # byline's display condition can hide itself beside Full. Daily: presence
+    # changes at install cadence, and the sweep costs a read per space across
+    # every production Full install. See src/full-presence.ts.
+    - key: full-presence-daily
+      function: fullPresenceFn
+      interval: day
   endpoint:
     - key: remote-connect
       remote: connect
@@ -507,22 +515,34 @@ modules:
       # `value` MUST be the string "true". `forge lint` rejects a boolean with
       # '"value" property must be string', so the stored property value has to
       # be the string too or the comparison can never match.
-      # `objectName` is required, not decorative: the app-properties endpoint
-      # types its request body as an object and answers 400 to a bare JSON
-      # scalar on create, so the stored value is `{"enabled":"true"}` and the
-      # condition has to address the field inside it. Without objectName this
-      # compares "true" against the whole object and can never match.
-      # PROPERTY_FIELD in src/byline-visibility.ts is the other half of this
-      # pair — renaming one alone hides the byline everywhere, silently.
+      # Fail-CLOSED gate on SPACE properties, two legs ANDed:
       #
-      # `value` MUST stay the string "true": forge lint rejects a boolean with
-      # '"value" property must be string'.
+      # 1. `zenuml-byline-lite` must say enabled — written to every space by
+      #    the Lite `byline-visibility-hourly` sweep (src/byline-visibility.ts,
+      #    cloudId-allowlist rollout). Absent property = no byline.
+      # 2. `zenuml-full-active` must NOT exist — the FULL app's daily sweep
+      #    (src/full-presence.ts, Full variant only) marks its presence per
+      #    space, and the Lite byline hides itself where Full already provides
+      #    its own surfaces. Space properties are site-global across apps,
+      #    which is what makes a marker written by Full readable here.
+      #
+      # `objectName` + object value is the encoding PROVEN on this surface —
+      # a bare value's string-conversion semantics is where this gate failed
+      # twice. PROPERTY_FIELD in src/byline-visibility.ts is the other half of
+      # the pair; renaming one side alone hides the byline everywhere silently.
+      # `value` MUST stay the string "true": forge lint rejects a boolean.
+      # Only one property condition may sit per tree level, hence the nesting.
       displayConditions:
-        entityPropertyEqualTo:
-          entity: app
-          propertyKey: byline-enabled
-          objectName: enabled
-          value: "true"
+        and:
+          entityPropertyEqualTo:
+            entity: space
+            propertyKey: zenuml-byline-lite
+            objectName: enabled
+            value: "true"
+          not:
+            entityPropertyExists:
+              entity: space
+              propertyKey: zenuml-full-active
       # zenuml.com's own favicon, matching the panel's header. It is a square
       # mark drawn to be read at favicon size, so it survives the ~16px
       # Confluence gives a byline icon — unlike the stacked wordmark tried
@@ -631,6 +651,11 @@ modules:
       handler: createDemoPage.scheduledHandler
     - key: bylineVisibilityFn
       handler: byline-visibility.scheduledHandler
+      # Sweeps every space (property read+write per space), not one property.
+      timeoutSeconds: 900
+    - key: fullPresenceFn
+      handler: full-presence.scheduledHandler
+      timeoutSeconds: 900
     - key: macroCountSnapshotFn
       handler: macro-count-snapshot.scheduledHandler
       timeoutSeconds: 900

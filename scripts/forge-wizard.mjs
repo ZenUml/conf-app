@@ -66,7 +66,7 @@ export const APPS = {
       {
         description: 'Remove Diagramly demo-page modules (Lite keeps only macro snapshot schedule)',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "liteFullConversionFn")) | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline" or .key == "full-lite2full-hourly"))',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "liteFullConversionFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline" or .key == "full-lite2full-hourly" or .key == "full-presence-daily"))',
       },
     ],
     sites: {
@@ -196,7 +196,7 @@ export const APPS = {
       {
         description: 'Remove Lite macro snapshot schedule from Diagramly',
         yqEvalExpr:
-          'del(.modules.function[] | select(.key == "macroCountSnapshotFn" or .key == "liteFullConversionFn" or .key == "bylineVisibilityFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "full-lite2full-hourly" or .key == "byline-visibility-hourly"))',
+          'del(.modules.function[] | select(.key == "macroCountSnapshotFn" or .key == "liteFullConversionFn" or .key == "bylineVisibilityFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "full-lite2full-hourly" or .key == "byline-visibility-hourly" or .key == "full-presence-daily"))',
       },
     ],
     sites: {
@@ -288,7 +288,7 @@ export const APPS = {
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from AsyncAPI',
         yqEvalExpr:
-          'del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn" or .key == "liteFullConversionFn" or .key == "bylineVisibilityFn")) | del(.modules.scheduledTrigger)',
+          'del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn" or .key == "liteFullConversionFn" or .key == "bylineVisibilityFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger)',
       },
     ],
     sites: {

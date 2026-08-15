@@ -28,12 +28,27 @@ export interface FakeSite {
   spaceProps: Map<string, FakeSpaceProperty[]>;
   /** App property store: propertyKey -> stored value. */
   appProps: Map<string, unknown>;
+  /** Forge app storage: key -> value. */
+  storage: Map<string, unknown>;
   /** Every request, for call-shape assertions. */
   calls: Array<{ method: string; url: string; body?: unknown }>;
 }
 
 export function makeSite(spaces: string[]): FakeSite {
-  return { spaces, spaceProps: new Map(), appProps: new Map(), calls: [] };
+  return { spaces, spaceProps: new Map(), appProps: new Map(), storage: new Map(), calls: [] };
+}
+
+/** A `storage`-shaped object (get/set/delete) over `site`. */
+export function fakeStorage(site: FakeSite) {
+  return {
+    get: async (key: string) => site.storage.get(key),
+    set: async (key: string, value: unknown) => {
+      site.storage.set(key, value);
+    },
+    delete: async (key: string) => {
+      site.storage.delete(key);
+    },
+  };
 }
 
 /** Convenience for asserting/arranging state. */
@@ -81,6 +96,11 @@ export function fakeConfluence(site: FakeSite, opts: { pageSize?: number } = {})
         const existed = site.appProps.has(key);
         site.appProps.set(key, body);
         return res(existed ? 200 : 201);
+      }
+      if (method === 'DELETE') {
+        if (!site.appProps.has(key)) return res(404);
+        site.appProps.delete(key);
+        return res(204);
       }
       return res(405);
     }

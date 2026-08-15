@@ -1,4 +1,4 @@
-import api, { getAppContext, route } from '@forge/api';
+import api, { getAppContext, route, storage } from '@forge/api';
 import {
   emptyTally,
   ensureSpaceProperty,
@@ -9,112 +9,136 @@ import {
 } from './space-properties';
 
 /**
- * Keeps the `byline-enabled` app property in sync with whether this
- * installation should render the Lite byline entry.
+ * Keeps the per-space `zenuml-byline*` enrolment property in sync with whether
+ * this installation should render the Lite byline entry.
  *
  * The property is read by `displayConditions` on `zenuml-byline-diagrams`
- * (manifest.yml). That gate is **fail-closed**: an installation with no
- * property renders no byline. Everything here exists to make sure the property
- * is present and correct, because nothing else can — in particular the byline
- * itself cannot repair it, since a hidden byline is never opened.
+ * (manifest.yml). That gate is **fail-closed**: a space with no property
+ * renders no byline. Everything here exists to make sure the property is
+ * present and correct on every space, because nothing else can — in
+ * particular the byline itself cannot repair it, since a hidden byline is
+ * never opened.
  *
- * Why a scheduled function and not the install trigger:
- *
- * - `remote-installed-trigger` forwards to the Cloudflare Remote, and the
- *   Confluence app-properties API is Forge-only. Probed 2026-08-15 with user
- *   basic auth it answers `401
- *   app.property.rest.add_or_delete_on_properties.not_forge_request` — "Missing
- *   OAuth client ID. Was this request sent by a Forge app?". So the backend
- *   cannot write this property no matter how it is authenticated; only
- *   `api.asApp()` from inside a Forge function can.
- * - `avi:forge:upgraded:app` has never produced a ForgeInstallation row in any
- *   of the four apps, despite the trigger subscribing to it. A release
- *   therefore does NOT sweep existing installs, and a scheduled pass is the
- *   only mechanism proven to reach them.
- *
- * CALLER: `byline-visibility-hourly` (manifest.yml `scheduledTrigger`).
- *
- * That trigger existed, was removed while no rollout policy had been decided,
- * and is restored here now that one has. It satisfies the two constraints that
- * are not negotiable for any caller:
- *
- * - It has to be a Forge function, because `asApp()` is the only accepted
- *   caller of this API (see the 401 above).
- * - It cannot be the byline itself. A hidden byline is never opened, so the
- *   surface that needs the property can never be the one that writes it.
- *
- * Hourly rather than daily is about the FIRST write, not the steady state.
- * `scheduledHandler` is idempotent — once an installation's property matches
- * its decision every later tick is a single GET — so the interval only sets how
- * long a newly installed or newly allowlisted site waits with the wrong
- * visibility. A day of that would mean a day of red byline E2E after any deploy
- * to a fresh install.
+ * CALLER: `byline-visibility-hourly` (manifest.yml `scheduledTrigger`),
+ * Lite-only. Hourly is about the first write, not the steady state: the sweep
+ * is idempotent, and the interval only bounds how long a newly installed or
+ * newly allowlisted site waits with the wrong visibility.
  *
  * SCOPE: visibility is an explicit cloudId ALLOWLIST (below), materialised as
- * the `zenuml-byline-lite` SPACE property on every space of an enrolled
- * installation — the display condition on zenuml-byline-diagrams reads that
- * space property, not the app property. The both-apps-installed suppression is
- * NOT decided here: the Full app marks its own presence per space
- * (`zenuml-full-active`, src/full-presence.ts) and the manifest condition
- * subtracts it with a `not entityPropertyExists` leg. That replaces the plan
- * doc's D1-with-TTL presence inference, whose input data the doc itself
- * documents as defective (cloudId NULL on most Lite rows, no uninstall event).
+ * the enrolment space property on every space of an enrolled installation.
+ * The both-apps-installed suppression is NOT decided here: the Full app marks
+ * its own presence per space (`zenuml-full-active`, src/full-presence.ts) and
+ * the manifest condition subtracts it with a `not entityPropertyExists` leg.
  *
- * The `byline-enabled` APP property survives with a demoted job: it is the
- * writer's own last-state marker. A suppressed installation must not pay a
- * full space sweep every hour just to prove there is nothing to clear — the
- * marker says whether a previous tick enrolled this site, so un-enrolment
- * sweeps exactly once and steady-state suppression stays one GET per tick.
+ * STATE MARKER: whether a previous tick enrolled this site is remembered in
+ * Forge app storage (`storage:app` scope, already granted), NOT in a
+ * Confluence property. A suppressed installation must not pay a full space
+ * sweep every hour just to prove there is nothing to clear — the marker makes
+ * un-enrolment sweep exactly once and steady-state suppression cost one
+ * storage read per tick, with no residue visible in the tenant's Confluence
+ * data. An earlier revision kept this marker in the `byline-enabled` APP
+ * property (the previous gate mechanism); that property is vestigial and is
+ * DELETED on the next state transition — see `deleteLegacyAppProperty`.
  */
 
-const PROPERTY_KEY = 'byline-enabled';
-
 /**
- * Field inside the property object that holds the flag. The app property is
- * now only the writer's marker, but the SPACE property below reuses the same
- * `{enabled: "..."}` shape, and there `objectName: enabled` on the
- * zenuml-byline-diagrams display condition depends on it — the condition
- * evaluates false when the path is absent, so a rename on one side alone hides
- * the byline everywhere and says nothing about why.
+ * Field inside the space property object that holds the flag. `objectName:
+ * enabled` on the zenuml-byline-diagrams display condition depends on it — the
+ * condition evaluates false when the path is absent, so a rename on one side
+ * alone hides the byline everywhere and says nothing about why. The object
+ * shape (rather than a bare value) is the one encoding PROVEN to satisfy
+ * entityPropertyEqualTo on this surface; bare-value string conversion is where
+ * this gate failed twice before.
  */
 const PROPERTY_FIELD = 'enabled';
-
-/**
- * The space property the display condition actually reads. Same object shape
- * as the app property deliberately: `{enabled:"true"}` + `objectName` is the
- * one encoding that has been PROVEN to satisfy entityPropertyEqualTo on this
- * surface (staging, 2026-08-15), and the string-vs-object conversion semantics
- * of a bare value is exactly where this feature failed twice before.
- *
- * The manifest condition templates this key as `zenuml-byline${LITE_KEY_SUFFIX}`
- * so the module block stays variant-portable; this constant is the LITE
- * resolution of that template, and Lite is the only variant that ships this
- * writer (fn stripped elsewhere). A Full enrolment writer cannot reuse this
- * constant — Full resolves to `zenuml-byline` — and must derive its key from
- * the app it runs in, not import this one.
- */
-export const SPACE_PROP_KEY = 'zenuml-byline-lite';
 const SPACE_PROP_VALUE = { [PROPERTY_FIELD]: 'true' };
 
 /**
- * Built as a literal template. NOT `route`${path}`` — `route` percent-encodes
- * its interpolations, so passing a whole path escapes the slashes into one
- * nonsense segment.
+ * The manifest templates the property key per variant:
+ * `zenuml-byline${LITE_KEY_SUFFIX}` (manifest.yml, zenuml-byline-diagrams).
+ * The writer cannot read that template — no evidence exists that manifest
+ * environment variables reach the function runtime — so it derives the same
+ * key from the one fact the runtime does hand it: which app it is running in.
+ *
+ * appId → suffix mirrors APPS in scripts/forge-wizard.mjs (the source of
+ * truth for both values), and tests/unit/bylineKeyConsistency.spec.ts pins
+ * code, wizard, and manifest template to each other — a drift in any of the
+ * three fails the suite rather than silently hiding the byline.
  */
-const PROP_ROUTE = route`/wiki/api/v2/app/properties/byline-enabled`;
+export const SPACE_PROP_BASE = 'zenuml-byline';
+export const APP_SPACE_KEY_SUFFIXES: ReadonlyMap<string, string> = new Map([
+  ['8ad26115-211f-4216-971b-0540f606303d', '-lite'], // lite
+  ['d9e4002b-120b-426b-834b-402a4a5adce7', ''], // full
+  ['01ede8b1-4e88-451a-b9ef-89eeef93afaf', ''], // diagramly
+  ['49017727-af19-4ab6-8d5a-7d28108936b6', ''], // asyncapi
+]);
+
+/**
+ * The enrolment property key for the app this invocation runs in, or
+ * undefined for an app not in the map — in which case the caller must write
+ * NOTHING: a wrong key would satisfy no display condition (silently hidden,
+ * fail-closed) but would still litter every space with junk properties.
+ */
+export function spacePropertyKey(appId: string | undefined): string | undefined {
+  if (!appId) return undefined;
+  const suffix = APP_SPACE_KEY_SUFFIXES.get(appId);
+  if (suffix === undefined) return undefined;
+  return `${SPACE_PROP_BASE}${suffix}`;
+}
 
 /**
  * The property value, and the `value:` in the manifest display condition, are
  * both the STRING "true" rather than a boolean. That is forced, not stylistic:
- * `forge lint` rejects a boolean there outright —
- *   Display conditions of "zenuml-byline-diagrams" are invalid.
- *   "value" property must be string.
- * so a boolean in the property could never match the condition it exists for.
+ * `forge lint` rejects a boolean there outright, so a boolean in the property
+ * could never match the condition it exists for.
  */
 export const VISIBLE = 'true';
 export const HIDDEN = 'false';
 
 const L = '[byline-visibility]';
+
+/**
+ * Forge storage key remembering the last settled state of this installation:
+ * 'enrolled' (spaces carry the property) or 'clean' (they verifiably do not).
+ * Absent means unknown — e.g. first tick after this code deploys — and reads
+ * as not-settled, so the handler converges with one sweep.
+ */
+const STATE_KEY = 'byline-visibility-state';
+type SettledState = 'enrolled' | 'clean';
+
+async function readState(): Promise<SettledState | undefined> {
+  try {
+    const v = await storage.get(STATE_KEY);
+    return v === 'enrolled' || v === 'clean' ? v : undefined;
+  } catch {
+    // Unknown state degrades to an extra sweep, never to a wrong gate.
+    return undefined;
+  }
+}
+
+async function writeState(state: SettledState): Promise<void> {
+  try {
+    await storage.set(STATE_KEY, state);
+  } catch {
+    // Next tick re-converges; the sweep it repeats is idempotent.
+  }
+}
+
+/**
+ * The `byline-enabled` APP property was the previous gate mechanism and then
+ * briefly the writer's marker; nothing reads it anymore. Deleted on each state
+ * transition rather than on every tick — transitions are rare, and after the
+ * first one this is a no-op 404 that never runs again for the installation.
+ */
+async function deleteLegacyAppProperty(): Promise<void> {
+  const res = await api
+    .asApp()
+    .requestConfluence(route`/wiki/api/v2/app/properties/byline-enabled`, { method: 'DELETE' })
+    .catch(() => undefined);
+  if (res && !res.ok && res.status !== 404) {
+    console.log(`${L} legacy app property delete failed status=${res.status}`);
+  }
+}
 
 /**
  * Reasons are drawn from the `byline_visibility_reason` union already
@@ -190,129 +214,64 @@ export function decide(cloudId: string | undefined): Decision {
   return { value: VISIBLE, decision: 'visible', reason: 'enrolled', site };
 }
 
-/**
- * `getAppContext()` throws outside an invocation context. Catching keeps that
- * failure on the fail-closed path instead of killing the tick.
- */
-function readCloudId(): string | undefined {
+/** `getAppContext()` throws outside an invocation context; degrade to unknown. */
+function readContext(): { cloudId?: string; appId?: string } {
   try {
-    return currentCloudId(getAppContext());
+    const ctx = getAppContext();
+    return { cloudId: currentCloudId(ctx), appId: ctx.appAri?.appId };
   } catch {
-    return undefined;
+    return {};
   }
-}
-
-async function readCurrent(): Promise<{ value?: string; status: number }> {
-  const res = await api.asApp().requestConfluence(PROP_ROUTE);
-  if (!res.ok) return { status: res.status };
-  // Text, then parse: a non-JSON body on an unexpected status would otherwise
-  // throw here and lose the status code, which is the useful part.
-  const body = await res.text().catch(() => '');
-  try {
-    const parsed = JSON.parse(body);
-    // The GET envelope is `{key, value}`, so `parsed.value` is the stored
-    // value — an OBJECT, and the flag lives at PROPERTY_FIELD inside it (see
-    // `write`). Read as a string only when it actually is one, so that every
-    // shape this key has ever held — absent, a bare string, or the
-    // double-wrapped `{key, value}` from the original writer — reads as
-    // undefined and triggers a corrective write rather than comparing equal to
-    // nothing forever.
-    const field = parsed?.value?.[PROPERTY_FIELD];
-    return { value: typeof field === 'string' ? field : undefined, status: res.status };
-  } catch {
-    return { status: res.status };
-  }
-}
-
-/**
- * Write the property as a JSON OBJECT carrying the flag at `PROPERTY_FIELD`.
- *
- * Two constraints meet here, and only this shape satisfies both.
- *
- * The endpoint takes the ENTIRE request body as the property value, so an
- * envelope gets stored verbatim and nests — observed on whimet4 2026-08-15, a
- * PUT of `{"key":"byline-enabled","value":"true"}` read back as
- *   {"key":"byline-enabled","value":{"key":"byline-enabled","value":"true"}}
- * which answered 200 while leaving a value no condition could match.
- *
- * The obvious correction — PUT the bare string `"true"` — is rejected. The v2
- * app-properties reference types the request body as `object` (its example is
- * `{ "name": "Forge app", "darkMode": true, ... }`), and a bare JSON scalar
- * answers 400 on CREATE. That failure was invisible in the whimet4 spike
- * because the property already existed there, so the spike only ever exercised
- * an UPDATE. Confirmed against a fresh installation in the staging logs
- * 2026-08-15T04:34Z — full-stg, `current status=404` then
- * `write result=failed status=400`.
- *
- * So the value is an object, and the display condition reaches into it with
- * `objectName: enabled` (manifest.yml). PUT is correct for both create and
- * update — the reference documents one endpoint answering 201 Created or
- * 200 OK — and no `version.number` is needed for either.
- */
-async function write(value: string): Promise<{ ok: boolean; status: number; body: string }> {
-  const res = await api.asApp().requestConfluence(PROP_ROUTE, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ [PROPERTY_FIELD]: value }),
-  });
-  // The response body is read on failure because the status alone is what made
-  // the 400 above take a deployment to understand: 'failed status=400' does not
-  // say whether the body shape, the route, or the scope was wrong.
-  const body = res.ok ? '' : await res.text().catch(() => '');
-  return { ok: res.ok, status: res.status, body };
-}
-
-/** Ensure the marker app property reads `target`, read-back verified. */
-async function settleMarker(target: string): Promise<boolean> {
-  const current = await readCurrent();
-  if (current.value === target) return true;
-  const res = await write(target);
-  const after = await readCurrent();
-  const settled = after.value === target;
-  if (!res.ok || !settled) {
-    console.log(
-      `${L} marker write failed status=${res.status} readback=${String(after.value)}` +
-        `${res.body ? ` body=${res.body.slice(0, 300)}` : ''}`,
-    );
-  }
-  return settled;
 }
 
 export async function scheduledHandler() {
-  const cloudId = readCloudId();
+  const { cloudId, appId } = readContext();
   const { value: target, decision, reason, site } = decide(cloudId);
   console.log(
     `${L} evaluated cloudId=${cloudId ?? 'unknown'} site=${site ?? '-'} ` +
       `decision=${decision} reason=${reason} target=${target}`,
   );
 
+  const key = spacePropertyKey(appId);
+  if (!key) {
+    console.log(`${L} write result=failed appId=${appId ?? 'unknown'} — no property key mapping, writing nothing`);
+    return;
+  }
+
+  const state = await readState();
+
   if (target === VISIBLE) {
     // Enrolled: every space carries the property the display condition reads.
     // Sweep first, marker second — the marker asserts "spaces are enrolled",
     // so it must never be set by a tick that died mid-sweep.
-    const tally = await sweep((spaceId) => ensureSpaceProperty(spaceId, SPACE_PROP_KEY, SPACE_PROP_VALUE));
-    const markerSettled = tally.failed === 0 ? await settleMarker(VISIBLE) : false;
+    const tally = await sweep((spaceId) => ensureSpaceProperty(spaceId, key, SPACE_PROP_VALUE));
+    if (tally.failed === 0 && state !== 'enrolled') {
+      await writeState('enrolled');
+      await deleteLegacyAppProperty();
+    }
     console.log(
-      `${L} write result=${tally.failed > 0 || !markerSettled ? 'failed' : tally.created + tally.updated > 0 ? 'written' : 'unchanged'} ${formatTally(tally)} marker=${markerSettled}`,
+      `${L} write result=${tally.failed > 0 ? 'failed' : tally.created + tally.updated > 0 ? 'written' : 'unchanged'} ${formatTally(tally)}`,
     );
     return;
   }
 
   // Suppressed: absence is the hidden state, so there is nothing to write —
-  // UNLESS a previous tick enrolled this site, which is what the marker
-  // remembers. Then the space properties must be swept away exactly once.
-  const current = await readCurrent();
-  console.log(`${L} current status=${current.status} marker=${String(current.value)}`);
-  if (current.value !== VISIBLE) {
-    console.log(`${L} write result=unchanged`);
+  // unless the installation is not KNOWN to be clean (a previous tick enrolled
+  // it, or the state is unknown, e.g. right after this code first deploys).
+  // Then the space properties are swept away exactly once, and the marker
+  // clears only after a clean sweep so a partial clear retries next tick
+  // instead of stranding stale `enabled:"true"` properties forever.
+  if (state === 'clean') {
+    console.log(`${L} write result=unchanged state=clean`);
     return;
   }
-  const tally = await sweep((spaceId) => removeSpaceProperty(spaceId, SPACE_PROP_KEY));
-  // Marker clears only after a clean sweep, so a partial clear retries next
-  // tick instead of stranding stale `enabled:"true"` properties forever.
-  const markerSettled = tally.failed === 0 ? await settleMarker(HIDDEN) : false;
+  const tally = await sweep((spaceId) => removeSpaceProperty(spaceId, key));
+  if (tally.failed === 0) {
+    await writeState('clean');
+    await deleteLegacyAppProperty();
+  }
   console.log(
-    `${L} write result=${tally.failed > 0 || !markerSettled ? 'failed' : 'cleared'} ${formatTally(tally)} marker=${markerSettled}`,
+    `${L} write result=${tally.failed > 0 ? 'failed' : 'cleared'} ${formatTally(tally)}`,
   );
 }
 

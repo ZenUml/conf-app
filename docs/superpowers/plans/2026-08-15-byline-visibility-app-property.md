@@ -14,8 +14,12 @@
 > - **Leg-1 writer**: `src/byline-visibility.ts`, hourly (`byline-visibility-hourly`), sweeps
 >   EVERY space via `src/space-properties.ts`. Rollout is a hardcoded **cloudId allowlist**
 >   (lite-stg, whimet4) — not the paywall-enrollment Remote endpoint of Phase 2; that seam
->   remains `decide()`. The app property `byline-enabled` survives only as the writer's
->   last-state marker (bounds un-enrolment cleanup to one sweep).
+>   remains `decide()`. The property key is derived at runtime from the appId and pinned
+>   three-way against the manifest template and forge-wizard in
+>   `tests/unit/bylineKeyConsistency.spec.ts`. Last-settled-state memory lives in Forge app
+>   storage (bounds un-enrolment cleanup to one sweep); the `byline-enabled` app property is
+>   fully retired — nothing reads or writes it, and the writer deletes any stored value on its
+>   next state transition.
 > - **Leg-2 writer**: `src/full-presence.ts`, daily, Full variant only — Full **self-reports**
 >   presence per space. The D1 `ForgeInstallation` + TTL inference this plan proposed was
 >   dropped for the reasons this plan itself documents (defects 1 and 2 below); no cloudId

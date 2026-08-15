@@ -396,14 +396,14 @@ export type AnalyticsEventName =
   // Diagramly's ai_aide_route_accessed unusable as a numerator.
   // `decision` = 'visible' | 'suppressed'; `reason` names what drove it.
   | "byline_visibility_evaluated"
-  // The result of maintaining byline visibility state: the `zenuml-byline-lite`
-  // SPACE property on every space (what the display condition reads) plus the
-  // `byline-enabled` app property (the writer's own last-state marker). `result`
-  // = 'written' | 'cleared' | 'unchanged' | 'failed'; `space_count` = spaces
-  // swept. This one is load-bearing for support, not just analysis: the display
-  // condition is fail-CLOSED, so a tenant whose writes silently failed has no
-  // byline at all and is otherwise indistinguishable from one deliberately left
-  // off the rollout.
+  // The result of maintaining byline visibility state: the enrolment SPACE
+  // property (`zenuml-byline` + variant suffix — what the display condition
+  // reads) on every space, with last-settled-state memory in Forge app
+  // storage. `result` = 'written' | 'cleared' | 'unchanged' | 'failed';
+  // `space_count` = spaces swept. This one is load-bearing for support, not
+  // just analysis: the display condition is fail-CLOSED, so a tenant whose
+  // writes silently failed has no byline at all and is otherwise
+  // indistinguishable from one deliberately left off the rollout.
   | "byline_visibility_write"
   // The Full app marking its presence on a space (`zenuml-full-active` space
   // property, created by Full's daily sweep). The Lite byline's display

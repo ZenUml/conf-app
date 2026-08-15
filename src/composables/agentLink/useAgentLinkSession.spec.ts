@@ -308,6 +308,11 @@ describe('useAgentLinkSession', () => {
 
       it('after a status event, the republished handoff carries expiresAt and lastActivityAt', async () => {
         const { session, boundContext, setNow, emit } = await linkedSession('last-activity-handoff')
+        // Pair the session first: a status envelope only reaches a macro whose
+        // agent is live, and the handoff record now carries the instance's
+        // ACTUAL state (final-review fix 1), so 'connected' below is asserted
+        // against a session that genuinely reached it.
+        emit({ type: 'op', op: 'read_page', receivedAt: 1 })
         setNow(523_456)
 
         emit({ type: 'status', expiresAt: 999_000, hitCap: true })
@@ -684,6 +689,61 @@ describe('useAgentLinkSession', () => {
 
       expect(session.state.value).toBe('connected')
       expect(session.noticeReason.value).toBeNull()
+    })
+
+    // Final-review fix 2: noticeReason is threaded across the iframe boundary
+    // the same way progressStage is. Without it, only the relay owner (the
+    // inline macro, the one instance that sees the transport give up) ever
+    // knew the retry had stopped — the Fullscreen panel, which owns no socket
+    // and learns everything from the handoff record, kept showing
+    // "reconnecting…" forever.
+    describe('noticeReason travels on the handoff record (Task 7 cross-iframe mirror)', () => {
+      it('reconnect_failed on the owner reaches a hydrating display-only instance', async () => {
+        const { boundContext, emit } = await connectedSession()
+
+        emit()({ type: 'reconnect_failed' })
+
+        const persisted = readSession(boundContext.pageId)
+        expect(persisted?.noticeReason).toBe('connection_lost')
+
+        const fullscreen = useAgentLinkSession(makeBridgeOps(), { macroType: 'sequence' })
+        fullscreen.hydrateFrom(persisted!)
+
+        expect(fullscreen.state.value).toBe('suspended')
+        expect(fullscreen.noticeReason.value).toBe('connection_lost')
+      })
+
+      it('a later resume record clears the mirrored notice (not a set-only mirror)', async () => {
+        const { boundContext, emit } = await connectedSession()
+        emit()({ type: 'reconnect_failed' })
+        const fullscreen = useAgentLinkSession(makeBridgeOps(), { macroType: 'sequence' })
+        fullscreen.hydrateFrom(readSession(boundContext.pageId)!)
+        expect(fullscreen.noticeReason.value).toBe('connection_lost')
+
+        emit()({ type: 'open' })
+
+        const resumed = readSession(boundContext.pageId)
+        expect(resumed?.noticeReason).toBeUndefined()
+        fullscreen.hydrateFrom(resumed!)
+        expect(fullscreen.noticeReason.value).toBeNull()
+      })
+
+      it('a reattaching mount adopts the persisted notice instead of dropping it', async () => {
+        const { boundContext, emit } = await connectedSession()
+        emit()({ type: 'reconnect_failed' })
+
+        const reloaded = useAgentLinkSession(makeBridgeOps(), {
+          macroType: 'sequence',
+          relay: {
+            boundContext,
+            requestSession: vi.fn(),
+            connect: vi.fn(() => makeFakeRelayClient() as unknown as RelayClient),
+          },
+        })
+        reloaded.attemptReattach()
+
+        expect(reloaded.noticeReason.value).toBe('connection_lost')
+      })
     })
 
     it('revokeAndRelink() disconnects the current session and immediately mints a fresh one', async () => {
@@ -1192,6 +1252,7 @@ describe('useAgentLinkSession', () => {
     async function wireAndCapture() {
       const bridgeOps = makeBridgeOps()
       const captured: {
+        onStateEvent?: (e: RelayStateEvent) => void
         onDiagramRead?: (info: { title?: string; byContentId: boolean }) => void
         onSearchPerformed?: (info: { query: string; hits: number }) => void
         onListPerformed?: (info: { scope: 'page' | 'space' | 'site'; hits: number }) => void
@@ -1200,7 +1261,7 @@ describe('useAgentLinkSession', () => {
         (
           _wsUrl,
           _bridge,
-          _onStateEvent,
+          onStateEvent,
           _onDiagUpdated,
           _onEditApplied,
           _onPageRead,
@@ -1208,6 +1269,7 @@ describe('useAgentLinkSession', () => {
           onSearchPerformed,
           onListPerformed
         ) => {
+          captured.onStateEvent = onStateEvent
           captured.onDiagramRead = onDiagramRead
           captured.onSearchPerformed = onSearchPerformed
           captured.onListPerformed = onListPerformed
@@ -1273,6 +1335,14 @@ describe('useAgentLinkSession', () => {
     it('a discovery op (search/list/read) republishes the handoff record with the new feed row, not just the local activityFeed', async () => {
       const { session, captured } = await wireAndCapture()
 
+      // relayClient.ts emits the {type:'op'} state event for EVERY forwarded
+      // op — discovery ops included — immediately before it invokes the
+      // matching recorder callback. Replaying that real ordering here is what
+      // makes the session genuinely 'connected'; the handoff record now
+      // stamps the instance's actual state (final-review fix 1) instead of a
+      // hardcoded 'connected', so a harness that skipped the op event would
+      // assert against a session that never paired.
+      captured.onStateEvent!({ type: 'op', op: 'search_diagrams' })
       captured.onSearchPerformed!({ query: 'payment', hits: 2 })
 
       const persisted = readSession('p1')
@@ -2492,6 +2562,42 @@ describe('useAgentLinkSession', () => {
       const persisted = readSession(h.pageId)
       expect(persisted?.progressStage).toBe('discovered')
       expect(persisted?.agentClientName).toBe('claude-code')
+    })
+
+    // Final-review fix 1 (critical): the presence branch republishes the
+    // handoff record through publishThinking(), which used to stamp
+    // state:'connected' unconditionally. A presence push arriving while the
+    // owner is still 'waiting' therefore handed the Fullscreen instance a
+    // 'connected' record — it rendered the green connected panel and the
+    // ladder this whole feature exists for never appeared.
+    it('a presence push while still waiting persists state waiting, not connected', async () => {
+      const h = await mountWaitingWithRelay('presence-state-honesty')
+
+      h.emitStateEvent({
+        type: 'status',
+        activity: { type: 'agent_presence', stage: 'initialized', clientName: 'claude-code' },
+      })
+
+      const persisted = readSession(h.pageId)
+      expect(persisted?.state).toBe('waiting')
+      expect(persisted?.progressStage).toBe('initialized')
+      expect(h.api.state.value).toBe('waiting')
+    })
+
+    it('a Fullscreen instance hydrating that record stays waiting while showing the stage', async () => {
+      const h = await mountWaitingWithRelay('presence-state-hydrate')
+      h.emitStateEvent({
+        type: 'status',
+        activity: { type: 'agent_presence', stage: 'discovered', clientName: 'claude-code' },
+      })
+      const persisted = readSession(h.pageId)!
+
+      const fullscreen = useAgentLinkSession(makeBridgeOps(), { macroType: 'sequence' })
+      fullscreen.hydrateFrom(persisted)
+
+      expect(fullscreen.state.value).toBe('waiting')
+      expect(fullscreen.progressStage.value).toBe('discovered')
+      expect(fullscreen.agentClientName.value).toBe('claude-code')
     })
 
     it('hydrateFrom mirrors progressStage/agentClientName onto a display-only Fullscreen instance', () => {

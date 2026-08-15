@@ -48,6 +48,7 @@ import {
   subscribeToHandoff,
   subscribeToAnyHandoff,
   type AgentLinkHandoffSession,
+  type AgentLinkHandoffState,
   type AgentLinkHandoffThinking,
 } from './sessionHandoff'
 
@@ -308,7 +309,12 @@ export function useAgentLinkSession(
     Partial<
       Pick<
         AgentLinkHandoffSession,
-        'expiresAt' | 'lastActivityAt' | 'hitCap' | 'progressStage' | 'agentClientName'
+        | 'expiresAt'
+        | 'lastActivityAt'
+        | 'hitCap'
+        | 'progressStage'
+        | 'agentClientName'
+        | 'noticeReason'
       >
     > {
     return {
@@ -322,6 +328,10 @@ export function useAgentLinkSession(
       // matches the present-only-when-known convention above.
       ...(progressStage.value != null ? { progressStage: progressStage.value } : {}),
       ...(agentClientName.value != null ? { agentClientName: agentClientName.value } : {}),
+      // Task 7: same present-only-when-known convention — carried only while
+      // the owner has actually given up reconnecting, so a healthy record keeps
+      // its exact pre-Task-7 shape.
+      ...(noticeReason.value != null ? { noticeReason: noticeReason.value } : {}),
     }
   }
 
@@ -569,6 +579,17 @@ export function useAgentLinkSession(
     if (event.type === 'error') {
       if (state.value === 'suspended') {
         noticeReason.value = 'connection_lost'
+        // Task 7: republish so the display-only Fullscreen mirror stops
+        // showing "reconnecting…" too — same reason the reconnect_failed
+        // branch persists (this branch previously updated the owner's UI only).
+        if (boundContext && token.value) {
+          persistSession({
+            ...boundContext,
+            token: token.value,
+            state: 'suspended',
+            ...handoffFeedFields(),
+          })
+        }
         return
       }
       if (state.value === 'connected') {
@@ -659,15 +680,48 @@ export function useAgentLinkSession(
   // record too, without erasing a thinking/error cue that's genuinely still
   // in flight from a concurrently-interleaved update_diagram op.
   function publishThinking(thinking?: AgentLinkHandoffThinking): void {
-    if (!boundContext || !token.value) return
+    const handoffState = currentHandoffState()
+    if (!boundContext || !token.value || handoffState === null) return
     persistSession({
       ...boundContext,
       token: token.value,
-      state: 'connected',
+      state: handoffState,
       ...(lastAppliedDsl ? { dsl: lastAppliedDsl } : {}),
       ...(thinking ? { thinking } : {}),
       ...handoffFeedFields(),
     })
+  }
+
+  // Which handoff state publishThinking() should stamp on the record it
+  // republishes. This used to be the literal 'connected', which was safe while
+  // every caller genuinely ran in a connected context — but Task 5's presence
+  // branch republishes on EVERY status envelope, including the ones that
+  // arrive while this instance is still 'waiting' (the agent has announced
+  // itself but has not sent its first op yet). Stamping 'connected' there made
+  // a hydrating Fullscreen instance jump straight to the green connected
+  // panel, so the presence ladder it was meant to light up never rendered.
+  // Returns null when there is no session worth mirroring, in which case
+  // publishThinking() writes nothing at all:
+  //   'timeout'  -> 'waiting': the minted token is still live and the agent
+  //                 can still pair late — exactly the presence-ladder case —
+  //                 and 'timeout' has no handoff-record equivalent.
+  //   'idle'/'closed' -> null: no live session. 'closed' also stops a late
+  //                 timer (e.g. the error-flash clear) from re-persisting a
+  //                 record that disconnect()'s clearSession() just removed.
+  function currentHandoffState(): AgentLinkHandoffState | null {
+    const s = state.value
+    if (
+      s === 'waiting' ||
+      s === 'connected' ||
+      s === 'suspended' ||
+      s === 'already_linked' ||
+      s === 'failed' ||
+      s === 'expired'
+    ) {
+      return s
+    }
+    if (s === 'timeout') return 'waiting'
+    return null
   }
 
   // The three existing publishThinking() call sites (beginThinking,
@@ -1217,9 +1271,11 @@ export function useAgentLinkSession(
       typeof persisted.progressStage === 'string' ? persisted.progressStage : null
     agentClientName.value =
       typeof persisted.agentClientName === 'string' ? persisted.agentClientName : null
-    // Task 7: same reasoning as startConnect's reset — a fresh mount's
-    // reattach starts with no stale "gave up reconnecting" notice.
-    noticeReason.value = null
+    // Task 7: adopt whatever notice the persisted record carries. A record
+    // written before the owner gave up carries none (fresh start, as before);
+    // one written after reconnect_failed carries 'connection_lost', and a
+    // reattaching mount must not silently drop it.
+    noticeReason.value = persisted.noticeReason ?? null
     // Same per-session reset as startConnect: a reattach on a fresh mount starts
     // the status-bus cap flag / extended-event throttle clean (spec §4.4).
     lastHitCap = false
@@ -1434,6 +1490,15 @@ export function useAgentLinkSession(
     if (typeof session.agentClientName === 'string') {
       agentClientName.value = session.agentClientName
     }
+
+    // --- Task 7: connection-lost notice mirror ---------------------------
+    // Deliberately NOT set-only (unlike progressStage above, which is
+    // monotonic): the owner clears this ref on a real reconnect and persists a
+    // record WITHOUT the field, so mirroring must clear too. A set-only mirror
+    // would leave this display-only instance claiming "gave up reconnecting"
+    // through the next healthy suspend cycle, while the owner is still
+    // actively retrying.
+    noticeReason.value = session.noticeReason ?? null
 
     // --- Amendment D: honest already-linked countdown mirror -------------
     // The relay owner (inline) learns the lock release time from the mint

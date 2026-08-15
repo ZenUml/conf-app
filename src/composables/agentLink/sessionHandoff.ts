@@ -157,6 +157,17 @@ export interface AgentLinkHandoffSession extends AgentLinkBoundContext {
   // first agent_presence status push arrives.
   progressStage?: 'initialized' | 'discovered' | 'verified' | 'working'
   agentClientName?: string
+  // Why the session is stuck in 'suspended' (2026-08-15 connection-experience
+  // §3, Task 7): 'connection_lost' means relayClient.ts's own backoff gave up
+  // (or a socket error arrived while already down), so the banner must stop
+  // implying a retry is still in flight. The relay owner is the only instance
+  // that sees those transport events, so — exactly like progressStage — a
+  // display-only Fullscreen instance can only learn it from this record.
+  // Absent ⇒ no notice (the owner is either healthy or still retrying); unlike
+  // progressStage this is NOT monotonic, so hydrateFrom must CLEAR the mirror
+  // when the field is absent, or a resumed session would keep showing "gave
+  // up" into its next suspend cycle.
+  noticeReason?: 'connection_lost'
 }
 
 interface PersistedHandoff extends AgentLinkHandoffSession {
@@ -257,6 +268,9 @@ function toHandoffSession(parsed: PersistedHandoff): AgentLinkHandoffSession {
         : undefined,
     agentClientName:
       typeof parsed.agentClientName === 'string' ? parsed.agentClientName : undefined,
+    // Task 7: only present while the owner has genuinely given up reconnecting;
+    // anything else (including a pre-Task-7 record) normalizes to undefined.
+    noticeReason: parsed.noticeReason === 'connection_lost' ? parsed.noticeReason : undefined,
   }
 }
 
@@ -425,6 +439,11 @@ function subscribeToHandoffCore(
       // above.
       session.progressStage ?? '',
       session.agentClientName ?? '',
+      // Task 7: reconnect_failed republishes a record that is otherwise
+      // identical to the 'suspended' one the 'close' branch already delivered
+      // (same state/feed/token) — without this the "gave up" banner would
+      // never reach the Fullscreen modal.
+      session.noticeReason ?? '',
     ].join('\n')
     if (fingerprint !== lastDeliveredFingerprint) {
       lastDeliveredFingerprint = fingerprint

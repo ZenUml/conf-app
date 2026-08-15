@@ -2296,6 +2296,182 @@ describe('useAgentLinkSession', () => {
     })
   })
 
+  // Task 5 (2026-08-15 connection-experience §3): the MCP relay derives a
+  // presence stage per request and the DO forwards it verbatim on the status
+  // bus as {activity:{type:'agent_presence', stage, clientName?}} — distinct
+  // from every other status activity in that it is NOT bump-worthy (Task 3's
+  // AgentLinkSession.handleSessionInfo never slides the TTL for it). This
+  // describe block deliberately does NOT pair the agent (no 'op' event) so
+  // the session stays 'waiting' — proving progressStage/agentClientName are
+  // pure display state that never feeds agentLinkState's FSM.
+  describe('presence display state (2026-08-15 connection-experience §3, Task 5)', () => {
+    function makeFakeRelayClient(): RelayClient {
+      return {
+        send: vi.fn(),
+        close: vi.fn(),
+        disconnect: vi.fn(),
+        getState: vi.fn((): RelayConnectionState => 'open'),
+      }
+    }
+
+    async function mountWaitingWithRelay(pageId = 'presence-page') {
+      const bridgeOps = makeBridgeOps()
+      let onStateEvent: ((e: RelayStateEvent) => void) | undefined
+      const connect = (
+        _wsUrl: string,
+        _bridge: AgentLinkBridgeOps,
+        ose: (e: RelayStateEvent) => void
+      ): RelayClient => {
+        onStateEvent = ose
+        return makeFakeRelayClient()
+      }
+      const requestSession = vi.fn().mockResolvedValue({ token: 'real-token', expiresInSec: 600 })
+      const boundContext = { cloudId: 'c1', pageId, contentId: 'cc1' }
+      const session = useAgentLinkSession(bridgeOps, {
+        macroType: 'sequence',
+        relay: { boundContext, requestSession, connect },
+      })
+      session.startConnect()
+      await vi.advanceTimersByTimeAsync(0) // resolve mint → expiresAt set, still 'waiting'
+      return {
+        api: session,
+        pageId,
+        emitStateEvent: (e: RelayStateEvent) => onStateEvent!(e),
+      }
+    }
+
+    const stageReachedCalls = () =>
+      vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'agent_link_stage_reached')
+
+    it('an agent_presence status sets progressStage and clientName without changing the FSM state', async () => {
+      const h = await mountWaitingWithRelay('presence-basic')
+
+      h.emitStateEvent({
+        type: 'status',
+        activity: { type: 'agent_presence', stage: 'initialized', clientName: 'claude-code' },
+      })
+
+      expect(h.api.progressStage.value).toBe('initialized')
+      expect(h.api.agentClientName.value).toBe('claude-code')
+      expect(h.api.state.value).toBe('waiting') // FSM untouched — connected still needs the first op
+    })
+
+    it('fires agent_link_stage_reached once per distinct stage, not on a repeat of the same stage', async () => {
+      const h = await mountWaitingWithRelay('presence-repeat')
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      h.emitStateEvent({
+        type: 'status',
+        activity: { type: 'agent_presence', stage: 'initialized' },
+      })
+      h.emitStateEvent({
+        type: 'status',
+        activity: { type: 'agent_presence', stage: 'initialized' },
+      })
+
+      expect(stageReachedCalls()).toHaveLength(1)
+      expect(stageReachedCalls()[0][1]).toMatchObject({ stage: 'initialized' })
+    })
+
+    it('a later distinct stage fires a second agent_link_stage_reached', async () => {
+      const h = await mountWaitingWithRelay('presence-progression')
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      h.emitStateEvent({ type: 'status', activity: { type: 'agent_presence', stage: 'initialized' } })
+      h.emitStateEvent({ type: 'status', activity: { type: 'agent_presence', stage: 'discovered' } })
+
+      expect(stageReachedCalls()).toHaveLength(2)
+      expect(h.api.progressStage.value).toBe('discovered')
+    })
+
+    it('carries ms_since_connect_clicked and the last-known client_name on the analytics event', async () => {
+      const h = await mountWaitingWithRelay('presence-props')
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      h.emitStateEvent({
+        type: 'status',
+        activity: { type: 'agent_presence', stage: 'initialized', clientName: 'claude-code' },
+      })
+      await vi.advanceTimersByTimeAsync(5_000)
+      h.emitStateEvent({ type: 'status', activity: { type: 'agent_presence', stage: 'verified' } })
+
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'agent_link_stage_reached',
+        expect.objectContaining({
+          feature_area: 'agent_link',
+          macro_type: 'sequence',
+          stage: 'verified',
+          ms_since_connect_clicked: expect.any(Number),
+          client_name: 'claude-code', // carried forward from the 'initialized' push
+        })
+      )
+      const props = stageReachedCalls()[1][1] as Record<string, unknown>
+      expect(props.ms_since_connect_clicked).toBeGreaterThanOrEqual(5_000)
+    })
+
+    it('a presence status must not slide the local expiry mirror', async () => {
+      const h = await mountWaitingWithRelay('presence-no-ttl-slide')
+      const before = h.api.expiresAt.value
+
+      h.emitStateEvent({
+        type: 'status',
+        expiresAt: before ?? undefined,
+        activity: { type: 'agent_presence', stage: 'initialized' },
+      })
+
+      expect(h.api.expiresAt.value).toBe(before)
+    })
+
+    it('mirrors progressStage/agentClientName onto the handoff record for the Fullscreen instance', async () => {
+      const h = await mountWaitingWithRelay('presence-handoff')
+
+      h.emitStateEvent({
+        type: 'status',
+        activity: { type: 'agent_presence', stage: 'discovered', clientName: 'claude-code' },
+      })
+
+      const persisted = readSession(h.pageId)
+      expect(persisted?.progressStage).toBe('discovered')
+      expect(persisted?.agentClientName).toBe('claude-code')
+    })
+
+    it('hydrateFrom mirrors progressStage/agentClientName onto a display-only Fullscreen instance', () => {
+      const bridgeOps = makeBridgeOps()
+      const session = useAgentLinkSession(bridgeOps, { macroType: 'sequence' })
+
+      session.hydrateFrom({
+        cloudId: 'c1',
+        pageId: 'presence-hydrate',
+        contentId: 'cc1',
+        token: 'tok',
+        state: 'waiting',
+        progressStage: 'working',
+        agentClientName: 'claude-code',
+      } as AgentLinkHandoffSession)
+
+      expect(session.progressStage.value).toBe('working')
+      expect(session.agentClientName.value).toBe('claude-code')
+      expect(session.state.value).toBe('waiting')
+    })
+
+    it('a fresh startConnect clears a prior session\'s progressStage/agentClientName', async () => {
+      const h = await mountWaitingWithRelay('presence-reset')
+      h.emitStateEvent({
+        type: 'status',
+        activity: { type: 'agent_presence', stage: 'initialized', clientName: 'claude-code' },
+      })
+      expect(h.api.progressStage.value).toBe('initialized')
+
+      // revokeAndRelink is the composable's own disconnect-then-fresh-mint
+      // path (disconnect() alone would land 'waiting' on the terminal
+      // 'closed' state, which startConnect()'s idle-only guard then no-ops on).
+      h.api.revokeAndRelink()
+
+      expect(h.api.progressStage.value).toBeNull()
+      expect(h.api.agentClientName.value).toBeNull()
+    })
+  })
+
   // Amendment D (honest already-linked countdown): a mint 409 whose body
   // carries lock_expires_at surfaces the existing lock's release time on a new
   // `alreadyLinkedUntil` ref, so the rail can show a real countdown instead of

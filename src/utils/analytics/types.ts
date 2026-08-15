@@ -446,6 +446,13 @@ export type AnalyticsProperties = {
   query_len?: number;
   hits?: number;
   list_scope?: AgentLinkListScope;
+  // Presence (agent_link_stage_reached only, 2026-08-15 connection-experience
+  // §3, Task 5). `stage` = the MCP relay's highest-ranked presence stage
+  // (initialized/discovered/verified/working); `ms_since_connect_clicked` =
+  // elapsed ms since this instance's own Connect click, or -1 when unknown
+  // (a display-only hydrated instance that never clicked Connect itself);
+  // `client_name` = the connecting agent's self-reported name, first seen on
+  // the 'initialized' stage and carried forward on every later push.
   stage?: string;
   ms_since_connect_clicked?: number;
   client_name?: string;

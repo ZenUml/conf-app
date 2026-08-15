@@ -149,6 +149,14 @@ export interface AgentLinkHandoffSession extends AgentLinkBoundContext {
   // works" once further bumps no longer move the deadline (SessionTtl.vue).
   // Absent ⇒ not (yet) capped.
   hitCap?: boolean
+  // Presence display state (2026-08-15 connection-experience §3, Task 5):
+  // mirrors useAgentLinkSession.ts's own `progressStage`/`agentClientName`
+  // refs so the Fullscreen instance shows the same "agent is
+  // initializing/discovering/verifying/working" stage as the relay owner —
+  // display-only, never drives AgentLinkHandoffState. Absent before the
+  // first agent_presence status push arrives.
+  progressStage?: 'initialized' | 'discovered' | 'verified' | 'working'
+  agentClientName?: string
 }
 
 interface PersistedHandoff extends AgentLinkHandoffSession {
@@ -238,6 +246,17 @@ function toHandoffSession(parsed: PersistedHandoff): AgentLinkHandoffSession {
     lockExpiresAt: typeof parsed.lockExpiresAt === 'number' ? parsed.lockExpiresAt : undefined,
     // Amendment F: only present once the DO reported the deadline is cap-bound.
     hitCap: typeof parsed.hitCap === 'boolean' ? parsed.hitCap : undefined,
+    // Task 5: only present once the relay owner has seen a real agent_presence
+    // push; a stale/pre-Task-5 record normalizes to undefined.
+    progressStage:
+      parsed.progressStage === 'initialized' ||
+      parsed.progressStage === 'discovered' ||
+      parsed.progressStage === 'verified' ||
+      parsed.progressStage === 'working'
+        ? parsed.progressStage
+        : undefined,
+    agentClientName:
+      typeof parsed.agentClientName === 'string' ? parsed.agentClientName : undefined,
   }
 }
 
@@ -400,6 +419,12 @@ function subscribeToHandoffCore(
       // must be in the fingerprint to reach the Fullscreen modal.
       session.lockExpiresAt != null ? String(session.lockExpiresAt) : '',
       session.hitCap != null ? String(session.hitCap) : '',
+      // Task 5: a presence-only push (stage/clientName change) touches none of
+      // state/dsl/thinking/feed — without these in the fingerprint it would
+      // silently never reach the Fullscreen modal, same gap as expiresAt/feed
+      // above.
+      session.progressStage ?? '',
+      session.agentClientName ?? '',
     ].join('\n')
     if (fingerprint !== lastDeliveredFingerprint) {
       lastDeliveredFingerprint = fingerprint

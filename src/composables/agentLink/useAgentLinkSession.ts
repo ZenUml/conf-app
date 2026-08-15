@@ -173,6 +173,11 @@ export interface AgentLinkSessionApi {
   // components derive the activity pulse/resting copy from this and
   // ACTIVITY_LINGER_MS; it does not drive the session FSM.
   lastActivityAt: Ref<number | null>
+  // Presence display state (2026-08-15 connection-experience §3, Task 5) —
+  // see the field's own doc comment inside useAgentLinkSession() for the full
+  // rationale. Display-only; the FSM (`state` above) is untouched by these.
+  progressStage: Ref<'initialized' | 'discovered' | 'verified' | 'working' | null>
+  agentClientName: Ref<string | null>
   activityFeed: Ref<AgentLinkActivityEntry[]>
   // Perceived-latency "AI is thinking" surface state (charter §6 Track F),
   // orthogonal to `state` (a paired session is `connected` the whole time an
@@ -252,6 +257,14 @@ export function useAgentLinkSession(
   // across the iframe via the handoff record.
   const atCap = ref(false)
   const lastActivityAt = ref<number | null>(null)
+  // Presence display state (2026-08-15 connection-experience §3, Task 5):
+  // mirrors the highest-ranked stage the MCP relay reported for this agent
+  // session (`{kind:'status', activity:{type:'agent_presence', stage,
+  // clientName?}}` — see relayClient.ts's RelayStatusActivity). Display-only:
+  // never fed into agentLinkState's FSM (the 'waiting' -> 'connected' flip
+  // still happens only on the first forwarded op, per onAgentConnected()).
+  const progressStage = ref<'initialized' | 'discovered' | 'verified' | 'working' | null>(null)
+  const agentClientName = ref<string | null>(null)
   const thinkingState = ref<AgentLinkThinkingState>('idle') as Ref<AgentLinkThinkingState>
   const activityFeed = ref<AgentLinkActivityEntry[]>([]) as Ref<
     AgentLinkActivityEntry[]
@@ -276,7 +289,12 @@ export function useAgentLinkSession(
   // omitted while unknown, matching the existing dsl/thinking
   // present-only-when-known convention.
   function handoffFeedFields(): Pick<AgentLinkHandoffSession, 'feed'> &
-    Partial<Pick<AgentLinkHandoffSession, 'expiresAt' | 'lastActivityAt' | 'hitCap'>> {
+    Partial<
+      Pick<
+        AgentLinkHandoffSession,
+        'expiresAt' | 'lastActivityAt' | 'hitCap' | 'progressStage' | 'agentClientName'
+      >
+    > {
     return {
       feed: activityFeed.value,
       ...(expiresAt.value != null ? { expiresAt: expiresAt.value } : {}),
@@ -284,6 +302,10 @@ export function useAgentLinkSession(
       // Amendment F: only carried once actually capped — a fresh session
       // hydrates atCap=false and only flips it on a real capped status envelope.
       ...(atCap.value ? { hitCap: true } : {}),
+      // Task 5: only carried once a real agent_presence push has been seen —
+      // matches the present-only-when-known convention above.
+      ...(progressStage.value != null ? { progressStage: progressStage.value } : {}),
+      ...(agentClientName.value != null ? { agentClientName: agentClientName.value } : {}),
     }
   }
 
@@ -343,6 +365,13 @@ export function useAgentLinkSession(
   // FIRST real extension always fires — 0 is >60s before any real clock).
   let lastHitCap = false
   let lastExtendedFiredAt = 0
+  // Task 5 (agent_link_stage_reached's ms_since_connect_clicked): the instant
+  // THIS instance's own startConnect() ran — distinct from connectStartedAt
+  // (which a hydrated/display-only Fullscreen instance never sets) only in
+  // spirit; kept as its own module-level `let` per the task brief rather than
+  // reusing connectStartedAt, since it specifically anchors the presence
+  // funnel's "time since the user clicked Connect" metric.
+  let connectClickedAt: number | null = null
 
   // The wire protocol (relayClient.ts) has no dedicated "agent paired"
   // envelope — the only observable proxy that the agent has joined is it
@@ -394,6 +423,29 @@ export function useAgentLinkSession(
           ...activityFeed.value,
           { summary: GUARDRAIL_REJECTED_FEED_SUMMARY, at: now() },
         ]
+      }
+      // Task 5 (connection-experience §3): presence pushes are NOT bump-worthy
+      // (Task 3's AgentLinkSession.handleSessionInfo never slides the TTL for
+      // them — see the `expiresAt` branch above, unaffected by this block) —
+      // display-only progress for the Fullscreen rail. Only reacts to a
+      // genuinely NEW stage (the MCP relay can push the same highest-ranked
+      // stage repeatedly per request), so agent_link_stage_reached fires
+      // exactly once per distinct stage.
+      if (event.activity?.type === 'agent_presence') {
+        const stage = event.activity.stage
+        if (stage !== progressStage.value) {
+          progressStage.value = stage
+          if (event.activity.clientName) agentClientName.value = event.activity.clientName
+          trackAnalyticsEvent('agent_link_stage_reached', {
+            feature_area: 'agent_link',
+            surface: 'fullscreen',
+            macro_type: macroType,
+            stage,
+            ms_since_connect_clicked:
+              connectClickedAt != null ? now() - connectClickedAt : -1,
+            client_name: agentClientName.value ?? undefined,
+          })
+        }
       }
       // Republish so a separate Fullscreen mirror gets the new deadline + feed
       // row through the existing handoff path (no new plumbing — spec §4.4);
@@ -957,6 +1009,7 @@ export function useAgentLinkSession(
     if (prev !== 'idle' || state.value !== 'waiting') return
 
     connectStartedAt = now()
+    connectClickedAt = now()
     editsCount = 0
     lastAppliedDsl = ''
     activityFeed.value = []
@@ -966,6 +1019,10 @@ export function useAgentLinkSession(
     // and cap flag.
     alreadyLinkedUntil.value = null
     atCap.value = false
+    // Task 5: a fresh connect must not inherit a prior session's presence
+    // stage/client name.
+    progressStage.value = null
+    agentClientName.value = null
     // PR1 sliding-TTL status-bus state is per-session — a fresh connect must not
     // inherit a prior session's cap flag or extended-event throttle timestamp.
     lastHitCap = false
@@ -1086,9 +1143,14 @@ export function useAgentLinkSession(
     if (persisted.state !== 'connected' && persisted.state !== 'suspended') return
 
     connectStartedAt = now()
+    connectClickedAt = now()
     editsCount = 0
     lastAppliedDsl = typeof persisted.dsl === 'string' ? persisted.dsl : ''
     activityFeed.value = []
+    progressStage.value =
+      typeof persisted.progressStage === 'string' ? persisted.progressStage : null
+    agentClientName.value =
+      typeof persisted.agentClientName === 'string' ? persisted.agentClientName : null
     // Same per-session reset as startConnect: a reattach on a fresh mount starts
     // the status-bus cap flag / extended-event throttle clean (spec §4.4).
     lastHitCap = false
@@ -1286,6 +1348,21 @@ export function useAgentLinkSession(
       lastActivityAt.value = session.lastActivityAt
     }
 
+    // --- Task 5: presence display state mirror ----------------------------
+    // The relay owner is the only instance that ever receives a
+    // {kind:'status', activity:{type:'agent_presence', ...}} push (it owns
+    // the socket); mirror its progressStage/agentClientName here the same way
+    // expiresAt/lastActivityAt are mirrored above — unconditional (not gated
+    // to the idle branch), since the reactive handoff watcher may deliver
+    // this record more than once for the same session, and a later stage must
+    // overwrite an earlier one on this display-only instance too.
+    if (typeof session.progressStage === 'string') {
+      progressStage.value = session.progressStage
+    }
+    if (typeof session.agentClientName === 'string') {
+      agentClientName.value = session.agentClientName
+    }
+
     // --- Amendment D: honest already-linked countdown mirror -------------
     // The relay owner (inline) learns the lock release time from the mint
     // 409 and persists it on the already_linked record; mirror it here so the
@@ -1393,6 +1470,8 @@ export function useAgentLinkSession(
     alreadyLinkedUntil,
     atCap,
     lastActivityAt,
+    progressStage,
+    agentClientName,
     thinkingState,
     activityFeed,
     startConnect,

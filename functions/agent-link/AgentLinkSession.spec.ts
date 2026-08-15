@@ -1149,6 +1149,130 @@ describe('review amendments (accepted design review)', () => {
   });
 });
 
+// --- agent presence status bus (2026-08-15 connection-experience Task 3) --
+//
+// GET /session?presence=<stage>&client=<name> (Task 2's relay sends this on
+// every authenticated request). The DO persists the highest-ranked stage
+// seen and pushes an {activity:{type:'agent_presence',...}} status envelope
+// to the macro socket ONLY when the stage actually advances — repeats and
+// regressions are silent. Presence is explicitly NOT activity: it must never
+// touch lastActivityMs, bumpActivity(), or the alarm (that's bump's job,
+// unchanged from the sliding-TTL describe block above).
+describe('agent presence status bus (GET /session?presence=&client=)', () => {
+  function sessionWithMacro(overrides: Partial<SessionRecord> = {}) {
+    const state = makeState();
+    const macroWs = makeFakeMacroWs();
+    (state.getTags as ReturnType<typeof vi.fn>).mockImplementation((ws: unknown) =>
+      ws === macroWs ? ['macro'] : [],
+    );
+    const session = new AgentLinkSession(state, {});
+    (session as any).session = makeSession(overrides);
+    (session as any).macroSocket = macroWs;
+    return { session, macroWs, state };
+  }
+
+  function presenceRequest(qs: string): Request {
+    return new Request(`https://agent-link-do/session?${qs}`, { method: 'GET' });
+  }
+
+  it('first initialized presence pushes an agent_presence status to the macro socket', async () => {
+    const { session, macroWs } = sessionWithMacro();
+
+    await session.fetch(presenceRequest('presence=initialized&client=claude-code'));
+
+    expect(macroWs.send).toHaveBeenCalledTimes(1);
+    const pushed = JSON.parse(macroWs.send.mock.calls[0][0]);
+    expect(pushed.kind).toBe('status');
+    expect(pushed.activity).toEqual({
+      type: 'agent_presence',
+      stage: 'initialized',
+      clientName: 'claude-code',
+    });
+  });
+
+  it('presence never slides the TTL', async () => {
+    const { session, macroWs } = sessionWithMacro();
+    const before = { ...((session as any).session as SessionRecord) };
+
+    await session.fetch(presenceRequest('presence=initialized'));
+
+    const after = (session as any).session as SessionRecord;
+    expect(after.lastActivityMs).toBe(before.lastActivityMs); // untouched
+    const pushed = JSON.parse(macroWs.send.mock.calls[0][0]);
+    expect(pushed.expiresAt).toBe(effectiveExpiryMs(before.issuedAtMs, before.lastActivityMs)); // unchanged deadline
+  });
+
+  it('presence-only request does not bump, does not re-arm the alarm', async () => {
+    const { session, state } = sessionWithMacro();
+
+    await session.fetch(presenceRequest('presence=initialized'));
+
+    expect(state.storage.setAlarm).not.toHaveBeenCalled();
+  });
+
+  it('presence only advances and repeats are silent', async () => {
+    const { session, macroWs } = sessionWithMacro();
+
+    await session.fetch(presenceRequest('presence=discovered'));
+    const count = macroWs.send.mock.calls.length;
+
+    await session.fetch(presenceRequest('presence=discovered')); // repeat — no push
+    await session.fetch(presenceRequest('presence=initialized')); // regression — no push
+    expect(macroWs.send.mock.calls.length).toBe(count);
+
+    await session.fetch(presenceRequest('presence=verified')); // advance — pushes
+    expect(macroWs.send.mock.calls.length).toBe(count + 1);
+  });
+
+  it('presence stage survives hibernation (storage round-trip)', async () => {
+    const store = new Map<string, unknown>();
+    const state = makeState(store);
+    const macroWs = makeFakeMacroWs();
+    (state.getTags as ReturnType<typeof vi.fn>).mockImplementation((ws: unknown) =>
+      ws === macroWs ? ['macro'] : [],
+    );
+    const session = new AgentLinkSession(state, {});
+    (session as any).session = makeSession();
+    (session as any).macroSocket = macroWs;
+    await session.fetch(presenceRequest('presence=discovered'));
+
+    // Hibernation wake: a brand-new DO instance, same persisted storage +
+    // surviving hibernatable macro socket (same pattern as the ISSUE-3 test
+    // above).
+    const wokenState = makeState(store);
+    (wokenState.getWebSockets as ReturnType<typeof vi.fn>).mockImplementation((tag?: string) =>
+      tag === 'macro' ? [macroWs] : [],
+    );
+    const woken = new AgentLinkSession(wokenState, {});
+
+    await woken.fetch(presenceRequest('presence=discovered')); // same rank after wake — still silent
+
+    expect(macroWs.send.mock.calls.length).toBe(1);
+  });
+
+  it('ignores an unknown/garbage presence value — no throw, no push, no persisted stage', async () => {
+    const { session, macroWs } = sessionWithMacro();
+
+    const res = await session.fetch(presenceRequest('presence=bogus'));
+
+    expect(res.status).toBe(200);
+    expect(macroWs.send).not.toHaveBeenCalled();
+    expect(((session as any).session as SessionRecord).presenceStage).toBeUndefined();
+  });
+
+  it('when bump AND presence both apply, bumpActivity runs first and the presence advance pushes a SECOND envelope (accepted double push)', async () => {
+    const { session, macroWs } = sessionWithMacro();
+
+    await session.fetch(presenceRequest('bump=1&presence=initialized'));
+
+    expect(macroWs.send).toHaveBeenCalledTimes(2);
+    const first = JSON.parse(macroWs.send.mock.calls[0][0]);
+    const second = JSON.parse(macroWs.send.mock.calls[1][0]);
+    expect(first.activity).toBeUndefined(); // bumpActivity's own push, no activity
+    expect(second.activity).toEqual({ type: 'agent_presence', stage: 'initialized' });
+  });
+});
+
 describe('bootstrapSession — A3 blocker: bootstrap runs under a concurrency gate', () => {
   // Wires makeState().blockConcurrencyWhile to track gate depth, and a content
   // DO whose /content-claim records whether the gate was held when its (NON-

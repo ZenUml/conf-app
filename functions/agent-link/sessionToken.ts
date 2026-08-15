@@ -44,6 +44,17 @@ export interface SessionRecord {
   /** Last bump-worthy agent activity (spec 2026-07-13 §3); starts = issuedAtMs. */
   lastActivityMs: number;
   state: SessionState;
+  /** Highest-ranked MCP-relay connection stage reported so far (2026-08-15
+   * connection-experience spec §3, Task 3). Optional: absent until the first
+   * `GET /session?presence=` call, and absent on any record persisted before
+   * this change — both rehydrate cleanly via ensureSession(). Monotonic:
+   * only ever advances, never regresses (see AgentLinkSession's
+   * PRESENCE_RANK). */
+  presenceStage?: 'initialized' | 'discovered' | 'verified' | 'working';
+  /** The MCP client name reported alongside the first 'initialized' presence
+   * call (Task 2 sends it only then, capped at 64 chars relay-side). Optional
+   * for the same reasons as presenceStage. */
+  clientName?: string;
 }
 
 /** Sliding-TTL policy (spec 2026-07-13 §3, user-decided): each bump-worthy

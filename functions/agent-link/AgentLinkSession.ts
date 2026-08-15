@@ -110,6 +110,12 @@ function jsonResponse(body: unknown, status: number): Response {
 /** How long `POST /agent-op` waits for the macro's `result`/`error` reply before returning 504. */
 export const AGENT_OP_TIMEOUT_MS = 20_000;
 
+/** Monotonic rank of the MCP relay's connection-experience presence stages
+ * (2026-08-15 spec §3): only a strictly higher-ranked stage than the one
+ * already persisted triggers a push (see handleSessionInfo below). */
+const PRESENCE_RANK = { initialized: 1, discovered: 2, verified: 3, working: 4 } as const;
+type PresenceStage = keyof typeof PRESENCE_RANK;
+
 type SessionAuthFailure = { ok: false; status: number; code: 'invalid' | 'expired' };
 type SessionAuth = { ok: true } | SessionAuthFailure;
 
@@ -442,7 +448,11 @@ export class AgentLinkSession {
     // Agent-side HTTP transport (mcp.ts) — neither of these is a WebSocket
     // upgrade, so they're handled before the Upgrade check below.
     if (url.pathname === '/session' && request.method === 'GET') {
-      return this.handleSessionInfo(url.searchParams.get('bump') === '1');
+      return this.handleSessionInfo(
+        url.searchParams.get('bump') === '1',
+        url.searchParams.get('presence') as PresenceStage | null,
+        url.searchParams.get('client'),
+      );
     }
     if (url.pathname === '/activity' && request.method === 'POST') {
       return this.handleActivity(request);
@@ -674,7 +684,11 @@ export class AgentLinkSession {
    * instance the macro bootstrapped) to authenticate a token regardless of
    * which Worker isolate the HTTP request landed on.
    */
-  private async handleSessionInfo(bump: boolean): Promise<Response> {
+  private async handleSessionInfo(
+    bump: boolean,
+    presence: PresenceStage | null,
+    client: string | null,
+  ): Promise<Response> {
     await this.ensureSession();
     const auth = this.validateSession();
     if (!auth.ok) return jsonResponse({ error: auth.code }, auth.status);
@@ -683,6 +697,26 @@ export class AgentLinkSession {
     // read-only ops route here): slide the idle window + push status before
     // reporting the fresh deadline.
     if (bump) await this.bumpActivity();
+
+    // `?presence=<stage>&client=<name>` — the MCP relay's connection-
+    // experience heartbeat (2026-08-15 spec §3, Task 2). Presence is
+    // deliberately NOT activity: it must never slide the TTL or re-arm the
+    // alarm (that's bump's job, above), so this persists+pushes independently
+    // via storage.put rather than going through bumpActivity(). Only a
+    // strictly higher-ranked stage than the one already on record triggers a
+    // push — repeats and regressions (a stale/out-of-order relay request) are
+    // silent. An unrecognized `presence` value (garbage query string) is
+    // ignored outright: PRESENCE_RANK[presence] is undefined, so the guard
+    // below never persists or pushes it.
+    if (presence && this.session && PRESENCE_RANK[presence] !== undefined) {
+      const prev = this.session.presenceStage;
+      if (!prev || PRESENCE_RANK[presence] > PRESENCE_RANK[prev]) {
+        this.session.presenceStage = presence;
+        if (client && !this.session.clientName) this.session.clientName = client;
+        await this.state.storage.put('session', this.session);
+        this.pushStatus({ type: 'agent_presence', stage: presence, clientName: this.session.clientName });
+      }
+    }
 
     const session = this.session as SessionRecord; // validateSession() guarantees non-null here
     return jsonResponse(

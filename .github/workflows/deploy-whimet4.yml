@@ -120,6 +120,20 @@ jobs:
               | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline"))
             ' -i manifest.yml
 
+      # Mirrors staging-deploy.yml "Remove Full conversion modules from
+      # non-Full variants". fullPresenceFn is not just wrong-variant baggage
+      # here — it writes the `zenuml-full-active` space property that the
+      # byline display condition SUBTRACTS, so shipping it inside the Lite app
+      # would make this deployment hide the very byline it exists to test.
+      - name: Remove Full-only modules from Lite manifest
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval '
+              del(.modules.function[] | select(.key == "liteFullConversionFn" or .key == "fullPresenceFn"))
+              | del(.modules.scheduledTrigger[] | select(.key == "full-lite2full-hourly" or .key == "full-presence-daily"))
+            ' -i manifest.yml
+
       - name: Upload final manifest
         uses: actions/upload-artifact@v4
         with:

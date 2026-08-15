@@ -38,6 +38,7 @@ import { decideWriteback, deriveWritebackSignals } from "@/model/writebackGate";
 
 installRestoreDraftBanner();
 import SwaggerForgeEditorShell from '@/components/OpenApi/SwaggerForgeEditorShell.vue';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import {
   buildOpenApiSaveDiagram,
   createOpenApiEditorState,
@@ -330,9 +331,13 @@ async function initializeMacro() {
   // reintroduces a dashboard Edit that opens THIS editor as a standalone modal
   // carrying the id via modal.customContentId, so the fallback is required
   // again. saveOpenApiAndExit pins the save for that path (see isDashboardEdit).
+  // configContentId stays a RAW config read: isDashboardEdit means "no config,
+  // came in through the modal", so it must not see any fallback. The pasted
+  // deeplink is folded into customContentId only — a pasted OpenAPI macro is a
+  // page macro, not a dashboard edit.
   const configContentId = context.extension?.config?.customContentId;
   const modalContentId = context.extension?.modal?.customContentId;
-  const customContentId = configContentId || modalContentId;
+  const customContentId = resolveEffectiveCustomContentId(context);
   isDashboardEdit = !configContentId && !!modalContentId;
   // Passed to openDocument() below as `pageId`; the resolved id/recovery
   // origin it feeds back is captured into `capturedOrigin`, not this const.

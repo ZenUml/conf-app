@@ -40,6 +40,35 @@ describe('Header', () => {
     expect(mermaidButton.classes()).toContain('bg-emerald-100');
     expect(mermaidButton.classes()).toContain('text-emerald-800');
   })
+
+  describe('the remembered diagram type', () => {
+    function mountWith(diagram: Record<string, unknown>) {
+      store.state.diagram = { ...store.state.diagram, ...diagram } as any;
+      return mount(Header, { global: { plugins: [store] } });
+    }
+
+    afterEach(() => localStorage.removeItem('zenuml-preferred-diagram-type'));
+
+    it('still applies to a new diagram nobody asked a type for', async () => {
+      localStorage.setItem('zenuml-preferred-diagram-type', DiagramType.Mermaid);
+      const w = mountWith({ isNew: true, typeRequested: false, diagramType: DiagramType.Sequence });
+      await w.vm.$nextTick();
+
+      expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    });
+
+    it('never overrules a type the user just picked', async () => {
+      // The byline's picker (and a pasted /new/<type> link) seed the doc and set
+      // typeRequested. Without this guard the preference won, so choosing
+      // Flowchart opened a Sequence editor for anyone whose last diagram was a
+      // sequence — which is most people.
+      localStorage.setItem('zenuml-preferred-diagram-type', DiagramType.Sequence);
+      const w = mountWith({ isNew: true, typeRequested: true, diagramType: DiagramType.Mermaid });
+      await w.vm.$nextTick();
+
+      expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    });
+  })
 })
 
 describe('Header — starter-template gallery (#334)', () => {

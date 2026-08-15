@@ -10,6 +10,10 @@ export type FeatureArea =
   | "feedback"
   | "system"
   | "agent_link"
+  // The confluence:contentBylineItem entry point under the page title. Its own
+  // area because it is an activation surface, not part of a macro's lifecycle:
+  // it renders on every page, including pages with no diagram at all.
+  | "byline"
   | "diagram_impact";
 
 /** Current user's relationship to the diagram being measured. */
@@ -48,7 +52,12 @@ export type Surface =
   | "scheduled_job"
   // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
   // the small-macro `viewer` surface that hosts the initial Connect button.
-  | "fullscreen";
+  | "fullscreen"
+  // The contentBylineItem modal. Confluence boots this iframe only when the
+  // item is CLICKED (measured 2026-08-01: 5 opens against 39,197 macro views on
+  // the variants that ship it), so every event carrying this surface is a
+  // deliberate user action — there are no byline impressions to filter out.
+  | "byline";
 
 export type EntryPoint =
   | "page_view"
@@ -60,6 +69,7 @@ export type EntryPoint =
   | "dashboard"
   | "route"
   | "forge_trigger"
+  | "byline"
   | "unknown";
 
 export type OperationMode = "create" | "edit" | "unknown";
@@ -331,6 +341,92 @@ export type AnalyticsEventName =
   // network/auth/malformed-response errors.
   | "cohorts_refreshed"
   | "cohorts_refresh_failed"
+  // Lite byline activation, Phase 1 (docs/superpowers/specs/
+  // 2026-07-25-lite-byline-activation-design.md). The whole point of Phase 1 is
+  // to measure whether a contentBylineItem earns clicks in OUR app: the same
+  // module has been opened 39 times in 3.5 months on Diagramly and never on
+  // Full, so `byline_opened` IS the experiment's readout, not supporting
+  // telemetry. Every event here is user-initiated — Confluence boots the byline
+  // iframe on click only.
+  // Fires exactly ONCE per modal open, even though the emit sits after the
+  // listing resolves (it needs diagram_count to be the readout at all). The
+  // retry button re-runs the same loader, so an unguarded emit counted a retry
+  // as a second open — an inflation only users who hit a load failure could
+  // produce, biasing the primary metric toward the failure population.
+  | "byline_opened"
+  // A retried listing, so the retry rate is measurable without it landing in
+  // byline_opened. `result` = 'recovered' | 'failed'.
+  | "byline_list_retried"
+  // A listed diagram was acted on from the modal (jump / open fullscreen).
+  | "byline_diagram_opened"
+  // The diagram's DSL was copied to the clipboard from a card. Deliberately NOT
+  // byline_diagram_opened: "the index helped me find and open a diagram" and "I
+  // grabbed the source text" are different intents, and folding them together
+  // makes index engagement read higher than the behaviour it describes.
+  | "byline_diagram_source_copied"
+  // "Add a diagram" clicked. Splits from byline_editor_deeplinked so an
+  // intent-to-create that fails to route is still visible.
+  | "byline_create_clicked"
+  // The modal routed the user to the page editor (router.navigate). Phase 1's
+  // create path ends here: the macro itself is inserted with the editor's own
+  // insert menu. North star = a first-ever macro_create_succeeded by an
+  // accountId within 30 minutes of this event.
+  | "byline_editor_deeplinked"
+  // Modal closed with no diagram opened and no create click — the "looked and
+  // left" outcome. `dwell_ms` separates a misfire from a real evaluation.
+  | "byline_dismissed"
+  // Thumbnail resolution finished. Separate from byline_opened because
+  // thumbnails load AFTER the list paints (they must never delay the Phase 1
+  // readout), so the coverage number simply does not exist yet when
+  // byline_opened fires. `thumbnail_count` vs `diagram_count` is the coverage
+  // ratio that decides whether the visual index earns its requests.
+  | "byline_thumbnails_loaded"
+  // The page's published ADF was scanned to find which listed diagrams no macro
+  // references. `unplaced_count` vs `diagram_count` measures the one failure
+  // mode the whole create→paste handoff has: a diagram saved from the byline
+  // that the user never pasted. It is already counted against the Lite
+  // 100-macro limit at that point, so a rising ratio is both a UX failure and a
+  // quota cost. Emitted once per open, after the list paints — the scan is a
+  // full-page ADF GET and must never delay it.
+  | "byline_unplaced_scanned"
+  // The scheduled writer decided whether this installation should see the
+  // byline. Split from byline_visibility_write deliberately: the decision and
+  // the write fail independently, and a merged event would make a failed write
+  // read as a deliberate suppression — the exact ambiguity that made
+  // Diagramly's ai_aide_route_accessed unusable as a numerator.
+  // `decision` = 'visible' | 'suppressed'; `reason` names what drove it.
+  | "byline_visibility_evaluated"
+  // The result of maintaining byline visibility state: the enrolment SPACE
+  // property (`zenuml-byline` + variant suffix — what the display condition
+  // reads) on every space, with last-settled-state memory in Forge app
+  // storage. `result` = 'written' | 'cleared' | 'unchanged' | 'failed';
+  // `space_count` = spaces swept. This one is load-bearing for support, not
+  // just analysis: the display condition is fail-CLOSED, so a tenant whose
+  // writes silently failed has no byline at all and is otherwise
+  // indistinguishable from one deliberately left off the rollout.
+  | "byline_visibility_write"
+  // The Full app marking its presence on a space (`zenuml-full-active` space
+  // property, created by Full's daily sweep). The Lite byline's display
+  // condition hides itself wherever this marker exists, so a missed write here
+  // shows the Lite byline on a site that paid for Full — annoying, not
+  // dangerous — while the marker lingering after a Full uninstall hides the
+  // Lite byline forever on that space. `result` + `space_count` as above.
+  | "full_presence_write"
+  // The byline editor produced a saved diagram, and (when a cloudId is
+  // available) a deeplink to place it. This is the conversion the picker exists
+  // for: unlike byline_create_clicked it cannot fire on intent alone — a custom
+  // content exists by the time it does.
+  | "byline_diagram_created"
+  // The byline editor closed without saving. Splits abandonment from failure,
+  // which byline_create_clicked alone cannot distinguish.
+  | "byline_create_cancelled"
+  // "Done" was pressed on the post-create panel while the host page was in the
+  // editor, and the app asked Confluence to close the byline view. Forge
+  // documents view.close() as a *request* with no module restrictions stated,
+  // but says nothing about contentBylineItem specifically — `result`
+  // ('closed' | 'unsupported' | 'failed') is how we find out whether a byline
+  // item can dismiss itself, rather than assuming it.
+  | "byline_view_close_requested"
   // Two independent producers, disambiguated by `failure_stage` (reliability
   // audit 2026-08-06 §3/§4/§12 items 1-2, conf-app#149/#150):
   // - unset/'syntax': GenericViewer's `$store.state.error` watcher — client-

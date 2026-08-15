@@ -405,6 +405,11 @@ export default class ApWrapper2 implements IApWrapper {
     delete body.recoveredFromOrphanId;
     delete body.legacyLoadBlocked;
     delete body.loadError;
+    // Editor-session state: which surface asked for this diagram's type. It
+    // answers a question that only exists while the editor is open, so writing
+    // it into the stored body would put a permanent flag on customer content to
+    // record a decision made once, seconds earlier.
+    delete body.typeRequested;
 
     // Legacy graph records used `compressed: true` with an LZUTF8 graphXml
     // body. DrawIO saves now emit plain XML, so persisting a stale true flag
@@ -659,6 +664,16 @@ export default class ApWrapper2 implements IApWrapper {
    * duplicates on this page" and wave a shared-id macro straight into the
    * editor — the exact silent fork it exists to stop.
    */
+  /**
+   * The customContentIds this page's macros reference, in document order, or
+   * `undefined` when the page ADF could not be read. One ADF GET for the whole
+   * page — see AtlasPage.referencedCustomContentIds for why the byline needs the
+   * ordered form rather than N countMacrosReferencing calls.
+   */
+  async referencedCustomContentIds(): Promise<string[] | undefined> {
+    return this._page.referencedCustomContentIds();
+  }
+
   async countMacrosReferencing(id: string): Promise<number | undefined> {
     return this._page.countMacrosOrUnknown((m) => {
       //TODO: filter by macro type
@@ -785,6 +800,38 @@ export default class ApWrapper2 implements IApWrapper {
         pageChildrenTotal: 0,
         probeError: e?.message ? String(e.message) : String(e),
       };
+    }
+  }
+
+  // Lite byline modal: the page's diagram custom-content children, raw.
+  //
+  // Deliberately thin — it returns the REST responses untouched (including
+  // error-shaped ones) and leaves every interpretation to
+  // utils/byline/pageDiagrams.ts, which is pure and unit-tested against the
+  // malformed bodies that occur in real customer data.
+  //
+  // Reads only. The byline item renders on every page, including pages with no
+  // diagram at all, so the empty result is the expected common case, not a
+  // failure. `Promise.all` over the two Lite content types mirrors
+  // probeOrphanRecovery: graph macros stored under the Connect-era
+  // `zenuml-content-graph` type are invisible to a sequence-typed listing.
+  async listPageDiagramContents(pageId: string): Promise<Array<any>> {
+    const limit = 100;
+    const types = customContentTypesForVariant().map(t => this.customContentType(t));
+    try {
+      return await Promise.all(
+        types.map(t =>
+          this.makeRequest(
+            `/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(t)}&body-format=raw&limit=${limit}`,
+          ).catch(e => ({ errors: [{ title: e?.message ? String(e.message) : String(e) }] })),
+        ),
+      );
+    } catch (e: any) {
+      // Promise.all itself failing means every type failed; the modal shows its
+      // empty state, which is indistinguishable to the user from a page with no
+      // diagrams — acceptable for a read-only affordance.
+      console.error('[byline] listPageDiagramContents failed', e);
+      return [];
     }
   }
 

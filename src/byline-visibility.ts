@@ -1,0 +1,297 @@
+import api, { getAppContext, route, storage } from '@forge/api';
+import {
+  emptyTally,
+  ensureSpaceProperty,
+  formatTally,
+  listSpaceIds,
+  removeSpaceProperty,
+  type SweepTally,
+} from './space-properties';
+
+/**
+ * Keeps the per-space `zenuml-byline*` enrolment property in sync with whether
+ * this installation should render the Lite byline entry.
+ *
+ * The property is read by `displayConditions` on `zenuml-byline-diagrams`
+ * (manifest.yml). That gate is **fail-closed**: a space with no property
+ * renders no byline. Everything here exists to make sure the property is
+ * present and correct on every space, because nothing else can — in
+ * particular the byline itself cannot repair it, since a hidden byline is
+ * never opened.
+ *
+ * CALLER: `byline-visibility-hourly` (manifest.yml `scheduledTrigger`),
+ * Lite-only. Hourly is about the first write, not the steady state: the sweep
+ * is idempotent, and the interval only bounds how long a newly installed or
+ * newly allowlisted site waits with the wrong visibility.
+ *
+ * SCOPE: visibility is an explicit cloudId ALLOWLIST (below), materialised as
+ * the enrolment space property on every space of an enrolled installation.
+ * The both-apps-installed suppression is NOT decided here: the Full app marks
+ * its own presence per space (`zenuml-full-active`, src/full-presence.ts) and
+ * the manifest condition subtracts it with a `not entityPropertyExists` leg.
+ *
+ * STATE MARKER: whether a previous tick enrolled this site is remembered in
+ * Forge app storage (`storage:app` scope, already granted), NOT in a
+ * Confluence property. A suppressed installation must not pay a full space
+ * sweep every hour just to prove there is nothing to clear — the marker makes
+ * un-enrolment sweep exactly once and steady-state suppression cost one
+ * storage read per tick, with no residue visible in the tenant's Confluence
+ * data. An earlier revision kept this marker in the `byline-enabled` APP
+ * property (the previous gate mechanism); that property is vestigial and is
+ * DELETED on the next state transition — see `deleteLegacyAppProperty`.
+ */
+
+/**
+ * Field inside the space property object that holds the flag. `objectName:
+ * enabled` on the zenuml-byline-diagrams display condition depends on it — the
+ * condition evaluates false when the path is absent, so a rename on one side
+ * alone hides the byline everywhere and says nothing about why. The object
+ * shape (rather than a bare value) is the one encoding PROVEN to satisfy
+ * entityPropertyEqualTo on this surface; bare-value string conversion is where
+ * this gate failed twice before.
+ */
+const PROPERTY_FIELD = 'enabled';
+const SPACE_PROP_VALUE = { [PROPERTY_FIELD]: 'true' };
+
+/**
+ * The manifest templates the property key per variant:
+ * `zenuml-byline${LITE_KEY_SUFFIX}` (manifest.yml, zenuml-byline-diagrams).
+ * The writer cannot read that template — no evidence exists that manifest
+ * environment variables reach the function runtime — so it derives the same
+ * key from the one fact the runtime does hand it: which app it is running in.
+ *
+ * appId → suffix mirrors APPS in scripts/forge-wizard.mjs (the source of
+ * truth for both values), and tests/unit/bylineKeyConsistency.spec.ts pins
+ * code, wizard, and manifest template to each other — a drift in any of the
+ * three fails the suite rather than silently hiding the byline.
+ */
+export const SPACE_PROP_BASE = 'zenuml-byline';
+export const APP_SPACE_KEY_SUFFIXES: ReadonlyMap<string, string> = new Map([
+  ['8ad26115-211f-4216-971b-0540f606303d', '-lite'], // lite
+  ['d9e4002b-120b-426b-834b-402a4a5adce7', ''], // full
+  ['01ede8b1-4e88-451a-b9ef-89eeef93afaf', ''], // diagramly
+  ['49017727-af19-4ab6-8d5a-7d28108936b6', ''], // asyncapi
+]);
+
+/**
+ * The enrolment property key for the app this invocation runs in, or
+ * undefined for an app not in the map — in which case the caller must write
+ * NOTHING: a wrong key would satisfy no display condition (silently hidden,
+ * fail-closed) but would still litter every space with junk properties.
+ */
+export function spacePropertyKey(appId: string | undefined): string | undefined {
+  if (!appId) return undefined;
+  const suffix = APP_SPACE_KEY_SUFFIXES.get(appId);
+  if (suffix === undefined) return undefined;
+  return `${SPACE_PROP_BASE}${suffix}`;
+}
+
+/**
+ * The property value, and the `value:` in the manifest display condition, are
+ * both the STRING "true" rather than a boolean. That is forced, not stylistic:
+ * `forge lint` rejects a boolean there outright, so a boolean in the property
+ * could never match the condition it exists for.
+ */
+export const VISIBLE = 'true';
+export const HIDDEN = 'false';
+
+const L = '[byline-visibility]';
+
+/**
+ * Forge storage key remembering the last settled state of this installation:
+ * 'enrolled' (spaces carry the property) or 'clean' (they verifiably do not).
+ * Absent means unknown — e.g. first tick after this code deploys — and reads
+ * as not-settled, so the handler converges with one sweep.
+ */
+const STATE_KEY = 'byline-visibility-state';
+type SettledState = 'enrolled' | 'clean';
+
+async function readState(): Promise<SettledState | undefined> {
+  try {
+    const v = await storage.get(STATE_KEY);
+    return v === 'enrolled' || v === 'clean' ? v : undefined;
+  } catch {
+    // Unknown state degrades to an extra sweep, never to a wrong gate.
+    return undefined;
+  }
+}
+
+async function writeState(state: SettledState): Promise<void> {
+  try {
+    await storage.set(STATE_KEY, state);
+  } catch {
+    // Next tick re-converges; the sweep it repeats is idempotent.
+  }
+}
+
+/**
+ * The `byline-enabled` APP property was the previous gate mechanism and then
+ * briefly the writer's marker; nothing reads it anymore. Deleted on each state
+ * transition rather than on every tick — transitions are rare, and after the
+ * first one this is a no-op 404 that never runs again for the installation.
+ */
+async function deleteLegacyAppProperty(): Promise<void> {
+  const res = await api
+    .asApp()
+    .requestConfluence(route`/wiki/api/v2/app/properties/byline-enabled`, { method: 'DELETE' })
+    .catch(() => undefined);
+  if (res && !res.ok && res.status !== 404) {
+    console.log(`${L} legacy app property delete failed status=${res.status}`);
+  }
+}
+
+/**
+ * Reasons are drawn from the `byline_visibility_reason` union already
+ * registered in src/utils/analytics/types.ts, rather than invented here. Two
+ * consequences worth stating: the values stay low-cardinality (a per-site
+ * reason string would make the property useless to group by), and the moment
+ * these decisions are wired to trackAnalyticsEvent they type-check without a
+ * translation layer.
+ */
+export type VisibilityReason = 'enrolled' | 'not_enrolled' | 'no_signal';
+
+export type Decision = {
+  value: string;
+  decision: 'visible' | 'suppressed';
+  reason: VisibilityReason;
+  /** Allowlist entry that matched, for logs only — never an analytics property. */
+  site?: string;
+};
+
+/**
+ * Sites that render the Lite byline, by cloudId.
+ *
+ * Both are our own — the Lite E2E target and a developer site — not customer
+ * tenants, which is what makes naming them here compatible with
+ * docs/policies/client-privacy.md. `lite-stg.atlassian.net` is already named in
+ * tests/e2e-tests/config/apps.ts for the same reason.
+ *
+ * cloudIds read from each site's /_edge/tenant_info on 2026-08-15. Matching on
+ * cloudId rather than hostname because that is what the runtime actually hands
+ * us (`installation.contexts[].cloudId`); a hostname would have to be resolved
+ * by a further request that could fail, on the fail-closed side of the gate.
+ */
+export const ALLOWLIST: ReadonlyMap<string, string> = new Map([
+  ['c78e721e-957f-402c-9b70-1df2227c2739', 'lite-stg.atlassian.net'],
+  ['866c3a03-ec62-4717-91c4-1ad078bfcc60', 'whimet4.atlassian.net'],
+]);
+
+/**
+ * The cloudId of the installation this invocation is running for.
+ *
+ * `contexts` is an array and every entry's `cloudId` is optional in the SDK
+ * types, so this takes the first one that is present rather than indexing [0]
+ * and trusting it. A Confluence installation has exactly one, but the type
+ * permits neither assumption, and guessing wrong here silently allowlists or
+ * silently hides.
+ */
+export function currentCloudId(context: {
+  installation?: { contexts?: ReadonlyArray<{ cloudId?: string }> };
+}): string | undefined {
+  for (const c of context.installation?.contexts ?? []) {
+    if (c.cloudId) return c.cloudId;
+  }
+  return undefined;
+}
+
+/**
+ * Allowlist rollout. Kept as a named seam so Phase 2 swaps one function rather
+ * than restructuring the handler around it.
+ *
+ * An unresolvable cloudId is SUPPRESSED, not visible. "We could not tell which
+ * site this is" has to fall on the same side as "this site is not enrolled",
+ * because the whole point of a fail-closed gate is that uncertainty hides the
+ * surface rather than exposing it.
+ */
+export function decide(cloudId: string | undefined): Decision {
+  if (!cloudId) {
+    return { value: HIDDEN, decision: 'suppressed', reason: 'no_signal' };
+  }
+  const site = ALLOWLIST.get(cloudId);
+  if (!site) {
+    return { value: HIDDEN, decision: 'suppressed', reason: 'not_enrolled' };
+  }
+  return { value: VISIBLE, decision: 'visible', reason: 'enrolled', site };
+}
+
+/** `getAppContext()` throws outside an invocation context; degrade to unknown. */
+function readContext(): { cloudId?: string; appId?: string } {
+  try {
+    const ctx = getAppContext();
+    return { cloudId: currentCloudId(ctx), appId: ctx.appAri?.appId };
+  } catch {
+    return {};
+  }
+}
+
+export async function scheduledHandler() {
+  const { cloudId, appId } = readContext();
+  const { value: target, decision, reason, site } = decide(cloudId);
+  console.log(
+    `${L} evaluated cloudId=${cloudId ?? 'unknown'} site=${site ?? '-'} ` +
+      `decision=${decision} reason=${reason} target=${target}`,
+  );
+
+  const key = spacePropertyKey(appId);
+  if (!key) {
+    console.log(`${L} write result=failed appId=${appId ?? 'unknown'} — no property key mapping, writing nothing`);
+    return;
+  }
+
+  const state = await readState();
+
+  if (target === VISIBLE) {
+    // Enrolled: every space carries the property the display condition reads.
+    // Sweep first, marker second — the marker asserts "spaces are enrolled",
+    // so it must never be set by a tick that died mid-sweep.
+    const tally = await sweep((spaceId) => ensureSpaceProperty(spaceId, key, SPACE_PROP_VALUE));
+    if (tally.failed === 0 && state !== 'enrolled') {
+      await writeState('enrolled');
+      await deleteLegacyAppProperty();
+    }
+    console.log(
+      `${L} write result=${tally.failed > 0 ? 'failed' : tally.created + tally.updated > 0 ? 'written' : 'unchanged'} ${formatTally(tally)}`,
+    );
+    return;
+  }
+
+  // Suppressed: absence is the hidden state, so there is nothing to write —
+  // unless the installation is not KNOWN to be clean (a previous tick enrolled
+  // it, or the state is unknown, e.g. right after this code first deploys).
+  // Then the space properties are swept away exactly once, and the marker
+  // clears only after a clean sweep so a partial clear retries next tick
+  // instead of stranding stale `enabled:"true"` properties forever.
+  if (state === 'clean') {
+    console.log(`${L} write result=unchanged state=clean`);
+    return;
+  }
+  const tally = await sweep((spaceId) => removeSpaceProperty(spaceId, key));
+  if (tally.failed === 0) {
+    await writeState('clean');
+    await deleteLegacyAppProperty();
+  }
+  console.log(
+    `${L} write result=${tally.failed > 0 ? 'failed' : 'cleared'} ${formatTally(tally)}`,
+  );
+}
+
+/** Run `perSpace` over every space on the site, tallying outcomes. */
+async function sweep(
+  perSpace: (spaceId: string) => Promise<'created' | 'updated' | 'unchanged' | 'deleted' | 'absent' | 'failed'>,
+): Promise<SweepTally> {
+  const tally = emptyTally();
+  let spaceIds: string[];
+  try {
+    spaceIds = await listSpaceIds();
+  } catch (e) {
+    console.log(`${L} sweep aborted: ${e instanceof Error ? e.message : String(e)}`);
+    tally.failed += 1;
+    return tally;
+  }
+  tally.spaces = spaceIds.length;
+  for (const spaceId of spaceIds) {
+    const outcome = await perSpace(spaceId).catch(() => 'failed' as const);
+    tally[outcome] += 1;
+  }
+  return tally;
+}

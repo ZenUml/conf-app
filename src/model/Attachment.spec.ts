@@ -1022,6 +1022,57 @@ describe('Attachment', () => {
         expect(succeeded).toHaveLength(0);
       });
     });
+
+    // A dashboard modal ("My API Documents" → View/Edit) carries the id on
+    // extension.modal, not extension.config, and has no page. Before the id
+    // read was widened to resolveEffectiveCustomContentId it returned early
+    // purely because the config id was empty; the page check keeps that surface
+    // silent for its own reason rather than as a side effect.
+    describe('page-context guard', () => {
+      beforeEach(() => {
+        vi.mocked(htmlToImage.toBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      });
+
+      it('skips the write in a dashboard modal, which has an id but no page', async () => {
+        (forgeGlobal as any).forgeContext = {
+          extension: { modal: { customContentId: 'dashboard-doc-1' } },
+        };
+        mockApWrapper._getCurrentPageId.mockResolvedValue('');
+
+        await createAttachmentIfContentChanged('test content', 'openapi');
+
+        expect(mockApWrapper.getAttachmentsV2).not.toHaveBeenCalled();
+        expect(mockRequestConfluence).not.toHaveBeenCalled();
+        const failed = mockTrackEvent.mock.calls.filter(
+          (c: unknown[]) => c[1] === 'attachment_upload_failed',
+        );
+        expect(failed).toHaveLength(0);
+      });
+
+      it('skips rather than throwing when the page id lookup itself fails', async () => {
+        (forgeGlobal as any).forgeContext = {
+          extension: { modal: { customContentId: 'dashboard-doc-2' } },
+        };
+        mockApWrapper._getCurrentPageId.mockRejectedValue(new Error('no page context'));
+
+        await expect(
+          createAttachmentIfContentChanged('test content', 'openapi'),
+        ).resolves.toBeUndefined();
+        expect(mockRequestConfluence).not.toHaveBeenCalled();
+      });
+
+      it('still writes when a page IS in context', async () => {
+        (forgeGlobal as any).forgeContext = {
+          extension: { config: { customContentId: 'test-uuid' }, content: { id: 'page-123' } },
+        };
+        mockApWrapper._getCurrentPageId.mockResolvedValue('page-123');
+
+        await createAttachmentIfContentChanged('test content', 'sequence');
+
+        expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalled();
+      });
+    });
   });
 
   describe('createAttachmentIfContentChanged - PNG capture', () => {

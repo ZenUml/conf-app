@@ -215,6 +215,82 @@ export type AnalyticsProperties = {
   // refresh). `cohort_count` = same list's length, for numeric filtering.
   cohorts?: string;
   cohort_count?: number;
+  // Lite byline activation (byline_*). `page_has_diagram` / `diagram_count`
+  // describe the page the modal opened on — the two populations behave
+  // differently (index-a-diagram vs create-the-first-one) and the create
+  // funnel must be measurable separately for each. `macro_types` is the
+  // comma-joined set found on the page, in the same lowercase vocabulary as
+  // `macro_type`, empty string when none.
+  // `dwell_ms` = modal mount → close, carried on byline_dismissed so a
+  // fat-finger open is distinguishable from a real look.
+  page_has_diagram?: boolean;
+  diagram_count?: number;
+  macro_types?: string;
+  dwell_ms?: number;
+  // Byline listing health. Nothing on the listing path rejects — forgeRequest
+  // resolves error bodies — so a 403 or rate-limit is otherwise reported as a
+  // page with zero diagrams. `listing_failed` marks a `diagram_count: 0` that
+  // means "unknown" rather than "none", which matters because byline_opened is
+  // the Phase 1 readout; `failed_type_count` counts the probed custom-content
+  // types that errored, so a partial failure is visible too.
+  listing_failed?: boolean;
+  failed_type_count?: number;
+  // Which trigger put the byline's paste link on the clipboard
+  // (advocacy_message_copied, ui_component: 'byline_created_link'). 'auto' is
+  // the copy performed for the user at save; 'manual' is the button. They fail
+  // for different reasons — the automatic write is not user-gesture-initiated
+  // inside the Forge iframe — and a run of 'manual' copies against one created
+  // link means the automatic one is not surviving to the paste.
+  copy_trigger?: 'auto' | 'manual';
+  // Was the host page already in the Confluence editor when the byline opened.
+  // Carried on every byline event because it splits two genuinely different
+  // journeys — reader-discovers-the-app vs author-mid-edit — and because the
+  // detection degrading to false is otherwise indistinguishable from "nobody
+  // opens the byline while editing".
+  host_in_editor?: boolean;
+  // byline_visibility_evaluated. Whether this installation should render the
+  // byline entry, and what drove it. `full_present` is the both-apps-installed
+  // case the suppression exists for; `full_stale` means a Full install row
+  // exists but is older than the presence TTL — there is no uninstall event to
+  // key on, so staleness is the only available proxy and it must be readable
+  // apart from a confident absence.
+  byline_visibility_decision?: "visible" | "suppressed";
+  // `enrolled` is the allowlist hit: this cloudId is named in
+  // src/byline-visibility.ts ALLOWLIST. `not_enrolled` is a confident miss,
+  // and `no_signal` is the distinct case where the runtime gave us no cloudId
+  // to match at all — both suppress, but only one of them means the gate is
+  // working as intended, so they must not collapse into one value.
+  byline_visibility_reason?:
+    | "full_present"
+    | "full_absent"
+    | "full_stale"
+    | "enrolled"
+    | "not_enrolled"
+    | "no_signal";
+  // Days since the newest Full ForgeInstallation row for this cloudId. Absent
+  // when no such row exists at all, which is NOT the same as a large number.
+  full_last_seen_days?: number;
+  // Which call site ran the evaluation. The scheduled pass is the only one
+  // proven to reach existing installs — avi:forge:upgraded:app has never
+  // produced a ForgeInstallation row — so a funnel dominated by 'install_trigger'
+  // would mean the scheduled sweep has stopped running.
+  byline_visibility_source?: "install_trigger" | "scheduled";
+  // byline_visibility_write. 'unchanged' is a success, not a no-op worth
+  // hiding: it is what proves the writer is idempotent and is the expected
+  // steady state once a tenant has settled.
+  byline_visibility_result?: "written" | "cleared" | "unchanged" | "failed";
+  // Byline thumbnails: how many of `diagram_count` resolved to a backup-PNG
+  // attachment. Coverage is the whole question for this feature — diagrams
+  // saved before the attachment backup existed, failed captures, and viewers
+  // without attachment read permission all land here as a shortfall, and a
+  // consistently low ratio means the visual index is not worth its requests.
+  thumbnail_count?: number;
+  // byline_unplaced_scanned. How many of the page's listed diagrams no macro on
+  // the published page references — a diagram saved from the byline and never
+  // pasted. Read against `diagram_count` from the same event. Deliberately
+  // absent rather than 0 when the ADF could not be read: "scanned, found none"
+  // and "could not scan" must not collapse into the same number.
+  unplaced_count?: number;
   // Draft-restore banner (draft_banner_* / draft_restored / draft_discarded).
   // `draft_scope_kind` = which draft namespace the banner is for: 'edit' (a
   // specific custom-content id) or 'new' (an unsaved diagram of some type).

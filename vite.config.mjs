@@ -59,11 +59,27 @@ function getHtmlFiles(dir, { isBuild = false } = {}) {
   const files = fs.readdirSync(dir);
 
   for (let i = 0; i < files.length; i++) {
+    // Filter by NAME before touching the filesystem. Vite writes a temp
+    // `vite.config.mjs.timestamp-<ts>-<rand>.mjs` into this very directory while
+    // it loads this config and deletes it immediately afterwards, so a readdir
+    // that catches it reaches lstat after it is gone and takes the whole run
+    // down with ENOENT — observed on CI 2026-08-15, where `pnpm test:unit` died
+    // at config load with `lstat 'vite.config.mjs.timestamp-…mjs'` and no test
+    // ever ran. Checking the extension first means that file, and anything else
+    // transient that is not .html, is never stat'd at all.
+    if (path.extname(files[i]) !== '.html') continue;
+    if (isBuild && DEV_ONLY_HTML_ENTRIES.has(files[i])) continue;
+
     const filepath = path.join(dir, files[i]);
-    if (fs.lstatSync(filepath).isFile() && path.extname(filepath) === '.html') {
-      if (isBuild && DEV_ONLY_HTML_ENTRIES.has(files[i])) continue;
-      htmlFiles.push(filepath);
+    let stat;
+    try {
+      stat = fs.lstatSync(filepath);
+    } catch {
+      // Vanished between readdir and stat. Anything that transient is not a
+      // real entry point, and it must not be able to fail the build.
+      continue;
     }
+    if (stat.isFile()) htmlFiles.push(filepath);
   }
   return htmlFiles;
 }

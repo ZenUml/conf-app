@@ -1475,11 +1475,17 @@ async function onLearnMore() {
 }
 
 /* Add another ------------------------------------------------------------- */
-/* Sits between the scrolling body and the footer, so it never scrolls away. */
+/* Sits between the scrolling body and the footer, so it never scrolls away.
+   The scroll mechanics (header/addrow/footer flex:none, body flex:1 +
+   min-height:0 + overflow-y:auto) already contain the list — this stronger
+   top divider is the VISIBLE half of that: #dfe1e6 rather than the #ebecf0 of
+   the row separators, so the pinned add-another + footer group reads as one
+   fixed region below the scroll boundary instead of blending into the last
+   scrolled row. Matches the 4a scroll-containment mock. */
 .addrow {
   flex: none;
   padding: 12px 20px;
-  border-top: 1px solid #ebecf0;
+  border-top: 1px solid #dfe1e6;
   background: #fff;
 }
 .addrow__label {

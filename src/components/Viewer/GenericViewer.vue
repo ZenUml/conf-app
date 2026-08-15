@@ -348,6 +348,7 @@
             :last-activity-at="agentLinkLastActivityAt"
             :lock-expires-at="agentLinkLockExpiresAt"
             :at-cap="agentLinkAtCap"
+            :notice-reason="agentLinkNoticeReason"
             @disconnect="onAgentLinkDisconnect"
             @revoke="onAgentLinkRevoke"
             @reconnect="onAgentLinkReconnect"
@@ -643,6 +644,13 @@ export default {
     // hint once bumps no longer move the meter.
     agentLinkAtCap() {
       return this.agentLinkSession?.atCap.value ?? false;
+    },
+    // Task 7: 'connection_lost' once relayClient.ts's own reconnect backoff
+    // has given up (or a socket error arrived while already down) —
+    // forwarded to ConnectPanel's 'suspended' banner so it stops implying an
+    // ongoing retry that has, in fact, stopped.
+    agentLinkNoticeReason() {
+      return this.agentLinkSession?.noticeReason.value ?? null;
     },
     // Perceived-latency overlay gate (charter §6 Track F). Same flag/type
     // gating as the other affordances, but NOT restricted to Fullscreen: the

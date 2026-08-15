@@ -178,6 +178,12 @@ export interface AgentLinkSessionApi {
   // rationale. Display-only; the FSM (`state` above) is untouched by these.
   progressStage: Ref<'initialized' | 'discovered' | 'verified' | 'working' | null>
   agentClientName: Ref<string | null>
+  // Task 7: 'connection_lost' once relayClient.ts's own reconnect backoff has
+  // given up (or a socket error arrives while already down) — see the field's
+  // doc comment inside useAgentLinkSession() for the full rationale. Null
+  // whenever 'suspended' is still a genuinely-in-progress retry, or the
+  // session isn't 'suspended' at all. Display-only; never read by the FSM.
+  noticeReason: Ref<'connection_lost' | null>
   activityFeed: Ref<AgentLinkActivityEntry[]>
   // Perceived-latency "AI is thinking" surface state (charter §6 Track F),
   // orthogonal to `state` (a paired session is `connected` the whole time an
@@ -265,6 +271,16 @@ export function useAgentLinkSession(
   // still happens only on the first forwarded op, per onAgentConnected()).
   const progressStage = ref<'initialized' | 'discovered' | 'verified' | 'working' | null>(null)
   const agentClientName = ref<string | null>(null)
+  // Task 7 (connection-experience §3): display-only reason surfaced alongside
+  // `state` when 'suspended' needs to say WHY it's stuck there. relayClient.ts
+  // itself retries a dropped socket for ~15.5s (5 backoff attempts) before
+  // giving up ({type:'reconnect_failed'}) — the "Connection paused —
+  // reconnecting…" banner is honest while that retry is genuinely in flight,
+  // but once it gives up (or a socket error arrives while already down) the
+  // banner must stop implying an ongoing retry. Deliberately NOT a new FSM
+  // state (hard constraint) — 'suspended' still covers both "retrying" and
+  // "gave up"; this ref is the only thing that distinguishes them for the UI.
+  const noticeReason = ref<'connection_lost' | null>(null)
   const thinkingState = ref<AgentLinkThinkingState>('idle') as Ref<AgentLinkThinkingState>
   const activityFeed = ref<AgentLinkActivityEntry[]>([]) as Ref<
     AgentLinkActivityEntry[]
@@ -475,6 +491,10 @@ export function useAgentLinkSession(
       if (state.value !== 'connected') return
       suspendedAt = now()
       state.value = nextClientState(state.value, 'ws_drop')
+      // A fresh drop is about to be retried by relayClient.ts's own backoff
+      // (scheduleReconnect) — any stale "gave up" notice from an EARLIER
+      // suspend/reconnect_failed cycle no longer applies.
+      noticeReason.value = null
       activityFeed.value = [...activityFeed.value, { summary: SUSPENDED_FEED_SUMMARY, at: now() }]
       if (boundContext && token.value) {
         persistSession({ ...boundContext, token: token.value, state: 'suspended', ...handoffFeedFields() })
@@ -498,6 +518,7 @@ export function useAgentLinkSession(
       const resumeLatencyMs = suspendedAt != null ? Math.max(0, now() - suspendedAt) : undefined
       suspendedAt = null
       state.value = nextClientState(state.value, 'resumed')
+      noticeReason.value = null
       activityFeed.value = [...activityFeed.value, { summary: RESUMED_FEED_SUMMARY, at: now() }]
       if (boundContext && token.value) {
         persistSession({
@@ -514,6 +535,48 @@ export function useAgentLinkSession(
         macro_type: macroType,
         ...(resumeLatencyMs != null ? { resume_latency_ms: resumeLatencyMs } : {}),
       })
+      return
+    }
+
+    // Task 7: relayClient.ts's own backoff (scheduleReconnect) has given up
+    // after maxReconnectAttempts (~15.5s) — the transport will not retry
+    // again on its own. In practice this always arrives AFTER the 'close'
+    // branch above already moved 'connected' -> 'suspended', so this mostly
+    // just updates the notice; the `state.value === 'connected'` fallback
+    // covers the (test-only) case of a caller emitting it directly, still
+    // routing through the SAME 'ws_drop' transition — no new FSM state.
+    if (event.type === 'reconnect_failed') {
+      if (state.value !== 'connected' && state.value !== 'suspended') return
+      if (state.value === 'connected') {
+        suspendedAt = now()
+        state.value = nextClientState(state.value, 'ws_drop')
+      }
+      noticeReason.value = 'connection_lost'
+      if (boundContext && token.value) {
+        persistSession({ ...boundContext, token: token.value, state: 'suspended', ...handoffFeedFields() })
+      }
+      return
+    }
+
+    // Socket-level transport error (relayClient.ts's WebSocket onerror).
+    // While still 'connected' (the error arrived before any close), this is
+    // treated like a failed op — reuse the existing 4s error-flash affordance
+    // (thinkingState 'error' + ERROR_FLASH_MS auto-clear). Once already down
+    // ('suspended'), an auto-clearing flash would misleadingly suggest the
+    // connection recovered on its own — show the persistent connection_lost
+    // notice instead (only actually cleared by a real 'open'/reconnect_failed
+    // no-op-on-already-set below, or a fresh 'close').
+    if (event.type === 'error') {
+      if (state.value === 'suspended') {
+        noticeReason.value = 'connection_lost'
+        return
+      }
+      if (state.value === 'connected') {
+        thinkingState.value = 'error'
+        publishThinking('error')
+        scheduleErrorFlashClear()
+      }
+      return
     }
   }
 
@@ -1023,6 +1086,9 @@ export function useAgentLinkSession(
     // stage/client name.
     progressStage.value = null
     agentClientName.value = null
+    // Task 7: a fresh connect must not inherit a prior session's "gave up
+    // reconnecting" notice.
+    noticeReason.value = null
     // PR1 sliding-TTL status-bus state is per-session — a fresh connect must not
     // inherit a prior session's cap flag or extended-event throttle timestamp.
     lastHitCap = false
@@ -1151,6 +1217,9 @@ export function useAgentLinkSession(
       typeof persisted.progressStage === 'string' ? persisted.progressStage : null
     agentClientName.value =
       typeof persisted.agentClientName === 'string' ? persisted.agentClientName : null
+    // Task 7: same reasoning as startConnect's reset — a fresh mount's
+    // reattach starts with no stale "gave up reconnecting" notice.
+    noticeReason.value = null
     // Same per-session reset as startConnect: a reattach on a fresh mount starts
     // the status-bus cap flag / extended-event throttle clean (spec §4.4).
     lastHitCap = false
@@ -1226,6 +1295,9 @@ export function useAgentLinkSession(
     // Amendment D/F: a teardown clears any already-linked countdown and cap flag.
     alreadyLinkedUntil.value = null
     atCap.value = false
+    // Task 7: an explicit teardown leaves nothing "suspended" to have a
+    // connection_lost notice about.
+    noticeReason.value = null
     // #314: an explicit disconnect (including out of 'expired' — see
     // agentLinkState.ts's `expired: { disconnect: 'closed' }`) makes any
     // still-pending TTL watchdog moot; clearing it here prevents a stale
@@ -1472,6 +1544,7 @@ export function useAgentLinkSession(
     lastActivityAt,
     progressStage,
     agentClientName,
+    noticeReason,
     thinkingState,
     activityFeed,
     startConnect,

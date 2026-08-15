@@ -627,6 +627,65 @@ describe('useAgentLinkSession', () => {
       expect(fakeClient.close).not.toHaveBeenCalled()
     })
 
+    it('reconnect_failed moves the session to suspended with a connection_lost notice (relayClient gave up retrying)', async () => {
+      const { session, emit } = await connectedSession()
+
+      emit()({ type: 'reconnect_failed' })
+
+      expect(session.state.value).toBe('suspended')
+      expect(session.noticeReason.value).toBe('connection_lost')
+    })
+
+    it('reconnect_failed after a prior close (real-world ordering) keeps suspended and sets the notice', async () => {
+      const { session, emit } = await connectedSession()
+      emit()({ type: 'close', code: 1006, wasClean: false })
+      expect(session.state.value).toBe('suspended')
+      expect(session.noticeReason.value).toBeNull()
+
+      emit()({ type: 'reconnect_failed' })
+
+      expect(session.state.value).toBe('suspended')
+      expect(session.noticeReason.value).toBe('connection_lost')
+    })
+
+    it('a socket error while already suspended shows a persistent connection_lost notice (no auto-clearing flash)', async () => {
+      const { session, emit } = await connectedSession()
+      emit()({ type: 'close' })
+      expect(session.state.value).toBe('suspended')
+
+      emit()({ type: 'error', message: 'boom' })
+
+      expect(session.state.value).toBe('suspended')
+      expect(session.noticeReason.value).toBe('connection_lost')
+      // Persistent — unlike the live-error flash, this must NOT auto-clear.
+      await vi.advanceTimersByTimeAsync(ERROR_FLASH_MS + 100)
+      expect(session.noticeReason.value).toBe('connection_lost')
+    })
+
+    it('a socket error while still connected keeps the existing 4s error-flash behavior (no connection_lost notice)', async () => {
+      const { session, emit } = await connectedSession()
+
+      emit()({ type: 'error', message: 'boom' })
+
+      expect(session.state.value).toBe('connected')
+      expect(session.thinkingState.value).toBe('error')
+      expect(session.noticeReason.value).toBeNull()
+
+      await vi.advanceTimersByTimeAsync(ERROR_FLASH_MS + 100)
+      expect(session.thinkingState.value).toBe('idle')
+    })
+
+    it('a successful reconnect (open) after reconnect_failed clears the connection_lost notice', async () => {
+      const { session, emit } = await connectedSession()
+      emit()({ type: 'reconnect_failed' })
+      expect(session.noticeReason.value).toBe('connection_lost')
+
+      emit()({ type: 'open' })
+
+      expect(session.state.value).toBe('connected')
+      expect(session.noticeReason.value).toBeNull()
+    })
+
     it('revokeAndRelink() disconnects the current session and immediately mints a fresh one', async () => {
       const bridgeOps = makeBridgeOps()
       const fakeClient1 = makeFakeRelayClient()

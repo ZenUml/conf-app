@@ -23,6 +23,7 @@ function mountPanel(props: {
   thinking?: 'idle' | 'thinking' | 'error'
   progressStage?: 'initialized' | 'discovered' | 'verified' | 'working' | null
   clientName?: string
+  noticeReason?: 'connection_lost' | null
 }) {
   return mount(ConnectPanel, {
     props: {
@@ -265,6 +266,21 @@ describe('ConnectPanel', () => {
     await wrapper.find('[data-testid="agent-link-revoke-btn"]').trigger('click')
 
     expect(wrapper.emitted('disconnect')).toHaveLength(1)
+    expect(wrapper.emitted('revoke')).toHaveLength(1)
+  })
+
+  // Task 7: relayClient.ts's own reconnect backoff gave up — the composable
+  // surfaces noticeReason:'connection_lost' instead of a new FSM state, and
+  // the 'suspended' banner must stop implying an ongoing retry.
+  it('suspended + connection_lost notice: shows "Connection lost" with a manual Reconnect action instead of the reconnecting spinner copy', async () => {
+    const wrapper = mountPanel({ state: 'suspended', token: 'tok-123', noticeReason: 'connection_lost' })
+
+    expect(wrapper.text()).toContain('Connection lost')
+    expect(wrapper.text()).not.toContain('Connection paused — reconnecting…')
+    expect(wrapper.find('[data-testid="agent-link-suspended-status"]').text()).toContain(
+      'We could not reconnect automatically'
+    )
+    await wrapper.find('[data-testid="agent-link-suspended-reconnect-btn"]').trigger('click')
     expect(wrapper.emitted('revoke')).toHaveLength(1)
   })
 

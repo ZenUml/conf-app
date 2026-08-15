@@ -111,7 +111,30 @@
             :last-activity-at="lastActivityAt"
           />
 
-          <div class="agent-link-banner agent-link-banner--warn">
+          <!-- Task 7: relayClient.ts's own backoff gives up after ~15.5s
+               (reconnect_failed) — the composable surfaces that as
+               noticeReason:'connection_lost' instead of a new FSM state.
+               Once given up, the amber banner must stop implying an ongoing
+               retry (that was the eternal-"reconnecting…" bug) and offer the
+               same manual Reconnect CTA the terminal notices use. -->
+          <div v-if="noticeReason === 'connection_lost'" class="agent-link-banner agent-link-banner--warn">
+            <svg class="agent-link-banner__spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+            <div class="agent-link-banner__body">
+              <h3 class="agent-link-banner__title agent-link-panel__heading--warning">Connection lost</h3>
+              <p class="agent-link-banner__sub" data-testid="agent-link-suspended-status">
+                We could not reconnect automatically. Your diagram is saved — reconnect to link a new agent session
+              </p>
+              <button
+                type="button"
+                class="agent-link-panel__btn agent-link-panel__btn--primary"
+                data-testid="agent-link-suspended-reconnect-btn"
+                @click="emit('revoke')"
+              >Reconnect</button>
+            </div>
+          </div>
+          <div v-else class="agent-link-banner agent-link-banner--warn">
             <svg class="agent-link-banner__spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
             </svg>
@@ -250,8 +273,14 @@ const props = withDefaults(
     // forwarded to SessionTtl so it drops the "extends while your agent works"
     // hint once bumps no longer move the meter.
     atCap?: boolean
+    // Task 7: 'connection_lost' once relayClient.ts's own reconnect backoff
+    // has given up (or a socket error arrived while already down) — swaps the
+    // 'suspended' banner from the "reconnecting…" spinner (still a genuinely
+    // in-progress retry) to a persistent "Connection lost" notice with a
+    // manual Reconnect CTA, instead of spinning forever.
+    noticeReason?: 'connection_lost' | null
   }>(),
-  { thinking: 'idle', diagramTitle: '', clientName: '', progressStage: null, expiresAt: null, lastActivityAt: null, lockExpiresAt: null, atCap: false }
+  { thinking: 'idle', diagramTitle: '', clientName: '', progressStage: null, expiresAt: null, lastActivityAt: null, lockExpiresAt: null, atCap: false, noticeReason: null }
 )
 
 const emit = defineEmits<{

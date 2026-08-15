@@ -24,10 +24,20 @@ import api, { route } from '@forge/api';
  *   therefore does NOT sweep existing installs, and a scheduled pass is the
  *   only mechanism proven to reach them.
  *
- * Hourly rather than daily on purpose. Under a fail-closed gate the interval is
- * the worst-case window in which a tenant has no byline, so `day` would mean up
- * to 24h dark after any state change. Each tick is one GET and, in the steady
- * state, no write at all.
+ * !! NOTHING CALLS THIS YET. !!
+ *
+ * The hourly scheduledTrigger that drove it was removed deliberately, and no
+ * replacement caller has been chosen. Until one exists the display condition on
+ * `zenuml-byline-diagrams` can never be satisfied, so the Lite byline is hidden
+ * on every installation — which is the fail-closed gate behaving correctly, not
+ * a bug, but it does mean the feature is off until a caller lands.
+ *
+ * Whatever calls it must satisfy two constraints that are not negotiable:
+ *
+ * - It has to be a Forge function, because `asApp()` is the only accepted
+ *   caller of this API (see the 401 above).
+ * - It cannot be the byline itself. A hidden byline is never opened, so the
+ *   surface that needs the property can never be the one that writes it.
  *
  * SCOPE, this change: the decision is unconditionally "visible". The
  * both-apps-installed suppression and the per-cloudId rollout gate are Phase 2

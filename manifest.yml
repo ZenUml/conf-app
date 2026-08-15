@@ -358,13 +358,6 @@ modules:
       events:
         - avi:confluence:updated:page
   scheduledTrigger:
-    # Lite-only, like the byline entry whose gate it maintains. Hourly, not
-    # daily: under a fail-closed display condition the interval IS the worst-case
-    # window in which a tenant has no byline. One GET per tick, and no write at
-    # all once a tenant has settled.
-    - key: byline-visibility-hourly
-      function: bylineVisibilityFn
-      interval: hour
     # Lite-only. Variant builds strip this from Full, Diagramly, and AsyncAPI.
     # The function exits after one lightweight Remote claim for unenrolled
     # installations; enrolled tenants perform one complete inventory daily.
@@ -488,9 +481,12 @@ modules:
       resource: main
       title: Diagrams${LITE_TITLE_SUFFIX}
       # Fail-CLOSED gate: an installation with no `byline-enabled` property
-      # renders no byline. src/byline-visibility.ts is what keeps the property
-      # present, on an hourly schedule — the byline cannot repair its own gate,
-      # because a hidden byline is never opened.
+      # renders no byline. src/byline-visibility.ts is the writer that would
+      # keep the property present, but NOTHING CALLS IT — its hourly
+      # scheduledTrigger was removed and no replacement caller has been chosen.
+      # So this condition is currently unsatisfiable and the Lite byline is
+      # hidden everywhere. That is the gate working as designed, not a defect,
+      # but it does mean the entry is off until a writer is wired up.
       #
       # `value` MUST be the string "true". `forge lint` rejects a boolean with
       # '"value" property must be string', so the stored property value has to

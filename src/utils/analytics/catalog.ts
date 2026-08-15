@@ -396,12 +396,22 @@ export type AnalyticsEventName =
   // Diagramly's ai_aide_route_accessed unusable as a numerator.
   // `decision` = 'visible' | 'suppressed'; `reason` names what drove it.
   | "byline_visibility_evaluated"
-  // The result of writing the `byline-enabled` app property. `result` =
-  // 'written' | 'cleared' | 'unchanged' | 'failed'. This one is load-bearing
-  // for support, not just analysis: the display condition is fail-CLOSED, so a
-  // tenant whose write silently failed has no byline at all and is otherwise
-  // indistinguishable from one deliberately left off the rollout.
+  // The result of maintaining byline visibility state: the `zenuml-byline-lite`
+  // SPACE property on every space (what the display condition reads) plus the
+  // `byline-enabled` app property (the writer's own last-state marker). `result`
+  // = 'written' | 'cleared' | 'unchanged' | 'failed'; `space_count` = spaces
+  // swept. This one is load-bearing for support, not just analysis: the display
+  // condition is fail-CLOSED, so a tenant whose writes silently failed has no
+  // byline at all and is otherwise indistinguishable from one deliberately left
+  // off the rollout.
   | "byline_visibility_write"
+  // The Full app marking its presence on a space (`zenuml-full-active` space
+  // property, created by Full's daily sweep). The Lite byline's display
+  // condition hides itself wherever this marker exists, so a missed write here
+  // shows the Lite byline on a site that paid for Full — annoying, not
+  // dangerous — while the marker lingering after a Full uninstall hides the
+  // Lite byline forever on that space. `result` + `space_count` as above.
+  | "full_presence_write"
   // The byline editor produced a saved diagram, and (when a cloudId is
   // available) a deeplink to place it. This is the conversion the picker exists
   // for: unlike byline_create_clicked it cannot fire on intent alone — a custom

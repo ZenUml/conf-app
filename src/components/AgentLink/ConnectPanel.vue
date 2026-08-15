@@ -118,7 +118,13 @@
                retry (that was the eternal-"reconnecting…" bug) and offer the
                same manual Reconnect CTA the terminal notices use. -->
           <div v-if="noticeReason === 'connection_lost'" class="agent-link-banner agent-link-banner--warn">
-            <svg class="agent-link-banner__spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <!-- Static icon — deliberately NOT agent-link-banner__spin. That
+                 class carries the infinite spin animation (this file's
+                 .agent-link-banner__spin / .agent-link-banner--warn rules
+                 below); using it here would visually imply an ongoing retry,
+                 exactly the impression this notice exists to remove now that
+                 relayClient.ts has genuinely given up. -->
+            <svg class="agent-link-banner__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
             </svg>
             <div class="agent-link-banner__body">
@@ -749,11 +755,14 @@ const resumeText = computed(() => {
   padding: 12px;
   border-radius: 6px;
 }
-.agent-link-banner__spin {
+.agent-link-banner__spin,
+.agent-link-banner__icon {
   width: 18px;
   height: 18px;
   flex: 0 0 18px;
   margin-top: 1px;
+}
+.agent-link-banner__spin {
   animation: agent-link-banner-spin 1s linear infinite;
 }
 .agent-link-banner--warn .agent-link-banner__spin {

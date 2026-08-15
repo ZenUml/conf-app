@@ -282,6 +282,13 @@ describe('ConnectPanel', () => {
     )
     await wrapper.find('[data-testid="agent-link-suspended-reconnect-btn"]').trigger('click')
     expect(wrapper.emitted('revoke')).toHaveLength(1)
+    // The icon must be static (jsdom can't evaluate CSS animations, but
+    // .agent-link-banner__spin is the class that carries the infinite-spin
+    // rule — asserting its absence is the right level of check). A spinning
+    // icon on a "gave up retrying" notice would visually contradict the copy.
+    expect(wrapper.find('[data-testid="agent-link-suspended"] svg').classes()).not.toContain(
+      'agent-link-banner__spin'
+    )
   })
 
   it('already_linked: renders the rejected notice with honest (no-fake-time) copy and actions', async () => {

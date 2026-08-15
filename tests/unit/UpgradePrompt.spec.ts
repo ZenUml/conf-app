@@ -282,7 +282,7 @@ describe('UpgradePrompt', () => {
     const wrapper = mount(UpgradePrompt, {
       props: {
         ...baseProps,
-        remainingContinueAttempts: 15,
+        remainingContinueAttempts: 3,
       },
       attachTo: document.body,
     })
@@ -291,9 +291,9 @@ describe('UpgradePrompt', () => {
       '[data-testid="continue-editing-btn"]'
     ) as HTMLButtonElement
     expect(continueButton).toBeTruthy()
-    expect(continueButton.textContent).toContain('Continue editing without upgrading (15)')
+    expect(continueButton.textContent).toContain('Continue editing without upgrading (3)')
     expect(continueButton.getAttribute('title')).toContain(
-      'You have 15 temporary continue attempts left before editing is blocked for you in this space.'
+      'You have 3 temporary continue attempts left before editing is blocked for you in this space.'
     )
 
     wrapper.unmount()
@@ -311,10 +311,10 @@ describe('UpgradePrompt', () => {
     const exhaustedCopy = document.querySelector(
       '[data-testid="continue-attempts-exhausted"]'
     ) as HTMLElement
-    expect(exhaustedCopy.textContent).toContain('Request extension to continue editing')
+    expect(exhaustedCopy.textContent).toContain('Your diagrams are safe — request an extension above to resume editing.')
     expect(exhaustedCopy.textContent).not.toContain('(0)')
     expect(exhaustedCopy.getAttribute('title')).toContain(
-      'No continue attempts remain. Request an extension or upgrade to keep editing.'
+      'No continue attempts remain. Your diagrams still render; request an extension or upgrade to keep editing.'
     )
     expect(document.querySelector('[data-testid="continue-editing-btn"]')).toBeNull()
     expect(document.querySelector('[data-testid="request-extension-btn"]')).toBeTruthy()

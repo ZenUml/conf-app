@@ -77,7 +77,7 @@ function decide(): Decision {
   return { value: VISIBLE, decision: 'visible', reason: 'not_enrolled' };
 }
 
-async function readCurrent(): Promise<{ value?: string; version?: number; status: number }> {
+async function readCurrent(): Promise<{ value?: string; status: number }> {
   const res = await api.asApp().requestConfluence(PROP_ROUTE);
   if (!res.ok) return { status: res.status };
   // Text, then parse: a non-JSON body on an unexpected status would otherwise
@@ -85,7 +85,15 @@ async function readCurrent(): Promise<{ value?: string; version?: number; status
   const body = await res.text().catch(() => '');
   try {
     const parsed = JSON.parse(body);
-    return { value: String(parsed?.value), version: parsed?.version?.number, status: res.status };
+    // The GET envelope is `{key, value}`, so `parsed.value` IS the stored
+    // value. Compared as a string only when it actually is one: a legacy
+    // double-wrapped property (see `write`) parses to an OBJECT here, and
+    // `String()`-ing it produced "[object Object]" — which never equals the
+    // target, so the writer rewrote on every single run and `unchanged` was
+    // unreachable. Anything non-string is reported as undefined instead, which
+    // reads as "no usable value" and correctly triggers a corrective write.
+    const value = typeof parsed?.value === 'string' ? parsed.value : undefined;
+    return { value, status: res.status };
   } catch {
     return { status: res.status };
   }
@@ -101,21 +109,22 @@ async function readCurrent(): Promise<{ value?: string; version?: number; status
  * first real deployment settles the question in its logs instead of failing
  * every update after a create that looked healthy.
  */
-async function write(value: string, currentVersion?: number): Promise<{ ok: boolean; status: number; via: string }> {
-  const bare = await api.asApp().requestConfluence(PROP_ROUTE, {
+async function write(value: string): Promise<{ ok: boolean; status: number }> {
+  const res = await api.asApp().requestConfluence(PROP_ROUTE, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key: PROPERTY_KEY, value }),
+    // The BARE value, not `{key, value}`. This endpoint takes the entire
+    // request body AS the property value, so an envelope gets stored verbatim
+    // and nests: observed on whimet4 2026-08-15, a PUT of
+    // `{"key":"byline-enabled","value":"true"}` read back as
+    //   {"key":"byline-enabled","value":{"key":"byline-enabled","value":"true"}}
+    // The write answered 200 and the property existed, but its value was an
+    // OBJECT — so `entityPropertyEqualTo: value: "true"` could never match and
+    // the byline stayed hidden. A successful status here does not mean the gate
+    // will open; only the read-back shape proves that.
+    body: JSON.stringify(value),
   });
-  if (bare.ok) return { ok: true, status: bare.status, via: 'no_version' };
-
-  const next = (currentVersion ?? 0) + 1;
-  const versioned = await api.asApp().requestConfluence(PROP_ROUTE, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key: PROPERTY_KEY, value, version: { number: next } }),
-  });
-  return { ok: versioned.ok, status: versioned.status, via: `version_${next}` };
+  return { ok: res.ok, status: res.status };
 }
 
 export async function scheduledHandler() {
@@ -123,7 +132,7 @@ export async function scheduledHandler() {
   console.log(`${L} evaluated decision=${decision} reason=${reason} target=${target}`);
 
   const current = await readCurrent();
-  console.log(`${L} current status=${current.status} value=${String(current.value)} version=${String(current.version)}`);
+  console.log(`${L} current status=${current.status} value=${String(current.value)}`);
 
   // Idempotence is not a micro-optimisation here: without it every tick writes,
   // which burns a request per install per hour and makes 'unchanged' — the
@@ -133,9 +142,15 @@ export async function scheduledHandler() {
     return;
   }
 
-  const res = await write(target, current.version);
+  const res = await write(target);
+  // Read back rather than trusting the status. A 200 here only says the request
+  // was accepted; it does NOT say the stored value has the shape the display
+  // condition compares against — which is exactly how the double-wrapped write
+  // reported success while the byline stayed hidden.
+  const after = await readCurrent();
+  const settled = after.value === target;
   console.log(
-    `${L} write result=${res.ok ? (target === VISIBLE ? 'written' : 'cleared') : 'failed'} ` +
-      `status=${res.status} via=${res.via}`,
+    `${L} write result=${!res.ok ? 'failed' : settled ? (target === VISIBLE ? 'written' : 'cleared') : 'failed'} ` +
+      `status=${res.status} readback=${String(after.value)} settled=${settled}`,
   );
 }

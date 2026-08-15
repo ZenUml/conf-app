@@ -358,6 +358,13 @@ modules:
       events:
         - avi:confluence:updated:page
   scheduledTrigger:
+    # Lite-only, like the byline entry whose gate it maintains. Hourly, not
+    # daily: under a fail-closed display condition the interval IS the worst-case
+    # window in which a tenant has no byline. One GET per tick, and no write at
+    # all once a tenant has settled.
+    - key: byline-visibility-hourly
+      function: bylineVisibilityFn
+      interval: hour
     # Lite-only. Variant builds strip this from Full, Diagramly, and AsyncAPI.
     # The function exits after one lightweight Remote claim for unenrolled
     # installations; enrolled tenants perform one complete inventory daily.
@@ -480,6 +487,19 @@ modules:
     - key: zenuml-byline-diagrams
       resource: main
       title: Diagrams${LITE_TITLE_SUFFIX}
+      # Fail-CLOSED gate: an installation with no `byline-enabled` property
+      # renders no byline. src/byline-visibility.ts is what keeps the property
+      # present, on an hourly schedule — the byline cannot repair its own gate,
+      # because a hidden byline is never opened.
+      #
+      # `value` MUST be the string "true". `forge lint` rejects a boolean with
+      # '"value" property must be string', so the stored property value has to
+      # be the string too or the comparison can never match.
+      displayConditions:
+        entityPropertyEqualTo:
+          entity: app
+          propertyKey: byline-enabled
+          value: "true"
       # zenuml.com's own favicon, matching the panel's header. It is a square
       # mark drawn to be read at favicon size, so it survives the ~16px
       # Confluence gives a byline icon — unlike the stacked wordmark tried
@@ -586,6 +606,8 @@ modules:
       handler: createDemoPage.handler
     - key: createDemoPageScheduled
       handler: createDemoPage.scheduledHandler
+    - key: bylineVisibilityFn
+      handler: byline-visibility.scheduledHandler
     - key: macroCountSnapshotFn
       handler: macro-count-snapshot.scheduledHandler
       timeoutSeconds: 900

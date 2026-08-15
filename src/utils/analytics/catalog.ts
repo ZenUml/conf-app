@@ -389,6 +389,19 @@ export type AnalyticsEventName =
   // quota cost. Emitted once per open, after the list paints — the scan is a
   // full-page ADF GET and must never delay it.
   | "byline_unplaced_scanned"
+  // The scheduled writer decided whether this installation should see the
+  // byline. Split from byline_visibility_write deliberately: the decision and
+  // the write fail independently, and a merged event would make a failed write
+  // read as a deliberate suppression — the exact ambiguity that made
+  // Diagramly's ai_aide_route_accessed unusable as a numerator.
+  // `decision` = 'visible' | 'suppressed'; `reason` names what drove it.
+  | "byline_visibility_evaluated"
+  // The result of writing the `byline-enabled` app property. `result` =
+  // 'written' | 'cleared' | 'unchanged' | 'failed'. This one is load-bearing
+  // for support, not just analysis: the display condition is fail-CLOSED, so a
+  // tenant whose write silently failed has no byline at all and is otherwise
+  // indistinguishable from one deliberately left off the rollout.
+  | "byline_visibility_write"
   // The byline editor produced a saved diagram, and (when a cloudId is
   // available) a deeplink to place it. This is the conversion the picker exists
   // for: unlike byline_create_clicked it cannot fire on intent alone — a custom

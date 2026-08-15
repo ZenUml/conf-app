@@ -248,6 +248,31 @@ export type AnalyticsProperties = {
   // detection degrading to false is otherwise indistinguishable from "nobody
   // opens the byline while editing".
   host_in_editor?: boolean;
+  // byline_visibility_evaluated. Whether this installation should render the
+  // byline entry, and what drove it. `full_present` is the both-apps-installed
+  // case the suppression exists for; `full_stale` means a Full install row
+  // exists but is older than the presence TTL — there is no uninstall event to
+  // key on, so staleness is the only available proxy and it must be readable
+  // apart from a confident absence.
+  byline_visibility_decision?: "visible" | "suppressed";
+  byline_visibility_reason?:
+    | "full_present"
+    | "full_absent"
+    | "full_stale"
+    | "not_enrolled"
+    | "no_signal";
+  // Days since the newest Full ForgeInstallation row for this cloudId. Absent
+  // when no such row exists at all, which is NOT the same as a large number.
+  full_last_seen_days?: number;
+  // Which call site ran the evaluation. The scheduled pass is the only one
+  // proven to reach existing installs — avi:forge:upgraded:app has never
+  // produced a ForgeInstallation row — so a funnel dominated by 'install_trigger'
+  // would mean the scheduled sweep has stopped running.
+  byline_visibility_source?: "install_trigger" | "scheduled";
+  // byline_visibility_write. 'unchanged' is a success, not a no-op worth
+  // hiding: it is what proves the writer is idempotent and is the expected
+  // steady state once a tenant has settled.
+  byline_visibility_result?: "written" | "cleared" | "unchanged" | "failed";
   // Byline thumbnails: how many of `diagram_count` resolved to a backup-PNG
   // attachment. Coverage is the whole question for this feature — diagrams
   // saved before the attachment backup existed, failed captures, and viewers

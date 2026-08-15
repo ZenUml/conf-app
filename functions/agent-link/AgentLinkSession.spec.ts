@@ -1260,6 +1260,25 @@ describe('agent presence status bus (GET /session?presence=&client=)', () => {
     expect(((session as any).session as SessionRecord).presenceStage).toBeUndefined();
   });
 
+  // Final-review fix 5: the old guard was `PRESENCE_RANK[presence] !==
+  // undefined`, which is true for every Object.prototype key — so
+  // `?presence=constructor` was persisted onto the session record and pushed
+  // to the macro as a stage. Aimed at a session with NO prior stage: that is
+  // the branch where the guard is the only thing standing in the way (with a
+  // prior stage, the NaN rank comparison already blocked it).
+  it.each(['constructor', '__proto__', 'toString', 'hasOwnProperty'])(
+    'ignores the Object.prototype key %s as a presence value',
+    async (key) => {
+      const { session, macroWs } = sessionWithMacro();
+
+      const res = await session.fetch(presenceRequest(`presence=${encodeURIComponent(key)}`));
+
+      expect(res.status).toBe(200);
+      expect(macroWs.send).not.toHaveBeenCalled();
+      expect(((session as any).session as SessionRecord).presenceStage).toBeUndefined();
+    },
+  );
+
   it('when bump AND presence both apply, bumpActivity runs first and the presence advance pushes a SECOND envelope (accepted double push)', async () => {
     const { session, macroWs } = sessionWithMacro();
 

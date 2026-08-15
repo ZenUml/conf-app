@@ -116,6 +116,15 @@ export const AGENT_OP_TIMEOUT_MS = 20_000;
 const PRESENCE_RANK = { initialized: 1, discovered: 2, verified: 3, working: 4 } as const;
 type PresenceStage = keyof typeof PRESENCE_RANK;
 
+/** Narrows a raw `?presence=` query value to a real stage. `hasOwnProperty`,
+ * not `PRESENCE_RANK[v] !== undefined`: the latter also accepts every
+ * inherited Object.prototype key, so `?presence=constructor` (or `__proto__`,
+ * `toString`, …) passed the guard and was persisted verbatim onto the session
+ * record and pushed to the macro as a presence stage. */
+function isPresenceStage(value: string | null): value is PresenceStage {
+  return value !== null && Object.prototype.hasOwnProperty.call(PRESENCE_RANK, value);
+}
+
 type SessionAuthFailure = { ok: false; status: number; code: 'invalid' | 'expired' };
 type SessionAuth = { ok: true } | SessionAuthFailure;
 
@@ -450,7 +459,9 @@ export class AgentLinkSession {
     if (url.pathname === '/session' && request.method === 'GET') {
       return this.handleSessionInfo(
         url.searchParams.get('bump') === '1',
-        url.searchParams.get('presence') as PresenceStage | null,
+        // Raw string — validated/narrowed by isPresenceStage() inside
+        // handleSessionInfo, never cast blindly at this call site.
+        url.searchParams.get('presence'),
         url.searchParams.get('client'),
       );
     }
@@ -686,7 +697,7 @@ export class AgentLinkSession {
    */
   private async handleSessionInfo(
     bump: boolean,
-    presence: PresenceStage | null,
+    presence: string | null,
     client: string | null,
   ): Promise<Response> {
     await this.ensureSession();
@@ -706,9 +717,10 @@ export class AgentLinkSession {
     // strictly higher-ranked stage than the one already on record triggers a
     // push — repeats and regressions (a stale/out-of-order relay request) are
     // silent. An unrecognized `presence` value (garbage query string) is
-    // ignored outright: PRESENCE_RANK[presence] is undefined, so the guard
-    // below never persists or pushes it.
-    if (presence && this.session && PRESENCE_RANK[presence] !== undefined) {
+    // ignored outright by isPresenceStage(), which is an own-property check —
+    // a plain `PRESENCE_RANK[presence] !== undefined` would have let every
+    // Object.prototype key ('constructor', 'toString', …) through.
+    if (isPresenceStage(presence) && this.session) {
       const prev = this.session.presenceStage;
       if (!prev || PRESENCE_RANK[presence] > PRESENCE_RANK[prev]) {
         this.session.presenceStage = presence;

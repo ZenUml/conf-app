@@ -166,6 +166,20 @@ export async function readPanelClass(page: Page): Promise<string | null> {
   return null;
 }
 
+/** The presence progress element's innerText, e.g. '已连接'. Null when absent. */
+export async function readProgressStage(page: Page): Promise<string | null> {
+  for (const f of forgeFrames(page)) {
+    const t = await f
+      .evaluate(() => {
+        const el = document.querySelector('[data-testid="agent-link-progress"]');
+        return el ? (el as HTMLElement).innerText : null;
+      })
+      .catch(() => null);
+    if (t) return t;
+  }
+  return null;
+}
+
 /**
  * Poll the rendered diagram across Forge frames until `marker` appears (a live
  * re-render with no page reload) or the window elapses.
